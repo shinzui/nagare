@@ -328,9 +328,10 @@ inspectUpgradeTransaction path = do
       version <- o .: "schemaVersion"
       if version == (1 :: Int)
         then SupportedUpgrade <$> Aeson.parseJSON (Aeson.Object o)
-        else if version > 1
-          then UnsupportedUpgrade version <$> o .: "id" <*> o .: "context" <*> o .:? "targetVersion"
-          else fail "unsupported older upgrade transaction schema"
+        else
+          if version > 1
+            then UnsupportedUpgrade version <$> o .: "id" <*> o .: "context" <*> o .:? "targetVersion"
+            else fail "unsupported older upgrade transaction schema"
 
 renderUpgradeTransaction :: UpgradeTransaction -> Text
 renderUpgradeTransaction tx =

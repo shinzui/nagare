@@ -16,6 +16,7 @@ where
 
 import Data.Aeson
 import Data.Aeson.KeyMap qualified as KM
+import Data.Aeson.Types (Parser)
 import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
 import Data.List.NonEmpty qualified as NE
@@ -24,21 +25,24 @@ import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
-import Data.Aeson.Types (Parser)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
-import Nagare.Inventory.Backup
-  ( BackupReceiptExpectation (..), manualBackupJobReceiptExpectation
-  , manualBackupJobSourcePins, volumeSnapshotJobSourcePins, parseBackupReceipt )
-import Nagare.Inventory.Restore (manualRestoreJobTargetPins, volumeRestoreJobSourcePins)
-import Nagare.Inventory.Prune (manualPruneJobBackupPin)
-import Nagare.Inventory.ScheduledIngest (scheduledIngestJobSourcePins)
-import Nagare.Inventory.VolumePrune (volumePruneJobCredentialPin)
 import Nagare.Inventory.BackendMap (renderBackendMapNative, renderShomeiSettingsNative)
+import Nagare.Inventory.Backup
+  ( BackupReceiptExpectation (..)
+  , manualBackupJobReceiptExpectation
+  , manualBackupJobSourcePins
+  , parseBackupReceipt
+  , volumeSnapshotJobSourcePins
+  )
 import Nagare.Inventory.CollectionPolicy (supportsRetainedCollection)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect), OperationId)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
+import Nagare.Inventory.Prune (manualPruneJobBackupPin)
+import Nagare.Inventory.Restore (manualRestoreJobTargetPins, volumeRestoreJobSourcePins)
+import Nagare.Inventory.ScheduledIngest (scheduledIngestJobSourcePins)
+import Nagare.Inventory.VolumePrune (volumePruneJobCredentialPin)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes (KubernetesInput (..))
 import Nagare.Resource.Policy (DataPolicy (Stateless), LifecyclePolicy (DeleteWhenUnreferenced))
@@ -74,53 +78,64 @@ data KubernetesMutation = KubernetesMutation
 data KubernetesAdapterOps = KubernetesAdapterOps
   { kubernetesContext :: !ContextId
   , kubernetesObserve :: !(ResourceId -> IO KubernetesState)
-  -- The implementation must make the write conditional on mutationBefore at
-  -- the API server. A local compare followed by unrestricted apply is unsafe.
-  , kubernetesMutateConditional :: !(KubernetesMutation -> IO AdapterExecution)
+  , -- The implementation must make the write conditional on mutationBefore at
+    -- the API server. A local compare followed by unrestricted apply is unsafe.
+    kubernetesMutateConditional :: !(KubernetesMutation -> IO AdapterExecution)
   }
 
 mkKubernetesAdapter :: Map ResourceId (ManagedResource, ByteString) -> KubernetesAdapterOps -> Adapter
-mkKubernetesAdapter specs ops = mkKubernetesAdapterWithBackupReceipt specs ops
-  (\_ _ -> pure (Left "backup receipt reader is not installed"))
+mkKubernetesAdapter specs ops =
+  mkKubernetesAdapterWithBackupReceipt
+    specs
+    ops
+    (\_ _ -> pure (Left "backup receipt reader is not installed"))
 
 -- | The reader obtains the upload container's terminal copy of the receipt
 -- that it fetched from object storage after writing and checking the backup.
 -- This uses only the reviewed cluster context; restore still needs a fresh
 -- object-store read and checksum before it can use the backup.
-mkKubernetesAdapterWithBackupReceipt
-  :: Map ResourceId (ManagedResource, ByteString)
-  -> KubernetesAdapterOps
-  -> (ResourceId -> PhysicalIdentity -> IO (Either Text ByteString))
-  -> Adapter
+mkKubernetesAdapterWithBackupReceipt ::
+  Map ResourceId (ManagedResource, ByteString) ->
+  KubernetesAdapterOps ->
+  (ResourceId -> PhysicalIdentity -> IO (Either Text ByteString)) ->
+  Adapter
 mkKubernetesAdapterWithBackupReceipt specs ops =
-  mkKubernetesAdapterWithBackupReceiptAndBatch specs ops
+  mkKubernetesAdapterWithBackupReceiptAndBatch
+    specs
+    ops
     (traverse (kubernetesObserve ops))
 
 -- | Planning may validate the cluster once around a read-only batch. Effect
 -- preparation, preflight, execution, verification, and recovery still use the
 -- individually guarded 'kubernetesObserve' operation.
-mkKubernetesAdapterWithBackupReceiptAndBatch
-  :: Map ResourceId (ManagedResource, ByteString)
-  -> KubernetesAdapterOps
-  -> ([ResourceId] -> IO [KubernetesState])
-  -> (ResourceId -> PhysicalIdentity -> IO (Either Text ByteString))
-  -> Adapter
+mkKubernetesAdapterWithBackupReceiptAndBatch ::
+  Map ResourceId (ManagedResource, ByteString) ->
+  KubernetesAdapterOps ->
+  ([ResourceId] -> IO [KubernetesState]) ->
+  (ResourceId -> PhysicalIdentity -> IO (Either Text ByteString)) ->
+  Adapter
 mkKubernetesAdapterWithBackupReceiptAndBatch specs ops observeBatch =
   mkKubernetesAdapterWithObservations specs ops observeBatch Nothing
 
 -- Version 1 keeps exact legacy observations. Only new Knative Service updates
 -- opt into a separately versioned status-independent configuration observation.
-mkKubernetesAdapterWithConfigurationObservation
-  :: Map ResourceId (ManagedResource, ByteString) -> KubernetesAdapterOps
-  -> ([ResourceId] -> IO [KubernetesState]) -> (ResourceId -> IO KubernetesState)
-  -> (ResourceId -> PhysicalIdentity -> IO (Either Text ByteString)) -> Adapter
+mkKubernetesAdapterWithConfigurationObservation ::
+  Map ResourceId (ManagedResource, ByteString) ->
+  KubernetesAdapterOps ->
+  ([ResourceId] -> IO [KubernetesState]) ->
+  (ResourceId -> IO KubernetesState) ->
+  (ResourceId -> PhysicalIdentity -> IO (Either Text ByteString)) ->
+  Adapter
 mkKubernetesAdapterWithConfigurationObservation specs ops batch stable =
   mkKubernetesAdapterWithObservations specs ops batch (Just stable)
 
-mkKubernetesAdapterWithObservations
-  :: Map ResourceId (ManagedResource, ByteString) -> KubernetesAdapterOps
-  -> ([ResourceId] -> IO [KubernetesState]) -> Maybe (ResourceId -> IO KubernetesState)
-  -> (ResourceId -> PhysicalIdentity -> IO (Either Text ByteString)) -> Adapter
+mkKubernetesAdapterWithObservations ::
+  Map ResourceId (ManagedResource, ByteString) ->
+  KubernetesAdapterOps ->
+  ([ResourceId] -> IO [KubernetesState]) ->
+  Maybe (ResourceId -> IO KubernetesState) ->
+  (ResourceId -> PhysicalIdentity -> IO (Either Text ByteString)) ->
+  Adapter
 mkKubernetesAdapterWithObservations specs ops observeBatch stableObserve readBackupReceipt =
   Adapter
     { adapterExecutor = KubernetesExecutor
@@ -134,37 +149,44 @@ mkKubernetesAdapterWithObservations specs ops observeBatch stableObserve readBac
     , adapterRecover = recover
     }
   where
-    observeMutation mutation = if mutationVersion mutation == 2
-      then maybe (pure (KubernetesUnknown "version 2 configuration observation is unavailable")) ($ mutationResource mutation) stableObserve
-      else kubernetesObserve ops (mutationResource mutation)
+    observeMutation mutation =
+      if mutationVersion mutation == 2
+        then maybe (pure (KubernetesUnknown "version 2 configuration observation is unavailable")) ($ mutationResource mutation) stableObserve
+        else kubernetesObserve ops (mutationResource mutation)
     observeAll resources = do
       states <- observeBatch resources
       pure (observationSet (zipWith toObservation resources states))
-    toObservation resource state = (resource, case state of
-      KubernetesAbsent proof -> ConfirmedAbsent proof
-      KubernetesPresent physical _ owner digest
-        | owner == Nothing -> ObservedUnowned physical
-        | owner /= Just resource -> ObservedForeign physical
-        | Just (_, native) <- Map.lookup resource specs
-        , digest /= contentDigest native -> ObservedDrifted physical digest
-        | otherwise -> ObservedPresent physical
-      KubernetesNotReady physical _ owner digest
-        | owner == Nothing -> ObservedUnowned physical
-        | owner /= Just resource -> ObservedForeign physical
-        | Just (_, native) <- Map.lookup resource specs
-        , digest /= contentDigest native -> ObservedDrifted physical digest
-        | otherwise -> ObservedPresent physical
-      KubernetesFailed physical _ owner digest
-        | owner == Nothing -> ObservedUnowned physical
-        | owner /= Just resource -> ObservedForeign physical
-        | Just (_, native) <- Map.lookup resource specs
-        , digest /= contentDigest native -> ObservedDrifted physical digest
-        | otherwise -> ObservedPresent physical
-      KubernetesReplacementRequired physical _ owner digest
-        | owner == Nothing -> ObservedUnowned physical
-        | owner /= Just resource -> ObservedForeign physical
-        | otherwise -> ObservedReplacementRequired physical digest
-      KubernetesUnknown reason -> ObservationUnavailable reason)
+    toObservation resource state =
+      ( resource
+      , case state of
+          KubernetesAbsent proof -> ConfirmedAbsent proof
+          KubernetesPresent physical _ owner digest
+            | owner == Nothing -> ObservedUnowned physical
+            | owner /= Just resource -> ObservedForeign physical
+            | Just (_, native) <- Map.lookup resource specs
+            , digest /= contentDigest native ->
+                ObservedDrifted physical digest
+            | otherwise -> ObservedPresent physical
+          KubernetesNotReady physical _ owner digest
+            | owner == Nothing -> ObservedUnowned physical
+            | owner /= Just resource -> ObservedForeign physical
+            | Just (_, native) <- Map.lookup resource specs
+            , digest /= contentDigest native ->
+                ObservedDrifted physical digest
+            | otherwise -> ObservedPresent physical
+          KubernetesFailed physical _ owner digest
+            | owner == Nothing -> ObservedUnowned physical
+            | owner /= Just resource -> ObservedForeign physical
+            | Just (_, native) <- Map.lookup resource specs
+            , digest /= contentDigest native ->
+                ObservedDrifted physical digest
+            | otherwise -> ObservedPresent physical
+          KubernetesReplacementRequired physical _ owner digest
+            | owner == Nothing -> ObservedUnowned physical
+            | owner /= Just resource -> ObservedForeign physical
+            | otherwise -> ObservedReplacementRequired physical digest
+          KubernetesUnknown reason -> ObservationUnavailable reason
+      )
     prepare operation = case singleSpec specs operation of
       Left reason -> pure (Left (PrepareRefused (plannedOperationId operation) reason))
       Right (resource, declaration, native) -> do
@@ -196,9 +218,10 @@ mkKubernetesAdapterWithObservations specs ops observeBatch stableObserve readBac
             sourceGuard <- verifyBackupSources mutation
             case sourceGuard of
               Left reason -> pure (AdapterEffectFailed (KnownNoEffect reason))
-              Right () -> if mutationAction mutation `elem` [RunDeclaredOperation, VerifyResource]
-                then pure AdapterEffectCompleted
-                else kubernetesMutateConditional ops (if mutationVersion mutation == 2 then mutation {mutationBefore = current} else mutation)
+              Right () ->
+                if mutationAction mutation `elem` [RunDeclaredOperation, VerifyResource]
+                  then pure AdapterEffectCompleted
+                  else kubernetesMutateConditional ops (if mutationVersion mutation == 2 then mutation {mutationBefore = current} else mutation)
     verify operation prepared = case decodeMutation (kubernetesContext ops) specs operation prepared of
       Left reason -> pure (Left reason)
       Right mutation -> do
@@ -215,8 +238,9 @@ mkKubernetesAdapterWithObservations specs ops observeBatch stableObserve readBac
         case sourceGuard of
           Left reason -> pure (RecoveryUnresolved reason)
           Right () -> case completionProof mutation current of
-            Right _ -> either RecoveryUnresolved RecoveryProvedComplete
-              <$> verifiedProof mutation current
+            Right _ ->
+              either RecoveryUnresolved RecoveryProvedComplete
+                <$> verifiedProof mutation current
             Left _ -> do
               before <- observeMutation mutation
               pure $ case requireSameBefore mutation before of
@@ -224,31 +248,36 @@ mkKubernetesAdapterWithObservations specs ops observeBatch stableObserve readBac
                 Left reason -> case current of
                   KubernetesNotReady physical _ (Just owner) digest
                     | owner == mutationResource mutation
-                      && digest == mutationNativeDigest mutation
-                      && mutationAction mutation == CreateResource
-                      && (case mutationBefore mutation of KubernetesAbsent {} -> True; _ -> False)
-                      && (case mutationAddress mutation of
-                        Kubernetes _ "apps" kind _ _ -> nameText kind == "deployment"
-                        Kubernetes _ "serving.knative.dev" kind _ _ -> nameText kind `elem` ["service", "domainmapping"]
-                        _ -> False) -> RecoveryAwaitingReadiness physical
+                        && digest == mutationNativeDigest mutation
+                        && mutationAction mutation == CreateResource
+                        && (case mutationBefore mutation of KubernetesAbsent {} -> True; _ -> False)
+                        && ( case mutationAddress mutation of
+                               Kubernetes _ "apps" kind _ _ -> nameText kind == "deployment"
+                               Kubernetes _ "serving.knative.dev" kind _ _ -> nameText kind `elem` ["service", "domainmapping"]
+                               _ -> False
+                           ) ->
+                        RecoveryAwaitingReadiness physical
                   KubernetesNotReady physical _ (Just owner) _
                     | mutationVersion mutation == 1
                     , mutationAction mutation == UpdateResource
                     , knativeServiceAddress (mutationAddress mutation)
                     , owner == mutationResource mutation
-                    , (case mutationBefore mutation of
-                        KubernetesPresent prior _ (Just previousOwner) _ -> prior == physical && previousOwner == owner
-                        KubernetesNotReady prior _ (Just previousOwner) _ -> prior == physical && previousOwner == owner
-                        _ -> False) -> RecoveryAwaitingReadiness physical
+                    , ( case mutationBefore mutation of
+                          KubernetesPresent prior _ (Just previousOwner) _ -> prior == physical && previousOwner == owner
+                          KubernetesNotReady prior _ (Just previousOwner) _ -> prior == physical && previousOwner == owner
+                          _ -> False
+                      ) ->
+                        RecoveryAwaitingReadiness physical
                   KubernetesFailed physical _ (Just owner) digest
                     | owner == mutationResource mutation
-                      && digest == mutationNativeDigest mutation
-                      && (case mutationAddress mutation of
-                        Kubernetes _ "batch" kind _ _ -> nameText kind == "job"
-                        _ -> False)
-                      && mutationAction mutation `elem`
-                        [CreateResource, RunDeclaredOperation] ->
-                          RecoveryTerminalFailure physical
+                        && digest == mutationNativeDigest mutation
+                        && ( case mutationAddress mutation of
+                               Kubernetes _ "batch" kind _ _ -> nameText kind == "job"
+                               _ -> False
+                           )
+                        && mutationAction mutation
+                          `elem` [CreateResource, RunDeclaredOperation] ->
+                        RecoveryTerminalFailure physical
                   _ -> RecoveryUnresolved reason
     verifiedProof mutation current = case completionProof mutation current of
       Left reason -> pure (Left reason)
@@ -265,22 +294,28 @@ mkKubernetesAdapterWithObservations specs ops observeBatch stableObserve readBac
                   pure $ do
                     receiptBytes <- receiptResult
                     checksum <- parseBackupReceipt expectation (receiptAddress expectation) receiptBytes
-                    contentDigest <$> canonicalValue (object
-                      [ "jobProof" .= jobProof
-                      , "receiptAddress" .= receiptAddress expectation
-                      , "receiptDigest" .= contentDigest receiptBytes
-                      , "backupSha256" .= checksum
-                      ])
+                    contentDigest
+                      <$> canonicalValue
+                        ( object
+                            [ "jobProof" .= jobProof
+                            , "receiptAddress" .= receiptAddress expectation
+                            , "receiptDigest" .= contentDigest receiptBytes
+                            , "backupSha256" .= checksum
+                            ]
+                        )
                 _ -> pure (Left "manual backup Job has no completed physical identity")
     verifyBackupSources mutation
       | mutationAction mutation `notElem` [CreateResource, RunDeclaredOperation] = pure (Right ())
       | otherwise = case Map.lookup (mutationResource mutation) specs of
           Nothing -> pure (Left "manual backup Job lacks its bound native object")
-          Just (_, native) -> case (manualBackupJobSourcePins native,
-            manualRestoreJobTargetPins native, manualPruneJobBackupPin native,
-            volumeSnapshotJobSourcePins native, volumeRestoreJobSourcePins native,
-            volumePruneJobCredentialPin native,
-            scheduledIngestJobSourcePins native) of
+          Just (_, native) -> case ( manualBackupJobSourcePins native
+                                   , manualRestoreJobTargetPins native
+                                   , manualPruneJobBackupPin native
+                                   , volumeSnapshotJobSourcePins native
+                                   , volumeRestoreJobSourcePins native
+                                   , volumePruneJobCredentialPin native
+                                   , scheduledIngestJobSourcePins native
+                                   ) of
             (Left reason, _, _, _, _, _, _) -> pure (Left reason)
             (_, Left reason, _, _, _, _, _) -> pure (Left reason)
             (_, _, Left reason, _, _, _, _) -> pure (Left reason)
@@ -288,13 +323,26 @@ mkKubernetesAdapterWithObservations specs ops observeBatch stableObserve readBac
             (_, _, _, _, Left reason, _, _) -> pure (Left reason)
             (_, _, _, _, _, Left reason, _) -> pure (Left reason)
             (_, _, _, _, _, _, Left reason) -> pure (Left reason)
-            (Right backupPins, Right restorePins, Right prunePin, Right volumePins,
-              Right volumeRestorePins, Right volumePruneCredential, Right scheduledPins) -> do
-              checked <- traverse checkOne (maybe [] id backupPins <> maybe [] id restorePins
-                <> maybe [] (: []) prunePin <> maybe [] id volumePins
-                <> maybe [] id volumeRestorePins
-                <> maybe [] (: []) volumePruneCredential <> maybe [] id scheduledPins)
-              pure (sequence_ checked)
+            ( Right backupPins
+              , Right restorePins
+              , Right prunePin
+              , Right volumePins
+              , Right volumeRestorePins
+              , Right volumePruneCredential
+              , Right scheduledPins
+              ) -> do
+                checked <-
+                  traverse
+                    checkOne
+                    ( maybe [] id backupPins
+                        <> maybe [] id restorePins
+                        <> maybe [] (: []) prunePin
+                        <> maybe [] id volumePins
+                        <> maybe [] id volumeRestorePins
+                        <> maybe [] (: []) volumePruneCredential
+                        <> maybe [] id scheduledPins
+                    )
+                pure (sequence_ checked)
       where
         checkOne (resource, expectedUid) = case Map.lookup resource specs of
           Nothing -> pure (Left "manual data Job source lacks accepted native evidence")
@@ -302,31 +350,44 @@ mkKubernetesAdapterWithObservations specs ops observeBatch stableObserve readBac
             current <- kubernetesObserve ops resource
             pure $ case current of
               KubernetesPresent uid _ (Just owner) digest
-                | uid == expectedUid && owner == resource
-                  && digest == contentDigest sourceNative -> Right ()
+                | uid == expectedUid
+                    && owner == resource
+                    && digest == contentDigest sourceNative ->
+                    Right ()
               _ -> Left "manual backup source UID, ownership, readiness, or native bytes changed"
 
 singleSpec :: Map ResourceId (ManagedResource, ByteString) -> PlannedOperation -> Either Text (ResourceId, ManagedResource, ByteString)
 singleSpec specs operation = do
   unless (plannedExecutor operation == KubernetesExecutor) (Left "operation has a different executor")
-  unless (plannedAction operation `elem` [CreateResource, UpdateResource,
-      VerifyResource, AdoptResource, RetireResource, RunDeclaredOperation,
-      OpenMaintenanceSession, RestoreLiveDatabase])
+  unless
+    ( plannedAction operation
+        `elem` [ CreateResource
+               , UpdateResource
+               , VerifyResource
+               , AdoptResource
+               , RetireResource
+               , RunDeclaredOperation
+               , OpenMaintenanceSession
+               , RestoreLiveDatabase
+               ]
+    )
     (Left "Kubernetes adapter does not support this action")
   resource <- case (plannedAction operation, NE.toList (plannedResources operation)) of
-    (RunDeclaredOperation, affected) -> case
-      [resourceId | resourceId <- affected,
-        Just (bound, _) <- [Map.lookup resourceId specs],
-        case bound ^. #address of
-          Kubernetes _ "batch" kind _ _ -> nameText kind == "job"
-          _ -> False] of
-        [job] -> Right job
-        _ -> Left "Kubernetes declared operation must name exactly one bound Job"
+    (RunDeclaredOperation, affected) -> case [ resourceId
+                                             | resourceId <- affected
+                                             , Just (bound, _) <- [Map.lookup resourceId specs]
+                                             , case bound ^. #address of
+                                                 Kubernetes _ "batch" kind _ _ -> nameText kind == "job"
+                                                 _ -> False
+                                             ] of
+      [job] -> Right job
+      _ -> Left "Kubernetes declared operation must name exactly one bound Job"
     (_, [single]) -> Right single
     _ -> Left "Kubernetes object operation must name exactly one resource"
   (declaration, native) <- maybe (Left "Kubernetes resource has no bound native object") Right (Map.lookup resource specs)
   unless (declaration ^. #identity == resource && declaration ^. #executor == KubernetesExecutor) (Left "bound declaration identity or executor differs")
-  when (plannedAction operation == RetireResource && not (supportsRetainedCollection declaration))
+  when
+    (plannedAction operation == RetireResource && not (supportsRetainedCollection declaration))
     (Left "reviewed collection supports only proved stateless namespaced kinds with deletion policy")
   when (plannedAction operation == RunDeclaredOperation) $ case declaration ^. #address of
     Kubernetes _ "batch" kind _ _ | nameText kind == "job" -> pure ()
@@ -343,7 +404,8 @@ validateBefore operation resource target desiredDigest state =
     (UpdateResource, KubernetesNotReady _ revision (Just owner) _)
       | owner == resource && not (T.null revision)
       , Kubernetes _ "serving.knative.dev" kind (Just _) _ <- target
-      , nameText kind == "service" -> Right ()
+      , nameText kind == "service" ->
+          Right ()
     (VerifyResource, KubernetesPresent _ revision (Just owner) digest)
       | owner == resource && not (T.null revision) && digest == desiredDigest -> Right ()
     -- A dependency can repair this route before its read-only verification.
@@ -351,7 +413,8 @@ validateBefore operation resource target desiredDigest state =
     (VerifyResource, KubernetesNotReady _ revision (Just owner) digest)
       | owner == resource && not (T.null revision) && digest == desiredDigest
       , Kubernetes _ "serving.knative.dev" kind (Just _) _ <- target
-      , nameText kind == "domainmapping" -> Right ()
+      , nameText kind == "domainmapping" ->
+          Right ()
     (RetireResource, KubernetesPresent _ revision (Just owner) digest)
       | owner == resource && not (T.null revision) && digest == desiredDigest -> Right ()
     (RetireResource, KubernetesNotReady _ revision (Just owner) digest)
@@ -360,10 +423,12 @@ validateBefore operation resource target desiredDigest state =
     (RunDeclaredOperation, KubernetesAbsent _) -> Right ()
     (OpenMaintenanceSession, KubernetesPresent _ revision (Just owner) digest)
       | owner == resource && not (T.null revision)
-      , digest == desiredDigest -> Right ()
+      , digest == desiredDigest ->
+          Right ()
     (RestoreLiveDatabase, KubernetesPresent _ revision (Just owner) digest)
       | owner == resource && not (T.null revision)
-      , digest == desiredDigest -> Right ()
+      , digest == desiredDigest ->
+          Right ()
     (_, KubernetesUnknown reason) -> Left ("Kubernetes observation unavailable: " <> reason)
     (_, KubernetesNotReady {}) -> Left "Kubernetes object is present but its required condition is not ready"
     (_, KubernetesFailed {}) -> Left "Kubernetes Job has a terminal failure"
@@ -386,8 +451,9 @@ buildMutation context operation resource declaration native before = do
   canonical <- first refusal (canonicalValue value)
   unless (canonical == native) (Left (refusal "native Kubernetes bytes are not canonical JSON"))
   let digest = contentDigest native
-  let contributedNamespace = spec declaration == NamespaceSpec Nothing
-        && declaration ^. #source . #file == "contribution"
+  let contributedNamespace =
+        spec declaration == NamespaceSpec Nothing
+          && declaration ^. #source . #file == "contribution"
       contributedBackend = case spec declaration of
         BackendMapSpec _ -> declaration ^. #source . #file == "contribution"
         _ -> False
@@ -404,7 +470,8 @@ buildMutation context operation resource declaration native before = do
       expected <- first refusal (renderShomeiSettingsNative base portal)
       unless (expected == native) (Left (refusal "native Shomei settings differ from typed contributions"))
     _ -> pure ()
-  unless (specDigest (spec declaration) == Just digest || contributedNamespace || contributedBackend || contributedShomei)
+  unless
+    (specDigest (spec declaration) == Just digest || contributedNamespace || contributedBackend || contributedShomei)
     (Left (refusal "native Kubernetes bytes differ from the declared spec digest"))
   cluster <- case address declaration of
     Kubernetes target _ _ _ _ -> Right target
@@ -421,12 +488,15 @@ buildMutation context operation resource declaration native before = do
           (declaration ^. #sensitivity)
           (declaration ^. #source)
   (recompiled, rebound) <- first (refusal . T.pack . show) (bindKubernetesObject input)
-  unless (address recompiled == address declaration
-      && (spec recompiled == spec declaration
-        || contributedNamespace && spec recompiled == NamespaceSpec (Just digest)
-        || contributedBackend && spec recompiled == NativeObject digest
-        || contributedShomei && spec recompiled == NativeObject digest)
-      && rebound == native)
+  unless
+    ( address recompiled == address declaration
+        && ( spec recompiled == spec declaration
+               || contributedNamespace && spec recompiled == NamespaceSpec (Just digest)
+               || contributedBackend && spec recompiled == NativeObject digest
+               || contributedShomei && spec recompiled == NativeObject digest
+           )
+        && rebound == native
+    )
     (Left (refusal "native Kubernetes address or controller claims differ from the declaration"))
   stamped <- first refusal (stampNative context resource digest value)
   pure
@@ -484,7 +554,8 @@ stampNative context resource digest (Object root) = do
         , ("nagare.dev/resource-id", resourceIdText resource)
         , ("nagare.dev/spec-digest", digestText digest)
         ]
-  unless (all (\(key, _) -> not (KM.member key annotations)) reserved)
+  unless
+    (all (\(key, _) -> not (KM.member key annotations)) reserved)
     (Left "Kubernetes native object sets a reserved inventory annotation")
   let stampedAnnotations = foldr (\(key, value) result -> KM.insert key (String value) result) annotations reserved
       stampedMetadata = KM.insert "annotations" (Object stampedAnnotations) metadata
@@ -510,7 +581,8 @@ unstampNative context resource digest stamped = do
             , ("nagare.dev/resource-id", resourceIdText resource)
             , ("nagare.dev/spec-digest", digestText digest)
             ]
-      unless (all (\(key, expected) -> KM.lookup key annotations == Just (String expected)) reserved)
+      unless
+        (all (\(key, expected) -> KM.lookup key annotations == Just (String expected)) reserved)
         (Left "reviewed Kubernetes inventory annotations differ from the bound context, identity or digest")
       let remaining = foldr (KM.delete . fst) annotations reserved
           plainMetadata = if KM.null remaining then KM.delete "annotations" metadata else KM.insert "annotations" (Object remaining) metadata
@@ -526,28 +598,35 @@ requireSameBefore mutation current =
       KubernetesPresent _ _ (Just owner) digest
         | owner == mutationResource mutation && digest == mutationNativeDigest mutation -> Right ()
       _ -> Left "declared Kubernetes Job is not complete at the reviewed digest"
-    else if mutationAction mutation == VerifyResource
-      then case (mutationBefore mutation, current) of
-        (KubernetesPresent expectedPhysical _ (Just expectedOwner) expectedDigest,
-          KubernetesPresent physical _ (Just owner) digest)
-          | expectedPhysical == physical && expectedOwner == owner
-          , owner == mutationResource mutation
-          , expectedDigest == digest && digest == mutationNativeDigest mutation -> Right ()
-        (KubernetesNotReady expectedPhysical _ (Just expectedOwner) expectedDigest,
-          KubernetesPresent physical _ (Just owner) digest)
-          | Kubernetes _ "serving.knative.dev" kind (Just _) _ <- mutationAddress mutation
-          , nameText kind == "domainmapping"
-          , expectedPhysical == physical && expectedOwner == owner
-          , owner == mutationResource mutation
-          , expectedDigest == digest && digest == mutationNativeDigest mutation -> Right ()
-        _ -> Left "Kubernetes object identity or desired fields changed since review"
-    else if mutationVersion mutation == 2 && mutationAction mutation == UpdateResource
-      then case (configured (mutationBefore mutation), configured current) of
-        (Just before, Just now) | before == now -> Right ()
-        _ -> Left "Knative Service configuration or ownership changed since review"
-    else if current == mutationBefore mutation
-      then Right ()
-      else Left "Kubernetes object changed since review; replan before mutation"
+    else
+      if mutationAction mutation == VerifyResource
+        then case (mutationBefore mutation, current) of
+          ( KubernetesPresent expectedPhysical _ (Just expectedOwner) expectedDigest
+            , KubernetesPresent physical _ (Just owner) digest
+            )
+              | expectedPhysical == physical && expectedOwner == owner
+              , owner == mutationResource mutation
+              , expectedDigest == digest && digest == mutationNativeDigest mutation ->
+                  Right ()
+          ( KubernetesNotReady expectedPhysical _ (Just expectedOwner) expectedDigest
+            , KubernetesPresent physical _ (Just owner) digest
+            )
+              | Kubernetes _ "serving.knative.dev" kind (Just _) _ <- mutationAddress mutation
+              , nameText kind == "domainmapping"
+              , expectedPhysical == physical && expectedOwner == owner
+              , owner == mutationResource mutation
+              , expectedDigest == digest && digest == mutationNativeDigest mutation ->
+                  Right ()
+          _ -> Left "Kubernetes object identity or desired fields changed since review"
+        else
+          if mutationVersion mutation == 2 && mutationAction mutation == UpdateResource
+            then case (configured (mutationBefore mutation), configured current) of
+              (Just before, Just now) | before == now -> Right ()
+              _ -> Left "Knative Service configuration or ownership changed since review"
+            else
+              if current == mutationBefore mutation
+                then Right ()
+                else Left "Kubernetes object changed since review; replan before mutation"
   where
     configured (KubernetesPresent uid _ (Just owner) digest) | owner == mutationResource mutation = Just (uid, owner, digest)
     configured (KubernetesNotReady uid _ (Just owner) digest) | owner == mutationResource mutation = Just (uid, owner, digest)
@@ -560,19 +639,30 @@ knativeServiceAddress _ = False
 completionProof :: KubernetesMutation -> KubernetesState -> Either Text ContentDigest
 completionProof mutation state
   | mutationAction mutation == VerifyResource
-  , Left reason <- requireSameBefore mutation state = Left reason
+  , Left reason <- requireSameBefore mutation state =
+      Left reason
   | mutationAction mutation == RetireResource = case state of
       KubernetesAbsent absence -> case mutationBefore mutation of
-        KubernetesPresent physical _ _ _ -> contentDigest <$> canonicalValue
-          (object ["operation" .= mutationOperation mutation,
-                   "resource" .= mutationResource mutation,
-                   "removedPhysical" .= physical,
-                   "absence" .= absence])
-        KubernetesNotReady physical _ _ _ -> contentDigest <$> canonicalValue
-          (object ["operation" .= mutationOperation mutation,
-                   "resource" .= mutationResource mutation,
-                   "removedPhysical" .= physical,
-                   "absence" .= absence])
+        KubernetesPresent physical _ _ _ ->
+          contentDigest
+            <$> canonicalValue
+              ( object
+                  [ "operation" .= mutationOperation mutation
+                  , "resource" .= mutationResource mutation
+                  , "removedPhysical" .= physical
+                  , "absence" .= absence
+                  ]
+              )
+        KubernetesNotReady physical _ _ _ ->
+          contentDigest
+            <$> canonicalValue
+              ( object
+                  [ "operation" .= mutationOperation mutation
+                  , "resource" .= mutationResource mutation
+                  , "removedPhysical" .= physical
+                  , "absence" .= absence
+                  ]
+              )
         _ -> Left "collection lacks a present historical precondition"
       KubernetesUnknown reason -> Left ("Kubernetes observation unavailable: " <> reason)
       KubernetesNotReady {} -> Left "Kubernetes object remains present but is not ready"
@@ -589,10 +679,14 @@ completionProof mutation state
 
 summary :: KubernetesMutation -> Text
 summary mutation =
-  "Kubernetes " <> T.pack (show (mutationAction mutation))
-    <> " " <> resourceIdText (mutationResource mutation)
-    <> " at " <> T.pack (show (mutationAddress mutation))
-    <> "; native digest " <> digestText (mutationNativeDigest mutation)
+  "Kubernetes "
+    <> T.pack (show (mutationAction mutation))
+    <> " "
+    <> resourceIdText (mutationResource mutation)
+    <> " at "
+    <> T.pack (show (mutationAddress mutation))
+    <> "; native digest "
+    <> digestText (mutationNativeDigest mutation)
 
 instance ToJSON KubernetesState where
   toJSON = \case

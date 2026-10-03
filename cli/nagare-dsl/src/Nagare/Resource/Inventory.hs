@@ -455,9 +455,14 @@ composeInventory snapshot changes = do
   checked changeErrors ()
   ss <- preserveNamespaceOwners (fmap snd original) changedScopes
   ds <- composedDeclarations ss
-  let generations = Map.mapWithKey (\owner scope ->
-        if owner `elem` selectedScopes || Just scope /= fmap snd (Map.lookup owner original)
-          then nextGeneration (Map.lookup owner base) else base Map.! owner) ss
+  let generations =
+        Map.mapWithKey
+          ( \owner scope ->
+              if owner `elem` selectedScopes || Just scope /= fmap snd (Map.lookup owner original)
+                then nextGeneration (Map.lookup owner base)
+                else base Map.! owner
+          )
+          ss
   checked
     (validateGraph ss ds (snapshotReservations snapshot))
     (CompositionCandidate (ValidatedInventory (snapshotBinding snapshot) ss ds) base (NE.sort changes) generations (snapshotReservations snapshot))
@@ -500,21 +505,35 @@ preserveNamespaceOwners original desired = do
       strip scope = rebuild scope (concatMap stripBundle (scopeBundles scope))
   stripped <- traverse strip desired
   declarations <- composedDeclarations stripped
-  let carry = [resource | Managed resource <- previous,
-        all ((/= resource ^. #identity) . declarationId) declarations,
-        Map.member (resource ^. #owner) stripped]
-      append scope = rebuild scope (scopeBundles scope <>
-        [ResourceBundle [Managed resource] [] [] [] [] [] | resource <- carry, resource ^. #owner == scopeId scope])
+  let carry =
+        [ resource
+        | Managed resource <- previous
+        , all ((/= resource ^. #identity) . declarationId) declarations
+        , Map.member (resource ^. #owner) stripped
+        ]
+      append scope =
+        rebuild
+          scope
+          ( scopeBundles scope
+              <> [ResourceBundle [Managed resource] [] [] [] [] [] | resource <- carry, resource ^. #owner == scopeId scope]
+          )
   traverse append stripped
   where
-    isNamespace (Managed resource) = resource ^. #source . #file == "contribution"
-      && resource ^. #spec == NamespaceSpec Nothing && resource ^. #lifecycle == Retain
-      && scopeKind (resource ^. #owner) == Platform
+    isNamespace (Managed resource) =
+      resource ^. #source . #file == "contribution"
+        && resource ^. #spec == NamespaceSpec Nothing
+        && resource ^. #lifecycle == Retain
+        && scopeKind (resource ^. #owner) == Platform
     isNamespace _ = False
     rebuild scope bundles = do
       updated <- mkScopeDeclaration (scopeId scope) bundles
-      pure (maybe id withScopeConfigDigest (scopeConfigDigest scope)
-        (withScopeOverrides (scopeOverrides scope) updated))
+      pure
+        ( maybe
+            id
+            withScopeConfigDigest
+            (scopeConfigDigest scope)
+            (withScopeOverrides (scopeOverrides scope) updated)
+        )
 
 -- | Reconstruct accepted effective resources for read-only status. This runs
 -- the same closed contribution and claim validation as a changed candidate.
@@ -985,9 +1004,10 @@ pairedDnsRouteClaim claim holders = case (claimParts claim, holders) of
   where
     dnsAndRoute host dns route = case route ^. #address of
       Kubernetes _ "serving.knative.dev" kind _ routeHost
-        | nameText kind == "domainmapping", nameText routeHost == host,
-          dns ^. #owner == route ^. #owner,
-          OrderedAfter (route ^. #identity) `elem` dns ^. #dependencies ->
+        | nameText kind == "domainmapping"
+        , nameText routeHost == host
+        , dns ^. #owner == route ^. #owner
+        , OrderedAfter (route ^. #identity) `elem` dns ^. #dependencies ->
             case dns ^. #address of
               DnsRecord _ _ dnsHost -> nameText dnsHost == host
               CloudflareDnsRecord _ dnsHost -> nameText dnsHost == host

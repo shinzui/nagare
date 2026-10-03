@@ -34,35 +34,49 @@ renderShomeiSettingsNative base portal = canonicalValue (renderShomeiSettingsObj
 -- that drives the access map. The owner keeps one fallback origin so Shomei's
 -- nonempty WebAuthn origin requirement holds before an application is deployed.
 renderShomeiSettingsObject :: Name -> Maybe Name -> Value
-renderShomeiSettingsObject base portal = object
-  [ "apiVersion" .= ("v1" :: Text)
-  , "kind" .= ("ConfigMap" :: Text)
-  , "metadata" .= object
-      [ "name" .= ("nagare-shomei-settings" :: Text)
-      , "namespace" .= ("nagare-system" :: Text)
-      , "labels" .= object
-          [ "app.kubernetes.io/name" .= ("shomei" :: Text)
-          , "app.kubernetes.io/part-of" .= ("nagare-auth-plane" :: Text)
-          , "nagare.dev/managed-by" .= ("nagarectl" :: Text)
-          ]]
-  , "data" .= object
-      (["webauthn-origins" .= T.intercalate "," origins]
-        <> maybe [] (\host -> ["public-base-url" .= ("https://" <> nameText host)]) portal)
-  ]
+renderShomeiSettingsObject base portal =
+  object
+    [ "apiVersion" .= ("v1" :: Text)
+    , "kind" .= ("ConfigMap" :: Text)
+    , "metadata"
+        .= object
+          [ "name" .= ("nagare-shomei-settings" :: Text)
+          , "namespace" .= ("nagare-system" :: Text)
+          , "labels"
+              .= object
+                [ "app.kubernetes.io/name" .= ("shomei" :: Text)
+                , "app.kubernetes.io/part-of" .= ("nagare-auth-plane" :: Text)
+                , "nagare.dev/managed-by" .= ("nagarectl" :: Text)
+                ]
+          ]
+    , "data"
+        .= object
+          ( ["webauthn-origins" .= T.intercalate "," origins]
+              <> maybe [] (\host -> ["public-base-url" .= ("https://" <> nameText host)]) portal
+          )
+    ]
   where
     fallbackOrigin = "https://protected-hello." <> nameText base
-    origins = fallbackOrigin : maybe [] (\host ->
-      let origin = "https://" <> nameText host
-       in [origin | origin /= fallbackOrigin]) portal
+    origins =
+      fallbackOrigin
+        : maybe
+          []
+          ( \host ->
+              let origin = "https://" <> nameText host
+               in [origin | origin /= fallbackOrigin]
+          )
+          portal
 
 compileContributedShomeiSettings ::
   [Declaration] -> Either Text (Map ResourceId (ManagedResource, ByteString))
 compileContributedShomeiSettings declarations = Map.fromList <$> traverse compileOne contributed
   where
     contributed =
-      [resource | Managed resource <- declarations
+      [ resource
+      | Managed resource <- declarations
       , ShomeiSettingsSpec {} <- [resource ^. #spec]
-      , resource ^. #source . #file == "contribution"]
+      , resource ^. #source . #file == "contribution"
+      ]
     compileOne resource = do
       (base, portal) <- case resource ^. #spec of
         ShomeiSettingsSpec baseDomain portalHost -> Right (baseDomain, portalHost)
@@ -70,22 +84,29 @@ compileContributedShomeiSettings declarations = Map.fromList <$> traverse compil
       cluster <- case resource ^. #address of
         Kubernetes target "" kind (Just namespace) name
           | nameText kind == "configmap" && nameText namespace == "nagare-system"
-          , nameText name == "nagare-shomei-settings" -> Right target
+          , nameText name == "nagare-shomei-settings" ->
+              Right target
         _ -> Left "contributed Shomei settings have an unexpected address"
       let value = renderShomeiSettingsObject base portal
       bytes <- canonicalValue value
-      (compiled, bound) <- first (T.pack . show) (bindKubernetesObject KubernetesInput
-        { resourceId = resource ^. #identity
-        , ownerScope = resource ^. #owner
-        , clusterId = cluster
-        , inputObject = value
-        , objectDigest = contentDigest bytes
-        , lifecyclePolicy = resource ^. #lifecycle
-        , inputDataPolicy = resource ^. #dataPolicy
-        , inputSensitivity = resource ^. #sensitivity
-        , sourceLocation = resource ^. #source
-        })
-      unless (compiled ^. #address == resource ^. #address && bound == bytes)
+      (compiled, bound) <-
+        first
+          (T.pack . show)
+          ( bindKubernetesObject
+              KubernetesInput
+                { resourceId = resource ^. #identity
+                , ownerScope = resource ^. #owner
+                , clusterId = cluster
+                , inputObject = value
+                , objectDigest = contentDigest bytes
+                , lifecyclePolicy = resource ^. #lifecycle
+                , inputDataPolicy = resource ^. #dataPolicy
+                , inputSensitivity = resource ^. #sensitivity
+                , sourceLocation = resource ^. #source
+                }
+          )
+      unless
+        (compiled ^. #address == resource ^. #address && bound == bytes)
         (Left "contributed Shomei settings native binding changed its address or bytes")
       pure (resource ^. #identity, (resource, bytes))
 

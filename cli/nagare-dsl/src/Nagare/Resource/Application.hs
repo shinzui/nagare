@@ -8,12 +8,12 @@ module Nagare.Resource.Application
   , domainMappingResourceId
   , workerResourceId
   , taskResourceId
-  ) where
+  )
+where
 
 import Data.Generics.Labels ()
 import Nagare.Dsl.Application (Application)
 import Nagare.Dsl.Prelude
-import Nagare.Dsl.Worker (Worker (..))
 import Nagare.Dsl.Task (Task (..))
 import Nagare.Dsl.Types
   ( Deployment (..)
@@ -23,43 +23,64 @@ import Nagare.Dsl.Types
   , serviceNameText
   , volumeNameText
   )
+import Nagare.Dsl.Worker (Worker (..))
 import Nagare.Resource.Types
 
 applicationScopeId :: Application -> Either Text ScopeId
 applicationScopeId app =
-  mkScopeId Application (maybe (serviceNameText (app ^. #name)) logicalKeyText
-    (app ^. #logicalKey))
+  mkScopeId
+    Application
+    ( maybe
+        (serviceNameText (app ^. #name))
+        logicalKeyText
+        (app ^. #logicalKey)
+    )
 
 deploymentResourceId :: ScopeId -> Name -> Deployment -> Either Text ResourceId
 deploymentResourceId owner role deployment =
   mintResourceId owner <$> key <*> pure role
   where
-    key = maybe (mkLogicalKey (serviceNameText (deployment ^. #name))) Right
-      (deployment ^. #logicalKey)
+    key =
+      maybe
+        (mkLogicalKey (serviceNameText (deployment ^. #name)))
+        Right
+        (deployment ^. #logicalKey)
 
 volumeResourceId :: ScopeId -> Name -> Volume -> Either Text ResourceId
 volumeResourceId owner role volume =
   mintResourceId owner <$> key <*> pure role
   where
-    key = maybe (mkLogicalKey (volumeNameText (volume ^. #name))) Right
-      (volume ^. #logicalKey)
+    key =
+      maybe
+        (mkLogicalKey (volumeNameText (volume ^. #name)))
+        Right
+        (volume ^. #logicalKey)
 
 domainMappingResourceId :: ScopeId -> DomainSpec -> Either Text ResourceId
 domainMappingResourceId owner domain =
-  mintResourceId owner <$> maybe (mkLogicalKey (domainText (domain ^. #domain))) Right
-    (domain ^. #logicalKey)
+  mintResourceId owner
+    <$> maybe
+      (mkLogicalKey (domainText (domain ^. #domain)))
+      Right
+      (domain ^. #logicalKey)
     <*> mkName "domain-mapping"
 
 workerResourceId :: ScopeId -> Name -> Worker -> Either Text ResourceId
 workerResourceId owner role worker =
   mintResourceId owner <$> key <*> pure role
   where
-    key = maybe (mkLogicalKey (serviceNameText (worker ^. #name))) Right
-      (worker ^. #logicalKey)
+    key =
+      maybe
+        (mkLogicalKey (serviceNameText (worker ^. #name)))
+        Right
+        (worker ^. #logicalKey)
 
 taskResourceId :: ScopeId -> Name -> Task -> Either Text ResourceId
 taskResourceId owner role task =
   mintResourceId owner <$> key <*> pure role
   where
-    key = maybe (mkLogicalKey (serviceNameText (task ^. #name))) Right
-      (task ^. #logicalKey)
+    key =
+      maybe
+        (mkLogicalKey (serviceNameText (task ^. #name)))
+        Right
+        (task ^. #logicalKey)

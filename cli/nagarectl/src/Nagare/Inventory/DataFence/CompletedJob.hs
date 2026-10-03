@@ -7,7 +7,8 @@ module Nagare.Inventory.DataFence.CompletedJob
   , kubectlCompletedJobTransport
   , captureCompletedJob
   , observeCompletedJob
-  ) where
+  )
+where
 
 import Control.Exception (IOException, try)
 import Control.Monad (unless)
@@ -21,7 +22,8 @@ import Data.Text.Encoding qualified as TE
 import Data.Vector qualified as V
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapters.KubernetesRuntime
-  (KubernetesRuntimeConfig (..))
+  ( KubernetesRuntimeConfig (..)
+  )
 import Nagare.Inventory.DataFence.MountGuard (validUid)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Resource.Types (ContentDigest)
@@ -45,26 +47,46 @@ data CompletedJobTransport = CompletedJobTransport
 kubectlCompletedJobTransport :: KubernetesRuntimeConfig -> CompletedJobTransport
 kubectlCompletedJobTransport config = CompletedJobTransport readJob listPods
   where
-    readJob namespace name = invoke namespace ["get", "job", T.unpack name,
-      "-o", "json"]
+    readJob namespace name =
+      invoke
+        namespace
+        [ "get"
+        , "job"
+        , T.unpack name
+        , "-o"
+        , "json"
+        ]
     listPods namespace = invoke namespace ["get", "pods", "-o", "json"]
     invoke namespace arguments = do
       guarded <- runtimeGuard config
       case guarded of
         Left reason -> pure (Left ("cluster guard refused: " <> reason))
         Right () -> do
-          result <- try (readProcessWithExitCode "kubectl"
-            (["--context", T.unpack (runtimeKubectlContext config),
-              "--request-timeout=10s", "--namespace", T.unpack namespace]
-              <> arguments) "")
+          result <-
+            try
+              ( readProcessWithExitCode
+                  "kubectl"
+                  ( [ "--context"
+                    , T.unpack (runtimeKubectlContext config)
+                    , "--request-timeout=10s"
+                    , "--namespace"
+                    , T.unpack namespace
+                    ]
+                      <> arguments
+                  )
+                  ""
+              )
           pure $ case result of
             Left (_ :: IOException) -> Left "could not observe completed Job"
             Right (ExitSuccess, output, _) ->
               first T.pack (eitherDecodeStrict' (TE.encodeUtf8 (T.pack output)))
             Right _ -> Left "completed Job observation failed"
 
-captureCompletedJob :: CompletedJobTransport -> Text -> Text
-  -> IO (Either Text CompletedJobPin)
+captureCompletedJob ::
+  CompletedJobTransport ->
+  Text ->
+  Text ->
+  IO (Either Text CompletedJobPin)
 captureCompletedJob transport namespace name = do
   job <- readCompletedJob transport namespace name
   pods <- listCompletedJobPods transport namespace
@@ -75,15 +97,18 @@ captureCompletedJob transport namespace name = do
     _ <- requireTerminalPods pin =<< pods
     pure pin
 
-observeCompletedJob :: CompletedJobTransport -> CompletedJobPin
-  -> IO (Either Text [Text])
+observeCompletedJob ::
+  CompletedJobTransport ->
+  CompletedJobPin ->
+  IO (Either Text [Text])
 observeCompletedJob transport pin = do
   job <- readCompletedJob transport (completedJobNamespace pin) (completedJobName pin)
   pods <- listCompletedJobPods transport (completedJobNamespace pin)
   pure $ do
     value <- job
     current <- parseJob (completedJobNamespace pin) (completedJobName pin) value
-    unless (current == pin)
+    unless
+      (current == pin)
       (Left "completed Job UID or spec changed after review")
     requireComplete value
     requireTerminalPods pin =<< pods
@@ -95,9 +120,11 @@ parseJob namespace name value = do
   observedName <- fieldText "name" metadata
   observedNamespace <- fieldText "namespace" metadata
   uid <- fieldText "uid" metadata
-  unless (observedName == name && observedNamespace == namespace && validUid uid)
+  unless
+    (observedName == name && observedNamespace == namespace && validUid uid)
     (Left "completed Job name, namespace, or UID changed")
-  unless (KM.lookup "deletionTimestamp" metadata == Nothing)
+  unless
+    (KM.lookup "deletionTimestamp" metadata == Nothing)
     (Left "completed Job is terminating")
   spec <- fieldObject "spec" root
   bytes <- canonicalValue (Object spec)
@@ -117,8 +144,11 @@ requireComplete value = do
       complete = case KM.lookup "conditions" status of
         Just (Array conditions) -> any isComplete (V.toList conditions)
         _ -> False
-  unless (active == Just (0 :: Int)
-      && maybe False (> (0 :: Int)) succeeded && complete)
+  unless
+    ( active == Just (0 :: Int)
+        && maybe False (> (0 :: Int)) succeeded
+        && complete
+    )
     (Left "accepted Job is not completed and inactive")
   where
     isComplete (Object condition) =
@@ -141,23 +171,28 @@ requireTerminalPods pin listing = do
       pod <- object "Job Pod" item
       metadata <- fieldObject "metadata" pod
       namespace <- fieldText "namespace" metadata
-      unless (namespace == completedJobNamespace pin)
+      unless
+        (namespace == completedJobNamespace pin)
         (Left "Job Pod list includes another namespace")
       owners <- case KM.lookup "ownerReferences" metadata of
         Nothing -> Right []
         Just (Array values) -> Right (V.toList values)
         _ -> Left "Job Pod ownership is malformed"
       let owned = any ownedByPin owners
-      if not owned then pure [] else do
-        podName <- fieldText "name" metadata
-        podUid <- fieldText "uid" metadata
-        unless (validUid podUid)
-          (Left "completed Job Pod UID is malformed")
-        status <- fieldObject "status" pod
-        phase <- fieldText "phase" status
-        unless (phase `elem` ["Succeeded", "Failed"])
-          (Left "accepted completed Job still has an active or unknown Pod")
-        pure [podName <> "/" <> podUid]
+      if not owned
+        then pure []
+        else do
+          podName <- fieldText "name" metadata
+          podUid <- fieldText "uid" metadata
+          unless
+            (validUid podUid)
+            (Left "completed Job Pod UID is malformed")
+          status <- fieldObject "status" pod
+          phase <- fieldText "phase" status
+          unless
+            (phase `elem` ["Succeeded", "Failed"])
+            (Left "accepted completed Job still has an active or unknown Pod")
+          pure [podName <> "/" <> podUid]
     ownedByPin (Object owner) =
       KM.lookup "kind" owner == Just (String "Job")
         && KM.lookup "name" owner == Just (String (completedJobName pin))

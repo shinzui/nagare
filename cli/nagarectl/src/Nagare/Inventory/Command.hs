@@ -69,10 +69,10 @@ import Nagare.Inventory.Lifecycle
 import Nagare.Inventory.Migration
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Store
-import Nagare.Inventory.Store.Target (openTargetStoreReadOnly, openProfileReviewStoreReadOnly, openRemoteStore, remoteInventoryUrl)
 import Nagare.Inventory.Store.Discovery
 import Nagare.Inventory.Store.Remote (remoteObjectOps)
 import Nagare.Inventory.Store.Remote qualified as Remote
+import Nagare.Inventory.Store.Target (openProfileReviewStoreReadOnly, openRemoteStore, openTargetStoreReadOnly, remoteInventoryUrl)
 import Nagare.Ops.PulumiBackend (gcsBucketOfUrl)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
@@ -228,25 +228,49 @@ planInventoryWith registryFor target candidateDirectory output = do
 
 -- | Retain explicitly named members removed by a compiled scope replacement.
 -- A saved review and separate apply are required; collection is a later review.
-planInventoryWithRetirements
-  :: (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry)
-  -> ActiveTarget -> FilePath -> [ResourceId] -> FilePath -> IO ()
+planInventoryWithRetirements ::
+  (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry) ->
+  ActiveTarget ->
+  FilePath ->
+  [ResourceId] ->
+  FilePath ->
+  IO ()
 planInventoryWithRetirements registryFor target candidateDirectory resources output = do
   candidate <- loadCandidate candidateDirectory >>= either dieText pure
   planInventoryCandidateWithRetirements registryFor target candidate resources output
 
-planInventoryCandidateWithRetirements
-  :: (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry)
-  -> ActiveTarget -> CompositionCandidate -> [ResourceId] -> FilePath -> IO ()
+planInventoryCandidateWithRetirements ::
+  (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry) ->
+  ActiveTarget ->
+  CompositionCandidate ->
+  [ResourceId] ->
+  FilePath ->
+  IO ()
 planInventoryCandidateWithRetirements registryFor target candidate resources output = do
-  when (Set.size (Set.fromList resources) /= length resources)
+  when
+    (Set.size (Set.fromList resources) /= length resources)
     (dieText "retirement resource IDs must be distinct")
   let decide history observations = do
-        proposals <- traverse (\resource -> case Map.lookup resource (observationMap observations) of
-          Nothing -> Left (PlanError "retirement-observation"
-            "selected resource lacks a fresh provider observation" [resource] :| [])
-          Just fact -> Right (LifecycleProposal resource ApproveRetirement
-            (lifecycleObservationDigest (inventoryBinding (candidateInventory candidate)) resource fact))) resources
+        proposals <-
+          traverse
+            ( \resource -> case Map.lookup resource (observationMap observations) of
+                Nothing ->
+                  Left
+                    ( PlanError
+                        "retirement-observation"
+                        "selected resource lacks a fresh provider observation"
+                        [resource]
+                        :| []
+                    )
+                Just fact ->
+                  Right
+                    ( LifecycleProposal
+                        resource
+                        ApproveRetirement
+                        (lifecycleObservationDigest (inventoryBinding (candidateInventory candidate)) resource fact)
+                    )
+            )
+            resources
         validateLifecycleDecisions candidate history observations proposals
   planInventoryCandidateWithDecider registryFor decide target candidate output
 
@@ -254,36 +278,51 @@ planInventoryCandidateWithRetirements registryFor target candidate resources out
 -- observed incarnations. The decision is validated after fresh observation.
 planInventoryAdoptionWith :: (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry) -> ActiveTarget -> FilePath -> FilePath -> IO ()
 planInventoryAdoptionWith registryFor target inputFile output = do
-  bytes <- (try (BS.readFile inputFile) :: IO (Either IOException ByteString))
-    >>= either (dieText . showText) pure
+  bytes <-
+    (try (BS.readFile inputFile) :: IO (Either IOException ByteString))
+      >>= either (dieText . showText) pure
   proposalInput <- either dieText pure (decodeAdoptionInput bytes)
   let relative = adoptionCandidateDirectory proposalInput
       candidateDirectory = if isAbsolute relative then relative else takeDirectory inputFile </> relative
   candidate <- loadCandidate candidateDirectory >>= either dieText pure
-  planInventoryCandidateWithDecider registryFor
+  planInventoryCandidateWithDecider
+    registryFor
     (\history observations -> decideAdoption candidate history observations proposalInput)
-    target candidate output
+    target
+    candidate
+    output
 
 -- | Domain compilers can retain private native bytes while submitting an
 -- explicit adoption decision for their already composed candidate. The input
 -- still binds exact observed incarnations and the current context.
-planInventoryCandidateAdoptionWith
-  :: (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry)
-  -> ActiveTarget -> CompositionCandidate -> AdoptionInput -> FilePath -> IO ()
+planInventoryCandidateAdoptionWith ::
+  (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry) ->
+  ActiveTarget ->
+  CompositionCandidate ->
+  AdoptionInput ->
+  FilePath ->
+  IO ()
 planInventoryCandidateAdoptionWith registryFor target candidate proposalInput output =
-  planInventoryCandidateWithDecider registryFor
+  planInventoryCandidateWithDecider
+    registryFor
     (\history observations -> decideAdoption candidate history observations proposalInput)
-    target candidate output
+    target
+    candidate
+    output
 
 -- | A migration reads source and destination through distinct registries.
 -- One ordinary registry cannot represent two physical incarnations of an ID.
-planInventoryMigrationWith
-  :: (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry)
-  -> (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry)
-  -> ActiveTarget -> FilePath -> FilePath -> IO ()
+planInventoryMigrationWith ::
+  (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry) ->
+  (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry) ->
+  ActiveTarget ->
+  FilePath ->
+  FilePath ->
+  IO ()
 planInventoryMigrationWith sourceRegistryFor destinationRegistryFor target inputFile output = do
-  bytes <- (try (BS.readFile inputFile) :: IO (Either IOException ByteString))
-    >>= either (dieText . showText) pure
+  bytes <-
+    (try (BS.readFile inputFile) :: IO (Either IOException ByteString))
+      >>= either (dieText . showText) pure
   proposalInput <- either dieText pure (decodeMigrationInput bytes)
   let relative = migrationCandidateDirectory proposalInput
       candidateDirectory = if isAbsolute relative then relative else takeDirectory inputFile </> relative
@@ -298,72 +337,109 @@ planInventoryMigrationWith sourceRegistryFor destinationRegistryFor target input
   destinationRegistry <- destinationRegistryFor candidate history
   sourceRegistry <- sourceRegistryFor candidate history
   let requirements = observationRequirements candidate history
-  destinations <- observeWithRegistry destinationRegistry (requirementsByExecutor requirements)
-    >>= either dieText pure
-  incarnationFacts <- observeMigrationIncarnations sourceRegistry destinationRegistry requirements
-    >>= either dieText pure
-  decisions <- either (dieText . showText . NE.toList) pure
-    (decideMigration candidate proposalInput history destinations incarnationFacts)
-  proposal <- either (dieText . showText . NE.toList) pure
-    (planChanges candidate decisions history destinations)
+  destinations <-
+    observeWithRegistry destinationRegistry (requirementsByExecutor requirements)
+      >>= either dieText pure
+  incarnationFacts <-
+    observeMigrationIncarnations sourceRegistry destinationRegistry requirements
+      >>= either dieText pure
+  decisions <-
+    either
+      (dieText . showText . NE.toList)
+      pure
+      (decideMigration candidate proposalInput history destinations incarnationFacts)
+  proposal <-
+    either
+      (dieText . showText . NE.toList)
+      pure
+      (planChanges candidate decisions history destinations)
   -- A source executor absent from the desired candidate can otherwise fall
   -- back to manifest-only preparation. Its fabricated accepted observation
   -- must never become native migration evidence in a published review.
   forM_ (proposalOperations proposal) $ \operation -> case plannedAction operation of
     MigrateResource _ -> do
       adapter <- either dieText pure (lookupAdapter destinationRegistry (plannedExecutor operation))
-      when (adapterIdentity adapter == "manifest-only")
+      when
+        (adapterIdentity adapter == "manifest-only")
         (dieText "migration stage lacks an installed native provider adapter")
     _ -> pure ()
   snapshot <- readStoreSnapshot store >>= either (dieText . showText) pure
-  bundle <- prepareReview destinationRegistry snapshot proposal
-    >>= either (dieText . showText . NE.toList) pure
+  bundle <-
+    prepareReview destinationRegistry snapshot proposal
+      >>= either (dieText . showText . NE.toList) pure
   digest <- publishReview store bundle >>= either (dieText . showText) pure
   _ <- writeReviewBundle output bundle >>= either dieText pure
   TIO.putStrLn (digestText digest)
 
-planInventoryRetirementWith
-  :: (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry)
-  -> ActiveTarget -> ScopeId -> FilePath -> IO ()
+planInventoryRetirementWith ::
+  (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry) ->
+  ActiveTarget ->
+  ScopeId ->
+  FilePath ->
+  IO ()
 planInventoryRetirementWith registryFor target owner =
   planInventoryRetirementsWith registryFor (const (Right ())) target (owner :| [])
 
 -- | Batch retirement with an additional read-only observation guard. The
 -- ordinary lifecycle validator still supplies all retirement authority.
-planInventoryRetirementsWith
-  :: (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry)
-  -> (ObservationSet -> Either (NonEmpty PlanError) ())
-  -> ActiveTarget -> NonEmpty ScopeId -> FilePath -> IO ()
+planInventoryRetirementsWith ::
+  (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry) ->
+  (ObservationSet -> Either (NonEmpty PlanError) ()) ->
+  ActiveTarget ->
+  NonEmpty ScopeId ->
+  FilePath ->
+  IO ()
 planInventoryRetirementsWith registryFor check target owners output = do
   snapshot <- loadTargetSnapshot target
-  unless (Set.size (Set.fromList (NE.toList owners)) == NE.length owners)
+  unless
+    (Set.size (Set.fromList (NE.toList owners)) == NE.length owners)
     (dieText "retirement scope IDs must be distinct")
-  unless (all (`Map.member` snapshotScopes snapshot) owners)
+  unless
+    (all (`Map.member` snapshotScopes snapshot) owners)
     (dieText "retirement scope is absent from accepted inventory history")
-  candidate <- either (dieText . showText . NE.toList) pure
-    (composeInventory snapshot (fmap (`RetireScope` RetainResources) owners))
-  planInventoryCandidateWithDecider registryFor
+  candidate <-
+    either
+      (dieText . showText . NE.toList)
+      pure
+      (composeInventory snapshot (fmap (`RetireScope` RetainResources) owners))
+  planInventoryCandidateWithDecider
+    registryFor
     (\history observations -> check observations >> decideRetirement candidate history observations)
-    target candidate output
+    target
+    candidate
+    output
 
-planInventoryCollectionWith
-  :: (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry)
-  -> ActiveTarget -> ResourceId -> FilePath -> IO ()
+planInventoryCollectionWith ::
+  (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry) ->
+  ActiveTarget ->
+  ResourceId ->
+  FilePath ->
+  IO ()
 planInventoryCollectionWith registryFor target resource =
   planInventoryCollectionsWith registryFor target (resource :| [])
 
-planInventoryCollectionsWith
-  :: (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry)
-  -> ActiveTarget -> NonEmpty ResourceId -> FilePath -> IO ()
+planInventoryCollectionsWith ::
+  (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry) ->
+  ActiveTarget ->
+  NonEmpty ResourceId ->
+  FilePath ->
+  IO ()
 planInventoryCollectionsWith registryFor target resources output = do
-  when (Set.size (Set.fromList (NE.toList resources)) /= length (NE.toList resources))
+  when
+    (Set.size (Set.fromList (NE.toList resources)) /= length (NE.toList resources))
     (dieText "collection resource IDs must be distinct")
   snapshot <- loadTargetSnapshot target
-  candidate <- either (dieText . showText . NE.toList) pure
-    (composeInventory snapshot (fmap CollectRetained resources))
-  planInventoryCandidateWithDecider registryFor
+  candidate <-
+    either
+      (dieText . showText . NE.toList)
+      pure
+      (composeInventory snapshot (fmap CollectRetained resources))
+  planInventoryCandidateWithDecider
+    registryFor
     (\history observations -> decideCollection candidate history observations)
-    target candidate output
+    target
+    candidate
+    output
 
 -- | Plan a freshly compiled component candidate with native member bytes held
 -- by the caller. Publication still retains those bytes in the private review.
@@ -373,24 +449,37 @@ planInventoryCandidateWith registryFor =
 
 -- | Bootstrap stages record their immutable selected payload even when the
 -- current review has no final cluster marker yet.
-planInventoryCandidateWithPayloadIdentity
-  :: (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry)
-  -> T.Text -> ActiveTarget -> CompositionCandidate -> FilePath -> IO ()
+planInventoryCandidateWithPayloadIdentity ::
+  (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry) ->
+  T.Text ->
+  ActiveTarget ->
+  CompositionCandidate ->
+  FilePath ->
+  IO ()
 planInventoryCandidateWithPayloadIdentity registryFor payloadIdentity =
-  planInventoryCandidateWithDeciderPayload registryFor
-    (\_ _ -> Right noLifecycleDecisions) payloadIdentity
+  planInventoryCandidateWithDeciderPayload
+    registryFor
+    (\_ _ -> Right noLifecycleDecisions)
+    payloadIdentity
 
-planInventoryCandidateWithDecider
-  :: (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry)
-  -> (InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) LifecycleDecisions)
-  -> ActiveTarget -> CompositionCandidate -> FilePath -> IO ()
+planInventoryCandidateWithDecider ::
+  (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry) ->
+  (InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) LifecycleDecisions) ->
+  ActiveTarget ->
+  CompositionCandidate ->
+  FilePath ->
+  IO ()
 planInventoryCandidateWithDecider registryFor decide target candidate output = do
   planInventoryCandidateWithDeciderPayload registryFor decide "operator-cli" target candidate output
 
-planInventoryCandidateWithDeciderPayload
-  :: (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry)
-  -> (InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) LifecycleDecisions)
-  -> T.Text -> ActiveTarget -> CompositionCandidate -> FilePath -> IO ()
+planInventoryCandidateWithDeciderPayload ::
+  (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry) ->
+  (InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) LifecycleDecisions) ->
+  T.Text ->
+  ActiveTarget ->
+  CompositionCandidate ->
+  FilePath ->
+  IO ()
 planInventoryCandidateWithDeciderPayload registryFor decide payloadIdentity target candidate output = do
   (_, bundle, digest) <- prepareInventoryCandidateWithDeciderPayload registryFor decide payloadIdentity target candidate
   _ <- writeReviewBundle output bundle >>= either dieText pure
@@ -399,17 +488,24 @@ planInventoryCandidateWithDeciderPayload registryFor decide payloadIdentity targ
 -- | Apply a standard create/update review in the same invocation. The review
 -- is published first, then reloaded so execution has only immutable evidence.
 -- Lifecycle decisions still require a separately reviewed command.
-convergeInventoryCandidateWith
-  :: (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry)
-  -> (InventoryStore -> ReviewBundle -> IO AdapterRegistry)
-  -> ActiveTarget -> CompositionCandidate -> IO ()
+convergeInventoryCandidateWith ::
+  (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry) ->
+  (InventoryStore -> ReviewBundle -> IO AdapterRegistry) ->
+  ActiveTarget ->
+  CompositionCandidate ->
+  IO ()
 convergeInventoryCandidateWith planningRegistry executionRegistry target candidate = do
-  (store, _, digest) <- prepareInventoryCandidateWithDecider planningRegistry
-    (\_ _ -> Right noLifecycleDecisions) target candidate
+  (store, _, digest) <-
+    prepareInventoryCandidateWithDecider
+      planningRegistry
+      (\_ _ -> Right noLifecycleDecisions)
+      target
+      candidate
   bundle <- loadPublishedReview store digest >>= either (dieText . showText) pure
   validateReviewTarget target (reviewContextBinding (reviewBundleDocument bundle))
   TIO.putStrLn ("Published review " <> digestText digest)
-  forM_ (reviewOperations (reviewBundleDocument bundle))
+  forM_
+    (reviewOperations (reviewBundleDocument bundle))
     (TIO.putStrLn . reviewPublicSummary)
   registry <- executionRegistry store bundle
   snapshot <- readReviewSnapshot store (reviewDigest bundle) >>= either (dieText . showText) pure
@@ -420,17 +516,22 @@ convergeInventoryCandidateWith planningRegistry executionRegistry target candida
     Converged _ -> pure ()
     _ -> exitFailure
 
-prepareInventoryCandidateWithDecider
-  :: (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry)
-  -> (InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) LifecycleDecisions)
-  -> ActiveTarget -> CompositionCandidate -> IO (InventoryStore, ReviewBundle, ContentDigest)
+prepareInventoryCandidateWithDecider ::
+  (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry) ->
+  (InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) LifecycleDecisions) ->
+  ActiveTarget ->
+  CompositionCandidate ->
+  IO (InventoryStore, ReviewBundle, ContentDigest)
 prepareInventoryCandidateWithDecider registryFor decide target candidate = do
   prepareInventoryCandidateWithDeciderPayload registryFor decide "operator-cli" target candidate
 
-prepareInventoryCandidateWithDeciderPayload
-  :: (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry)
-  -> (InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) LifecycleDecisions)
-  -> T.Text -> ActiveTarget -> CompositionCandidate -> IO (InventoryStore, ReviewBundle, ContentDigest)
+prepareInventoryCandidateWithDeciderPayload ::
+  (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry) ->
+  (InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) LifecycleDecisions) ->
+  T.Text ->
+  ActiveTarget ->
+  CompositionCandidate ->
+  IO (InventoryStore, ReviewBundle, ContentDigest)
 prepareInventoryCandidateWithDeciderPayload registryFor decide payloadIdentity target candidate = do
   rejectReentry
   validateTarget target candidate
@@ -445,8 +546,9 @@ prepareInventoryCandidateWithDeciderPayload registryFor decide payloadIdentity t
   decisions <- either (dieText . showText . NE.toList) pure (decide history observations)
   proposal <- either (dieText . showText . NE.toList) pure (planChanges candidate decisions history observations)
   snapshot <- readStoreSnapshot store >>= either (dieText . showText) pure
-  bundle <- prepareReviewWithPayloadIdentity payloadIdentity registry snapshot proposal
-    >>= either (dieText . showText . NE.toList) pure
+  bundle <-
+    prepareReviewWithPayloadIdentity payloadIdentity registry snapshot proposal
+      >>= either (dieText . showText . NE.toList) pure
   digest <- publishReview store bundle >>= either (dieText . showText) pure
   pure (store, bundle, digest)
 
@@ -509,9 +611,13 @@ resumeInventoryWithFactoryTakeover registryFor target transactionToken yes takeO
     Converged _ -> pure ()
     _ -> exitFailure
 
-prepareRegistryRecoveryWithFactory
-  :: (InventoryStore -> ReviewBundle -> IO AdapterRegistry) -> ActiveTarget
-  -> Text -> Text -> FilePath -> IO ()
+prepareRegistryRecoveryWithFactory ::
+  (InventoryStore -> ReviewBundle -> IO AdapterRegistry) ->
+  ActiveTarget ->
+  Text ->
+  Text ->
+  FilePath ->
+  IO ()
 prepareRegistryRecoveryWithFactory registryFor target transactionToken operationToken output = do
   rejectReentry
   transaction <- either dieText pure (mkTransactionId transactionToken)
@@ -520,31 +626,47 @@ prepareRegistryRecoveryWithFactory registryFor target transactionToken operation
   store <- openTargetStore target
   bundle <- loadPublishedReview store digest >>= either (dieText . showText) pure
   registry <- registryFor store bundle
-  input <- prepareBootstrapRegistryRecovery store registry transaction operation
-    >>= either dieText pure
+  input <-
+    prepareBootstrapRegistryRecovery store registry transaction operation
+      >>= either dieText pure
   action <- case recoveryAction input of
     RecoverBootstrapRegistry native -> pure ("recover-bootstrap-registry:" <> digestText native)
     _ -> dieText "registry recovery preparation returned another action"
-  bytes <- either dieText pure (canonicalValue (object
-    [ "version" .= (1 :: Int), "transaction" .= recoveryTransaction input
-    , "operation" .= recoveryOperation input, "review" .= recoveryReview input
-    , "action" .= action ]))
-  handle <- openFd output WriteOnly
-    (defaultFileFlags {creat = Just 0o600, exclusive = True}) >>= fdToHandle
+  bytes <-
+    either
+      dieText
+      pure
+      ( canonicalValue
+          ( object
+              [ "version" .= (1 :: Int)
+              , "transaction" .= recoveryTransaction input
+              , "operation" .= recoveryOperation input
+              , "review" .= recoveryReview input
+              , "action" .= action
+              ]
+          )
+      )
+  handle <-
+    openFd
+      output
+      WriteOnly
+      (defaultFileFlags {creat = Just 0o600, exclusive = True})
+      >>= fdToHandle
   BS.hPut handle bytes
   hClose handle
   TIO.putStrLn ("Saved bounded host registry recovery: " <> T.pack output)
   TIO.putStrLn "Replay accepted nagare-registries-refresh.service and restart k3s.service only; workload readiness remains independently required"
 
-recoverInventoryWithFactory
-  :: (InventoryStore -> ReviewBundle -> IO AdapterRegistry) -> ActiveTarget -> Text -> Text -> FilePath -> Bool -> IO ()
+recoverInventoryWithFactory ::
+  (InventoryStore -> ReviewBundle -> IO AdapterRegistry) -> ActiveTarget -> Text -> Text -> FilePath -> Bool -> IO ()
 recoverInventoryWithFactory registryFor target transactionToken operationToken decisionFile takeOver = do
   rejectReentry
   transaction <- either dieText pure (mkTransactionId transactionToken)
   operation <- either dieText pure (mkOperationId operationToken)
   bytes <- try (BS.readFile decisionFile) :: IO (Either IOException ByteString)
   input <- either (dieText . showText) (either dieText pure . decodeOperatorRecoveryInput) bytes
-  unless (recoveryTransaction input == transaction && recoveryOperation input == operation)
+  unless
+    (recoveryTransaction input == transaction && recoveryOperation input == operation)
     (dieText "recovery decision file does not match the requested transaction and operation")
   store <- openTargetStore target
   bundle <- loadPublishedReview store (recoveryReview input) >>= either (dieText . showText) pure
@@ -564,8 +686,9 @@ recoverInventoryWithFactory registryFor target transactionToken operationToken d
     ForwardFencedRelease -> do
       current <- readHead store >>= either (dieText . showText) pure
       case current of
-        Just headValue | headActiveTransaction headValue /= Just (transactionIdText transaction) ->
-          TIO.putStrLn "Reviewed recovery backup released and original restore review abandoned; inspect inventory status before saving a new review"
+        Just headValue
+          | headActiveTransaction headValue /= Just (transactionIdText transaction) ->
+              TIO.putStrLn "Reviewed recovery backup released and original restore review abandoned; inspect inventory status before saving a new review"
         _ -> TIO.putStrLn "Reviewed writer release recovered; inspect inventory status, then resume the transaction"
     _ -> TIO.putStrLn "Reviewed recovery action completed; inspect inventory status, then resume the transaction"
 
@@ -590,22 +713,31 @@ exportInventory target output = do
 restoreInventory :: ActiveTarget -> FilePath -> Bool -> IO ()
 restoreInventory target backup yes = do
   rejectReentry
-  unless (effectiveInventoryStore (target ^. #profile) == InventoryStoreLocal)
+  unless
+    (effectiveInventoryStore (target ^. #profile) == InventoryStoreLocal)
     (dieText "inventory restore requires a local store; migrate a restored local history to GCS afterward")
   source <- openFilesystemStoreReadOnly backup >>= either (dieText . showText) pure
   sourceHead <- readHead source >>= either (dieText . showText) (maybe (dieText "backup has no inventory head") pure)
   context <- either dieText pure (mkContextId (contextNameText (target ^. #contextName)))
   project <- either dieText pure (mkName (target ^. #profile . #project))
-  unless (headBinding sourceHead == ContextBinding context project)
+  unless
+    (headBinding sourceHead == ContextBinding context project)
     (dieText "backup belongs to a different context or provider project")
-  when (isJust (headMigration sourceHead))
+  when
+    (isJust (headMigration sourceHead))
     (dieText "backup is a migrated source; restore an export of the active history")
   TIO.putStrLn
-    ("Inventory restore review: " <> contextNameText (target ^. #contextName)
-      <> " in " <> target ^. #profile . #project
-      <> ", generation " <> T.pack (show (headGeneration sourceHead))
-      <> ", sequence " <> T.pack (show (headSequence sourceHead))
-      <> ", from " <> T.pack backup)
+    ( "Inventory restore review: "
+        <> contextNameText (target ^. #contextName)
+        <> " in "
+        <> target ^. #profile . #project
+        <> ", generation "
+        <> T.pack (show (headGeneration sourceHead))
+        <> ", sequence "
+        <> T.pack (show (headSequence sourceHead))
+        <> ", from "
+        <> T.pack backup
+    )
   if not yes
     then TIO.putStrLn "Review only; pass --yes to restore into an empty local inventory store."
     else do
@@ -725,16 +857,19 @@ migrateTargetStore target destinationKind dryRun = do
       destinationMatches sourceHead destinationHead =
         let canonicalDigest value = contentDigest <$> canonicalValue (toJSON value)
             sourceDigest = case headMigration sourceHead of
-              Just marker | migrationDestination marker == destinationLabel ->
-                Right (migrationHeadDigest marker)
+              Just marker
+                | migrationDestination marker == destinationLabel ->
+                    Right (migrationHeadDigest marker)
               _ -> canonicalDigest sourceHead
          in destinationHead == sourceHead || case sourceDigest of
               Left _ -> False
               Right expected -> case headMigration destinationHead of
-                Just marker -> migrationDestination marker == sourceLabel
-                  && migrationHeadDigest marker == expected
-                Nothing -> isJust (headMigration sourceHead)
-                  && canonicalDigest destinationHead == Right expected
+                Just marker ->
+                  migrationDestination marker == sourceLabel
+                    && migrationHeadDigest marker == expected
+                Nothing ->
+                  isJust (headMigration sourceHead)
+                    && canonicalDigest destinationHead == Right expected
   if sourceKind == destinationKind
     then pure (Left (StoreConditionFailed "source and destination inventory stores are the same"))
     else do
@@ -769,8 +904,9 @@ migrateTargetStore target destinationKind dryRun = do
                     ambient <- lookupEnv "CLOUDSDK_CORE_PROJECT"
                     case gcsBucketOfUrl destinationLabel of
                       Nothing -> pure (Left (StoreConditionFailed "inventory store URL has no GCS bucket"))
-                      Just _ | maybe False ((/= project) . T.pack) ambient ->
-                        pure (Left (StoreConditionFailed "ambient gcloud project disagrees with the inventory context"))
+                      Just _
+                        | maybe False ((/= project) . T.pack) ambient ->
+                            pure (Left (StoreConditionFailed "ambient gcloud project disagrees with the inventory context"))
                       Just _ -> do
                         selected <- remoteObjectOps project destinationLabel
                         case selected of
@@ -806,9 +942,14 @@ loadTargetSnapshot target = do
   store <- openTargetStore target
   _ <- initializeStore store binding (clientIdentity target) >>= either (dieText . showText) pure
   history <- loadInventoryHistory store >>= either (dieText . showText) pure
-  either (dieText . showText . NE.toList) pure (mkScopeSnapshot binding
-    (Map.map (\(revision, declaration) -> (revisionGeneration revision, declaration)) (historyAccepted history))
-    (historyReservations history))
+  either
+    (dieText . showText . NE.toList)
+    pure
+    ( mkScopeSnapshot
+        binding
+        (Map.map (\(revision, declaration) -> (revisionGeneration revision, declaration)) (historyAccepted history))
+        (historyReservations history)
+    )
 
 -- | Local credential recovery requires accepted history and never initializes
 -- a new authority. An unresolved writer or data fence keeps recovery explicit.
@@ -821,13 +962,22 @@ loadTargetSnapshotReadOnly target = do
   headValue <- readHead store >>= either (dieText . showText) pure
   observed <- maybe (dieText "accepted inventory history is absent") pure headValue
   unless (headBinding observed == binding) (dieText "inventory head belongs to another context or project")
-  when (isJust (headActiveTransaction observed) || isJust (headExecutorClaim observed)
-      || isJust (headDataFence observed) || isJust (headMigration observed))
+  when
+    ( isJust (headActiveTransaction observed)
+        || isJust (headExecutorClaim observed)
+        || isJust (headDataFence observed)
+        || isJust (headMigration observed)
+    )
     (dieText "accepted inventory has an unresolved transaction, claim, fence or migration; recover it first")
   history <- loadInventoryHistory store >>= either (dieText . showText) pure
-  either (dieText . showText . NE.toList) pure (mkScopeSnapshot binding
-    (Map.map (\(revision, declaration) -> (revisionGeneration revision, declaration)) (historyAccepted history))
-    (historyReservations history))
+  either
+    (dieText . showText . NE.toList)
+    pure
+    ( mkScopeSnapshot
+        binding
+        (Map.map (\(revision, declaration) -> (revisionGeneration revision, declaration)) (historyAccepted history))
+        (historyReservations history)
+    )
 
 validateTarget :: ActiveTarget -> CompositionCandidate -> IO ()
 validateTarget target candidate = do

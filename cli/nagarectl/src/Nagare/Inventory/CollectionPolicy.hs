@@ -6,8 +6,8 @@ module Nagare.Inventory.CollectionPolicy
 where
 
 import Data.Generics.Labels ()
-import Nagare.Inventory.CloudCollection (cloudCollectionEligible)
 import Nagare.Dsl.Prelude
+import Nagare.Inventory.CloudCollection (cloudCollectionEligible)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
 import Nagare.Resource.Types

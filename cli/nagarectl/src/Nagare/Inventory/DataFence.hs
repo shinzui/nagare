@@ -17,7 +17,8 @@ module Nagare.Inventory.DataFence
   , recoverDataFence
   , releaseDataFence
   , forwardRecoverDataFenceRelease
-  ) where
+  )
+where
 
 import Data.Aeson (toJSON)
 import Data.Map.Strict (Map)
@@ -62,14 +63,21 @@ newtype FenceToken = FenceToken Text
 -- physical identities and saved writer configuration, without publishing
 -- credentials or the recovery artifact URL.
 dataFenceIntentDigest :: DataFenceRecord -> ContentDigest
-dataFenceIntentDigest record = contentDigest (either
-  (error . T.unpack) id (canonicalValue (toJSON record)))
+dataFenceIntentDigest record =
+  contentDigest
+    ( either
+        (error . T.unpack)
+        id
+        (canonicalValue (toJSON record))
+    )
 
 -- | Write the reservation before touching a writer. Any crash after the
 -- conditional write leaves the head fenced until explicit recovery.
-acquireDataFence
-  :: LockedStore s -> DataFenceControls -> DataFenceRecord
-  -> IO (Either Text FenceToken)
+acquireDataFence ::
+  LockedStore s ->
+  DataFenceControls ->
+  DataFenceRecord ->
+  IO (Either Text FenceToken)
 acquireDataFence locked controls requested = do
   headResult <- currentHead locked
   case headResult of
@@ -103,14 +111,18 @@ resumeDataFence locked session = do
 -- draining, or lose its acknowledgement. The durable acquiring phase keeps
 -- admission closed while a fresh process validates and reobserves the same
 -- reviewed controls. Only native exclusion proof advances to FenceExcluded.
-resumeDataFenceAcquisition :: LockedStore s -> DataFenceControls
-  -> FenceToken -> IO (Either Text ())
+resumeDataFenceAcquisition ::
+  LockedStore s ->
+  DataFenceControls ->
+  FenceToken ->
+  IO (Either Text ())
 resumeDataFenceAcquisition locked controls token = do
   current <- matchingFence locked token
   case current of
     Left reason -> pure (Left reason)
-    Right record | fencePhase record /= FenceAcquiring ->
-      pure (Left "data fence is not acquiring")
+    Right record
+      | fencePhase record /= FenceAcquiring ->
+          pure (Left "data fence is not acquiring")
     Right record -> do
       validated <- validateFenceInputs controls record
       case validated of
@@ -119,8 +131,11 @@ resumeDataFenceAcquisition locked controls token = do
           advanced <- advanceAcquisition locked controls record
           pure (() <$ advanced)
 
-advanceAcquisition :: LockedStore s -> DataFenceControls
-  -> DataFenceRecord -> IO (Either Text FenceToken)
+advanceAcquisition ::
+  LockedStore s ->
+  DataFenceControls ->
+  DataFenceRecord ->
+  IO (Either Text FenceToken)
 advanceAcquisition locked controls record = do
   stopped <- stopFenceWriters controls record
   case stopped of
@@ -130,8 +145,12 @@ advanceAcquisition locked controls record = do
       case checked of
         Left reason -> pure (Left reason)
         Right () -> do
-          advanced <- transition locked (FenceToken (fenceSession record))
-            [FenceAcquiring] FenceExcluded
+          advanced <-
+            transition
+              locked
+              (FenceToken (fenceSession record))
+              [FenceAcquiring]
+              FenceExcluded
           pure (FenceToken (fenceSession record) <$ advanced)
 
 beginDataChange :: LockedStore s -> DataFenceControls -> FenceToken -> IO (Either Text ())
@@ -139,8 +158,9 @@ beginDataChange locked controls token = do
   current <- matchingFence locked token
   case current of
     Left reason -> pure (Left reason)
-    Right record | fencePhase record /= FenceExcluded ->
-      pure (Left "data fence has not proved writer exclusion")
+    Right record
+      | fencePhase record /= FenceExcluded ->
+          pure (Left "data fence has not proved writer exclusion")
     Right record -> do
       checked <- exclusionProof controls record
       case checked of
@@ -149,14 +169,18 @@ beginDataChange locked controls token = do
 
 -- | Explicit forward recovery must reprove that the reviewed writers are
 -- still excluded before it touches the uncertain target.
-checkDataFenceExclusion :: LockedStore s -> DataFenceControls -> FenceToken
-  -> IO (Either Text ())
+checkDataFenceExclusion ::
+  LockedStore s ->
+  DataFenceControls ->
+  FenceToken ->
+  IO (Either Text ())
 checkDataFenceExclusion locked controls token = do
   current <- matchingFence locked token
   case current of
     Left reason -> pure (Left reason)
-    Right record | fencePhase record `elem`
-        [FenceChanging, FenceUnresolved, FenceVerifying] ->
+    Right record
+      | fencePhase record
+          `elem` [FenceChanging, FenceUnresolved, FenceVerifying] ->
           exclusionProof controls record
     Right _ -> pure (Left "data fence is not in a recoverable data phase")
 
@@ -167,8 +191,9 @@ verifyDataChange locked controls token = do
   current <- matchingFence locked token
   case current of
     Left reason -> pure (Left reason)
-    Right record | fencePhase record /= FenceChanging ->
-      pure (Left "data fence has no active data change to verify")
+    Right record
+      | fencePhase record /= FenceChanging ->
+          pure (Left "data fence has no active data change to verify")
     Right record -> do
       excluded <- exclusionProof controls record
       case excluded of
@@ -184,8 +209,9 @@ markDataFenceUnresolved locked token = do
   current <- matchingFence locked token
   case current of
     Left reason -> pure (Left reason)
-    Right record | fencePhase record == FenceReleasing ->
-      pure (Left "writer release is uncertain; observe release before another effect")
+    Right record
+      | fencePhase record == FenceReleasing ->
+          pure (Left "writer release is uncertain; observe release before another effect")
     Right record -> transition locked token [fencePhase record] FenceUnresolved
 
 -- | An uncertain data effect is never replayed. Recovery observes the exact
@@ -195,8 +221,9 @@ recoverDataFence locked controls token = do
   current <- matchingFence locked token
   case current of
     Left reason -> pure (Left reason)
-    Right record | fencePhase record == FenceReleasing ->
-      finishRelease locked controls token record
+    Right record
+      | fencePhase record == FenceReleasing ->
+          finishRelease locked controls token record
     Right record -> do
       excluded <- exclusionProof controls record
       verified <- dataProof controls record
@@ -210,10 +237,12 @@ releaseDataFence locked controls token = do
   current <- matchingFence locked token
   case current of
     Left reason -> pure (Left reason)
-    Right record | fencePhase record == FenceReleasing ->
-      finishRelease locked controls token record
-    Right record | fencePhase record /= FenceVerifying ->
-      pure (Left "data fence requires verified recovery before writer release")
+    Right record
+      | fencePhase record == FenceReleasing ->
+          finishRelease locked controls token record
+    Right record
+      | fencePhase record /= FenceVerifying ->
+          pure (Left "data fence requires verified recovery before writer release")
     Right record -> do
       excluded <- exclusionProof controls record
       verified <- dataProof controls record
@@ -234,20 +263,25 @@ releaseDataFence locked controls token = do
 -- provider supplies this callback only when it can conditionally finish the
 -- observed partial state without replaying an uncertain destructive effect.
 -- Recovery never calls it automatically from ordinary release/resume.
-forwardRecoverDataFenceRelease :: LockedStore s -> DataFenceControls
-  -> FenceToken -> IO (Either Text ())
+forwardRecoverDataFenceRelease ::
+  LockedStore s ->
+  DataFenceControls ->
+  FenceToken ->
+  IO (Either Text ())
 forwardRecoverDataFenceRelease locked controls token = do
   current <- matchingFence locked token
   case current of
     Left reason -> pure (Left reason)
-    Right record | fencePhase record /= FenceReleasing ->
-      pure (Left "data fence has no partial writer release to recover")
+    Right record
+      | fencePhase record /= FenceReleasing ->
+          pure (Left "data fence has no partial writer release to recover")
     Right record -> do
       physical <- observeFencePhysical controls record
       case physical of
         Left reason -> pure (Left reason)
-        Right actual | actual /= fencePhysical record ->
-          pure (Left "data fence physical identities changed during release")
+        Right actual
+          | actual /= fencePhysical record ->
+              pure (Left "data fence physical identities changed during release")
         Right _ -> do
           observed <- observeWritersReleased controls record
           case observed of
@@ -261,18 +295,28 @@ forwardRecoverDataFenceRelease locked controls token = do
                   Right () -> finishReleaseObserved False locked controls token record
             Right _ -> pure (Left "writer release is not partial")
 
-finishRelease :: LockedStore s -> DataFenceControls -> FenceToken
-  -> DataFenceRecord -> IO (Either Text ())
+finishRelease ::
+  LockedStore s ->
+  DataFenceControls ->
+  FenceToken ->
+  DataFenceRecord ->
+  IO (Either Text ())
 finishRelease = finishReleaseObserved True
 
-finishReleaseObserved :: Bool -> LockedStore s -> DataFenceControls -> FenceToken
-  -> DataFenceRecord -> IO (Either Text ())
+finishReleaseObserved ::
+  Bool ->
+  LockedStore s ->
+  DataFenceControls ->
+  FenceToken ->
+  DataFenceRecord ->
+  IO (Either Text ())
 finishReleaseObserved mayResume locked controls token record = do
   physical <- observeFencePhysical controls record
   case physical of
     Left reason -> pure (Left reason)
-    Right actual | actual /= fencePhysical record ->
-      pure (Left "data fence physical identities changed during release")
+    Right actual
+      | actual /= fencePhysical record ->
+          pure (Left "data fence physical identities changed during release")
     Right _ -> do
       observed <- observeWritersReleased controls record
       case observed of
@@ -289,9 +333,11 @@ finishReleaseObserved mayResume locked controls token record = do
         Right WritersFullyReleased -> do
           headResult <- currentHead locked
           case headResult of
-            Right headValue | Just active <- headDataFence headValue
+            Right headValue
+              | Just active <- headDataFence headValue
               , fenceSession active == tokenText token
-              , fencePhase active == FenceReleasing -> writeHead locked headValue Nothing
+              , fencePhase active == FenceReleasing ->
+                  writeHead locked headValue Nothing
             Right _ -> pure (Left "data fence changed during release")
             Left reason -> pure (Left reason)
 
@@ -300,8 +346,9 @@ exclusionProof controls record = do
   observed <- observeFencePhysical controls record
   case observed of
     Left reason -> pure (Left reason)
-    Right physical | physical /= fencePhysical record ->
-      pure (Left "data fence physical identities changed")
+    Right physical
+      | physical /= fencePhysical record ->
+          pure (Left "data fence physical identities changed")
     Right _ -> do
       excluded <- observeWritersExcluded controls record
       pure $ case excluded of
@@ -314,8 +361,9 @@ dataProof controls record = do
   physical <- observeFencePhysical controls record
   case physical of
     Left reason -> pure (Left reason)
-    Right observed | observed /= fencePhysical record ->
-      pure (Left "data fence target incarnation changed")
+    Right observed
+      | observed /= fencePhysical record ->
+          pure (Left "data fence target incarnation changed")
     Right _ -> do
       verified <- verifyRecoveredData controls record
       pure $ case verified of
@@ -325,19 +373,28 @@ dataProof controls record = do
 
 unresolved :: LockedStore s -> DataFenceRecord -> Text -> IO (Either Text a)
 unresolved locked record reason = do
-  marked <- transition locked (FenceToken (fenceSession record))
-    [FenceAcquiring, FenceChanging, FenceVerifying] FenceUnresolved
+  marked <-
+    transition
+      locked
+      (FenceToken (fenceSession record))
+      [FenceAcquiring, FenceChanging, FenceVerifying]
+      FenceUnresolved
   pure (case marked of Left failure -> Left (reason <> "; " <> failure); Right () -> Left reason)
 
-transition :: LockedStore s -> FenceToken -> [DataFencePhase]
-  -> DataFencePhase -> IO (Either Text ())
+transition ::
+  LockedStore s ->
+  FenceToken ->
+  [DataFencePhase] ->
+  DataFencePhase ->
+  IO (Either Text ())
 transition locked token allowed next = do
   headResult <- currentHead locked
   case headResult of
-    Right headValue | Just record <- headDataFence headValue
+    Right headValue
+      | Just record <- headDataFence headValue
       , fenceSession record == tokenText token
       , fencePhase record `elem` allowed ->
-        writeHead locked headValue (Just record {fencePhase = next})
+          writeHead locked headValue (Just record {fencePhase = next})
     Right _ -> pure (Left "data fence session or phase changed")
     Left reason -> pure (Left reason)
 
@@ -362,27 +419,45 @@ currentHead locked = do
     Right Nothing -> Left "inventory store is not initialized"
     Right (Just headValue) -> Right headValue
 
-writeHead :: LockedStore s -> HeadManifest -> Maybe DataFenceRecord
-  -> IO (Either Text ())
+writeHead ::
+  LockedStore s ->
+  HeadManifest ->
+  Maybe DataFenceRecord ->
+  IO (Either Text ())
 writeHead locked headValue fence = do
-  let replacement = headValue
-        { headGeneration = headGeneration headValue + 1
-        , headDataFence = fence
-        }
-  result <- replaceHeadIfGenerationMatches (lockedStore locked)
-    (Just (headGeneration headValue)) replacement
+  let replacement =
+        headValue
+          { headGeneration = headGeneration headValue + 1
+          , headDataFence = fence
+          }
+  result <-
+    replaceHeadIfGenerationMatches
+      (lockedStore locked)
+      (Just (headGeneration headValue))
+      replacement
   pure $ either (Left . T.pack . show) Right result
 
 validRequest :: InventoryStore -> HeadManifest -> DataFenceRecord -> Bool
 validRequest store headValue requested =
   headDataFence headValue == Nothing
-    && (case fenceTransaction requested of
-      Nothing -> headActiveTransaction headValue == Nothing
-        && headExecutorClaim headValue == Nothing
-      Just transaction -> headActiveTransaction headValue == Just transaction
-        && maybe False (\claim -> claimTransaction claim == transaction
-          && claimClientIdentity claim == maybe (headClientIdentity headValue) id
-            (storeClientIdentity store)) (headExecutorClaim headValue))
+    && ( case fenceTransaction requested of
+           Nothing ->
+             headActiveTransaction headValue == Nothing
+               && headExecutorClaim headValue == Nothing
+           Just transaction ->
+             headActiveTransaction headValue == Just transaction
+               && maybe
+                 False
+                 ( \claim ->
+                     claimTransaction claim == transaction
+                       && claimClientIdentity claim
+                         == maybe
+                           (headClientIdentity headValue)
+                           id
+                           (storeClientIdentity store)
+                 )
+                 (headExecutorClaim headValue)
+       )
     && fenceContext requested == headBinding headValue
     && fenceAccepted requested == headAccepted headValue
     && not (T.null (fenceSession requested))

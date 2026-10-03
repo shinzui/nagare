@@ -134,10 +134,11 @@ runCdnPurge mctx o | Just output <- o ^. #savePlan = do
   active <- activeTarget mctx
   snapshot <- Inventory.loadTargetSnapshotReadOnly active
   when (o ^. #wholeZone && not (null (o ^. #paths))) (dieT "--whole-zone cannot be combined with --path")
-  scope <- either dieT pure $
-    if o ^. #wholeZone
-      then compileCdnZonePurge snapshot (T.pack (o ^. #host)) requestId
-      else compileCdnPurge snapshot (T.pack (o ^. #host)) requestId (map T.pack (o ^. #paths))
+  scope <-
+    either dieT pure $
+      if o ^. #wholeZone
+        then compileCdnZonePurge snapshot (T.pack (o ^. #host)) requestId
+        else compileCdnPurge snapshot (T.pack (o ^. #host)) requestId (map T.pack (o ^. #paths))
   workspace <- selectReviewedPulumiForContext (active ^. #contextName) (active ^. #profile)
   planCdnScope active workspace snapshot scope output
 runCdnPurge mctx o = do

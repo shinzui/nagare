@@ -51,8 +51,8 @@ import Nagare.Ops.Probe (captureTool)
 import Nagare.Platform.Paths (PlatformRootSource (..))
 import Nagare.Target
   ( ContextName
-  , Mode (..)
   , InventoryStoreKind (..)
+  , Mode (..)
   , PulumiBackendKind (..)
   , TargetProfile (..)
   , VmShape (..)
@@ -61,8 +61,8 @@ import Nagare.Target
   , defaultGcsPulumiBackendUrl
   , effectivePulumiBackend
   , inventoryStoreToken
-  , parseInventoryStoreKind
   , mergeContextOverrides
+  , parseInventoryStoreKind
   , pulumiBackendToken
   , readContextMap
   , registryPrefix
@@ -237,8 +237,11 @@ requiredInitTools o backend =
     needsGcloud =
       not (o ^. #skipPreflight)
         || not (o ^. #skipEnable)
-        || (not (o ^. #skipSeed) && (backend == PulumiBackendGcs
-            || parseInventoryStoreKind (o ^. #inventoryStore) == InventoryStoreGcs))
+        || ( not (o ^. #skipSeed)
+               && ( backend == PulumiBackendGcs
+                      || parseInventoryStoreKind (o ^. #inventoryStore) == InventoryStoreGcs
+                  )
+           )
 
 -- | Return the requested executable names that cannot be resolved on PATH.
 findMissingTools :: [String] -> IO [String]

@@ -1,7 +1,5 @@
 module InventoryKubernetesSpec (inventoryKubernetesTests) where
 
-import Nagare.Test.Support.Kubernetes
-import InventoryKubernetesLifecycleSpec (nativeSiblingCarryForward, liveTaskDeletionProof, liveTaskDeletionCommandProof, reviewedReleaseCleanup, reviewedManualReceiptCleanup)
 import Control.Exception (finally)
 import Control.Monad (forM_)
 import Data.Aeson (Value (..), eitherDecodeStrict, encode, object, (.=))
@@ -14,8 +12,8 @@ import Data.Either (isLeft)
 import Data.Foldable (toList)
 import Data.Generics.Labels ()
 import Data.IORef
-import Data.List.NonEmpty (NonEmpty (..))
 import Data.List (sort)
+import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
@@ -24,98 +22,135 @@ import Data.Text.Encoding qualified as TE
 import Data.Time (UTCTime)
 import Data.Time.Format (defaultTimeLocale, parseTimeM)
 import Data.Yaml qualified as Yaml
+import InventoryKubernetesLifecycleSpec (liveTaskDeletionCommandProof, liveTaskDeletionProof, nativeSiblingCarryForward, reviewedManualReceiptCleanup, reviewedReleaseCleanup)
 import Nagare.Cluster.GcsJob (MinioRef (..), StoreBackend (GcsBackend, MinioBackend))
 import Nagare.Database.Backup (renderDbBackupCronJob, renderPreviousInventoryDbBackupCronJob, renderPreviousSignedInventoryDbBackupCronJob)
 import Nagare.Database.Secret (b64decode)
-import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Database (Database (Database), Engine (..), defaultEngineVersion, engineVersionText, mkDatabaseName)
+import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Task (scheduledTask)
 import Nagare.Dsl.Task.Render (renderTask)
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes
 import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), backupReceiptFromPodList, cacheClientDataMatches, certificateReady, collectionDeleteRequest, completedJobContainerMessageFromPodList, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, crdEstablished, credentialDataMatches, deploymentAvailable, deploymentSelectorReplacement, desiredFieldsMatch, generatedCredentialTemplate, jobCompleted, knativeReady, materializeCacheKey, materializeCredential, mkKubernetesRuntimeOps, observeCacheClientOutput, observeKubernetesBatchWithGuard, parseObserved, readinessForAddress, statefulSetImmutableReplacement, statefulSetReady, supportedUpdateAddress, withoutCacheClientData)
+import Nagare.Inventory.Backup (BackupReceiptExpectation (..), BackupSourceProof (..), ManualBackupRequest (..), VolumeSnapshotRequest (..), compileManualBackupScope, compileVolumeSnapshotScope, manualBackupJobReceiptExpectation, manualBackupJobSourcePins, manualBackupSourceProof, parseBackupReceipt, parseManualBackupReceipt, volumeSnapshotJobSourcePins)
 import Nagare.Inventory.CollectionPolicy (supportsRetainedCollection)
-import Nagare.Inventory.Database (compileDatabaseForBackend)
-import Nagare.Inventory.Backup (ManualBackupRequest (..), BackupReceiptExpectation (..), BackupSourceProof (..), VolumeSnapshotRequest (..), compileManualBackupScope, compileVolumeSnapshotScope, manualBackupJobReceiptExpectation, manualBackupJobSourcePins, manualBackupSourceProof, parseBackupReceipt, parseManualBackupReceipt, volumeSnapshotJobSourcePins)
-import Nagare.Inventory.ManualReceipt (ManualReceiptEvidence (..), compileManualReceiptScope, manualReceiptRecord)
-import Nagare.Inventory.ManualReceiptSource (inspectManualReceipt, parseGcsManualMetadata)
-import Nagare.Inventory.Prune (ManualPruneRequest (..), PruneSourceProof (..), compileManualPruneScope, manualPruneJobBackupPin, manualPruneSourceProof)
-import Nagare.Inventory.VolumePrune (VolumePruneRequest (..), compileVolumePruneScope, volumePruneJobCredentialPin)
-import Nagare.Inventory.Restore (ManualRestoreRequest (..), VolumeRestoreRequest (..), compileManualRestoreScope, compileVolumeRestoreScope, manualRestoreJobTargetPins, manualRestoreTargetProof, volumeRestoreJobSourcePins)
-import Nagare.Inventory.Maintenance (MaintenanceRequest (..), MaintenanceSourceProof (..), compileMaintenanceScope, maintenanceSourceProof)
-import Nagare.Inventory.LiveRestore (LiveBackupInput (..), LiveBackupProof (..), LiveScheduledProof (..), LiveRestoreRequest (..), LiveRestoreProof (..), compileLiveRestoreScope, liveRestoreProof)
-import Nagare.Inventory.LiveRestorePostgres (normalizePostgresDump)
-import Nagare.Inventory.LiveRestoreSource (verifyLiveStoredFiles)
-import Nagare.Inventory.ScheduledStore (StoredObject (..))
-import Nagare.Inventory.ScheduledPrune
-  ( ScheduledPruneCandidate (..), ScheduledPruneRequest (..)
-  , compileScheduledPruneScope, compileScheduledPruneRecoveryScope
-  , recoverScheduledPruneCandidate )
-import Nagare.Inventory.DataService (NativeDataKind (..), compileBackupPruneRemovalScope, compileStandaloneDatabase, compileStatefulSetRestartScope, standaloneStatefulSetOwned)
-import Nagare.Inventory.Digest
 import Nagare.Inventory.Components.Foundation (compileContributedNamespaces)
+import Nagare.Inventory.DataService (NativeDataKind (..), compileBackupPruneRemovalScope, compileStandaloneDatabase, compileStatefulSetRestartScope, standaloneStatefulSetOwned)
+import Nagare.Inventory.Database (compileDatabaseForBackend)
+import Nagare.Inventory.Digest
 import Nagare.Inventory.Execute (TransactionResult (..), applyReviewed, resumeTransaction)
 import Nagare.Inventory.Journal
 import Nagare.Inventory.Kubernetes
-import Nagare.Inventory.KubernetesSources (loadKubernetesSources)
 import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
+import Nagare.Inventory.KubernetesSources (loadKubernetesSources)
 import Nagare.Inventory.Lifecycle (decideCollection, decideRetirement)
+import Nagare.Inventory.LiveRestore (LiveBackupInput (..), LiveBackupProof (..), LiveRestoreProof (..), LiveRestoreRequest (..), LiveScheduledProof (..), compileLiveRestoreScope, liveRestoreProof)
+import Nagare.Inventory.LiveRestorePostgres (normalizePostgresDump)
+import Nagare.Inventory.LiveRestoreSource (verifyLiveStoredFiles)
+import Nagare.Inventory.Maintenance (MaintenanceRequest (..), MaintenanceSourceProof (..), compileMaintenanceScope, maintenanceSourceProof)
+import Nagare.Inventory.ManualReceipt (ManualReceiptEvidence (..), compileManualReceiptScope, manualReceiptRecord)
+import Nagare.Inventory.ManualReceiptSource (inspectManualReceipt, parseGcsManualMetadata)
 import Nagare.Inventory.Plan
+import Nagare.Inventory.Prune (ManualPruneRequest (..), PruneSourceProof (..), compileManualPruneScope, manualPruneJobBackupPin, manualPruneSourceProof)
+import Nagare.Inventory.Restore (ManualRestoreRequest (..), VolumeRestoreRequest (..), compileManualRestoreScope, compileVolumeRestoreScope, manualRestoreJobTargetPins, manualRestoreTargetProof, volumeRestoreJobSourcePins)
+import Nagare.Inventory.ScheduledPrune
+  ( ScheduledPruneCandidate (..)
+  , ScheduledPruneRequest (..)
+  , compileScheduledPruneRecoveryScope
+  , compileScheduledPruneScope
+  , recoverScheduledPruneCandidate
+  )
+import Nagare.Inventory.ScheduledStore (StoredObject (..))
 import Nagare.Inventory.Status (DriftCategory (ImmutableReplacementRequired), classifyDrift, findingCategory, loadAcceptedNative, loadRetainedNative)
-import Nagare.Inventory.TaskLifecycle (compileTaskSuspensionScope, retireSuspendedTaskScope, taskSuspended)
 import Nagare.Inventory.Store
+import Nagare.Inventory.TaskLifecycle (compileTaskSuspensionScope, retireSuspendedTaskScope, taskSuspended)
+import Nagare.Inventory.VolumePrune (VolumePruneRequest (..), compileVolumePruneScope, volumePruneJobCredentialPin)
+import Nagare.Resource.Database (DatabaseDirectInput (..), databaseResourceId)
 import Nagare.Resource.Inventory hiding (cluster)
 import Nagare.Resource.Inventory qualified as ResourceInventory
-import Nagare.Resource.Database (DatabaseDirectInput (..), databaseResourceId)
 import Nagare.Resource.Kubernetes
 import Nagare.Resource.Policy
 import Nagare.Resource.Reference (Dependency (..))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue, encodeCanonicalScope)
 import Nagare.Storage.Discover (pvcName)
-import Test.Tasty
-import Test.Tasty.HUnit
+import Nagare.Test.Support.Kubernetes
 import System.Directory (createDirectoryIfMissing)
-import System.FilePath ((</>))
-import System.IO.Temp (withSystemTempDirectory)
 import System.Environment (getEnvironment, lookupEnv)
 import System.Exit (ExitCode (ExitSuccess))
+import System.FilePath ((</>))
+import System.IO.Temp (withSystemTempDirectory)
 import System.Process (CreateProcess (env), proc, readCreateProcessWithExitCode, readProcessWithExitCode)
+import Test.Tasty
+import Test.Tasty.HUnit
 
 collectOne :: String -> (String, Value) -> IO ()
 collectOne selectedContext (kind, value) = do
   let bytes = ok (canonicalValue value)
-      bound = Map.singleton resource (ok (bindKubernetesObject
-        (input {inputObject = value, objectDigest = contentDigest bytes,
-          lifecyclePolicy = DeleteWhenUnreferenced, inputSensitivity = Public})))
+      bound =
+        Map.singleton
+          resource
+          ( ok
+              ( bindKubernetesObject
+                  ( input
+                      { inputObject = value
+                      , objectDigest = contentDigest bytes
+                      , lifecyclePolicy = DeleteWhenUnreferenced
+                      , inputSensitivity = Public
+                      }
+                  )
+              )
+          )
       config = KubernetesRuntimeConfig (ok (mkContextId "test")) (T.pack selectedContext) (pure (Right ()))
       adapter = mkKubernetesAdapter bound (mkKubernetesRuntimeOps config bound)
       nativeName = "nagare-ep149-collect-" <> kind
       cleanup = do
-        _ <- readProcessWithExitCode "kubectl"
-          ["--context", selectedContext, "delete", kind, nativeName,
-           "--namespace", "default", "--ignore-not-found"] ""
+        _ <-
+          readProcessWithExitCode
+            "kubectl"
+            [ "--context"
+            , selectedContext
+            , "delete"
+            , kind
+            , nativeName
+            , "--namespace"
+            , "default"
+            , "--ignore-not-found"
+            ]
+            ""
         pure ()
   cleanup
-  (do
-    created <- adapterPrepare adapter createOperation >>= expectRight
-    adapterPreflight adapter createOperation created >>= expectRight
-    adapterExecute adapter createOperation created >>= (@?= AdapterEffectCompleted)
-    _ <- adapterVerify adapter createOperation created >>= expectRight
-    let collectionOperation = operation RetireResource
-    collected <- adapterPrepare adapter collectionOperation >>= expectRight
-    (annotationExit, _, _) <- readProcessWithExitCode "kubectl"
-      ["--context", selectedContext, "annotate", kind, nativeName,
-       "--namespace", "default", "collection-probe=changed"] ""
-    annotationExit @?= ExitSuccess
-    stale <- adapterPreflight adapter collectionOperation collected
-    assertBool "stale resourceVersion must refuse collection" (isLeft stale)
-    refreshed <- adapterPrepare adapter collectionOperation >>= expectRight
-    adapterPreflight adapter collectionOperation refreshed >>= expectRight
-    adapterExecute adapter collectionOperation refreshed >>= (@?= AdapterEffectCompleted)
-    _ <- adapterVerify adapter collectionOperation refreshed >>= expectRight
-    pure ())
+  ( do
+      created <- adapterPrepare adapter createOperation >>= expectRight
+      adapterPreflight adapter createOperation created >>= expectRight
+      adapterExecute adapter createOperation created >>= (@?= AdapterEffectCompleted)
+      _ <- adapterVerify adapter createOperation created >>= expectRight
+      let collectionOperation = operation RetireResource
+      collected <- adapterPrepare adapter collectionOperation >>= expectRight
+      (annotationExit, _, _) <-
+        readProcessWithExitCode
+          "kubectl"
+          [ "--context"
+          , selectedContext
+          , "annotate"
+          , kind
+          , nativeName
+          , "--namespace"
+          , "default"
+          , "collection-probe=changed"
+          ]
+          ""
+      annotationExit @?= ExitSuccess
+      stale <- adapterPreflight adapter collectionOperation collected
+      assertBool "stale resourceVersion must refuse collection" (isLeft stale)
+      refreshed <- adapterPrepare adapter collectionOperation >>= expectRight
+      adapterPreflight adapter collectionOperation refreshed >>= expectRight
+      adapterExecute adapter collectionOperation refreshed >>= (@?= AdapterEffectCompleted)
+      _ <- adapterVerify adapter collectionOperation refreshed >>= expectRight
+      pure ()
+    )
     `finally` cleanup
 
 inventoryKubernetesTests :: TestTree
@@ -133,8 +168,11 @@ inventoryKubernetesTests =
         readIORef guardCalls >>= (@?= 2)
         readIORef objectCalls >>= (@?= 201)
         writeIORef objectCalls 0
-        beforeRefusal <- observeKubernetesBatchWithGuard
-          (pure (Left "wrong context")) observe resources
+        beforeRefusal <-
+          observeKubernetesBatchWithGuard
+            (pure (Left "wrong context"))
+            observe
+            resources
         beforeRefusal @?= replicate 201 (KubernetesUnknown "cluster guard refused: wrong context")
         readIORef objectCalls >>= (@?= 0)
         checks <- newIORef (0 :: Int)
@@ -149,16 +187,21 @@ inventoryKubernetesTests =
         mutations <- newIORef (0 :: Int)
         individualReads <- newIORef (0 :: Int)
         batchReads <- newIORef (0 :: Int)
-        let ordinaryOps = (ops state mutations)
-              { kubernetesObserve = \_ -> do
-                  modifyIORef' individualReads (+ 1)
-                  readIORef state
-              }
+        let ordinaryOps =
+              (ops state mutations)
+                { kubernetesObserve = \_ -> do
+                    modifyIORef' individualReads (+ 1)
+                    readIORef state
+                }
             scan resources = do
               modifyIORef' batchReads (+ 1)
               traverse (const (readIORef state)) resources
-            adapter = mkKubernetesAdapterWithBackupReceiptAndBatch specs ordinaryOps scan
-              (\_ _ -> pure (Left "no backup receipt in this fixture"))
+            adapter =
+              mkKubernetesAdapterWithBackupReceiptAndBatch
+                specs
+                ordinaryOps
+                scan
+                (\_ _ -> pure (Left "no backup receipt in this fixture"))
         _ <- adapterObserve adapter [resource] >>= expectRight
         readIORef individualReads >>= (@?= 0)
         prepared <- adapterPrepare adapter createOperation >>= expectRight
@@ -170,9 +213,12 @@ inventoryKubernetesTests =
         _ <- adapterVerify adapter createOperation prepared >>= expectRight
         readIORef individualReads >>= (@?= 4)
         recovered <- adapterRecover adapter createOperation prepared
-        assertBool "completed effect was not recovered" (case recovered of
-          RecoveryProvedComplete _ -> True
-          _ -> False)
+        assertBool
+          "completed effect was not recovered"
+          ( case recovered of
+              RecoveryProvedComplete _ -> True
+              _ -> False
+          )
         readIORef individualReads >>= (@?= 5)
         readIORef batchReads >>= (@?= 1)
     , testCase "PostgreSQL live restore compares full dumps across random guard tokens" $ do
@@ -180,24 +226,33 @@ inventoryKubernetesTests =
             restored = "-- source\n\\restrict XYZ456\nCREATE TABLE t (id integer);\n\\unrestrict XYZ456\n"
             changed = "-- source\n\\restrict XYZ456\nCREATE TABLE t (id text);\n\\unrestrict XYZ456\n"
         normalizePostgresDump source @?= normalizePostgresDump restored
-        assertBool "changed PostgreSQL content compared equal"
+        assertBool
+          "changed PostgreSQL content compared equal"
           (normalizePostgresDump source /= normalizePostgresDump changed)
-        assertBool "unmatched PostgreSQL guard was ignored"
-          (isLeft (normalizePostgresDump
-            "\\restrict ABC123\nCREATE TABLE t (id integer);\n\\unrestrict OTHER\n"))
+        assertBool
+          "unmatched PostgreSQL guard was ignored"
+          ( isLeft
+              ( normalizePostgresDump
+                  "\\restrict ABC123\nCREATE TABLE t (id integer);\n\\unrestrict OTHER\n"
+              )
+          )
     , testCase "Deployment selector change requires replacement review" $ do
-        let deployment selectorValue = object
-              [ "apiVersion" .= ("apps/v1" :: Text)
-              , "kind" .= ("Deployment" :: Text)
-              , "spec" .= object ["selector" .= object ["matchLabels" .= object ["app" .= (selectorValue :: Text)]]]
-              ]
+        let deployment selectorValue =
+              object
+                [ "apiVersion" .= ("apps/v1" :: Text)
+                , "kind" .= ("Deployment" :: Text)
+                , "spec" .= object ["selector" .= object ["matchLabels" .= object ["app" .= (selectorValue :: Text)]]]
+                ]
             desired = deployment "new"
             observed = deployment "old"
-        assertBool "changed immutable selector was ordinary drift"
+        assertBool
+          "changed immutable selector was ordinary drift"
           (deploymentSelectorReplacement desired observed)
-        assertBool "matching selector required replacement"
+        assertBool
+          "matching selector required replacement"
           (not (deploymentSelectorReplacement desired desired))
-        assertBool "non-Deployment object required replacement"
+        assertBool
+          "non-Deployment object required replacement"
           (not (deploymentSelectorReplacement (object ["kind" .= ("ConfigMap" :: Text)]) observed))
         let state = KubernetesReplacementRequired physical "4" (Just resource) (contentDigest "changed")
         eitherDecodeStrict (BL.toStrict (encode state)) @?= Right state
@@ -209,69 +264,121 @@ inventoryKubernetesTests =
           @?= Just (ObservedReplacementRequired physical (contentDigest "changed"))
         readIORef calls >>= (@?= 0)
     , testCase "StatefulSet identity changes require replacement review" $ do
-        let stateful specValue = object
-              [ "apiVersion" .= ("apps/v1" :: Text)
-              , "kind" .= ("StatefulSet" :: Text)
-              , "spec" .= specValue
-              ]
-            base = stateful (object
-              [ "selector" .= object ["matchLabels" .= object ["app" .= ("old" :: Text)]]
-              , "serviceName" .= ("headless" :: Text)
-              , "volumeClaimTemplates" .= [object ["metadata" .= object ["name" .= ("data" :: Text)]]]
-              , "replicas" .= (1 :: Int)
-              ])
-            changedSelector = stateful (object
-              [ "selector" .= object ["matchLabels" .= object ["app" .= ("new" :: Text)]]
-              , "serviceName" .= ("headless" :: Text)
-              , "volumeClaimTemplates" .= [object ["metadata" .= object ["name" .= ("data" :: Text)]]]
-              ])
+        let stateful specValue =
+              object
+                [ "apiVersion" .= ("apps/v1" :: Text)
+                , "kind" .= ("StatefulSet" :: Text)
+                , "spec" .= specValue
+                ]
+            base =
+              stateful
+                ( object
+                    [ "selector" .= object ["matchLabels" .= object ["app" .= ("old" :: Text)]]
+                    , "serviceName" .= ("headless" :: Text)
+                    , "volumeClaimTemplates" .= [object ["metadata" .= object ["name" .= ("data" :: Text)]]]
+                    , "replicas" .= (1 :: Int)
+                    ]
+                )
+            changedSelector =
+              stateful
+                ( object
+                    [ "selector" .= object ["matchLabels" .= object ["app" .= ("new" :: Text)]]
+                    , "serviceName" .= ("headless" :: Text)
+                    , "volumeClaimTemplates" .= [object ["metadata" .= object ["name" .= ("data" :: Text)]]]
+                    ]
+                )
             changedService = stateful (object ["serviceName" .= ("other" :: Text)])
-            changedClaims = stateful (object
-              ["volumeClaimTemplates" .= [object ["metadata" .= object ["name" .= ("other" :: Text)]]]])
+            changedClaims =
+              stateful
+                ( object
+                    ["volumeClaimTemplates" .= [object ["metadata" .= object ["name" .= ("other" :: Text)]]]]
+                )
             changedPodManagement = stateful (object ["podManagementPolicy" .= ("Parallel" :: Text)])
             changedReplicas = stateful (object ["replicas" .= (2 :: Int)])
-            defaultedClaims = stateful (object
-              ["volumeClaimTemplates" .= [object
-                ["metadata" .= object ["name" .= ("data" :: Text), "labels" .= object []]]]])
+            defaultedClaims =
+              stateful
+                ( object
+                    [ "volumeClaimTemplates"
+                        .= [ object
+                               ["metadata" .= object ["name" .= ("data" :: Text), "labels" .= object []]]
+                           ]
+                    ]
+                )
         assertBool "selector change was ordinary drift" (statefulSetImmutableReplacement changedSelector base)
         assertBool "serviceName change was ordinary drift" (statefulSetImmutableReplacement changedService base)
         assertBool "claim template change was ordinary drift" (statefulSetImmutableReplacement changedClaims base)
-        assertBool "pod management change was ordinary drift"
+        assertBool
+          "pod management change was ordinary drift"
           (statefulSetImmutableReplacement changedPodManagement (stateful (object ["podManagementPolicy" .= ("OrderedReady" :: Text)])))
         assertBool "replica change required replacement" (not (statefulSetImmutableReplacement changedReplicas base))
-        assertBool "defaulted claim metadata required replacement"
+        assertBool
+          "defaulted claim metadata required replacement"
           (not (statefulSetImmutableReplacement base defaultedClaims))
-        assertBool "missing observed value claimed replacement"
+        assertBool
+          "missing observed value claimed replacement"
           (not (statefulSetImmutableReplacement base (stateful (object []))))
-        assertBool "different kind claimed StatefulSet replacement"
+        assertBool
+          "different kind claimed StatefulSet replacement"
           (not (statefulSetImmutableReplacement (object ["kind" .= ("Deployment" :: Text)]) base))
     , testCase "unready Job retains configuration observation without completing execution" $ do
         let config = KubernetesRuntimeConfig (ok (mkContextId "test")) "unused" (pure (Right ()))
-            desired = object
-              ["apiVersion" .= ("batch/v1" :: Text), "kind" .= ("Job" :: Text),
-               "metadata" .= object ["name" .= ("work" :: Text)]]
+            desired =
+              object
+                [ "apiVersion" .= ("batch/v1" :: Text)
+                , "kind" .= ("Job" :: Text)
+                , "metadata" .= object ["name" .= ("work" :: Text)]
+                ]
             native = BL.toStrict (encode desired)
-            live condition = object
-              ["apiVersion" .= ("batch/v1" :: Text), "kind" .= ("Job" :: Text),
-               "metadata" .= object
-                 ["name" .= ("work" :: Text), "uid" .= physical,
-                  "resourceVersion" .= ("5" :: Text)],
-               "status" .= object ["conditions" .= [object
-                 ["type" .= ("Complete" :: Text), "status" .= (condition :: Text)]]]]
-            observe condition = parseObserved config resource native
-              (TE.decodeUtf8 (BL.toStrict (encode (live condition))))
+            live condition =
+              object
+                [ "apiVersion" .= ("batch/v1" :: Text)
+                , "kind" .= ("Job" :: Text)
+                , "metadata"
+                    .= object
+                      [ "name" .= ("work" :: Text)
+                      , "uid" .= physical
+                      , "resourceVersion" .= ("5" :: Text)
+                      ]
+                , "status"
+                    .= object
+                      [ "conditions"
+                          .= [ object
+                                 ["type" .= ("Complete" :: Text), "status" .= (condition :: Text)]
+                             ]
+                      ]
+                ]
+            observe condition =
+              parseObserved
+                config
+                resource
+                native
+                (TE.decodeUtf8 (BL.toStrict (encode (live condition))))
         observe "False" @?= Right (KubernetesNotReady physical "5" Nothing (contentDigest native))
         observe "True" @?= Right (KubernetesPresent physical "5" Nothing (contentDigest native))
-        let failed = object
-              ["apiVersion" .= ("batch/v1" :: Text), "kind" .= ("Job" :: Text),
-               "metadata" .= object
-                 ["name" .= ("work" :: Text), "uid" .= physical,
-                  "resourceVersion" .= ("5" :: Text)],
-               "status" .= object ["conditions" .= [object
-                 ["type" .= ("Failed" :: Text), "status" .= ("True" :: Text)]]]]
-        parseObserved config resource native
-          (TE.decodeUtf8 (BL.toStrict (encode failed))) @?=
-            Right (KubernetesFailed physical "5" Nothing (contentDigest native))
+        let failed =
+              object
+                [ "apiVersion" .= ("batch/v1" :: Text)
+                , "kind" .= ("Job" :: Text)
+                , "metadata"
+                    .= object
+                      [ "name" .= ("work" :: Text)
+                      , "uid" .= physical
+                      , "resourceVersion" .= ("5" :: Text)
+                      ]
+                , "status"
+                    .= object
+                      [ "conditions"
+                          .= [ object
+                                 ["type" .= ("Failed" :: Text), "status" .= ("True" :: Text)]
+                             ]
+                      ]
+                ]
+        parseObserved
+          config
+          resource
+          native
+          (TE.decodeUtf8 (BL.toStrict (encode failed)))
+          @?= Right (KubernetesFailed physical "5" Nothing (contentDigest native))
         calls <- newIORef (0 :: Int)
         state <- newIORef (KubernetesAbsent absence)
         let adapter = mkKubernetesAdapter specs (ops state calls)
@@ -282,8 +389,12 @@ inventoryKubernetesTests =
         verified <- adapterVerify adapter createOperation prepared
         assertBool "unready object completed the reviewed operation" (case verified of Left _ -> True; Right _ -> False)
     , testCase "only exact created Deployments, Knative Services and routes can await readiness during recovery" $ forM_ [("apps/v1", "Deployment"), ("serving.knative.dev/v1", "Service"), ("serving.knative.dev/v1beta1", "DomainMapping")] $ \(api, kind) -> do
-        let native = object ["apiVersion" .= (api :: Text), "kind" .= (kind :: Text),
-              "metadata" .= object ["name" .= ("activator" :: Text), "namespace" .= ("knative-serving" :: Text)]]
+        let native =
+              object
+                [ "apiVersion" .= (api :: Text)
+                , "kind" .= (kind :: Text)
+                , "metadata" .= object ["name" .= ("activator" :: Text), "namespace" .= ("knative-serving" :: Text)]
+                ]
             bytes = ok (canonicalValue native)
             declaration = input {inputObject = native, objectDigest = contentDigest bytes}
             deploymentSpecs = Map.singleton resource (ok (bindKubernetesObject declaration))
@@ -295,21 +406,35 @@ inventoryKubernetesTests =
         adapterRecover adapter createOperation prepared >>= (@?= RecoveryAwaitingReadiness physical)
         verified <- adapterVerify adapter createOperation prepared
         assertBool "readiness was treated as completion" (case verified of Left _ -> True; _ -> False)
-        mapM_ (\changed -> do
-            writeIORef state changed
-            result <- adapterRecover adapter createOperation prepared
-            assertBool "foreign, changed or failed object authorized continuation"
-              (case result of RecoveryUnresolved _ -> True; _ -> False))
-          [KubernetesNotReady physical "5" Nothing (contentDigest bytes),
-          KubernetesNotReady physical "5" (Just resource) (contentDigest "changed"),
-          KubernetesFailed physical "5" (Just resource) (contentDigest bytes)]
+        mapM_
+          ( \changed -> do
+              writeIORef state changed
+              result <- adapterRecover adapter createOperation prepared
+              assertBool
+                "foreign, changed or failed object authorized continuation"
+                (case result of RecoveryUnresolved _ -> True; _ -> False)
+          )
+          [ KubernetesNotReady physical "5" Nothing (contentDigest bytes)
+          , KubernetesNotReady physical "5" (Just resource) (contentDigest "changed")
+          , KubernetesFailed physical "5" (Just resource) (contentDigest bytes)
+          ]
         readIORef calls >>= (@?= 0)
     , testCase "unready owned Knative Service prepares an exact conditional correction" $ do
-        let value = object ["apiVersion" .= ("serving.knative.dev/v1" :: Text), "kind" .= ("Service" :: Text),
-              "metadata" .= object ["name" .= ("web" :: Text), "namespace" .= ("personal" :: Text)]]
+        let value =
+              object
+                [ "apiVersion" .= ("serving.knative.dev/v1" :: Text)
+                , "kind" .= ("Service" :: Text)
+                , "metadata" .= object ["name" .= ("web" :: Text), "namespace" .= ("personal" :: Text)]
+                ]
             bytes = ok (canonicalValue value)
-            bound = Map.singleton resource (ok (bindKubernetesObject
-              (input {inputObject = value, objectDigest = contentDigest bytes})))
+            bound =
+              Map.singleton
+                resource
+                ( ok
+                    ( bindKubernetesObject
+                        (input {inputObject = value, objectDigest = contentDigest bytes})
+                    )
+                )
             before = KubernetesNotReady physical "4" (Just resource) (contentDigest "old-spec")
         state <- newIORef before
         calls <- newIORef (0 :: Int)
@@ -343,20 +468,33 @@ inventoryKubernetesTests =
         proof <- adapterVerify adapter createOperation prepared >>= expectRight
         adapterRecover adapter createOperation prepared >>= (@?= RecoveryProvedComplete proof)
     , testCase "declared Job verification can be reviewed before Job creation" $ do
-        let value = object
-              [ "apiVersion" .= ("batch/v1" :: Text)
-              , "kind" .= ("Job" :: Text)
-              , "metadata" .= object ["name" .= ("migration" :: Text), "namespace" .= ("default" :: Text)]
-              , "spec" .= object ["template" .= object ["spec" .= object
-                  ["restartPolicy" .= ("Never" :: Text), "containers" .= [object ["name" .= ("job" :: Text), "image" .= ("example@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" :: Text)]]]]]
-              ]
+        let value =
+              object
+                [ "apiVersion" .= ("batch/v1" :: Text)
+                , "kind" .= ("Job" :: Text)
+                , "metadata" .= object ["name" .= ("migration" :: Text), "namespace" .= ("default" :: Text)]
+                , "spec"
+                    .= object
+                      [ "template"
+                          .= object
+                            [ "spec"
+                                .= object
+                                  ["restartPolicy" .= ("Never" :: Text), "containers" .= [object ["name" .= ("job" :: Text), "image" .= ("example@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" :: Text)]]]
+                            ]
+                      ]
+                ]
             jobBytes = ok (canonicalValue value)
             native = ok (bindKubernetesObject (input {inputObject = value, objectDigest = contentDigest jobBytes}))
             bound = Map.singleton resource native
-            dataId = mintResourceId (ok (mkScopeId Application "affected"))
-              (ok (mkLogicalKey "database")) (ok (mkName "statefulset"))
-            declaredOperation = (operation RunDeclaredOperation)
-              {plannedResources = resource :| [dataId]}
+            dataId =
+              mintResourceId
+                (ok (mkScopeId Application "affected"))
+                (ok (mkLogicalKey "database"))
+                (ok (mkName "statefulset"))
+            declaredOperation =
+              (operation RunDeclaredOperation)
+                { plannedResources = resource :| [dataId]
+                }
         state <- newIORef (KubernetesAbsent (contentDigest "absent"))
         calls <- newIORef 0
         let adapter = mkKubernetesAdapter bound (ops state calls)
@@ -366,10 +504,16 @@ inventoryKubernetesTests =
         adapterExecute adapter declaredOperation prepared >>= (@?= AdapterEffectCompleted)
         _ <- adapterVerify adapter declaredOperation prepared >>= expectRight
         readIORef calls >>= (@?= 0)
-        writeIORef state (KubernetesFailed physical "5" (Just resource)
-          (contentDigest jobBytes))
-        adapterRecover adapter declaredOperation prepared >>=
-          (@?= RecoveryTerminalFailure physical)
+        writeIORef
+          state
+          ( KubernetesFailed
+              physical
+              "5"
+              (Just resource)
+              (contentDigest jobBytes)
+          )
+        adapterRecover adapter declaredOperation prepared
+          >>= (@?= RecoveryTerminalFailure physical)
     , testCase "foreign present object refuses review without mutation" $ do
         state <- newIORef (KubernetesPresent physical "4" Nothing (contentDigest "foreign"))
         calls <- newIORef (0 :: Int)
@@ -407,8 +551,14 @@ inventoryKubernetesTests =
         store <- newMemoryStore
         _ <- initializeStore store binding "drift-test" >>= expectRight
         initialHistory <- loadInventoryHistory store >>= expectRight
-        let initial = ok (planChanges candidate noLifecycleDecisions initialHistory
-              (ok (observationSet [(resource, ConfirmedAbsent absence)])))
+        let initial =
+              ok
+                ( planChanges
+                    candidate
+                    noLifecycleDecisions
+                    initialHistory
+                    (ok (observationSet [(resource, ConfirmedAbsent absence)]))
+                )
         snapshot <- readStoreSnapshot store >>= expectRight
         reviewed <- prepareReview registry snapshot initial >>= expectRight
         _ <- publishReview store reviewed >>= expectRight
@@ -420,29 +570,50 @@ inventoryKubernetesTests =
             next = ok (composeInventory (ok (mkScopeSnapshot binding accepted Map.empty)) (ReplaceScope scoped :| []))
             markerOwner = ok (mkScopeId Platform "bootstrap-stamp")
             markerId = mintResourceId markerOwner (ok (mkLogicalKey "bootstrap")) (ok (mkName "version"))
-            markerValue = object
-              [ "apiVersion" .= ("v1" :: Text)
-              , "kind" .= ("ConfigMap" :: Text)
-              , "metadata" .= object ["name" .= ("nagare-platform-version" :: Text), "namespace" .= ("nagare-system" :: Text)]
-              ]
+            markerValue =
+              object
+                [ "apiVersion" .= ("v1" :: Text)
+                , "kind" .= ("ConfigMap" :: Text)
+                , "metadata" .= object ["name" .= ("nagare-platform-version" :: Text), "namespace" .= ("nagare-system" :: Text)]
+                ]
             markerBytes = ok (canonicalValue markerValue)
-            markerInput = KubernetesInput markerId markerOwner cluster markerValue (contentDigest markerBytes)
-              Retain Stateless Public (SourceLocation "generated:bootstrap" "platform-version")
-            markerDeclaration = (fst (ok (bindKubernetesObject markerInput)))
-              {dependencies = [OrderedAfter resource]}
+            markerInput =
+              KubernetesInput
+                markerId
+                markerOwner
+                cluster
+                markerValue
+                (contentDigest markerBytes)
+                Retain
+                Stateless
+                Public
+                (SourceLocation "generated:bootstrap" "platform-version")
+            markerDeclaration =
+              (fst (ok (bindKubernetesObject markerInput)))
+                { dependencies = [OrderedAfter resource]
+                }
             markerScope = ok (mkScopeDeclaration markerOwner [ResourceBundle [Managed markerDeclaration] [] [] [] [] []])
             stamped = ok (composeInventory (ok (mkScopeSnapshot binding accepted Map.empty)) (ReplaceScope markerScope :| []))
-            unchanged = ok (observationSet
-              [(resource, ObservedPresent physical), (markerId, ConfirmedAbsent absence)])
+            unchanged =
+              ok
+                ( observationSet
+                    [(resource, ObservedPresent physical), (markerId, ConfirmedAbsent absence)]
+                )
             noOp = ok (planChanges stamped noLifecycleDecisions history unchanged)
             checks = [planned | planned <- proposalOperations noOp, plannedAction planned == VerifyResource]
         case checks of
           [check] -> do
-            let markerCreates = [planned | planned <- proposalOperations noOp,
-                  plannedAction planned == CreateResource, markerId `elem` plannedResources planned]
+            let markerCreates =
+                  [ planned
+                  | planned <- proposalOperations noOp
+                  , plannedAction planned == CreateResource
+                  , markerId `elem` plannedResources planned
+                  ]
             case markerCreates of
-              [markerCreate] -> assertBool "bootstrap marker did not wait for accepted object verification"
-                (plannedOperationId check `elem` plannedDependencies markerCreate)
+              [markerCreate] ->
+                assertBool
+                  "bootstrap marker did not wait for accepted object verification"
+                  (plannedOperationId check `elem` plannedDependencies markerCreate)
               _ -> assertFailure "bootstrap marker had no create operation"
             prepared <- adapterPrepare adapter check >>= expectRight
             -- HPA and other controllers may advance resourceVersion through
@@ -452,40 +623,64 @@ inventoryKubernetesTests =
             adapterExecute adapter check prepared >>= (@?= AdapterEffectCompleted)
             readIORef calls >>= (@?= 1)
             _ <- adapterVerify adapter check prepared >>= expectRight
-            writeIORef state (KubernetesPresent (ok (mkPhysicalIdentity "replacement")) "7"
-              (Just resource) (contentDigest nativeBytes))
+            writeIORef
+              state
+              ( KubernetesPresent
+                  (ok (mkPhysicalIdentity "replacement"))
+                  "7"
+                  (Just resource)
+                  (contentDigest nativeBytes)
+              )
             changedIdentity <- adapterPreflight adapter check prepared
-            assertBool "no-op check accepted a replaced Kubernetes object"
+            assertBool
+              "no-op check accepted a replaced Kubernetes object"
               (case changedIdentity of Left _ -> True; Right () -> False)
             pure ()
           _ -> assertFailure "unchanged accepted object lacked one health check"
         writeIORef state (KubernetesPresent physical "6" (Just resource) (contentDigest "drifted"))
-        drifted <- observeWithRegistry registry
-          (requirementsByExecutor (observationRequirements next history)) >>= expectRight
+        drifted <-
+          observeWithRegistry
+            registry
+            (requirementsByExecutor (observationRequirements next history))
+            >>= expectRight
         Map.lookup resource (observationMap drifted) @?= Just (ObservedDrifted physical (contentDigest "drifted"))
         let repair = ok (planChanges next noLifecycleDecisions history drifted)
-        assertBool "unchanged accepted drift had no repair operation"
+        assertBool
+          "unchanged accepted drift had no repair operation"
           (any ((== UpdateResource) . plannedAction) (proposalOperations repair))
-        let replacement = ok (observationSet
-              [(resource, ObservedReplacementRequired physical (contentDigest "immutable-change"))])
+        let replacement =
+              ok
+                ( observationSet
+                    [(resource, ObservedReplacementRequired physical (contentDigest "immutable-change"))]
+                )
         map findingCategory (classifyDrift (candidateInventory next) replacement)
           @?= [ImmutableReplacementRequired]
         case planChanges next noLifecycleDecisions history replacement of
-          Left errors -> assertBool "immutable replacement was treated as an update"
-            (any ((== "replacement-review-required") . planErrorCode) (NE.toList errors))
+          Left errors ->
+            assertBool
+              "immutable replacement was treated as an update"
+              (any ((== "replacement-review-required") . planErrorCode) (NE.toList errors))
           Right _ -> assertFailure "immutable replacement entered ordinary update planning"
         writeIORef state (KubernetesPresent physical "7" Nothing (contentDigest nativeBytes))
-        foreignObservation <- observeWithRegistry registry
-          (requirementsByExecutor (observationRequirements next history)) >>= expectRight
+        foreignObservation <-
+          observeWithRegistry
+            registry
+            (requirementsByExecutor (observationRequirements next history))
+            >>= expectRight
         Map.lookup resource (observationMap foreignObservation) @?= Just (ObservedUnowned physical)
         case planChanges next noLifecycleDecisions history foreignObservation of
-          Left errors -> assertBool "unowned object was accepted"
-            (any ((== "foreign-resource") . planErrorCode) (NE.toList errors))
+          Left errors ->
+            assertBool
+              "unowned object was accepted"
+              (any ((== "foreign-resource") . planErrorCode) (NE.toList errors))
           Right _ -> assertFailure "unowned object was accepted"
         let other = mintResourceId scope (ok (mkLogicalKey "other")) (ok (mkName "resource"))
         writeIORef state (KubernetesPresent physical "8" (Just other) (contentDigest nativeBytes))
-        foreignOwner <- observeWithRegistry registry
-          (requirementsByExecutor (observationRequirements next history)) >>= expectRight
+        foreignOwner <-
+          observeWithRegistry
+            registry
+            (requirementsByExecutor (observationRequirements next history))
+            >>= expectRight
         Map.lookup resource (observationMap foreignOwner) @?= Just (ObservedForeign physical)
     , testCase "resourceVersion change after review refuses before transport" $ do
         state <- newIORef (KubernetesPresent physical "4" (Just resource) (contentDigest "old"))
@@ -521,15 +716,17 @@ inventoryKubernetesTests =
     , testCase "source object cannot preclaim inventory annotations" $ do
         state <- newIORef (KubernetesAbsent absence)
         calls <- newIORef (0 :: Int)
-        let value = object
-              [ "apiVersion" .= ("v1" :: Text)
-              , "kind" .= ("Service" :: Text)
-              , "metadata" .= object
-                  [ "name" .= ("cache" :: Text)
-                  , "namespace" .= ("personal" :: Text)
-                  , "annotations" .= object ["nagare.dev/resource-id" .= ("foreign" :: Text)]
-                  ]
-              ]
+        let value =
+              object
+                [ "apiVersion" .= ("v1" :: Text)
+                , "kind" .= ("Service" :: Text)
+                , "metadata"
+                    .= object
+                      [ "name" .= ("cache" :: Text)
+                      , "namespace" .= ("personal" :: Text)
+                      , "annotations" .= object ["nagare.dev/resource-id" .= ("foreign" :: Text)]
+                      ]
+                ]
             bytes = ok (canonicalValue value)
             native = ok (bindKubernetesObject (input {inputObject = value, objectDigest = contentDigest bytes}))
             adapter = mkKubernetesAdapter (Map.singleton resource native) (ops state calls)
@@ -537,116 +734,209 @@ inventoryKubernetesTests =
         case result of Left PrepareRefused {} -> pure (); other -> assertFailure ("reserved annotation accepted: " <> show other)
         readIORef calls >>= (@?= 0)
     , testCase "throwaway database binds its canonical native members" $ do
-        let db = Database (ok (mkDatabaseName "pg-main")) Nothing Postgres (defaultEngineVersion Postgres)
-              (ok (Dsl.mkNamespace "personal")) (ok (Dsl.mkQuantity "10Gi")) Nothing Dsl.Delete
+        let db =
+              Database
+                (ok (mkDatabaseName "pg-main"))
+                Nothing
+                Postgres
+                (defaultEngineVersion Postgres)
+                (ok (Dsl.mkNamespace "personal"))
+                (ok (Dsl.mkQuantity "10Gi"))
+                Nothing
+                Dsl.Delete
             recovery = RecoveryIntent (ok (mkName "backup")) (mkSecretRef (ok (mkName "db-password")) (ok (mkName "v1")) :| [])
             direct = DatabaseDirectInput db scope cluster Nothing recovery (SourceLocation "database" "postgres")
             (bundle, bound) = ok (compileDatabaseForBackend direct (GcsBackend "project" "bucket"))
         length (declarations bundle) @?= 4
         Map.size bound @?= 4
-        mapM_ (\(decl, bytes) -> case spec decl of
-          NativeObject digest -> digest @?= contentDigest bytes
-          StatefulSet _ _ digest -> digest @?= contentDigest bytes
-          other -> assertFailure ("unexpected database spec: " <> show other)) (Map.elems bound)
+        mapM_
+          ( \(decl, bytes) -> case spec decl of
+              NativeObject digest -> digest @?= contentDigest bytes
+              StatefulSet _ _ digest -> digest @?= contentDigest bytes
+              other -> assertFailure ("unexpected database spec: " <> show other)
+          )
+          (Map.elems bound)
     , testCase "reviewed database backup uploads without inline pruning" $ do
-        let db = Database (ok (mkDatabaseName "pg-main")) Nothing Postgres (defaultEngineVersion Postgres)
-              (ok (Dsl.mkNamespace "personal")) (ok (Dsl.mkQuantity "10Gi")) Nothing Dsl.Retain
+        let db =
+              Database
+                (ok (mkDatabaseName "pg-main"))
+                Nothing
+                Postgres
+                (defaultEngineVersion Postgres)
+                (ok (Dsl.mkNamespace "personal"))
+                (ok (Dsl.mkQuantity "10Gi"))
+                Nothing
+                Dsl.Retain
             recovery = RecoveryIntent (ok (mkName "backup")) (mkSecretRef (ok (mkName "db-password")) (ok (mkName "v1")) :| [])
             direct = DatabaseDirectInput db scope cluster Nothing recovery (SourceLocation "database" "postgres")
             legacy = renderDbBackupCronJob "personal" "pg-main" Postgres (engineVersionText (defaultEngineVersion Postgres)) (GcsBackend "project" "bucket") 7
             (bundle, bound) = ok (compileDatabaseForBackend direct (GcsBackend "project" "bucket"))
-            backupBytes = [bytes | (member, bytes) <- Map.elems bound,
-              Kubernetes _ "batch" kind _ _ <- [address member], nameText kind == "cronjob"]
+            backupBytes =
+              [ bytes
+              | (member, bytes) <- Map.elems bound
+              , Kubernetes _ "batch" kind _ _ <- [address member]
+              , nameText kind == "cronjob"
+              ]
         length (declarations bundle) @?= 9
         Map.size bound @?= 9
         length backupBytes @?= 1
-        assertBool "reviewed backup can delete unreviewed objects"
+        assertBool
+          "reviewed backup can delete unreviewed objects"
           (all (\bytes -> not (BC.isInfixOf "pruning" bytes) && not (BC.isInfixOf "gsutil -m rm -I" bytes)) backupBytes)
-        assertBool "reviewed backup does not check the stored object"
+        assertBool
+          "reviewed backup does not check the stored object"
           (all (BC.isInfixOf "sha256sum") backupBytes)
-        assertBool "legacy backup pruning unexpectedly changed"
+        assertBool
+          "legacy backup pruning unexpectedly changed"
           (BC.isInfixOf "pruning" legacy)
-        assertBool "backup native member omitted" (any (\(member, _) -> case address member of
-          Kubernetes _ "batch" kind _ _ -> nameText kind == "cronjob"
-          _ -> False) (Map.elems bound))
+        assertBool
+          "backup native member omitted"
+          ( any
+              ( \(member, _) -> case address member of
+                  Kubernetes _ "batch" kind _ _ -> nameText kind == "cronjob"
+                  _ -> False
+              )
+              (Map.elems bound)
+          )
     , testCase "reviewed volume snapshot refuses a changed PVC incarnation" $ do
         let owner = ok (mkScopeId Application "notes")
-            pvcId = mintResourceId owner (ok (mkLogicalKey "data"))
-              (ok (mkName "pvc"))
-            pvcValue = object
-              [ "apiVersion" .= ("v1" :: Text), "kind" .= ("PersistentVolumeClaim" :: Text)
-              , "metadata" .= object
-                  ["name" .= pvcName "notes" "data", "namespace" .= ("default" :: Text)]
-              , "spec" .= object ["accessModes" .= ["ReadWriteOnce" :: Text]
-                  , "storageClassName" .= ("local-path" :: Text)
-                  , "resources" .= object ["requests" .= object ["storage" .= ("1Gi" :: Text)]]]
-              ]
+            pvcId =
+              mintResourceId
+                owner
+                (ok (mkLogicalKey "data"))
+                (ok (mkName "pvc"))
+            pvcValue =
+              object
+                [ "apiVersion" .= ("v1" :: Text)
+                , "kind" .= ("PersistentVolumeClaim" :: Text)
+                , "metadata"
+                    .= object
+                      ["name" .= pvcName "notes" "data", "namespace" .= ("default" :: Text)]
+                , "spec"
+                    .= object
+                      [ "accessModes" .= ["ReadWriteOnce" :: Text]
+                      , "storageClassName" .= ("local-path" :: Text)
+                      , "resources" .= object ["requests" .= object ["storage" .= ("1Gi" :: Text)]]
+                      ]
+                ]
             pvcBytes = ok (canonicalValue pvcValue)
-            (pvc, nativeBytes) = ok (bindKubernetesObject KubernetesInput
-              { resourceId = pvcId, ownerScope = owner, clusterId = cluster
-              , inputObject = pvcValue, objectDigest = contentDigest pvcBytes
-              , lifecyclePolicy = Retain
-              , inputDataPolicy = Durable (RecoveryIntent (ok (mkName "archive"))
-                  (mkSecretRef (ok (mkName "restore-key")) (ok (mkName "v1")) :| []))
-              , inputSensitivity = Private, sourceLocation = SourceLocation "notes" "data" })
-            sourceScope = ok (mkScopeDeclaration owner
-              [ResourceBundle [Managed pvc] [] [] [] [] []])
+            (pvc, nativeBytes) =
+              ok
+                ( bindKubernetesObject
+                    KubernetesInput
+                      { resourceId = pvcId
+                      , ownerScope = owner
+                      , clusterId = cluster
+                      , inputObject = pvcValue
+                      , objectDigest = contentDigest pvcBytes
+                      , lifecyclePolicy = Retain
+                      , inputDataPolicy =
+                          Durable
+                            ( RecoveryIntent
+                                (ok (mkName "archive"))
+                                (mkSecretRef (ok (mkName "restore-key")) (ok (mkName "v1")) :| [])
+                            )
+                      , inputSensitivity = Private
+                      , sourceLocation = SourceLocation "notes" "data"
+                      }
+                )
+            sourceScope =
+              ok
+                ( mkScopeDeclaration
+                    owner
+                    [ResourceBundle [Managed pvc] [] [] [] [] []]
+                )
             sourceNative = Map.singleton pvcId (pvc, nativeBytes)
-            request = VolumeSnapshotRequest
-              { volumeApp = "notes", volumeName = "data", volumeNamespace = "default"
-              , volumeBackupId = "run-001", volumeExpiresAt = Nothing
-              , volumeSourceRevision = ScopeRevision
-                  (ok (mkScopeGeneration 2)) (contentDigest "accepted-volume")
-              , volumeSourcePvcUid = ok (mkPhysicalIdentity "pvc-uid")
-              , volumeStorageBackend = GcsBackend "project" "bucket"
-              , volumeStoreCredential = Nothing
-              , volumeBackupSource = SourceLocation "storage snapshot" "run-001" }
-            (backupScope, backupNative) = ok
-              (compileVolumeSnapshotScope request sourceScope sourceNative)
+            request =
+              VolumeSnapshotRequest
+                { volumeApp = "notes"
+                , volumeName = "data"
+                , volumeNamespace = "default"
+                , volumeBackupId = "run-001"
+                , volumeExpiresAt = Nothing
+                , volumeSourceRevision =
+                    ScopeRevision
+                      (ok (mkScopeGeneration 2))
+                      (contentDigest "accepted-volume")
+                , volumeSourcePvcUid = ok (mkPhysicalIdentity "pvc-uid")
+                , volumeStorageBackend = GcsBackend "project" "bucket"
+                , volumeStoreCredential = Nothing
+                , volumeBackupSource = SourceLocation "storage snapshot" "run-001"
+                }
+            (backupScope, backupNative) =
+              ok
+                (compileVolumeSnapshotScope request sourceScope sourceNative)
             (job, jobBytes) = case Map.elems backupNative of
               [entry] -> entry
               _ -> error "volume snapshot must bind one Job"
             jobId = job ^. #identity
-            sourceState uid = KubernetesPresent uid "1" (Just pvcId)
-              (contentDigest nativeBytes)
+            sourceState uid =
+              KubernetesPresent
+                uid
+                "1"
+                (Just pvcId)
+                (contentDigest nativeBytes)
             create = createOperation {plannedResources = jobId :| []}
             receiptMetadataValues (Object fields) =
-              [selected | KM.lookup "name" fields == Just (String "BACKUP_RECEIPT_METADATA"),
-                Just (String selected) <- [KM.lookup "value" fields]]
+              [ selected
+              | KM.lookup "name" fields == Just (String "BACKUP_RECEIPT_METADATA")
+              , Just (String selected) <- [KM.lookup "value" fields]
+              ]
                 <> concatMap receiptMetadataValues (KM.elems fields)
             receiptMetadataValues (Array values) = concatMap receiptMetadataValues (toList values)
             receiptMetadataValues _ = []
         Map.lookup "volume-backup.object" (scopeOverrides backupScope)
           @?= Just "gs://bucket/manual-volumes/default/notes/data/run-001.tar.gz"
-        volumeSnapshotJobSourcePins jobBytes @?= Right (Just
-          [(pvcId, ok (mkPhysicalIdentity "pvc-uid"))])
-        assertBool "snapshot did not use create-only upload and stored-byte readback"
-          (BC.isInfixOf "--if-generation-match=0" jobBytes
-            && BC.isInfixOf "sha256sum" jobBytes
-            && BC.isInfixOf "/dev/termination-log" jobBytes)
+        volumeSnapshotJobSourcePins jobBytes
+          @?= Right
+            ( Just
+                [(pvcId, ok (mkPhysicalIdentity "pvc-uid"))]
+            )
+        assertBool
+          "snapshot did not use create-only upload and stored-byte readback"
+          ( BC.isInfixOf "--if-generation-match=0" jobBytes
+              && BC.isInfixOf "sha256sum" jobBytes
+              && BC.isInfixOf "/dev/termination-log" jobBytes
+          )
         assertBool "snapshot still prunes data" (not (BC.isInfixOf "gsutil rm" jobBytes))
         case manualBackupJobReceiptExpectation jobBytes of
           Right (Just expectation) ->
-            receiptAddress expectation @?=
-              "gs://bucket/manual-volumes/default/notes/data/run-001.tar.gz.receipt.json"
+            receiptAddress expectation
+              @?= "gs://bucket/manual-volumes/default/notes/data/run-001.tar.gz.receipt.json"
           other -> assertFailure ("volume snapshot lacks a receipt: " <> show other)
-        states <- newIORef (Map.fromList
-          [(jobId, KubernetesAbsent absence)
-          ,(pvcId, sourceState (ok (mkPhysicalIdentity "pvc-uid")))])
+        states <-
+          newIORef
+            ( Map.fromList
+                [ (jobId, KubernetesAbsent absence)
+                , (pvcId, sourceState (ok (mkPhysicalIdentity "pvc-uid")))
+                ]
+            )
         writes <- newIORef (0 :: Int)
-        let adapter = mkKubernetesAdapter (Map.union backupNative sourceNative)
-              KubernetesAdapterOps
-                { kubernetesContext = ok (mkContextId "test")
-                , kubernetesObserve = \selected -> Map.findWithDefault
-                    (KubernetesUnknown "unbound") selected <$> readIORef states
-                , kubernetesMutateConditional = \_ -> modifyIORef' writes (+ 1)
-                    >> pure AdapterEffectCompleted }
+        let adapter =
+              mkKubernetesAdapter
+                (Map.union backupNative sourceNative)
+                KubernetesAdapterOps
+                  { kubernetesContext = ok (mkContextId "test")
+                  , kubernetesObserve = \selected ->
+                      Map.findWithDefault
+                        (KubernetesUnknown "unbound")
+                        selected
+                        <$> readIORef states
+                  , kubernetesMutateConditional = \_ ->
+                      modifyIORef' writes (+ 1)
+                        >> pure AdapterEffectCompleted
+                  }
         prepared <- adapterPrepare adapter create >>= expectRight
         adapterPreflight adapter create prepared >>= expectRight
-        modifyIORef' states (Map.insert pvcId
-          (sourceState (ok (mkPhysicalIdentity "replacement-pvc"))))
+        modifyIORef'
+          states
+          ( Map.insert
+              pvcId
+              (sourceState (ok (mkPhysicalIdentity "replacement-pvc")))
+          )
         assertBool "changed PVC UID passed snapshot preflight"
-          . isLeft =<< adapterPreflight adapter create prepared
+          . isLeft
+          =<< adapterPreflight adapter create prepared
         adapterExecute adapter create prepared >>= \case
           AdapterEffectFailed {} -> pure ()
           other -> assertFailure ("changed PVC UID reached provider: " <> show other)
@@ -657,108 +947,217 @@ inventoryKubernetesTests =
             _ -> assertFailure "snapshot lacks one receipt metadata value" >> fail "metadata"
           Left reason -> assertFailure reason >> fail "metadata"
         let checksum = T.replicate 64 "a"
-            receiptBytes = BL.toStrict (encode (object
-              [ "version" .= (1 :: Int), "sha256" .= checksum
-              , "backup" .= (ok (eitherDecodeStrict (TE.encodeUtf8 metadata)) :: Value) ]))
-            restoreRequest = VolumeRestoreRequest
-              { volumeRestoreApp = "notes", volumeRestoreName = "data"
-              , volumeRestoreNamespace = "default", volumeRestoreId = "restore-001"
-              , volumeRestoreBackup = backupScope
-              , volumeRestoreBackupRevision = ScopeRevision
-                  (ok (mkScopeGeneration 1)) (contentDigest "accepted-backup")
-              , volumeRestoreBackupJobUid = ok (mkPhysicalIdentity "backup-job-uid")
-              , volumeRestoreReceiptBytes = receiptBytes
-              , volumeRestoreNow = maybe (error "invalid restore time") id
-                  (parseTimeM True defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ"
-                    "2026-01-01T00:00:00Z" :: Maybe UTCTime)
-              , volumeRestoreTargetRevision = ScopeRevision
-                  (ok (mkScopeGeneration 2)) (contentDigest "accepted-volume")
-              , volumeRestoreTargetPvcUid = ok (mkPhysicalIdentity "pvc-uid")
-              , volumeRestoreBackend = GcsBackend "project" "bucket"
-              , volumeRestoreCredential = Nothing
-              , volumeRestoreSource = SourceLocation "storage restore" "restore-001" }
+            receiptBytes =
+              BL.toStrict
+                ( encode
+                    ( object
+                        [ "version" .= (1 :: Int)
+                        , "sha256" .= checksum
+                        , "backup" .= (ok (eitherDecodeStrict (TE.encodeUtf8 metadata)) :: Value)
+                        ]
+                    )
+                )
+            restoreRequest =
+              VolumeRestoreRequest
+                { volumeRestoreApp = "notes"
+                , volumeRestoreName = "data"
+                , volumeRestoreNamespace = "default"
+                , volumeRestoreId = "restore-001"
+                , volumeRestoreBackup = backupScope
+                , volumeRestoreBackupRevision =
+                    ScopeRevision
+                      (ok (mkScopeGeneration 1))
+                      (contentDigest "accepted-backup")
+                , volumeRestoreBackupJobUid = ok (mkPhysicalIdentity "backup-job-uid")
+                , volumeRestoreReceiptBytes = receiptBytes
+                , volumeRestoreNow =
+                    maybe
+                      (error "invalid restore time")
+                      id
+                      ( parseTimeM
+                          True
+                          defaultTimeLocale
+                          "%Y-%m-%dT%H:%M:%SZ"
+                          "2026-01-01T00:00:00Z" ::
+                          Maybe UTCTime
+                      )
+                , volumeRestoreTargetRevision =
+                    ScopeRevision
+                      (ok (mkScopeGeneration 2))
+                      (contentDigest "accepted-volume")
+                , volumeRestoreTargetPvcUid = ok (mkPhysicalIdentity "pvc-uid")
+                , volumeRestoreBackend = GcsBackend "project" "bucket"
+                , volumeRestoreCredential = Nothing
+                , volumeRestoreSource = SourceLocation "storage restore" "restore-001"
+                }
             accepted = Map.union backupNative sourceNative
-            (restoreScope, restoreNative) = ok
-              (compileVolumeRestoreScope restoreRequest sourceScope accepted)
-            restoreJobs = [(member, bytes) | (member, bytes) <- Map.elems restoreNative,
-              case member ^. #address of
-                Kubernetes _ "batch" kind _ _ -> nameText kind == "job"
-                _ -> False]
+            (restoreScope, restoreNative) =
+              ok
+                (compileVolumeRestoreScope restoreRequest sourceScope accepted)
+            restoreJobs =
+              [ (member, bytes)
+              | (member, bytes) <- Map.elems restoreNative
+              , case member ^. #address of
+                  Kubernetes _ "batch" kind _ _ -> nameText kind == "job"
+                  _ -> False
+              ]
             (restoreJob, restoreBytes) = case restoreJobs of
               [entry] -> entry
               _ -> error "reviewed volume restore must bind one Job"
-            scratchPvc = case [member | (member, _) <- Map.elems restoreNative,
-              case member ^. #address of
-                Kubernetes _ "" kind _ _ -> nameText kind == "persistentvolumeclaim"
-                _ -> False] of
+            scratchPvc = case [ member
+                              | (member, _) <- Map.elems restoreNative
+                              , case member ^. #address of
+                                  Kubernetes _ "" kind _ _ -> nameText kind == "persistentvolumeclaim"
+                                  _ -> False
+                              ] of
               [single] -> single
               _ -> error "reviewed volume restore must bind one scratch PVC"
         Map.size restoreNative @?= 2
         Map.lookup "volume-restore.backup.sha256" (scopeOverrides restoreScope)
           @?= Just checksum
-        volumeRestoreJobSourcePins restoreBytes @?= Right (Just
-          [(jobId, ok (mkPhysicalIdentity "backup-job-uid"))
-          ,(pvcId, ok (mkPhysicalIdentity "pvc-uid"))])
-        assertBool "restore does not verify both current objects before scratch extraction"
-          (BC.isInfixOf "RECEIPT_SHA256" restoreBytes
-            && BC.isInfixOf "ARCHIVE_SHA256" restoreBytes
-            && BC.isInfixOf "python3 - /dump/archive.tar.gz /restore" restoreBytes
-            && BC.isInfixOf "sha256_file(target)" restoreBytes
-            && not (BC.isInfixOf (TE.encodeUtf8 (pvcName "notes" "data")) restoreBytes))
-        assertBool "changed receipt metadata passed restore compilation"
-          (isLeft (compileVolumeRestoreScope
-            (restoreRequest {volumeRestoreReceiptBytes = "{}"}) sourceScope accepted))
-        restoreStates <- newIORef (Map.fromList
-          [ (restoreJob ^. #identity, KubernetesAbsent absence)
-          , (scratchPvc ^. #identity, KubernetesAbsent absence)
-          , (pvcId, sourceState (ok (mkPhysicalIdentity "pvc-uid")))
-          , (jobId, KubernetesPresent (ok (mkPhysicalIdentity "backup-job-uid"))
-              "1" (Just jobId) (contentDigest jobBytes)) ])
+        volumeRestoreJobSourcePins restoreBytes
+          @?= Right
+            ( Just
+                [ (jobId, ok (mkPhysicalIdentity "backup-job-uid"))
+                , (pvcId, ok (mkPhysicalIdentity "pvc-uid"))
+                ]
+            )
+        assertBool
+          "restore does not verify both current objects before scratch extraction"
+          ( BC.isInfixOf "RECEIPT_SHA256" restoreBytes
+              && BC.isInfixOf "ARCHIVE_SHA256" restoreBytes
+              && BC.isInfixOf "python3 - /dump/archive.tar.gz /restore" restoreBytes
+              && BC.isInfixOf "sha256_file(target)" restoreBytes
+              && not (BC.isInfixOf (TE.encodeUtf8 (pvcName "notes" "data")) restoreBytes)
+          )
+        assertBool
+          "changed receipt metadata passed restore compilation"
+          ( isLeft
+              ( compileVolumeRestoreScope
+                  (restoreRequest {volumeRestoreReceiptBytes = "{}"})
+                  sourceScope
+                  accepted
+              )
+          )
+        restoreStates <-
+          newIORef
+            ( Map.fromList
+                [ (restoreJob ^. #identity, KubernetesAbsent absence)
+                , (scratchPvc ^. #identity, KubernetesAbsent absence)
+                , (pvcId, sourceState (ok (mkPhysicalIdentity "pvc-uid")))
+                ,
+                  ( jobId
+                  , KubernetesPresent
+                      (ok (mkPhysicalIdentity "backup-job-uid"))
+                      "1"
+                      (Just jobId)
+                      (contentDigest jobBytes)
+                  )
+                ]
+            )
         restoreWrites <- newIORef (0 :: Int)
-        let restoreAdapter = mkKubernetesAdapter (Map.union restoreNative accepted)
-              KubernetesAdapterOps
-                { kubernetesContext = ok (mkContextId "test")
-                , kubernetesObserve = \selected -> Map.findWithDefault
-                    (KubernetesUnknown "unbound") selected <$> readIORef restoreStates
-                , kubernetesMutateConditional = \_ -> modifyIORef' restoreWrites (+ 1)
-                    >> pure AdapterEffectCompleted }
-            restoreCreate = createOperation
-              {plannedResources = restoreJob ^. #identity :| []}
+        let restoreAdapter =
+              mkKubernetesAdapter
+                (Map.union restoreNative accepted)
+                KubernetesAdapterOps
+                  { kubernetesContext = ok (mkContextId "test")
+                  , kubernetesObserve = \selected ->
+                      Map.findWithDefault
+                        (KubernetesUnknown "unbound")
+                        selected
+                        <$> readIORef restoreStates
+                  , kubernetesMutateConditional = \_ ->
+                      modifyIORef' restoreWrites (+ 1)
+                        >> pure AdapterEffectCompleted
+                  }
+            restoreCreate =
+              createOperation
+                { plannedResources = restoreJob ^. #identity :| []
+                }
         preparedRestore <- adapterPrepare restoreAdapter restoreCreate >>= expectRight
         adapterPreflight restoreAdapter restoreCreate preparedRestore >>= expectRight
-        modifyIORef' restoreStates (Map.insert jobId
-          (KubernetesPresent (ok (mkPhysicalIdentity "changed-backup-job"))
-            "2" (Just jobId) (contentDigest jobBytes)))
+        modifyIORef'
+          restoreStates
+          ( Map.insert
+              jobId
+              ( KubernetesPresent
+                  (ok (mkPhysicalIdentity "changed-backup-job"))
+                  "2"
+                  (Just jobId)
+                  (contentDigest jobBytes)
+              )
+          )
         assertBool "changed backup Job UID passed restore preflight"
-          . isLeft =<< adapterPreflight restoreAdapter restoreCreate preparedRestore
+          . isLeft
+          =<< adapterPreflight restoreAdapter restoreCreate preparedRestore
         adapterExecute restoreAdapter restoreCreate preparedRestore >>= \case
           AdapterEffectFailed {} -> pure ()
           other -> assertFailure ("changed backup Job reached provider: " <> show other)
         readIORef restoreWrites >>= (@?= 0)
-        modifyIORef' restoreStates (Map.insert jobId
-          (KubernetesPresent (ok (mkPhysicalIdentity "backup-job-uid"))
-            "1" (Just jobId) (contentDigest jobBytes)))
-        let scratchCreate = createOperation
-              {plannedResources = scratchPvc ^. #identity :| []}
+        modifyIORef'
+          restoreStates
+          ( Map.insert
+              jobId
+              ( KubernetesPresent
+                  (ok (mkPhysicalIdentity "backup-job-uid"))
+                  "1"
+                  (Just jobId)
+                  (contentDigest jobBytes)
+              )
+          )
+        let scratchCreate =
+              createOperation
+                { plannedResources = scratchPvc ^. #identity :| []
+                }
         preparedScratch <- adapterPrepare restoreAdapter scratchCreate >>= expectRight
         adapterPreflight restoreAdapter scratchCreate preparedScratch >>= expectRight
-        modifyIORef' restoreStates (Map.insert (scratchPvc ^. #identity)
-          (KubernetesPresent (ok (mkPhysicalIdentity "foreign-scratch-pvc"))
-            "2" (Just (scratchPvc ^. #identity)) (contentDigest "foreign")))
+        modifyIORef'
+          restoreStates
+          ( Map.insert
+              (scratchPvc ^. #identity)
+              ( KubernetesPresent
+                  (ok (mkPhysicalIdentity "foreign-scratch-pvc"))
+                  "2"
+                  (Just (scratchPvc ^. #identity))
+                  (contentDigest "foreign")
+              )
+          )
         assertBool "foreign scratch PVC passed restore preflight"
-          . isLeft =<< adapterPreflight restoreAdapter scratchCreate preparedScratch
+          . isLeft
+          =<< adapterPreflight restoreAdapter scratchCreate preparedScratch
         adapterExecute restoreAdapter scratchCreate preparedScratch >>= \case
           AdapterEffectFailed {} -> pure ()
           other -> assertFailure ("foreign scratch PVC reached provider: " <> show other)
         readIORef restoreWrites >>= (@?= 0)
-        let finiteExpiry = maybe (error "invalid volume expiry") id
-              (parseTimeM True defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ"
-                "2027-01-01T00:00:00Z" :: Maybe UTCTime)
-            afterExpiry = maybe (error "invalid volume prune time") id
-              (parseTimeM True defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ"
-                "2027-01-02T00:00:00Z" :: Maybe UTCTime)
-            (finiteScope, finiteNative) = ok (compileVolumeSnapshotScope
-              (request {volumeExpiresAt = Just finiteExpiry}) sourceScope sourceNative)
+        let finiteExpiry =
+              maybe
+                (error "invalid volume expiry")
+                id
+                ( parseTimeM
+                    True
+                    defaultTimeLocale
+                    "%Y-%m-%dT%H:%M:%SZ"
+                    "2027-01-01T00:00:00Z" ::
+                    Maybe UTCTime
+                )
+            afterExpiry =
+              maybe
+                (error "invalid volume prune time")
+                id
+                ( parseTimeM
+                    True
+                    defaultTimeLocale
+                    "%Y-%m-%dT%H:%M:%SZ"
+                    "2027-01-02T00:00:00Z" ::
+                    Maybe UTCTime
+                )
+            (finiteScope, finiteNative) =
+              ok
+                ( compileVolumeSnapshotScope
+                    (request {volumeExpiresAt = Just finiteExpiry})
+                    sourceScope
+                    sourceNative
+                )
             (finiteJob, finiteBytes) = case Map.elems finiteNative of
               [entry] -> entry
               _ -> error "finite volume snapshot must bind one Job"
@@ -766,83 +1165,126 @@ inventoryKubernetesTests =
               value -> case receiptMetadataValues value of
                 [selected] -> selected
                 _ -> error "finite volume snapshot lacks receipt metadata"
-            finiteReceipt = BL.toStrict (encode (object
-              [ "version" .= (1 :: Int), "sha256" .= checksum
-              , "backup" .= (ok (eitherDecodeStrict (TE.encodeUtf8 finiteMetadata)) :: Value) ]))
-            pruneRequest = VolumePruneRequest
-              { pruneVolumeApp = "notes", pruneVolumeName = "data"
-              , pruneVolumeNamespace = "default", pruneVolumeBackupId = "run-001"
-              , pruneVolumeBackupRevision = ScopeRevision
-                  (ok (mkScopeGeneration 1)) (contentDigest "accepted-finite-backup")
-              , pruneVolumeBackupUid = ok (mkPhysicalIdentity "backup-job-uid")
-              , pruneVolumeReceiptBytes = finiteReceipt
-              , pruneVolumeNow = afterExpiry
-              , pruneVolumeBackend = GcsBackend "project" "bucket"
-              , pruneVolumeCredential = Nothing
-              , pruneVolumeSource = SourceLocation "storage prune-snapshot" "run-001" }
-            (pruneScope, pruneNative) = ok
-              (compileVolumePruneScope pruneRequest finiteScope finiteNative)
+            finiteReceipt =
+              BL.toStrict
+                ( encode
+                    ( object
+                        [ "version" .= (1 :: Int)
+                        , "sha256" .= checksum
+                        , "backup" .= (ok (eitherDecodeStrict (TE.encodeUtf8 finiteMetadata)) :: Value)
+                        ]
+                    )
+                )
+            pruneRequest =
+              VolumePruneRequest
+                { pruneVolumeApp = "notes"
+                , pruneVolumeName = "data"
+                , pruneVolumeNamespace = "default"
+                , pruneVolumeBackupId = "run-001"
+                , pruneVolumeBackupRevision =
+                    ScopeRevision
+                      (ok (mkScopeGeneration 1))
+                      (contentDigest "accepted-finite-backup")
+                , pruneVolumeBackupUid = ok (mkPhysicalIdentity "backup-job-uid")
+                , pruneVolumeReceiptBytes = finiteReceipt
+                , pruneVolumeNow = afterExpiry
+                , pruneVolumeBackend = GcsBackend "project" "bucket"
+                , pruneVolumeCredential = Nothing
+                , pruneVolumeSource = SourceLocation "storage prune-snapshot" "run-001"
+                }
+            (pruneScope, pruneNative) =
+              ok
+                (compileVolumePruneScope pruneRequest finiteScope finiteNative)
             (pruneJob, pruneBytes) = case Map.elems pruneNative of
               [entry] -> entry
               _ -> error "volume prune must bind one Job"
-            finiteRestore = restoreRequest
-              { volumeRestoreBackup = finiteScope
-              , volumeRestoreReceiptBytes = finiteReceipt }
+            finiteRestore =
+              restoreRequest
+                { volumeRestoreBackup = finiteScope
+                , volumeRestoreReceiptBytes = finiteReceipt
+                }
         Map.lookup "volume-backup.expiry" (scopeOverrides finiteScope)
           @?= Just "2027-01-01T00:00:00Z"
-        assertBool "unexpired volume snapshot was prunable"
-          (isLeft (compileVolumePruneScope
-            (pruneRequest {pruneVolumeNow = volumeRestoreNow restoreRequest})
-            finiteScope finiteNative))
-        assertBool "retained volume snapshot was prunable"
+        assertBool
+          "unexpired volume snapshot was prunable"
+          ( isLeft
+              ( compileVolumePruneScope
+                  (pruneRequest {pruneVolumeNow = volumeRestoreNow restoreRequest})
+                  finiteScope
+                  finiteNative
+              )
+          )
+        assertBool
+          "retained volume snapshot was prunable"
           (isLeft (compileVolumePruneScope pruneRequest backupScope backupNative))
-        assertBool "tampered volume receipt was prunable"
-          (isLeft (compileVolumePruneScope
-            (pruneRequest {pruneVolumeReceiptBytes = "{}"}) finiteScope finiteNative))
-        manualPruneSourceProof pruneScope @?= Right (Just (PruneSourceProof
-          (scopeIdText (scopeId finiteScope))
-          (revisionDigest (pruneVolumeBackupRevision pruneRequest))
-          (finiteJob ^. #identity) (pruneVolumeBackupUid pruneRequest) Nothing Nothing))
+        assertBool
+          "tampered volume receipt was prunable"
+          ( isLeft
+              ( compileVolumePruneScope
+                  (pruneRequest {pruneVolumeReceiptBytes = "{}"})
+                  finiteScope
+                  finiteNative
+              )
+          )
+        manualPruneSourceProof pruneScope
+          @?= Right
+            ( Just
+                ( PruneSourceProof
+                    (scopeIdText (scopeId finiteScope))
+                    (revisionDigest (pruneVolumeBackupRevision pruneRequest))
+                    (finiteJob ^. #identity)
+                    (pruneVolumeBackupUid pruneRequest)
+                    Nothing
+                    Nothing
+                )
+            )
         let scheduledId = "11111111-1111-1111-1111-111111111111"
             scheduledObject = "gs://bucket/databases/notes/" <> scheduledId <> ".sql.gz"
             scheduledReceipt = scheduledObject <> ".receipt.json"
-            candidate = ScheduledPruneCandidate
-              { scheduledPruneScope = scopeId finiteScope
-              , scheduledPruneId = scheduledId
-              , scheduledPruneObject = scheduledObject
-              , scheduledPruneObjectVersion = "17"
-              , scheduledPruneObjectLength = 123
-              , scheduledPruneObjectSha256 = T.replicate 64 "a"
-              , scheduledPruneReceipt = scheduledReceipt
-              , scheduledPruneReceiptVersion = "19"
-              , scheduledPruneReceiptLength = 456
-              , scheduledPruneReceiptDigest = T.replicate 64 "b"
-              , scheduledPruneCompleted = volumeRestoreNow restoreRequest }
-            scheduledFields = Map.fromList
-              [ ("scheduled.backup.source.scope", scopeIdText (scopeId sourceScope))
-              , ("scheduled.backup.id", scheduledId)
-              , ("scheduled.backup.object", scheduledObject)
-              , ("scheduled.backup.object.version", "17")
-              , ("scheduled.backup.object.length", "123")
-              , ("scheduled.backup.object.sha256", T.replicate 64 "a")
-              , ("scheduled.backup.receipt", scheduledReceipt)
-              , ("scheduled.backup.receipt.version", "19")
-              , ("scheduled.backup.receipt.length", "456")
-              , ("scheduled.backup.receipt.digest", T.replicate 64 "b") ]
+            candidate =
+              ScheduledPruneCandidate
+                { scheduledPruneScope = scopeId finiteScope
+                , scheduledPruneId = scheduledId
+                , scheduledPruneObject = scheduledObject
+                , scheduledPruneObjectVersion = "17"
+                , scheduledPruneObjectLength = 123
+                , scheduledPruneObjectSha256 = T.replicate 64 "a"
+                , scheduledPruneReceipt = scheduledReceipt
+                , scheduledPruneReceiptVersion = "19"
+                , scheduledPruneReceiptLength = 456
+                , scheduledPruneReceiptDigest = T.replicate 64 "b"
+                , scheduledPruneCompleted = volumeRestoreNow restoreRequest
+                }
+            scheduledFields =
+              Map.fromList
+                [ ("scheduled.backup.source.scope", scopeIdText (scopeId sourceScope))
+                , ("scheduled.backup.id", scheduledId)
+                , ("scheduled.backup.object", scheduledObject)
+                , ("scheduled.backup.object.version", "17")
+                , ("scheduled.backup.object.length", "123")
+                , ("scheduled.backup.object.sha256", T.replicate 64 "a")
+                , ("scheduled.backup.receipt", scheduledReceipt)
+                , ("scheduled.backup.receipt.version", "19")
+                , ("scheduled.backup.receipt.length", "456")
+                , ("scheduled.backup.receipt.digest", T.replicate 64 "b")
+                ]
             acceptedScheduled = withScopeOverrides scheduledFields finiteScope
-            scheduledRequest = ScheduledPruneRequest
-              { scheduledPruneDatabase = "notes"
-              , scheduledPruneNamespace = "default"
-              , scheduledPruneCandidate = candidate
-              , scheduledPruneBackupRevision = pruneVolumeBackupRevision pruneRequest
-              , scheduledPruneBackupJobUid = pruneVolumeBackupUid pruneRequest
-              , scheduledPrunePolicyScope = scopeId sourceScope
-              , scheduledPrunePolicyRevision = volumeRestoreTargetRevision restoreRequest
-              , scheduledPruneKeep = 7
-              , scheduledPruneBackend = GcsBackend "project" "bucket"
-              , scheduledPruneSource = SourceLocation "scheduled prune" scheduledId }
-            (scheduledScope, scheduledNative) = ok
-              (compileScheduledPruneScope scheduledRequest acceptedScheduled finiteNative)
+            scheduledRequest =
+              ScheduledPruneRequest
+                { scheduledPruneDatabase = "notes"
+                , scheduledPruneNamespace = "default"
+                , scheduledPruneCandidate = candidate
+                , scheduledPruneBackupRevision = pruneVolumeBackupRevision pruneRequest
+                , scheduledPruneBackupJobUid = pruneVolumeBackupUid pruneRequest
+                , scheduledPrunePolicyScope = scopeId sourceScope
+                , scheduledPrunePolicyRevision = volumeRestoreTargetRevision restoreRequest
+                , scheduledPruneKeep = 7
+                , scheduledPruneBackend = GcsBackend "project" "bucket"
+                , scheduledPruneSource = SourceLocation "scheduled prune" scheduledId
+                }
+            (scheduledScope, scheduledNative) =
+              ok
+                (compileScheduledPruneScope scheduledRequest acceptedScheduled finiteNative)
             (scheduledJob, scheduledBytes) = case Map.elems scheduledNative of
               [entry] -> entry
               _ -> error "scheduled prune must bind one Job"
@@ -851,139 +1293,281 @@ inventoryKubernetesTests =
         case manualPruneSourceProof scheduledScope of
           Right (Just proof) -> do
             pruneSourceScope proof @?= scopeIdText (scopeId acceptedScheduled)
-            pruneSourcePolicy proof @?= Just
-              (scopeIdText (scopeId sourceScope), revisionDigest
-                (volumeRestoreTargetRevision restoreRequest))
+            pruneSourcePolicy proof
+              @?= Just
+                ( scopeIdText (scopeId sourceScope)
+                , revisionDigest
+                    (volumeRestoreTargetRevision restoreRequest)
+                )
           other -> assertFailure ("scheduled prune source pins were rejected: " <> show other)
-        manualPruneJobBackupPin scheduledBytes @?= Right
-          (Just (finiteJob ^. #identity, pruneVolumeBackupUid pruneRequest))
-        assertBool "scheduled prune Job lacks exact version checks"
-          (BC.isInfixOf "EXPECTED_OBJECT_VERSION" scheduledBytes
-            && BC.isInfixOf "EXPECTED_RECEIPT_VERSION" scheduledBytes
-            && scheduledJob ^. #dependencies ==
-              [OrderedAfter (finiteJob ^. #identity)])
-        assertBool "scheduled candidate changed an accepted provider version"
-          (isLeft (compileScheduledPruneScope
-            (scheduledRequest {scheduledPruneCandidate = candidate
-              {scheduledPruneObjectVersion = "18"}}) acceptedScheduled finiteNative))
+        manualPruneJobBackupPin scheduledBytes
+          @?= Right
+            (Just (finiteJob ^. #identity, pruneVolumeBackupUid pruneRequest))
+        assertBool
+          "scheduled prune Job lacks exact version checks"
+          ( BC.isInfixOf "EXPECTED_OBJECT_VERSION" scheduledBytes
+              && BC.isInfixOf "EXPECTED_RECEIPT_VERSION" scheduledBytes
+              && scheduledJob ^. #dependencies
+                == [OrderedAfter (finiteJob ^. #identity)]
+          )
+        assertBool
+          "scheduled candidate changed an accepted provider version"
+          ( isLeft
+              ( compileScheduledPruneScope
+                  ( scheduledRequest
+                      { scheduledPruneCandidate =
+                          candidate
+                            { scheduledPruneObjectVersion = "18"
+                            }
+                      }
+                  )
+                  acceptedScheduled
+                  finiteNative
+              )
+          )
         let localObject = "s3://bucket/databases/notes/" <> scheduledId <> ".sql.gz"
             recoveryReceipt = localObject <> ".receipt.json"
-            localCandidate = candidate
-              {scheduledPruneObject = localObject, scheduledPruneReceipt = recoveryReceipt}
-            localFields = Map.insert "scheduled.backup.object" localObject
-              (Map.insert "scheduled.backup.receipt" recoveryReceipt scheduledFields)
+            localCandidate =
+              candidate
+                { scheduledPruneObject = localObject
+                , scheduledPruneReceipt = recoveryReceipt
+                }
+            localFields =
+              Map.insert
+                "scheduled.backup.object"
+                localObject
+                (Map.insert "scheduled.backup.receipt" recoveryReceipt scheduledFields)
             localAccepted = withScopeOverrides localFields finiteScope
-            recoveryRequest = scheduledRequest
-              {scheduledPruneCandidate = localCandidate
-              , scheduledPruneBackend = MinioBackend
-                  (MinioRef "http://minio:9000" "bucket" "minio-credentials")}
-            (failedLocal, _) = ok
-              (compileScheduledPruneScope recoveryRequest localAccepted finiteNative)
+            recoveryRequest =
+              scheduledRequest
+                { scheduledPruneCandidate = localCandidate
+                , scheduledPruneBackend =
+                    MinioBackend
+                      (MinioRef "http://minio:9000" "bucket" "minio-credentials")
+                }
+            (failedLocal, _) =
+              ok
+                (compileScheduledPruneScope recoveryRequest localAccepted finiteNative)
             failedUid = ok (mkPhysicalIdentity "failed-prune-job-uid")
             failedReview = contentDigest "failed-prune-review"
-            (recovery, recoveryNative) = ok
-              (compileScheduledPruneRecoveryScope recoveryRequest localAccepted
-                finiteNative failedLocal failedUid failedReview)
+            (recovery, recoveryNative) =
+              ok
+                ( compileScheduledPruneRecoveryScope
+                    recoveryRequest
+                    localAccepted
+                    finiteNative
+                    failedLocal
+                    failedUid
+                    failedReview
+                )
             (_, recoveryBytes) = case Map.elems recoveryNative of
               [entry] -> entry
               _ -> error "scheduled prune recovery must bind one Job"
-        recoverScheduledPruneCandidate localAccepted failedLocal
-          (scheduledPruneCompleted localCandidate) @?= Right localCandidate
+        recoverScheduledPruneCandidate
+          localAccepted
+          failedLocal
+          (scheduledPruneCompleted localCandidate)
+          @?= Right localCandidate
         Map.lookup "scheduled.prune.recovery.failed.job.uid" (scopeOverrides recovery)
           @?= Just "failed-prune-job-uid"
-        assertBool "receipt-only recovery lost the complete-version check"
-          (BC.isInfixOf "list-object-versions" recoveryBytes
-            && BC.isInfixOf "EXPECTED_RECEIPT_VERSION" recoveryBytes
-            && BC.isInfixOf "scheduled-prune-recovery" recoveryBytes)
-        assertBool "recovery accepted another failed object version"
-          (isLeft (compileScheduledPruneRecoveryScope recoveryRequest localAccepted
-            finiteNative (withScopeOverrides
-              (Map.insert "scheduled.prune.object.version" "another-version"
-                (scopeOverrides failedLocal)) failedLocal)
-            failedUid failedReview))
-        assertBool "cloud recovery lacks exact-generation evidence"
-          (isLeft (compileScheduledPruneRecoveryScope scheduledRequest
-            acceptedScheduled finiteNative scheduledScope failedUid failedReview))
-        manualPruneJobBackupPin pruneBytes @?= Right
-          (Just (finiteJob ^. #identity, pruneVolumeBackupUid pruneRequest))
+        assertBool
+          "receipt-only recovery lost the complete-version check"
+          ( BC.isInfixOf "list-object-versions" recoveryBytes
+              && BC.isInfixOf "EXPECTED_RECEIPT_VERSION" recoveryBytes
+              && BC.isInfixOf "scheduled-prune-recovery" recoveryBytes
+          )
+        assertBool
+          "recovery accepted another failed object version"
+          ( isLeft
+              ( compileScheduledPruneRecoveryScope
+                  recoveryRequest
+                  localAccepted
+                  finiteNative
+                  ( withScopeOverrides
+                      ( Map.insert
+                          "scheduled.prune.object.version"
+                          "another-version"
+                          (scopeOverrides failedLocal)
+                      )
+                      failedLocal
+                  )
+                  failedUid
+                  failedReview
+              )
+          )
+        assertBool
+          "cloud recovery lacks exact-generation evidence"
+          ( isLeft
+              ( compileScheduledPruneRecoveryScope
+                  scheduledRequest
+                  acceptedScheduled
+                  finiteNative
+                  scheduledScope
+                  failedUid
+                  failedReview
+              )
+          )
+        manualPruneJobBackupPin pruneBytes
+          @?= Right
+            (Just (finiteJob ^. #identity, pruneVolumeBackupUid pruneRequest))
         volumePruneJobCredentialPin pruneBytes @?= Right Nothing
         pruneJob ^. #dependencies @?= [OrderedAfter (finiteJob ^. #identity)]
-        assertBool "volume pruning lacks exact version and hash checks"
-          (BC.isInfixOf "--if-generation-match" pruneBytes
-            && BC.isInfixOf "EXPECTED_RECEIPT_SHA256" pruneBytes
-            && BC.isInfixOf "EXPECTED_OBJECT_SHA256" pruneBytes)
-        pruneStates <- newIORef (Map.fromList
-          [ (pruneJob ^. #identity, KubernetesAbsent absence)
-          , (finiteJob ^. #identity, KubernetesPresent
-              (pruneVolumeBackupUid pruneRequest) "1"
-              (Just (finiteJob ^. #identity)) (contentDigest finiteBytes)) ])
+        assertBool
+          "volume pruning lacks exact version and hash checks"
+          ( BC.isInfixOf "--if-generation-match" pruneBytes
+              && BC.isInfixOf "EXPECTED_RECEIPT_SHA256" pruneBytes
+              && BC.isInfixOf "EXPECTED_OBJECT_SHA256" pruneBytes
+          )
+        pruneStates <-
+          newIORef
+            ( Map.fromList
+                [ (pruneJob ^. #identity, KubernetesAbsent absence)
+                ,
+                  ( finiteJob ^. #identity
+                  , KubernetesPresent
+                      (pruneVolumeBackupUid pruneRequest)
+                      "1"
+                      (Just (finiteJob ^. #identity))
+                      (contentDigest finiteBytes)
+                  )
+                ]
+            )
         pruneWrites <- newIORef (0 :: Int)
-        let pruneAdapter = mkKubernetesAdapter (Map.union pruneNative finiteNative)
-              KubernetesAdapterOps
-                { kubernetesContext = ok (mkContextId "test")
-                , kubernetesObserve = \selected -> Map.findWithDefault
-                    (KubernetesUnknown "unbound") selected <$> readIORef pruneStates
-                , kubernetesMutateConditional = \_ -> modifyIORef' pruneWrites (+ 1)
-                    >> pure AdapterEffectCompleted }
-            pruneCreate = createOperation
-              {plannedResources = pruneJob ^. #identity :| []}
+        let pruneAdapter =
+              mkKubernetesAdapter
+                (Map.union pruneNative finiteNative)
+                KubernetesAdapterOps
+                  { kubernetesContext = ok (mkContextId "test")
+                  , kubernetesObserve = \selected ->
+                      Map.findWithDefault
+                        (KubernetesUnknown "unbound")
+                        selected
+                        <$> readIORef pruneStates
+                  , kubernetesMutateConditional = \_ ->
+                      modifyIORef' pruneWrites (+ 1)
+                        >> pure AdapterEffectCompleted
+                  }
+            pruneCreate =
+              createOperation
+                { plannedResources = pruneJob ^. #identity :| []
+                }
         preparedPrune <- adapterPrepare pruneAdapter pruneCreate >>= expectRight
         adapterPreflight pruneAdapter pruneCreate preparedPrune >>= expectRight
-        modifyIORef' pruneStates (Map.insert (finiteJob ^. #identity)
-          (KubernetesPresent (ok (mkPhysicalIdentity "changed-backup-job"))
-            "2" (Just (finiteJob ^. #identity)) (contentDigest finiteBytes)))
+        modifyIORef'
+          pruneStates
+          ( Map.insert
+              (finiteJob ^. #identity)
+              ( KubernetesPresent
+                  (ok (mkPhysicalIdentity "changed-backup-job"))
+                  "2"
+                  (Just (finiteJob ^. #identity))
+                  (contentDigest finiteBytes)
+              )
+          )
         assertBool "changed snapshot Job UID passed volume prune preflight"
-          . isLeft =<< adapterPreflight pruneAdapter pruneCreate preparedPrune
+          . isLeft
+          =<< adapterPreflight pruneAdapter pruneCreate preparedPrune
         adapterExecute pruneAdapter pruneCreate preparedPrune >>= \case
           AdapterEffectFailed {} -> pure ()
           other -> assertFailure ("changed snapshot Job reached prune provider: " <> show other)
         readIORef pruneWrites >>= (@?= 0)
-        assertBool "finite restore refused before expiry"
-          (not (isLeft (compileVolumeRestoreScope finiteRestore sourceScope
-            (Map.union finiteNative sourceNative))))
-        assertBool "expired volume restore was accepted"
-          (isLeft (compileVolumeRestoreScope
-            (finiteRestore {volumeRestoreNow = afterExpiry}) sourceScope
-            (Map.union finiteNative sourceNative)))
+        assertBool
+          "finite restore refused before expiry"
+          ( not
+              ( isLeft
+                  ( compileVolumeRestoreScope
+                      finiteRestore
+                      sourceScope
+                      (Map.union finiteNative sourceNative)
+                  )
+              )
+          )
+        assertBool
+          "expired volume restore was accepted"
+          ( isLeft
+              ( compileVolumeRestoreScope
+                  (finiteRestore {volumeRestoreNow = afterExpiry})
+                  sourceScope
+                  (Map.union finiteNative sourceNative)
+              )
+          )
         let secretOwner = ok (mkScopeId Platform "local-store")
-            secretId = mintResourceId secretOwner (ok (mkLogicalKey "store"))
-              (ok (mkName "secret"))
-            secretValue = object
-              [ "apiVersion" .= ("v1" :: Text), "kind" .= ("Secret" :: Text)
-              , "metadata" .= object
-                  ["name" .= ("minio-credentials" :: Text), "namespace" .= ("default" :: Text)]
-              , "type" .= ("Opaque" :: Text)
-              , "data" .= object ["AWS_ACCESS_KEY_ID" .= ("ZHVtbXk=" :: Text)] ]
+            secretId =
+              mintResourceId
+                secretOwner
+                (ok (mkLogicalKey "store"))
+                (ok (mkName "secret"))
+            secretValue =
+              object
+                [ "apiVersion" .= ("v1" :: Text)
+                , "kind" .= ("Secret" :: Text)
+                , "metadata"
+                    .= object
+                      ["name" .= ("minio-credentials" :: Text), "namespace" .= ("default" :: Text)]
+                , "type" .= ("Opaque" :: Text)
+                , "data" .= object ["AWS_ACCESS_KEY_ID" .= ("ZHVtbXk=" :: Text)]
+                ]
             secretCanonical = ok (canonicalValue secretValue)
-            (storeSecret, storeSecretBytes) = ok (bindKubernetesObject KubernetesInput
-              { resourceId = secretId, ownerScope = secretOwner, clusterId = cluster
-              , inputObject = secretValue, objectDigest = contentDigest secretCanonical
-              , lifecyclePolicy = Retain, inputDataPolicy = Stateless
-              , inputSensitivity = Secret, sourceLocation = SourceLocation "local" "store" })
+            (storeSecret, storeSecretBytes) =
+              ok
+                ( bindKubernetesObject
+                    KubernetesInput
+                      { resourceId = secretId
+                      , ownerScope = secretOwner
+                      , clusterId = cluster
+                      , inputObject = secretValue
+                      , objectDigest = contentDigest secretCanonical
+                      , lifecyclePolicy = Retain
+                      , inputDataPolicy = Stateless
+                      , inputSensitivity = Secret
+                      , sourceLocation = SourceLocation "local" "store"
+                      }
+                )
             secretNative = Map.singleton secretId (storeSecret, storeSecretBytes)
             secretUid = ok (mkPhysicalIdentity "store-secret-uid")
             localBackend = MinioBackend (MinioRef "http://minio:9000" "bucket" "minio-credentials")
-            localRequest = request
-              { volumeStorageBackend = localBackend
-              , volumeStoreCredential = Just (storeSecret, secretUid)
-              , volumeExpiresAt = Just finiteExpiry }
-            (localScope, localNative) = ok (compileVolumeSnapshotScope localRequest
-              sourceScope (Map.union secretNative sourceNative))
+            localRequest =
+              request
+                { volumeStorageBackend = localBackend
+                , volumeStoreCredential = Just (storeSecret, secretUid)
+                , volumeExpiresAt = Just finiteExpiry
+                }
+            (localScope, localNative) =
+              ok
+                ( compileVolumeSnapshotScope
+                    localRequest
+                    sourceScope
+                    (Map.union secretNative sourceNative)
+                )
             (localJob, localBytes) = case Map.elems localNative of
               [entry] -> entry
               _ -> error "local volume snapshot must bind one Job"
             localMetadata = case receiptMetadataValues (ok (eitherDecodeStrict localBytes)) of
               [selected] -> selected
               _ -> error "local volume snapshot lacks receipt metadata"
-            localReceipt = BL.toStrict (encode (object
-              [ "version" .= (1 :: Int), "sha256" .= checksum
-              , "backup" .= (ok (eitherDecodeStrict (TE.encodeUtf8 localMetadata)) :: Value) ]))
-            localPruneRequest = pruneRequest
-              { pruneVolumeBackend = localBackend
-              , pruneVolumeCredential = Just (storeSecret, secretUid)
-              , pruneVolumeReceiptBytes = localReceipt }
-            (localPruneScope, localPruneNative) = ok (compileVolumePruneScope
-              localPruneRequest localScope (Map.union localNative secretNative))
+            localReceipt =
+              BL.toStrict
+                ( encode
+                    ( object
+                        [ "version" .= (1 :: Int)
+                        , "sha256" .= checksum
+                        , "backup" .= (ok (eitherDecodeStrict (TE.encodeUtf8 localMetadata)) :: Value)
+                        ]
+                    )
+                )
+            localPruneRequest =
+              pruneRequest
+                { pruneVolumeBackend = localBackend
+                , pruneVolumeCredential = Just (storeSecret, secretUid)
+                , pruneVolumeReceiptBytes = localReceipt
+                }
+            (localPruneScope, localPruneNative) =
+              ok
+                ( compileVolumePruneScope
+                    localPruneRequest
+                    localScope
+                    (Map.union localNative secretNative)
+                )
             (localPruneJob, localPruneBytes) = case Map.elems localPruneNative of
               [entry] -> entry
               _ -> error "local volume prune must bind one Job"
@@ -991,66 +1575,128 @@ inventoryKubernetesTests =
         case manualPruneSourceProof localPruneScope of
           Right (Just proof) -> pruneSourceCredential proof @?= Just (secretId, secretUid)
           other -> assertFailure ("local prune credential proof missing: " <> show other)
-        localPruneJob ^. #dependencies @?=
-          [OrderedAfter (localJob ^. #identity), OrderedAfter secretId]
-        assertBool "local prune did not select version-specific deletion"
+        localPruneJob ^. #dependencies
+          @?= [OrderedAfter (localJob ^. #identity), OrderedAfter secretId]
+        assertBool
+          "local prune did not select version-specific deletion"
           (BC.isInfixOf "--version-id" localPruneBytes)
-        localStates <- newIORef (Map.fromList
-          [ (localPruneJob ^. #identity, KubernetesAbsent absence)
-          , (localJob ^. #identity, KubernetesPresent
-              (pruneVolumeBackupUid localPruneRequest) "1"
-              (Just (localJob ^. #identity)) (contentDigest localBytes))
-          , (secretId, KubernetesPresent secretUid "1"
-              (Just secretId) (contentDigest storeSecretBytes)) ])
+        localStates <-
+          newIORef
+            ( Map.fromList
+                [ (localPruneJob ^. #identity, KubernetesAbsent absence)
+                ,
+                  ( localJob ^. #identity
+                  , KubernetesPresent
+                      (pruneVolumeBackupUid localPruneRequest)
+                      "1"
+                      (Just (localJob ^. #identity))
+                      (contentDigest localBytes)
+                  )
+                ,
+                  ( secretId
+                  , KubernetesPresent
+                      secretUid
+                      "1"
+                      (Just secretId)
+                      (contentDigest storeSecretBytes)
+                  )
+                ]
+            )
         localWrites <- newIORef (0 :: Int)
-        let localAdapter = mkKubernetesAdapter
-              (Map.unions [localPruneNative, localNative, secretNative])
-              KubernetesAdapterOps
-                { kubernetesContext = ok (mkContextId "test")
-                , kubernetesObserve = \selected -> Map.findWithDefault
-                    (KubernetesUnknown "unbound") selected <$> readIORef localStates
-                , kubernetesMutateConditional = \_ -> modifyIORef' localWrites (+ 1)
-                    >> pure AdapterEffectCompleted }
-            localCreate = createOperation
-              {plannedResources = localPruneJob ^. #identity :| []}
+        let localAdapter =
+              mkKubernetesAdapter
+                (Map.unions [localPruneNative, localNative, secretNative])
+                KubernetesAdapterOps
+                  { kubernetesContext = ok (mkContextId "test")
+                  , kubernetesObserve = \selected ->
+                      Map.findWithDefault
+                        (KubernetesUnknown "unbound")
+                        selected
+                        <$> readIORef localStates
+                  , kubernetesMutateConditional = \_ ->
+                      modifyIORef' localWrites (+ 1)
+                        >> pure AdapterEffectCompleted
+                  }
+            localCreate =
+              createOperation
+                { plannedResources = localPruneJob ^. #identity :| []
+                }
         preparedLocal <- adapterPrepare localAdapter localCreate >>= expectRight
         adapterPreflight localAdapter localCreate preparedLocal >>= expectRight
-        modifyIORef' localStates (Map.insert secretId
-          (KubernetesPresent (ok (mkPhysicalIdentity "replacement-secret"))
-            "2" (Just secretId) (contentDigest storeSecretBytes)))
+        modifyIORef'
+          localStates
+          ( Map.insert
+              secretId
+              ( KubernetesPresent
+                  (ok (mkPhysicalIdentity "replacement-secret"))
+                  "2"
+                  (Just secretId)
+                  (contentDigest storeSecretBytes)
+              )
+          )
         assertBool "changed local credential UID passed prune preflight"
-          . isLeft =<< adapterPreflight localAdapter localCreate preparedLocal
+          . isLeft
+          =<< adapterPreflight localAdapter localCreate preparedLocal
         adapterExecute localAdapter localCreate preparedLocal >>= \case
           AdapterEffectFailed {} -> pure ()
           other -> assertFailure ("changed local credential reached prune provider: " <> show other)
         readIORef localWrites >>= (@?= 0)
     , testCase "reviewed Redis restore binds RDB receipt to an isolated scratch instance" $ do
         let owner = ok (mkScopeId Standalone "database-redis-main")
-            db = Database (ok (mkDatabaseName "redis-main")) Nothing Redis
-              (defaultEngineVersion Redis) (ok (Dsl.mkNamespace "default"))
-              (ok (Dsl.mkQuantity "2Gi")) Nothing Dsl.Retain
-            recovery = RecoveryIntent (ok (mkName "backup"))
-              (mkSecretRef (ok (mkName "db-password")) (ok (mkName "v1")) :| [])
-            direct = DatabaseDirectInput db owner cluster Nothing recovery
-              (SourceLocation "database" "redis")
+            db =
+              Database
+                (ok (mkDatabaseName "redis-main"))
+                Nothing
+                Redis
+                (defaultEngineVersion Redis)
+                (ok (Dsl.mkNamespace "default"))
+                (ok (Dsl.mkQuantity "2Gi"))
+                Nothing
+                Dsl.Retain
+            recovery =
+              RecoveryIntent
+                (ok (mkName "backup"))
+                (mkSecretRef (ok (mkName "db-password")) (ok (mkName "v1")) :| [])
+            direct =
+              DatabaseDirectInput
+                db
+                owner
+                cluster
+                Nothing
+                recovery
+                (SourceLocation "database" "redis")
             backend = GcsBackend "project" "bucket"
             (databaseScope, databaseNative) = ok (compileStandaloneDatabase direct backend)
-            backupRequest = ManualBackupRequest
-              { databaseName = "redis-main", namespaceName = "default", backupId = "run-001"
-              , expiresAt = Nothing
-              , sourceRevision = ScopeRevision (ok (mkScopeGeneration 1))
-                  (contentDigest "accepted-redis")
-              , sourceStatefulUid = ok (mkPhysicalIdentity "redis-stateful-uid")
-              , sourcePvcUid = ok (mkPhysicalIdentity "redis-pvc-uid")
-              , storageBackend = backend, backupSource = SourceLocation "db backup" "run-001" }
-            (backupScope, backupNative) = ok (compileManualBackupScope
-              backupRequest databaseScope databaseNative)
+            backupRequest =
+              ManualBackupRequest
+                { databaseName = "redis-main"
+                , namespaceName = "default"
+                , backupId = "run-001"
+                , expiresAt = Nothing
+                , sourceRevision =
+                    ScopeRevision
+                      (ok (mkScopeGeneration 1))
+                      (contentDigest "accepted-redis")
+                , sourceStatefulUid = ok (mkPhysicalIdentity "redis-stateful-uid")
+                , sourcePvcUid = ok (mkPhysicalIdentity "redis-pvc-uid")
+                , storageBackend = backend
+                , backupSource = SourceLocation "db backup" "run-001"
+                }
+            (backupScope, backupNative) =
+              ok
+                ( compileManualBackupScope
+                    backupRequest
+                    databaseScope
+                    databaseNative
+                )
             backupBytes = case Map.elems backupNative of
               [(_, bytes)] -> bytes
               _ -> error "Redis manual backup must bind one Job"
             metadataValues (Object fields) =
-              [value | KM.lookup "name" fields == Just (String "BACKUP_RECEIPT_METADATA"),
-                Just (String value) <- [KM.lookup "value" fields]]
+              [ value
+              | KM.lookup "name" fields == Just (String "BACKUP_RECEIPT_METADATA")
+              , Just (String value) <- [KM.lookup "value" fields]
+              ]
                 <> concatMap metadataValues (KM.elems fields)
             metadataValues (Array values) = concatMap metadataValues (toList values)
             metadataValues _ = []
@@ -1063,76 +1709,137 @@ inventoryKubernetesTests =
             Left reason -> assertFailure reason >> fail "invalid Redis receipt metadata"
           _ -> assertFailure "Redis backup lacks one receipt metadata field" >> fail "missing metadata"
         let checksum = T.replicate 64 "a"
-            receiptBytes = BL.toStrict (encode (object
-              ["version" .= (1 :: Int), "sha256" .= checksum, "backup" .= metadata]))
-            restoreRequest = ManualRestoreRequest
-              { restoreDatabaseName = "redis-main", restoreNamespaceName = "default"
-              , restoreId = "rdbone", restoreBackupScope = backupScope
-              , restoreBackupRevision = ScopeRevision (ok (mkScopeGeneration 1))
-                  (contentDigest "accepted-backup")
-              , restoreReceiptBytes = receiptBytes
-              , restoreTargetRevision = sourceRevision backupRequest
-              , restoreTargetStatefulUid = sourceStatefulUid backupRequest
-              , restoreTargetPvcUid = sourcePvcUid backupRequest
-              , restoreStorageBackend = backend
-              , restoreSource = SourceLocation "db restore" "rdbone" }
-            (restoreScope, restoreNative) = ok (compileManualRestoreScope restoreRequest
-              databaseScope (Map.union backupNative databaseNative))
+            receiptBytes =
+              BL.toStrict
+                ( encode
+                    ( object
+                        ["version" .= (1 :: Int), "sha256" .= checksum, "backup" .= metadata]
+                    )
+                )
+            restoreRequest =
+              ManualRestoreRequest
+                { restoreDatabaseName = "redis-main"
+                , restoreNamespaceName = "default"
+                , restoreId = "rdbone"
+                , restoreBackupScope = backupScope
+                , restoreBackupRevision =
+                    ScopeRevision
+                      (ok (mkScopeGeneration 1))
+                      (contentDigest "accepted-backup")
+                , restoreReceiptBytes = receiptBytes
+                , restoreTargetRevision = sourceRevision backupRequest
+                , restoreTargetStatefulUid = sourceStatefulUid backupRequest
+                , restoreTargetPvcUid = sourcePvcUid backupRequest
+                , restoreStorageBackend = backend
+                , restoreSource = SourceLocation "db restore" "rdbone"
+                }
+            (restoreScope, restoreNative) =
+              ok
+                ( compileManualRestoreScope
+                    restoreRequest
+                    databaseScope
+                    (Map.union backupNative databaseNative)
+                )
             restoreObjects = [bytes | (_, bytes) <- Map.elems restoreNative]
         Map.size restoreNative @?= 4
-        let restoreIds = [member ^. #identity | bundle <- scopeBundles restoreScope,
-              Managed member <- declarations bundle]
+        let restoreIds =
+              [ member ^. #identity
+              | bundle <- scopeBundles restoreScope
+              , Managed member <- declarations bundle
+              ]
         restoreIds @?= sort restoreIds
         Map.lookup "restore.backup.object" (scopeOverrides restoreScope)
           @?= Just "gs://bucket/manual-databases/default/redis-main/run-001.rdb.gz"
         Map.lookup "restore.target.database" (scopeOverrides restoreScope)
           @?= Just "redis-main-restore-rdbone"
-        assertBool "Redis restore lacks pinned RDB and isolated scratch manifests"
-          (any (BC.isInfixOf "redis-check-rdb") restoreObjects
-            && any (BC.isInfixOf "nagare.dev/restore-scratch") restoreObjects
-            && any (BC.isInfixOf "EXPECTED_BACKUP_SHA256") restoreObjects)
-        case [bytes | (member, bytes) <- Map.elems restoreNative,
-          case member ^. #address of
-            Kubernetes _ "apps" kind _ _ -> nameText kind == "statefulset"
-            _ -> False] of
+        assertBool
+          "Redis restore lacks pinned RDB and isolated scratch manifests"
+          ( any (BC.isInfixOf "redis-check-rdb") restoreObjects
+              && any (BC.isInfixOf "nagare.dev/restore-scratch") restoreObjects
+              && any (BC.isInfixOf "EXPECTED_BACKUP_SHA256") restoreObjects
+          )
+        case [ bytes
+             | (member, bytes) <- Map.elems restoreNative
+             , case member ^. #address of
+                 Kubernetes _ "apps" kind _ _ -> nameText kind == "statefulset"
+                 _ -> False
+             ] of
           [scratchBytes] -> do
             let sourceStateful = ok (databaseResourceId owner (ok (mkName "statefulset")) db)
                 sourcePvc = ok (databaseResourceId owner (ok (mkName "pvc")) db)
-                scratchStateful = mintResourceId (scopeId restoreScope)
-                  (ok (mkLogicalKey "rdbone")) (ok (mkName "statefulset"))
-                observed sourceId uid = KubernetesPresent uid "1" (Just sourceId)
-                  (contentDigest (snd (databaseNative Map.! sourceId)))
-            manualRestoreJobTargetPins scratchBytes @?= Right (Just
-              [(sourceStateful, sourceStatefulUid backupRequest),
-               (sourcePvc, sourcePvcUid backupRequest)])
-            states <- newIORef (Map.fromList
-              [ (scratchStateful, KubernetesAbsent (contentDigest "absent"))
-              , (sourceStateful, observed sourceStateful (sourceStatefulUid backupRequest))
-              , (sourcePvc, observed sourcePvc (sourcePvcUid backupRequest)) ])
+                scratchStateful =
+                  mintResourceId
+                    (scopeId restoreScope)
+                    (ok (mkLogicalKey "rdbone"))
+                    (ok (mkName "statefulset"))
+                observed sourceId uid =
+                  KubernetesPresent
+                    uid
+                    "1"
+                    (Just sourceId)
+                    (contentDigest (snd (databaseNative Map.! sourceId)))
+            manualRestoreJobTargetPins scratchBytes
+              @?= Right
+                ( Just
+                    [ (sourceStateful, sourceStatefulUid backupRequest)
+                    , (sourcePvc, sourcePvcUid backupRequest)
+                    ]
+                )
+            states <-
+              newIORef
+                ( Map.fromList
+                    [ (scratchStateful, KubernetesAbsent (contentDigest "absent"))
+                    , (sourceStateful, observed sourceStateful (sourceStatefulUid backupRequest))
+                    , (sourcePvc, observed sourcePvc (sourcePvcUid backupRequest))
+                    ]
+                )
             writes <- newIORef (0 :: Int)
-            let adapter = mkKubernetesAdapter
-                  (Map.unions [restoreNative, backupNative, databaseNative])
-                  KubernetesAdapterOps
-                    { kubernetesContext = ok (mkContextId "test")
-                    , kubernetesObserve = \selected -> Map.findWithDefault
-                        (KubernetesUnknown "unbound") selected <$> readIORef states
-                    , kubernetesMutateConditional = \_ -> modifyIORef' writes (+ 1)
-                        >> pure AdapterEffectCompleted }
-                createScratch = createOperation
-                  {plannedResources = scratchStateful :| []}
+            let adapter =
+                  mkKubernetesAdapter
+                    (Map.unions [restoreNative, backupNative, databaseNative])
+                    KubernetesAdapterOps
+                      { kubernetesContext = ok (mkContextId "test")
+                      , kubernetesObserve = \selected ->
+                          Map.findWithDefault
+                            (KubernetesUnknown "unbound")
+                            selected
+                            <$> readIORef states
+                      , kubernetesMutateConditional = \_ ->
+                          modifyIORef' writes (+ 1)
+                            >> pure AdapterEffectCompleted
+                      }
+                createScratch =
+                  createOperation
+                    { plannedResources = scratchStateful :| []
+                    }
             prepared <- adapterPrepare adapter createScratch >>= expectRight
             adapterPreflight adapter createScratch prepared >>= expectRight
-            modifyIORef' states (Map.insert sourceStateful
-              (observed sourceStateful (ok (mkPhysicalIdentity "replacement-redis"))))
+            modifyIORef'
+              states
+              ( Map.insert
+                  sourceStateful
+                  (observed sourceStateful (ok (mkPhysicalIdentity "replacement-redis")))
+              )
             assertBool "changed Redis source UID reached the scratch initializer"
-              . isLeft =<< adapterPreflight adapter createScratch prepared
-            modifyIORef' states (Map.insert sourceStateful
-              (observed sourceStateful (sourceStatefulUid backupRequest))
-              . Map.insert scratchStateful
-                (KubernetesPresent (ok (mkPhysicalIdentity "foreign-scratch")) "2"
-                  (Just scratchStateful) (contentDigest "foreign")))
+              . isLeft
+              =<< adapterPreflight adapter createScratch prepared
+            modifyIORef'
+              states
+              ( Map.insert
+                  sourceStateful
+                  (observed sourceStateful (sourceStatefulUid backupRequest))
+                  . Map.insert
+                    scratchStateful
+                    ( KubernetesPresent
+                        (ok (mkPhysicalIdentity "foreign-scratch"))
+                        "2"
+                        (Just scratchStateful)
+                        (contentDigest "foreign")
+                    )
+              )
             assertBool "foreign Redis scratch destination passed preflight"
-              . isLeft =<< adapterPreflight adapter createScratch prepared
+              . isLeft
+              =<< adapterPreflight adapter createScratch prepared
             adapterExecute adapter createScratch prepared >>= \case
               AdapterEffectFailed {} -> pure ()
               other -> assertFailure ("foreign scratch destination was mutated: " <> show other)
@@ -1140,23 +1847,46 @@ inventoryKubernetesTests =
           _ -> assertFailure "Redis restore lacks one source-pinned StatefulSet"
     , testCase "manual database backup binds object and source incarnation into its own Job scope" $ do
         let owner = ok (mkScopeId Standalone "database-pg-main")
-            db = Database (ok (mkDatabaseName "pg-main")) Nothing Postgres (defaultEngineVersion Postgres)
-              (ok (Dsl.mkNamespace "default")) (ok (Dsl.mkQuantity "10Gi")) Nothing Dsl.Retain
-            recovery = RecoveryIntent (ok (mkName "backup"))
-              (mkSecretRef (ok (mkName "db-password")) (ok (mkName "v1")) :| [])
+            db =
+              Database
+                (ok (mkDatabaseName "pg-main"))
+                Nothing
+                Postgres
+                (defaultEngineVersion Postgres)
+                (ok (Dsl.mkNamespace "default"))
+                (ok (Dsl.mkQuantity "10Gi"))
+                Nothing
+                Dsl.Retain
+            recovery =
+              RecoveryIntent
+                (ok (mkName "backup"))
+                (mkSecretRef (ok (mkName "db-password")) (ok (mkName "v1")) :| [])
             direct = DatabaseDirectInput db owner cluster Nothing recovery (SourceLocation "database" "postgres")
             backend = GcsBackend "project" "bucket"
             (databaseScope, databaseNative) = ok (compileStandaloneDatabase direct backend)
-            expiry = maybe (error "invalid test expiry") id
-              (parseTimeM True defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ"
-                "2027-01-01T00:00:00Z" :: Maybe UTCTime)
-            request = ManualBackupRequest
-              { databaseName = "pg-main", namespaceName = "default", backupId = "run-001"
-              , expiresAt = Just expiry
-              , sourceRevision = ScopeRevision (ok (mkScopeGeneration 3)) (contentDigest "accepted-database")
-              , sourceStatefulUid = ok (mkPhysicalIdentity "stateful-uid")
-              , sourcePvcUid = ok (mkPhysicalIdentity "pvc-uid")
-              , storageBackend = backend, backupSource = SourceLocation "db backup" "run-001" }
+            expiry =
+              maybe
+                (error "invalid test expiry")
+                id
+                ( parseTimeM
+                    True
+                    defaultTimeLocale
+                    "%Y-%m-%dT%H:%M:%SZ"
+                    "2027-01-01T00:00:00Z" ::
+                    Maybe UTCTime
+                )
+            request =
+              ManualBackupRequest
+                { databaseName = "pg-main"
+                , namespaceName = "default"
+                , backupId = "run-001"
+                , expiresAt = Just expiry
+                , sourceRevision = ScopeRevision (ok (mkScopeGeneration 3)) (contentDigest "accepted-database")
+                , sourceStatefulUid = ok (mkPhysicalIdentity "stateful-uid")
+                , sourcePvcUid = ok (mkPhysicalIdentity "pvc-uid")
+                , storageBackend = backend
+                , backupSource = SourceLocation "db backup" "run-001"
+                }
             (backupScope, backupNative) = ok (compileManualBackupScope request databaseScope databaseNative)
             (job, bytes) = case Map.elems backupNative of
               [entry] -> entry
@@ -1164,8 +1894,10 @@ inventoryKubernetesTests =
             pinned = compileManualBackupScope request databaseScope databaseNative
             receiptAddress = "gs://bucket/manual-databases/default/pg-main/run-001.sql.gz.receipt.json"
             receiptMetadataValues (Object fields) =
-              [value | KM.lookup "name" fields == Just (String "BACKUP_RECEIPT_METADATA"),
-                Just (String value) <- [KM.lookup "value" fields]]
+              [ value
+              | KM.lookup "name" fields == Just (String "BACKUP_RECEIPT_METADATA")
+              , Just (String value) <- [KM.lookup "value" fields]
+              ]
                 <> concatMap receiptMetadataValues (KM.elems fields)
             receiptMetadataValues (Array values) = concatMap receiptMetadataValues (toList values)
             receiptMetadataValues _ = []
@@ -1177,8 +1909,10 @@ inventoryKubernetesTests =
           @?= Just receiptAddress
         Map.lookup "backup.source.pvc.uid" (scopeOverrides backupScope) @?= Just "pvc-uid"
         Map.lookup "backup.expiry" (scopeOverrides backupScope) @?= Just "2027-01-01T00:00:00Z"
-        case [snapshotOperation | bundle <- scopeBundles backupScope,
-          snapshotOperation <- bundle ^. #operations] of
+        case [ snapshotOperation
+             | bundle <- scopeBundles backupScope
+             , snapshotOperation <- bundle ^. #operations
+             ] of
           [snapshotOperation] -> do
             operationKind snapshotOperation @?= SnapshotData
             affects snapshotOperation @?= (job ^. #identity :| [])
@@ -1191,33 +1925,69 @@ inventoryKubernetesTests =
             sourcePvcPhysical proof @?= ok (mkPhysicalIdentity "pvc-uid")
           other -> assertFailure ("manual backup source proof missing: " <> show other)
         assertBool "backup Job does not verify stored bytes" (BC.isInfixOf "sha256sum" bytes)
-        assertBool "backup Job does not create a checksum receipt"
-          (BC.isInfixOf "BACKUP_RECEIPT_METADATA" bytes
-            && BC.isInfixOf "backup.receipt.json" bytes)
-        assertBool "backup Job does not retain its stored receipt readback in the Pod"
+        assertBool
+          "backup Job does not create a checksum receipt"
+          ( BC.isInfixOf "BACKUP_RECEIPT_METADATA" bytes
+              && BC.isInfixOf "backup.receipt.json" bytes
+          )
+        assertBool
+          "backup Job does not retain its stored receipt readback in the Pod"
           (BC.isInfixOf "/dev/termination-log" bytes)
         assertBool "backup Job still prunes objects" (not (BC.isInfixOf "pruning" bytes))
         assertBool "backup Job lacks source UID annotation" (BC.isInfixOf "stateful-uid" bytes)
-        manualBackupJobSourcePins bytes @?= Right (Just
-          [ (ok (databaseResourceId owner (ok (mkName "statefulset")) db),
-              ok (mkPhysicalIdentity "stateful-uid"))
-          , (ok (databaseResourceId owner (ok (mkName "pvc")) db),
-              ok (mkPhysicalIdentity "pvc-uid")) ])
+        manualBackupJobSourcePins bytes
+          @?= Right
+            ( Just
+                [
+                  ( ok (databaseResourceId owner (ok (mkName "statefulset")) db)
+                  , ok (mkPhysicalIdentity "stateful-uid")
+                  )
+                ,
+                  ( ok (databaseResourceId owner (ok (mkName "pvc")) db)
+                  , ok (mkPhysicalIdentity "pvc-uid")
+                  )
+                ]
+            )
         case eitherDecodeStrict bytes of
-          Right (Object root) | Just (Object metadata) <- KM.lookup "metadata" root
+          Right (Object root)
+            | Just (Object metadata) <- KM.lookup "metadata" root
             , Just (Object annotations) <- KM.lookup "annotations" metadata -> do
-              assertBool "Kubernetes backup annotation contains a non-string value"
-                (all (\case String _ -> True; _ -> False) (KM.elems annotations))
-              let withAnnotations selected = ok (canonicalValue (Object
-                    (KM.insert "metadata" (Object (KM.insert "annotations"
-                      (Object selected) metadata)) root)))
-              manualBackupJobReceiptExpectation
-                (withAnnotations (KM.delete "nagare.dev/backup-receipt-metadata-digest" annotations))
-                @?= manualBackupJobReceiptExpectation bytes
-              assertBool "mismatched Job receipt annotation was accepted"
-                (isLeft (manualBackupJobReceiptExpectation (withAnnotations
-                  (KM.insert "nagare.dev/backup-receipt-metadata-digest"
-                    (String (T.replicate 64 "0")) annotations))))
+                assertBool
+                  "Kubernetes backup annotation contains a non-string value"
+                  (all (\case String _ -> True; _ -> False) (KM.elems annotations))
+                let withAnnotations selected =
+                      ok
+                        ( canonicalValue
+                            ( Object
+                                ( KM.insert
+                                    "metadata"
+                                    ( Object
+                                        ( KM.insert
+                                            "annotations"
+                                            (Object selected)
+                                            metadata
+                                        )
+                                    )
+                                    root
+                                )
+                            )
+                        )
+                manualBackupJobReceiptExpectation
+                  (withAnnotations (KM.delete "nagare.dev/backup-receipt-metadata-digest" annotations))
+                  @?= manualBackupJobReceiptExpectation bytes
+                assertBool
+                  "mismatched Job receipt annotation was accepted"
+                  ( isLeft
+                      ( manualBackupJobReceiptExpectation
+                          ( withAnnotations
+                              ( KM.insert
+                                  "nagare.dev/backup-receipt-metadata-digest"
+                                  (String (T.replicate 64 "0"))
+                                  annotations
+                              )
+                          )
+                      )
+                  )
           other -> assertFailure ("backup Job metadata missing: " <> show other)
         case eitherDecodeStrict bytes of
           Right jobValue -> case receiptMetadataValues jobValue of
@@ -1225,27 +1995,41 @@ inventoryKubernetesTests =
               Right metadataValue -> do
                 let archiveBytes = BC.pack "archive-fixture"
                     checksum = digestText (contentDigest archiveBytes)
-                    receiptBody selected = BL.toStrict (encode (object
-                      ["version" .= (1 :: Int), "sha256" .= checksum, "backup" .= selected]))
+                    receiptBody selected =
+                      BL.toStrict
+                        ( encode
+                            ( object
+                                ["version" .= (1 :: Int), "sha256" .= checksum, "backup" .= selected]
+                            )
+                        )
                     changedMetadata = case metadataValue of
                       Object fields -> Object (KM.insert "sourcePvcUid" (String "different-uid") fields)
                       _ -> metadataValue
                 parseManualBackupReceipt backupScope receiptAddress (receiptBody metadataValue)
                   @?= Right checksum
                 let receiptBytes = receiptBody metadataValue
-                    receiptEvidence = ManualReceiptEvidence
-                      { manualJobUid = ok (mkPhysicalIdentity "backup-job-uid")
-                      , manualObjectVersion = "11"
-                      , manualObjectLength = fromIntegral (BS.length archiveBytes)
-                      , manualObjectSha256 = checksum
-                      , manualReceiptVersion = "12"
-                      , manualReceiptLength = fromIntegral (BS.length receiptBytes)
-                      , manualReceiptBytes = receiptBytes
-                      }
-                    producerRevision = ScopeRevision (ok (mkScopeGeneration 1))
-                      (contentDigest "accepted-backup")
-                    record = ok (compileManualReceiptScope producerRevision
-                      backupScope backupNative receiptEvidence)
+                    receiptEvidence =
+                      ManualReceiptEvidence
+                        { manualJobUid = ok (mkPhysicalIdentity "backup-job-uid")
+                        , manualObjectVersion = "11"
+                        , manualObjectLength = fromIntegral (BS.length archiveBytes)
+                        , manualObjectSha256 = checksum
+                        , manualReceiptVersion = "12"
+                        , manualReceiptLength = fromIntegral (BS.length receiptBytes)
+                        , manualReceiptBytes = receiptBytes
+                        }
+                    producerRevision =
+                      ScopeRevision
+                        (ok (mkScopeGeneration 1))
+                        (contentDigest "accepted-backup")
+                    record =
+                      ok
+                        ( compileManualReceiptScope
+                            producerRevision
+                            backupScope
+                            backupNative
+                            receiptEvidence
+                        )
                     readOne address output
                       | address == receiptAddress = do
                           BS.writeFile output receiptBytes
@@ -1256,12 +2040,20 @@ inventoryKubernetesTests =
                       | otherwise = pure (Left "unaccepted object address")
                 inspectManualReceipt readOne backupScope (manualJobUid receiptEvidence)
                   >>= (@?= Right receiptEvidence)
-                parseGcsManualMetadata "bucket" "manual/test.gz"
+                parseGcsManualMetadata
+                  "bucket"
+                  "manual/test.gz"
                   (BC.pack "{\"bucket\":\"bucket\",\"name\":\"manual/test.gz\",\"generation\":\"11\",\"size\":\"15\"}")
                   @?= Right (StoredObject "11" 15)
-                assertBool "foreign GCS metadata authorized a manual receipt"
-                  (isLeft (parseGcsManualMetadata "bucket" "manual/test.gz"
-                    (BC.pack "{\"bucket\":\"other\",\"name\":\"manual/test.gz\",\"generation\":\"11\",\"size\":\"15\"}")))
+                assertBool
+                  "foreign GCS metadata authorized a manual receipt"
+                  ( isLeft
+                      ( parseGcsManualMetadata
+                          "bucket"
+                          "manual/test.gz"
+                          (BC.pack "{\"bucket\":\"other\",\"name\":\"manual/test.gz\",\"generation\":\"11\",\"size\":\"15\"}")
+                      )
+                  )
                 manualReceiptRecord record @?= True
                 scopeId record @?= scopeId backupScope
                 Map.lookup "backup.job.uid" (scopeOverrides record)
@@ -1270,34 +2062,64 @@ inventoryKubernetesTests =
                   @?= Just checksum
                 Map.lookup "backup.receipt.digest" (scopeOverrides record)
                   @?= Just (digestText (contentDigest receiptBytes))
-                assertBool "manual receipt record still owns a Job"
-                  (null [member | bundle <- scopeBundles record,
-                    Managed member <- declarations bundle])
-                assertBool "wrong stored archive bytes produced a receipt record"
-                  (isLeft (compileManualReceiptScope producerRevision backupScope backupNative
-                    (receiptEvidence {manualObjectSha256 = T.replicate 64 "b"})))
-                assertBool "incomplete stored receipt produced a receipt record"
-                  (isLeft (compileManualReceiptScope producerRevision backupScope backupNative
-                    (receiptEvidence {manualReceiptLength = 1})))
-                assertBool "non-generation GCS version produced a receipt record"
-                  (isLeft (compileManualReceiptScope producerRevision backupScope backupNative
-                    (receiptEvidence {manualObjectVersion = "version-11"})))
-                let recordRestoreRequest = ManualRestoreRequest
-                      { restoreDatabaseName = "pg-main"
-                      , restoreNamespaceName = "default"
-                      , restoreId = "record-r1"
-                      , restoreBackupScope = record
-                      , restoreBackupRevision = ScopeRevision
-                          (ok (mkScopeGeneration 2)) (contentDigest "accepted-receipt-record")
-                      , restoreReceiptBytes = receiptBytes
-                      , restoreTargetRevision = sourceRevision request
-                      , restoreTargetStatefulUid = sourceStatefulUid request
-                      , restoreTargetPvcUid = sourcePvcUid request
-                      , restoreStorageBackend = backend
-                      , restoreSource = SourceLocation "db restore" "record-r1"
-                      }
-                    (recordRestoreScope, recordRestoreNative) = ok
-                      (compileManualRestoreScope recordRestoreRequest databaseScope databaseNative)
+                assertBool
+                  "manual receipt record still owns a Job"
+                  ( null
+                      [ member
+                      | bundle <- scopeBundles record
+                      , Managed member <- declarations bundle
+                      ]
+                  )
+                assertBool
+                  "wrong stored archive bytes produced a receipt record"
+                  ( isLeft
+                      ( compileManualReceiptScope
+                          producerRevision
+                          backupScope
+                          backupNative
+                          (receiptEvidence {manualObjectSha256 = T.replicate 64 "b"})
+                      )
+                  )
+                assertBool
+                  "incomplete stored receipt produced a receipt record"
+                  ( isLeft
+                      ( compileManualReceiptScope
+                          producerRevision
+                          backupScope
+                          backupNative
+                          (receiptEvidence {manualReceiptLength = 1})
+                      )
+                  )
+                assertBool
+                  "non-generation GCS version produced a receipt record"
+                  ( isLeft
+                      ( compileManualReceiptScope
+                          producerRevision
+                          backupScope
+                          backupNative
+                          (receiptEvidence {manualObjectVersion = "version-11"})
+                      )
+                  )
+                let recordRestoreRequest =
+                      ManualRestoreRequest
+                        { restoreDatabaseName = "pg-main"
+                        , restoreNamespaceName = "default"
+                        , restoreId = "record-r1"
+                        , restoreBackupScope = record
+                        , restoreBackupRevision =
+                            ScopeRevision
+                              (ok (mkScopeGeneration 2))
+                              (contentDigest "accepted-receipt-record")
+                        , restoreReceiptBytes = receiptBytes
+                        , restoreTargetRevision = sourceRevision request
+                        , restoreTargetStatefulUid = sourceStatefulUid request
+                        , restoreTargetPvcUid = sourcePvcUid request
+                        , restoreStorageBackend = backend
+                        , restoreSource = SourceLocation "db restore" "record-r1"
+                        }
+                    (recordRestoreScope, recordRestoreNative) =
+                      ok
+                        (compileManualRestoreScope recordRestoreRequest databaseScope databaseNative)
                     (recordRestoreJob, recordRestoreBytes) = case Map.elems recordRestoreNative of
                       [entry] -> entry
                       _ -> error "receipt-only restore must have one Job"
@@ -1305,94 +2127,200 @@ inventoryKubernetesTests =
                   @?= Just "11"
                 Map.lookup "restore.backup.receipt.version" (scopeOverrides recordRestoreScope)
                   @?= Just "12"
-                assertBool "receipt-only restore still depends on its collected backup Job"
+                assertBool
+                  "receipt-only restore still depends on its collected backup Job"
                   (OrderedAfter (job ^. #identity) `notElem` dependencies recordRestoreJob)
-                assertBool "receipt-only GCS restore lacks exact-generation reads"
-                  (BC.isInfixOf "gcloud storage cp --do-not-decompress" recordRestoreBytes
-                    && BC.isInfixOf "$SRC#$OBJECT_VERSION" recordRestoreBytes)
-                assertBool "changed accepted receipt digest authorized restore"
-                  (isLeft (compileManualRestoreScope
-                    (recordRestoreRequest {restoreBackupScope = withScopeOverrides
-                      (Map.insert "backup.receipt.digest" (T.replicate 64 "b")
-                        (scopeOverrides record)) record})
-                    databaseScope databaseNative))
-                reviewedManualReceiptCleanup databaseScope databaseNative
-                  backupScope backupNative record (manualJobUid receiptEvidence)
+                assertBool
+                  "receipt-only GCS restore lacks exact-generation reads"
+                  ( BC.isInfixOf "gcloud storage cp --do-not-decompress" recordRestoreBytes
+                      && BC.isInfixOf "$SRC#$OBJECT_VERSION" recordRestoreBytes
+                  )
+                assertBool
+                  "changed accepted receipt digest authorized restore"
+                  ( isLeft
+                      ( compileManualRestoreScope
+                          ( recordRestoreRequest
+                              { restoreBackupScope =
+                                  withScopeOverrides
+                                    ( Map.insert
+                                        "backup.receipt.digest"
+                                        (T.replicate 64 "b")
+                                        (scopeOverrides record)
+                                    )
+                                    record
+                              }
+                          )
+                          databaseScope
+                          databaseNative
+                      )
+                  )
+                reviewedManualReceiptCleanup
+                  databaseScope
+                  databaseNative
+                  backupScope
+                  backupNative
+                  record
+                  (manualJobUid receiptEvidence)
                 case manualBackupJobReceiptExpectation bytes of
                   Right (Just expectation@(BackupReceiptExpectation _ observedAddress _)) -> do
                     observedAddress @?= receiptAddress
                     parseBackupReceipt expectation receiptAddress (receiptBody metadataValue)
                       @?= Right checksum
                   other -> assertFailure ("bound backup Job has no receipt expectation: " <> show other)
-                assertBool "receipt from another object address was accepted"
-                  (isLeft (parseManualBackupReceipt backupScope "gs://bucket/other.receipt.json"
-                    (receiptBody metadataValue)))
-                assertBool "receipt with another source PVC was accepted"
-                  (isLeft (parseManualBackupReceipt backupScope receiptAddress
-                    (receiptBody changedMetadata)))
-                let now = maybe (error "invalid prune test time") id
-                      (parseTimeM True defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ"
-                        "2028-01-01T00:00:00Z" :: Maybe UTCTime)
-                    pruneRequest = ManualPruneRequest
-                      { pruneDatabaseName = "pg-main", pruneNamespaceName = "default"
-                      , pruneBackupId = "run-001"
-                      , pruneBackupRevision = ScopeRevision
-                          (ok (mkScopeGeneration 1)) (contentDigest "accepted-backup")
-                      , pruneBackupUid = ok (mkPhysicalIdentity "backup-job-uid")
-                      , pruneReceiptBytes = receiptBody metadataValue
-                      , pruneNow = now, pruneStorageBackend = backend
-                      , pruneSource = SourceLocation "db prune-backup" "run-001" }
-                    (pruneScope, pruneNative) = ok (compileManualPruneScope
-                      pruneRequest backupScope backupNative)
+                assertBool
+                  "receipt from another object address was accepted"
+                  ( isLeft
+                      ( parseManualBackupReceipt
+                          backupScope
+                          "gs://bucket/other.receipt.json"
+                          (receiptBody metadataValue)
+                      )
+                  )
+                assertBool
+                  "receipt with another source PVC was accepted"
+                  ( isLeft
+                      ( parseManualBackupReceipt
+                          backupScope
+                          receiptAddress
+                          (receiptBody changedMetadata)
+                      )
+                  )
+                let now =
+                      maybe
+                        (error "invalid prune test time")
+                        id
+                        ( parseTimeM
+                            True
+                            defaultTimeLocale
+                            "%Y-%m-%dT%H:%M:%SZ"
+                            "2028-01-01T00:00:00Z" ::
+                            Maybe UTCTime
+                        )
+                    pruneRequest =
+                      ManualPruneRequest
+                        { pruneDatabaseName = "pg-main"
+                        , pruneNamespaceName = "default"
+                        , pruneBackupId = "run-001"
+                        , pruneBackupRevision =
+                            ScopeRevision
+                              (ok (mkScopeGeneration 1))
+                              (contentDigest "accepted-backup")
+                        , pruneBackupUid = ok (mkPhysicalIdentity "backup-job-uid")
+                        , pruneReceiptBytes = receiptBody metadataValue
+                        , pruneNow = now
+                        , pruneStorageBackend = backend
+                        , pruneSource = SourceLocation "db prune-backup" "run-001"
+                        }
+                    (pruneScope, pruneNative) =
+                      ok
+                        ( compileManualPruneScope
+                            pruneRequest
+                            backupScope
+                            backupNative
+                        )
                     (pruneJob, pruneBytes) = case Map.elems pruneNative of
                       [entry] -> entry
                       _ -> error "manual prune scope must have one Job"
-                case [pruneOperation | bundle <- scopeBundles pruneScope,
-                  pruneOperation <- bundle ^. #operations] of
+                case [ pruneOperation
+                     | bundle <- scopeBundles pruneScope
+                     , pruneOperation <- bundle ^. #operations
+                     ] of
                   [pruneOperation] -> do
                     operationKind pruneOperation @?= PruneData
                     affects pruneOperation @?= (pruneJob ^. #identity :| [])
                   other -> assertFailure ("manual prune operation missing: " <> show other)
-                manualPruneJobBackupPin pruneBytes @?= Right (Just
-                  (job ^. #identity, ok (mkPhysicalIdentity "backup-job-uid")))
+                manualPruneJobBackupPin pruneBytes
+                  @?= Right
+                    ( Just
+                        (job ^. #identity, ok (mkPhysicalIdentity "backup-job-uid"))
+                    )
                 case manualPruneSourceProof pruneScope of
                   Right (Just proof) -> do
                     pruneSourceScope proof @?= scopeIdText (scopeId backupScope)
                     pruneSourceJob proof @?= job ^. #identity
                     pruneSourceUid proof @?= ok (mkPhysicalIdentity "backup-job-uid")
                   other -> assertFailure ("manual prune source proof missing: " <> show other)
-                assertBool "unexpired backup could be pruned"
-                  (isLeft (compileManualPruneScope
-                    (pruneRequest {pruneNow = maybe (error "invalid pre-expiry time") id
-                      (parseTimeM True defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ"
-                        "2026-01-01T00:00:00Z" :: Maybe UTCTime)}) backupScope backupNative))
-                assertBool "another receipt could be pruned"
-                  (isLeft (compileManualPruneScope
-                    (pruneRequest {pruneReceiptBytes = receiptBody changedMetadata})
-                    backupScope backupNative))
-                pruneStates <- newIORef (Map.fromList
-                  [ (pruneJob ^. #identity, KubernetesAbsent (contentDigest "absent"))
-                  , (job ^. #identity, KubernetesPresent
-                      (ok (mkPhysicalIdentity "backup-job-uid")) "1"
-                      (Just (job ^. #identity)) (contentDigest bytes)) ])
-                let pruneAdapter = mkKubernetesAdapter (Map.union pruneNative backupNative)
-                      KubernetesAdapterOps
-                        { kubernetesContext = ok (mkContextId "test")
-                        , kubernetesObserve = \resource -> Map.findWithDefault
-                            (KubernetesUnknown "unbound") resource <$> readIORef pruneStates
-                        , kubernetesMutateConditional = \_ -> pure AdapterEffectCompleted }
-                    pruneCreate = createOperation
-                      { plannedResources = pruneJob ^. #identity :| [] }
-                preparedPrune <- adapterPrepare pruneAdapter pruneCreate >>= \case
-                  Right selected -> pure selected
-                  Left reason -> assertFailure ("exact prune source was refused: " <> show reason)
-                    >> fail "missing prepared prune"
+                assertBool
+                  "unexpired backup could be pruned"
+                  ( isLeft
+                      ( compileManualPruneScope
+                          ( pruneRequest
+                              { pruneNow =
+                                  maybe
+                                    (error "invalid pre-expiry time")
+                                    id
+                                    ( parseTimeM
+                                        True
+                                        defaultTimeLocale
+                                        "%Y-%m-%dT%H:%M:%SZ"
+                                        "2026-01-01T00:00:00Z" ::
+                                        Maybe UTCTime
+                                    )
+                              }
+                          )
+                          backupScope
+                          backupNative
+                      )
+                  )
+                assertBool
+                  "another receipt could be pruned"
+                  ( isLeft
+                      ( compileManualPruneScope
+                          (pruneRequest {pruneReceiptBytes = receiptBody changedMetadata})
+                          backupScope
+                          backupNative
+                      )
+                  )
+                pruneStates <-
+                  newIORef
+                    ( Map.fromList
+                        [ (pruneJob ^. #identity, KubernetesAbsent (contentDigest "absent"))
+                        ,
+                          ( job ^. #identity
+                          , KubernetesPresent
+                              (ok (mkPhysicalIdentity "backup-job-uid"))
+                              "1"
+                              (Just (job ^. #identity))
+                              (contentDigest bytes)
+                          )
+                        ]
+                    )
+                let pruneAdapter =
+                      mkKubernetesAdapter
+                        (Map.union pruneNative backupNative)
+                        KubernetesAdapterOps
+                          { kubernetesContext = ok (mkContextId "test")
+                          , kubernetesObserve = \resource ->
+                              Map.findWithDefault
+                                (KubernetesUnknown "unbound")
+                                resource
+                                <$> readIORef pruneStates
+                          , kubernetesMutateConditional = \_ -> pure AdapterEffectCompleted
+                          }
+                    pruneCreate =
+                      createOperation
+                        { plannedResources = pruneJob ^. #identity :| []
+                        }
+                preparedPrune <-
+                  adapterPrepare pruneAdapter pruneCreate >>= \case
+                    Right selected -> pure selected
+                    Left reason ->
+                      assertFailure ("exact prune source was refused: " <> show reason)
+                        >> fail "missing prepared prune"
                 adapterPreflight pruneAdapter pruneCreate preparedPrune >>= \case
                   Right () -> pure ()
                   Left reason -> assertFailure ("exact prune preflight refused: " <> show reason)
-                modifyIORef' pruneStates (Map.insert (job ^. #identity)
-                  (KubernetesPresent (ok (mkPhysicalIdentity "changed-backup-job")) "2"
-                    (Just (job ^. #identity)) (contentDigest bytes)))
+                modifyIORef'
+                  pruneStates
+                  ( Map.insert
+                      (job ^. #identity)
+                      ( KubernetesPresent
+                          (ok (mkPhysicalIdentity "changed-backup-job"))
+                          "2"
+                          (Just (job ^. #identity))
+                          (contentDigest bytes)
+                      )
+                  )
                 adapterPreflight pruneAdapter pruneCreate preparedPrune >>= \case
                   Left _ -> pure ()
                   Right _ -> assertFailure "changed backup Job UID passed prune preflight"
@@ -1400,92 +2328,198 @@ inventoryKubernetesTests =
             other -> assertFailure ("backup Job has no unique receipt metadata: " <> show other)
           other -> assertFailure ("backup Job is invalid JSON: " <> show other)
         assertBool "backup Job has no PVC dependency" (length (dependencies job) == 3)
-        assertBool "different PVC incarnation retained the same Job intent"
-          (compileManualBackupScope (request {sourcePvcUid = ok (mkPhysicalIdentity "replacement-pvc")})
-            databaseScope databaseNative /= pinned)
-        assertBool "missing accepted PVC bytes were accepted"
-          (isLeft (compileManualBackupScope request databaseScope
-            (Map.delete (ok (databaseResourceId owner (ok (mkName "pvc")) db)) databaseNative)))
+        assertBool
+          "different PVC incarnation retained the same Job intent"
+          ( compileManualBackupScope
+              (request {sourcePvcUid = ok (mkPhysicalIdentity "replacement-pvc")})
+              databaseScope
+              databaseNative
+              /= pinned
+          )
+        assertBool
+          "missing accepted PVC bytes were accepted"
+          ( isLeft
+              ( compileManualBackupScope
+                  request
+                  databaseScope
+                  (Map.delete (ok (databaseResourceId owner (ok (mkName "pvc")) db)) databaseNative)
+              )
+          )
         let statefulId = ok (databaseResourceId owner (ok (mkName "statefulset")) db)
             pvcId = ok (databaseResourceId owner (ok (mkName "pvc")) db)
             backupOperation = createOperation {plannedResources = job ^. #identity :| []}
-            sourceState sourceId uid = KubernetesPresent uid "1" (Just sourceId)
-              (contentDigest (snd (databaseNative Map.! sourceId)))
-            sourceStates = Map.fromList
-              [ (job ^. #identity, KubernetesAbsent (contentDigest "absent"))
-              , (statefulId, sourceState statefulId (ok (mkPhysicalIdentity "stateful-uid")))
-              , (pvcId, sourceState pvcId (ok (mkPhysicalIdentity "pvc-uid"))) ]
+            sourceState sourceId uid =
+              KubernetesPresent
+                uid
+                "1"
+                (Just sourceId)
+                (contentDigest (snd (databaseNative Map.! sourceId)))
+            sourceStates =
+              Map.fromList
+                [ (job ^. #identity, KubernetesAbsent (contentDigest "absent"))
+                , (statefulId, sourceState statefulId (ok (mkPhysicalIdentity "stateful-uid")))
+                , (pvcId, sourceState pvcId (ok (mkPhysicalIdentity "pvc-uid")))
+                ]
         states <- newIORef sourceStates
         writes <- newIORef (0 :: Int)
-        let nativeOps = KubernetesAdapterOps
+        let nativeOps =
+              KubernetesAdapterOps
                 { kubernetesContext = ok (mkContextId "test")
-                , kubernetesObserve = \sourceId -> Map.findWithDefault
-                    (KubernetesUnknown "unbound") sourceId <$> readIORef states
+                , kubernetesObserve = \sourceId ->
+                    Map.findWithDefault
+                      (KubernetesUnknown "unbound")
+                      sourceId
+                      <$> readIORef states
                 , kubernetesMutateConditional = \_ -> do
                     modifyIORef' writes (+ 1)
-                    pure AdapterEffectCompleted }
+                    pure AdapterEffectCompleted
+                }
             adapter = mkKubernetesAdapter (Map.union backupNative databaseNative) nativeOps
         prepared <- adapterPrepare adapter backupOperation >>= expectRight
         adapterPreflight adapter backupOperation prepared >>= expectRight
-        modifyIORef' states (Map.insert pvcId
-          (sourceState pvcId (ok (mkPhysicalIdentity "replacement-pvc"))))
+        modifyIORef'
+          states
+          ( Map.insert
+              pvcId
+              (sourceState pvcId (ok (mkPhysicalIdentity "replacement-pvc")))
+          )
         stale <- adapterPreflight adapter backupOperation prepared
         assertBool "stale backup source passed preflight" (isLeft stale)
         adapterExecute adapter backupOperation prepared
-          >>= (@?= AdapterEffectFailed (KnownNoEffect
-            "manual backup source UID, ownership, readiness, or native bytes changed"))
+          >>= ( @?=
+                  AdapterEffectFailed
+                    ( KnownNoEffect
+                        "manual backup source UID, ownership, readiness, or native bytes changed"
+                    )
+              )
         readIORef writes >>= (@?= 0)
         let completedPhysical = ok (mkPhysicalIdentity "backup-job-uid")
-            completedJob = KubernetesPresent completedPhysical "2" (Just (job ^. #identity))
-              (contentDigest bytes)
-        modifyIORef' states (Map.insert pvcId
-          (sourceState pvcId (ok (mkPhysicalIdentity "pvc-uid")))
-          . Map.insert (job ^. #identity) completedJob)
+            completedJob =
+              KubernetesPresent
+                completedPhysical
+                "2"
+                (Just (job ^. #identity))
+                (contentDigest bytes)
+        modifyIORef'
+          states
+          ( Map.insert
+              pvcId
+              (sourceState pvcId (ok (mkPhysicalIdentity "pvc-uid")))
+              . Map.insert (job ^. #identity) completedJob
+          )
         case eitherDecodeStrict bytes of
           Right jobValue -> case receiptMetadataValues jobValue of
             [metadataJson] -> case (eitherDecodeStrict (TE.encodeUtf8 metadataJson) :: Either String Value) of
               Right metadataValue -> do
                 let checksum = T.replicate 64 "a"
-                    receiptBytes = BL.toStrict (encode (object
-                      ["version" .= (1 :: Int), "sha256" .= checksum,
-                       "backup" .= metadataValue]))
-                    podReceipt = object
-                      [ "metadata" .= object ["ownerReferences" .=
-                          [object ["kind" .= ("Job" :: Text), "uid" .=
-                            ("backup-job-uid" :: Text), "controller" .= True]]]
-                      , "status" .= object
-                          [ "phase" .= ("Succeeded" :: Text)
-                          , "containerStatuses" .=
-                              [object ["name" .= ("upload" :: Text), "state" .= object
-                                ["terminated" .= object ["exitCode" .= (0 :: Int),
-                                  "message" .= TE.decodeUtf8 receiptBytes]]]]]]
-                backupReceiptFromPodList completedPhysical
-                  (object ["items" .= [podReceipt]]) @?= Right receiptBytes
-                let verifyPod = object
-                      [ "metadata" .= object ["ownerReferences" .=
-                          [object ["kind" .= ("Job" :: Text), "uid" .=
-                            ("backup-job-uid" :: Text), "controller" .= True]]]
-                      , "status" .= object
-                          [ "phase" .= ("Succeeded" :: Text)
-                          , "containerStatuses" .=
-                              [object ["name" .= ("verify" :: Text), "state" .= object
-                                ["terminated" .= object ["exitCode" .= (0 :: Int),
-                                  "message" .= TE.decodeUtf8 receiptBytes]]]]]]
-                completedJobContainerMessageFromPodList completedPhysical
-                  "verify" (object ["items" .= [verifyPod]]) @?= Right receiptBytes
-                assertBool "wrong completed Job container was accepted"
-                  (isLeft (completedJobContainerMessageFromPodList
-                    completedPhysical "upload" (object ["items" .= [verifyPod]])))
-                assertBool "receipt from another Job UID was accepted"
-                  (isLeft (backupReceiptFromPodList (ok (mkPhysicalIdentity "other-job"))
-                    (object ["items" .= [podReceipt]])))
+                    receiptBytes =
+                      BL.toStrict
+                        ( encode
+                            ( object
+                                [ "version" .= (1 :: Int)
+                                , "sha256" .= checksum
+                                , "backup" .= metadataValue
+                                ]
+                            )
+                        )
+                    podReceipt =
+                      object
+                        [ "metadata"
+                            .= object
+                              [ "ownerReferences"
+                                  .= [ object
+                                         [ "kind" .= ("Job" :: Text)
+                                         , "uid"
+                                             .= ("backup-job-uid" :: Text)
+                                         , "controller" .= True
+                                         ]
+                                     ]
+                              ]
+                        , "status"
+                            .= object
+                              [ "phase" .= ("Succeeded" :: Text)
+                              , "containerStatuses"
+                                  .= [ object
+                                         [ "name" .= ("upload" :: Text)
+                                         , "state"
+                                             .= object
+                                               [ "terminated"
+                                                   .= object
+                                                     [ "exitCode" .= (0 :: Int)
+                                                     , "message" .= TE.decodeUtf8 receiptBytes
+                                                     ]
+                                               ]
+                                         ]
+                                     ]
+                              ]
+                        ]
+                backupReceiptFromPodList
+                  completedPhysical
+                  (object ["items" .= [podReceipt]])
+                  @?= Right receiptBytes
+                let verifyPod =
+                      object
+                        [ "metadata"
+                            .= object
+                              [ "ownerReferences"
+                                  .= [ object
+                                         [ "kind" .= ("Job" :: Text)
+                                         , "uid"
+                                             .= ("backup-job-uid" :: Text)
+                                         , "controller" .= True
+                                         ]
+                                     ]
+                              ]
+                        , "status"
+                            .= object
+                              [ "phase" .= ("Succeeded" :: Text)
+                              , "containerStatuses"
+                                  .= [ object
+                                         [ "name" .= ("verify" :: Text)
+                                         , "state"
+                                             .= object
+                                               [ "terminated"
+                                                   .= object
+                                                     [ "exitCode" .= (0 :: Int)
+                                                     , "message" .= TE.decodeUtf8 receiptBytes
+                                                     ]
+                                               ]
+                                         ]
+                                     ]
+                              ]
+                        ]
+                completedJobContainerMessageFromPodList
+                  completedPhysical
+                  "verify"
+                  (object ["items" .= [verifyPod]])
+                  @?= Right receiptBytes
+                assertBool
+                  "wrong completed Job container was accepted"
+                  ( isLeft
+                      ( completedJobContainerMessageFromPodList
+                          completedPhysical
+                          "upload"
+                          (object ["items" .= [verifyPod]])
+                      )
+                  )
+                assertBool
+                  "receipt from another Job UID was accepted"
+                  ( isLeft
+                      ( backupReceiptFromPodList
+                          (ok (mkPhysicalIdentity "other-job"))
+                          (object ["items" .= [podReceipt]])
+                      )
+                  )
                 receiptRef <- newIORef (Right receiptBytes)
-                let withReceipt = mkKubernetesAdapterWithBackupReceipt
-                      (Map.union backupNative databaseNative) nativeOps
-                      (\resourceId uid -> do
-                        resourceId @?= job ^. #identity
-                        uid @?= completedPhysical
-                        readIORef receiptRef)
+                let withReceipt =
+                      mkKubernetesAdapterWithBackupReceipt
+                        (Map.union backupNative databaseNative)
+                        nativeOps
+                        ( \resourceId uid -> do
+                            resourceId @?= job ^. #identity
+                            uid @?= completedPhysical
+                            readIORef receiptRef
+                        )
                 _ <- adapterVerify withReceipt backupOperation prepared >>= expectRight
                 adapterVerify adapter backupOperation prepared
                   >>= (@?= Left "backup receipt reader is not installed")
@@ -1494,24 +2528,46 @@ inventoryKubernetesTests =
                   >>= (@?= Left "receipt unavailable")
                 adapterRecover withReceipt backupOperation prepared
                   >>= (@?= RecoveryUnresolved "receipt unavailable")
-                writeIORef receiptRef (Right (BL.toStrict (encode (object
-                  ["version" .= (1 :: Int), "sha256" .= checksum,
-                   "backup" .= object ["object" .= ("another" :: Text)]]))))
+                writeIORef
+                  receiptRef
+                  ( Right
+                      ( BL.toStrict
+                          ( encode
+                              ( object
+                                  [ "version" .= (1 :: Int)
+                                  , "sha256" .= checksum
+                                  , "backup" .= object ["object" .= ("another" :: Text)]
+                                  ]
+                              )
+                          )
+                      )
+                  )
                 failed <- adapterVerify withReceipt backupOperation prepared
                 assertBool "changed receipt metadata completed the operation" (isLeft failed)
-                let restoreRequest = ManualRestoreRequest
-                      { restoreDatabaseName = "pg-main", restoreNamespaceName = "default"
-                      , restoreId = "restore-001", restoreBackupScope = backupScope
-                      , restoreBackupRevision = ScopeRevision (ok (mkScopeGeneration 1))
-                          (contentDigest "accepted-backup")
-                      , restoreReceiptBytes = receiptBytes
-                      , restoreTargetRevision = sourceRevision request
-                      , restoreTargetStatefulUid = sourceStatefulUid request
-                      , restoreTargetPvcUid = sourcePvcUid request
-                      , restoreStorageBackend = backend
-                      , restoreSource = SourceLocation "db restore" "restore-001" }
-                    (restoreScope, restoreNative) = ok (compileManualRestoreScope
-                      restoreRequest databaseScope (Map.union backupNative databaseNative))
+                let restoreRequest =
+                      ManualRestoreRequest
+                        { restoreDatabaseName = "pg-main"
+                        , restoreNamespaceName = "default"
+                        , restoreId = "restore-001"
+                        , restoreBackupScope = backupScope
+                        , restoreBackupRevision =
+                            ScopeRevision
+                              (ok (mkScopeGeneration 1))
+                              (contentDigest "accepted-backup")
+                        , restoreReceiptBytes = receiptBytes
+                        , restoreTargetRevision = sourceRevision request
+                        , restoreTargetStatefulUid = sourceStatefulUid request
+                        , restoreTargetPvcUid = sourcePvcUid request
+                        , restoreStorageBackend = backend
+                        , restoreSource = SourceLocation "db restore" "restore-001"
+                        }
+                    (restoreScope, restoreNative) =
+                      ok
+                        ( compileManualRestoreScope
+                            restoreRequest
+                            databaseScope
+                            (Map.union backupNative databaseNative)
+                        )
                     (restoreJob, restoreBytes) = case Map.elems restoreNative of
                       [entry] -> entry
                       _ -> error "reviewed restore must have one Job"
@@ -1519,176 +2575,329 @@ inventoryKubernetesTests =
                   @?= Just checksum
                 Map.lookup "restore.target.database" (scopeOverrides restoreScope)
                   @?= Just "pg-main_restore_restore-001"
-                let restoreBinding = ContextBinding (ok (mkContextId "test"))
-                      (ok (mkName "project"))
-                    restoreSnapshot = ok (mkScopeSnapshot restoreBinding (Map.fromList
-                      [ (scopeId databaseScope, (ok (mkScopeGeneration 3), databaseScope))
-                      , (scopeId backupScope, (ok (mkScopeGeneration 1), backupScope)) ]) Map.empty)
-                assertBool "reviewed restore could not compose with its backup and target"
-                  (not (isLeft (composeInventory restoreSnapshot
-                    (ReplaceScope restoreScope :| []))))
-                assertBool "reviewed restore does not verify both stored objects"
-                  (BC.isInfixOf "EXPECTED_BACKUP_SHA256" restoreBytes
-                    && BC.isInfixOf "EXPECTED_RECEIPT_SHA256" restoreBytes)
-                assertBool "reviewed restore can drop an existing scratch database"
+                let restoreBinding =
+                      ContextBinding
+                        (ok (mkContextId "test"))
+                        (ok (mkName "project"))
+                    restoreSnapshot =
+                      ok
+                        ( mkScopeSnapshot
+                            restoreBinding
+                            ( Map.fromList
+                                [ (scopeId databaseScope, (ok (mkScopeGeneration 3), databaseScope))
+                                , (scopeId backupScope, (ok (mkScopeGeneration 1), backupScope))
+                                ]
+                            )
+                            Map.empty
+                        )
+                assertBool
+                  "reviewed restore could not compose with its backup and target"
+                  ( not
+                      ( isLeft
+                          ( composeInventory
+                              restoreSnapshot
+                              (ReplaceScope restoreScope :| [])
+                          )
+                      )
+                  )
+                assertBool
+                  "reviewed restore does not verify both stored objects"
+                  ( BC.isInfixOf "EXPECTED_BACKUP_SHA256" restoreBytes
+                      && BC.isInfixOf "EXPECTED_RECEIPT_SHA256" restoreBytes
+                  )
+                assertBool
+                  "reviewed restore can drop an existing scratch database"
                   (not (BC.isInfixOf "dropdb" restoreBytes))
-                manualRestoreTargetProof restoreScope @?= Right (Just BackupSourceProof
-                  { sourceScopeName = scopeIdText owner
-                  , sourceScopeGeneration = 3
-                  , sourceScopeDigest = contentDigest "accepted-database"
-                  , sourceStatefulId = statefulId
-                  , sourceStatefulPhysical = ok (mkPhysicalIdentity "stateful-uid")
-                  , sourcePvcId = pvcId
-                  , sourcePvcPhysical = ok (mkPhysicalIdentity "pvc-uid") })
-                manualRestoreJobTargetPins restoreBytes @?= Right (Just
-                  [(statefulId, sourceStatefulUid request),
-                   (pvcId, sourcePvcUid request)])
-                let maintenanceRequest = MaintenanceRequest
-                      { maintenanceEngine = Postgres
-                      , maintenanceDatabase = "pg-main"
-                      , maintenanceNamespace = "default"
-                      , maintenanceSession = "maint-001"
-                      , maintenanceTargetRevision = sourceRevision request
-                      , maintenanceStatefulUid = sourceStatefulUid request
-                      , maintenancePvcUid = sourcePvcUid request
-                      , maintenancePodUid = ok (mkPhysicalIdentity "database-pod-uid")
-                      , maintenanceRecoveryScope = backupScope
-                      , maintenanceRecoveryRevision = ScopeRevision
-                          (ok (mkScopeGeneration 1)) (contentDigest "accepted-backup")
-                      , maintenanceRecoveryJobUid = completedPhysical
-                      , maintenanceRecoveryReceiptDigest = contentDigest "completed-receipt"
-                      , maintenanceRecoveryId = backupId request
-                      , maintenanceSource = SourceLocation "db shell" "pg-main"
-                      }
-                    maintenanceScope = ok (compileMaintenanceScope maintenanceRequest
-                      databaseScope (Map.union backupNative databaseNative))
-                maintenanceSourceProof maintenanceScope @?= Right (Just MaintenanceSourceProof
-                  { maintenanceSourceEngine = Postgres
-                  , maintenanceSourceSession = "maint-001"
-                  , maintenanceSourceDatabase = "pg-main"
-                  , maintenanceSourceNamespace = "default"
-                  , maintenanceSourceScope = scopeIdText owner
-                  , maintenanceSourceGeneration = 3
-                  , maintenanceSourceDigest = contentDigest "accepted-database"
-                  , maintenanceSourceStateful = statefulId
-                  , maintenanceSourceStatefulUid = sourceStatefulUid request
-                  , maintenanceSourcePvc = pvcId
-                  , maintenanceSourcePvcUid = sourcePvcUid request
-                  , maintenanceSourcePodUid = ok (mkPhysicalIdentity "database-pod-uid")
-                  , maintenanceSourceRecovery = scopeIdText (scopeId backupScope)
-                  , maintenanceSourceRecoveryGeneration = 1
-                  , maintenanceSourceRecoveryDigest = contentDigest "accepted-backup"
-                  , maintenanceSourceRecoveryJob = job ^. #identity
-                  , maintenanceSourceRecoveryJobUid = completedPhysical
-                  , maintenanceSourceRecoveryReceiptDigest = contentDigest "completed-receipt"
-                  , maintenanceSourceRecoveryId = backupId request })
-                maintenanceSourceProof (withScopeOverrides
-                  (Map.delete "maintenance.engine" (scopeOverrides maintenanceScope))
-                  maintenanceScope) @?= maintenanceSourceProof maintenanceScope
-                assertBool "maintenance accepted a changed engine label"
-                  (isLeft (compileMaintenanceScope
-                    (maintenanceRequest {maintenanceEngine = Redis})
-                    databaseScope (Map.union backupNative databaseNative)))
-                let maintenanceCandidate = ok (composeInventory restoreSnapshot
-                      (ReplaceScope maintenanceScope :| []))
+                manualRestoreTargetProof restoreScope
+                  @?= Right
+                    ( Just
+                        BackupSourceProof
+                          { sourceScopeName = scopeIdText owner
+                          , sourceScopeGeneration = 3
+                          , sourceScopeDigest = contentDigest "accepted-database"
+                          , sourceStatefulId = statefulId
+                          , sourceStatefulPhysical = ok (mkPhysicalIdentity "stateful-uid")
+                          , sourcePvcId = pvcId
+                          , sourcePvcPhysical = ok (mkPhysicalIdentity "pvc-uid")
+                          }
+                    )
+                manualRestoreJobTargetPins restoreBytes
+                  @?= Right
+                    ( Just
+                        [ (statefulId, sourceStatefulUid request)
+                        , (pvcId, sourcePvcUid request)
+                        ]
+                    )
+                let maintenanceRequest =
+                      MaintenanceRequest
+                        { maintenanceEngine = Postgres
+                        , maintenanceDatabase = "pg-main"
+                        , maintenanceNamespace = "default"
+                        , maintenanceSession = "maint-001"
+                        , maintenanceTargetRevision = sourceRevision request
+                        , maintenanceStatefulUid = sourceStatefulUid request
+                        , maintenancePvcUid = sourcePvcUid request
+                        , maintenancePodUid = ok (mkPhysicalIdentity "database-pod-uid")
+                        , maintenanceRecoveryScope = backupScope
+                        , maintenanceRecoveryRevision =
+                            ScopeRevision
+                              (ok (mkScopeGeneration 1))
+                              (contentDigest "accepted-backup")
+                        , maintenanceRecoveryJobUid = completedPhysical
+                        , maintenanceRecoveryReceiptDigest = contentDigest "completed-receipt"
+                        , maintenanceRecoveryId = backupId request
+                        , maintenanceSource = SourceLocation "db shell" "pg-main"
+                        }
+                    maintenanceScope =
+                      ok
+                        ( compileMaintenanceScope
+                            maintenanceRequest
+                            databaseScope
+                            (Map.union backupNative databaseNative)
+                        )
+                maintenanceSourceProof maintenanceScope
+                  @?= Right
+                    ( Just
+                        MaintenanceSourceProof
+                          { maintenanceSourceEngine = Postgres
+                          , maintenanceSourceSession = "maint-001"
+                          , maintenanceSourceDatabase = "pg-main"
+                          , maintenanceSourceNamespace = "default"
+                          , maintenanceSourceScope = scopeIdText owner
+                          , maintenanceSourceGeneration = 3
+                          , maintenanceSourceDigest = contentDigest "accepted-database"
+                          , maintenanceSourceStateful = statefulId
+                          , maintenanceSourceStatefulUid = sourceStatefulUid request
+                          , maintenanceSourcePvc = pvcId
+                          , maintenanceSourcePvcUid = sourcePvcUid request
+                          , maintenanceSourcePodUid = ok (mkPhysicalIdentity "database-pod-uid")
+                          , maintenanceSourceRecovery = scopeIdText (scopeId backupScope)
+                          , maintenanceSourceRecoveryGeneration = 1
+                          , maintenanceSourceRecoveryDigest = contentDigest "accepted-backup"
+                          , maintenanceSourceRecoveryJob = job ^. #identity
+                          , maintenanceSourceRecoveryJobUid = completedPhysical
+                          , maintenanceSourceRecoveryReceiptDigest = contentDigest "completed-receipt"
+                          , maintenanceSourceRecoveryId = backupId request
+                          }
+                    )
+                maintenanceSourceProof
+                  ( withScopeOverrides
+                      (Map.delete "maintenance.engine" (scopeOverrides maintenanceScope))
+                      maintenanceScope
+                  )
+                  @?= maintenanceSourceProof maintenanceScope
+                assertBool
+                  "maintenance accepted a changed engine label"
+                  ( isLeft
+                      ( compileMaintenanceScope
+                          (maintenanceRequest {maintenanceEngine = Redis})
+                          databaseScope
+                          (Map.union backupNative databaseNative)
+                      )
+                  )
+                let maintenanceCandidate =
+                      ok
+                        ( composeInventory
+                            restoreSnapshot
+                            (ReplaceScope maintenanceScope :| [])
+                        )
                 maintenanceStore <- newMemoryStore
-                _ <- initializeStore maintenanceStore restoreBinding "maintenance-plan"
-                  >>= expectRight
+                _ <-
+                  initializeStore maintenanceStore restoreBinding "maintenance-plan"
+                    >>= expectRight
                 emptyMaintenanceHistory <- loadInventoryHistory maintenanceStore >>= expectRight
-                let maintenanceHistory = emptyMaintenanceHistory
-                      { historyAccepted = Map.fromList
-                          [ (scopeId databaseScope, (sourceRevision request, databaseScope))
-                          , (scopeId backupScope, (maintenanceRecoveryRevision maintenanceRequest,
-                              backupScope)) ] }
-                    maintenanceObservations = ok (observationSet
-                      [(statefulId, ObservedPresent (sourceStatefulUid request))])
-                    maintenanceProposal = ok (planChanges maintenanceCandidate
-                      noLifecycleDecisions maintenanceHistory maintenanceObservations)
-                assertBool "operation-only maintenance scope was omitted by planner"
-                  (any ((== OpenMaintenanceSession) . plannedAction)
-                    (proposalOperations maintenanceProposal))
-                let maintenanceRevision = ScopeRevision (ok (mkScopeGeneration 1))
-                      (contentDigest (encodeCanonicalScope maintenanceScope))
-                    replaySnapshot = ok (mkScopeSnapshot restoreBinding (Map.fromList
-                      [ (scopeId databaseScope, (ok (mkScopeGeneration 3), databaseScope))
-                      , (scopeId backupScope, (ok (mkScopeGeneration 1), backupScope))
-                      , (scopeId maintenanceScope,
-                          (ok (mkScopeGeneration 1), maintenanceScope)) ]) Map.empty)
-                    replayCandidate = ok (composeInventory replaySnapshot
-                      (ReplaceScope maintenanceScope :| []))
-                    replayHistory = maintenanceHistory
-                      { historyAccepted = Map.insert (scopeId maintenanceScope)
-                          (maintenanceRevision, maintenanceScope)
-                          (historyAccepted maintenanceHistory)
-                      , historyConverged = Map.singleton (scopeId maintenanceScope)
-                          maintenanceRevision }
-                    replayProposal = ok (planChanges replayCandidate
-                      noLifecycleDecisions replayHistory maintenanceObservations)
-                assertBool "completed maintenance session would replay from the same scope"
-                  (all ((/= OpenMaintenanceSession) . plannedAction)
-                    (proposalOperations replayProposal))
-                assertBool "maintenance accepted a recovery for another run"
-                  (isLeft (compileMaintenanceScope
-                    (maintenanceRequest {maintenanceRecoveryId = "another"})
-                    databaseScope (Map.union backupNative databaseNative)))
-                assertBool "maintenance accepted a backup from another source incarnation"
-                  (isLeft (compileMaintenanceScope
-                    (maintenanceRequest {maintenancePvcUid = ok
-                      (mkPhysicalIdentity "replacement-pvc")})
-                    databaseScope (Map.union backupNative databaseNative)))
-                assertBool "maintenance accepted missing private recovery native bytes"
-                  (isLeft (compileMaintenanceScope maintenanceRequest databaseScope
-                    (Map.delete (job ^. #identity) (Map.union backupNative databaseNative))))
-                let recoveryBackupRequest = request
-                      {backupId = "run-002", backupSource = SourceLocation "db backup" "run-002"}
-                    (recoveryBackupScope, recoveryBackupNative) = ok
-                      (compileManualBackupScope recoveryBackupRequest databaseScope databaseNative)
+                let maintenanceHistory =
+                      emptyMaintenanceHistory
+                        { historyAccepted =
+                            Map.fromList
+                              [ (scopeId databaseScope, (sourceRevision request, databaseScope))
+                              ,
+                                ( scopeId backupScope
+                                ,
+                                  ( maintenanceRecoveryRevision maintenanceRequest
+                                  , backupScope
+                                  )
+                                )
+                              ]
+                        }
+                    maintenanceObservations =
+                      ok
+                        ( observationSet
+                            [(statefulId, ObservedPresent (sourceStatefulUid request))]
+                        )
+                    maintenanceProposal =
+                      ok
+                        ( planChanges
+                            maintenanceCandidate
+                            noLifecycleDecisions
+                            maintenanceHistory
+                            maintenanceObservations
+                        )
+                assertBool
+                  "operation-only maintenance scope was omitted by planner"
+                  ( any
+                      ((== OpenMaintenanceSession) . plannedAction)
+                      (proposalOperations maintenanceProposal)
+                  )
+                let maintenanceRevision =
+                      ScopeRevision
+                        (ok (mkScopeGeneration 1))
+                        (contentDigest (encodeCanonicalScope maintenanceScope))
+                    replaySnapshot =
+                      ok
+                        ( mkScopeSnapshot
+                            restoreBinding
+                            ( Map.fromList
+                                [ (scopeId databaseScope, (ok (mkScopeGeneration 3), databaseScope))
+                                , (scopeId backupScope, (ok (mkScopeGeneration 1), backupScope))
+                                ,
+                                  ( scopeId maintenanceScope
+                                  , (ok (mkScopeGeneration 1), maintenanceScope)
+                                  )
+                                ]
+                            )
+                            Map.empty
+                        )
+                    replayCandidate =
+                      ok
+                        ( composeInventory
+                            replaySnapshot
+                            (ReplaceScope maintenanceScope :| [])
+                        )
+                    replayHistory =
+                      maintenanceHistory
+                        { historyAccepted =
+                            Map.insert
+                              (scopeId maintenanceScope)
+                              (maintenanceRevision, maintenanceScope)
+                              (historyAccepted maintenanceHistory)
+                        , historyConverged =
+                            Map.singleton
+                              (scopeId maintenanceScope)
+                              maintenanceRevision
+                        }
+                    replayProposal =
+                      ok
+                        ( planChanges
+                            replayCandidate
+                            noLifecycleDecisions
+                            replayHistory
+                            maintenanceObservations
+                        )
+                assertBool
+                  "completed maintenance session would replay from the same scope"
+                  ( all
+                      ((/= OpenMaintenanceSession) . plannedAction)
+                      (proposalOperations replayProposal)
+                  )
+                assertBool
+                  "maintenance accepted a recovery for another run"
+                  ( isLeft
+                      ( compileMaintenanceScope
+                          (maintenanceRequest {maintenanceRecoveryId = "another"})
+                          databaseScope
+                          (Map.union backupNative databaseNative)
+                      )
+                  )
+                assertBool
+                  "maintenance accepted a backup from another source incarnation"
+                  ( isLeft
+                      ( compileMaintenanceScope
+                          ( maintenanceRequest
+                              { maintenancePvcUid =
+                                  ok
+                                    (mkPhysicalIdentity "replacement-pvc")
+                              }
+                          )
+                          databaseScope
+                          (Map.union backupNative databaseNative)
+                      )
+                  )
+                assertBool
+                  "maintenance accepted missing private recovery native bytes"
+                  ( isLeft
+                      ( compileMaintenanceScope
+                          maintenanceRequest
+                          databaseScope
+                          (Map.delete (job ^. #identity) (Map.union backupNative databaseNative))
+                      )
+                  )
+                let recoveryBackupRequest =
+                      request
+                        { backupId = "run-002"
+                        , backupSource = SourceLocation "db backup" "run-002"
+                        }
+                    (recoveryBackupScope, recoveryBackupNative) =
+                      ok
+                        (compileManualBackupScope recoveryBackupRequest databaseScope databaseNative)
                     (recoveryBackupJob, recoveryBackupBytes) = case Map.elems recoveryBackupNative of
                       [entry] -> entry
                       _ -> error "recovery backup must have one Job"
                     recoveryMetadata = case eitherDecodeStrict recoveryBackupBytes of
                       Right recoveryValue -> case receiptMetadataValues recoveryValue of
-                        [metadataJson] -> case
-                            (eitherDecodeStrict (TE.encodeUtf8 metadataJson) :: Either String Value) of
+                        [metadataJson] -> case (eitherDecodeStrict (TE.encodeUtf8 metadataJson) :: Either String Value) of
                           Right value -> value
                           Left _ -> error "recovery backup metadata is invalid"
                         _ -> error "recovery backup lacks one receipt metadata value"
                       Left _ -> error "recovery backup Job is invalid"
-                    recoveryReceipt = BL.toStrict (encode (object
-                      ["version" .= (1 :: Int), "sha256" .= T.replicate 64 "a",
-                        "backup" .= recoveryMetadata]))
-                    recoveryBackupRevision = ScopeRevision (ok (mkScopeGeneration 1))
-                      (contentDigest "accepted-recovery-backup")
-                    liveRequest = LiveRestoreRequest
-                      { liveRestoreDatabase = "pg-main"
-                      , liveRestoreNamespace = "default"
-                      , liveRestoreId = "live-001"
-                      , liveRestoreTargetRevision = sourceRevision request
-                      , liveRestoreStatefulUid = sourceStatefulUid request
-                      , liveRestorePvcUid = sourcePvcUid request
-                      , liveRestorePodUid = ok (mkPhysicalIdentity "database-pod-uid")
-                      , liveRestoreSourceBackup = LiveBackupInput backupScope
-                          (restoreBackupRevision restoreRequest) completedPhysical receiptBytes
-                          "source-object-version" "source-receipt-version"
-                      , liveRestoreRecoveryBackup = LiveBackupInput recoveryBackupScope
-                          recoveryBackupRevision (ok (mkPhysicalIdentity "recovery-job-uid"))
-                          recoveryReceipt "recovery-object-version"
-                          "recovery-receipt-version"
-                      , liveRestoreBackend = backend
-                      , liveRestoreSource = SourceLocation "db restore" "live-001"
-                      }
+                    recoveryReceipt =
+                      BL.toStrict
+                        ( encode
+                            ( object
+                                [ "version" .= (1 :: Int)
+                                , "sha256" .= T.replicate 64 "a"
+                                , "backup" .= recoveryMetadata
+                                ]
+                            )
+                        )
+                    recoveryBackupRevision =
+                      ScopeRevision
+                        (ok (mkScopeGeneration 1))
+                        (contentDigest "accepted-recovery-backup")
+                    liveRequest =
+                      LiveRestoreRequest
+                        { liveRestoreDatabase = "pg-main"
+                        , liveRestoreNamespace = "default"
+                        , liveRestoreId = "live-001"
+                        , liveRestoreTargetRevision = sourceRevision request
+                        , liveRestoreStatefulUid = sourceStatefulUid request
+                        , liveRestorePvcUid = sourcePvcUid request
+                        , liveRestorePodUid = ok (mkPhysicalIdentity "database-pod-uid")
+                        , liveRestoreSourceBackup =
+                            LiveBackupInput
+                              backupScope
+                              (restoreBackupRevision restoreRequest)
+                              completedPhysical
+                              receiptBytes
+                              "source-object-version"
+                              "source-receipt-version"
+                        , liveRestoreRecoveryBackup =
+                            LiveBackupInput
+                              recoveryBackupScope
+                              recoveryBackupRevision
+                              (ok (mkPhysicalIdentity "recovery-job-uid"))
+                              recoveryReceipt
+                              "recovery-object-version"
+                              "recovery-receipt-version"
+                        , liveRestoreBackend = backend
+                        , liveRestoreSource = SourceLocation "db restore" "live-001"
+                        }
                     liveNative = Map.unions [backupNative, recoveryBackupNative, databaseNative]
                     liveScope = ok (compileLiveRestoreScope liveRequest databaseScope liveNative)
-                assertBool "live restore has no private canonical proof"
+                assertBool
+                  "live restore has no private canonical proof"
                   (case liveRestoreProof liveScope of Right (Just _) -> True; _ -> False)
                 let liveProof = case liveRestoreProof liveScope of
                       Right (Just selected) -> selected
                       _ -> error "live restore proof is absent"
                     sourceProof = liveRestoreProofSource liveProof
                     archiveData = "fixed archive bytes"
-                    pinnedSource = sourceProof
-                      {liveBackupSha256 = digestText (contentDigest archiveData)}
-                    scheduledProof = LiveScheduledProof
+                    pinnedSource =
+                      sourceProof
+                        { liveBackupSha256 = digestText (contentDigest archiveData)
+                        }
+                    scheduledProof =
+                      LiveScheduledProof
                         { liveScheduledCron = liveBackupJob sourceProof
                         , liveScheduledCronUid = liveBackupPhysical sourceProof
                         , liveScheduledSigning = liveBackupJob sourceProof
@@ -1699,190 +2908,423 @@ inventoryKubernetesTests =
                         , liveScheduledObjectLength = fromIntegral (BS.length archiveData)
                         , liveScheduledReceiptLength = fromIntegral (BS.length receiptBytes)
                         }
-                    scheduledSource = pinnedSource
-                      {liveBackupScheduled = Just scheduledProof}
+                    scheduledSource =
+                      pinnedSource
+                        { liveBackupScheduled = Just scheduledProof
+                        }
                 withSystemTempDirectory "nagare-live-source" $ \scratch -> do
                   let receiptPath = scratch <> "/receipt.json"
                       archivePath = scratch <> "/archive.gz"
-                      receiptObject = StoredObject
-                        (liveBackupReceiptVersionProof sourceProof)
-                        (fromIntegral (BS.length receiptBytes))
-                      archiveObject = StoredObject
-                        (liveBackupObjectVersionProof sourceProof)
-                        (fromIntegral (BS.length archiveData))
+                      receiptObject =
+                        StoredObject
+                          (liveBackupReceiptVersionProof sourceProof)
+                          (fromIntegral (BS.length receiptBytes))
+                      archiveObject =
+                        StoredObject
+                          (liveBackupObjectVersionProof sourceProof)
+                          (fromIntegral (BS.length archiveData))
                   BS.writeFile receiptPath receiptBytes
                   BS.writeFile archivePath archiveData
-                  verifyLiveStoredFiles pinnedSource receiptObject archiveObject
-                    receiptPath archivePath >>= (@?= Right ())
-                  verifyLiveStoredFiles scheduledSource receiptObject archiveObject
-                    receiptPath archivePath >>= (@?= Right ())
+                  verifyLiveStoredFiles
+                    pinnedSource
+                    receiptObject
+                    archiveObject
+                    receiptPath
+                    archivePath
+                    >>= (@?= Right ())
+                  verifyLiveStoredFiles
+                    scheduledSource
+                    receiptObject
+                    archiveObject
+                    receiptPath
+                    archivePath
+                    >>= (@?= Right ())
                   assertBool "scheduled proof accepted a changed stored length"
-                    . isLeft =<< verifyLiveStoredFiles
-                      (scheduledSource {liveBackupScheduled = Just
-                        (scheduledProof {liveScheduledReceiptLength =
-                          fromIntegral (BS.length receiptBytes) + 1})})
-                      receiptObject archiveObject receiptPath archivePath
+                    . isLeft
+                    =<< verifyLiveStoredFiles
+                      ( scheduledSource
+                          { liveBackupScheduled =
+                              Just
+                                ( scheduledProof
+                                    { liveScheduledReceiptLength =
+                                        fromIntegral (BS.length receiptBytes) + 1
+                                    }
+                                )
+                          }
+                      )
+                      receiptObject
+                      archiveObject
+                      receiptPath
+                      archivePath
                   assertBool "different stored archive version passed live restore"
-                    . isLeft =<< verifyLiveStoredFiles pinnedSource receiptObject
+                    . isLeft
+                    =<< verifyLiveStoredFiles
+                      pinnedSource
+                      receiptObject
                       (archiveObject {storedVersion = "replacement"})
-                      receiptPath archivePath
+                      receiptPath
+                      archivePath
                   BS.writeFile archivePath "changed archive"
                   assertBool "changed stored archive bytes passed live restore"
-                    . isLeft =<< verifyLiveStoredFiles pinnedSource receiptObject
-                      archiveObject receiptPath archivePath
-                assertBool "live restore accepted another recovery incarnation"
-                  (isLeft (compileLiveRestoreScope
-                    (liveRequest {liveRestorePvcUid = ok (mkPhysicalIdentity "other-pvc")})
-                    databaseScope liveNative))
-                assertBool "live restore accepted the same source and recovery backup"
-                  (isLeft (compileLiveRestoreScope
-                    (liveRequest {liveRestoreRecoveryBackup = liveRestoreSourceBackup liveRequest})
-                    databaseScope liveNative))
-                assertBool "live restore accepted missing recovery Job native evidence"
-                  (isLeft (compileLiveRestoreScope liveRequest databaseScope
-                    (Map.delete (recoveryBackupJob ^. #identity) liveNative)))
-                assertBool "live restore accepted an unversioned source object"
-                  (isLeft (compileLiveRestoreScope
-                    (liveRequest {liveRestoreSourceBackup =
-                      (liveRestoreSourceBackup liveRequest)
-                        {liveBackupObjectVersion = ""}})
-                    databaseScope liveNative))
-                assertBool "live restore proof accepted an unreviewed extra override"
-                  (isLeft (liveRestoreProof (withScopeOverrides
-                    (Map.insert "unreviewed" "value" (scopeOverrides liveScope)) liveScope)))
-                let liveSnapshot = ok (mkScopeSnapshot restoreBinding
-                      (Map.insert (scopeId recoveryBackupScope)
-                        (ok (mkScopeGeneration 1), recoveryBackupScope)
-                        (snapshotScopes restoreSnapshot)) Map.empty)
-                    liveCandidate = ok (composeInventory liveSnapshot
-                      (ReplaceScope liveScope :| []))
-                    liveHistory = maintenanceHistory
-                      { historyAccepted = Map.insert (scopeId recoveryBackupScope)
-                          (recoveryBackupRevision, recoveryBackupScope)
-                          (historyAccepted maintenanceHistory) }
-                    liveProposal = ok (planChanges liveCandidate noLifecycleDecisions
-                      liveHistory maintenanceObservations)
-                assertBool "reviewed live restore was omitted by planner"
-                  (any ((== RestoreLiveDatabase) . plannedAction)
-                    (proposalOperations liveProposal))
-                let restoreOperation = createOperation
-                      {plannedResources = restoreJob ^. #identity :| []}
-                    restoreAdapter = mkKubernetesAdapter
-                      (Map.unions [restoreNative, backupNative, databaseNative]) nativeOps
-                modifyIORef' states (Map.insert (restoreJob ^. #identity)
-                  (KubernetesAbsent (contentDigest "restore-absent")))
+                    . isLeft
+                    =<< verifyLiveStoredFiles
+                      pinnedSource
+                      receiptObject
+                      archiveObject
+                      receiptPath
+                      archivePath
+                assertBool
+                  "live restore accepted another recovery incarnation"
+                  ( isLeft
+                      ( compileLiveRestoreScope
+                          (liveRequest {liveRestorePvcUid = ok (mkPhysicalIdentity "other-pvc")})
+                          databaseScope
+                          liveNative
+                      )
+                  )
+                assertBool
+                  "live restore accepted the same source and recovery backup"
+                  ( isLeft
+                      ( compileLiveRestoreScope
+                          (liveRequest {liveRestoreRecoveryBackup = liveRestoreSourceBackup liveRequest})
+                          databaseScope
+                          liveNative
+                      )
+                  )
+                assertBool
+                  "live restore accepted missing recovery Job native evidence"
+                  ( isLeft
+                      ( compileLiveRestoreScope
+                          liveRequest
+                          databaseScope
+                          (Map.delete (recoveryBackupJob ^. #identity) liveNative)
+                      )
+                  )
+                assertBool
+                  "live restore accepted an unversioned source object"
+                  ( isLeft
+                      ( compileLiveRestoreScope
+                          ( liveRequest
+                              { liveRestoreSourceBackup =
+                                  (liveRestoreSourceBackup liveRequest)
+                                    { liveBackupObjectVersion = ""
+                                    }
+                              }
+                          )
+                          databaseScope
+                          liveNative
+                      )
+                  )
+                assertBool
+                  "live restore proof accepted an unreviewed extra override"
+                  ( isLeft
+                      ( liveRestoreProof
+                          ( withScopeOverrides
+                              (Map.insert "unreviewed" "value" (scopeOverrides liveScope))
+                              liveScope
+                          )
+                      )
+                  )
+                let liveSnapshot =
+                      ok
+                        ( mkScopeSnapshot
+                            restoreBinding
+                            ( Map.insert
+                                (scopeId recoveryBackupScope)
+                                (ok (mkScopeGeneration 1), recoveryBackupScope)
+                                (snapshotScopes restoreSnapshot)
+                            )
+                            Map.empty
+                        )
+                    liveCandidate =
+                      ok
+                        ( composeInventory
+                            liveSnapshot
+                            (ReplaceScope liveScope :| [])
+                        )
+                    liveHistory =
+                      maintenanceHistory
+                        { historyAccepted =
+                            Map.insert
+                              (scopeId recoveryBackupScope)
+                              (recoveryBackupRevision, recoveryBackupScope)
+                              (historyAccepted maintenanceHistory)
+                        }
+                    liveProposal =
+                      ok
+                        ( planChanges
+                            liveCandidate
+                            noLifecycleDecisions
+                            liveHistory
+                            maintenanceObservations
+                        )
+                assertBool
+                  "reviewed live restore was omitted by planner"
+                  ( any
+                      ((== RestoreLiveDatabase) . plannedAction)
+                      (proposalOperations liveProposal)
+                  )
+                let restoreOperation =
+                      createOperation
+                        { plannedResources = restoreJob ^. #identity :| []
+                        }
+                    restoreAdapter =
+                      mkKubernetesAdapter
+                        (Map.unions [restoreNative, backupNative, databaseNative])
+                        nativeOps
+                modifyIORef'
+                  states
+                  ( Map.insert
+                      (restoreJob ^. #identity)
+                      (KubernetesAbsent (contentDigest "restore-absent"))
+                  )
                 restorePrepared <- adapterPrepare restoreAdapter restoreOperation >>= expectRight
                 adapterPreflight restoreAdapter restoreOperation restorePrepared >>= expectRight
-                modifyIORef' states (Map.insert pvcId
-                  (sourceState pvcId (ok (mkPhysicalIdentity "replacement-pvc"))))
+                modifyIORef'
+                  states
+                  ( Map.insert
+                      pvcId
+                      (sourceState pvcId (ok (mkPhysicalIdentity "replacement-pvc")))
+                  )
                 assertBool "changed restore target PVC passed preflight"
-                  . isLeft =<< adapterPreflight restoreAdapter restoreOperation restorePrepared
+                  . isLeft
+                  =<< adapterPreflight restoreAdapter restoreOperation restorePrepared
               other -> assertFailure ("backup receipt metadata is invalid JSON: " <> show other)
             other -> assertFailure ("backup Job has no unique receipt metadata: " <> show other)
           other -> assertFailure ("backup Job is invalid JSON: " <> show other)
         selected <- lookupEnv "NAGARE_EP148_BACKUP_TEST_CONTEXT"
-        mapM_ (\selectedContext -> do
-          assertBool "refusing a non-disposable Kubernetes context"
-            ("k3d-nagare-inventory-" `T.isPrefixOf` T.pack selectedContext)
-          (code, _, errorText) <- readProcessWithExitCode "kubectl"
-            ["--context", selectedContext, "create", "--dry-run=server", "-f", "-"]
-            (BC.unpack bytes)
-          assertBool ("Kubernetes rejected manual backup Job: " <> errorText)
-            (code == ExitSuccess)) selected
+        mapM_
+          ( \selectedContext -> do
+              assertBool
+                "refusing a non-disposable Kubernetes context"
+                ("k3d-nagare-inventory-" `T.isPrefixOf` T.pack selectedContext)
+              (code, _, errorText) <-
+                readProcessWithExitCode
+                  "kubectl"
+                  ["--context", selectedContext, "create", "--dry-run=server", "-f", "-"]
+                  (BC.unpack bytes)
+              assertBool
+                ("Kubernetes rejected manual backup Job: " <> errorText)
+                (code == ExitSuccess)
+          )
+          selected
     , testCase "legacy accepted database pruning needs an exact CronJob-only review" $ do
         let owner = ok (mkScopeId Standalone "database-pg-main")
-            db = Database (ok (mkDatabaseName "pg-main")) Nothing Postgres (defaultEngineVersion Postgres)
-              (ok (Dsl.mkNamespace "personal")) (ok (Dsl.mkQuantity "10Gi")) Nothing Dsl.Retain
-            recovery = RecoveryIntent (ok (mkName "backup"))
-              (mkSecretRef (ok (mkName "db-password")) (ok (mkName "v1")) :| [])
+            db =
+              Database
+                (ok (mkDatabaseName "pg-main"))
+                Nothing
+                Postgres
+                (defaultEngineVersion Postgres)
+                (ok (Dsl.mkNamespace "personal"))
+                (ok (Dsl.mkQuantity "10Gi"))
+                Nothing
+                Dsl.Retain
+            recovery =
+              RecoveryIntent
+                (ok (mkName "backup"))
+                (mkSecretRef (ok (mkName "db-password")) (ok (mkName "v1")) :| [])
             direct = DatabaseDirectInput db owner cluster Nothing recovery (SourceLocation "database" "postgres")
             backend = GcsBackend "project" "bucket"
             (safeScope, safeNative) = ok (compileStandaloneDatabase direct backend)
             backupId = ok (databaseResourceId owner (ok (mkName "backup")) db)
             (safeMember, safeBytes) = maybe (error "missing backup") id (Map.lookup backupId safeNative)
-            legacyBytes = renderDbBackupCronJob "personal" "pg-main" Postgres
-              (engineVersionText (defaultEngineVersion Postgres)) backend 7
+            legacyBytes =
+              renderDbBackupCronJob
+                "personal"
+                "pg-main"
+                Postgres
+                (engineVersionText (defaultEngineVersion Postgres))
+                backend
+                7
             legacyValue = ok (Yaml.decodeEither' legacyBytes :: Either Yaml.ParseException Value)
             canonicalLegacy = ok (canonicalValue legacyValue)
-            (legacyBase, legacyNative) = ok (bindKubernetesObject KubernetesInput
-              { resourceId = backupId, ownerScope = owner, clusterId = cluster
-              , inputObject = legacyValue, objectDigest = contentDigest canonicalLegacy
-              , lifecyclePolicy = lifecycle safeMember, inputDataPolicy = dataPolicy safeMember
-              , inputSensitivity = sensitivity safeMember, sourceLocation = source safeMember })
+            (legacyBase, legacyNative) =
+              ok
+                ( bindKubernetesObject
+                    KubernetesInput
+                      { resourceId = backupId
+                      , ownerScope = owner
+                      , clusterId = cluster
+                      , inputObject = legacyValue
+                      , objectDigest = contentDigest canonicalLegacy
+                      , lifecyclePolicy = lifecycle safeMember
+                      , inputDataPolicy = dataPolicy safeMember
+                      , inputSensitivity = sensitivity safeMember
+                      , sourceLocation = source safeMember
+                      }
+                )
             legacyMember = legacyBase {dependencies = dependencies safeMember}
-            replace bundle = bundle {declarations = map (\case
-              Managed member | member ^. #identity == backupId -> Managed legacyMember
-              existing -> existing) (declarations bundle)}
+            replace bundle =
+              bundle
+                { declarations =
+                    map
+                      ( \case
+                          Managed member | member ^. #identity == backupId -> Managed legacyMember
+                          existing -> existing
+                      )
+                      (declarations bundle)
+                }
             legacyScope = ok (mkScopeDeclaration owner (map replace (scopeBundles safeScope)))
             acceptedNative = Map.insert backupId (legacyMember, legacyNative) safeNative
-            (updated, updatedNative) = ok
-              (compileBackupPruneRemovalScope "pg-main" "personal" backend legacyScope acceptedNative)
+            (updated, updatedNative) =
+              ok
+                (compileBackupPruneRemovalScope "pg-main" "personal" backend legacyScope acceptedNative)
         Map.delete backupId updatedNative @?= Map.delete backupId acceptedNative
         Map.lookup backupId updatedNative @?= Map.lookup backupId safeNative
         scopeBundles updated @?= scopeBundles safeScope
-        assertBool "legacy pruning remained in reviewed bytes"
+        assertBool
+          "legacy pruning remained in reviewed bytes"
           (not (BC.isInfixOf "pruning" (snd (updatedNative Map.! backupId))))
         compileBackupPruneRemovalScope "pg-main" "personal" backend updated updatedNative
           @?= Right (updated, updatedNative)
-        assertBool "mismatched accepted bytes were accepted"
-          (isLeft (compileBackupPruneRemovalScope "pg-main" "personal" backend
-            legacyScope (Map.insert backupId (legacyMember, BC.pack "{}") acceptedNative)))
-        assertBool "changed object-store binding was accepted"
-          (isLeft (compileBackupPruneRemovalScope "pg-main" "personal"
-            (GcsBackend "project" "other-bucket") legacyScope acceptedNative))
-        assertBool "backup migration unexpectedly changed the safe schedule"
+        assertBool
+          "mismatched accepted bytes were accepted"
+          ( isLeft
+              ( compileBackupPruneRemovalScope
+                  "pg-main"
+                  "personal"
+                  backend
+                  legacyScope
+                  (Map.insert backupId (legacyMember, BC.pack "{}") acceptedNative)
+              )
+          )
+        assertBool
+          "changed object-store binding was accepted"
+          ( isLeft
+              ( compileBackupPruneRemovalScope
+                  "pg-main"
+                  "personal"
+                  (GcsBackend "project" "other-bucket")
+                  legacyScope
+                  acceptedNative
+              )
+          )
+        assertBool
+          "backup migration unexpectedly changed the safe schedule"
           (safeBytes == snd (updatedNative Map.! backupId))
         -- Frozen output of the a027d1f6 signed-v4 renderer, independent of the
         -- current recognizer. A schedule update must preserve all other members.
         signedV4 <- BS.readFile "test/fixtures/scheduled-v4-postgres-gcs.yaml"
-        signedV4 @?= renderPreviousSignedInventoryDbBackupCronJob "personal" "pg-main" Postgres
-          (engineVersionText (defaultEngineVersion Postgres)) backend 7
-        forM_ [renderPreviousInventoryDbBackupCronJob "personal" "pg-main" Postgres
-                 (engineVersionText (defaultEngineVersion Postgres)) backend 7, signedV4] $ \earlierBytes -> do
-          let previousValue = ok (Yaml.decodeEither' earlierBytes :: Either Yaml.ParseException Value)
-              (previousBase, previousBytes) = ok (bindKubernetesObject KubernetesInput
-                { resourceId = backupId, ownerScope = owner, clusterId = cluster
-                , inputObject = previousValue, objectDigest = contentDigest (ok (canonicalValue previousValue))
-                , lifecyclePolicy = lifecycle safeMember, inputDataPolicy = dataPolicy safeMember
-                , inputSensitivity = sensitivity safeMember, sourceLocation = source safeMember })
-              previousMember = previousBase {dependencies = dependencies safeMember}
-              replacePrevious bundle = bundle {declarations = map (\case
-                Managed member | member ^. #identity == backupId -> Managed previousMember
-                existing -> existing) (declarations bundle)}
-              previousScope = ok (mkScopeDeclaration owner (map replacePrevious (scopeBundles safeScope)))
-              previousNative = Map.insert backupId (previousMember, previousBytes) safeNative
-          compileBackupPruneRemovalScope "pg-main" "personal" backend previousScope previousNative
-            @?= Right (safeScope, safeNative)
+        signedV4
+          @?= renderPreviousSignedInventoryDbBackupCronJob
+            "personal"
+            "pg-main"
+            Postgres
+            (engineVersionText (defaultEngineVersion Postgres))
+            backend
+            7
+        forM_
+          [ renderPreviousInventoryDbBackupCronJob
+              "personal"
+              "pg-main"
+              Postgres
+              (engineVersionText (defaultEngineVersion Postgres))
+              backend
+              7
+          , signedV4
+          ]
+          $ \earlierBytes -> do
+            let previousValue = ok (Yaml.decodeEither' earlierBytes :: Either Yaml.ParseException Value)
+                (previousBase, previousBytes) =
+                  ok
+                    ( bindKubernetesObject
+                        KubernetesInput
+                          { resourceId = backupId
+                          , ownerScope = owner
+                          , clusterId = cluster
+                          , inputObject = previousValue
+                          , objectDigest = contentDigest (ok (canonicalValue previousValue))
+                          , lifecyclePolicy = lifecycle safeMember
+                          , inputDataPolicy = dataPolicy safeMember
+                          , inputSensitivity = sensitivity safeMember
+                          , sourceLocation = source safeMember
+                          }
+                    )
+                previousMember = previousBase {dependencies = dependencies safeMember}
+                replacePrevious bundle =
+                  bundle
+                    { declarations =
+                        map
+                          ( \case
+                              Managed member | member ^. #identity == backupId -> Managed previousMember
+                              existing -> existing
+                          )
+                          (declarations bundle)
+                    }
+                previousScope = ok (mkScopeDeclaration owner (map replacePrevious (scopeBundles safeScope)))
+                previousNative = Map.insert backupId (previousMember, previousBytes) safeNative
+            compileBackupPruneRemovalScope "pg-main" "personal" backend previousScope previousNative
+              @?= Right (safeScope, safeNative)
     , testCase "disposable cluster updates a legacy backup CronJob without recreating it" $ do
         selected <- lookupEnv "NAGARE_EP148_BACKUP_TEST_CONTEXT"
         case selected of
           Nothing -> pure ()
           Just selectedContext -> do
-            assertBool "refusing a non-disposable Kubernetes context"
+            assertBool
+              "refusing a non-disposable Kubernetes context"
               ("k3d-nagare-inventory-" `T.isPrefixOf` T.pack selectedContext)
             let dbName = "ep148-prune-proof"
                 cronName = "nagare-dbbackup-" <> dbName
                 owner = ok (mkScopeId Standalone "database-ep148-prune-proof")
-                db = Database (ok (mkDatabaseName dbName)) Nothing Postgres (defaultEngineVersion Postgres)
-                  (ok (Dsl.mkNamespace "default")) (ok (Dsl.mkQuantity "1Gi")) Nothing Dsl.Retain
-                recovery = RecoveryIntent (ok (mkName "backup"))
-                  (mkSecretRef (ok (mkName "db-password")) (ok (mkName "v1")) :| [])
+                db =
+                  Database
+                    (ok (mkDatabaseName dbName))
+                    Nothing
+                    Postgres
+                    (defaultEngineVersion Postgres)
+                    (ok (Dsl.mkNamespace "default"))
+                    (ok (Dsl.mkQuantity "1Gi"))
+                    Nothing
+                    Dsl.Retain
+                recovery =
+                  RecoveryIntent
+                    (ok (mkName "backup"))
+                    (mkSecretRef (ok (mkName "db-password")) (ok (mkName "v1")) :| [])
                 direct = DatabaseDirectInput db owner cluster Nothing recovery (SourceLocation "database" "provider-proof")
                 backend = GcsBackend "project" "bucket"
                 (safeScope, safeNative) = ok (compileStandaloneDatabase direct backend)
                 backupId = ok (databaseResourceId owner (ok (mkName "backup")) db)
                 (safeMember, _) = maybe (error "missing backup") id (Map.lookup backupId safeNative)
-                legacyValue = ok (Yaml.decodeEither' (renderDbBackupCronJob "default" dbName Postgres
-                  (engineVersionText (defaultEngineVersion Postgres)) backend 7) :: Either Yaml.ParseException Value)
-                (legacyBase, legacyBytes) = ok (bindKubernetesObject KubernetesInput
-                  { resourceId = backupId, ownerScope = owner, clusterId = cluster
-                  , inputObject = legacyValue, objectDigest = contentDigest (ok (canonicalValue legacyValue))
-                  , lifecyclePolicy = lifecycle safeMember, inputDataPolicy = dataPolicy safeMember
-                  , inputSensitivity = sensitivity safeMember, sourceLocation = source safeMember })
+                legacyValue =
+                  ok
+                    ( Yaml.decodeEither'
+                        ( renderDbBackupCronJob
+                            "default"
+                            dbName
+                            Postgres
+                            (engineVersionText (defaultEngineVersion Postgres))
+                            backend
+                            7
+                        ) ::
+                        Either Yaml.ParseException Value
+                    )
+                (legacyBase, legacyBytes) =
+                  ok
+                    ( bindKubernetesObject
+                        KubernetesInput
+                          { resourceId = backupId
+                          , ownerScope = owner
+                          , clusterId = cluster
+                          , inputObject = legacyValue
+                          , objectDigest = contentDigest (ok (canonicalValue legacyValue))
+                          , lifecyclePolicy = lifecycle safeMember
+                          , inputDataPolicy = dataPolicy safeMember
+                          , inputSensitivity = sensitivity safeMember
+                          , sourceLocation = source safeMember
+                          }
+                    )
                 legacyMember = legacyBase {dependencies = dependencies safeMember}
-                replace bundle = bundle {declarations = map (\case
-                  Managed member | member ^. #identity == backupId -> Managed legacyMember
-                  existing -> existing) (declarations bundle)}
+                replace bundle =
+                  bundle
+                    { declarations =
+                        map
+                          ( \case
+                              Managed member | member ^. #identity == backupId -> Managed legacyMember
+                              existing -> existing
+                          )
+                          (declarations bundle)
+                    }
                 legacyScope = ok (mkScopeDeclaration owner (map replace (scopeBundles safeScope)))
                 acceptedNative = Map.insert backupId (legacyMember, legacyBytes) safeNative
                 (_, revisedNative) = ok (compileBackupPruneRemovalScope dbName "default" backend legacyScope acceptedNative)
@@ -1893,67 +3335,127 @@ inventoryKubernetesTests =
                 newAdapter = mkKubernetesAdapter newBound (mkKubernetesRuntimeOps config newBound)
                 createOp = createOperation {plannedResources = backupId :| []}
                 updateOp = updateOperation {plannedResources = backupId :| []}
-                readField field = readProcessWithExitCode "kubectl"
-                  ["--context", selectedContext, "get", "cronjob", T.unpack cronName,
-                   "--namespace", "default", "-o", "jsonpath={" <> field <> "}"] ""
+                readField field =
+                  readProcessWithExitCode
+                    "kubectl"
+                    [ "--context"
+                    , selectedContext
+                    , "get"
+                    , "cronjob"
+                    , T.unpack cronName
+                    , "--namespace"
+                    , "default"
+                    , "-o"
+                    , "jsonpath={" <> field <> "}"
+                    ]
+                    ""
                 cleanup = do
-                  _ <- readProcessWithExitCode "kubectl"
-                    ["--context", selectedContext, "delete", "cronjob", T.unpack cronName,
-                     "--namespace", "default", "--ignore-not-found"] ""
+                  _ <-
+                    readProcessWithExitCode
+                      "kubectl"
+                      [ "--context"
+                      , selectedContext
+                      , "delete"
+                      , "cronjob"
+                      , T.unpack cronName
+                      , "--namespace"
+                      , "default"
+                      , "--ignore-not-found"
+                      ]
+                      ""
                   pure ()
             cleanup
-            (do
-              created <- adapterPrepare oldAdapter createOp >>= expectRight
-              adapterPreflight oldAdapter createOp created >>= expectRight
-              adapterExecute oldAdapter createOp created >>= (@?= AdapterEffectCompleted)
-              _ <- adapterVerify oldAdapter createOp created >>= expectRight
-              (uidCode, beforeUid, _) <- readField ".metadata.uid"
-              uidCode @?= ExitSuccess
-              assertBool "legacy CronJob had no UID" (not (null beforeUid))
-              updated <- adapterPrepare newAdapter updateOp >>= expectRight
-              adapterPreflight newAdapter updateOp updated >>= expectRight
-              adapterExecute newAdapter updateOp updated >>= (@?= AdapterEffectCompleted)
-              _ <- adapterVerify newAdapter updateOp updated >>= expectRight
-              (afterCode, afterUid, _) <- readField ".metadata.uid"
-              afterCode @?= ExitSuccess
-              afterUid @?= beforeUid
-              (scriptCode, script, _) <- readField ".spec.jobTemplate.spec.template.spec.containers[0].args[0]"
-              scriptCode @?= ExitSuccess
-              assertBool "live backup CronJob still prunes" (not ("pruning" `T.isInfixOf` T.pack script))
-              assertBool "live backup CronJob omits stored-byte verification"
-                ("sha256sum" `T.isInfixOf` T.pack script))
+            ( do
+                created <- adapterPrepare oldAdapter createOp >>= expectRight
+                adapterPreflight oldAdapter createOp created >>= expectRight
+                adapterExecute oldAdapter createOp created >>= (@?= AdapterEffectCompleted)
+                _ <- adapterVerify oldAdapter createOp created >>= expectRight
+                (uidCode, beforeUid, _) <- readField ".metadata.uid"
+                uidCode @?= ExitSuccess
+                assertBool "legacy CronJob had no UID" (not (null beforeUid))
+                updated <- adapterPrepare newAdapter updateOp >>= expectRight
+                adapterPreflight newAdapter updateOp updated >>= expectRight
+                adapterExecute newAdapter updateOp updated >>= (@?= AdapterEffectCompleted)
+                _ <- adapterVerify newAdapter updateOp updated >>= expectRight
+                (afterCode, afterUid, _) <- readField ".metadata.uid"
+                afterCode @?= ExitSuccess
+                afterUid @?= beforeUid
+                (scriptCode, script, _) <- readField ".spec.jobTemplate.spec.template.spec.containers[0].args[0]"
+                scriptCode @?= ExitSuccess
+                assertBool "live backup CronJob still prunes" (not ("pruning" `T.isInfixOf` T.pack script))
+                assertBool
+                  "live backup CronJob omits stored-byte verification"
+                  ("sha256sum" `T.isInfixOf` T.pack script)
+              )
               `finally` cleanup
     , testCase "standalone database owns its complete scoped bundle" $ do
         let owner = ok (mkScopeId Standalone "pg-main")
-            db = Database (ok (mkDatabaseName "pg-main")) Nothing Postgres (defaultEngineVersion Postgres)
-              (ok (Dsl.mkNamespace "personal")) (ok (Dsl.mkQuantity "10Gi")) Nothing Dsl.Retain
-            recovery = RecoveryIntent (ok (mkName "backup"))
-              (mkSecretRef (ok (mkName "db-password")) (ok (mkName "v1")) :| [])
+            db =
+              Database
+                (ok (mkDatabaseName "pg-main"))
+                Nothing
+                Postgres
+                (defaultEngineVersion Postgres)
+                (ok (Dsl.mkNamespace "personal"))
+                (ok (Dsl.mkQuantity "10Gi"))
+                Nothing
+                Dsl.Retain
+            recovery =
+              RecoveryIntent
+                (ok (mkName "backup"))
+                (mkSecretRef (ok (mkName "db-password")) (ok (mkName "v1")) :| [])
             direct = DatabaseDirectInput db owner cluster Nothing recovery (SourceLocation "database" "standalone")
             backend = GcsBackend "project" "bucket"
             (declaration, native) = ok (compileStandaloneDatabase direct backend)
         scopeId declaration @?= owner
         length (concatMap declarations (scopeBundles declaration)) @?= 9
         Map.size native @?= 9
-        let retainedKinds = [nameText kind | (member, _) <- Map.elems native
-              , Kubernetes _ _ kind _ _ <- [address member], lifecycle member == Retain]
-            removedKinds = [nameText kind | (member, _) <- Map.elems native
-              , Kubernetes _ _ kind _ _ <- [address member], lifecycle member == DeleteWhenUnreferenced]
+        let retainedKinds =
+              [ nameText kind
+              | (member, _) <- Map.elems native
+              , Kubernetes _ _ kind _ _ <- [address member]
+              , lifecycle member == Retain
+              ]
+            removedKinds =
+              [ nameText kind
+              | (member, _) <- Map.elems native
+              , Kubernetes _ _ kind _ _ <- [address member]
+              , lifecycle member == DeleteWhenUnreferenced
+              ]
         sort retainedKinds @?= ["persistentvolumeclaim", "secret", "secret"]
-        sort removedKinds @?= ["cronjob", "role", "rolebinding",
-          "service", "serviceaccount", "statefulset"]
+        sort removedKinds
+          @?= [ "cronjob"
+              , "role"
+              , "rolebinding"
+              , "service"
+              , "serviceaccount"
+              , "statefulset"
+              ]
         let owned = map fst (Map.elems native)
         assertBool "accepted StatefulSet owns the direct name" (standaloneStatefulSetOwned "pg-main" "personal" owned)
-        let (restarted, restartedNative) = ok (compileStatefulSetRestartScope
-              DatabaseObjects "pg-main" "personal" "2026-09-25T00:00:00Z" declaration native)
-            statefulIds = [member ^. #identity | (member, _) <- Map.elems native,
-              Kubernetes _ "apps" kind _ _ <- [address member], nameText kind == "statefulset"]
+        let (restarted, restartedNative) =
+              ok
+                ( compileStatefulSetRestartScope
+                    DatabaseObjects
+                    "pg-main"
+                    "personal"
+                    "2026-09-25T00:00:00Z"
+                    declaration
+                    native
+                )
+            statefulIds =
+              [ member ^. #identity
+              | (member, _) <- Map.elems native
+              , Kubernetes _ "apps" kind _ _ <- [address member]
+              , nameText kind == "statefulset"
+              ]
         case statefulIds of
           [statefulId] -> Map.delete statefulId restartedNative @?= Map.delete statefulId native
           _ -> assertFailure "expected one database StatefulSet"
         Map.lookup "operational.restart.pg-main" (scopeOverrides restarted)
           @?= Just "2026-09-25T00:00:00Z"
-        assertBool "database StatefulSet was accepted as a broker"
+        assertBool
+          "database StatefulSet was accepted as a broker"
           (isLeft (compileStatefulSetRestartScope BrokerObjects "pg-main" "personal" "stamp" declaration native))
         assertBool "different namespace is not owned" (not (standaloneStatefulSetOwned "pg-main" "other" owned))
         assertBool "different name is not owned" (not (standaloneStatefulSetOwned "other" "personal" owned))
@@ -1961,98 +3463,217 @@ inventoryKubernetesTests =
           Left (err :| _) -> code err @?= "wrong-data-scope"
           Right _ -> assertFailure "platform scope was accepted for standalone database"
     , testCase "desired projection ignores server fields but detects changed desired data" $ do
-        let desired = object
-              [ "metadata" .= object ["name" .= ("config" :: Text)]
-              , "data" .= object ["key" .= ("reviewed" :: Text)]
-              ]
-            observed value = object
-              [ "metadata" .= object ["name" .= ("config" :: Text), "resourceVersion" .= ("17" :: Text)]
-              , "data" .= object ["key" .= (value :: Text), "extra" .= ("unmanaged" :: Text)]
-              , "status" .= object []
-              ]
+        let desired =
+              object
+                [ "metadata" .= object ["name" .= ("config" :: Text)]
+                , "data" .= object ["key" .= ("reviewed" :: Text)]
+                ]
+            observed value =
+              object
+                [ "metadata" .= object ["name" .= ("config" :: Text), "resourceVersion" .= ("17" :: Text)]
+                , "data" .= object ["key" .= (value :: Text), "extra" .= ("unmanaged" :: Text)]
+                , "status" .= object []
+                ]
         assertBool "server extras should not drift" (desiredFieldsMatch desired (observed "reviewed"))
         assertBool "desired data change must drift" (not (desiredFieldsMatch desired (observed "changed")))
     , testCase "CPU quantity canonicalisation does not create false Deployment drift" $ do
-        let workload cpu = object ["spec" .= object ["template" .= object ["spec" .= object
-              ["containers" .= [object ["resources" .= object ["limits" .= object ["cpu" .= (cpu :: Text)]]]]]]]]
+        let workload cpu =
+              object
+                [ "spec"
+                    .= object
+                      [ "template"
+                          .= object
+                            [ "spec"
+                                .= object
+                                  ["containers" .= [object ["resources" .= object ["limits" .= object ["cpu" .= (cpu :: Text)]]]]]
+                            ]
+                      ]
+                ]
         assertBool "1000m and 1 CPU should match" (desiredFieldsMatch (workload "1000m") (workload "1"))
         assertBool "fractional CPU forms should match" (desiredFieldsMatch (workload "500m") (workload "0.5"))
         assertBool "different CPU quantities should drift" (not (desiredFieldsMatch (workload "500m") (workload "1")))
-        assertBool "ConfigMap strings must retain exact equality" (not (desiredFieldsMatch
-          (object ["data" .= object ["cpu" .= ("1000m" :: Text)]])
-          (object ["data" .= object ["cpu" .= ("1" :: Text)]])))
+        assertBool
+          "ConfigMap strings must retain exact equality"
+          ( not
+              ( desiredFieldsMatch
+                  (object ["data" .= object ["cpu" .= ("1000m" :: Text)]])
+                  (object ["data" .= object ["cpu" .= ("1" :: Text)]])
+              )
+          )
     , testCase "omitted empty environment value matches Kubernetes default" $ do
-        let workload envValue = object ["spec" .= object ["template" .= object ["spec" .= object
-              ["containers" .= [object ["env" .= [envValue]]]]]]]
+        let workload envValue =
+              object
+                [ "spec"
+                    .= object
+                      [ "template"
+                          .= object
+                            [ "spec"
+                                .= object
+                                  ["containers" .= [object ["env" .= [envValue]]]]
+                            ]
+                      ]
+                ]
             desired = workload (object ["name" .= ("MODE" :: Text), "value" .= ("" :: Text)])
             defaulted = workload (object ["name" .= ("MODE" :: Text)])
         assertBool "empty environment value should match omitted default" (desiredFieldsMatch desired defaulted)
-        assertBool "missing nonempty environment value should drift" (not (desiredFieldsMatch
-          (workload (object ["name" .= ("MODE" :: Text), "value" .= ("strict" :: Text)])) defaulted))
-        assertBool "unrelated empty values must retain exact equality" (not (desiredFieldsMatch
-          (object ["data" .= object ["value" .= ("" :: Text)]])
-          (object ["data" .= object []])))
+        assertBool
+          "missing nonempty environment value should drift"
+          ( not
+              ( desiredFieldsMatch
+                  (workload (object ["name" .= ("MODE" :: Text), "value" .= ("strict" :: Text)]))
+                  defaulted
+              )
+          )
+        assertBool
+          "unrelated empty values must retain exact equality"
+          ( not
+              ( desiredFieldsMatch
+                  (object ["data" .= object ["value" .= ("" :: Text)]])
+                  (object ["data" .= object []])
+              )
+          )
     , testCase "omitted false volumeMount readOnly matches Kubernetes default" $ do
-        let workload selectedMount = object ["spec" .= object ["template" .= object ["spec" .= object
-              ["containers" .= [object ["volumeMounts" .= [selectedMount]]]]]]]
+        let workload selectedMount =
+              object
+                [ "spec"
+                    .= object
+                      [ "template"
+                          .= object
+                            [ "spec"
+                                .= object
+                                  ["containers" .= [object ["volumeMounts" .= [selectedMount]]]]
+                            ]
+                      ]
+                ]
             mount = object ["name" .= ("uploads" :: Text), "mountPath" .= ("/uploads" :: Text)]
-        assertBool "false readOnly should match omission" (desiredFieldsMatch
-          (workload (object ["name" .= ("uploads" :: Text)
-            , "mountPath" .= ("/uploads" :: Text), "readOnly" .= False]))
-          (workload mount))
-        assertBool "true readOnly must still drift" (not (desiredFieldsMatch
-          (workload (object ["name" .= ("uploads" :: Text)
-            , "mountPath" .= ("/uploads" :: Text), "readOnly" .= True]))
-          (workload mount)))
-        assertBool "other false fields must still drift" (not (desiredFieldsMatch
-          (object ["data" .= object ["readOnly" .= False]])
-          (object ["data" .= object []])))
+        assertBool
+          "false readOnly should match omission"
+          ( desiredFieldsMatch
+              ( workload
+                  ( object
+                      [ "name" .= ("uploads" :: Text)
+                      , "mountPath" .= ("/uploads" :: Text)
+                      , "readOnly" .= False
+                      ]
+                  )
+              )
+              (workload mount)
+          )
+        assertBool
+          "true readOnly must still drift"
+          ( not
+              ( desiredFieldsMatch
+                  ( workload
+                      ( object
+                          [ "name" .= ("uploads" :: Text)
+                          , "mountPath" .= ("/uploads" :: Text)
+                          , "readOnly" .= True
+                          ]
+                      )
+                  )
+                  (workload mount)
+              )
+          )
+        assertBool
+          "other false fields must still drift"
+          ( not
+              ( desiredFieldsMatch
+                  (object ["data" .= object ["readOnly" .= False]])
+                  (object ["data" .= object []])
+              )
+          )
     , testCase "Kubernetes omission of empty Pod hostAliases is not StatefulSet drift" $ do
-        let pod aliases = object ["spec" .= object ["template" .= object
-              ["spec" .= object aliases]]]
-            nonempty = pod ["hostAliases" .= [object
-              ["ip" .= ("169.254.169.254" :: Text)]]]
-        assertBool "empty host aliases should match omission"
+        let pod aliases =
+              object
+                [ "spec"
+                    .= object
+                      [ "template"
+                          .= object
+                            ["spec" .= object aliases]
+                      ]
+                ]
+            nonempty =
+              pod
+                [ "hostAliases"
+                    .= [ object
+                           ["ip" .= ("169.254.169.254" :: Text)]
+                       ]
+                ]
+        assertBool
+          "empty host aliases should match omission"
           (desiredFieldsMatch (pod ["hostAliases" .= ([] :: [Value])]) (pod []))
-        assertBool "null host aliases should match omission"
+        assertBool
+          "null host aliases should match omission"
           (desiredFieldsMatch (pod ["hostAliases" .= Null]) (pod []))
-        assertBool "empty volumes should match omission"
+        assertBool
+          "empty volumes should match omission"
           (desiredFieldsMatch (pod ["volumes" .= ([] :: [Value])]) (pod []))
-        assertBool "nonempty host aliases must still drift"
+        assertBool
+          "nonempty host aliases must still drift"
           (not (desiredFieldsMatch nonempty (pod [])))
-        assertBool "another empty field must still drift"
+        assertBool
+          "another empty field must still drift"
           (not (desiredFieldsMatch (pod ["initContainers" .= ([] :: [Value])]) (pod [])))
     , testCase "Serving webhook controller rules retain reviewed admission coverage" $ do
-        let webhook rules service = object
-              [ "apiVersion" .= ("admissionregistration.k8s.io/v1" :: Text)
-              , "kind" .= ("MutatingWebhookConfiguration" :: Text)
-              , "metadata" .= object ["name" .= ("webhook.serving.knative.dev" :: Text)]
-              , "webhooks" .= [object
-                  [ "name" .= ("webhook.serving.knative.dev" :: Text)
-                  , "clientConfig" .= object ["service" .= (service :: Text)]
-                  , "rules" .= rules
-                  ]]
-              ]
-            rule groups versions resources = object
-              [ "apiGroups" .= (groups :: [Text])
-              , "apiVersions" .= (versions :: [Text])
-              , "resources" .= (resources :: [Text])
-              , "operations" .= (["CREATE", "UPDATE"] :: [Text])
-              , "scope" .= ("*" :: Text)
-              ]
-            desired = webhook [rule ["serving.knative.dev", "networking.internal.knative.dev"]
-              ["*"] ["services", "ingresses"]] "serving-webhook"
-            observed = webhook
-              [ rule ["serving.knative.dev"] ["v1"] ["services", "services/status"]
-              , rule ["networking.internal.knative.dev"] ["v1alpha1"] ["ingresses", "ingresses/status"]
-              ] "serving-webhook"
-        assertBool "controller-generated webhook rules should match reviewed coverage"
+        let webhook rules service =
+              object
+                [ "apiVersion" .= ("admissionregistration.k8s.io/v1" :: Text)
+                , "kind" .= ("MutatingWebhookConfiguration" :: Text)
+                , "metadata" .= object ["name" .= ("webhook.serving.knative.dev" :: Text)]
+                , "webhooks"
+                    .= [ object
+                           [ "name" .= ("webhook.serving.knative.dev" :: Text)
+                           , "clientConfig" .= object ["service" .= (service :: Text)]
+                           , "rules" .= rules
+                           ]
+                       ]
+                ]
+            rule groups versions resources =
+              object
+                [ "apiGroups" .= (groups :: [Text])
+                , "apiVersions" .= (versions :: [Text])
+                , "resources" .= (resources :: [Text])
+                , "operations" .= (["CREATE", "UPDATE"] :: [Text])
+                , "scope" .= ("*" :: Text)
+                ]
+            desired =
+              webhook
+                [ rule
+                    ["serving.knative.dev", "networking.internal.knative.dev"]
+                    ["*"]
+                    ["services", "ingresses"]
+                ]
+                "serving-webhook"
+            observed =
+              webhook
+                [ rule ["serving.knative.dev"] ["v1"] ["services", "services/status"]
+                , rule ["networking.internal.knative.dev"] ["v1alpha1"] ["ingresses", "ingresses/status"]
+                ]
+                "serving-webhook"
+        assertBool
+          "controller-generated webhook rules should match reviewed coverage"
           (desiredFieldsMatch desired observed)
-        assertBool "missing admission coverage should drift" (not (desiredFieldsMatch desired
-          (webhook [rule ["serving.knative.dev"] ["v1"] ["services"]] "serving-webhook")))
-        assertBool "changed webhook service should drift" (not (desiredFieldsMatch desired
-          (webhook [rule ["serving.knative.dev"] ["v1"] ["services"],
-            rule ["networking.internal.knative.dev"] ["v1alpha1"] ["ingresses"]] "other-webhook")))
+        assertBool
+          "missing admission coverage should drift"
+          ( not
+              ( desiredFieldsMatch
+                  desired
+                  (webhook [rule ["serving.knative.dev"] ["v1"] ["services"]] "serving-webhook")
+              )
+          )
+        assertBool
+          "changed webhook service should drift"
+          ( not
+              ( desiredFieldsMatch
+                  desired
+                  ( webhook
+                      [ rule ["serving.knative.dev"] ["v1"] ["services"]
+                      , rule ["networking.internal.knative.dev"] ["v1alpha1"] ["ingresses"]
+                      ]
+                      "other-webhook"
+                  )
+              )
+          )
     , testCase "Job completion requires the controller Complete condition" $ do
         let job conditions = object ["kind" .= ("Job" :: Text), "status" .= object ["conditions" .= conditions]]
             condition kind state = object ["type" .= (kind :: Text), "status" .= (state :: Text)]
@@ -2062,81 +3683,151 @@ inventoryKubernetesTests =
     , testCase "CRD and Deployment verification requires current controller readiness" $ do
         let condition kind state = object ["type" .= (kind :: Text), "status" .= (state :: Text)]
             crd state = object ["status" .= object ["conditions" .= [condition "Established" state]]]
-            deployment observedGeneration = object
-              [ "metadata" .= object ["generation" .= (3 :: Int)]
-              , "status" .= object
-                  [ "observedGeneration" .= (observedGeneration :: Int)
-                  , "conditions" .= [condition "Available" "True"]
-                  ]
-              ]
+            deployment observedGeneration =
+              object
+                [ "metadata" .= object ["generation" .= (3 :: Int)]
+                , "status"
+                    .= object
+                      [ "observedGeneration" .= (observedGeneration :: Int)
+                      , "conditions" .= [condition "Available" "True"]
+                      ]
+                ]
         assertBool "unestablished CRD was accepted" (not (crdEstablished (crd "False")))
         assertBool "established CRD was rejected" (crdEstablished (crd "True"))
-        assertBool "unready certificate was accepted" (not (certificateReady
-          (object ["status" .= object ["conditions" .= [condition "Ready" "False"]]])))
-        assertBool "ready certificate was rejected" (certificateReady
-          (object ["status" .= object ["conditions" .= [condition "Ready" "True"]]]))
-        assertBool "unready Knative Service was accepted" (not (knativeReady
-          (object ["status" .= object ["conditions" .= [condition "Ready" "False"]]])))
+        assertBool
+          "unready certificate was accepted"
+          ( not
+              ( certificateReady
+                  (object ["status" .= object ["conditions" .= [condition "Ready" "False"]]])
+              )
+          )
+        assertBool
+          "ready certificate was rejected"
+          ( certificateReady
+              (object ["status" .= object ["conditions" .= [condition "Ready" "True"]]])
+          )
+        assertBool
+          "unready Knative Service was accepted"
+          ( not
+              ( knativeReady
+                  (object ["status" .= object ["conditions" .= [condition "Ready" "False"]]])
+              )
+          )
         assertBool "stale Deployment availability was accepted" (not (deploymentAvailable (deployment 2)))
         assertBool "current Deployment availability was rejected" (deploymentAvailable (deployment 3))
     , testCase "health probe selects only Kubernetes kinds with explicit readiness contracts" $ do
-        let address group kind = Kubernetes resource group
-              (ok (mkName kind)) (Just (ok (mkName "default"))) (ok (mkName "example"))
-            ready = object ["status" .= object ["conditions" .=
-              [object ["type" .= ("Complete" :: Text), "status" .= ("True" :: Text)]]]]
+        let address group kind =
+              Kubernetes
+                resource
+                group
+                (ok (mkName kind))
+                (Just (ok (mkName "default")))
+                (ok (mkName "example"))
+            ready =
+              object
+                [ "status"
+                    .= object
+                      [ "conditions"
+                          .= [object ["type" .= ("Complete" :: Text), "status" .= ("True" :: Text)]]
+                      ]
+                ]
         readinessForAddress (address "batch" "job") ready @?= Just True
         readinessForAddress (address "batch" "job") (object []) @?= Just False
         readinessForAddress (address "" "configmap") ready @?= Nothing
     , testCase "conflicting protected DomainMapping remains unready in observation and health" $ do
         let config = KubernetesRuntimeConfig (ok (mkContextId "test")) "unused" (pure (Right ()))
-            address = Kubernetes resource "serving.knative.dev" (ok (mkName "domainmapping"))
-              (Just (ok (mkName "nagare-system"))) (ok (mkName "protected.example.test"))
-            desired = object
-              ["apiVersion" .= ("serving.knative.dev/v1beta1" :: Text), "kind" .= ("DomainMapping" :: Text),
-               "metadata" .= object ["name" .= ("protected.example.test" :: Text)]]
+            address =
+              Kubernetes
+                resource
+                "serving.knative.dev"
+                (ok (mkName "domainmapping"))
+                (Just (ok (mkName "nagare-system")))
+                (ok (mkName "protected.example.test"))
+            desired =
+              object
+                [ "apiVersion" .= ("serving.knative.dev/v1beta1" :: Text)
+                , "kind" .= ("DomainMapping" :: Text)
+                , "metadata" .= object ["name" .= ("protected.example.test" :: Text)]
+                ]
             native = BL.toStrict (encode desired)
-            live state = object
-              ["apiVersion" .= ("serving.knative.dev/v1beta1" :: Text), "kind" .= ("DomainMapping" :: Text),
-               "metadata" .= object ["name" .= ("protected.example.test" :: Text), "uid" .= physical,
-                 "resourceVersion" .= ("5" :: Text)],
-               "status" .= object ["conditions" .= [object
-                 ["type" .= ("Ready" :: Text), "status" .= (state :: Text),
-                  "reason" .= ("DomainConflict" :: Text)]]]]
-            observe state = parseObserved config resource native
-              (TE.decodeUtf8 (BL.toStrict (encode (live state))))
+            live state =
+              object
+                [ "apiVersion" .= ("serving.knative.dev/v1beta1" :: Text)
+                , "kind" .= ("DomainMapping" :: Text)
+                , "metadata"
+                    .= object
+                      [ "name" .= ("protected.example.test" :: Text)
+                      , "uid" .= physical
+                      , "resourceVersion" .= ("5" :: Text)
+                      ]
+                , "status"
+                    .= object
+                      [ "conditions"
+                          .= [ object
+                                 [ "type" .= ("Ready" :: Text)
+                                 , "status" .= (state :: Text)
+                                 , "reason" .= ("DomainConflict" :: Text)
+                                 ]
+                             ]
+                      ]
+                ]
+            observe state =
+              parseObserved
+                config
+                resource
+                native
+                (TE.decodeUtf8 (BL.toStrict (encode (live state))))
         observe "False" @?= Right (KubernetesNotReady physical "5" Nothing (contentDigest native))
         observe "True" @?= Right (KubernetesPresent physical "5" Nothing (contentDigest native))
         readinessForAddress address (live "False") @?= Just False
         readinessForAddress address (live "True") @?= Just True
     , testCase "StatefulSet health requires current generation and ready updated replicas" $ do
-        let address = Kubernetes resource "apps" (ok (mkName "statefulset"))
-              (Just (ok (mkName "default"))) (ok (mkName "example"))
-            stateful generation ready updated = object
-              [ "metadata" .= object ["generation" .= (3 :: Int)]
-              , "spec" .= object ["replicas" .= (2 :: Int)]
-              , "status" .= object
-                  ["observedGeneration" .= (generation :: Int), "readyReplicas" .= (ready :: Int),
-                   "updatedReplicas" .= (updated :: Int)]
-              ]
+        let address =
+              Kubernetes
+                resource
+                "apps"
+                (ok (mkName "statefulset"))
+                (Just (ok (mkName "default")))
+                (ok (mkName "example"))
+            stateful generation ready updated =
+              object
+                [ "metadata" .= object ["generation" .= (3 :: Int)]
+                , "spec" .= object ["replicas" .= (2 :: Int)]
+                , "status"
+                    .= object
+                      [ "observedGeneration" .= (generation :: Int)
+                      , "readyReplicas" .= (ready :: Int)
+                      , "updatedReplicas" .= (updated :: Int)
+                      ]
+                ]
         assertBool "current ready StatefulSet was rejected" (statefulSetReady (stateful 3 2 2))
         assertBool "stale controller generation was accepted" (not (statefulSetReady (stateful 2 2 2)))
         assertBool "unready replica was accepted" (not (statefulSetReady (stateful 3 1 2)))
         assertBool "old revision was accepted" (not (statefulSetReady (stateful 3 2 1)))
-        assertBool "missing generation was accepted" (not (statefulSetReady (object
-          ["spec" .= object ["replicas" .= (0 :: Int)], "status" .= object []])))
+        assertBool
+          "missing generation was accepted"
+          ( not
+              ( statefulSetReady
+                  ( object
+                      ["spec" .= object ["replicas" .= (0 :: Int)], "status" .= object []]
+                  )
+              )
+          )
         readinessForAddress address (stateful 3 2 2) @?= Just True
         readinessForAddress address (stateful 3 1 2) @?= Just False
     , testCase "auth credential data is generated only from a closed Secret template" $ do
-        let template name = object
-              [ "apiVersion" .= ("v1" :: Text)
-              , "kind" .= ("Secret" :: Text)
-              , "metadata" .= object
-                  [ "name" .= (name :: Text)
-                  , "namespace" .= ("nagare-system" :: Text)
-                  , "annotations" .= object ["nagare.dev/auth-credential-template" .= ("v1" :: Text)]
-                  ]
-              , "type" .= ("Opaque" :: Text)
-              ]
+        let template name =
+              object
+                [ "apiVersion" .= ("v1" :: Text)
+                , "kind" .= ("Secret" :: Text)
+                , "metadata"
+                    .= object
+                      [ "name" .= (name :: Text)
+                      , "namespace" .= ("nagare-system" :: Text)
+                      , "annotations" .= object ["nagare.dev/auth-credential-template" .= ("v1" :: Text)]
+                      ]
+                , "type" .= ("Opaque" :: Text)
+                ]
             enTemplate = template "nagare-en-api-keys"
             reviewed = TE.decodeUtf8 (ok (canonicalValue enTemplate))
         generatedCredentialTemplate reviewed @?= Right True
@@ -2144,11 +3835,17 @@ inventoryKubernetesTests =
         observed <- either (assertFailure . show) pure (eitherDecodeStrict (TE.encodeUtf8 generated))
         assertBool "auth credential did not produce the required private data" (credentialDataMatches enTemplate observed)
         let shomeiTemplate = template "nagare-shomei-keys"
-        shomeiGenerated <- materializeCredential
-          (TE.decodeUtf8 (ok (canonicalValue shomeiTemplate))) >>= expectRight
-        shomeiObserved <- either (assertFailure . show) pure
-          (eitherDecodeStrict (TE.encodeUtf8 shomeiGenerated))
-        assertBool "Shomei credential did not produce the required private data"
+        shomeiGenerated <-
+          materializeCredential
+            (TE.decodeUtf8 (ok (canonicalValue shomeiTemplate)))
+            >>= expectRight
+        shomeiObserved <-
+          either
+            (assertFailure . show)
+            pure
+            (eitherDecodeStrict (TE.encodeUtf8 shomeiGenerated))
+        assertBool
+          "Shomei credential did not produce the required private data"
           (credentialDataMatches shomeiTemplate shomeiObserved)
         case shomeiObserved of
           Object root -> case KM.lookup "data" root of
@@ -2156,7 +3853,8 @@ inventoryKubernetesTests =
               Just (String encoded) -> case b64decode encoded of
                 Right keyText -> do
                   T.length keyText @?= 44
-                  assertBool "Shomei key is not padded base64 for 32 bytes"
+                  assertBool
+                    "Shomei key is not padded base64 for 32 bytes"
                     (T.isSuffixOf "=" keyText)
                 Left problem -> assertFailure (T.unpack problem)
               _ -> assertFailure "Shomei key data is absent"
@@ -2165,21 +3863,29 @@ inventoryKubernetesTests =
         refused <- materializeCredential (TE.decodeUtf8 (ok (canonicalValue (template "unexpected"))))
         assertBool "unknown auth credential template was accepted" (either (const True) (const False) refused)
     , testCase "backup signing key is generated only from its retained source template" $ do
-        let template = object
-              [ "apiVersion" .= ("v1" :: Text), "kind" .= ("Secret" :: Text)
-              , "type" .= ("Opaque" :: Text)
-              , "metadata" .= object
-                  [ "name" .= ("nagare-dbbackup-pg-main-signing" :: Text)
-                  , "namespace" .= ("personal" :: Text)
-                  , "labels" .= object ["nagare.dev/database" .= ("pg-main" :: Text)]
-                  , "annotations" .= object ["nagare.dev/backup-signing-template" .= ("v1" :: Text)]
-                  ]]
+        let template =
+              object
+                [ "apiVersion" .= ("v1" :: Text)
+                , "kind" .= ("Secret" :: Text)
+                , "type" .= ("Opaque" :: Text)
+                , "metadata"
+                    .= object
+                      [ "name" .= ("nagare-dbbackup-pg-main-signing" :: Text)
+                      , "namespace" .= ("personal" :: Text)
+                      , "labels" .= object ["nagare.dev/database" .= ("pg-main" :: Text)]
+                      , "annotations" .= object ["nagare.dev/backup-signing-template" .= ("v1" :: Text)]
+                      ]
+                ]
             reviewed = TE.decodeUtf8 (ok (canonicalValue template))
         generatedCredentialTemplate reviewed @?= Right True
         generated <- materializeCredential reviewed >>= expectRight
-        observed <- either (assertFailure . show) pure
-          (eitherDecodeStrict (TE.encodeUtf8 generated))
-        assertBool "backup signing Secret has no private key"
+        observed <-
+          either
+            (assertFailure . show)
+            pure
+            (eitherDecodeStrict (TE.encodeUtf8 generated))
+        assertBool
+          "backup signing Secret has no private key"
           (credentialDataMatches template observed)
         case observed of
           Object root -> case KM.lookup "data" root of
@@ -2187,36 +3893,43 @@ inventoryKubernetesTests =
               Just (String encoded) -> case b64decode encoded of
                 Right key -> do
                   T.length key @?= 64
-                  assertBool "backup signing key is not lowercase hex"
+                  assertBool
+                    "backup signing key is not lowercase hex"
                     (T.all (\c -> c >= '0' && c <= '9' || c >= 'a' && c <= 'f') key)
                 Left problem -> assertFailure (T.unpack problem)
               _ -> assertFailure "backup signing key is absent"
             _ -> assertFailure "backup signing Secret data is absent"
           _ -> assertFailure "backup signing Secret is malformed"
-        let malformed = object
-              [ "kind" .= ("Secret" :: Text)
-              , "metadata" .= object
-                  [ "name" .= ("nagare-dbbackup-other-signing" :: Text)
-                  , "namespace" .= ("personal" :: Text)
-                  , "labels" .= object ["nagare.dev/database" .= ("pg-main" :: Text)]
-                  , "annotations" .= object ["nagare.dev/backup-signing-template" .= ("v1" :: Text)]
-                  ]]
-        generatedCredentialTemplate (TE.decodeUtf8 (ok (canonicalValue malformed))) @?=
-          Left "backup signing credential template has unexpected content"
-    , testCase "cache client fills only the typed generated-key slot after review" $ do
-        let template = object
-              [ "apiVersion" .= ("v1" :: Text)
-              , "kind" .= ("ConfigMap" :: Text)
-              , "metadata" .= object
-                  [ "name" .= ("nagare-nix-cache-client" :: Text)
-                  , "namespace" .= ("personal" :: Text)
-                  , "annotations" .= object
-                      [ "nagare.dev/cache-client-template" .= ("v1" :: Text)
-                      , "nagare.dev/cache-key-producer" .= resourceIdText resource
+        let malformed =
+              object
+                [ "kind" .= ("Secret" :: Text)
+                , "metadata"
+                    .= object
+                      [ "name" .= ("nagare-dbbackup-other-signing" :: Text)
+                      , "namespace" .= ("personal" :: Text)
+                      , "labels" .= object ["nagare.dev/database" .= ("pg-main" :: Text)]
+                      , "annotations" .= object ["nagare.dev/backup-signing-template" .= ("v1" :: Text)]
                       ]
-                  ]
-              , "data" .= object ["nix.conf" .= ("trusted-public-keys = ${ATTIC_PUBLIC_KEY} cache.nixos.org-1:example" :: Text)]
-              ]
+                ]
+        generatedCredentialTemplate (TE.decodeUtf8 (ok (canonicalValue malformed)))
+          @?= Left "backup signing credential template has unexpected content"
+    , testCase "cache client fills only the typed generated-key slot after review" $ do
+        let template =
+              object
+                [ "apiVersion" .= ("v1" :: Text)
+                , "kind" .= ("ConfigMap" :: Text)
+                , "metadata"
+                    .= object
+                      [ "name" .= ("nagare-nix-cache-client" :: Text)
+                      , "namespace" .= ("personal" :: Text)
+                      , "annotations"
+                          .= object
+                            [ "nagare.dev/cache-client-template" .= ("v1" :: Text)
+                            , "nagare.dev/cache-key-producer" .= resourceIdText resource
+                            ]
+                      ]
+                , "data" .= object ["nix.conf" .= ("trusted-public-keys = ${ATTIC_PUBLIC_KEY} cache.nixos.org-1:example" :: Text)]
+                ]
             native = TE.decodeUtf8 (ok (canonicalValue template))
             resolver producer
               | producer == resource = pure (Right "nagare-cache:AAAA=")
@@ -2234,17 +3947,20 @@ inventoryKubernetesTests =
         missing <- materializeCacheKey (\_ -> pure (Left "cache key unavailable")) native
         assertBool "missing generated key was accepted" (either (const True) (const False) missing)
     , testCase "update ownership refuses a foreign field manager" $ do
-        let metadata fields = object
-              [ "metadata" .= object
-                  [ "uid" .= ("kubernetes-uid-1" :: Text)
-                  , "resourceVersion" .= ("4" :: Text)
-                  , "managedFields" .= fields
-                  ]
-              ]
-            entry manager fields = object
-              [ "manager" .= (manager :: Text)
-              , "fieldsV1" .= fields
-              ]
+        let metadata fields =
+              object
+                [ "metadata"
+                    .= object
+                      [ "uid" .= ("kubernetes-uid-1" :: Text)
+                      , "resourceVersion" .= ("4" :: Text)
+                      , "managedFields" .= fields
+                      ]
+                ]
+            entry manager fields =
+              object
+                [ "manager" .= (manager :: Text)
+                , "fieldsV1" .= fields
+                ]
             own = entry "nagare-inventory" (object ["f:data" .= object []])
             foreignEntry = entry "another-writer" (object ["f:data" .= object []])
             status = entry "controller" (object ["f:status" .= object []])
@@ -2253,30 +3969,61 @@ inventoryKubernetesTests =
         assertBool "stale version accepted" (either (const True) (const False) (confirmInventoryFieldOwnership physical "5" (metadata [own])))
         assertBool "missing inventory field owner accepted" (either (const True) (const False) (confirmInventoryFieldOwnership physical "4" (metadata [status])))
     , testCase "Knative Service update preserves exclusive template ownership and exact incarnation" $ do
-        let address = Kubernetes cluster "serving.knative.dev" (ok (mkName "service"))
-              (Just (ok (mkName "personal"))) (ok (mkName "web"))
+        let address =
+              Kubernetes
+                cluster
+                "serving.knative.dev"
+                (ok (mkName "service"))
+                (Just (ok (mkName "personal")))
+                (ok (mkName "web"))
             entry manager fields = object ["manager" .= (manager :: Text), "fieldsV1" .= fields]
             own = entry "nagare-inventory" (object ["f:spec" .= object ["f:template" .= object []]])
             status = entry "controller" (object ["f:status" .= object ["f:conditions" .= object []]])
             foreignWriter = entry "controller" (object ["f:spec" .= object ["f:template" .= object []]])
-            observed fields = object ["metadata" .= object
-              ["uid" .= physicalIdentityText physical, "resourceVersion" .= ("4" :: Text), "managedFields" .= fields]]
+            observed fields =
+              object
+                [ "metadata"
+                    .= object
+                      ["uid" .= physicalIdentityText physical, "resourceVersion" .= ("4" :: Text), "managedFields" .= fields]
+                ]
         confirmInventoryFieldOwnershipFor (Just address) physical "4" (observed [own, status]) @?= Right ()
-        assertBool "foreign Knative template writer admitted" (isLeft
-          (confirmInventoryFieldOwnershipFor (Just address) physical "4" (observed [own, foreignWriter])))
-        assertBool "changed Knative UID admitted" (isLeft
-          (confirmInventoryFieldOwnershipFor (Just address) (ok (mkPhysicalIdentity "replacement")) "4" (observed [own, status])))
-        assertBool "stale Knative revision admitted" (isLeft
-          (confirmInventoryFieldOwnershipFor (Just address) physical "5" (observed [own, status])))
+        assertBool
+          "foreign Knative template writer admitted"
+          ( isLeft
+              (confirmInventoryFieldOwnershipFor (Just address) physical "4" (observed [own, foreignWriter]))
+          )
+        assertBool
+          "changed Knative UID admitted"
+          ( isLeft
+              (confirmInventoryFieldOwnershipFor (Just address) (ok (mkPhysicalIdentity "replacement")) "4" (observed [own, status]))
+          )
+        assertBool
+          "stale Knative revision admitted"
+          ( isLeft
+              (confirmInventoryFieldOwnershipFor (Just address) physical "5" (observed [own, status]))
+          )
     , testCase "unproved Kubernetes update kind refuses before invoking kubectl" $ do
         let context = ok (mkContextId "unsupported-update")
             config = KubernetesRuntimeConfig context "missing-test-context" (pure (Right ()))
-            address = Kubernetes cluster "batch" (ok (mkName "job"))
-              (Just (ok (mkName "default"))) (ok (mkName "unproved"))
+            address =
+              Kubernetes
+                cluster
+                "batch"
+                (ok (mkName "job"))
+                (Just (ok (mkName "default")))
+                (ok (mkName "unproved"))
             digest = contentDigest "{}"
-            mutation = KubernetesMutation 1 (ok (mkOperationId "op-unproved-update")) digest
-              UpdateResource resource address "{}" digest
-              (KubernetesPresent physical "4" (Just resource) digest)
+            mutation =
+              KubernetesMutation
+                1
+                (ok (mkOperationId "op-unproved-update"))
+                digest
+                UpdateResource
+                resource
+                address
+                "{}"
+                digest
+                (KubernetesPresent physical "4" (Just resource) digest)
         assertBool "unproved Job update was admitted" (not (supportedUpdateAddress address))
         result <- kubernetesMutateConditional (mkKubernetesRuntimeOps config Map.empty) mutation
         case result of
@@ -2287,41 +4034,114 @@ inventoryKubernetesTests =
             otherAddress = Kubernetes cluster "" (ok (mkName "configmap")) (Just (ok (mkName "default"))) (ok (mkName "data"))
             entry manager fields = object ["manager" .= (manager :: Text), "fieldsV1" .= fields]
             own = entry "nagare-inventory" (object ["f:spec" .= object ["f:resources" .= object []]])
-            provisioner = entry "k3s" (object ["f:metadata" .= object ["f:annotations" .= object
-              ["f:volume.kubernetes.io/storage-provisioner" .= object []]]])
-            foreignFields = entry "k3s" (object ["f:metadata" .= object ["f:annotations" .= object
-              ["f:nagare.dev/spec-digest" .= object []]]])
-            observed members = object ["metadata" .= object
-              ["uid" .= ("kubernetes-uid-1" :: Text), "resourceVersion" .= ("4" :: Text), "managedFields" .= members]]
+            provisioner =
+              entry
+                "k3s"
+                ( object
+                    [ "f:metadata"
+                        .= object
+                          [ "f:annotations"
+                              .= object
+                                ["f:volume.kubernetes.io/storage-provisioner" .= object []]
+                          ]
+                    ]
+                )
+            foreignFields =
+              entry
+                "k3s"
+                ( object
+                    [ "f:metadata"
+                        .= object
+                          [ "f:annotations"
+                              .= object
+                                ["f:nagare.dev/spec-digest" .= object []]
+                          ]
+                    ]
+                )
+            observed members =
+              object
+                [ "metadata"
+                    .= object
+                      ["uid" .= ("kubernetes-uid-1" :: Text), "resourceVersion" .= ("4" :: Text), "managedFields" .= members]
+                ]
         confirmInventoryFieldOwnershipFor (Just address) physical "4" (observed [own, provisioner]) @?= Right ()
-        assertBool "controller-owned inventory stamp was accepted" (either (const True) (const False)
-          (confirmInventoryFieldOwnershipFor (Just address) physical "4" (observed [own, foreignFields])))
-        assertBool "PVC exception applied to ConfigMap" (either (const True) (const False)
-          (confirmInventoryFieldOwnershipFor (Just otherAddress) physical "4" (observed [own, provisioner])))
+        assertBool
+          "controller-owned inventory stamp was accepted"
+          ( either
+              (const True)
+              (const False)
+              (confirmInventoryFieldOwnershipFor (Just address) physical "4" (observed [own, foreignFields]))
+          )
+        assertBool
+          "PVC exception applied to ConfigMap"
+          ( either
+              (const True)
+              (const False)
+              (confirmInventoryFieldOwnershipFor (Just otherAddress) physical "4" (observed [own, provisioner]))
+          )
     , testCase "Deployment controller annotation exception is exact and kind-specific" $ do
-        let address = Kubernetes cluster "apps" (ok (mkName "deployment"))
-              (Just (ok (mkName "default"))) (ok (mkName "deployment"))
-            otherAddress = Kubernetes cluster "apps" (ok (mkName "statefulset"))
-              (Just (ok (mkName "default"))) (ok (mkName "deployment"))
+        let address =
+              Kubernetes
+                cluster
+                "apps"
+                (ok (mkName "deployment"))
+                (Just (ok (mkName "default")))
+                (ok (mkName "deployment"))
+            otherAddress =
+              Kubernetes
+                cluster
+                "apps"
+                (ok (mkName "statefulset"))
+                (Just (ok (mkName "default")))
+                (ok (mkName "deployment"))
             entry manager fields = object ["manager" .= (manager :: Text), "fieldsV1" .= fields]
             own = entry "nagare-inventory" (object ["f:spec" .= object ["f:replicas" .= object []]])
-            controllerFields = object
-              [ "f:metadata" .= object ["f:annotations" .= object
-                  [ "." .= object []
-                  , "f:deployment.kubernetes.io/revision" .= object []
-                  ]]
-              , "f:status" .= object ["f:observedGeneration" .= object []]
-              ]
+            controllerFields =
+              object
+                [ "f:metadata"
+                    .= object
+                      [ "f:annotations"
+                          .= object
+                            [ "." .= object []
+                            , "f:deployment.kubernetes.io/revision" .= object []
+                            ]
+                      ]
+                , "f:status" .= object ["f:observedGeneration" .= object []]
+                ]
             controller = entry "k3s" controllerFields
-            foreignFields = entry "k3s" (object ["f:metadata" .= object ["f:annotations" .= object
-              ["f:nagare.dev/spec-digest" .= object []]]])
-            observed members = object ["metadata" .= object
-              ["uid" .= ("kubernetes-uid-1" :: Text), "resourceVersion" .= ("4" :: Text), "managedFields" .= members]]
+            foreignFields =
+              entry
+                "k3s"
+                ( object
+                    [ "f:metadata"
+                        .= object
+                          [ "f:annotations"
+                              .= object
+                                ["f:nagare.dev/spec-digest" .= object []]
+                          ]
+                    ]
+                )
+            observed members =
+              object
+                [ "metadata"
+                    .= object
+                      ["uid" .= ("kubernetes-uid-1" :: Text), "resourceVersion" .= ("4" :: Text), "managedFields" .= members]
+                ]
         confirmInventoryFieldOwnershipFor (Just address) physical "4" (observed [own, controller]) @?= Right ()
-        assertBool "controller-owned inventory stamp was accepted" (either (const True) (const False)
-          (confirmInventoryFieldOwnershipFor (Just address) physical "4" (observed [own, controller, foreignFields])))
-        assertBool "Deployment exception applied to StatefulSet" (either (const True) (const False)
-          (confirmInventoryFieldOwnershipFor (Just otherAddress) physical "4" (observed [own, controller])))
+        assertBool
+          "controller-owned inventory stamp was accepted"
+          ( either
+              (const True)
+              (const False)
+              (confirmInventoryFieldOwnershipFor (Just address) physical "4" (observed [own, controller, foreignFields]))
+          )
+        assertBool
+          "Deployment exception applied to StatefulSet"
+          ( either
+              (const True)
+              (const False)
+              (confirmInventoryFieldOwnershipFor (Just otherAddress) physical "4" (observed [own, controller]))
+          )
     , testCase "packaged source is bound once and changed source refuses review" $
         withSystemTempDirectory "nagare-kubernetes-source" $ \root -> do
           let source = SourceLocation "object.json" "#document[0]"
@@ -2338,19 +4158,38 @@ inventoryKubernetesTests =
         calls <- newIORef (0 :: Int)
         let binding = ContextBinding (ok (mkContextId "test")) (ok (mkName "project"))
             accountId = mintResourceId scope (ok (mkLogicalKey "pull-account")) (ok (mkName "resource"))
-            accountObject = object
-              [ "apiVersion" .= ("v1" :: Text), "kind" .= ("ServiceAccount" :: Text)
-              , "metadata" .= object ["name" .= ("pull-account" :: Text), "namespace" .= ("personal" :: Text)]
-              , "imagePullSecrets" .= [object ["name" .= ("nagare-registry-pull" :: Text)]]
-              ]
-            (plainAccount, accountBytes) = ok (bindKubernetesObject input
-              {resourceId = accountId, inputObject = accountObject,
-                objectDigest = contentDigest (ok (canonicalValue accountObject))})
-            account = plainAccount {delegations = [Delegation resource
-              (ok (mkName "registry-pull-reference") :| []) (RefreshCredential :| [])]}
+            accountObject =
+              object
+                [ "apiVersion" .= ("v1" :: Text)
+                , "kind" .= ("ServiceAccount" :: Text)
+                , "metadata" .= object ["name" .= ("pull-account" :: Text), "namespace" .= ("personal" :: Text)]
+                , "imagePullSecrets" .= [object ["name" .= ("nagare-registry-pull" :: Text)]]
+                ]
+            (plainAccount, accountBytes) =
+              ok
+                ( bindKubernetesObject
+                    input
+                      { resourceId = accountId
+                      , inputObject = accountObject
+                      , objectDigest = contentDigest (ok (canonicalValue accountObject))
+                      }
+                )
+            account =
+              plainAccount
+                { delegations =
+                    [ Delegation
+                        resource
+                        (ok (mkName "registry-pull-reference") :| [])
+                        (RefreshCredential :| [])
+                    ]
+                }
             members = Map.insert accountId (account, accountBytes) specs
-            scopeDeclaration = ok (mkScopeDeclaration scope
-              [ResourceBundle [Managed declaration, Managed account] [] [] [] [] []])
+            scopeDeclaration =
+              ok
+                ( mkScopeDeclaration
+                    scope
+                    [ResourceBundle [Managed declaration, Managed account] [] [] [] [] []]
+                )
             snapshot = ok (mkScopeSnapshot binding Map.empty Map.empty)
             candidate = ok (composeInventory snapshot (ReplaceScope scopeDeclaration :| []))
             adapter = mkKubernetesAdapter members (ops state calls)
@@ -2370,8 +4209,12 @@ inventoryKubernetesTests =
         calls <- newIORef (0 :: Int)
         let binding = ContextBinding (ok (mkContextId "test")) (ok (mkName "project"))
             scopeDeclaration = ok (mkScopeDeclaration scope [ResourceBundle [Managed declaration] [] [] [] [] []])
-            candidate = ok (composeInventory (ok (mkScopeSnapshot binding Map.empty Map.empty))
-              (ReplaceScope scopeDeclaration :| []))
+            candidate =
+              ok
+                ( composeInventory
+                    (ok (mkScopeSnapshot binding Map.empty Map.empty))
+                    (ReplaceScope scopeDeclaration :| [])
+                )
             registry = ok (mkAdapterRegistry [mkKubernetesAdapter specs (ops state calls)])
             observations = ok (observationSet [(resource, ConfirmedAbsent absence)])
         store <- newMemoryStore
@@ -2385,10 +4228,16 @@ inventoryKubernetesTests =
         initialReviewed <- expectRight (verifyReview published initialReview)
         _ <- applyReviewed store registry initialReviewed >>= expectRight
         history <- loadInventoryHistory store >>= expectRight
-        let accepted = Map.map (\(revision, declarationScope) -> (revisionGeneration revision, declarationScope))
-              (historyAccepted history)
-            retirement = ok (composeInventory (ok (mkScopeSnapshot binding accepted Map.empty))
-              (RetireScope scope RetainResources :| []))
+        let accepted =
+              Map.map
+                (\(revision, declarationScope) -> (revisionGeneration revision, declarationScope))
+                (historyAccepted history)
+            retirement =
+              ok
+                ( composeInventory
+                    (ok (mkScopeSnapshot binding accepted Map.empty))
+                    (RetireScope scope RetainResources :| [])
+                )
         current <- observeWithRegistry registry (requirementsByExecutor (observationRequirements retirement history)) >>= expectRight
         decisions <- expectRight (decideRetirement retirement history current)
         let retirementProposal = ok (planChanges retirement decisions history current)
@@ -2406,32 +4255,51 @@ inventoryKubernetesTests =
         readIORef calls >>= (@?= 1)
     , testCase "unchanged native sibling survives an accepted scope revision" nativeSiblingCarryForward
     , testCase "reviewed stateless collection records a tombstone after exact absence" $ do
-        let value = object
-              ["apiVersion" .= ("v1" :: Text), "kind" .= ("ConfigMap" :: Text),
-               "metadata" .= object ["name" .= ("collectable" :: Text), "namespace" .= ("default" :: Text)],
-               "data" .= object ["value" .= ("old" :: Text)]]
+        let value =
+              object
+                [ "apiVersion" .= ("v1" :: Text)
+                , "kind" .= ("ConfigMap" :: Text)
+                , "metadata" .= object ["name" .= ("collectable" :: Text), "namespace" .= ("default" :: Text)]
+                , "data" .= object ["value" .= ("old" :: Text)]
+                ]
             bytes = ok (canonicalValue value)
-            bound = Map.singleton resource (ok (bindKubernetesObject
-              (input {inputObject = value, objectDigest = contentDigest bytes,
-                lifecyclePolicy = DeleteWhenUnreferenced, inputSensitivity = Public})))
+            bound =
+              Map.singleton
+                resource
+                ( ok
+                    ( bindKubernetesObject
+                        ( input
+                            { inputObject = value
+                            , objectDigest = contentDigest bytes
+                            , lifecyclePolicy = DeleteWhenUnreferenced
+                            , inputSensitivity = Public
+                            }
+                        )
+                    )
+                )
             managed = fst (bound Map.! resource)
             binding = ContextBinding (ok (mkContextId "test")) (ok (mkName "project"))
             scopeDeclaration = ok (mkScopeDeclaration scope [ResourceBundle [Managed managed] [] [] [] [] []])
-            initial = ok (composeInventory (ok (mkScopeSnapshot binding Map.empty Map.empty))
-              (ReplaceScope scopeDeclaration :| []))
+            initial =
+              ok
+                ( composeInventory
+                    (ok (mkScopeSnapshot binding Map.empty Map.empty))
+                    (ReplaceScope scopeDeclaration :| [])
+                )
         state <- newIORef (KubernetesAbsent absence)
         calls <- newIORef (0 :: Int)
         store <- newMemoryStore
         let nativeOps = ops state calls
-            guardedOps = nativeOps
-              { kubernetesMutateConditional = \mutation ->
-                  if mutationAction mutation == RetireResource
-                    then do
-                      modifyIORef' calls (+ 1)
-                      writeIORef state (KubernetesAbsent absence)
-                      pure AdapterEffectCompleted
-                    else kubernetesMutateConditional nativeOps mutation
-              }
+            guardedOps =
+              nativeOps
+                { kubernetesMutateConditional = \mutation ->
+                    if mutationAction mutation == RetireResource
+                      then do
+                        modifyIORef' calls (+ 1)
+                        writeIORef state (KubernetesAbsent absence)
+                        pure AdapterEffectCompleted
+                      else kubernetesMutateConditional nativeOps mutation
+                }
             registry = ok (mkAdapterRegistry [mkKubernetesAdapter bound guardedOps])
             reviewAndApply candidate history decisions observations = do
               let proposal = ok (planChanges candidate decisions history observations)
@@ -2443,20 +4311,33 @@ inventoryKubernetesTests =
               applyReviewed store registry reviewed >>= expectRight
         _ <- initializeStore store binding "collection-test" >>= expectRight
         emptyHistory <- loadInventoryHistory store >>= expectRight
-        _ <- reviewAndApply initial emptyHistory noLifecycleDecisions
-          (ok (observationSet [(resource, ConfirmedAbsent absence)]))
+        _ <-
+          reviewAndApply
+            initial
+            emptyHistory
+            noLifecycleDecisions
+            (ok (observationSet [(resource, ConfirmedAbsent absence)]))
         acceptedHistory <- loadInventoryHistory store >>= expectRight
-        let accepted = Map.map (\(revision, declarationScope) -> (revisionGeneration revision, declarationScope))
-              (historyAccepted acceptedHistory)
-            retirement = ok (composeInventory (ok (mkScopeSnapshot binding accepted Map.empty))
-              (RetireScope scope RetainResources :| []))
+        let accepted =
+              Map.map
+                (\(revision, declarationScope) -> (revisionGeneration revision, declarationScope))
+                (historyAccepted acceptedHistory)
+            retirement =
+              ok
+                ( composeInventory
+                    (ok (mkScopeSnapshot binding accepted Map.empty))
+                    (RetireScope scope RetainResources :| [])
+                )
         current <- observeWithRegistry registry (requirementsByExecutor (observationRequirements retirement acceptedHistory)) >>= expectRight
         retirementDecisions <- expectRight (decideRetirement retirement acceptedHistory current)
         _ <- reviewAndApply retirement acceptedHistory retirementDecisions current
         retainedHistory <- loadInventoryHistory store >>= expectRight
-        let collection = ok (composeInventory
-              (ok (mkScopeSnapshot binding Map.empty (historyReservations retainedHistory)))
-              (CollectRetained resource :| []))
+        let collection =
+              ok
+                ( composeInventory
+                    (ok (mkScopeSnapshot binding Map.empty (historyReservations retainedHistory)))
+                    (CollectRetained resource :| [])
+                )
         present <- observeWithRegistry registry (requirementsByExecutor (observationRequirements collection retainedHistory)) >>= expectRight
         collectionDecisions <- expectRight (decideCollection collection retainedHistory present)
         result <- reviewAndApply collection retainedHistory collectionDecisions present
@@ -2466,123 +4347,237 @@ inventoryKubernetesTests =
         case Map.lookup resource (headCollected (historyHead collectedHistory)) of
           Just tombstone -> tombstonePhysical tombstone @?= physical
           Nothing -> assertFailure "collection did not record a durable tombstone"
-        let reuse = ok (composeInventory (ok (mkScopeSnapshot binding Map.empty Map.empty))
-              (ReplaceScope scopeDeclaration :| []))
-        case planChanges reuse noLifecycleDecisions collectedHistory
+        let reuse =
+              ok
+                ( composeInventory
+                    (ok (mkScopeSnapshot binding Map.empty Map.empty))
+                    (ReplaceScope scopeDeclaration :| [])
+                )
+        case planChanges
+          reuse
+          noLifecycleDecisions
+          collectedHistory
           (ok (observationSet [(resource, ConfirmedAbsent absence)])) of
-          Left failures -> assertBool "collected logical identity cannot be silently reused"
-            ("collected-reactivation" `elem` map planErrorCode (NE.toList failures))
+          Left failures ->
+            assertBool
+              "collected logical identity cannot be silently reused"
+              ("collected-reactivation" `elem` map planErrorCode (NE.toList failures))
           Right _ -> assertFailure "deletion tombstone did not guard logical identity"
         readIORef state >>= (@?= KubernetesAbsent absence)
         readIORef calls >>= (@?= 2)
     , testCase "retired release history and route must be collected before its web Service" reviewedReleaseCleanup
     , testCase "central access DomainMapping collection carries exact UID and revision" $ do
-        let value = object
-              [ "apiVersion" .= ("serving.knative.dev/v1beta1" :: Text)
-              , "kind" .= ("DomainMapping" :: Text)
-              , "metadata" .= object
-                  ["name" .= ("app.example.test" :: Text), "namespace" .= ("nagare-system" :: Text)]
-              , "spec" .= object ["ref" .= object
-                  ["apiVersion" .= ("serving.knative.dev/v1" :: Text)
-                  ,"kind" .= ("Service" :: Text)
-                  ,"name" .= ("nagare-access" :: Text)
-                  ,"namespace" .= ("nagare-system" :: Text)]]]
+        let value =
+              object
+                [ "apiVersion" .= ("serving.knative.dev/v1beta1" :: Text)
+                , "kind" .= ("DomainMapping" :: Text)
+                , "metadata"
+                    .= object
+                      ["name" .= ("app.example.test" :: Text), "namespace" .= ("nagare-system" :: Text)]
+                , "spec"
+                    .= object
+                      [ "ref"
+                          .= object
+                            [ "apiVersion" .= ("serving.knative.dev/v1" :: Text)
+                            , "kind" .= ("Service" :: Text)
+                            , "name" .= ("nagare-access" :: Text)
+                            , "namespace" .= ("nagare-system" :: Text)
+                            ]
+                      ]
+                ]
             bytes = ok (canonicalValue value)
-            (declaration, _) = ok (bindKubernetesObject
-              (input {inputObject = value, objectDigest = contentDigest bytes,
-                lifecyclePolicy = DeleteWhenUnreferenced}))
+            (declaration, _) =
+              ok
+                ( bindKubernetesObject
+                    ( input
+                        { inputObject = value
+                        , objectDigest = contentDigest bytes
+                        , lifecyclePolicy = DeleteWhenUnreferenced
+                        }
+                    )
+                )
             uid = ok (mkPhysicalIdentity "domain-uid")
         supportsRetainedCollection declaration @?= True
-        (arguments, body) <- expectRight (collectionDeleteRequest
-          (declaration ^. #address) uid "resource-version")
-        arguments @?=
-          ["delete", "--raw", "/apis/serving.knative.dev/v1beta1/namespaces/nagare-system/domainmappings/app.example.test", "-f", "-"]
-        assertBool "DomainMapping deletion dropped its physical preconditions"
-          (BS.isInfixOf "domain-uid" (TE.encodeUtf8 body)
-            && BS.isInfixOf "resource-version" (TE.encodeUtf8 body))
+        (arguments, body) <-
+          expectRight
+            ( collectionDeleteRequest
+                (declaration ^. #address)
+                uid
+                "resource-version"
+            )
+        arguments
+          @?= ["delete", "--raw", "/apis/serving.knative.dev/v1beta1/namespaces/nagare-system/domainmappings/app.example.test", "-f", "-"]
+        assertBool
+          "DomainMapping deletion dropped its physical preconditions"
+          ( BS.isInfixOf "domain-uid" (TE.encodeUtf8 body)
+              && BS.isInfixOf "resource-version" (TE.encodeUtf8 body)
+          )
     , testCase "Knative preview Service collection carries exact UID and revision" $ do
-        let value = object
-              [ "apiVersion" .= ("serving.knative.dev/v1" :: Text)
-              , "kind" .= ("Service" :: Text)
-              , "metadata" .= object
-                  ["name" .= ("demo-pr-branch" :: Text), "namespace" .= ("personal" :: Text)]
-              , "spec" .= object ["template" .= object ["spec" .= object
-                  ["containers" .= [object ["image" .= ("example.test/demo:v1" :: Text)]]]]]
-              ]
+        let value =
+              object
+                [ "apiVersion" .= ("serving.knative.dev/v1" :: Text)
+                , "kind" .= ("Service" :: Text)
+                , "metadata"
+                    .= object
+                      ["name" .= ("demo-pr-branch" :: Text), "namespace" .= ("personal" :: Text)]
+                , "spec"
+                    .= object
+                      [ "template"
+                          .= object
+                            [ "spec"
+                                .= object
+                                  ["containers" .= [object ["image" .= ("example.test/demo:v1" :: Text)]]]
+                            ]
+                      ]
+                ]
             bytes = ok (canonicalValue value)
-            (declaration, _) = ok (bindKubernetesObject
-              (input {inputObject = value, objectDigest = contentDigest bytes,
-                lifecyclePolicy = DeleteWhenUnreferenced}))
+            (declaration, _) =
+              ok
+                ( bindKubernetesObject
+                    ( input
+                        { inputObject = value
+                        , objectDigest = contentDigest bytes
+                        , lifecyclePolicy = DeleteWhenUnreferenced
+                        }
+                    )
+                )
             uid = ok (mkPhysicalIdentity "preview-service-uid")
         supportsRetainedCollection declaration @?= True
-        (arguments, body) <- expectRight (collectionDeleteRequest
-          (declaration ^. #address) uid "resource-version")
-        arguments @?=
-          ["delete", "--raw", "/apis/serving.knative.dev/v1/namespaces/personal/services/demo-pr-branch", "-f", "-"]
-        assertBool "Knative Service deletion dropped its physical preconditions"
-          (BS.isInfixOf "preview-service-uid" (TE.encodeUtf8 body)
-            && BS.isInfixOf "resource-version" (TE.encodeUtf8 body))
+        (arguments, body) <-
+          expectRight
+            ( collectionDeleteRequest
+                (declaration ^. #address)
+                uid
+                "resource-version"
+            )
+        arguments
+          @?= ["delete", "--raw", "/apis/serving.knative.dev/v1/namespaces/personal/services/demo-pr-branch", "-f", "-"]
+        assertBool
+          "Knative Service deletion dropped its physical preconditions"
+          ( BS.isInfixOf "preview-service-uid" (TE.encodeUtf8 body)
+              && BS.isInfixOf "resource-version" (TE.encodeUtf8 body)
+          )
     , testCase "delete-policy preview PVC collection carries exact UID and revision" $ do
-        let value = object
-              [ "apiVersion" .= ("v1" :: Text)
-              , "kind" .= ("PersistentVolumeClaim" :: Text)
-              , "metadata" .= object
-                  ["name" .= ("nagare-vol-demo-pr-branch-data" :: Text),
-                   "namespace" .= ("personal" :: Text)]
-              , "spec" .= object
-                  ["accessModes" .= (["ReadWriteOnce"] :: [Text]),
-                   "storageClassName" .= ("" :: Text),
-                   "resources" .= object ["requests" .= object ["storage" .= ("1Mi" :: Text)]]]
-              ]
+        let value =
+              object
+                [ "apiVersion" .= ("v1" :: Text)
+                , "kind" .= ("PersistentVolumeClaim" :: Text)
+                , "metadata"
+                    .= object
+                      [ "name" .= ("nagare-vol-demo-pr-branch-data" :: Text)
+                      , "namespace" .= ("personal" :: Text)
+                      ]
+                , "spec"
+                    .= object
+                      [ "accessModes" .= (["ReadWriteOnce"] :: [Text])
+                      , "storageClassName" .= ("" :: Text)
+                      , "resources" .= object ["requests" .= object ["storage" .= ("1Mi" :: Text)]]
+                      ]
+                ]
             bytes = ok (canonicalValue value)
-            (declaration, _) = ok (bindKubernetesObject
-              (input {inputObject = value, objectDigest = contentDigest bytes,
-                lifecyclePolicy = DeleteWhenUnreferenced}))
+            (declaration, _) =
+              ok
+                ( bindKubernetesObject
+                    ( input
+                        { inputObject = value
+                        , objectDigest = contentDigest bytes
+                        , lifecyclePolicy = DeleteWhenUnreferenced
+                        }
+                    )
+                )
             uid = ok (mkPhysicalIdentity "preview-pvc-uid")
         supportsRetainedCollection declaration @?= True
         supportsRetainedCollection (declaration & #lifecycle .~ Retain) @?= False
-        (arguments, body) <- expectRight (collectionDeleteRequest
-          (declaration ^. #address) uid "resource-version")
-        arguments @?=
-          ["delete", "--raw", "/api/v1/namespaces/personal/persistentvolumeclaims/nagare-vol-demo-pr-branch-data", "-f", "-"]
-        assertBool "PVC deletion dropped its physical preconditions"
-          (BS.isInfixOf "preview-pvc-uid" (TE.encodeUtf8 body)
-            && BS.isInfixOf "resource-version" (TE.encodeUtf8 body))
+        (arguments, body) <-
+          expectRight
+            ( collectionDeleteRequest
+                (declaration ^. #address)
+                uid
+                "resource-version"
+            )
+        arguments
+          @?= ["delete", "--raw", "/api/v1/namespaces/personal/persistentvolumeclaims/nagare-vol-demo-pr-branch-data", "-f", "-"]
+        assertBool
+          "PVC deletion dropped its physical preconditions"
+          ( BS.isInfixOf "preview-pvc-uid" (TE.encodeUtf8 body)
+              && BS.isInfixOf "resource-version" (TE.encodeUtf8 body)
+          )
     , testCase "manual Job collection retains exact identity and requests pod cleanup" $ do
-        let value = object
-              [ "apiVersion" .= ("batch/v1" :: Text)
-              , "kind" .= ("Job" :: Text)
-              , "metadata" .= object
-                  ["name" .= ("nagare-task-cleanup-manual-r1" :: Text),
-                   "namespace" .= ("personal" :: Text)]
-              , "spec" .= object ["template" .= object ["spec" .= object
-                  ["restartPolicy" .= ("Never" :: Text),
-                   "containers" .= [object
-                     ["name" .= ("run" :: Text), "image" .= ("busybox:1.36" :: Text)]]]]]
-              ]
+        let value =
+              object
+                [ "apiVersion" .= ("batch/v1" :: Text)
+                , "kind" .= ("Job" :: Text)
+                , "metadata"
+                    .= object
+                      [ "name" .= ("nagare-task-cleanup-manual-r1" :: Text)
+                      , "namespace" .= ("personal" :: Text)
+                      ]
+                , "spec"
+                    .= object
+                      [ "template"
+                          .= object
+                            [ "spec"
+                                .= object
+                                  [ "restartPolicy" .= ("Never" :: Text)
+                                  , "containers"
+                                      .= [ object
+                                             ["name" .= ("run" :: Text), "image" .= ("busybox:1.36" :: Text)]
+                                         ]
+                                  ]
+                            ]
+                      ]
+                ]
             bytes = ok (canonicalValue value)
-            (declaration, _) = ok (bindKubernetesObject
-              (input {inputObject = value, objectDigest = contentDigest bytes,
-                lifecyclePolicy = DeleteWhenUnreferenced}))
+            (declaration, _) =
+              ok
+                ( bindKubernetesObject
+                    ( input
+                        { inputObject = value
+                        , objectDigest = contentDigest bytes
+                        , lifecyclePolicy = DeleteWhenUnreferenced
+                        }
+                    )
+                )
             uid = ok (mkPhysicalIdentity "manual-job-uid")
         supportsRetainedCollection declaration @?= True
-        (arguments, body) <- expectRight (collectionDeleteRequest
-          (declaration ^. #address) uid "resource-version")
-        arguments @?=
-          ["delete", "--raw", "/apis/batch/v1/namespaces/personal/jobs/nagare-task-cleanup-manual-r1", "-f", "-"]
-        assertBool "Job deletion dropped preconditions or background pod cleanup"
-          (all (\part -> BS.isInfixOf part (TE.encodeUtf8 body))
-            ["manual-job-uid", "resource-version", "Background"])
+        (arguments, body) <-
+          expectRight
+            ( collectionDeleteRequest
+                (declaration ^. #address)
+                uid
+                "resource-version"
+            )
+        arguments
+          @?= ["delete", "--raw", "/apis/batch/v1/namespaces/personal/jobs/nagare-task-cleanup-manual-r1", "-f", "-"]
+        assertBool
+          "Job deletion dropped preconditions or background pod cleanup"
+          ( all
+              (\part -> BS.isInfixOf part (TE.encodeUtf8 body))
+              ["manual-job-uid", "resource-version", "Background"]
+          )
     , testCase "unready access route prepares read-only verification but requires its original ready incarnation" $ do
-        let value = object
-              ["apiVersion" .= ("serving.knative.dev/v1beta1" :: Text), "kind" .= ("DomainMapping" :: Text),
-               "metadata" .= object ["name" .= ("protected.example.test" :: Text), "namespace" .= ("nagare-system" :: Text)],
-               "spec" .= object ["ref" .= object
-                 ["apiVersion" .= ("serving.knative.dev/v1" :: Text), "kind" .= ("Service" :: Text),
-                  "name" .= ("nagare-access" :: Text), "namespace" .= ("nagare-system" :: Text)]]]
+        let value =
+              object
+                [ "apiVersion" .= ("serving.knative.dev/v1beta1" :: Text)
+                , "kind" .= ("DomainMapping" :: Text)
+                , "metadata" .= object ["name" .= ("protected.example.test" :: Text), "namespace" .= ("nagare-system" :: Text)]
+                , "spec"
+                    .= object
+                      [ "ref"
+                          .= object
+                            [ "apiVersion" .= ("serving.knative.dev/v1" :: Text)
+                            , "kind" .= ("Service" :: Text)
+                            , "name" .= ("nagare-access" :: Text)
+                            , "namespace" .= ("nagare-system" :: Text)
+                            ]
+                      ]
+                ]
             bytes = ok (canonicalValue value)
-            native = ok (bindKubernetesObject
-              (input {inputObject = value, objectDigest = contentDigest bytes}))
+            native =
+              ok
+                ( bindKubernetesObject
+                    (input {inputObject = value, objectDigest = contentDigest bytes})
+                )
             before = KubernetesNotReady physical "4" (Just resource) (contentDigest bytes)
             verification = operation VerifyResource
         state <- newIORef before
@@ -2591,9 +4586,10 @@ inventoryKubernetesTests =
         prepared <- adapterPrepare adapter verification >>= expectRight
         blocked <- adapterPreflight adapter verification prepared
         assertBool "unready route passed execution preflight" (isLeft blocked)
-        _ <- adapterExecute adapter verification prepared >>= \result -> case result of
-          AdapterEffectFailed KnownNoEffect {} -> pure ()
-          _ -> assertFailure "unready route completed read-only verification"
+        _ <-
+          adapterExecute adapter verification prepared >>= \result -> case result of
+            AdapterEffectFailed KnownNoEffect {} -> pure ()
+            _ -> assertFailure "unready route completed read-only verification"
         failed <- adapterVerify adapter verification prepared
         assertBool "unready route proved complete" (isLeft failed)
         writeIORef state (KubernetesPresent physical "5" (Just resource) (contentDigest bytes))
@@ -2610,41 +4606,60 @@ inventoryKubernetesTests =
         replacementRecovery <- adapterRecover adapter verification prepared
         assertBool "replacement route recovered the old verification" (case replacementRecovery of RecoveryUnresolved {} -> True; _ -> False)
         readIORef calls >>= (@?= 0)
-        forM_ [KubernetesNotReady physical "4" Nothing (contentDigest bytes),
-            KubernetesNotReady physical "4" (Just resource) (contentDigest "changed")] $ \foreignState -> do
-          writeIORef state foreignState
-          refused <- adapterPrepare adapter verification
-          assertBool "foreign or changed unready route prepared verification" (isLeft refused)
+        forM_
+          [ KubernetesNotReady physical "4" Nothing (contentDigest bytes)
+          , KubernetesNotReady physical "4" (Just resource) (contentDigest "changed")
+          ]
+          $ \foreignState -> do
+            writeIORef state foreignState
+            refused <- adapterPrepare adapter verification
+            assertBool "foreign or changed unready route prepared verification" (isLeft refused)
     , testCase "retained unready access route can be conditionally collected" $ do
-        let value = object
-              [ "apiVersion" .= ("serving.knative.dev/v1beta1" :: Text)
-              , "kind" .= ("DomainMapping" :: Text)
-              , "metadata" .= object
-                  ["name" .= ("broken.example.test" :: Text), "namespace" .= ("nagare-system" :: Text)]
-              , "spec" .= object ["ref" .= object
-                  ["apiVersion" .= ("serving.knative.dev/v1" :: Text)
-                  ,"kind" .= ("Service" :: Text)
-                  ,"name" .= ("missing-origin" :: Text)
-                  ,"namespace" .= ("nagare-system" :: Text)]]]
+        let value =
+              object
+                [ "apiVersion" .= ("serving.knative.dev/v1beta1" :: Text)
+                , "kind" .= ("DomainMapping" :: Text)
+                , "metadata"
+                    .= object
+                      ["name" .= ("broken.example.test" :: Text), "namespace" .= ("nagare-system" :: Text)]
+                , "spec"
+                    .= object
+                      [ "ref"
+                          .= object
+                            [ "apiVersion" .= ("serving.knative.dev/v1" :: Text)
+                            , "kind" .= ("Service" :: Text)
+                            , "name" .= ("missing-origin" :: Text)
+                            , "namespace" .= ("nagare-system" :: Text)
+                            ]
+                      ]
+                ]
             bytes = ok (canonicalValue value)
-            native = ok (bindKubernetesObject
-              (input {inputObject = value, objectDigest = contentDigest bytes,
-                lifecyclePolicy = DeleteWhenUnreferenced}))
+            native =
+              ok
+                ( bindKubernetesObject
+                    ( input
+                        { inputObject = value
+                        , objectDigest = contentDigest bytes
+                        , lifecyclePolicy = DeleteWhenUnreferenced
+                        }
+                    )
+                )
             bound = Map.singleton resource native
             before = KubernetesNotReady physical "4" (Just resource) (contentDigest bytes)
             collectionOperation = operation RetireResource
         state <- newIORef before
         calls <- newIORef (0 :: Int)
-        let nativeOps = (ops state calls)
-              { kubernetesMutateConditional = \mutation -> do
-                  current <- readIORef state
-                  if current /= mutationBefore mutation
-                    then pure (AdapterEffectFailed (KnownNoEffect "conditional write conflict"))
-                    else do
-                      modifyIORef' calls (+ 1)
-                      writeIORef state (KubernetesAbsent absence)
-                      pure AdapterEffectCompleted
-              }
+        let nativeOps =
+              (ops state calls)
+                { kubernetesMutateConditional = \mutation -> do
+                    current <- readIORef state
+                    if current /= mutationBefore mutation
+                      then pure (AdapterEffectFailed (KnownNoEffect "conditional write conflict"))
+                      else do
+                        modifyIORef' calls (+ 1)
+                        writeIORef state (KubernetesAbsent absence)
+                        pure AdapterEffectCompleted
+                }
             adapter = mkKubernetesAdapter bound nativeOps
         prepared <- adapterPrepare adapter collectionOperation >>= expectRight
         writeIORef state (KubernetesNotReady physical "5" (Just resource) (contentDigest bytes))
@@ -2657,104 +4672,180 @@ inventoryKubernetesTests =
         readIORef calls >>= (@?= 1)
     , testCase "one candidate selects distinct retained resources for collection" $ do
         let other = mintResourceId scope (ok (mkLogicalKey "other")) (ok (mkName "resource"))
-            addressFor label = Kubernetes cluster "" (ok (mkName "configmap"))
-              (Just (ok (mkName "default"))) (ok (mkName label))
-            reservations = Map.fromList
-              [(canonicalClaim (addressFor "first"), ClaimHolder scope resource physical ResourceInventory.RetainedIncarnation)
-              ,(canonicalClaim (addressFor "second"), ClaimHolder scope other physical ResourceInventory.RetainedIncarnation)]
-            snapshot = ok (mkScopeSnapshot
-              (ContextBinding (ok (mkContextId "test")) (ok (mkName "project"))) Map.empty reservations)
+            addressFor label =
+              Kubernetes
+                cluster
+                ""
+                (ok (mkName "configmap"))
+                (Just (ok (mkName "default")))
+                (ok (mkName label))
+            reservations =
+              Map.fromList
+                [ (canonicalClaim (addressFor "first"), ClaimHolder scope resource physical ResourceInventory.RetainedIncarnation)
+                , (canonicalClaim (addressFor "second"), ClaimHolder scope other physical ResourceInventory.RetainedIncarnation)
+                ]
+            snapshot =
+              ok
+                ( mkScopeSnapshot
+                    (ContextBinding (ok (mkContextId "test")) (ok (mkName "project")))
+                    Map.empty
+                    reservations
+                )
             candidate = ok (composeInventory snapshot (CollectRetained resource :| [CollectRetained other]))
         sort (NE.toList (candidateChanges candidate)) @?= sort [CollectRetained resource, CollectRetained other]
         case composeInventory snapshot (CollectRetained resource :| [CollectRetained resource]) of
-          Left failures -> assertBool "duplicate collection accepted"
-            ("duplicate-collection" `elem` map code (NE.toList failures))
+          Left failures ->
+            assertBool
+              "duplicate collection accepted"
+              ("duplicate-collection" `elem` map code (NE.toList failures))
           Right _ -> assertFailure "duplicate retained resource was accepted"
     , testCase "disposable cluster conditionally collects an owned ConfigMap" $ do
         selected <- lookupEnv "NAGARE_EP147_TEST_CONTEXT"
         case selected of
           Nothing -> pure ()
           Just selectedContext -> do
-            assertBool "refusing a non-disposable Kubernetes context"
+            assertBool
+              "refusing a non-disposable Kubernetes context"
               ("k3d-nagare-inventory-" `T.isPrefixOf` T.pack selectedContext)
-            let value = object
-                  ["apiVersion" .= ("v1" :: Text), "kind" .= ("ConfigMap" :: Text),
-                   "metadata" .= object ["name" .= ("nagare-ep149-collect" :: Text), "namespace" .= ("default" :: Text)],
-                   "data" .= object ["value" .= ("reviewed" :: Text)]]
+            let value =
+                  object
+                    [ "apiVersion" .= ("v1" :: Text)
+                    , "kind" .= ("ConfigMap" :: Text)
+                    , "metadata" .= object ["name" .= ("nagare-ep149-collect" :: Text), "namespace" .= ("default" :: Text)]
+                    , "data" .= object ["value" .= ("reviewed" :: Text)]
+                    ]
                 bytes = ok (canonicalValue value)
-                bound = Map.singleton resource (ok (bindKubernetesObject
-                  (input {inputObject = value, objectDigest = contentDigest bytes,
-                    lifecyclePolicy = DeleteWhenUnreferenced, inputSensitivity = Public})))
+                bound =
+                  Map.singleton
+                    resource
+                    ( ok
+                        ( bindKubernetesObject
+                            ( input
+                                { inputObject = value
+                                , objectDigest = contentDigest bytes
+                                , lifecyclePolicy = DeleteWhenUnreferenced
+                                , inputSensitivity = Public
+                                }
+                            )
+                        )
+                    )
                 config = KubernetesRuntimeConfig (ok (mkContextId "test")) (T.pack selectedContext) (pure (Right ()))
                 adapter = mkKubernetesAdapter bound (mkKubernetesRuntimeOps config bound)
                 cleanup = do
-                  _ <- readProcessWithExitCode "kubectl"
-                    ["--context", selectedContext, "delete", "configmap", "nagare-ep149-collect",
-                     "--namespace", "default", "--ignore-not-found"] ""
+                  _ <-
+                    readProcessWithExitCode
+                      "kubectl"
+                      [ "--context"
+                      , selectedContext
+                      , "delete"
+                      , "configmap"
+                      , "nagare-ep149-collect"
+                      , "--namespace"
+                      , "default"
+                      , "--ignore-not-found"
+                      ]
+                      ""
                   pure ()
             cleanup
-            (do
-              created <- adapterPrepare adapter createOperation >>= expectRight
-              adapterPreflight adapter createOperation created >>= expectRight
-              adapterExecute adapter createOperation created >>= (@?= AdapterEffectCompleted)
-              _ <- adapterVerify adapter createOperation created >>= expectRight
-              let collectionOperation = operation RetireResource
-              collected <- adapterPrepare adapter collectionOperation >>= expectRight
-              adapterPreflight adapter collectionOperation collected >>= expectRight
-              adapterExecute adapter collectionOperation collected >>= (@?= AdapterEffectCompleted)
-              _ <- adapterVerify adapter collectionOperation collected >>= expectRight
-              observed <- adapterObserve adapter [resource] >>= expectRight
-              Map.lookup resource (observationMap observed) @?= Just (ConfirmedAbsent (contentDigest (TE.encodeUtf8 (resourceIdText resource <> ":absent")))))
+            ( do
+                created <- adapterPrepare adapter createOperation >>= expectRight
+                adapterPreflight adapter createOperation created >>= expectRight
+                adapterExecute adapter createOperation created >>= (@?= AdapterEffectCompleted)
+                _ <- adapterVerify adapter createOperation created >>= expectRight
+                let collectionOperation = operation RetireResource
+                collected <- adapterPrepare adapter collectionOperation >>= expectRight
+                adapterPreflight adapter collectionOperation collected >>= expectRight
+                adapterExecute adapter collectionOperation collected >>= (@?= AdapterEffectCompleted)
+                _ <- adapterVerify adapter collectionOperation collected >>= expectRight
+                observed <- adapterObserve adapter [resource] >>= expectRight
+                Map.lookup resource (observationMap observed) @?= Just (ConfirmedAbsent (contentDigest (TE.encodeUtf8 (resourceIdText resource <> ":absent"))))
+              )
               `finally` cleanup
     , testCase "disposable cluster conditionally collects owned Service, CronJob, Job, and PVC" $ do
         selected <- lookupEnv "NAGARE_EP147_TEST_CONTEXT"
         case selected of
           Nothing -> pure ()
           Just selectedContext -> do
-            assertBool "refusing a non-disposable Kubernetes context"
+            assertBool
+              "refusing a non-disposable Kubernetes context"
               ("k3d-nagare-inventory-" `T.isPrefixOf` T.pack selectedContext)
-            let named kind spec = object
-                  ["apiVersion" .= (if kind == "Service" then "v1" else "batch/v1" :: Text)
-                  ,"kind" .= kind
-                  ,"metadata" .= object ["name" .= ("nagare-ep149-collect-" <> T.toLower kind), "namespace" .= ("default" :: Text)]
-                  ,"spec" .= spec]
+            let named kind spec =
+                  object
+                    [ "apiVersion" .= (if kind == "Service" then "v1" else "batch/v1" :: Text)
+                    , "kind" .= kind
+                    , "metadata" .= object ["name" .= ("nagare-ep149-collect-" <> T.toLower kind), "namespace" .= ("default" :: Text)]
+                    , "spec" .= spec
+                    ]
                 service = named "Service" (object ["ports" .= [object ["port" .= (8080 :: Int)]]])
-                container = object ["name" .= ("run" :: Text), "image" .= ("busybox:1.36" :: Text),
-                  "command" .= (["true"] :: [Text])]
+                container =
+                  object
+                    [ "name" .= ("run" :: Text)
+                    , "image" .= ("busybox:1.36" :: Text)
+                    , "command" .= (["true"] :: [Text])
+                    ]
                 pod = object ["restartPolicy" .= ("Never" :: Text), "containers" .= [container]]
-                cronJob = named "CronJob" (object
-                  ["schedule" .= ("0 0 1 1 *" :: Text)
-                  ,"jobTemplate" .= object ["spec" .= object ["template" .= object ["spec" .= pod]]]])
+                cronJob =
+                  named
+                    "CronJob"
+                    ( object
+                        [ "schedule" .= ("0 0 1 1 *" :: Text)
+                        , "jobTemplate" .= object ["spec" .= object ["template" .= object ["spec" .= pod]]]
+                        ]
+                    )
                 job = named "Job" (object ["template" .= object ["spec" .= pod]])
-                pvc = object
-                  ["apiVersion" .= ("v1" :: Text)
-                  ,"kind" .= ("PersistentVolumeClaim" :: Text)
-                  ,"metadata" .= object
-                    ["name" .= ("nagare-ep149-collect-persistentvolumeclaim" :: Text),
-                     "namespace" .= ("default" :: Text)]
-                  ,"spec" .= object
-                    ["accessModes" .= (["ReadWriteOnce"] :: [Text]),
-                     "storageClassName" .= ("" :: Text),
-                     "resources" .= object ["requests" .= object ["storage" .= ("1Mi" :: Text)]]]
-                  ]
-            mapM_ (collectOne selectedContext)
-              [("service", service), ("cronjob", cronJob), ("job", job),
-               ("persistentvolumeclaim", pvc)]
+                pvc =
+                  object
+                    [ "apiVersion" .= ("v1" :: Text)
+                    , "kind" .= ("PersistentVolumeClaim" :: Text)
+                    , "metadata"
+                        .= object
+                          [ "name" .= ("nagare-ep149-collect-persistentvolumeclaim" :: Text)
+                          , "namespace" .= ("default" :: Text)
+                          ]
+                    , "spec"
+                        .= object
+                          [ "accessModes" .= (["ReadWriteOnce"] :: [Text])
+                          , "storageClassName" .= ("" :: Text)
+                          , "resources" .= object ["requests" .= object ["storage" .= ("1Mi" :: Text)]]
+                          ]
+                    ]
+            mapM_
+              (collectOne selectedContext)
+              [ ("service", service)
+              , ("cronjob", cronJob)
+              , ("job", job)
+              , ("persistentvolumeclaim", pvc)
+              ]
     , testCase "private review reconstructs contributed Namespace members" $ do
         state <- newIORef (KubernetesAbsent absence)
         calls <- newIORef (0 :: Int)
         let contributor = ok (mkScopeId Platform "helm-contributor")
             namespace = ok (mkName "monitoring")
             contribution = RegisterNamespace scope cluster namespace (ok (mkLogicalKey "namespace"))
-            ownerScope = ok (mkScopeDeclaration scope
-              [ResourceBundle [] [] [] [] [] [NamespaceGrant contributor cluster]])
-            contributorScope = ok (mkScopeDeclaration contributor
-              [ResourceBundle [] [] [] [contribution] [] []])
+            ownerScope =
+              ok
+                ( mkScopeDeclaration
+                    scope
+                    [ResourceBundle [] [] [] [] [] [NamespaceGrant contributor cluster]]
+                )
+            contributorScope =
+              ok
+                ( mkScopeDeclaration
+                    contributor
+                    [ResourceBundle [] [] [] [contribution] [] []]
+                )
             binding = ContextBinding (ok (mkContextId "test")) (ok (mkName "project"))
-            candidate = ok (composeInventory (ok (mkScopeSnapshot binding Map.empty Map.empty))
-              (ReplaceScope ownerScope :| [ReplaceScope contributorScope]))
-            contributed = ok (compileContributedNamespaces
-              (inventoryDeclarations (candidateInventory candidate)))
+            candidate =
+              ok
+                ( composeInventory
+                    (ok (mkScopeSnapshot binding Map.empty Map.empty))
+                    (ReplaceScope ownerScope :| [ReplaceScope contributorScope])
+                )
+            contributed =
+              ok
+                ( compileContributedNamespaces
+                    (inventoryDeclarations (candidateInventory candidate))
+                )
             namespaceId = mintResourceId scope (ok (mkLogicalKey "monitoring")) (ok (mkName "namespace"))
             registry = ok (mkAdapterRegistry [mkKubernetesAdapter contributed (ops state calls)])
             observations = ok (observationSet [(namespaceId, ConfirmedAbsent absence)])
@@ -2766,13 +4857,21 @@ inventoryKubernetesTests =
         bundle <- prepareReview registry snapshotBefore proposal >>= expectRight
         kubernetesSpecsFromReview bundle @?= Right contributed
     , testCase "private review deduplicates the same Job for create and migration proof" $ do
-        let job = object
-              [ "apiVersion" .= ("batch/v1" :: Text)
-              , "kind" .= ("Job" :: Text)
-              , "metadata" .= object ["name" .= ("migration" :: Text), "namespace" .= ("default" :: Text)]
-              , "spec" .= object ["template" .= object ["spec" .= object
-                  ["restartPolicy" .= ("Never" :: Text), "containers" .= [object ["name" .= ("job" :: Text), "image" .= ("example@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" :: Text)]]]]]
-              ]
+        let job =
+              object
+                [ "apiVersion" .= ("batch/v1" :: Text)
+                , "kind" .= ("Job" :: Text)
+                , "metadata" .= object ["name" .= ("migration" :: Text), "namespace" .= ("default" :: Text)]
+                , "spec"
+                    .= object
+                      [ "template"
+                          .= object
+                            [ "spec"
+                                .= object
+                                  ["restartPolicy" .= ("Never" :: Text), "containers" .= [object ["name" .= ("job" :: Text), "image" .= ("example@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" :: Text)]]]
+                            ]
+                      ]
+                ]
             bytes = ok (canonicalValue job)
             (jobDeclaration, _) = ok (bindKubernetesObject (input {inputObject = job, objectDigest = contentDigest bytes}))
             bound = Map.singleton resource (jobDeclaration, bytes)
@@ -2795,12 +4894,13 @@ inventoryKubernetesTests =
         _ <- publishReview store reviewed >>= expectRight
         snapshotAfter <- readStoreSnapshot store >>= expectRight
         verified <- expectRight (verifyReview snapshotAfter reviewed)
-        let applyOps = (ops state calls)
-              { kubernetesMutateConditional = \mutation -> do
-                  modifyIORef' calls (+ 1)
-                  writeIORef state (KubernetesPresent physical "4" (Just resource) (mutationNativeDigest mutation))
-                  pure AdapterEffectCompleted
-              }
+        let applyOps =
+              (ops state calls)
+                { kubernetesMutateConditional = \mutation -> do
+                    modifyIORef' calls (+ 1)
+                    writeIORef state (KubernetesPresent physical "4" (Just resource) (mutationNativeDigest mutation))
+                    pure AdapterEffectCompleted
+                }
             fromReview = ok (mkAdapterRegistry [mkKubernetesAdapter (ok (kubernetesSpecsFromReview reviewed)) applyOps])
         result <- applyReviewed store fromReview verified >>= expectRight
         case result of Converged _ -> pure (); other -> assertFailure (show other)
@@ -2811,33 +4911,36 @@ inventoryKubernetesTests =
           Nothing -> pure ()
           Just selectedContext -> do
             assertBool "refusing a non-disposable Kubernetes context" ("k3d-nagare-inventory-" `T.isPrefixOf` T.pack selectedContext)
-            let value = object
-                  [ "apiVersion" .= ("v1" :: Text)
-                  , "kind" .= ("ConfigMap" :: Text)
-                  , "metadata" .= object ["name" .= ("nagare-ep147-runtime" :: Text), "namespace" .= ("default" :: Text)]
-                  , "data" .= object ["message" .= ("reviewed" :: Text)]
-                  ]
+            let value =
+                  object
+                    [ "apiVersion" .= ("v1" :: Text)
+                    , "kind" .= ("ConfigMap" :: Text)
+                    , "metadata" .= object ["name" .= ("nagare-ep147-runtime" :: Text), "namespace" .= ("default" :: Text)]
+                    , "data" .= object ["message" .= ("reviewed" :: Text)]
+                    ]
                 bytes = ok (canonicalValue value)
                 native = ok (bindKubernetesObject (input {inputObject = value, objectDigest = contentDigest bytes}))
                 bound = Map.singleton resource native
                 config = KubernetesRuntimeConfig (ok (mkContextId "test")) (T.pack selectedContext) (pure (Right ()))
                 adapter = mkKubernetesAdapter bound (mkKubernetesRuntimeOps config bound)
-                changedValue = object
-                  [ "apiVersion" .= ("v1" :: Text)
-                  , "kind" .= ("ConfigMap" :: Text)
-                  , "metadata" .= object ["name" .= ("nagare-ep147-runtime" :: Text), "namespace" .= ("default" :: Text)]
-                  , "data" .= object ["message" .= ("updated" :: Text)]
-                  ]
+                changedValue =
+                  object
+                    [ "apiVersion" .= ("v1" :: Text)
+                    , "kind" .= ("ConfigMap" :: Text)
+                    , "metadata" .= object ["name" .= ("nagare-ep147-runtime" :: Text), "namespace" .= ("default" :: Text)]
+                    , "data" .= object ["message" .= ("updated" :: Text)]
+                    ]
                 changedBytes = ok (canonicalValue changedValue)
                 changedNative = ok (bindKubernetesObject (input {inputObject = changedValue, objectDigest = contentDigest changedBytes}))
                 changedBound = Map.singleton resource changedNative
                 changedAdapter = mkKubernetesAdapter changedBound (mkKubernetesRuntimeOps config changedBound)
-                finalValue = object
-                  [ "apiVersion" .= ("v1" :: Text)
-                  , "kind" .= ("ConfigMap" :: Text)
-                  , "metadata" .= object ["name" .= ("nagare-ep147-runtime" :: Text), "namespace" .= ("default" :: Text)]
-                  , "data" .= object ["message" .= ("final" :: Text)]
-                  ]
+                finalValue =
+                  object
+                    [ "apiVersion" .= ("v1" :: Text)
+                    , "kind" .= ("ConfigMap" :: Text)
+                    , "metadata" .= object ["name" .= ("nagare-ep147-runtime" :: Text), "namespace" .= ("default" :: Text)]
+                    , "data" .= object ["message" .= ("final" :: Text)]
+                    ]
                 finalBytes = ok (canonicalValue finalValue)
                 finalNative = ok (bindKubernetesObject (input {inputObject = finalValue, objectDigest = contentDigest finalBytes}))
                 finalBound = Map.singleton resource finalNative
@@ -2847,65 +4950,113 @@ inventoryKubernetesTests =
                   _ <- readProcessWithExitCode "kubectl" ["--context", selectedContext, "delete", "configmap", "nagare-ep147-runtime", "--namespace", "default", "--ignore-not-found"] ""
                   pure ()
             cleanup
-            (do
-              prepared <- adapterPrepare adapter createOperation >>= expectRight
-              adapterPreflight adapter createOperation prepared >>= expectRight
-              adapterExecute adapter createOperation prepared >>= (@?= AdapterEffectCompleted)
-              _ <- adapterVerify adapter createOperation prepared >>= expectRight
-              updatePrepared <- adapterPrepare changedAdapter updateOperation >>= expectRight
-              adapterPreflight changedAdapter updateOperation updatePrepared >>= expectRight
-              adapterExecute changedAdapter updateOperation updatePrepared >>= (@?= AdapterEffectCompleted)
-              _ <- adapterVerify changedAdapter updateOperation updatePrepared >>= expectRight
-              stalePrepared <- adapterPrepare finalAdapter updateOperation >>= expectRight
-              let staleMutation = ok (eitherDecodeStrict (preparedNativeBytes stalePrepared)) :: KubernetesMutation
-              (annotateCode, _, _) <- readProcessWithExitCode "kubectl"
-                ["--context", selectedContext, "annotate", "configmap", "nagare-ep147-runtime", "--namespace", "default", "probe=foreign", "--field-manager=foreign-probe"] ""
-              annotateCode @?= ExitSuccess
-              staleResult <- kubernetesMutateConditional finalOps staleMutation
-              case staleResult of
-                AdapterEffectFailed (KnownNoEffect _) -> pure ()
-                other -> assertFailure ("stale or foreign update changed the object: " <> show other)
-              foreignPrepared <- adapterPrepare finalAdapter updateOperation >>= expectRight
-              let foreignMutation = ok (eitherDecodeStrict (preparedNativeBytes foreignPrepared)) :: KubernetesMutation
-              foreignResult <- kubernetesMutateConditional finalOps foreignMutation
-              case foreignResult of
-                AdapterEffectFailed (KnownNoEffect _) -> pure ()
-                other -> assertFailure ("foreign field manager was overridden: " <> show other)
-              (beforeCode, beforeUid, _) <- readProcessWithExitCode "kubectl"
-                ["--context", selectedContext, "get", "configmap", "nagare-ep147-runtime",
-                 "--namespace", "default", "-o", "jsonpath={.metadata.uid}"] ""
-              beforeCode @?= ExitSuccess
-              (deleteCode, _, _) <- readProcessWithExitCode "kubectl"
-                ["--context", selectedContext, "delete", "configmap", "nagare-ep147-runtime",
-                 "--namespace", "default"] ""
-              deleteCode @?= ExitSuccess
-              (recreateCode, _, _) <- readProcessWithExitCode "kubectl"
-                ["--context", selectedContext, "create", "configmap", "nagare-ep147-runtime",
-                 "--namespace", "default", "--from-literal=message=final"] ""
-              recreateCode @?= ExitSuccess
-              (afterCode, afterUid, _) <- readProcessWithExitCode "kubectl"
-                ["--context", selectedContext, "get", "configmap", "nagare-ep147-runtime",
-                 "--namespace", "default", "-o", "jsonpath={.metadata.uid}"] ""
-              afterCode @?= ExitSuccess
-              assertBool "disposable object kept its UID after replacement" (beforeUid /= afterUid)
-              uidResult <- kubernetesMutateConditional finalOps foreignMutation
-              case uidResult of
-                AdapterEffectFailed (KnownNoEffect _) -> pure ()
-                other -> assertFailure ("replacement UID was accepted by a stale update: " <> show other)
-              pure ()) `finally` cleanup
+            ( do
+                prepared <- adapterPrepare adapter createOperation >>= expectRight
+                adapterPreflight adapter createOperation prepared >>= expectRight
+                adapterExecute adapter createOperation prepared >>= (@?= AdapterEffectCompleted)
+                _ <- adapterVerify adapter createOperation prepared >>= expectRight
+                updatePrepared <- adapterPrepare changedAdapter updateOperation >>= expectRight
+                adapterPreflight changedAdapter updateOperation updatePrepared >>= expectRight
+                adapterExecute changedAdapter updateOperation updatePrepared >>= (@?= AdapterEffectCompleted)
+                _ <- adapterVerify changedAdapter updateOperation updatePrepared >>= expectRight
+                stalePrepared <- adapterPrepare finalAdapter updateOperation >>= expectRight
+                let staleMutation = ok (eitherDecodeStrict (preparedNativeBytes stalePrepared)) :: KubernetesMutation
+                (annotateCode, _, _) <-
+                  readProcessWithExitCode
+                    "kubectl"
+                    ["--context", selectedContext, "annotate", "configmap", "nagare-ep147-runtime", "--namespace", "default", "probe=foreign", "--field-manager=foreign-probe"]
+                    ""
+                annotateCode @?= ExitSuccess
+                staleResult <- kubernetesMutateConditional finalOps staleMutation
+                case staleResult of
+                  AdapterEffectFailed (KnownNoEffect _) -> pure ()
+                  other -> assertFailure ("stale or foreign update changed the object: " <> show other)
+                foreignPrepared <- adapterPrepare finalAdapter updateOperation >>= expectRight
+                let foreignMutation = ok (eitherDecodeStrict (preparedNativeBytes foreignPrepared)) :: KubernetesMutation
+                foreignResult <- kubernetesMutateConditional finalOps foreignMutation
+                case foreignResult of
+                  AdapterEffectFailed (KnownNoEffect _) -> pure ()
+                  other -> assertFailure ("foreign field manager was overridden: " <> show other)
+                (beforeCode, beforeUid, _) <-
+                  readProcessWithExitCode
+                    "kubectl"
+                    [ "--context"
+                    , selectedContext
+                    , "get"
+                    , "configmap"
+                    , "nagare-ep147-runtime"
+                    , "--namespace"
+                    , "default"
+                    , "-o"
+                    , "jsonpath={.metadata.uid}"
+                    ]
+                    ""
+                beforeCode @?= ExitSuccess
+                (deleteCode, _, _) <-
+                  readProcessWithExitCode
+                    "kubectl"
+                    [ "--context"
+                    , selectedContext
+                    , "delete"
+                    , "configmap"
+                    , "nagare-ep147-runtime"
+                    , "--namespace"
+                    , "default"
+                    ]
+                    ""
+                deleteCode @?= ExitSuccess
+                (recreateCode, _, _) <-
+                  readProcessWithExitCode
+                    "kubectl"
+                    [ "--context"
+                    , selectedContext
+                    , "create"
+                    , "configmap"
+                    , "nagare-ep147-runtime"
+                    , "--namespace"
+                    , "default"
+                    , "--from-literal=message=final"
+                    ]
+                    ""
+                recreateCode @?= ExitSuccess
+                (afterCode, afterUid, _) <-
+                  readProcessWithExitCode
+                    "kubectl"
+                    [ "--context"
+                    , selectedContext
+                    , "get"
+                    , "configmap"
+                    , "nagare-ep147-runtime"
+                    , "--namespace"
+                    , "default"
+                    , "-o"
+                    , "jsonpath={.metadata.uid}"
+                    ]
+                    ""
+                afterCode @?= ExitSuccess
+                assertBool "disposable object kept its UID after replacement" (beforeUid /= afterUid)
+                uidResult <- kubernetesMutateConditional finalOps foreignMutation
+                case uidResult of
+                  AdapterEffectFailed (KnownNoEffect _) -> pure ()
+                  other -> assertFailure ("replacement UID was accepted by a stale update: " <> show other)
+                pure ()
+              )
+              `finally` cleanup
     , testCase "disposable cluster adopts only the reviewed unowned incarnation" $ do
         selected <- lookupEnv "NAGARE_EP147_TEST_CONTEXT"
         case selected of
           Nothing -> pure ()
           Just selectedContext -> do
-            assertBool "refusing a non-disposable Kubernetes context"
+            assertBool
+              "refusing a non-disposable Kubernetes context"
               ("k3d-nagare-inventory-" `T.isPrefixOf` T.pack selectedContext)
-            let value = object
-                  [ "apiVersion" .= ("v1" :: Text)
-                  , "kind" .= ("ConfigMap" :: Text)
-                  , "metadata" .= object ["name" .= ("nagare-ep149-adoption" :: Text), "namespace" .= ("default" :: Text)]
-                  , "data" .= object ["message" .= ("adopt-me" :: Text)]
-                  ]
+            let value =
+                  object
+                    [ "apiVersion" .= ("v1" :: Text)
+                    , "kind" .= ("ConfigMap" :: Text)
+                    , "metadata" .= object ["name" .= ("nagare-ep149-adoption" :: Text), "namespace" .= ("default" :: Text)]
+                    , "data" .= object ["message" .= ("adopt-me" :: Text)]
+                    ]
                 bytes = ok (canonicalValue value)
                 native = ok (bindKubernetesObject (input {inputObject = value, objectDigest = contentDigest bytes}))
                 bound = Map.singleton resource native
@@ -2913,244 +5064,456 @@ inventoryKubernetesTests =
                 adapter = mkKubernetesAdapter bound (mkKubernetesRuntimeOps config bound)
                 adoptOperation = operation AdoptResource
                 cleanup = do
-                  _ <- readProcessWithExitCode "kubectl"
-                    ["--context", selectedContext, "delete", "configmap", "nagare-ep149-adoption",
-                      "--namespace", "default", "--ignore-not-found"] ""
+                  _ <-
+                    readProcessWithExitCode
+                      "kubectl"
+                      [ "--context"
+                      , selectedContext
+                      , "delete"
+                      , "configmap"
+                      , "nagare-ep149-adoption"
+                      , "--namespace"
+                      , "default"
+                      , "--ignore-not-found"
+                      ]
+                      ""
                   pure ()
             cleanup
-            (do
-              (created, _, _) <- readProcessWithExitCode "kubectl"
-                ["--context", selectedContext, "create", "-f", "-"] (T.unpack (TE.decodeUtf8 bytes))
-              created @?= ExitSuccess
-              prepared <- adapterPrepare adapter adoptOperation >>= expectRight
-              adapterPreflight adapter adoptOperation prepared >>= expectRight
-              adapterExecute adapter adoptOperation prepared >>= (@?= AdapterEffectCompleted)
-              _ <- adapterVerify adapter adoptOperation prepared >>= expectRight
-              observed <- adapterObserve adapter [resource] >>= expectRight
-              case Map.lookup resource (observationMap observed) of
-                Just (ObservedPresent _) -> pure ()
-                other -> assertFailure ("adopted object did not converge: " <> show other)
-              pure ()) `finally` cleanup
+            ( do
+                (created, _, _) <-
+                  readProcessWithExitCode
+                    "kubectl"
+                    ["--context", selectedContext, "create", "-f", "-"]
+                    (T.unpack (TE.decodeUtf8 bytes))
+                created @?= ExitSuccess
+                prepared <- adapterPrepare adapter adoptOperation >>= expectRight
+                adapterPreflight adapter adoptOperation prepared >>= expectRight
+                adapterExecute adapter adoptOperation prepared >>= (@?= AdapterEffectCompleted)
+                _ <- adapterVerify adapter adoptOperation prepared >>= expectRight
+                observed <- adapterObserve adapter [resource] >>= expectRight
+                case Map.lookup resource (observationMap observed) of
+                  Just (ObservedPresent _) -> pure ()
+                  other -> assertFailure ("adopted object did not converge: " <> show other)
+                pure ()
+              )
+              `finally` cleanup
     , testCase "disposable reviewed transaction refuses a foreign create after publication" $ do
         selected <- lookupEnv "NAGARE_EP147_TEST_CONTEXT"
         case selected of
           Nothing -> pure ()
           Just selectedContext -> do
-            assertBool "refusing a non-disposable Kubernetes context"
+            assertBool
+              "refusing a non-disposable Kubernetes context"
               ("k3d-nagare-inventory-" `T.isPrefixOf` T.pack selectedContext)
-            let targetObject = object
-                  [ "apiVersion" .= ("v1" :: Text)
-                  , "kind" .= ("ConfigMap" :: Text)
-                  , "metadata" .= object ["name" .= ("nagare-ep147-foreign" :: Text),
-                      "namespace" .= ("default" :: Text)]
-                  , "data" .= object ["message" .= ("reviewed" :: Text)]
-                  ]
+            let targetObject =
+                  object
+                    [ "apiVersion" .= ("v1" :: Text)
+                    , "kind" .= ("ConfigMap" :: Text)
+                    , "metadata"
+                        .= object
+                          [ "name" .= ("nagare-ep147-foreign" :: Text)
+                          , "namespace" .= ("default" :: Text)
+                          ]
+                    , "data" .= object ["message" .= ("reviewed" :: Text)]
+                    ]
                 boundBytes = ok (canonicalValue targetObject)
-                bound = Map.singleton resource (ok (bindKubernetesObject
-                  (input {inputObject = targetObject, objectDigest = contentDigest boundBytes})))
-                target = ok (mkScopeDeclaration scope
-                  [ResourceBundle [Managed (fst (bound Map.! resource))] [] [] [] [] []])
+                bound =
+                  Map.singleton
+                    resource
+                    ( ok
+                        ( bindKubernetesObject
+                            (input {inputObject = targetObject, objectDigest = contentDigest boundBytes})
+                        )
+                    )
+                target =
+                  ok
+                    ( mkScopeDeclaration
+                        scope
+                        [ResourceBundle [Managed (fst (bound Map.! resource))] [] [] [] [] []]
+                    )
                 binding = ContextBinding (ok (mkContextId "test")) (ok (mkName "project"))
                 snapshot = ok (mkScopeSnapshot binding Map.empty Map.empty)
                 candidate = ok (composeInventory snapshot (ReplaceScope target :| []))
-                config = KubernetesRuntimeConfig (ok (mkContextId "test"))
-                  (T.pack selectedContext) (pure (Right ()))
-                registry = ok (mkAdapterRegistry
-                  [mkKubernetesAdapter bound (mkKubernetesRuntimeOps config bound)])
+                config =
+                  KubernetesRuntimeConfig
+                    (ok (mkContextId "test"))
+                    (T.pack selectedContext)
+                    (pure (Right ()))
+                registry =
+                  ok
+                    ( mkAdapterRegistry
+                        [mkKubernetesAdapter bound (mkKubernetesRuntimeOps config bound)]
+                    )
                 cleanup = do
-                  _ <- readProcessWithExitCode "kubectl"
-                    ["--context", selectedContext, "delete", "configmap", "nagare-ep147-foreign",
-                     "--namespace", "default", "--ignore-not-found"] ""
+                  _ <-
+                    readProcessWithExitCode
+                      "kubectl"
+                      [ "--context"
+                      , selectedContext
+                      , "delete"
+                      , "configmap"
+                      , "nagare-ep147-foreign"
+                      , "--namespace"
+                      , "default"
+                      , "--ignore-not-found"
+                      ]
+                      ""
                   pure ()
             cleanup
-            (do
-              store <- newMemoryStore
-              _ <- initializeStore store binding "client-test" >>= expectRight
-              history <- loadInventoryHistory store >>= expectRight
-              observed <- observeWithRegistry registry
-                (requirementsByExecutor (observationRequirements candidate history)) >>= expectRight
-              let proposal = ok (planChanges candidate noLifecycleDecisions history observed)
-              before <- readStoreSnapshot store >>= expectRight
-              reviewBundle <- prepareReview registry before proposal >>= expectRight
-              _ <- publishReview store reviewBundle >>= expectRight
-              (created, _, _) <- readProcessWithExitCode "kubectl"
-                ["--context", selectedContext, "create", "configmap", "nagare-ep147-foreign",
-                 "--namespace", "default", "--from-literal=message=foreign"] ""
-              created @?= ExitSuccess
-              afterPublication <- readStoreSnapshot store >>= expectRight
-              reviewed <- expectRight (verifyReview afterPublication reviewBundle)
-              result <- applyReviewed store registry reviewed
-              case result of
-                Left errors | any ((== "preflight") . (^. #admissionErrorCode)) errors -> pure ()
-                other -> assertFailure ("foreign object was accepted: " <> show other)
-              (readCode, live, _) <- readProcessWithExitCode "kubectl"
-                ["--context", selectedContext, "get", "configmap", "nagare-ep147-foreign",
-                 "--namespace", "default", "-o", "jsonpath={.data.message}"] ""
-              readCode @?= ExitSuccess
-              live @?= "foreign") `finally` cleanup
+            ( do
+                store <- newMemoryStore
+                _ <- initializeStore store binding "client-test" >>= expectRight
+                history <- loadInventoryHistory store >>= expectRight
+                observed <-
+                  observeWithRegistry
+                    registry
+                    (requirementsByExecutor (observationRequirements candidate history))
+                    >>= expectRight
+                let proposal = ok (planChanges candidate noLifecycleDecisions history observed)
+                before <- readStoreSnapshot store >>= expectRight
+                reviewBundle <- prepareReview registry before proposal >>= expectRight
+                _ <- publishReview store reviewBundle >>= expectRight
+                (created, _, _) <-
+                  readProcessWithExitCode
+                    "kubectl"
+                    [ "--context"
+                    , selectedContext
+                    , "create"
+                    , "configmap"
+                    , "nagare-ep147-foreign"
+                    , "--namespace"
+                    , "default"
+                    , "--from-literal=message=foreign"
+                    ]
+                    ""
+                created @?= ExitSuccess
+                afterPublication <- readStoreSnapshot store >>= expectRight
+                reviewed <- expectRight (verifyReview afterPublication reviewBundle)
+                result <- applyReviewed store registry reviewed
+                case result of
+                  Left errors | any ((== "preflight") . (^. #admissionErrorCode)) errors -> pure ()
+                  other -> assertFailure ("foreign object was accepted: " <> show other)
+                (readCode, live, _) <-
+                  readProcessWithExitCode
+                    "kubectl"
+                    [ "--context"
+                    , selectedContext
+                    , "get"
+                    , "configmap"
+                    , "nagare-ep147-foreign"
+                    , "--namespace"
+                    , "default"
+                    , "-o"
+                    , "jsonpath={.data.message}"
+                    ]
+                    ""
+                readCode @?= ExitSuccess
+                live @?= "foreign"
+              )
+              `finally` cleanup
     , testCase "disposable reviewed transaction refuses a stale update after publication" $ do
         selected <- lookupEnv "NAGARE_EP147_TEST_CONTEXT"
         case selected of
           Nothing -> pure ()
           Just selectedContext -> do
-            assertBool "refusing a non-disposable Kubernetes context"
+            assertBool
+              "refusing a non-disposable Kubernetes context"
               ("k3d-nagare-inventory-" `T.isPrefixOf` T.pack selectedContext)
-            let configMap message = object
-                  [ "apiVersion" .= ("v1" :: Text)
-                  , "kind" .= ("ConfigMap" :: Text)
-                  , "metadata" .= object ["name" .= ("nagare-ep147-stale" :: Text),
-                      "namespace" .= ("default" :: Text)]
-                  , "data" .= object ["message" .= (message :: Text)]
-                  ]
-                bound message = let value = configMap message
-                                    bytes = ok (canonicalValue value)
-                                 in Map.singleton resource (ok (bindKubernetesObject
-                                      (input {inputObject = value, objectDigest = contentDigest bytes})))
-                target members = ok (mkScopeDeclaration scope
-                  [ResourceBundle [Managed (fst (members Map.! resource))] [] [] [] [] []])
+            let configMap message =
+                  object
+                    [ "apiVersion" .= ("v1" :: Text)
+                    , "kind" .= ("ConfigMap" :: Text)
+                    , "metadata"
+                        .= object
+                          [ "name" .= ("nagare-ep147-stale" :: Text)
+                          , "namespace" .= ("default" :: Text)
+                          ]
+                    , "data" .= object ["message" .= (message :: Text)]
+                    ]
+                bound message =
+                  let value = configMap message
+                      bytes = ok (canonicalValue value)
+                   in Map.singleton
+                        resource
+                        ( ok
+                            ( bindKubernetesObject
+                                (input {inputObject = value, objectDigest = contentDigest bytes})
+                            )
+                        )
+                target members =
+                  ok
+                    ( mkScopeDeclaration
+                        scope
+                        [ResourceBundle [Managed (fst (members Map.! resource))] [] [] [] [] []]
+                    )
                 binding = ContextBinding (ok (mkContextId "test")) (ok (mkName "project"))
-                config = KubernetesRuntimeConfig (ok (mkContextId "test"))
-                  (T.pack selectedContext) (pure (Right ()))
-                registry members = ok (mkAdapterRegistry
-                  [mkKubernetesAdapter members (mkKubernetesRuntimeOps config members)])
+                config =
+                  KubernetesRuntimeConfig
+                    (ok (mkContextId "test"))
+                    (T.pack selectedContext)
+                    (pure (Right ()))
+                registry members =
+                  ok
+                    ( mkAdapterRegistry
+                        [mkKubernetesAdapter members (mkKubernetesRuntimeOps config members)]
+                    )
                 cleanup = do
-                  _ <- readProcessWithExitCode "kubectl"
-                    ["--context", selectedContext, "delete", "configmap", "nagare-ep147-stale",
-                     "--namespace", "default", "--ignore-not-found"] ""
+                  _ <-
+                    readProcessWithExitCode
+                      "kubectl"
+                      [ "--context"
+                      , selectedContext
+                      , "delete"
+                      , "configmap"
+                      , "nagare-ep147-stale"
+                      , "--namespace"
+                      , "default"
+                      , "--ignore-not-found"
+                      ]
+                      ""
                   pure ()
             cleanup
-            (do
-              store <- newMemoryStore
-              _ <- initializeStore store binding "client-test" >>= expectRight
-              let initial = bound "initial"
-                  initialCandidate = ok (composeInventory
-                    (ok (mkScopeSnapshot binding Map.empty Map.empty)) (ReplaceScope (target initial) :| []))
-              initialHistory <- loadInventoryHistory store >>= expectRight
-              initialObservation <- observeWithRegistry (registry initial)
-                (requirementsByExecutor (observationRequirements initialCandidate initialHistory)) >>= expectRight
-              let initialProposal = ok (planChanges initialCandidate noLifecycleDecisions initialHistory initialObservation)
-              initialSnapshot <- readStoreSnapshot store >>= expectRight
-              initialReview <- prepareReview (registry initial) initialSnapshot initialProposal >>= expectRight
-              _ <- publishReview store initialReview >>= expectRight
-              createdSnapshot <- readStoreSnapshot store >>= expectRight
-              createdReview <- expectRight (verifyReview createdSnapshot initialReview)
-              _ <- applyReviewed store (registry initial) createdReview >>= expectRight
-              history <- loadInventoryHistory store >>= expectRight
-              let accepted = Map.map (\(revision, scoped) -> (revisionGeneration revision, scoped))
-                    (historyAccepted history)
-                  next = bound "updated"
-                  nextCandidate = ok (composeInventory
-                    (ok (mkScopeSnapshot binding accepted Map.empty)) (ReplaceScope (target next) :| []))
-              observed <- observeWithRegistry (registry next)
-                (requirementsByExecutor (observationRequirements nextCandidate history)) >>= expectRight
-              let proposal = ok (planChanges nextCandidate noLifecycleDecisions history observed)
-              before <- readStoreSnapshot store >>= expectRight
-              reviewBundle <- prepareReview (registry next) before proposal >>= expectRight
-              _ <- publishReview store reviewBundle >>= expectRight
-              (changed, _, _) <- readProcessWithExitCode "kubectl"
-                ["--context", selectedContext, "annotate", "configmap", "nagare-ep147-stale",
-                 "--namespace", "default", "probe=concurrent", "--field-manager=nagare-inventory"] ""
-              changed @?= ExitSuccess
-              afterPublication <- readStoreSnapshot store >>= expectRight
-              reviewed <- expectRight (verifyReview afterPublication reviewBundle)
-              result <- applyReviewed store (registry next) reviewed
-              case result of
-                Left errors | any ((== "preflight") . (^. #admissionErrorCode)) errors -> pure ()
-                other -> assertFailure ("stale update was accepted: " <> show other)
-              (readCode, live, _) <- readProcessWithExitCode "kubectl"
-                ["--context", selectedContext, "get", "configmap", "nagare-ep147-stale",
-                 "--namespace", "default", "-o", "jsonpath={.data.message}:{.metadata.annotations.probe}"] ""
-              readCode @?= ExitSuccess
-              live @?= "initial:concurrent"
-              freshObservation <- observeWithRegistry (registry next)
-                (requirementsByExecutor (observationRequirements nextCandidate history)) >>= expectRight
-              let freshProposal = ok (planChanges nextCandidate noLifecycleDecisions history freshObservation)
-              freshSnapshot <- readStoreSnapshot store >>= expectRight
-              uidReview <- prepareReview (registry next) freshSnapshot freshProposal >>= expectRight
-              _ <- publishReview store uidReview >>= expectRight
-              (originalCode, originalJson, _) <- readProcessWithExitCode "kubectl"
-                ["--context", selectedContext, "get", "configmap", "nagare-ep147-stale",
-                 "--namespace", "default", "-o", "json"] ""
-              originalCode @?= ExitSuccess
-              original <- expectRight (first T.pack (eitherDecodeStrict (BC.pack originalJson)))
-              (oldUid, replacement) <- case original of
-                Object fields | Just (Object metadata) <- KM.lookup "metadata" fields
-                  , Just (String uid) <- KM.lookup "uid" metadata -> do
-                    let retained = KM.filterWithKey (\key _ -> key `elem`
-                          ["name", "namespace", "labels", "annotations"]) metadata
-                    pure (uid, Object (KM.insert "metadata" (Object retained)
-                      (KM.delete "status" fields)))
-                _ -> assertFailure "disposable ConfigMap has no UID or metadata"
-              (removed, _, _) <- readProcessWithExitCode "kubectl"
-                ["--context", selectedContext, "delete", "configmap", "nagare-ep147-stale",
-                 "--namespace", "default"] ""
-              removed @?= ExitSuccess
-              (recreated, _, _) <- readProcessWithExitCode "kubectl"
-                ["--context", selectedContext, "create", "-f", "-"]
-                (BC.unpack (ok (canonicalValue replacement)))
-              recreated @?= ExitSuccess
-              (newCode, newUid, _) <- readProcessWithExitCode "kubectl"
-                ["--context", selectedContext, "get", "configmap", "nagare-ep147-stale",
-                 "--namespace", "default", "-o", "jsonpath={.metadata.uid}"] ""
-              newCode @?= ExitSuccess
-              assertBool "disposable replacement kept its UID" (T.strip (T.pack newUid) /= oldUid)
-              replacedSnapshot <- readStoreSnapshot store >>= expectRight
-              reviewedUid <- expectRight (verifyReview replacedSnapshot uidReview)
-              uidResult <- applyReviewed store (registry next) reviewedUid
-              case uidResult of
-                Left errors | any ((== "preflight") . (^. #admissionErrorCode)) errors -> pure ()
-                other -> assertFailure ("replaced UID was accepted by reviewed apply: " <> show other)
-              ) `finally` cleanup
+            ( do
+                store <- newMemoryStore
+                _ <- initializeStore store binding "client-test" >>= expectRight
+                let initial = bound "initial"
+                    initialCandidate =
+                      ok
+                        ( composeInventory
+                            (ok (mkScopeSnapshot binding Map.empty Map.empty))
+                            (ReplaceScope (target initial) :| [])
+                        )
+                initialHistory <- loadInventoryHistory store >>= expectRight
+                initialObservation <-
+                  observeWithRegistry
+                    (registry initial)
+                    (requirementsByExecutor (observationRequirements initialCandidate initialHistory))
+                    >>= expectRight
+                let initialProposal = ok (planChanges initialCandidate noLifecycleDecisions initialHistory initialObservation)
+                initialSnapshot <- readStoreSnapshot store >>= expectRight
+                initialReview <- prepareReview (registry initial) initialSnapshot initialProposal >>= expectRight
+                _ <- publishReview store initialReview >>= expectRight
+                createdSnapshot <- readStoreSnapshot store >>= expectRight
+                createdReview <- expectRight (verifyReview createdSnapshot initialReview)
+                _ <- applyReviewed store (registry initial) createdReview >>= expectRight
+                history <- loadInventoryHistory store >>= expectRight
+                let accepted =
+                      Map.map
+                        (\(revision, scoped) -> (revisionGeneration revision, scoped))
+                        (historyAccepted history)
+                    next = bound "updated"
+                    nextCandidate =
+                      ok
+                        ( composeInventory
+                            (ok (mkScopeSnapshot binding accepted Map.empty))
+                            (ReplaceScope (target next) :| [])
+                        )
+                observed <-
+                  observeWithRegistry
+                    (registry next)
+                    (requirementsByExecutor (observationRequirements nextCandidate history))
+                    >>= expectRight
+                let proposal = ok (planChanges nextCandidate noLifecycleDecisions history observed)
+                before <- readStoreSnapshot store >>= expectRight
+                reviewBundle <- prepareReview (registry next) before proposal >>= expectRight
+                _ <- publishReview store reviewBundle >>= expectRight
+                (changed, _, _) <-
+                  readProcessWithExitCode
+                    "kubectl"
+                    [ "--context"
+                    , selectedContext
+                    , "annotate"
+                    , "configmap"
+                    , "nagare-ep147-stale"
+                    , "--namespace"
+                    , "default"
+                    , "probe=concurrent"
+                    , "--field-manager=nagare-inventory"
+                    ]
+                    ""
+                changed @?= ExitSuccess
+                afterPublication <- readStoreSnapshot store >>= expectRight
+                reviewed <- expectRight (verifyReview afterPublication reviewBundle)
+                result <- applyReviewed store (registry next) reviewed
+                case result of
+                  Left errors | any ((== "preflight") . (^. #admissionErrorCode)) errors -> pure ()
+                  other -> assertFailure ("stale update was accepted: " <> show other)
+                (readCode, live, _) <-
+                  readProcessWithExitCode
+                    "kubectl"
+                    [ "--context"
+                    , selectedContext
+                    , "get"
+                    , "configmap"
+                    , "nagare-ep147-stale"
+                    , "--namespace"
+                    , "default"
+                    , "-o"
+                    , "jsonpath={.data.message}:{.metadata.annotations.probe}"
+                    ]
+                    ""
+                readCode @?= ExitSuccess
+                live @?= "initial:concurrent"
+                freshObservation <-
+                  observeWithRegistry
+                    (registry next)
+                    (requirementsByExecutor (observationRequirements nextCandidate history))
+                    >>= expectRight
+                let freshProposal = ok (planChanges nextCandidate noLifecycleDecisions history freshObservation)
+                freshSnapshot <- readStoreSnapshot store >>= expectRight
+                uidReview <- prepareReview (registry next) freshSnapshot freshProposal >>= expectRight
+                _ <- publishReview store uidReview >>= expectRight
+                (originalCode, originalJson, _) <-
+                  readProcessWithExitCode
+                    "kubectl"
+                    [ "--context"
+                    , selectedContext
+                    , "get"
+                    , "configmap"
+                    , "nagare-ep147-stale"
+                    , "--namespace"
+                    , "default"
+                    , "-o"
+                    , "json"
+                    ]
+                    ""
+                originalCode @?= ExitSuccess
+                original <- expectRight (first T.pack (eitherDecodeStrict (BC.pack originalJson)))
+                (oldUid, replacement) <- case original of
+                  Object fields
+                    | Just (Object metadata) <- KM.lookup "metadata" fields
+                    , Just (String uid) <- KM.lookup "uid" metadata -> do
+                        let retained =
+                              KM.filterWithKey
+                                ( \key _ ->
+                                    key
+                                      `elem` ["name", "namespace", "labels", "annotations"]
+                                )
+                                metadata
+                        pure
+                          ( uid
+                          , Object
+                              ( KM.insert
+                                  "metadata"
+                                  (Object retained)
+                                  (KM.delete "status" fields)
+                              )
+                          )
+                  _ -> assertFailure "disposable ConfigMap has no UID or metadata"
+                (removed, _, _) <-
+                  readProcessWithExitCode
+                    "kubectl"
+                    [ "--context"
+                    , selectedContext
+                    , "delete"
+                    , "configmap"
+                    , "nagare-ep147-stale"
+                    , "--namespace"
+                    , "default"
+                    ]
+                    ""
+                removed @?= ExitSuccess
+                (recreated, _, _) <-
+                  readProcessWithExitCode
+                    "kubectl"
+                    ["--context", selectedContext, "create", "-f", "-"]
+                    (BC.unpack (ok (canonicalValue replacement)))
+                recreated @?= ExitSuccess
+                (newCode, newUid, _) <-
+                  readProcessWithExitCode
+                    "kubectl"
+                    [ "--context"
+                    , selectedContext
+                    , "get"
+                    , "configmap"
+                    , "nagare-ep147-stale"
+                    , "--namespace"
+                    , "default"
+                    , "-o"
+                    , "jsonpath={.metadata.uid}"
+                    ]
+                    ""
+                newCode @?= ExitSuccess
+                assertBool "disposable replacement kept its UID" (T.strip (T.pack newUid) /= oldUid)
+                replacedSnapshot <- readStoreSnapshot store >>= expectRight
+                reviewedUid <- expectRight (verifyReview replacedSnapshot uidReview)
+                uidResult <- applyReviewed store (registry next) reviewedUid
+                case uidResult of
+                  Left errors | any ((== "preflight") . (^. #admissionErrorCode)) errors -> pure ()
+                  other -> assertFailure ("replaced UID was accepted by reviewed apply: " <> show other)
+              )
+              `finally` cleanup
     , testCase "disposable cluster updates a reviewed Namespace label" $ do
         selected <- lookupEnv "NAGARE_EP147_TEST_CONTEXT"
         case selected of
           Nothing -> pure ()
           Just selectedContext -> do
             assertBool "refusing a non-disposable Kubernetes context" ("k3d-nagare-inventory-" `T.isPrefixOf` T.pack selectedContext)
-            let namespaceValue label = object
-                  [ "apiVersion" .= ("v1" :: Text)
-                  , "kind" .= ("Namespace" :: Text)
-                  , "metadata" .= object
-                      [ "name" .= ("nagare-ep147-foundation" :: Text)
-                      , "labels" .= object ["nagare.dev/app-namespace" .= (label :: Text)]
-                      ]
-                  ]
+            let namespaceValue label =
+                  object
+                    [ "apiVersion" .= ("v1" :: Text)
+                    , "kind" .= ("Namespace" :: Text)
+                    , "metadata"
+                        .= object
+                          [ "name" .= ("nagare-ep147-foundation" :: Text)
+                          , "labels" .= object ["nagare.dev/app-namespace" .= (label :: Text)]
+                          ]
+                    ]
                 config = KubernetesRuntimeConfig (ok (mkContextId "test")) (T.pack selectedContext) (pure (Right ()))
-                bound label = let value = namespaceValue label
-                                  bytes = ok (canonicalValue value)
-                               in Map.singleton resource (ok (bindKubernetesObject
-                                    (input {inputObject = value, objectDigest = contentDigest bytes})))
+                bound label =
+                  let value = namespaceValue label
+                      bytes = ok (canonicalValue value)
+                   in Map.singleton
+                        resource
+                        ( ok
+                            ( bindKubernetesObject
+                                (input {inputObject = value, objectDigest = contentDigest bytes})
+                            )
+                        )
                 initial = bound "false"
                 changed = bound "true"
                 createAdapter = mkKubernetesAdapter initial (mkKubernetesRuntimeOps config initial)
                 updateAdapter = mkKubernetesAdapter changed (mkKubernetesRuntimeOps config changed)
                 cleanup = do
-                  _ <- readProcessWithExitCode "kubectl" ["--context", selectedContext,
-                    "delete", "namespace", "nagare-ep147-foundation", "--ignore-not-found", "--wait=true"] ""
+                  _ <-
+                    readProcessWithExitCode
+                      "kubectl"
+                      [ "--context"
+                      , selectedContext
+                      , "delete"
+                      , "namespace"
+                      , "nagare-ep147-foundation"
+                      , "--ignore-not-found"
+                      , "--wait=true"
+                      ]
+                      ""
                   pure ()
             cleanup
-            (do
-              prepared <- adapterPrepare createAdapter createOperation >>= expectRight
-              adapterPreflight createAdapter createOperation prepared >>= expectRight
-              adapterExecute createAdapter createOperation prepared >>= (@?= AdapterEffectCompleted)
-              _ <- adapterVerify createAdapter createOperation prepared >>= expectRight
-              changedPrepared <- adapterPrepare updateAdapter updateOperation >>= expectRight
-              adapterPreflight updateAdapter updateOperation changedPrepared >>= expectRight
-              adapterExecute updateAdapter updateOperation changedPrepared >>= (@?= AdapterEffectCompleted)
-              _ <- adapterVerify updateAdapter updateOperation changedPrepared >>= expectRight
-              pure ()) `finally` cleanup
+            ( do
+                prepared <- adapterPrepare createAdapter createOperation >>= expectRight
+                adapterPreflight createAdapter createOperation prepared >>= expectRight
+                adapterExecute createAdapter createOperation prepared >>= (@?= AdapterEffectCompleted)
+                _ <- adapterVerify createAdapter createOperation prepared >>= expectRight
+                changedPrepared <- adapterPrepare updateAdapter updateOperation >>= expectRight
+                adapterPreflight updateAdapter updateOperation changedPrepared >>= expectRight
+                adapterExecute updateAdapter updateOperation changedPrepared >>= (@?= AdapterEffectCompleted)
+                _ <- adapterVerify updateAdapter updateOperation changedPrepared >>= expectRight
+                pure ()
+              )
+              `finally` cleanup
     , testCase "disposable cluster updates a reviewed Service selector and unnamed port" $ do
         selected <- lookupEnv "NAGARE_EP147_TEST_CONTEXT"
         case selected of
           Nothing -> pure ()
           Just selectedContext -> do
             assertBool "refusing a non-disposable Kubernetes context" ("k3d-nagare-inventory-" `T.isPrefixOf` T.pack selectedContext)
-            let service selectorValue port = object
-                  [ "apiVersion" .= ("v1" :: Text)
-                  , "kind" .= ("Service" :: Text)
-                  , "metadata" .= object ["name" .= ("nagare-ep147-service" :: Text), "namespace" .= ("default" :: Text)]
-                  , "spec" .= object ["ports" .= [object ["port" .= (port :: Int), "targetPort" .= (8080 :: Int)]], "selector" .= object ["app" .= (selectorValue :: Text)]]
-                  ]
+            let service selectorValue port =
+                  object
+                    [ "apiVersion" .= ("v1" :: Text)
+                    , "kind" .= ("Service" :: Text)
+                    , "metadata" .= object ["name" .= ("nagare-ep147-service" :: Text), "namespace" .= ("default" :: Text)]
+                    , "spec" .= object ["ports" .= [object ["port" .= (port :: Int), "targetPort" .= (8080 :: Int)]], "selector" .= object ["app" .= (selectorValue :: Text)]]
+                    ]
                 mkBound selectorValue port =
                   let value = service selectorValue port
                       bytes = ok (canonicalValue value)
@@ -3161,210 +5524,366 @@ inventoryKubernetesTests =
                   _ <- readProcessWithExitCode "kubectl" ["--context", selectedContext, "delete", "service", "nagare-ep147-service", "--namespace", "default", "--ignore-not-found"] ""
                   pure ()
             cleanup
-            (do
-              let initial = adapter "ep147" 8080
-                  changed = adapter "ep147-next" 8080
-                  portChanged = adapter "ep147-next" 8081
-              created <- adapterPrepare initial createOperation >>= expectRight
-              adapterExecute initial createOperation created >>= (@?= AdapterEffectCompleted)
-              _ <- adapterVerify initial createOperation created >>= expectRight
-              updated <- adapterPrepare changed updateOperation >>= expectRight
-              adapterExecute changed updateOperation updated >>= (@?= AdapterEffectCompleted)
-              _ <- adapterVerify changed updateOperation updated >>= expectRight
-              portPrepared <- adapterPrepare portChanged updateOperation >>= expectRight
-              adapterExecute portChanged updateOperation portPrepared >>= (@?= AdapterEffectCompleted)
-              _ <- adapterVerify portChanged updateOperation portPrepared >>= expectRight
-              pure ()) `finally` cleanup
+            ( do
+                let initial = adapter "ep147" 8080
+                    changed = adapter "ep147-next" 8080
+                    portChanged = adapter "ep147-next" 8081
+                created <- adapterPrepare initial createOperation >>= expectRight
+                adapterExecute initial createOperation created >>= (@?= AdapterEffectCompleted)
+                _ <- adapterVerify initial createOperation created >>= expectRight
+                updated <- adapterPrepare changed updateOperation >>= expectRight
+                adapterExecute changed updateOperation updated >>= (@?= AdapterEffectCompleted)
+                _ <- adapterVerify changed updateOperation updated >>= expectRight
+                portPrepared <- adapterPrepare portChanged updateOperation >>= expectRight
+                adapterExecute portChanged updateOperation portPrepared >>= (@?= AdapterEffectCompleted)
+                _ <- adapterVerify portChanged updateOperation portPrepared >>= expectRight
+                pure ()
+              )
+              `finally` cleanup
     , testCase "disposable cluster conditionally updates a reviewed Deployment" $ do
         selected <- lookupEnv "NAGARE_EP147_TEST_CONTEXT"
         case selected of
           Nothing -> pure ()
           Just selectedContext -> do
-            assertBool "refusing a non-disposable Kubernetes context"
+            assertBool
+              "refusing a non-disposable Kubernetes context"
               ("k3d-nagare-inventory-" `T.isPrefixOf` T.pack selectedContext)
-            let deployment revision = object
-                  [ "apiVersion" .= ("apps/v1" :: Text)
-                  , "kind" .= ("Deployment" :: Text)
-                  , "metadata" .= object
-                      [ "name" .= ("nagare-ep147-deployment" :: Text)
-                      , "namespace" .= ("default" :: Text)
-                      , "annotations" .= object ["nagare.dev/test-revision" .= (revision :: Text)]
-                      ]
-                  , "spec" .= object
-                      [ "replicas" .= (0 :: Int)
-                      , "selector" .= object ["matchLabels" .= object ["app" .= ("nagare-ep147-deployment" :: Text)]]
-                      , "template" .= object
-                          [ "metadata" .= object ["labels" .= object ["app" .= ("nagare-ep147-deployment" :: Text)]]
-                          , "spec" .= object ["containers" .= [object
-                              [ "name" .= ("pause" :: Text)
-                              , "image" .= ("registry.k8s.io/pause:3.9" :: Text)
-                              ]]]
+            let deployment revision =
+                  object
+                    [ "apiVersion" .= ("apps/v1" :: Text)
+                    , "kind" .= ("Deployment" :: Text)
+                    , "metadata"
+                        .= object
+                          [ "name" .= ("nagare-ep147-deployment" :: Text)
+                          , "namespace" .= ("default" :: Text)
+                          , "annotations" .= object ["nagare.dev/test-revision" .= (revision :: Text)]
                           ]
-                      ]
-                  ]
-                mkBound revision = let value = deployment revision
-                                       bytes = ok (canonicalValue value)
-                                    in Map.singleton resource (ok (bindKubernetesObject
-                                         (input {inputObject = value, objectDigest = contentDigest bytes})))
+                    , "spec"
+                        .= object
+                          [ "replicas" .= (0 :: Int)
+                          , "selector" .= object ["matchLabels" .= object ["app" .= ("nagare-ep147-deployment" :: Text)]]
+                          , "template"
+                              .= object
+                                [ "metadata" .= object ["labels" .= object ["app" .= ("nagare-ep147-deployment" :: Text)]]
+                                , "spec"
+                                    .= object
+                                      [ "containers"
+                                          .= [ object
+                                                 [ "name" .= ("pause" :: Text)
+                                                 , "image" .= ("registry.k8s.io/pause:3.9" :: Text)
+                                                 ]
+                                             ]
+                                      ]
+                                ]
+                          ]
+                    ]
+                mkBound revision =
+                  let value = deployment revision
+                      bytes = ok (canonicalValue value)
+                   in Map.singleton
+                        resource
+                        ( ok
+                            ( bindKubernetesObject
+                                (input {inputObject = value, objectDigest = contentDigest bytes})
+                            )
+                        )
                 config = KubernetesRuntimeConfig (ok (mkContextId "test")) (T.pack selectedContext) (pure (Right ()))
                 adapter revision = let bound = mkBound revision in mkKubernetesAdapter bound (mkKubernetesRuntimeOps config bound)
                 cleanup = do
-                  _ <- readProcessWithExitCode "kubectl" ["--context", selectedContext,
-                    "delete", "deployment", "nagare-ep147-deployment", "--namespace", "default", "--ignore-not-found"] ""
+                  _ <-
+                    readProcessWithExitCode
+                      "kubectl"
+                      [ "--context"
+                      , selectedContext
+                      , "delete"
+                      , "deployment"
+                      , "nagare-ep147-deployment"
+                      , "--namespace"
+                      , "default"
+                      , "--ignore-not-found"
+                      ]
+                      ""
                   pure ()
             cleanup
-            (do
-              let initial = adapter "initial"
-                  changed = adapter "changed"
-              created <- adapterPrepare initial createOperation >>= expectRight
-              adapterExecute initial createOperation created >>= (@?= AdapterEffectCompleted)
-              _ <- adapterVerify initial createOperation created >>= expectRight
-              updated <- adapterPrepare changed updateOperation >>= expectRight
-              adapterPreflight changed updateOperation updated >>= expectRight
-              adapterExecute changed updateOperation updated >>= (@?= AdapterEffectCompleted)
-              _ <- adapterVerify changed updateOperation updated >>= expectRight
-              pure ()) `finally` cleanup
+            ( do
+                let initial = adapter "initial"
+                    changed = adapter "changed"
+                created <- adapterPrepare initial createOperation >>= expectRight
+                adapterExecute initial createOperation created >>= (@?= AdapterEffectCompleted)
+                _ <- adapterVerify initial createOperation created >>= expectRight
+                updated <- adapterPrepare changed updateOperation >>= expectRight
+                adapterPreflight changed updateOperation updated >>= expectRight
+                adapterExecute changed updateOperation updated >>= (@?= AdapterEffectCompleted)
+                _ <- adapterVerify changed updateOperation updated >>= expectRight
+                pure ()
+              )
+              `finally` cleanup
     , testCase "disposable cluster conditionally updates a reviewed Secret" $ do
         selected <- lookupEnv "NAGARE_EP147_TEST_CONTEXT"
         case selected of
           Nothing -> pure ()
           Just selectedContext -> do
-            assertBool "refusing a non-disposable Kubernetes context"
+            assertBool
+              "refusing a non-disposable Kubernetes context"
               ("k3d-nagare-inventory-" `T.isPrefixOf` T.pack selectedContext)
-            let secret payload = object
-                  [ "apiVersion" .= ("v1" :: Text)
-                  , "kind" .= ("Secret" :: Text)
-                  , "metadata" .= object ["name" .= ("nagare-ep147-secret" :: Text),
-                      "namespace" .= ("default" :: Text)]
-                  , "type" .= ("Opaque" :: Text)
-                  , "data" .= object ["value" .= (payload :: Text)]
-                  ]
-                mkBound payload = let value = secret payload
-                                      bytes = ok (canonicalValue value)
-                                   in Map.singleton resource (ok (bindKubernetesObject
-                                        (input {inputObject = value, objectDigest = contentDigest bytes,
-                                          inputSensitivity = Secret})))
+            let secret payload =
+                  object
+                    [ "apiVersion" .= ("v1" :: Text)
+                    , "kind" .= ("Secret" :: Text)
+                    , "metadata"
+                        .= object
+                          [ "name" .= ("nagare-ep147-secret" :: Text)
+                          , "namespace" .= ("default" :: Text)
+                          ]
+                    , "type" .= ("Opaque" :: Text)
+                    , "data" .= object ["value" .= (payload :: Text)]
+                    ]
+                mkBound payload =
+                  let value = secret payload
+                      bytes = ok (canonicalValue value)
+                   in Map.singleton
+                        resource
+                        ( ok
+                            ( bindKubernetesObject
+                                ( input
+                                    { inputObject = value
+                                    , objectDigest = contentDigest bytes
+                                    , inputSensitivity = Secret
+                                    }
+                                )
+                            )
+                        )
                 config = KubernetesRuntimeConfig (ok (mkContextId "test")) (T.pack selectedContext) (pure (Right ()))
                 adapter payload = let bound = mkBound payload in mkKubernetesAdapter bound (mkKubernetesRuntimeOps config bound)
                 cleanup = do
-                  _ <- readProcessWithExitCode "kubectl" ["--context", selectedContext,
-                    "delete", "secret", "nagare-ep147-secret", "--namespace", "default", "--ignore-not-found"] ""
+                  _ <-
+                    readProcessWithExitCode
+                      "kubectl"
+                      [ "--context"
+                      , selectedContext
+                      , "delete"
+                      , "secret"
+                      , "nagare-ep147-secret"
+                      , "--namespace"
+                      , "default"
+                      , "--ignore-not-found"
+                      ]
+                      ""
                   pure ()
             cleanup
-            (do
-              let initial = adapter "aGVsbG8="
-                  changed = adapter "d29ybGQ="
-              created <- adapterPrepare initial createOperation >>= expectRight
-              adapterExecute initial createOperation created >>= (@?= AdapterEffectCompleted)
-              _ <- adapterVerify initial createOperation created >>= expectRight
-              updated <- adapterPrepare changed updateOperation >>= expectRight
-              adapterPreflight changed updateOperation updated >>= expectRight
-              adapterExecute changed updateOperation updated >>= (@?= AdapterEffectCompleted)
-              _ <- adapterVerify changed updateOperation updated >>= expectRight
-              (readCode, live, _) <- readProcessWithExitCode "kubectl"
-                ["--context", selectedContext, "get", "secret", "nagare-ep147-secret",
-                 "--namespace", "default", "-o", "jsonpath={.data.value}"] ""
-              readCode @?= ExitSuccess
-              live @?= "d29ybGQ=") `finally` cleanup
+            ( do
+                let initial = adapter "aGVsbG8="
+                    changed = adapter "d29ybGQ="
+                created <- adapterPrepare initial createOperation >>= expectRight
+                adapterExecute initial createOperation created >>= (@?= AdapterEffectCompleted)
+                _ <- adapterVerify initial createOperation created >>= expectRight
+                updated <- adapterPrepare changed updateOperation >>= expectRight
+                adapterPreflight changed updateOperation updated >>= expectRight
+                adapterExecute changed updateOperation updated >>= (@?= AdapterEffectCompleted)
+                _ <- adapterVerify changed updateOperation updated >>= expectRight
+                (readCode, live, _) <-
+                  readProcessWithExitCode
+                    "kubectl"
+                    [ "--context"
+                    , selectedContext
+                    , "get"
+                    , "secret"
+                    , "nagare-ep147-secret"
+                    , "--namespace"
+                    , "default"
+                    , "-o"
+                    , "jsonpath={.data.value}"
+                    ]
+                    ""
+                readCode @?= ExitSuccess
+                live @?= "d29ybGQ="
+              )
+              `finally` cleanup
     , testCase "disposable cluster conditionally updates a reviewed ResourceQuota" $ do
         selected <- lookupEnv "NAGARE_EP147_TEST_CONTEXT"
         case selected of
           Nothing -> pure ()
           Just selectedContext -> do
-            assertBool "refusing a non-disposable Kubernetes context"
+            assertBool
+              "refusing a non-disposable Kubernetes context"
               ("k3d-nagare-inventory-" `T.isPrefixOf` T.pack selectedContext)
-            let quota limit = object
-                  [ "apiVersion" .= ("v1" :: Text)
-                  , "kind" .= ("ResourceQuota" :: Text)
-                  , "metadata" .= object ["name" .= ("nagare-ep147-quota" :: Text),
-                      "namespace" .= ("default" :: Text)]
-                  , "spec" .= object ["hard" .= object ["count/jobs.batch" .= (limit :: Text)]]
-                  ]
-                mkBound limit = let value = quota limit
-                                    bytes = ok (canonicalValue value)
-                                 in Map.singleton resource (ok (bindKubernetesObject
-                                      (input {inputObject = value, objectDigest = contentDigest bytes})))
+            let quota limit =
+                  object
+                    [ "apiVersion" .= ("v1" :: Text)
+                    , "kind" .= ("ResourceQuota" :: Text)
+                    , "metadata"
+                        .= object
+                          [ "name" .= ("nagare-ep147-quota" :: Text)
+                          , "namespace" .= ("default" :: Text)
+                          ]
+                    , "spec" .= object ["hard" .= object ["count/jobs.batch" .= (limit :: Text)]]
+                    ]
+                mkBound limit =
+                  let value = quota limit
+                      bytes = ok (canonicalValue value)
+                   in Map.singleton
+                        resource
+                        ( ok
+                            ( bindKubernetesObject
+                                (input {inputObject = value, objectDigest = contentDigest bytes})
+                            )
+                        )
                 config = KubernetesRuntimeConfig (ok (mkContextId "test")) (T.pack selectedContext) (pure (Right ()))
                 adapter limit = let bound = mkBound limit in mkKubernetesAdapter bound (mkKubernetesRuntimeOps config bound)
                 cleanup = do
-                  _ <- readProcessWithExitCode "kubectl" ["--context", selectedContext,
-                    "delete", "resourcequota", "nagare-ep147-quota", "--namespace", "default", "--ignore-not-found"] ""
+                  _ <-
+                    readProcessWithExitCode
+                      "kubectl"
+                      [ "--context"
+                      , selectedContext
+                      , "delete"
+                      , "resourcequota"
+                      , "nagare-ep147-quota"
+                      , "--namespace"
+                      , "default"
+                      , "--ignore-not-found"
+                      ]
+                      ""
                   pure ()
             cleanup
-            (do
-              let initial = adapter "10"
-                  changed = adapter "11"
-              created <- adapterPrepare initial createOperation >>= expectRight
-              adapterExecute initial createOperation created >>= (@?= AdapterEffectCompleted)
-              _ <- adapterVerify initial createOperation created >>= expectRight
-              updated <- adapterPrepare changed updateOperation >>= expectRight
-              adapterPreflight changed updateOperation updated >>= expectRight
-              adapterExecute changed updateOperation updated >>= (@?= AdapterEffectCompleted)
-              _ <- adapterVerify changed updateOperation updated >>= expectRight
-              (readCode, live, _) <- readProcessWithExitCode "kubectl"
-                ["--context", selectedContext, "get", "resourcequota", "nagare-ep147-quota",
-                 "--namespace", "default", "-o", "json"] ""
-              readCode @?= ExitSuccess
-              case eitherDecodeStrict (TE.encodeUtf8 (T.pack live)) of
-                Right (Object root) -> case KM.lookup "spec" root of
-                  Just (Object specFields) -> case KM.lookup "hard" specFields of
-                    Just (Object hard) -> KM.lookup "count/jobs.batch" hard @?= Just (String "11")
-                    _ -> assertFailure "ResourceQuota has no hard limits"
-                  _ -> assertFailure "ResourceQuota has no spec"
-                _ -> assertFailure "ResourceQuota observation is malformed") `finally` cleanup
+            ( do
+                let initial = adapter "10"
+                    changed = adapter "11"
+                created <- adapterPrepare initial createOperation >>= expectRight
+                adapterExecute initial createOperation created >>= (@?= AdapterEffectCompleted)
+                _ <- adapterVerify initial createOperation created >>= expectRight
+                updated <- adapterPrepare changed updateOperation >>= expectRight
+                adapterPreflight changed updateOperation updated >>= expectRight
+                adapterExecute changed updateOperation updated >>= (@?= AdapterEffectCompleted)
+                _ <- adapterVerify changed updateOperation updated >>= expectRight
+                (readCode, live, _) <-
+                  readProcessWithExitCode
+                    "kubectl"
+                    [ "--context"
+                    , selectedContext
+                    , "get"
+                    , "resourcequota"
+                    , "nagare-ep147-quota"
+                    , "--namespace"
+                    , "default"
+                    , "-o"
+                    , "json"
+                    ]
+                    ""
+                readCode @?= ExitSuccess
+                case eitherDecodeStrict (TE.encodeUtf8 (T.pack live)) of
+                  Right (Object root) -> case KM.lookup "spec" root of
+                    Just (Object specFields) -> case KM.lookup "hard" specFields of
+                      Just (Object hard) -> KM.lookup "count/jobs.batch" hard @?= Just (String "11")
+                      _ -> assertFailure "ResourceQuota has no hard limits"
+                    _ -> assertFailure "ResourceQuota has no spec"
+                  _ -> assertFailure "ResourceQuota observation is malformed"
+              )
+              `finally` cleanup
     , testCase "disposable cluster conditionally updates a reviewed NetworkPolicy" $ do
         selected <- lookupEnv "NAGARE_EP147_TEST_CONTEXT"
         case selected of
           Nothing -> pure ()
           Just selectedContext -> do
-            assertBool "refusing a non-disposable Kubernetes context"
+            assertBool
+              "refusing a non-disposable Kubernetes context"
               ("k3d-nagare-inventory-" `T.isPrefixOf` T.pack selectedContext)
-            let policy direction = object
-                  [ "apiVersion" .= ("networking.k8s.io/v1" :: Text)
-                  , "kind" .= ("NetworkPolicy" :: Text)
-                  , "metadata" .= object ["name" .= ("nagare-ep147-policy" :: Text),
-                      "namespace" .= ("default" :: Text)]
-                  , "spec" .= object
-                      [ "podSelector" .= object ["matchLabels" .= object
-                          ["app" .= ("nagare-ep147-no-pods" :: Text)]]
-                      , "policyTypes" .= (if direction == ("Ingress" :: Text)
-                          then ["Ingress"] else ["Ingress", "Egress"] :: [Text])
-                      ]
-                  ]
-                mkBound direction = let value = policy direction
-                                        bytes = ok (canonicalValue value)
-                                     in Map.singleton resource (ok (bindKubernetesObject
-                                          (input {inputObject = value, objectDigest = contentDigest bytes})))
+            let policy direction =
+                  object
+                    [ "apiVersion" .= ("networking.k8s.io/v1" :: Text)
+                    , "kind" .= ("NetworkPolicy" :: Text)
+                    , "metadata"
+                        .= object
+                          [ "name" .= ("nagare-ep147-policy" :: Text)
+                          , "namespace" .= ("default" :: Text)
+                          ]
+                    , "spec"
+                        .= object
+                          [ "podSelector"
+                              .= object
+                                [ "matchLabels"
+                                    .= object
+                                      ["app" .= ("nagare-ep147-no-pods" :: Text)]
+                                ]
+                          , "policyTypes"
+                              .= ( if direction == ("Ingress" :: Text)
+                                     then ["Ingress"]
+                                     else ["Ingress", "Egress"] :: [Text]
+                                 )
+                          ]
+                    ]
+                mkBound direction =
+                  let value = policy direction
+                      bytes = ok (canonicalValue value)
+                   in Map.singleton
+                        resource
+                        ( ok
+                            ( bindKubernetesObject
+                                (input {inputObject = value, objectDigest = contentDigest bytes})
+                            )
+                        )
                 config = KubernetesRuntimeConfig (ok (mkContextId "test")) (T.pack selectedContext) (pure (Right ()))
                 adapter direction = let bound = mkBound direction in mkKubernetesAdapter bound (mkKubernetesRuntimeOps config bound)
                 cleanup = do
-                  _ <- readProcessWithExitCode "kubectl" ["--context", selectedContext,
-                    "delete", "networkpolicy", "nagare-ep147-policy", "--namespace", "default", "--ignore-not-found"] ""
+                  _ <-
+                    readProcessWithExitCode
+                      "kubectl"
+                      [ "--context"
+                      , selectedContext
+                      , "delete"
+                      , "networkpolicy"
+                      , "nagare-ep147-policy"
+                      , "--namespace"
+                      , "default"
+                      , "--ignore-not-found"
+                      ]
+                      ""
                   pure ()
             cleanup
-            (do
-              let initial = adapter "Ingress"
-                  changed = adapter "Egress"
-              created <- adapterPrepare initial createOperation >>= expectRight
-              adapterExecute initial createOperation created >>= (@?= AdapterEffectCompleted)
-              _ <- adapterVerify initial createOperation created >>= expectRight
-              updated <- adapterPrepare changed updateOperation >>= expectRight
-              adapterPreflight changed updateOperation updated >>= expectRight
-              adapterExecute changed updateOperation updated >>= (@?= AdapterEffectCompleted)
-              _ <- adapterVerify changed updateOperation updated >>= expectRight
-              (readCode, live, _) <- readProcessWithExitCode "kubectl"
-                ["--context", selectedContext, "get", "networkpolicy", "nagare-ep147-policy",
-                 "--namespace", "default", "-o", "jsonpath={.spec.policyTypes[1]}"] ""
-              readCode @?= ExitSuccess
-              live @?= "Egress") `finally` cleanup
+            ( do
+                let initial = adapter "Ingress"
+                    changed = adapter "Egress"
+                created <- adapterPrepare initial createOperation >>= expectRight
+                adapterExecute initial createOperation created >>= (@?= AdapterEffectCompleted)
+                _ <- adapterVerify initial createOperation created >>= expectRight
+                updated <- adapterPrepare changed updateOperation >>= expectRight
+                adapterPreflight changed updateOperation updated >>= expectRight
+                adapterExecute changed updateOperation updated >>= (@?= AdapterEffectCompleted)
+                _ <- adapterVerify changed updateOperation updated >>= expectRight
+                (readCode, live, _) <-
+                  readProcessWithExitCode
+                    "kubectl"
+                    [ "--context"
+                    , selectedContext
+                    , "get"
+                    , "networkpolicy"
+                    , "nagare-ep147-policy"
+                    , "--namespace"
+                    , "default"
+                    , "-o"
+                    , "jsonpath={.spec.policyTypes[1]}"
+                    ]
+                    ""
+                readCode @?= ExitSuccess
+                live @?= "Egress"
+              )
+              `finally` cleanup
     , testCase "disposable cluster creates a database credential and reviewed backup CronJob" $ do
         selected <- lookupEnv "NAGARE_EP147_TEST_CONTEXT"
         case selected of
           Nothing -> pure ()
           Just selectedContext -> do
             assertBool "refusing a non-disposable Kubernetes context" ("k3d-nagare-inventory-" `T.isPrefixOf` T.pack selectedContext)
-            let db = Database (ok (mkDatabaseName "ep147-credential")) Nothing Postgres (defaultEngineVersion Postgres)
-                  (ok (Dsl.mkNamespace "default")) (ok (Dsl.mkQuantity "1Gi")) Nothing Dsl.Retain
+            let db =
+                  Database
+                    (ok (mkDatabaseName "ep147-credential"))
+                    Nothing
+                    Postgres
+                    (defaultEngineVersion Postgres)
+                    (ok (Dsl.mkNamespace "default"))
+                    (ok (Dsl.mkQuantity "1Gi"))
+                    Nothing
+                    Dsl.Retain
                 recovery = RecoveryIntent (ok (mkName "backup")) (mkSecretRef (ok (mkName "db-password")) (ok (mkName "v1")) :| [])
                 (bundle, bound) = ok (compileDatabaseForBackend (DatabaseDirectInput db scope cluster Nothing recovery (SourceLocation "database" "postgres")) (GcsBackend "project" "bucket"))
                 credentialId = ok (databaseResourceId scope (ok (mkName "credential")) db)
@@ -3384,23 +5903,33 @@ inventoryKubernetesTests =
                   pure ()
             assertBool "credential declaration absent" (any (\case Managed member -> member ^. #identity == credentialId; _ -> False) (declarations bundle))
             cleanup
-            (do
-              prepared <- adapterPrepare adapter createCredential >>= expectRight
-              assertBool "credential material appeared in public summary" (not ("POSTGRES_PASSWORD" `T.isInfixOf` preparedPublicSummary prepared))
-              adapterExecute adapter createCredential prepared >>= (@?= AdapterEffectCompleted)
-              _ <- adapterVerify adapter createCredential prepared >>= expectRight
-              backupPrepared <- adapterPrepare backupAdapter createBackup >>= expectRight
-              adapterExecute backupAdapter createBackup backupPrepared >>= (@?= AdapterEffectCompleted)
-              _ <- adapterVerify backupAdapter createBackup backupPrepared >>= expectRight
-              pure ()) `finally` cleanup
+            ( do
+                prepared <- adapterPrepare adapter createCredential >>= expectRight
+                assertBool "credential material appeared in public summary" (not ("POSTGRES_PASSWORD" `T.isInfixOf` preparedPublicSummary prepared))
+                adapterExecute adapter createCredential prepared >>= (@?= AdapterEffectCompleted)
+                _ <- adapterVerify adapter createCredential prepared >>= expectRight
+                backupPrepared <- adapterPrepare backupAdapter createBackup >>= expectRight
+                adapterExecute backupAdapter createBackup backupPrepared >>= (@?= AdapterEffectCompleted)
+                _ <- adapterVerify backupAdapter createBackup backupPrepared >>= expectRight
+                pure ()
+              )
+              `finally` cleanup
     , testCase "disposable cluster applies the complete reviewed database bundle" $ do
         selected <- lookupEnv "NAGARE_EP147_TEST_CONTEXT"
         case selected of
           Nothing -> pure ()
           Just selectedContext -> do
             assertBool "refusing a non-disposable Kubernetes context" ("k3d-nagare-inventory-" `T.isPrefixOf` T.pack selectedContext)
-            let db = Database (ok (mkDatabaseName "ep147-full")) Nothing Postgres (defaultEngineVersion Postgres)
-                  (ok (Dsl.mkNamespace "default")) (ok (Dsl.mkQuantity "1Gi")) Nothing Dsl.Retain
+            let db =
+                  Database
+                    (ok (mkDatabaseName "ep147-full"))
+                    Nothing
+                    Postgres
+                    (defaultEngineVersion Postgres)
+                    (ok (Dsl.mkNamespace "default"))
+                    (ok (Dsl.mkQuantity "1Gi"))
+                    Nothing
+                    Dsl.Retain
                 recovery = RecoveryIntent (ok (mkName "backup")) (mkSecretRef (ok (mkName "db-password")) (ok (mkName "v1")) :| [])
                 (bundle, bound) = ok (compileDatabaseForBackend (DatabaseDirectInput db scope cluster Nothing recovery (SourceLocation "database" "postgres")) (GcsBackend "project" "bucket"))
                 binding = ContextBinding (ok (mkContextId "test")) (ok (mkName "project"))
@@ -3410,9 +5939,11 @@ inventoryKubernetesTests =
                 credentialId = ok (databaseResourceId scope (ok (mkName "credential")) db)
                 statefulId = ok (databaseResourceId scope (ok (mkName "statefulset")) db)
                 cleanup = do
-                  mapM_ (\(kind, name) -> do
-                    _ <- readProcessWithExitCode "kubectl" ["--context", selectedContext, "delete", kind, name, "--namespace", "default", "--ignore-not-found", "--wait=false"] ""
-                    pure ())
+                  mapM_
+                    ( \(kind, name) -> do
+                        _ <- readProcessWithExitCode "kubectl" ["--context", selectedContext, "delete", kind, name, "--namespace", "default", "--ignore-not-found", "--wait=false"] ""
+                        pure ()
+                    )
                     [ ("statefulset", "ep147-full")
                     , ("service", "ep147-full")
                     , ("pvc", "nagare-db-ep147-full-data")
@@ -3424,73 +5955,94 @@ inventoryKubernetesTests =
                     , ("secret", "nagare-dbbackup-ep147-full-signing")
                     ]
             cleanup
-            (do
-              calls <- newIORef Map.empty
-              interrupted <- newIORef False
-              let makeRegistry retained =
-                    let nativeOps = mkKubernetesRuntimeOps config retained
-                        guardedOps = nativeOps
-                          { kubernetesMutateConditional = \mutation -> do
-                              modifyIORef' calls (Map.insertWith (+) (mutationResource mutation) (1 :: Int))
-                              effect <- kubernetesMutateConditional nativeOps mutation
-                              alreadyInterrupted <- readIORef interrupted
-                              if mutationResource mutation == statefulId && effect == AdapterEffectCompleted && not alreadyInterrupted
-                                then writeIORef interrupted True >> pure (AdapterEffectAmbiguous "simulated lost acknowledgement")
-                                else pure effect
-                          }
-                     in ok (mkAdapterRegistry [mkKubernetesAdapter retained guardedOps])
-                  registry = makeRegistry bound
-              store <- newMemoryStore
-              _ <- initializeStore store binding "client-test" >>= expectRight
-              history <- loadInventoryHistory store >>= expectRight
-              let requirements = observationRequirements candidate history
-              observed <- observeWithRegistry registry (requirementsByExecutor requirements) >>= expectRight
-              let proposal = ok (planChanges candidate noLifecycleDecisions history observed)
-              snapshotBefore <- readStoreSnapshot store >>= expectRight
-              reviewBundle <- prepareReview registry snapshotBefore proposal >>= expectRight
-              kubernetesSpecsFromReview reviewBundle @?= Right bound
-              let registryFromReview = makeRegistry (ok (kubernetesSpecsFromReview reviewBundle))
-              _ <- publishReview store reviewBundle >>= expectRight
-              snapshotAfter <- readStoreSnapshot store >>= expectRight
-              reviewed <- expectRight (verifyReview snapshotAfter reviewBundle)
-              result <- applyReviewed store registryFromReview reviewed >>= expectRight
-              transaction <- case result of
-                StoppedAmbiguous token _ -> pure token
-                other -> assertFailure ("database component did not pause after the lost acknowledgement: " <> show other)
-              resumed <- resumeTransaction store registryFromReview transaction >>= expectRight
-              resumed @?= Converged transaction
-              counts <- readIORef calls
-              Map.lookup credentialId counts @?= Just 1
-              Map.lookup statefulId counts @?= Just 1
-              let (statefulDeclaration, statefulBytes) = maybe (error "database bundle lacks StatefulSet") id (Map.lookup statefulId bound)
-                  annotated = addProbeAnnotation (ok (eitherDecodeStrict statefulBytes))
-                  annotatedBytes = ok (canonicalValue annotated)
-                  annotatedInput = KubernetesInput statefulId scope cluster annotated (contentDigest annotatedBytes)
-                    (statefulDeclaration ^. #lifecycle) (statefulDeclaration ^. #dataPolicy)
-                    (statefulDeclaration ^. #sensitivity) (statefulDeclaration ^. #source)
-                  annotatedBound = Map.singleton statefulId (ok (bindKubernetesObject annotatedInput))
-                  annotatedAdapter = mkKubernetesAdapter annotatedBound (mkKubernetesRuntimeOps config annotatedBound)
-                  statefulUpdate = updateOperation {plannedResources = statefulId :| []}
-              updatePrepared <- adapterPrepare annotatedAdapter statefulUpdate >>= expectRight
-              adapterExecute annotatedAdapter statefulUpdate updatePrepared >>= (@?= AdapterEffectCompleted)
-              _ <- adapterVerify annotatedAdapter statefulUpdate updatePrepared >>= expectRight
-              mapM_ (\role -> do
-                let memberId = ok (databaseResourceId scope (ok (mkName role)) db)
-                    (memberDeclaration, memberBytes) = maybe (error "database bundle lacks update member") id (Map.lookup memberId bound)
-                    updatedValue = addProbeAnnotation (ok (eitherDecodeStrict memberBytes))
-                    updatedBytes = ok (canonicalValue updatedValue)
-                    updatedInput = KubernetesInput memberId scope cluster updatedValue (contentDigest updatedBytes)
-                      (memberDeclaration ^. #lifecycle) (memberDeclaration ^. #dataPolicy)
-                      (memberDeclaration ^. #sensitivity) (memberDeclaration ^. #source)
-                    updatedBound = Map.singleton memberId (ok (bindKubernetesObject updatedInput))
-                    updatedAdapter = mkKubernetesAdapter updatedBound (mkKubernetesRuntimeOps config updatedBound)
-                    memberUpdate = updateOperation {plannedResources = memberId :| []}
-                prepared <- adapterPrepare updatedAdapter memberUpdate >>= expectRight
-                adapterExecute updatedAdapter memberUpdate prepared >>= (@?= AdapterEffectCompleted)
-                _ <- adapterVerify updatedAdapter memberUpdate prepared >>= expectRight
-                pure ()) ["pvc", "backup"]
-              pure ()
-              ) `finally` cleanup
+            ( do
+                calls <- newIORef Map.empty
+                interrupted <- newIORef False
+                let makeRegistry retained =
+                      let nativeOps = mkKubernetesRuntimeOps config retained
+                          guardedOps =
+                            nativeOps
+                              { kubernetesMutateConditional = \mutation -> do
+                                  modifyIORef' calls (Map.insertWith (+) (mutationResource mutation) (1 :: Int))
+                                  effect <- kubernetesMutateConditional nativeOps mutation
+                                  alreadyInterrupted <- readIORef interrupted
+                                  if mutationResource mutation == statefulId && effect == AdapterEffectCompleted && not alreadyInterrupted
+                                    then writeIORef interrupted True >> pure (AdapterEffectAmbiguous "simulated lost acknowledgement")
+                                    else pure effect
+                              }
+                       in ok (mkAdapterRegistry [mkKubernetesAdapter retained guardedOps])
+                    registry = makeRegistry bound
+                store <- newMemoryStore
+                _ <- initializeStore store binding "client-test" >>= expectRight
+                history <- loadInventoryHistory store >>= expectRight
+                let requirements = observationRequirements candidate history
+                observed <- observeWithRegistry registry (requirementsByExecutor requirements) >>= expectRight
+                let proposal = ok (planChanges candidate noLifecycleDecisions history observed)
+                snapshotBefore <- readStoreSnapshot store >>= expectRight
+                reviewBundle <- prepareReview registry snapshotBefore proposal >>= expectRight
+                kubernetesSpecsFromReview reviewBundle @?= Right bound
+                let registryFromReview = makeRegistry (ok (kubernetesSpecsFromReview reviewBundle))
+                _ <- publishReview store reviewBundle >>= expectRight
+                snapshotAfter <- readStoreSnapshot store >>= expectRight
+                reviewed <- expectRight (verifyReview snapshotAfter reviewBundle)
+                result <- applyReviewed store registryFromReview reviewed >>= expectRight
+                transaction <- case result of
+                  StoppedAmbiguous token _ -> pure token
+                  other -> assertFailure ("database component did not pause after the lost acknowledgement: " <> show other)
+                resumed <- resumeTransaction store registryFromReview transaction >>= expectRight
+                resumed @?= Converged transaction
+                counts <- readIORef calls
+                Map.lookup credentialId counts @?= Just 1
+                Map.lookup statefulId counts @?= Just 1
+                let (statefulDeclaration, statefulBytes) = maybe (error "database bundle lacks StatefulSet") id (Map.lookup statefulId bound)
+                    annotated = addProbeAnnotation (ok (eitherDecodeStrict statefulBytes))
+                    annotatedBytes = ok (canonicalValue annotated)
+                    annotatedInput =
+                      KubernetesInput
+                        statefulId
+                        scope
+                        cluster
+                        annotated
+                        (contentDigest annotatedBytes)
+                        (statefulDeclaration ^. #lifecycle)
+                        (statefulDeclaration ^. #dataPolicy)
+                        (statefulDeclaration ^. #sensitivity)
+                        (statefulDeclaration ^. #source)
+                    annotatedBound = Map.singleton statefulId (ok (bindKubernetesObject annotatedInput))
+                    annotatedAdapter = mkKubernetesAdapter annotatedBound (mkKubernetesRuntimeOps config annotatedBound)
+                    statefulUpdate = updateOperation {plannedResources = statefulId :| []}
+                updatePrepared <- adapterPrepare annotatedAdapter statefulUpdate >>= expectRight
+                adapterExecute annotatedAdapter statefulUpdate updatePrepared >>= (@?= AdapterEffectCompleted)
+                _ <- adapterVerify annotatedAdapter statefulUpdate updatePrepared >>= expectRight
+                mapM_
+                  ( \role -> do
+                      let memberId = ok (databaseResourceId scope (ok (mkName role)) db)
+                          (memberDeclaration, memberBytes) = maybe (error "database bundle lacks update member") id (Map.lookup memberId bound)
+                          updatedValue = addProbeAnnotation (ok (eitherDecodeStrict memberBytes))
+                          updatedBytes = ok (canonicalValue updatedValue)
+                          updatedInput =
+                            KubernetesInput
+                              memberId
+                              scope
+                              cluster
+                              updatedValue
+                              (contentDigest updatedBytes)
+                              (memberDeclaration ^. #lifecycle)
+                              (memberDeclaration ^. #dataPolicy)
+                              (memberDeclaration ^. #sensitivity)
+                              (memberDeclaration ^. #source)
+                          updatedBound = Map.singleton memberId (ok (bindKubernetesObject updatedInput))
+                          updatedAdapter = mkKubernetesAdapter updatedBound (mkKubernetesRuntimeOps config updatedBound)
+                          memberUpdate = updateOperation {plannedResources = memberId :| []}
+                      prepared <- adapterPrepare updatedAdapter memberUpdate >>= expectRight
+                      adapterExecute updatedAdapter memberUpdate prepared >>= (@?= AdapterEffectCompleted)
+                      _ <- adapterVerify updatedAdapter memberUpdate prepared >>= expectRight
+                      pure ()
+                  )
+                  ["pvc", "backup"]
+                pure ()
+              )
+              `finally` cleanup
     , testCase "disposable reviewed task deletion suspends, retains, then collects" liveTaskDeletionProof
     , testCase "disposable CLI task deletion saves and applies all three stages" liveTaskDeletionCommandProof
     ]

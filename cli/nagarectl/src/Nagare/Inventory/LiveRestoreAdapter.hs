@@ -4,7 +4,8 @@
 -- never by running the destructive restore a second time.
 module Nagare.Inventory.LiveRestoreAdapter
   ( liveRestoreRuntime
-  ) where
+  )
+where
 
 import Control.Exception (IOException, try)
 import Control.Monad (unless)
@@ -18,10 +19,15 @@ import Data.Text qualified as T
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes
-  (KubernetesAdapterOps (..), KubernetesState (..))
+  ( KubernetesAdapterOps (..)
+  , KubernetesState (..)
+  )
 import Nagare.Inventory.Adapters.KubernetesRuntime
-  (KubernetesRuntimeConfig (..), mkKubernetesRuntimeOpsWithCacheKey,
-    readBackupReceiptFromCompletedPod, readCompletedJobContainerMessage)
+  ( KubernetesRuntimeConfig (..)
+  , mkKubernetesRuntimeOpsWithCacheKey
+  , readBackupReceiptFromCompletedPod
+  , readCompletedJobContainerMessage
+  )
 import Nagare.Inventory.DataFence.MaintenancePostgres
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (FailureClass (..))
@@ -33,10 +39,15 @@ import Nagare.Resource.Inventory (ManagedResource, ScopeDeclaration)
 import Nagare.Resource.Types
 import System.IO.Temp (withSystemTempDirectory)
 
-liveRestoreRuntime :: KubernetesRuntimeConfig -> [ScopeDeclaration]
-  -> Map ResourceId (ManagedResource, ByteString) -> Adapter
-  -> (Adapter, PlannedOperation -> IO (Either Text ContentDigest),
-      PlannedOperation -> IO (Either Text ContentDigest))
+liveRestoreRuntime ::
+  KubernetesRuntimeConfig ->
+  [ScopeDeclaration] ->
+  Map ResourceId (ManagedResource, ByteString) ->
+  Adapter ->
+  ( Adapter
+  , PlannedOperation -> IO (Either Text ContentDigest)
+  , PlannedOperation -> IO (Either Text ContentDigest)
+  )
 liveRestoreRuntime config scopes native base =
   ( base
       { adapterPreflight = preflight
@@ -45,15 +56,19 @@ liveRestoreRuntime config scopes native base =
       , adapterRecover = recover
       }
   , restoreRecovery
-  , verifyRecovery )
+  , verifyRecovery
+  )
   where
     proofFor operation = case selectedLiveRestoreProofs scopes [operation] of
       Right [proof] -> Right proof
       Right _ -> Left "live restore operation has no unique source proof"
       Left reason -> Left reason
 
-    ops = mkKubernetesRuntimeOpsWithCacheKey config
-      (\_ -> pure (Left "live restore does not use a cache key")) native
+    ops =
+      mkKubernetesRuntimeOpsWithCacheKey
+        config
+        (\_ -> pure (Left "live restore does not use a cache key"))
+        native
 
     present resource uid = case Map.lookup resource native of
       Nothing -> pure (Left "live restore resource lacks accepted native bytes")
@@ -61,8 +76,10 @@ liveRestoreRuntime config scopes native base =
         current <- kubernetesObserve ops resource
         pure $ case current of
           KubernetesPresent actual _ (Just owner) digest
-            | actual == uid, owner == resource,
-              digest == contentDigest bytes -> Right ()
+            | actual == uid
+            , owner == resource
+            , digest == contentDigest bytes ->
+                Right ()
           _ -> Left "live restore resource incarnation or native bytes changed"
 
     completedBackup backup = do
@@ -71,43 +88,61 @@ liveRestoreRuntime config scopes native base =
         Left reason -> pure (Left reason)
         Right () -> case liveBackupScheduled backup of
           Nothing -> do
-            receipt <- readBackupReceiptFromCompletedPod config
-              (Map.restrictKeys native (Set.singleton (liveBackupJob backup)))
-              (liveBackupJob backup) (liveBackupPhysical backup)
+            receipt <-
+              readBackupReceiptFromCompletedPod
+                config
+                (Map.restrictKeys native (Set.singleton (liveBackupJob backup)))
+                (liveBackupJob backup)
+                (liveBackupPhysical backup)
             pure $ do
               bytes <- receipt
-              unless (contentDigest bytes == liveBackupReceiptDigest backup)
+              unless
+                (contentDigest bytes == liveBackupReceiptDigest backup)
                 (Left "live restore completed Job receipt changed since review")
           Just scheduled -> do
-            cron <- present (liveScheduledCron scheduled)
-              (liveScheduledCronUid scheduled)
-            signing <- present (liveScheduledSigning scheduled)
-              (liveScheduledSigningUid scheduled)
+            cron <-
+              present
+                (liveScheduledCron scheduled)
+                (liveScheduledCronUid scheduled)
+            signing <-
+              present
+                (liveScheduledSigning scheduled)
+                (liveScheduledSigningUid scheduled)
             case cron >> signing of
               Left reason -> pure (Left reason)
               Right () -> do
-                message <- readCompletedJobContainerMessage config
-                  (Map.restrictKeys native (Set.singleton (liveBackupJob backup)))
-                  (liveBackupJob backup) (liveBackupPhysical backup) "verify"
+                message <-
+                  readCompletedJobContainerMessage
+                    config
+                    (Map.restrictKeys native (Set.singleton (liveBackupJob backup)))
+                    (liveBackupJob backup)
+                    (liveBackupPhysical backup)
+                    "verify"
                 pure $ do
                   bytes <- message
-                  unless (contentDigest bytes
-                      == liveScheduledJobReceiptDigest scheduled)
+                  unless
+                    ( contentDigest bytes
+                        == liveScheduledJobReceiptDigest scheduled
+                    )
                     (Left "scheduled ingestion Job readback changed since review")
 
     exactTarget proof = do
-      stateful <- present (liveRestoreProofStateful proof)
-        (liveRestoreProofStatefulUid proof)
+      stateful <-
+        present
+          (liveRestoreProofStateful proof)
+          (liveRestoreProofStatefulUid proof)
       pvc <- present (liveRestoreProofPvc proof) (liveRestoreProofPvcUid proof)
-      observedPod <- observePostgresPodUid
-        (kubectlPostgresMaintenanceTransport config)
-        (liveRestoreProofNamespace proof)
-        (liveRestoreProofDatabase proof <> "-0")
+      observedPod <-
+        observePostgresPodUid
+          (kubectlPostgresMaintenanceTransport config)
+          (liveRestoreProofNamespace proof)
+          (liveRestoreProofDatabase proof <> "-0")
       pure $ do
         stateful
         pvc
         podUid <- observedPod
-        unless (podUid == physicalIdentityText (liveRestoreProofPodUid proof))
+        unless
+          (podUid == physicalIdentityText (liveRestoreProofPodUid proof))
           (Left "live restore PostgreSQL Pod incarnation changed")
 
     verifyInputs proof = do
@@ -123,8 +158,12 @@ liveRestoreRuntime config scopes native base =
       job <- completedBackup backup
       case job of
         Left reason -> pure (Left reason)
-        Right () -> withVerifiedLiveSource config proof backup
-          (\_ -> pure (Right ()))
+        Right () ->
+          withVerifiedLiveSource
+            config
+            proof
+            backup
+            (\_ -> pure (Right ()))
 
     preflight operation prepared
       | plannedAction operation /= RestoreLiveDatabase =
@@ -143,8 +182,11 @@ liveRestoreRuntime config scopes native base =
           case checked >>= \() -> proofFor operation of
             Left reason -> pure (AdapterEffectFailed (KnownNoEffect reason))
             Right proof -> do
-              result <- withVerifiedLiveSource config proof
-                (liveRestoreProofSource proof) $ \sourcePath ->
+              result <- withVerifiedLiveSource
+                config
+                proof
+                (liveRestoreProofSource proof)
+                $ \sourcePath ->
                   runLivePostgresRestore config proof sourcePath
               pure $ case result of
                 Right () -> AdapterEffectCompleted
@@ -171,16 +213,25 @@ liveRestoreRuntime config scopes native base =
             case dumped of
               Left reason -> pure (Left reason)
               Right () -> do
-                sourceBytes <- try (BS.readFile sourcePath)
-                  :: IO (Either IOException ByteString)
-                observedBytes <- try (BS.readFile observedPath)
-                  :: IO (Either IOException ByteString)
+                sourceBytes <-
+                  try (BS.readFile sourcePath) ::
+                    IO (Either IOException ByteString)
+                observedBytes <-
+                  try (BS.readFile observedPath) ::
+                    IO (Either IOException ByteString)
                 pure $ do
-                  source <- first (const "live restore source SQL is unreadable")
-                    sourceBytes >>= normalizePostgresDump
-                  observed <- first (const "live restore PostgreSQL dump is unreadable")
-                    observedBytes >>= normalizePostgresDump
-                  unless (source == observed)
+                  source <-
+                    first
+                      (const "live restore source SQL is unreadable")
+                      sourceBytes
+                      >>= normalizePostgresDump
+                  observed <-
+                    first
+                      (const "live restore PostgreSQL dump is unreadable")
+                      observedBytes
+                      >>= normalizePostgresDump
+                  unless
+                    (source == observed)
                     (Left "live PostgreSQL content differs from the reviewed backup")
                   pure (contentDigest observed)
 
@@ -191,12 +242,13 @@ liveRestoreRuntime config scopes native base =
     restoreRecovery operation = case proofFor operation of
       Left reason -> pure (Left reason)
       Right proof -> do
-        stopped <- terminateMarkedPostgresClients
-          (kubectlPostgresMaintenanceTransport config)
-          (liveRestoreProofNamespace proof)
-          (liveRestoreProofDatabase proof <> "-0")
-          (physicalIdentityText (liveRestoreProofPodUid proof))
-          ("lr-" <> liveRestoreProofId proof)
+        stopped <-
+          terminateMarkedPostgresClients
+            (kubectlPostgresMaintenanceTransport config)
+            (liveRestoreProofNamespace proof)
+            (liveRestoreProofDatabase proof <> "-0")
+            (physicalIdentityText (liveRestoreProofPodUid proof))
+            ("lr-" <> liveRestoreProofId proof)
         case stopped of
           Left reason -> pure (Left reason)
           Right () -> do
@@ -207,13 +259,18 @@ liveRestoreRuntime config scopes native base =
                 target <- exactTarget proof
                 checked <- case target of
                   Left reason -> pure (Left reason)
-                  Right () -> verifyBackupInput proof
-                    (liveRestoreProofRecovery proof)
+                  Right () ->
+                    verifyBackupInput
+                      proof
+                      (liveRestoreProofRecovery proof)
                 case checked of
                   Left reason -> pure (Left reason)
                   Right () -> do
-                    effect <- withVerifiedLiveSource config proof
-                      (liveRestoreProofRecovery proof) $ \recoveryPath ->
+                    effect <- withVerifiedLiveSource
+                      config
+                      proof
+                      (liveRestoreProofRecovery proof)
+                      $ \recoveryPath ->
                         runLivePostgresRestore config proof recoveryPath
                     result <- verifyBackup proof (liveRestoreProofRecovery proof)
                     pure $ case (effect, result) of
@@ -227,12 +284,13 @@ liveRestoreRuntime config scopes native base =
       | otherwise = case proofFor operation of
           Left reason -> pure (RecoveryUnresolved reason)
           Right proof -> do
-            stopped <- terminateMarkedPostgresClients
-              (kubectlPostgresMaintenanceTransport config)
-              (liveRestoreProofNamespace proof)
-              (liveRestoreProofDatabase proof <> "-0")
-              (physicalIdentityText (liveRestoreProofPodUid proof))
-              ("lr-" <> liveRestoreProofId proof)
+            stopped <-
+              terminateMarkedPostgresClients
+                (kubectlPostgresMaintenanceTransport config)
+                (liveRestoreProofNamespace proof)
+                (liveRestoreProofDatabase proof <> "-0")
+                (physicalIdentityText (liveRestoreProofPodUid proof))
+                ("lr-" <> liveRestoreProofId proof)
             case stopped of
               Left reason -> pure (RecoveryUnresolved reason)
               Right () -> do

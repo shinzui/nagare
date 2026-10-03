@@ -192,8 +192,12 @@ readStore kind name ns extract = do
         & silenceStderr
   pure (decodeStoreRead kind extract exitCode out)
 
-decodeStoreRead :: String -> (ByteString -> Either Text (Map Text Text))
-  -> ExitCode -> ByteString -> Either Text (Map Text Text)
+decodeStoreRead ::
+  String ->
+  (ByteString -> Either Text (Map Text Text)) ->
+  ExitCode ->
+  ByteString ->
+  Either Text (Map Text Text)
 decodeStoreRead kind extract exitCode out = case exitCode of
   ExitFailure _ -> Left ("could not read " <> T.pack kind <> " environment store")
   ExitSuccess | BS.null out -> Right Map.empty

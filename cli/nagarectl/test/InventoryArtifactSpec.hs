@@ -40,8 +40,14 @@ inventoryArtifactTests =
         withSystemTempDirectory "nagare-kubeconfig-projection" $ \temporary -> do
           let current = temporary </> "current.yaml"
               old = temporary </> "absent-old-root.yaml"
-              accepted = ArtifactExecutionSpec KubeconfigArtifact (Text.pack old)
-                expectedDigest expectedDigest False (Just (temporary </> "absent-old-source.yaml"))
+              accepted =
+                ArtifactExecutionSpec
+                  KubeconfigArtifact
+                  (Text.pack old)
+                  expectedDigest
+                  expectedDigest
+                  False
+                  (Just (temporary </> "absent-old-source.yaml"))
           BS.writeFile current "published-content"
           observed <- observeKubeconfigProjectionAt current accepted >>= expectRight
           observed @?= ObservedPresent (ok (mkPhysicalIdentity ("kubeconfig://" <> Text.pack current)))
@@ -83,20 +89,34 @@ inventoryArtifactTests =
     , testCase "local BuildKit archive uses required secret mounts without argv values" $ do
         validateSecretMounts
           "FROM alpine\nRUN --mount=type=secret,id=TOKEN,required=true cat /run/secrets/TOKEN >/dev/null\n"
-          ["TOKEN"] @?= Right ()
+          ["TOKEN"]
+          @?= Right ()
         case validateSecretMounts "FROM alpine\nRUN echo ready\n" ["TOKEN"] of
           Left _ -> pure ()
           Right _ -> assertFailure "Dockerfile omitted the required Build Secret mount"
-        args <- expectRight (dockerBuildArguments "linux/amd64" "registry.example/app:v1"
-          "Dockerfile" "." (Map.singleton "PUBLIC" "shown")
-          (Map.singleton "TOKEN" "/private/0"))
-        assertBool "BuildKit secret value entered Docker argv"
+        args <-
+          expectRight
+            ( dockerBuildArguments
+                "linux/amd64"
+                "registry.example/app:v1"
+                "Dockerfile"
+                "."
+                (Map.singleton "PUBLIC" "shown")
+                (Map.singleton "TOKEN" "/private/0")
+            )
+        assertBool
+          "BuildKit secret value entered Docker argv"
           (not (any (Text.isInfixOf "secret-value" . Text.pack) args))
-        assertBool "BuildKit secret file was not mounted"
+        assertBool
+          "BuildKit secret file was not mounted"
           ("type=file,id=TOKEN,src=/private/0" `elem` args)
-        case dockerBuildArguments "linux/amd64" "registry.example/app:v1"
-            "Dockerfile" "." (Map.singleton "TOKEN" "shown")
-            (Map.singleton "TOKEN" "/private/0") of
+        case dockerBuildArguments
+          "linux/amd64"
+          "registry.example/app:v1"
+          "Dockerfile"
+          "."
+          (Map.singleton "TOKEN" "shown")
+          (Map.singleton "TOKEN" "/private/0") of
           Left _ -> pure ()
           Right _ -> assertFailure "Build ConfigMap and Secret key collision was accepted"
     , testCase "local builder gives exact Secret bytes only through a temporary mount" $
@@ -104,15 +124,19 @@ inventoryArtifactTests =
           let dockerfile = temporary </> "Dockerfile"
               archive = temporary </> "image.tar"
               mountPrefix = "type=file,id=TOKEN,src="
-          BS.writeFile dockerfile
+          BS.writeFile
+            dockerfile
             "FROM alpine\nRUN --mount=type=secret,id=TOKEN,required=true cat /run/secrets/TOKEN >/dev/null\n"
           mounted <- newIORef []
           let fakeDocker args = case args of
-                "buildx" : _ -> case [drop (length mountPrefix) arg | arg <- args,
-                    mountPrefix `isPrefixOf` arg] of
+                "buildx" : _ -> case [ drop (length mountPrefix) arg
+                                     | arg <- args
+                                     , mountPrefix `isPrefixOf` arg
+                                     ] of
                   [path] -> do
                     BS.readFile path >>= (@?= "private-value")
-                    assertBool "Secret value entered Docker argv"
+                    assertBool
+                      "Secret value entered Docker argv"
                       (not ("private-value" `elem` args))
                     writeIORef mounted [path]
                     pure True
@@ -120,8 +144,16 @@ inventoryArtifactTests =
                 ["image", "save", "--output", output, _] ->
                   BS.writeFile output "fake-archive" >> pure True
                 _ -> assertFailure "unexpected Docker command" >> pure False
-          result <- buildDockerArchiveWith fakeDocker "linux/amd64" "registry.example/app:v1"
-            dockerfile temporary archive Map.empty (Map.singleton "TOKEN" "private-value")
+          result <-
+            buildDockerArchiveWith
+              fakeDocker
+              "linux/amd64"
+              "registry.example/app:v1"
+              dockerfile
+              temporary
+              archive
+              Map.empty
+              (Map.singleton "TOKEN" "private-value")
           result @?= Right ()
           BS.readFile archive >>= (@?= "fake-archive")
           paths <- readIORef mounted
@@ -139,32 +171,49 @@ inventoryArtifactTests =
             Map.lookup artifactResource reconstructed @?= Map.lookup artifactResource specs
           values -> assertFailure ("expected one artifact bundle, got " <> show (length values))
     , testCase "OCI archive source survives accepted declaration reconstruction" $ do
-        let archived = imageSpec
-              { artifactKind = OciImageArtifact
-              , artifactSource = SourceLocation "/tmp/reviewed-image.tar" "oci-archive-v1"
-              }
-        declaration <- expectRight (compileArtifactScope
-          (ArtifactDeclarationBundle 1 scope (archived :| [])))
-        rebuilt <- expectRight (artifactExecutionSpecsFromDeclarations
-          [member | bundle <- scopeBundles declaration, member <- declarations bundle])
+        let archived =
+              imageSpec
+                { artifactKind = OciImageArtifact
+                , artifactSource = SourceLocation "/tmp/reviewed-image.tar" "oci-archive-v1"
+                }
+        declaration <-
+          expectRight
+            ( compileArtifactScope
+                (ArtifactDeclarationBundle 1 scope (archived :| []))
+            )
+        rebuilt <-
+          expectRight
+            ( artifactExecutionSpecsFromDeclarations
+                [member | bundle <- scopeBundles declaration, member <- declarations bundle]
+            )
         Map.lookup artifactResource rebuilt
-          @?= Just ((artifactExecutionSpecs
-            (ArtifactDeclarationBundle 1 scope (archived :| [])) Map.! artifactResource))
+          @?= Just
+            ( ( artifactExecutionSpecs
+                  (ArtifactDeclarationBundle 1 scope (archived :| []))
+                  Map.! artifactResource
+              )
+            )
         fmap executionArtifactArchive (Map.lookup artifactResource rebuilt)
           @?= Just (Just "/tmp/reviewed-image.tar")
     , testCase "application review requires the exact accepted OCI publication" $ do
-        let oci = imageSpec
-              { artifactLogicalKey = logicalKey "app-image"
-              , artifactRole = name "oci-image"
-              , artifactName = name "app-image"
-              , artifactDestination = "registry.example/app:v1"
-              , artifactKind = OciImageArtifact
-              }
+        let oci =
+              imageSpec
+                { artifactLogicalKey = logicalKey "app-image"
+                , artifactRole = name "oci-image"
+                , artifactName = name "app-image"
+                , artifactDestination = "registry.example/app:v1"
+                , artifactKind = OciImageArtifact
+                }
             imageId = mintResourceId scope (artifactLogicalKey oci) (artifactRole oci)
             binding = ContextBinding (either (error . Text.unpack) id (mkContextId "test")) (name "project")
         declared <- expectRight (compileArtifactScope (ArtifactDeclarationBundle 1 scope (oci :| [])))
-        snapshot <- expectRight (mkScopeSnapshot binding
-          (Map.singleton scope (either (error . Text.unpack) id (mkScopeGeneration 1), declared)) Map.empty)
+        snapshot <-
+          expectRight
+            ( mkScopeSnapshot
+                binding
+                (Map.singleton scope (either (error . Text.unpack) id (mkScopeGeneration 1), declared))
+                Map.empty
+            )
         acceptedApplicationImage snapshot imageId "registry.example/app:v1" @?= Right ()
         acceptedImageResourceForDestination snapshot "registry.example/app:v1"
           @?= Right imageId
@@ -180,56 +229,104 @@ inventoryArtifactTests =
     , testCase "accepted image pins its Build Secret channel without making it runtime input" $ do
         let foundation = either (error . Text.unpack) id (mkScopeId Platform "foundation")
             cluster = mintResourceId foundation (logicalKey "cluster") (name "cluster")
-            namespaceId = mintResourceId foundation (logicalKey "foundation")
-              (name "namespace-personal")
-        (buildScope, _) <- expectRight (compileBuildSecretChannel
-          "kizashi" "personal" cluster namespaceId (name "v1")
-          (Map.singleton "TOKEN" "private") (SourceLocation "test" "build-secret"))
-        buildId <- case [member ^. #identity | bundle <- scopeBundles buildScope,
-          Managed member <- declarations bundle] of
+            namespaceId =
+              mintResourceId
+                foundation
+                (logicalKey "foundation")
+                (name "namespace-personal")
+        (buildScope, _) <-
+          expectRight
+            ( compileBuildSecretChannel
+                "kizashi"
+                "personal"
+                cluster
+                namespaceId
+                (name "v1")
+                (Map.singleton "TOKEN" "private")
+                (SourceLocation "test" "build-secret")
+            )
+        buildId <- case [ member ^. #identity
+                        | bundle <- scopeBundles buildScope
+                        , Managed member <- declarations bundle
+                        ] of
           [single] -> pure single
           _ -> assertFailure "Build channel has no unique Secret" >> fail "missing Build Secret"
-        let oci = imageSpec
-              { artifactLogicalKey = logicalKey "app-image"
-              , artifactRole = name "oci-image"
-              , artifactName = name "app-image"
-              , artifactDestination = "registry.example/app:v1"
-              , artifactKind = OciImageArtifact
-              , artifactDependencies = [OrderedAfter buildId]
-              }
+        let oci =
+              imageSpec
+                { artifactLogicalKey = logicalKey "app-image"
+                , artifactRole = name "oci-image"
+                , artifactName = name "app-image"
+                , artifactDestination = "registry.example/app:v1"
+                , artifactKind = OciImageArtifact
+                , artifactDependencies = [OrderedAfter buildId]
+                }
             imageId = mintResourceId scope (artifactLogicalKey oci) (artifactRole oci)
             pin = "build-input." <> resourceIdText buildId
             binding = ContextBinding (either (error . Text.unpack) id (mkContextId "test")) (name "project")
         base <- expectRight (compileArtifactScope (ArtifactDeclarationBundle 1 scope (oci :| [])))
-        let declared = withScopeOverrides
-              (Map.singleton pin (digestText (contentDigest "accepted-build-revision"))) base
-            published = withScopeOverrides
-              (Map.insert "build-method" "dockerfile-buildkit-v1"
-                (scopeOverrides declared)) base
-        snapshot <- expectRight (mkScopeSnapshot binding
-          (Map.fromList [(scope, (either (error . Text.unpack) id (mkScopeGeneration 1), published))
-            , (scopeId buildScope, (either (error . Text.unpack) id (mkScopeGeneration 1), buildScope))])
-          Map.empty)
+        let declared =
+              withScopeOverrides
+                (Map.singleton pin (digestText (contentDigest "accepted-build-revision")))
+                base
+            published =
+              withScopeOverrides
+                ( Map.insert
+                    "build-method"
+                    "dockerfile-buildkit-v1"
+                    (scopeOverrides declared)
+                )
+                base
+        snapshot <-
+          expectRight
+            ( mkScopeSnapshot
+                binding
+                ( Map.fromList
+                    [ (scope, (either (error . Text.unpack) id (mkScopeGeneration 1), published))
+                    , (scopeId buildScope, (either (error . Text.unpack) id (mkScopeGeneration 1), buildScope))
+                    ]
+                )
+                Map.empty
+            )
         acceptedImageBuildSecrets snapshot imageId cluster "kizashi" "personal"
-          @?= Right (Set.singleton (either (error . Text.unpack) id
-            (mkSecretName "nagare-secret-kizashi-build")))
+          @?= Right
+            ( Set.singleton
+                ( either
+                    (error . Text.unpack)
+                    id
+                    (mkSecretName "nagare-secret-kizashi-build")
+                )
+            )
         case acceptedImageBuildSecrets snapshot imageId cluster "another-app" "personal" of
           Left _ -> pure ()
           Right _ -> assertFailure "image Build input was borrowed by another app"
         case acceptedImageBuildSecrets snapshot imageId cluster "kizashi" "other" of
           Left _ -> pure ()
           Right _ -> assertFailure "image Build input was borrowed by another namespace"
-        declaredSnapshot <- expectRight (mkScopeSnapshot binding
-          (Map.fromList [(scope, (either (error . Text.unpack) id (mkScopeGeneration 1), declared))
-            , (scopeId buildScope, (either (error . Text.unpack) id (mkScopeGeneration 1), buildScope))])
-          Map.empty)
+        declaredSnapshot <-
+          expectRight
+            ( mkScopeSnapshot
+                binding
+                ( Map.fromList
+                    [ (scope, (either (error . Text.unpack) id (mkScopeGeneration 1), declared))
+                    , (scopeId buildScope, (either (error . Text.unpack) id (mkScopeGeneration 1), buildScope))
+                    ]
+                )
+                Map.empty
+            )
         case acceptedImageBuildSecrets declaredSnapshot imageId cluster "kizashi" "personal" of
           Left _ -> pure ()
           Right _ -> assertFailure "unbuilt external archive authorized Build Secret use"
-        unpinned <- expectRight (mkScopeSnapshot binding
-          (Map.fromList [(scope, (either (error . Text.unpack) id (mkScopeGeneration 1), base))
-            , (scopeId buildScope, (either (error . Text.unpack) id (mkScopeGeneration 1), buildScope))])
-          Map.empty)
+        unpinned <-
+          expectRight
+            ( mkScopeSnapshot
+                binding
+                ( Map.fromList
+                    [ (scope, (either (error . Text.unpack) id (mkScopeGeneration 1), base))
+                    , (scopeId buildScope, (either (error . Text.unpack) id (mkScopeGeneration 1), buildScope))
+                    ]
+                )
+                Map.empty
+            )
         case acceptedImageBuildSecrets unpinned imageId cluster "kizashi" "personal" of
           Left _ -> pure ()
           Right _ -> assertFailure "image dependency without a revision pin was accepted"

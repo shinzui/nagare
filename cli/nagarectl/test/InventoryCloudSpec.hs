@@ -1,7 +1,5 @@
 module InventoryCloudSpec (inventoryCloudTests) where
 
-import Nagare.Dsl.Prelude hiding ((.=), preview)
-
 import Data.ByteString.Char8 qualified as BC
 import Data.Either (isRight)
 import Data.List (isInfixOf)
@@ -10,6 +8,7 @@ import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
+import Nagare.Dsl.Prelude hiding (preview, (.=))
 import Nagare.Infra.Plan (StepOp (OpCreate))
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Pulumi
@@ -46,21 +45,39 @@ inventoryCloudTests =
         registrationsFromDeclarations [managed | resourceBundle <- scopeBundles nestedScope, managed <- declarations resourceBundle]
           @?= Right [registration {registrationPulumiUrn = nestedUrn}]
     , testCase "cloud catalog builds nested URNs and excludes admitted registrations" $ do
-        catalog <- expectRight (decodeCloudCatalog (BC.pack
-          "{\"version\":1,\"project\":\"nagare\",\"foundationManaged\":[{\"type\":\"nagare:env:NagarePerimeter\",\"name\":\"nagare\",\"parent\":null,\"layer\":0},{\"type\":\"gcp:storage/bucket:Bucket\",\"name\":\"nagare-images\",\"parent\":\"nagare\",\"layer\":1}],\"nixCacheEnabled\":[{\"type\":\"nagare:env:NagareNixCache\",\"name\":\"nagare-nix-cache\",\"parent\":null,\"layer\":2}]}"))
+        catalog <-
+          expectRight
+            ( decodeCloudCatalog
+                ( BC.pack
+                    "{\"version\":1,\"project\":\"nagare\",\"foundationManaged\":[{\"type\":\"nagare:env:NagarePerimeter\",\"name\":\"nagare\",\"parent\":null,\"layer\":0},{\"type\":\"gcp:storage/bucket:Bucket\",\"name\":\"nagare-images\",\"parent\":\"nagare\",\"layer\":1}],\"nixCacheEnabled\":[{\"type\":\"nagare:env:NagareNixCache\",\"name\":\"nagare-nix-cache\",\"parent\":null,\"layer\":2}]}"
+                )
+            )
         length (selectedCloudCatalog False False catalog) @?= 2
         length (selectedCloudCatalog True False catalog) @?= 3
         let image = last (catalogFoundationManaged catalog)
         imageUrn <- expectRight (cloudCatalogUrn (name "dev") catalog image)
         imageUrn @?= "urn:pulumi:dev::nagare::nagare:env:NagarePerimeter$gcp:storage/bucket:Bucket::nagare-images"
         let admitted = registration {registrationPulumiUrn = imageUrn}
-        bookkeeping <- expectRight (cloudBookkeepingRegistrations
-          (name "dev") False False catalog (contentDigest "catalog") [admitted])
+        bookkeeping <-
+          expectRight
+            ( cloudBookkeepingRegistrations
+                (name "dev")
+                False
+                False
+                catalog
+                (contentDigest "catalog")
+                [admitted]
+            )
         length bookkeeping @?= 1
         map registrationPulumiName bookkeeping @?= [name "nagare"]
     , testCase "image catalog keeps distinct keys for component and VM with one native name" $ do
-        catalog <- expectRight (decodeCloudCatalog (BC.pack
-          "{\"version\":1,\"project\":\"nagare\",\"foundationManaged\":[{\"type\":\"nagare:env:NagarePerimeter\",\"name\":\"nagare\",\"parent\":null,\"layer\":0}],\"nixCacheEnabled\":[],\"imageEnabled\":[{\"key\":\"nagare-instance\",\"type\":\"nagare:compute:NagareInstance\",\"name\":\"nagare-01\",\"parent\":\"nagare\",\"layer\":4},{\"key\":\"nagare-instance-vm\",\"type\":\"gcp:compute/instance:Instance\",\"name\":\"nagare-01\",\"parent\":\"nagare-instance\",\"layer\":5}]}"))
+        catalog <-
+          expectRight
+            ( decodeCloudCatalog
+                ( BC.pack
+                    "{\"version\":1,\"project\":\"nagare\",\"foundationManaged\":[{\"type\":\"nagare:env:NagarePerimeter\",\"name\":\"nagare\",\"parent\":null,\"layer\":0}],\"nixCacheEnabled\":[],\"imageEnabled\":[{\"key\":\"nagare-instance\",\"type\":\"nagare:compute:NagareInstance\",\"name\":\"nagare-01\",\"parent\":\"nagare\",\"layer\":4},{\"key\":\"nagare-instance-vm\",\"type\":\"gcp:compute/instance:Instance\",\"name\":\"nagare-01\",\"parent\":\"nagare-instance\",\"layer\":5}]}"
+                )
+            )
         let selected = selectedCloudCatalog False True (withCloudInstanceName (name "custom-host") catalog)
         length selected @?= 3
         let vm = last selected
@@ -96,15 +113,26 @@ inventoryCloudTests =
           other -> assertFailure ("expected action mismatch, got " <> show other)
     , testCase "Pulumi accepts only the exact implicit stack bookkeeping mutation" $ do
         let stackUrn = "urn:pulumi:dev::nagare::pulumi:pulumi:Stack::nagare-dev"
-            withStack rootUrn = BC.pack ("{\"steps\":[{\"op\":\"create\",\"urn\":\""
-              <> T.unpack rootUrn <> "\"},{\"op\":\"create\",\"urn\":\""
-              <> T.unpack (registrationPulumiUrn registration) <> "\"}]}")
-            prepared rootUrn = PulumiPreparation pulumiIdentityFixture
-              (withStack rootUrn) "plan" [registration]
+            withStack rootUrn =
+              BC.pack
+                ( "{\"steps\":[{\"op\":\"create\",\"urn\":\""
+                    <> T.unpack rootUrn
+                    <> "\"},{\"op\":\"create\",\"urn\":\""
+                    <> T.unpack (registrationPulumiUrn registration)
+                    <> "\"}]}"
+                )
+            prepared rootUrn =
+              PulumiPreparation
+                pulumiIdentityFixture
+                (withStack rootUrn)
+                "plan"
+                [registration]
         case validatePulumiPreparation [registration] operation (prepared stackUrn) of
           Right _ -> pure ()
           Left err -> assertFailure ("exact implicit stack was refused: " <> show err)
-        case validatePulumiPreparation [registration] operation
+        case validatePulumiPreparation
+          [registration]
+          operation
           (prepared "urn:pulumi:other::nagare::pulumi:pulumi:Stack::nagare-other") of
           Left (PulumiUnknownMutation _) -> pure ()
           other -> assertFailure ("foreign stack mutation was accepted: " <> show other)
@@ -113,18 +141,25 @@ inventoryCloudTests =
         decodePhysicalResources emptyExport @?= Right Map.empty
         decodePhysicalResources (BC.pack "{\"deployment\":{\"resources\":null}}") @?= Right Map.empty
     , testCase "a targeted Pulumi operation refuses a second declared mutation" $ do
-        let otherRegistration = registration
-              { registrationResource = resource "platform:cloud/other/bucket"
-              , registrationPulumiName = name "other-bucket"
-              , registrationPulumiUrn = "urn:pulumi:dev::nagare::gcp:storage/bucket:Bucket::other-bucket"
-              }
-            prepared = PulumiPreparation pulumiIdentityFixture
-              (BC.pack ("{\"steps\":[{\"op\":\"create\",\"urn\":\""
-                <> T.unpack (registrationPulumiUrn registration)
-                <> "\",\"replaceReasons\":[]},{\"op\":\"create\",\"urn\":\""
-                <> T.unpack (registrationPulumiUrn otherRegistration)
-                <> "\",\"replaceReasons\":[]}]}"))
-              "plan" [registration, otherRegistration]
+        let otherRegistration =
+              registration
+                { registrationResource = resource "platform:cloud/other/bucket"
+                , registrationPulumiName = name "other-bucket"
+                , registrationPulumiUrn = "urn:pulumi:dev::nagare::gcp:storage/bucket:Bucket::other-bucket"
+                }
+            prepared =
+              PulumiPreparation
+                pulumiIdentityFixture
+                ( BC.pack
+                    ( "{\"steps\":[{\"op\":\"create\",\"urn\":\""
+                        <> T.unpack (registrationPulumiUrn registration)
+                        <> "\",\"replaceReasons\":[]},{\"op\":\"create\",\"urn\":\""
+                        <> T.unpack (registrationPulumiUrn otherRegistration)
+                        <> "\",\"replaceReasons\":[]}]}"
+                    )
+                )
+                "plan"
+                [registration, otherRegistration]
         case validatePulumiPreparation [registration, otherRegistration] operation prepared of
           Left (PulumiUnexpectedMutation urn) -> urn @?= registrationPulumiUrn otherRegistration
           other -> assertFailure ("expected unrelated Pulumi mutation refusal, got " <> show other)
@@ -165,9 +200,12 @@ inventoryCloudTests =
             other -> assertFailure ("expected physical Pulumi observation, got " <> show other)
           calls <- readFile logPath
           assertBool "saved plan bytes reached pulumi up" (" up --plan " `isInfixOf` calls)
-          assertBool "Pulumi preview and up did not target the reviewed resource"
-            (all (isInfixOf ("--target " <> T.unpack (registrationPulumiUrn registration)))
-              (filter (\line -> " preview " `isInfixOf` line || " up " `isInfixOf` line) (lines calls)))
+          assertBool
+            "Pulumi preview and up did not target the reviewed resource"
+            ( all
+                (isInfixOf ("--target " <> T.unpack (registrationPulumiUrn registration)))
+                (filter (\line -> " preview " `isInfixOf` line || " up " `isInfixOf` line) (lines calls))
+            )
           length (filter (isInfixOf "--save-plan") (lines calls)) @?= 1
     ]
 

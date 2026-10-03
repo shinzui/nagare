@@ -22,19 +22,20 @@ applicationConfig = do
   image <- mkImageRef "k3d-registry.localhost:5000/isolated"
   tag <- mkTag "v1"
   worker <- first Text.pack (webWorker "isolated-app" "k3d-registry.localhost:5000/isolated")
-  mkApplication Application
-    { name = appName
-    , logicalKey = Nothing
-    , namespace = namespace
-    , image = image
-    , env = Map.empty
-    , databases = []
-    , brokers = []
-    , access = Nothing
-    , service = Nothing
-    , workers = [worker & #namespace .~ namespace & #build .~ PrebuiltImage tag]
-    , tasks = []
-    }
+  mkApplication
+    Application
+      { name = appName
+      , logicalKey = Nothing
+      , namespace = namespace
+      , image = image
+      , env = Map.empty
+      , databases = []
+      , brokers = []
+      , access = Nothing
+      , service = Nothing
+      , workers = [worker & #namespace .~ namespace & #build .~ PrebuiltImage tag]
+      , tasks = []
+      }
 
 main :: IO ()
 main = either (ioError . userError . Text.unpack) emitApplication applicationConfig

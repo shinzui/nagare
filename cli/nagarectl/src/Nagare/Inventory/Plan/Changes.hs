@@ -16,7 +16,6 @@ import Data.Maybe (listToMaybe, mapMaybe)
 import Data.Set qualified as Set
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude hiding ((.=), (<.>))
-import Nagare.Inventory.CloudCollection (cloudCollectionPolicyOnly)
 import Nagare.Inventory.Adapter
   ( MigrationStage
       ( AdmitWrites
@@ -52,6 +51,7 @@ import Nagare.Inventory.Adapter
     )
   , observationMap
   )
+import Nagare.Inventory.CloudCollection (cloudCollectionPolicyOnly)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (mkOperationId, operationIdText)
 import Nagare.Inventory.Migration.Types
@@ -117,17 +117,17 @@ import Nagare.Resource.Inventory
   , ManagedResource (dependencies, source)
   , OperationKind
     ( ActivateHost
-    , StartVm
-    , StopVm
-    , PruneHostImage
-    , PurgeCdnCache
-    , PurgeCdnZone
     , CreateLogicalCache
     , MaintainData
     , PreDeployHook
+    , PruneHostImage
     , PublishRelease
+    , PurgeCdnCache
+    , PurgeCdnZone
     , RestoreLiveData
     , SchemaMigration
+    , StartVm
+    , StopVm
     )
   , ScopeChange (CollectRetained, ReplaceScope, RetireScope)
   , candidateBase

@@ -18,7 +18,8 @@ module Nagare.Inventory.DataFence.ScheduledWriter
   , restoreScheduledWriter
   , observeScheduledWriterRelease
   , parseScheduledWriterDrain
-  ) where
+  )
+where
 
 import Control.Exception (IOException, try)
 import Control.Monad (forM, unless)
@@ -32,7 +33,8 @@ import Data.Text.Encoding qualified as TE
 import Data.Vector qualified as V
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapters.KubernetesRuntime
-  (KubernetesRuntimeConfig (..))
+  ( KubernetesRuntimeConfig (..)
+  )
 import Nagare.Inventory.DataFence (WriterReleaseState (..))
 import Nagare.Inventory.DataFence.MountGuard (validUid)
 import Nagare.Inventory.Digest (contentDigest)
@@ -50,8 +52,13 @@ data ScheduledWriterPin = ScheduledWriterPin
   }
   deriving stock (Eq, Show)
 
-mkScheduledWriterPin :: Text -> Text -> Text -> Maybe Bool -> ContentDigest
-  -> Either Text ScheduledWriterPin
+mkScheduledWriterPin ::
+  Text ->
+  Text ->
+  Text ->
+  Maybe Bool ->
+  ContentDigest ->
+  Either Text ScheduledWriterPin
 mkScheduledWriterPin namespace name uid saved specDigest = do
   _ <- mkName namespace
   _ <- mkName name
@@ -81,8 +88,10 @@ data ObservedSchedule = ObservedSchedule
   , observedActiveReferences :: !Int
   }
 
-stopScheduledWriter :: ScheduledWriterTransport -> ScheduledWriterPin
-  -> IO (Either Text ())
+stopScheduledWriter ::
+  ScheduledWriterTransport ->
+  ScheduledWriterPin ->
+  IO (Either Text ())
 stopScheduledWriter transport pin = do
   current <- readScheduledWriter transport (scheduleNamespace pin) (scheduleName pin)
   case current >>= parseSchedule pin of
@@ -91,18 +100,25 @@ stopScheduledWriter transport pin = do
       | observedSuspend observed == Just True -> pure (Right ())
       | observedSuspend observed /= scheduleSavedSuspend pin ->
           pure (Left "CronJob suspension changed since reviewed writer intent")
-      | otherwise -> patchScheduledWriter transport
-          (scheduleNamespace pin) (scheduleName pin)
-          (suspendPatch pin observed (Just True))
+      | otherwise ->
+          patchScheduledWriter
+            transport
+            (scheduleNamespace pin)
+            (scheduleName pin)
+            (suspendPatch pin observed (Just True))
 
-observeScheduledWriterIdentity :: ScheduledWriterTransport -> ScheduledWriterPin
-  -> IO (Either Text ())
+observeScheduledWriterIdentity ::
+  ScheduledWriterTransport ->
+  ScheduledWriterPin ->
+  IO (Either Text ())
 observeScheduledWriterIdentity transport pin = do
   current <- readScheduledWriter transport (scheduleNamespace pin) (scheduleName pin)
   pure (() <$ (current >>= parseSchedule pin))
 
-observeScheduledWriterStopped :: ScheduledWriterTransport -> ScheduledWriterPin
-  -> IO (Either Text Bool)
+observeScheduledWriterStopped ::
+  ScheduledWriterTransport ->
+  ScheduledWriterPin ->
+  IO (Either Text Bool)
 observeScheduledWriterStopped transport pin = do
   current <- readScheduledWriter transport (scheduleNamespace pin) (scheduleName pin)
   jobs <- listScheduledJobs transport (scheduleNamespace pin)
@@ -112,11 +128,16 @@ observeScheduledWriterStopped transport pin = do
     jobValues <- jobs
     podValues <- pods
     drained <- parseScheduledWriterDrain pin jobValues podValues
-    pure (observedSuspend observed == Just True
-      && observedActiveReferences observed == 0 && drained)
+    pure
+      ( observedSuspend observed == Just True
+          && observedActiveReferences observed == 0
+          && drained
+      )
 
-restoreScheduledWriter :: ScheduledWriterTransport -> ScheduledWriterPin
-  -> IO (Either Text ())
+restoreScheduledWriter ::
+  ScheduledWriterTransport ->
+  ScheduledWriterPin ->
+  IO (Either Text ())
 restoreScheduledWriter transport pin = do
   current <- readScheduledWriter transport (scheduleNamespace pin) (scheduleName pin)
   case current >>= parseSchedule pin of
@@ -130,12 +151,17 @@ restoreScheduledWriter transport pin = do
           case stopped of
             Left reason -> pure (Left reason)
             Right False -> pure (Left "CronJob Jobs have not drained")
-            Right True -> patchScheduledWriter transport
-              (scheduleNamespace pin) (scheduleName pin)
-              (suspendPatch pin observed (scheduleSavedSuspend pin))
+            Right True ->
+              patchScheduledWriter
+                transport
+                (scheduleNamespace pin)
+                (scheduleName pin)
+                (suspendPatch pin observed (scheduleSavedSuspend pin))
 
-observeScheduledWriterRelease :: ScheduledWriterTransport -> ScheduledWriterPin
-  -> IO (Either Text WriterReleaseState)
+observeScheduledWriterRelease ::
+  ScheduledWriterTransport ->
+  ScheduledWriterPin ->
+  IO (Either Text WriterReleaseState)
 observeScheduledWriterRelease transport pin = do
   current <- readScheduledWriter transport (scheduleNamespace pin) (scheduleName pin)
   jobs <- listScheduledJobs transport (scheduleNamespace pin)
@@ -146,23 +172,28 @@ observeScheduledWriterRelease transport pin = do
     podValues <- pods
     drained <- parseScheduledWriterDrain pin jobValues podValues
     let quiet = observedActiveReferences observed == 0 && drained
-    pure $ if observedSuspend observed == scheduleSavedSuspend pin
+    pure $
+      if observedSuspend observed == scheduleSavedSuspend pin
         && (scheduleSavedSuspend pin /= Just True || quiet)
-      then WritersFullyReleased
-      else if observedSuspend observed == Just True && quiet
-      then WritersStillExcluded
-      else WritersPartlyReleased
+        then WritersFullyReleased
+        else
+          if observedSuspend observed == Just True && quiet
+            then WritersStillExcluded
+            else WritersPartlyReleased
 
 parseSchedule :: ScheduledWriterPin -> Value -> Either Text ObservedSchedule
 parseSchedule pin (Object root) = do
   meta <- objectField "metadata" root
-  unless (textField "namespace" meta == Right (scheduleNamespace pin)
-      && textField "name" meta == Right (scheduleName pin)
-      && textField "uid" meta == Right (scheduleUid pin))
+  unless
+    ( textField "namespace" meta == Right (scheduleNamespace pin)
+        && textField "name" meta == Right (scheduleName pin)
+        && textField "uid" meta == Right (scheduleUid pin)
+    )
     (Left "CronJob identity changed")
   revision <- textField "resourceVersion" meta
   observedDigest <- digestScheduledWriterSpec (Object root)
-  unless (observedDigest == scheduleSpecDigest pin)
+  unless
+    (observedDigest == scheduleSpecDigest pin)
     (Left "CronJob schedule or Job template differs from reviewed writer intent")
   spec <- objectField "spec" root
   suspend <- case KM.lookup "suspend" spec of
@@ -177,65 +208,96 @@ parseSchedule pin (Object root) = do
 parseSchedule _ _ = Left "CronJob observation is not an object"
 
 suspendPatch :: ScheduledWriterPin -> ObservedSchedule -> Maybe Bool -> Value
-suspendPatch pin observed desired = toJSON
-  ([ object ["op" .= ("test" :: Text), "path" .= ("/metadata/uid" :: Text),
-       "value" .= scheduleUid pin]
-   , object ["op" .= ("test" :: Text),
-       "path" .= ("/metadata/resourceVersion" :: Text),
-       "value" .= observedRevision observed]
-   ] <> case desired of
-      Nothing -> [object ["op" .= ("remove" :: Text),
-        "path" .= ("/spec/suspend" :: Text)]]
-      Just value -> [object ["op" .= ("add" :: Text),
-        "path" .= ("/spec/suspend" :: Text), "value" .= value]])
+suspendPatch pin observed desired =
+  toJSON
+    ( [ object
+          [ "op" .= ("test" :: Text)
+          , "path" .= ("/metadata/uid" :: Text)
+          , "value" .= scheduleUid pin
+          ]
+      , object
+          [ "op" .= ("test" :: Text)
+          , "path" .= ("/metadata/resourceVersion" :: Text)
+          , "value" .= observedRevision observed
+          ]
+      ]
+        <> case desired of
+          Nothing ->
+            [ object
+                [ "op" .= ("remove" :: Text)
+                , "path" .= ("/spec/suspend" :: Text)
+                ]
+            ]
+          Just value ->
+            [ object
+                [ "op" .= ("add" :: Text)
+                , "path" .= ("/spec/suspend" :: Text)
+                , "value" .= value
+                ]
+            ]
+    )
 
 -- | Count every active Job owned by the pinned CronJob. A Job may disappear
 -- before its Pods do, so Pods owned by a Job with the CronJob's generated
 -- name prefix are counted independently until their phase is terminal.
-parseScheduledWriterDrain :: ScheduledWriterPin -> Value -> Value
-  -> Either Text Bool
+parseScheduledWriterDrain ::
+  ScheduledWriterPin ->
+  Value ->
+  Value ->
+  Either Text Bool
 parseScheduledWriterDrain pin jobs pods = do
   jobItems <- listItems "JobList" jobs
   owned <- forM jobItems $ \item -> do
     root <- asObject "Job" item
     meta <- objectField "metadata" root
-    unless (textField "namespace" meta == Right (scheduleNamespace pin))
+    unless
+      (textField "namespace" meta == Right (scheduleNamespace pin))
       (Left "Job list contains another namespace")
     refs <- optionalArrayField "ownerReferences" meta
     let belongs = any (ownedBy "CronJob" (scheduleName pin) (scheduleUid pin)) refs
-    if not belongs then pure Nothing else do
-      name <- textField "name" meta
-      uid <- textField "uid" meta
-      status <- case KM.lookup "status" root of
-        Nothing -> Right KM.empty
-        Just (Object value) -> Right value
-        _ -> Left "CronJob Job status is malformed"
-      active <- optionalNonnegativeInt "active" status
-      pure (Just (name, uid, active))
+    if not belongs
+      then pure Nothing
+      else do
+        name <- textField "name" meta
+        uid <- textField "uid" meta
+        status <- case KM.lookup "status" root of
+          Nothing -> Right KM.empty
+          Just (Object value) -> Right value
+          _ -> Left "CronJob Job status is malformed"
+        active <- optionalNonnegativeInt "active" status
+        pure (Just (name, uid, active))
   podItems <- listItems "PodList" pods
   activePods <- forM podItems $ \item -> do
     root <- asObject "Pod" item
     meta <- objectField "metadata" root
-    unless (textField "namespace" meta == Right (scheduleNamespace pin))
+    unless
+      (textField "namespace" meta == Right (scheduleNamespace pin))
       (Left "Pod list contains another namespace")
     refs <- optionalArrayField "ownerReferences" meta
     let ownedJobs = [(name, uid) | Just (name, uid, _) <- owned]
-        belongs ref = any (\(name, uid) -> ownedBy "Job" name uid ref) ownedJobs
-          || case ref of
-            Object fields -> case (KM.lookup "kind" fields, KM.lookup "name" fields) of
-              (Just (String "Job"), Just (String name)) ->
-                (scheduleName pin <> "-") `T.isPrefixOf` name
+        belongs ref =
+          any (\(name, uid) -> ownedBy "Job" name uid ref) ownedJobs
+            || case ref of
+              Object fields -> case (KM.lookup "kind" fields, KM.lookup "name" fields) of
+                (Just (String "Job"), Just (String name)) ->
+                  (scheduleName pin <> "-") `T.isPrefixOf` name
+                _ -> False
               _ -> False
-            _ -> False
-    if not (any belongs refs) then pure False else do
-      status <- case KM.lookup "status" root of
-        Nothing -> Right KM.empty
-        Just (Object value) -> Right value
-        _ -> Left "CronJob Pod status is malformed"
-      pure (KM.lookup "phase" status `notElem`
-        [Just (String "Succeeded"), Just (String "Failed")])
-  pure (all (maybe True (\(_, _, active) -> active == 0)) owned
-    && not (or activePods))
+    if not (any belongs refs)
+      then pure False
+      else do
+        status <- case KM.lookup "status" root of
+          Nothing -> Right KM.empty
+          Just (Object value) -> Right value
+          _ -> Left "CronJob Pod status is malformed"
+        pure
+          ( KM.lookup "phase" status
+              `notElem` [Just (String "Succeeded"), Just (String "Failed")]
+          )
+  pure
+    ( all (maybe True (\(_, _, active) -> active == 0)) owned
+        && not (or activePods)
+    )
 
 ownedBy :: Text -> Text -> Text -> Value -> Bool
 ownedBy kind name uid (Object fields) =
@@ -279,37 +341,83 @@ optionalNonnegativeInt :: Text -> KM.KeyMap Value -> Either Text Int
 optionalNonnegativeInt key root = case KM.lookup (Key.fromText key) root of
   Nothing -> Right 0
   Just Null -> Right 0
-  Just number | Success value <- (fromJSON number :: Result Int),
-    value >= 0 -> Right value
+  Just number
+    | Success value <- (fromJSON number :: Result Int)
+    , value >= 0 ->
+        Right value
   _ -> Left ("CronJob observation has malformed " <> key)
 
-kubectlScheduledWriterTransport :: KubernetesRuntimeConfig
-  -> ScheduledWriterTransport
-kubectlScheduledWriterTransport config = ScheduledWriterTransport readOne patchOne
-  listJobs listPods
+kubectlScheduledWriterTransport ::
+  KubernetesRuntimeConfig ->
+  ScheduledWriterTransport
+kubectlScheduledWriterTransport config =
+  ScheduledWriterTransport
+    readOne
+    patchOne
+    listJobs
+    listPods
   where
-    readOne namespace name = readJson ["--namespace", T.unpack namespace,
-      "get", "cronjob", T.unpack name, "-o", "json"]
-    listJobs namespace = readJson ["--namespace", T.unpack namespace,
-      "get", "jobs", "-o", "json"]
-    listPods namespace = readJson ["--namespace", T.unpack namespace,
-      "get", "pods", "-o", "json"]
+    readOne namespace name =
+      readJson
+        [ "--namespace"
+        , T.unpack namespace
+        , "get"
+        , "cronjob"
+        , T.unpack name
+        , "-o"
+        , "json"
+        ]
+    listJobs namespace =
+      readJson
+        [ "--namespace"
+        , T.unpack namespace
+        , "get"
+        , "jobs"
+        , "-o"
+        , "json"
+        ]
+    listPods namespace =
+      readJson
+        [ "--namespace"
+        , T.unpack namespace
+        , "get"
+        , "pods"
+        , "-o"
+        , "json"
+        ]
     readJson arguments = do
       result <- invoke arguments
       pure (result >>= first T.pack . eitherDecodeStrict' . TE.encodeUtf8)
     patchOne namespace name patch = do
-      result <- invoke ["--namespace", T.unpack namespace, "patch", "cronjob",
-        T.unpack name, "--type=json", "-p",
-        T.unpack (TE.decodeUtf8 (BL.toStrict (encode patch)))]
+      result <-
+        invoke
+          [ "--namespace"
+          , T.unpack namespace
+          , "patch"
+          , "cronjob"
+          , T.unpack name
+          , "--type=json"
+          , "-p"
+          , T.unpack (TE.decodeUtf8 (BL.toStrict (encode patch)))
+          ]
       pure (() <$ result)
     invoke arguments = do
       guarded <- runtimeGuard config
       case guarded of
         Left reason -> pure (Left ("cluster guard refused: " <> reason))
         Right () -> do
-          attempted <- try (readProcessWithExitCode "kubectl"
-            (["--context", T.unpack (runtimeKubectlContext config),
-              "--request-timeout=10s"] <> arguments) "")
+          attempted <-
+            try
+              ( readProcessWithExitCode
+                  "kubectl"
+                  ( [ "--context"
+                    , T.unpack (runtimeKubectlContext config)
+                    , "--request-timeout=10s"
+                    ]
+                      <> arguments
+                  )
+                  ""
+              )
           pure $ case attempted of
             Left (_ :: IOException) -> Left "could not invoke kubectl"
             Right (ExitFailure _, _, _) -> Left "could not observe or patch fenced CronJob"

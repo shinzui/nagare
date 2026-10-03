@@ -44,7 +44,8 @@ module Nagare.Inventory.Adapters.KubernetesRuntime
   , withoutCacheClientData
   , observeCacheClientOutput
   , collectionDeleteRequest
-  ) where
+  )
+where
 
 import Control.Exception (IOException, try)
 import Data.Aeson
@@ -64,11 +65,11 @@ import Data.Vector qualified as V
 import Nagare.Database.Secret (ConnectionParts (..), DbSecretInputs (..), b64decode, b64encode, dbHost, defaultDbUser, renderDbSecret, sanitizeDbName, secretKeysFor)
 import Nagare.Dsl.Database (Engine, dbSecretName, parseEngine)
 import Nagare.Dsl.Prelude hiding ((.=))
-import Nagare.Inventory.KubernetesConfiguration (configurationDigest, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor)
 import Nagare.Inventory.Adapter (AdapterExecution (..), OperationAction (..))
 import Nagare.Inventory.Adapters.Kubernetes
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect))
+import Nagare.Inventory.KubernetesConfiguration (configurationDigest, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor)
 import Nagare.Inventory.KubernetesTransport (KubernetesRuntimeConfig (..), invokeKubectl)
 import Nagare.Resource.Inventory (ManagedResource (..))
 import Nagare.Resource.Types
@@ -76,39 +77,49 @@ import Nagare.Resource.Wire (canonicalValue)
 import System.Exit (ExitCode (..))
 import System.Process (readProcessWithExitCode)
 
-mkKubernetesRuntimeOps
-  :: KubernetesRuntimeConfig
-  -> Map ResourceId (ManagedResource, ByteString)
-  -> KubernetesAdapterOps
+mkKubernetesRuntimeOps ::
+  KubernetesRuntimeConfig ->
+  Map ResourceId (ManagedResource, ByteString) ->
+  KubernetesAdapterOps
 mkKubernetesRuntimeOps config = mkKubernetesRuntimeOpsWithCacheKey config (\_ -> pure (Left "cache public-key resolver is not installed"))
 
-mkKubernetesRuntimeOpsWithCacheKey
-  :: KubernetesRuntimeConfig
-  -> (ResourceId -> IO (Either Text Text))
-  -> Map ResourceId (ManagedResource, ByteString)
-  -> KubernetesAdapterOps
+mkKubernetesRuntimeOpsWithCacheKey ::
+  KubernetesRuntimeConfig ->
+  (ResourceId -> IO (Either Text Text)) ->
+  Map ResourceId (ManagedResource, ByteString) ->
+  KubernetesAdapterOps
 mkKubernetesRuntimeOpsWithCacheKey config resolveCacheKey specs =
   fst (mkKubernetesRuntimeOpsAndBatchWithCacheKey config resolveCacheKey specs)
 
-mkKubernetesRuntimeOpsAndBatchWithCacheKey
-  :: KubernetesRuntimeConfig
-  -> (ResourceId -> IO (Either Text Text))
-  -> Map ResourceId (ManagedResource, ByteString)
-  -> (KubernetesAdapterOps, [ResourceId] -> IO [KubernetesState])
+mkKubernetesRuntimeOpsAndBatchWithCacheKey ::
+  KubernetesRuntimeConfig ->
+  (ResourceId -> IO (Either Text Text)) ->
+  Map ResourceId (ManagedResource, ByteString) ->
+  (KubernetesAdapterOps, [ResourceId] -> IO [KubernetesState])
 mkKubernetesRuntimeOpsAndBatchWithCacheKey = mkKubernetesRuntimeObservations False
 
-observeKubernetesConfiguration :: KubernetesRuntimeConfig -> (ResourceId -> IO (Either Text Text))
-  -> Map ResourceId (ManagedResource, ByteString) -> ResourceId -> IO KubernetesState
+observeKubernetesConfiguration ::
+  KubernetesRuntimeConfig ->
+  (ResourceId -> IO (Either Text Text)) ->
+  Map ResourceId (ManagedResource, ByteString) ->
+  ResourceId ->
+  IO KubernetesState
 observeKubernetesConfiguration config cache specs = kubernetesObserve (fst (mkKubernetesRuntimeObservations True config cache specs))
 
-mkKubernetesRuntimeObservations :: Bool -> KubernetesRuntimeConfig -> (ResourceId -> IO (Either Text Text))
-  -> Map ResourceId (ManagedResource, ByteString) -> (KubernetesAdapterOps, [ResourceId] -> IO [KubernetesState])
+mkKubernetesRuntimeObservations ::
+  Bool ->
+  KubernetesRuntimeConfig ->
+  (ResourceId -> IO (Either Text Text)) ->
+  Map ResourceId (ManagedResource, ByteString) ->
+  (KubernetesAdapterOps, [ResourceId] -> IO [KubernetesState])
 mkKubernetesRuntimeObservations stable config resolveCacheKey specs =
-  (KubernetesAdapterOps
-    { kubernetesContext = runtimeContext config
-    , kubernetesObserve = observe
-    , kubernetesMutateConditional = mutate
-    }, observeKubernetesBatchWithGuard (runtimeGuard config) observeWithoutGuard)
+  ( KubernetesAdapterOps
+      { kubernetesContext = runtimeContext config
+      , kubernetesObserve = observe
+      , kubernetesMutateConditional = mutate
+      }
+  , observeKubernetesBatchWithGuard (runtimeGuard config) observeWithoutGuard
+  )
   where
     observe resource = do
       guarded <- runtimeGuard config
@@ -119,10 +130,15 @@ mkKubernetesRuntimeObservations stable config resolveCacheKey specs =
       Nothing -> pure (KubernetesUnknown "Kubernetes resource has no native binding")
       Just (declaration, native) -> case address declaration of
         Kubernetes _ group kind namespace name -> do
-          result <- invoke config
-            (["get", kindToken group kind, T.unpack (nameText name)]
-              <> namespaceArgs namespace <> ["-o", "json", "--ignore-not-found"] <> ["--show-managed-fields" | stable])
-            ""
+          result <-
+            invoke
+              config
+              ( ["get", kindToken group kind, T.unpack (nameText name)]
+                  <> namespaceArgs namespace
+                  <> ["-o", "json", "--ignore-not-found"]
+                  <> ["--show-managed-fields" | stable]
+              )
+              ""
           case result of
             Left reason -> pure (KubernetesUnknown reason)
             -- Before bootstrap installs a CRD, the API server can prove
@@ -147,18 +163,22 @@ mkKubernetesRuntimeObservations stable config resolveCacheKey specs =
           materialized <- case mutationAction mutation of
             CreateResource -> materializeLocalObjectStoreCredential config (mutationNativeJson mutation)
             _ -> pure (Right (mutationNativeJson mutation))
-          resolved <- if mutationAction mutation == RetireResource
-            then pure (Right "")
-            else case materialized of
-              Left reason -> pure (Left reason)
-              Right native -> materializeCacheKey resolveCacheKey native
+          resolved <-
+            if mutationAction mutation == RetireResource
+              then pure (Right "")
+              else case materialized of
+                Left reason -> pure (Left reason)
+                Right native -> materializeCacheKey resolveCacheKey native
           -- Preserve the reviewed unready precondition in the adapter. The
           -- transport uses the same UID/version conditional update form; it
           -- still waits for actual readiness after the corrected write.
           let updateBefore = case (mutationAction mutation, mutationAddress mutation, mutationBefore mutation) of
-                (UpdateResource, Kubernetes _ "serving.knative.dev" kind (Just _) _,
-                  KubernetesNotReady uid revision owner digest) | nameText kind == "service" ->
-                    KubernetesPresent uid revision owner digest
+                ( UpdateResource
+                  , Kubernetes _ "serving.knative.dev" kind (Just _) _
+                  , KubernetesNotReady uid revision owner digest
+                  )
+                    | nameText kind == "service" ->
+                        KubernetesPresent uid revision owner digest
                 _ -> mutationBefore mutation
           request <- case (mutationAction mutation, updateBefore) of
             (CreateResource, KubernetesAbsent _) ->
@@ -186,9 +206,13 @@ mkKubernetesRuntimeObservations stable config resolveCacheKey specs =
                       Kubernetes _ "" kind namespace name | nameText kind == "service" ->
                         case servicePortPatch uid revision native observed of
                           Left reason -> Left reason
-                          Right (Just patch) -> Right
-                            (["patch", "service", T.unpack (nameText name)] <> namespaceArgs namespace
-                              <> ["--type=json", "--field-manager=nagare-inventory", "-p", T.unpack patch], "")
+                          Right (Just patch) ->
+                            Right
+                              ( ["patch", "service", T.unpack (nameText name)]
+                                  <> namespaceArgs namespace
+                                  <> ["--type=json", "--field-manager=nagare-inventory", "-p", T.unpack patch]
+                              , ""
+                              )
                           Right Nothing -> applyRequest uid revision native
                       _ -> applyRequest uid revision native
             _ -> pure (Left "Kubernetes transport received an unsupported action or precondition")
@@ -207,11 +231,11 @@ mkKubernetesRuntimeObservations stable config resolveCacheKey specs =
 -- context and server node before and after the read-only scan; discard every
 -- observation if either check fails. Individual effect paths retain their own
 -- fresh guard calls through 'kubernetesObserve' and 'kubernetesMutateConditional'.
-observeKubernetesBatchWithGuard
-  :: IO (Either Text ())
-  -> (ResourceId -> IO KubernetesState)
-  -> [ResourceId]
-  -> IO [KubernetesState]
+observeKubernetesBatchWithGuard ::
+  IO (Either Text ()) ->
+  (ResourceId -> IO KubernetesState) ->
+  [ResourceId] ->
+  IO [KubernetesState]
 observeKubernetesBatchWithGuard checkGuard observe resources
   | null resources = pure []
   | otherwise = do
@@ -223,23 +247,39 @@ observeKubernetesBatchWithGuard checkGuard observe resources
           after <- checkGuard
           pure (either refused (const states) after)
   where
-    refused reason = replicate (length resources)
-      (KubernetesUnknown ("cluster guard refused: " <> reason))
+    refused reason =
+      replicate
+        (length resources)
+        (KubernetesUnknown ("cluster guard refused: " <> reason))
 
 collectionDeleteRequest :: ProviderAddress -> PhysicalIdentity -> Text -> Either Text ([String], Text)
 collectionDeleteRequest address uid revision = case address of
   Kubernetes _ group kind (Just namespace) name
     | Just prefix <- collectionPathPrefix group (nameText kind) -> do
-    bytes <- canonicalValue (object
-      ["apiVersion" .= ("meta.k8s.io/v1" :: Text)
-      ,"kind" .= ("DeleteOptions" :: Text)
-      ,"preconditions" .= object
-        ["uid" .= physicalIdentityText uid, "resourceVersion" .= revision]
-      ,"propagationPolicy" .= (if group == "batch" && nameText kind == "job"
-          then "Background" else "Orphan" :: Text)])
-    let path = prefix <> "/namespaces/" <> T.unpack (nameText namespace)
-          <> "/" <> T.unpack (nameText kind) <> "s/" <> T.unpack (nameText name)
-    pure (["delete", "--raw", path, "-f", "-"], TE.decodeUtf8 bytes)
+        bytes <-
+          canonicalValue
+            ( object
+                [ "apiVersion" .= ("meta.k8s.io/v1" :: Text)
+                , "kind" .= ("DeleteOptions" :: Text)
+                , "preconditions"
+                    .= object
+                      ["uid" .= physicalIdentityText uid, "resourceVersion" .= revision]
+                , "propagationPolicy"
+                    .= ( if group == "batch" && nameText kind == "job"
+                           then "Background"
+                           else "Orphan" :: Text
+                       )
+                ]
+            )
+        let path =
+              prefix
+                <> "/namespaces/"
+                <> T.unpack (nameText namespace)
+                <> "/"
+                <> T.unpack (nameText kind)
+                <> "s/"
+                <> T.unpack (nameText name)
+        pure (["delete", "--raw", path, "-f", "-"], TE.decodeUtf8 bytes)
   _ -> Left "conditional collection does not support this Kubernetes kind"
 
 collectionPathPrefix :: Text -> Text -> Maybe String
@@ -269,57 +309,73 @@ waitForCollection config address = case address of
 -- their own update proof before they can enter this list.
 supportedUpdateAddress :: ProviderAddress -> Bool
 supportedUpdateAddress (Kubernetes _ group kind _ _) =
-  (group, nameText kind) `elem`
-    [ ("", "namespace")
-    , ("", "configmap")
-    , ("", "service")
-    , ("", "secret")
-    , ("", "persistentvolumeclaim")
-    , ("", "resourcequota")
-    , ("apps", "deployment")
-    , ("apps", "statefulset")
-    , ("serving.knative.dev", "service")
-    , ("batch", "cronjob")
-    , ("networking.k8s.io", "networkpolicy")
-    ]
+  (group, nameText kind)
+    `elem` [ ("", "namespace")
+           , ("", "configmap")
+           , ("", "service")
+           , ("", "secret")
+           , ("", "persistentvolumeclaim")
+           , ("", "resourcequota")
+           , ("apps", "deployment")
+           , ("apps", "statefulset")
+           , ("serving.knative.dev", "service")
+           , ("batch", "cronjob")
+           , ("networking.k8s.io", "networkpolicy")
+           ]
 supportedUpdateAddress _ = False
 
 waitForReadiness :: KubernetesRuntimeConfig -> ProviderAddress -> IO AdapterExecution
 waitForReadiness config address = case address of
-  Kubernetes _ "batch" kind namespace name | nameText kind == "job" ->
-    waitCondition "complete" "job" namespace name "Job"
-  Kubernetes _ "apiextensions.k8s.io" kind namespace name | nameText kind == "customresourcedefinition" ->
-    waitCondition "established" "crd" namespace name "CustomResourceDefinition"
+  Kubernetes _ "batch" kind namespace name
+    | nameText kind == "job" ->
+        waitCondition "complete" "job" namespace name "Job"
+  Kubernetes _ "apiextensions.k8s.io" kind namespace name
+    | nameText kind == "customresourcedefinition" ->
+        waitCondition "established" "crd" namespace name "CustomResourceDefinition"
   Kubernetes _ "cert-manager.io" kind namespace name
     | nameText kind `elem` ["certificate", "clusterissuer"] ->
-      waitCondition "ready" (T.unpack (nameText kind)) namespace name "cert-manager resource"
-  Kubernetes _ "serving.knative.dev" kind namespace name | nameText kind == "service" ->
-    waitCondition "ready" "ksvc" namespace name "Knative Service"
-  Kubernetes _ "serving.knative.dev" kind namespace name | nameText kind == "domainmapping" ->
-    waitCondition "ready" "domainmapping.serving.knative.dev" namespace name "Knative DomainMapping"
+        waitCondition "ready" (T.unpack (nameText kind)) namespace name "cert-manager resource"
+  Kubernetes _ "serving.knative.dev" kind namespace name
+    | nameText kind == "service" ->
+        waitCondition "ready" "ksvc" namespace name "Knative Service"
+  Kubernetes _ "serving.knative.dev" kind namespace name
+    | nameText kind == "domainmapping" ->
+        waitCondition "ready" "domainmapping.serving.knative.dev" namespace name "Knative DomainMapping"
   Kubernetes _ "apps" kind namespace name | nameText kind == "deployment" -> do
-    result <- invoke config
-      (["rollout", "status", "deployment/" <> T.unpack (nameText name)]
-        <> namespaceArgs namespace <> ["--timeout=300s"])
-      ""
+    result <-
+      invoke
+        config
+        ( ["rollout", "status", "deployment/" <> T.unpack (nameText name)]
+            <> namespaceArgs namespace
+            <> ["--timeout=300s"]
+        )
+        ""
     pure $ case result of
       Right (ExitSuccess, _, _) -> AdapterEffectCompleted
       _ -> AdapterEffectAmbiguous "Kubernetes Deployment did not prove availability; reobserve before retry"
   Kubernetes _ "apps" kind namespace name | nameText kind == "statefulset" -> do
-    result <- invoke config
-      (["rollout", "status", "statefulset/" <> T.unpack (nameText name)]
-        <> namespaceArgs namespace <> ["--timeout=300s"])
-      ""
+    result <-
+      invoke
+        config
+        ( ["rollout", "status", "statefulset/" <> T.unpack (nameText name)]
+            <> namespaceArgs namespace
+            <> ["--timeout=300s"]
+        )
+        ""
     pure $ case result of
       Right (ExitSuccess, _, _) -> AdapterEffectCompleted
       _ -> AdapterEffectAmbiguous "Kubernetes StatefulSet did not prove readiness; reobserve before retry"
   _ -> pure AdapterEffectCompleted
   where
     waitCondition condition kind namespace name label = do
-      result <- invoke config
-        (["wait", "--for=condition=" <> condition, kind <> "/" <> T.unpack (nameText name)]
-          <> namespaceArgs namespace <> ["--timeout=300s"])
-        ""
+      result <-
+        invoke
+          config
+          ( ["wait", "--for=condition=" <> condition, kind <> "/" <> T.unpack (nameText name)]
+              <> namespaceArgs namespace
+              <> ["--timeout=300s"]
+          )
+          ""
       pure $ case result of
         Right (ExitSuccess, _, _) -> AdapterEffectCompleted
         _ -> AdapterEffectAmbiguous ("Kubernetes " <> label <> " did not prove readiness; reobserve before retry")
@@ -334,10 +390,14 @@ observeKubernetesHealth config address physical = case address of
         case guarded of
           Left _ -> pure Nothing
           Right () -> do
-            result <- invoke config
-              (["get", kindToken group kind, T.unpack (nameText name)]
-                <> namespaceArgs namespace <> ["-o", "json", "--ignore-not-found"])
-              ""
+            result <-
+              invoke
+                config
+                ( ["get", kindToken group kind, T.unpack (nameText name)]
+                    <> namespaceArgs namespace
+                    <> ["-o", "json", "--ignore-not-found"]
+                )
+                ""
             pure $ case result of
               Right (ExitSuccess, output, _) | not (null output) -> do
                 value <- either (const Nothing) Just (eitherDecodeStrict' (TE.encodeUtf8 (T.pack output)))
@@ -364,12 +424,12 @@ supportsReadiness address = maybe False (const True) (readinessForAddress addres
 
 -- The client ConfigMap's data is delegated at review time, but observation
 -- still compares it with the current output of the named logical cache.
-observeCacheClientOutput
-  :: (ResourceId -> IO (Either Text Text))
-  -> ByteString
-  -> Text
-  -> KubernetesState
-  -> IO KubernetesState
+observeCacheClientOutput ::
+  (ResourceId -> IO (Either Text Text)) ->
+  ByteString ->
+  Text ->
+  KubernetesState ->
+  IO KubernetesState
 observeCacheClientOutput resolve native response state = case eitherDecodeStrict native of
   Left (_ :: String) -> pure (KubernetesUnknown "cache client review bytes are malformed")
   Right desired -> case cacheClientTemplate desired of
@@ -401,17 +461,19 @@ observeCacheClientOutput resolve native response state = case eitherDecodeStrict
 -- this deliberately reports uncertain associative-list reorderings as drift.
 desiredFieldsMatch :: Value -> Value -> Bool
 desiredFieldsMatch desired observed
-  | delegatedServingWebhook desired = servingWebhookRulesMatch desired observed
-      && go [] (withoutWebhookRules desired) observed
+  | delegatedServingWebhook desired =
+      servingWebhookRulesMatch desired observed
+        && go [] (withoutWebhookRules desired) observed
   | otherwise = go [] desired observed
   where
     delegatedServingWebhook (Object root) =
       KM.lookup "apiVersion" root == Just (String "admissionregistration.k8s.io/v1")
-        && KM.lookup "kind" root `elem`
-          [Just (String "MutatingWebhookConfiguration"), Just (String "ValidatingWebhookConfiguration")]
+        && KM.lookup "kind" root
+          `elem` [Just (String "MutatingWebhookConfiguration"), Just (String "ValidatingWebhookConfiguration")]
         && case KM.lookup "metadata" root of
-          Just (Object metadata) -> KM.lookup "name" metadata `elem`
-            [Just (String "webhook.serving.knative.dev"), Just (String "validation.webhook.serving.knative.dev")]
+          Just (Object metadata) ->
+            KM.lookup "name" metadata
+              `elem` [Just (String "webhook.serving.knative.dev"), Just (String "validation.webhook.serving.knative.dev")]
           _ -> False
     delegatedServingWebhook _ = False
     withoutWebhookRules (Object root) = case KM.lookup "webhooks" root of
@@ -425,7 +487,8 @@ desiredFieldsMatch desired observed
     servingWebhookRulesMatch (Object desiredRoot) (Object observedRoot) =
       case (KM.lookup "webhooks" desiredRoot, KM.lookup "webhooks" observedRoot) of
         (Just (Array desiredHooks), Just (Array observedHooks)) ->
-          not (V.null desiredHooks) && V.length desiredHooks == V.length observedHooks
+          not (V.null desiredHooks)
+            && V.length desiredHooks == V.length observedHooks
             && and (V.toList (V.zipWith sameRules desiredHooks observedHooks))
         _ -> False
     servingWebhookRulesMatch _ _ = False
@@ -433,7 +496,8 @@ desiredFieldsMatch desired observed
       KM.lookup "name" desiredHook == KM.lookup "name" observedHook
         && case (KM.lookup "rules" desiredHook, KM.lookup "rules" observedHook) of
           (Just (Array desiredRules), Just (Array observedRules)) ->
-            not (V.null desiredRules) && not (V.null observedRules)
+            not (V.null desiredRules)
+              && not (V.null observedRules)
               && all validRule (V.toList observedRules)
               && groups desiredRules == groups observedRules
               && resources desiredRules == resources observedRules
@@ -442,16 +506,20 @@ desiredFieldsMatch desired observed
           _ -> False
     sameRules _ _ = False
     groups = Set.unions . map (textSet "apiGroups") . V.toList
-    resources rules = Set.fromList
-      [maybe item id (T.stripSuffix "/status" item)
-      | rule <- V.toList rules, item <- Set.toList (textSet "resources" rule)]
+    resources rules =
+      Set.fromList
+        [ maybe item id (T.stripSuffix "/status" item)
+        | rule <- V.toList rules
+        , item <- Set.toList (textSet "resources" rule)
+        ]
     operations = Set.unions . map (textSet "operations") . V.toList
     scopes = Set.fromList . mapMaybe (ruleText "scope") . V.toList
-    validRule rule = not (Set.null (textSet "apiGroups" rule))
-      && not (Set.null (textSet "apiVersions" rule))
-      && not (Set.null (textSet "operations" rule))
-      && not (Set.null (textSet "resources" rule))
-      && isJust (ruleText "scope" rule)
+    validRule rule =
+      not (Set.null (textSet "apiGroups" rule))
+        && not (Set.null (textSet "apiVersions" rule))
+        && not (Set.null (textSet "operations" rule))
+        && not (Set.null (textSet "resources" rule))
+        && isJust (ruleText "scope" rule)
     ruleText key (Object value) = case KM.lookup key value of
       Just (String item) -> Just item
       _ -> Nothing
@@ -461,17 +529,24 @@ desiredFieldsMatch desired observed
       _ -> Set.empty
     textSet _ _ = Set.empty
     go path (Object desired) (Object observed) =
-      all (\(key, value) -> case KM.lookup key observed of
-        Just actual -> go (Key.toText key : path) value actual
-        Nothing -> (key == "value" && value == String "" && case path of
-          "env" : _ -> KM.lookup "valueFrom" observed == Nothing
-          _ -> False)
-          || (key == "readOnly" && value == Bool False && case path of
-            "volumeMounts" : _ -> True
-            _ -> False)
-          || (key `elem` ["hostAliases", "volumes"]
-            && value `elem` [Null, Array V.empty]
-            && path == ["spec", "template", "spec"])) (KM.toList desired)
+      all
+        ( \(key, value) -> case KM.lookup key observed of
+            Just actual -> go (Key.toText key : path) value actual
+            Nothing ->
+              ( key == "value" && value == String "" && case path of
+                  "env" : _ -> KM.lookup "valueFrom" observed == Nothing
+                  _ -> False
+              )
+                || ( key == "readOnly" && value == Bool False && case path of
+                       "volumeMounts" : _ -> True
+                       _ -> False
+                   )
+                || ( key `elem` ["hostAliases", "volumes"]
+                       && value `elem` [Null, Array V.empty]
+                       && path == ["spec", "template", "spec"]
+                   )
+        )
+        (KM.toList desired)
     go path (Array desired) (Array observed) =
       length desired == length observed && and (zipWith (go path) (foldr (:) [] desired) (foldr (:) [] observed))
     go ("cpu" : className : "resources" : _) (String desired) (String observed)
@@ -521,29 +596,41 @@ parseObservedWithConfiguration stable config resource native response = do
       stampedOwner = textAt "nagare.dev/resource-id" annotations >>= either (const Nothing) Just . mkResourceId
       owner = if stampedContext == Just (contextIdText (runtimeContext config)) then stampedOwner else Nothing
       desiredDigest = contentDigest native
-      fieldsMatch = desiredFieldsMatch (withoutCacheClientData desired) observed
-        && credentialDataMatches desired observed
-        && cacheClientDataMatches desired observed
+      fieldsMatch =
+        desiredFieldsMatch (withoutCacheClientData desired) observed
+          && credentialDataMatches desired observed
+          && cacheClientDataMatches desired observed
       stampMatches = textAt "nagare.dev/spec-digest" annotations == Just (digestText desiredDigest)
-      hasAnyStamp = any (`KM.member` annotations)
-        ["nagare.dev/context-id", "nagare.dev/resource-id", "nagare.dev/spec-digest"]
-  when (hasAnyStamp && (stampedContext == Nothing || stampedOwner == Nothing))
+      hasAnyStamp =
+        any
+          (`KM.member` annotations)
+          ["nagare.dev/context-id", "nagare.dev/resource-id", "nagare.dev/spec-digest"]
+  when
+    (hasAnyStamp && (stampedContext == Nothing || stampedOwner == Nothing))
     (Left "Kubernetes inventory ownership stamp is incomplete or malformed")
-  driftDigest <- if stable then configurationDigest observed
-    else if fieldsMatch && (not hasAnyStamp || stampMatches)
-      then Right desiredDigest else contentDigest <$> canonicalValue observed
+  driftDigest <-
+    if stable
+      then configurationDigest observed
+      else
+        if fieldsMatch && (not hasAnyStamp || stampMatches)
+          then Right desiredDigest
+          else contentDigest <$> canonicalValue observed
   -- Keep a different logical owner visible to status. A foreign context is
   -- refused below rather than being misclassified as an unstamped object.
-  when (stampedContext /= Nothing && stampedContext /= Just (contextIdText (runtimeContext config)))
+  when
+    (stampedContext /= Nothing && stampedContext /= Just (contextIdText (runtimeContext config)))
     (Left "Kubernetes object belongs to a different inventory context")
-  pure $ if deploymentSelectorReplacement desired observed
+  pure $
+    if deploymentSelectorReplacement desired observed
       || statefulSetImmutableReplacement desired observed
-    then KubernetesReplacementRequired uid revision owner driftDigest
-    else if jobFailed observed
-      then KubernetesFailed uid revision owner driftDigest
-    else if not (observedReady observed)
-      then KubernetesNotReady uid revision owner driftDigest
-    else KubernetesPresent uid revision owner driftDigest
+      then KubernetesReplacementRequired uid revision owner driftDigest
+      else
+        if jobFailed observed
+          then KubernetesFailed uid revision owner driftDigest
+          else
+            if not (observedReady observed)
+              then KubernetesNotReady uid revision owner driftDigest
+              else KubernetesPresent uid revision owner driftDigest
 
 -- A failed controller condition is a health finding, not a failed read of
 -- the object's configuration or ownership. Execution still refuses to verify
@@ -608,20 +695,22 @@ jobFailed _ = False
 -- | Read the upload container's terminal copy of the object-store receipt.
 -- The pod must belong to the exact completed Job UID; the caller validates
 -- the receipt against the bound native Job before recording completion.
-readBackupReceiptFromCompletedPod
-  :: KubernetesRuntimeConfig
-  -> Map ResourceId (ManagedResource, ByteString)
-  -> ResourceId
-  -> PhysicalIdentity
-  -> IO (Either Text ByteString)
+readBackupReceiptFromCompletedPod ::
+  KubernetesRuntimeConfig ->
+  Map ResourceId (ManagedResource, ByteString) ->
+  ResourceId ->
+  PhysicalIdentity ->
+  IO (Either Text ByteString)
 readBackupReceiptFromCompletedPod config specs resource physical =
   readCompletedJobContainerMessage config specs resource physical "upload"
 
-readCompletedJobContainerMessage
-  :: KubernetesRuntimeConfig
-  -> Map ResourceId (ManagedResource, ByteString)
-  -> ResourceId -> PhysicalIdentity -> Text
-  -> IO (Either Text ByteString)
+readCompletedJobContainerMessage ::
+  KubernetesRuntimeConfig ->
+  Map ResourceId (ManagedResource, ByteString) ->
+  ResourceId ->
+  PhysicalIdentity ->
+  Text ->
+  IO (Either Text ByteString)
 readCompletedJobContainerMessage config specs resource physical containerName =
   case Map.lookup resource specs of
     Just (declaration, _) -> case address declaration of
@@ -630,9 +719,19 @@ readCompletedJobContainerMessage config specs resource physical containerName =
         case guarded of
           Left reason -> pure (Left ("cluster guard refused backup receipt read: " <> reason))
           Right () -> do
-            result <- invoke config
-              ["get", "pods", "--namespace", T.unpack (nameText namespace),
-               "-l", "batch.kubernetes.io/job-name=" <> T.unpack (nameText name), "-o", "json"] ""
+            result <-
+              invoke
+                config
+                [ "get"
+                , "pods"
+                , "--namespace"
+                , T.unpack (nameText namespace)
+                , "-l"
+                , "batch.kubernetes.io/job-name=" <> T.unpack (nameText name)
+                , "-o"
+                , "json"
+                ]
+                ""
             pure $ do
               (code, output, _) <- result
               unless (code == ExitSuccess) (Left "Kubernetes backup Pod receipt read failed")
@@ -645,8 +744,8 @@ backupReceiptFromPodList :: PhysicalIdentity -> Value -> Either Text ByteString
 backupReceiptFromPodList physical =
   completedJobContainerMessageFromPodList physical "upload"
 
-completedJobContainerMessageFromPodList
-  :: PhysicalIdentity -> Text -> Value -> Either Text ByteString
+completedJobContainerMessageFromPodList ::
+  PhysicalIdentity -> Text -> Value -> Either Text ByteString
 completedJobContainerMessageFromPodList physical containerName (Object root) = case KM.lookup "items" root of
   Just (Array items) -> case mapMaybe matchingReceipt (V.toList items) of
     [receipt] -> Right (TE.encodeUtf8 receipt)
@@ -674,9 +773,13 @@ completedJobContainerMessageFromPodList physical containerName (Object root) = c
         && KM.lookup "uid" owner == Just (String (physicalIdentityText physical))
         && KM.lookup "controller" owner == Just (Bool True)
     ownedByJob _ = False
-    findSelected = foldr (\candidate rest -> case candidate of
-      Object container | KM.lookup "name" container == Just (String containerName) -> Just container
-      _ -> rest) Nothing
+    findSelected =
+      foldr
+        ( \candidate rest -> case candidate of
+            Object container | KM.lookup "name" container == Just (String containerName) -> Just container
+            _ -> rest
+        )
+        Nothing
 completedJobContainerMessageFromPodList _ _ _ = Left "Kubernetes Pod list is not an object"
 
 crdEstablished :: Value -> Bool
@@ -695,47 +798,56 @@ hasCondition conditionType (Object root) = case KM.lookup "status" root of
     _ -> False
   _ -> False
   where
-    completed (Object condition) = KM.lookup "type" condition == Just (String conditionType)
-      && KM.lookup "status" condition == Just (String "True")
+    completed (Object condition) =
+      KM.lookup "type" condition == Just (String conditionType)
+        && KM.lookup "status" condition == Just (String "True")
     completed _ = False
 hasCondition _ _ = False
 
 deploymentAvailable :: Value -> Bool
-deploymentAvailable value@(Object root) = hasCondition "Available" value
-  && case (KM.lookup "status" root, KM.lookup "metadata" root) of
-    (Just (Object status), Just (Object metadata)) ->
-      case (KM.lookup "observedGeneration" status, KM.lookup "generation" metadata) of
-        (Just observed, Just desired) -> observed == desired
-        _ -> False
-    _ -> False
+deploymentAvailable value@(Object root) =
+  hasCondition "Available" value
+    && case (KM.lookup "status" root, KM.lookup "metadata" root) of
+      (Just (Object status), Just (Object metadata)) ->
+        case (KM.lookup "observedGeneration" status, KM.lookup "generation" metadata) of
+          (Just observed, Just desired) -> observed == desired
+          _ -> False
+      _ -> False
 deploymentAvailable _ = False
 
 -- StatefulSets do not expose the Deployment Available condition. A matching
 -- observed generation and the requested number of ready, updated Pods is the
 -- bounded health signal; it does not assert application-level or data health.
 statefulSetReady :: Value -> Bool
-statefulSetReady (Object root) = case
-  (KM.lookup "metadata" root, KM.lookup "spec" root, KM.lookup "status" root) of
-    (Just (Object metadata), Just (Object specValue), Just (Object status)) ->
-      let requested = case KM.lookup "replicas" specValue of
-            Just (Number replicas) -> Just replicas
-            Nothing -> Just 1
-            _ -> Nothing
-          ready = case KM.lookup "readyReplicas" status of
-            Just (Number replicas) -> Just replicas
-            Nothing -> Just 0
-            _ -> Nothing
-          updated = case KM.lookup "updatedReplicas" status of
-            Just (Number replicas) -> Just replicas
-            Nothing -> Just 0
-            _ -> Nothing
-       in case (KM.lookup "generation" metadata,
-                KM.lookup "observedGeneration" status, requested, ready, updated) of
-            (Just (Number generation), Just (Number observed), Just desired,
-              Just actualReady, Just actualUpdated) ->
+statefulSetReady (Object root) = case (KM.lookup "metadata" root, KM.lookup "spec" root, KM.lookup "status" root) of
+  (Just (Object metadata), Just (Object specValue), Just (Object status)) ->
+    let requested = case KM.lookup "replicas" specValue of
+          Just (Number replicas) -> Just replicas
+          Nothing -> Just 1
+          _ -> Nothing
+        ready = case KM.lookup "readyReplicas" status of
+          Just (Number replicas) -> Just replicas
+          Nothing -> Just 0
+          _ -> Nothing
+        updated = case KM.lookup "updatedReplicas" status of
+          Just (Number replicas) -> Just replicas
+          Nothing -> Just 0
+          _ -> Nothing
+     in case ( KM.lookup "generation" metadata
+             , KM.lookup "observedGeneration" status
+             , requested
+             , ready
+             , updated
+             ) of
+          ( Just (Number generation)
+            , Just (Number observed)
+            , Just desired
+            , Just actualReady
+            , Just actualUpdated
+            ) ->
               generation == observed && actualReady >= desired && actualUpdated >= desired
-            _ -> False
-    _ -> False
+          _ -> False
+  _ -> False
 statefulSetReady _ = False
 
 metadataOf :: Value -> Either Text Object
@@ -768,8 +880,12 @@ materializeCredential native = case eitherDecodeStrict (TE.encodeUtf8 native) of
         pure $ do
           entries <- sequence generated
           case value of
-            Object root -> TE.decodeUtf8 <$> canonicalValue (Object
-              (KM.insert "data" (Object (KM.fromList entries)) root))
+            Object root ->
+              TE.decodeUtf8
+                <$> canonicalValue
+                  ( Object
+                      (KM.insert "data" (Object (KM.fromList entries)) root)
+                  )
             _ -> Left "auth credential template is malformed"
     Right Nothing -> case backupSigningCredentialKind value of
       Left reason -> pure (Left reason)
@@ -778,8 +894,12 @@ materializeCredential native = case eitherDecodeStrict (TE.encodeUtf8 native) of
         pure $ do
           entry <- generated
           case value of
-            Object root -> TE.decodeUtf8 <$> canonicalValue (Object
-              (KM.insert "data" (Object (KM.fromList [entry])) root))
+            Object root ->
+              TE.decodeUtf8
+                <$> canonicalValue
+                  ( Object
+                      (KM.insert "data" (Object (KM.fromList [entry])) root)
+                  )
             _ -> Left "backup signing credential template is malformed"
       Right Nothing -> case databaseCredentialKind value of
         Left reason -> pure (Left reason)
@@ -798,12 +918,16 @@ materializeCredential native = case eitherDecodeStrict (TE.encodeUtf8 native) of
 -- The second namespace receives those exact values after its reviewed
 -- prerequisite, without storing them in the review or a fixed manifest.
 materializeLocalObjectStoreCredential :: KubernetesRuntimeConfig -> Text -> IO (Either Text Text)
-materializeLocalObjectStoreCredential config = materializeLocalObjectStoreCredentialWith
-  (invoke config ["get", "secret", "nagare-minio-credentials", "-n", "nagare-system", "-o", "json"] "") config
+materializeLocalObjectStoreCredential config =
+  materializeLocalObjectStoreCredentialWith
+    (invoke config ["get", "secret", "nagare-minio-credentials", "-n", "nagare-system", "-o", "json"] "")
+    config
 
-materializeLocalObjectStoreCredentialWith
-  :: IO (Either Text (ExitCode, String, String))
-  -> KubernetesRuntimeConfig -> Text -> IO (Either Text Text)
+materializeLocalObjectStoreCredentialWith ::
+  IO (Either Text (ExitCode, String, String)) ->
+  KubernetesRuntimeConfig ->
+  Text ->
+  IO (Either Text Text)
 materializeLocalObjectStoreCredentialWith readSource config native =
   case eitherDecodeStrict (TE.encodeUtf8 native) of
     Left (_ :: String) -> pure (Left "reviewed Kubernetes object is malformed")
@@ -819,8 +943,10 @@ materializeLocalObjectStoreCredentialWith readSource config native =
         pure $ do
           (code, body, _) <- fetched
           unless (code == ExitSuccess) (Left "local object-store source credential is unavailable")
-          source <- first (const "local object-store source credential is malformed")
-            (eitherDecodeStrict (TE.encodeUtf8 (T.pack body)))
+          source <-
+            first
+              (const "local object-store source credential is malformed")
+              (eitherDecodeStrict (TE.encodeUtf8 (T.pack body)))
           expected <- minioCopySourceId value
           fields <- minioSourceData config expected source
           insertMinioData value fields
@@ -849,8 +975,12 @@ minioCredentialKind value@(Object root) | KM.lookup "kind" root == Just (String 
       metadata <- metadataOf value
       namespace <- fieldText "namespace" metadata
       name <- fieldText "name" metadata
-      unless (namespace == expected && name == "nagare-minio-credentials"
-          && not (KM.member "data" root) && not (KM.member "stringData" root))
+      unless
+        ( namespace == expected
+            && name == "nagare-minio-credentials"
+            && not (KM.member "data" root)
+            && not (KM.member "stringData" root)
+        )
         (Left "local object-store credential template has unexpected content")
       pure (Just copied)
 minioCredentialKind _ = Right Nothing
@@ -871,10 +1001,13 @@ minioSourceData config expected source = do
   annotations <- case KM.lookup "annotations" metadata of
     Just (Object fields) -> Right fields
     _ -> Left "local object-store source credential has no ownership stamps"
-  unless (name == "nagare-minio-credentials" && namespace == "nagare-system"
-      && textAt "nagare.dev/context-id" annotations == Just (contextIdText (runtimeContext config))
-      && textAt "nagare.dev/minio-credential-template" annotations == Just "v1"
-      && textAt "nagare.dev/resource-id" annotations == Just expected)
+  unless
+    ( name == "nagare-minio-credentials"
+        && namespace == "nagare-system"
+        && textAt "nagare.dev/context-id" annotations == Just (contextIdText (runtimeContext config))
+        && textAt "nagare.dev/minio-credential-template" annotations == Just "v1"
+        && textAt "nagare.dev/resource-id" annotations == Just expected
+    )
     (Left "local object-store source credential is not owned by this context")
   case source of
     Object root -> case KM.lookup "data" root of
@@ -883,10 +1016,13 @@ minioSourceData config expected source = do
     _ -> Left "local object-store source credential is malformed"
 
 validMinioData :: KM.KeyMap Value -> Bool
-validMinioData fields = Set.fromList (KM.keys fields) == Set.fromList
-  ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"]
-  && all (\case String encoded -> either (const False) (not . T.null) (b64decode encoded); _ -> False)
-    (KM.elems fields)
+validMinioData fields =
+  Set.fromList (KM.keys fields)
+    == Set.fromList
+      ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"]
+    && all
+      (\case String encoded -> either (const False) (not . T.null) (b64decode encoded); _ -> False)
+      (KM.elems fields)
 
 generateAuthKey :: Text -> IO (Either Text (Key, Value))
 generateAuthKey key = do
@@ -915,7 +1051,8 @@ authCredentialKind (Object root) | KM.lookup "kind" root == Just (String "Secret
     Just "v1" -> do
       namespace <- fieldText "namespace" metadata
       name <- fieldText "name" metadata
-      unless (namespace == "nagare-system" && not (KM.member "data" root) && not (KM.member "stringData" root))
+      unless
+        (namespace == "nagare-system" && not (KM.member "data" root) && not (KM.member "stringData" root))
         (Left "auth credential template has an invalid namespace or includes data")
       case name of
         "nagare-en-api-keys" -> Right (Just ["read-write", "read-only"])
@@ -949,8 +1086,11 @@ backupSigningCredentialKind value@(Object root) | KM.lookup "kind" root == Just 
         _ -> Left "backup signing credential lacks database label"
       name <- fieldText "name" metadata
       _ <- fieldText "namespace" metadata
-      unless (name == "nagare-dbbackup-" <> database <> "-signing"
-          && not (KM.member "data" root) && not (KM.member "stringData" root))
+      unless
+        ( name == "nagare-dbbackup-" <> database <> "-signing"
+            && not (KM.member "data" root)
+            && not (KM.member "stringData" root)
+        )
         (Left "backup signing credential template has unexpected content")
       pure (Just ())
     Just _ -> Left "unknown backup signing credential template"
@@ -967,7 +1107,8 @@ databaseCredentialKind value = case value of
     case textAt "nagare.dev/credential-template" annotations of
       Nothing -> Right Nothing
       Just "database-v1" -> do
-        unless (not (KM.member "data" root) && not (KM.member "stringData" root))
+        unless
+          (not (KM.member "data" root) && not (KM.member "stringData" root))
           (Left "database credential template may not include Secret data")
         labels <- case KM.lookup "labels" metadata of
           Just (Object fields) -> Right fields
@@ -996,8 +1137,9 @@ fillCredential template dbName namespace engine password = do
 
 credentialDataMatches :: Value -> Value -> Bool
 credentialDataMatches desired observed = case authCredentialKind desired of
-  Right (Just keys) -> databaseCredentialKind desired == Right Nothing
-    && dataMatches (Set.fromList (map Key.fromText keys)) observed
+  Right (Just keys) ->
+    databaseCredentialKind desired == Right Nothing
+      && dataMatches (Set.fromList (map Key.fromText keys)) observed
   Left _ -> False
   Right Nothing -> case backupSigningCredentialKind desired of
     Right (Just ()) -> backupSigningDataMatches observed
@@ -1035,8 +1177,9 @@ backupSigningDataMatches _ = False
 
 dataMatches :: Set.Set Key -> Value -> Bool
 dataMatches expected (Object root) = case KM.lookup "data" root of
-  Just (Object entries) -> Set.fromList (KM.keys entries) == expected
-    && all (\case String encoded -> either (const False) (not . T.null) (b64decode encoded); _ -> False) (KM.elems entries)
+  Just (Object entries) ->
+    Set.fromList (KM.keys entries) == expected
+      && all (\case String encoded -> either (const False) (not . T.null) (b64decode encoded); _ -> False) (KM.elems entries)
   _ -> False
 dataMatches _ _ = False
 
@@ -1053,7 +1196,8 @@ cacheClientTemplate value = case value of
       Just "v1" -> do
         name <- fieldText "name" metadata
         namespace <- fieldText "namespace" metadata
-        unless (name == "nagare-nix-cache-client" && namespace == "personal")
+        unless
+          (name == "nagare-nix-cache-client" && namespace == "personal")
           (Left "cache client template has an unexpected address")
         producerText <- fieldText "nagare.dev/cache-key-producer" annotations
         producer <- mkResourceId producerText
@@ -1063,7 +1207,8 @@ cacheClientTemplate value = case value of
         template <- case KM.toList entries of
           [("nix.conf", String textValue)] -> Right textValue
           _ -> Left "cache client template must contain only nix.conf"
-        unless (T.count "${ATTIC_PUBLIC_KEY}" template == 1)
+        unless
+          (T.count "${ATTIC_PUBLIC_KEY}" template == 1)
           (Left "cache client template has no unique public-key slot")
         pure (Just (producer, template))
       Just _ -> Left "unknown cache client template"
@@ -1111,15 +1256,19 @@ materializeCacheKey resolve native = case eitherDecodeStrict (TE.encodeUtf8 nati
 
 validCachePublicKey :: Text -> Bool
 validCachePublicKey key =
-  not (T.null key) && T.count ":" key == 1
+  not (T.null key)
+    && T.count ":" key == 1
     && T.all (\character -> character > ' ' && character /= '\DEL') key
 
 addPreconditions :: PhysicalIdentity -> Text -> Text -> Either Text Text
 addPreconditions uid revision native = do
   value <- first (T.pack . show) (eitherDecodeStrict (TE.encodeUtf8 native))
   metadata <- metadataOf value
-  let guarded = KM.insert "uid" (String (physicalIdentityText uid))
-        (KM.insert "resourceVersion" (String revision) metadata)
+  let guarded =
+        KM.insert
+          "uid"
+          (String (physicalIdentityText uid))
+          (KM.insert "resourceVersion" (String revision) metadata)
   case value of
     Object root -> TE.decodeUtf8 <$> canonicalValue (Object (KM.insert "metadata" (Object guarded) root))
     _ -> Left "Kubernetes native object is not an object"
@@ -1135,9 +1284,14 @@ applyRequest uid revision native = do
 adoptionPatch :: KubernetesRuntimeConfig -> KubernetesMutation -> PhysicalIdentity -> Text -> IO (Either Text ([String], Text))
 adoptionPatch config mutation uid revision = case mutationAddress mutation of
   Kubernetes _ group kind namespace name -> do
-    fetched <- invoke config
-      (["get", kindToken group kind, T.unpack (nameText name)]
-        <> namespaceArgs namespace <> ["-o", "json"]) ""
+    fetched <-
+      invoke
+        config
+        ( ["get", kindToken group kind, T.unpack (nameText name)]
+            <> namespaceArgs namespace
+            <> ["-o", "json"]
+        )
+        ""
     pure $ do
       observed <- case fetched of
         Right (ExitSuccess, output, _) ->
@@ -1146,7 +1300,8 @@ adoptionPatch config mutation uid revision = case mutationAddress mutation of
       metadata <- metadataOf observed
       liveUid <- fieldText "uid" metadata
       liveRevision <- fieldText "resourceVersion" metadata
-      unless (liveUid == physicalIdentityText uid && liveRevision == revision)
+      unless
+        (liveUid == physicalIdentityText uid && liveRevision == revision)
         (Left "Kubernetes adoption identity or resourceVersion changed")
       annotations <- case KM.lookup "annotations" metadata of
         Nothing -> Right Nothing
@@ -1157,22 +1312,40 @@ adoptionPatch config mutation uid revision = case mutationAddress mutation of
             , ("nagare.dev/resource-id", resourceIdText (mutationResource mutation))
             , ("nagare.dev/spec-digest", digestText (mutationNativeDigest mutation))
             ]
-      when (maybe False (\values -> any (\(key, _) -> KM.member (Key.fromText key) values) reserved) annotations)
+      when
+        (maybe False (\values -> any (\(key, _) -> KM.member (Key.fromText key) values) reserved) annotations)
         (Left "Kubernetes object already has an inventory ownership stamp")
       let tests =
             [ object ["op" .= ("test" :: Text), "path" .= ("/metadata/uid" :: Text), "value" .= liveUid]
             , object ["op" .= ("test" :: Text), "path" .= ("/metadata/resourceVersion" :: Text), "value" .= liveRevision]
             ]
           writes = case annotations of
-            Nothing -> [object ["op" .= ("add" :: Text), "path" .= ("/metadata/annotations" :: Text),
-              "value" .= object [Key.fromText key .= value | (key, value) <- reserved]]]
-            Just _ -> [object ["op" .= ("add" :: Text),
-              "path" .= ("/metadata/annotations/" <> T.replace "/" "~1" key), "value" .= value]
-              | (key, value) <- reserved]
+            Nothing ->
+              [ object
+                  [ "op" .= ("add" :: Text)
+                  , "path" .= ("/metadata/annotations" :: Text)
+                  , "value" .= object [Key.fromText key .= value | (key, value) <- reserved]
+                  ]
+              ]
+            Just _ ->
+              [ object
+                  [ "op" .= ("add" :: Text)
+                  , "path" .= ("/metadata/annotations/" <> T.replace "/" "~1" key)
+                  , "value" .= value
+                  ]
+              | (key, value) <- reserved
+              ]
       patch <- canonicalValue (toJSON (tests <> writes))
-      pure (["patch", kindToken group kind, T.unpack (nameText name)]
-        <> namespaceArgs namespace <> ["--type=json", "--field-manager=nagare-inventory",
-          "-p", T.unpack (TE.decodeUtf8 patch)], "")
+      pure
+        ( ["patch", kindToken group kind, T.unpack (nameText name)]
+            <> namespaceArgs namespace
+            <> [ "--type=json"
+               , "--field-manager=nagare-inventory"
+               , "-p"
+               , T.unpack (TE.decodeUtf8 patch)
+               ]
+        , ""
+        )
   _ -> pure (Left "Kubernetes adoption has no Kubernetes address")
 
 -- | Service ports use a merge key that includes the port number. SSA can
@@ -1187,27 +1360,33 @@ servicePortPatch uid revision native observed = do
   observedSpec <- specOf observed
   ports <- maybe (Left "reviewed Service lacks spec.ports") Right (KM.lookup "ports" desiredSpec)
   oldPorts <- maybe (Left "observed Service lacks spec.ports") Right (KM.lookup "ports" observedSpec)
-  if desiredFieldsMatch ports oldPorts then Right Nothing else do
-    desiredMetadata <- metadataOf desired
-    observedMetadata <- metadataOf observed
-    desiredAnnotations <- annotationsOf desiredMetadata
-    observedAnnotations <- annotationsOf observedMetadata
-    newDigest <- maybe (Left "reviewed Service lacks spec digest") Right (KM.lookup "nagare.dev/spec-digest" desiredAnnotations)
-    let projectedSpec = KM.insert "ports" ports observedSpec
-        projectedAnnotations = KM.insert "nagare.dev/spec-digest" newDigest observedAnnotations
-        projectedMetadata = KM.insert "annotations" (Object projectedAnnotations) observedMetadata
-        projected = case observed of
-          Object root -> Object (KM.insert "metadata" (Object projectedMetadata) (KM.insert "spec" (Object projectedSpec) root))
-          _ -> observed
-    unless (desiredFieldsMatch desired projected)
-      (Left "Service port transition also changes other fields; a guarded per-kind patch is required")
-    patch <- canonicalValue (toJSON
-      [ object ["op" .= ("test" :: Text), "path" .= ("/metadata/uid" :: Text), "value" .= physicalIdentityText uid]
-      , object ["op" .= ("test" :: Text), "path" .= ("/metadata/resourceVersion" :: Text), "value" .= revision]
-      , object ["op" .= ("replace" :: Text), "path" .= ("/spec/ports" :: Text), "value" .= ports]
-      , object ["op" .= ("replace" :: Text), "path" .= ("/metadata/annotations/nagare.dev~1spec-digest" :: Text), "value" .= newDigest]
-      ])
-    pure (Just (TE.decodeUtf8 patch))
+  if desiredFieldsMatch ports oldPorts
+    then Right Nothing
+    else do
+      desiredMetadata <- metadataOf desired
+      observedMetadata <- metadataOf observed
+      desiredAnnotations <- annotationsOf desiredMetadata
+      observedAnnotations <- annotationsOf observedMetadata
+      newDigest <- maybe (Left "reviewed Service lacks spec digest") Right (KM.lookup "nagare.dev/spec-digest" desiredAnnotations)
+      let projectedSpec = KM.insert "ports" ports observedSpec
+          projectedAnnotations = KM.insert "nagare.dev/spec-digest" newDigest observedAnnotations
+          projectedMetadata = KM.insert "annotations" (Object projectedAnnotations) observedMetadata
+          projected = case observed of
+            Object root -> Object (KM.insert "metadata" (Object projectedMetadata) (KM.insert "spec" (Object projectedSpec) root))
+            _ -> observed
+      unless
+        (desiredFieldsMatch desired projected)
+        (Left "Service port transition also changes other fields; a guarded per-kind patch is required")
+      patch <-
+        canonicalValue
+          ( toJSON
+              [ object ["op" .= ("test" :: Text), "path" .= ("/metadata/uid" :: Text), "value" .= physicalIdentityText uid]
+              , object ["op" .= ("test" :: Text), "path" .= ("/metadata/resourceVersion" :: Text), "value" .= revision]
+              , object ["op" .= ("replace" :: Text), "path" .= ("/spec/ports" :: Text), "value" .= ports]
+              , object ["op" .= ("replace" :: Text), "path" .= ("/metadata/annotations/nagare.dev~1spec-digest" :: Text), "value" .= newDigest]
+              ]
+          )
+      pure (Just (TE.decodeUtf8 patch))
   where
     specOf (Object root) = case KM.lookup "spec" root of
       Just (Object value) -> Right value
@@ -1220,10 +1399,14 @@ servicePortPatch uid revision native observed = do
 verifyLiveOwnership :: KubernetesRuntimeConfig -> ProviderAddress -> PhysicalIdentity -> Text -> IO (Either Text Value)
 verifyLiveOwnership config target uid revision = case target of
   Kubernetes _ group kind namespace name -> do
-    result <- invoke config
-      (["get", kindToken group kind, T.unpack (nameText name)]
-        <> namespaceArgs namespace <> ["-o", "json", "--show-managed-fields"])
-      ""
+    result <-
+      invoke
+        config
+        ( ["get", kindToken group kind, T.unpack (nameText name)]
+            <> namespaceArgs namespace
+            <> ["-o", "json", "--show-managed-fields"]
+        )
+        ""
     pure $ case result of
       Right (ExitSuccess, output, _) -> do
         observed <- first (T.pack . show) (eitherDecodeStrict (TE.encodeUtf8 (T.pack output)))

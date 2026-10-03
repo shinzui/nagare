@@ -269,8 +269,9 @@ runAction env site act = do
               case gateBeforeDeploy of
                 Left (status, reason) -> pure (textResponse status reason)
                 Right () -> do
-                  outcome <- try (submitReviewedSite env site dir s act)
-                    :: IO (Either SomeException (Either (Status, Text) Text))
+                  outcome <-
+                    try (submitReviewedSite env site dir s act) ::
+                      IO (Either SomeException (Either (Status, Text) Text))
                   pure $ case outcome of
                     Left _ -> textResponse status500 "reviewed submission failed"
                     Right (Left (status, reason)) -> textResponse status reason
@@ -293,9 +294,13 @@ webhookInventoryGate active = do
     Left err -> Left (status500, "cannot verify inventory history before webhook deploy: " <> T.pack (show err))
     Right _ -> Right ()
 
-submitReviewedSite
-  :: Env -> Text -> FilePath -> StaticSite -> DeployAction
-  -> IO (Either (Status, Text) Text)
+submitReviewedSite ::
+  Env ->
+  Text ->
+  FilePath ->
+  StaticSite ->
+  DeployAction ->
+  IO (Either (Status, Text) Text)
 submitReviewedSite env routeSite dir site action =
   case qualifyImage (env ^. #targetProfile) (site ^. #image) of
     Left reason -> pure (Left (status400, reason))
@@ -319,12 +324,19 @@ submitReviewedSite env routeSite dir site action =
               case previewIds of
                 Left reason -> pure (Left (status409, reason))
                 Right stores -> do
-                  let args = reviewedSiteArgs
-                        (contextNameText (env ^. #activeTarget . #contextName))
-                        (dir </> "nagare" </> "Config.hs") dir (env ^. #baseDomain)
-                        (resourceIdText imageId) (map resourceIdText stores) action
-                  (exitCode, _, _) <- readCreateProcessWithExitCode
-                    (proc (env ^. #nagarectlBin) args) ""
+                  let args =
+                        reviewedSiteArgs
+                          (contextNameText (env ^. #activeTarget . #contextName))
+                          (dir </> "nagare" </> "Config.hs")
+                          dir
+                          (env ^. #baseDomain)
+                          (resourceIdText imageId)
+                          (map resourceIdText stores)
+                          action
+                  (exitCode, _, _) <-
+                    readCreateProcessWithExitCode
+                      (proc (env ^. #nagarectlBin) args)
+                      ""
                   case exitCode of
                     ExitSuccess -> pure (Right tag)
                     ExitFailure code -> do

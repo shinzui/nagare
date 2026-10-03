@@ -25,10 +25,10 @@ import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapters.KubernetesRuntime
   ( KubernetesRuntimeConfig
   )
-import Nagare.Inventory.DataFence.DeploymentWriter qualified as Deployment
 import Nagare.Inventory.DataFence.CompletedJob
-import Nagare.Inventory.DataFence.GuardAuthority
 import Nagare.Inventory.DataFence.DatabaseShutdown
+import Nagare.Inventory.DataFence.DeploymentWriter qualified as Deployment
+import Nagare.Inventory.DataFence.GuardAuthority
 import Nagare.Inventory.DataFence.KubernetesExclusion
 import Nagare.Inventory.DataFence.KubernetesIntent
 import Nagare.Inventory.DataFence.MountGuardRuntime
@@ -121,21 +121,30 @@ captureKubernetesFence transport declarations native request = do
                 Right servicePin -> do
                   let routes = maybe [] (\(resource, _, _) -> [resource]) servicePin
                       candidates =
-                        (if captureNetworkExclusion request
-                          then discoverWriterCandidatesForIsolatedNetwork
-                          else discoverWriterCandidatesForRoutes)
-                          root routes cluster claim declarations native
+                        ( if captureNetworkExclusion request
+                            then discoverWriterCandidatesForIsolatedNetwork
+                            else discoverWriterCandidatesForRoutes
+                        )
+                          root
+                          routes
+                          cluster
+                          claim
+                          declarations
+                          native
                   case candidates of
                     Left reason -> pure (Left reason)
                     Right selected -> do
                       writers <- forM selected (captureWriter transport native)
                       let assembled = do
                             captured <- sequence writers
-                            (_, rootBytes) <- maybe
-                              (Left "database dependency root lacks accepted native evidence")
-                              Right (Map.lookup root native)
+                            (_, rootBytes) <-
+                              maybe
+                                (Left "database dependency root lacks accepted native evidence")
+                                Right
+                                (Map.lookup root native)
                             databaseEngine <- parseAcceptedDatabaseEngine rootBytes
-                            unless (databaseEngine == captureExpectedDatabaseEngine request)
+                            unless
+                              (databaseEngine == captureExpectedDatabaseEngine request)
                               (Left "requested database engine differs from accepted native evidence")
                             claimPhysical <- mkPhysicalIdentity claimUid
                             let servicePhysical =
@@ -175,10 +184,17 @@ captureKubernetesFence transport declarations native request = do
                                             , "backing" .= backingValue backing
                                             ]
                                       ]
-                                        <> maybe [] (\engine ->
-                                          ["databaseEngine" .= engineToken engine]) databaseEngine
-                                        <> maybe [] (\principal ->
-                                          ["replicaSetControllerPrincipal" .= principal])
+                                        <> maybe
+                                          []
+                                          ( \engine ->
+                                              ["databaseEngine" .= engineToken engine]
+                                          )
+                                          databaseEngine
+                                        <> maybe
+                                          []
+                                          ( \principal ->
+                                              ["replicaSetControllerPrincipal" .= principal]
+                                          )
                                           (captureReplicaSetControllerPrincipal request)
                                         <> maybe
                                           []
@@ -317,16 +333,29 @@ captureWriter transport native candidate = case candidateAddress candidate of
           (captureScheduleTransport transport)
           ns
           nativeName
-      JobWriter -> readCompletedJob (captureCompletedJobTransport transport)
-        ns nativeName
-    completed <- if candidateKind candidate == JobWriter
-      then fmap (fmap Just) (captureCompletedJob
-        (captureCompletedJobTransport transport) ns nativeName)
-      else pure (Right Nothing)
-    replicaSets <- if candidateKind candidate == DeploymentWriter && mounted
-      then Deployment.listDeploymentReplicaSets
-        (captureDeploymentTransport transport) ns
-      else pure (Right (object ["items" .= ([] :: [Value])]))
+      JobWriter ->
+        readCompletedJob
+          (captureCompletedJobTransport transport)
+          ns
+          nativeName
+    completed <-
+      if candidateKind candidate == JobWriter
+        then
+          fmap
+            (fmap Just)
+            ( captureCompletedJob
+                (captureCompletedJobTransport transport)
+                ns
+                nativeName
+            )
+        else pure (Right Nothing)
+    replicaSets <-
+      if candidateKind candidate == DeploymentWriter && mounted
+        then
+          Deployment.listDeploymentReplicaSets
+            (captureDeploymentTransport transport)
+            ns
+        else pure (Right (object ["items" .= ([] :: [Value])]))
     pure $ do
       value <- current
       completedPin <- completed
@@ -340,13 +369,16 @@ captureWriter transport native candidate = case candidateAddress candidate of
         DeploymentWriter -> Right ["spec", "template", "spec"]
         CronJobWriter -> Right ["spec", "jobTemplate", "spec", "template", "spec"]
         JobWriter -> Right ["spec", "template", "spec"]
-      (_, acceptedBytes) <- maybe
-        (Left "accepted writer lacks native evidence") Right
-        (Map.lookup resource native)
+      (_, acceptedBytes) <-
+        maybe
+          (Left "accepted writer lacks native evidence")
+          Right
+          (Map.lookup resource native)
       acceptedValue <- first T.pack (eitherDecodeStrict' acceptedBytes)
       acceptedPrincipal <- workloadServiceAccountPrincipal ns path acceptedValue
       livePrincipal <- workloadServiceAccountPrincipal ns path value
-      unless (acceptedPrincipal == livePrincipal)
+      unless
+        (acceptedPrincipal == livePrincipal)
         (Left "live writer service account differs from accepted native evidence")
       saved <- case candidateKind candidate of
         StatefulSetWriter -> do
@@ -380,23 +412,34 @@ captureWriter transport native candidate = case candidateAddress candidate of
               replicas
               digest
               selector
-          replicaSet <- if mounted then
-              Deployment.parseActiveDeploymentReplicaSet pin value =<< replicaSets
-            else Right Nothing
+          replicaSet <-
+            if mounted
+              then
+                Deployment.parseActiveDeploymentReplicaSet pin value =<< replicaSets
+              else Right Nothing
           pure
             ( object
                 ( [ "kind" .= ("Deployment" :: Text)
-                , "namespace" .= ns
-                , "name" .= nativeName
-                , "uid" .= uid
-                , "replicas" .= replicas
-                , "specDigest" .= digest
-                , "selector" .= selector
-                , "mountsTarget" .= mounted
-                ] <> if mounted then ["replicaSet" .= fmap
-                  (\(replicaName, replicaUid) -> object
-                    ["name" .= replicaName, "uid" .= replicaUid]) replicaSet]
-                  else [] )
+                  , "namespace" .= ns
+                  , "name" .= nativeName
+                  , "uid" .= uid
+                  , "replicas" .= replicas
+                  , "specDigest" .= digest
+                  , "selector" .= selector
+                  , "mountsTarget" .= mounted
+                  ]
+                    <> if mounted
+                      then
+                        [ "replicaSet"
+                            .= fmap
+                              ( \(replicaName, replicaUid) ->
+                                  object
+                                    ["name" .= replicaName, "uid" .= replicaUid]
+                              )
+                              replicaSet
+                        ]
+                      else []
+                )
             )
         CronJobWriter -> do
           suspend <- case KM.lookup "suspend" spec of
@@ -418,16 +461,19 @@ captureWriter transport native candidate = case candidateAddress candidate of
             )
         JobWriter -> do
           pin <- maybe (Left "completed Job proof is absent") Right completedPin
-          unless (uid == completedJobUid pin)
+          unless
+            (uid == completedJobUid pin)
             (Left "completed Job changed during fence capture")
-          pure (object
-            [ "kind" .= ("CompletedJob" :: Text)
-            , "namespace" .= ns
-            , "name" .= nativeName
-            , "uid" .= uid
-            , "specDigest" .= completedJobSpecDigest pin
-            , "mountsTarget" .= mounted
-            ])
+          pure
+            ( object
+                [ "kind" .= ("CompletedJob" :: Text)
+                , "namespace" .= ns
+                , "name" .= nativeName
+                , "uid" .= uid
+                , "specDigest" .= completedJobSpecDigest pin
+                , "mountsTarget" .= mounted
+                ]
+            )
       pure (resource, physical, saved)
   _ -> pure (Left "accepted writer has no namespaced Kubernetes address")
 

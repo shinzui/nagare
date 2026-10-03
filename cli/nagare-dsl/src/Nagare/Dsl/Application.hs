@@ -137,11 +137,18 @@ mkApplication app = do
 -- different app while the renderer stamps it with this aggregate's label.
 checkTaskAssociation :: Application -> Either Text ()
 checkTaskAssociation app =
-  case [task ^. #name | task <- applicationTasks app
-        , Just parent <- [task ^. #app], parent /= app ^. #name] of
+  case [ task ^. #name
+       | task <- applicationTasks app
+       , Just parent <- [task ^. #app]
+       , parent /= app ^. #name
+       ] of
     [] -> Right ()
-    taskName : _ -> Left ("task '" <> serviceNameText taskName
-      <> "' references a different application")
+    taskName : _ ->
+      Left
+        ( "task '"
+            <> serviceNameText taskName
+            <> "' references a different application"
+        )
 
 -- | The (workload-name, own-image) pair of every workload that pins an image:
 -- the service (when present), each worker, and each task that carries its own

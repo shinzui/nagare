@@ -89,8 +89,8 @@ runBrokerCreate provider nameT params =
   runBrokerCreateWithGuard provider nameT params (const (pure ()))
 
 -- | Guard the resolved typed broker, since Config.hs can differ from argv.
-runBrokerCreateWithGuard
-  :: BrokerProvider -> Text -> BrokerCreateParams -> (Broker -> IO ()) -> IO ()
+runBrokerCreateWithGuard ::
+  BrokerProvider -> Text -> BrokerCreateParams -> (Broker -> IO ()) -> IO ()
 runBrokerCreateWithGuard provider nameT params checkOwnership = do
   unless (params ^. #dryRun) $
     dieT "live broker create requires a reviewed standalone broker scope"
@@ -112,12 +112,12 @@ runBrokerCreateWithGuard provider nameT params checkOwnership = do
 
 resolveBroker :: BrokerProvider -> Text -> BrokerCreateParams -> IO Broker
 resolveBroker provider nameT params = case params ^. #config of
-    Just path -> do
-      eBroker <- loadBroker path
-      case eBroker of
-        Left err -> dieT (renderLoadError err)
-        Right b -> pure b
-    Nothing -> orDie (buildBroker provider nameT params)
+  Just path -> do
+    eBroker <- loadBroker path
+    case eBroker of
+      Left err -> dieT (renderLoadError err)
+      Right b -> pure b
+  Nothing -> orDie (buildBroker provider nameT params)
 
 printManifest :: ByteString -> IO ()
 printManifest m = do

@@ -42,8 +42,6 @@ import Nagare.Inventory.Journal
   , transactionIdText
   , validateJournal
   )
-import Nagare.Resource.Reference (Dependency (OrderedAfter))
-import Nagare.Inventory.PreviewOwnership (previewScopeMembers)
 import Nagare.Inventory.Plan.Publication (loadPublishedReview)
 import Nagare.Inventory.Plan.Types
   ( InventoryHistory (..)
@@ -56,6 +54,7 @@ import Nagare.Inventory.Plan.Types
   , reviewBundleDocument
   , reviewBundleScopes
   )
+import Nagare.Inventory.PreviewOwnership (previewScopeMembers)
 import Nagare.Inventory.Store
   ( DeletionTombstone
       ( tombstoneAt
@@ -102,15 +101,16 @@ import Nagare.Resource.Inventory
   , candidateChanges
   , candidateGenerations
   , candidateInventory
-  , pairedDnsRouteClaim
   , claimsOf
   , composedDeclarations
   , declarationId
   , inventoryScopes
+  , pairedDnsRouteClaim
   , scopeBundles
   , scopeId
   )
 import Nagare.Resource.Policy (DataPolicy (Stateless))
+import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
   ( ProviderAddress (Kubernetes)
   , ResourceId
@@ -145,9 +145,13 @@ loadInventoryHistory store = do
         _ <- sequence collected
         migrationProofs <- Map.fromList <$> sequence migrations
         let reservations = retainedReservations historical
-            claimHolders = Map.fromListWith (<>)
-              [(claim, [Managed resource]) | (_, resource) <- Map.elems historical,
-                (_, claim) <- NE.toList (claimsOf (Managed resource))]
+            claimHolders =
+              Map.fromListWith
+                (<>)
+                [ (claim, [Managed resource])
+                | (_, resource) <- Map.elems historical
+                , (_, claim) <- NE.toList (claimsOf (Managed resource))
+                ]
         unless
           (all (\(claim, holders) -> length holders == 1 || pairedDnsRouteClaim claim holders) (Map.toList claimHolders))
           (Left (StoreInvalidObject "head.json" "retained address claims overlap"))
@@ -287,28 +291,48 @@ incompleteApplicationOnlyReview published events transaction operationId operati
             Just Pending -> True
             Just (Completed _) -> True
             _ -> False
-      neverIntended selectedOp = all
-        (\event -> eventTransaction event /= transaction || eventOperation event /= Just selectedOp
-          || case eventState event of
-            Pending -> True
-            OperatorResolved marker -> selectedOp == operationId && "stopped-incomplete-application:" `T.isPrefixOf` marker
-            _ -> False) events
-      pendingUpdate scope = plannedAction operation == UpdateResource && scopeKind (scopeId scope) == Application
-        && neverIntended operationId
-        && all (\entry -> let op = reviewPlannedOperation entry in
-          plannedExecutor op == KubernetesExecutor && isNothing (reviewFenceDigest entry)
-          && all (owns scope) (NE.toList (plannedResources op))
-          && (if plannedOperationId op == operationId then True else
-            case Map.findWithDefault Pending (plannedOperationId op) previous of
-              Completed _ -> True
-              Pending -> plannedAction op == CreateResource && neverIntended (plannedOperationId op)
-                && case [member | bundle <- scopeBundles scope, Managed member <- declarations bundle,
-                      NE.toList (plannedResources op) == [member ^. #identity]] of
-                  [member] -> member ^. #dataPolicy == Stateless
-                    && (case member ^. #address of Kubernetes _ "" kind (Just _) _ -> nameText kind == "configmap"; _ -> False)
-                    && any (\resource -> OrderedAfter resource `elem` (member ^. #dependencies)) selected
+      neverIntended selectedOp =
+        all
+          ( \event ->
+              eventTransaction event /= transaction
+                || eventOperation event /= Just selectedOp
+                || case eventState event of
+                  Pending -> True
+                  OperatorResolved marker -> selectedOp == operationId && "stopped-incomplete-application:" `T.isPrefixOf` marker
                   _ -> False
-              _ -> False)) reviewed
+          )
+          events
+      pendingUpdate scope =
+        plannedAction operation == UpdateResource
+          && scopeKind (scopeId scope) == Application
+          && neverIntended operationId
+          && all
+            ( \entry ->
+                let op = reviewPlannedOperation entry
+                 in plannedExecutor op == KubernetesExecutor
+                      && isNothing (reviewFenceDigest entry)
+                      && all (owns scope) (NE.toList (plannedResources op))
+                      && ( if plannedOperationId op == operationId
+                             then True
+                             else case Map.findWithDefault Pending (plannedOperationId op) previous of
+                               Completed _ -> True
+                               Pending ->
+                                 plannedAction op == CreateResource
+                                   && neverIntended (plannedOperationId op)
+                                   && case [ member
+                                           | bundle <- scopeBundles scope
+                                           , Managed member <- declarations bundle
+                                           , NE.toList (plannedResources op) == [member ^. #identity]
+                                           ] of
+                                     [member] ->
+                                       member ^. #dataPolicy == Stateless
+                                         && (case member ^. #address of Kubernetes _ "" kind (Just _) _ -> nameText kind == "configmap"; _ -> False)
+                                         && any (\resource -> OrderedAfter resource `elem` (member ^. #dependencies)) selected
+                                     _ -> False
+                               _ -> False
+                         )
+            )
+            reviewed
       owns scope resource =
         any
           ( \bundle ->
@@ -320,20 +344,30 @@ incompleteApplicationOnlyReview published events transaction operationId operati
    in case changed of
         [owner] | scopeKind owner `elem` [Application, Standalone] -> case [scope | scope <- scopes, scopeId scope == owner] of
           [scope] ->
-            (pendingUpdate scope || (all
-              ( \entry ->
-                  let planned = reviewPlannedOperation entry
-                   in plannedAction planned == CreateResource
-                        && plannedExecutor planned == KubernetesExecutor
-                        && isNothing (reviewFenceDigest entry)
-                        && all (owns scope) (NE.toList (plannedResources planned))
-              )
-              reviewed
-              && (if scopeKind owner == Application then all otherSettled reviewed else
-                    all (\entry -> let op = plannedOperationId (reviewPlannedOperation entry)
-                      in op == operationId || case Map.lookup op previous of
-                        Just (Completed _) -> True
-                        _ -> False) reviewed)))
+            ( pendingUpdate scope
+                || ( all
+                       ( \entry ->
+                           let planned = reviewPlannedOperation entry
+                            in plannedAction planned == CreateResource
+                                 && plannedExecutor planned == KubernetesExecutor
+                                 && isNothing (reviewFenceDigest entry)
+                                 && all (owns scope) (NE.toList (plannedResources planned))
+                       )
+                       reviewed
+                       && ( if scopeKind owner == Application
+                              then all otherSettled reviewed
+                              else
+                                all
+                                  ( \entry ->
+                                      let op = plannedOperationId (reviewPlannedOperation entry)
+                                       in op == operationId || case Map.lookup op previous of
+                                            Just (Completed _) -> True
+                                            _ -> False
+                                  )
+                                  reviewed
+                          )
+                   )
+            )
               && case [ member
                       | bundle <- scopeBundles scope
                       , Managed member <- declarations bundle

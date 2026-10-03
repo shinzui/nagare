@@ -192,8 +192,10 @@ runCommand overrides executable arguments = do
       | otherwise = ": " <> T.strip (T.pack stderrText)
 
 normalizeKubeconfig :: KubeconfigIdentity -> ByteString -> Either Text ByteString
-normalizeKubeconfig identity = normalizeKubeconfigAt
-  (identity ^. #contextName) ("https://" <> identity ^. #hostName <> ":6443")
+normalizeKubeconfig identity =
+  normalizeKubeconfigAt
+    (identity ^. #contextName)
+    ("https://" <> identity ^. #hostName <> ":6443")
 
 normalizeLocalKubeconfig :: Text -> ByteString -> Either Text ByteString
 normalizeLocalKubeconfig context input = do
@@ -201,13 +203,18 @@ normalizeLocalKubeconfig context input = do
   (_, cluster) <- singletonNamedEntry "clusters" root
   clusterBody <- objectAt "cluster" cluster
   endpoint <- textAt "server" clusterBody
-  unless (any (`T.isPrefixOf` endpoint)
-      ["https://127.0.0.1:", "https://0.0.0.0:", "https://localhost:"])
+  unless
+    ( any
+        (`T.isPrefixOf` endpoint)
+        ["https://127.0.0.1:", "https://0.0.0.0:", "https://localhost:"]
+    )
     (Left "local kubeconfig endpoint is not a loopback k3d API")
   let portText = snd (T.breakOnEnd ":" endpoint)
-  unless (case (TextRead.decimal portText :: Either String (Int, Text)) of
-      Right (port, rest) -> T.null rest && port > 0 && port <= 65535
-      Left _ -> False)
+  unless
+    ( case (TextRead.decimal portText :: Either String (Int, Text)) of
+        Right (port, rest) -> T.null rest && port > 0 && port <= 65535
+        Left _ -> False
+    )
     (Left "local kubeconfig API port is invalid")
   normalizeKubeconfigAt context endpoint input
 
@@ -240,8 +247,10 @@ normalizeKubeconfigAt target endpoint input = do
   pure output
 
 validateNormalizedKubeconfig :: KubeconfigIdentity -> ByteString -> Either Text ()
-validateNormalizedKubeconfig identity = validateNormalizedKubeconfigAt
-  (identity ^. #contextName) ("https://" <> identity ^. #hostName <> ":6443")
+validateNormalizedKubeconfig identity =
+  validateNormalizedKubeconfigAt
+    (identity ^. #contextName)
+    ("https://" <> identity ^. #hostName <> ":6443")
 
 validateNormalizedKubeconfigAt :: Text -> Text -> ByteString -> Either Text ()
 validateNormalizedKubeconfigAt expectedName expectedEndpoint input = do

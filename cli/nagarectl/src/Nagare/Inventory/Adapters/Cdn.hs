@@ -9,7 +9,8 @@ module Nagare.Inventory.Adapters.Cdn
   , DnsAdapterOps (..)
   , dnsSpecsFromDeclarations
   , mkDnsAdapter
-  ) where
+  )
+where
 
 import Data.Aeson
 import Data.Aeson.Types (Parser)
@@ -23,10 +24,10 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
+import Nagare.Inventory.CollectionPolicy (supportsRetainedCollection)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect), OperationId)
 import Nagare.Resource.Inventory
-import Nagare.Inventory.CollectionPolicy (supportsRetainedCollection)
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
@@ -45,7 +46,8 @@ data DnsMutationPlan = DnsMutationPlan
   , dnsPlanTarget :: !Text
   , dnsPlanTtl :: !Int
   , dnsPlanPrevious :: !(Maybe (Text, Int))
-  } deriving stock (Eq, Show, Generic)
+  }
+  deriving stock (Eq, Show, Generic)
 
 data DnsObservation
   = DnsMissing
@@ -68,8 +70,11 @@ dnsSpecsFromDeclarations declarations = do
   pure result
   where
     byId = Map.fromList [(declarationId declaration, declaration) | declaration <- declarations]
-    dnsResources = [resource | Managed resource <- declarations,
-      DnsRecord {} <- [resource ^. #address]]
+    dnsResources =
+      [ resource
+      | Managed resource <- declarations
+      , DnsRecord {} <- [resource ^. #address]
+      ]
     bind resource = case (resource ^. #address, resource ^. #spec) of
       (DnsRecord _ _ host, DnsARecord _ _)
         | Hostname host `elem` resource ^. #aliases
@@ -86,58 +91,64 @@ dnsSpecsFromDeclarations declarations = do
       _ -> Left "DNS resource lacks its exact hostname, domain, or Pulumi backend dependency"
 
 mkDnsAdapter :: Map ResourceId ManagedResource -> Map ResourceId DnsBinding -> DnsAdapterOps -> Adapter
-mkDnsAdapter accepted specs ops = Adapter
-  { adapterExecutor = CdnExecutor
-  , adapterIdentity = "reviewed-google-cloud-dns"
-  , adapterVersion = "1"
-  , adapterObserve = \resources -> do
-      entries <- traverse observe resources
-      pure (sequence entries >>= observationSet)
-  , adapterPrepare = \operation -> pure $ do
-      plan <- first (PrepareRefused (plannedOperationId operation)) (planFor accepted specs operation)
-      bytes <- first (PrepareRefused (plannedOperationId operation)) (canonicalValue (toJSON plan))
-      pure (PreparedNative bytes (summary plan))
-  , adapterPreflight = \operation prepared -> case decodePlan accepted specs operation (preparedNativeBytes prepared) of
-      Left reason -> pure (Left reason)
-      Right plan -> do
-        fact <- dnsInspect ops (dnsPlanResource plan)
-        pure (checkBefore plan fact)
-  , adapterExecute = \operation prepared -> case decodePlan accepted specs operation (preparedNativeBytes prepared) of
-      Left reason -> pure (AdapterEffectFailed (KnownNoEffect reason))
-      Right plan -> do
-        fact <- dnsInspect ops (dnsPlanResource plan)
-        case checkBefore plan fact of
-          Left reason -> pure (AdapterEffectFailed (KnownNoEffect reason))
-          Right () -> case dnsPlanAction plan of
-            CreateResource -> dnsCreate ops plan
-            UpdateResource | dnsPlanPrevious plan == Just (dnsPlanTarget plan, dnsPlanTtl plan) -> pure AdapterEffectCompleted
-            UpdateResource -> dnsReplace ops plan
-            RetireResource -> dnsDelete ops plan
-            VerifyResource -> pure AdapterEffectCompleted
-            _ -> pure (AdapterEffectFailed (KnownNoEffect "DNS action is unsupported"))
-  , adapterVerify = \operation prepared -> case decodePlan accepted specs operation (preparedNativeBytes prepared) of
-      Left reason -> pure (Left reason)
-      Right plan -> do
-        fact <- dnsInspect ops (dnsPlanResource plan)
-        pure (case fact of
-          DnsMissing | dnsPlanAction plan == RetireResource -> Right (absentProof plan)
-          DnsPresent physical target ttl | dnsPlanAction plan /= RetireResource && target == dnsPlanTarget plan && ttl == dnsPlanTtl plan ->
-            Right (proof plan physical)
-          DnsUnavailable reason -> Left reason
-          _ -> Left "DNS record does not match the reviewed target after execution")
-  , adapterRecover = \operation prepared -> case decodePlan accepted specs operation (preparedNativeBytes prepared) of
-      Left reason -> pure (RecoveryUnresolved reason)
-      Right plan -> do
-        fact <- dnsInspect ops (dnsPlanResource plan)
-        pure (case (dnsPlanAction plan, fact) of
-          (RetireResource, DnsMissing) -> RecoveryProvedComplete (absentProof plan)
-          (action, DnsPresent physical target ttl)
-            | action == VerifyResource || (action == UpdateResource && dnsPlanPrevious plan == Just (dnsPlanTarget plan, dnsPlanTtl plan))
-            , target == dnsPlanTarget plan && ttl == dnsPlanTtl plan ->
-                RecoveryProvedComplete (proof plan physical)
-          (_, DnsUnavailable reason) -> RecoveryUnresolved reason
-          _ -> RecoveryUnresolved "DNS mutation may have taken effect; inspect the exact record and journal before recovery")
-  }
+mkDnsAdapter accepted specs ops =
+  Adapter
+    { adapterExecutor = CdnExecutor
+    , adapterIdentity = "reviewed-google-cloud-dns"
+    , adapterVersion = "1"
+    , adapterObserve = \resources -> do
+        entries <- traverse observe resources
+        pure (sequence entries >>= observationSet)
+    , adapterPrepare = \operation -> pure $ do
+        plan <- first (PrepareRefused (plannedOperationId operation)) (planFor accepted specs operation)
+        bytes <- first (PrepareRefused (plannedOperationId operation)) (canonicalValue (toJSON plan))
+        pure (PreparedNative bytes (summary plan))
+    , adapterPreflight = \operation prepared -> case decodePlan accepted specs operation (preparedNativeBytes prepared) of
+        Left reason -> pure (Left reason)
+        Right plan -> do
+          fact <- dnsInspect ops (dnsPlanResource plan)
+          pure (checkBefore plan fact)
+    , adapterExecute = \operation prepared -> case decodePlan accepted specs operation (preparedNativeBytes prepared) of
+        Left reason -> pure (AdapterEffectFailed (KnownNoEffect reason))
+        Right plan -> do
+          fact <- dnsInspect ops (dnsPlanResource plan)
+          case checkBefore plan fact of
+            Left reason -> pure (AdapterEffectFailed (KnownNoEffect reason))
+            Right () -> case dnsPlanAction plan of
+              CreateResource -> dnsCreate ops plan
+              UpdateResource | dnsPlanPrevious plan == Just (dnsPlanTarget plan, dnsPlanTtl plan) -> pure AdapterEffectCompleted
+              UpdateResource -> dnsReplace ops plan
+              RetireResource -> dnsDelete ops plan
+              VerifyResource -> pure AdapterEffectCompleted
+              _ -> pure (AdapterEffectFailed (KnownNoEffect "DNS action is unsupported"))
+    , adapterVerify = \operation prepared -> case decodePlan accepted specs operation (preparedNativeBytes prepared) of
+        Left reason -> pure (Left reason)
+        Right plan -> do
+          fact <- dnsInspect ops (dnsPlanResource plan)
+          pure
+            ( case fact of
+                DnsMissing | dnsPlanAction plan == RetireResource -> Right (absentProof plan)
+                DnsPresent physical target ttl
+                  | dnsPlanAction plan /= RetireResource && target == dnsPlanTarget plan && ttl == dnsPlanTtl plan ->
+                      Right (proof plan physical)
+                DnsUnavailable reason -> Left reason
+                _ -> Left "DNS record does not match the reviewed target after execution"
+            )
+    , adapterRecover = \operation prepared -> case decodePlan accepted specs operation (preparedNativeBytes prepared) of
+        Left reason -> pure (RecoveryUnresolved reason)
+        Right plan -> do
+          fact <- dnsInspect ops (dnsPlanResource plan)
+          pure
+            ( case (dnsPlanAction plan, fact) of
+                (RetireResource, DnsMissing) -> RecoveryProvedComplete (absentProof plan)
+                (action, DnsPresent physical target ttl)
+                  | action == VerifyResource || (action == UpdateResource && dnsPlanPrevious plan == Just (dnsPlanTarget plan, dnsPlanTtl plan))
+                  , target == dnsPlanTarget plan && ttl == dnsPlanTtl plan ->
+                      RecoveryProvedComplete (proof plan physical)
+                (_, DnsUnavailable reason) -> RecoveryUnresolved reason
+                _ -> RecoveryUnresolved "DNS mutation may have taken effect; inspect the exact record and journal before recovery"
+            )
+    }
   where
     observe resource = case Map.lookup resource specs of
       Nothing -> pure (Left "DNS resource is absent from reviewed declarations")
@@ -148,7 +159,8 @@ mkDnsAdapter accepted specs ops = Adapter
           DnsPresent physical target ttl
             | Map.notMember resource accepted -> Right (resource, ObservedUnowned physical)
             | DnsARecord wanted wantedTtl <- dnsDeclaration binding ^. #spec
-            , target == wanted && ttl == wantedTtl -> Right (resource, ObservedPresent physical)
+            , target == wanted && ttl == wantedTtl ->
+                Right (resource, ObservedPresent physical)
             | otherwise -> Right (resource, ObservedDrifted physical (contentDigest (TE.encodeUtf8 (target <> ":" <> T.pack (show ttl)))))
           DnsUnavailable reason -> Right (resource, ObservationUnavailable reason)
     summary plan = case dnsPlanAction plan of
@@ -174,13 +186,24 @@ planFor accepted specs operation = do
     UpdateResource -> case Map.lookup resource accepted of
       Just old -> case (old ^. #address, old ^. #spec) of
         (DnsRecord oldProject oldZone oldHost, DnsARecord oldTarget oldTtl)
-          | (project, zone, host) == (oldProject, oldZone, oldHost)
-          -> Right (Just (oldTarget, oldTtl))
+          | (project, zone, host) == (oldProject, oldZone, oldHost) ->
+              Right (Just (oldTarget, oldTtl))
         _ -> Left "reviewed DNS update requires the same accepted project, zone, and hostname"
       Nothing -> Left "DNS update lacks an accepted previous declaration"
     _ -> Left "DNS action is unsupported by this reviewed record contract"
-  pure (DnsMutationPlan (plannedOperationId operation) (plannedAction operation)
-    (plannedInputDigest operation) resource project zone host target ttl previous)
+  pure
+    ( DnsMutationPlan
+        (plannedOperationId operation)
+        (plannedAction operation)
+        (plannedInputDigest operation)
+        resource
+        project
+        zone
+        host
+        target
+        ttl
+        previous
+    )
 
 decodePlan :: Map ResourceId ManagedResource -> Map ResourceId DnsBinding -> PlannedOperation -> ByteString -> Either Text DnsMutationPlan
 decodePlan accepted specs operation bytes = do
@@ -203,26 +226,51 @@ checkBefore plan fact = case (dnsPlanAction plan, fact) of
   _ -> Left "DNS observation differs from the reviewed action"
 
 absentProof :: DnsMutationPlan -> ContentDigest
-absentProof plan = contentDigest (either (error . T.unpack) id
-  (canonicalValue (object ["plan" .= plan, "confirmedAbsent" .= True])))
+absentProof plan =
+  contentDigest
+    ( either
+        (error . T.unpack)
+        id
+        (canonicalValue (object ["plan" .= plan, "confirmedAbsent" .= True]))
+    )
 
 proof :: DnsMutationPlan -> PhysicalIdentity -> ContentDigest
-proof plan physical = contentDigest (either (error . T.unpack) id
-  (canonicalValue (object ["plan" .= plan, "physical" .= physical])))
+proof plan physical =
+  contentDigest
+    ( either
+        (error . T.unpack)
+        id
+        (canonicalValue (object ["plan" .= plan, "physical" .= physical]))
+    )
 
 instance ToJSON DnsMutationPlan where
-  toJSON plan = object
-    [ "version" .= (1 :: Int), "operation" .= dnsPlanOperation plan
-    , "action" .= dnsPlanAction plan, "inputDigest" .= dnsPlanInputDigest plan
-    , "resource" .= dnsPlanResource plan, "project" .= dnsPlanProject plan
-    , "zone" .= dnsPlanZone plan, "host" .= dnsPlanHost plan
-    , "target" .= dnsPlanTarget plan, "ttl" .= dnsPlanTtl plan
-    , "previous" .= dnsPlanPrevious plan]
+  toJSON plan =
+    object
+      [ "version" .= (1 :: Int)
+      , "operation" .= dnsPlanOperation plan
+      , "action" .= dnsPlanAction plan
+      , "inputDigest" .= dnsPlanInputDigest plan
+      , "resource" .= dnsPlanResource plan
+      , "project" .= dnsPlanProject plan
+      , "zone" .= dnsPlanZone plan
+      , "host" .= dnsPlanHost plan
+      , "target" .= dnsPlanTarget plan
+      , "ttl" .= dnsPlanTtl plan
+      , "previous" .= dnsPlanPrevious plan
+      ]
 
 instance FromJSON DnsMutationPlan where
   parseJSON = withObject "DNS mutation plan" $ \o -> do
     version <- o .: "version" :: Parser Int
     unless (version == 1) (fail "unsupported DNS mutation plan version")
-    DnsMutationPlan <$> o .: "operation" <*> o .: "action" <*> o .: "inputDigest"
-      <*> o .: "resource" <*> o .: "project" <*> o .: "zone" <*> o .: "host"
-      <*> o .: "target" <*> o .: "ttl" <*> o .: "previous"
+    DnsMutationPlan
+      <$> o .: "operation"
+      <*> o .: "action"
+      <*> o .: "inputDigest"
+      <*> o .: "resource"
+      <*> o .: "project"
+      <*> o .: "zone"
+      <*> o .: "host"
+      <*> o .: "target"
+      <*> o .: "ttl"
+      <*> o .: "previous"

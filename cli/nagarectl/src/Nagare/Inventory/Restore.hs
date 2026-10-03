@@ -9,7 +9,8 @@ module Nagare.Inventory.Restore
   , VolumeRestoreRequest (..)
   , volumeRestoreJobSourcePins
   , compileVolumeRestoreScope
-  ) where
+  )
+where
 
 import Data.Aeson (Value (..), eitherDecodeStrict, object, (.=))
 import Data.Aeson.Key qualified as K
@@ -29,7 +30,7 @@ import Data.Time.Format (defaultTimeLocale, parseTimeM)
 import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (MinioRef (..), StoreBackend (..), storeObjectUrl)
 import Nagare.Database.Backup (backupExt, manualBackupObjectPath, manualDatabaseJobName)
-import Nagare.Database.Restore (RestoreJobInputs (..), VerifiedRestoreSource (..), renderRestoreJob, renderRedisScratchService, renderRedisScratchStatefulSet, renderRedisScratchVerifyJob)
+import Nagare.Database.Restore (RestoreJobInputs (..), VerifiedRestoreSource (..), renderRedisScratchService, renderRedisScratchStatefulSet, renderRedisScratchVerifyJob, renderRestoreJob)
 import Nagare.Dsl.Database (Engine (..), dbSecretName, engineImage, parseEngine)
 import Nagare.Dsl.Database.Render (dbPvcName)
 import Nagare.Dsl.Prelude hiding ((.=))
@@ -67,19 +68,20 @@ data ManualRestoreRequest = ManualRestoreRequest
 manualRestoreTargetProof :: ScopeDeclaration -> Either T.Text (Maybe BackupSourceProof)
 manualRestoreTargetProof scope
   | Map.notMember "restore.id" values = Right Nothing
-  | otherwise = Just <$> do
-      generationText <- required "restore.target.generation"
-      generation <- case reads (T.unpack generationText) of
-        [(number, "")] | number > 0 -> Right number
-        _ -> Left "manual restore target generation is invalid"
-      BackupSourceProof
-        <$> required "restore.target.scope"
-        <*> pure generation
-        <*> (required "restore.target.revision" >>= mkContentDigest)
-        <*> (required "restore.target.statefulset" >>= mkResourceId)
-        <*> (required "restore.target.statefulset.uid" >>= mkPhysicalIdentity)
-        <*> (required "restore.target.pvc" >>= mkResourceId)
-        <*> (required "restore.target.pvc.uid" >>= mkPhysicalIdentity)
+  | otherwise =
+      Just <$> do
+        generationText <- required "restore.target.generation"
+        generation <- case reads (T.unpack generationText) of
+          [(number, "")] | number > 0 -> Right number
+          _ -> Left "manual restore target generation is invalid"
+        BackupSourceProof
+          <$> required "restore.target.scope"
+          <*> pure generation
+          <*> (required "restore.target.revision" >>= mkContentDigest)
+          <*> (required "restore.target.statefulset" >>= mkResourceId)
+          <*> (required "restore.target.statefulset.uid" >>= mkPhysicalIdentity)
+          <*> (required "restore.target.pvc" >>= mkResourceId)
+          <*> (required "restore.target.pvc.uid" >>= mkPhysicalIdentity)
   where
     values = scopeOverrides scope
     required key = maybe (Left ("manual restore scope lacks " <> key)) Right (Map.lookup key values)
@@ -87,13 +89,14 @@ manualRestoreTargetProof scope
 -- | Exact source UIDs from a saved restore Job or Redis scratch StatefulSet.
 -- An incomplete annotation set refuses execution; ordinary objects have no
 -- restore target pins. The StatefulSet check runs before its init can load data.
-manualRestoreJobTargetPins
-  :: ByteString -> Either T.Text (Maybe [(ResourceId, PhysicalIdentity)])
+manualRestoreJobTargetPins ::
+  ByteString -> Either T.Text (Maybe [(ResourceId, PhysicalIdentity)])
 manualRestoreJobTargetPins bytes = do
   value <- first T.pack (eitherDecodeStrict bytes)
   case value of
-    Object root | KM.lookup "kind" root `elem`
-        [Just (String "Job"), Just (String "StatefulSet")]
+    Object root
+      | KM.lookup "kind" root
+          `elem` [Just (String "Job"), Just (String "StatefulSet")]
       , Just (Object metadata) <- KM.lookup "metadata" root
       , Just (Object annotations) <- KM.lookup "annotations" metadata
       , Just (String _) <- KM.lookup "nagare.dev/restore-id" annotations -> do
@@ -108,48 +111,63 @@ manualRestoreJobTargetPins bytes = do
           pure (Just [(statefulId, statefulUid), (pvcId, pvcUid)])
     _ -> Right Nothing
 
-compileManualRestoreScope
-  :: ManualRestoreRequest
-  -> ScopeDeclaration
-  -> Map ResourceId (ManagedResource, ByteString)
-  -> Either (NonEmpty InventoryError)
-       (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+compileManualRestoreScope ::
+  ManualRestoreRequest ->
+  ScopeDeclaration ->
+  Map ResourceId (ManagedResource, ByteString) ->
+  Either
+    (NonEmpty InventoryError)
+    (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
 compileManualRestoreScope request accepted native = do
-  let invalid message = inventoryError "invalid-manual-restore" message
-        & #scopes .~ [scopeId accepted, scopeId (restoreBackupScope request)]
-        & #sources .~ [restoreSource request]
-        & (:| [])
+  let invalid message =
+        inventoryError "invalid-manual-restore" message
+          & #scopes
+          .~ [scopeId accepted, scopeId (restoreBackupScope request)]
+          & #sources
+          .~ [restoreSource request]
+          & (:| [])
       db = restoreDatabaseName request
       ns = restoreNamespaceName request
       backup = restoreBackupScope request
       select scope group kind name =
-        [member | bundle <- scopeBundles scope,
-          Managed member <- declarations bundle,
-          case member ^. #address of
+        [ member
+        | bundle <- scopeBundles scope
+        , Managed member <- declarations bundle
+        , case member ^. #address of
             Kubernetes _ api resourceKind (Just namespace) nativeName ->
-              api == group && nameText resourceKind == kind
-                && nameText namespace == ns && nameText nativeName == name
-            _ -> False]
+              api == group
+                && nameText resourceKind == kind
+                && nameText namespace == ns
+                && nameText nativeName == name
+            _ -> False
+        ]
       exactlyOne label members = case members of
         [member] -> Right member
         _ -> Left (invalid ("restore has no unique " <> label))
-      required key = maybe (Left (invalid ("backup scope lacks " <> key))) Right
-        (Map.lookup key (scopeOverrides backup))
-  unless (scopeKind (scopeId accepted) `elem` [Application, Standalone])
+      required key =
+        maybe
+          (Left (invalid ("backup scope lacks " <> key)))
+          Right
+          (Map.lookup key (scopeOverrides backup))
+  unless
+    (scopeKind (scopeId accepted) `elem` [Application, Standalone])
     (Left (invalid "restore requires an accepted database scope"))
   _ <- first invalid (mkServiceName db)
   _ <- first invalid (mkServiceName ns)
   _ <- first invalid (mkServiceName (restoreId request))
-  unless (T.length (restoreId request) <= 20)
+  unless
+    (T.length (restoreId request) <= 20)
     (Left (invalid "restore ID must contain at most 20 characters"))
   stateful <- exactlyOne "StatefulSet" (select accepted "apps" "statefulset" db)
   pvc <- exactlyOne "PVC" (select accepted "" "persistentvolumeclaim" (dbPvcName db))
   credential <- exactlyOne "credential" (select accepted "" "secret" (dbSecretName db))
-  backupJob <- case [member | bundle <- scopeBundles backup,
-    Managed member <- declarations bundle,
-    case member ^. #address of
-      Kubernetes _ "batch" kind _ _ -> nameText kind == "job"
-      _ -> False] of
+  backupJob <- case [ member
+                    | bundle <- scopeBundles backup
+                    , Managed member <- declarations bundle
+                    , case member ^. #address of
+                        Kubernetes _ "batch" kind _ _ -> nameText kind == "job"
+                        _ -> False
+                    ] of
     [member] -> Right (Just member)
     [] | manualReceiptRecord backup -> Right Nothing
     _ -> Left (invalid "accepted backup scope lacks one Job")
@@ -160,26 +178,40 @@ compileManualRestoreScope request accepted native = do
   cluster <- case stateful ^. #address of
     Kubernetes clusterId _ _ _ _ -> Right clusterId
     _ -> Left (invalid "restore target StatefulSet has no Kubernetes address")
-  unless (all (sameCluster cluster) ([pvc, credential] <> maybeToList backupJob))
+  unless
+    (all (sameCluster cluster) ([pvc, credential] <> maybeToList backupJob))
     (Left (invalid "restore resources belong to different clusters"))
   backupJobId <- case backupJob of
     Just member -> Right (member ^. #identity)
     Nothing -> required "backup.job" >>= first invalid . mkResourceId
   engineName <- metadataText invalid "labels" "nagare.dev/engine" statefulValue
-  engine <- maybe (Left (invalid "reviewed scratch restore has an unknown engine")) Right
-    (parseEngine engineName)
-  unless (engine `elem` [Postgres, Redis, ClickHouse])
+  engine <-
+    maybe
+      (Left (invalid "reviewed scratch restore has an unknown engine"))
+      Right
+      (parseEngine engineName)
+  unless
+    (engine `elem` [Postgres, Redis, ClickHouse])
     (Left (invalid "reviewed scratch restore has an unsupported engine"))
   version <- metadataText invalid "annotations" "nagare.dev/version" statefulValue
-  scratchSize <- if engine == Redis
-    then metadataText invalid "annotations" "nagare.dev/size" statefulValue
-    else Right ""
-  (objectUrl, receiptUrl, backupId, expiryEpoch, receiptDigest,
-      receiptChecksum, objectVersion, receiptVersion) <-
+  scratchSize <-
+    if engine == Redis
+      then metadataText invalid "annotations" "nagare.dev/size" statefulValue
+      else Right ""
+  ( objectUrl
+    , receiptUrl
+    , backupId
+    , expiryEpoch
+    , receiptDigest
+    , receiptChecksum
+    , objectVersion
+    , receiptVersion
+    ) <-
     if Map.member "scheduled.backup.id" (scopeOverrides backup)
       then do
         sourceScope <- required "scheduled.backup.source.scope"
-        unless (sourceScope == scopeIdText (scopeId accepted))
+        unless
+          (sourceScope == scopeIdText (scopeId accepted))
           (Left (invalid "scheduled backup belongs to another database scope"))
         objectUrl <- required "scheduled.backup.object"
         receiptUrl <- required "scheduled.backup.receipt"
@@ -189,32 +221,60 @@ compileManualRestoreScope request accepted native = do
         receiptDigest <- first invalid (mkContentDigest receiptDigestText)
         selectedObjectVersion <- required "scheduled.backup.object.version"
         selectedReceiptVersion <- required "scheduled.backup.receipt.version"
-        unless (receiptUrl == objectUrl <> ".receipt.json"
-            && objectUrl == storeObjectUrl (restoreStorageBackend request)
-              ("databases/" <> db <> "/" <> backupId <> "." <> backupExt engine)
-            && all (not . T.null) [selectedObjectVersion, selectedReceiptVersion])
+        unless
+          ( receiptUrl == objectUrl <> ".receipt.json"
+              && objectUrl
+                == storeObjectUrl
+                  (restoreStorageBackend request)
+                  ("databases/" <> db <> "/" <> backupId <> "." <> backupExt engine)
+              && all (not . T.null) [selectedObjectVersion, selectedReceiptVersion]
+          )
           (Left (invalid "scheduled backup has another address or lacks exact versions"))
-        pure (objectUrl, receiptUrl, backupId, 0, receiptDigest,
-          receiptChecksum, Just selectedObjectVersion, Just selectedReceiptVersion)
+        pure
+          ( objectUrl
+          , receiptUrl
+          , backupId
+          , 0
+          , receiptDigest
+          , receiptChecksum
+          , Just selectedObjectVersion
+          , Just selectedReceiptVersion
+          )
       else do
         sourceScope <- required "backup.source.scope"
-        unless (sourceScope == scopeIdText (scopeId accepted))
+        unless
+          (sourceScope == scopeIdText (scopeId accepted))
           (Left (invalid "backup belongs to another database scope"))
         objectUrl <- required "backup.object"
         receiptUrl <- required "backup.receipt"
         backupId <- required "backup.id"
         expiryText <- required "backup.expiry"
-        expiryEpoch <- if expiryText == "retain"
-          then Right 0
-          else case parseTimeM True defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ"
-            (T.unpack expiryText) :: Maybe UTCTime of
-            Just expiry -> Right (floor (utcTimeToPOSIXSeconds expiry))
-            Nothing -> Left (invalid "backup expiry is invalid")
-        unless (objectUrl == storeObjectUrl (restoreStorageBackend request)
-            (manualBackupObjectPath db ns backupId (backupExt engine)))
+        expiryEpoch <-
+          if expiryText == "retain"
+            then Right 0
+            else case parseTimeM
+                        True
+                        defaultTimeLocale
+                        "%Y-%m-%dT%H:%M:%SZ"
+                        (T.unpack expiryText) ::
+                        Maybe UTCTime of
+              Just expiry -> Right (floor (utcTimeToPOSIXSeconds expiry))
+              Nothing -> Left (invalid "backup expiry is invalid")
+        unless
+          ( objectUrl
+              == storeObjectUrl
+                (restoreStorageBackend request)
+                (manualBackupObjectPath db ns backupId (backupExt engine))
+          )
           (Left (invalid "backup object does not match the selected backend and database"))
-        receiptChecksum <- first invalid (parseManualBackupReceipt backup receiptUrl
-          (restoreReceiptBytes request))
+        receiptChecksum <-
+          first
+            invalid
+            ( parseManualBackupReceipt
+                backup
+                receiptUrl
+                (restoreReceiptBytes request)
+            )
         receiptValue <- first (invalid . T.pack) (eitherDecodeStrict (restoreReceiptBytes request))
         case receiptValue of
           Object root | Just (Object metadata) <- KM.lookup "backup" root -> do
@@ -225,8 +285,12 @@ compileManualRestoreScope request accepted native = do
             receiptNamespace <- field "namespace"
             receiptEngine <- field "engine"
             receiptId <- field "id"
-            unless (receiptDatabase == db && receiptNamespace == ns
-                && receiptEngine == engineName && receiptId == backupId)
+            unless
+              ( receiptDatabase == db
+                  && receiptNamespace == ns
+                  && receiptEngine == engineName
+                  && receiptId == backupId
+              )
               (Left (invalid "backup receipt targets another database, namespace, engine, or ID"))
           _ -> Left (invalid "backup receipt lacks metadata")
         (selectedObjectVersion, selectedReceiptVersion) <- case backupJob of
@@ -236,181 +300,386 @@ compileManualRestoreScope request accepted native = do
             receiptVersion <- required "backup.receipt.version"
             pinnedChecksum <- required "backup.object.sha256"
             pinnedDigest <- required "backup.receipt.digest"
-            unless (not (T.null objectVersion) && not (T.null receiptVersion)
-                && pinnedChecksum == receiptChecksum
-                && pinnedDigest == digestText (contentDigest (restoreReceiptBytes request)))
+            unless
+              ( not (T.null objectVersion)
+                  && not (T.null receiptVersion)
+                  && pinnedChecksum == receiptChecksum
+                  && pinnedDigest == digestText (contentDigest (restoreReceiptBytes request))
+              )
               (Left (invalid "stored manual receipt differs from its accepted record"))
             pure (Just objectVersion, Just receiptVersion)
-        pure (objectUrl, receiptUrl, backupId, expiryEpoch,
-          contentDigest (restoreReceiptBytes request), receiptChecksum,
-          selectedObjectVersion, selectedReceiptVersion)
-  scratch <- first invalid (case engine of
-    Redis -> redisScratchName db (restoreId request)
-    _ -> scratchDatabaseName db (restoreId request))
-  when (engine == ClickHouse) $ unless (T.all safeClickHouseIdentifier scratch)
-    (Left (invalid "ClickHouse scratch name contains a character unsafe for its reviewed restore query"))
-  owner <- first invalid (mkScopeId Standalone
-    ("database-restore-" <> ns <> "-" <> db <> "-" <> restoreId request))
+        pure
+          ( objectUrl
+          , receiptUrl
+          , backupId
+          , expiryEpoch
+          , contentDigest (restoreReceiptBytes request)
+          , receiptChecksum
+          , selectedObjectVersion
+          , selectedReceiptVersion
+          )
+  scratch <-
+    first
+      invalid
+      ( case engine of
+          Redis -> redisScratchName db (restoreId request)
+          _ -> scratchDatabaseName db (restoreId request)
+      )
+  when (engine == ClickHouse) $
+    unless
+      (T.all safeClickHouseIdentifier scratch)
+      (Left (invalid "ClickHouse scratch name contains a character unsafe for its reviewed restore query"))
+  owner <-
+    first
+      invalid
+      ( mkScopeId
+          Standalone
+          ("database-restore-" <> ns <> "-" <> db <> "-" <> restoreId request)
+      )
   key <- first invalid (mkLogicalKey (restoreId request))
   jobRole <- first invalid (mkName "job")
   proofRole <- first invalid (mkName "restore")
   let jobId = mintResourceId owner key jobRole
       proofId = mintResourceId owner key proofRole
       jobName = manualDatabaseJobName "nagare-dbrestore-" db (restoreId request)
-      inputs = RestoreJobInputs
-        { namespace = ns, jobName = jobName, engine = engine
-        , clientImage = engineImage engine <> ":" <> version
-        , serviceHost = db, secretName = dbSecretName db, name = db
-        , sourceUrl = objectUrl, liveTarget = False
-        , verifiedSource = Just (VerifiedRestoreSource receiptUrl
-            (digestText receiptDigest) receiptChecksum scratch expiryEpoch
-            objectVersion receiptVersion)
-        , backend = restoreStorageBackend request
-        }
-  rendered <- first (invalid . T.pack . show)
-    (Yaml.decodeEither' (case engine of
-      Redis -> renderRedisScratchVerifyJob inputs scratch
-      _ -> renderRestoreJob inputs) :: Either Yaml.ParseException Value)
-  job <- first invalid (annotateJob request accepted backupJobId stateful pvc
-    objectUrl receiptUrl receiptDigest scratch rendered)
+      inputs =
+        RestoreJobInputs
+          { namespace = ns
+          , jobName = jobName
+          , engine = engine
+          , clientImage = engineImage engine <> ":" <> version
+          , serviceHost = db
+          , secretName = dbSecretName db
+          , name = db
+          , sourceUrl = objectUrl
+          , liveTarget = False
+          , verifiedSource =
+              Just
+                ( VerifiedRestoreSource
+                    receiptUrl
+                    (digestText receiptDigest)
+                    receiptChecksum
+                    scratch
+                    expiryEpoch
+                    objectVersion
+                    receiptVersion
+                )
+          , backend = restoreStorageBackend request
+          }
+  rendered <-
+    first
+      (invalid . T.pack . show)
+      ( Yaml.decodeEither'
+          ( case engine of
+              Redis -> renderRedisScratchVerifyJob inputs scratch
+              _ -> renderRestoreJob inputs
+          ) ::
+          Either Yaml.ParseException Value
+      )
+  job <-
+    first
+      invalid
+      ( annotateJob
+          request
+          accepted
+          backupJobId
+          stateful
+          pvc
+          objectUrl
+          receiptUrl
+          receiptDigest
+          scratch
+          rendered
+      )
   canonical <- first invalid (canonicalValue job)
-  (bound, bytes) <- first (:| []) (bindKubernetesObject KubernetesInput
-    { resourceId = jobId, ownerScope = owner, clusterId = cluster
-    , inputObject = job, objectDigest = contentDigest canonical
-    , lifecyclePolicy = DeleteWhenUnreferenced, inputDataPolicy = Stateless
-    , inputSensitivity = Private, sourceLocation = restoreSource request })
+  (bound, bytes) <-
+    first
+      (:| [])
+      ( bindKubernetesObject
+          KubernetesInput
+            { resourceId = jobId
+            , ownerScope = owner
+            , clusterId = cluster
+            , inputObject = job
+            , objectDigest = contentDigest canonical
+            , lifecyclePolicy = DeleteWhenUnreferenced
+            , inputDataPolicy = Stateless
+            , inputSensitivity = Private
+            , sourceLocation = restoreSource request
+            }
+      )
   expected <- first invalid (kubernetesAddress cluster "batch/v1" "Job" (Just ns) jobName)
-  unless (bound ^. #address == expected)
+  unless
+    (bound ^. #address == expected)
     (Left (invalid "restore Job has an unexpected native address"))
-  let member = bound {dependencies = sort (map (OrderedAfter . (^. #identity))
-        (maybeToList backupJob <> [pvc, credential, stateful]))}
-      proof = DeclaredOperation proofId (jobId :| [])
-        (sort [ContentInput (contentDigest bytes), ContentInput receiptDigest])
-        VerifyBeforeRetry RestoreData
-      overrides = Map.fromList $
-        [ ("restore.id", restoreId request)
-        , ("restore.database", db)
-        , ("restore.namespace", ns)
-        , ("restore.backup.id", backupId)
-        , ("restore.backup.scope", scopeIdText (scopeId backup))
-        , ("restore.backup.revision", digestText (revisionDigest (restoreBackupRevision request)))
-        , ("restore.backup.object", objectUrl)
-        , ("restore.backup.receipt", receiptUrl)
-        , ("restore.backup.receipt.digest", digestText receiptDigest)
-        , ("restore.backup.sha256", receiptChecksum)
-        ] <> maybe [] (\selected -> [("restore.backup.object.version", selected)]) objectVersion
-          <> maybe [] (\selected -> [("restore.backup.receipt.version", selected)]) receiptVersion
-          <> [ ("restore.target.scope", scopeIdText (scopeId accepted))
-        , ("restore.target.generation", T.pack (show (generationNumber
-            (revisionGeneration (restoreTargetRevision request)))))
-        , ("restore.target.revision", digestText (revisionDigest (restoreTargetRevision request)))
-        , ("restore.target.statefulset", resourceIdText (stateful ^. #identity))
-        , ("restore.target.statefulset.uid", physicalIdentityText (restoreTargetStatefulUid request))
-        , ("restore.target.pvc", resourceIdText (pvc ^. #identity))
-        , ("restore.target.pvc.uid", physicalIdentityText (restoreTargetPvcUid request))
-        , ("restore.target.database", scratch)
-        ]
+  let member =
+        bound
+          { dependencies =
+              sort
+                ( map
+                    (OrderedAfter . (^. #identity))
+                    (maybeToList backupJob <> [pvc, credential, stateful])
+                )
+          }
+      proof =
+        DeclaredOperation
+          proofId
+          (jobId :| [])
+          (sort [ContentInput (contentDigest bytes), ContentInput receiptDigest])
+          VerifyBeforeRetry
+          RestoreData
+      overrides =
+        Map.fromList $
+          [ ("restore.id", restoreId request)
+          , ("restore.database", db)
+          , ("restore.namespace", ns)
+          , ("restore.backup.id", backupId)
+          , ("restore.backup.scope", scopeIdText (scopeId backup))
+          , ("restore.backup.revision", digestText (revisionDigest (restoreBackupRevision request)))
+          , ("restore.backup.object", objectUrl)
+          , ("restore.backup.receipt", receiptUrl)
+          , ("restore.backup.receipt.digest", digestText receiptDigest)
+          , ("restore.backup.sha256", receiptChecksum)
+          ]
+            <> maybe [] (\selected -> [("restore.backup.object.version", selected)]) objectVersion
+            <> maybe [] (\selected -> [("restore.backup.receipt.version", selected)]) receiptVersion
+            <> [ ("restore.target.scope", scopeIdText (scopeId accepted))
+               ,
+                 ( "restore.target.generation"
+                 , T.pack
+                     ( show
+                         ( generationNumber
+                             (revisionGeneration (restoreTargetRevision request))
+                         )
+                     )
+                 )
+               , ("restore.target.revision", digestText (revisionDigest (restoreTargetRevision request)))
+               , ("restore.target.statefulset", resourceIdText (stateful ^. #identity))
+               , ("restore.target.statefulset.uid", physicalIdentityText (restoreTargetStatefulUid request))
+               , ("restore.target.pvc", resourceIdText (pvc ^. #identity))
+               , ("restore.target.pvc.uid", physicalIdentityText (restoreTargetPvcUid request))
+               , ("restore.target.database", scratch)
+               ]
   case engine of
-    Redis -> compileRedisScratchScope request invalid cluster owner key
-        stateful pvc credential backupJob inputs scratch scratchSize member bytes proof overrides
+    Redis ->
+      compileRedisScratchScope
+        request
+        invalid
+        cluster
+        owner
+        key
+        stateful
+        pvc
+        credential
+        backupJob
+        inputs
+        scratch
+        scratchSize
+        member
+        bytes
+        proof
+        overrides
     _ -> do
       base <- mkScopeDeclaration owner [ResourceBundle [Managed member] [] [] [] [proof] []]
-      pure (withScopeOverrides overrides (withScopeConfigDigest (contentDigest canonical) base),
-        Map.singleton jobId (member, bytes))
+      pure
+        ( withScopeOverrides overrides (withScopeConfigDigest (contentDigest canonical) base)
+        , Map.singleton jobId (member, bytes)
+        )
 
 scratchDatabaseName :: T.Text -> T.Text -> Either T.Text T.Text
 scratchDatabaseName db restoreKey =
   let chosen = db <> "_restore_" <> restoreKey
-   in if T.length chosen <= 63 then Right chosen
-      else Left "database and restore ID exceed the 63-character scratch name limit"
+   in if T.length chosen <= 63
+        then Right chosen
+        else Left "database and restore ID exceed the 63-character scratch name limit"
 
 safeClickHouseIdentifier :: Char -> Bool
 safeClickHouseIdentifier c =
-  (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
-    || (c >= '0' && c <= '9') || c == '_' || c == '-'
+  (c >= 'a' && c <= 'z')
+    || (c >= 'A' && c <= 'Z')
+    || (c >= '0' && c <= '9')
+    || c == '_'
+    || c == '-'
 
 redisScratchName :: T.Text -> T.Text -> Either T.Text T.Text
 redisScratchName db restoreKey =
   let chosen = db <> "-restore-" <> restoreKey
-   in if T.length chosen <= 63 then Right chosen
-      else Left "database and restore ID exceed Kubernetes' 63-character scratch name limit"
+   in if T.length chosen <= 63
+        then Right chosen
+        else Left "database and restore ID exceed Kubernetes' 63-character scratch name limit"
 
+compileRedisScratchScope ::
+  ManualRestoreRequest ->
+  (T.Text -> NonEmpty InventoryError) ->
+  ResourceId ->
+  ScopeId ->
+  LogicalKey ->
+  ManagedResource ->
+  ManagedResource ->
+  ManagedResource ->
+  Maybe ManagedResource ->
+  RestoreJobInputs ->
+  T.Text ->
+  T.Text ->
+  ManagedResource ->
+  ByteString ->
+  DeclaredOperation ->
+  Map T.Text T.Text ->
+  Either
+    (NonEmpty InventoryError)
+    (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
 compileRedisScratchScope
-  :: ManualRestoreRequest
-  -> (T.Text -> NonEmpty InventoryError)
-  -> ResourceId -> ScopeId -> LogicalKey
-  -> ManagedResource -> ManagedResource -> ManagedResource -> Maybe ManagedResource
-  -> RestoreJobInputs -> T.Text -> T.Text -> ManagedResource -> ByteString
-  -> DeclaredOperation -> Map T.Text T.Text
-  -> Either (NonEmpty InventoryError)
-       (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
-compileRedisScratchScope request invalid cluster owner key sourceStateful sourcePvc
-    credential backupJob inputs scratch size verifyJob verifyBytes proof overrides = do
-  serviceRole <- first invalid (mkName "service")
-  pvcRole <- first invalid (mkName "pvc")
-  statefulRole <- first invalid (mkName "statefulset")
-  let serviceId = mintResourceId owner key serviceRole
-      pvcId = mintResourceId owner key pvcRole
-      statefulId = mintResourceId owner key statefulRole
-      ns = restoreNamespaceName request
-      bind resource bytes = do
-        value <- first (invalid . T.pack . show)
-          (Yaml.decodeEither' bytes :: Either Yaml.ParseException Value)
-        bindValue resource value
-      bindValue resource value = do
-        canonical <- first invalid (canonicalValue value)
-        first (:| []) (bindKubernetesObject KubernetesInput
-          { resourceId = resource, ownerScope = owner, clusterId = cluster
-          , inputObject = value, objectDigest = contentDigest canonical
-          , lifecyclePolicy = DeleteWhenUnreferenced, inputDataPolicy = Stateless
-          , inputSensitivity = Private, sourceLocation = restoreSource request })
-  (service, serviceBytes) <- bind serviceId (renderRedisScratchService ns scratch)
-  (scratchPvc, pvcBytes) <- bind pvcId (Volume.renderScratchPvc ns scratch size)
-  scratchRendered <- first (invalid . T.pack . show)
-    (Yaml.decodeEither' (renderRedisScratchStatefulSet inputs scratch scratch)
-      :: Either Yaml.ParseException Value)
-  scratchAnnotated <- first invalid (copyRestoreAnnotations verifyBytes scratchRendered)
-  (scratchStateful, statefulBytes) <- bindValue statefulId scratchAnnotated
-  expectedService <- first invalid (kubernetesAddress cluster "v1" "Service" (Just ns) scratch)
-  expectedPvc <- first invalid (kubernetesAddress cluster "v1" "PersistentVolumeClaim" (Just ns) scratch)
-  expectedStateful <- first invalid (kubernetesAddress cluster "apps/v1" "StatefulSet" (Just ns) scratch)
-  unless (service ^. #address == expectedService && scratchPvc ^. #address == expectedPvc
-      && scratchStateful ^. #address == expectedStateful)
-    (Left (invalid "Redis scratch members have unexpected native addresses"))
-  let backupDependencies = maybeToList backupJob
-      pvcMember = scratchPvc {dependencies = sort (map (OrderedAfter . (^. #identity))
-        (sourcePvc : backupDependencies))}
-      statefulMember = scratchStateful {dependencies = sort (map (OrderedAfter . (^. #identity))
-        ([service, pvcMember, credential] <> backupDependencies))}
-      jobMember = verifyJob {dependencies = sort (map (OrderedAfter . (^. #identity))
-        ([statefulMember, sourceStateful, sourcePvc, credential] <> backupDependencies))}
-      restoreProof = proof {inputs = sort
-        (ContentInput (contentDigest statefulBytes) : proof ^. #inputs)}
-      native = Map.fromList
-        [ (serviceId, (service, serviceBytes))
-        , (pvcId, (pvcMember, pvcBytes))
-        , (statefulId, (statefulMember, statefulBytes))
-        , (jobMember ^. #identity, (jobMember, verifyBytes)) ]
-  combined <- first invalid (canonicalValue (object
-    [ "service" .= contentDigest serviceBytes
-    , "pvc" .= contentDigest pvcBytes
-    , "statefulset" .= contentDigest statefulBytes
-    , "verify" .= contentDigest verifyBytes ]))
-  base <- mkScopeDeclaration owner [ResourceBundle
-    (map Managed (sortOn (^. #identity) [service, pvcMember, statefulMember, jobMember]))
-    [] [] [] [restoreProof] []]
-  pure (withScopeOverrides overrides (withScopeConfigDigest (contentDigest combined) base), native)
+  request
+  invalid
+  cluster
+  owner
+  key
+  sourceStateful
+  sourcePvc
+  credential
+  backupJob
+  inputs
+  scratch
+  size
+  verifyJob
+  verifyBytes
+  proof
+  overrides = do
+    serviceRole <- first invalid (mkName "service")
+    pvcRole <- first invalid (mkName "pvc")
+    statefulRole <- first invalid (mkName "statefulset")
+    let serviceId = mintResourceId owner key serviceRole
+        pvcId = mintResourceId owner key pvcRole
+        statefulId = mintResourceId owner key statefulRole
+        ns = restoreNamespaceName request
+        bind resource bytes = do
+          value <-
+            first
+              (invalid . T.pack . show)
+              (Yaml.decodeEither' bytes :: Either Yaml.ParseException Value)
+          bindValue resource value
+        bindValue resource value = do
+          canonical <- first invalid (canonicalValue value)
+          first
+            (:| [])
+            ( bindKubernetesObject
+                KubernetesInput
+                  { resourceId = resource
+                  , ownerScope = owner
+                  , clusterId = cluster
+                  , inputObject = value
+                  , objectDigest = contentDigest canonical
+                  , lifecyclePolicy = DeleteWhenUnreferenced
+                  , inputDataPolicy = Stateless
+                  , inputSensitivity = Private
+                  , sourceLocation = restoreSource request
+                  }
+            )
+    (service, serviceBytes) <- bind serviceId (renderRedisScratchService ns scratch)
+    (scratchPvc, pvcBytes) <- bind pvcId (Volume.renderScratchPvc ns scratch size)
+    scratchRendered <-
+      first
+        (invalid . T.pack . show)
+        ( Yaml.decodeEither' (renderRedisScratchStatefulSet inputs scratch scratch) ::
+            Either Yaml.ParseException Value
+        )
+    scratchAnnotated <- first invalid (copyRestoreAnnotations verifyBytes scratchRendered)
+    (scratchStateful, statefulBytes) <- bindValue statefulId scratchAnnotated
+    expectedService <- first invalid (kubernetesAddress cluster "v1" "Service" (Just ns) scratch)
+    expectedPvc <- first invalid (kubernetesAddress cluster "v1" "PersistentVolumeClaim" (Just ns) scratch)
+    expectedStateful <- first invalid (kubernetesAddress cluster "apps/v1" "StatefulSet" (Just ns) scratch)
+    unless
+      ( service ^. #address == expectedService
+          && scratchPvc ^. #address == expectedPvc
+          && scratchStateful ^. #address == expectedStateful
+      )
+      (Left (invalid "Redis scratch members have unexpected native addresses"))
+    let backupDependencies = maybeToList backupJob
+        pvcMember =
+          scratchPvc
+            { dependencies =
+                sort
+                  ( map
+                      (OrderedAfter . (^. #identity))
+                      (sourcePvc : backupDependencies)
+                  )
+            }
+        statefulMember =
+          scratchStateful
+            { dependencies =
+                sort
+                  ( map
+                      (OrderedAfter . (^. #identity))
+                      ([service, pvcMember, credential] <> backupDependencies)
+                  )
+            }
+        jobMember =
+          verifyJob
+            { dependencies =
+                sort
+                  ( map
+                      (OrderedAfter . (^. #identity))
+                      ([statefulMember, sourceStateful, sourcePvc, credential] <> backupDependencies)
+                  )
+            }
+        restoreProof =
+          proof
+            { inputs =
+                sort
+                  (ContentInput (contentDigest statefulBytes) : proof ^. #inputs)
+            }
+        native =
+          Map.fromList
+            [ (serviceId, (service, serviceBytes))
+            , (pvcId, (pvcMember, pvcBytes))
+            , (statefulId, (statefulMember, statefulBytes))
+            , (jobMember ^. #identity, (jobMember, verifyBytes))
+            ]
+    combined <-
+      first
+        invalid
+        ( canonicalValue
+            ( object
+                [ "service" .= contentDigest serviceBytes
+                , "pvc" .= contentDigest pvcBytes
+                , "statefulset" .= contentDigest statefulBytes
+                , "verify" .= contentDigest verifyBytes
+                ]
+            )
+        )
+    base <-
+      mkScopeDeclaration
+        owner
+        [ ResourceBundle
+            (map Managed (sortOn (^. #identity) [service, pvcMember, statefulMember, jobMember]))
+            []
+            []
+            []
+            [restoreProof]
+            []
+        ]
+    pure (withScopeOverrides overrides (withScopeConfigDigest (contentDigest combined) base), native)
 
 copyRestoreAnnotations :: ByteString -> Value -> Either T.Text Value
 copyRestoreAnnotations jobBytes = \case
   Object root | Just (Object metadata) <- KM.lookup "metadata" root -> do
     job <- first T.pack (eitherDecodeStrict jobBytes)
     annotations <- case job of
-      Object jobRoot | Just (Object jobMetadata) <- KM.lookup "metadata" jobRoot
-        , Just (Object fields) <- KM.lookup "annotations" jobMetadata -> Right fields
+      Object jobRoot
+        | Just (Object jobMetadata) <- KM.lookup "metadata" jobRoot
+        , Just (Object fields) <- KM.lookup "annotations" jobMetadata ->
+            Right fields
       _ -> Left "Redis restore verifier lacks reviewed source pins"
-    pure (Object (KM.insert "metadata" (Object
-      (KM.insert "annotations" (Object annotations) metadata)) root))
+    pure
+      ( Object
+          ( KM.insert
+              "metadata"
+              ( Object
+                  (KM.insert "annotations" (Object annotations) metadata)
+              )
+              root
+          )
+      )
   _ -> Left "Redis scratch StatefulSet lacks metadata"
 
 sameCluster :: ResourceId -> ManagedResource -> Bool
@@ -418,15 +687,19 @@ sameCluster cluster member = case member ^. #address of
   Kubernetes selected _ _ _ _ -> selected == cluster
   _ -> False
 
-acceptedValue
-  :: (T.Text -> NonEmpty InventoryError)
-  -> Map ResourceId (ManagedResource, ByteString)
-  -> ManagedResource
-  -> Either (NonEmpty InventoryError) Value
+acceptedValue ::
+  (T.Text -> NonEmpty InventoryError) ->
+  Map ResourceId (ManagedResource, ByteString) ->
+  ManagedResource ->
+  Either (NonEmpty InventoryError) Value
 acceptedValue invalid native member = do
-  (bound, bytes) <- maybe (Left (invalid "restore member lacks accepted private native evidence")) Right
-    (Map.lookup (member ^. #identity) native)
-  unless (bound == member)
+  (bound, bytes) <-
+    maybe
+      (Left (invalid "restore member lacks accepted private native evidence"))
+      Right
+      (Map.lookup (member ^. #identity) native)
+  unless
+    (bound == member)
     (Left (invalid "restore member differs from accepted private native evidence"))
   value <- first (invalid . T.pack) (eitherDecodeStrict bytes)
   canonical <- first invalid (canonicalValue value)
@@ -434,44 +707,69 @@ acceptedValue invalid native member = do
         StatefulSet _ _ digest -> Just digest
         NativeObject digest -> Just digest
         _ -> Nothing
-  unless (expected == Just (contentDigest canonical))
+  unless
+    (expected == Just (contentDigest canonical))
     (Left (invalid "restore native digest differs from accepted declaration"))
   pure value
 
-metadataText
-  :: (T.Text -> NonEmpty InventoryError)
-  -> T.Text -> T.Text -> Value -> Either (NonEmpty InventoryError) T.Text
+metadataText ::
+  (T.Text -> NonEmpty InventoryError) ->
+  T.Text ->
+  T.Text ->
+  Value ->
+  Either (NonEmpty InventoryError) T.Text
 metadataText invalid section key value = case value of
   Object root
     | Just (Object metadata) <- KM.lookup "metadata" root
     , Just (Object fields) <- KM.lookup (K.fromText section) metadata
-    , Just (String selected) <- KM.lookup (K.fromText key) fields -> Right selected
+    , Just (String selected) <- KM.lookup (K.fromText key) fields ->
+        Right selected
   _ -> Left (invalid ("database StatefulSet metadata lacks " <> key))
 
-annotateJob
-  :: ManualRestoreRequest -> ScopeDeclaration -> ResourceId -> ManagedResource
-  -> ManagedResource -> T.Text -> T.Text -> ContentDigest -> T.Text -> Value
-  -> Either T.Text Value
+annotateJob ::
+  ManualRestoreRequest ->
+  ScopeDeclaration ->
+  ResourceId ->
+  ManagedResource ->
+  ManagedResource ->
+  T.Text ->
+  T.Text ->
+  ContentDigest ->
+  T.Text ->
+  Value ->
+  Either T.Text Value
 annotateJob request accepted backupJob stateful pvc objectUrl receiptUrl receiptDigest scratch = \case
-  Object root | Just (Object metadata) <- KM.lookup "metadata" root ->
-    let annotations = object
-          [ "nagare.dev/restore-id" .= restoreId request
-          , "nagare.dev/restore-backup-job" .= resourceIdText backupJob
-          , "nagare.dev/restore-backup-object" .= objectUrl
-          , "nagare.dev/restore-backup-receipt" .= receiptUrl
-          , "nagare.dev/restore-backup-receipt-digest" .= digestText receiptDigest
-          , "nagare.dev/restore-target-scope" .= scopeIdText (scopeId accepted)
-          , "nagare.dev/restore-target-revision" .= digestText
-              (revisionDigest (restoreTargetRevision request))
-          , "nagare.dev/restore-target-statefulset" .= resourceIdText (stateful ^. #identity)
-          , "nagare.dev/restore-target-statefulset-uid" .= physicalIdentityText
-              (restoreTargetStatefulUid request)
-          , "nagare.dev/restore-target-pvc" .= resourceIdText (pvc ^. #identity)
-          , "nagare.dev/restore-target-pvc-uid" .= physicalIdentityText (restoreTargetPvcUid request)
-          , "nagare.dev/restore-target-database" .= scratch
-          ]
-     in Right (Object (KM.insert "metadata" (Object
-          (KM.insert "annotations" annotations metadata)) root))
+  Object root
+    | Just (Object metadata) <- KM.lookup "metadata" root ->
+        let annotations =
+              object
+                [ "nagare.dev/restore-id" .= restoreId request
+                , "nagare.dev/restore-backup-job" .= resourceIdText backupJob
+                , "nagare.dev/restore-backup-object" .= objectUrl
+                , "nagare.dev/restore-backup-receipt" .= receiptUrl
+                , "nagare.dev/restore-backup-receipt-digest" .= digestText receiptDigest
+                , "nagare.dev/restore-target-scope" .= scopeIdText (scopeId accepted)
+                , "nagare.dev/restore-target-revision"
+                    .= digestText
+                      (revisionDigest (restoreTargetRevision request))
+                , "nagare.dev/restore-target-statefulset" .= resourceIdText (stateful ^. #identity)
+                , "nagare.dev/restore-target-statefulset-uid"
+                    .= physicalIdentityText
+                      (restoreTargetStatefulUid request)
+                , "nagare.dev/restore-target-pvc" .= resourceIdText (pvc ^. #identity)
+                , "nagare.dev/restore-target-pvc-uid" .= physicalIdentityText (restoreTargetPvcUid request)
+                , "nagare.dev/restore-target-database" .= scratch
+                ]
+         in Right
+              ( Object
+                  ( KM.insert
+                      "metadata"
+                      ( Object
+                          (KM.insert "annotations" annotations metadata)
+                      )
+                      root
+                  )
+              )
   _ -> Left "manual restore Job lacks native metadata"
 
 data VolumeRestoreRequest = VolumeRestoreRequest
@@ -494,12 +792,13 @@ data VolumeRestoreRequest = VolumeRestoreRequest
 
 -- | Both the completed backup Job and the current target PVC are pinned.
 -- A local restore additionally pins its accepted credential copy.
-volumeRestoreJobSourcePins
-  :: ByteString -> Either T.Text (Maybe [(ResourceId, PhysicalIdentity)])
+volumeRestoreJobSourcePins ::
+  ByteString -> Either T.Text (Maybe [(ResourceId, PhysicalIdentity)])
 volumeRestoreJobSourcePins bytes = do
   value <- first T.pack (eitherDecodeStrict bytes)
   case value of
-    Object root | KM.lookup "kind" root == Just (String "Job")
+    Object root
+      | KM.lookup "kind" root == Just (String "Job")
       , Just (Object metadata) <- KM.lookup "metadata" root
       , Just (Object annotations) <- KM.lookup "annotations" metadata
       , Just (String _) <- KM.lookup "nagare.dev/volume-restore-id" annotations -> do
@@ -507,20 +806,24 @@ volumeRestoreJobSourcePins bytes = do
                 Just (String selected) -> Right selected
                 _ -> Left ("volume restore Job lacks " <> K.toText key)
           backup <- required "nagare.dev/volume-restore-backup-job" >>= mkResourceId
-          backupUid <- required "nagare.dev/volume-restore-backup-job-uid"
-            >>= mkPhysicalIdentity
+          backupUid <-
+            required "nagare.dev/volume-restore-backup-job-uid"
+              >>= mkPhysicalIdentity
           target <- required "nagare.dev/volume-restore-target-pvc" >>= mkResourceId
-          targetUid <- required "nagare.dev/volume-restore-target-pvc-uid"
-            >>= mkPhysicalIdentity
-          credential <- case (KM.lookup "nagare.dev/volume-restore-store-secret" annotations,
-              KM.lookup "nagare.dev/volume-restore-store-secret-uid" annotations) of
+          targetUid <-
+            required "nagare.dev/volume-restore-target-pvc-uid"
+              >>= mkPhysicalIdentity
+          credential <- case ( KM.lookup "nagare.dev/volume-restore-store-secret" annotations
+                             , KM.lookup "nagare.dev/volume-restore-store-secret-uid" annotations
+                             ) of
             (Nothing, Nothing) -> Right []
             (Just (String rawId), Just (String rawUid)) -> do
               secret <- mkResourceId rawId
               physical <- mkPhysicalIdentity rawUid
               pure [(secret, physical)]
             _ -> Left "volume restore Job has incomplete credential pins"
-          unless (backup /= target)
+          unless
+            (backup /= target)
             (Left "volume restore Job repeats its source and target identity")
           pure (Just ([(backup, backupUid), (target, targetUid)] <> credential))
     _ -> Right Nothing
@@ -528,55 +831,70 @@ volumeRestoreJobSourcePins bytes = do
 -- | Restore only an accepted manual volume snapshot into a distinct scratch
 -- claim. The Job checks fresh object bytes against the accepted Pod receipt
 -- before it extracts any archive member.
-compileVolumeRestoreScope
-  :: VolumeRestoreRequest -> ScopeDeclaration
-  -> Map ResourceId (ManagedResource, ByteString)
-  -> Either (NonEmpty InventoryError)
-       (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+compileVolumeRestoreScope ::
+  VolumeRestoreRequest ->
+  ScopeDeclaration ->
+  Map ResourceId (ManagedResource, ByteString) ->
+  Either
+    (NonEmpty InventoryError)
+    (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
 compileVolumeRestoreScope request target native = do
   let backup = volumeRestoreBackup request
-      invalid message = inventoryError "invalid-volume-restore" message
-        & #scopes .~ [scopeId target, scopeId backup]
-        & #sources .~ [volumeRestoreSource request]
-        & (:| [])
+      invalid message =
+        inventoryError "invalid-volume-restore" message
+          & #scopes
+          .~ [scopeId target, scopeId backup]
+          & #sources
+          .~ [volumeRestoreSource request]
+          & (:| [])
       app = volumeRestoreApp request
       volume = volumeRestoreName request
       ns = volumeRestoreNamespace request
       restoreKey = volumeRestoreId request
-      required key = maybe (Left (invalid ("volume backup lacks " <> key))) Right
-        (Map.lookup key (scopeOverrides backup))
+      required key =
+        maybe
+          (Left (invalid ("volume backup lacks " <> key)))
+          Right
+          (Map.lookup key (scopeOverrides backup))
       selectPvc scope name =
-        [member | bundle <- scopeBundles scope,
-          Managed member <- declarations bundle,
-          case member ^. #address of
+        [ member
+        | bundle <- scopeBundles scope
+        , Managed member <- declarations bundle
+        , case member ^. #address of
             Kubernetes _ "" kind (Just namespace) nativeName ->
               nameText kind == "persistentvolumeclaim"
-                && nameText namespace == ns && nameText nativeName == name
-            _ -> False]
+                && nameText namespace == ns
+                && nameText nativeName == name
+            _ -> False
+        ]
   _ <- first invalid (mkServiceName app)
   _ <- first invalid (mkServiceName volume)
   _ <- first invalid (mkServiceName ns)
   _ <- first invalid (mkServiceName restoreKey)
-  unless (T.length restoreKey <= 20)
+  unless
+    (T.length restoreKey <= 20)
     (Left (invalid "volume restore ID must contain at most 20 characters"))
   targetPvc <- case selectPvc target (pvcName app volume) of
     [single] -> Right single
     _ -> Left (invalid "volume restore requires one accepted target PVC")
   targetValue <- acceptedValue invalid native targetPvc
   size <- case targetValue of
-    Object root | Just (Object specValue) <- KM.lookup "spec" root
+    Object root
+      | Just (Object specValue) <- KM.lookup "spec" root
       , Just (Object resources) <- KM.lookup "resources" specValue
       , Just (Object requests) <- KM.lookup "requests" resources
       , Just (String selected) <- KM.lookup "storage" requests
       , KM.lookup "storageClassName" specValue == Just (String "local-path") ->
-        Right selected
+          Right selected
     _ -> Left (invalid "accepted target PVC lacks a local-path storage request")
-  backupJob <- case [member | bundle <- scopeBundles backup,
-      Managed member <- declarations bundle,
-      case member ^. #address of
-        Kubernetes _ "batch" kind (Just namespace) _ ->
-          nameText kind == "job" && nameText namespace == ns
-        _ -> False] of
+  backupJob <- case [ member
+                    | bundle <- scopeBundles backup
+                    , Managed member <- declarations bundle
+                    , case member ^. #address of
+                        Kubernetes _ "batch" kind (Just namespace) _ ->
+                          nameText kind == "job" && nameText namespace == ns
+                        _ -> False
+                    ] of
     [single] -> Right single
     _ -> Left (invalid "accepted volume backup lacks one Job")
   backupValue <- acceptedValue invalid native backupJob
@@ -584,31 +902,60 @@ compileVolumeRestoreScope request target native = do
   backupId <- required "volume-backup.id"
   when (T.null backupId) (Left (invalid "volume backup ID is empty"))
   sourceScope <- required "volume-backup.source.scope"
-  unless (sourceScope == scopeIdText (scopeId target))
+  unless
+    (sourceScope == scopeIdText (scopeId target))
     (Left (invalid "volume backup belongs to another application scope"))
   objectUrl <- required "volume-backup.object"
   receiptUrl <- required "volume-backup.receipt"
   expiry <- required "volume-backup.expiry"
-  expiryEpoch <- if expiry == "retain" then Right Nothing else
-    case parseTimeM True defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ"
-        (T.unpack expiry) :: Maybe UTCTime of
-      Nothing -> Left (invalid "volume backup expiry policy is invalid")
-      Just selected -> do
-        unless (selected > volumeRestoreNow request)
-          (Left (invalid "volume backup has expired"))
-        Right (Just (floor (utcTimeToPOSIXSeconds selected)))
-  unless (objectUrl == storeObjectUrl (volumeRestoreBackend request)
-      ("manual-volumes/" <> ns <> "/" <> app <> "/" <> volume <> "/"
-        <> backupId <> ".tar.gz") && receiptUrl == objectUrl <> ".receipt.json")
+  expiryEpoch <-
+    if expiry == "retain"
+      then Right Nothing
+      else case parseTimeM
+                  True
+                  defaultTimeLocale
+                  "%Y-%m-%dT%H:%M:%SZ"
+                  (T.unpack expiry) ::
+                  Maybe UTCTime of
+        Nothing -> Left (invalid "volume backup expiry policy is invalid")
+        Just selected -> do
+          unless
+            (selected > volumeRestoreNow request)
+            (Left (invalid "volume backup has expired"))
+          Right (Just (floor (utcTimeToPOSIXSeconds selected)))
+  unless
+    ( objectUrl
+        == storeObjectUrl
+          (volumeRestoreBackend request)
+          ( "manual-volumes/"
+              <> ns
+              <> "/"
+              <> app
+              <> "/"
+              <> volume
+              <> "/"
+              <> backupId
+              <> ".tar.gz"
+          )
+        && receiptUrl == objectUrl <> ".receipt.json"
+    )
     (Left (invalid "volume backup object differs from the selected backend"))
   expectation <- case manualBackupJobReceiptExpectation backupBytes of
     Right (Just selected) -> Right selected
     Right Nothing -> Left (invalid "accepted volume backup Job has no receipt")
     Left reason -> Left (invalid reason)
-  checksum <- first invalid (parseBackupReceipt expectation receiptUrl
-    (volumeRestoreReceiptBytes request))
-  receiptValue <- first (invalid . T.pack)
-    (eitherDecodeStrict (volumeRestoreReceiptBytes request))
+  checksum <-
+    first
+      invalid
+      ( parseBackupReceipt
+          expectation
+          receiptUrl
+          (volumeRestoreReceiptBytes request)
+      )
+  receiptValue <-
+    first
+      (invalid . T.pack)
+      (eitherDecodeStrict (volumeRestoreReceiptBytes request))
   case receiptValue of
     Object root | Just (Object metadata) <- KM.lookup "backup" root -> do
       let field key = case KM.lookup key metadata of
@@ -619,29 +966,48 @@ compileVolumeRestoreScope request target native = do
       receiptVolume <- field "volume"
       receiptNamespace <- field "namespace"
       receiptScope <- field "sourceScope"
-      unless (receiptId == backupId && receiptApp == app
-          && receiptVolume == volume && receiptNamespace == ns
-          && receiptScope == sourceScope)
+      unless
+        ( receiptId == backupId
+            && receiptApp == app
+            && receiptVolume == volume
+            && receiptNamespace == ns
+            && receiptScope == sourceScope
+        )
         (Left (invalid "volume backup receipt targets another app, volume, or scope"))
     _ -> Left (invalid "volume backup receipt lacks metadata")
   cluster <- case targetPvc ^. #address of
     Kubernetes selected _ _ _ _ -> Right selected
     _ -> Left (invalid "target PVC has no Kubernetes address")
-  unless (sameCluster cluster backupJob)
+  unless
+    (sameCluster cluster backupJob)
     (Left (invalid "volume backup Job belongs to another cluster"))
   let credential = volumeRestoreCredential request
   case (volumeRestoreBackend request, credential) of
     (GcsBackend {}, Nothing) -> pure ()
     (MinioBackend ref, Just (secret, _)) -> do
-      expected <- first invalid (kubernetesAddress cluster "v1" "Secret"
-        (Just ns) (ref ^. #secretName))
-      unless (secret ^. #address == expected)
+      expected <-
+        first
+          invalid
+          ( kubernetesAddress
+              cluster
+              "v1"
+              "Secret"
+              (Just ns)
+              (ref ^. #secretName)
+          )
+      unless
+        (secret ^. #address == expected)
         (Left (invalid "volume restore credential differs from its backend"))
       _ <- acceptedValue invalid native secret
       pure ()
     _ -> Left (invalid "volume restore credential differs from its backend")
-  owner <- first invalid (mkScopeId Standalone
-    ("volume-restore-" <> ns <> "-" <> app <> "-" <> volume <> "-" <> restoreKey))
+  owner <-
+    first
+      invalid
+      ( mkScopeId
+          Standalone
+          ("volume-restore-" <> ns <> "-" <> app <> "-" <> volume <> "-" <> restoreKey)
+      )
   key <- first invalid (mkLogicalKey restoreKey)
   pvcRole <- first invalid (mkName "pvc")
   jobRole <- first invalid (mkName "job")
@@ -651,87 +1017,187 @@ compileVolumeRestoreScope request target native = do
       proofId = mintResourceId owner key proofRole
       scratchName = "nagare-restore-" <> app <> "-" <> volume <> "-" <> restoreKey
       jobName = "nagare-volrestore-" <> app <> "-" <> volume <> "-" <> restoreKey
-  unless (T.length scratchName <= 63 && T.length jobName <= 63)
+  unless
+    (T.length scratchName <= 63 && T.length jobName <= 63)
     (Left (invalid "volume restore name exceeds 63 characters"))
-  scratchValue <- first (invalid . T.pack . show)
-    (Yaml.decodeEither' (Volume.renderScratchPvc ns scratchName size)
-      :: Either Yaml.ParseException Value)
+  scratchValue <-
+    first
+      (invalid . T.pack . show)
+      ( Yaml.decodeEither' (Volume.renderScratchPvc ns scratchName size) ::
+          Either Yaml.ParseException Value
+      )
   scratchCanonical <- first invalid (canonicalValue scratchValue)
-  (scratch, scratchBytes) <- first (:| []) (bindKubernetesObject KubernetesInput
-    { resourceId = pvcId, ownerScope = owner, clusterId = cluster
-    , inputObject = scratchValue, objectDigest = contentDigest scratchCanonical
-    , lifecyclePolicy = DeleteWhenUnreferenced, inputDataPolicy = Stateless
-    , inputSensitivity = Private, sourceLocation = volumeRestoreSource request })
-  let jobInputs = Volume.StorageRestoreJobInputs ns jobName scratchName objectUrl
-        "/restore" (volumeRestoreBackend request)
-      reviewed = Volume.ReviewedVolumeRestoreInputs jobInputs receiptUrl
-        (digestText (contentDigest (volumeRestoreReceiptBytes request))) checksum expiryEpoch
-  rendered <- first (invalid . T.pack . show)
-    (Yaml.decodeEither' (Volume.renderReviewedVolumeRestoreJob reviewed)
-      :: Either Yaml.ParseException Value)
+  (scratch, scratchBytes) <-
+    first
+      (:| [])
+      ( bindKubernetesObject
+          KubernetesInput
+            { resourceId = pvcId
+            , ownerScope = owner
+            , clusterId = cluster
+            , inputObject = scratchValue
+            , objectDigest = contentDigest scratchCanonical
+            , lifecyclePolicy = DeleteWhenUnreferenced
+            , inputDataPolicy = Stateless
+            , inputSensitivity = Private
+            , sourceLocation = volumeRestoreSource request
+            }
+      )
+  let jobInputs =
+        Volume.StorageRestoreJobInputs
+          ns
+          jobName
+          scratchName
+          objectUrl
+          "/restore"
+          (volumeRestoreBackend request)
+      reviewed =
+        Volume.ReviewedVolumeRestoreInputs
+          jobInputs
+          receiptUrl
+          (digestText (contentDigest (volumeRestoreReceiptBytes request)))
+          checksum
+          expiryEpoch
+  rendered <-
+    first
+      (invalid . T.pack . show)
+      ( Yaml.decodeEither' (Volume.renderReviewedVolumeRestoreJob reviewed) ::
+          Either Yaml.ParseException Value
+      )
   jobValue <- case rendered of
-    Object root | Just (Object metadata) <- KM.lookup "metadata" root ->
-      let annotations = object
-            ([ "nagare.dev/volume-restore-id" .= restoreKey
-             , "nagare.dev/volume-restore-backup-job" .=
-                 resourceIdText (backupJob ^. #identity)
-             , "nagare.dev/volume-restore-backup-job-uid" .=
-                 physicalIdentityText (volumeRestoreBackupJobUid request)
-             , "nagare.dev/volume-restore-target-pvc" .=
-                 resourceIdText (targetPvc ^. #identity)
-             , "nagare.dev/volume-restore-target-pvc-uid" .=
-                 physicalIdentityText (volumeRestoreTargetPvcUid request)
-             ] <> case credential of
-               Nothing -> []
-               Just (secret, uid) ->
-                 [ "nagare.dev/volume-restore-store-secret" .=
-                     resourceIdText (secret ^. #identity)
-                 , "nagare.dev/volume-restore-store-secret-uid" .=
-                     physicalIdentityText uid ])
-       in Right (Object (KM.insert "metadata" (Object
-            (KM.insert "annotations" annotations metadata)) root))
+    Object root
+      | Just (Object metadata) <- KM.lookup "metadata" root ->
+          let annotations =
+                object
+                  ( [ "nagare.dev/volume-restore-id" .= restoreKey
+                    , "nagare.dev/volume-restore-backup-job"
+                        .= resourceIdText (backupJob ^. #identity)
+                    , "nagare.dev/volume-restore-backup-job-uid"
+                        .= physicalIdentityText (volumeRestoreBackupJobUid request)
+                    , "nagare.dev/volume-restore-target-pvc"
+                        .= resourceIdText (targetPvc ^. #identity)
+                    , "nagare.dev/volume-restore-target-pvc-uid"
+                        .= physicalIdentityText (volumeRestoreTargetPvcUid request)
+                    ]
+                      <> case credential of
+                        Nothing -> []
+                        Just (secret, uid) ->
+                          [ "nagare.dev/volume-restore-store-secret"
+                              .= resourceIdText (secret ^. #identity)
+                          , "nagare.dev/volume-restore-store-secret-uid"
+                              .= physicalIdentityText uid
+                          ]
+                  )
+           in Right
+                ( Object
+                    ( KM.insert
+                        "metadata"
+                        ( Object
+                            (KM.insert "annotations" annotations metadata)
+                        )
+                        root
+                    )
+                )
     _ -> Left (invalid "volume restore Job lacks native metadata")
   jobCanonical <- first invalid (canonicalValue jobValue)
-  (boundJob, jobBytes) <- first (:| []) (bindKubernetesObject KubernetesInput
-    { resourceId = jobId, ownerScope = owner, clusterId = cluster
-    , inputObject = jobValue, objectDigest = contentDigest jobCanonical
-    , lifecyclePolicy = DeleteWhenUnreferenced, inputDataPolicy = Stateless
-    , inputSensitivity = Private, sourceLocation = volumeRestoreSource request })
-  expectedScratch <- first invalid (kubernetesAddress cluster "v1"
-    "PersistentVolumeClaim" (Just ns) scratchName)
-  expectedJob <- first invalid (kubernetesAddress cluster "batch/v1" "Job"
-    (Just ns) jobName)
-  unless (scratch ^. #address == expectedScratch && boundJob ^. #address == expectedJob)
+  (boundJob, jobBytes) <-
+    first
+      (:| [])
+      ( bindKubernetesObject
+          KubernetesInput
+            { resourceId = jobId
+            , ownerScope = owner
+            , clusterId = cluster
+            , inputObject = jobValue
+            , objectDigest = contentDigest jobCanonical
+            , lifecyclePolicy = DeleteWhenUnreferenced
+            , inputDataPolicy = Stateless
+            , inputSensitivity = Private
+            , sourceLocation = volumeRestoreSource request
+            }
+      )
+  expectedScratch <-
+    first
+      invalid
+      ( kubernetesAddress
+          cluster
+          "v1"
+          "PersistentVolumeClaim"
+          (Just ns)
+          scratchName
+      )
+  expectedJob <-
+    first
+      invalid
+      ( kubernetesAddress
+          cluster
+          "batch/v1"
+          "Job"
+          (Just ns)
+          jobName
+      )
+  unless
+    (scratch ^. #address == expectedScratch && boundJob ^. #address == expectedJob)
     (Left (invalid "volume restore members have unexpected native addresses"))
-  let prerequisites = [scratch ^. #identity, backupJob ^. #identity,
-        targetPvc ^. #identity]
+  let prerequisites =
+        [ scratch ^. #identity
+        , backupJob ^. #identity
+        , targetPvc ^. #identity
+        ]
           <> maybe [] (\(secret, _) -> [secret ^. #identity]) credential
       job = boundJob {dependencies = map OrderedAfter prerequisites}
-      proof = DeclaredOperation proofId (jobId :| [])
-        [ContentInput (contentDigest jobBytes), ContentInput
-          (contentDigest (volumeRestoreReceiptBytes request))]
-        VerifyBeforeRetry RestoreData
-      overrides = Map.fromList
-        [ ("volume-restore.id", restoreKey)
-        , ("volume-restore.backup.scope", scopeIdText (scopeId backup))
-        , ("volume-restore.backup.revision", digestText
-            (revisionDigest (volumeRestoreBackupRevision request)))
-        , ("volume-restore.backup.job", resourceIdText (backupJob ^. #identity))
-        , ("volume-restore.backup.job.uid", physicalIdentityText
-            (volumeRestoreBackupJobUid request))
-        , ("volume-restore.backup.receipt.digest", digestText
-            (contentDigest (volumeRestoreReceiptBytes request)))
-        , ("volume-restore.backup.sha256", checksum)
-        , ("volume-restore.target.scope", scopeIdText (scopeId target))
-        , ("volume-restore.target.revision", digestText
-            (revisionDigest (volumeRestoreTargetRevision request)))
-        , ("volume-restore.target.pvc", resourceIdText (targetPvc ^. #identity))
-        , ("volume-restore.target.pvc.uid", physicalIdentityText
-            (volumeRestoreTargetPvcUid request))
-        , ("volume-restore.scratch", scratchName)
-        ]
-  base <- mkScopeDeclaration owner
-    [ResourceBundle [Managed scratch, Managed job] [] [] [] [proof] []]
-  pure (withScopeOverrides overrides
-    (withScopeConfigDigest (contentDigest jobCanonical) base),
-    Map.fromList [(pvcId, (scratch, scratchBytes)), (jobId, (job, jobBytes))])
+      proof =
+        DeclaredOperation
+          proofId
+          (jobId :| [])
+          [ ContentInput (contentDigest jobBytes)
+          , ContentInput
+              (contentDigest (volumeRestoreReceiptBytes request))
+          ]
+          VerifyBeforeRetry
+          RestoreData
+      overrides =
+        Map.fromList
+          [ ("volume-restore.id", restoreKey)
+          , ("volume-restore.backup.scope", scopeIdText (scopeId backup))
+          ,
+            ( "volume-restore.backup.revision"
+            , digestText
+                (revisionDigest (volumeRestoreBackupRevision request))
+            )
+          , ("volume-restore.backup.job", resourceIdText (backupJob ^. #identity))
+          ,
+            ( "volume-restore.backup.job.uid"
+            , physicalIdentityText
+                (volumeRestoreBackupJobUid request)
+            )
+          ,
+            ( "volume-restore.backup.receipt.digest"
+            , digestText
+                (contentDigest (volumeRestoreReceiptBytes request))
+            )
+          , ("volume-restore.backup.sha256", checksum)
+          , ("volume-restore.target.scope", scopeIdText (scopeId target))
+          ,
+            ( "volume-restore.target.revision"
+            , digestText
+                (revisionDigest (volumeRestoreTargetRevision request))
+            )
+          , ("volume-restore.target.pvc", resourceIdText (targetPvc ^. #identity))
+          ,
+            ( "volume-restore.target.pvc.uid"
+            , physicalIdentityText
+                (volumeRestoreTargetPvcUid request)
+            )
+          , ("volume-restore.scratch", scratchName)
+          ]
+  base <-
+    mkScopeDeclaration
+      owner
+      [ResourceBundle [Managed scratch, Managed job] [] [] [] [proof] []]
+  pure
+    ( withScopeOverrides
+        overrides
+        (withScopeConfigDigest (contentDigest jobCanonical) base)
+    , Map.fromList [(pvcId, (scratch, scratchBytes)), (jobId, (job, jobBytes))]
+    )

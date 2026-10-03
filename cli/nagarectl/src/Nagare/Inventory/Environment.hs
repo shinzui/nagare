@@ -12,7 +12,8 @@ module Nagare.Inventory.Environment
   , acceptedEnvChannelValues
   , acceptedSecretChannelValues
   , acceptedBuildChannelMember
-  ) where
+  )
+where
 
 import Data.Aeson (Value (..))
 import Data.Aeson qualified as Aeson
@@ -37,100 +38,212 @@ import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
 
-compileRuntimeEnvChannel
-  :: T.Text -> T.Text -> ResourceId -> ResourceId -> Map T.Text T.Text -> SourceLocation
-  -> Either (NonEmpty InventoryError)
-       (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+compileRuntimeEnvChannel ::
+  T.Text ->
+  T.Text ->
+  ResourceId ->
+  ResourceId ->
+  Map T.Text T.Text ->
+  SourceLocation ->
+  Either
+    (NonEmpty InventoryError)
+    (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
 compileRuntimeEnvChannel app namespaceName cluster namespaceId values source = do
-  compileChannel "env" "runtime" "runtime-env" "configmap" "ConfigMap" Private
-    (managedConfigMapName app Runtime) (renderEnvConfigMap app namespaceName Runtime values)
-    app namespaceName cluster namespaceId source
+  compileChannel
+    "env"
+    "runtime"
+    "runtime-env"
+    "configmap"
+    "ConfigMap"
+    Private
+    (managedConfigMapName app Runtime)
+    (renderEnvConfigMap app namespaceName Runtime values)
+    app
+    namespaceName
+    cluster
+    namespaceId
+    source
 
 -- | Build variables have a distinct accepted revision from Runtime variables.
 -- The existing build-argument reader consumes this exact ConfigMap address.
-compileBuildEnvChannel
-  :: T.Text -> T.Text -> ResourceId -> ResourceId -> Map T.Text T.Text -> SourceLocation
-  -> Either (NonEmpty InventoryError)
-       (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+compileBuildEnvChannel ::
+  T.Text ->
+  T.Text ->
+  ResourceId ->
+  ResourceId ->
+  Map T.Text T.Text ->
+  SourceLocation ->
+  Either
+    (NonEmpty InventoryError)
+    (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
 compileBuildEnvChannel app namespaceName cluster namespaceId values source =
-  compileChannel "env" "build" "build-env" "configmap" "ConfigMap" Private
-    (managedConfigMapName app Build) (renderEnvConfigMap app namespaceName Build values)
-    app namespaceName cluster namespaceId source
+  compileChannel
+    "env"
+    "build"
+    "build-env"
+    "configmap"
+    "ConfigMap"
+    Private
+    (managedConfigMapName app Build)
+    (renderEnvConfigMap app namespaceName Build values)
+    app
+    namespaceName
+    cluster
+    namespaceId
+    source
 
 -- | Preview overlays have their own accepted revision and the exact native
 -- address read by preview workloads after the Runtime environment pair.
-compilePreviewEnvChannel
-  :: T.Text -> T.Text -> ResourceId -> ResourceId -> Map T.Text T.Text -> SourceLocation
-  -> Either (NonEmpty InventoryError)
-       (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+compilePreviewEnvChannel ::
+  T.Text ->
+  T.Text ->
+  ResourceId ->
+  ResourceId ->
+  Map T.Text T.Text ->
+  SourceLocation ->
+  Either
+    (NonEmpty InventoryError)
+    (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
 compilePreviewEnvChannel app namespaceName cluster namespaceId values source =
-  compileChannel "env" "preview" "preview-env" "configmap" "ConfigMap" Private
-    (managedConfigMapName app Preview) (renderEnvConfigMap app namespaceName Preview values)
-    app namespaceName cluster namespaceId source
+  compileChannel
+    "env"
+    "preview"
+    "preview-env"
+    "configmap"
+    "ConfigMap"
+    Private
+    (managedConfigMapName app Preview)
+    (renderEnvConfigMap app namespaceName Preview values)
+    app
+    namespaceName
+    cluster
+    namespaceId
+    source
 
 -- | The version token is explicit intent and appears only in the declaration
 -- source path. Secret values remain in the private native review, never in the
 -- public scope or operation summary.
-compileRuntimeSecretChannel
-  :: T.Text -> T.Text -> ResourceId -> ResourceId -> Name
-  -> Map T.Text T.Text -> SourceLocation
-  -> Either (NonEmpty InventoryError)
-       (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+compileRuntimeSecretChannel ::
+  T.Text ->
+  T.Text ->
+  ResourceId ->
+  ResourceId ->
+  Name ->
+  Map T.Text T.Text ->
+  SourceLocation ->
+  Either
+    (NonEmpty InventoryError)
+    (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
 compileRuntimeSecretChannel app namespaceName cluster namespaceId version values source =
-  compileChannel "secret" "runtime" "runtime-secret" "secret" "Secret" Secret
-    (managedSecretName app Runtime) (renderEnvSecret app namespaceName Runtime values)
-    app namespaceName cluster namespaceId
+  compileChannel
+    "secret"
+    "runtime"
+    "runtime-secret"
+    "secret"
+    "Secret"
+    Secret
+    (managedSecretName app Runtime)
+    (renderEnvSecret app namespaceName Runtime values)
+    app
+    namespaceName
+    cluster
+    namespaceId
     (source {path = "runtime-secret/" <> nameText version})
 
 -- | Build credentials rotate independently from Runtime credentials and bind
 -- their private native bytes to an explicit version before review publication.
-compileBuildSecretChannel
-  :: T.Text -> T.Text -> ResourceId -> ResourceId -> Name
-  -> Map T.Text T.Text -> SourceLocation
-  -> Either (NonEmpty InventoryError)
-       (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+compileBuildSecretChannel ::
+  T.Text ->
+  T.Text ->
+  ResourceId ->
+  ResourceId ->
+  Name ->
+  Map T.Text T.Text ->
+  SourceLocation ->
+  Either
+    (NonEmpty InventoryError)
+    (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
 compileBuildSecretChannel app namespaceName cluster namespaceId version values source =
-  compileChannel "secret" "build" "build-secret" "secret" "Secret" Secret
-    (managedSecretName app Build) (renderEnvSecret app namespaceName Build values)
-    app namespaceName cluster namespaceId
+  compileChannel
+    "secret"
+    "build"
+    "build-secret"
+    "secret"
+    "Secret"
+    Secret
+    (managedSecretName app Build)
+    (renderEnvSecret app namespaceName Build values)
+    app
+    namespaceName
+    cluster
+    namespaceId
     (source {path = "build-secret/" <> nameText version})
 
-compilePreviewSecretChannel
-  :: T.Text -> T.Text -> ResourceId -> ResourceId -> Name
-  -> Map T.Text T.Text -> SourceLocation
-  -> Either (NonEmpty InventoryError)
-       (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+compilePreviewSecretChannel ::
+  T.Text ->
+  T.Text ->
+  ResourceId ->
+  ResourceId ->
+  Name ->
+  Map T.Text T.Text ->
+  SourceLocation ->
+  Either
+    (NonEmpty InventoryError)
+    (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
 compilePreviewSecretChannel app namespaceName cluster namespaceId version values source =
-  compileChannel "secret" "preview" "preview-secret" "secret" "Secret" Secret
-    (managedSecretName app Preview) (renderEnvSecret app namespaceName Preview values)
-    app namespaceName cluster namespaceId
+  compileChannel
+    "secret"
+    "preview"
+    "preview-secret"
+    "secret"
+    "Secret"
+    Secret
+    (managedSecretName app Preview)
+    (renderEnvSecret app namespaceName Preview values)
+    app
+    namespaceName
+    cluster
+    namespaceId
     (source {path = "preview-secret/" <> nameText version})
 
 -- | Merge reviews read the accepted private native ConfigMap, never a live
 -- provider value. The next plan still binds to the exact accepted base revision.
-acceptedEnvChannelValues
-  :: ScopeSnapshot -> Map ResourceId (ManagedResource, ByteString) -> ScopeDeclaration
-  -> Either T.Text (Map T.Text T.Text)
+acceptedEnvChannelValues ::
+  ScopeSnapshot ->
+  Map ResourceId (ManagedResource, ByteString) ->
+  ScopeDeclaration ->
+  Either T.Text (Map T.Text T.Text)
 acceptedEnvChannelValues snapshot native candidate = case Map.lookup (scopeId candidate) (snapshotScopes snapshot) of
   Nothing -> Right Map.empty
-  Just (_, scope) -> case
-    [resource | bundle <- scopeBundles scope, Managed resource <- declarations bundle] of
+  Just (_, scope) -> case [resource | bundle <- scopeBundles scope, Managed resource <- declarations bundle] of
     [resource] -> do
-      let expected = [member | bundle <- scopeBundles candidate,
-            Managed member <- declarations bundle]
-      unless (case expected of
-          [member] -> member ^. #identity == resource ^. #identity
-            && member ^. #address == resource ^. #address
-          _ -> False)
+      let expected =
+            [ member
+            | bundle <- scopeBundles candidate
+            , Managed member <- declarations bundle
+            ]
+      unless
+        ( case expected of
+            [member] ->
+              member ^. #identity == resource ^. #identity
+                && member ^. #address == resource ^. #address
+            _ -> False
+        )
         (Left "accepted environment channel identity or address differs from requested channel")
-      unless (resource ^. #executor == KubernetesExecutor
-          && case resource ^. #address of
-               Kubernetes _ "" kind (Just _) _ -> nameText kind == "configmap"
-               _ -> False)
+      unless
+        ( resource ^. #executor == KubernetesExecutor
+            && case resource ^. #address of
+              Kubernetes _ "" kind (Just _) _ -> nameText kind == "configmap"
+              _ -> False
+        )
         (Left "accepted environment channel is not a namespaced ConfigMap")
-      (nativeResource, bytes) <- maybe (Left "accepted environment channel has no private native member")
-        Right (Map.lookup (resource ^. #identity) native)
-      unless (nativeResource == resource)
+      (nativeResource, bytes) <-
+        maybe
+          (Left "accepted environment channel has no private native member")
+          Right
+          (Map.lookup (resource ^. #identity) native)
+      unless
+        (nativeResource == resource)
         (Left "accepted environment channel native member differs from accepted declaration")
       value <- first (T.pack . show) (Yaml.decodeEither' bytes :: Either Yaml.ParseException Value)
       case value of
@@ -144,32 +257,47 @@ acceptedEnvChannelValues snapshot native candidate = case Map.lookup (scopeId ca
 
 -- | Recover Secret values only from the accepted private review. Callers must
 -- keep the returned map private and submit a new explicit rotation version.
-acceptedSecretChannelValues
-  :: ScopeSnapshot -> Map ResourceId (ManagedResource, ByteString) -> ScopeDeclaration
-  -> Either T.Text (Map T.Text T.Text)
+acceptedSecretChannelValues ::
+  ScopeSnapshot ->
+  Map ResourceId (ManagedResource, ByteString) ->
+  ScopeDeclaration ->
+  Either T.Text (Map T.Text T.Text)
 acceptedSecretChannelValues snapshot native candidate = case Map.lookup (scopeId candidate) (snapshotScopes snapshot) of
   Nothing -> Right Map.empty
-  Just (_, scope) -> case
-    [resource | bundle <- scopeBundles scope, Managed resource <- declarations bundle] of
+  Just (_, scope) -> case [resource | bundle <- scopeBundles scope, Managed resource <- declarations bundle] of
     [resource] -> do
-      let expected = [member | bundle <- scopeBundles candidate,
-            Managed member <- declarations bundle]
-      unless (case expected of
-          [member] -> member ^. #identity == resource ^. #identity
-            && member ^. #address == resource ^. #address
-          _ -> False)
+      let expected =
+            [ member
+            | bundle <- scopeBundles candidate
+            , Managed member <- declarations bundle
+            ]
+      unless
+        ( case expected of
+            [member] ->
+              member ^. #identity == resource ^. #identity
+                && member ^. #address == resource ^. #address
+            _ -> False
+        )
         (Left "accepted Secret channel identity or address differs from requested channel")
-      unless (resource ^. #executor == KubernetesExecutor
-          && case resource ^. #address of
-               Kubernetes _ "" kind (Just _) _ -> nameText kind == "secret"
-               _ -> False)
+      unless
+        ( resource ^. #executor == KubernetesExecutor
+            && case resource ^. #address of
+              Kubernetes _ "" kind (Just _) _ -> nameText kind == "secret"
+              _ -> False
+        )
         (Left "accepted Secret channel is not a namespaced Secret")
-      (nativeResource, bytes) <- maybe (Left "accepted Secret channel has no private native member")
-        Right (Map.lookup (resource ^. #identity) native)
-      unless (nativeResource == resource)
+      (nativeResource, bytes) <-
+        maybe
+          (Left "accepted Secret channel has no private native member")
+          Right
+          (Map.lookup (resource ^. #identity) native)
+      unless
+        (nativeResource == resource)
         (Left "accepted Secret channel native member differs from accepted declaration")
-      value <- first (const "accepted Secret channel has invalid native bytes")
-        (Yaml.decodeEither' bytes :: Either Yaml.ParseException Value)
+      value <-
+        first
+          (const "accepted Secret channel has invalid native bytes")
+          (Yaml.decodeEither' bytes :: Either Yaml.ParseException Value)
       case value of
         Object fields -> case KM.lookup "data" fields of
           Just dataValue -> case Aeson.fromJSON dataValue :: Aeson.Result (Map T.Text T.Text) of
@@ -183,36 +311,49 @@ acceptedSecretChannelValues snapshot native candidate = case Map.lookup (scopeId
 -- Image publication can name this member as an input without exposing its
 -- private values. Runtime and Preview channels cannot masquerade as Build
 -- inputs, even if a caller supplies their resource IDs directly.
-acceptedBuildChannelMember
-  :: ScopeSnapshot -> ResourceId -> Either T.Text (T.Text, ScopeDeclaration, ManagedResource)
-acceptedBuildChannelMember snapshot selected = case
-  [(scope, member) | (_, scope) <- Map.elems (snapshotScopes snapshot),
-    bundle <- scopeBundles scope, Managed member <- declarations bundle,
-    member ^. #identity == selected] of
+acceptedBuildChannelMember ::
+  ScopeSnapshot -> ResourceId -> Either T.Text (T.Text, ScopeDeclaration, ManagedResource)
+acceptedBuildChannelMember snapshot selected = case [ (scope, member)
+                                                    | (_, scope) <- Map.elems (snapshotScopes snapshot)
+                                                    , bundle <- scopeBundles scope
+                                                    , Managed member <- declarations bundle
+                                                    , member ^. #identity == selected
+                                                    ] of
   [(scope, member)] -> do
     let owner = scopeId scope
         ownerName = nameText (scopeName owner)
         channel = case T.stripSuffix "-build" ownerName of
-          Just rest | Just app <- T.stripPrefix "env-" rest ->
-            Just (app, "build-env", "configmap", managedConfigMapName app Build, Private)
-          Just rest | Just app <- T.stripPrefix "secret-" rest ->
-            Just (app, "build-secret", "secret", managedSecretName app Build, Secret)
+          Just rest
+            | Just app <- T.stripPrefix "env-" rest ->
+                Just (app, "build-env", "configmap", managedConfigMapName app Build, Private)
+          Just rest
+            | Just app <- T.stripPrefix "secret-" rest ->
+                Just (app, "build-secret", "secret", managedSecretName app Build, Secret)
           _ -> Nothing
-    (app, keyText, kind, nativeName, visibility) <- maybe
-      (Left "image input is not an accepted Build channel") Right channel
+    (app, keyText, kind, nativeName, visibility) <-
+      maybe
+        (Left "image input is not an accepted Build channel")
+        Right
+        channel
     key <- mkLogicalKey keyText
     role <- mkName kind
-    unless (scopeKind owner == Application && not (T.null app)
-        && member ^. #owner == owner
-        && member ^. #identity == mintResourceId owner key role
-        && member ^. #executor == KubernetesExecutor
-        && member ^. #sensitivity == visibility
-        && [declaration | bundle <- scopeBundles scope,
-             declaration <- declarations bundle] == [Managed member]
-        && case member ^. #address of
-             Kubernetes _ "" objectKind (Just _) name ->
-               nameText objectKind == kind && nameText name == nativeName
-             _ -> False)
+    unless
+      ( scopeKind owner == Application
+          && not (T.null app)
+          && member ^. #owner == owner
+          && member ^. #identity == mintResourceId owner key role
+          && member ^. #executor == KubernetesExecutor
+          && member ^. #sensitivity == visibility
+          && [ declaration
+             | bundle <- scopeBundles scope
+             , declaration <- declarations bundle
+             ]
+            == [Managed member]
+          && case member ^. #address of
+            Kubernetes _ "" objectKind (Just _) name ->
+              nameText objectKind == kind && nameText name == nativeName
+            _ -> False
+      )
       (Left "image input differs from its accepted Build channel identity")
     pure (app, scope, member)
   _ -> Left "image Build input is absent or ambiguous in accepted inventory"
@@ -226,48 +367,91 @@ validateSecretRotation snapshot candidate = do
     Nothing -> Right ()
     Just (_, accepted) -> do
       previous <- singleSecret accepted
-      unless (path (previous ^. #source) /= path (proposed ^. #source)
-          || previous ^. #spec == proposed ^. #spec)
+      unless
+        ( path (previous ^. #source) /= path (proposed ^. #source)
+            || previous ^. #spec == proposed ^. #spec
+        )
         (Left "Secret rotation version already names different content")
   where
-    singleSecret scope = case
-      [resource | bundle <- scopeBundles scope, Managed resource <- declarations bundle] of
+    singleSecret scope = case [resource | bundle <- scopeBundles scope, Managed resource <- declarations bundle] of
       [resource] -> Right resource
       _ -> Left "Secret channel must have exactly one managed member"
 
+compileChannel ::
+  T.Text ->
+  T.Text ->
+  T.Text ->
+  T.Text ->
+  T.Text ->
+  Sensitivity ->
+  T.Text ->
+  ByteString ->
+  T.Text ->
+  T.Text ->
+  ResourceId ->
+  ResourceId ->
+  SourceLocation ->
+  Either
+    (NonEmpty InventoryError)
+    (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
 compileChannel
-  :: T.Text -> T.Text -> T.Text -> T.Text -> T.Text -> Sensitivity -> T.Text -> ByteString
-  -> T.Text -> T.Text -> ResourceId -> ResourceId -> SourceLocation
-  -> Either (NonEmpty InventoryError)
-       (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
-compileChannel scopePrefix channelName logicalKey roleText objectKind visibility nativeName bytes
-    app namespaceName cluster namespaceId source = do
-  owner <- first invalid (mkScopeId Application (scopePrefix <> "-" <> app <> "-" <> channelName))
-  key <- first invalid (mkLogicalKey logicalKey)
-  role <- first invalid (mkName roleText)
-  let resourceId = mintResourceId owner key role
-  value <- first (invalid . T.pack . show)
-    (Yaml.decodeEither' bytes :: Either Yaml.ParseException Value)
-  canonical <- first invalid (canonicalValue value)
-  (resource, native) <- first (:| []) (bindKubernetesObject KubernetesInput
-    { resourceId = resourceId
-    , ownerScope = owner
-    , clusterId = cluster
-    , inputObject = value
-    , objectDigest = contentDigest canonical
-    , lifecyclePolicy = Retain
-    , inputDataPolicy = Stateless
-    , inputSensitivity = visibility
-    , sourceLocation = source
-    })
-  expected <- first invalid (kubernetesAddress cluster "v1" objectKind
-    (Just namespaceName) nativeName)
-  unless (resource ^. #address == expected)
-    (Left (invalid "environment channel renderer changed its native address"))
-  let member = resource {dependencies = [OrderedAfter namespaceId]}
-  scope <- mkScopeDeclaration owner [ResourceBundle [Managed member] [] [] [] [] []]
-  pure (scope, Map.singleton resourceId (member, native))
-  where
-    invalid message = inventoryError ("invalid-" <> channelName <> "-channel") message
-      & #sources .~ [source]
-      & (:| [])
+  scopePrefix
+  channelName
+  logicalKey
+  roleText
+  objectKind
+  visibility
+  nativeName
+  bytes
+  app
+  namespaceName
+  cluster
+  namespaceId
+  source = do
+    owner <- first invalid (mkScopeId Application (scopePrefix <> "-" <> app <> "-" <> channelName))
+    key <- first invalid (mkLogicalKey logicalKey)
+    role <- first invalid (mkName roleText)
+    let resourceId = mintResourceId owner key role
+    value <-
+      first
+        (invalid . T.pack . show)
+        (Yaml.decodeEither' bytes :: Either Yaml.ParseException Value)
+    canonical <- first invalid (canonicalValue value)
+    (resource, native) <-
+      first
+        (:| [])
+        ( bindKubernetesObject
+            KubernetesInput
+              { resourceId = resourceId
+              , ownerScope = owner
+              , clusterId = cluster
+              , inputObject = value
+              , objectDigest = contentDigest canonical
+              , lifecyclePolicy = Retain
+              , inputDataPolicy = Stateless
+              , inputSensitivity = visibility
+              , sourceLocation = source
+              }
+        )
+    expected <-
+      first
+        invalid
+        ( kubernetesAddress
+            cluster
+            "v1"
+            objectKind
+            (Just namespaceName)
+            nativeName
+        )
+    unless
+      (resource ^. #address == expected)
+      (Left (invalid "environment channel renderer changed its native address"))
+    let member = resource {dependencies = [OrderedAfter namespaceId]}
+    scope <- mkScopeDeclaration owner [ResourceBundle [Managed member] [] [] [] [] []]
+    pure (scope, Map.singleton resourceId (member, native))
+    where
+      invalid message =
+        inventoryError ("invalid-" <> channelName <> "-channel") message
+          & #sources
+          .~ [source]
+          & (:| [])

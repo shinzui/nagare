@@ -1,7 +1,8 @@
 -- | Direct observability members installed beside the five Helm releases.
 module Nagare.Inventory.Components.ObservabilityExtras
   ( compileObservabilityExtras
-  ) where
+  )
+where
 
 import Control.Exception (IOException, try)
 import Data.Aeson (Value, object, (.=))
@@ -24,31 +25,37 @@ import Nagare.Resource.Inventory
 import Nagare.Resource.Types
 import System.FilePath ((</>))
 
-compileObservabilityExtras
-  :: FilePath -> FoundationInput -> ResourceId
-  -> IO (Either (NonEmpty InventoryError)
-       (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString)))
+compileObservabilityExtras ::
+  FilePath ->
+  FoundationInput ->
+  ResourceId ->
+  IO
+    ( Either
+        (NonEmpty InventoryError)
+        (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+    )
 compileObservabilityExtras root foundation metricsRelease = do
   generated <- traverse loadConfigMap generatedFiles
   case sequence generated of
     Left failure -> pure (Left (failure :| []))
     Right objects -> do
-      let input = UpstreamInput
-            { upstreamOwner = owner
-            , upstreamCluster = foundationCluster foundation
-            , upstreamKey = known (mkLogicalKey "observability-extra")
-            , upstreamRoot = root
-            , upstreamFiles = [(path, known (mkContentDigest digest)) | (path, digest) <- manifestFiles]
-            , upstreamNamespaces = Map.singleton (known (mkName "monitoring")) monitoringNamespace
-            , upstreamTransferred = Set.empty
-            , upstreamConfigMapData = Map.empty
-            , upstreamImageOverrides = Map.empty
-            , upstreamGenerated = objects
-            , upstreamAfter = Map.empty
-            , upstreamExternalAfter = Map.fromList [(address, [metricsRelease]) | address <- addresses]
-            , upstreamOrderDeployments = False
-            , upstreamRegistryDelegations = Map.empty
-            }
+      let input =
+            UpstreamInput
+              { upstreamOwner = owner
+              , upstreamCluster = foundationCluster foundation
+              , upstreamKey = known (mkLogicalKey "observability-extra")
+              , upstreamRoot = root
+              , upstreamFiles = [(path, known (mkContentDigest digest)) | (path, digest) <- manifestFiles]
+              , upstreamNamespaces = Map.singleton (known (mkName "monitoring")) monitoringNamespace
+              , upstreamTransferred = Set.empty
+              , upstreamConfigMapData = Map.empty
+              , upstreamImageOverrides = Map.empty
+              , upstreamGenerated = objects
+              , upstreamAfter = Map.empty
+              , upstreamExternalAfter = Map.fromList [(address, [metricsRelease]) | address <- addresses]
+              , upstreamOrderDeployments = False
+              , upstreamRegistryDelegations = Map.empty
+              }
       result <- compileUpstream input
       pure $ do
         (bundle, native) <- result
@@ -57,8 +64,11 @@ compileObservabilityExtras root foundation metricsRelease = do
   where
     owner = known (mkScopeId Platform "observability-extra")
     known = either (error . T.unpack) id
-    monitoringNamespace = mintResourceId (foundationOwner foundation)
-      (known (mkLogicalKey "monitoring")) (known (mkName "namespace"))
+    monitoringNamespace =
+      mintResourceId
+        (foundationOwner foundation)
+        (known (mkLogicalKey "monitoring"))
+        (known (mkName "namespace"))
     manifestFiles =
       [ ("cluster/observability/brokers/vmservicescrape.yaml", "671a9e79b8bb6323700c668d99bf3e8acc762ea9f7051570193cf60cb4559504")
       , ("cluster/observability/cert-manager/vmservicescrape.yaml", "863fb660be31a9de8c41102291b812e34613fd602ec95a03d40a57637e1991ed")
@@ -73,25 +83,36 @@ compileObservabilityExtras root foundation metricsRelease = do
       [ address "operator.victoriametrics.com/v1beta1" "VMServiceScrape" "nagare-brokers"
       , address "operator.victoriametrics.com/v1beta1" "VMServiceScrape" "cert-manager"
       , address "operator.victoriametrics.com/v1beta1" "VMRule" "nagare-alerts"
-      ] <> [address "v1" "ConfigMap" name | (_, _, name, _, _) <- generatedFiles]
-    address api kind name = known (kubernetesAddress (foundationCluster foundation)
-      api kind (Just "monitoring") name)
+      ]
+        <> [address "v1" "ConfigMap" name | (_, _, name, _, _) <- generatedFiles]
+    address api kind name =
+      known
+        ( kubernetesAddress
+            (foundationCluster foundation)
+            api
+            kind
+            (Just "monitoring")
+            name
+        )
     loadConfigMap (path, expected, name, key, label) = do
       readResult <- try (BS.readFile (root </> path)) :: IO (Either IOException ByteString)
       pure $ do
         bytes <- first (invalid . ("cannot read packaged Grafana input: " <>) . T.pack . show) readResult
-        unless (contentDigest bytes == known (mkContentDigest expected))
+        unless
+          (contentDigest bytes == known (mkContentDigest expected))
           (Left (invalid "packaged Grafana input differs from its pinned digest"))
         contents <- first (invalid . T.pack . show) (TE.decodeUtf8' bytes)
-        let value = object
-              [ "apiVersion" .= ("v1" :: Text)
-              , "kind" .= ("ConfigMap" :: Text)
-              , "metadata" .= object
-                  [ "name" .= (name :: Text)
-                  , "namespace" .= ("monitoring" :: Text)
-                  , "labels" .= object [Key.fromText label .= ("1" :: Text)]
-                  ]
-              , "data" .= object [Key.fromText key .= contents]
-              ]
+        let value =
+              object
+                [ "apiVersion" .= ("v1" :: Text)
+                , "kind" .= ("ConfigMap" :: Text)
+                , "metadata"
+                    .= object
+                      [ "name" .= (name :: Text)
+                      , "namespace" .= ("monitoring" :: Text)
+                      , "labels" .= object [Key.fromText label .= ("1" :: Text)]
+                      ]
+                , "data" .= object [Key.fromText key .= contents]
+                ]
         pure (SourceLocation (T.pack path) "grafana", value)
     invalid message = inventoryError "invalid-observability-extra" message

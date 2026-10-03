@@ -7,7 +7,8 @@ module Nagare.Inventory.DataFence.DatabaseShutdown
   , kubectlDatabaseShutdownTransport
   , observeDatabasePod
   , requestDatabaseShutdown
-  ) where
+  )
+where
 
 import Control.Concurrent (threadDelay)
 import Control.Exception (IOException, try)
@@ -22,48 +23,82 @@ import Data.Vector qualified as V
 import Nagare.Dsl.Database (Engine (..), engineToken)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapters.KubernetesRuntime
-  (KubernetesRuntimeConfig (..))
+  ( KubernetesRuntimeConfig (..)
+  )
 import Nagare.Inventory.DataFence.MountGuard (validUid)
 import Nagare.Inventory.DataFence.StatefulWriter
-  (StatefulWriterPin, writerName, writerNamespace, writerSavedReplicas, writerUid)
+  ( StatefulWriterPin
+  , writerName
+  , writerNamespace
+  , writerSavedReplicas
+  , writerUid
+  )
 import Nagare.Inventory.DataFence.VolumeState
-  (VolumeTransport (..))
+  ( VolumeTransport (..)
+  )
 import System.Exit (ExitCode (..))
 import System.Process (readProcessWithExitCode)
 
 data DatabaseShutdownTransport = DatabaseShutdownTransport
-  { sendDatabaseShutdown :: !(Text -> Text -> Text -> Engine -> Text
-      -> IO (Either Text ()))
+  { sendDatabaseShutdown ::
+      !( Text ->
+         Text ->
+         Text ->
+         Engine ->
+         Text ->
+         IO (Either Text ())
+       )
   }
 
 -- | Find the one running Pod owned by the exact reviewed StatefulSet and
 -- carrying its accepted engine image. Maintenance retains this Pod instead
 -- of shutting it down, and must recheck the UID at every fence transition.
-observeDatabasePod :: VolumeTransport -> StatefulWriterPin -> Engine -> Text
-  -> IO (Either Text (Text, Text))
+observeDatabasePod ::
+  VolumeTransport ->
+  StatefulWriterPin ->
+  Engine ->
+  Text ->
+  IO (Either Text (Text, Text))
 observeDatabasePod volume pin engine acceptedImage = do
   listing <- listNamespacePods volume (writerNamespace pin)
   pure $ do
     pods <- listing
     selected <- databasePod pin engine acceptedImage pods
-    maybe (Left "reviewed database Pod is absent, terminating, or not running")
-      Right selected
+    maybe
+      (Left "reviewed database Pod is absent, terminating, or not running")
+      Right
+      selected
 
 -- | Only an exact, running, owned server Pod receives a shutdown request.
 -- A previously removed Pod is safe to skip on acquisition resume; the
 -- StatefulSet still has to converge to zero before exclusion can be proved.
-requestDatabaseShutdown :: VolumeTransport -> DatabaseShutdownTransport
-  -> StatefulWriterPin -> Engine -> Text -> IO (Either Text ())
+requestDatabaseShutdown ::
+  VolumeTransport ->
+  DatabaseShutdownTransport ->
+  StatefulWriterPin ->
+  Engine ->
+  Text ->
+  IO (Either Text ())
 requestDatabaseShutdown volume transport pin engine acceptedImage = do
   listing <- listNamespacePods volume (writerNamespace pin)
   case listing >>= databasePod pin engine acceptedImage of
     Left reason -> pure (Left reason)
     Right Nothing -> pure (Right ())
-    Right (Just (pod, uid)) -> sendDatabaseShutdown transport
-      (writerNamespace pin) pod uid engine acceptedImage
+    Right (Just (pod, uid)) ->
+      sendDatabaseShutdown
+        transport
+        (writerNamespace pin)
+        pod
+        uid
+        engine
+        acceptedImage
 
-databasePod :: StatefulWriterPin -> Engine -> Text -> Value
-  -> Either Text (Maybe (Text, Text))
+databasePod ::
+  StatefulWriterPin ->
+  Engine ->
+  Text ->
+  Value ->
+  Either Text (Maybe (Text, Text))
 databasePod pin engine acceptedImage listing = do
   root <- asObject "PodList" listing
   items <- arrayField "items" root
@@ -71,37 +106,44 @@ databasePod pin engine acceptedImage listing = do
     pod <- asObject "Pod" item
     metadata <- objectField "metadata" pod
     namespace <- textField "namespace" metadata
-    unless (namespace == writerNamespace pin)
+    unless
+      (namespace == writerNamespace pin)
       (Left "database Pod list contains another namespace")
     owners <- optionalArrayField "ownerReferences" metadata
     let owned = any (ownedBy pin) owners
-    if not owned then pure [] else do
-      name <- textField "name" metadata
-      uid <- textField "uid" metadata
-      unless (validUid uid && (writerName pin <> "-") `T.isPrefixOf` name)
-        (Left "reviewed database Pod identity is malformed")
-      spec <- objectField "spec" pod
-      containers <- arrayField "containers" spec
-      case containers of
-        [containerValue] -> do
-          container <- asObject "database server container" containerValue
-          unless (textField "name" container == Right (engineToken engine)
-              && textField "image" container == Right acceptedImage)
-            (Left "database Pod server image differs from accepted StatefulSet")
-        _ -> Left "reviewed database Pod has multiple server containers"
-      status <- objectField "status" pod
-      phase <- textField "phase" status
-      running <- case phase of
-        "Pending" -> Right False
-        "Running" -> serverRunning engine status
-        "Succeeded" -> Right False
-        "Failed" -> Right False
-        _ -> Left "reviewed database Pod has an unknown phase"
-      let terminating = case KM.lookup "deletionTimestamp" metadata of
-            Just (String _) -> True
-            _ -> False
-      pure [(name, uid, running && not terminating)]
-  unless (writerSavedReplicas pin <= 1 && length owned <= 1)
+    if not owned
+      then pure []
+      else do
+        name <- textField "name" metadata
+        uid <- textField "uid" metadata
+        unless
+          (validUid uid && (writerName pin <> "-") `T.isPrefixOf` name)
+          (Left "reviewed database Pod identity is malformed")
+        spec <- objectField "spec" pod
+        containers <- arrayField "containers" spec
+        case containers of
+          [containerValue] -> do
+            container <- asObject "database server container" containerValue
+            unless
+              ( textField "name" container == Right (engineToken engine)
+                  && textField "image" container == Right acceptedImage
+              )
+              (Left "database Pod server image differs from accepted StatefulSet")
+          _ -> Left "reviewed database Pod has multiple server containers"
+        status <- objectField "status" pod
+        phase <- textField "phase" status
+        running <- case phase of
+          "Pending" -> Right False
+          "Running" -> serverRunning engine status
+          "Succeeded" -> Right False
+          "Failed" -> Right False
+          _ -> Left "reviewed database Pod has an unknown phase"
+        let terminating = case KM.lookup "deletionTimestamp" metadata of
+              Just (String _) -> True
+              _ -> False
+        pure [(name, uid, running && not terminating)]
+  unless
+    (writerSavedReplicas pin <= 1 && length owned <= 1)
     (Left "reviewed database has multiple server Pods or replicas")
   pure $ case owned of
     [(name, uid, True)] -> Just (name, uid)
@@ -121,7 +163,8 @@ serverRunning engine status = do
   case containers of
     [containerValue] -> do
       container <- asObject "database container status" containerValue
-      unless (textField "name" container == Right (engineToken engine))
+      unless
+        (textField "name" container == Right (engineToken engine))
         (Left "database server container status changed")
       state <- objectField "state" container
       pure (KM.member "running" state)
@@ -151,8 +194,9 @@ optionalArrayField key root = case KM.lookup (Key.fromText key) root of
   Nothing -> Right []
   Just _ -> arrayField key root
 
-kubectlDatabaseShutdownTransport :: KubernetesRuntimeConfig
-  -> DatabaseShutdownTransport
+kubectlDatabaseShutdownTransport ::
+  KubernetesRuntimeConfig ->
+  DatabaseShutdownTransport
 kubectlDatabaseShutdownTransport config = DatabaseShutdownTransport send
   where
     send namespace pod uid engine acceptedImage = do
@@ -160,14 +204,29 @@ kubectlDatabaseShutdownTransport config = DatabaseShutdownTransport send
       case before of
         Left reason -> pure (Left reason)
         Right start -> do
-          invoked <- invoke namespace ["exec", T.unpack pod, "--container",
-            T.unpack (engineToken engine), "--", "sh", "-c",
-            T.unpack (shutdownScript engine)]
+          invoked <-
+            invoke
+              namespace
+              [ "exec"
+              , T.unpack pod
+              , "--container"
+              , T.unpack (engineToken engine)
+              , "--"
+              , "sh"
+              , "-c"
+              , T.unpack (shutdownScript engine)
+              ]
           case invoked of
             Left reason -> pure (Left reason)
             Right _ ->
-              awaitExit namespace pod uid engine acceptedImage
-                (serverContainerId start) 40
+              awaitExit
+                namespace
+                pod
+                uid
+                engine
+                acceptedImage
+                (serverContainerId start)
+                40
 
     readServer namespace pod uid engine acceptedImage = do
       result <- invoke namespace ["get", "pod", T.unpack pod, "-o", "json"]
@@ -179,8 +238,15 @@ kubectlDatabaseShutdownTransport config = DatabaseShutdownTransport send
             value <- first T.pack (eitherDecodeStrict' (TE.encodeUtf8 (T.pack body)))
             parseServerStatus pod uid engine acceptedImage value
 
-    awaitExit :: Text -> Text -> Text -> Engine -> Text -> Text -> Int
-      -> IO (Either Text ())
+    awaitExit ::
+      Text ->
+      Text ->
+      Text ->
+      Engine ->
+      Text ->
+      Text ->
+      Int ->
+      IO (Either Text ())
     awaitExit namespace pod uid engine acceptedImage initial remaining = do
       observed <- readServer namespace pod uid engine acceptedImage
       case observed of
@@ -189,7 +255,8 @@ kubectlDatabaseShutdownTransport config = DatabaseShutdownTransport send
               && serverLastExit status == Just 0 ->
               pure (Right ())
         Left reason | remaining <= 0 -> pure (Left reason)
-        _ | remaining <= 0 ->
+        _
+          | remaining <= 0 ->
               pure (Left "engine-native database shutdown did not finish cleanly")
         _ -> do
           threadDelay 250000
@@ -200,10 +267,20 @@ kubectlDatabaseShutdownTransport config = DatabaseShutdownTransport send
       case guarded of
         Left reason -> pure (Left ("cluster guard refused: " <> reason))
         Right () -> do
-          result <- try (readProcessWithExitCode "kubectl"
-            (["--context", T.unpack (runtimeKubectlContext config),
-              "--request-timeout=90s", "--namespace", T.unpack namespace]
-              <> arguments) "")
+          result <-
+            try
+              ( readProcessWithExitCode
+                  "kubectl"
+                  ( [ "--context"
+                    , T.unpack (runtimeKubectlContext config)
+                    , "--request-timeout=90s"
+                    , "--namespace"
+                    , T.unpack namespace
+                    ]
+                      <> arguments
+                  )
+                  ""
+              )
           pure $ case result of
             Left (_ :: IOException) -> Left "could not invoke database shutdown kubectl"
             Right output -> Right output
@@ -214,21 +291,30 @@ data ServerStatus = ServerStatus
   , serverLastExit :: !(Maybe Int)
   }
 
-parseServerStatus :: Text -> Text -> Engine -> Text -> Value
-  -> Either Text ServerStatus
+parseServerStatus ::
+  Text ->
+  Text ->
+  Engine ->
+  Text ->
+  Value ->
+  Either Text ServerStatus
 parseServerStatus name uid engine acceptedImage value = do
   root <- asObject "database Pod" value
   metadata <- objectField "metadata" root
-  unless (textField "name" metadata == Right name
-      && textField "uid" metadata == Right uid)
+  unless
+    ( textField "name" metadata == Right name
+        && textField "uid" metadata == Right uid
+    )
     (Left "database server Pod was replaced during shutdown")
   spec <- objectField "spec" root
   serverContainers <- arrayField "containers" spec
   case serverContainers of
     [serverValue] -> do
       server <- asObject "database server container" serverValue
-      unless (textField "name" server == Right (engineToken engine)
-          && textField "image" server == Right acceptedImage)
+      unless
+        ( textField "name" server == Right (engineToken engine)
+            && textField "image" server == Right acceptedImage
+        )
         (Left "database server Pod image changed during shutdown")
     _ -> Left "database server Pod containers changed during shutdown"
   status <- objectField "status" root
@@ -236,7 +322,8 @@ parseServerStatus name uid engine acceptedImage value = do
   case containers of
     [containerValue] -> do
       container <- asObject "database server status" containerValue
-      unless (textField "name" container == Right (engineToken engine))
+      unless
+        (textField "name" container == Right (engineToken engine))
         (Left "database server container changed during shutdown")
       containerId <- textField "containerID" container
       state <- objectField "state" container
@@ -254,8 +341,10 @@ parseServerStatus name uid engine acceptedImage value = do
 
 intField :: Text -> KM.KeyMap Value -> Either Text Int
 intField key root = case KM.lookup (Key.fromText key) root of
-  Just raw | Success number <- (fromJSON raw :: Result Int), number >= 0 ->
-    Right number
+  Just raw
+    | Success number <- (fromJSON raw :: Result Int)
+    , number >= 0 ->
+        Right number
   _ -> Left ("database server status lacks " <> key)
 
 shutdownScript :: Engine -> Text

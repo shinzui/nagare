@@ -2,7 +2,8 @@
 module Nagare.Inventory.Migration.Types
   ( MigrationContract (..)
   , ValidatedMigration (..)
-  ) where
+  )
+where
 
 import Data.Aeson
 import Data.Aeson.KeyMap qualified as KM
@@ -36,13 +37,14 @@ data ValidatedMigration = ValidatedMigration
 
 instance ToJSON MigrationContract where
   toJSON StatelessMigration = object ["mode" .= ("stateless" :: Text)]
-  toJSON (DurableMigration backup compatibility fence recovery) = object
-    [ "mode" .= ("durable" :: Text)
-    , "backupEvidence" .= backup
-    , "compatibilityEvidence" .= compatibility
-    , "fenceEvidence" .= fence
-    , "recoveryEvidence" .= recovery
-    ]
+  toJSON (DurableMigration backup compatibility fence recovery) =
+    object
+      [ "mode" .= ("durable" :: Text)
+      , "backupEvidence" .= backup
+      , "compatibilityEvidence" .= compatibility
+      , "fenceEvidence" .= fence
+      , "recoveryEvidence" .= recovery
+      ]
 
 instance FromJSON MigrationContract where
   parseJSON = withObject "MigrationContract" $ \o -> do
@@ -52,8 +54,12 @@ instance FromJSON MigrationContract where
         unless (all (`elem` ["mode"]) (KM.keys o)) (fail "stateless migration contract has an unknown field")
         pure StatelessMigration
       "durable" -> do
-        unless (all (`elem` ["mode", "backupEvidence", "compatibilityEvidence", "fenceEvidence", "recoveryEvidence"]) (KM.keys o))
+        unless
+          (all (`elem` ["mode", "backupEvidence", "compatibilityEvidence", "fenceEvidence", "recoveryEvidence"]) (KM.keys o))
           (fail "durable migration contract has an unknown field")
-        DurableMigration <$> o .: "backupEvidence" <*> o .: "compatibilityEvidence"
-          <*> o .: "fenceEvidence" <*> o .: "recoveryEvidence"
+        DurableMigration
+          <$> o .: "backupEvidence"
+          <*> o .: "compatibilityEvidence"
+          <*> o .: "fenceEvidence"
+          <*> o .: "recoveryEvidence"
       _ -> fail "unsupported migration contract mode"

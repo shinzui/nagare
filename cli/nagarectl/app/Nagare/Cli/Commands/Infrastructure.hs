@@ -29,11 +29,11 @@ import Nagare.Cli.Platform.InfrastructureReview
   , prepareInfraMutation
   , saveReviewedPlan
   )
-import Nagare.Cli.Runtime.CloudTeardown (saveReviewedCloudTeardown)
-import Nagare.Cli.Runtime.ImageCleanup (saveReviewedImageCleanup)
 import Nagare.Cli.Runtime.Cleanup (saveReviewedReleaseCleanup)
+import Nagare.Cli.Runtime.CloudTeardown (saveReviewedCloudTeardown)
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Cli.Runtime.Guards (guardLegacyMutationInventory)
+import Nagare.Cli.Runtime.ImageCleanup (saveReviewedImageCleanup)
 import Nagare.Cli.Runtime.PlatformStatus (gatherPlatformStatus)
 import Nagare.Cli.Runtime.PreviewCleanup (saveReviewedPreviewCleanup)
 import Nagare.Cli.Runtime.Process (runExternal)

@@ -5,7 +5,8 @@ module Nagare.Inventory.LiveRestoreSource
   ( captureLiveBackupVersions
   , withVerifiedLiveSource
   , verifyLiveStoredFiles
-  ) where
+  )
+where
 
 import Control.Exception (IOException, try)
 import Control.Monad (unless)
@@ -24,17 +25,34 @@ import Nagare.Inventory.ScheduledStore
 import System.Exit (ExitCode (..))
 import System.IO (IOMode (..), hFileSize, withBinaryFile)
 import System.IO.Temp (withSystemTempDirectory)
-import System.Process (CreateProcess (..), StdStream (..), createProcess, proc,
-  waitForProcess)
+import System.Process
+  ( CreateProcess (..)
+  , StdStream (..)
+  , createProcess
+  , proc
+  , waitForProcess
+  )
 
 -- | Planning pins the versions returned by the object store only after both
 -- provider files match the completed Job receipt and its archive checksum.
-captureLiveBackupVersions :: KubernetesRuntimeConfig -> StoreBackend
-  -> Text -> Text -> ByteString -> Text -> IO (Either Text (Text, Text))
-captureLiveBackupVersions config backend objectAddress receiptAddress
-  expectedReceipt expectedArchiveSha = case backend of
-    GcsBackend {} -> pure
-      (Left "cloud live restore requires exact-generation provider inspection")
+captureLiveBackupVersions ::
+  KubernetesRuntimeConfig ->
+  StoreBackend ->
+  Text ->
+  Text ->
+  ByteString ->
+  Text ->
+  IO (Either Text (Text, Text))
+captureLiveBackupVersions
+  config
+  backend
+  objectAddress
+  receiptAddress
+  expectedReceipt
+  expectedArchiveSha = case backend of
+    GcsBackend {} ->
+      pure
+        (Left "cloud live restore requires exact-generation provider inspection")
     MinioBackend ref -> do
       guarded <- runtimeGuard config
       case guarded of
@@ -50,36 +68,45 @@ captureLiveBackupVersions config backend objectAddress receiptAddress
                 (Right receiptObject, Right archiveObject) -> do
                   receiptSize <- fileLength receiptPath
                   archiveSize <- fileLength archivePath
-                  rawReceipt <- try (BS.readFile receiptPath)
-                    :: IO (Either IOException BS.ByteString)
+                  rawReceipt <-
+                    try (BS.readFile receiptPath) ::
+                      IO (Either IOException BS.ByteString)
                   archiveDigest <- hashFile archivePath
                   pure $ do
                     actualReceiptSize <- receiptSize
                     actualArchiveSize <- archiveSize
-                    bytes <- first (const "live restore receipt is unreadable")
-                      rawReceipt
+                    bytes <-
+                      first
+                        (const "live restore receipt is unreadable")
+                        rawReceipt
                     digest <- archiveDigest
-                    unless (storedLength receiptObject == actualReceiptSize
-                        && storedLength archiveObject == actualArchiveSize
-                        && bytes == expectedReceipt
-                        && digest == expectedArchiveSha)
+                    unless
+                      ( storedLength receiptObject == actualReceiptSize
+                          && storedLength archiveObject == actualArchiveSize
+                          && bytes == expectedReceipt
+                          && digest == expectedArchiveSha
+                      )
                       (Left "live restore backup store differs from its completed Job receipt")
                     pure (storedVersion archiveObject, storedVersion receiptObject)
                 (Left reason, _) -> pure (Left reason)
                 (_, Left reason) -> pure (Left reason)
           pure (result >>= id)
 
-withVerifiedLiveSource :: KubernetesRuntimeConfig -> LiveRestoreProof
-  -> LiveBackupProof -> (FilePath -> IO (Either Text a))
-  -> IO (Either Text a)
+withVerifiedLiveSource ::
+  KubernetesRuntimeConfig ->
+  LiveRestoreProof ->
+  LiveBackupProof ->
+  (FilePath -> IO (Either Text a)) ->
+  IO (Either Text a)
 withVerifiedLiveSource config proof backup action = do
   now <- floor <$> getPOSIXTime
   if liveBackupExpiryEpoch backup /= 0 && liveBackupExpiryEpoch backup <= now
     then pure (Left "reviewed live restore backup has expired")
     else case liveStoreBackend (liveRestoreProofStore proof) of
       Left reason -> pure (Left reason)
-      Right GcsBackend {} -> pure
-        (Left "cloud live restore requires exact-generation provider inspection")
+      Right GcsBackend {} ->
+        pure
+          (Left "cloud live restore requires exact-generation provider inspection")
       Right (MinioBackend ref) -> do
         guarded <- runtimeGuard config
         case guarded of
@@ -90,14 +117,26 @@ withVerifiedLiveSource config proof backup action = do
                 let receiptPath = scratch <> "/receipt.json"
                     archivePath = scratch <> "/backup.sql.gz"
                     sqlPath = scratch <> "/backup.sql"
-                receipt <- readObjectToFile reader (liveBackupReceipt backup)
-                  (Just (liveBackupReceiptVersionProof backup)) receiptPath
-                archive <- readObjectToFile reader (liveBackupObject backup)
-                  (Just (liveBackupObjectVersionProof backup)) archivePath
+                receipt <-
+                  readObjectToFile
+                    reader
+                    (liveBackupReceipt backup)
+                    (Just (liveBackupReceiptVersionProof backup))
+                    receiptPath
+                archive <-
+                  readObjectToFile
+                    reader
+                    (liveBackupObject backup)
+                    (Just (liveBackupObjectVersionProof backup))
+                    archivePath
                 checked <- case (receipt, archive) of
                   (Right receiptObject, Right archiveObject) ->
-                    verifyLiveStoredFiles backup receiptObject archiveObject
-                      receiptPath archivePath
+                    verifyLiveStoredFiles
+                      backup
+                      receiptObject
+                      archiveObject
+                      receiptPath
+                      archivePath
                   (Left reason, _) -> pure (Left reason)
                   (_, Left reason) -> pure (Left reason)
                 case checked of
@@ -109,45 +148,62 @@ withVerifiedLiveSource config proof backup action = do
                       Right () -> action sqlPath
             pure (result >>= id)
 
-verifyLiveStoredFiles :: LiveBackupProof -> StoredObject -> StoredObject
-  -> FilePath -> FilePath -> IO (Either Text ())
+verifyLiveStoredFiles ::
+  LiveBackupProof ->
+  StoredObject ->
+  StoredObject ->
+  FilePath ->
+  FilePath ->
+  IO (Either Text ())
 verifyLiveStoredFiles backup receiptObject archiveObject receiptPath archivePath = do
   receiptSize <- fileLength receiptPath
   archiveSize <- fileLength archivePath
-  rawReceipt <- try (BS.readFile receiptPath)
-    :: IO (Either IOException BS.ByteString)
+  rawReceipt <-
+    try (BS.readFile receiptPath) ::
+      IO (Either IOException BS.ByteString)
   archiveDigest <- hashFile archivePath
   pure $ do
     actualReceiptSize <- receiptSize
     actualArchiveSize <- archiveSize
-    receiptBytes <- first (const "live restore receipt is unreadable")
-      rawReceipt
+    receiptBytes <-
+      first
+        (const "live restore receipt is unreadable")
+        rawReceipt
     digest <- archiveDigest
-    unless (storedVersion receiptObject
-        == liveBackupReceiptVersionProof backup
-      && storedVersion archiveObject
-        == liveBackupObjectVersionProof backup
-      && storedLength receiptObject == actualReceiptSize
-      && storedLength archiveObject == actualArchiveSize
-      && contentDigest receiptBytes == liveBackupReceiptDigest backup
-      && digest == liveBackupSha256 backup
-      && maybe True (\scheduled ->
-          actualReceiptSize == liveScheduledReceiptLength scheduled
-            && actualArchiveSize == liveScheduledObjectLength scheduled)
-          (liveBackupScheduled backup))
+    unless
+      ( storedVersion receiptObject
+          == liveBackupReceiptVersionProof backup
+          && storedVersion archiveObject
+            == liveBackupObjectVersionProof backup
+          && storedLength receiptObject == actualReceiptSize
+          && storedLength archiveObject == actualArchiveSize
+          && contentDigest receiptBytes == liveBackupReceiptDigest backup
+          && digest == liveBackupSha256 backup
+          && maybe
+            True
+            ( \scheduled ->
+                actualReceiptSize == liveScheduledReceiptLength scheduled
+                  && actualArchiveSize == liveScheduledObjectLength scheduled
+            )
+            (liveBackupScheduled backup)
+      )
       (Left "live restore stored receipt or archive changed since review")
 
 fileLength :: FilePath -> IO (Either Text Integer)
 fileLength path = do
-  value <- try (withBinaryFile path ReadMode hFileSize)
-    :: IO (Either IOException Integer)
+  value <-
+    try (withBinaryFile path ReadMode hFileSize) ::
+      IO (Either IOException Integer)
   pure (first (const "live restore object file is unavailable") value)
 
 hashFile :: FilePath -> IO (Either Text Text)
 hashFile path = do
-  value <- try (withBinaryFile path ReadMode $ \input ->
-    go (hashInit :: Context SHA256) input)
-    :: IO (Either IOException Text)
+  value <-
+    try
+      ( withBinaryFile path ReadMode $ \input ->
+          go (hashInit :: Context SHA256) input
+      ) ::
+      IO (Either IOException Text)
   pure (first (const "live restore archive hash is unavailable") value)
   where
     go context input = do
@@ -158,10 +214,19 @@ hashFile path = do
 
 decompressArchive :: FilePath -> FilePath -> IO (Either Text ())
 decompressArchive archive outputPath = do
-  result <- try (withBinaryFile outputPath WriteMode $ \output -> do
-      (_, _, _, process) <- createProcess (proc "gzip" ["-dc", archive])
-        {std_in = NoStream, std_out = UseHandle output, std_err = NoStream}
-      waitForProcess process) :: IO (Either IOException ExitCode)
+  result <-
+    try
+      ( withBinaryFile outputPath WriteMode $ \output -> do
+          (_, _, _, process) <-
+            createProcess
+              (proc "gzip" ["-dc", archive])
+                { std_in = NoStream
+                , std_out = UseHandle output
+                , std_err = NoStream
+                }
+          waitForProcess process
+      ) ::
+      IO (Either IOException ExitCode)
   case result of
     Right ExitSuccess -> do
       size <- fileLength outputPath

@@ -6,12 +6,13 @@ import Control.Lens ((&), (.~))
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy (fromStrict, toStrict)
 import Data.Generics.Labels ()
-import Data.Map qualified as Map
 import Data.List.NonEmpty (NonEmpty (..))
+import Data.Map qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TE
+import Data.Yaml qualified as Yaml
 import JobSpec (jobTests)
 import LoadSpec (loadTests)
 import Nagare.Dsl.Access
@@ -24,17 +25,9 @@ import Nagare.Dsl.Broker.Render
 import Nagare.Dsl.Build
 import Nagare.Dsl.Config (encodeBroker, encodeDatabase, encodeDeployment, encodeTask)
 import Nagare.Dsl.Database
-import Nagare.Resource.Database (DatabaseDirectInput (..), compileDatabaseBundle, compileDatabaseDirect, databaseResourceId)
-import Nagare.Resource.Application (deploymentResourceId, domainMappingResourceId, taskResourceId, volumeResourceId)
-import Nagare.Resource.Broker (brokerResourceId)
-import Nagare.Resource.Inventory (ResourceBundle (..), Declaration (..), ManagedResource (..))
-import Nagare.Resource.Policy (DataPolicy (..), LifecyclePolicy (DeleteWhenUnreferenced), RecoveryIntent (..), Sensitivity (..), mkSecretRef)
-import Nagare.Resource.Policy qualified as ResourcePolicy
-import Nagare.Resource.Reference (Dependency (OrderedAfter))
-import Nagare.Resource.Types (mkContentDigest, mkLogicalKey, mkName, mkScopeId, mintResourceId, ScopeKind (..), SourceLocation (SourceLocation))
 import Nagare.Dsl.Database.Render
-  ( renderDatabase
-  , databaseCredentialTemplate
+  ( databaseCredentialTemplate
+  , renderDatabase
   , renderDatabaseConfigMap
   , renderDatabasePvc
   , renderDatabaseService
@@ -49,6 +42,14 @@ import Nagare.Dsl.Render (renderDomainMappings, renderService, renderVolumeClaim
 import Nagare.Dsl.Task
 import Nagare.Dsl.Task.Render (renderTask)
 import Nagare.Dsl.Types
+import Nagare.Resource.Application (deploymentResourceId, domainMappingResourceId, taskResourceId, volumeResourceId)
+import Nagare.Resource.Broker (brokerResourceId)
+import Nagare.Resource.Database (DatabaseDirectInput (..), compileDatabaseBundle, compileDatabaseDirect, databaseResourceId)
+import Nagare.Resource.Inventory (Declaration (..), ManagedResource (..), ResourceBundle (..))
+import Nagare.Resource.Policy (DataPolicy (..), LifecyclePolicy (DeleteWhenUnreferenced), RecoveryIntent (..), Sensitivity (..), mkSecretRef)
+import Nagare.Resource.Policy qualified as ResourcePolicy
+import Nagare.Resource.Reference (Dependency (OrderedAfter))
+import Nagare.Resource.Types (ScopeKind (..), SourceLocation (SourceLocation), mintResourceId, mkContentDigest, mkLogicalKey, mkName, mkScopeId)
 import ResourceInventorySpec (resourceInventoryTests)
 import ServerSpec (serverTests)
 import StaticSpec (staticTests)
@@ -56,7 +57,6 @@ import Test.Tasty
 import Test.Tasty.Golden (goldenVsString)
 import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck (Gen, Property, choose, elements, forAll, testProperty)
-import Data.Yaml qualified as Yaml
 import WorkerSpec (workerTests)
 
 main :: IO ()
@@ -761,8 +761,9 @@ databaseTests =
           case reverse (declarations bundle) of
             Managed cron : _ -> do
               lifecycle cron @?= DeleteWhenUnreferenced
-              dependencies cron @?=
-                map OrderedAfter
+              dependencies cron
+                @?= map
+                  OrderedAfter
                   [ unsafe (databaseResourceId owner (unsafe (mkName "credential")) pgDb)
                   , unsafe (databaseResourceId owner (unsafe (mkName "statefulset")) pgDb)
                   , unsafe (databaseResourceId owner (unsafe (mkName "backup-read-binding")) pgDb)
@@ -851,9 +852,10 @@ volumeTests =
   , testCase "deployment with a volume survives emit -> decode round-trip" $
       decodeDeployment (toStrict (encodeDeployment volumeDep)) @?= Right volumeDep
   , testCase "deployment and volume logical keys survive JSON round-trip" $ do
-      let keyed = volumeDep
-            & #logicalKey .~ Just (unsafe (mkLogicalKey "front-end"))
-            & #volumes . traverse . #logicalKey .~ Just (unsafe (mkLogicalKey "data-store"))
+      let keyed =
+            volumeDep
+              & #logicalKey .~ Just (unsafe (mkLogicalKey "front-end"))
+              & #volumes . traverse . #logicalKey .~ Just (unsafe (mkLogicalKey "data-store"))
       decodeDeployment (toStrict (encodeDeployment keyed)) @?= Right keyed
       let owner = unsafe (mkScopeId Application "hello")
           serviceRole = unsafe (mkName "service")
@@ -972,9 +974,13 @@ extendedModelTests =
               deployment = helloDep & #domains .~ [keyed]
           decodeDeployment (toStrict (encodeDeployment deployment)) @?= Right deployment
           domainMappingResourceId owner keyed @?= domainMappingResourceId owner renamed
-          assertBool "unpinned hostname rename kept its resource identity"
-            (domainMappingResourceId owner domain /= domainMappingResourceId owner
-              (domain & #domain .~ unsafe (mkDomain "second.example.com")))
+          assertBool
+            "unpinned hostname rename kept its resource identity"
+            ( domainMappingResourceId owner domain
+                /= domainMappingResourceId
+                  owner
+                  (domain & #domain .~ unsafe (mkDomain "second.example.com"))
+            )
         other -> assertFailure ("expected one DomainSpec, got " <> show (length other))
   , testCase "supplied TLS secret is explicit in DomainMapping spec" $ do
       case unsafe (mkDomains [("secure.example.com", True)]) of

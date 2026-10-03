@@ -10,8 +10,8 @@ module Nagare.Inventory.Foundation
   )
 where
 
-import Data.Generics.Labels ()
 import Data.Char (isControl, isSpace)
+import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
@@ -58,56 +58,78 @@ compileFoundationScope bundle
       CloudService project _ -> project /= foundationProject bundle
       CloudStack project _ -> project /= foundationProject bundle
       _ -> True
-    resourceBundle = ResourceBundle
-      { declarations = map (Managed . managedResource) (NE.toList (foundationResources bundle))
-      , exports = []
-      , conditions = []
-      , contributions = []
-      , operations = []
-      , grants = []
-      }
-    managedResource resource = ManagedResource
-      { identity = mintResourceId (foundationScope bundle) (foundationLogicalKey resource) (foundationRole resource)
-      , owner = foundationScope bundle
-      , executor = CloudFoundationExecutor
-      , address = foundationAddress resource
-      , aliases = []
-      , spec = NativeObject (foundationSpecDigest resource)
-      , lifecycle = foundationLifecycle resource
-      , dataPolicy = foundationDataPolicy resource
-      , sensitivity = foundationSensitivity resource
-      , dependencies = foundationDependencies resource
-      , delegations = []
-      , source = foundationSource resource
-      }
+    resourceBundle =
+      ResourceBundle
+        { declarations = map (Managed . managedResource) (NE.toList (foundationResources bundle))
+        , exports = []
+        , conditions = []
+        , contributions = []
+        , operations = []
+        , grants = []
+        }
+    managedResource resource =
+      ManagedResource
+        { identity = mintResourceId (foundationScope bundle) (foundationLogicalKey resource) (foundationRole resource)
+        , owner = foundationScope bundle
+        , executor = CloudFoundationExecutor
+        , address = foundationAddress resource
+        , aliases = []
+        , spec = NativeObject (foundationSpecDigest resource)
+        , lifecycle = foundationLifecycle resource
+        , dataPolicy = foundationDataPolicy resource
+        , sensitivity = foundationSensitivity resource
+        , dependencies = foundationDependencies resource
+        , delegations = []
+        , source = foundationSource resource
+        }
 
 -- | Rebuild execution targets from the immutable declarations and the selected
 -- context. The digest comparison prevents a changed region or member policy
 -- from silently changing a retained review's native effects.
-foundationTargetsFromDeclarations
-  :: Name -> Name -> Maybe Name -> Maybe Text -> Maybe (ProviderAddress, FoundationTarget) -> [Declaration]
-  -> Either Text (Map ResourceId FoundationTarget)
+foundationTargetsFromDeclarations ::
+  Name ->
+  Name ->
+  Maybe Name ->
+  Maybe Text ->
+  Maybe (ProviderAddress, FoundationTarget) ->
+  [Declaration] ->
+  Either Text (Map ResourceId FoundationTarget)
 foundationTargetsFromDeclarations project location backendBucket member stackTarget declarations =
   Map.fromList <$> traverse target foundationMembers
   where
-    foundationMembers = [resource | Managed resource <- declarations,
-      resource ^. #executor == CloudFoundationExecutor]
+    foundationMembers =
+      [ resource
+      | Managed resource <- declarations
+      , resource ^. #executor == CloudFoundationExecutor
+      ]
     target resource = do
       value <- case resource ^. #address of
-        GlobalBucket bucket -> Right (FoundationBucket project bucket location
-          (if Just bucket == backendBucket then member else Nothing))
+        GlobalBucket bucket ->
+          Right
+            ( FoundationBucket
+                project
+                bucket
+                location
+                (if Just bucket == backendBucket then member else Nothing)
+            )
         CloudService targetProject service
           | targetProject == project -> Right (FoundationService project service)
           | otherwise -> Left "reviewed foundation service belongs to another project"
         CloudStack declaredProject declaredStack -> case stackTarget of
-          Just (CloudStack expectedProject expectedStack,
-            value@(FoundationStack targetProject targetStack _ _ _ _ _))
-            | declaredProject == project && expectedProject == project
-                && targetProject == project && declaredStack == expectedStack
-                && declaredStack == targetStack -> Right value
+          Just
+            ( CloudStack expectedProject expectedStack
+              , value@(FoundationStack targetProject targetStack _ _ _ _ _)
+              )
+              | declaredProject == project
+                  && expectedProject == project
+                  && targetProject == project
+                  && declaredStack == expectedStack
+                  && declaredStack == targetStack ->
+                  Right value
           _ -> Left "reviewed foundation stack differs from the selected context"
         _ -> Left "reviewed foundation address is unsupported"
-      unless (resource ^. #spec == NativeObject (foundationTargetDigest value))
+      unless
+        (resource ^. #spec == NativeObject (foundationTargetDigest value))
         (Left "reviewed foundation target digest differs from the selected context")
       pure (resource ^. #identity, value)
 

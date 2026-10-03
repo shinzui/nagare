@@ -23,7 +23,9 @@ import Nagare.Inventory.Adapters.Foundation
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Store.Remote (BucketDiscovery (..), probeRemoteBucket)
 import Nagare.Ops.PulumiBackend
-  ( bucketProjectNumberArgs, projectNumberArgs )
+  ( bucketProjectNumberArgs
+  , projectNumberArgs
+  )
 import Nagare.Platform.StackConfig (linkContextStackConfig)
 import Nagare.Resource.Types
 import Nagare.Target (mkContextName)
@@ -48,35 +50,45 @@ realGcloudRunner = GcloudRunner capture probeRemoteBucket effect capturePulumi e
       result <- try (readProcessWithExitCode "gcloud" args "")
       pure $ case result of
         Left (err :: IOException) -> Left ("could not run gcloud: " <> T.pack (show err))
-        Right (ExitFailure code, _, stderr) -> Left
-          ("gcloud failed (exit " <> T.pack (show code) <> "): " <> T.pack stderr)
+        Right (ExitFailure code, _, stderr) ->
+          Left
+            ("gcloud failed (exit " <> T.pack (show code) <> "): " <> T.pack stderr)
         Right (ExitSuccess, stdout, _) -> Right (BC.pack stdout)
     effect args = fmap (fmap (const ())) (capture args)
     capturePulumi target args = case target of
       FoundationStack _ stack backend _ home _ _ -> do
         inherited <- getEnvironment
         let overrides =
-              [("PULUMI_HOME", home), ("PULUMI_BACKEND_URL", T.unpack backend),
-               ("PULUMI_CONFIG_PASSPHRASE_FILE", home </> "passphrase"),
-               ("NAGARE_PULUMI_STACK", T.unpack (nameText stack))]
-            variables = overrides <> filter (\(key, value) ->
-              key `notElem` map fst overrides
-                && (key /= "PULUMI_CONFIG_PASSPHRASE" || not (null value))) inherited
+              [ ("PULUMI_HOME", home)
+              , ("PULUMI_BACKEND_URL", T.unpack backend)
+              , ("PULUMI_CONFIG_PASSPHRASE_FILE", home </> "passphrase")
+              , ("NAGARE_PULUMI_STACK", T.unpack (nameText stack))
+              ]
+            variables =
+              overrides
+                <> filter
+                  ( \(key, value) ->
+                      key `notElem` map fst overrides
+                        && (key /= "PULUMI_CONFIG_PASSPHRASE" || not (null value))
+                  )
+                  inherited
             command = (proc "pulumi" args) {env = Just variables}
         result <- try (readCreateProcessWithExitCode command "")
         pure $ case result of
           Left (err :: IOException) -> Left ("could not run Pulumi: " <> T.pack (show err))
-          Right (ExitFailure code, _, stderr) -> Left
-            ("Pulumi failed (exit " <> T.pack (show code) <> "): " <> T.pack stderr)
+          Right (ExitFailure code, _, stderr) ->
+            Left
+              ("Pulumi failed (exit " <> T.pack (show code) <> "): " <> T.pack stderr)
           Right (ExitSuccess, stdout, _) -> Right (TE.encodeUtf8 (T.pack stdout))
       _ -> pure (Left "Pulumi command has no reviewed stack target")
     effectPulumi target args = fmap (fmap (const ())) (capturePulumi target args)
 
 mkFoundationRuntimeOps :: GcloudRunner -> FoundationAdapterOps
-mkFoundationRuntimeOps runner = FoundationAdapterOps
-  { foundationInspect = inspectTarget runner
-  , foundationMutate = mutateTarget runner
-  }
+mkFoundationRuntimeOps runner =
+  FoundationAdapterOps
+    { foundationInspect = inspectTarget runner
+    , foundationMutate = mutateTarget runner
+    }
 
 inspectTarget :: GcloudRunner -> FoundationTarget -> IO FoundationObservation
 inspectTarget runner target = case target of
@@ -114,17 +126,23 @@ inspectBucket runner project bucket location member = do
 inspectService :: GcloudRunner -> Name -> Name -> IO FoundationObservation
 inspectService runner project service = do
   projectNumber <- readNumber runner (projectNumberArgs (nameText project))
-  listed <- gcloudCapture runner
-    ["services", "list", "--enabled", "--project=" <> T.unpack (nameText project), "--format=json"]
+  listed <-
+    gcloudCapture
+      runner
+      ["services", "list", "--enabled", "--project=" <> T.unpack (nameText project), "--format=json"]
   pure $ case (projectNumber, listed >>= decodeServiceNames) of
     (Left err, _) -> FoundationUnavailable err
     (_, Left err) -> FoundationUnavailable err
     (Right number, Right names)
-      | nameText service `elem` names -> FoundationPresent
-          (physicalService project service)
-          (foundationTargetDigest (FoundationService project service))
-      | otherwise -> FoundationAbsent (contentDigest
-          (TE.encodeUtf8 (nameText project <> ":" <> number <> ":" <> nameText service <> ":disabled")))
+      | nameText service `elem` names ->
+          FoundationPresent
+            (physicalService project service)
+            (foundationTargetDigest (FoundationService project service))
+      | otherwise ->
+          FoundationAbsent
+            ( contentDigest
+                (TE.encodeUtf8 (nameText project <> ":" <> number <> ":" <> nameText service <> ":disabled"))
+            )
 
 inspectStack :: GcloudRunner -> FoundationTarget -> IO FoundationObservation
 inspectStack runner target@(FoundationStack project stack backend pulumiDir _ backendBucket config) = do
@@ -144,8 +162,11 @@ inspectStack runner target@(FoundationStack project stack backend pulumiDir _ ba
     Left err -> pure (FoundationUnavailable err)
     Right False -> pure (FoundationAbsent (stackAbsenceProof target))
     Right True -> do
-      listed <- pulumiCapture runner target
-        ["-C", pulumiDir, "stack", "ls", "--json", "--project=nagare"]
+      listed <-
+        pulumiCapture
+          runner
+          target
+          ["-C", pulumiDir, "stack", "ls", "--json", "--project=nagare"]
       case listed >>= decodeStackNames of
         Left err -> pure (FoundationUnavailable err)
         Right names
@@ -153,18 +174,26 @@ inspectStack runner target@(FoundationStack project stack backend pulumiDir _ ba
               && ("nagare/" <> nameText stack) `notElem` names ->
               pure (FoundationAbsent (stackAbsenceProof target))
           | otherwise -> do
-              values <- pulumiCapture runner target
-                ["-C", pulumiDir, "config", "--json", "--stack", T.unpack (nameText stack)]
+              values <-
+                pulumiCapture
+                  runner
+                  target
+                  ["-C", pulumiDir, "config", "--json", "--stack", T.unpack (nameText stack)]
               pure $ case values >>= configMatches config of
                 Left err -> FoundationUnavailable err
                 Right True -> FoundationPresent (physicalStack target) (foundationTargetDigest target)
-                Right False -> FoundationPresent (physicalStack target)
-                  (contentDigest (either (const BC.empty) id values))
+                Right False ->
+                  FoundationPresent
+                    (physicalStack target)
+                    (contentDigest (either (const BC.empty) id values))
 inspectStack _ _ = pure (FoundationUnavailable "reviewed Pulumi stack target is invalid")
 
 stackAbsenceProof :: FoundationTarget -> ContentDigest
-stackAbsenceProof target = contentDigest (TE.encodeUtf8
-  ("pulumi-stack-absent:" <> T.pack (show (foundationTargetDigest target))))
+stackAbsenceProof target =
+  contentDigest
+    ( TE.encodeUtf8
+        ("pulumi-stack-absent:" <> T.pack (show (foundationTargetDigest target)))
+    )
 
 decodeStackNames :: ByteString -> Either Text [Text]
 decodeStackNames bytes = do
@@ -184,14 +213,22 @@ configMatches expected bytes = do
       entry <- config .:? AesonKey.fromText key
       case entry of
         Nothing -> pure False
-        Just value -> withObject "Pulumi config entry" (\entryObject -> do
-          actual <- entryObject .:? "value"
-          secret <- entryObject .:? "secret"
-          pure (actual == Just wanted && secret == Just False)) value
+        Just value ->
+          withObject
+            "Pulumi config entry"
+            ( \entryObject -> do
+                actual <- entryObject .:? "value"
+                secret <- entryObject .:? "secret"
+                pure (actual == Just wanted && secret == Just False)
+            )
+            value
 
 physicalStack :: FoundationTarget -> PhysicalIdentity
-physicalStack (FoundationStack _ stack backend _ _ _ _) = either (error . T.unpack) id
-  (mkPhysicalIdentity ("pulumi-stack:" <> backend <> "/" <> nameText stack))
+physicalStack (FoundationStack _ stack backend _ _ _ _) =
+  either
+    (error . T.unpack)
+    id
+    (mkPhysicalIdentity ("pulumi-stack:" <> backend <> "/" <> nameText stack))
 physicalStack _ = error "physicalStack requires a stack target"
 
 mutateTarget :: GcloudRunner -> FoundationNativePlan -> IO AdapterExecution
@@ -218,8 +255,10 @@ mutateTarget runner plan = case foundationPlanTarget plan of
                 case updated of
                   Left err -> pure (AdapterEffectAmbiguous err)
                   Right () -> do
-                    granted <- if length commands == 3
-                      then runCommand runner target commands 2 else pure (Right ())
+                    granted <-
+                      if length commands == 3
+                        then runCommand runner target commands 2
+                        else pure (Right ())
                     pure (either AdapterEffectAmbiguous (const AdapterEffectCompleted) granted)
   target@(FoundationService _ _) -> do
     state <- inspectTarget runner target
@@ -234,8 +273,9 @@ mutateTarget runner plan = case foundationPlanTarget plan of
   target@(FoundationStack _ _ _ _ _ _ _) -> do
     state <- inspectTarget runner target
     case state of
-      FoundationPresent _ digest | digest == foundationTargetDigest target ->
-        pure AdapterEffectCompleted
+      FoundationPresent _ digest
+        | digest == foundationTargetDigest target ->
+            pure AdapterEffectCompleted
       FoundationForeign _ err -> pure (AdapterEffectAmbiguous err)
       FoundationUnavailable err -> pure (AdapterEffectAmbiguous err)
       _ -> do
@@ -250,8 +290,12 @@ mutateTarget runner plan = case foundationPlanTarget plan of
               Left err -> pure (AdapterEffectAmbiguous err)
               Right () -> do
                 configured <- runRemainingCommands runner target (foundationPlanCommands plan) 1
-                pure (either AdapterEffectAmbiguous (const AdapterEffectCompleted)
-                  configured)
+                pure
+                  ( either
+                      AdapterEffectAmbiguous
+                      (const AdapterEffectCompleted)
+                      configured
+                  )
 
 runRemainingCommands :: GcloudRunner -> FoundationTarget -> [[Text]] -> Int -> IO (Either Text ())
 runRemainingCommands runner target commands commandIndex
@@ -304,7 +348,8 @@ readNumber runner args = do
     bytes <- output
     value <- first (const "gcloud project number is not UTF-8") (TE.decodeUtf8' bytes)
     let trimmed = T.strip value
-    unless (not (T.null trimmed) && T.all (`elem` ['0' .. '9']) trimmed)
+    unless
+      (not (T.null trimmed) && T.all (`elem` ['0' .. '9']) trimmed)
       (Left "gcloud returned no valid project number")
     pure trimmed
 
@@ -324,8 +369,11 @@ decodeBucketState bytes = do
     parser = withObject "bucket" $ \o -> do
       location <- o .: "location"
       versioningConfig <- o .:? "versioning"
-      versioning <- maybe (pure False)
-        (\configuration -> fromMaybe False <$> configuration .:? "enabled") versioningConfig
+      versioning <-
+        maybe
+          (pure False)
+          (\configuration -> fromMaybe False <$> configuration .:? "enabled")
+          versioningConfig
       iam <- o .:? "iamConfiguration"
       uniform <- case iam of
         Nothing -> pure False
@@ -360,14 +408,22 @@ decodeServiceNames bytes = do
 
 bucketMemberPresent :: GcloudRunner -> Name -> Text -> IO (Either Text Bool)
 bucketMemberPresent runner bucket member = do
-  output <- gcloudCapture runner
-    ["storage", "buckets", "get-iam-policy", "gs://" <> T.unpack (nameText bucket), "--format=json"]
+  output <-
+    gcloudCapture
+      runner
+      ["storage", "buckets", "get-iam-policy", "gs://" <> T.unpack (nameText bucket), "--format=json"]
   pure $ do
     bytes <- output
     value <- first T.pack (eitherDecodeStrict bytes)
-    first T.pack (parseEither (withObject "bucket policy" $ \o -> do
-      bindings <- o .:? "bindings" .!= ([] :: [Value])
-      pure (any (bindingHasMember member) bindings)) value)
+    first
+      T.pack
+      ( parseEither
+          ( withObject "bucket policy" $ \o -> do
+              bindings <- o .:? "bindings" .!= ([] :: [Value])
+              pure (any (bindingHasMember member) bindings)
+          )
+          value
+      )
 
 bindingHasMember :: Text -> Value -> Bool
 bindingHasMember member value = case parseEither parser value of
@@ -380,9 +436,15 @@ bindingHasMember member value = case parseEither parser value of
       pure (role == ("roles/storage.objectAdmin" :: Text) && member `elem` (members :: [Text]))
 
 physicalBucket :: Name -> PhysicalIdentity
-physicalBucket bucket = either (error . T.unpack) id
-  (mkPhysicalIdentity ("gs://" <> nameText bucket))
+physicalBucket bucket =
+  either
+    (error . T.unpack)
+    id
+    (mkPhysicalIdentity ("gs://" <> nameText bucket))
 
 physicalService :: Name -> Name -> PhysicalIdentity
-physicalService project service = either (error . T.unpack) id
-  (mkPhysicalIdentity ("gcp-service:" <> nameText project <> ":" <> nameText service))
+physicalService project service =
+  either
+    (error . T.unpack)
+    id
+    (mkPhysicalIdentity ("gcp-service:" <> nameText project <> ":" <> nameText service))

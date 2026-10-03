@@ -197,22 +197,25 @@ mkCloudflareAdapter accepted specs ops =
         Right plan -> case cloudflarePlanAction plan of
           RetireResource -> do
             fact <- cloudflareInspect ops (cloudflarePlanResource plan)
-            pure (case fact of
-              CloudflareMissing -> RecoveryProvedComplete (absentProof plan)
-              _ -> RecoveryUnresolved "retained DNS absence is unconfirmed; never resend deletion automatically")
-          action | action `elem` [VerifyResource, AdoptResource]
-            || (action == UpdateResource && cloudflarePlanPrevious plan == Just (cloudflarePlanTarget plan)) -> do
-            fact <- cloudflareInspect ops (cloudflarePlanResource plan)
             pure
               ( case fact of
-                  CloudflarePresent physical version target
-                    | target == cloudflarePlanTarget plan
-                    , Just physical == cloudflarePlanPhysical plan
-                    , version == cloudflarePlanVersion plan ->
-                        RecoveryProvedComplete (proof plan physical)
-                  CloudflareUnavailable reason -> RecoveryUnresolved reason
-                  _ -> RecoveryUnresolved "Cloudflare verification no longer matches its reviewed resource"
+                  CloudflareMissing -> RecoveryProvedComplete (absentProof plan)
+                  _ -> RecoveryUnresolved "retained DNS absence is unconfirmed; never resend deletion automatically"
               )
+          action
+            | action `elem` [VerifyResource, AdoptResource]
+                || (action == UpdateResource && cloudflarePlanPrevious plan == Just (cloudflarePlanTarget plan)) -> do
+                fact <- cloudflareInspect ops (cloudflarePlanResource plan)
+                pure
+                  ( case fact of
+                      CloudflarePresent physical version target
+                        | target == cloudflarePlanTarget plan
+                        , Just physical == cloudflarePlanPhysical plan
+                        , version == cloudflarePlanVersion plan ->
+                            RecoveryProvedComplete (proof plan physical)
+                      CloudflareUnavailable reason -> RecoveryUnresolved reason
+                      _ -> RecoveryUnresolved "Cloudflare verification no longer matches its reviewed resource"
+                  )
           _ ->
             pure
               ( RecoveryUnresolved
@@ -349,8 +352,13 @@ summary plan = case cloudflarePlanTarget plan of
       <> nameText (cloudflarePlanZone plan)
 
 absentProof :: CloudflareMutationPlan -> ContentDigest
-absentProof plan = contentDigest (either (error . T.unpack) id
-  (canonicalValue (object ["plan" .= plan, "confirmedAbsent" .= True])))
+absentProof plan =
+  contentDigest
+    ( either
+        (error . T.unpack)
+        id
+        (canonicalValue (object ["plan" .= plan, "confirmedAbsent" .= True]))
+    )
 
 proof :: CloudflareMutationPlan -> PhysicalIdentity -> ContentDigest
 proof plan physical =

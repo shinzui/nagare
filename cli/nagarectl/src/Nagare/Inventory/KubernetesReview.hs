@@ -15,8 +15,8 @@ import Data.Text.Encoding qualified as TE
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes
-import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.BackendMap (renderBackendMapNative, renderShomeiSettingsNative)
+import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.Plan
 import Nagare.Resource.Inventory
@@ -24,26 +24,29 @@ import Nagare.Resource.Kubernetes
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (decodeScope)
 
-kubernetesSpecsFromReview
-  :: ReviewBundle
-  -> Either Text (Map ResourceId (ManagedResource, ByteString))
+kubernetesSpecsFromReview ::
+  ReviewBundle ->
+  Either Text (Map ResourceId (ManagedResource, ByteString))
 kubernetesSpecsFromReview bundle = do
   scopes <- traverse (first (T.pack . show) . decodeScope) (Map.elems (reviewBundleScopes bundle))
   effective <- first (T.pack . show) (composedDeclarations (Map.fromList [(scopeId scope, scope) | scope <- scopes]))
-  let declarationsById = Map.fromList
-        [ (resource ^. #identity, resource)
-        | Managed resource <- effective
-        ]
+  let declarationsById =
+        Map.fromList
+          [ (resource ^. #identity, resource)
+          | Managed resource <- effective
+          ]
       context = reviewContextBinding (reviewBundleDocument bundle) ^. #identity
       collections = Map.keysSet (reviewCollections (reviewBundleDocument bundle))
       operations =
         [ operation
         | operation <- reviewOperations (reviewBundleDocument bundle)
         , plannedExecutor (reviewPlannedOperation operation) == KubernetesExecutor
-        -- Collected members are absent from desired scopes. The execution
+        , -- Collected members are absent from desired scopes. The execution
         -- factory loads their exact retained incarnation from history.
-        , not (plannedAction (reviewPlannedOperation operation) == RetireResource
-            && any (`Set.member` collections) (NE.toList (plannedResources (reviewPlannedOperation operation))))
+        not
+          ( plannedAction (reviewPlannedOperation operation) == RetireResource
+              && any (`Set.member` collections) (NE.toList (plannedResources (reviewPlannedOperation operation)))
+          )
         ]
   entries <- traverse (reconstruct context declarationsById) operations
   let grouped = Map.fromListWith (<>) [(resource, [member]) | (resource, member) <- entries]
@@ -58,12 +61,21 @@ kubernetesSpecsFromReview bundle = do
       resource <- case NE.toList (plannedResources operation) of
         [single] -> Right single
         _ -> Left "reviewed Kubernetes operation does not name exactly one resource"
-      declaration <- maybe (Left "reviewed Kubernetes resource is absent from desired scopes") Right
-        (Map.lookup resource declarationsById)
-      memberDigest <- maybe (Left "reviewed Kubernetes operation has no private native member") Right
-        (reviewNativeDigest reviewOperation)
-      bytes <- maybe (Left "reviewed Kubernetes native member is missing") Right
-        (Map.lookup memberDigest (reviewBundleNative bundle))
+      declaration <-
+        maybe
+          (Left "reviewed Kubernetes resource is absent from desired scopes")
+          Right
+          (Map.lookup resource declarationsById)
+      memberDigest <-
+        maybe
+          (Left "reviewed Kubernetes operation has no private native member")
+          Right
+          (reviewNativeDigest reviewOperation)
+      bytes <-
+        maybe
+          (Left "reviewed Kubernetes native member is missing")
+          Right
+          (Map.lookup memberDigest (reviewBundleNative bundle))
       unless (contentDigest bytes == memberDigest) (Left "reviewed Kubernetes native member digest differs")
       mutation <- first T.pack (eitherDecodeStrict bytes)
       unless
@@ -72,26 +84,30 @@ kubernetesSpecsFromReview bundle = do
             && mutationAction mutation == plannedAction operation
             && mutationInputDigest mutation == plannedInputDigest operation
             && mutationAddress mutation == address declaration
-        ) (Left "reviewed Kubernetes mutation differs from its operation")
+        )
+        (Left "reviewed Kubernetes mutation differs from its operation")
       native <- unstampNative context resource (mutationNativeDigest mutation) (mutationNativeJson mutation)
       value <- first T.pack (eitherDecodeStrict native)
       cluster <- case address declaration of
         Kubernetes target _ _ _ _ -> Right target
         _ -> Left "reviewed Kubernetes declaration has no Kubernetes address"
-      (recompiled, rebound) <- first (T.pack . show) $ bindKubernetesObject
-        KubernetesInput
-          { resourceId = resource
-          , ownerScope = declaration ^. #owner
-          , clusterId = cluster
-          , inputObject = value
-          , objectDigest = mutationNativeDigest mutation
-          , lifecyclePolicy = declaration ^. #lifecycle
-          , inputDataPolicy = declaration ^. #dataPolicy
-          , inputSensitivity = declaration ^. #sensitivity
-          , sourceLocation = declaration ^. #source
-          }
-      let generatedNamespace = declaration ^. #spec == NamespaceSpec Nothing
-            && declaration ^. #source . #file == "contribution"
+      (recompiled, rebound) <-
+        first (T.pack . show) $
+          bindKubernetesObject
+            KubernetesInput
+              { resourceId = resource
+              , ownerScope = declaration ^. #owner
+              , clusterId = cluster
+              , inputObject = value
+              , objectDigest = mutationNativeDigest mutation
+              , lifecyclePolicy = declaration ^. #lifecycle
+              , inputDataPolicy = declaration ^. #dataPolicy
+              , inputSensitivity = declaration ^. #sensitivity
+              , sourceLocation = declaration ^. #source
+              }
+      let generatedNamespace =
+            declaration ^. #spec == NamespaceSpec Nothing
+              && declaration ^. #source . #file == "contribution"
           generatedBackend = case declaration ^. #spec of
             BackendMapSpec _ -> declaration ^. #source . #file == "contribution"
             _ -> False
@@ -108,16 +124,22 @@ kubernetesSpecsFromReview bundle = do
           expected <- renderShomeiSettingsNative base portal
           unless (expected == native) (Left "reviewed Shomei settings differ from typed contributions")
         _ -> pure ()
-      let
-          reboundDeclaration = recompiled
-            { dependencies = declaration ^. #dependencies
-            -- These grants belong to the composed declaration. Rebinding still
-            -- checks the exact reviewed native bytes, address and specification.
-            , delegations = declaration ^. #delegations
-            , spec = if generatedNamespace || generatedBackend || generatedShomei
-                then declaration ^. #spec else recompiled ^. #spec
-            }
-      unless (reboundDeclaration == declaration && rebound == native)
-        (Left ("reviewed Kubernetes native object differs from its typed declaration: "
-          <> resourceIdText resource))
+      let reboundDeclaration =
+            recompiled
+              { dependencies = declaration ^. #dependencies
+              , -- These grants belong to the composed declaration. Rebinding still
+                -- checks the exact reviewed native bytes, address and specification.
+                delegations = declaration ^. #delegations
+              , spec =
+                  if generatedNamespace || generatedBackend || generatedShomei
+                    then declaration ^. #spec
+                    else recompiled ^. #spec
+              }
+      unless
+        (reboundDeclaration == declaration && rebound == native)
+        ( Left
+            ( "reviewed Kubernetes native object differs from its typed declaration: "
+                <> resourceIdText resource
+            )
+        )
       pure (resource, (declaration, native))

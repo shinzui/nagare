@@ -118,10 +118,12 @@ witness TlsReady = SomeWitness TlsReadyW
 witness NixCachePublicKey = SomeWitness NixCachePublicKeyW
 
 scopeValue :: ScopeDeclaration -> Value
-scopeValue s = object
-  (["version" .= (1 :: Integer), "scope" .= scopeId s, "bundles" .= normalizeBundles (scopeBundles s)]
-    <> ["configDigest" .= digest | Just digest <- [scopeConfigDigest s]]
-    <> ["overrides" .= overrides | let overrides = scopeOverrides s, not (Map.null overrides)])
+scopeValue s =
+  object
+    ( ["version" .= (1 :: Integer), "scope" .= scopeId s, "bundles" .= normalizeBundles (scopeBundles s)]
+        <> ["configDigest" .= digest | Just digest <- [scopeConfigDigest s]]
+        <> ["overrides" .= overrides | let overrides = scopeOverrides s, not (Map.null overrides)]
+    )
 
 -- Bundles and all set-valued fields have no execution order. Canonicalize them.
 normalizeBundles :: [ResourceBundle] -> [ResourceBundle]
@@ -360,7 +362,8 @@ instance ToJSON DesiredSpec where
       BackendMapSpec entries -> BackendMapSpec (sortOn (nameText . first3) entries)
       CloudflareRulesSpec intents -> CloudflareRulesSpec (sortOn (nameText . cacheHost) intents)
       other -> other
-    where first3 (name, _, _) = name
+    where
+      first3 (name, _, _) = name
 
 instance FromJSON DesiredSpec where parseJSON = genericParseJSON options
 
@@ -404,60 +407,95 @@ instance FromJSON BackendRole where
 
 -- Preserve the v1 namespace contribution representation in accepted scopes.
 instance ToJSON Contribution where
-  toJSON (RegisterNamespace owner cluster namespace key) = object
-    ["owner" .= owner, "cluster" .= cluster, "namespace" .= namespace, "key" .= key]
-  toJSON (RegisterBackend owner cluster host upstream role key) = object
-    ["tag" .= ("RegisterBackend" :: Text), "owner" .= owner, "cluster" .= cluster
-    , "host" .= host, "upstream" .= upstream, "role" .= role, "key" .= key]
-  toJSON (RegisterCloudflareCache owner zone intent route) = object
-    ["tag" .= ("RegisterCloudflareCache" :: Text), "owner" .= owner
-    , "zone" .= zone, "intent" .= intent, "route" .= route]
+  toJSON (RegisterNamespace owner cluster namespace key) =
+    object
+      ["owner" .= owner, "cluster" .= cluster, "namespace" .= namespace, "key" .= key]
+  toJSON (RegisterBackend owner cluster host upstream role key) =
+    object
+      [ "tag" .= ("RegisterBackend" :: Text)
+      , "owner" .= owner
+      , "cluster" .= cluster
+      , "host" .= host
+      , "upstream" .= upstream
+      , "role" .= role
+      , "key" .= key
+      ]
+  toJSON (RegisterCloudflareCache owner zone intent route) =
+    object
+      [ "tag" .= ("RegisterCloudflareCache" :: Text)
+      , "owner" .= owner
+      , "zone" .= zone
+      , "intent" .= intent
+      , "route" .= route
+      ]
 
 instance FromJSON Contribution where
   parseJSON = withObject "contribution" $ \value -> case KM.lookup "tag" value of
     Nothing -> do
-      unless (all (`elem` ["owner", "cluster", "namespace", "key"]) (KM.keys value))
+      unless
+        (all (`elem` ["owner", "cluster", "namespace", "key"]) (KM.keys value))
         (fail "namespace contribution has unknown field")
-      RegisterNamespace <$> value .: "owner" <*> value .: "cluster"
-        <*> value .: "namespace" <*> value .: "key"
+      RegisterNamespace
+        <$> value .: "owner"
+        <*> value .: "cluster"
+        <*> value .: "namespace"
+        <*> value .: "key"
     Just (String "RegisterBackend") -> do
-      unless (all (`elem` ["tag", "owner", "cluster", "host", "upstream", "role", "key"]) (KM.keys value))
+      unless
+        (all (`elem` ["tag", "owner", "cluster", "host", "upstream", "role", "key"]) (KM.keys value))
         (fail "backend contribution has unknown field")
-      RegisterBackend <$> value .: "owner" <*> value .: "cluster" <*> value .: "host"
-        <*> value .: "upstream" <*> value .: "role" <*> value .: "key"
+      RegisterBackend
+        <$> value .: "owner"
+        <*> value .: "cluster"
+        <*> value .: "host"
+        <*> value .: "upstream"
+        <*> value .: "role"
+        <*> value .: "key"
     Just (String "RegisterCloudflareCache") -> do
-      unless (all (`elem` ["tag", "owner", "zone", "intent", "route"]) (KM.keys value))
+      unless
+        (all (`elem` ["tag", "owner", "zone", "intent", "route"]) (KM.keys value))
         (fail "Cloudflare cache contribution has unknown field")
-      RegisterCloudflareCache <$> value .: "owner" <*> value .: "zone"
-        <*> value .: "intent" <*> value .: "route"
+      RegisterCloudflareCache
+        <$> value .: "owner"
+        <*> value .: "zone"
+        <*> value .: "intent"
+        <*> value .: "route"
     _ -> fail "unknown contribution kind"
 
 instance ToJSON ContributionGrant where
   toJSON (NamespaceGrant scope cluster) = toJSON (scope, cluster)
-  toJSON (BackendMapGrant cluster) = object
-    ["tag" .= ("BackendMapGrant" :: Text), "cluster" .= cluster]
-  toJSON (ShomeiSettingsGrant cluster baseDomain) = object
-    ["tag" .= ("ShomeiSettingsGrant" :: Text), "cluster" .= cluster, "baseDomain" .= baseDomain]
-  toJSON (CloudflareZoneGrant zone mode) = object
-    ["tag" .= ("CloudflareZoneGrant" :: Text), "zone" .= zone, "originTls" .= mode]
+  toJSON (BackendMapGrant cluster) =
+    object
+      ["tag" .= ("BackendMapGrant" :: Text), "cluster" .= cluster]
+  toJSON (ShomeiSettingsGrant cluster baseDomain) =
+    object
+      ["tag" .= ("ShomeiSettingsGrant" :: Text), "cluster" .= cluster, "baseDomain" .= baseDomain]
+  toJSON (CloudflareZoneGrant zone mode) =
+    object
+      ["tag" .= ("CloudflareZoneGrant" :: Text), "zone" .= zone, "originTls" .= mode]
 
 instance FromJSON ContributionGrant where
   parseJSON value@(Array _) = do
     (scope, cluster) <- parseJSON value
     pure (NamespaceGrant scope cluster)
-  parseJSON value = withObject "contribution grant" (\fields -> do
-    tag <- fields .: "tag"
-    case (tag :: Text) of
-      "BackendMapGrant" -> do
-        unless (all (`elem` ["tag", "cluster"]) (KM.keys fields)) (fail "backend grant has unknown field")
-        BackendMapGrant <$> fields .: "cluster"
-      "ShomeiSettingsGrant" -> do
-        unless (all (`elem` ["tag", "cluster", "baseDomain"]) (KM.keys fields)) (fail "Shomei grant has unknown field")
-        ShomeiSettingsGrant <$> fields .: "cluster" <*> fields .: "baseDomain"
-      "CloudflareZoneGrant" -> do
-        unless (all (`elem` ["tag", "zone", "originTls"]) (KM.keys fields)) (fail "Cloudflare zone grant has unknown field")
-        CloudflareZoneGrant <$> fields .: "zone" <*> fields .: "originTls"
-      _ -> fail "unknown contribution grant") value
+  parseJSON value =
+    withObject
+      "contribution grant"
+      ( \fields -> do
+          tag <- fields .: "tag"
+          case (tag :: Text) of
+            "BackendMapGrant" -> do
+              unless (all (`elem` ["tag", "cluster"]) (KM.keys fields)) (fail "backend grant has unknown field")
+              BackendMapGrant <$> fields .: "cluster"
+            "ShomeiSettingsGrant" -> do
+              unless (all (`elem` ["tag", "cluster", "baseDomain"]) (KM.keys fields)) (fail "Shomei grant has unknown field")
+              ShomeiSettingsGrant <$> fields .: "cluster" <*> fields .: "baseDomain"
+            "CloudflareZoneGrant" -> do
+              unless (all (`elem` ["tag", "zone", "originTls"]) (KM.keys fields)) (fail "Cloudflare zone grant has unknown field")
+              CloudflareZoneGrant <$> fields .: "zone" <*> fields .: "originTls"
+            _ -> fail "unknown contribution grant"
+      )
+      value
 
 instance ToJSON ResourceBundle where toJSON = genericToJSON options
 

@@ -101,7 +101,8 @@ prepareMutation config operation = pure $ do
     [single] -> Right single
     _ -> Left "artifact operations must name exactly one managed publication"
   spec <- maybe (Left ("artifact operation names an unknown resource: " <> resourceIdText resource)) Right (Map.lookup resource (runtimeArtifactSpecs config))
-  unless (plannedAction operation `elem` [CreateResource, UpdateResource, RunDeclaredOperation])
+  unless
+    (plannedAction operation `elem` [CreateResource, UpdateResource, RunDeclaredOperation])
     (Left "artifact runtime only executes reviewed creation, update, or publication operations")
   pure
     ArtifactMutationPlan

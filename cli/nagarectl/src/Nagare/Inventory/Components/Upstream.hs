@@ -9,20 +9,20 @@ module Nagare.Inventory.Components.Upstream
   , bindNetCertManagerControllerImage
   , bindHostRegistryCredentials
   , compileUpstream
-  ) where
+  )
+where
 
 import Control.Exception (IOException, try)
 import Control.Monad (foldM)
 import Data.Aeson (Value (..), encode)
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KM
-import Data.Yaml qualified as Yaml
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
 import Data.Generics.Labels ()
-import Data.List.NonEmpty (NonEmpty (..))
 import Data.List (foldl')
+import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (mapMaybe)
@@ -32,6 +32,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Vector qualified as V
+import Data.Yaml qualified as Yaml
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject, kubernetesObjectIdentity)
@@ -85,20 +86,30 @@ bindHostRegistryCredentials host cluster inputs = do
 
 -- | Replace only the controller image in the pinned net-certmanager release.
 -- The immutable reference is retained in the reviewed native Deployment.
-bindNetCertManagerControllerImage
-  :: ResourceId -> Text -> ResourceId -> [UpstreamInput] -> Either Text [UpstreamInput]
+bindNetCertManagerControllerImage ::
+  ResourceId -> Text -> ResourceId -> [UpstreamInput] -> Either Text [UpstreamInput]
 bindNetCertManagerControllerImage cluster image publication inputs = do
-  address <- kubernetesAddress cluster "apps/v1" "Deployment"
-    (Just "knative-serving") "net-certmanager-controller"
+  address <-
+    kubernetesAddress
+      cluster
+      "apps/v1"
+      "Deployment"
+      (Just "knative-serving")
+      "net-certmanager-controller"
   let matching = [input | input <- inputs, upstreamOwner input == owner]
-  unless (length matching == 1)
+  unless
+    (length matching == 1)
     (Left "configured bootstrap has no unique net-certmanager scope")
-  pure [if upstreamOwner input == owner
-    then input
-      { upstreamImageOverrides = Map.singleton address (Map.singleton "controller" image)
-      , upstreamExternalAfter = Map.singleton address [publication]
-      }
-    else input | input <- inputs]
+  pure
+    [ if upstreamOwner input == owner
+        then
+          input
+            { upstreamImageOverrides = Map.singleton address (Map.singleton "controller" image)
+            , upstreamExternalAfter = Map.singleton address [publication]
+            }
+        else input
+    | input <- inputs
+    ]
   where
     owner = either (error . T.unpack) id (mkScopeId Platform "net-certmanager")
 
@@ -106,57 +117,78 @@ bindNetCertManagerControllerImage cluster image publication inputs = do
 -- scope may contain custom resources served by an earlier release.
 pinnedUpstreamInputs :: ResourceId -> FilePath -> [UpstreamInput]
 pinnedUpstreamInputs cluster root =
-  [ component "cert-manager"
+  [ component
+      "cert-manager"
       [("cluster/bootstrap/vendor/cert-manager-v1.20.2.yaml", "1ce11cae912adecc69e6bb623435fafc9ed21505f9efff98bd71d7b80f01db1f")]
       Set.empty
-  , component "serving"
+  , component
+      "serving"
       [ ("cluster/bootstrap/vendor/serving-crds-v1.22.0.yaml", "b7876869026e571fe41cef6c7345f37f8190a80f6a23b45010981347f97f97bc")
       , ("cluster/bootstrap/vendor/serving-core-v1.22.0.yaml", "86049684cb235763fc230763f2a0ca740f47ed47119b7851fab2da96cec1bf6e")
       ]
-      (Set.singleton (either (error . T.unpack) id
-        (kubernetesAddress cluster "v1" "ConfigMap" (Just "knative-serving") "config-certmanager")))
-  , component "kourier"
+      ( Set.singleton
+          ( either
+              (error . T.unpack)
+              id
+              (kubernetesAddress cluster "v1" "ConfigMap" (Just "knative-serving") "config-certmanager")
+          )
+      )
+  , component
+      "kourier"
       [("cluster/bootstrap/vendor/kourier-v1.22.0.yaml", "6f050d6149020164e83aef96a4d9388534830b9c2943abdbbed816220fe8126c")]
       Set.empty
-  , component "net-certmanager"
+  , component
+      "net-certmanager"
       [("cluster/bootstrap/vendor/net-certmanager-v1.14.0.yaml", "145ef639165b86a8ce8aa8eb62473961119374687633d05cfd1f52273ca6e702")]
       Set.empty
   ]
   where
-    component name assets transferred = UpstreamInput
-      { upstreamOwner = either (error . T.unpack) id (mkScopeId Platform name)
-      , upstreamCluster = cluster
-      , upstreamKey = either (error . T.unpack) id (mkLogicalKey name)
-      , upstreamRoot = root
-      , upstreamFiles = [(path, either (error . T.unpack) id (mkContentDigest digest)) | (path, digest) <- assets]
-      , upstreamNamespaces = Map.empty
-      , upstreamTransferred = transferred
-      , upstreamConfigMapData = Map.empty
-      , upstreamImageOverrides = Map.empty
-      , upstreamGenerated = []
-      , upstreamAfter = if name == "serving"
-          then Map.singleton
-            (either (error . T.unpack) id (kubernetesAddress cluster "apps/v1" "Deployment" (Just "knative-serving") "activator"))
-            [either (error . T.unpack) id (kubernetesAddress cluster "apps/v1" "Deployment" (Just "knative-serving") "autoscaler")]
-          else Map.empty
-      , upstreamExternalAfter = Map.empty
-      , upstreamOrderDeployments = True
-      , upstreamRegistryDelegations = Map.empty
-      }
+    component name assets transferred =
+      UpstreamInput
+        { upstreamOwner = either (error . T.unpack) id (mkScopeId Platform name)
+        , upstreamCluster = cluster
+        , upstreamKey = either (error . T.unpack) id (mkLogicalKey name)
+        , upstreamRoot = root
+        , upstreamFiles = [(path, either (error . T.unpack) id (mkContentDigest digest)) | (path, digest) <- assets]
+        , upstreamNamespaces = Map.empty
+        , upstreamTransferred = transferred
+        , upstreamConfigMapData = Map.empty
+        , upstreamImageOverrides = Map.empty
+        , upstreamGenerated = []
+        , upstreamAfter =
+            if name == "serving"
+              then
+                Map.singleton
+                  (either (error . T.unpack) id (kubernetesAddress cluster "apps/v1" "Deployment" (Just "knative-serving") "activator"))
+                  [either (error . T.unpack) id (kubernetesAddress cluster "apps/v1" "Deployment" (Just "knative-serving") "autoscaler")]
+              else Map.empty
+        , upstreamExternalAfter = Map.empty
+        , upstreamOrderDeployments = True
+        , upstreamRegistryDelegations = Map.empty
+        }
 
 -- | Bind the context's Knative policy into the reviewed release members.
 -- Patch bodies are packaged policy inputs; they are parsed before any native
 -- object is observed or changed. The caller supplies a resolved domain,
 -- registry, and the correct cloud/local certificate patch.
-configuredUpstreamInputs
-  :: ResourceId -> FilePath -> Text -> Text -> FilePath
-  -> IO (Either Text [UpstreamInput])
+configuredUpstreamInputs ::
+  ResourceId ->
+  FilePath ->
+  Text ->
+  Text ->
+  FilePath ->
+  IO (Either Text [UpstreamInput])
 configuredUpstreamInputs cluster root baseDomain registryHost certificatePatch =
   configuredUpstreamInputsWithTls cluster root baseDomain registryHost certificatePatch False
 
-configuredUpstreamInputsWithTls
-  :: ResourceId -> FilePath -> Text -> Text -> FilePath -> Bool
-  -> IO (Either Text [UpstreamInput])
+configuredUpstreamInputsWithTls ::
+  ResourceId ->
+  FilePath ->
+  Text ->
+  Text ->
+  FilePath ->
+  Bool ->
+  IO (Either Text [UpstreamInput])
 configuredUpstreamInputsWithTls cluster root baseDomain registryHost certificatePatch cloudTls = do
   let allowedCertificatePatches =
         [ "cluster/bootstrap/knative-serving/config-certmanager.yaml"
@@ -166,9 +198,10 @@ configuredUpstreamInputsWithTls cluster root baseDomain registryHost certificate
     then pure (Left "Knative certificate patch is not a packaged cloud/local policy input")
     else do
       network <- readPatch "cluster/bootstrap/knative-serving/config-network.yaml"
-      localTls <- if cloudTls || certificatePatch == "cluster/bootstrap/local-tls/config-certmanager-local.yaml"
-        then readPatch "cluster/bootstrap/knative-serving/config-network-tls.yaml"
-        else pure (Right Map.empty)
+      localTls <-
+        if cloudTls || certificatePatch == "cluster/bootstrap/local-tls/config-certmanager-local.yaml"
+          then readPatch "cluster/bootstrap/knative-serving/config-network-tls.yaml"
+          else pure (Right Map.empty)
       features <- readPatch "cluster/bootstrap/knative-serving/config-features.yaml"
       certificate <- readPatch certificatePatch
       pure $ do
@@ -177,44 +210,72 @@ configuredUpstreamInputsWithTls cluster root baseDomain registryHost certificate
         featureData <- features
         certificateData <- certificate
         when (cloudTls || certificatePatch == "cluster/bootstrap/local-tls/config-certmanager-local.yaml") $
-          unless (Map.lookup "external-domain-tls" localTlsData == Just (Just "Enabled")
-            && Map.member "namespace-wildcard-cert-selector" localTlsData)
+          unless
+            ( Map.lookup "external-domain-tls" localTlsData == Just (Just "Enabled")
+                && Map.member "namespace-wildcard-cert-selector" localTlsData
+            )
             (Left "local TLS policy must enable automatic domain TLS and its namespace selector")
-        unless (validHost baseDomain && baseDomain /= "svc.cluster.local")
+        unless
+          (validHost baseDomain && baseDomain /= "svc.cluster.local")
           (Left "Knative base domain is empty or malformed")
-        unless (validHost registryHost)
+        unless
+          (validHost registryHost)
           (Left "Knative registry host is empty or malformed")
         case pinnedUpstreamInputs cluster root of
-          [certManager, serving, kourier, net] -> Right
-            [ certManager
-            , serving {upstreamConfigMapData = Map.fromList
-                [ (config "config-network", Map.union localTlsData networkData)
-                , (config "config-features", featureData)
-                , (config "config-domain", Map.fromList [(baseDomain, Just ""), ("svc.cluster.local", Nothing)])
-                , (config "config-deployment", Map.singleton "registriesSkippingTagResolving"
-                    (Just ("kind.local,ko.local,dev.local," <> registryHost)))
-                ]}
-            , kourier {upstreamAfter = Map.singleton
-                (deployment "kourier-system" "3scale-kourier-gateway")
-                [deployment "knative-serving" "net-kourier-controller"]}
-            , net
-                { upstreamConfigMapData = Map.singleton (config "config-certmanager") certificateData
-                , upstreamAfter = Map.fromList
-                    [ (certificateAddress "knative-selfsigned-ca", [issuer "selfsigned-cluster-issuer"])
-                    , (issuer "knative-selfsigned-issuer", [certificateAddress "knative-selfsigned-ca"])
-                    ]
-                }
-            ]
+          [certManager, serving, kourier, net] ->
+            Right
+              [ certManager
+              , serving
+                  { upstreamConfigMapData =
+                      Map.fromList
+                        [ (config "config-network", Map.union localTlsData networkData)
+                        , (config "config-features", featureData)
+                        , (config "config-domain", Map.fromList [(baseDomain, Just ""), ("svc.cluster.local", Nothing)])
+                        ,
+                          ( config "config-deployment"
+                          , Map.singleton
+                              "registriesSkippingTagResolving"
+                              (Just ("kind.local,ko.local,dev.local," <> registryHost))
+                          )
+                        ]
+                  }
+              , kourier
+                  { upstreamAfter =
+                      Map.singleton
+                        (deployment "kourier-system" "3scale-kourier-gateway")
+                        [deployment "knative-serving" "net-kourier-controller"]
+                  }
+              , net
+                  { upstreamConfigMapData = Map.singleton (config "config-certmanager") certificateData
+                  , upstreamAfter =
+                      Map.fromList
+                        [ (certificateAddress "knative-selfsigned-ca", [issuer "selfsigned-cluster-issuer"])
+                        , (issuer "knative-selfsigned-issuer", [certificateAddress "knative-selfsigned-ca"])
+                        ]
+                  }
+              ]
           _ -> Left "pinned upstream release set is incomplete"
   where
-    config name = either (error . T.unpack) id
-      (kubernetesAddress cluster "v1" "ConfigMap" (Just "knative-serving") name)
-    deployment namespaceName name = either (error . T.unpack) id
-      (kubernetesAddress cluster "apps/v1" "Deployment" (Just namespaceName) name)
-    issuer name = either (error . T.unpack) id
-      (kubernetesAddress cluster "cert-manager.io/v1" "ClusterIssuer" Nothing name)
-    certificateAddress name = either (error . T.unpack) id
-      (kubernetesAddress cluster "cert-manager.io/v1" "Certificate" (Just "cert-manager") name)
+    config name =
+      either
+        (error . T.unpack)
+        id
+        (kubernetesAddress cluster "v1" "ConfigMap" (Just "knative-serving") name)
+    deployment namespaceName name =
+      either
+        (error . T.unpack)
+        id
+        (kubernetesAddress cluster "apps/v1" "Deployment" (Just namespaceName) name)
+    issuer name =
+      either
+        (error . T.unpack)
+        id
+        (kubernetesAddress cluster "cert-manager.io/v1" "ClusterIssuer" Nothing name)
+    certificateAddress name =
+      either
+        (error . T.unpack)
+        id
+        (kubernetesAddress cluster "cert-manager.io/v1" "Certificate" (Just "cert-manager") name)
     readPatch relative = do
       loaded <- try (BS.readFile (root </> relative)) :: IO (Either IOException ByteString)
       pure $ do
@@ -227,13 +288,18 @@ configuredUpstreamInputsWithTls cluster root baseDomain registryHost certificate
           _ -> Left "Knative patch is not an object"
     parseEntry (key, String value) = Right (Key.toText key, Just value)
     parseEntry _ = Left "Knative patch data must contain only strings"
-    validHost value = not (T.null value)
-      && T.all (\char -> char `elem` (['a'..'z'] <> ['A'..'Z'] <> ['0'..'9'] <> ".-:")) value
-      && not (T.isPrefixOf "." value || T.isSuffixOf "." value)
+    validHost value =
+      not (T.null value)
+        && T.all (\char -> char `elem` (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> ".-:")) value
+        && not (T.isPrefixOf "." value || T.isSuffixOf "." value)
 
-configuredUpstreamInputsWithIssuer
-  :: ResourceId -> FilePath -> Text -> Text -> IssuerMode
-  -> IO (Either Text [UpstreamInput])
+configuredUpstreamInputsWithIssuer ::
+  ResourceId ->
+  FilePath ->
+  Text ->
+  Text ->
+  IssuerMode ->
+  IO (Either Text [UpstreamInput])
 configuredUpstreamInputsWithIssuer cluster root domain registry issuerMode = do
   let certificatePatch = case issuerMode of
         CloudIssuer {} -> "cluster/bootstrap/knative-serving/config-certmanager.yaml"
@@ -256,10 +322,12 @@ issuerComponent cluster root mode = do
         CloudIssuer directory email project _ ->
           ( "cluster/bootstrap/cert-manager/letsencrypt-dns.yaml.tmpl"
           , "25b037828d82f4b19a95c672df54e285f32e7a6056c406ac67327f070624f369"
-          , [ ("${NAGARE_ACME_DIRECTORY_URL}", directory)
+          ,
+            [ ("${NAGARE_ACME_DIRECTORY_URL}", directory)
             , ("${NAGARE_ACME_EMAIL}", email)
             , ("${CLOUDSDK_CORE_PROJECT}", project)
-            ] )
+            ]
+          )
         LocalIssuer ->
           ("cluster/bootstrap/local-tls/clusterissuer.yaml", "d7091c650e4fe1d91cb0b2860877da864c3e0095404a4da481417d6e91f291b9", [])
   loaded <- try (BS.readFile (root </> relative)) :: IO (Either IOException ByteString)
@@ -271,41 +339,50 @@ issuerComponent cluster root mode = do
     rendered <- foldM replaceOne decoded substitutions
     unless (not ("${" `T.isInfixOf` rendered)) (Left "issuer template has an unresolved placeholder")
     objects <- first (T.pack . show) (parseKubernetesManifest (SourceLocation (T.pack relative) "issuer") (TE.encodeUtf8 rendered))
-    let issuerAddress name = either (error . T.unpack) id
-          (kubernetesAddress cluster "cert-manager.io/v1" "ClusterIssuer" Nothing name)
-        certificateAddress = either (error . T.unpack) id
-          (kubernetesAddress cluster "cert-manager.io/v1" "Certificate" (Just "cert-manager") "nagare-local-ca")
+    let issuerAddress name =
+          either
+            (error . T.unpack)
+            id
+            (kubernetesAddress cluster "cert-manager.io/v1" "ClusterIssuer" Nothing name)
+        certificateAddress =
+          either
+            (error . T.unpack)
+            id
+            (kubernetesAddress cluster "cert-manager.io/v1" "Certificate" (Just "cert-manager") "nagare-local-ca")
         ordering = case mode of
           CloudIssuer {} -> Map.empty
-          LocalIssuer -> Map.fromList
-            [ (certificateAddress, [issuerAddress "nagare-local-selfsigned"])
-            , (issuerAddress "nagare-local-ca", [certificateAddress])
-            ]
-    pure UpstreamInput
-      { upstreamOwner = either (error . T.unpack) id (mkScopeId Platform "certificate-issuer")
-      , upstreamCluster = cluster
-      , upstreamKey = either (error . T.unpack) id (mkLogicalKey "certificate-issuer")
-      , upstreamRoot = root
-      , upstreamFiles = []
-      , upstreamNamespaces = Map.empty
-      , upstreamTransferred = Set.empty
-      , upstreamConfigMapData = Map.empty
-      , upstreamImageOverrides = Map.empty
-      , upstreamGenerated = objects
-      , upstreamAfter = ordering
-      , upstreamExternalAfter = Map.empty
-      , upstreamOrderDeployments = True
-      , upstreamRegistryDelegations = Map.empty
-      }
+          LocalIssuer ->
+            Map.fromList
+              [ (certificateAddress, [issuerAddress "nagare-local-selfsigned"])
+              , (issuerAddress "nagare-local-ca", [certificateAddress])
+              ]
+    pure
+      UpstreamInput
+        { upstreamOwner = either (error . T.unpack) id (mkScopeId Platform "certificate-issuer")
+        , upstreamCluster = cluster
+        , upstreamKey = either (error . T.unpack) id (mkLogicalKey "certificate-issuer")
+        , upstreamRoot = root
+        , upstreamFiles = []
+        , upstreamNamespaces = Map.empty
+        , upstreamTransferred = Set.empty
+        , upstreamConfigMapData = Map.empty
+        , upstreamImageOverrides = Map.empty
+        , upstreamGenerated = objects
+        , upstreamAfter = ordering
+        , upstreamExternalAfter = Map.empty
+        , upstreamOrderDeployments = True
+        , upstreamRegistryDelegations = Map.empty
+        }
   where
     replaceOne input (slot, value) = do
-      unless (T.count slot input == 1 && not (T.null value) && not (T.any (`elem` ['\n', '\r']) value))
+      unless
+        (T.count slot input == 1 && not (T.null value) && not (T.any (`elem` ['\n', '\r']) value))
         (Left "issuer template has a missing slot or invalid context value")
       pure (T.replace slot (TE.decodeUtf8 (LBS.toStrict (encode (String value)))) input)
 
-compileUpstream
-  :: UpstreamInput
-  -> IO (Either (NonEmpty InventoryError) (ResourceBundle, Map ResourceId (ManagedResource, ByteString)))
+compileUpstream ::
+  UpstreamInput ->
+  IO (Either (NonEmpty InventoryError) (ResourceBundle, Map ResourceId (ManagedResource, ByteString)))
 compileUpstream input = do
   loaded <- traverse loadOne (upstreamFiles input)
   pure $ do
@@ -315,50 +392,81 @@ compileUpstream input = do
     let members = packaged <> generated
     deduplicated <- foldl' keepIdentical (Right Map.empty) members
     let uniqueMembers = Map.elems deduplicated
-        transferred = [resource ^. #address | (resource, _) <- uniqueMembers,
-          Set.member (resource ^. #address) (upstreamTransferred input)]
-        configured = [resource ^. #address | (resource, _) <- uniqueMembers,
-          Map.member (resource ^. #address) (upstreamConfigMapData input)]
-    unless (Set.fromList transferred == upstreamTransferred input)
+        transferred =
+          [ resource ^. #address
+          | (resource, _) <- uniqueMembers
+          , Set.member (resource ^. #address) (upstreamTransferred input)
+          ]
+        configured =
+          [ resource ^. #address
+          | (resource, _) <- uniqueMembers
+          , Map.member (resource ^. #address) (upstreamConfigMapData input)
+          ]
+    unless
+      (Set.fromList transferred == upstreamTransferred input)
       (Left (single (invalid "transferred upstream object is absent from the pinned release")))
-    unless (Set.fromList configured == Map.keysSet (upstreamConfigMapData input))
+    unless
+      (Set.fromList configured == Map.keysSet (upstreamConfigMapData input))
       (Left (single (invalid "configured ConfigMap is absent from the pinned release")))
-    unless (Map.keysSet (upstreamImageOverrides input) `Set.isSubsetOf` Set.fromList
-        [resource ^. #address | (resource, _) <- uniqueMembers])
+    unless
+      ( Map.keysSet (upstreamImageOverrides input)
+          `Set.isSubsetOf` Set.fromList
+            [resource ^. #address | (resource, _) <- uniqueMembers]
+      )
       (Left (single (invalid "image override target is absent from the pinned release")))
-    unless (Map.keysSet (upstreamAfter input) `Set.isSubsetOf` Set.fromList
-        [resource ^. #address | (resource, _) <- uniqueMembers])
+    unless
+      ( Map.keysSet (upstreamAfter input)
+          `Set.isSubsetOf` Set.fromList
+            [resource ^. #address | (resource, _) <- uniqueMembers]
+      )
       (Left (single (invalid "upstream ordering target is absent from the component")))
-    unless (Map.keysSet (upstreamExternalAfter input) `Set.isSubsetOf` Set.fromList
-        [resource ^. #address | (resource, _) <- uniqueMembers])
+    unless
+      ( Map.keysSet (upstreamExternalAfter input)
+          `Set.isSubsetOf` Set.fromList
+            [resource ^. #address | (resource, _) <- uniqueMembers]
+      )
       (Left (single (invalid "upstream external ordering target is absent from the component")))
-    unless (Map.keysSet (upstreamRegistryDelegations input) `Set.isSubsetOf` Set.fromList
-        [resource ^. #address | (resource, _) <- uniqueMembers])
+    unless
+      ( Map.keysSet (upstreamRegistryDelegations input)
+          `Set.isSubsetOf` Set.fromList
+            [resource ^. #address | (resource, _) <- uniqueMembers]
+      )
       (Left (single (invalid "registry delegation target is absent from the component")))
     let retained = filter (\(resource, _) -> Set.notMember (resource ^. #address) (upstreamTransferred input)) uniqueMembers
-        namespaceIds = Map.fromList
-          [(name, resource ^. #identity) | (resource, _) <- retained,
-            Kubernetes _ "" kind Nothing name <- [resource ^. #address], nameText kind == "namespace"]
+        namespaceIds =
+          Map.fromList
+            [ (name, resource ^. #identity)
+            | (resource, _) <- retained
+            , Kubernetes _ "" kind Nothing name <- [resource ^. #address]
+            , nameText kind == "namespace"
+            ]
         dependencies = Map.union namespaceIds (upstreamNamespaces input)
         resourceIds = Map.fromList [(resource ^. #address, resource ^. #identity) | (resource, _) <- retained]
-    unless (all (`Map.member` resourceIds) (concat (Map.elems (upstreamAfter input))))
+    unless
+      (all (`Map.member` resourceIds) (concat (Map.elems (upstreamAfter input))))
       (Left (single (invalid "upstream ordering prerequisite is absent from the component")))
     let crdIds = [resource ^. #identity | (resource, _) <- retained, isCrd resource]
         deploymentIds = [resource ^. #identity | (resource, _) <- retained, isDeployment resource]
-        prerequisites = [resource ^. #identity | (resource, _) <- retained,
-          not (isCrd resource || isDeployment resource || isWebhookCustomResource resource)]
+        prerequisites =
+          [ resource ^. #identity
+          | (resource, _) <- retained
+          , not (isCrd resource || isDeployment resource || isWebhookCustomResource resource)
+          ]
         ordered = map (addDependencies dependencies resourceIds crdIds deploymentIds prerequisites) retained
     let bundle = ResourceBundle (map (Managed . fst) ordered) [] [] [] [] []
     pure (bundle, Map.fromList [(resource ^. #identity, (resource, bytes)) | (resource, bytes) <- ordered])
   where
-    invalid message = inventoryError "invalid-upstream-manifest" message
-      & #scopes .~ [upstreamOwner input]
+    invalid message =
+      inventoryError "invalid-upstream-manifest" message
+        & #scopes
+        .~ [upstreamOwner input]
     single err = err :| []
     loadOne (relative, digest) = do
       readResult <- try (BS.readFile (upstreamRoot input </> relative)) :: IO (Either IOException ByteString)
       pure $ do
         bytes <- first (single . invalid . ("cannot read packaged upstream manifest: " <>) . T.pack . show) readResult
-        unless (contentDigest bytes == digest)
+        unless
+          (contentDigest bytes == digest)
           (Left (single (invalid "packaged upstream manifest differs from its pinned digest")))
         pure (relative, bytes)
     compileAsset (relative, bytes) = do
@@ -367,8 +475,17 @@ compileUpstream input = do
     compileOne (location, value) = do
       sourceBytes <- first (single . invalid) (canonicalValue value)
       let temporary = mintResourceId (upstreamOwner input) (upstreamKey input) (known "probe")
-          template = KubernetesInput temporary (upstreamOwner input) (upstreamCluster input)
-            value (contentDigest sourceBytes) Retain Stateless (sensitivityOf value) location
+          template =
+            KubernetesInput
+              temporary
+              (upstreamOwner input)
+              (upstreamCluster input)
+              value
+              (contentDigest sourceBytes)
+              Retain
+              Stateless
+              (sensitivityOf value)
+              location
       probed <- first single (compileKubernetesObject template)
       configured <- case Map.lookup (probed ^. #address) (upstreamConfigMapData input) of
         Nothing -> Right value
@@ -380,13 +497,22 @@ compileUpstream input = do
         Nothing -> Right imaged
         Just host -> first (single . invalid) (registryGrant host imaged)
       native <- first (single . invalid) (canonicalValue delegated)
-      identity <- first (single . invalid) (kubernetesObjectIdentity
-        (upstreamOwner input) (upstreamKey input) (probed ^. #address))
+      identity <-
+        first
+          (single . invalid)
+          ( kubernetesObjectIdentity
+              (upstreamOwner input)
+              (upstreamKey input)
+              (probed ^. #address)
+          )
       let actual = template {resourceId = identity, inputObject = delegated, objectDigest = contentDigest native}
       (resource, bound) <- first single (bindKubernetesObject actual)
       unless (bound == native) (Left (single (invalid "upstream native bytes changed during binding")))
-      let grants = maybe [] (pure . registryControllerDelegation)
-            (Map.lookup (probed ^. #address) (upstreamRegistryDelegations input))
+      let grants =
+            maybe
+              []
+              (pure . registryControllerDelegation)
+              (Map.lookup (probed ^. #address) (upstreamRegistryDelegations input))
       pure (resource {delegations = grants}, bound)
     known = either (error . T.unpack) id . mkName
     keepIdentical accumulated (resource, bytes) = do
@@ -395,9 +521,17 @@ compileUpstream input = do
         Nothing -> Right (Map.insert (resource ^. #identity) (resource, bytes) existing)
         Just (prior, priorBytes)
           | priorBytes == bytes
-          , prior {source = resource ^. #source} == resource -> Right existing
-          | otherwise -> Left (single (invalid ("upstream assets give different content to "
-              <> resourceIdText (resource ^. #identity))))
+          , prior {source = resource ^. #source} == resource ->
+              Right existing
+          | otherwise ->
+              Left
+                ( single
+                    ( invalid
+                        ( "upstream assets give different content to "
+                            <> resourceIdText (resource ^. #identity)
+                        )
+                    )
+                )
     addDependencies dependencies resourceIds crdIds deploymentIds prerequisites (resource, bound) =
       let namespaceEdges = case resource ^. #address of
             Kubernetes _ _ _ (Just namespaceName) _ ->
@@ -405,16 +539,24 @@ compileUpstream input = do
             _ -> []
           crdEdges = if isCrd resource then [] else map OrderedAfter crdIds
           webhookEdges = if isWebhookCustomResource resource then map OrderedAfter deploymentIds else []
-          prerequisiteEdges = if isDeployment resource && upstreamOrderDeployments input
-            then map OrderedAfter prerequisites else []
-          explicitIds = mapMaybe (`Map.lookup` resourceIds)
-            (Map.findWithDefault [] (resource ^. #address) (upstreamAfter input))
+          prerequisiteEdges =
+            if isDeployment resource && upstreamOrderDeployments input
+              then map OrderedAfter prerequisites
+              else []
+          explicitIds =
+            mapMaybe
+              (`Map.lookup` resourceIds)
+              (Map.findWithDefault [] (resource ^. #address) (upstreamAfter input))
           explicitEdges = map OrderedAfter explicitIds
-          externalEdges = map OrderedAfter
-            (Map.findWithDefault [] (resource ^. #address) (upstreamExternalAfter input))
+          externalEdges =
+            map
+              OrderedAfter
+              (Map.findWithDefault [] (resource ^. #address) (upstreamExternalAfter input))
           own = resource ^. #identity
-          edges = filter (/= OrderedAfter own)
-            (namespaceEdges <> crdEdges <> webhookEdges <> prerequisiteEdges <> explicitEdges <> externalEdges)
+          edges =
+            filter
+              (/= OrderedAfter own)
+              (namespaceEdges <> crdEdges <> webhookEdges <> prerequisiteEdges <> explicitEdges <> externalEdges)
        in (resource {dependencies = Set.toList (Set.fromList edges <> Set.fromList (resource ^. #dependencies))}, bound)
 
 registryGrant :: ResourceId -> Value -> Either Text Value
@@ -467,8 +609,9 @@ isDeployment resource = case resource ^. #address of
 
 isWebhookCustomResource :: ManagedResource -> Bool
 isWebhookCustomResource resource = case resource ^. #address of
-  Kubernetes _ group _ _ _ -> group `elem`
-    ["caching.internal.knative.dev", "networking.internal.knative.dev", "serving.knative.dev", "cert-manager.io"]
+  Kubernetes _ group _ _ _ ->
+    group
+      `elem` ["caching.internal.knative.dev", "networking.internal.knative.dev", "serving.knative.dev", "cert-manager.io"]
   _ -> False
 
 sensitivityOf :: Value -> Sensitivity
@@ -484,9 +627,13 @@ setDeploymentImages images (Object root)
       containers <- case KM.lookup "containers" podSpec of
         Just (Array entries) -> Right entries
         _ -> Left "image override Deployment has no container array"
-      let found = [containerName | Object container <- V.toList containers,
-            Just (String containerName) <- [KM.lookup "name" container]]
-      unless (Map.keysSet images `Set.isSubsetOf` Set.fromList found)
+      let found =
+            [ containerName
+            | Object container <- V.toList containers
+            , Just (String containerName) <- [KM.lookup "name" container]
+            ]
+      unless
+        (Map.keysSet images `Set.isSubsetOf` Set.fromList found)
         (Left "image override names a container absent from the Deployment")
       updated <- traverse replaceContainer containers
       let podSpec' = KM.insert "containers" (Array updated) podSpec
@@ -506,8 +653,10 @@ setDeploymentImages images (Object root)
       _ -> Left "image override Deployment has an unnamed container"
     replaceContainer _ = Left "image override Deployment has a malformed container"
     immutable image = case T.splitOn "@sha256:" image of
-      [repository, digest] -> not (T.null repository) && T.length digest == 64
-        && T.all (`elem` (['0'..'9'] <> ['a'..'f'])) digest
+      [repository, digest] ->
+        not (T.null repository)
+          && T.length digest == 64
+          && T.all (`elem` (['0' .. '9'] <> ['a' .. 'f'])) digest
       _ -> False
 setDeploymentImages _ _ = Left "image override targets a non-Deployment object"
 
@@ -517,9 +666,13 @@ mergeConfigMapData entries (Object root)
       current <- case KM.lookup "data" root of
         Just (Object dataFields) -> Right dataFields
         _ -> Left "configured upstream ConfigMap has no data object"
-      let changed = foldl' (\fields (key, value) -> case value of
-            Just textValue -> KM.insert (Key.fromText key) (String textValue) fields
-            Nothing -> KM.delete (Key.fromText key) fields)
-            current (Map.toAscList entries)
+      let changed =
+            foldl'
+              ( \fields (key, value) -> case value of
+                  Just textValue -> KM.insert (Key.fromText key) (String textValue) fields
+                  Nothing -> KM.delete (Key.fromText key) fields
+              )
+              current
+              (Map.toAscList entries)
       pure (Object (KM.insert "data" (Object changed) root))
 mergeConfigMapData _ _ = Left "upstream data overlay targets a non-ConfigMap object"

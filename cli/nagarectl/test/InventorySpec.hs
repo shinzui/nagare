@@ -70,11 +70,12 @@ inventoryTests =
     , testCase "Kubernetes declaration binds the exact canonical native object" $ do
         let owner = ok (mkScopeId Platform "foundation")
             rid key = mintResourceId owner (ok (mkLogicalKey key)) (ok (mkName "resource"))
-            objectName name = object
-              [ "apiVersion" .= ("v1" :: Text)
-              , "kind" .= ("Service" :: Text)
-              , "metadata" .= object ["name" .= name, "namespace" .= ("personal" :: Text)]
-              ]
+            objectName name =
+              object
+                [ "apiVersion" .= ("v1" :: Text)
+                , "kind" .= ("Service" :: Text)
+                , "metadata" .= object ["name" .= name, "namespace" .= ("personal" :: Text)]
+                ]
             original = objectName ("cache" :: Text)
             bytes = ok (canonicalValue original)
             input value = KubernetesInput (rid "service") owner (rid "cluster") value (contentDigest bytes) Retain Stateless Public (SourceLocation "fixture.yaml" "document[0]")
@@ -131,15 +132,20 @@ inventoryTests =
             (maybe (unsetEnv "XDG_STATE_HOME") (setEnv "XDG_STATE_HOME"))
             $ \_ -> do
               let binding = ContextBinding (ok (mkContextId "restored")) (ok (mkName "project"))
-                  target = ActiveTarget (ok (mkContextName "restored"))
-                    (profileFromContextMap (Map.singleton "CLOUDSDK_CORE_PROJECT" "project"))
-                  foreignTarget = ActiveTarget (ok (mkContextName "restored"))
-                    (profileFromContextMap (Map.singleton "CLOUDSDK_CORE_PROJECT" "other-project"))
+                  target =
+                    ActiveTarget
+                      (ok (mkContextName "restored"))
+                      (profileFromContextMap (Map.singleton "CLOUDSDK_CORE_PROJECT" "project"))
+                  foreignTarget =
+                    ActiveTarget
+                      (ok (mkContextName "restored"))
+                      (profileFromContextMap (Map.singleton "CLOUDSDK_CORE_PROJECT" "other-project"))
                   backup = root </> "backup"
               source <- openFilesystemStore (root </> "source") >>= either (assertFailure . show) pure
               _ <- initializeStore source binding "restore-test" >>= either (assertFailure . show) pure
-              exported <- withProcessLock source (\locked -> exportStore locked backup)
-                >>= either (assertFailure . show) pure
+              exported <-
+                withProcessLock source (\locked -> exportStore locked backup)
+                  >>= either (assertFailure . show) pure
               _ <- either (assertFailure . show) pure exported
               mismatch <- try (restoreInventory foreignTarget backup True) :: IO (Either ExitCode ())
               assertBool "foreign project accepted" (isLeft mismatch)

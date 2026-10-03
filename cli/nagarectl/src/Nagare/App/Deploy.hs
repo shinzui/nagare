@@ -62,8 +62,8 @@ import Nagare.Dsl.Types
   ( Deployment
   , EnvName
   , ImageRef
-  , ScopedEnvVar
   , RetentionPolicy (Delete)
+  , ScopedEnvVar
   , databaseNameText
   , imageRefText
   , namespaceText
@@ -217,13 +217,18 @@ renderDatabaseObjects env db = do
   let profile = env ^. #targetProfile
   backend <- storeBackendFor profile (profile ^. #backupBucket)
   let secret = Yaml.encode (databaseCredentialTemplate db)
-      backup = renderDbBackupCronJob
-        (namespaceText (db ^. #namespace))
-        (databaseNameText (db ^. #name))
-        (db ^. #engine)
-        (engineVersionText (db ^. #version)) backend 7
-      members = [secret] <> renderDatabase db
-        <> [backup | db ^. #retention /= Delete]
+      backup =
+        renderDbBackupCronJob
+          (namespaceText (db ^. #namespace))
+          (databaseNameText (db ^. #name))
+          (db ^. #engine)
+          (engineVersionText (db ^. #version))
+          backend
+          7
+      members =
+        [secret]
+          <> renderDatabase db
+          <> [backup | db ^. #retention /= Delete]
   traverse (stamp env "database") members
 
 -- | Apply the shared image + shared env to the web service, render its PVCs,
@@ -289,9 +294,19 @@ stampAppLabel name bs
       Right (Object top) -> case KM.lookup "metadata" top of
         Just (Object metadata) -> case KM.lookup "labels" metadata of
           Just (Object labels) ->
-            let updated = Object (KM.insert "metadata"
-                  (Object (KM.insert "labels"
-                    (Object (KM.insert "nagare.dev/app" (String name) labels)) metadata)) top)
+            let updated =
+                  Object
+                    ( KM.insert
+                        "metadata"
+                        ( Object
+                            ( KM.insert
+                                "labels"
+                                (Object (KM.insert "nagare.dev/app" (String name) labels))
+                                metadata
+                            )
+                        )
+                        top
+                    )
              in verify (Yaml.encode updated)
           _ -> Left "rendered object has no metadata.labels object"
         _ -> Left "rendered object has no metadata object"
@@ -421,25 +436,26 @@ toRenderedObject ph bs =
 
 -- | Reviewed planning supplies broker environment derived from accepted
 -- inventory history, avoiding a live discovery result outside the review.
-resolveAppRolloutWithBrokerEnv
-  :: AppDeployParams -> Application -> Map EnvName ScopedEnvVar -> IO RolloutEnv
+resolveAppRolloutWithBrokerEnv ::
+  AppDeployParams -> Application -> Map EnvName ScopedEnvVar -> IO RolloutEnv
 resolveAppRolloutWithBrokerEnv p app brokerEnv = do
   qImg <- case qualifyImage tp (app ^. #image) of
     Left e -> dieT ("nagarectl app deploy: " <> e)
     Right q -> pure q
   imageTag <- resolveTag (T.unpack <$> p ^. #tag)
   let effTag = maybe imageTag (\b -> resolveImageTag b imageTag) (buildForTag app)
-  pure RolloutEnv
-          { appName = serviceNameText (app ^. #name)
-          , qualifiedImage = qImg
-          , imageTag = imageTag
-          , effectiveTag = effTag
-          , taggedAppImage = imageRefText qImg <> ":" <> effTag
-          , appEnv = mergeGenerated brokerEnv (app ^. #env)
-          , namespace = namespaceText (app ^. #namespace)
-          , baseDomain = fromMaybe (tp ^. #baseDomain) (p ^. #baseDomain)
-          , targetProfile = tp
-          }
+  pure
+    RolloutEnv
+      { appName = serviceNameText (app ^. #name)
+      , qualifiedImage = qImg
+      , imageTag = imageTag
+      , effectiveTag = effTag
+      , taggedAppImage = imageRefText qImg <> ":" <> effTag
+      , appEnv = mergeGenerated brokerEnv (app ^. #env)
+      , namespace = namespaceText (app ^. #namespace)
+      , baseDomain = fromMaybe (tp ^. #baseDomain) (p ^. #baseDomain)
+      , targetProfile = tp
+      }
   where
     tp = p ^. #targetProfile
 

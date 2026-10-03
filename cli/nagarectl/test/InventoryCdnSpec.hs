@@ -1,8 +1,5 @@
 module InventoryCdnSpec (inventoryCdnTests) where
 
-import InventoryCdnCollectionSpec (inventoryCdnCollectionTests)
-import InventoryCdnPurgeSpec (inventoryCdnPurgeTests)
-import InventoryCloudflareSpec (inventoryCloudflareTests)
 import Control.Exception (finally)
 import Data.Aeson (Value (..), object, (.=))
 import Data.Aeson qualified as Aeson
@@ -18,6 +15,9 @@ import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
+import InventoryCdnCollectionSpec (inventoryCdnCollectionTests)
+import InventoryCdnPurgeSpec (inventoryCdnPurgeTests)
+import InventoryCloudflareSpec (inventoryCloudflareTests)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Cdn

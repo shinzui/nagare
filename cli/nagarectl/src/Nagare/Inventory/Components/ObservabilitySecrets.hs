@@ -5,7 +5,8 @@ module Nagare.Inventory.Components.ObservabilitySecrets
   , loadObservabilitySecretObjects
   , loadObservabilitySecretObjectsFromDirectory
   , readAlertmanagerEnabled
-  ) where
+  )
+where
 
 import Control.Exception (IOException, try)
 import Data.Aeson (Value (..))
@@ -42,61 +43,76 @@ readAlertmanagerEnabled path expected = do
   loaded <- try (BS.readFile path) :: IO (Either IOException ByteString)
   pure $ do
     bytes <- first (const "observability values are unavailable") loaded
-    unless (contentDigest bytes == expected)
+    unless
+      (contentDigest bytes == expected)
       (Left "observability values differ from their pinned digest")
     value <- first (const "observability values are malformed") (Yaml.decodeEither' bytes)
     root <- objectFields value
-    alertmanager <- maybe (Left "observability values lack alertmanager policy") objectFields
-      (KM.lookup "alertmanager" root)
+    alertmanager <-
+      maybe
+        (Left "observability values lack alertmanager policy")
+        objectFields
+        (KM.lookup "alertmanager" root)
     case KM.lookup "enabled" alertmanager of
       Just (Bool enabled) -> Right enabled
       _ -> Left "observability alertmanager.enabled is missing or malformed"
 
-loadObservabilitySecretObjects
-  :: FilePath -> Text -> Bool
-  -> IO (Either Text [(SourceLocation, Value)])
+loadObservabilitySecretObjects ::
+  FilePath ->
+  Text ->
+  Bool ->
+  IO (Either Text [(SourceLocation, Value)])
 loadObservabilitySecretObjects root context alertmanagerEnabled = do
   directory <- resolveDirectory root context
   loadObservabilitySecretObjectsFromDirectory "sops" directory alertmanagerEnabled
 
-loadObservabilitySecretObjectsFromDirectory
-  :: FilePath -> FilePath -> Bool
-  -> IO (Either Text [(SourceLocation, Value)])
+loadObservabilitySecretObjectsFromDirectory ::
+  FilePath ->
+  FilePath ->
+  Bool ->
+  IO (Either Text [(SourceLocation, Value)])
 loadObservabilitySecretObjectsFromDirectory executable directory alertmanagerEnabled = do
   grafana <- decryptSecret executable directory "grafana-admin.yaml" True
   alertmanager <- decryptSecret executable directory "alertmanager-config.yaml" alertmanagerEnabled
   pure ((<>) <$> grafana <*> alertmanager)
 
-compileObservabilitySecrets
-  :: FoundationInput -> [(SourceLocation, Value)]
-  -> IO (Either (NonEmpty InventoryError)
-       (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString), [ResourceId]))
+compileObservabilitySecrets ::
+  FoundationInput ->
+  [(SourceLocation, Value)] ->
+  IO
+    ( Either
+        (NonEmpty InventoryError)
+        (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString), [ResourceId])
+    )
 compileObservabilitySecrets foundation objects = case traverse validate objects of
   Left reason -> pure (Left (invalid reason :| []))
   Right names -> case traverse normalizeSecret objects of
     Left reason -> pure (Left (invalid reason :| []))
     Right normalized -> do
-      let input = UpstreamInput
-            { upstreamOwner = owner
-            , upstreamCluster = foundationCluster foundation
-            , upstreamKey = known (mkLogicalKey "observability-secrets")
-            , upstreamRoot = ""
-            , upstreamFiles = []
-            , upstreamNamespaces = Map.singleton (known (mkName "monitoring")) monitoringNamespace
-            , upstreamTransferred = Set.empty
-            , upstreamConfigMapData = Map.empty
-            , upstreamImageOverrides = Map.empty
-            , upstreamGenerated = normalized
-            , upstreamAfter = Map.empty
-            , upstreamExternalAfter = Map.empty
-            , upstreamOrderDeployments = False
-            , upstreamRegistryDelegations = Map.empty
-            }
+      let input =
+            UpstreamInput
+              { upstreamOwner = owner
+              , upstreamCluster = foundationCluster foundation
+              , upstreamKey = known (mkLogicalKey "observability-secrets")
+              , upstreamRoot = ""
+              , upstreamFiles = []
+              , upstreamNamespaces = Map.singleton (known (mkName "monitoring")) monitoringNamespace
+              , upstreamTransferred = Set.empty
+              , upstreamConfigMapData = Map.empty
+              , upstreamImageOverrides = Map.empty
+              , upstreamGenerated = normalized
+              , upstreamAfter = Map.empty
+              , upstreamExternalAfter = Map.empty
+              , upstreamOrderDeployments = False
+              , upstreamRegistryDelegations = Map.empty
+              }
       result <- compileUpstream input
       pure $ do
-        unless ("grafana-admin" `elem` names)
+        unless
+          ("grafana-admin" `elem` names)
           (Left (invalid "Grafana admin Secret is missing" :| []))
-        unless (length names == Set.size (Set.fromList names))
+        unless
+          (length names == Set.size (Set.fromList names))
           (Left (invalid "observability Secret names must be unique" :| []))
         (bundle, native) <- result
         scope <- mkScopeDeclaration owner [bundle]
@@ -105,36 +121,55 @@ compileObservabilitySecrets foundation objects = case traverse validate objects 
     owner = known (mkScopeId Platform "observability-secrets")
     known = either (error . T.unpack) id
     invalid = inventoryError "invalid-observability-secret"
-    monitoringNamespace = mintResourceId (foundationOwner foundation)
-      (known (mkLogicalKey "monitoring")) (known (mkName "namespace"))
+    monitoringNamespace =
+      mintResourceId
+        (foundationOwner foundation)
+        (known (mkLogicalKey "monitoring"))
+        (known (mkName "namespace"))
     validate (_, value) = do
       root <- objectFields value
-      unless (KM.lookup "kind" root == Just (String "Secret"))
+      unless
+        (KM.lookup "kind" root == Just (String "Secret"))
         (Left "context-owned observability input is not a Kubernetes Secret")
-      metadata <- maybe (Left "observability Secret has no metadata") objectFields
-        (KM.lookup "metadata" root)
+      metadata <-
+        maybe
+          (Left "observability Secret has no metadata")
+          objectFields
+          (KM.lookup "metadata" root)
       name <- textField "name" metadata
       namespace <- textField "namespace" metadata
-      unless (namespace == "monitoring" && name `elem` ["grafana-admin", "alertmanager-config"])
+      unless
+        (namespace == "monitoring" && name `elem` ["grafana-admin", "alertmanager-config"])
         (Left "observability Secret has an unexpected name or namespace")
-      let keys = concat [KM.keys fields | field <- ["data", "stringData"],
-            Just (Object fields) <- [KM.lookup field root]]
-      when (name == "grafana-admin" &&
-          not (all (`elem` keys) [Key.fromText "admin-user", Key.fromText "admin-password"]))
+      let keys =
+            concat
+              [ KM.keys fields
+              | field <- ["data", "stringData"]
+              , Just (Object fields) <- [KM.lookup field root]
+              ]
+      when
+        ( name == "grafana-admin"
+            && not (all (`elem` keys) [Key.fromText "admin-user", Key.fromText "admin-password"])
+        )
         (Left "Grafana admin Secret lacks required keys")
       pure name
     normalizeSecret (location, Object root) = do
       encoded <- case KM.lookup "stringData" root of
         Nothing -> Right KM.empty
-        Just (Object fields) -> KM.traverseWithKey (\_ -> \case
-          String value -> Right (String (b64encode value))
-          _ -> Left "observability Secret stringData must contain text values") fields
+        Just (Object fields) ->
+          KM.traverseWithKey
+            ( \_ -> \case
+                String value -> Right (String (b64encode value))
+                _ -> Left "observability Secret stringData must contain text values"
+            )
+            fields
         _ -> Left "observability Secret stringData is malformed"
       existing <- case KM.lookup "data" root of
         Nothing -> Right KM.empty
         Just (Object fields) | all isString (KM.elems fields) -> Right fields
         _ -> Left "observability Secret data is malformed"
-      unless (null (KM.keys (KM.intersection existing encoded)))
+      unless
+        (null (KM.keys (KM.intersection existing encoded)))
         (Left "observability Secret repeats a key in data and stringData")
       let native = KM.insert "data" (Object (KM.union existing encoded)) (KM.delete "stringData" root)
       pure (location, Object native)
@@ -159,9 +194,13 @@ decryptSecret :: FilePath -> FilePath -> FilePath -> Bool -> IO (Either Text [(S
 decryptSecret executable directory filename required = do
   let path = directory </> filename
   exists <- doesFileExist path
-  if not exists then pure (if required
-      then Left ("required encrypted observability Secret is missing: " <> T.pack filename)
-      else Right [])
+  if not exists
+    then
+      pure
+        ( if required
+            then Left ("required encrypted observability Secret is missing: " <> T.pack filename)
+            else Right []
+        )
     else do
       environment <- getEnvironment
       age <- lookupEnv "SOPS_AGE_KEY_FILE"
@@ -172,16 +211,25 @@ decryptSecret executable directory filename required = do
           let conventional = config </> ".." </> "sops/age/keys.txt"
           found <- doesFileExist conventional
           pure (if found then ("SOPS_AGE_KEY_FILE", conventional) : environment else environment)
-      decrypted <- try (readCreateProcessWithExitCode
-        (proc executable ["-d", path]) {env = Just configured} "")
-        :: IO (Either IOException (ExitCode, String, String))
+      decrypted <-
+        try
+          ( readCreateProcessWithExitCode
+              (proc executable ["-d", path]) {env = Just configured}
+              ""
+          ) ::
+          IO (Either IOException (ExitCode, String, String))
       pure $ do
         (code, plaintext, _) <- first (const "could not run sops for observability Secret") decrypted
-        unless (code == ExitSuccess)
+        unless
+          (code == ExitSuccess)
           (Left ("could not decrypt observability Secret: " <> T.pack filename))
-        parsed <- first (const "decrypted observability Secret is malformed")
-          (parseKubernetesManifest (SourceLocation (T.pack filename) "encrypted-observability-secret")
-            (TE.encodeUtf8 (T.pack plaintext)))
+        parsed <-
+          first
+            (const "decrypted observability Secret is malformed")
+            ( parseKubernetesManifest
+                (SourceLocation (T.pack filename) "encrypted-observability-secret")
+                (TE.encodeUtf8 (T.pack plaintext))
+            )
         case parsed of
           [one] -> Right [one]
           _ -> Left "decrypted observability input must contain exactly one Secret"

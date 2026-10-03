@@ -14,7 +14,8 @@ module Nagare.Inventory.DataService
   , compileStatefulSetRestartScope
   , compileBackupPruneRemovalScope
   , acceptedFoundationNamespace
-  ) where
+  )
+where
 
 import Control.Monad (foldM)
 import Data.Aeson (Value (..))
@@ -48,24 +49,37 @@ import Nagare.Resource.Wire (canonicalValue)
 
 -- | Change only an accepted legacy backup schedule. Require its private bytes
 -- to match the old renderer, so unfamiliar schedules need a full database review.
-compileBackupPruneRemovalScope
-  :: T.Text -> T.Text -> StoreBackend -> ScopeDeclaration
-  -> Map ResourceId (ManagedResource, ByteString)
-  -> Either (NonEmpty InventoryError)
-       (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+compileBackupPruneRemovalScope ::
+  T.Text ->
+  T.Text ->
+  StoreBackend ->
+  ScopeDeclaration ->
+  Map ResourceId (ManagedResource, ByteString) ->
+  Either
+    (NonEmpty InventoryError)
+    (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
 compileBackupPruneRemovalScope name namespaceName backend accepted native = do
-  let invalid message = inventoryError "invalid-backup-prune-removal" message
-        & #scopes .~ [scopeId accepted] & (:| [])
-      members = [member | bundle <- scopeBundles accepted,
-        Managed member <- declarations bundle]
+  let invalid message =
+        inventoryError "invalid-backup-prune-removal" message
+          & #scopes
+          .~ [scopeId accepted]
+          & (:| [])
+      members =
+        [ member
+        | bundle <- scopeBundles accepted
+        , Managed member <- declarations bundle
+        ]
       atAddress group kind nativeName member = case member ^. #address of
         Kubernetes _ api resourceKind (Just ns) addressName ->
-          api == group && nameText resourceKind == kind
-            && nameText ns == namespaceName && nameText addressName == nativeName
+          api == group
+            && nameText resourceKind == kind
+            && nameText ns == namespaceName
+            && nameText addressName == nativeName
         _ -> False
       backups = filter (atAddress "batch" "cronjob" ("nagare-dbbackup-" <> name)) members
       statefuls = filter (atAddress "apps" "statefulset" name) members
-  unless (scopeKind (scopeId accepted) `elem` [Application, Standalone])
+  unless
+    (scopeKind (scopeId accepted) `elem` [Application, Standalone])
     (Left (invalid "backup schedule requires an accepted database scope"))
   backup <- case backups of
     [single] -> Right single
@@ -79,7 +93,8 @@ compileBackupPruneRemovalScope name namespaceName backend accepted native = do
   statefulValue <- decode invalid statefulBytes
   backupCanonical <- first invalid (canonicalValue backupValue)
   statefulCanonical <- first invalid (canonicalValue statefulValue)
-  unless (backup ^. #spec == NativeObject (contentDigest backupCanonical))
+  unless
+    (backup ^. #spec == NativeObject (contentDigest backupCanonical))
     (Left (invalid "backup CronJob native digest differs from its declaration"))
   case stateful ^. #spec of
     StatefulSet _ _ digest | digest == contentDigest statefulCanonical -> pure ()
@@ -99,28 +114,40 @@ compileBackupPruneRemovalScope name namespaceName backend accepted native = do
   if backupCanonical == safeCanonical
     then pure (accepted, native)
     else do
-      unless (backupCanonical `elem` [legacyCanonical, previousSafeCanonical, previousSignedCanonical])
+      unless
+        (backupCanonical `elem` [legacyCanonical, previousSafeCanonical, previousSignedCanonical])
         (Left (invalid "accepted backup CronJob does not match a known earlier schedule"))
       cluster <- case backup ^. #address of
         Kubernetes clusterId _ _ _ _ -> Right clusterId
         _ -> Left (invalid "backup CronJob has no Kubernetes address")
-      (rebound, changedBytes) <- first (:| []) (bindKubernetesObject KubernetesInput
-        { resourceId = backup ^. #identity
-        , ownerScope = backup ^. #owner
-        , clusterId = cluster
-        , inputObject = safeValue
-        , objectDigest = contentDigest safeCanonical
-        , lifecyclePolicy = backup ^. #lifecycle
-        , inputDataPolicy = backup ^. #dataPolicy
-        , inputSensitivity = backup ^. #sensitivity
-        , sourceLocation = backup ^. #source
-        })
+      (rebound, changedBytes) <-
+        first
+          (:| [])
+          ( bindKubernetesObject
+              KubernetesInput
+                { resourceId = backup ^. #identity
+                , ownerScope = backup ^. #owner
+                , clusterId = cluster
+                , inputObject = safeValue
+                , objectDigest = contentDigest safeCanonical
+                , lifecyclePolicy = backup ^. #lifecycle
+                , inputDataPolicy = backup ^. #dataPolicy
+                , inputSensitivity = backup ^. #sensitivity
+                , sourceLocation = backup ^. #source
+                }
+          )
       let updated = rebound {dependencies = backup ^. #dependencies}
-      unless ((updated & #spec .~ backup ^. #spec) == backup)
+      unless
+        ((updated & #spec .~ backup ^. #spec) == backup)
         (Left (invalid "backup schedule changed outside its native script"))
-      let replace bundle = bundle & #declarations %~ map (\case
-            Managed member | member ^. #identity == backup ^. #identity -> Managed updated
-            declaration -> declaration)
+      let replace bundle =
+            bundle
+              & #declarations
+              %~ map
+                ( \case
+                    Managed member | member ^. #identity == backup ^. #identity -> Managed updated
+                    declaration -> declaration
+                )
       base <- mkScopeDeclaration (scopeId accepted) (map replace (scopeBundles accepted))
       let revised = withScopeOverrides (scopeOverrides accepted) $ case scopeConfigDigest accepted of
             Nothing -> base
@@ -130,8 +157,10 @@ compileBackupPruneRemovalScope name namespaceName backend accepted native = do
     acceptedBytes invalid member = case Map.lookup (member ^. #identity) native of
       Just (bound, bytes) | bound == member -> Right bytes
       _ -> Left (invalid "database member lacks matching accepted private native evidence")
-    decode invalid bytes = first (invalid . T.pack . show)
-      (Yaml.decodeEither' bytes :: Either Yaml.ParseException Value)
+    decode invalid bytes =
+      first
+        (invalid . T.pack . show)
+        (Yaml.decodeEither' bytes :: Either Yaml.ParseException Value)
     textAt invalid keys value = case foldM descend value keys of
       Right (String result) -> Right result
       _ -> Left (invalid "database native metadata is missing")
@@ -141,46 +170,74 @@ compileBackupPruneRemovalScope name namespaceName backend accepted native = do
 -- | Restart one accepted data workload by changing only its pod template.
 -- The scope's other declarations and private bytes remain those of the
 -- accepted revision, including credentials, backup policy, and retained PVCs.
-compileStatefulSetRestartScope
-  :: NativeDataKind -> T.Text -> T.Text -> T.Text -> ScopeDeclaration
-  -> Map ResourceId (ManagedResource, ByteString)
-  -> Either (NonEmpty InventoryError)
-       (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+compileStatefulSetRestartScope ::
+  NativeDataKind ->
+  T.Text ->
+  T.Text ->
+  T.Text ->
+  ScopeDeclaration ->
+  Map ResourceId (ManagedResource, ByteString) ->
+  Either
+    (NonEmpty InventoryError)
+    (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
 compileStatefulSetRestartScope dataKind name namespaceName stamp accepted native = do
-  let invalid message = inventoryError "invalid-data-restart" message
-        & #scopes .~ [scopeId accepted] & (:| [])
+  let invalid message =
+        inventoryError "invalid-data-restart" message
+          & #scopes
+          .~ [scopeId accepted]
+          & (:| [])
       matches resource = case resource ^. #address of
         Kubernetes _ "apps" kind (Just ns) nativeName ->
-          nameText kind == "statefulset" && nameText ns == namespaceName
+          nameText kind == "statefulset"
+            && nameText ns == namespaceName
             && nameText nativeName == name
         _ -> False
-      selected = [resource | bundle <- scopeBundles accepted,
-        Managed resource <- declarations bundle, matches resource]
+      selected =
+        [ resource
+        | bundle <- scopeBundles accepted
+        , Managed resource <- declarations bundle
+        , matches resource
+        ]
       companionMatches resource = case (dataKind, resource ^. #address) of
         (DatabaseObjects, Kubernetes _ "" kind (Just ns) nativeName) ->
-          nameText kind == "secret" && nameText ns == namespaceName
+          nameText kind == "secret"
+            && nameText ns == namespaceName
             && nameText nativeName == dbSecretName name
         (BrokerObjects, Kubernetes _ "" kind (Just ns) nativeName) ->
-          nameText kind == "persistentvolumeclaim" && nameText ns == namespaceName
+          nameText kind == "persistentvolumeclaim"
+            && nameText ns == namespaceName
             && nameText nativeName == brokerPvcName name
         _ -> False
-      companions = [resource | bundle <- scopeBundles accepted,
-        Managed resource <- declarations bundle, companionMatches resource]
+      companions =
+        [ resource
+        | bundle <- scopeBundles accepted
+        , Managed resource <- declarations bundle
+        , companionMatches resource
+        ]
   resource <- case selected of
     [single] -> Right single
     _ -> Left (invalid "accepted scope has no unique StatefulSet at the selected address")
-  unless (scopeKind (scopeId accepted) `elem` [Application, Standalone])
+  unless
+    (scopeKind (scopeId accepted) `elem` [Application, Standalone])
     (Left (invalid "data restart requires an application or standalone scope"))
-  unless (length companions == 1)
+  unless
+    (length companions == 1)
     (Left (invalid "accepted StatefulSet lacks its database or broker companion"))
-  unless (not (T.null stamp) && T.all (>= ' ') stamp)
+  unless
+    (not (T.null stamp) && T.all (>= ' ') stamp)
     (Left (invalid "restart stamp is invalid"))
-  (bound, bytes) <- maybe (Left (invalid "accepted StatefulSet lacks private native evidence")) Right
-    (Map.lookup (resource ^. #identity) native)
-  unless (bound == resource)
+  (bound, bytes) <-
+    maybe
+      (Left (invalid "accepted StatefulSet lacks private native evidence"))
+      Right
+      (Map.lookup (resource ^. #identity) native)
+  unless
+    (bound == resource)
     (Left (invalid "accepted StatefulSet differs from its private native evidence"))
-  value <- first (invalid . T.pack . show)
-    (Yaml.decodeEither' bytes :: Either Yaml.ParseException Value)
+  value <-
+    first
+      (invalid . T.pack . show)
+      (Yaml.decodeEither' bytes :: Either Yaml.ParseException Value)
   canonical <- first invalid (canonicalValue value)
   case resource ^. #spec of
     StatefulSet _ _ digest | digest == contentDigest canonical -> pure ()
@@ -190,23 +247,34 @@ compileStatefulSetRestartScope dataKind name namespaceName stamp accepted native
     _ -> Left (invalid "accepted StatefulSet has no Kubernetes address")
   changed <- first invalid (stampPodTemplate stamp value)
   canonicalChanged <- first invalid (canonicalValue changed)
-  (rebound, changedBytes) <- first (:| []) (bindKubernetesObject KubernetesInput
-    { resourceId = resource ^. #identity
-    , ownerScope = resource ^. #owner
-    , clusterId = cluster
-    , inputObject = changed
-    , objectDigest = contentDigest canonicalChanged
-    , lifecyclePolicy = resource ^. #lifecycle
-    , inputDataPolicy = resource ^. #dataPolicy
-    , inputSensitivity = resource ^. #sensitivity
-    , sourceLocation = resource ^. #source
-    })
+  (rebound, changedBytes) <-
+    first
+      (:| [])
+      ( bindKubernetesObject
+          KubernetesInput
+            { resourceId = resource ^. #identity
+            , ownerScope = resource ^. #owner
+            , clusterId = cluster
+            , inputObject = changed
+            , objectDigest = contentDigest canonicalChanged
+            , lifecyclePolicy = resource ^. #lifecycle
+            , inputDataPolicy = resource ^. #dataPolicy
+            , inputSensitivity = resource ^. #sensitivity
+            , sourceLocation = resource ^. #source
+            }
+      )
   let updated = rebound {dependencies = resource ^. #dependencies}
-  unless ((updated & #spec .~ resource ^. #spec) == resource)
+  unless
+    ((updated & #spec .~ resource ^. #spec) == resource)
     (Left (invalid "restart changed StatefulSet data or replica intent"))
-  let replace bundle = bundle & #declarations %~ map (\case
-        Managed member | member ^. #identity == resource ^. #identity -> Managed updated
-        declaration -> declaration)
+  let replace bundle =
+        bundle
+          & #declarations
+          %~ map
+            ( \case
+                Managed member | member ^. #identity == resource ^. #identity -> Managed updated
+                declaration -> declaration
+            )
       overrides = Map.insert ("operational.restart." <> name) stamp (scopeOverrides accepted)
   base <- mkScopeDeclaration (scopeId accepted) (map replace (scopeBundles accepted))
   let revised = withScopeOverrides overrides $ case scopeConfigDigest accepted of
@@ -226,26 +294,44 @@ compileStatefulSetRestartScope dataKind name namespaceName stamp accepted native
         Just (Object fields) -> Right fields
         _ -> Left "StatefulSet template annotations are not an object"
       let stamped = KM.insert "nagare.dev/restartedAt" (String token) annotations
-          newTemplate = KM.insert "metadata" (Object
-            (KM.insert "annotations" (Object stamped) metadata)) template
-      pure (Object (KM.insert "spec" (Object
-        (KM.insert "template" (Object newTemplate) spec)) root))
+          newTemplate =
+            KM.insert
+              "metadata"
+              ( Object
+                  (KM.insert "annotations" (Object stamped) metadata)
+              )
+              template
+      pure
+        ( Object
+            ( KM.insert
+                "spec"
+                ( Object
+                    (KM.insert "template" (Object newTemplate) spec)
+                )
+                root
+            )
+        )
     stampPodTemplate _ _ = Left "StatefulSet native evidence is not an object"
     objectAt key fields = case KM.lookup key fields of
       Just (Object value) -> Right value
       _ -> Left "StatefulSet has no required object"
 
-compileStandaloneDatabase
-  :: DatabaseDirectInput
-  -> StoreBackend
-  -> Either (NonEmpty InventoryError)
-       (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+compileStandaloneDatabase ::
+  DatabaseDirectInput ->
+  StoreBackend ->
+  Either
+    (NonEmpty InventoryError)
+    (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
 compileStandaloneDatabase input backend
   | scopeKind owner /= Standalone =
-      Left (inventoryError "wrong-data-scope" "standalone database requires a standalone scope"
-        & #scopes .~ [owner]
-        & #sources .~ [directSourceLocation input]
-        & (:| []))
+      Left
+        ( inventoryError "wrong-data-scope" "standalone database requires a standalone scope"
+            & #scopes
+            .~ [owner]
+            & #sources
+            .~ [directSourceLocation input]
+            & (:| [])
+        )
   | otherwise = do
       (bundle, native) <- compileDatabaseForBackend input backend
       scope <- mkScopeDeclaration owner [bundle]
@@ -256,18 +342,27 @@ compileStandaloneDatabase input backend
 -- | Redpanda's three direct objects form one standalone data scope. The PVC
 -- requires a recovery policy. Kafka topics are logical operations and cannot
 -- silently disappear from a broker review.
-compileStandaloneBroker
-  :: Broker -> ScopeId -> ResourceId -> ResourceId -> RecoveryIntent -> SourceLocation
-  -> Either (NonEmpty InventoryError)
-       (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+compileStandaloneBroker ::
+  Broker ->
+  ScopeId ->
+  ResourceId ->
+  ResourceId ->
+  RecoveryIntent ->
+  SourceLocation ->
+  Either
+    (NonEmpty InventoryError)
+    (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
 compileStandaloneBroker broker owner cluster namespaceId recovery source = do
-  unless (scopeKind owner == Standalone)
+  unless
+    (scopeKind owner == Standalone)
     (Left (invalid "broker requires a standalone scope"))
-  unless (broker ^. #provider == Redpanda)
+  unless
+    (broker ^. #provider == Redpanda)
     (Left (invalid "broker provider has no native renderer"))
   let roles = ["pvc", "service", "statefulset"]
       objects = renderBroker broker
-  unless (length objects == length roles)
+  unless
+    (length objects == length roles)
     (Left (invalid "broker renderer membership differs from the declared roles"))
   members <- traverse bindOne (zip roles objects)
   statefulRole <- first invalid (mkName "statefulset")
@@ -276,35 +371,49 @@ compileStandaloneBroker broker owner cluster namespaceId recovery source = do
   let bundle = ResourceBundle (map (Managed . fst) members <> topics) [] [] [] [] []
       native = Map.fromList [(member ^. #identity, pair) | pair@(member, _) <- members]
   scope <- mkScopeDeclaration owner [bundle]
-  unless (Map.size native == length members)
+  unless
+    (Map.size native == length members)
     (Left (invalid "broker members share an identity"))
   pure (scope, native)
   where
-    invalid message = inventoryError "invalid-standalone-broker" message
-      & #scopes .~ [owner]
-      & #sources .~ [source]
-      & (:| [])
+    invalid message =
+      inventoryError "invalid-standalone-broker" message
+        & #scopes
+        .~ [owner]
+        & #sources
+        .~ [source]
+        & (:| [])
     bindOne (roleText, bytes) = do
       role <- first invalid (mkName roleText)
       resource <- first invalid (brokerResourceId owner role broker)
       value <- first (invalid . T.pack . show) (Yaml.decodeEither' bytes :: Either Yaml.ParseException Value)
       canonical <- first invalid (canonicalValue value)
-      (declaration, native) <- first (:| []) (bindKubernetesObject KubernetesInput
-        { resourceId = resource
-        , ownerScope = owner
-        , clusterId = cluster
-        , inputObject = value
-        , objectDigest = contentDigest canonical
-        , lifecyclePolicy = if roleText == "pvc" then Retain else DeleteWhenUnreferenced
-        , inputDataPolicy = if roleText == "pvc" then Durable recovery else Stateless
-        , inputSensitivity = Private
-        , sourceLocation = source {path = path source <> "/broker/" <> roleText}
-        })
-      prerequisites <- if roleText == "statefulset"
-        then traverse (\dependencyRole -> do
-          name <- first invalid (mkName dependencyRole)
-          first invalid (brokerResourceId owner name broker)) ["pvc", "service"]
-        else Right []
+      (declaration, native) <-
+        first
+          (:| [])
+          ( bindKubernetesObject
+              KubernetesInput
+                { resourceId = resource
+                , ownerScope = owner
+                , clusterId = cluster
+                , inputObject = value
+                , objectDigest = contentDigest canonical
+                , lifecyclePolicy = if roleText == "pvc" then Retain else DeleteWhenUnreferenced
+                , inputDataPolicy = if roleText == "pvc" then Durable recovery else Stateless
+                , inputSensitivity = Private
+                , sourceLocation = source {path = path source <> "/broker/" <> roleText}
+                }
+          )
+      prerequisites <-
+        if roleText == "statefulset"
+          then
+            traverse
+              ( \dependencyRole -> do
+                  name <- first invalid (mkName dependencyRole)
+                  first invalid (brokerResourceId owner name broker)
+              )
+              ["pvc", "service"]
+          else Right []
       let expectedKind = case roleText of
             "pvc" -> "PersistentVolumeClaim"
             "service" -> "Service"
@@ -312,22 +421,34 @@ compileStandaloneBroker broker owner cluster namespaceId recovery source = do
           expectedApi = if roleText == "statefulset" then "apps/v1" else "v1"
           brokerName = brokerNameText (broker ^. #name)
           expectedName = if roleText == "pvc" then brokerPvcName brokerName else brokerName
-      expected <- first invalid (kubernetesAddress cluster expectedApi expectedKind
-        (Just (namespaceText (broker ^. #namespace))) expectedName)
-      unless (declaration ^. #address == expected)
+      expected <-
+        first
+          invalid
+          ( kubernetesAddress
+              cluster
+              expectedApi
+              expectedKind
+              (Just (namespaceText (broker ^. #namespace)))
+              expectedName
+          )
+      unless
+        (declaration ^. #address == expected)
         (Left (invalid "broker render has an unexpected native address"))
       pure (declaration {dependencies = map OrderedAfter (namespaceId : prerequisites)}, native)
 
 -- | A delete command's display name is only a selector. Retirement authority
 -- comes from accepted scope history, and a pinned logical key may differ from
 -- the current native name.
-standaloneRetirementScope
-  :: T.Text -> T.Text -> T.Text -> Maybe T.Text -> ScopeSnapshot -> Either T.Text ScopeId
+standaloneRetirementScope ::
+  T.Text -> T.Text -> T.Text -> Maybe T.Text -> ScopeSnapshot -> Either T.Text ScopeId
 standaloneRetirementScope kind name namespaceName pinnedKey snapshot = do
   key <- mkLogicalKey (fromMaybe name pinnedKey)
   owner <- mkScopeId Standalone (kind <> "-" <> logicalKeyText key)
-  scope <- maybe (Left "standalone scope is absent from accepted inventory history")
-    (Right . snd) (Map.lookup owner (snapshotScopes snapshot))
+  scope <-
+    maybe
+      (Left "standalone scope is absent from accepted inventory history")
+      (Right . snd)
+      (Map.lookup owner (snapshotScopes snapshot))
   let statefulSets =
         [ resource
         | bundle <- scopeBundles scope
@@ -339,7 +460,8 @@ standaloneRetirementScope kind name namespaceName pinnedKey snapshot = do
                 && nameText nativeName == name
             _ -> False
         ]
-  unless (length statefulSets == 1)
+  unless
+    (length statefulSets == 1)
     (Left "accepted standalone scope has no unique StatefulSet for that name and namespace")
   pure owner
 
@@ -347,14 +469,17 @@ standaloneRetirementScope kind name namespaceName pinnedKey snapshot = do
 -- broker creation can still use the single-invocation reviewed path.
 brokerTopicChangeRequiresReview :: ScopeDeclaration -> ScopeDeclaration -> Bool
 brokerTopicChangeRequiresReview desired accepted =
-  any (\(resourceId, specification) -> Map.lookup resourceId oldTopics /= Just specification)
+  any
+    (\(resourceId, specification) -> Map.lookup resourceId oldTopics /= Just specification)
     (Map.toAscList newTopics)
   where
-    topics scope = Map.fromList
-      [(resource ^. #identity, resource ^. #spec)
-      | bundle <- scopeBundles scope
-      , Managed resource <- declarations bundle
-      , resource ^. #executor == BrokerExecutor]
+    topics scope =
+      Map.fromList
+        [ (resource ^. #identity, resource ^. #spec)
+        | bundle <- scopeBundles scope
+        , Managed resource <- declarations bundle
+        , resource ^. #executor == BrokerExecutor
+        ]
     oldTopics = topics accepted
     newTopics = topics desired
 
@@ -376,8 +501,8 @@ standaloneStatefulSetOwned name namespaceName = any matches
 data NativeDataKind = DatabaseObjects | BrokerObjects
   deriving stock (Eq, Show)
 
-dataCommandNativeOwned
-  :: NativeDataKind -> T.Text -> T.Text -> [ManagedResource] -> Bool
+dataCommandNativeOwned ::
+  NativeDataKind -> T.Text -> T.Text -> [ManagedResource] -> Bool
 dataCommandNativeOwned kind name namespaceName = any (nativeOwned namespaceName addresses)
   where
     addresses = case kind of
@@ -430,8 +555,11 @@ acceptedFoundationNamespace snapshot requestedNamespace = do
   namespaceRole <- mkName ("namespace-" <> requestedNamespace)
   nativeName <- mkName requestedNamespace
   nativeKind <- mkName "namespace"
-  accepted <- maybe (Left "platform foundation scope is absent from accepted inventory history")
-    (Right . snd) (Map.lookup foundation (snapshotScopes snapshot))
+  accepted <-
+    maybe
+      (Left "platform foundation scope is absent from accepted inventory history")
+      (Right . snd)
+      (Map.lookup foundation (snapshotScopes snapshot))
   let cluster = mintResourceId clusterOwner clusterKey clusterRole
       namespaceId = mintResourceId foundation foundationKey namespaceRole
       members =
@@ -441,6 +569,7 @@ acceptedFoundationNamespace snapshot requestedNamespace = do
         , resource ^. #identity == namespaceId
         , resource ^. #address == Kubernetes cluster "" nativeKind Nothing nativeName
         ]
-  unless (length members == 1)
+  unless
+    (length members == 1)
     (Left "accepted platform Namespace does not match the requested name and cluster")
   pure (cluster, namespaceId)

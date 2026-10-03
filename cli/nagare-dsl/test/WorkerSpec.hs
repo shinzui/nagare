@@ -24,7 +24,7 @@ import Nagare.Dsl.Types
 import Nagare.Dsl.Worker
 import Nagare.Dsl.Worker.Render (renderWorker, renderWorkerDeployment)
 import Nagare.Resource.Application (workerResourceId)
-import Nagare.Resource.Types (mkLogicalKey, mkName, mkScopeId, ScopeKind (Application))
+import Nagare.Resource.Types (ScopeKind (Application), mkLogicalKey, mkName, mkScopeId)
 import Test.Tasty
 import Test.Tasty.Golden (goldenVsString)
 import Test.Tasty.HUnit

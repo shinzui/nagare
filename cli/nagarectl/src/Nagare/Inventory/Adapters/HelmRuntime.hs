@@ -55,15 +55,22 @@ helmRuntimeOps config =
 
 -- | Observation has no packaged chart/plugin prerequisite and exposes no
 -- mutation callback. Payload files are needed only by reviewed execution.
-helmObservation :: Text -> ContextId -> Map ResourceId ManagedResource
-  -> IO (Either Text ()) -> ResourceId -> IO HelmState
-helmObservation context identity declarations checkContext = observeRelease HelmRuntimeConfig
-  { helmKubeContext = context
-  , helmContextId = identity
-  , helmVerifyPlugin = ""
-  , helmDeclarations = declarations
-  , helmRuntimeGuard = checkContext
-  }
+helmObservation ::
+  Text ->
+  ContextId ->
+  Map ResourceId ManagedResource ->
+  IO (Either Text ()) ->
+  ResourceId ->
+  IO HelmState
+helmObservation context identity declarations checkContext =
+  observeRelease
+    HelmRuntimeConfig
+      { helmKubeContext = context
+      , helmContextId = identity
+      , helmVerifyPlugin = ""
+      , helmDeclarations = declarations
+      , helmRuntimeGuard = checkContext
+      }
 
 observeRelease :: HelmRuntimeConfig -> ResourceId -> IO HelmState
 observeRelease config resource = do
@@ -125,8 +132,9 @@ observeGuarded config resource = case Map.lookup resource (helmDeclarations conf
 
 parseStatus :: HelmRuntimeConfig -> ResourceId -> ByteString -> Either HelmStatusError (Text, ContentDigest, Bool)
 parseStatus config resource bytes = do
-  root <- first (HelmStatusUnavailable . T.pack) (eitherDecodeStrict' bytes)
-    >>= first HelmStatusUnavailable . asObject "Helm status"
+  root <-
+    first (HelmStatusUnavailable . T.pack) (eitherDecodeStrict' bytes)
+      >>= first HelmStatusUnavailable . asObject "Helm status"
   version <- first HelmStatusUnavailable (field "version" root)
   revision <- case fromJSON version of
     Success (number :: Int) | number > 0 -> Right (T.pack (show number))

@@ -373,9 +373,13 @@ writeContextInventoryStore name kind url = do
         realPath <- canonicalizePath path
         contents <- TIO.readFile realPath
         let retained = filter (not . isInventoryLine) (T.lines contents)
-            rendered = T.unlines
-              (retained <> ["export NAGARE_INVENTORY_STORE=" <> shellQuote (inventoryStoreToken kind)
-                         , "export NAGARE_INVENTORY_STORE_URL=" <> shellQuote url])
+            rendered =
+              T.unlines
+                ( retained
+                    <> [ "export NAGARE_INVENTORY_STORE=" <> shellQuote (inventoryStoreToken kind)
+                       , "export NAGARE_INVENTORY_STORE_URL=" <> shellQuote url
+                       ]
+                )
             temporary = realPath <> ".inventory-migrate"
         TIO.writeFile temporary rendered
         renameFile temporary realPath
@@ -385,7 +389,8 @@ writeContextInventoryStore name kind url = do
   where
     isInventoryLine line =
       let stripped = T.stripStart line
-       in any (`T.isPrefixOf` stripped)
+       in any
+            (`T.isPrefixOf` stripped)
             [ "export NAGARE_INVENTORY_STORE="
             , "NAGARE_INVENTORY_STORE="
             , "export NAGARE_INVENTORY_STORE_URL="
@@ -982,16 +987,30 @@ resolveActiveTarget arg = do
       -- override. In particular, a shell that sourced an older context must
       -- not make status or a later upgrade transaction observe that stale pin.
       let storedProfile = profileFromContextMap ctx
-      pure (ActiveTarget name (profile
-        & #platformVersion .~ (storedProfile ^. #platformVersion)
-        & #externalDomainTlsEnabled .~ (storedProfile ^. #externalDomainTlsEnabled)
-        & #nixCacheEnabled .~ (storedProfile ^. #nixCacheEnabled)
-        & #nixCacheBucket .~ (storedProfile ^. #nixCacheBucket)
-        & #inventoryStore .~ (storedProfile ^. #inventoryStore)
-        & #inventoryStoreUrl .~ (storedProfile ^. #inventoryStoreUrl)
-        & #pulumiBackend .~ (storedProfile ^. #pulumiBackend)
-        & #pulumiBackendUrl .~ (storedProfile ^. #pulumiBackendUrl)
-        & #pulumiBackendMember .~ (storedProfile ^. #pulumiBackendMember)))
+      pure
+        ( ActiveTarget
+            name
+            ( profile
+                & #platformVersion
+                .~ (storedProfile ^. #platformVersion)
+                & #externalDomainTlsEnabled
+                .~ (storedProfile ^. #externalDomainTlsEnabled)
+                & #nixCacheEnabled
+                .~ (storedProfile ^. #nixCacheEnabled)
+                & #nixCacheBucket
+                .~ (storedProfile ^. #nixCacheBucket)
+                & #inventoryStore
+                .~ (storedProfile ^. #inventoryStore)
+                & #inventoryStoreUrl
+                .~ (storedProfile ^. #inventoryStoreUrl)
+                & #pulumiBackend
+                .~ (storedProfile ^. #pulumiBackend)
+                & #pulumiBackendUrl
+                .~ (storedProfile ^. #pulumiBackendUrl)
+                & #pulumiBackendMember
+                .~ (storedProfile ^. #pulumiBackendMember)
+            )
+        )
 
 -- | Back-compat entry point for consumers that only need the target bundle.
 resolveActiveContext :: Maybe Text -> IO TargetProfile

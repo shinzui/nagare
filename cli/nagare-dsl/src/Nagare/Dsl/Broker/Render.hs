@@ -99,15 +99,17 @@ statefulSetValue broker =
   object
     [ "apiVersion" .= txt "apps/v1"
     , "kind" .= txt "StatefulSet"
-    , "metadata" .= object
-        [ "name" .= brokerStatefulSetName (nameText broker)
-        , "namespace" .= nsText broker
-        , "labels" .= brokerLabels broker
-        , "annotations" .= object
-            [ "nagare.dev/version" .= brokerVersionText (broker ^. #version)
-            , "nagare.dev/size" .= quantityText (broker ^. #storageSize)
-            ]
-        ]
+    , "metadata"
+        .= object
+          [ "name" .= brokerStatefulSetName (nameText broker)
+          , "namespace" .= nsText broker
+          , "labels" .= brokerLabels broker
+          , "annotations"
+              .= object
+                [ "nagare.dev/version" .= brokerVersionText (broker ^. #version)
+                , "nagare.dev/size" .= quantityText (broker ^. #storageSize)
+                ]
+          ]
     , "spec"
         .= object
           [ "serviceName" .= brokerServiceName (nameText broker)

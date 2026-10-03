@@ -122,8 +122,8 @@ import Nagare.Dsl.Broker.Types (BrokerBinding)
 import Nagare.Dsl.Build (BuildSpec)
 import Nagare.Dsl.Cdn.Types (Cdn)
 import Nagare.Dsl.Prelude
-import Nagare.Resource.Types (LogicalKey)
 import {-# SOURCE #-} Nagare.Dsl.Task (Task)
+import Nagare.Resource.Types (LogicalKey)
 
 -- | A Kubernetes / RFC 1123 DNS label used as the Knative Service name.
 -- The constructor is hidden; use 'mkServiceName'.

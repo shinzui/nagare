@@ -134,12 +134,13 @@ jobFromCronJob appName cronName ns jobName value = do
         _ -> Left "task template has no Job spec"
       pure (labels, jobSpec)
     _ -> Left "task template is not a YAML object"
-  pure $ object
-    [ "apiVersion" .= ("batch/v1" :: T.Text)
-    , "kind" .= ("Job" :: T.Text)
-    , "metadata" .= object ["name" .= jobName, "namespace" .= ns, "labels" .= labels]
-    , "spec" .= jobSpec
-    ]
+  pure $
+    object
+      [ "apiVersion" .= ("batch/v1" :: T.Text)
+      , "kind" .= ("Job" :: T.Text)
+      , "metadata" .= object ["name" .= jobName, "namespace" .= ns, "labels" .= labels]
+      , "spec" .= jobSpec
+      ]
 
 objectField :: T.Text -> KM.KeyMap Value -> Either T.Text (KM.KeyMap Value)
 objectField key fields = case KM.lookup (K.fromText key) fields of

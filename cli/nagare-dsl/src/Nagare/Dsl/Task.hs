@@ -44,7 +44,6 @@ import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Text qualified as Text
 import Nagare.Dsl.Prelude
-import Nagare.Resource.Types (LogicalKey)
 import Nagare.Dsl.Types
   ( EnvName
   , ImageRef
@@ -56,6 +55,7 @@ import Nagare.Dsl.Types
   , mkImageRef
   , mkServiceName
   )
+import Nagare.Resource.Types (LogicalKey)
 
 -- ---------------------------------------------------------------------------
 -- Schedule

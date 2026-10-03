@@ -10,7 +10,8 @@ module Nagare.Inventory.DataFence.VolumeState
   , observeGuardedVolumeExcluded
   , parseVolumeEvidence
   , volumeHasNoConsumers
-  ) where
+  )
+where
 
 import Control.Exception (IOException, try)
 import Control.Monad (forM, unless)
@@ -23,10 +24,13 @@ import Data.Text.Encoding qualified as TE
 import Data.Vector qualified as V
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapters.KubernetesRuntime
-  (KubernetesRuntimeConfig (..))
+  ( KubernetesRuntimeConfig (..)
+  )
 import Nagare.Inventory.DataFence.MountGuard
 import Nagare.Inventory.DataFence.MountGuardRuntime
-  (MountGuardTransport, observeMountGuard)
+  ( MountGuardTransport
+  , observeMountGuard
+  )
 import System.Exit (ExitCode (..))
 import System.Process (readProcessWithExitCode)
 
@@ -48,8 +52,11 @@ data VolumeTransport = VolumeTransport
   , listVolumeAttachments :: !(IO (Either Text Value))
   }
 
-observeVolumeState :: VolumeTransport -> MountGuard -> VolumeBacking
-  -> IO (Either Text VolumeEvidence)
+observeVolumeState ::
+  VolumeTransport ->
+  MountGuard ->
+  VolumeBacking ->
+  IO (Either Text VolumeEvidence)
 observeVolumeState transport mountGuard backing = do
   let namespace = guardNamespaceName mountGuard
       claim = guardClaimName mountGuard
@@ -63,13 +70,22 @@ observeVolumeState transport mountGuard backing = do
     currentVolume <- volumeResult
     currentPods <- podsResult
     currentAttachments <- attachmentsResult
-    parseVolumeEvidence mountGuard backing currentClaim currentVolume
-      currentPods currentAttachments
+    parseVolumeEvidence
+      mountGuard
+      backing
+      currentClaim
+      currentVolume
+      currentPods
+      currentAttachments
 
 -- | Guard observation brackets the volume reads. A false or uncertain guard
 -- never becomes exclusion proof, even when no consumer was listed.
-observeGuardedVolumeExcluded :: MountGuardTransport -> VolumeTransport
-  -> MountGuard -> VolumeBacking -> IO (Either Text Bool)
+observeGuardedVolumeExcluded ::
+  MountGuardTransport ->
+  VolumeTransport ->
+  MountGuard ->
+  VolumeBacking ->
+  IO (Either Text Bool)
 observeGuardedVolumeExcluded guardTransport volumeTransport mountGuard backing = do
   before <- observeMountGuard guardTransport mountGuard
   case before of
@@ -87,37 +103,57 @@ observeGuardedVolumeExcluded guardTransport volumeTransport mountGuard backing =
 -- VolumeAttachment is counted even when it reports detached, because the
 -- attachment intent may be reconciled again until the object disappears.
 volumeHasNoConsumers :: VolumeEvidence -> Bool
-volumeHasNoConsumers evidence = null (volumePodConsumers evidence)
-  && null (volumeAttachmentConsumers evidence)
+volumeHasNoConsumers evidence =
+  null (volumePodConsumers evidence)
+    && null (volumeAttachmentConsumers evidence)
 
-parseVolumeEvidence :: MountGuard -> VolumeBacking
-  -> Value -> Value -> Value -> Value -> Either Text VolumeEvidence
+parseVolumeEvidence ::
+  MountGuard ->
+  VolumeBacking ->
+  Value ->
+  Value ->
+  Value ->
+  Value ->
+  Either Text VolumeEvidence
 parseVolumeEvidence mountGuard backing claim volume pods attachments = do
   claimRoot <- asObject "PVC" claim
   claimMeta <- objectField "metadata" claimRoot
-  exactIdentity "PVC" claimMeta (guardNamespaceName mountGuard)
-    (guardClaimName mountGuard) (guardClaimIdentity mountGuard)
+  exactIdentity
+    "PVC"
+    claimMeta
+    (guardNamespaceName mountGuard)
+    (guardClaimName mountGuard)
+    (guardClaimIdentity mountGuard)
   claimSpec <- objectField "spec" claimRoot
-  unless (textField "volumeName" claimSpec == Right (guardVolumeName mountGuard))
+  unless
+    (textField "volumeName" claimSpec == Right (guardVolumeName mountGuard))
     (Left "fenced PVC is not bound to the reviewed PV")
   claimStatus <- objectField "status" claimRoot
-  unless (textField "phase" claimStatus == Right "Bound")
+  unless
+    (textField "phase" claimStatus == Right "Bound")
     (Left "fenced PVC is not Bound")
   supportedAccess "PVC" claimSpec
 
   volumeRoot <- asObject "PV" volume
   volumeMeta <- objectField "metadata" volumeRoot
-  exactIdentity "PV" volumeMeta "" (guardVolumeName mountGuard)
+  exactIdentity
+    "PV"
+    volumeMeta
+    ""
+    (guardVolumeName mountGuard)
     (guardVolumeIdentity mountGuard)
   volumeSpec <- objectField "spec" volumeRoot
   supportedAccess "PV" volumeSpec
   volumeStatus <- objectField "status" volumeRoot
-  unless (textField "phase" volumeStatus == Right "Bound")
+  unless
+    (textField "phase" volumeStatus == Right "Bound")
     (Left "fenced PV is not Bound")
   claimRef <- objectField "claimRef" volumeSpec
-  unless (textField "namespace" claimRef == Right (guardNamespaceName mountGuard)
-      && textField "name" claimRef == Right (guardClaimName mountGuard)
-      && textField "uid" claimRef == Right (guardClaimIdentity mountGuard))
+  unless
+    ( textField "namespace" claimRef == Right (guardNamespaceName mountGuard)
+        && textField "name" claimRef == Right (guardClaimName mountGuard)
+        && textField "uid" claimRef == Right (guardClaimIdentity mountGuard)
+    )
     (Left "fenced PV claim reference changed")
   checkBacking backing volumeSpec
 
@@ -127,28 +163,35 @@ parseVolumeEvidence mountGuard backing claim volume pods attachments = do
 
 exactIdentity :: Text -> KM.KeyMap Value -> Text -> Text -> Text -> Either Text ()
 exactIdentity label metadata namespace name uid = do
-  unless (textField "name" metadata == Right name
-      && textField "uid" metadata == Right uid
-      && (T.null namespace || textField "namespace" metadata == Right namespace))
+  unless
+    ( textField "name" metadata == Right name
+        && textField "uid" metadata == Right uid
+        && (T.null namespace || textField "namespace" metadata == Right namespace)
+    )
     (Left (label <> " name, namespace, or UID changed"))
 
 supportedAccess :: Text -> KM.KeyMap Value -> Either Text ()
 supportedAccess label spec = do
   modes <- arrayField "accessModes" spec
   values <- traverse (asText (label <> " access mode")) modes
-  unless (not (null values)
-      && all (`elem` ["ReadWriteOnce", "ReadWriteOncePod"]) values)
+  unless
+    ( not (null values)
+        && all (`elem` ["ReadWriteOnce", "ReadWriteOncePod"]) values
+    )
     (Left (label <> " access mode does not prove a single-node or single-Pod volume"))
 
 checkBacking :: VolumeBacking -> KM.KeyMap Value -> Either Text ()
 checkBacking (CsiVolume driver handle) spec = do
   csi <- objectField "csi" spec
-  unless (textField "driver" csi == Right driver
-      && textField "volumeHandle" csi == Right handle)
+  unless
+    ( textField "driver" csi == Right driver
+        && textField "volumeHandle" csi == Right handle
+    )
     (Left "fenced CSI driver or volume handle changed")
 checkBacking (LocalVolume path node) spec = do
   local <- objectField "local" spec
-  unless (textField "path" local == Right path)
+  unless
+    (textField "path" local == Right path)
     (Left "fenced local path changed")
   affinity <- objectField "nodeAffinity" spec
   required <- objectField "required" affinity
@@ -159,10 +202,12 @@ checkBacking (LocalVolume path node) spec = do
       case expressions of
         [Object expression] -> do
           values <- arrayField "values" expression
-          unless (textField "key" expression == Right "kubernetes.io/hostname"
-              && textField "operator" expression == Right "In"
-              && values == [String node]
-              && not (KM.member "matchFields" term))
+          unless
+            ( textField "key" expression == Right "kubernetes.io/hostname"
+                && textField "operator" expression == Right "In"
+                && values == [String node]
+                && not (KM.member "matchFields" term)
+            )
             (Left "fenced local PV node affinity changed")
         _ -> Left "fenced local PV node affinity is ambiguous"
     _ -> Left "fenced local PV has no unique node affinity"
@@ -175,7 +220,8 @@ parsePodConsumers mountGuard listing = do
     pod <- asObject "Pod" item
     metadata <- objectField "metadata" pod
     namespace <- textField "namespace" metadata
-    unless (namespace == guardNamespaceName mountGuard)
+    unless
+      (namespace == guardNamespaceName mountGuard)
       (Left "Pod list contains an object from another namespace")
     name <- textField "name" metadata
     uid <- textField "uid" metadata
@@ -240,20 +286,44 @@ asText label _ = Left (label <> " is malformed")
 kubectlVolumeTransport :: KubernetesRuntimeConfig -> VolumeTransport
 kubectlVolumeTransport config = VolumeTransport claim volume pods attachments
   where
-    claim namespace name = invoke ["--namespace", T.unpack namespace,
-      "get", "persistentvolumeclaim", T.unpack name, "-o", "json"]
+    claim namespace name =
+      invoke
+        [ "--namespace"
+        , T.unpack namespace
+        , "get"
+        , "persistentvolumeclaim"
+        , T.unpack name
+        , "-o"
+        , "json"
+        ]
     volume name = invoke ["get", "persistentvolume", T.unpack name, "-o", "json"]
-    pods namespace = invoke ["--namespace", T.unpack namespace,
-      "get", "pods", "-o", "json"]
+    pods namespace =
+      invoke
+        [ "--namespace"
+        , T.unpack namespace
+        , "get"
+        , "pods"
+        , "-o"
+        , "json"
+        ]
     attachments = invoke ["get", "volumeattachments.storage.k8s.io", "-o", "json"]
     invoke arguments = do
       guarded <- runtimeGuard config
       case guarded of
         Left reason -> pure (Left ("cluster guard refused: " <> reason))
         Right () -> do
-          result <- try (readProcessWithExitCode "kubectl"
-            (["--context", T.unpack (runtimeKubectlContext config),
-              "--request-timeout=10s"] <> arguments) "")
+          result <-
+            try
+              ( readProcessWithExitCode
+                  "kubectl"
+                  ( [ "--context"
+                    , T.unpack (runtimeKubectlContext config)
+                    , "--request-timeout=10s"
+                    ]
+                      <> arguments
+                  )
+                  ""
+              )
           pure $ case result of
             Left (_ :: IOException) -> Left "could not invoke kubectl"
             Right (ExitFailure _, _, _) -> Left "could not read live volume state"

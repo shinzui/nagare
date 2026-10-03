@@ -12,12 +12,12 @@ import Data.Text (Text)
 import Data.Text.Encoding qualified as TE
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter
+import Nagare.Inventory.Bootstrap (composePlatformChanges)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Execute
 import Nagare.Inventory.Journal (OperationId, operationIdText)
 import Nagare.Inventory.Lifecycle (decideRetirement)
 import Nagare.Inventory.Plan
-import Nagare.Inventory.Bootstrap (composePlatformChanges)
 import Nagare.Inventory.Store
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
@@ -40,22 +40,28 @@ inventoryIntegrationTests =
         let binding = ContextBinding (known (mkContextId "cloud-group")) (known (mkName "project"))
             owner = known (mkScopeId Platform "cloud")
             rid role = mintResourceId owner (known (mkLogicalKey role)) (known (mkName role))
-            resource role = Managed ManagedResource
-              { identity = rid role
-              , owner = owner
-              , executor = PulumiExecutor
-              , address = PulumiUrn ("urn:pulumi:dev::nagare::test:Resource::" <> role)
-              , aliases = []
-              , spec = NativeObject (contentDigest (TE.encodeUtf8 role))
-              , lifecycle = Protect
-              , dataPolicy = Stateless
-              , sensitivity = Public
-              , dependencies = []
-              , delegations = []
-              , source = SourceLocation "test" role
-              }
-            scope = known (mkScopeDeclaration owner
-              [ResourceBundle [resource "first", resource "second"] [] [] [] [] []])
+            resource role =
+              Managed
+                ManagedResource
+                  { identity = rid role
+                  , owner = owner
+                  , executor = PulumiExecutor
+                  , address = PulumiUrn ("urn:pulumi:dev::nagare::test:Resource::" <> role)
+                  , aliases = []
+                  , spec = NativeObject (contentDigest (TE.encodeUtf8 role))
+                  , lifecycle = Protect
+                  , dataPolicy = Stateless
+                  , sensitivity = Public
+                  , dependencies = []
+                  , delegations = []
+                  , source = SourceLocation "test" role
+                  }
+            scope =
+              known
+                ( mkScopeDeclaration
+                    owner
+                    [ResourceBundle [resource "first", resource "second"] [] [] [] [] []]
+                )
             snapshot = known (mkScopeSnapshot binding Map.empty Map.empty)
             candidate = known (composeInventory snapshot (ReplaceScope scope :| []))
             absent role = (rid role, ConfirmedAbsent (contentDigest (TE.encodeUtf8 role)))
@@ -75,52 +81,84 @@ inventoryIntegrationTests =
 
 partialScopeRetirementProof :: IO ()
 partialScopeRetirementProof = do
-  let binding = ContextBinding (known (mkContextId "partial-retirement"))
-        (known (mkName "project"))
+  let binding =
+        ContextBinding
+          (known (mkContextId "partial-retirement"))
+          (known (mkName "project"))
       owner = known (mkScopeId Application "tasks")
-      cluster = mintResourceId owner (known (mkLogicalKey "cluster"))
-        (known (mkName "cluster"))
+      cluster =
+        mintResourceId
+          owner
+          (known (mkLogicalKey "cluster"))
+          (known (mkName "cluster"))
       schedule = member owner cluster "schedule"
       workload = member owner cluster "workload"
       scheduleId = declarationId schedule
-      scope declarations = known (mkScopeDeclaration owner
-        [ResourceBundle declarations [] [] [] [] []])
+      scope declarations =
+        known
+          ( mkScopeDeclaration
+              owner
+              [ResourceBundle declarations [] [] [] [] []]
+          )
       initialScope = scope [schedule, workload]
       remainingScope = scope [workload]
       emptySnapshot = known (mkScopeSnapshot binding Map.empty Map.empty)
-      firstCandidate = known (composeInventory emptySnapshot
-        (ReplaceScope initialScope :| []))
-      physical resource = known (mkPhysicalIdentity
-        ("uid:" <> resourceIdText resource))
-      absent resource = ConfirmedAbsent
-        (contentDigest (TE.encodeUtf8 ("absent:" <> resourceIdText resource)))
+      firstCandidate =
+        known
+          ( composeInventory
+              emptySnapshot
+              (ReplaceScope initialScope :| [])
+          )
+      physical resource =
+        known
+          ( mkPhysicalIdentity
+              ("uid:" <> resourceIdText resource)
+          )
+      absent resource =
+        ConfirmedAbsent
+          (contentDigest (TE.encodeUtf8 ("absent:" <> resourceIdText resource)))
   present <- newIORef Set.empty
   writes <- newIORef (0 :: Int)
-  let adapter = Adapter
-        { adapterExecutor = KubernetesExecutor
-        , adapterIdentity = "partial-retirement-recorder"
-        , adapterVersion = "1"
-        , adapterObserve = \resources -> do
-            current <- readIORef present
-            pure (observationSet
-              [(resource, if Set.member resource current
-                then ObservedPresent (physical resource) else absent resource)
-              | resource <- resources])
-        , adapterPrepare = \operation -> pure (Right
-            (PreparedNative (known (canonicalValue (toJSON operation))) "recorder"))
-        , adapterPreflight = \_ _ -> pure (Right ())
-        , adapterExecute = \operation _ -> do
-            modifyIORef' writes (+ 1)
-            modifyIORef' present (Set.union
-              (Set.fromList (NE.toList (plannedResources operation))))
-            pure AdapterEffectCompleted
-        , adapterVerify = \_ _ -> pure (Right (contentDigest "verified"))
-        , adapterRecover = \_ _ -> pure (RecoveryUnresolved "unused")
-        }
+  let adapter =
+        Adapter
+          { adapterExecutor = KubernetesExecutor
+          , adapterIdentity = "partial-retirement-recorder"
+          , adapterVersion = "1"
+          , adapterObserve = \resources -> do
+              current <- readIORef present
+              pure
+                ( observationSet
+                    [ ( resource
+                      , if Set.member resource current
+                          then ObservedPresent (physical resource)
+                          else absent resource
+                      )
+                    | resource <- resources
+                    ]
+                )
+          , adapterPrepare = \operation ->
+              pure
+                ( Right
+                    (PreparedNative (known (canonicalValue (toJSON operation))) "recorder")
+                )
+          , adapterPreflight = \_ _ -> pure (Right ())
+          , adapterExecute = \operation _ -> do
+              modifyIORef' writes (+ 1)
+              modifyIORef'
+                present
+                ( Set.union
+                    (Set.fromList (NE.toList (plannedResources operation)))
+                )
+              pure AdapterEffectCompleted
+          , adapterVerify = \_ _ -> pure (Right (contentDigest "verified"))
+          , adapterRecover = \_ _ -> pure (RecoveryUnresolved "unused")
+          }
       registry = known (mkAdapterRegistry [adapter])
-      observe candidate history = observeWithRegistry registry
-        (requirementsByExecutor (observationRequirements candidate history))
-        >>= expectRight
+      observe candidate history =
+        observeWithRegistry
+          registry
+          (requirementsByExecutor (observationRequirements candidate history))
+          >>= expectRight
       applyProposal store proposal = do
         before <- readStoreSnapshot store >>= expectRight
         bundle <- prepareReview registry before proposal >>= expectRight
@@ -134,27 +172,56 @@ partialScopeRetirementProof = do
   _ <- initializeStore store binding "partial-retirement-client" >>= expectRight
   initialHistory <- loadInventoryHistory store >>= expectRight
   initialFacts <- observe firstCandidate initialHistory
-  initialPlan <- expectRight (planChanges firstCandidate noLifecycleDecisions
-    initialHistory initialFacts)
+  initialPlan <-
+    expectRight
+      ( planChanges
+          firstCandidate
+          noLifecycleDecisions
+          initialHistory
+          initialFacts
+      )
   _ <- applyProposal store initialPlan
   accepted <- loadInventoryHistory store >>= expectRight
-  let acceptedSnapshot = known (mkScopeSnapshot binding
-        (Map.map (\(revision, declared) -> (revisionGeneration revision, declared))
-          (historyAccepted accepted)) (historyReservations accepted))
-      candidate = known (composeInventory acceptedSnapshot
-        (ReplaceScope remainingScope :| []))
+  let acceptedSnapshot =
+        known
+          ( mkScopeSnapshot
+              binding
+              ( Map.map
+                  (\(revision, declared) -> (revisionGeneration revision, declared))
+                  (historyAccepted accepted)
+              )
+              (historyReservations accepted)
+          )
+      candidate =
+        known
+          ( composeInventory
+              acceptedSnapshot
+              (ReplaceScope remainingScope :| [])
+          )
   observations <- observe candidate accepted
   case planChanges candidate noLifecycleDecisions accepted observations of
     Left _ -> pure ()
     Right _ -> assertFailure "scope replacement removed a member without a retirement decision"
   let fact = known (observationSet [(scheduleId, ObservedPresent (physical scheduleId))])
-      proposal = LifecycleProposal scheduleId ApproveRetirement
-        (lifecycleObservationDigest binding scheduleId
-          (observationMap fact Map.! scheduleId))
+      proposal =
+        LifecycleProposal
+          scheduleId
+          ApproveRetirement
+          ( lifecycleObservationDigest
+              binding
+              scheduleId
+              (observationMap fact Map.! scheduleId)
+          )
       workloadId = declarationId workload
-      stillDesired = LifecycleProposal workloadId ApproveRetirement
-        (lifecycleObservationDigest binding workloadId
-          (observationMap observations Map.! workloadId))
+      stillDesired =
+        LifecycleProposal
+          workloadId
+          ApproveRetirement
+          ( lifecycleObservationDigest
+              binding
+              workloadId
+              (observationMap observations Map.! workloadId)
+          )
   case validateLifecycleDecisions candidate accepted observations [stillDesired] of
     Left _ -> pure ()
     Right _ -> assertFailure "retirement decision selected a still-desired sibling"

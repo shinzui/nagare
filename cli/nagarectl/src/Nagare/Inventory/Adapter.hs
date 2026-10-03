@@ -74,13 +74,16 @@ observationMap (ObservationSet values) = values
 
 -- | Two observations for one logical identity must remain separate. The
 -- ordinary observation map can describe only the desired incarnation.
-newtype MigrationObservationSet = MigrationObservationSet
-  (Map ResourceId (ResourceObservation, ResourceObservation))
+newtype MigrationObservationSet
+  = MigrationObservationSet
+      (Map ResourceId (ResourceObservation, ResourceObservation))
   deriving stock (Eq, Show)
 
-migrationObservationSet
-  :: Set ResourceId -> ObservationSet -> ObservationSet
-  -> Either Text MigrationObservationSet
+migrationObservationSet ::
+  Set ResourceId ->
+  ObservationSet ->
+  ObservationSet ->
+  Either Text MigrationObservationSet
 migrationObservationSet expected sources destinations
   | Map.keysSet sourceMap /= expected = Left "migration source observation coverage differs from the requested resources"
   | Map.keysSet destinationMap /= expected = Left "migration destination observation coverage differs from the requested resources"
@@ -104,8 +107,14 @@ data MigrationStage
   deriving stock (Eq, Ord, Show, Generic)
 
 data OperationAction
-  = CreateResource | UpdateResource | VerifyResource | AdoptResource | RetireResource
-  | RunDeclaredOperation | OpenMaintenanceSession | RestoreLiveDatabase
+  = CreateResource
+  | UpdateResource
+  | VerifyResource
+  | AdoptResource
+  | RetireResource
+  | RunDeclaredOperation
+  | OpenMaintenanceSession
+  | RestoreLiveDatabase
   | MigrateResource !MigrationStage
   deriving stock (Eq, Ord, Show, Generic)
 
@@ -146,8 +155,8 @@ data AdapterExecution
 data RecoveryDecision
   = RecoveryProvedComplete !ContentDigest
   | RecoverySafeToRetry
-  -- The exact created workload exists, but readiness is not completion.
-  | RecoveryAwaitingReadiness !PhysicalIdentity
+  | -- The exact created workload exists, but readiness is not completion.
+    RecoveryAwaitingReadiness !PhysicalIdentity
   | RecoveryTerminalFailure !PhysicalIdentity
   | RecoveryUnresolved !Text
   deriving stock (Eq, Show, Generic)
@@ -170,16 +179,41 @@ data Adapter = Adapter
 -- only after admission.
 data AdapterFence = AdapterFence
   { fenceCapability :: !Text
-  , fenceForOperation :: !(PlannedOperation -> PreparedNative
-      -> IO (Either Text (Maybe DataFenceRecord)))
-  , fenceFromReviewedRecord :: !(DataFenceRecord -> PlannedOperation
-      -> PreparedNative -> Either Text DataFenceControls)
-  , fenceResolveUncertainEffect :: !(Maybe (DataFenceRecord -> PlannedOperation
-      -> PreparedNative -> IO RecoveryDecision))
-  , fenceRestoreRecoveryBackup :: !(Maybe (DataFenceRecord -> PlannedOperation
-      -> PreparedNative -> IO (Either Text ContentDigest)))
-  , fenceVerifyRecoveryBackup :: !(Maybe (DataFenceRecord -> PlannedOperation
-      -> PreparedNative -> IO (Either Text ContentDigest)))
+  , fenceForOperation ::
+      !( PlannedOperation ->
+         PreparedNative ->
+         IO (Either Text (Maybe DataFenceRecord))
+       )
+  , fenceFromReviewedRecord ::
+      !( DataFenceRecord ->
+         PlannedOperation ->
+         PreparedNative ->
+         Either Text DataFenceControls
+       )
+  , fenceResolveUncertainEffect ::
+      !( Maybe
+           ( DataFenceRecord ->
+             PlannedOperation ->
+             PreparedNative ->
+             IO RecoveryDecision
+           )
+       )
+  , fenceRestoreRecoveryBackup ::
+      !( Maybe
+           ( DataFenceRecord ->
+             PlannedOperation ->
+             PreparedNative ->
+             IO (Either Text ContentDigest)
+           )
+       )
+  , fenceVerifyRecoveryBackup ::
+      !( Maybe
+           ( DataFenceRecord ->
+             PlannedOperation ->
+             PreparedNative ->
+             IO (Either Text ContentDigest)
+           )
+       )
   }
 
 instance ToJSON ResourceObservation where toJSON = genericToJSON defaultOptions
@@ -230,9 +264,11 @@ data AdapterRecovery = AdapterRecovery
   , recoveryExecute :: !(PlannedOperation -> PreparedNative -> ByteString -> IO (Either Text ContentDigest))
   }
 
-data AdapterRegistry = AdapterRegistry
-  (Map Executor Adapter) (Map Executor (Map Text AdapterFence))
-  (Map Text AdapterRecovery)
+data AdapterRegistry
+  = AdapterRegistry
+      (Map Executor Adapter)
+      (Map Executor (Map Text AdapterFence))
+      (Map Text AdapterRecovery)
 
 mkAdapterRegistry :: [Adapter] -> Either Text AdapterRegistry
 mkAdapterRegistry adapters
@@ -244,22 +280,36 @@ mkAdapterRegistry adapters
 emptyAdapterRegistry :: AdapterRegistry
 emptyAdapterRegistry = AdapterRegistry Map.empty Map.empty Map.empty
 
-withAdapterFence :: AdapterRegistry -> Executor -> AdapterFence
-  -> Either Text AdapterRegistry
+withAdapterFence ::
+  AdapterRegistry ->
+  Executor ->
+  AdapterFence ->
+  Either Text AdapterRegistry
 withAdapterFence (AdapterRegistry adapters fences recoveries) executor fence
   | Map.notMember executor adapters = Left "data fence has no registered adapter"
   | T.null (fenceCapability fence) = Left "data fence capability identity is empty"
   | Map.member (fenceCapability fence) (Map.findWithDefault Map.empty executor fences) =
       Left "adapter already has this data fence capability"
-  | otherwise = Right (AdapterRegistry adapters (Map.insertWith Map.union executor
-      (Map.singleton (fenceCapability fence) fence) fences) recoveries)
+  | otherwise =
+      Right
+        ( AdapterRegistry
+            adapters
+            ( Map.insertWith
+                Map.union
+                executor
+                (Map.singleton (fenceCapability fence) fence)
+                fences
+            )
+            recoveries
+        )
 
 withAdapterRecovery :: AdapterRegistry -> AdapterRecovery -> Either Text AdapterRegistry
 withAdapterRecovery (AdapterRegistry adapters fences recoveries) capability
   | T.null key = Left "adapter recovery capability identity is empty"
   | Map.member key recoveries = Left "adapter recovery capability is duplicated"
   | otherwise = Right (AdapterRegistry adapters fences (Map.insert key capability recoveries))
-  where key = recoveryCapability capability
+  where
+    key = recoveryCapability capability
 
 lookupAdapterRecovery :: AdapterRegistry -> Text -> Maybe AdapterRecovery
 lookupAdapterRecovery (AdapterRegistry _ _ recoveries) key = Map.lookup key recoveries
@@ -276,18 +326,22 @@ withPreparationGuard :: (PlannedOperation -> Either Text ()) -> AdapterRegistry 
 withPreparationGuard check (AdapterRegistry adapters fences recoveries) =
   AdapterRegistry (Map.map guarded adapters) fences recoveries
   where
-    guarded adapter = adapter
-      { adapterPrepare = \operation -> case check operation of
-          Left reason -> pure (Left (PrepareRefused (plannedOperationId operation) reason))
-          Right () -> adapterPrepare adapter operation
-      }
+    guarded adapter =
+      adapter
+        { adapterPrepare = \operation -> case check operation of
+            Left reason -> pure (Left (PrepareRefused (plannedOperationId operation) reason))
+            Right () -> adapterPrepare adapter operation
+        }
 
 lookupAdapterFences :: AdapterRegistry -> Executor -> [AdapterFence]
 lookupAdapterFences (AdapterRegistry _ fences _) executor =
   maybe [] Map.elems (Map.lookup executor fences)
 
-lookupAdapterFenceByCapability :: AdapterRegistry -> Executor -> Text
-  -> Maybe AdapterFence
+lookupAdapterFenceByCapability ::
+  AdapterRegistry ->
+  Executor ->
+  Text ->
+  Maybe AdapterFence
 lookupAdapterFenceByCapability (AdapterRegistry _ fences _) executor capability =
   Map.lookup executor fences >>= Map.lookup capability
 

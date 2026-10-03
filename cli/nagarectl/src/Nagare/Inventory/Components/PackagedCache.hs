@@ -3,7 +3,8 @@
 module Nagare.Inventory.Components.PackagedCache
   ( compilePackagedCache
   , compilePackagedCacheWithVerifiedImage
-  ) where
+  )
+where
 
 import Control.Exception (IOException, try)
 import Data.Aeson (Value (..), eitherDecodeStrict')
@@ -32,10 +33,18 @@ import Nagare.Resource.Types
 import System.Directory (doesFileExist)
 import System.FilePath ((</>))
 
-compilePackagedCache
-  :: FilePath -> FoundationInput -> Text -> Text -> Text -> Text
-  -> IO (Either (NonEmpty InventoryError)
-       (ScopeDeclaration, ScopeDeclaration, Map ResourceId (ManagedResource, ByteString)))
+compilePackagedCache ::
+  FilePath ->
+  FoundationInput ->
+  Text ->
+  Text ->
+  Text ->
+  Text ->
+  IO
+    ( Either
+        (NonEmpty InventoryError)
+        (ScopeDeclaration, ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+    )
 compilePackagedCache root foundation project registryPrefix backupBucket cacheBucket = do
   let cacheRoot = root </> "cluster/bootstrap/nix-cache"
       pinPath = cacheRoot </> "attic-pin.json"
@@ -58,11 +67,21 @@ compilePackagedCache root foundation project registryPrefix backupBucket cacheBu
 -- | The production entry point above proves the archive bytes and OCI
 -- manifest first. Fixtures can exercise composition with those verified
 -- identities without carrying a release image archive in the source tree.
-compilePackagedCacheWithVerifiedImage
-  :: FilePath -> FoundationInput -> Text -> Text -> Text -> Text
-  -> Text -> ContentDigest -> ContentDigest
-  -> IO (Either (NonEmpty InventoryError)
-       (ScopeDeclaration, ScopeDeclaration, Map ResourceId (ManagedResource, ByteString)))
+compilePackagedCacheWithVerifiedImage ::
+  FilePath ->
+  FoundationInput ->
+  Text ->
+  Text ->
+  Text ->
+  Text ->
+  Text ->
+  ContentDigest ->
+  ContentDigest ->
+  IO
+    ( Either
+        (NonEmpty InventoryError)
+        (ScopeDeclaration, ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+    )
 compilePackagedCacheWithVerifiedImage root foundation project registryPrefix backupBucket cacheBucket commit digest archiveDigest = do
   let cacheRoot = root </> "cluster/bootstrap/nix-cache"
       pinPath = cacheRoot </> "attic-pin.json"
@@ -73,37 +92,60 @@ compilePackagedCacheWithVerifiedImage root foundation project registryPrefix bac
       publishId = mintResourceId artifactOwner artifactKey (knownName "publish")
       destination = registryPrefix <> "/attic:" <> commit
       image = registryPrefix <> "/attic@sha256:" <> digestText digest
-      artifactSpec = ArtifactResourceSpec
-        { artifactLogicalKey = artifactKey
-        , artifactRole = knownName "image"
-        , artifactName = knownName "attic"
-        , artifactDestination = destination
-        , artifactContentDigest = digest
-        , artifactSpecDigest = archiveDigest
-        , artifactKind = OciImageArtifact
-        , artifactOwnership = OwnedArtifact
-        , artifactLifecycle = Retain
-        , artifactDataPolicy = Stateless
-        , artifactSensitivity = Private
-        , artifactDependencies = []
-        , artifactConsumers = ConsumerCompletenessUnknown
-        , artifactPublishOperation = True
-        , artifactSource = SourceLocation (T.pack pinPath) "attic-image"
-        }
+      artifactSpec =
+        ArtifactResourceSpec
+          { artifactLogicalKey = artifactKey
+          , artifactRole = knownName "image"
+          , artifactName = knownName "attic"
+          , artifactDestination = destination
+          , artifactContentDigest = digest
+          , artifactSpecDigest = archiveDigest
+          , artifactKind = OciImageArtifact
+          , artifactOwnership = OwnedArtifact
+          , artifactLifecycle = Retain
+          , artifactDataPolicy = Stateless
+          , artifactSensitivity = Private
+          , artifactDependencies = []
+          , artifactConsumers = ConsumerCompletenessUnknown
+          , artifactPublishOperation = True
+          , artifactSource = SourceLocation (T.pack pinPath) "attic-image"
+          }
       namespaceId = foundationNamespaceId foundation (knownName "nagare-system")
-      database = Database (knownDatabase "nix-cache-db") Nothing Postgres
-        (defaultEngineVersion Postgres) (knownNamespace "nagare-system")
-        (knownQuantity "5Gi")
-        (Just (Dsl.Resources (Just (knownQuantity "500m")) (Just (knownQuantity "1Gi")) Nothing Nothing))
-        Dsl.Retain
-      recovery = RecoveryIntent (knownName "postgres-backup")
-        (mkSecretRef (knownName "nagare-db-nix-cache-db") (knownName "v1") :| [])
-      direct = DatabaseDirectInput database owner (foundationCluster foundation)
-        (Just namespaceId) recovery (SourceLocation (T.pack cacheRoot) "nix-cache-db")
+      database =
+        Database
+          (knownDatabase "nix-cache-db")
+          Nothing
+          Postgres
+          (defaultEngineVersion Postgres)
+          (knownNamespace "nagare-system")
+          (knownQuantity "5Gi")
+          (Just (Dsl.Resources (Just (knownQuantity "500m")) (Just (knownQuantity "1Gi")) Nothing Nothing))
+          Dsl.Retain
+      recovery =
+        RecoveryIntent
+          (knownName "postgres-backup")
+          (mkSecretRef (knownName "nagare-db-nix-cache-db") (knownName "v1") :| [])
+      direct =
+        DatabaseDirectInput
+          database
+          owner
+          (foundationCluster foundation)
+          (Just namespaceId)
+          recovery
+          (SourceLocation (T.pack cacheRoot) "nix-cache-db")
       dbId = either (error . T.unpack) (\value -> value) (databaseResourceId owner (knownName "statefulset") database)
       credentialId = either (error . T.unpack) (\value -> value) (databaseResourceId owner (knownName "credential") database)
-      render = CacheRenderInput owner (foundationCluster foundation) (knownKey "cache")
-        dbId credentialId image cacheBucket cacheRoot (Just namespaceId)
+      render =
+        CacheRenderInput
+          owner
+          (foundationCluster foundation)
+          (knownKey "cache")
+          dbId
+          credentialId
+          image
+          cacheBucket
+          cacheRoot
+          (Just namespaceId)
   cache <- compileCacheComponent direct (GcsBackend project backupBucket) render
   pure $ do
     imageScope <- compileArtifactScope (ArtifactDeclarationBundle 1 artifactOwner (artifactSpec :| []))
@@ -111,12 +153,19 @@ compilePackagedCacheWithVerifiedImage root foundation project registryPrefix bac
     let attach resource = resource {dependencies = OrderedAfter publishId : resource ^. #dependencies}
         attachDeclaration (Managed resource) = Managed (attach resource)
         attachDeclaration declaration = declaration
-        orderedBundles = [bundle {declarations = map attachDeclaration (declarations bundle)}
-          | bundle <- scopeBundles cacheScope]
+        orderedBundles =
+          [ bundle {declarations = map attachDeclaration (declarations bundle)}
+          | bundle <- scopeBundles cacheScope
+          ]
         orderedNative = Map.map (\(resource, bytes) -> (attach resource, bytes)) cacheNative
     orderedCache <- mkScopeDeclaration owner orderedBundles
-    unless (artifactId `elem` [declarationId declaration | bundle <- scopeBundles imageScope,
-        declaration <- declarations bundle])
+    unless
+      ( artifactId
+          `elem` [ declarationId declaration
+                 | bundle <- scopeBundles imageScope
+                 , declaration <- declarations bundle
+                 ]
+      )
       (Left (single (invalid "Attic image publication identity changed")))
     pure (imageScope, orderedCache, orderedNative)
 
@@ -150,7 +199,8 @@ parseAtticPin bytes = do
   root <- case value of Object entries -> Right entries; _ -> Left "Attic pin is not an object"
   commit <- textField "sourceCommit" root
   digestTextValue <- textField "linuxAmd64Digest" root
-  unless (not (T.null commit) && T.all (\char -> char `elem` (['0'..'9'] <> ['a'..'f'])) commit)
+  unless
+    (not (T.null commit) && T.all (\char -> char `elem` (['0' .. '9'] <> ['a' .. 'f'])) commit)
     (Left "Attic source commit is malformed")
   digest <- case T.stripPrefix "sha256:" digestTextValue of
     Nothing -> Left "Attic image digest is not SHA-256"

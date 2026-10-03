@@ -28,7 +28,7 @@ import Nagare.Inventory.Execute (applyReviewed)
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect), mkOperationId)
 import Nagare.Inventory.Plan (LifecycleDecisionKind (ApproveRetirement), LifecycleProposal (..), historyAccepted, lifecycleObservationDigest, loadInventoryHistory, noLifecycleDecisions, observationRequirements, planChanges, prepareReview, proposalOperations, publishReview, requiredResources, validateLifecycleDecisions, verifyReview)
 import Nagare.Inventory.Store (ScopeRevision (..), headAccepted, headConverged, headGeneration, initializeStore, newMemoryStore, publishIfAbsent, readStoreSnapshot, replaceHeadIfGenerationMatches, scopeKey)
-import Nagare.Resource.Cdn (compileCdnPurge, compileCdnDisable, compileCloudflareDnsRecord, compileGoogleDnsRecord)
+import Nagare.Resource.Cdn (compileCdnDisable, compileCdnPurge, compileCloudflareDnsRecord, compileGoogleDnsRecord)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
@@ -42,7 +42,8 @@ import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
 inventoryCloudflareTests :: TestTree
 inventoryCloudflareTests =
-  testGroup "reviewed Cloudflare"
+  testGroup
+    "reviewed Cloudflare"
     [ testCase "Cloudflare HTTP binding, exact record write, and stale version refusal stay offline" $ do
         let zone = ok (mkName "0123456789abcdef0123456789abcdef")
             host = ok (mkName "a.example.test")
@@ -383,8 +384,13 @@ inventoryCloudflareTests =
         let purged = ok (compileCdnPurge acceptedSnapshot "a.example.test" "release-1" ["/b", "/a", "/b"])
             purgeCandidate = ok (composeInventory acceptedSnapshot (ReplaceScope purged :| []))
             purgeInventory = candidateInventory purgeCandidate
-            purgeSnapshot = ok (mkScopeSnapshot binding
-              (Map.insert appA (generation, purged) (snapshotScopes acceptedSnapshot)) Map.empty)
+            purgeSnapshot =
+              ok
+                ( mkScopeSnapshot
+                    binding
+                    (Map.insert appA (generation, purged) (snapshotScopes acceptedSnapshot))
+                    Map.empty
+                )
         scopeConfigDigest purged @?= scopeConfigDigest firstScope
         scopeOverrides purged @?= scopeOverrides firstScope
         Map.lookup appB (inventoryScopes purgeInventory) @?= Just secondScope

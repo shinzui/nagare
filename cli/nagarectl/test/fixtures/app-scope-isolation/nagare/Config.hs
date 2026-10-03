@@ -21,19 +21,20 @@ applicationConfig = do
   image <- mkImageRef "k3d-registry.localhost:5000/isolated"
   tag <- mkTag "v1"
   service <- webService "isolated-app" "k3d-registry.localhost:5000/isolated"
-  mkApplication Application
-    { name = appName
-    , logicalKey = Nothing
-    , namespace = namespace
-    , image = image
-    , env = Map.empty
-    , databases = []
-    , brokers = []
-    , access = Nothing
-    , service = Just (service & #build .~ PrebuiltImage tag)
-    , workers = []
-    , tasks = []
-    }
+  mkApplication
+    Application
+      { name = appName
+      , logicalKey = Nothing
+      , namespace = namespace
+      , image = image
+      , env = Map.empty
+      , databases = []
+      , brokers = []
+      , access = Nothing
+      , service = Just (service & #build .~ PrebuiltImage tag)
+      , workers = []
+      , tasks = []
+      }
 
 main :: IO ()
 main = either (ioError . userError . Text.unpack) emitApplication applicationConfig

@@ -41,7 +41,6 @@ import Nagare.Dsl.Broker
 import Nagare.Dsl.Build
 import Nagare.Dsl.Cdn.Types
 import Nagare.Dsl.Database
-import Nagare.Resource.Types (logicalKeyText)
 import Nagare.Dsl.Job
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Server.Types
@@ -49,6 +48,7 @@ import Nagare.Dsl.Static.Types
 import Nagare.Dsl.Task
 import Nagare.Dsl.Types
 import Nagare.Dsl.Worker (Worker, WorkerProbe (..), commandArgvList, probeTiming, replicasInt)
+import Nagare.Resource.Types (logicalKeyText)
 
 -- | Serialize a 'Deployment' to JSON and write it to stdout. Call this as the
 -- last line of your @Config.hs@ @main@.
@@ -138,18 +138,18 @@ databaseJSON :: Database -> Value
 databaseJSON db =
   object
     ( [ "kind" .= ("Database" :: Text)
-    , "name" .= databaseNameText (db ^. #name)
-    , "engine" .= engineToken (db ^. #engine)
-    , "version" .= engineVersionText (db ^. #version)
-    , "namespace" .= namespaceText (db ^. #namespace)
-    , "size" .= quantityText (db ^. #size)
-    , "cpuRequest" .= fmap quantityText (res >>= (^. #cpu))
-    , "memoryRequest" .= fmap quantityText (res >>= (^. #memory))
-    , "cpuLimit" .= fmap quantityText (res >>= (^. #cpuLimit))
-    , "memoryLimit" .= fmap quantityText (res >>= (^. #memoryLimit))
-    , "retention" .= retentionToken (db ^. #retention)
-    ]
-      <> maybe [] (\key -> ["logicalKey" .= logicalKeyText key]) (db ^. #logicalKey)
+      , "name" .= databaseNameText (db ^. #name)
+      , "engine" .= engineToken (db ^. #engine)
+      , "version" .= engineVersionText (db ^. #version)
+      , "namespace" .= namespaceText (db ^. #namespace)
+      , "size" .= quantityText (db ^. #size)
+      , "cpuRequest" .= fmap quantityText (res >>= (^. #cpu))
+      , "memoryRequest" .= fmap quantityText (res >>= (^. #memory))
+      , "cpuLimit" .= fmap quantityText (res >>= (^. #cpuLimit))
+      , "memoryLimit" .= fmap quantityText (res >>= (^. #memoryLimit))
+      , "retention" .= retentionToken (db ^. #retention)
+      ]
+        <> maybe [] (\key -> ["logicalKey" .= logicalKeyText key]) (db ^. #logicalKey)
     )
   where
     res = db ^. #resources
@@ -412,9 +412,10 @@ domainSpecJSON :: DomainSpec -> Value
 domainSpecJSON ds =
   object
     ( [ "domain" .= domainText (ds ^. #domain)
-    , "canonical" .= (ds ^. #canonical)
-    , "tls" .= domainTlsJSON (ds ^. #tls)
-    ] <> maybe [] (\key -> ["logicalKey" .= logicalKeyText key]) (ds ^. #logicalKey)
+      , "canonical" .= (ds ^. #canonical)
+      , "tls" .= domainTlsJSON (ds ^. #tls)
+      ]
+        <> maybe [] (\key -> ["logicalKey" .= logicalKeyText key]) (ds ^. #logicalKey)
     )
   where
     domainTlsJSON AutomaticTls = object ["mode" .= ("automatic" :: Text)]

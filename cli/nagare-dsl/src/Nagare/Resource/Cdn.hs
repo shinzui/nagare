@@ -220,14 +220,19 @@ compileCdnZonePurge :: ScopeSnapshot -> Text -> Text -> Either Text ScopeDeclara
 compileCdnZonePurge snapshot rawHost requestId = do
   host <- mkName (T.toLower (T.dropWhileEnd (== '.') (T.strip rawHost)))
   inventory <- first (T.pack . show) (composeSnapshot snapshot)
-  zone <- case [z | Managed resource <- inventoryDeclarations inventory,
-                   CloudflareDnsRecord z h <- [resource ^. #address], h == host,
-                   scopeKind (resource ^. #owner) `elem` [Application, Standalone]] of
+  zone <- case [ z
+               | Managed resource <- inventoryDeclarations inventory
+               , CloudflareDnsRecord z h <- [resource ^. #address]
+               , h == host
+               , scopeKind (resource ^. #owner) `elem` [Application, Standalone]
+               ] of
     [z] -> Right z
     _ -> Left "whole-zone purge requires one accepted Cloudflare workload hostname"
-  selected <- case [resource | Managed resource <- inventoryDeclarations inventory,
-                       resource ^. #address == CloudflareRuleset zone,
-                       scopeKind (resource ^. #owner) == Platform] of
+  selected <- case [ resource
+                   | Managed resource <- inventoryDeclarations inventory
+                   , resource ^. #address == CloudflareRuleset zone
+                   , scopeKind (resource ^. #owner) == Platform
+                   ] of
     [resource] -> Right resource
     _ -> Left "whole-zone purge requires exactly one accepted platform zone owner"
   appendPurge snapshot selected requestId PurgeCdnZone []
@@ -237,8 +242,11 @@ appendPurge snapshot selected requestId kind paths = do
   _ <- mkName requestId
   key <- mkLogicalKey ("cdn-purge-" <> requestId)
   role <- mkName "cache-purge"
-  (_, scope) <- maybe (Left "CDN owner scope is absent") Right
-    (Map.lookup (selected ^. #owner) (snapshotScopes snapshot))
+  (_, scope) <-
+    maybe
+      (Left "CDN owner scope is absent")
+      Right
+      (Map.lookup (selected ^. #owner) (snapshotScopes snapshot))
   let operation =
         DeclaredOperation
           (mintResourceId (scopeId scope) key role)

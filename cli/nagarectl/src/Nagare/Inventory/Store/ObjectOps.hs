@@ -17,7 +17,8 @@ module Nagare.Inventory.Store.ObjectOps
   , classifyPutReadback
   , createdGeneration
   , gcloudObjectOps
-  ) where
+  )
+where
 
 import Control.Exception (IOException, try)
 import Data.Aeson ((.:))
@@ -42,6 +43,7 @@ import System.Process (readProcessWithExitCode)
 import Text.Read (readMaybe)
 
 newtype ObjectName = ObjectName Text deriving stock (Eq, Ord, Show)
+
 newtype Generation = Generation Integer deriving stock (Eq, Ord, Show)
 
 data PutCondition = IfAbsent | IfGenerationMatches !Generation
@@ -74,8 +76,14 @@ objectUrl prefix (ObjectName name) = T.dropWhileEnd (== '/') prefix <> "/" <> na
 
 putArgs :: FilePath -> Text -> ObjectName -> PutCondition -> [String]
 putArgs source prefix name condition =
-  ["storage", "cp", source, T.unpack (objectUrl prefix name),
-   "--if-generation-match=" <> show generation, "--print-created-message", "--quiet"]
+  [ "storage"
+  , "cp"
+  , source
+  , T.unpack (objectUrl prefix name)
+  , "--if-generation-match=" <> show generation
+  , "--print-created-message"
+  , "--quiet"
+  ]
   where
     generation = case condition of
       IfAbsent -> 0
@@ -83,8 +91,13 @@ putArgs source prefix name condition =
 
 describeArgs :: Text -> ObjectName -> [String]
 describeArgs prefix name =
-  ["storage", "objects", "describe", T.unpack (objectUrl prefix name),
-   "--format=value(generation)", "--quiet"]
+  [ "storage"
+  , "objects"
+  , "describe"
+  , T.unpack (objectUrl prefix name)
+  , "--format=value(generation)"
+  , "--quiet"
+  ]
 
 downloadArgs :: Text -> ObjectName -> FilePath -> [String]
 downloadArgs prefix name destination =
@@ -92,16 +105,25 @@ downloadArgs prefix name destination =
 
 listArgs :: Text -> [String]
 listArgs prefix =
-  ["storage", "objects", "list", T.unpack (T.dropWhileEnd (== '/') prefix <> "/**"),
-   "--format=json(name)", "--quiet"]
+  [ "storage"
+  , "objects"
+  , "list"
+  , T.unpack (T.dropWhileEnd (== '/') prefix <> "/**")
+  , "--format=json(name)"
+  , "--quiet"
+  ]
 
 listedObjectNames :: Text -> ByteString -> Either Text [ObjectName]
 listedObjectNames path bytes = do
   values <- firstText (Aeson.eitherDecodeStrict' bytes :: Either String [Aeson.Value])
   names <- traverse (firstText . parseEither (Aeson.withObject "object" (.: "name"))) values
-  pure $ Set.toAscList $ Set.fromList
-    [ObjectName relative | full <- names,
-      Just relative <- [T.stripPrefix (path <> "/") full]]
+  pure $
+    Set.toAscList $
+      Set.fromList
+        [ ObjectName relative
+        | full <- names
+        , Just relative <- [T.stripPrefix (path <> "/") full]
+        ]
   where
     firstText = either (Left . T.pack) Right
 
@@ -161,8 +183,10 @@ gcloudObjectOps prefix = do
           Left reason -> Left reason
           Right (ExitFailure _, _) -> Right Nothing
           Right (ExitSuccess, output) ->
-            maybe (Left "object describe returned an invalid generation")
-              (Right . Just . Generation) (readMaybe (T.unpack (T.strip (T.pack output))))
+            maybe
+              (Left "object describe returned an invalid generation")
+              (Right . Just . Generation)
+              (readMaybe (T.unpack (T.strip (T.pack output))))
       get name = check (2 :: Int)
         where
           check remaining = do
@@ -183,8 +207,9 @@ gcloudObjectOps prefix = do
                     bytesResult <- try (BS.readFile destination) :: IO (Either IOException ByteString)
                     after <- describe name
                     case (bytesResult, after) of
-                      (Right bytes, Right (Just current)) | current == before ->
-                        pure (ObjectFound current bytes)
+                      (Right bytes, Right (Just current))
+                        | current == before ->
+                            pure (ObjectFound current bytes)
                       (_, Right (Just _)) | remaining > 0 -> check (remaining - 1)
                       _ -> pure (GetUnknown "object changed or could not be read during download")
                   _ -> pure (GetUnknown "object download failed")
@@ -192,8 +217,9 @@ gcloudObjectOps prefix = do
         let source = directory </> "object"
         BS.writeFile source bytes
         setFileMode source 0o600
-        uploaded <- try (readProcessWithExitCode "gcloud" (putArgs source prefix name condition) "")
-          :: IO (Either IOException (ExitCode, String, String))
+        uploaded <-
+          try (readProcessWithExitCode "gcloud" (putArgs source prefix name condition) "") ::
+            IO (Either IOException (ExitCode, String, String))
         case uploaded of
           Right (ExitSuccess, output, errors)
             | Just generation <- createdGeneration prefix name (T.pack (output <> errors)) ->
@@ -206,30 +232,43 @@ gcloudObjectOps prefix = do
           Right (ExitFailure _, _) -> pure (Left "object prefix download failed")
           Right (ExitSuccess, _) -> do
             names <- listDirectory directory
-            loaded <- traverse (\name -> do
-              bytes <- try (BS.readFile (directory </> name)) :: IO (Either IOException ByteString)
-              pure (name, bytes)) names
-            pure $ Map.fromList <$> traverse (\(name, bytes) -> do
-              unless (length name == 25 && all (`elem` ['0'..'9']) (take 20 name) && drop 20 name == ".json")
-                (Left "object prefix download returned an invalid filename")
-              value <- either (Left . T.pack . show) Right bytes
-              Right (ObjectName (requested <> "/" <> T.pack name), value)) loaded
-  pure ObjectOps
-    { getObject = get
-    , getObjects = getPrefix
-    , putObject = put
-    , listObjects = \(ObjectName requested) -> do
-        result <- listNames
-        pure (fmap (filter (\(ObjectName name) -> requested `T.isPrefixOf` name)) result)
-    }
+            loaded <-
+              traverse
+                ( \name -> do
+                    bytes <- try (BS.readFile (directory </> name)) :: IO (Either IOException ByteString)
+                    pure (name, bytes)
+                )
+                names
+            pure $
+              Map.fromList
+                <$> traverse
+                  ( \(name, bytes) -> do
+                      unless
+                        (length name == 25 && all (`elem` ['0' .. '9']) (take 20 name) && drop 20 name == ".json")
+                        (Left "object prefix download returned an invalid filename")
+                      value <- either (Left . T.pack . show) Right bytes
+                      Right (ObjectName (requested <> "/" <> T.pack name), value)
+                  )
+                  loaded
+  pure
+    ObjectOps
+      { getObject = get
+      , getObjects = getPrefix
+      , putObject = put
+      , listObjects = \(ObjectName requested) -> do
+          result <- listNames
+          pure (fmap (filter (\(ObjectName name) -> requested `T.isPrefixOf` name)) result)
+      }
   where
     parsePrefix url = case T.stripPrefix "gs://" (T.dropWhileEnd (== '/') url) of
       Nothing -> Left "inventory object store URL must start with gs://"
       Just suffix -> case T.breakOn "/" suffix of
         (bucket, rawPath)
-          | not (T.null bucket), not (T.null rawPath),
-            let path = T.drop 1 rawPath,
-            not (T.null path),
-            all validPart (T.splitOn "/" path) -> Right (bucket, path)
+          | not (T.null bucket)
+          , not (T.null rawPath)
+          , let path = T.drop 1 rawPath
+          , not (T.null path)
+          , all validPart (T.splitOn "/" path) ->
+              Right (bucket, path)
         _ -> Left "inventory object store URL must name a bucket and private prefix"
     validPart part = not (T.null part) && part /= "." && part /= ".."

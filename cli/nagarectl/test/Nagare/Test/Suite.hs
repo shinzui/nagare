@@ -14,6 +14,7 @@ import DomainBindingSpec (domainBindingTests)
 import HostSpec (hostTests)
 import InventoryAccessSpec (inventoryAccessTests)
 import InventoryApplicationSpec (inventoryApplicationTests)
+import InventoryApplicationUpdateRecoverySpec
 import InventoryArtifactSpec (inventoryArtifactTests)
 import InventoryAuthSpec (inventoryAuthTests)
 import InventoryCacheSpec (inventoryCacheTests)
@@ -37,11 +38,10 @@ import InventoryNativeCollectionSpec (nativeCollectionTests)
 import InventoryObjectOpsSpec (inventoryObjectOpsTests)
 import InventoryObservabilitySpec (inventoryObservabilityTests)
 import InventoryObservationSpec (inventoryObservationTests)
+import InventoryPreviewRecoverySpec (inventoryPreviewRecoveryTests)
 import InventoryPublicationSpec (inventoryPublicationTests)
 import InventorySpec (inventoryTests)
 import InventoryStatusSpec (inventoryStatusTests)
-import InventoryApplicationUpdateRecoverySpec
-import InventoryPreviewRecoverySpec (inventoryPreviewRecoveryTests)
 import InventoryTransactionSpec
   ( inventoryTransactionTests
   , runInventoryLockHoldProbe

@@ -148,11 +148,15 @@ journalEventDigest = contentDigest . encodeJournalEvent
 
 -- | Latest per-operation state from a validated journal in sequence order.
 operationStates :: TransactionId -> [JournalEvent] -> Map OperationId OperationState
-operationStates transaction = foldl
-  (\states event -> case eventOperation event of
-    Just operation | eventTransaction event == transaction ->
-      Map.insert operation (eventState event) states
-    _ -> states) Map.empty
+operationStates transaction =
+  foldl
+    ( \states event -> case eventOperation event of
+        Just operation
+          | eventTransaction event == transaction ->
+              Map.insert operation (eventState event) states
+        _ -> states
+    )
+    Map.empty
 
 validateJournal :: [JournalEvent] -> Either Text [JournalEvent]
 validateJournal events = go Nothing 0 (sortOn eventSequence events)

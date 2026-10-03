@@ -206,17 +206,19 @@ matchesBase plan fact = case (cloudflarePlanAction plan, fact) of
   (CreateResource, CloudflareMissing) ->
     isNothing (cloudflarePlanPrevious plan)
       && isNothing (cloudflarePlanPhysical plan)
-  (action, CloudflarePresent physical version target) | action `elem` [UpdateResource, RetireResource] ->
-    Just target == cloudflarePlanPrevious plan
-      && Just physical == cloudflarePlanPhysical plan
-      && version == cloudflarePlanVersion plan
-      && isJust version
+  (action, CloudflarePresent physical version target)
+    | action `elem` [UpdateResource, RetireResource] ->
+        Just target == cloudflarePlanPrevious plan
+          && Just physical == cloudflarePlanPhysical plan
+          && version == cloudflarePlanVersion plan
+          && isJust version
   _ -> False
 
 matchesTarget :: CloudflareMutationPlan -> CloudflareObservation -> Bool
 matchesTarget plan CloudflareMissing = cloudflarePlanAction plan == RetireResource
 matchesTarget plan (CloudflarePresent physical _ target) =
-  cloudflarePlanAction plan /= RetireResource && target == cloudflarePlanTarget plan
+  cloudflarePlanAction plan /= RetireResource
+    && target == cloudflarePlanTarget plan
     && maybe True (== physical) (cloudflarePlanPhysical plan)
 matchesTarget _ _ = False
 

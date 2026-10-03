@@ -5,7 +5,8 @@ module Nagare.Inventory.Adapters.BrokerRuntime
   , topicRuntimeOps
   , parseList
   , parseDescription
-  ) where
+  )
+where
 
 import Control.Exception (IOException, try)
 import Data.Aeson
@@ -32,24 +33,31 @@ data TopicRuntimeConfig = TopicRuntimeConfig
   }
 
 topicRuntimeOps :: TopicRuntimeConfig -> TopicAdapterOps
-topicRuntimeOps config = TopicAdapterOps
-  { topicInspect = inspect
-  , topicCreate = create
-  , topicAlterRetention = alterRetention
-  }
+topicRuntimeOps config =
+  TopicAdapterOps
+    { topicInspect = inspect
+    , topicCreate = create
+    , topicAlterRetention = alterRetention
+    }
   where
     inspect resource = case Map.lookup resource (topicRuntimeSpecs config) of
       Nothing -> pure (TopicUnavailable "topic is absent from the reviewed declaration")
       Just binding -> case topicDeclaration binding ^. #address of
         BrokerTopic _ name -> do
-          listed <- runRpk config binding
-            ["topic", "list", nameText name, "--format", "json"]
+          listed <-
+            runRpk
+              config
+              binding
+              ["topic", "list", nameText name, "--format", "json"]
           case listed >>= parseList name of
             Left reason -> pure (TopicUnavailable reason)
             Right False -> pure TopicMissing
             Right True -> do
-              described <- runRpk config binding
-                ["topic", "describe", nameText name, "--format", "json"]
+              described <-
+                runRpk
+                  config
+                  binding
+                  ["topic", "describe", nameText name, "--format", "json"]
               uid <- brokerUid config binding name
               pure $ case (described >>= parseDescription name, uid) of
                 (Right (partitions, replicas, retention), Right physical) ->
@@ -60,33 +68,62 @@ topicRuntimeOps config = TopicAdapterOps
     create plan = case Map.lookup (topicPlanResource plan) (topicRuntimeSpecs config) of
       Nothing -> pure (AdapterEffectAmbiguous "topic declaration disappeared")
       Just binding -> do
-        let args = ["topic", "create", "-p", tshow (topicPlanPartitions plan),
-              "-r", tshow (topicPlanReplicas plan)]
-              <> maybe [] (\ms -> ["-c", "retention.ms=" <> tshow ms]) (topicPlanRetentionMs plan)
-              <> [nameText (topicPlanName plan)]
+        let args =
+              [ "topic"
+              , "create"
+              , "-p"
+              , tshow (topicPlanPartitions plan)
+              , "-r"
+              , tshow (topicPlanReplicas plan)
+              ]
+                <> maybe [] (\ms -> ["-c", "retention.ms=" <> tshow ms]) (topicPlanRetentionMs plan)
+                <> [nameText (topicPlanName plan)]
         result <- runRpk config binding args
-        pure (case result of
-          Right _ -> AdapterEffectCompleted
-          Left reason -> AdapterEffectAmbiguous reason)
+        pure
+          ( case result of
+              Right _ -> AdapterEffectCompleted
+              Left reason -> AdapterEffectAmbiguous reason
+          )
     alterRetention plan = case (Map.lookup (topicPlanResource plan) (topicRuntimeSpecs config), topicPlanRetentionMs plan) of
       (Just binding, Just milliseconds) -> do
-        result <- runRpk config binding
-          ["topic", "alter-config", nameText (topicPlanName plan),
-            "--set", "retention.ms=" <> tshow milliseconds]
-        pure (case result of
-          Right _ -> AdapterEffectCompleted
-          Left reason -> AdapterEffectAmbiguous reason)
+        result <-
+          runRpk
+            config
+            binding
+            [ "topic"
+            , "alter-config"
+            , nameText (topicPlanName plan)
+            , "--set"
+            , "retention.ms=" <> tshow milliseconds
+            ]
+        pure
+          ( case result of
+              Right _ -> AdapterEffectCompleted
+              Left reason -> AdapterEffectAmbiguous reason
+          )
       _ -> pure (AdapterEffectFailed (KnownNoEffect "reviewed topic retention target is absent"))
 
 runRpk :: TopicRuntimeConfig -> TopicBinding -> [Text] -> IO (Either Text BS.ByteString)
-runRpk config binding args = runKubectl config
-  (["exec", "-n", nameText (topicNamespace binding),
-    "pod/" <> nameText (topicBrokerName binding) <> "-0", "--", "rpk"]
-    <> args <> ["-X", "brokers=" <> bootstrap binding])
+runRpk config binding args =
+  runKubectl
+    config
+    ( [ "exec"
+      , "-n"
+      , nameText (topicNamespace binding)
+      , "pod/" <> nameText (topicBrokerName binding) <> "-0"
+      , "--"
+      , "rpk"
+      ]
+        <> args
+        <> ["-X", "brokers=" <> bootstrap binding]
+    )
 
 bootstrap :: TopicBinding -> Text
-bootstrap binding = nameText (topicBrokerName binding) <> "."
-  <> nameText (topicNamespace binding) <> ".svc.cluster.local:9092"
+bootstrap binding =
+  nameText (topicBrokerName binding)
+    <> "."
+    <> nameText (topicNamespace binding)
+    <> ".svc.cluster.local:9092"
 
 runKubectl :: TopicRuntimeConfig -> [Text] -> IO (Either Text BS.ByteString)
 runKubectl config args = do
@@ -94,8 +131,13 @@ runKubectl config args = do
   case guarded of
     Left reason -> pure (Left ("broker context guard refused: " <> reason))
     Right () -> do
-      let command = proc "kubectl" (map T.unpack
-            (["--context", topicKubectlContext config] <> args))
+      let command =
+            proc
+              "kubectl"
+              ( map
+                  T.unpack
+                  (["--context", topicKubectlContext config] <> args)
+              )
       result <- try (readCreateProcessWithExitCode command "")
       pure $ case result of
         Left (_ :: IOException) -> Left "could not invoke broker topic transport"
@@ -104,8 +146,17 @@ runKubectl config args = do
 
 brokerUid :: TopicRuntimeConfig -> TopicBinding -> Name -> IO (Either Text PhysicalIdentity)
 brokerUid config binding name = do
-  result <- runKubectl config ["get", "statefulset", nameText (topicBrokerName binding),
-    "-n", nameText (topicNamespace binding), "-o", "json"]
+  result <-
+    runKubectl
+      config
+      [ "get"
+      , "statefulset"
+      , nameText (topicBrokerName binding)
+      , "-n"
+      , nameText (topicNamespace binding)
+      , "-o"
+      , "json"
+      ]
   pure $ do
     bytes <- result
     value <- first (const "broker StatefulSet observation is malformed") (eitherDecodeStrict bytes)
@@ -118,8 +169,10 @@ brokerUid config binding name = do
 parseList :: Name -> BS.ByteString -> Either Text Bool
 parseList wanted bytes = do
   rows <- first (const "rpk topic list response is malformed") (eitherDecodeStrict bytes)
-  listed <- first (const "rpk topic list response has invalid entries")
-    (traverse (parseEither parseRow) (rows :: [Value]))
+  listed <-
+    first
+      (const "rpk topic list response has invalid entries")
+      (traverse (parseEither parseRow) (rows :: [Value]))
   case listed of
     [(name, partitions, replicas)]
       | name == nameText wanted && partitions == 0 && replicas == 0 -> Right False
@@ -133,25 +186,46 @@ parseList wanted bytes = do
 parseDescription :: Name -> BS.ByteString -> Either Text (Int, Int, Maybe Int)
 parseDescription wanted bytes = do
   rows <- first (const "rpk topic description is malformed") (eitherDecodeStrict bytes)
-  details <- first (const "rpk topic description has invalid fields")
-    (traverse (parseEither parseRow) (rows :: [Value]))
+  details <-
+    first
+      (const "rpk topic description has invalid fields")
+      (traverse (parseEither parseRow) (rows :: [Value]))
   case details of
-    [(name, partitions, replicas, retention)] | name == nameText wanted
-      && partitions > 0 && replicas > 0 -> Right (partitions, replicas, retention)
+    [(name, partitions, replicas, retention)]
+      | name == nameText wanted
+          && partitions > 0
+          && replicas > 0 ->
+          Right (partitions, replicas, retention)
     _ -> Left "rpk topic description differs from the requested topic"
   where
     parseRow :: Value -> Parser (Text, Int, Int, Maybe Int)
     parseRow = withObject "topic description" $ \o -> do
-      (name, partitions, replicas) <- o .: "summary" >>= withObject "summary" (\summary ->
-        (,,) <$> summary .: "name" <*> summary .: "partitions" <*> summary .: "replicas")
+      (name, partitions, replicas) <-
+        o .: "summary"
+          >>= withObject
+            "summary"
+            ( \summary ->
+                (,,) <$> summary .: "name" <*> summary .: "partitions" <*> summary .: "replicas"
+            )
       configs <- o .: "configs" :: Parser [Value]
-      entries <- traverse (withObject "topic config" (\entry ->
-        (,) <$> entry .: "key" <*> entry .: "value")) configs
+      entries <-
+        traverse
+          ( withObject
+              "topic config"
+              ( \entry ->
+                  (,) <$> entry .: "key" <*> entry .: "value"
+              )
+          )
+          configs
       let retention = lookup ("retention.ms" :: Text) entries
-      parsedRetention <- traverse (\value -> case reads (T.unpack value) of
-        [(number, "")] -> pure number
-        _ -> fail "retention.ms is not an integer") retention
+      parsedRetention <-
+        traverse
+          ( \value -> case reads (T.unpack value) of
+              [(number, "")] -> pure number
+              _ -> fail "retention.ms is not an integer"
+          )
+          retention
       pure (name, partitions, replicas, parsedRetention)
 
-tshow :: Show a => a -> Text
+tshow :: (Show a) => a -> Text
 tshow = T.pack . show

@@ -250,36 +250,52 @@ instance FromJSON MigrationTombstone where
     MigrationTombstone <$> o .: "destination" <*> o .: "headDigest"
 
 instance ToJSON RetainedIncarnation where
-  toJSON retained = object
-    ([ "owner" .= retainedOwner retained
-    , "revision" .= retainedRevision retained
-    , "physical" .= retainedPhysical retained
-    , "retainedAt" .= retainedAt retained
-    ] <> maybe [] (\digest -> ["migrationReview" .= digest])
-      (retainedMigrationReview retained))
+  toJSON retained =
+    object
+      ( [ "owner" .= retainedOwner retained
+        , "revision" .= retainedRevision retained
+        , "physical" .= retainedPhysical retained
+        , "retainedAt" .= retainedAt retained
+        ]
+          <> maybe
+            []
+            (\digest -> ["migrationReview" .= digest])
+            (retainedMigrationReview retained)
+      )
 
 instance FromJSON RetainedIncarnation where
   parseJSON = withObject "RetainedIncarnation" $ \o -> do
-    unless (all (`elem` ["owner", "revision", "physical", "retainedAt", "migrationReview"]) (KM.keys o))
+    unless
+      (all (`elem` ["owner", "revision", "physical", "retainedAt", "migrationReview"]) (KM.keys o))
       (fail "retained incarnation has an unknown field")
-    RetainedIncarnation <$> o .: "owner" <*> o .: "revision" <*> o .: "physical"
-      <*> o .: "retainedAt" <*> o .:? "migrationReview"
+    RetainedIncarnation
+      <$> o .: "owner"
+      <*> o .: "revision"
+      <*> o .: "physical"
+      <*> o .: "retainedAt"
+      <*> o .:? "migrationReview"
 
 instance ToJSON DeletionTombstone where
-  toJSON tombstone = object
-    [ "owner" .= tombstoneOwner tombstone
-    , "revision" .= tombstoneRevision tombstone
-    , "physical" .= tombstonePhysical tombstone
-    , "deletedAt" .= tombstoneAt tombstone
-    , "review" .= tombstoneReview tombstone
-    ]
+  toJSON tombstone =
+    object
+      [ "owner" .= tombstoneOwner tombstone
+      , "revision" .= tombstoneRevision tombstone
+      , "physical" .= tombstonePhysical tombstone
+      , "deletedAt" .= tombstoneAt tombstone
+      , "review" .= tombstoneReview tombstone
+      ]
 
 instance FromJSON DeletionTombstone where
   parseJSON = withObject "DeletionTombstone" $ \o -> do
-    unless (all (`elem` ["owner", "revision", "physical", "deletedAt", "review"]) (KM.keys o))
+    unless
+      (all (`elem` ["owner", "revision", "physical", "deletedAt", "review"]) (KM.keys o))
       (fail "deletion tombstone has an unknown field")
-    DeletionTombstone <$> o .: "owner" <*> o .: "revision" <*> o .: "physical"
-      <*> o .: "deletedAt" <*> o .: "review"
+    DeletionTombstone
+      <$> o .: "owner"
+      <*> o .: "revision"
+      <*> o .: "physical"
+      <*> o .: "deletedAt"
+      <*> o .: "review"
 
 instance ToJSON DataFencePhase where
   toJSON phase = String $ case phase of
@@ -301,59 +317,108 @@ instance FromJSON DataFencePhase where
     _ -> fail "unknown data fence phase"
 
 instance ToJSON DataFenceRecord where
-  toJSON fence = object $
-    [ "context" .= fenceContext fence
-    , "session" .= fenceSession fence
-    , "transaction" .= fenceTransaction fence
-    , "accepted" .= [object ["scope" .= scope, "revision" .= revision]
-        | (scope, revision) <- Map.toAscList (fenceAccepted fence)]
-    , "physical" .= [object ["resource" .= resource, "identity" .= physical]
-        | (resource, physical) <- Map.toAscList (fencePhysical fence)]
-    , "targets" .= Set.toAscList (fenceTargets fence)
-    , "affected" .= Set.toAscList (fenceAffected fence)
-    , "recoveryArtifact" .= fenceRecoveryArtifact fence
-    , "recoveryDigest" .= fenceRecoveryDigest fence
-    , "savedWriters" .= [object ["resource" .= resource, "configuration" .= configuration]
-        | (resource, configuration) <- Map.toAscList (fenceSavedWriters fence)]
-    , "phase" .= fencePhase fence
-    , "acquiredAt" .= fenceAcquiredAt fence
-    ] <> maybe [] (\intent -> ["providerIntent" .= intent])
-      (fenceProviderIntent fence)
+  toJSON fence =
+    object $
+      [ "context" .= fenceContext fence
+      , "session" .= fenceSession fence
+      , "transaction" .= fenceTransaction fence
+      , "accepted"
+          .= [ object ["scope" .= scope, "revision" .= revision]
+             | (scope, revision) <- Map.toAscList (fenceAccepted fence)
+             ]
+      , "physical"
+          .= [ object ["resource" .= resource, "identity" .= physical]
+             | (resource, physical) <- Map.toAscList (fencePhysical fence)
+             ]
+      , "targets" .= Set.toAscList (fenceTargets fence)
+      , "affected" .= Set.toAscList (fenceAffected fence)
+      , "recoveryArtifact" .= fenceRecoveryArtifact fence
+      , "recoveryDigest" .= fenceRecoveryDigest fence
+      , "savedWriters"
+          .= [ object ["resource" .= resource, "configuration" .= configuration]
+             | (resource, configuration) <- Map.toAscList (fenceSavedWriters fence)
+             ]
+      , "phase" .= fencePhase fence
+      , "acquiredAt" .= fenceAcquiredAt fence
+      ]
+        <> maybe
+          []
+          (\intent -> ["providerIntent" .= intent])
+          (fenceProviderIntent fence)
 
 instance FromJSON DataFenceRecord where
   parseJSON = withObject "DataFenceRecord" $ \o -> do
-    unless (all (`elem` ["context", "session", "transaction", "accepted", "physical", "targets", "affected",
-        "recoveryArtifact", "recoveryDigest", "savedWriters", "providerIntent", "phase", "acquiredAt"])
-        (KM.keys o)) (fail "data fence has an unknown field")
-    accepted <- uniqueEntries "accepted scope" =<< traverse
-      (withObject "fence scope" (\v -> (,) <$> v .: "scope" <*> v .: "revision"))
-      =<< o .: "accepted"
-    physical <- uniqueEntries "physical resource" =<< traverse
-      (withObject "fence physical" (\v -> (,) <$> v .: "resource" <*> v .: "identity"))
-      =<< o .: "physical"
+    unless
+      ( all
+          ( `elem`
+              [ "context"
+              , "session"
+              , "transaction"
+              , "accepted"
+              , "physical"
+              , "targets"
+              , "affected"
+              , "recoveryArtifact"
+              , "recoveryDigest"
+              , "savedWriters"
+              , "providerIntent"
+              , "phase"
+              , "acquiredAt"
+              ]
+          )
+          (KM.keys o)
+      )
+      (fail "data fence has an unknown field")
+    accepted <-
+      uniqueEntries "accepted scope"
+        =<< traverse
+          (withObject "fence scope" (\v -> (,) <$> v .: "scope" <*> v .: "revision"))
+        =<< o .: "accepted"
+    physical <-
+      uniqueEntries "physical resource"
+        =<< traverse
+          (withObject "fence physical" (\v -> (,) <$> v .: "resource" <*> v .: "identity"))
+        =<< o .: "physical"
     targetList <- o .: "targets"
     affectedList <- o .: "affected"
-    unless (not (null targetList) && length targetList == Set.size (Set.fromList targetList)
-      && length affectedList == Set.size (Set.fromList affectedList)
-      && Set.fromList (targetList <> affectedList) `Set.isSubsetOf` Map.keysSet physical)
+    unless
+      ( not (null targetList)
+          && length targetList == Set.size (Set.fromList targetList)
+          && length affectedList == Set.size (Set.fromList affectedList)
+          && Set.fromList (targetList <> affectedList) `Set.isSubsetOf` Map.keysSet physical
+      )
       (fail "data fence target and affected identities must be complete and unique")
-    saved <- uniqueEntries "saved writer" =<< traverse
-      (withObject "fence writer" (\v -> (,) <$> v .: "resource" <*> v .: "configuration"))
-      =<< o .: "savedWriters"
-    unless (Map.keysSet saved == Set.fromList affectedList)
+    saved <-
+      uniqueEntries "saved writer"
+        =<< traverse
+          (withObject "fence writer" (\v -> (,) <$> v .: "resource" <*> v .: "configuration"))
+        =<< o .: "savedWriters"
+    unless
+      (Map.keysSet saved == Set.fromList affectedList)
       (fail "data fence does not preserve every writer configuration")
     session <- o .: "session"
     recovery <- o .: "recoveryArtifact"
-    unless (not (T.null session) && not (T.null recovery) && not (Map.null physical))
+    unless
+      (not (T.null session) && not (T.null recovery) && not (Map.null physical))
       (fail "data fence lacks its session, recovery artifact, or physical target")
     providerIntent <- o .:? "providerIntent"
-    unless (maybe True isObject providerIntent)
+    unless
+      (maybe True isObject providerIntent)
       (fail "data fence provider intent must be an object")
-    DataFenceRecord <$> o .: "context" <*> pure session <*> o .:? "transaction" <*> pure accepted
-      <*> pure physical <*> pure (Set.fromList targetList)
-      <*> pure (Set.fromList affectedList) <*> pure recovery
-      <*> o .: "recoveryDigest" <*> pure saved <*> pure providerIntent
-      <*> o .: "phase" <*> o .: "acquiredAt"
+    DataFenceRecord
+      <$> o .: "context"
+      <*> pure session
+      <*> o .:? "transaction"
+      <*> pure accepted
+      <*> pure physical
+      <*> pure (Set.fromList targetList)
+      <*> pure (Set.fromList affectedList)
+      <*> pure recovery
+      <*> o .: "recoveryDigest"
+      <*> pure saved
+      <*> pure providerIntent
+      <*> o .: "phase"
+      <*> o .: "acquiredAt"
     where
       isObject (Object _) = True
       isObject _ = False
@@ -365,27 +430,31 @@ instance FromJSON DataFenceRecord where
 instance ToJSON HeadManifest where
   toJSON headValue =
     object
-      ([ "version" .= headSchemaVersion headValue
-      , "generation" .= headGeneration headValue
-      , "sequence" .= headSequence headValue
-      , "binding" .= headBinding headValue
-      , "clientIdentity" .= headClientIdentity headValue
-      , "accepted" .= revisionsValue (headAccepted headValue)
-      , "converged" .= revisionsValue (headConverged headValue)
-      , "activeTransaction" .= headActiveTransaction headValue
-      , "executorClaim" .= headExecutorClaim headValue
-      ] <> ["retained" .= retainedValue (headRetained headValue) | not (Map.null (headRetained headValue))]
-        <> ["collected" .= collectedValue (headCollected headValue) | not (Map.null (headCollected headValue))]
-        <> maybe [] (\marker -> ["migration" .= marker]) (headMigration headValue)
-        <> maybe [] (\fence -> ["dataFence" .= fence]) (headDataFence headValue))
+      ( [ "version" .= headSchemaVersion headValue
+        , "generation" .= headGeneration headValue
+        , "sequence" .= headSequence headValue
+        , "binding" .= headBinding headValue
+        , "clientIdentity" .= headClientIdentity headValue
+        , "accepted" .= revisionsValue (headAccepted headValue)
+        , "converged" .= revisionsValue (headConverged headValue)
+        , "activeTransaction" .= headActiveTransaction headValue
+        , "executorClaim" .= headExecutorClaim headValue
+        ]
+          <> ["retained" .= retainedValue (headRetained headValue) | not (Map.null (headRetained headValue))]
+          <> ["collected" .= collectedValue (headCollected headValue) | not (Map.null (headCollected headValue))]
+          <> maybe [] (\marker -> ["migration" .= marker]) (headMigration headValue)
+          <> maybe [] (\fence -> ["dataFence" .= fence]) (headDataFence headValue)
+      )
     where
       revisionsValue revisions = [object ["scope" .= scope, "revision" .= revision] | (scope, revision) <- Map.toAscList revisions]
       retainedValue entries =
-        [object ["resource" .= resource, "incarnation" .= incarnation]
-        | (resource, incarnation) <- Map.toAscList entries]
+        [ object ["resource" .= resource, "incarnation" .= incarnation]
+        | (resource, incarnation) <- Map.toAscList entries
+        ]
       collectedValue entries =
-        [object ["resource" .= resource, "tombstone" .= tombstone]
-        | (resource, tombstone) <- Map.toAscList entries]
+        [ object ["resource" .= resource, "tombstone" .= tombstone]
+        | (resource, tombstone) <- Map.toAscList entries
+        ]
 
 instance FromJSON HeadManifest where
   parseJSON = withObject "HeadManifest" $ \o -> do
@@ -400,17 +469,28 @@ instance FromJSON HeadManifest where
     converged <- parseRevisions =<< o .: "converged"
     retained <- parseRetained =<< o .:? "retained" .!= []
     collected <- parseCollected =<< o .:? "collected" .!= []
-    unless (Map.null (Map.intersection retained collected))
+    unless
+      (Map.null (Map.intersection retained collected))
       (fail "resource cannot be retained and collected in the same head")
     active <- o .: "activeTransaction"
-    unless (isJust active || all (`Map.member` accepted) (Map.keys converged))
+    unless
+      (isJust active || all (`Map.member` accepted) (Map.keys converged))
       (fail "converged scopes must also be accepted when no transaction is active")
     binding <- o .: "binding"
     fence <- o .:? "dataFence"
-    unless (maybe True (\entry -> fenceContext entry == binding
-      && fenceAccepted entry == accepted
-      && maybe (isNothing active) (\transaction -> active == Just transaction)
-        (fenceTransaction entry)) fence)
+    unless
+      ( maybe
+          True
+          ( \entry ->
+              fenceContext entry == binding
+                && fenceAccepted entry == accepted
+                && maybe
+                  (isNothing active)
+                  (\transaction -> active == Just transaction)
+                  (fenceTransaction entry)
+          )
+          fence
+      )
       (fail "data fence differs from its context, accepted head, or linked transaction")
     HeadManifest version generation sequenceNumber
       <$> pure binding
@@ -484,8 +564,10 @@ openObjectStoreReadOnlyWithLock ops binding client cache lockPath =
   openObjectStore False ops binding client cache (Just lockPath)
 
 openObjectStore :: Bool -> ObjectOps -> ContextBinding -> Text -> Maybe FilePath -> Maybe FilePath -> IO (Either StoreError InventoryStore)
-openObjectStore mayInitialize ops binding client cache lockPath = case canonicalValue (object
-  ["version" .= (1 :: Int), "binding" .= binding]) of
+openObjectStore mayInitialize ops binding client cache lockPath = case canonicalValue
+  ( object
+      ["version" .= (1 :: Int), "binding" .= binding]
+  ) of
   Left reason -> pure (Left (StoreInvalidObject "format.json" reason))
   Right expected -> do
     observed <- getObject ops (ObjectName "format.json")
@@ -494,8 +576,9 @@ openObjectStore mayInitialize ops binding client cache lockPath = case canonical
       ObjectFound _ bytes
         | bytes == expected -> Right <$> build
         | otherwise -> pure (Left (StoreConditionFailed "inventory object prefix belongs to a different context or format"))
-      ObjectAbsent | not mayInitialize ->
-        pure (Left (StoreConditionFailed "inventory object prefix is not initialized"))
+      ObjectAbsent
+        | not mayInitialize ->
+            pure (Left (StoreConditionFailed "inventory object prefix is not initialized"))
       ObjectAbsent -> do
         outcome <- putObject ops IfAbsent (ObjectName "format.json") expected
         case outcome of
@@ -546,8 +629,13 @@ inspectHeadSchema bytes = do
   value <- first (StoreInvalidObject "head.json" . T.pack) (eitherDecodeStrict' bytes)
   canonical <- first (StoreInvalidObject "head.json") (canonicalValue value)
   unless (canonical == bytes) (Left (StoreInvalidObject "head.json" "head manifest is not canonical"))
-  version <- first (StoreInvalidObject "head.json" . T.pack) (parseEither
-    (withObject "HeadManifest" (.: "version")) value)
+  version <-
+    first
+      (StoreInvalidObject "head.json" . T.pack)
+      ( parseEither
+          (withObject "HeadManifest" (.: "version"))
+          value
+      )
   unless (version >= (1 :: Int)) (Left (StoreInvalidObject "head.json" "invalid inventory head schema version"))
   pure version
 
@@ -597,7 +685,8 @@ readReviewSnapshot store digest = do
         _ -> readObject store key
       pure $ do
         bytes <- loaded >>= maybe (Left (StoreInvalidObject key "selected review is not published")) Right
-        unless (contentDigest bytes == digest)
+        unless
+          (contentDigest bytes == digest)
           (Left (StoreInvalidObject key "selected review digest mismatch"))
         pure (StoreSnapshot headValue (Set.singleton digest))
 
@@ -636,8 +725,11 @@ appendAtSequence store sequenceNumber bytes
 -- lock. Conditional creation handles a competing writer; the later head CAS
 -- refuses stale sequence advancement. Avoid rereading head and checking the
 -- known-absent event before each normal append.
-appendAtObservedHead :: InventoryStore -> HeadManifest -> ByteString
-  -> IO (Either StoreError ContentDigest)
+appendAtObservedHead ::
+  InventoryStore ->
+  HeadManifest ->
+  ByteString ->
+  IO (Either StoreError ContentDigest)
 appendAtObservedHead store headValue bytes
   | isJust (headMigration headValue) =
       pure (Left (StoreConditionFailed "inventory store has migrated; reload the context shell"))
@@ -693,8 +785,12 @@ replaceObservedHeadUnlocked (ObservedHead store current providerGeneration) repl
       Left err -> pure (Left (StoreInvalidObject "head.json" err))
       Right bytes -> case store of
         InventoryStore (ObjectBackend ops _ _ _ _ _) -> do
-          outcome <- putObject ops (maybe IfAbsent IfGenerationMatches providerGeneration)
-            (ObjectName "head.json") bytes
+          outcome <-
+            putObject
+              ops
+              (maybe IfAbsent IfGenerationMatches providerGeneration)
+              (ObjectName "head.json")
+              bytes
           pure $ case outcome of
             PutWritten _ -> Right ()
             PutPreconditionFailed -> Left (StoreConditionFailed "inventory head generation changed")
@@ -713,8 +809,9 @@ mutableHeadAllowed store = do
   existing <- readObjectUnlocked store "head.json"
   pure $ case existing >>= traverse decodeHead of
     Left err -> Left err
-    Right (Just headValue) | Just marker <- headMigration headValue ->
-      Left (StoreConditionFailed ("inventory store migrated to " <> migrationDestination marker <> "; reload the context shell"))
+    Right (Just headValue)
+      | Just marker <- headMigration headValue ->
+          Left (StoreConditionFailed ("inventory store migrated to " <> migrationDestination marker <> "; reload the context shell"))
     Right _ -> Right ()
 
 replaceObjectHead :: ObjectOps -> Maybe HeadManifest -> ByteString -> IO (Either StoreError ())
@@ -722,12 +819,16 @@ replaceObjectHead ops previous bytes = do
   current <- getObject ops (ObjectName "head.json")
   case current of
     GetUnknown reason -> pure (Left (StoreIoError reason))
-    ObjectAbsent | previous /= Nothing ->
-      pure (Left (StoreConditionFailed "inventory head disappeared before conditional write"))
-    ObjectFound _ _ | previous == Nothing ->
-      pure (Left (StoreConditionFailed "inventory head appeared before conditional write"))
-    ObjectFound _ old | Just prior <- previous, decodeHead old /= Right prior ->
-      pure (Left (StoreConditionFailed "inventory head changed before conditional write"))
+    ObjectAbsent
+      | previous /= Nothing ->
+          pure (Left (StoreConditionFailed "inventory head disappeared before conditional write"))
+    ObjectFound _ _
+      | previous == Nothing ->
+          pure (Left (StoreConditionFailed "inventory head appeared before conditional write"))
+    ObjectFound _ old
+      | Just prior <- previous
+      , decodeHead old /= Right prior ->
+          pure (Left (StoreConditionFailed "inventory head changed before conditional write"))
     _ -> do
       let condition = case current of
             ObjectAbsent -> IfAbsent
@@ -756,17 +857,17 @@ withProcessLock store action = do
         fileLock (root </> "process.lock")
   where
     fileLock path = do
-        createDirectoryIfMissing True (takeDirectory path)
-        attempted <- try $ bracket (openFile path AppendMode) hClose $ \handle -> do
-          setFileMode path 0o600
-          acquired <- hTryLock handle ExclusiveLock
-          if not acquired
-            then pure (Left StoreBusy)
-            else (Right <$> action (LockedStore store)) `finally` hUnlock handle
-        pure $ case (attempted :: Either IOException (Either StoreError a)) of
-          Left err | isAlreadyInUseError err -> Left StoreBusy
-          Left err -> Left (StoreIoError (T.pack (show err)))
-          Right result -> result
+      createDirectoryIfMissing True (takeDirectory path)
+      attempted <- try $ bracket (openFile path AppendMode) hClose $ \handle -> do
+        setFileMode path 0o600
+        acquired <- hTryLock handle ExclusiveLock
+        if not acquired
+          then pure (Left StoreBusy)
+          else (Right <$> action (LockedStore store)) `finally` hUnlock handle
+      pure $ case (attempted :: Either IOException (Either StoreError a)) of
+        Left err | isAlreadyInUseError err -> Left StoreBusy
+        Left err -> Left (StoreIoError (T.pack (show err)))
+        Right result -> result
     maskMVar lock work = do
       acquired <- tryTakeMVar lock
       case acquired of
@@ -855,7 +956,8 @@ migrateStore source destination sourceLabel label = do
         Left err -> pure (Left err)
         Right Nothing -> pure (Left (StoreConditionFailed "source inventory store is not initialized"))
         Right (Just oldHead)
-          | isJust (headActiveTransaction oldHead) || isJust (headExecutorClaim oldHead)
+          | isJust (headActiveTransaction oldHead)
+              || isJust (headExecutorClaim oldHead)
               || isJust (headDataFence oldHead) ->
               pure (Left (StoreConditionFailed "source inventory store has an unresolved transaction or executor claim"))
           | otherwise -> do
@@ -872,8 +974,9 @@ migrateStore source destination sourceLabel label = do
                             Just marker -> migrationHeadDigest marker
                             Nothing -> maybe (contentDigest BS.empty) contentDigest (lookup "head.json" values)
                       case headMigration oldHead of
-                        Just marker | migrationDestination marker /= label ->
-                          pure (Left (StoreConditionFailed "source inventory store migrated to a different destination"))
+                        Just marker
+                          | migrationDestination marker /= label ->
+                              pure (Left (StoreConditionFailed "source inventory store migrated to a different destination"))
                         Just _ -> do
                           activated <- activateMigrationHead destination sourceLabel oldDigest
                           case activated of
@@ -883,16 +986,23 @@ migrateStore source destination sourceLabel label = do
                           destinationHead <- readHead destination
                           case destinationHead of
                             Left err -> pure (Left err)
-                            Right (Just current) | headMigration current == Nothing ->
-                                pure (Left (StoreConditionFailed "destination inventory head is already active"))
-                            Right (Just current) | Just marker <- headMigration current,
-                              migrationDestination marker /= sourceLabel ->
-                                pure (Left (StoreConditionFailed "destination tombstone points to another store"))
+                            Right (Just current)
+                              | headMigration current == Nothing ->
+                                  pure (Left (StoreConditionFailed "destination inventory head is already active"))
+                            Right (Just current)
+                              | Just marker <- headMigration current
+                              , migrationDestination marker /= sourceLabel ->
+                                  pure (Left (StoreConditionFailed "destination tombstone points to another store"))
                             Right _ -> copyAndCommit values members oldDigest oldHead
     copyAndCommit values members oldDigest oldHead = do
-      copied <- traverse (\(key, bytes) -> if key == "head.json"
-        then pure (Right ())
-        else publishMigrationMember destination key bytes) values
+      copied <-
+        traverse
+          ( \(key, bytes) ->
+              if key == "head.json"
+                then pure (Right ())
+                else publishMigrationMember destination key bytes
+          )
+          values
       case sequence copied of
         Left err -> pure (Left err)
         Right _ -> case lookup "head.json" values of
@@ -906,12 +1016,14 @@ migrateStore source destination sourceLabel label = do
                 case verified of
                   Left err -> pure (Left err)
                   Right () -> do
-                    disabled <- replaceHeadIfGenerationMatches source
-                      (Just (headGeneration oldHead))
-                      oldHead
-                        { headGeneration = headGeneration oldHead + 1
-                        , headMigration = Just (MigrationTombstone label oldDigest)
-                        }
+                    disabled <-
+                      replaceHeadIfGenerationMatches
+                        source
+                        (Just (headGeneration oldHead))
+                        oldHead
+                          { headGeneration = headGeneration oldHead + 1
+                          , headMigration = Just (MigrationTombstone label oldDigest)
+                          }
                     case disabled of
                       Left err -> pure (Left err)
                       Right () -> do
@@ -922,8 +1034,9 @@ migrateStore source destination sourceLabel label = do
     requireMember (_, Nothing) = Left (StoreConditionFailed "store changed while migration was reading it")
     requireMember (key, Just bytes) = do
       case immutableKeyDigest key of
-        Just expected | contentDigest bytes /= expected ->
-          Left (StoreInvalidObject key "immutable member digest mismatch during migration")
+        Just expected
+          | contentDigest bytes /= expected ->
+              Left (StoreInvalidObject key "immutable member digest mismatch during migration")
         _ -> Right ()
       Right (key, bytes)
     verifyStagedCopy members expectedDigest = verifyMembers members (Just expectedDigest)
@@ -947,13 +1060,17 @@ migrateStore source destination sourceLabel label = do
           pure $ do
             src <- left >>= maybe (Left (StoreConditionFailed "source member disappeared")) Right
             dst <- right >>= maybe (Left (StoreConditionFailed "destination member disappeared")) Right
-            if key == "head.json" then do
-              destinationHead <- decodeHead dst
-              let actualDigest = maybe (contentDigest dst) migrationHeadDigest (headMigration destinationHead)
-              unless (Just actualDigest == expected)
-                (Left (StoreConditionFailed "destination inventory head digest differs"))
-              else unless (src == dst)
-                (Left (StoreConditionFailed "destination inventory member differs"))
+            if key == "head.json"
+              then do
+                destinationHead <- decodeHead dst
+                let actualDigest = maybe (contentDigest dst) migrationHeadDigest (headMigration destinationHead)
+                unless
+                  (Just actualDigest == expected)
+                  (Left (StoreConditionFailed "destination inventory head digest differs"))
+              else
+                unless
+                  (src == dst)
+                  (Left (StoreConditionFailed "destination inventory member differs"))
 
 publishMigrationMember :: InventoryStore -> FilePath -> ByteString -> IO (Either StoreError ())
 publishMigrationMember destination key bytes = withBackendGuard destination $ do
@@ -971,17 +1088,25 @@ installMigrationHead destination sourceLabel label bytes = withBackendGuard dest
     Left err -> pure (Left err)
     Right oldHead -> case decodeHead bytes of
       Left err -> pure (Left err)
-      Right active -> case canonicalValue (toJSON (active
-        { headMigration = Just (MigrationTombstone sourceLabel (contentDigest bytes)) })) of
+      Right active -> case canonicalValue
+        ( toJSON
+            ( active
+                { headMigration = Just (MigrationTombstone sourceLabel (contentDigest bytes))
+                }
+            )
+        ) of
         Left err -> pure (Left (StoreInvalidObject "head.json" err))
         Right staged -> case current of
           Right (Just oldBytes) | oldBytes == staged -> pure (Right ())
           _ -> case oldHead of
-            Just old | Just marker <- headMigration old,
-              migrationDestination marker == label ->
-                pure (Left (StoreConditionFailed "destination head already points to its own location"))
-            Just old | Just marker <- headMigration old,
-              migrationDestination marker == sourceLabel -> writeHead (Just old) staged
+            Just old
+              | Just marker <- headMigration old
+              , migrationDestination marker == label ->
+                  pure (Left (StoreConditionFailed "destination head already points to its own location"))
+            Just old
+              | Just marker <- headMigration old
+              , migrationDestination marker == sourceLabel ->
+                  writeHead (Just old) staged
             Just _ -> pure (Left (StoreConditionFailed "destination inventory head is already active or points elsewhere"))
             Nothing -> writeHead Nothing staged
   where
@@ -996,17 +1121,22 @@ activateMigrationHead destination sourceLabel expectedDigest = withBackendGuard 
     Left err -> pure (Left err)
     Right Nothing -> pure (Left (StoreConditionFailed "destination inventory head is absent"))
     Right (Just old) -> case headMigration old of
-      Nothing -> pure $ if maybe False ((== expectedDigest) . contentDigest) (either (const Nothing) id current)
-        then Right () else Left (StoreConditionFailed "destination inventory head differs")
-      Just marker | migrationDestination marker == sourceLabel
-        && migrationHeadDigest marker == expectedDigest ->
-          case canonicalValue (toJSON (old {headMigration = Nothing})) of
-            Left err -> pure (Left (StoreInvalidObject "head.json" err))
-            Right active | contentDigest active /= expectedDigest ->
-              pure (Left (StoreConditionFailed "staged destination head differs"))
-            Right active -> case destination of
-              InventoryStore (ObjectBackend ops _ _ _ _ _) -> replaceObjectHead ops (Just old) active
-              _ -> writeObjectUnlocked destination True "head.json" active
+      Nothing ->
+        pure $
+          if maybe False ((== expectedDigest) . contentDigest) (either (const Nothing) id current)
+            then Right ()
+            else Left (StoreConditionFailed "destination inventory head differs")
+      Just marker
+        | migrationDestination marker == sourceLabel
+            && migrationHeadDigest marker == expectedDigest ->
+            case canonicalValue (toJSON (old {headMigration = Nothing})) of
+              Left err -> pure (Left (StoreInvalidObject "head.json" err))
+              Right active
+                | contentDigest active /= expectedDigest ->
+                    pure (Left (StoreConditionFailed "staged destination head differs"))
+              Right active -> case destination of
+                InventoryStore (ObjectBackend ops _ _ _ _ _) -> replaceObjectHead ops (Just old) active
+                _ -> writeObjectUnlocked destination True "head.json" active
       _ -> pure (Left (StoreConditionFailed "destination head migration marker differs"))
 
 decodeBackupManifest :: ByteString -> Either StoreError [(FilePath, ContentDigest)]
@@ -1016,9 +1146,11 @@ decodeBackupManifest bytes = do
   unless (canonical == bytes) (Left (StoreInvalidObject "backup.json" "backup manifest is not canonical"))
   members <- first (StoreInvalidObject "backup.json" . T.pack) (parseEither parser value)
   let keys = map fst members
-  unless (length keys == Set.size (Set.fromList keys))
+  unless
+    (length keys == Set.size (Set.fromList keys))
     (Left (StoreInvalidObject "backup.json" "duplicate backup members"))
-  unless ("head.json" `elem` keys)
+  unless
+    ("head.json" `elem` keys)
     (Left (StoreInvalidObject "backup.json" "missing inventory head"))
   pure members
   where
@@ -1081,11 +1213,13 @@ readObjectUnlocked (InventoryStore (ObjectBackend ops _ cache _ _ _)) key = do
     Nothing -> pure Nothing
     Just path -> do
       exists <- doesPathExist path
-      if not exists then pure Nothing else do
-        loaded <- readVerifiedFile path
-        pure $ case (loaded, expected) of
-          (Right bytes, Just digest) | contentDigest bytes == digest -> Just bytes
-          _ -> Nothing
+      if not exists
+        then pure Nothing
+        else do
+          loaded <- readVerifiedFile path
+          pure $ case (loaded, expected) of
+            (Right bytes, Just digest) | contentDigest bytes == digest -> Just bytes
+            _ -> Nothing
   case cached of
     Just bytes -> pure (Right (Just bytes))
     Nothing -> do
@@ -1094,8 +1228,9 @@ readObjectUnlocked (InventoryStore (ObjectBackend ops _ cache _ _ _)) key = do
         ObjectAbsent -> pure (Right Nothing)
         GetUnknown reason -> pure (Left (StoreIoError reason))
         ObjectFound _ bytes -> case expected of
-          Just digest | contentDigest bytes /= digest ->
-            pure (Left (StoreInvalidObject key "remote immutable member digest mismatch"))
+          Just digest
+            | contentDigest bytes /= digest ->
+                pure (Left (StoreInvalidObject key "remote immutable member digest mismatch"))
           _ -> do
             case cachedPath of
               Nothing -> pure ()
@@ -1113,10 +1248,15 @@ readJournalPrefix store@(InventoryStore backend) count = case backend of
     loaded <- getObjects ops (ObjectName "journal")
     pure $ do
       objects <- first StoreIoError loaded
-      traverse (\sequenceNumber ->
-        let key = journalKey sequenceNumber
-         in maybe (Left (StoreInvalidObject key "committed journal event is missing")) Right
-              (Map.lookup (ObjectName (T.pack key)) objects)) [0 .. count - 1]
+      traverse
+        ( \sequenceNumber ->
+            let key = journalKey sequenceNumber
+             in maybe
+                  (Left (StoreInvalidObject key "committed journal event is missing"))
+                  Right
+                  (Map.lookup (ObjectName (T.pack key)) objects)
+        )
+        [0 .. count - 1]
   _ -> do
     loaded <- traverse (readObject store . journalKey) [0 .. count - 1]
     pure $ do

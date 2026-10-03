@@ -8,7 +8,8 @@ module Nagare.Inventory.Lifecycle
   , decideAdoption
   , decideRetirement
   , decideCollection
-  ) where
+  )
+where
 
 import Data.Aeson
 import Data.Aeson.KeyMap qualified as KM
@@ -44,56 +45,93 @@ data AdoptionInput = AdoptionInput
 decodeAdoptionInput :: ByteString -> Either Text AdoptionInput
 decodeAdoptionInput bytes = first (T.pack . show) (eitherDecodeStrict' bytes)
 
-decideAdoption
-  :: CompositionCandidate -> InventoryHistory -> ObservationSet -> AdoptionInput
-  -> Either (NonEmpty PlanError) LifecycleDecisions
+decideAdoption ::
+  CompositionCandidate ->
+  InventoryHistory ->
+  ObservationSet ->
+  AdoptionInput ->
+  Either (NonEmpty PlanError) LifecycleDecisions
 decideAdoption candidate history observations input = do
   unless (null errors) (Left (NE.fromList errors))
-  validateLifecycleDecisions candidate history observations
-    [ LifecycleProposal resource (maybe ApproveAdoption (const ApproveTransfer)
-        (adoptionPreviousOwner target))
+  validateLifecycleDecisions
+    candidate
+    history
+    observations
+    [ LifecycleProposal
+        resource
+        ( maybe
+            ApproveAdoption
+            (const ApproveTransfer)
+            (adoptionPreviousOwner target)
+        )
         (lifecycleObservationDigest (adoptionBinding input) resource fact)
     | target <- adoptionTargets input
     , let resource = adoptionResource target
     , Just fact <- [Map.lookup resource (observationMap observations)]
     ]
   where
-    declared = Map.fromList
-      [(resource ^. #identity, resource) | Managed resource <- inventoryDeclarations (candidateInventory candidate)]
-    historical = Map.fromList
-      [(resource ^. #identity, resource) | (_, scope) <- Map.elems (historyAccepted history)
-        , bundle <- scopeBundles scope, Managed resource <- declarations bundle]
+    declared =
+      Map.fromList
+        [(resource ^. #identity, resource) | Managed resource <- inventoryDeclarations (candidateInventory candidate)]
+    historical =
+      Map.fromList
+        [ (resource ^. #identity, resource)
+        | (_, scope) <- Map.elems (historyAccepted history)
+        , bundle <- scopeBundles scope
+        , Managed resource <- declarations bundle
+        ]
     issue code message resource = PlanError code message [resource]
     errors =
-      [issue "adoption-binding" "proposal belongs to another context or provider target" (adoptionResource target)
+      [ issue "adoption-binding" "proposal belongs to another context or provider target" (adoptionResource target)
       | target <- adoptionTargets input
-      , adoptionBinding input /= inventoryBinding (candidateInventory candidate)]
-      <> [issue "adoption-declaration" "proposal address differs from the composed declaration" (adoptionResource target)
-         | target <- adoptionTargets input
-         , maybe True ((/= adoptionAddress target) . (^. #address))
-             (Map.lookup (adoptionResource target) declared)]
-      <> [issue "adoption-incarnation" "proposal physical identity or prior owner differs from the fresh observation" (adoptionResource target)
-         | target <- adoptionTargets input
-         , let observed = Map.lookup (adoptionResource target) (observationMap observations)
-               expected = case adoptionPreviousOwner target of
-                 Nothing -> Just (ObservedUnowned (adoptionPhysical target))
-                 Just prior -> if maybe False ((== prior) . (^. #owner))
-                   (Map.lookup (adoptionResource target) historical)
-                   then Just (ObservedPresent (adoptionPhysical target)) else Nothing
-         , observed /= expected]
-      <> [issue "duplicate-adoption" "resource appears more than once in the adoption proposal" resource
-         | resource <- duplicateIds (map adoptionResource (adoptionTargets input))]
-    duplicateIds values = Map.keys (Map.filter (> (1 :: Int))
-      (Map.fromListWith (+) [(value, 1 :: Int) | value <- values]))
+      , adoptionBinding input /= inventoryBinding (candidateInventory candidate)
+      ]
+        <> [ issue "adoption-declaration" "proposal address differs from the composed declaration" (adoptionResource target)
+           | target <- adoptionTargets input
+           , maybe
+               True
+               ((/= adoptionAddress target) . (^. #address))
+               (Map.lookup (adoptionResource target) declared)
+           ]
+        <> [ issue "adoption-incarnation" "proposal physical identity or prior owner differs from the fresh observation" (adoptionResource target)
+           | target <- adoptionTargets input
+           , let observed = Map.lookup (adoptionResource target) (observationMap observations)
+                 expected = case adoptionPreviousOwner target of
+                   Nothing -> Just (ObservedUnowned (adoptionPhysical target))
+                   Just prior ->
+                     if maybe
+                       False
+                       ((== prior) . (^. #owner))
+                       (Map.lookup (adoptionResource target) historical)
+                       then Just (ObservedPresent (adoptionPhysical target))
+                       else Nothing
+           , observed /= expected
+           ]
+        <> [ issue "duplicate-adoption" "resource appears more than once in the adoption proposal" resource
+           | resource <- duplicateIds (map adoptionResource (adoptionTargets input))
+           ]
+    duplicateIds values =
+      Map.keys
+        ( Map.filter
+            (> (1 :: Int))
+            (Map.fromListWith (+) [(value, 1 :: Int) | value <- values])
+        )
 
 -- | A scope retirement retains every directly managed incarnation. Deletion
 -- is a separate reviewed collection path and remains unavailable here.
-decideRetirement
-  :: CompositionCandidate -> InventoryHistory -> ObservationSet
-  -> Either (NonEmpty PlanError) LifecycleDecisions
+decideRetirement ::
+  CompositionCandidate ->
+  InventoryHistory ->
+  ObservationSet ->
+  Either (NonEmpty PlanError) LifecycleDecisions
 decideRetirement candidate history observations =
-  validateLifecycleDecisions candidate history observations
-    [ LifecycleProposal resourceId ApproveRetirement
+  validateLifecycleDecisions
+    candidate
+    history
+    observations
+    [ LifecycleProposal
+        resourceId
+        ApproveRetirement
         (lifecycleObservationDigest binding resourceId fact)
     | RetireScope owner RetainResources <- NE.toList (candidateChanges candidate)
     , Just (_, scope) <- [Map.lookup owner (historyAccepted history)]
@@ -105,28 +143,41 @@ decideRetirement candidate history observations =
   where
     binding = inventoryBinding (candidateInventory candidate)
 
-decideCollection
-  :: CompositionCandidate -> InventoryHistory -> ObservationSet
-  -> Either (NonEmpty PlanError) LifecycleDecisions
+decideCollection ::
+  CompositionCandidate ->
+  InventoryHistory ->
+  ObservationSet ->
+  Either (NonEmpty PlanError) LifecycleDecisions
 decideCollection candidate history observations =
-  validateLifecycleDecisions candidate history observations
-    [LifecycleProposal resource ApproveCollection
-      (lifecycleObservationDigest binding resource fact)
+  validateLifecycleDecisions
+    candidate
+    history
+    observations
+    [ LifecycleProposal
+        resource
+        ApproveCollection
+        (lifecycleObservationDigest binding resource fact)
     | CollectRetained resource <- NE.toList (candidateChanges candidate)
-    , Just fact <- [Map.lookup resource (observationMap observations)]]
+    , Just fact <- [Map.lookup resource (observationMap observations)]
+    ]
   where
     binding = inventoryBinding (candidateInventory candidate)
 
 instance FromJSON AdoptionTarget where
   parseJSON = withObject "AdoptionTarget" $ \o -> do
-    unless (all (`elem` ["resource", "address", "physicalIdentity", "previousOwner"]) (KM.keys o))
+    unless
+      (all (`elem` ["resource", "address", "physicalIdentity", "previousOwner"]) (KM.keys o))
       (fail "unknown adoption target field")
-    AdoptionTarget <$> o .: "resource" <*> o .: "address" <*> o .: "physicalIdentity"
+    AdoptionTarget
+      <$> o .: "resource"
+      <*> o .: "address"
+      <*> o .: "physicalIdentity"
       <*> o .:? "previousOwner"
 
 instance FromJSON AdoptionInput where
   parseJSON = withObject "AdoptionInput" $ \o -> do
-    unless (all (`elem` ["version", "candidate", "binding", "resources"]) (KM.keys o))
+    unless
+      (all (`elem` ["version", "candidate", "binding", "resources"]) (KM.keys o))
       (fail "unknown adoption input field")
     version <- o .: "version"
     unless (version == (1 :: Int)) (fail "unsupported adoption input version")

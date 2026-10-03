@@ -1,11 +1,19 @@
 {
-  "cli/nagare-dsl/test/Spec.hs": 1277,
-  "cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesRuntime.hs": 1303,
-  "cli/nagarectl/src/Nagare/Inventory/Store.hs": 1233,
-  "cli/nagarectl/src/Nagare/Target.hs": 1038,
-  "cli/nagarectl/test/AppDeploySpec.hs": 2491,
-  "cli/nagarectl/test/DataFenceSpec.hs": 3266,
-  "cli/nagarectl/test/InventoryKubernetesSpec.hs": 3851,
-  "cli/nagarectl/test/InventoryTransactionSpec.hs": 2763,
-  "cli/nagare-access/test/Spec.hs": 1852
+  "cli/nagare-access/test/Spec.hs": 1852,
+  "cli/nagare-dsl/src/Nagare/Resource/Inventory.hs": 1015,
+  "cli/nagare-dsl/test/Spec.hs": 1283,
+  "cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesRuntime.hs": 1425,
+  "cli/nagarectl/src/Nagare/Inventory/Command.hs": 1060,
+  "cli/nagarectl/src/Nagare/Inventory/DataFence/KubernetesExclusion.hs": 1199,
+  "cli/nagarectl/src/Nagare/Inventory/Restore.hs": 1203,
+  "cli/nagarectl/src/Nagare/Inventory/Site.hs": 1429,
+  "cli/nagarectl/src/Nagare/Inventory/Store.hs": 1373,
+  "cli/nagarectl/src/Nagare/Target.hs": 1057,
+  "cli/nagarectl/test/AppDeploySpec.hs": 4849,
+  "cli/nagarectl/test/DataFenceSpec.hs": 5624,
+  "cli/nagarectl/test/InventoryApplicationSpec.hs": 1057,
+  "cli/nagarectl/test/InventoryKubernetesLifecycleSpec.hs": 1281,
+  "cli/nagarectl/test/InventoryKubernetesSpec.hs": 6048,
+  "cli/nagarectl/test/InventoryObjectOpsSpec.hs": 1096,
+  "cli/nagarectl/test/InventoryTransactionSpec.hs": 3798
 }

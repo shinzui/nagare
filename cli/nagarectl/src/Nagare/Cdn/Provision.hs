@@ -121,8 +121,11 @@ planCdn cdn target refs =
     CloudflareCdn -> Right (CdnPlan CloudflareCdn (cloudflareActions cdn target))
     GcpCloudCdn -> do
       mapM_ (googleCdnHostname (target ^. #baseDomain)) (target ^. #hostnames)
-      unless (cdn ^. #cacheStaticAssets && isNothing (cdn ^. #defaultTtlSeconds)
-          && null (cdn ^. #cacheRules))
+      unless
+        ( cdn ^. #cacheStaticAssets
+            && isNothing (cdn ^. #defaultTtlSeconds)
+            && null (cdn ^. #cacheRules)
+        )
         (Left "Google CDN cache policy belongs to the Pulumi platform owner; per-application cache overrides are unsupported")
       Right (CdnPlan GcpCloudCdn (gcpActions target refs))
 
@@ -263,9 +266,11 @@ provisionCloudflare cdn target = do
 
 provisionGcp :: GcpStackRefs -> CdnPlan -> CdnTarget -> IO (Either Text CdnResult)
 provisionGcp refs plan target = do
-  referenced <- runSteps
-    [verifyGcpDnsReference refs hostname ip
-    | DnsReference hostname ip <- plan ^. #actions]
+  referenced <-
+    runSteps
+      [ verifyGcpDnsReference refs hostname ip
+      | DnsReference hostname ip <- plan ^. #actions
+      ]
   case referenced of
     Left err -> pure (Left err)
     Right () -> go (plan ^. #actions)
@@ -307,8 +312,13 @@ upsertGcpDns refs hostname ip = do
       Left err -> pure (Left (hostname <> ": cannot inspect the existing Cloud DNS A record: " <> err))
       Right DnsAbsent -> mutate (gcloudDnsCreateArgs project zone hostname ip)
       Right DnsCurrent -> pure (Right ())
-      Right DnsConflict -> pure (Left (hostname
-        <> ": an existing Cloud DNS A record differs; direct deploy cannot replace it without reviewed ownership"))
+      Right DnsConflict ->
+        pure
+          ( Left
+              ( hostname
+                  <> ": an existing Cloud DNS A record differs; direct deploy cannot replace it without reviewed ownership"
+              )
+          )
   where
     project = refs ^. #project
     zone = refs ^. #dnsZone
@@ -340,7 +350,8 @@ parseRecordSet hostname bytes =
     Right (Array values) | [Object object] <- toList values -> do
       recordName <- field "name" object
       recordType <- field "type" object
-      unless (recordName == hostname <> "." && recordType == ("A" :: Text))
+      unless
+        (recordName == hostname <> "." && recordType == ("A" :: Text))
         (Left "listing returned a different record")
       rrdatas <- field "rrdatas" object
       ttl <- field "ttl" object

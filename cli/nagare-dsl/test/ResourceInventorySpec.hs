@@ -2,21 +2,22 @@ module ResourceInventorySpec (resourceInventoryTests) where
 
 import Data.Aeson (Value (..), object, (.=))
 import Data.Aeson.KeyMap qualified as KM
-import Data.ByteString.Char8 qualified as BC
 import Data.ByteString qualified as BS
+import Data.ByteString.Char8 qualified as BC
 import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as Text
+import Data.Yaml qualified as Yaml
 import Nagare.Dsl.Cdn.Types (CdnCacheRule (..), cloudflareCdn, gcpCloudCdn)
 import Nagare.Dsl.Prelude hiding ((.=))
-import Nagare.Resource.Cdn (compileCloudflareCacheContribution, compileCloudflareDnsRecord)
-import Nagare.Resource.Inventory hiding (cluster)
 import Nagare.Resource.Cache (LogicalCacheInput (..), compileLogicalCache)
 import Nagare.Resource.CacheKubernetes
+import Nagare.Resource.Cdn (compileCloudflareCacheContribution, compileCloudflareDnsRecord)
 import Nagare.Resource.Helm
+import Nagare.Resource.Inventory hiding (cluster)
 import Nagare.Resource.Kubernetes
 import Nagare.Resource.Policy
 import Nagare.Resource.Reference
@@ -24,7 +25,6 @@ import Nagare.Resource.Types
 import Nagare.Resource.Wire
 import Test.Tasty
 import Test.Tasty.HUnit
-import Data.Yaml qualified as Yaml
 
 ok :: (Show e) => Either e a -> a
 ok = either (error . show) id
@@ -107,13 +107,35 @@ resourceInventoryTests =
         rejects "claim-conflict" (compileScopes [scope p [external], scope a [application]])
     , testCase "Helm release reserves each rendered object against another scope" $ do
         let member = Kubernetes cluster "" (n "service") (Just (n "nagare-system")) (n "same")
-            release = ok (compileHelmRelease (HelmInput (rid p "helm") p cluster (n "nagare-system")
-              (n "metrics") (member :| []) digest [] (SourceLocation "chart" "metrics")))
+            release =
+              ok
+                ( compileHelmRelease
+                    ( HelmInput
+                        (rid p "helm")
+                        p
+                        cluster
+                        (n "nagare-system")
+                        (n "metrics")
+                        (member :| [])
+                        digest
+                        []
+                        (SourceLocation "chart" "metrics")
+                    )
+                )
         rejects "claim-conflict" (compileScopes [scope p [Managed release], scope a [service a "db" "same"]])
     , testCase "Helm release refuses duplicate rendered members" $ do
         let member = Kubernetes cluster "" (n "service") (Just (n "nagare-system")) (n "same")
-            input = HelmInput (rid p "helm") p cluster (n "nagare-system") (n "metrics")
-              (member :| [member]) digest [] (SourceLocation "chart" "metrics")
+            input =
+              HelmInput
+                (rid p "helm")
+                p
+                cluster
+                (n "nagare-system")
+                (n "metrics")
+                (member :| [member])
+                digest
+                []
+                (SourceLocation "chart" "metrics")
         case compileHelmRelease input of
           Left err -> err ^. #code @?= "invalid-helm-release"
           Right _ -> assertFailure "duplicate member was accepted"
@@ -123,42 +145,71 @@ resourceInventoryTests =
     , testCase "database renderer Service collides with a same-name Knative Service" $ do
         bytes <- BC.readFile "test/golden/db-postgres.service.yaml"
         let dbObject = ok (Yaml.decodeEither' bytes :: Either Yaml.ParseException Value)
-            knativeObject = object
-              [ "apiVersion" .= ("serving.knative.dev/v1" :: Text)
-              , "kind" .= ("Service" :: Text)
-              , "metadata" .= object ["name" .= ("pg-main" :: Text), "namespace" .= ("personal" :: Text)]
-              ]
+            knativeObject =
+              object
+                [ "apiVersion" .= ("serving.knative.dev/v1" :: Text)
+                , "kind" .= ("Service" :: Text)
+                , "metadata" .= object ["name" .= ("pg-main" :: Text), "namespace" .= ("personal" :: Text)]
+                ]
             compiled owner key value = Managed (ok (compileKubernetesObject (KubernetesInput (rid owner key) owner cluster value digest Retain Stateless Public (SourceLocation "fixture" key))))
         rejects "claim-conflict" (compileScopes [scope p [compiled p "database" dbObject], scope a [compiled a "application" knativeObject]])
     , testCase "DomainMapping reserves its hostname from native identity" $ do
-        let domainObject = object
-              [ "apiVersion" .= ("serving.knative.dev/v1beta1" :: Text)
-              , "kind" .= ("DomainMapping" :: Text)
-              , "metadata" .= object
-                  ["name" .= ("app.example.com" :: Text), "namespace" .= ("personal" :: Text)]
-              ]
-            domainMember = ok (compileKubernetesObject (KubernetesInput (rid a "domain") a cluster
-              domainObject digest Retain Stateless Public (SourceLocation "fixture" "domain")))
+        let domainObject =
+              object
+                [ "apiVersion" .= ("serving.knative.dev/v1beta1" :: Text)
+                , "kind" .= ("DomainMapping" :: Text)
+                , "metadata"
+                    .= object
+                      ["name" .= ("app.example.com" :: Text), "namespace" .= ("personal" :: Text)]
+                ]
+            domainMember =
+              ok
+                ( compileKubernetesObject
+                    ( KubernetesInput
+                        (rid a "domain")
+                        a
+                        cluster
+                        domainObject
+                        digest
+                        Retain
+                        Stateless
+                        Public
+                        (SourceLocation "fixture" "domain")
+                    )
+                )
         domainMember ^. #aliases @?= [Hostname (n "app.example.com")]
-        rejects "claim-conflict" (compileScopes
-          [scope p [External (rid p "hostname") (Hostname (n "app.example.com")) []
-            (SourceLocation "fixture" "hostname")], scope a [Managed domainMember]])
-    , testCase "malformed Certificate cannot evade its Secret reservation" $ do
-        let cert = object
-              [ "apiVersion" .= ("cert-manager.io/v1" :: Text)
-              , "kind" .= ("Certificate" :: Text)
-              , "metadata" .= object ["name" .= ("tls" :: Text), "namespace" .= ("personal" :: Text)]
-              , "spec" .= object []
+        rejects
+          "claim-conflict"
+          ( compileScopes
+              [ scope
+                  p
+                  [ External
+                      (rid p "hostname")
+                      (Hostname (n "app.example.com"))
+                      []
+                      (SourceLocation "fixture" "hostname")
+                  ]
+              , scope a [Managed domainMember]
               ]
+          )
+    , testCase "malformed Certificate cannot evade its Secret reservation" $ do
+        let cert =
+              object
+                [ "apiVersion" .= ("cert-manager.io/v1" :: Text)
+                , "kind" .= ("Certificate" :: Text)
+                , "metadata" .= object ["name" .= ("tls" :: Text), "namespace" .= ("personal" :: Text)]
+                , "spec" .= object []
+                ]
         case compileKubernetesObject (KubernetesInput (rid p "certificate") p cluster cert digest Retain Stateless Public (SourceLocation "fixture" "certificate")) of
           Left e -> e ^. #code @?= "invalid-kubernetes-object"
           Right _ -> assertFailure "Certificate without secretName was accepted"
     , testCase "Kubernetes Lists expand before claim validation and retain member paths" $ do
-        let item name = object
-              [ "apiVersion" .= ("v1" :: Text)
-              , "kind" .= ("Service" :: Text)
-              , "metadata" .= object ["name" .= name, "namespace" .= ("personal" :: Text)]
-              ]
+        let item name =
+              object
+                [ "apiVersion" .= ("v1" :: Text)
+                , "kind" .= ("Service" :: Text)
+                , "metadata" .= object ["name" .= name, "namespace" .= ("personal" :: Text)]
+                ]
             list = object ["kind" .= ("List" :: Text), "items" .= [item ("same" :: Text), item ("same" :: Text)]]
             source = SourceLocation "fixture.yaml" "document[0]"
             expanded = ok (expandKubernetesList source list)
@@ -199,9 +250,16 @@ resourceInventoryTests =
         let bucket owner = Managed (resource owner "bucket" (GlobalBucket (n "shared")) (NativeObject digest) & #executor .~ PulumiExecutor)
         rejects "claim-conflict" (compileScopes [scope p [bucket p], scope a [bucket a]])
     , testCase "cloud stack has one project-scoped foundation claim" $ do
-        let stack owner = Managed (resource owner "stack"
-              (CloudStack (n "acme-prod") (n "fresh")) (NativeObject digest)
-              & #executor .~ CloudFoundationExecutor)
+        let stack owner =
+              Managed
+                ( resource
+                    owner
+                    "stack"
+                    (CloudStack (n "acme-prod") (n "fresh"))
+                    (NativeObject digest)
+                    & #executor
+                    .~ CloudFoundationExecutor
+                )
         rejects "claim-conflict" (compileScopes [scope p [stack p], scope a [stack a]])
     , testCase "duplicate logical IDs fail before map construction" $
         rejects "duplicate-id" (mkScopeDeclaration a [bundle [service a "same" "first", service a "same" "second"]])
@@ -249,7 +307,8 @@ resourceInventoryTests =
         scopeConfigDigest base @?= Nothing
         scopeConfigDigest tagged @?= Just digest
         decodeScope (encodeCanonicalScope tagged) @?= Right tagged
-        assertBool "config digest did not change canonical scope bytes"
+        assertBool
+          "config digest did not change canonical scope bytes"
           (encodeCanonicalScope tagged /= encodeCanonicalScope base)
     , testCase "logical Attic cache has its own executor and claim" $ do
         let Managed first = service p "logical-cache" "cache"
@@ -262,8 +321,18 @@ resourceInventoryTests =
     , testCase "logical cache exports its generated public key after database and workload" $ do
         let database = service p "nix-cache-db" "nix-cache-db"
             workload = service p "nix-cache-workload" "nix-cache"
-            cacheBundle = compileLogicalCache (LogicalCacheInput p cluster (ok (mkLogicalKey "nix-cache")) (n "nagare-cache") digest
-              (declarationId database) (declarationId workload) (SourceLocation "cache" "logical"))
+            cacheBundle =
+              compileLogicalCache
+                ( LogicalCacheInput
+                    p
+                    cluster
+                    (ok (mkLogicalKey "nix-cache"))
+                    (n "nagare-cache")
+                    digest
+                    (declarationId database)
+                    (declarationId workload)
+                    (SourceLocation "cache" "logical")
+                )
             fullScope = ok (mkScopeDeclaration p [bundle [database, workload], cacheBundle])
         length (exports cacheBundle) @?= 1
         case cacheBundle ^. #operations of
@@ -273,10 +342,12 @@ resourceInventoryTests =
             affects operation @?= mintResourceId p (ok (mkLogicalKey "nix-cache")) (n "logical-cache") :| []
           _ -> assertFailure "logical cache configuration operation missing"
         case exports cacheBundle of
-          [value] -> let (_, _, capability, constraints, sensitivity) = exportSignature value in do
-            capability @?= NixCachePublicKey
-            constraints @?= [NonEmptyOutput]
-            sensitivity @?= Public
+          [value] ->
+            let (_, _, capability, constraints, sensitivity) = exportSignature value
+             in do
+                  capability @?= NixCachePublicKey
+                  constraints @?= [NonEmptyOutput]
+                  sensitivity @?= Public
           _ -> assertFailure "logical cache public key export missing"
         assertBool "logical cache dependencies did not compose" (either (const False) (const True) (compileScopes [fullScope]))
     , testCase "cache core binds every direct workload address and refuses the database Service collision" $ do
@@ -288,21 +359,35 @@ resourceInventoryTests =
         policyObjects <- readObjects "networkpolicies.yaml"
         checkObjects <- readObjects "config-check-job.yaml.tmpl"
         migrationObjects <- readObjects "migration-job.yaml.tmpl"
-        let serverConfig = object
-              [ "apiVersion" .= ("v1" :: Text)
-              , "kind" .= ("ConfigMap" :: Text)
-              , "metadata" .= object ["name" .= ("nagare-nix-cache-server" :: Text), "namespace" .= ("nagare-system" :: Text)]
-              ]
+        let serverConfig =
+              object
+                [ "apiVersion" .= ("v1" :: Text)
+                , "kind" .= ("ConfigMap" :: Text)
+                , "metadata" .= object ["name" .= ("nagare-nix-cache-server" :: Text), "namespace" .= ("nagare-system" :: Text)]
+                ]
             prerequisite role = mintResourceId p (ok (mkLogicalKey role)) (n role)
             renameJob name (Object root) = case KM.lookup "metadata" root of
               Just (Object metadata) -> Object (KM.insert "metadata" (Object (KM.insert "name" (String name) metadata)) root)
               _ -> error "cache Job has no metadata"
             renameJob _ _ = error "cache Job is not an object"
-            makeInput checkJob migrationJob deployment publicService internalService gc serverPolicy clientPolicy = CacheCoreInput
-              p cluster (ok (mkLogicalKey "nix-cache")) (prerequisite "database") (prerequisite "credential")
-              digest serverConfig (renameJob "nix-cache-config-check-aaaaaaaaaaaa" checkJob)
-              (renameJob "nix-cache-migrate-aaaaaaaaaaaa" migrationJob)
-              deployment publicService internalService gc serverPolicy clientPolicy source
+            makeInput checkJob migrationJob deployment publicService internalService gc serverPolicy clientPolicy =
+              CacheCoreInput
+                p
+                cluster
+                (ok (mkLogicalKey "nix-cache"))
+                (prerequisite "database")
+                (prerequisite "credential")
+                digest
+                serverConfig
+                (renameJob "nix-cache-config-check-aaaaaaaaaaaa" checkJob)
+                (renameJob "nix-cache-migrate-aaaaaaaaaaaa" migrationJob)
+                deployment
+                publicService
+                internalService
+                gc
+                serverPolicy
+                clientPolicy
+                source
         case (checkObjects, migrationObjects, workloadObjects, policyObjects) of
           ([checkJob], [migrationJob], [deployment, publicService, internalService, gc], [serverPolicy, clientPolicy]) -> do
             let input = makeInput checkJob migrationJob deployment publicService internalService gc serverPolicy clientPolicy
@@ -313,12 +398,14 @@ resourceInventoryTests =
             length (cacheBundle ^. #operations) @?= 1
             let Managed database = service p "database-prerequisite" "database-prerequisite"
                 Managed credential = service p "credential-prerequisite" "credential-prerequisite"
-                prerequisites = bundle
-                  [ Managed (database {identity = prerequisite "database"})
-                  , Managed (credential {identity = prerequisite "credential"})
-                  ]
+                prerequisites =
+                  bundle
+                    [ Managed (database {identity = prerequisite "database"})
+                    , Managed (credential {identity = prerequisite "credential"})
+                    ]
                 completeScope = ok (mkScopeDeclaration p [prerequisites, cacheBundle])
-            assertBool "cache migration and workload dependencies did not compose"
+            assertBool
+              "cache migration and workload dependencies did not compose"
               (either (const False) (const True) (compileScopes [completeScope]))
             let collision = ok (mkScopeDeclaration p [cacheBundle, bundle [service p "database-service" "nix-cache"]])
             rejects "claim-conflict" (compileScopes [collision])
@@ -358,19 +445,39 @@ resourceInventoryTests =
             shared = candidateInventory (ok (compileScopes [owner, consumer a, consumer other]))
         length (inventoryDeclarations one) @?= 1
         inventoryDeclarations one @?= inventoryDeclarations shared
-        contributionDependents shared @?= Map.singleton
-          (mintResourceId p (ok (mkLogicalKey "same")) (n "namespace")) (Set.fromList [a, other])
-        let direct = Managed (resource p "direct-namespace"
-              (Kubernetes cluster "" (n "namespace") Nothing (n "same")) (NamespaceSpec Nothing))
+        contributionDependents shared
+          @?= Map.singleton
+            (mintResourceId p (ok (mkLogicalKey "same")) (n "namespace"))
+            (Set.fromList [a, other])
+        let direct =
+              Managed
+                ( resource
+                    p
+                    "direct-namespace"
+                    (Kubernetes cluster "" (n "namespace") Nothing (n "same"))
+                    (NamespaceSpec Nothing)
+                )
         let ownerWithDirect = ok (mkScopeDeclaration p [bundle [direct] & #grants .~ [NamespaceGrant a cluster]])
         rejects "claim-conflict" (compileScopes [ownerWithDirect, consumer a])
-        let reserved = ok (mkScopeDeclaration a [bundle [] & #contributions .~
-              [RegisterNamespace p cluster (n "kube-system") (ok (mkLogicalKey "system"))]])
+        let reserved =
+              ok
+                ( mkScopeDeclaration
+                    a
+                    [ bundle []
+                        & #contributions
+                        .~ [RegisterNamespace p cluster (n "kube-system") (ok (mkLogicalKey "system"))]
+                    ]
+                )
         rejects "reserved-namespace-contribution" (compileScopes [owner, reserved])
     , testCase "last namespace contributor leaves exact Retain ownership and returning contribution reuses it" $ do
         let contribution = RegisterNamespace p cluster (n "same") (ok (mkLogicalKey "namespace"))
-            owner = withScopeConfigDigest digest (withScopeOverrides (Map.singleton "fixture" "same")
-              (ok (mkScopeDeclaration p [bundle [] & #grants .~ [NamespaceGrant a cluster]])))
+            owner =
+              withScopeConfigDigest
+                digest
+                ( withScopeOverrides
+                    (Map.singleton "fixture" "same")
+                    (ok (mkScopeDeclaration p [bundle [] & #grants .~ [NamespaceGrant a cluster]]))
+                )
             consumer = ok (mkScopeDeclaration a [bundle [] & #contributions .~ [contribution]])
             neighbor = scope (s Application "neighbor") []
             generation = ok (mkScopeGeneration 1)
@@ -396,102 +503,202 @@ resourceInventoryTests =
             other = s Application "other"
             grant = BackendMapGrant cluster
             owner = ok (mkScopeDeclaration authOwner [bundle [] & #grants .~ [grant]])
-            route hostName target role = RegisterBackend authOwner cluster (n hostName) target role
-              (ok (mkLogicalKey "route"))
-            consumer who contribution = ok (mkScopeDeclaration who
-              [bundle [] & #contributions .~ [contribution]])
+            route hostName target role =
+              RegisterBackend
+                authOwner
+                cluster
+                (n hostName)
+                target
+                role
+                (ok (mkLogicalKey "route"))
+            consumer who contribution =
+              ok
+                ( mkScopeDeclaration
+                    who
+                    [bundle [] & #contributions .~ [contribution]]
+                )
             protected = route "app.example.test" "http://app.personal.svc.cluster.local" ProtectedBackend
             portal = route "login.example.test" "http://shomei.nagare-system.svc.cluster.local" PortalBackend
             composed scopes = inventoryDeclarations (candidateInventory (ok (compileScopes scopes)))
         rejects "unauthorized-contribution" (compileScopes [scope p [], consumer a protected])
-        rejects "conflicting-backend" (compileScopes
-          [owner, consumer a protected, consumer other protected])
+        rejects
+          "conflicting-backend"
+          ( compileScopes
+              [owner, consumer a protected, consumer other protected]
+          )
         let [Managed emptyMap] = composed [owner]
         emptyMap ^. #spec @?= BackendMapSpec []
         let [Managed completeMap] = composed [owner, consumer a protected, consumer other portal]
-        completeMap ^. #spec @?= BackendMapSpec
-          [(n "app.example.test", "http://app.personal.svc.cluster.local", ProtectedBackend)
-          , (n "login.example.test", "http://shomei.nagare-system.svc.cluster.local", PortalBackend)]
-        contributionDependents (candidateInventory (ok (compileScopes
-          [owner, consumer a protected, consumer other portal]))) @?=
-          Map.singleton (backendMapResourceId authOwner) (Set.fromList [a, other])
+        completeMap ^. #spec
+          @?= BackendMapSpec
+            [ (n "app.example.test", "http://app.personal.svc.cluster.local", ProtectedBackend)
+            , (n "login.example.test", "http://shomei.nagare-system.svc.cluster.local", PortalBackend)
+            ]
+        contributionDependents
+          ( candidateInventory
+              ( ok
+                  ( compileScopes
+                      [owner, consumer a protected, consumer other portal]
+                  )
+              )
+          )
+          @?= Map.singleton (backendMapResourceId authOwner) (Set.fromList [a, other])
         fmap encodeCanonicalScope (decodeScope (encodeCanonicalScope (consumer a protected)))
           @?= Right (encodeCanonicalScope (consumer a protected))
         fmap encodeCanonicalScope (decodeScope (encodeCanonicalScope owner))
           @?= Right (encodeCanonicalScope owner)
-        rejects "multiple-portals" (compileScopes [owner, consumer a portal,
-          consumer other (route "other.example.test" "https://other.example.test" PortalBackend)])
+        rejects
+          "multiple-portals"
+          ( compileScopes
+              [ owner
+              , consumer a portal
+              , consumer other (route "other.example.test" "https://other.example.test" PortalBackend)
+              ]
+          )
         let standalone = s Standalone "web"
             standaloneRoute = route "web.example.test" "http://web.personal.svc.cluster.local" ProtectedBackend
             [Managed standaloneMap] = composed [owner, consumer standalone standaloneRoute]
-        standaloneMap ^. #spec @?= BackendMapSpec
-          [(n "web.example.test", "http://web.personal.svc.cluster.local", ProtectedBackend)]
+        standaloneMap ^. #spec
+          @?= BackendMapSpec
+            [(n "web.example.test", "http://web.personal.svc.cluster.local", ProtectedBackend)]
     , testCase "portal contribution composes owned Shomei settings with the backend map" $ do
         let authOwner = s Platform "auth"
             grant = ShomeiSettingsGrant cluster (n "example.test")
             owner = ok (mkScopeDeclaration authOwner [bundle [] & #grants .~ [BackendMapGrant cluster, grant]])
-            portal = RegisterBackend authOwner cluster (n "login.example.test")
-              "http://shomei.nagare-system.svc.cluster.local" PortalBackend (ok (mkLogicalKey "portal"))
+            portal =
+              RegisterBackend
+                authOwner
+                cluster
+                (n "login.example.test")
+                "http://shomei.nagare-system.svc.cluster.local"
+                PortalBackend
+                (ok (mkLogicalKey "portal"))
             app = ok (mkScopeDeclaration a [bundle [] & #contributions .~ [portal]])
             composed scopes = inventoryDeclarations (candidateInventory (ok (compileScopes scopes)))
-            setting resources = [resource | Managed resource <- resources,
-              ShomeiSettingsSpec {} <- [resource ^. #spec]]
+            setting resources =
+              [ resource
+              | Managed resource <- resources
+              , ShomeiSettingsSpec {} <- [resource ^. #spec]
+              ]
         let [base] = setting (composed [owner])
         base ^. #spec @?= ShomeiSettingsSpec (n "example.test") Nothing
         let [withPortal] = setting (composed [owner, app])
         withPortal ^. #spec @?= ShomeiSettingsSpec (n "example.test") (Just (n "login.example.test"))
         withPortal ^. #identity @?= base ^. #identity
         fmap encodeCanonicalScope (decodeScope (encodeCanonicalScope owner)) @?= Right (encodeCanonicalScope owner)
-        rejects "invalid-shomei-owner" (compileScopes
-          [ok (mkScopeDeclaration authOwner [bundle [] & #grants .~ [grant]])])
+        rejects
+          "invalid-shomei-owner"
+          ( compileScopes
+              [ok (mkScopeDeclaration authOwner [bundle [] & #grants .~ [grant]])]
+          )
     , testCase "Cloudflare cache contributions preserve two hosts under one zone owner" $ do
         let owner = s Platform "cloudflare"
             other = s Application "other"
             zoneName = n "0123456789abcdef0123456789abcdef"
             source = SourceLocation "fixture" "cloudflare"
-            route who hostname = (resource who hostname
-              (Kubernetes cluster "serving.knative.dev" (n "domainmapping")
-                (Just (n "personal")) (n hostname)) (NativeObject digest))
-                {aliases = [Hostname (n hostname)]}
+            route who hostname =
+              ( resource
+                  who
+                  hostname
+                  ( Kubernetes
+                      cluster
+                      "serving.knative.dev"
+                      (n "domainmapping")
+                      (Just (n "personal"))
+                      (n hostname)
+                  )
+                  (NativeObject digest)
+              )
+                { aliases = [Hostname (n hostname)]
+                }
             firstRoute = route a "a.example.test"
             secondRoute = route other "b.example.test"
-            firstIntent = CloudflareCacheIntent (n "a.example.test") (Just 300) True
-              [("/api/", Nothing)]
+            firstIntent =
+              CloudflareCacheIntent
+                (n "a.example.test")
+                (Just 300)
+                True
+                [("/api/", Nothing)]
             secondIntent = CloudflareCacheIntent (n "b.example.test") Nothing False []
-            ownerScope = ok (mkScopeDeclaration owner
-              [bundle [] & #grants .~ [CloudflareZoneGrant zoneName CloudflareFlexible]])
+            ownerScope =
+              ok
+                ( mkScopeDeclaration
+                    owner
+                    [bundle [] & #grants .~ [CloudflareZoneGrant zoneName CloudflareFlexible]]
+                )
             consumer who member intent =
-              let dns = ok (compileCloudflareDnsRecord who
-                    (ok (mkLogicalKey (nameText (cacheHost intent)))) zoneName
-                    (cacheHost intent) "203.0.113.4" (member ^. #identity)
-                    (cloudflareRulesResourceId owner zoneName) source)
-               in ok (mkScopeDeclaration who
-                    [bundle [Managed member] & #contributions .~
-                      [RegisterCloudflareCache owner zoneName intent (member ^. #identity)]
-                    ,dns])
+              let dns =
+                    ok
+                      ( compileCloudflareDnsRecord
+                          who
+                          (ok (mkLogicalKey (nameText (cacheHost intent))))
+                          zoneName
+                          (cacheHost intent)
+                          "203.0.113.4"
+                          (member ^. #identity)
+                          (cloudflareRulesResourceId owner zoneName)
+                          source
+                      )
+               in ok
+                    ( mkScopeDeclaration
+                        who
+                        [ bundle [Managed member]
+                            & #contributions
+                            .~ [RegisterCloudflareCache owner zoneName intent (member ^. #identity)]
+                        , dns
+                        ]
+                    )
             firstScope = consumer a firstRoute firstIntent
             secondScope = consumer other secondRoute secondIntent
             composed scopes = inventoryDeclarations (candidateInventory (ok (compileScopes scopes)))
-            rules declarations = [member | Managed member <- declarations,
-              CloudflareRuleset _ <- [member ^. #address]]
+            rules declarations =
+              [ member
+              | Managed member <- declarations
+              , CloudflareRuleset _ <- [member ^. #address]
+              ]
         let [shared] = rules (composed [ownerScope, firstScope, secondScope])
         shared ^. #spec @?= CloudflareRulesSpec [firstIntent, secondIntent]
         shared ^. #identity @?= cloudflareRulesResourceId owner zoneName
-        length [dns | Managed dns <- composed [ownerScope, firstScope, secondScope],
-          CloudflareDnsRecord _ _ <- [dns ^. #address]] @?= 2
-        Set.fromList (shared ^. #dependencies) @?=
-          Set.fromList [OrderedAfter (cloudflareTlsResourceId owner zoneName)
-            ,OrderedAfter (firstRoute ^. #identity), OrderedAfter (secondRoute ^. #identity)]
-        let [tls] = [member | Managed member <- composed [ownerScope, firstScope, secondScope],
-              CloudflareTlsSetting _ <- [member ^. #address]]
+        length
+          [ dns
+          | Managed dns <- composed [ownerScope, firstScope, secondScope]
+          , CloudflareDnsRecord _ _ <- [dns ^. #address]
+          ]
+          @?= 2
+        Set.fromList (shared ^. #dependencies)
+          @?= Set.fromList
+            [ OrderedAfter (cloudflareTlsResourceId owner zoneName)
+            , OrderedAfter (firstRoute ^. #identity)
+            , OrderedAfter (secondRoute ^. #identity)
+            ]
+        let [tls] =
+              [ member
+              | Managed member <- composed [ownerScope, firstScope, secondScope]
+              , CloudflareTlsSetting _ <- [member ^. #address]
+              ]
         tls ^. #spec @?= CloudflareZoneTlsSpec CloudflareFlexible
-        contributionDependents (candidateInventory (ok (compileScopes
-          [ownerScope, firstScope, secondScope]))) @?=
-          Map.singleton (shared ^. #identity) (Set.fromList [a, other])
+        contributionDependents
+          ( candidateInventory
+              ( ok
+                  ( compileScopes
+                      [ownerScope, firstScope, secondScope]
+                  )
+              )
+          )
+          @?= Map.singleton (shared ^. #identity) (Set.fromList [a, other])
         let generation = ok (mkScopeGeneration 4)
-            accepted = ok (mkScopeSnapshot binding (Map.fromList
-              [(owner, (generation, ownerScope)), (a, (generation, firstScope))
-              ,(other, (generation, secondScope))]) Map.empty)
+            accepted =
+              ok
+                ( mkScopeSnapshot
+                    binding
+                    ( Map.fromList
+                        [ (owner, (generation, ownerScope))
+                        , (a, (generation, firstScope))
+                        , (other, (generation, secondScope))
+                        ]
+                    )
+                    Map.empty
+                )
             changedIntent = firstIntent {cacheDefaultTtl = Just 900}
             changed = consumer a firstRoute changedIntent
             candidate = ok (composeInventory accepted (ReplaceScope changed :| []))
@@ -499,12 +706,19 @@ resourceInventoryTests =
         Map.lookup owner (candidateGenerations candidate) @?= Just generation
         Map.lookup other (candidateGenerations candidate) @?= Just generation
         changedRules ^. #spec @?= CloudflareRulesSpec [changedIntent, secondIntent]
-        let strictOwner = ok (mkScopeDeclaration owner
-              [bundle [] & #grants .~ [CloudflareZoneGrant zoneName CloudflareFullStrict]])
+        let strictOwner =
+              ok
+                ( mkScopeDeclaration
+                    owner
+                    [bundle [] & #grants .~ [CloudflareZoneGrant zoneName CloudflareFullStrict]]
+                )
             strictCandidate = ok (composeInventory accepted (ReplaceScope strictOwner :| []))
             strictDeclarations = inventoryDeclarations (candidateInventory strictCandidate)
-            [strictTls] = [member | Managed member <- strictDeclarations,
-              CloudflareTlsSetting _ <- [member ^. #address]]
+            [strictTls] =
+              [ member
+              | Managed member <- strictDeclarations
+              , CloudflareTlsSetting _ <- [member ^. #address]
+              ]
         strictTls ^. #spec @?= CloudflareZoneTlsSpec CloudflareFullStrict
         rules strictDeclarations @?= rules (composed [ownerScope, firstScope, secondScope])
         Map.lookup a (candidateGenerations strictCandidate) @?= Just generation
@@ -514,54 +728,175 @@ resourceInventoryTests =
         fmap encodeCanonicalScope (decodeScope (encodeCanonicalScope ownerScope))
           @?= Right (encodeCanonicalScope ownerScope)
         rejects "unauthorized-contribution" (compileScopes [scope owner [], firstScope])
-        let orphanRequest = RegisterCloudflareCache owner zoneName firstIntent
-              (firstRoute ^. #identity)
-            orphanScope = ok (mkScopeDeclaration a
-              [bundle [] & #contributions .~ [orphanRequest]])
+        let orphanRequest =
+              RegisterCloudflareCache
+                owner
+                zoneName
+                firstIntent
+                (firstRoute ^. #identity)
+            orphanScope =
+              ok
+                ( mkScopeDeclaration
+                    a
+                    [bundle [] & #contributions .~ [orphanRequest]]
+                )
         rejects "unauthorized-contribution" (compileScopes [ownerScope, orphanScope])
-        let orphanDns = ok (compileCloudflareDnsRecord a
-              (ok (mkLogicalKey "a.example.test")) zoneName (n "a.example.test")
-              "203.0.113.4" (firstRoute ^. #identity)
-              (cloudflareRulesResourceId owner zoneName) source)
-            unregistered = ok (mkScopeDeclaration a
-              [bundle [Managed firstRoute], orphanDns])
+        let orphanDns =
+              ok
+                ( compileCloudflareDnsRecord
+                    a
+                    (ok (mkLogicalKey "a.example.test"))
+                    zoneName
+                    (n "a.example.test")
+                    "203.0.113.4"
+                    (firstRoute ^. #identity)
+                    (cloudflareRulesResourceId owner zoneName)
+                    source
+                )
+            unregistered =
+              ok
+                ( mkScopeDeclaration
+                    a
+                    [bundle [Managed firstRoute], orphanDns]
+                )
         rejects "cloudflare-dns-reference" (compileScopes [ownerScope, unregistered])
-        rejects "conflicting-cloudflare-host" (compileScopes [ownerScope, firstScope,
-          consumer other (route other "a.example.test") firstIntent])
-        rejects "duplicate-cloudflare-owner" (compileScopes [ownerScope,
-          ok (mkScopeDeclaration (s Platform "cloudflare-other")
-            [bundle [] & #grants .~ [CloudflareZoneGrant zoneName CloudflareFullStrict]])])
-        rejects "derived-cloudflare-rules" (mkScopeDeclaration owner [bundle
-          [Managed (ManagedResource (cloudflareRulesResourceId owner zoneName) owner
-            CdnExecutor (CloudflareRuleset zoneName) [] (CloudflareRulesSpec [])
-            Retain Stateless Private [] [] source)]])
-        rejects "derived-cloudflare-tls" (mkScopeDeclaration owner [bundle
-          [Managed (ManagedResource (cloudflareTlsResourceId owner zoneName) owner
-            CdnExecutor (CloudflareTlsSetting zoneName) [] (CloudflareZoneTlsSpec CloudflareFull)
-            Retain Stateless Private [] [] source)]])
-        rejects "invalid-cloudflare-dns" (compileCloudflareDnsRecord a
-          (ok (mkLogicalKey "a.example.test")) zoneName (n "a.example.test")
-          "256.0.0.1" (firstRoute ^. #identity)
-          (cloudflareRulesResourceId owner zoneName) source)
-        rejects "invalid-declaration" (compileScopes [ownerScope,
-          consumer a firstRoute (firstIntent {cachePaths = [("api", Nothing)]})])
-        rejects "invalid-declaration" (compileScopes [ownerScope,
-          consumer a firstRoute (firstIntent {cachePaths = [("/api\n", Nothing)]})])
+        rejects
+          "conflicting-cloudflare-host"
+          ( compileScopes
+              [ ownerScope
+              , firstScope
+              , consumer other (route other "a.example.test") firstIntent
+              ]
+          )
+        rejects
+          "duplicate-cloudflare-owner"
+          ( compileScopes
+              [ ownerScope
+              , ok
+                  ( mkScopeDeclaration
+                      (s Platform "cloudflare-other")
+                      [bundle [] & #grants .~ [CloudflareZoneGrant zoneName CloudflareFullStrict]]
+                  )
+              ]
+          )
+        rejects
+          "derived-cloudflare-rules"
+          ( mkScopeDeclaration
+              owner
+              [ bundle
+                  [ Managed
+                      ( ManagedResource
+                          (cloudflareRulesResourceId owner zoneName)
+                          owner
+                          CdnExecutor
+                          (CloudflareRuleset zoneName)
+                          []
+                          (CloudflareRulesSpec [])
+                          Retain
+                          Stateless
+                          Private
+                          []
+                          []
+                          source
+                      )
+                  ]
+              ]
+          )
+        rejects
+          "derived-cloudflare-tls"
+          ( mkScopeDeclaration
+              owner
+              [ bundle
+                  [ Managed
+                      ( ManagedResource
+                          (cloudflareTlsResourceId owner zoneName)
+                          owner
+                          CdnExecutor
+                          (CloudflareTlsSetting zoneName)
+                          []
+                          (CloudflareZoneTlsSpec CloudflareFull)
+                          Retain
+                          Stateless
+                          Private
+                          []
+                          []
+                          source
+                      )
+                  ]
+              ]
+          )
+        rejects
+          "invalid-cloudflare-dns"
+          ( compileCloudflareDnsRecord
+              a
+              (ok (mkLogicalKey "a.example.test"))
+              zoneName
+              (n "a.example.test")
+              "256.0.0.1"
+              (firstRoute ^. #identity)
+              (cloudflareRulesResourceId owner zoneName)
+              source
+          )
+        rejects
+          "invalid-declaration"
+          ( compileScopes
+              [ ownerScope
+              , consumer a firstRoute (firstIntent {cachePaths = [("api", Nothing)]})
+              ]
+          )
+        rejects
+          "invalid-declaration"
+          ( compileScopes
+              [ ownerScope
+              , consumer a firstRoute (firstIntent {cachePaths = [("/api\n", Nothing)]})
+              ]
+          )
     , testCase "Cloudflare compiler emits only its scoped cache request" $ do
         let owner = s Platform "cloudflare"
             zoneName = n "0123456789abcdef0123456789abcdef"
             routeId = rid a "domain"
-            cdn = cloudflareCdn & #defaultTtlSeconds .~ Just 300
-              & #cacheRules .~ [CdnCacheRule "/api/" Nothing]
+            cdn =
+              cloudflareCdn
+                & #defaultTtlSeconds
+                .~ Just 300
+                & #cacheRules
+                .~ [CdnCacheRule "/api/" Nothing]
             source = SourceLocation "fixture" "cdn"
-            compiled = ok (compileCloudflareCacheContribution a owner zoneName
-              (n "a.example.test") cdn routeId source)
+            compiled =
+              ok
+                ( compileCloudflareCacheContribution
+                    a
+                    owner
+                    zoneName
+                    (n "a.example.test")
+                    cdn
+                    routeId
+                    source
+                )
         compiled ^. #declarations @?= []
-        compiled ^. #contributions @?= [RegisterCloudflareCache owner zoneName
-          (CloudflareCacheIntent (n "a.example.test") (Just 300) True
-            [("/api/", Nothing)]) routeId]
-        rejects "invalid-cloudflare-cache" (compileCloudflareCacheContribution
-          a owner zoneName (n "a.example.test") gcpCloudCdn routeId source)
+        compiled ^. #contributions
+          @?= [ RegisterCloudflareCache
+                  owner
+                  zoneName
+                  ( CloudflareCacheIntent
+                      (n "a.example.test")
+                      (Just 300)
+                      True
+                      [("/api/", Nothing)]
+                  )
+                  routeId
+              ]
+        rejects
+          "invalid-cloudflare-cache"
+          ( compileCloudflareCacheContribution
+              a
+              owner
+              zoneName
+              (n "a.example.test")
+              gcpCloudCdn
+              routeId
+              source
+          )
     , testCase "canonical scope ignores declaration order and roundtrips" $ do
         let x = service a "x" "x"
             y = service a "y" "y"
@@ -576,7 +911,8 @@ resourceInventoryTests =
             declared = withScopeOverrides overrides (ok (mkScopeDeclaration a []))
         scopeOverrides declared @?= overrides
         fmap scopeOverrides (decodeScope (encodeCanonicalScope declared)) @?= Right overrides
-        assertBool "overrides do not change old empty scope bytes"
+        assertBool
+          "overrides do not change old empty scope bytes"
           (encodeCanonicalScope declared /= encodeCanonicalScope (ok (mkScopeDeclaration a [])))
     , testCase "unknown fields and schema versions refuse" $ do
         rejects "wire" (decodeScope "{\"version\":2,\"scope\":{},\"bundles\":[]}")

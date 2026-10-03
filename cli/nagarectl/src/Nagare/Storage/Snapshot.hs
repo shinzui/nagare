@@ -37,12 +37,12 @@ import Data.Time (UTCTime, defaultTimeLocale, formatTime, getCurrentTime)
 import Data.Yaml qualified as Y
 import Nagare.Cluster.GcsJob
   ( DataMovementJob (..)
-  , StoreBackend (..)
   , MinioRef (..)
+  , StoreBackend (..)
   , dataMovementJobSpec
   , storeCpCreateOnlyFromFile
-  , storeCpToStdout
   , storeCpFromStdin
+  , storeCpToStdout
   , storeEnv
   , storeHostAliases
   , storeImage
@@ -202,44 +202,61 @@ data ReviewedSnapshotJobInputs = ReviewedSnapshotJobInputs
   deriving stock (Generic, Eq, Show)
 
 renderReviewedSnapshotJob :: ReviewedSnapshotJobInputs -> ByteString
-renderReviewedSnapshotJob input = Y.encode $ object
-  [ "apiVersion" .= ("batch/v1" :: Text)
-  , "kind" .= ("Job" :: Text)
-  , "metadata" .= object
-      [ "name" .= (job ^. #jobName)
-      , "namespace" .= (job ^. #namespace)
-      , "labels" .= object ["nagare.dev/managed-by" .= ("nagarectl" :: Text)]
+renderReviewedSnapshotJob input =
+  Y.encode $
+    object
+      [ "apiVersion" .= ("batch/v1" :: Text)
+      , "kind" .= ("Job" :: Text)
+      , "metadata"
+          .= object
+            [ "name" .= (job ^. #jobName)
+            , "namespace" .= (job ^. #namespace)
+            , "labels" .= object ["nagare.dev/managed-by" .= ("nagarectl" :: Text)]
+            ]
+      , "spec"
+          .= dataMovementJobSpec
+            DataMovementJob
+              { templateLabels = Nothing
+              , serviceAccountName = Nothing
+              , backoffLimit = 0
+              , hostAliases = storeHostAliases backend
+              , affinity = Nothing
+              , initContainers = []
+              , containers =
+                  [ object
+                      [ "name" .= ("upload" :: Text)
+                      , "image" .= storeImage backend
+                      , "command" .= toJSON ["/bin/sh" :: Text, "-c"]
+                      , "args" .= toJSON [shell]
+                      , "env"
+                          .= toJSON
+                            ( [ envVar "DEST" (job ^. #destinationUrl)
+                              , envVar "BACKUP_RECEIPT_DEST" (input ^. #receiptUrl)
+                              , envVar "BACKUP_RECEIPT_METADATA" (input ^. #receiptMetadata)
+                              ]
+                                <> storeEnv backend
+                            )
+                      , "volumeMounts"
+                          .= toJSON
+                            [ object
+                                [ "name" .= ("vol" :: Text)
+                                , "mountPath" .= ("/vol" :: Text)
+                                , "readOnly" .= True
+                                ]
+                            , object ["name" .= ("dump" :: Text), "mountPath" .= ("/dump" :: Text)]
+                            ]
+                      ]
+                  ]
+              , volumes =
+                  [ object
+                      [ "name" .= ("vol" :: Text)
+                      , "persistentVolumeClaim"
+                          .= object ["claimName" .= (job ^. #claimName)]
+                      ]
+                  , object ["name" .= ("dump" :: Text), "emptyDir" .= object []]
+                  ]
+              }
       ]
-  , "spec" .= dataMovementJobSpec DataMovementJob
-      { templateLabels = Nothing
-      , serviceAccountName = Nothing
-      , backoffLimit = 0
-      , hostAliases = storeHostAliases backend
-      , affinity = Nothing
-      , initContainers = []
-      , containers = [object
-          [ "name" .= ("upload" :: Text)
-          , "image" .= storeImage backend
-          , "command" .= toJSON ["/bin/sh" :: Text, "-c"]
-          , "args" .= toJSON [shell]
-          , "env" .= toJSON
-              ([envVar "DEST" (job ^. #destinationUrl)
-               , envVar "BACKUP_RECEIPT_DEST" (input ^. #receiptUrl)
-               , envVar "BACKUP_RECEIPT_METADATA" (input ^. #receiptMetadata)]
-                <> storeEnv backend)
-          , "volumeMounts" .= toJSON
-              [ object ["name" .= ("vol" :: Text), "mountPath" .= ("/vol" :: Text),
-                        "readOnly" .= True]
-              , object ["name" .= ("dump" :: Text), "mountPath" .= ("/dump" :: Text)]
-              ]
-          ]]
-      , volumes =
-          [ object ["name" .= ("vol" :: Text), "persistentVolumeClaim" .=
-              object ["claimName" .= (job ^. #claimName)]]
-          , object ["name" .= ("dump" :: Text), "emptyDir" .= object []]
-          ]
-      }
-  ]
   where
     job = input ^. #snapshot
     backend = job ^. #backend
@@ -247,33 +264,38 @@ renderReviewedSnapshotJob input = Y.encode $ object
     versionedLocalBucket = case backend of
       GcsBackend {} -> ""
       MinioBackend ref ->
-        "aws s3api put-bucket-versioning --bucket " <> ref ^. #bucket
+        "aws s3api put-bucket-versioning --bucket "
+          <> ref ^. #bucket
           <> " --versioning-configuration Status=Enabled --endpoint-url "
-          <> ref ^. #endpoint <> "; "
+          <> ref ^. #endpoint
+          <> "; "
     verifyTools = case backend of
       GcsBackend {} -> "command -v sha256sum >/dev/null 2>&1; "
       MinioBackend {} ->
         "command -v sha256sum >/dev/null 2>&1 || dnf install -y -q coreutils >/dev/null 2>&1; "
           <> "command -v sha256sum >/dev/null 2>&1; "
     shell =
-      "set -e; " <> storeShellPreamble backend
-      <> verifyTools
-      <> "tar -C /vol -czf /dump/backup.tar.gz .; "
-      <> "EXPECTED=$(sha256sum /dump/backup.tar.gz | cut -d' ' -f1); "
-      <> "test ${#EXPECTED} -eq 64; "
-      <> versionedLocalBucket
-      <> storeCpCreateOnlyFromFile backend "/dump/backup.tar.gz" "\"$DEST\""
-      <> "; ACTUAL=$(" <> storeCpToStdout backend "\"$DEST\""
-      <> " | sha256sum | cut -d' ' -f1); test \"$EXPECTED\" = \"$ACTUAL\"; "
-      <> "printf '{\"version\":1,\"sha256\":\"%s\",\"backup\":%s}\\n'"
-      <> " \"$EXPECTED\" \"$BACKUP_RECEIPT_METADATA\" > /dump/backup.receipt.json; "
-      <> storeCpCreateOnlyFromFile backend "/dump/backup.receipt.json" "\"$BACKUP_RECEIPT_DEST\""
-      <> "; " <> storeCpToStdout backend "\"$BACKUP_RECEIPT_DEST\""
-      <> " > /dump/backup.receipt.readback.json; "
-      <> "test \"$(sha256sum /dump/backup.receipt.json | cut -d' ' -f1)\" = "
-      <> "\"$(sha256sum /dump/backup.receipt.readback.json | cut -d' ' -f1)\"; "
-      <> "cat /dump/backup.receipt.readback.json > "
-      <> "\"${BACKUP_TERMINATION_LOG_PATH:-/dev/termination-log}\""
+      "set -e; "
+        <> storeShellPreamble backend
+        <> verifyTools
+        <> "tar -C /vol -czf /dump/backup.tar.gz .; "
+        <> "EXPECTED=$(sha256sum /dump/backup.tar.gz | cut -d' ' -f1); "
+        <> "test ${#EXPECTED} -eq 64; "
+        <> versionedLocalBucket
+        <> storeCpCreateOnlyFromFile backend "/dump/backup.tar.gz" "\"$DEST\""
+        <> "; ACTUAL=$("
+        <> storeCpToStdout backend "\"$DEST\""
+        <> " | sha256sum | cut -d' ' -f1); test \"$EXPECTED\" = \"$ACTUAL\"; "
+        <> "printf '{\"version\":1,\"sha256\":\"%s\",\"backup\":%s}\\n'"
+        <> " \"$EXPECTED\" \"$BACKUP_RECEIPT_METADATA\" > /dump/backup.receipt.json; "
+        <> storeCpCreateOnlyFromFile backend "/dump/backup.receipt.json" "\"$BACKUP_RECEIPT_DEST\""
+        <> "; "
+        <> storeCpToStdout backend "\"$BACKUP_RECEIPT_DEST\""
+        <> " > /dump/backup.receipt.readback.json; "
+        <> "test \"$(sha256sum /dump/backup.receipt.json | cut -d' ' -f1)\" = "
+        <> "\"$(sha256sum /dump/backup.receipt.readback.json | cut -d' ' -f1)\"; "
+        <> "cat /dump/backup.receipt.readback.json > "
+        <> "\"${BACKUP_TERMINATION_LOG_PATH:-/dev/termination-log}\""
 
 -- ---------------------------------------------------------------------------
 -- Read-only preview

@@ -7,7 +7,8 @@ module Nagare.Inventory.Adapters.Cache
   , CacheAdapterOps (..)
   , cacheSpecsFromDeclarations
   , mkCacheAdapter
-  ) where
+  )
+where
 
 import Data.Aeson
 import Data.ByteString (ByteString)
@@ -35,7 +36,8 @@ data CacheMutationPlan = CacheMutationPlan
   , cachePlanCluster :: !ResourceId
   , cachePlanName :: !Name
   , cachePlanConfigurationDigest :: !ContentDigest
-  } deriving stock (Eq, Show, Generic)
+  }
+  deriving stock (Eq, Show, Generic)
 
 data CacheObservation
   = CacheMissing
@@ -60,17 +62,18 @@ cacheSpecsFromDeclarations declarations = Map.fromList <$> traverse cacheSpec ma
       _ -> Left ("cache resource lacks a logical Attic cache specification: " <> resourceIdText (resource ^. #identity))
 
 mkCacheAdapter :: Map ResourceId ManagedResource -> CacheAdapterOps -> Adapter
-mkCacheAdapter specs ops = Adapter
-  { adapterExecutor = CacheExecutor
-  , adapterIdentity = "reviewed-attic-cache"
-  , adapterVersion = "1"
-  , adapterObserve = cacheObserveResources ops
-  , adapterPrepare = prepare
-  , adapterPreflight = preflight
-  , adapterExecute = execute
-  , adapterVerify = verify
-  , adapterRecover = recover
-  }
+mkCacheAdapter specs ops =
+  Adapter
+    { adapterExecutor = CacheExecutor
+    , adapterIdentity = "reviewed-attic-cache"
+    , adapterVersion = "1"
+    , adapterObserve = cacheObserveResources ops
+    , adapterPrepare = prepare
+    , adapterPreflight = preflight
+    , adapterExecute = execute
+    , adapterVerify = verify
+    , adapterRecover = recover
+    }
   where
     prepare operation = pure $ do
       plan <- first (PrepareRefused (plannedOperationId operation)) (planFor specs operation)
@@ -80,11 +83,13 @@ mkCacheAdapter specs ops = Adapter
       Left err -> pure (Left err)
       Right plan -> do
         observation <- cacheInspect ops plan
-        pure (case observation of
-          CacheForeign reason -> Left reason
-          CacheUnavailable reason -> Left reason
-          CacheMissing | plannedAction operation /= CreateResource -> Left "logical cache is absent"
-          _ -> Right ())
+        pure
+          ( case observation of
+              CacheForeign reason -> Left reason
+              CacheUnavailable reason -> Left reason
+              CacheMissing | plannedAction operation /= CreateResource -> Left "logical cache is absent"
+              _ -> Right ()
+          )
     execute operation prepared = case decodePlan specs operation (preparedNativeBytes prepared) of
       Left err -> pure (AdapterEffectFailed (KnownNoEffect err))
       Right plan -> do
@@ -101,25 +106,29 @@ mkCacheAdapter specs ops = Adapter
       Left err -> pure (Left err)
       Right plan -> do
         observation <- cacheInspect ops plan
-        pure (case observation of
-          CachePresent physical digest key
-            | digest == cachePlanConfigurationDigest plan && not (T.null key) -> Right (completionProof plan physical key)
-          CachePresent {} -> Left "cache configuration or generated public key differs from review"
-          CacheMissing -> Left "logical cache is absent"
-          CacheForeign reason -> Left reason
-          CacheUnavailable reason -> Left reason)
+        pure
+          ( case observation of
+              CachePresent physical digest key
+                | digest == cachePlanConfigurationDigest plan && not (T.null key) -> Right (completionProof plan physical key)
+              CachePresent {} -> Left "cache configuration or generated public key differs from review"
+              CacheMissing -> Left "logical cache is absent"
+              CacheForeign reason -> Left reason
+              CacheUnavailable reason -> Left reason
+          )
     recover operation prepared = case decodePlan specs operation (preparedNativeBytes prepared) of
       Left err -> pure (RecoveryUnresolved err)
       Right plan -> do
         observation <- cacheInspect ops plan
-        pure (case observation of
-          CachePresent physical digest key
-            | digest == cachePlanConfigurationDigest plan && not (T.null key) -> RecoveryProvedComplete (completionProof plan physical key)
-          CacheMissing | plannedAction operation == CreateResource -> RecoverySafeToRetry
-          CacheMissing -> RecoveryUnresolved "logical cache is absent"
-          CachePresent {} -> RecoveryUnresolved "cache configuration or generated public key differs from review"
-          CacheForeign reason -> RecoveryUnresolved reason
-          CacheUnavailable reason -> RecoveryUnresolved reason)
+        pure
+          ( case observation of
+              CachePresent physical digest key
+                | digest == cachePlanConfigurationDigest plan && not (T.null key) -> RecoveryProvedComplete (completionProof plan physical key)
+              CacheMissing | plannedAction operation == CreateResource -> RecoverySafeToRetry
+              CacheMissing -> RecoveryUnresolved "logical cache is absent"
+              CachePresent {} -> RecoveryUnresolved "cache configuration or generated public key differs from review"
+              CacheForeign reason -> RecoveryUnresolved reason
+              CacheUnavailable reason -> RecoveryUnresolved reason
+          )
 
 planFor :: Map ResourceId ManagedResource -> PlannedOperation -> Either Text CacheMutationPlan
 planFor specs operation = do
@@ -130,7 +139,8 @@ planFor specs operation = do
   (cluster, name, digest) <- case (declaration ^. #address, declaration ^. #spec) of
     (AtticCache cluster name, LogicalCache digest) -> Right (cluster, name, digest)
     _ -> Left "cache resource has an invalid address or specification"
-  unless (plannedAction operation `elem` [CreateResource, UpdateResource, RunDeclaredOperation])
+  unless
+    (plannedAction operation `elem` [CreateResource, UpdateResource, RunDeclaredOperation])
     (Left "cache adapter cannot adopt or retire a logical cache")
   pure (CacheMutationPlan 1 (plannedOperationId operation) (plannedAction operation) (plannedInputDigest operation) resource cluster name digest)
 
@@ -142,25 +152,42 @@ decodePlan specs operation bytes = do
   pure plan
 
 completionProof :: CacheMutationPlan -> PhysicalIdentity -> Text -> ContentDigest
-completionProof plan physical key = contentDigest (either (error . T.unpack) id (canonicalValue (object
-  [ "plan" .= plan
-  , "physicalIdentity" .= physical
-  , "publicKeyDigest" .= contentDigest (TE.encodeUtf8 key)
-  ])))
+completionProof plan physical key =
+  contentDigest
+    ( either
+        (error . T.unpack)
+        id
+        ( canonicalValue
+            ( object
+                [ "plan" .= plan
+                , "physicalIdentity" .= physical
+                , "publicKeyDigest" .= contentDigest (TE.encodeUtf8 key)
+                ]
+            )
+        )
+    )
 
 instance ToJSON CacheMutationPlan where
-  toJSON plan = object
-    [ "version" .= cachePlanVersion plan
-    , "operation" .= cachePlanOperation plan
-    , "action" .= cachePlanAction plan
-    , "inputDigest" .= cachePlanInputDigest plan
-    , "resource" .= cachePlanResource plan
-    , "cluster" .= cachePlanCluster plan
-    , "name" .= cachePlanName plan
-    , "configurationDigest" .= cachePlanConfigurationDigest plan
-    ]
+  toJSON plan =
+    object
+      [ "version" .= cachePlanVersion plan
+      , "operation" .= cachePlanOperation plan
+      , "action" .= cachePlanAction plan
+      , "inputDigest" .= cachePlanInputDigest plan
+      , "resource" .= cachePlanResource plan
+      , "cluster" .= cachePlanCluster plan
+      , "name" .= cachePlanName plan
+      , "configurationDigest" .= cachePlanConfigurationDigest plan
+      ]
 
 instance FromJSON CacheMutationPlan where
-  parseJSON = withObject "cache mutation plan" $ \o -> CacheMutationPlan
-    <$> o .: "version" <*> o .: "operation" <*> o .: "action" <*> o .: "inputDigest"
-    <*> o .: "resource" <*> o .: "cluster" <*> o .: "name" <*> o .: "configurationDigest"
+  parseJSON = withObject "cache mutation plan" $ \o ->
+    CacheMutationPlan
+      <$> o .: "version"
+      <*> o .: "operation"
+      <*> o .: "action"
+      <*> o .: "inputDigest"
+      <*> o .: "resource"
+      <*> o .: "cluster"
+      <*> o .: "name"
+      <*> o .: "configurationDigest"

@@ -14,11 +14,6 @@ import Data.Map qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
 import Nagare.Access.Reviewed qualified as ReviewedAccess
-import Nagare.Cli.Inventory.CloudHistory
-import Nagare.Cli.Inventory.CdnHistory
-import Nagare.Cli.Inventory.CdnPurge (cdnPurgeRuntime)
-import Nagare.Cli.Inventory.ImagePrune (imagePruneRuntime)
-import Nagare.Cli.Inventory.VmPower (vmPowerRuntime)
 import Nagare.Cli.Inventory.Adapters
   ( acceptedDnsResources
   , acceptedTopicResources
@@ -33,9 +28,14 @@ import Nagare.Cli.Inventory.Adapters
   , inventoryKubernetesAdapter
   , inventoryPulumiAdapterWithCollections
   )
+import Nagare.Cli.Inventory.CdnHistory
+import Nagare.Cli.Inventory.CdnPurge (cdnPurgeRuntime)
+import Nagare.Cli.Inventory.CloudHistory
 import Nagare.Cli.Inventory.Foundation
   ( inventoryFoundationAdapter
   )
+import Nagare.Cli.Inventory.ImagePrune (imagePruneRuntime)
+import Nagare.Cli.Inventory.VmPower (vmPowerRuntime)
 import Nagare.Cli.Runtime.Cluster (guardKubernetesContext)
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Cluster.Kubeconfig (kubeconfigPath)
@@ -118,25 +118,39 @@ inventoryPlanRegistryWithMode controllerCollection active workspace suppliedNati
         , bundle <- ResourceInventory.scopeBundles scope
         , declaration <- ResourceInventory.declarations bundle
         ]
-  cloudHistory <- if Set.null (selected ResourceInventory.PulumiExecutor)
-    then pure (CloudHistory [] Map.empty [])
-    else do
-      store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
-      let currentIds = Set.fromList (map ResourceInventory.declarationId declarations)
-          requested = Map.fromList
-            [(member ^. #identity, (owner, revision))
-            | (owner, (revision, scope)) <- Map.toList (InventoryPlan.historyAccepted history)
-            , bundle <- ResourceInventory.scopeBundles scope
-            , ResourceInventory.Managed member <- ResourceInventory.declarations bundle
-            , Set.member (member ^. #identity) (selected ResourceInventory.PulumiExecutor)
-            , Set.notMember (member ^. #identity) currentIds]
-          collecting = Set.fromList [resource | ResourceInventory.CollectRetained resource <- NE.toList (ResourceInventory.candidateChanges candidate),
-            Set.member resource (selected ResourceInventory.PulumiExecutor)]
-      loadCloudHistory store (InventoryPlan.historyHead history)
-        (scopes <> map (snd . snd) (Map.toList (InventoryPlan.historyAccepted history))) requested collecting
-  let cloudDeclarations = Map.elems (Map.union
-        (Map.fromList [(ResourceInventory.declarationId member, member) | member <- declarations])
-        (Map.map ResourceInventory.Managed (cloudHistoricalMembers cloudHistory)))
+  cloudHistory <-
+    if Set.null (selected ResourceInventory.PulumiExecutor)
+      then pure (CloudHistory [] Map.empty [])
+      else do
+        store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
+        let currentIds = Set.fromList (map ResourceInventory.declarationId declarations)
+            requested =
+              Map.fromList
+                [ (member ^. #identity, (owner, revision))
+                | (owner, (revision, scope)) <- Map.toList (InventoryPlan.historyAccepted history)
+                , bundle <- ResourceInventory.scopeBundles scope
+                , ResourceInventory.Managed member <- ResourceInventory.declarations bundle
+                , Set.member (member ^. #identity) (selected ResourceInventory.PulumiExecutor)
+                , Set.notMember (member ^. #identity) currentIds
+                ]
+            collecting =
+              Set.fromList
+                [ resource
+                | ResourceInventory.CollectRetained resource <- NE.toList (ResourceInventory.candidateChanges candidate)
+                , Set.member resource (selected ResourceInventory.PulumiExecutor)
+                ]
+        loadCloudHistory
+          store
+          (InventoryPlan.historyHead history)
+          (scopes <> map (snd . snd) (Map.toList (InventoryPlan.historyAccepted history)))
+          requested
+          collecting
+  let cloudDeclarations =
+        Map.elems
+          ( Map.union
+              (Map.fromList [(ResourceInventory.declarationId member, member) | member <- declarations])
+              (Map.map ResourceInventory.Managed (cloudHistoricalMembers cloudHistory))
+          )
       pulumiScopes = scopes <> cloudHistoricalScopes cloudHistory
   allRegistrations <- either dieT pure (InventoryCloud.registrationsFromDeclarations cloudDeclarations)
   let registrations =
@@ -221,9 +235,11 @@ inventoryPlanRegistryWithMode controllerCollection active workspace suppliedNati
           ]
       collectingIds =
         Set.fromList
-          [resource | ResourceInventory.CollectRetained resource <- NE.toList (ResourceInventory.candidateChanges candidate),
-           Just (_, retained) <- [Map.lookup resource (InventoryPlan.historyRetained history)],
-           retained ^. #executor == ResourceInventory.KubernetesExecutor]
+          [ resource
+          | ResourceInventory.CollectRetained resource <- NE.toList (ResourceInventory.candidateChanges candidate)
+          , Just (_, retained) <- [Map.lookup resource (InventoryPlan.historyRetained history)]
+          , retained ^. #executor == ResourceInventory.KubernetesExecutor
+          ]
       historicalKubernetesIds = Set.union (retiringIds ResourceInventory.KubernetesExecutor) collectingIds
       historicalHelmIds = retiringIds ResourceInventory.HelmExecutor
       historicalIds = Set.union historicalKubernetesIds historicalHelmIds
@@ -351,13 +367,18 @@ inventoryPlanRegistryWithMode controllerCollection active workspace suppliedNati
       dnsSpecs
       cloudflareSpecs
       acceptedCdn
-  dns <- if null [op | scope <- scopes, bundle <- ResourceInventory.scopeBundles scope,
-                     op <- ResourceInventory.operations bundle,
-                     ResourceInventory.operationKind op `elem` [ResourceInventory.PurgeCdnCache, ResourceInventory.PurgeCdnZone]]
-    then pure dnsBase
-    else do
-      purgeStore <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
-      cdnPurgeRuntime purgeStore scopes acceptedCdn dnsBase
+  dns <-
+    if null
+      [ op
+      | scope <- scopes
+      , bundle <- ResourceInventory.scopeBundles scope
+      , op <- ResourceInventory.operations bundle
+      , ResourceInventory.operationKind op `elem` [ResourceInventory.PurgeCdnCache, ResourceInventory.PurgeCdnZone]
+      ]
+      then pure dnsBase
+      else do
+        purgeStore <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
+        cdnPurgeRuntime purgeStore scopes acceptedCdn dnsBase
   kubernetesBase <-
     if Map.null kubernetesSpecs
       then pure (Inventory.manifestAdapterFor history ResourceInventory.KubernetesExecutor)

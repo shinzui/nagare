@@ -40,24 +40,24 @@ module Nagare.Ops.PulumiBackend
   )
 where
 
-import Cradle (addArgs, cmd, run)
 import Control.Monad (foldM)
+import Cradle (addArgs, cmd, run)
 import Data.Function ((&))
 import Data.Generics.Labels ()
-import Data.Maybe (isJust)
 import Data.List (nub)
+import Data.Maybe (isJust)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Nagare.Dsl.Prelude
 import Nagare.Target
-  ( PulumiBackendKind (..)
-  , InventoryStoreKind (..)
+  ( InventoryStoreKind (..)
+  , PulumiBackendKind (..)
   , TargetProfile (..)
-  , defaultGcsPulumiBackendUrl
   , defaultGcsInventoryStoreUrl
-  , effectivePulumiBackend
+  , defaultGcsPulumiBackendUrl
   , effectiveInventoryStore
+  , effectivePulumiBackend
   )
 import System.Exit (ExitCode (..))
 import System.Process (readProcessWithExitCode)
@@ -219,15 +219,17 @@ bootstrapPulumiStateBucketWith ops dryRun ctx tp mMember = case traverse bucketF
     urls =
       [pulumiStateBackendUrl ctx tp | effectivePulumiBackend tp == PulumiBackendGcs]
         <> [inventoryUrl | effectiveInventoryStore tp == InventoryStoreGcs]
-    inventoryUrl = if T.null (tp ^. #inventoryStoreUrl)
-      then defaultGcsInventoryStoreUrl ctx tp
-      else tp ^. #inventoryStoreUrl
+    inventoryUrl =
+      if T.null (tp ^. #inventoryStoreUrl)
+        then defaultGcsInventoryStoreUrl ctx tp
+        else tp ^. #inventoryStoreUrl
     bucketFor url = maybe (Left ("cannot derive a GCS bucket from backend URL " <> url)) Right (gcsBucketOfUrl url)
     ensure (Left err) _ = pure (Left err)
     ensure (Right ()) bucket
       | dryRun = do
           TIO.putStrLn ("  # ensure the context state bucket gs://" <> bucket <> " exists (idempotent):")
-          mapM_ (\args -> TIO.putStrLn ("  gcloud " <> T.pack (unwords args)))
+          mapM_
+            (\args -> TIO.putStrLn ("  gcloud " <> T.pack (unwords args)))
             (bootstrapCommands bucket (tp ^. #project) (tp ^. #region) mMember)
           pure (Right ())
       | otherwise = runBootstrap ops bucket (tp ^. #project) (tp ^. #region) mMember

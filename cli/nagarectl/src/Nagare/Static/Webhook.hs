@@ -77,18 +77,24 @@ data CheckoutSpec = CheckoutSpec
 -- | Build the exact CLI submission used by the webhook worker. The caller
 -- selects accepted image and preview-store IDs before constructing these args;
 -- the CLI validates them again against current inventory history.
-reviewedSiteArgs
-  :: Text -> FilePath -> FilePath -> Text -> Text -> [Text] -> DeployAction -> [String]
+reviewedSiteArgs ::
+  Text -> FilePath -> FilePath -> Text -> Text -> [Text] -> DeployAction -> [String]
 reviewedSiteArgs context file projectDir baseDomain imageResource previewStores action =
   ["--context", T.unpack context, "site"]
     <> command
-    <> [ "--file", file
-       , "--project-dir", projectDir
-       , "--base-domain", T.unpack baseDomain
+    <> [ "--file"
+       , file
+       , "--project-dir"
+       , projectDir
+       , "--base-domain"
+       , T.unpack baseDomain
        , "--skip-build"
-       , "--tag", T.unpack (T.take 12 (spec ^. #sha))
-       , "--image-resource", T.unpack imageResource
-       , "--source", T.unpack (spec ^. #sha)
+       , "--tag"
+       , T.unpack (T.take 12 (spec ^. #sha))
+       , "--image-resource"
+       , T.unpack imageResource
+       , "--source"
+       , T.unpack (spec ^. #sha)
        ]
     <> concatMap (\resourceId -> ["--preview-env-resource", T.unpack resourceId]) previewStores
   where

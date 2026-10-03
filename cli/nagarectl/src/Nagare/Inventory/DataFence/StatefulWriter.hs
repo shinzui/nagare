@@ -17,7 +17,8 @@ module Nagare.Inventory.DataFence.StatefulWriter
   , observeStatefulWriterStopped
   , restoreStatefulWriter
   , observeStatefulWriterRelease
-  ) where
+  )
+where
 
 import Control.Exception (IOException, try)
 import Control.Monad (unless)
@@ -30,7 +31,8 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapters.KubernetesRuntime
-  (KubernetesRuntimeConfig (..))
+  ( KubernetesRuntimeConfig (..)
+  )
 import Nagare.Inventory.DataFence (WriterReleaseState (..))
 import Nagare.Inventory.DataFence.MountGuard (validUid)
 import Nagare.Inventory.Digest (contentDigest)
@@ -48,8 +50,13 @@ data StatefulWriterPin = StatefulWriterPin
   }
   deriving stock (Eq, Show)
 
-mkStatefulWriterPin :: Text -> Text -> Text -> Int -> ContentDigest
-  -> Either Text StatefulWriterPin
+mkStatefulWriterPin ::
+  Text ->
+  Text ->
+  Text ->
+  Int ->
+  ContentDigest ->
+  Either Text StatefulWriterPin
 mkStatefulWriterPin namespace name uid replicas specDigest = do
   _ <- mkName namespace
   _ <- mkName name
@@ -74,8 +81,10 @@ data StatefulWriterTransport = StatefulWriterTransport
 -- | UID and resourceVersion tests make the scale effect conditional at the
 -- API server. A lost acknowledgement leaves durable fence recovery to a new
 -- observation; it does not authorize blindly repeating the patch.
-stopStatefulWriter :: StatefulWriterTransport -> StatefulWriterPin
-  -> IO (Either Text ())
+stopStatefulWriter ::
+  StatefulWriterTransport ->
+  StatefulWriterPin ->
+  IO (Either Text ())
 stopStatefulWriter transport pin = do
   current <- readStatefulWriter transport (writerNamespace pin) (writerName pin)
   case current >>= observedWriter pin of
@@ -84,28 +93,40 @@ stopStatefulWriter transport pin = do
       | observedReplicas writer == 0 -> pure (Right ())
       | observedReplicas writer /= writerSavedReplicas pin ->
           pure (Left "StatefulSet replicas changed since the reviewed writer intent")
-      | otherwise -> patchStatefulWriter transport (writerNamespace pin)
-          (writerName pin) (replicaPatch pin writer 0)
+      | otherwise ->
+          patchStatefulWriter
+            transport
+            (writerNamespace pin)
+            (writerName pin)
+            (replicaPatch pin writer 0)
 
-observeStatefulWriterIdentity :: StatefulWriterTransport -> StatefulWriterPin
-  -> IO (Either Text ())
+observeStatefulWriterIdentity ::
+  StatefulWriterTransport ->
+  StatefulWriterPin ->
+  IO (Either Text ())
 observeStatefulWriterIdentity transport pin = do
   current <- readStatefulWriter transport (writerNamespace pin) (writerName pin)
   pure (() <$ (current >>= observedWriter pin))
 
-observeStatefulWriterStopped :: StatefulWriterTransport -> StatefulWriterPin
-  -> IO (Either Text Bool)
+observeStatefulWriterStopped ::
+  StatefulWriterTransport ->
+  StatefulWriterPin ->
+  IO (Either Text Bool)
 observeStatefulWriterStopped transport pin = do
   current <- readStatefulWriter transport (writerNamespace pin) (writerName pin)
   pure $ do
     writer <- current >>= observedWriter pin
-    pure (observedReplicas writer == 0
-      && observedStatusReplicas writer == 0
-      && observedReadyReplicas writer == 0
-      && observedGeneration writer <= observedStatusGeneration writer)
+    pure
+      ( observedReplicas writer == 0
+          && observedStatusReplicas writer == 0
+          && observedReadyReplicas writer == 0
+          && observedGeneration writer <= observedStatusGeneration writer
+      )
 
-restoreStatefulWriter :: StatefulWriterTransport -> StatefulWriterPin
-  -> IO (Either Text ())
+restoreStatefulWriter ::
+  StatefulWriterTransport ->
+  StatefulWriterPin ->
+  IO (Either Text ())
 restoreStatefulWriter transport pin = do
   current <- readStatefulWriter transport (writerNamespace pin) (writerName pin)
   case current >>= observedWriter pin of
@@ -119,26 +140,34 @@ restoreStatefulWriter transport pin = do
           case stopped of
             Left reason -> pure (Left reason)
             Right False -> pure (Left "StatefulSet has not finished stopping")
-            Right True -> patchStatefulWriter transport (writerNamespace pin)
-              (writerName pin) (replicaPatch pin writer (writerSavedReplicas pin))
+            Right True ->
+              patchStatefulWriter
+                transport
+                (writerNamespace pin)
+                (writerName pin)
+                (replicaPatch pin writer (writerSavedReplicas pin))
 
-observeStatefulWriterRelease :: StatefulWriterTransport -> StatefulWriterPin
-  -> IO (Either Text WriterReleaseState)
+observeStatefulWriterRelease ::
+  StatefulWriterTransport ->
+  StatefulWriterPin ->
+  IO (Either Text WriterReleaseState)
 observeStatefulWriterRelease transport pin = do
   current <- readStatefulWriter transport (writerNamespace pin) (writerName pin)
   pure $ do
     writer <- current >>= observedWriter pin
-    pure $ if observedReplicas writer == writerSavedReplicas pin
+    pure $
+      if observedReplicas writer == writerSavedReplicas pin
         && observedReadyReplicas writer == writerSavedReplicas pin
         && observedStatusReplicas writer == writerSavedReplicas pin
         && observedGeneration writer <= observedStatusGeneration writer
-      then WritersFullyReleased
-      else if observedReplicas writer == 0
-        && observedStatusReplicas writer == 0
-        && observedReadyReplicas writer == 0
-        && observedGeneration writer <= observedStatusGeneration writer
-      then WritersStillExcluded
-      else WritersPartlyReleased
+        then WritersFullyReleased
+        else
+          if observedReplicas writer == 0
+            && observedStatusReplicas writer == 0
+            && observedReadyReplicas writer == 0
+            && observedGeneration writer <= observedStatusGeneration writer
+            then WritersStillExcluded
+            else WritersPartlyReleased
 
 data ObservedWriter = ObservedWriter
   { observedRevision :: !Text
@@ -152,14 +181,17 @@ data ObservedWriter = ObservedWriter
 observedWriter :: StatefulWriterPin -> Value -> Either Text ObservedWriter
 observedWriter pin (Object root) = do
   metadata <- jsonObject "metadata" root
-  unless (jsonText "namespace" metadata == Right (writerNamespace pin)
-      && jsonText "name" metadata == Right (writerName pin)
-      && jsonText "uid" metadata == Right (writerUid pin))
+  unless
+    ( jsonText "namespace" metadata == Right (writerNamespace pin)
+        && jsonText "name" metadata == Right (writerName pin)
+        && jsonText "uid" metadata == Right (writerUid pin)
+    )
     (Left "StatefulSet identity changed")
   revision <- jsonText "resourceVersion" metadata
   generation <- jsonInteger "generation" metadata
   observedDigest <- digestStatefulWriterSpec (Object root)
-  unless (observedDigest == writerSpecDigest pin)
+  unless
+    (observedDigest == writerSpecDigest pin)
     (Left "StatefulSet template or spec differs from reviewed writer intent")
   spec <- jsonObject "spec" root
   replicas <- jsonInt "replicas" spec
@@ -167,21 +199,41 @@ observedWriter pin (Object root) = do
   statusGeneration <- jsonInteger "observedGeneration" status
   statusReplicas <- jsonOptionalInt "replicas" status
   readyReplicas <- jsonOptionalInt "readyReplicas" status
-  pure (ObservedWriter revision generation statusGeneration replicas
-    statusReplicas readyReplicas)
+  pure
+    ( ObservedWriter
+        revision
+        generation
+        statusGeneration
+        replicas
+        statusReplicas
+        readyReplicas
+    )
 observedWriter _ _ = Left "StatefulSet observation is not an object"
 
 replicaPatch :: StatefulWriterPin -> ObservedWriter -> Int -> Value
-replicaPatch pin observed replicas = toJSON
-  [ object ["op" .= ("test" :: Text), "path" .= ("/metadata/uid" :: Text),
-      "value" .= writerUid pin]
-  , object ["op" .= ("test" :: Text), "path" .= ("/metadata/resourceVersion" :: Text),
-      "value" .= observedRevision observed]
-  , object ["op" .= ("test" :: Text), "path" .= ("/spec/replicas" :: Text),
-      "value" .= observedReplicas observed]
-  , object ["op" .= ("replace" :: Text), "path" .= ("/spec/replicas" :: Text),
-      "value" .= replicas]
-  ]
+replicaPatch pin observed replicas =
+  toJSON
+    [ object
+        [ "op" .= ("test" :: Text)
+        , "path" .= ("/metadata/uid" :: Text)
+        , "value" .= writerUid pin
+        ]
+    , object
+        [ "op" .= ("test" :: Text)
+        , "path" .= ("/metadata/resourceVersion" :: Text)
+        , "value" .= observedRevision observed
+        ]
+    , object
+        [ "op" .= ("test" :: Text)
+        , "path" .= ("/spec/replicas" :: Text)
+        , "value" .= observedReplicas observed
+        ]
+    , object
+        [ "op" .= ("replace" :: Text)
+        , "path" .= ("/spec/replicas" :: Text)
+        , "value" .= replicas
+        ]
+    ]
 
 jsonObject :: Text -> KM.KeyMap Value -> Either Text (KM.KeyMap Value)
 jsonObject field root = case KM.lookup (Key.fromText field) root of
@@ -195,8 +247,10 @@ jsonText field root = case KM.lookup (Key.fromText field) root of
 
 jsonInteger :: Text -> KM.KeyMap Value -> Either Text Integer
 jsonInteger field root = case KM.lookup (Key.fromText field) root of
-  Just value | Success number <- (fromJSON value :: Result Int)
-    , number >= 0 -> Right (toInteger number)
+  Just value
+    | Success number <- (fromJSON value :: Result Int)
+    , number >= 0 ->
+        Right (toInteger number)
   _ -> Left ("StatefulSet observation lacks " <> field)
 
 jsonInt :: Text -> KM.KeyMap Value -> Either Text Int
@@ -211,8 +265,9 @@ jsonOptionalInt field root = case KM.lookup (Key.fromText field) root of
   Nothing -> Right 0
   Just _ -> jsonInt field root
 
-kubectlStatefulWriterTransport :: KubernetesRuntimeConfig
-  -> StatefulWriterTransport
+kubectlStatefulWriterTransport ::
+  KubernetesRuntimeConfig ->
+  StatefulWriterTransport
 kubectlStatefulWriterTransport config = StatefulWriterTransport readOne patchOne
   where
     invoke arguments input = do
@@ -220,24 +275,53 @@ kubectlStatefulWriterTransport config = StatefulWriterTransport readOne patchOne
       case guarded of
         Left reason -> pure (Left ("cluster guard refused: " <> reason))
         Right () -> do
-          result <- try (readProcessWithExitCode "kubectl"
-            (["--context", T.unpack (runtimeKubectlContext config),
-              "--request-timeout=10s"] <> arguments) input)
+          result <-
+            try
+              ( readProcessWithExitCode
+                  "kubectl"
+                  ( [ "--context"
+                    , T.unpack (runtimeKubectlContext config)
+                    , "--request-timeout=10s"
+                    ]
+                      <> arguments
+                  )
+                  input
+              )
           pure $ case result of
             Left (_ :: IOException) -> Left "could not invoke kubectl"
             Right output -> Right output
     readOne namespace name = do
-      result <- invoke ["--namespace", T.unpack namespace, "get", "statefulset",
-        T.unpack name, "-o", "json"] ""
+      result <-
+        invoke
+          [ "--namespace"
+          , T.unpack namespace
+          , "get"
+          , "statefulset"
+          , T.unpack name
+          , "-o"
+          , "json"
+          ]
+          ""
       pure $ case result of
         Left reason -> Left reason
         Right (ExitFailure _, _, _) -> Left "could not read fenced StatefulSet"
-        Right (ExitSuccess, output, _) -> first T.pack
-          (eitherDecodeStrict' (TE.encodeUtf8 (T.pack output)))
+        Right (ExitSuccess, output, _) ->
+          first
+            T.pack
+            (eitherDecodeStrict' (TE.encodeUtf8 (T.pack output)))
     patchOne namespace name patch = do
-      result <- invoke ["--namespace", T.unpack namespace, "patch", "statefulset",
-        T.unpack name, "--type=json", "-p",
-        T.unpack (TE.decodeUtf8 (BL.toStrict (encode patch)))] ""
+      result <-
+        invoke
+          [ "--namespace"
+          , T.unpack namespace
+          , "patch"
+          , "statefulset"
+          , T.unpack name
+          , "--type=json"
+          , "-p"
+          , T.unpack (TE.decodeUtf8 (BL.toStrict (encode patch)))
+          ]
+          ""
       pure $ case result of
         Left reason -> Left reason
         Right (ExitFailure _, _, _) -> Left "conditional StatefulSet replica patch failed"

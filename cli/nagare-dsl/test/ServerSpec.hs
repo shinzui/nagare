@@ -96,31 +96,50 @@ loadAndGoldenTests =
 previewEnvTests :: [TestTree]
 previewEnvTests =
   [ testCase "preview renders inline Preview values and Secret refs only in its Service" $ do
-      let site = notesApp & #env .~ Map.fromList
-            [ (unsafe (mkEnvName "RUNTIME_KEY"), runtimeScoped (EnvLiteral "runtime"))
-            , (unsafe (mkEnvName "PREVIEW_KEY"),
-                unsafe (scopedEnv (Set.singleton Preview) (EnvLiteral "preview")))
-            , (unsafe (mkEnvName "PREVIEW_SECRET"),
-                unsafe (scopedEnv (Set.singleton Preview)
-                  (EnvSecretRef (unsafe (mkSecretName "preview-credential")))))
-            , (unsafe (mkEnvName "BUILD_KEY"),
-                unsafe (scopedEnv (Set.singleton Build) (EnvLiteral "build")))
-            ]
+      let site =
+            notesApp
+              & #env
+              .~ Map.fromList
+                [ (unsafe (mkEnvName "RUNTIME_KEY"), runtimeScoped (EnvLiteral "runtime"))
+                ,
+                  ( unsafe (mkEnvName "PREVIEW_KEY")
+                  , unsafe (scopedEnv (Set.singleton Preview) (EnvLiteral "preview"))
+                  )
+                ,
+                  ( unsafe (mkEnvName "PREVIEW_SECRET")
+                  , unsafe
+                      ( scopedEnv
+                          (Set.singleton Preview)
+                          (EnvSecretRef (unsafe (mkSecretName "preview-credential")))
+                      )
+                  )
+                ,
+                  ( unsafe (mkEnvName "BUILD_KEY")
+                  , unsafe (scopedEnv (Set.singleton Build) (EnvLiteral "build"))
+                  )
+                ]
           production = renderServerService site ctx
           previewService = renderServerService site (ctx {previewName = Just "notes-app-branch"})
-      assertBool "production omitted Runtime value"
+      assertBool
+        "production omitted Runtime value"
         (BC.isInfixOf "name: RUNTIME_KEY" production)
-      assertBool "production included Preview-only entries"
-        (not (BC.isInfixOf "name: PREVIEW_KEY" production)
-          && not (BC.isInfixOf "name: PREVIEW_SECRET" production))
-      assertBool "preview omitted inline Preview entries"
-        (BC.isInfixOf "name: RUNTIME_KEY" previewService
-          && BC.isInfixOf "name: PREVIEW_KEY" previewService
-          && BC.isInfixOf "name: PREVIEW_SECRET" previewService
-          && BC.isInfixOf "name: preview-credential" previewService)
-      assertBool "Build-only value entered a running Service"
-        (not (BC.isInfixOf "name: BUILD_KEY" production)
-          && not (BC.isInfixOf "name: BUILD_KEY" previewService))
+      assertBool
+        "production included Preview-only entries"
+        ( not (BC.isInfixOf "name: PREVIEW_KEY" production)
+            && not (BC.isInfixOf "name: PREVIEW_SECRET" production)
+        )
+      assertBool
+        "preview omitted inline Preview entries"
+        ( BC.isInfixOf "name: RUNTIME_KEY" previewService
+            && BC.isInfixOf "name: PREVIEW_KEY" previewService
+            && BC.isInfixOf "name: PREVIEW_SECRET" previewService
+            && BC.isInfixOf "name: preview-credential" previewService
+        )
+      assertBool
+        "Build-only value entered a running Service"
+        ( not (BC.isInfixOf "name: BUILD_KEY" production)
+            && not (BC.isInfixOf "name: BUILD_KEY" previewService)
+        )
   ]
 
 -- | 'notesApp' with one durable volume, proving the 'ServerSite' renderer emits

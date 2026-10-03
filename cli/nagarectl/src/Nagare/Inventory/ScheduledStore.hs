@@ -10,7 +10,8 @@ module Nagare.Inventory.ScheduledStore
   , parseObjectEntries
   , parseObjectVersions
   , readSecretField
-  ) where
+  )
+where
 
 import Control.Exception (IOException, bracket, catch, try)
 import Data.Aeson (Value (..), eitherDecodeStrict)
@@ -30,9 +31,16 @@ import System.Exit (ExitCode (..))
 import System.IO (Handle, hClose, hGetLine)
 import System.IO.Temp (withSystemTempDirectory)
 import System.Process
-  ( CreateProcess (..), ProcessHandle, StdStream (..), createProcess, proc
-  , readCreateProcessWithExitCode, readProcessWithExitCode, terminateProcess
-  , waitForProcess )
+  ( CreateProcess (..)
+  , ProcessHandle
+  , StdStream (..)
+  , createProcess
+  , proc
+  , readCreateProcessWithExitCode
+  , readProcessWithExitCode
+  , terminateProcess
+  , waitForProcess
+  )
 import System.Timeout (timeout)
 
 data StoredObject = StoredObject
@@ -57,24 +65,31 @@ data ObjectReader = ObjectReader
 -- | The callback must consume files before returning; the port-forward and
 -- scratch headers are closed and removed immediately afterwards. The caller
 -- supplies an already-guarded kubectl context and an accepted MinIO reference.
-withLocalObjectStore
-  :: forall a. Text -> MinioRef -> (ObjectReader -> IO a) -> IO (Either Text a)
+withLocalObjectStore ::
+  forall a. Text -> MinioRef -> (ObjectReader -> IO a) -> IO (Either Text a)
 withLocalObjectStore context ref action = do
   credentials <- readCredentials context ref
   case credentials of
     Left reason -> pure (Left reason)
     Right user -> do
-      result <- try (withSystemTempDirectory "nagare-scheduled-store" $ \scratch ->
-        bracket (openForward context) closeForward $ \(output, _) -> do
-          ready <- timeout (10 * 1000000) (hGetLine output)
-          case ready >>= parseForwardPort . T.pack of
-            Nothing -> pure (Left "local object-store port-forward did not become ready")
-            Just port -> Right <$> action (ObjectReader
-              (readViaCurl ref user port scratch)
-              (listViaCurl ref user port scratch parseObjectList)
-              (listViaCurl ref user port scratch parseObjectEntries)
-              (listVersionsViaCurl ref user port scratch)))
-        :: IO (Either IOException (Either Text a))
+      result <-
+        try
+          ( withSystemTempDirectory "nagare-scheduled-store" $ \scratch ->
+              bracket (openForward context) closeForward $ \(output, _) -> do
+                ready <- timeout (10 * 1000000) (hGetLine output)
+                case ready >>= parseForwardPort . T.pack of
+                  Nothing -> pure (Left "local object-store port-forward did not become ready")
+                  Just port ->
+                    Right
+                      <$> action
+                        ( ObjectReader
+                            (readViaCurl ref user port scratch)
+                            (listViaCurl ref user port scratch parseObjectList)
+                            (listViaCurl ref user port scratch parseObjectEntries)
+                            (listVersionsViaCurl ref user port scratch)
+                        )
+          ) ::
+          IO (Either IOException (Either Text a))
       pure (either (Left . const "local object-store read failed") id result)
 
 readCredentials :: Text -> MinioRef -> IO (Either Text Text)
@@ -87,10 +102,23 @@ readCredentials context ref = do
 -- never put in a process argument, review, terminal output, or error message.
 readSecretField :: Text -> Text -> Text -> Text -> IO (Either Text Text)
 readSecretField context namespaceName secretRefName keyName = do
-  outcome <- try (readProcessWithExitCode "kubectl"
-    ["--context", T.unpack context, "-n", T.unpack namespaceName, "get", "secret"
-    , T.unpack secretRefName, "-o", "json"] "")
-    :: IO (Either IOException (ExitCode, String, String))
+  outcome <-
+    try
+      ( readProcessWithExitCode
+          "kubectl"
+          [ "--context"
+          , T.unpack context
+          , "-n"
+          , T.unpack namespaceName
+          , "get"
+          , "secret"
+          , T.unpack secretRefName
+          , "-o"
+          , "json"
+          ]
+          ""
+      ) ::
+      IO (Either IOException (ExitCode, String, String))
   case outcome of
     Left _ -> pure (Left "could not read local object-store credentials")
     Right (ExitFailure _, _, _) -> pure (Left "local object-store credentials are unavailable")
@@ -101,21 +129,37 @@ readSecretField context namespaceName secretRefName keyName = do
   where
     decodeField fields key = case KM.lookup key fields of
       Just (String encoded) -> do
-        decoded <- try (readProcessWithExitCode "base64" ["-d"] (T.unpack encoded))
-          :: IO (Either IOException (ExitCode, String, String))
+        decoded <-
+          try (readProcessWithExitCode "base64" ["-d"] (T.unpack encoded)) ::
+            IO (Either IOException (ExitCode, String, String))
         pure $ case decoded of
-          Right (ExitSuccess, value, _) | not (null value)
-            && all (\character -> character >= ' ' && character <= '~') value ->
-              Right (T.pack value)
+          Right (ExitSuccess, value, _)
+            | not (null value)
+                && all (\character -> character >= ' ' && character <= '~') value ->
+                Right (T.pack value)
           _ -> Left "local object-store credential field is invalid"
       _ -> pure (Left "local object-store credential field is missing")
 
 openForward :: Text -> IO (Handle, ProcessHandle)
 openForward context = do
-  (_, output, _, processHandle) <- createProcess
-    (proc "kubectl" ["--context", T.unpack context, "-n", "nagare-system"
-      , "port-forward", "svc/minio", ":9000", "--address", "127.0.0.1"])
-      {std_out = CreatePipe, std_err = Inherit}
+  (_, output, _, processHandle) <-
+    createProcess
+      ( proc
+          "kubectl"
+          [ "--context"
+          , T.unpack context
+          , "-n"
+          , "nagare-system"
+          , "port-forward"
+          , "svc/minio"
+          , ":9000"
+          , "--address"
+          , "127.0.0.1"
+          ]
+      )
+        { std_out = CreatePipe
+        , std_err = Inherit
+        }
   case output of
     Just handle -> pure (handle, processHandle)
     Nothing -> fail "kubectl port-forward has no output pipe"
@@ -130,34 +174,80 @@ parseForwardPort :: Text -> Maybe Text
 parseForwardPort line = do
   rest <- T.stripPrefix "Forwarding from 127.0.0.1:" line
   let (port, suffix) = T.breakOn " -> 9000" rest
-  if not (T.null port) && T.all (\character -> character >= '0' && character <= '9') port
-      && suffix == " -> 9000"
-    then Just port else Nothing
+  if not (T.null port)
+    && T.all (\character -> character >= '0' && character <= '9') port
+    && suffix == " -> 9000"
+    then Just port
+    else Nothing
 
-readViaCurl
-  :: MinioRef -> Text -> Text -> FilePath -> Text -> Maybe Text -> FilePath
-  -> IO (Either Text StoredObject)
+readViaCurl ::
+  MinioRef ->
+  Text ->
+  Text ->
+  FilePath ->
+  Text ->
+  Maybe Text ->
+  FilePath ->
+  IO (Either Text StoredObject)
 readViaCurl ref user port scratch address selectedVersion output = do
   let prefix = "s3://" <> bucket ref <> "/"
   case T.stripPrefix prefix address of
     Nothing -> pure (Left "scheduled object is outside the accepted local bucket")
-    Just key | T.null key || T.any (\character -> not (isAlphaNum character
-        || character `elem` ("/-_." :: String))) key ->
+    Just key
+      | T.null key
+          || T.any
+            ( \character ->
+                not
+                  ( isAlphaNum character
+                      || character `elem` ("/-_." :: String)
+                  )
+            )
+            key ->
           pure (Left "scheduled object key has unsupported URL characters")
     Just key -> case selectedVersion of
-      Just version | T.null version || T.any (\character -> not (isAlphaNum character
-          || character == '-')) version ->
+      Just version
+        | T.null version
+            || T.any
+              ( \character ->
+                  not
+                    ( isAlphaNum character
+                        || character == '-'
+                    )
+              )
+              version ->
             pure (Left "scheduled object version has unsupported URL characters")
       _ -> do
-        let url = "http://127.0.0.1:" <> port <> "/" <> bucket ref <> "/" <> key
-              <> maybe "" ("?versionId=" <>) selectedVersion
+        let url =
+              "http://127.0.0.1:"
+                <> port
+                <> "/"
+                <> bucket ref
+                <> "/"
+                <> key
+                <> maybe "" ("?versionId=" <>) selectedVersion
             headerFile = scratch <> "/headers"
             config = "user = \"" <> quoteConfig user <> "\"\n"
-            arguments = ["--silent", "--show-error", "--fail", "--aws-sigv4"
-              , "aws:amz:us-east-1:s3", "--config", "-", "--dump-header", headerFile
-              , "--output", output, T.unpack url]
-        outcome <- try (readCreateProcessWithExitCode (proc "curl" arguments)
-          (T.unpack config)) :: IO (Either IOException (ExitCode, String, String))
+            arguments =
+              [ "--silent"
+              , "--show-error"
+              , "--fail"
+              , "--aws-sigv4"
+              , "aws:amz:us-east-1:s3"
+              , "--config"
+              , "-"
+              , "--dump-header"
+              , headerFile
+              , "--output"
+              , output
+              , T.unpack url
+              ]
+        outcome <-
+          try
+            ( readCreateProcessWithExitCode
+                (proc "curl" arguments)
+                (T.unpack config)
+            ) ::
+            IO (Either IOException (ExitCode, String, String))
         case outcome of
           Left _ -> pure (Left "could not invoke local object-store reader")
           Right (ExitFailure _, _, _) -> pure (Left "local object-store object is unavailable")
@@ -172,110 +262,204 @@ readViaCurl ref user port scratch address selectedVersion output = do
                   [(number, "")] | number >= (0 :: Integer) -> Right number
                   _ -> Left "local object-store object length is invalid"
                 case selectedVersion of
-                  Just expected | expected /= version ->
-                    Left "local object-store returned another object version"
+                  Just expected
+                    | expected /= version ->
+                        Left "local object-store returned another object version"
                   _ -> Right (StoredObject version lengthValue)
 
 oneHeader :: Text -> BC.ByteString -> Either Text Text
-oneHeader name raw = case [T.strip value
-    | line <- T.lines (TE.decodeUtf8 raw)
-    , let (key, rest) = T.breakOn ":" (T.stripEnd line)
-    , T.toLower key == name
-    , Just value <- [T.stripPrefix ":" rest]] of
+oneHeader name raw = case [ T.strip value
+                          | line <- T.lines (TE.decodeUtf8 raw)
+                          , let (key, rest) = T.breakOn ":" (T.stripEnd line)
+                          , T.toLower key == name
+                          , Just value <- [T.stripPrefix ":" rest]
+                          ] of
   [value] | not (T.null value) -> Right value
   _ -> Left ("local object-store response lacks one " <> name <> " header")
 
 -- | A listing is useful only when it is complete. A truncated or malformed
 -- page cannot silently hide an orphan or authorize a later prune decision.
-listViaCurl :: MinioRef -> Text -> Text -> FilePath
-  -> (Text -> BC.ByteString -> Either Text a) -> Text
-  -> IO (Either Text a)
+listViaCurl ::
+  MinioRef ->
+  Text ->
+  Text ->
+  FilePath ->
+  (Text -> BC.ByteString -> Either Text a) ->
+  Text ->
+  IO (Either Text a)
 listViaCurl ref user port scratch parseListing prefix
-  | T.null prefix || T.any (\character -> not (isAlphaNum character
-      || character `elem` ("/-_." :: String))) prefix =
+  | T.null prefix
+      || T.any
+        ( \character ->
+            not
+              ( isAlphaNum character
+                  || character `elem` ("/-_." :: String)
+              )
+        )
+        prefix =
       pure (Left "scheduled object prefix has unsupported URL characters")
   | otherwise = do
-      let url = "http://127.0.0.1:" <> port <> "/" <> bucket ref
-            <> "/?list-type=2&prefix=" <> prefix
+      let url =
+            "http://127.0.0.1:"
+              <> port
+              <> "/"
+              <> bucket ref
+              <> "/?list-type=2&prefix="
+              <> prefix
           output = scratch <> "/listing.xml"
           config = "user = \"" <> quoteConfig user <> "\"\n"
-          arguments = ["--silent", "--show-error", "--fail", "--aws-sigv4"
-            , "aws:amz:us-east-1:s3", "--config", "-", "--output", output
-            , T.unpack url]
-      outcome <- try (readCreateProcessWithExitCode (proc "curl" arguments)
-        (T.unpack config)) :: IO (Either IOException (ExitCode, String, String))
+          arguments =
+            [ "--silent"
+            , "--show-error"
+            , "--fail"
+            , "--aws-sigv4"
+            , "aws:amz:us-east-1:s3"
+            , "--config"
+            , "-"
+            , "--output"
+            , output
+            , T.unpack url
+            ]
+      outcome <-
+        try
+          ( readCreateProcessWithExitCode
+              (proc "curl" arguments)
+              (T.unpack config)
+          ) ::
+          IO (Either IOException (ExitCode, String, String))
       case outcome of
         Left _ -> pure (Left "could not invoke local object-store listing")
         Right (ExitFailure _, _, _) -> pure (Left "local object-store listing is unavailable")
         Right (ExitSuccess, _, _) -> do
           body <- try (BC.readFile output) :: IO (Either IOException BC.ByteString)
-          pure (either (Left . const "local object-store listing cannot be read")
-            (parseListing prefix) body)
+          pure
+            ( either
+                (Left . const "local object-store listing cannot be read")
+                (parseListing prefix)
+                body
+            )
 
 -- | Version listing is a separate S3 operation from current-key listing.
 -- Recovery must prove the reviewed data version is gone, even when a delete
 -- marker hides an older object from ListObjectsV2.
-listVersionsViaCurl :: MinioRef -> Text -> Text -> FilePath -> Text
-  -> IO (Either Text [(Text, Text)])
+listVersionsViaCurl ::
+  MinioRef ->
+  Text ->
+  Text ->
+  FilePath ->
+  Text ->
+  IO (Either Text [(Text, Text)])
 listVersionsViaCurl ref user port scratch prefix
-  | T.null prefix || T.any (\character -> not (isAlphaNum character
-      || character `elem` ("/-_." :: String))) prefix =
+  | T.null prefix
+      || T.any
+        ( \character ->
+            not
+              ( isAlphaNum character
+                  || character `elem` ("/-_." :: String)
+              )
+        )
+        prefix =
       pure (Left "scheduled version prefix has unsupported URL characters")
   | otherwise = do
-      let url = "http://127.0.0.1:" <> port <> "/" <> bucket ref
-            <> "/?versions&prefix=" <> prefix
+      let url =
+            "http://127.0.0.1:"
+              <> port
+              <> "/"
+              <> bucket ref
+              <> "/?versions&prefix="
+              <> prefix
           output = scratch <> "/versions.xml"
           config = "user = \"" <> quoteConfig user <> "\"\n"
-          arguments = ["--silent", "--show-error", "--fail", "--aws-sigv4"
-            , "aws:amz:us-east-1:s3", "--config", "-", "--output", output
-            , T.unpack url]
-      outcome <- try (readCreateProcessWithExitCode (proc "curl" arguments)
-        (T.unpack config)) :: IO (Either IOException (ExitCode, String, String))
+          arguments =
+            [ "--silent"
+            , "--show-error"
+            , "--fail"
+            , "--aws-sigv4"
+            , "aws:amz:us-east-1:s3"
+            , "--config"
+            , "-"
+            , "--output"
+            , output
+            , T.unpack url
+            ]
+      outcome <-
+        try
+          ( readCreateProcessWithExitCode
+              (proc "curl" arguments)
+              (T.unpack config)
+          ) ::
+          IO (Either IOException (ExitCode, String, String))
       case outcome of
         Left _ -> pure (Left "could not invoke local object-store version listing")
         Right (ExitFailure _, _, _) -> pure (Left "local object-store version listing is unavailable")
         Right (ExitSuccess, _, _) -> do
           body <- try (BC.readFile output) :: IO (Either IOException BC.ByteString)
-          pure (either (Left . const "local object-store version listing cannot be read")
-            (parseObjectVersions prefix) body)
+          pure
+            ( either
+                (Left . const "local object-store version listing cannot be read")
+                (parseObjectVersions prefix)
+                body
+            )
 
 parseObjectVersions :: Text -> BC.ByteString -> Either Text [(Text, Text)]
 parseObjectVersions prefix raw = do
-  body <- first (const "local object-store version listing is not UTF-8")
-    (TE.decodeUtf8' raw)
-  unless ("<ListVersionsResult" `T.isInfixOf` body
-      && "</ListVersionsResult>" `T.isInfixOf` body)
+  body <-
+    first
+      (const "local object-store version listing is not UTF-8")
+      (TE.decodeUtf8' raw)
+  unless
+    ( "<ListVersionsResult" `T.isInfixOf` body
+        && "</ListVersionsResult>" `T.isInfixOf` body
+    )
     (Left "local object-store version listing has no result envelope")
   truncated <- oneElement "IsTruncated" body
-  unless (truncated == "false")
+  unless
+    (truncated == "false")
     (Left "local object-store version listing is incomplete")
   versions <- xmlElements "Version" body
   markers <- xmlElements "DeleteMarker" body
   entries <- traverse one (versions <> markers)
-  unless (Set.size (Set.fromList entries) == length entries)
+  unless
+    (Set.size (Set.fromList entries) == length entries)
     (Left "local object-store version listing repeats a key/version")
   pure entries
   where
     one value = do
       key <- oneElement "Key" value
       version <- oneElement "VersionId" value
-      unless (prefix `T.isPrefixOf` key && not (T.null version)
-          && T.all (\character -> isAlphaNum character
-            || character `elem` ("/-_." :: String)) key
-          && T.all (\character -> isAlphaNum character
-            || character == '-') version)
+      unless
+        ( prefix `T.isPrefixOf` key
+            && not (T.null version)
+            && T.all
+              ( \character ->
+                  isAlphaNum character
+                    || character `elem` ("/-_." :: String)
+              )
+              key
+            && T.all
+              ( \character ->
+                  isAlphaNum character
+                    || character == '-'
+              )
+              version
+        )
         (Left "local object-store version listing has an invalid key or version")
       pure (key, version)
 
 parseObjectList :: Text -> BC.ByteString -> Either Text [Text]
 parseObjectList prefix raw = do
-  body <- first (const "local object-store listing is not UTF-8")
-    (TE.decodeUtf8' raw)
-  unless ("<ListBucketResult" `T.isInfixOf` body
-      && "</ListBucketResult>" `T.isInfixOf` body)
+  body <-
+    first
+      (const "local object-store listing is not UTF-8")
+      (TE.decodeUtf8' raw)
+  unless
+    ( "<ListBucketResult" `T.isInfixOf` body
+        && "</ListBucketResult>" `T.isInfixOf` body
+    )
     (Left "local object-store listing has no result envelope")
   truncated <- oneElement "IsTruncated" body
-  unless (truncated == "false")
+  unless
+    (truncated == "false")
     (Left "local object-store listing is incomplete")
   countText <- oneElement "KeyCount" body
   count <- case reads (T.unpack countText) of
@@ -283,10 +467,21 @@ parseObjectList prefix raw = do
     _ -> Left "local object-store listing has an invalid key count"
   contents <- xmlElements "Contents" body
   keys <- traverse (oneElement "Key") contents
-  unless (length keys == count && Set.size (Set.fromList keys) == count
-      && all (\key -> prefix `T.isPrefixOf` key &&
-        T.all (\character -> isAlphaNum character
-          || character `elem` ("/-_." :: String)) key) keys)
+  unless
+    ( length keys == count
+        && Set.size (Set.fromList keys) == count
+        && all
+          ( \key ->
+              prefix `T.isPrefixOf` key
+                && T.all
+                  ( \character ->
+                      isAlphaNum character
+                        || character `elem` ("/-_." :: String)
+                  )
+                  key
+          )
+          keys
+    )
     (Left "local object-store listing has invalid or duplicate keys")
   pure keys
 
@@ -296,21 +491,31 @@ parseObjectList prefix raw = do
 parseObjectEntries :: Text -> BC.ByteString -> Either Text [ListedObject]
 parseObjectEntries prefix raw = do
   keys <- parseObjectList prefix raw
-  body <- first (const "local object-store listing is not UTF-8")
-    (TE.decodeUtf8' raw)
+  body <-
+    first
+      (const "local object-store listing is not UTF-8")
+      (TE.decodeUtf8' raw)
   contents <- xmlElements "Contents" body
   entries <- traverse one contents
-  unless (map listedKey entries == keys)
+  unless
+    (map listedKey entries == keys)
     (Left "local object-store listing keys changed during timestamp parsing")
   pure entries
   where
     one value = do
       key <- oneElement "Key" value
       modified <- oneElement "LastModified" value
-      timestamp <- maybe
-        (Left "local object-store listing has an invalid modification time") Right
-        (parseTimeM True defaultTimeLocale "%Y-%m-%dT%H:%M:%S%QZ"
-          (T.unpack modified) :: Maybe UTCTime)
+      timestamp <-
+        maybe
+          (Left "local object-store listing has an invalid modification time")
+          Right
+          ( parseTimeM
+              True
+              defaultTimeLocale
+              "%Y-%m-%dT%H:%M:%S%QZ"
+              (T.unpack modified) ::
+              Maybe UTCTime
+          )
       pure (ListedObject key timestamp)
 
 oneElement :: Text -> Text -> Either Text Text

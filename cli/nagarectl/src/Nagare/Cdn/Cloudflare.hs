@@ -126,20 +126,27 @@ buildCacheRulesPayload :: Text -> Cdn -> Value
 buildCacheRulesPayload hostname cdn =
   object
     [ "rules"
-        .= rulesForHost hostname (cdn ^. #defaultTtlSeconds)
-          (cdn ^. #cacheStaticAssets) (cdn ^. #cacheRules)
+        .= rulesForHost
+          hostname
+          (cdn ^. #defaultTtlSeconds)
+          (cdn ^. #cacheStaticAssets)
+          (cdn ^. #cacheRules)
     ]
 
 -- | Render the owner's complete ruleset from all accepted host contributions.
 -- Host sorting makes unrelated application source order irrelevant while each
 -- host keeps the first declared matching path at highest priority.
 buildComposedCacheRulesPayload :: [CloudflareCacheIntent] -> Value
-buildComposedCacheRulesPayload intents = object
-  ["rules" .= concatMap hostRules (sortOn (nameText . cacheHost) intents)]
+buildComposedCacheRulesPayload intents =
+  object
+    ["rules" .= concatMap hostRules (sortOn (nameText . cacheHost) intents)]
   where
     hostRules intent =
       let host = nameText (cacheHost intent)
-       in rulesForHost host (cacheDefaultTtl intent) (intent ^. #cacheStaticAssets)
+       in rulesForHost
+            host
+            (cacheDefaultTtl intent)
+            (intent ^. #cacheStaticAssets)
             (map (uncurry CdnCacheRule) (cachePaths intent))
 
 rulesForHost :: Text -> Maybe Int -> Bool -> [CdnCacheRule] -> [Value]
@@ -272,7 +279,8 @@ parseExactARecordListing host bytes = do
   case records of
     [] -> Right Nothing
     [record] -> do
-      unless (textAt ["name"] record == Just host && textAt ["type"] record == Just "A")
+      unless
+        (textAt ["name"] record == Just host && textAt ["type"] record == Just "A")
         (Left "Cloudflare DNS listing returned a different hostname or type")
       recordId <- maybe (Left "Cloudflare DNS record has no ID") Right (textAt ["id"] record)
       content <- maybe (Left "Cloudflare DNS record has no content") Right (textAt ["content"] record)
@@ -402,8 +410,13 @@ upsertProxiedRecord creds host originIp = withZone creds host $ \zone -> do
     Right bs -> case parseExactARecordListing host bs of
       Left reason -> pure (Left ("cannot inspect Cloudflare DNS record: " <> reason))
       Right (Just (_, current, True, 1)) | current == originIp -> pure (Right ())
-      Right (Just _) -> pure (Left (host
-        <> ": existing Cloudflare A record differs; direct deploy cannot replace it without reviewed ownership"))
+      Right (Just _) ->
+        pure
+          ( Left
+              ( host
+                  <> ": existing Cloudflare A record differs; direct deploy cannot replace it without reviewed ownership"
+              )
+          )
       Right Nothing -> sendUnit tok "POST" ("/zones/" <> zone <> "/dns_records") (Just body)
 
 -- | Apply the typed cache rules by replacing the @http_request_cache_settings@

@@ -55,13 +55,13 @@ import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Types (mkServiceName)
 import Nagare.Inventory.BackupReceipt
   ( BackupReceiptExpectation (..)
-  , ScheduledReceiptExpectation (..)
   , ScheduledBackupReceipt (..)
-  , scheduledReceiptExpectationFromCronJob
+  , ScheduledReceiptExpectation (..)
   , manualBackupJobReceiptExpectation
   , parseBackupReceipt
   , parseManualBackupReceipt
   , parseScheduledBackupReceipt
+  , scheduledReceiptExpectationFromCronJob
   )
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)

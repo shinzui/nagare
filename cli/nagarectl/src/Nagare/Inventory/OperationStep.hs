@@ -90,7 +90,7 @@ operationPhase (Just state) = case state of
 bootstrapRecoveryMarker :: Text -> Maybe (ContentDigest, Maybe ContentDigest)
 bootstrapRecoveryMarker marker = case T.splitOn ":" marker of
   ["bootstrap-registry-intent", native] ->
-    (, Nothing) <$> either (const Nothing) Just (mkContentDigest native)
+    (,Nothing) <$> either (const Nothing) Just (mkContentDigest native)
   ["bootstrap-registry-proved", native, receipt] -> do
     selected <- either (const Nothing) Just (mkContentDigest native)
     proof <- either (const Nothing) Just (mkContentDigest receipt)

@@ -4,7 +4,8 @@
 module Nagare.Resource.Cache
   ( LogicalCacheInput (..)
   , compileLogicalCache
-  ) where
+  )
+where
 
 import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
@@ -48,18 +49,19 @@ compileLogicalCache input =
   where
     resourceId = mintResourceId (cacheOwnerScope input) (cacheLogicalKey input) (known "logical-cache")
     publicKey = outputRef NixCachePublicKeyW resourceId (known "public-key") [NonEmptyOutput] Public
-    resource = ManagedResource
-      { identity = resourceId
-      , owner = cacheOwnerScope input
-      , executor = CacheExecutor
-      , address = AtticCache (cacheCluster input) (cacheName input)
-      , aliases = []
-      , spec = LogicalCache (cacheConfigurationDigest input)
-      , lifecycle = Retain
-      , dataPolicy = Stateless
-      , sensitivity = Public
-      , dependencies = [OrderedAfter (cacheDatabase input), OrderedAfter (cacheWorkload input)]
-      , delegations = []
-      , source = cacheSource input
-      }
+    resource =
+      ManagedResource
+        { identity = resourceId
+        , owner = cacheOwnerScope input
+        , executor = CacheExecutor
+        , address = AtticCache (cacheCluster input) (cacheName input)
+        , aliases = []
+        , spec = LogicalCache (cacheConfigurationDigest input)
+        , lifecycle = Retain
+        , dataPolicy = Stateless
+        , sensitivity = Public
+        , dependencies = [OrderedAfter (cacheDatabase input), OrderedAfter (cacheWorkload input)]
+        , delegations = []
+        , source = cacheSource input
+        }
     known value = either (error . show) id (mkName value)

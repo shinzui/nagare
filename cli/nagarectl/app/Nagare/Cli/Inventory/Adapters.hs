@@ -29,6 +29,7 @@ import Nagare.Cdn.Cloudflare (cfRequestWithStatus)
 import Nagare.Cdn.Provision (verifyGcpDnsReference)
 import Nagare.Cli.Application.Cdn (gatherGcpStackRefs)
 import Nagare.Cli.Inventory.CloudCatalog (loadCloudCatalog)
+import Nagare.Cli.Inventory.CloudHistory (requireCloudCollectionProtocol)
 import Nagare.Cli.Inventory.Foundation (foundationImageLink)
 import Nagare.Cli.Runtime.Cluster (guardKubernetesContext)
 import Nagare.Cli.Runtime.Error (dieT)
@@ -93,8 +94,8 @@ import Nagare.Inventory.Adapters.Kubernetes
   )
 import Nagare.Inventory.Adapters.KubernetesRuntime
   ( KubernetesRuntimeConfig (KubernetesRuntimeConfig)
-  , observeKubernetesConfiguration
   , mkKubernetesRuntimeOpsAndBatchWithCacheKey
+  , observeKubernetesConfiguration
   , readBackupReceiptFromCompletedPod
   )
 import Nagare.Inventory.Adapters.Pulumi (mkPulumiAdapter)
@@ -116,9 +117,8 @@ import Nagare.Inventory.Adapters.PulumiRuntime
   , mkPulumiRuntimeOps
   )
 import Nagare.Inventory.Artifact qualified as InventoryArtifact
-import Nagare.Cli.Inventory.CloudHistory (requireCloudCollectionProtocol)
-import Nagare.Inventory.CloudCollection (encodeCloudCollectionBundle)
 import Nagare.Inventory.Cloud qualified as InventoryCloud
+import Nagare.Inventory.CloudCollection (encodeCloudCollectionBundle)
 import Nagare.Inventory.Collection.Adapter (controllerCollectionAdapter)
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Digest qualified as InventoryDigest
@@ -520,8 +520,10 @@ inventoryPulumiAdapterWithCollections collected active workspace binding scopes 
           stackName
           (map ResourceInventory.scopeId scopes)
           allRegistrations
-  declarationBundle <- if null collected then pure ordinaryDeclarationBundle
-    else either dieT pure (encodeCloudCollectionBundle ordinaryDeclarationBundle collected)
+  declarationBundle <-
+    if null collected
+      then pure ordinaryDeclarationBundle
+      else either dieT pure (encodeCloudCollectionBundle ordinaryDeclarationBundle collected)
   let config =
         PulumiRuntimeConfig
           { runtimeContext = context

@@ -102,8 +102,9 @@ mkPulumiAdapter declared ops =
     , adapterRecover = recoverPlan
     }
   where
-    prepare operation | MigrateResource _ <- plannedAction operation =
-      pure (Left (PrepareRefused (plannedOperationId operation) "Pulumi adapter has no migration stage contract"))
+    prepare operation
+      | MigrateResource _ <- plannedAction operation =
+          pure (Left (PrepareRefused (plannedOperationId operation) "Pulumi adapter has no migration stage contract"))
     prepare operation = do
       prepared <- pulumiPrepareSavedPlan ops operation
       pure $ do
@@ -140,10 +141,12 @@ validatePulumiPreparation declared operation preparation = do
   steps <- first PulumiMalformedBundle (parsePreview (preparationPreview preparation))
   let byResource = Map.fromList [(registrationResource registration, registration) | registration <- declared]
       knownUrns = Set.fromList (map registrationPulumiUrn declared)
-      operationUrns = Set.fromList
-        [registrationPulumiUrn registration
-        | resource <- NE.toList (plannedResources operation)
-        , Just registration <- [Map.lookup resource byResource]]
+      operationUrns =
+        Set.fromList
+          [ registrationPulumiUrn registration
+          | resource <- NE.toList (plannedResources operation)
+          , Just registration <- [Map.lookup resource byResource]
+          ]
       mutating = filter (isMutation . op) steps
       isStackStep = isImplicitStackStep (preparationIdentity preparation)
   forM_ mutating $ \step -> unless (isStackStep step || Set.member (urn step) knownUrns) (Left (PulumiUnknownMutation (urn step)))
@@ -177,8 +180,11 @@ isMutation _ = True
 -- not a provider resource registration.
 isImplicitStackStep :: PulumiIdentity -> PlanStep -> Bool
 isImplicitStackStep identity step =
-  urn step == "urn:pulumi:" <> pulumiStack identity
-    <> "::nagare::pulumi:pulumi:Stack::nagare-" <> pulumiStack identity
+  urn step
+    == "urn:pulumi:"
+      <> pulumiStack identity
+      <> "::nagare::pulumi:pulumi:Stack::nagare-"
+      <> pulumiStack identity
     && case op step of
       OpCreate -> True
       OpUpdate -> True

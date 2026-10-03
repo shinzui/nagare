@@ -110,14 +110,21 @@ renderRestoreJob i =
               , serviceAccountName = Nothing
               , backoffLimit = 0
               , hostAliases = storeHostAliases (i ^. #backend)
-              , affinity = if i ^. #engine == ClickHouse then
-                  Just (clickHouseSourceAffinity (i ^. #namespace) (i ^. #name)) else Nothing
+              , affinity =
+                  if i ^. #engine == ClickHouse
+                    then
+                      Just (clickHouseSourceAffinity (i ^. #namespace) (i ^. #name))
+                    else Nothing
               , initContainers = [downloadContainer i]
               , containers = [restoreContainer i]
-              , volumes = [object ["name" .= ("dump" :: Text), "emptyDir" .= object []]]
-                  <> [object ["name" .= ("source-data" :: Text),
-                      "persistentVolumeClaim" .= object ["claimName" .= dbPvcName (i ^. #name)]]
-                      | i ^. #engine == ClickHouse]
+              , volumes =
+                  [object ["name" .= ("dump" :: Text), "emptyDir" .= object []]]
+                    <> [ object
+                           [ "name" .= ("source-data" :: Text)
+                           , "persistentVolumeClaim" .= object ["claimName" .= dbPvcName (i ^. #name)]
+                           ]
+                       | i ^. #engine == ClickHouse
+                       ]
               }
       ]
   where
@@ -133,80 +140,125 @@ renderRestoreJob i =
 -- before publishing the file on the scratch PVC. A partial first load refuses
 -- restart until an operator reviews the PVC instead of silently replacing data.
 renderRedisScratchService :: Text -> Text -> ByteString
-renderRedisScratchService ns scratch = Y.encode $ object
-  [ "apiVersion" .= ("v1" :: Text)
-  , "kind" .= ("Service" :: Text)
-  , "metadata" .= object
-      [ "name" .= scratch, "namespace" .= ns, "labels" .= redisScratchLabels scratch ]
-  , "spec" .= object
-      [ "clusterIP" .= ("None" :: Text)
-      , "selector" .= redisScratchSelector scratch
-      , "ports" .= toJSON [object ["name" .= ("redis" :: Text),
-          "port" .= (6379 :: Int), "targetPort" .= (6379 :: Int)]] ]
-  ]
+renderRedisScratchService ns scratch =
+  Y.encode $
+    object
+      [ "apiVersion" .= ("v1" :: Text)
+      , "kind" .= ("Service" :: Text)
+      , "metadata"
+          .= object
+            ["name" .= scratch, "namespace" .= ns, "labels" .= redisScratchLabels scratch]
+      , "spec"
+          .= object
+            [ "clusterIP" .= ("None" :: Text)
+            , "selector" .= redisScratchSelector scratch
+            , "ports"
+                .= toJSON
+                  [ object
+                      [ "name" .= ("redis" :: Text)
+                      , "port" .= (6379 :: Int)
+                      , "targetPort" .= (6379 :: Int)
+                      ]
+                  ]
+            ]
+      ]
 
 renderRedisScratchStatefulSet :: RestoreJobInputs -> Text -> Text -> ByteString
-renderRedisScratchStatefulSet i scratch claim = Y.encode $ object
-  [ "apiVersion" .= ("apps/v1" :: Text)
-  , "kind" .= ("StatefulSet" :: Text)
-  , "metadata" .= object
-      [ "name" .= scratch, "namespace" .= (i ^. #namespace)
-      , "labels" .= redisScratchLabels scratch ]
-  , "spec" .= object
-      [ "serviceName" .= scratch
-      , "replicas" .= (1 :: Int)
-      , "selector" .= object ["matchLabels" .= redisScratchSelector scratch]
-      , "template" .= object
-          [ "metadata" .= object ["labels" .= redisScratchLabels scratch]
-          , "spec" .= object
-              ( [ "initContainers" .= toJSON [redisScratchDownloadContainer i]
-              , "containers" .= toJSON [redisScratchServer i]
-              , "volumes" .= toJSON [object
-                  [ "name" .= ("dump" :: Text)
-                  , "persistentVolumeClaim" .= object ["claimName" .= claim] ]]
-              ] <> maybe [] (\aliases -> ["hostAliases" .= aliases])
-                (storeHostAliases (i ^. #backend))) ]
+renderRedisScratchStatefulSet i scratch claim =
+  Y.encode $
+    object
+      [ "apiVersion" .= ("apps/v1" :: Text)
+      , "kind" .= ("StatefulSet" :: Text)
+      , "metadata"
+          .= object
+            [ "name" .= scratch
+            , "namespace" .= (i ^. #namespace)
+            , "labels" .= redisScratchLabels scratch
+            ]
+      , "spec"
+          .= object
+            [ "serviceName" .= scratch
+            , "replicas" .= (1 :: Int)
+            , "selector" .= object ["matchLabels" .= redisScratchSelector scratch]
+            , "template"
+                .= object
+                  [ "metadata" .= object ["labels" .= redisScratchLabels scratch]
+                  , "spec"
+                      .= object
+                        ( [ "initContainers" .= toJSON [redisScratchDownloadContainer i]
+                          , "containers" .= toJSON [redisScratchServer i]
+                          , "volumes"
+                              .= toJSON
+                                [ object
+                                    [ "name" .= ("dump" :: Text)
+                                    , "persistentVolumeClaim" .= object ["claimName" .= claim]
+                                    ]
+                                ]
+                          ]
+                            <> maybe
+                              []
+                              (\aliases -> ["hostAliases" .= aliases])
+                              (storeHostAliases (i ^. #backend))
+                        )
+                  ]
+            ]
       ]
-  ]
 
 renderRedisScratchVerifyJob :: RestoreJobInputs -> Text -> ByteString
-renderRedisScratchVerifyJob i scratch = Y.encode $ object
-  [ "apiVersion" .= ("batch/v1" :: Text)
-  , "kind" .= ("Job" :: Text)
-  , "metadata" .= object
-      [ "name" .= (i ^. #jobName), "namespace" .= (i ^. #namespace)
-      , "labels" .= redisScratchLabels scratch ]
-  , "spec" .= dataMovementJobSpec DataMovementJob
-      { templateLabels = Just (redisScratchLabels scratch)
-      , serviceAccountName = Nothing
-      , backoffLimit = 0
-      , hostAliases = storeHostAliases (i ^. #backend)
-      , affinity = Nothing
-      , initContainers = []
-      , containers = [object
-          [ "name" .= ("verify" :: Text)
-          , "image" .= (i ^. #clientImage)
-          , "command" .= toJSON ["/bin/sh" :: Text, "-c"]
-          , "args" .= toJSON
-              [ "set -e; i=0; until test \"$(REDISCLI_AUTH=\"$REDIS_PASSWORD\" redis-cli -h " <> scratch
-                  <> " --no-auth-warning ping)\" = PONG; do i=$((i+1)); "
-                  <> "if test \"$i\" -ge 150; then exit 1; fi; sleep 2; done; "
-                  <> "REDISCLI_AUTH=\"$REDIS_PASSWORD\" redis-cli -h " <> scratch
-                  <> " --no-auth-warning INFO persistence | grep -q 'loading:0'; "
-                  <> "REDISCLI_AUTH=\"$REDIS_PASSWORD\" redis-cli -h " <> scratch <> " --no-auth-warning DBSIZE" ]
-          , "env" .= toJSON (restoreEnv Redis (i ^. #secretName))
-          ]]
-      , volumes = []
-      }
-  ]
+renderRedisScratchVerifyJob i scratch =
+  Y.encode $
+    object
+      [ "apiVersion" .= ("batch/v1" :: Text)
+      , "kind" .= ("Job" :: Text)
+      , "metadata"
+          .= object
+            [ "name" .= (i ^. #jobName)
+            , "namespace" .= (i ^. #namespace)
+            , "labels" .= redisScratchLabels scratch
+            ]
+      , "spec"
+          .= dataMovementJobSpec
+            DataMovementJob
+              { templateLabels = Just (redisScratchLabels scratch)
+              , serviceAccountName = Nothing
+              , backoffLimit = 0
+              , hostAliases = storeHostAliases (i ^. #backend)
+              , affinity = Nothing
+              , initContainers = []
+              , containers =
+                  [ object
+                      [ "name" .= ("verify" :: Text)
+                      , "image" .= (i ^. #clientImage)
+                      , "command" .= toJSON ["/bin/sh" :: Text, "-c"]
+                      , "args"
+                          .= toJSON
+                            [ "set -e; i=0; until test \"$(REDISCLI_AUTH=\"$REDIS_PASSWORD\" redis-cli -h "
+                                <> scratch
+                                <> " --no-auth-warning ping)\" = PONG; do i=$((i+1)); "
+                                <> "if test \"$i\" -ge 150; then exit 1; fi; sleep 2; done; "
+                                <> "REDISCLI_AUTH=\"$REDIS_PASSWORD\" redis-cli -h "
+                                <> scratch
+                                <> " --no-auth-warning INFO persistence | grep -q 'loading:0'; "
+                                <> "REDISCLI_AUTH=\"$REDIS_PASSWORD\" redis-cli -h "
+                                <> scratch
+                                <> " --no-auth-warning DBSIZE"
+                            ]
+                      , "env" .= toJSON (restoreEnv Redis (i ^. #secretName))
+                      ]
+                  ]
+              , volumes = []
+              }
+      ]
 
 redisScratchSelector :: Text -> Value
 redisScratchSelector scratch = object ["nagare.dev/restore-scratch" .= scratch]
 
 redisScratchLabels :: Text -> Value
-redisScratchLabels scratch = object
-  [ "nagare.dev/managed-by" .= ("nagarectl" :: Text)
-  , "nagare.dev/restore-scratch" .= scratch ]
+redisScratchLabels scratch =
+  object
+    [ "nagare.dev/managed-by" .= ("nagarectl" :: Text)
+    , "nagare.dev/restore-scratch" .= scratch
+    ]
 
 redisScratchDownloadContainer :: RestoreJobInputs -> Value
 redisScratchDownloadContainer i = case downloadContainer i of
@@ -228,23 +280,36 @@ redisScratchDownloadShell i =
     <> "printf %s \"$EXPECTED_BACKUP_SHA256\" > /dump/.nagare-restore-complete; fi"
 
 redisScratchServer :: RestoreJobInputs -> Value
-redisScratchServer i = object
-  [ "name" .= ("redis" :: Text)
-  , "image" .= (i ^. #clientImage)
-  , "command" .= toJSON ["/bin/sh" :: Text, "-c"]
-  , "args" .= toJSON
-      [ ("set -e; redis-check-rdb /data/backup.rdb >/dev/null; " :: Text)
-          <> "exec redis-server --requirepass \"$REDIS_PASSWORD\" "
-          <> "--dir /data --dbfilename backup.rdb --save '' --appendonly no" ]
-  , "env" .= toJSON (restoreEnv Redis (i ^. #secretName))
-  , "ports" .= toJSON [object ["containerPort" .= (6379 :: Int)]]
-  , "readinessProbe" .= object
-      [ "exec" .= object ["command" .= toJSON
-          ["/bin/sh" :: Text, "-c", "test \"$(REDISCLI_AUTH=\"$REDIS_PASSWORD\" redis-cli --no-auth-warning ping)\" = PONG"]]
-      , "periodSeconds" .= (5 :: Int), "timeoutSeconds" .= (5 :: Int) ]
-  , "volumeMounts" .= toJSON [object
-      ["name" .= ("dump" :: Text), "mountPath" .= ("/data" :: Text)]]
-  ]
+redisScratchServer i =
+  object
+    [ "name" .= ("redis" :: Text)
+    , "image" .= (i ^. #clientImage)
+    , "command" .= toJSON ["/bin/sh" :: Text, "-c"]
+    , "args"
+        .= toJSON
+          [ ("set -e; redis-check-rdb /data/backup.rdb >/dev/null; " :: Text)
+              <> "exec redis-server --requirepass \"$REDIS_PASSWORD\" "
+              <> "--dir /data --dbfilename backup.rdb --save '' --appendonly no"
+          ]
+    , "env" .= toJSON (restoreEnv Redis (i ^. #secretName))
+    , "ports" .= toJSON [object ["containerPort" .= (6379 :: Int)]]
+    , "readinessProbe"
+        .= object
+          [ "exec"
+              .= object
+                [ "command"
+                    .= toJSON
+                      ["/bin/sh" :: Text, "-c", "test \"$(REDISCLI_AUTH=\"$REDIS_PASSWORD\" redis-cli --no-auth-warning ping)\" = PONG"]
+                ]
+          , "periodSeconds" .= (5 :: Int)
+          , "timeoutSeconds" .= (5 :: Int)
+          ]
+    , "volumeMounts"
+        .= toJSON
+          [ object
+              ["name" .= ("dump" :: Text), "mountPath" .= ("/data" :: Text)]
+          ]
+    ]
 
 dumpMount :: Value
 dumpMount = object ["name" .= ("dump" :: Text), "mountPath" .= ("/dump" :: Text)]
@@ -258,33 +323,40 @@ downloadContainer i =
     , "args" .= toJSON [downloadShell (i ^. #backend) (i ^. #engine) (i ^. #verifiedSource)]
     , "env"
         .= toJSON
-          ([plainEnv "SRC" (i ^. #sourceUrl)]
-            <> maybe [] (\source ->
-                 [ plainEnv "RECEIPT_URL" (source ^. #receiptUrl)
-                 , plainEnv "EXPECTED_RECEIPT_SHA256" (source ^. #receiptSha256)
-                 , plainEnv "EXPECTED_BACKUP_SHA256" (source ^. #backupSha256)
-                 , plainEnv "BACKUP_EXPIRY_EPOCH" (T.pack (show (source ^. #expiryEpoch)))
-                 ]) (i ^. #verifiedSource)
-            <> case (i ^. #backend, i ^. #verifiedSource) of
-              (GcsBackend {}, Just source)
-                | Just selectedObject <- source ^. #objectVersion
-                , Just selectedReceipt <- source ^. #receiptVersion ->
-                    [ plainEnv "OBJECT_VERSION" selectedObject
-                    , plainEnv "RECEIPT_VERSION" selectedReceipt ]
-              (MinioBackend ref, Just source)
-                | Just selectedObject <- source ^. #objectVersion
-                , Just selectedReceipt <- source ^. #receiptVersion ->
-                    let prefix = "s3://" <> ref ^. #bucket <> "/"
-                        objectKey = maybe "" id (T.stripPrefix prefix (i ^. #sourceUrl))
-                        receiptKey = maybe "" id (T.stripPrefix prefix (source ^. #receiptUrl))
-                     in [ plainEnv "STORE_ENDPOINT" (ref ^. #endpoint)
-                        , plainEnv "STORE_BUCKET" (ref ^. #bucket)
-                        , plainEnv "OBJECT_KEY" objectKey
-                        , plainEnv "RECEIPT_KEY" receiptKey
-                        , plainEnv "OBJECT_VERSION" selectedObject
-                        , plainEnv "RECEIPT_VERSION" selectedReceipt ]
-              _ -> []
-            <> storeEnv (i ^. #backend))
+          ( [plainEnv "SRC" (i ^. #sourceUrl)]
+              <> maybe
+                []
+                ( \source ->
+                    [ plainEnv "RECEIPT_URL" (source ^. #receiptUrl)
+                    , plainEnv "EXPECTED_RECEIPT_SHA256" (source ^. #receiptSha256)
+                    , plainEnv "EXPECTED_BACKUP_SHA256" (source ^. #backupSha256)
+                    , plainEnv "BACKUP_EXPIRY_EPOCH" (T.pack (show (source ^. #expiryEpoch)))
+                    ]
+                )
+                (i ^. #verifiedSource)
+              <> case (i ^. #backend, i ^. #verifiedSource) of
+                (GcsBackend {}, Just source)
+                  | Just selectedObject <- source ^. #objectVersion
+                  , Just selectedReceipt <- source ^. #receiptVersion ->
+                      [ plainEnv "OBJECT_VERSION" selectedObject
+                      , plainEnv "RECEIPT_VERSION" selectedReceipt
+                      ]
+                (MinioBackend ref, Just source)
+                  | Just selectedObject <- source ^. #objectVersion
+                  , Just selectedReceipt <- source ^. #receiptVersion ->
+                      let prefix = "s3://" <> ref ^. #bucket <> "/"
+                          objectKey = maybe "" id (T.stripPrefix prefix (i ^. #sourceUrl))
+                          receiptKey = maybe "" id (T.stripPrefix prefix (source ^. #receiptUrl))
+                       in [ plainEnv "STORE_ENDPOINT" (ref ^. #endpoint)
+                          , plainEnv "STORE_BUCKET" (ref ^. #bucket)
+                          , plainEnv "OBJECT_KEY" objectKey
+                          , plainEnv "RECEIPT_KEY" receiptKey
+                          , plainEnv "OBJECT_VERSION" selectedObject
+                          , plainEnv "RECEIPT_VERSION" selectedReceipt
+                          ]
+                _ -> []
+              <> storeEnv (i ^. #backend)
+          )
     , "volumeMounts" .= toJSON [dumpMount]
     ]
 
@@ -294,15 +366,35 @@ restoreContainer i =
     [ "name" .= ("restore" :: Text)
     , "image" .= (i ^. #clientImage)
     , "command" .= toJSON ["/bin/sh" :: Text, "-c"]
-    , "args" .= toJSON [maybe (restoreShell (i ^. #engine) (i ^. #serviceHost)
-        (i ^. #liveTarget)) (verifiedRestoreShell (i ^. #engine) (i ^. #serviceHost))
-        (i ^. #verifiedSource)]
-    , "env" .= toJSON (restoreEnv (i ^. #engine) (i ^. #secretName)
-        <> maybe [] (\source -> [plainEnv "SCRATCH_DATABASE" (source ^. #scratchDatabase)])
-             (i ^. #verifiedSource))
-    , "volumeMounts" .= toJSON (dumpMount :
-        [object ["name" .= ("source-data" :: Text),
-          "mountPath" .= ("/source-data" :: Text)] | i ^. #engine == ClickHouse])
+    , "args"
+        .= toJSON
+          [ maybe
+              ( restoreShell
+                  (i ^. #engine)
+                  (i ^. #serviceHost)
+                  (i ^. #liveTarget)
+              )
+              (verifiedRestoreShell (i ^. #engine) (i ^. #serviceHost))
+              (i ^. #verifiedSource)
+          ]
+    , "env"
+        .= toJSON
+          ( restoreEnv (i ^. #engine) (i ^. #secretName)
+              <> maybe
+                []
+                (\source -> [plainEnv "SCRATCH_DATABASE" (source ^. #scratchDatabase)])
+                (i ^. #verifiedSource)
+          )
+    , "volumeMounts"
+        .= toJSON
+          ( dumpMount
+              : [ object
+                    [ "name" .= ("source-data" :: Text)
+                    , "mountPath" .= ("/source-data" :: Text)
+                    ]
+                | i ^. #engine == ClickHouse
+                ]
+          )
     ]
 
 plainEnv :: Text -> Text -> Value
@@ -335,11 +427,13 @@ downloadShell backend eng = \case
       <> storeCpToStdout backend "\"$SRC\""
       <> " | gunzip > /dump/backup."
       <> backupRawExt eng
-  Just source | Just _ <- source ^. #objectVersion
-      , Just _ <- source ^. #receiptVersion -> case backend of
+  Just source
+    | Just _ <- source ^. #objectVersion
+    , Just _ <- source ^. #receiptVersion -> case backend of
         MinioBackend {} ->
           "set -e; test \"$BACKUP_EXPIRY_EPOCH\" -eq 0 || test \"$(date -u +%s)\" -lt \"$BACKUP_EXPIRY_EPOCH\"; "
-            <> storeShellPreamble backend <> hashTools
+            <> storeShellPreamble backend
+            <> hashTools
             <> "aws s3api get-object --bucket \"$STORE_BUCKET\" --key \"$RECEIPT_KEY\" --version-id \"$RECEIPT_VERSION\" --endpoint-url \"$STORE_ENDPOINT\" /dump/backup.receipt.json > /dump/receipt-response.json; "
             <> "aws s3api get-object --bucket \"$STORE_BUCKET\" --key \"$OBJECT_KEY\" --version-id \"$OBJECT_VERSION\" --endpoint-url \"$STORE_ENDPOINT\" /dump/backup.gz > /dump/object-response.json; "
             <> "python3 -c 'import json,os; assert json.load(open(\"/dump/receipt-response.json\")).get(\"VersionId\")==os.environ[\"RECEIPT_VERSION\"]; assert json.load(open(\"/dump/object-response.json\")).get(\"VersionId\")==os.environ[\"OBJECT_VERSION\"]'; "
@@ -356,11 +450,13 @@ downloadShell backend eng = \case
             <> "test \"$(sha256sum /dump/backup.gz | cut -d' ' -f1)\" = \"$EXPECTED_BACKUP_SHA256\"; "
             <> "gunzip -c /dump/backup.gz > /dump/backup."
             <> backupRawExt eng
-  Just source | isJust (source ^. #objectVersion) || isJust (source ^. #receiptVersion) ->
-    "exit 1"
+  Just source
+    | isJust (source ^. #objectVersion) || isJust (source ^. #receiptVersion) ->
+        "exit 1"
   Just _ ->
     "set -e; test \"$BACKUP_EXPIRY_EPOCH\" -eq 0 || test \"$(date -u +%s)\" -lt \"$BACKUP_EXPIRY_EPOCH\"; "
-      <> storeShellPreamble backend <> hashTools
+      <> storeShellPreamble backend
+      <> hashTools
       <> storeCpToStdout backend "\"$RECEIPT_URL\""
       <> " > /dump/backup.receipt.json; "
       <> "test \"$(sha256sum /dump/backup.receipt.json | cut -d' ' -f1)\" = \"$EXPECTED_RECEIPT_SHA256\"; "
@@ -380,10 +476,14 @@ downloadShell backend eng = \case
 -- name occupied for explicit recovery; retries cannot drop its contents.
 verifiedRestoreShell :: Engine -> Text -> VerifiedRestoreSource -> Text
 verifiedRestoreShell Postgres svc _ =
-  "set -e; createdb -h " <> svc <> " -U \"$POSTGRES_USER\" \"$SCRATCH_DATABASE\"; "
-    <> "psql -v ON_ERROR_STOP=1 -h " <> svc
+  "set -e; createdb -h "
+    <> svc
+    <> " -U \"$POSTGRES_USER\" \"$SCRATCH_DATABASE\"; "
+    <> "psql -v ON_ERROR_STOP=1 -h "
+    <> svc
     <> " -U \"$POSTGRES_USER\" -d \"$SCRATCH_DATABASE\" -f /dump/backup.sql; "
-    <> "psql -v ON_ERROR_STOP=1 -h " <> svc
+    <> "psql -v ON_ERROR_STOP=1 -h "
+    <> svc
     <> " -U \"$POSTGRES_USER\" -d \"$SCRATCH_DATABASE\" -c '\\dt'"
 verifiedRestoreShell ClickHouse svc source =
   "set -e; ARCHIVE=\"/source-data/backups/nagare-restore-"

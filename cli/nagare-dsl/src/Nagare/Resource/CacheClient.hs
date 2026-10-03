@@ -4,7 +4,8 @@
 module Nagare.Resource.CacheClient
   ( CacheClientInput (..)
   , compileCacheClient
-  ) where
+  )
+where
 
 import Data.Aeson (Value (..))
 import Data.Aeson.KeyMap qualified as KM
@@ -27,36 +28,43 @@ data CacheClientInput = CacheClientInput
   , clientSource :: !SourceLocation
   }
 
-compileCacheClient
-  :: (Value -> Either Text ContentDigest)
-  -> CacheClientInput
-  -> Either (NonEmpty InventoryError) (ResourceBundle, ResourceId, Value)
+compileCacheClient ::
+  (Value -> Either Text ContentDigest) ->
+  CacheClientInput ->
+  Either (NonEmpty InventoryError) (ResourceBundle, ResourceId, Value)
 compileCacheClient digestOf input = do
-  unless (hasOneKeyPlaceholder (clientCache input) (clientObject input))
+  unless
+    (hasOneKeyPlaceholder (clientCache input) (clientObject input))
     (Left (single (invalid "cache client ConfigMap must contain exactly one generated-key placeholder")))
   digest <- first (single . invalid) (digestOf (clientObject input))
-  declaration <- first single $ compileKubernetesObject
-    KubernetesInput
-      { resourceId = resource
-      , ownerScope = clientOwner input
-      , clusterId = clientCluster input
-      , inputObject = clientObject input
-      , objectDigest = digest
-      , lifecyclePolicy = Retain
-      , inputDataPolicy = Stateless
-      , inputSensitivity = Public
-      , sourceLocation = clientSource input
-      }
-  unless (declaration ^. #address == Kubernetes (clientCluster input) "" (known "configmap") (Just (known "personal")) (known "nagare-nix-cache-client"))
+  declaration <-
+    first single $
+      compileKubernetesObject
+        KubernetesInput
+          { resourceId = resource
+          , ownerScope = clientOwner input
+          , clusterId = clientCluster input
+          , inputObject = clientObject input
+          , objectDigest = digest
+          , lifecyclePolicy = Retain
+          , inputDataPolicy = Stateless
+          , inputSensitivity = Public
+          , sourceLocation = clientSource input
+          }
+  unless
+    (declaration ^. #address == Kubernetes (clientCluster input) "" (known "configmap") (Just (known "personal")) (known "nagare-nix-cache-client"))
     (Left (single (invalid "cache client ConfigMap has an unexpected address")))
   let publicKey = outputRef NixCachePublicKeyW (clientCache input) (known "public-key") [NonEmptyOutput] Public
       guarded = declaration {dependencies = [Consumes (SomeRef publicKey)]}
   pure (ResourceBundle [Managed guarded] [] [] [] [] [], resource, clientObject input)
   where
     resource = mintResourceId (clientOwner input) (clientLogicalKey input) (known "client-config")
-    invalid message = inventoryError "invalid-cache-client" message
-      & #scopes .~ [clientOwner input]
-      & #sources .~ [clientSource input]
+    invalid message =
+      inventoryError "invalid-cache-client" message
+        & #scopes
+        .~ [clientOwner input]
+        & #sources
+        .~ [clientSource input]
     single err = err :| []
     known = either (error . show) id . mkName
 

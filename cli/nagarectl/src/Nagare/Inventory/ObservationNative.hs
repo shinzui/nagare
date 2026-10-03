@@ -54,11 +54,14 @@ observationBytesFromMutation context identity version operation bytes
   | identity == "kubernetes-conditional-object" && version == "1" = do
       mutation <- first T.pack (eitherDecodeStrict' bytes)
       unless
-        ( (mutationVersion mutation == 1
-            || (mutationVersion mutation == 2 && mutationAction mutation == UpdateResource
-              && case mutationAddress mutation of
-                Kubernetes _ "serving.knative.dev" kind (Just _) _ -> nameText kind == "service"
-                _ -> False))
+        ( ( mutationVersion mutation == 1
+              || ( mutationVersion mutation == 2
+                     && mutationAction mutation == UpdateResource
+                     && case mutationAddress mutation of
+                       Kubernetes _ "serving.knative.dev" kind (Just _) _ -> nameText kind == "service"
+                       _ -> False
+                 )
+          )
             && mutationOperation mutation == plannedOperationId operation
             && [mutationResource mutation] == NE.toList (plannedResources operation)
             && mutationAction mutation == plannedAction operation

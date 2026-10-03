@@ -29,7 +29,7 @@ import Nagare.Infra.Plan (digestFile, digestPulumiProgram)
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Pulumi
 import Nagare.Inventory.Cloud
-import Nagare.Inventory.CloudCollection (cloudCollectionProgramDigest, cloudCollectionPhysicalDigest, validateCloudCollectionProtection)
+import Nagare.Inventory.CloudCollection (cloudCollectionPhysicalDigest, cloudCollectionProgramDigest, validateCloudCollectionProtection)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect), operationIdText)
 import Nagare.Resource.Types
@@ -84,13 +84,19 @@ observeResources config resources = do
 
 prepareSavedPlan :: PulumiRuntimeConfig -> PlannedOperation -> IO (Either Text PulumiPreparation)
 prepareSavedPlan config operation = do
-  protected <- if plannedAction operation /= RetireResource then pure (Right ()) else do
-    exported <- runPulumi config ["stack", "export", "--stack", T.unpack (runtimeStack config), "--show-secrets=false"]
-    pure $ successful "Pulumi collection protection observation" exported >>= \body ->
-      validateCloudCollectionProtection
-        [registration | registration <- runtimeRegistrations config,
-          registrationResource registration `elem` NE.toList (plannedResources operation)]
-        (TE.encodeUtf8 (T.pack body))
+  protected <-
+    if plannedAction operation /= RetireResource
+      then pure (Right ())
+      else do
+        exported <- runPulumi config ["stack", "export", "--stack", T.unpack (runtimeStack config), "--show-secrets=false"]
+        pure $
+          successful "Pulumi collection protection observation" exported >>= \body ->
+            validateCloudCollectionProtection
+              [ registration
+              | registration <- runtimeRegistrations config
+              , registrationResource registration `elem` NE.toList (plannedResources operation)
+              ]
+              (TE.encodeUtf8 (T.pack body))
   case protected of
     Left message -> pure (Left message)
     Right () -> prepareUnprotectedPlan config operation
@@ -100,8 +106,11 @@ prepareUnprotectedPlan config operation = case operationTargets config operation
   Left err -> pure (Left err)
   Right targets -> withSystemTempDirectory "nagare-pulumi-inventory-plan" $ \temporary -> do
     let planPath = temporary </> "pulumi-plan.json"
-    result <- runPulumiWithDeclarations config temporary
-      (["preview", "--json", "--save-plan", planPath, "--stack", T.unpack (runtimeStack config), "--non-interactive"] <> targets)
+    result <-
+      runPulumiWithDeclarations
+        config
+        temporary
+        (["preview", "--json", "--save-plan", planPath, "--stack", T.unpack (runtimeStack config), "--non-interactive"] <> targets)
     case successful "Pulumi preview" result of
       Left err -> pure (Left err)
       Right nativePreview -> do
@@ -122,16 +131,25 @@ readIdentity :: PulumiRuntimeConfig -> PlannedOperation -> IO (Either Text Pulum
 readIdentity config operation = do
   result <- try $ do
     originalProgram <- digestPulumiProgram (runtimePulumiDirectory config) >>= digestFromText "program"
-    declaredProgram <- either (ioError . userError . T.unpack) pure
-      (cloudCollectionProgramDigest originalProgram (runtimeDeclarationBundle config))
-    program <- if plannedAction operation /= RetireResource then pure declaredProgram else do
-      exported <- runPulumi config ["stack", "export", "--stack", T.unpack (runtimeStack config), "--show-secrets=false"]
-      either (ioError . userError . T.unpack) pure $ do
-        body <- successful "Pulumi collection identity" exported
-        cloudCollectionPhysicalDigest declaredProgram
-          [registration | registration <- runtimeRegistrations config,
-            registrationResource registration `elem` NE.toList (plannedResources operation)]
-          (TE.encodeUtf8 (T.pack body))
+    declaredProgram <-
+      either
+        (ioError . userError . T.unpack)
+        pure
+        (cloudCollectionProgramDigest originalProgram (runtimeDeclarationBundle config))
+    program <-
+      if plannedAction operation /= RetireResource
+        then pure declaredProgram
+        else do
+          exported <- runPulumi config ["stack", "export", "--stack", T.unpack (runtimeStack config), "--show-secrets=false"]
+          either (ioError . userError . T.unpack) pure $ do
+            body <- successful "Pulumi collection identity" exported
+            cloudCollectionPhysicalDigest
+              declaredProgram
+              [ registration
+              | registration <- runtimeRegistrations config
+              , registrationResource registration `elem` NE.toList (plannedResources operation)
+              ]
+              (TE.encodeUtf8 (T.pack body))
     stackConfig <- digestFile (runtimeStackConfig config) >>= digestFromText "stack config"
     versionResult <- runPulumi config ["version"]
     version <- either (ioError . userError . T.unpack) pure (successful "pulumi version" versionResult)
@@ -156,8 +174,11 @@ applySavedPlan config operation planBytes = case operationTargets config operati
   Right targets -> withSystemTempDirectory "nagare-pulumi-inventory-apply" $ \temporary -> do
     let planPath = temporary </> "pulumi-plan.json"
     BS.writeFile planPath planBytes
-    result <- runPulumiWithDeclarations config temporary
-      (["up", "--plan", planPath, "--stack", T.unpack (runtimeStack config), "--yes", "--non-interactive"] <> targets)
+    result <-
+      runPulumiWithDeclarations
+        config
+        temporary
+        (["up", "--plan", planPath, "--stack", T.unpack (runtimeStack config), "--yes", "--non-interactive"] <> targets)
     pure $ case successful "Pulumi apply" result of
       Left err -> AdapterEffectAmbiguous err
       Right _ -> AdapterEffectCompleted
@@ -167,16 +188,24 @@ verifyResources config operation planBytes | plannedAction operation == RetireRe
   observed <- observeResources config (NE.toList (plannedResources operation))
   pure $ do
     facts <- observationMap <$> observed
-    unless (all (\resource -> case Map.lookup resource facts of
-      Just (ConfirmedAbsent _) -> True
-      _ -> False) (NE.toList (plannedResources operation)))
+    unless
+      ( all
+          ( \resource -> case Map.lookup resource facts of
+              Just (ConfirmedAbsent _) -> True
+              _ -> False
+          )
+          (NE.toList (plannedResources operation))
+      )
       (Left "collected Pulumi resource is still present or its absence is uncertain")
     pure (contentDigest (planBytes <> TE.encodeUtf8 (operationIdText (plannedOperationId operation)) <> "collected"))
 verifyResources config operation planBytes = case operationTargets config operation of
   Left err -> pure (Left err)
   Right targets -> withSystemTempDirectory "nagare-pulumi-inventory-verify" $ \temporary -> do
-    result <- runPulumiWithDeclarations config temporary
-      (["preview", "--json", "--expect-no-changes", "--stack", T.unpack (runtimeStack config), "--non-interactive"] <> targets)
+    result <-
+      runPulumiWithDeclarations
+        config
+        temporary
+        (["preview", "--json", "--expect-no-changes", "--stack", T.unpack (runtimeStack config), "--non-interactive"] <> targets)
     pure $ do
       output <- successful "Pulumi convergence preview" result
       pure (contentDigest (planBytes <> TE.encodeUtf8 (operationIdText (plannedOperationId operation)) <> TE.encodeUtf8 (T.pack output)))
@@ -191,8 +220,11 @@ recoverSavedPlan config operation planBytes = do
 operationTargets :: PulumiRuntimeConfig -> PlannedOperation -> Either Text [String]
 operationTargets config operation = concat <$> traverse target (NE.toList (plannedResources operation))
   where
-    byResource = Map.fromList [(registrationResource registration, registration)
-      | registration <- runtimeRegistrations config]
+    byResource =
+      Map.fromList
+        [ (registrationResource registration, registration)
+        | registration <- runtimeRegistrations config
+        ]
     target resource = case Map.lookup resource byResource of
       Nothing -> Left ("Pulumi operation resource is absent from native registrations: " <> resourceIdText resource)
       Just registration -> Right ["--target", T.unpack (registrationPulumiUrn registration)]

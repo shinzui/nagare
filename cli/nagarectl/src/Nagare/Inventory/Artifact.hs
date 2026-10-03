@@ -105,7 +105,12 @@ artifactExecutionSpecsFromDeclarations declarations = Map.fromList <$> traverse 
         artifactKind <- kindFromName kind
         pure
           ( resource ^. #identity
-          , ArtifactExecutionSpec artifactKind destination contentDigest specDigest hasCompleteConsumers
+          , ArtifactExecutionSpec
+              artifactKind
+              destination
+              contentDigest
+              specDigest
+              hasCompleteConsumers
               (artifactLocalSource (resource ^. #source))
           )
       _ -> Left ("artifact declaration lacks its typed publication specification: " <> resourceIdText (resource ^. #identity))

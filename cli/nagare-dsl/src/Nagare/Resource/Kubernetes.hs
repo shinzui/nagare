@@ -41,9 +41,12 @@ parseKubernetesManifest source bytes = do
   documents <- case Yaml.decodeAllEither' bytes of
     Left failure -> Left (bad (Text.pack (show failure)))
     Right [] -> Left (bad "Kubernetes manifest has no documents")
-    Right values -> Right (case reverse values of
-      Null : remaining | trailingSeparator bytes -> reverse remaining
-      _ -> values)
+    Right values ->
+      Right
+        ( case reverse values of
+            Null : remaining | trailingSeparator bytes -> reverse remaining
+            _ -> values
+        )
   when (null documents) (Left (bad "Kubernetes manifest has no objects"))
   concat <$> traverse expandDocument (zip [0 :: Int ..] documents)
   where
@@ -64,8 +67,9 @@ expandKubernetesList :: SourceLocation -> Value -> Either InventoryError [(Sourc
 expandKubernetesList source value = case value of
   Object root | KeyMap.lookup "kind" root == Just (String "List") ->
     case KeyMap.lookup "items" root of
-      Just (Array items) | not (null items) ->
-        concat <$> traverse expandMember (zip [0 :: Int ..] (foldr (:) [] items))
+      Just (Array items)
+        | not (null items) ->
+            concat <$> traverse expandMember (zip [0 :: Int ..] (foldr (:) [] items))
       _ -> Left (bad source "Kubernetes List.items must be a nonempty array")
   Object _ -> Right [(source, value)]
   _ -> Left (bad source "Kubernetes document must be an object")

@@ -20,7 +20,8 @@ module Nagare.Inventory.DataFence.DeploymentWriter
   , observeDeploymentWriterRelease
   , parseDeploymentDrain
   , parseActiveDeploymentReplicaSet
-  ) where
+  )
+where
 
 import Control.Exception (IOException, try)
 import Control.Monad (forM, unless)
@@ -36,7 +37,8 @@ import Data.Text.Encoding qualified as TE
 import Data.Vector qualified as V
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapters.KubernetesRuntime
-  (KubernetesRuntimeConfig (..))
+  ( KubernetesRuntimeConfig (..)
+  )
 import Nagare.Inventory.DataFence (WriterReleaseState (..))
 import Nagare.Inventory.DataFence.MountGuard (validGuardSelector, validUid)
 import Nagare.Inventory.Digest (contentDigest)
@@ -55,15 +57,21 @@ data DeploymentWriterPin = DeploymentWriterPin
   }
   deriving stock (Eq, Show)
 
-mkDeploymentWriterPin :: Text -> Text -> Text -> Int -> ContentDigest
-  -> Map Text Text
-  -> Either Text DeploymentWriterPin
+mkDeploymentWriterPin ::
+  Text ->
+  Text ->
+  Text ->
+  Int ->
+  ContentDigest ->
+  Map Text Text ->
+  Either Text DeploymentWriterPin
 mkDeploymentWriterPin namespace name uid replicas specDigest selector = do
   _ <- mkName namespace
   _ <- mkName name
   unless (validUid uid) (Left "fenced Deployment UID is not a Kubernetes UUID")
   unless (replicas >= 0) (Left "saved Deployment replicas are negative")
-  unless (validGuardSelector selector)
+  unless
+    (validGuardSelector selector)
     (Left "saved Deployment selector is empty or malformed")
   pure (DeploymentWriterPin namespace name uid replicas specDigest selector)
 
@@ -86,51 +94,77 @@ data DeploymentWriterTransport = DeploymentWriterTransport
 -- | A PVC-mounting Deployment needs an exact ReplicaSet owner permit while
 -- its saved replicas return under the release admission overlay. Capture
 -- refuses a rolling or otherwise ambiguous controller state.
-parseActiveDeploymentReplicaSet :: DeploymentWriterPin -> Value -> Value
-  -> Either Text (Maybe (Text, Text))
-parseActiveDeploymentReplicaSet pin _ _ | writerSavedReplicas pin == 0 =
-  Right Nothing
+parseActiveDeploymentReplicaSet ::
+  DeploymentWriterPin ->
+  Value ->
+  Value ->
+  Either Text (Maybe (Text, Text))
+parseActiveDeploymentReplicaSet pin _ _
+  | writerSavedReplicas pin == 0 =
+      Right Nothing
 parseActiveDeploymentReplicaSet pin deployment listed = do
   deploymentRoot <- asObject "Deployment" deployment
   deploymentSpec <- jsonObject "spec" deploymentRoot
   deploymentTemplate <- jsonObject "template" deploymentSpec
   expectedMetadata <- jsonObject "metadata" deploymentTemplate
   expectedLabels <- jsonObject "labels" expectedMetadata
-  unless (not (KM.member "pod-template-hash" expectedLabels))
+  unless
+    (not (KM.member "pod-template-hash" expectedLabels))
     (Left "reviewed Deployment template owns the controller hash label")
   replicaSets <- listItems "ReplicaSetList" listed
   active <- fmap concat $ forM replicaSets $ \item -> do
     root <- asObject "ReplicaSet" item
     metadata <- jsonObject "metadata" root
-    unless (jsonText "namespace" metadata == Right (writerNamespace pin))
+    unless
+      (jsonText "namespace" metadata == Right (writerNamespace pin))
       (Left "ReplicaSet list contains another namespace")
     references <- optionalArray "ownerReferences" metadata
-    if not (any (\reference -> ownedBy "Deployment" (writerName pin)
-        (writerUid pin) reference && case reference of
-          Object fields -> KM.lookup "controller" fields == Just (Bool True)
-          _ -> False) references)
+    if not
+      ( any
+          ( \reference ->
+              ownedBy
+                "Deployment"
+                (writerName pin)
+                (writerUid pin)
+                reference
+                && case reference of
+                  Object fields -> KM.lookup "controller" fields == Just (Bool True)
+                  _ -> False
+          )
+          references
+      )
       then pure []
       else do
         spec <- jsonObject "spec" root
         replicas <- jsonInt "replicas" spec
-        if replicas == 0 then pure [] else do
-          name <- jsonText "name" metadata
-          uid <- jsonText "uid" metadata
-          unless (validUid uid && (writerName pin <> "-") `T.isPrefixOf` name)
-            (Left "owned ReplicaSet identity is malformed")
-          template <- jsonObject "template" spec
-          replicaMetadata <- jsonObject "metadata" template
-          replicaLabels <- jsonObject "labels" replicaMetadata
-          unless (case KM.lookup "pod-template-hash" replicaLabels of
-              Just (String hash) -> not (T.null hash)
-              _ -> False)
-            (Left "owned ReplicaSet lacks a controller hash label")
-          let normalizedMetadata = KM.insert "labels"
-                (Object (KM.delete "pod-template-hash" replicaLabels)) replicaMetadata
-          unless (KM.lookup "spec" template == KM.lookup "spec" deploymentTemplate
-              && normalizedMetadata == expectedMetadata)
-            (Left "owned ReplicaSet template differs from reviewed Deployment")
-          pure [(name, uid)]
+        if replicas == 0
+          then pure []
+          else do
+            name <- jsonText "name" metadata
+            uid <- jsonText "uid" metadata
+            unless
+              (validUid uid && (writerName pin <> "-") `T.isPrefixOf` name)
+              (Left "owned ReplicaSet identity is malformed")
+            template <- jsonObject "template" spec
+            replicaMetadata <- jsonObject "metadata" template
+            replicaLabels <- jsonObject "labels" replicaMetadata
+            unless
+              ( case KM.lookup "pod-template-hash" replicaLabels of
+                  Just (String hash) -> not (T.null hash)
+                  _ -> False
+              )
+              (Left "owned ReplicaSet lacks a controller hash label")
+            let normalizedMetadata =
+                  KM.insert
+                    "labels"
+                    (Object (KM.delete "pod-template-hash" replicaLabels))
+                    replicaMetadata
+            unless
+              ( KM.lookup "spec" template == KM.lookup "spec" deploymentTemplate
+                  && normalizedMetadata == expectedMetadata
+              )
+              (Left "owned ReplicaSet template differs from reviewed Deployment")
+            pure [(name, uid)]
   case active of
     [replicaSet] -> Right (Just replicaSet)
     _ -> Left "PVC-mounting Deployment has no unique active ReplicaSet"
@@ -138,8 +172,10 @@ parseActiveDeploymentReplicaSet pin deployment listed = do
 -- | UID and resourceVersion tests make the scale effect conditional at the
 -- API server. A lost acknowledgement leaves durable fence recovery to a new
 -- observation; it does not authorize blindly repeating the patch.
-stopDeploymentWriter :: DeploymentWriterTransport -> DeploymentWriterPin
-  -> IO (Either Text ())
+stopDeploymentWriter ::
+  DeploymentWriterTransport ->
+  DeploymentWriterPin ->
+  IO (Either Text ())
 stopDeploymentWriter transport pin = do
   current <- readDeploymentWriter transport (writerNamespace pin) (writerName pin)
   case current >>= observedWriter pin of
@@ -148,17 +184,25 @@ stopDeploymentWriter transport pin = do
       | observedReplicas writer == 0 -> pure (Right ())
       | observedReplicas writer /= writerSavedReplicas pin ->
           pure (Left "Deployment replicas changed since the reviewed writer intent")
-      | otherwise -> patchDeploymentWriter transport (writerNamespace pin)
-          (writerName pin) (replicaPatch pin writer 0)
+      | otherwise ->
+          patchDeploymentWriter
+            transport
+            (writerNamespace pin)
+            (writerName pin)
+            (replicaPatch pin writer 0)
 
-observeDeploymentWriterIdentity :: DeploymentWriterTransport -> DeploymentWriterPin
-  -> IO (Either Text ())
+observeDeploymentWriterIdentity ::
+  DeploymentWriterTransport ->
+  DeploymentWriterPin ->
+  IO (Either Text ())
 observeDeploymentWriterIdentity transport pin = do
   current <- readDeploymentWriter transport (writerNamespace pin) (writerName pin)
   pure (() <$ (current >>= observedWriter pin))
 
-observeDeploymentWriterStopped :: DeploymentWriterTransport -> DeploymentWriterPin
-  -> IO (Either Text Bool)
+observeDeploymentWriterStopped ::
+  DeploymentWriterTransport ->
+  DeploymentWriterPin ->
+  IO (Either Text Bool)
 observeDeploymentWriterStopped transport pin = do
   current <- readDeploymentWriter transport (writerNamespace pin) (writerName pin)
   replicasets <- listDeploymentReplicaSets transport (writerNamespace pin)
@@ -167,16 +211,24 @@ observeDeploymentWriterStopped transport pin = do
     writer <- current >>= observedWriter pin
     currentReplicaSets <- replicasets
     currentPods <- pods
-    drained <- parseDeploymentDrain pin (observedSelector writer)
-      currentReplicaSets currentPods
-    pure (observedReplicas writer == 0
-      && observedStatusReplicas writer == 0
-      && observedReadyReplicas writer == 0
-      && observedGeneration writer <= observedStatusGeneration writer
-      && drained)
+    drained <-
+      parseDeploymentDrain
+        pin
+        (observedSelector writer)
+        currentReplicaSets
+        currentPods
+    pure
+      ( observedReplicas writer == 0
+          && observedStatusReplicas writer == 0
+          && observedReadyReplicas writer == 0
+          && observedGeneration writer <= observedStatusGeneration writer
+          && drained
+      )
 
-restoreDeploymentWriter :: DeploymentWriterTransport -> DeploymentWriterPin
-  -> IO (Either Text ())
+restoreDeploymentWriter ::
+  DeploymentWriterTransport ->
+  DeploymentWriterPin ->
+  IO (Either Text ())
 restoreDeploymentWriter transport pin = do
   current <- readDeploymentWriter transport (writerNamespace pin) (writerName pin)
   case current >>= observedWriter pin of
@@ -190,11 +242,17 @@ restoreDeploymentWriter transport pin = do
           case stopped of
             Left reason -> pure (Left reason)
             Right False -> pure (Left "Deployment has not finished stopping")
-            Right True -> patchDeploymentWriter transport (writerNamespace pin)
-              (writerName pin) (replicaPatch pin writer (writerSavedReplicas pin))
+            Right True ->
+              patchDeploymentWriter
+                transport
+                (writerNamespace pin)
+                (writerName pin)
+                (replicaPatch pin writer (writerSavedReplicas pin))
 
-observeDeploymentWriterRelease :: DeploymentWriterTransport -> DeploymentWriterPin
-  -> IO (Either Text WriterReleaseState)
+observeDeploymentWriterRelease ::
+  DeploymentWriterTransport ->
+  DeploymentWriterPin ->
+  IO (Either Text WriterReleaseState)
 observeDeploymentWriterRelease transport pin = do
   current <- readDeploymentWriter transport (writerNamespace pin) (writerName pin)
   replicasets <- listDeploymentReplicaSets transport (writerNamespace pin)
@@ -203,20 +261,26 @@ observeDeploymentWriterRelease transport pin = do
     writer <- current >>= observedWriter pin
     currentReplicaSets <- replicasets
     currentPods <- pods
-    drained <- parseDeploymentDrain pin (observedSelector writer)
-      currentReplicaSets currentPods
-    pure $ if observedReplicas writer == writerSavedReplicas pin
+    drained <-
+      parseDeploymentDrain
+        pin
+        (observedSelector writer)
+        currentReplicaSets
+        currentPods
+    pure $
+      if observedReplicas writer == writerSavedReplicas pin
         && observedReadyReplicas writer == writerSavedReplicas pin
         && observedStatusReplicas writer == writerSavedReplicas pin
         && observedGeneration writer <= observedStatusGeneration writer
-      then WritersFullyReleased
-      else if observedReplicas writer == 0
-        && observedStatusReplicas writer == 0
-        && observedReadyReplicas writer == 0
-        && observedGeneration writer <= observedStatusGeneration writer
-        && drained
-      then WritersStillExcluded
-      else WritersPartlyReleased
+        then WritersFullyReleased
+        else
+          if observedReplicas writer == 0
+            && observedStatusReplicas writer == 0
+            && observedReadyReplicas writer == 0
+            && observedGeneration writer <= observedStatusGeneration writer
+            && drained
+            then WritersStillExcluded
+            else WritersPartlyReleased
 
 data ObservedWriter = ObservedWriter
   { observedRevision :: !Text
@@ -231,48 +295,72 @@ data ObservedWriter = ObservedWriter
 observedWriter :: DeploymentWriterPin -> Value -> Either Text ObservedWriter
 observedWriter pin (Object root) = do
   metadata <- jsonObject "metadata" root
-  unless (jsonText "namespace" metadata == Right (writerNamespace pin)
-      && jsonText "name" metadata == Right (writerName pin)
-      && jsonText "uid" metadata == Right (writerUid pin))
+  unless
+    ( jsonText "namespace" metadata == Right (writerNamespace pin)
+        && jsonText "name" metadata == Right (writerName pin)
+        && jsonText "uid" metadata == Right (writerUid pin)
+    )
     (Left "Deployment identity changed")
   revision <- jsonText "resourceVersion" metadata
   generation <- jsonInteger "generation" metadata
   observedDigest <- digestDeploymentWriterSpec (Object root)
-  unless (observedDigest == writerSpecDigest pin)
+  unless
+    (observedDigest == writerSpecDigest pin)
     (Left "Deployment template or spec differs from reviewed writer intent")
   spec <- jsonObject "spec" root
   replicas <- jsonInt "replicas" spec
   selector <- jsonObject "selector" spec
-  unless (not (KM.member "matchExpressions" selector))
+  unless
+    (not (KM.member "matchExpressions" selector))
     (Left "Deployment selector expressions lack a drain proof")
   labels <- jsonObject "matchLabels" selector
-  selectorLabels <- Map.fromList <$> forM (KM.toList labels) (\(key, value) ->
-    case value of
-      String selected | not (T.null selected) -> Right (Key.toText key, selected)
-      _ -> Left "Deployment selector has a malformed label")
-  unless (not (Map.null selectorLabels))
+  selectorLabels <-
+    Map.fromList
+      <$> forM
+        (KM.toList labels)
+        ( \(key, value) ->
+            case value of
+              String selected | not (T.null selected) -> Right (Key.toText key, selected)
+              _ -> Left "Deployment selector has a malformed label"
+        )
+  unless
+    (not (Map.null selectorLabels))
     (Left "Deployment selector has no exact labels")
-  unless (selectorLabels == writerSelector pin)
+  unless
+    (selectorLabels == writerSelector pin)
     (Left "Deployment selector differs from reviewed writer intent")
   status <- jsonObject "status" root
   statusGeneration <- jsonInteger "observedGeneration" status
   statusReplicas <- jsonOptionalInt "replicas" status
   readyReplicas <- jsonOptionalInt "readyReplicas" status
-  pure (ObservedWriter revision generation statusGeneration replicas
-    statusReplicas readyReplicas selectorLabels)
+  pure
+    ( ObservedWriter
+        revision
+        generation
+        statusGeneration
+        replicas
+        statusReplicas
+        readyReplicas
+        selectorLabels
+    )
 observedWriter _ _ = Left "Deployment observation is not an object"
 
 -- | Deployment status excludes terminating Pods. Check every owned
 -- ReplicaSet and all nonterminal Pods with the reviewed selector or an owned
 -- ReplicaSet reference before calling the writer drained.
-parseDeploymentDrain :: DeploymentWriterPin -> Map Text Text
-  -> Value -> Value -> Either Text Bool
+parseDeploymentDrain ::
+  DeploymentWriterPin ->
+  Map Text Text ->
+  Value ->
+  Value ->
+  Either Text Bool
 parseDeploymentDrain pin selector replicaSets pods = do
   replicaSetItems <- listItems "ReplicaSetList" replicaSets
   ownedSets <- forM replicaSetItems $ \item -> do
     root <- asObject "ReplicaSet" item
     metadata <- jsonObject "metadata" root
-    unless (jsonText "namespace" metadata == Right (writerNamespace pin))
+    unless
+      (jsonText "namespace" metadata == Right (writerNamespace pin))
       (Left "ReplicaSet list contains another namespace")
     references <- optionalArray "ownerReferences" metadata
     if not (any (ownedBy "Deployment" (writerName pin) (writerUid pin)) references)
@@ -289,24 +377,45 @@ parseDeploymentDrain pin selector replicaSets pods = do
   activePods <- forM podItems $ \item -> do
     root <- asObject "Pod" item
     metadata <- jsonObject "metadata" root
-    unless (jsonText "namespace" metadata == Right (writerNamespace pin))
+    unless
+      (jsonText "namespace" metadata == Right (writerNamespace pin))
       (Left "Pod list contains another namespace")
     references <- optionalArray "ownerReferences" metadata
     labels <- optionalLabels metadata
-    let selected = all (\(key, value) -> Map.lookup key labels == Just value)
-          (Map.toList selector)
-        owned = any (\ref -> any (\(name, uid, _, _) ->
-          ownedBy "ReplicaSet" name uid ref)
-          [replicaSet | Just replicaSet <- ownedSets]) references
+    let selected =
+          all
+            (\(key, value) -> Map.lookup key labels == Just value)
+            (Map.toList selector)
+        owned =
+          any
+            ( \ref ->
+                any
+                  ( \(name, uid, _, _) ->
+                      ownedBy "ReplicaSet" name uid ref
+                  )
+                  [replicaSet | Just replicaSet <- ownedSets]
+            )
+            references
         generated = any (replicaSetPrefix (writerName pin)) references
     if not (selected || owned || generated)
       then pure False
       else do
         status <- jsonObject "status" root
-        pure (KM.lookup "phase" status `notElem`
-          [Just (String "Succeeded"), Just (String "Failed")])
-  pure (all (maybe True (\(_, _, desired, current) ->
-    desired == 0 && current == 0)) ownedSets && not (or activePods))
+        pure
+          ( KM.lookup "phase" status
+              `notElem` [Just (String "Succeeded"), Just (String "Failed")]
+          )
+  pure
+    ( all
+        ( maybe
+            True
+            ( \(_, _, desired, current) ->
+                desired == 0 && current == 0
+            )
+        )
+        ownedSets
+        && not (or activePods)
+    )
 
 replicaSetPrefix :: Text -> Value -> Bool
 replicaSetPrefix deployment (Object reference) =
@@ -343,23 +452,40 @@ optionalArray field root = case KM.lookup (Key.fromText field) root of
 optionalLabels :: KM.KeyMap Value -> Either Text (Map Text Text)
 optionalLabels metadata = case KM.lookup "labels" metadata of
   Nothing -> Right Map.empty
-  Just (Object labels) -> Map.fromList <$> forM (KM.toList labels)
-    (\(key, value) -> case value of
-      String label -> Right (Key.toText key, label)
-      _ -> Left "Deployment Pod labels are malformed")
+  Just (Object labels) ->
+    Map.fromList
+      <$> forM
+        (KM.toList labels)
+        ( \(key, value) -> case value of
+            String label -> Right (Key.toText key, label)
+            _ -> Left "Deployment Pod labels are malformed"
+        )
   _ -> Left "Deployment Pod labels are malformed"
 
 replicaPatch :: DeploymentWriterPin -> ObservedWriter -> Int -> Value
-replicaPatch pin observed replicas = toJSON
-  [ object ["op" .= ("test" :: Text), "path" .= ("/metadata/uid" :: Text),
-      "value" .= writerUid pin]
-  , object ["op" .= ("test" :: Text), "path" .= ("/metadata/resourceVersion" :: Text),
-      "value" .= observedRevision observed]
-  , object ["op" .= ("test" :: Text), "path" .= ("/spec/replicas" :: Text),
-      "value" .= observedReplicas observed]
-  , object ["op" .= ("replace" :: Text), "path" .= ("/spec/replicas" :: Text),
-      "value" .= replicas]
-  ]
+replicaPatch pin observed replicas =
+  toJSON
+    [ object
+        [ "op" .= ("test" :: Text)
+        , "path" .= ("/metadata/uid" :: Text)
+        , "value" .= writerUid pin
+        ]
+    , object
+        [ "op" .= ("test" :: Text)
+        , "path" .= ("/metadata/resourceVersion" :: Text)
+        , "value" .= observedRevision observed
+        ]
+    , object
+        [ "op" .= ("test" :: Text)
+        , "path" .= ("/spec/replicas" :: Text)
+        , "value" .= observedReplicas observed
+        ]
+    , object
+        [ "op" .= ("replace" :: Text)
+        , "path" .= ("/spec/replicas" :: Text)
+        , "value" .= replicas
+        ]
+    ]
 
 jsonObject :: Text -> KM.KeyMap Value -> Either Text (KM.KeyMap Value)
 jsonObject field root = case KM.lookup (Key.fromText field) root of
@@ -373,8 +499,10 @@ jsonText field root = case KM.lookup (Key.fromText field) root of
 
 jsonInteger :: Text -> KM.KeyMap Value -> Either Text Integer
 jsonInteger field root = case KM.lookup (Key.fromText field) root of
-  Just value | Success number <- (fromJSON value :: Result Int)
-    , number >= 0 -> Right (toInteger number)
+  Just value
+    | Success number <- (fromJSON value :: Result Int)
+    , number >= 0 ->
+        Right (toInteger number)
   _ -> Left ("Deployment observation lacks " <> field)
 
 jsonInt :: Text -> KM.KeyMap Value -> Either Text Int
@@ -389,34 +517,68 @@ jsonOptionalInt field root = case KM.lookup (Key.fromText field) root of
   Nothing -> Right 0
   Just _ -> jsonInt field root
 
-kubectlDeploymentWriterTransport :: KubernetesRuntimeConfig
-  -> DeploymentWriterTransport
-kubectlDeploymentWriterTransport config = DeploymentWriterTransport
-  readOne patchOne listReplicaSets listPods
+kubectlDeploymentWriterTransport ::
+  KubernetesRuntimeConfig ->
+  DeploymentWriterTransport
+kubectlDeploymentWriterTransport config =
+  DeploymentWriterTransport
+    readOne
+    patchOne
+    listReplicaSets
+    listPods
   where
     invoke arguments input = do
       guarded <- runtimeGuard config
       case guarded of
         Left reason -> pure (Left ("cluster guard refused: " <> reason))
         Right () -> do
-          result <- try (readProcessWithExitCode "kubectl"
-            (["--context", T.unpack (runtimeKubectlContext config),
-              "--request-timeout=10s"] <> arguments) input)
+          result <-
+            try
+              ( readProcessWithExitCode
+                  "kubectl"
+                  ( [ "--context"
+                    , T.unpack (runtimeKubectlContext config)
+                    , "--request-timeout=10s"
+                    ]
+                      <> arguments
+                  )
+                  input
+              )
           pure $ case result of
             Left (_ :: IOException) -> Left "could not invoke kubectl"
             Right output -> Right output
     readOne namespace name = do
-      result <- invoke ["--namespace", T.unpack namespace, "get", "deployment",
-        T.unpack name, "-o", "json"] ""
+      result <-
+        invoke
+          [ "--namespace"
+          , T.unpack namespace
+          , "get"
+          , "deployment"
+          , T.unpack name
+          , "-o"
+          , "json"
+          ]
+          ""
       pure $ case result of
         Left reason -> Left reason
         Right (ExitFailure _, _, _) -> Left "could not read fenced Deployment"
-        Right (ExitSuccess, output, _) -> first T.pack
-          (eitherDecodeStrict' (TE.encodeUtf8 (T.pack output)))
+        Right (ExitSuccess, output, _) ->
+          first
+            T.pack
+            (eitherDecodeStrict' (TE.encodeUtf8 (T.pack output)))
     patchOne namespace name patch = do
-      result <- invoke ["--namespace", T.unpack namespace, "patch", "deployment",
-        T.unpack name, "--type=json", "-p",
-        T.unpack (TE.decodeUtf8 (BL.toStrict (encode patch)))] ""
+      result <-
+        invoke
+          [ "--namespace"
+          , T.unpack namespace
+          , "patch"
+          , "deployment"
+          , T.unpack name
+          , "--type=json"
+          , "-p"
+          , T.unpack (TE.decodeUtf8 (BL.toStrict (encode patch)))
+          ]
+          ""
       pure $ case result of
         Left reason -> Left reason
         Right (ExitFailure _, _, _) -> Left "conditional Deployment replica patch failed"
@@ -424,10 +586,20 @@ kubectlDeploymentWriterTransport config = DeploymentWriterTransport
     listReplicaSets namespace = listOne namespace "replicasets"
     listPods namespace = listOne namespace "pods"
     listOne namespace kind = do
-      result <- invoke ["--namespace", T.unpack namespace, "get", kind,
-        "-o", "json"] ""
+      result <-
+        invoke
+          [ "--namespace"
+          , T.unpack namespace
+          , "get"
+          , kind
+          , "-o"
+          , "json"
+          ]
+          ""
       pure $ case result of
         Left reason -> Left reason
         Right (ExitFailure _, _, _) -> Left "could not list Deployment Pods or ReplicaSets"
-        Right (ExitSuccess, output, _) -> first T.pack
-          (eitherDecodeStrict' (TE.encodeUtf8 (T.pack output)))
+        Right (ExitSuccess, output, _) ->
+          first
+            T.pack
+            (eitherDecodeStrict' (TE.encodeUtf8 (T.pack output)))

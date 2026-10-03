@@ -14,8 +14,9 @@ import System.IO (stderr)
 -- | Roll the StatefulSet (namespace, name, dry-run).
 runDbRestart :: Text -> Text -> Bool -> IO ()
 runDbRestart ns name dryRun
-  | dryRun = TIO.putStrLn
-      ("Would run: kubectl rollout restart statefulset/" <> name <> " -n " <> ns)
+  | dryRun =
+      TIO.putStrLn
+        ("Would run: kubectl rollout restart statefulset/" <> name <> " -n " <> ns)
   | otherwise = do
       TIO.hPutStrLn stderr "nagarectl: live db restart requires a reviewed StatefulSet scope"
       exitFailure

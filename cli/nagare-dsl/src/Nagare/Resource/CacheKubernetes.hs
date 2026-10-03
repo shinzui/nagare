@@ -5,7 +5,8 @@ module Nagare.Resource.CacheKubernetes
   , cacheCoreResourceId
   , cacheMigrationOperationId
   , compileCacheCore
-  ) where
+  )
+where
 
 import Data.Aeson (Value)
 import Data.Generics.Labels ()
@@ -46,60 +47,126 @@ cacheMigrationOperationId input = cacheCoreResourceId input ("migration-proof-" 
 revisionSuffix :: CacheCoreInput -> Text
 revisionSuffix = T.take 12 . digestText . coreRevision
 
-compileCacheCore
-  :: (Value -> Either Text ContentDigest)
-  -> CacheCoreInput
-  -> Either (NonEmpty InventoryError) (ResourceBundle, [(ResourceId, Value)])
+compileCacheCore ::
+  (Value -> Either Text ContentDigest) ->
+  CacheCoreInput ->
+  Either (NonEmpty InventoryError) (ResourceBundle, [(ResourceId, Value)])
 compileCacheCore digestOf input = do
   migrationDigest <- first invalid (digestOf (coreMigration input))
   members <- traverse compileOne objects
   let migrationResource = cacheCoreResourceId input ("migration-" <> revisionSuffix input)
-      migrationProof = DeclaredOperation
-        (cacheMigrationOperationId input) (migrationResource :| [])
-        [ContentInput migrationDigest] VerifyBeforeRetry SchemaMigration
+      migrationProof =
+        DeclaredOperation
+          (cacheMigrationOperationId input)
+          (migrationResource :| [])
+          [ContentInput migrationDigest]
+          VerifyBeforeRetry
+          SchemaMigration
   pure (ResourceBundle (map (Managed . fst) members) [] [] [] [migrationProof] [], [(resource ^. #identity, value) | (resource, value) <- members])
   where
     objects =
       [ ("server-config", "", "configmap", "nagare-system", "nagare-nix-cache-server", coreServerConfig input, [])
-      , ("config-check-" <> revisionSuffix input, "batch", "job", "nagare-system", "nix-cache-config-check-" <> revisionSuffix input,
-          coreConfigCheck input, [coreDatabase input, coreCredential input, cacheCoreResourceId input "server-config"])
-      , ("migration-" <> revisionSuffix input, "batch", "job", "nagare-system", "nix-cache-migrate-" <> revisionSuffix input,
-          coreMigration input, [cacheCoreResourceId input ("config-check-" <> revisionSuffix input)])
-      , ("deployment", "apps", "deployment", "nagare-system", "nix-cache", coreDeployment input,
-          [coreDatabase input, coreCredential input, cacheCoreResourceId input "server-config", cacheMigrationOperationId input])
-      , ("public-service", "", "service", "nagare-system", "nix-cache", corePublicService input,
-          [cacheCoreResourceId input "deployment"])
-      , ("internal-service", "", "service", "nagare-system", "nix-cache-internal", coreInternalService input,
-          [cacheCoreResourceId input "deployment"])
-      , ("garbage-collection", "batch", "cronjob", "nagare-system", "nix-cache-gc", coreGarbageCollection input,
-          [cacheCoreResourceId input "deployment"])
-      , ("server-network-policy", "networking.k8s.io", "networkpolicy", "nagare-system", "nix-cache-server", coreServerPolicy input,
-          [cacheCoreResourceId input "deployment"])
-      , ("client-network-policy", "networking.k8s.io", "networkpolicy", "personal", "nix-cache-clients", coreClientPolicy input,
-          [cacheCoreResourceId input "public-service", cacheCoreResourceId input "internal-service"])
+      ,
+        ( "config-check-" <> revisionSuffix input
+        , "batch"
+        , "job"
+        , "nagare-system"
+        , "nix-cache-config-check-" <> revisionSuffix input
+        , coreConfigCheck input
+        , [coreDatabase input, coreCredential input, cacheCoreResourceId input "server-config"]
+        )
+      ,
+        ( "migration-" <> revisionSuffix input
+        , "batch"
+        , "job"
+        , "nagare-system"
+        , "nix-cache-migrate-" <> revisionSuffix input
+        , coreMigration input
+        , [cacheCoreResourceId input ("config-check-" <> revisionSuffix input)]
+        )
+      ,
+        ( "deployment"
+        , "apps"
+        , "deployment"
+        , "nagare-system"
+        , "nix-cache"
+        , coreDeployment input
+        , [coreDatabase input, coreCredential input, cacheCoreResourceId input "server-config", cacheMigrationOperationId input]
+        )
+      ,
+        ( "public-service"
+        , ""
+        , "service"
+        , "nagare-system"
+        , "nix-cache"
+        , corePublicService input
+        , [cacheCoreResourceId input "deployment"]
+        )
+      ,
+        ( "internal-service"
+        , ""
+        , "service"
+        , "nagare-system"
+        , "nix-cache-internal"
+        , coreInternalService input
+        , [cacheCoreResourceId input "deployment"]
+        )
+      ,
+        ( "garbage-collection"
+        , "batch"
+        , "cronjob"
+        , "nagare-system"
+        , "nix-cache-gc"
+        , coreGarbageCollection input
+        , [cacheCoreResourceId input "deployment"]
+        )
+      ,
+        ( "server-network-policy"
+        , "networking.k8s.io"
+        , "networkpolicy"
+        , "nagare-system"
+        , "nix-cache-server"
+        , coreServerPolicy input
+        , [cacheCoreResourceId input "deployment"]
+        )
+      ,
+        ( "client-network-policy"
+        , "networking.k8s.io"
+        , "networkpolicy"
+        , "personal"
+        , "nix-cache-clients"
+        , coreClientPolicy input
+        , [cacheCoreResourceId input "public-service", cacheCoreResourceId input "internal-service"]
+        )
       ]
     compileOne (role, group, kind, namespace, name, value, prerequisites) = do
       digest <- first invalid (digestOf value)
-      declaration <- first single $ compileKubernetesObject
-        KubernetesInput
-          { resourceId = cacheCoreResourceId input role
-          , ownerScope = coreOwner input
-          , clusterId = coreCluster input
-          , inputObject = value
-          , objectDigest = digest
-          , lifecyclePolicy = if kind == "job" then DeleteWhenUnreferenced else Retain
-          , inputDataPolicy = Stateless
-          , inputSensitivity = Private
-          , sourceLocation = (coreSource input) {path = path (coreSource input) <> "#" <> role}
-          }
+      declaration <-
+        first single $
+          compileKubernetesObject
+            KubernetesInput
+              { resourceId = cacheCoreResourceId input role
+              , ownerScope = coreOwner input
+              , clusterId = coreCluster input
+              , inputObject = value
+              , objectDigest = digest
+              , lifecyclePolicy = if kind == "job" then DeleteWhenUnreferenced else Retain
+              , inputDataPolicy = Stateless
+              , inputSensitivity = Private
+              , sourceLocation = (coreSource input) {path = path (coreSource input) <> "#" <> role}
+              }
       let expected = Kubernetes (coreCluster input) group (known kind) (Just (known namespace)) (known name)
-      unless (declaration ^. #address == expected)
+      unless
+        (declaration ^. #address == expected)
         (Left (invalid ("cache " <> role <> " object has an unexpected Kubernetes address")))
       pure (declaration {dependencies = map OrderedAfter prerequisites}, value)
-    invalid message = inventoryError "invalid-cache-core" message
-      & #scopes .~ [coreOwner input]
-      & #sources .~ [coreSource input]
-      & single
+    invalid message =
+      inventoryError "invalid-cache-core" message
+        & #scopes
+        .~ [coreOwner input]
+        & #sources
+        .~ [coreSource input]
+        & single
     single err = err :| []
 
 known :: Text -> Name

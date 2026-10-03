@@ -22,5 +22,6 @@ runBrokerRestart ns name dryRun = do
     Left err -> do
       TIO.hPutStrLn stderr ("nagarectl: " <> err)
       exitFailure
-    Right _ -> TIO.putStrLn
-      ("Would run: kubectl rollout restart statefulset/" <> name <> " -n " <> ns)
+    Right _ ->
+      TIO.putStrLn
+        ("Would run: kubectl rollout restart statefulset/" <> name <> " -n " <> ns)

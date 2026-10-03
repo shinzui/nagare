@@ -12,11 +12,6 @@ import Data.Map qualified as Map
 import Data.Maybe (catMaybes)
 import Data.Set qualified as Set
 import Data.Text qualified as T
-import Nagare.Cli.Inventory.CloudHistory
-import Nagare.Cli.Inventory.CdnHistory
-import Nagare.Cli.Inventory.CdnPurge (cdnPurgeRuntime)
-import Nagare.Cli.Inventory.ImagePrune (imagePruneRuntime)
-import Nagare.Cli.Inventory.VmPower (vmPowerRuntime)
 import Nagare.Cli.Inventory.Adapters
   ( acceptedTopicResources
   , inventoryArtifactAdapter
@@ -30,9 +25,13 @@ import Nagare.Cli.Inventory.Adapters
   , inventoryPulumiAdapterWithCollections
   , reviewBaseDnsResources
   )
+import Nagare.Cli.Inventory.CdnHistory
+import Nagare.Cli.Inventory.CdnPurge (cdnPurgeRuntime)
+import Nagare.Cli.Inventory.CloudHistory
 import Nagare.Cli.Inventory.Foundation
   ( inventoryFoundationAdapter
   )
+import Nagare.Cli.Inventory.ImagePrune (imagePruneRuntime)
 import Nagare.Cli.Inventory.PruneEvidence
   ( loadReviewedPruneSourceNative
   , verifyReviewedScheduledPruneProvider
@@ -45,6 +44,7 @@ import Nagare.Cli.Inventory.SourceEvidence
   , loadReviewedScheduledIngestSourceNative
   , loadReviewedVolumeSourceNative
   )
+import Nagare.Cli.Inventory.VmPower (vmPowerRuntime)
 import Nagare.Cli.Platform.InfrastructureReview
   ( prepareInfraMutationWithPulumi
   , prepareVmPowerMutation
@@ -132,7 +132,6 @@ import Nagare.Inventory.MaintenanceFence
   , selectedMaintenanceProofs
   )
 import Nagare.Inventory.Plan qualified as InventoryPlan
-import Nagare.Inventory.VmPower (vmPowerOnly)
 import Nagare.Inventory.Prune (manualPruneSourceProof)
 import Nagare.Inventory.Restore (manualRestoreTargetProof)
 import Nagare.Inventory.ScheduledIngest
@@ -140,6 +139,7 @@ import Nagare.Inventory.ScheduledIngest
   )
 import Nagare.Inventory.Status qualified as InventoryStatus
 import Nagare.Inventory.Store qualified as InventoryStore
+import Nagare.Inventory.VmPower (vmPowerOnly)
 import Nagare.Platform.Status (identityFromPayload)
 import Nagare.Platform.Workspace
   ( PlatformWorkspace
@@ -209,18 +209,24 @@ inventoryExecutionRegistry mctx store bundle = do
           && active ^. #profile . #platformVersion == Just (manifest ^. #platformVersion)
       )
       (dieT "reviewed bootstrap stage requires the selected immutable payload and context pin")
-  cloudHistory <- if Set.null (selected ResourceInventory.PulumiExecutor)
+  cloudHistory <-
+    if Set.null (selected ResourceInventory.PulumiExecutor)
       && not (any ((\owner -> Resource.scopeKind owner == Resource.Platform && Resource.nameText (Resource.scopeName owner) == "cloud") . InventoryPlan.retentionOwner) (Map.elems (InventoryPlan.reviewRetentions document)))
-    then pure (CloudHistory [] Map.empty [])
-    else do
-      currentHead <- InventoryStore.readHead store >>= either (dieT . T.pack . show) pure >>= maybe (dieT "inventory head missing") pure
-      let requested = Map.map (\proof -> (InventoryPlan.retentionOwner proof, InventoryPlan.retentionRevision proof))
-            (Map.union (InventoryPlan.reviewRetentions document) (InventoryPlan.reviewCollections document))
-          collecting = Set.intersection (Map.keysSet (InventoryPlan.reviewCollections document)) (selected ResourceInventory.PulumiExecutor)
-      loadCloudHistory store currentHead scopes requested collecting
-  let cloudDeclarations = Map.elems (Map.union
-        (Map.fromList [(ResourceInventory.declarationId member, member) | member <- declarations])
-        (Map.map ResourceInventory.Managed (cloudHistoricalMembers cloudHistory)))
+      then pure (CloudHistory [] Map.empty [])
+      else do
+        currentHead <- InventoryStore.readHead store >>= either (dieT . T.pack . show) pure >>= maybe (dieT "inventory head missing") pure
+        let requested =
+              Map.map
+                (\proof -> (InventoryPlan.retentionOwner proof, InventoryPlan.retentionRevision proof))
+                (Map.union (InventoryPlan.reviewRetentions document) (InventoryPlan.reviewCollections document))
+            collecting = Set.intersection (Map.keysSet (InventoryPlan.reviewCollections document)) (selected ResourceInventory.PulumiExecutor)
+        loadCloudHistory store currentHead scopes requested collecting
+  let cloudDeclarations =
+        Map.elems
+          ( Map.union
+              (Map.fromList [(ResourceInventory.declarationId member, member) | member <- declarations])
+              (Map.map ResourceInventory.Managed (cloudHistoricalMembers cloudHistory))
+          )
       pulumiScopes = scopes <> cloudHistoricalScopes cloudHistory
   allRegistrations <- either dieT pure (InventoryCloud.registrationsFromDeclarations cloudDeclarations)
   let registrations =
@@ -359,8 +365,9 @@ inventoryExecutionRegistry mctx store bundle = do
     )
     (dieT "manual data source native evidence differs from the saved review")
   let retiredIds =
-        (Map.keysSet (InventoryPlan.reviewRetentions document)
-          `Set.union` Map.keysSet (InventoryPlan.reviewCollections document))
+        ( Map.keysSet (InventoryPlan.reviewRetentions document)
+            `Set.union` Map.keysSet (InventoryPlan.reviewCollections document)
+        )
           `Set.difference` Map.keysSet historicalCdn
           `Set.difference` Map.keysSet (cloudHistoricalMembers cloudHistory)
       binding = InventoryPlan.reviewContextBinding document
@@ -441,10 +448,12 @@ inventoryExecutionRegistry mctx store bundle = do
                 pure (active, Just workspace)
               else do
                 (prepared, workspace) <-
-                  if vmPowerOnly scopes operations && Map.null (InventoryPlan.reviewRetentions document)
-                    && Map.null (InventoryPlan.reviewCollections document) && Map.null (InventoryPlan.reviewMigrations document)
-                  then prepareVmPowerMutation mctx
-                  else prepareInfraMutationWithPulumi (not (null registrations)) mctx
+                  if vmPowerOnly scopes operations
+                    && Map.null (InventoryPlan.reviewRetentions document)
+                    && Map.null (InventoryPlan.reviewCollections document)
+                    && Map.null (InventoryPlan.reviewMigrations document)
+                    then prepareVmPowerMutation mctx
+                    else prepareInfraMutationWithPulumi (not (null registrations)) mctx
                 pure (prepared, Just workspace)
       let withWorkspace :: (PlatformWorkspace -> IO a) -> IO a
           withWorkspace action = maybe (dieT "selected executor requires a platform workspace") action workspace
@@ -511,9 +520,10 @@ inventoryExecutionRegistry mctx store bundle = do
         if Map.null dnsSpecs && Map.null cloudflareSpecs
           then pure (Inventory.executionBlockedAdapterFor ResourceInventory.CdnExecutor)
           else withWorkspace (\root -> inventoryCdnAdapter active root binding dnsSpecs cloudflareSpecs acceptedDns)
-      dns <- if Map.null dnsSpecs && Map.null cloudflareSpecs
-        then pure dnsBase
-        else cdnPurgeRuntime store scopes acceptedDns dnsBase
+      dns <-
+        if Map.null dnsSpecs && Map.null cloudflareSpecs
+          then pure dnsBase
+          else cdnPurgeRuntime store scopes acceptedDns dnsBase
       let kubernetesOperations =
             [ op
             | op <- InventoryPlan.reviewOperations (InventoryPlan.reviewBundleDocument bundle)

@@ -72,13 +72,14 @@ serverPreviewManifests inputs raw = do
   previewDomains <- mkDomains [(host, True)]
   let previewSite = s & #domains .~ previewDomains
       ctx = ServerDeployContext {imageTag = inputs ^. #imageTag, previewName = Just svcName}
-  pure ServerManifests
-    { dockerfile = renderServerDockerfile s
-    , service = withPreviewEnvFrom prodName (renderServerService previewSite ctx)
-    , domainMappings = renderServerDomainMappings previewSite ctx
-    , url = "https://" <> host
-    , serviceName = svcName
-    }
+  pure
+    ServerManifests
+      { dockerfile = renderServerDockerfile s
+      , service = withPreviewEnvFrom prodName (renderServerService previewSite ctx)
+      , domainMappings = renderServerDomainMappings previewSite ctx
+      , url = "https://" <> host
+      , serviceName = svcName
+      }
 
 -- | The server site's public URL: the explicitly canonical custom domain if any,
 -- otherwise the Knative wildcard @https://\<site\>.\<namespace\>.\<baseDomain\>@.

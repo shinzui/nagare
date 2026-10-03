@@ -83,11 +83,13 @@ resolveProjectGhcEnv = do
   let roots = nub (catMaybes [rootFromCwd, rootFromExe])
       pkgDirs = concatMap (\r -> [r </> "cli" </> "nagarectl", r </> "cli" </> "nagare-dsl"]) roots
       cwdAncestors = take 6 (ancestors cwd)
-  compiler <- try (readProcessWithExitCode "ghc" ["--numeric-version"] "") ::
-    IO (Either SomeException (ExitCode, String, String))
+  compiler <-
+    try (readProcessWithExitCode "ghc" ["--numeric-version"] "") ::
+      IO (Either SomeException (ExitCode, String, String))
   found <- case compiler of
-    Right (ExitSuccess, version, _) | not (null (trim version)) ->
-      findGhcEnvForCompilerIn (trim version) (pkgDirs ++ cwdAncestors)
+    Right (ExitSuccess, version, _)
+      | not (null (trim version)) ->
+          findGhcEnvForCompilerIn (trim version) (pkgDirs ++ cwdAncestors)
     _ -> pure Nothing
   case found of
     Just f -> pure (Just f)

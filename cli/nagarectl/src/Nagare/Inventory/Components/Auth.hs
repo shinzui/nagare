@@ -6,7 +6,8 @@ module Nagare.Inventory.Components.Auth
   , AuthMode (..)
   , compileAuth
   , compileAuthComponent
-  ) where
+  )
+where
 
 import Control.Exception (IOException, try)
 import Data.Aeson (Value (..), object, (.=))
@@ -22,8 +23,8 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Vector qualified as V
-import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Cluster.GcsJob (StoreBackend)
+import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Types (databaseNameText)
 import Nagare.Inventory.Components.Upstream
 import Nagare.Inventory.Database (compileDatabaseForBackend)
@@ -52,43 +53,57 @@ data AuthInput = AuthInput
 
 -- | The two auth databases and workloads share one complete owner scope.
 -- Callers provide the full typed Database values, not a reconstructed flag set.
-compileAuthComponent
-  :: AuthInput
-  -> [(Text, DatabaseDirectInput, StoreBackend)]
-  -> IO (Either (NonEmpty InventoryError) (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString)))
+compileAuthComponent ::
+  AuthInput ->
+  [(Text, DatabaseDirectInput, StoreBackend)] ->
+  IO (Either (NonEmpty InventoryError) (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString)))
 compileAuthComponent input databases = do
   compiledAuth <- compileAuth input
   pure $ do
     (authBundle, authNative) <- compiledAuth
-    unless (map (\(service, _, _) -> service) databases == ["shomei", "en"])
+    unless
+      (map (\(service, _, _) -> service) databases == ["shomei", "en"])
       (Left (single "auth database inputs must name shomei and en in order"))
     compiledDatabases <- traverse compileDatabase databases
     let bundles = authBundle : map fst compiledDatabases
         nativeMaps = authNative : map snd compiledDatabases
         native = Map.unions nativeMaps
-    unless (Map.size native == sum (map Map.size nativeMaps))
+    unless
+      (Map.size native == sum (map Map.size nativeMaps))
       (Left (single "auth database and workload native members overlap"))
     scope <- mkScopeDeclaration (authOwner input) bundles
     pure (scope, native)
   where
-    single message = (inventoryError "invalid-auth-component" message
-      & #scopes .~ [authOwner input]) :| []
+    single message =
+      ( inventoryError "invalid-auth-component" message
+          & #scopes
+          .~ [authOwner input]
+      )
+        :| []
     compileDatabase (service, direct, backend) = do
-      unless (directOwnerScope direct == authOwner input
-          && directClusterId direct == authCluster input
-          && directNamespaceId direct == Just (authNamespace input)
-          && databaseNameText (directDatabase direct ^. #name) == service <> "-db")
+      unless
+        ( directOwnerScope direct == authOwner input
+            && directClusterId direct == authCluster input
+            && directNamespaceId direct == Just (authNamespace input)
+            && databaseNameText (directDatabase direct ^. #name) == service <> "-db"
+        )
         (Left (single "auth database does not match the owner, cluster, Namespace, or service"))
-      expected <- first (single . T.pack . show)
-        (databaseResourceId (authOwner input) (either (error . T.unpack) id (mkName "statefulset"))
-          (directDatabase direct))
-      unless (Map.lookup service (authDatabasePrerequisites input) == Just expected)
+      expected <-
+        first
+          (single . T.pack . show)
+          ( databaseResourceId
+              (authOwner input)
+              (either (error . T.unpack) id (mkName "statefulset"))
+              (directDatabase direct)
+          )
+      unless
+        (Map.lookup service (authDatabasePrerequisites input) == Just expected)
         (Left (single "auth database dependency differs from its typed direct bundle"))
       compileDatabaseForBackend direct backend
 
-compileAuth
-  :: AuthInput
-  -> IO (Either (NonEmpty InventoryError) (ResourceBundle, Map ResourceId (ManagedResource, ByteString)))
+compileAuth ::
+  AuthInput ->
+  IO (Either (NonEmpty InventoryError) (ResourceBundle, Map ResourceId (ManagedResource, ByteString)))
 compileAuth input = do
   loaded <- traverse loadManifest packaged
   case sequence loaded of
@@ -98,72 +113,118 @@ compileAuth input = do
       case transformed of
         Left message -> pure (Left (single message))
         Right objects -> do
-          let upstream = UpstreamInput
-                { upstreamOwner = authOwner input
-                , upstreamCluster = authCluster input
-                , upstreamKey = knownKey "auth"
-                , upstreamRoot = authRoot input
-                , upstreamFiles = []
-                , upstreamNamespaces = Map.singleton (known "nagare-system") (authNamespace input)
-                , upstreamTransferred = Set.singleton (address "v1" "ConfigMap" "nagare-access-backends")
-                , upstreamConfigMapData = Map.empty
-                , upstreamImageOverrides = Map.empty
-                , upstreamGenerated = objects <> map secretTemplate
-                    ["nagare-access", "nagare-en-api-keys", "nagare-shomei-keys"]
-                , upstreamAfter = internalOrder
-                , upstreamExternalAfter = Map.empty
-                , upstreamOrderDeployments = False
-                , upstreamRegistryDelegations = Map.empty
-                }
+          let upstream =
+                UpstreamInput
+                  { upstreamOwner = authOwner input
+                  , upstreamCluster = authCluster input
+                  , upstreamKey = knownKey "auth"
+                  , upstreamRoot = authRoot input
+                  , upstreamFiles = []
+                  , upstreamNamespaces = Map.singleton (known "nagare-system") (authNamespace input)
+                  , upstreamTransferred = Set.singleton (address "v1" "ConfigMap" "nagare-access-backends")
+                  , upstreamConfigMapData = Map.empty
+                  , upstreamImageOverrides = Map.empty
+                  , upstreamGenerated =
+                      objects
+                        <> map
+                          secretTemplate
+                          ["nagare-access", "nagare-en-api-keys", "nagare-shomei-keys"]
+                  , upstreamAfter = internalOrder
+                  , upstreamExternalAfter = Map.empty
+                  , upstreamOrderDeployments = False
+                  , upstreamRegistryDelegations = Map.empty
+                  }
           compiled <- compileUpstream upstream
           pure $ do
             (bundle, native) <- compiled
-            let migrationJobs = [(resource, bytes) | (resource, bytes) <- Map.elems native,
-                  case resource ^. #address of
-                    Kubernetes _ "batch" kind _ _ -> nameText kind == "job"
-                    _ -> False]
+            let migrationJobs =
+                  [ (resource, bytes)
+                  | (resource, bytes) <- Map.elems native
+                  , case resource ^. #address of
+                      Kubernetes _ "batch" kind _ _ -> nameText kind == "job"
+                      _ -> False
+                  ]
                 proofId resource = case resource ^. #address of
-                  Kubernetes _ _ _ _ name -> mintResourceId (authOwner input)
-                    (knownKey "auth") (known ("proof-" <> nameText name))
+                  Kubernetes _ _ _ _ name ->
+                    mintResourceId
+                      (authOwner input)
+                      (knownKey "auth")
+                      (known ("proof-" <> nameText name))
                   _ -> error "auth migration proof has no Kubernetes address"
-                proofs = [DeclaredOperation (proofId resource) (resource ^. #identity :| [])
-                    [ContentInput (contentDigest bytes)] VerifyBeforeRetry SchemaMigration
-                  | (resource, bytes) <- migrationJobs]
-                proofFor service = [proofId resource | (resource, _) <- migrationJobs,
-                  case resource ^. #address of
-                    Kubernetes _ _ _ _ name -> service `T.isPrefixOf` nameText name
-                    _ -> False]
+                proofs =
+                  [ DeclaredOperation
+                      (proofId resource)
+                      (resource ^. #identity :| [])
+                      [ContentInput (contentDigest bytes)]
+                      VerifyBeforeRetry
+                      SchemaMigration
+                  | (resource, bytes) <- migrationJobs
+                  ]
+                proofFor service =
+                  [ proofId resource
+                  | (resource, _) <- migrationJobs
+                  , case resource ^. #address of
+                      Kubernetes _ _ _ _ name -> service `T.isPrefixOf` nameText name
+                      _ -> False
+                  ]
                 addExternal resource = case resource ^. #address of
                   Kubernetes _ "serving.knative.dev" kind _ name
                     | nameText kind == "service" && nameText name == "nagare-access" ->
-                        resource {dependencies = OrderedAfter (backendMapResourceId (authOwner input))
-                          : resource ^. #dependencies}
-                  Kubernetes _ "" kind _ _ | nameText kind == "secret" ->
-                    resource {lifecycle = Protect}
+                        resource
+                          { dependencies =
+                              OrderedAfter (backendMapResourceId (authOwner input))
+                                : resource ^. #dependencies
+                          }
+                  Kubernetes _ "" kind _ _
+                    | nameText kind == "secret" ->
+                        resource {lifecycle = Protect}
                   Kubernetes _ _ kind _ name
                     | nameText kind `elem` ["job", "deployment"] ->
                         let service = if "en" `T.isPrefixOf` nameText name then "en" else "shomei"
                          in case Map.lookup service (authDatabasePrerequisites input) of
-                              Just databaseId -> resource
-                                {dependencies = map OrderedAfter
-                                    (databaseId : if nameText kind == "deployment"
-                                      then proofFor service <> [shomeiSettingsResourceId (authOwner input)
-                                        | service == "shomei"] else [])
-                                    <> resource ^. #dependencies}
+                              Just databaseId ->
+                                resource
+                                  { dependencies =
+                                      map
+                                        OrderedAfter
+                                        ( databaseId
+                                            : if nameText kind == "deployment"
+                                              then
+                                                proofFor service
+                                                  <> [ shomeiSettingsResourceId (authOwner input)
+                                                     | service == "shomei"
+                                                     ]
+                                              else []
+                                        )
+                                        <> resource ^. #dependencies
+                                  }
                               Nothing -> resource
                   _ -> resource
                 updated = Map.map (\(resource, bytes) -> (addExternal resource, bytes)) native
                 byId = Map.map fst updated
                 update (Managed resource) = Managed (Map.findWithDefault resource (resource ^. #identity) byId)
                 update declaration = declaration
-            unless (all (`Map.member` authDatabasePrerequisites input) ["en", "shomei"])
+            unless
+              (all (`Map.member` authDatabasePrerequisites input) ["en", "shomei"])
               (Left (single "auth database prerequisite is missing"))
-            pure (bundle {declarations = map update (declarations bundle), operations = proofs
-              , grants = [BackendMapGrant (authCluster input)
-                , ShomeiSettingsGrant (authCluster input) (known (authBaseDomain input))]}, updated)
+            pure
+              ( bundle
+                  { declarations = map update (declarations bundle)
+                  , operations = proofs
+                  , grants =
+                      [ BackendMapGrant (authCluster input)
+                      , ShomeiSettingsGrant (authCluster input) (known (authBaseDomain input))
+                      ]
+                  }
+              , updated
+              )
   where
-    single message = (inventoryError "invalid-auth-component" message
-      & #scopes .~ [authOwner input]) :| []
+    single message =
+      ( inventoryError "invalid-auth-component" message
+          & #scopes
+          .~ [authOwner input]
+      )
+        :| []
     known = either (error . T.unpack) id . mkName
     knownKey = either (error . T.unpack) id . mkLogicalKey
     packaged =
@@ -199,16 +260,25 @@ compileAuth input = do
     renderTemplateValue (Object fields) = Object <$> traverse renderTemplateValue fields
     renderTemplateValue (Array values) = Array <$> traverse renderTemplateValue values
     renderTemplateValue value = Right value
-    imagePlaceholders = Map.fromList
-      [("${NAGARE_REGISTRY_PREFIX}/" <> service <> ":${NAGARE_AUTH_TAG}", service)
-      | service <- ["en", "shomei", "nagare-access"]]
+    imagePlaceholders =
+      Map.fromList
+        [ ("${NAGARE_REGISTRY_PREFIX}/" <> service <> ":${NAGARE_AUTH_TAG}", service)
+        | service <- ["en", "shomei", "nagare-access"]
+        ]
     imageFor service = do
-      image <- maybe (Left ("auth image is missing: " <> service)) Right
-        (Map.lookup service (authImages input))
-      unless (case T.splitOn "@sha256:" image of
-        [repository, digest] -> not (T.null repository) && T.length digest == 64
-          && T.all (`elem` (['0'..'9'] <> ['a'..'f'])) digest
-        _ -> False)
+      image <-
+        maybe
+          (Left ("auth image is missing: " <> service))
+          Right
+          (Map.lookup service (authImages input))
+      unless
+        ( case T.splitOn "@sha256:" image of
+            [repository, digest] ->
+              not (T.null repository)
+                && T.length digest == 64
+                && T.all (`elem` (['0' .. '9'] <> ['a' .. 'f'])) digest
+            _ -> False
+        )
         (Left "auth image must use an immutable sha256 digest")
       pure image
     reviseJob (Object root) | KM.lookup "kind" root == Just (String "Job") = do
@@ -234,42 +304,61 @@ compileAuth input = do
     addShomeiEnv value = Right value
     appendShomeiEnv (Array containers) = case V.uncons containers of
       Just (Object container, rest) -> do
-        unless (KM.lookup "name" container == Just (String "shomei"))
+        unless
+          (KM.lookup "name" container == Just (String "shomei"))
           (Left "Shomei Deployment first container has an unexpected name")
         values <- case KM.lookup "env" container of
           Just (Array items) -> Right items
           _ -> Left "Shomei Deployment has no env array"
-        let extras = V.fromList
-              [object ["name" .= ("SHOMEI_WEBAUTHN_RP_ID" :: Text), "value" .= authBaseDomain input]
-              , object ["name" .= ("SHOMEI_WEBAUTHN_ORIGINS" :: Text),
-                  "valueFrom" .= keyRef "webauthn-origins" False]
-              , object ["name" .= ("SHOMEI_PUBLIC_BASE_URL" :: Text),
-                  "valueFrom" .= keyRef "public-base-url" True]
-              ]
+        let extras =
+              V.fromList
+                [ object ["name" .= ("SHOMEI_WEBAUTHN_RP_ID" :: Text), "value" .= authBaseDomain input]
+                , object
+                    [ "name" .= ("SHOMEI_WEBAUTHN_ORIGINS" :: Text)
+                    , "valueFrom" .= keyRef "webauthn-origins" False
+                    ]
+                , object
+                    [ "name" .= ("SHOMEI_PUBLIC_BASE_URL" :: Text)
+                    , "valueFrom" .= keyRef "public-base-url" True
+                    ]
+                ]
         pure (Array (V.cons (Object (KM.insert "env" (Array (values <> extras)) container)) rest))
       _ -> Left "Shomei Deployment has no first container"
     appendShomeiEnv _ = Left "Shomei Deployment containers are malformed"
-    keyRef key optional = object ["configMapKeyRef" .= object
-      ["name" .= ("nagare-shomei-settings" :: Text), "key" .= (key :: Text)
-      , "optional" .= optional]]
+    keyRef key optional =
+      object
+        [ "configMapKeyRef"
+            .= object
+              [ "name" .= ("nagare-shomei-settings" :: Text)
+              , "key" .= (key :: Text)
+              , "optional" .= optional
+              ]
+        ]
     updateAt [] change value = change value
     updateAt (field : remaining) change (Object fields) = do
       current <- maybe (Left "auth template lacks expected nested field") Right (KM.lookup field fields)
       updated <- updateAt remaining change current
       pure (Object (KM.insert field updated fields))
     updateAt _ _ _ = Left "auth template has a malformed nested field"
-    secretTemplate name = (SourceLocation "generated:auth-credential" name, object
-      [ "apiVersion" .= ("v1" :: Text)
-      , "kind" .= ("Secret" :: Text)
-      , "metadata" .= object
-          [ "name" .= (name :: Text)
-          , "namespace" .= ("nagare-system" :: Text)
-          , "annotations" .= object ["nagare.dev/auth-credential-template" .= ("v1" :: Text)]
+    secretTemplate name =
+      ( SourceLocation "generated:auth-credential" name
+      , object
+          [ "apiVersion" .= ("v1" :: Text)
+          , "kind" .= ("Secret" :: Text)
+          , "metadata"
+              .= object
+                [ "name" .= (name :: Text)
+                , "namespace" .= ("nagare-system" :: Text)
+                , "annotations" .= object ["nagare.dev/auth-credential-template" .= ("v1" :: Text)]
+                ]
+          , "type" .= ("Opaque" :: Text)
           ]
-      , "type" .= ("Opaque" :: Text)
-      ])
-    address group kind name = either (error . T.unpack) id
-      (kubernetesAddress (authCluster input) group kind (Just "nagare-system") name)
+      )
+    address group kind name =
+      either
+        (error . T.unpack)
+        id
+        (kubernetesAddress (authCluster input) group kind (Just "nagare-system") name)
     job service = do
       image <- imageFor service
       let suffix = T.take 12 (digestText (contentDigest (TE.encodeUtf8 image)))
@@ -277,10 +366,17 @@ compileAuth input = do
     internalOrder = either (const Map.empty) id $ do
       shomeiJob <- job "shomei"
       enJob <- job "en"
-      pure (Map.fromList
-        [ (address "apps/v1" "Deployment" "shomei", [shomeiJob, address "v1" "Secret" "nagare-shomei-keys"])
-        , (address "apps/v1" "Deployment" "en", [enJob, address "v1" "Secret" "nagare-en-api-keys", address "v1" "ConfigMap" "en-schema"])
-        , (address "serving.knative.dev/v1" "Service" "nagare-access",
-            [address "apps/v1" "Deployment" "shomei", address "apps/v1" "Deployment" "en",
-             address "v1" "Secret" "nagare-access"])
-        ])
+      pure
+        ( Map.fromList
+            [ (address "apps/v1" "Deployment" "shomei", [shomeiJob, address "v1" "Secret" "nagare-shomei-keys"])
+            , (address "apps/v1" "Deployment" "en", [enJob, address "v1" "Secret" "nagare-en-api-keys", address "v1" "ConfigMap" "en-schema"])
+            ,
+              ( address "serving.knative.dev/v1" "Service" "nagare-access"
+              ,
+                [ address "apps/v1" "Deployment" "shomei"
+                , address "apps/v1" "Deployment" "en"
+                , address "v1" "Secret" "nagare-access"
+                ]
+              )
+            ]
+        )

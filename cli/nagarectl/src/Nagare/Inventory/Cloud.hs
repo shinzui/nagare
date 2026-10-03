@@ -27,13 +27,12 @@ module Nagare.Inventory.Cloud
   )
 where
 
-import Data.Generics.Labels ()
-
 import Control.Monad (forM, forM_)
 import Data.Aeson
 import Data.Aeson.Types (Parser, parseEither)
 import Data.ByteString (ByteString)
 import Data.Foldable (asum, traverse_)
+import Data.Generics.Labels ()
 import Data.List (find, nub, sortOn)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
@@ -118,15 +117,21 @@ data CloudCatalog = CloudCatalog
 instance FromJSON CloudCatalogEntry where
   parseJSON = withObject "cloud catalog entry" $ \o -> do
     name <- o .: "name"
-    CloudCatalogEntry <$> o .:? "key" .!= name <*> o .: "type" <*> pure name
-      <*> o .: "parent" <*> o .: "layer"
+    CloudCatalogEntry
+      <$> o .:? "key" .!= name
+      <*> o .: "type"
+      <*> pure name
+      <*> o .: "parent"
+      <*> o .: "layer"
 
 decodeCloudCatalog :: ByteString -> Either Text CloudCatalog
 decodeCloudCatalog bytes = do
   value <- first T.pack (eitherDecodeStrict bytes)
   catalog <- first T.pack (parseEither parser value)
-  let allEntries = catalogFoundationManaged catalog <> catalogNixCacheEnabled catalog
-        <> catalogImageEnabled catalog
+  let allEntries =
+        catalogFoundationManaged catalog
+          <> catalogNixCacheEnabled catalog
+          <> catalogImageEnabled catalog
       keys = map catalogKey allEntries
       byKey = Map.fromList [(catalogKey entry, entry) | entry <- allEntries]
   unless (length keys == Map.size byKey) (Left "cloud catalog has duplicate logical keys")
@@ -136,15 +141,19 @@ decodeCloudCatalog bytes = do
     unless (catalogLayer entry >= 0) (Left "cloud catalog has a negative dependency layer")
     forM_ (catalogParent entry) $ \parentName -> do
       parent <- maybe (Left "cloud catalog has an unknown parent") Right (Map.lookup parentName byKey)
-      unless (catalogLayer parent < catalogLayer entry)
+      unless
+        (catalogLayer parent < catalogLayer entry)
         (Left "cloud catalog parent is not in an earlier dependency layer")
   pure catalog
   where
     parser = withObject "cloud catalog" $ \o -> do
       version <- o .: "version"
       unless (version == (1 :: Int)) (fail "unsupported cloud catalog version")
-      CloudCatalog <$> o .: "project" <*> o .: "foundationManaged"
-        <*> o .: "nixCacheEnabled" <*> o .:? "imageEnabled" .!= []
+      CloudCatalog
+        <$> o .: "project"
+        <*> o .: "foundationManaged"
+        <*> o .: "nixCacheEnabled"
+        <*> o .:? "imageEnabled" .!= []
 
 selectedCloudCatalog :: Bool -> Bool -> CloudCatalog -> [CloudCatalogEntry]
 selectedCloudCatalog cacheEnabled imageEnabled catalog =
@@ -153,8 +162,10 @@ selectedCloudCatalog cacheEnabled imageEnabled catalog =
     <> (if imageEnabled then catalogImageEnabled catalog else [])
 
 withCloudInstanceName :: Name -> CloudCatalog -> CloudCatalog
-withCloudInstanceName instanceName catalog = catalog
-  { catalogImageEnabled = map rename (catalogImageEnabled catalog) }
+withCloudInstanceName instanceName catalog =
+  catalog
+    { catalogImageEnabled = map rename (catalogImageEnabled catalog)
+    }
   where
     rename entry
       | catalogKey entry `elem` [known "nagare-instance", known "nagare-instance-vm"] =
@@ -165,27 +176,48 @@ withCloudInstanceName instanceName catalog = catalog
 cloudCatalogUrn :: Name -> CloudCatalog -> CloudCatalogEntry -> Either Text Text
 cloudCatalogUrn stack catalog entry = do
   ancestry <- go Set.empty entry
-  pure ("urn:pulumi:" <> nameText stack <> "::" <> catalogProject catalog <> "::"
-    <> T.intercalate "$" ancestry <> "::" <> nameText (catalogNativeName entry))
+  pure
+    ( "urn:pulumi:"
+        <> nameText stack
+        <> "::"
+        <> catalogProject catalog
+        <> "::"
+        <> T.intercalate "$" ancestry
+        <> "::"
+        <> nameText (catalogNativeName entry)
+    )
   where
-    byKey = Map.fromList [(catalogKey member, member)
-      | member <- catalogFoundationManaged catalog <> catalogNixCacheEnabled catalog
-          <> catalogImageEnabled catalog]
+    byKey =
+      Map.fromList
+        [ (catalogKey member, member)
+        | member <-
+            catalogFoundationManaged catalog
+              <> catalogNixCacheEnabled catalog
+              <> catalogImageEnabled catalog
+        ]
     go seen member
       | Set.member (catalogKey member) seen = Left "cloud catalog has a parent cycle"
       | otherwise = case catalogParent member of
           Nothing -> Right [catalogNativeType member]
           Just parentName -> do
-            parent <- maybe (Left "cloud catalog has an unknown parent") Right
-              (Map.lookup parentName byKey)
+            parent <-
+              maybe
+                (Left "cloud catalog has an unknown parent")
+                Right
+                (Map.lookup parentName byKey)
             prefix <- go (Set.insert (catalogKey member) seen) parent
             pure (prefix <> [catalogNativeType member])
 
 -- Registrations for program resources outside the current reviewed layer keep
 -- the TypeScript guard complete without assigning those resources an operation.
-cloudBookkeepingRegistrations
-  :: Name -> Bool -> Bool -> CloudCatalog -> ContentDigest -> [NativeRegistration]
-  -> Either Text [NativeRegistration]
+cloudBookkeepingRegistrations ::
+  Name ->
+  Bool ->
+  Bool ->
+  CloudCatalog ->
+  ContentDigest ->
+  [NativeRegistration] ->
+  Either Text [NativeRegistration]
 cloudBookkeepingRegistrations stack cacheEnabled imageEnabled catalog digest managed = do
   owner <- mkScopeId Platform "cloud-bookkeeping"
   key <- mkLogicalKey "native-registration"
@@ -193,19 +225,32 @@ cloudBookkeepingRegistrations stack cacheEnabled imageEnabled catalog digest man
   forM_ managed $ \registration ->
     forM_ (findCatalogEntry registration) $ \entry -> do
       expected <- cloudCatalogUrn stack catalog entry
-      unless (registrationPulumiUrn registration == expected)
+      unless
+        (registrationPulumiUrn registration == expected)
         (Left "reviewed cloud registration URN differs from the program catalog")
   registrations <- forM (selectedCloudCatalog cacheEnabled imageEnabled catalog) $ \entry -> do
     urn <- cloudCatalogUrn stack catalog entry
-    pure $ if Set.member urn managedUrns then Nothing else Just (NativeRegistration
-      (mintResourceId owner key (catalogKey entry))
-      (catalogNativeType entry) (catalogNativeName entry) urn digest
-      (NativeBookkeeping "outside the current reviewed cloud layer"))
+    pure $
+      if Set.member urn managedUrns
+        then Nothing
+        else
+          Just
+            ( NativeRegistration
+                (mintResourceId owner key (catalogKey entry))
+                (catalogNativeType entry)
+                (catalogNativeName entry)
+                urn
+                digest
+                (NativeBookkeeping "outside the current reviewed cloud layer")
+            )
   pure (catMaybes registrations)
   where
     findCatalogEntry registration =
-      find (\entry -> catalogNativeType entry == registrationPulumiType registration
-        && catalogNativeName entry == registrationPulumiName registration)
+      find
+        ( \entry ->
+            catalogNativeType entry == registrationPulumiType registration
+              && catalogNativeName entry == registrationPulumiName registration
+        )
         (selectedCloudCatalog cacheEnabled imageEnabled catalog)
 
 data RegistrationParityError
@@ -236,8 +281,10 @@ compileCloudScope bundle
         , owner = cloudScope bundle
         , executor = PulumiExecutor
         , address = providerAddress (cloudAddress resource)
-        , aliases = filter (/= providerAddress (cloudAddress resource))
-            (nativeAlias resource : cloudAliases resource)
+        , aliases =
+            filter
+              (/= providerAddress (cloudAddress resource))
+              (nativeAlias resource : cloudAliases resource)
         , spec = NativeObject (cloudSpecDigest resource)
         , lifecycle = cloudLifecycle resource
         , dataPolicy = cloudDataPolicy resource

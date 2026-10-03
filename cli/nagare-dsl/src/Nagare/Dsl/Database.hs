@@ -47,7 +47,6 @@ where
 import Data.Char (isDigit)
 import Data.Text qualified as Text
 import Nagare.Dsl.Prelude
-import Nagare.Resource.Types (LogicalKey)
 import Nagare.Dsl.Types
   ( DatabaseName
   , Namespace
@@ -57,6 +56,7 @@ import Nagare.Dsl.Types
   , databaseNameText
   , mkDatabaseName
   )
+import Nagare.Resource.Types (LogicalKey)
 
 -- | The supported database engines. A typed dimension, not a unit of
 -- decomposition: every engine shares the renderer and the JSON shape and differs

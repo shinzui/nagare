@@ -6,7 +6,8 @@ module Nagare.Inventory.Adapters.CacheRuntime
   , mkCacheRuntimeOps
   , cachePublicKeyFromObservation
   , cachePublicKeyForResource
-  ) where
+  )
+where
 
 import Control.Exception (IOException, try)
 import Data.Aeson
@@ -26,8 +27,8 @@ import Nagare.Inventory.Journal (FailureClass (KnownNoEffect), mkOperationId)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
-import System.Exit (ExitCode (..))
 import System.Environment (getEnvironment)
+import System.Exit (ExitCode (..))
 import System.Process (CreateProcess (env), proc, readCreateProcessWithExitCode)
 
 data CacheRuntimeConfig = CacheRuntimeConfig
@@ -44,20 +45,22 @@ data CacheRequest = CacheRequest
   , requestResource :: !ResourceId
   , requestCluster :: !ResourceId
   , requestName :: !Name
-  } deriving stock (Eq, Show, Generic)
+  }
+  deriving stock (Eq, Show, Generic)
 
 data CacheReply = ReplyMissing | ReplyPresent !Value
   deriving stock (Eq, Show)
 
 mkCacheRuntimeOps :: CacheRuntimeConfig -> CacheAdapterOps
-mkCacheRuntimeOps config = CacheAdapterOps
-  { cacheObserveResources = \resources -> do
-      observations <- traverse observe resources
-      pure (sequence observations >>= observationSet)
-  , cacheInspect = \plan -> inspect (cachePlanResource plan)
-  , cacheCreate = mutate "create"
-  , cacheConfigure = mutate "configure"
-  }
+mkCacheRuntimeOps config =
+  CacheAdapterOps
+    { cacheObserveResources = \resources -> do
+        observations <- traverse observe resources
+        pure (sequence observations >>= observationSet)
+    , cacheInspect = \plan -> inspect (cachePlanResource plan)
+    , cacheCreate = mutate "create"
+    , cacheConfigure = mutate "configure"
+    }
   where
     observe resource = do
       state <- inspect resource
@@ -78,8 +81,17 @@ mkCacheRuntimeOps config = CacheAdapterOps
       Just declaration -> case declaration ^. #address of
         AtticCache cluster name
           | cluster == cachePlanCluster plan && name == cachePlanName plan -> do
-              result <- runTransport config action (CacheRequest 1 (runtimeCacheKubectlContext config)
-                (cachePlanResource plan) cluster name)
+              result <-
+                runTransport
+                  config
+                  action
+                  ( CacheRequest
+                      1
+                      (runtimeCacheKubectlContext config)
+                      (cachePlanResource plan)
+                      cluster
+                      name
+                  )
               pure $ case result of
                 Left reason -> AdapterEffectAmbiguous reason
                 Right reply -> case replyToObservation config name reply of
@@ -106,8 +118,16 @@ cachePublicKeyForResource config resource = case Map.lookup resource (runtimeCac
   Just declaration -> case (declaration ^. #address, declaration ^. #spec) of
     (AtticCache cluster name, LogicalCache digest) ->
       let operation = either (error . T.unpack) id (mkOperationId "op-cache-output")
-          plan = CacheMutationPlan 1 operation RunDeclaredOperation (contentDigest "cache-output")
-            resource cluster name digest
+          plan =
+            CacheMutationPlan
+              1
+              operation
+              RunDeclaredOperation
+              (contentDigest "cache-output")
+              resource
+              cluster
+              name
+              digest
        in cachePublicKeyFromObservation (mkCacheRuntimeOps config) plan
     _ -> pure (Left "cache public-key producer has no logical cache specification")
 
@@ -120,8 +140,9 @@ runTransport config action request = do
       Left reason -> pure (Left reason)
       Right bytes -> do
         environment <- getEnvironment
-        let childEnvironment = ("NAGARE_INVENTORY_ADAPTER_CHILD", "cache")
-              : filter ((/= "NAGARE_INVENTORY_ADAPTER_CHILD") . fst) environment
+        let childEnvironment =
+              ("NAGARE_INVENTORY_ADAPTER_CHILD", "cache")
+                : filter ((/= "NAGARE_INVENTORY_ADAPTER_CHILD") . fst) environment
             command = (proc (runtimeCacheExecutable config) [action]) {env = Just childEnvironment}
         result <- try (readCreateProcessWithExitCode command (T.unpack (TE.decodeUtf8 bytes)))
         pure $ case result of
@@ -137,12 +158,20 @@ replyToObservation config name (ReplyPresent value) = case parseEither cacheConf
     | T.null publicKey -> CacheUnavailable "Attic cache has no public signing key"
     | otherwise ->
         let expectedEndpoint = "http://nix-cache-internal.nagare-system.svc.cluster.local:8080/" <> nameText name
-            digest = if public && retention == 2592000 && endpoint == expectedEndpoint
-              && apiEndpoint == "http://127.0.0.1:18080/"
-              then logicalConfigurationDigest
-              else contentDigest (either (error . T.unpack) id (canonicalValue value))
-            physical = either (error . T.unpack) id (mkPhysicalIdentity
-              ("attic://" <> contextIdText (runtimeCacheContextId config) <> "/" <> nameText name))
+            digest =
+              if public
+                && retention == 2592000
+                && endpoint == expectedEndpoint
+                && apiEndpoint == "http://127.0.0.1:18080/"
+                then logicalConfigurationDigest
+                else contentDigest (either (error . T.unpack) id (canonicalValue value))
+            physical =
+              either
+                (error . T.unpack)
+                id
+                ( mkPhysicalIdentity
+                    ("attic://" <> contextIdText (runtimeCacheContextId config) <> "/" <> nameText name)
+                )
          in CachePresent physical digest publicKey
   where
     cacheConfig :: Value -> Parser (Bool, Int, Text, Text, Text)
@@ -155,13 +184,14 @@ replyToObservation config name (ReplyPresent value) = case parseEither cacheConf
       pure (public, retention :: Int, endpoint, apiEndpoint, publicKey)
 
 instance ToJSON CacheRequest where
-  toJSON request = object
-    [ "version" .= requestVersion request
-    , "context" .= requestContext request
-    , "resource" .= requestResource request
-    , "cluster" .= requestCluster request
-    , "name" .= requestName request
-    ]
+  toJSON request =
+    object
+      [ "version" .= requestVersion request
+      , "context" .= requestContext request
+      , "resource" .= requestResource request
+      , "cluster" .= requestCluster request
+      , "name" .= requestName request
+      ]
 
 instance FromJSON CacheReply where
   parseJSON = withObject "cache transport reply" $ \o -> do

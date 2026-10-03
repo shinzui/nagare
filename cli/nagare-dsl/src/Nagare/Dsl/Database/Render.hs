@@ -86,12 +86,13 @@ databaseCredentialTemplate db =
     [ "apiVersion" .= txt "v1"
     , "kind" .= txt "Secret"
     , "type" .= txt "Opaque"
-    , "metadata" .= object
-        [ "name" .= dbSecretName (nameText db)
-        , "namespace" .= nsText db
-        , "labels" .= dbLabels db
-        , "annotations" .= object ["nagare.dev/credential-template" .= txt "database-v1"]
-        ]
+    , "metadata"
+        .= object
+          [ "name" .= dbSecretName (nameText db)
+          , "namespace" .= nsText db
+          , "labels" .= dbLabels db
+          , "annotations" .= object ["nagare.dev/credential-template" .= txt "database-v1"]
+          ]
     ]
 
 renderStatefulSet :: Database -> ByteString
@@ -146,16 +147,18 @@ statefulSetValue db =
   object
     [ "apiVersion" .= txt "apps/v1"
     , "kind" .= txt "StatefulSet"
-    , "metadata" .= object
-        [ "name" .= statefulSetName (nameText db)
-        , "namespace" .= nsText db
-        , "labels" .= dbLabels db
-        , "annotations" .= object
-            [ "nagare.dev/version" .= engineVersionText (db ^. #version)
-            , "nagare.dev/size" .= quantityText (db ^. #size)
-            , "nagare.dev/retention" .= retentionToken (db ^. #retention)
-            ]
-        ]
+    , "metadata"
+        .= object
+          [ "name" .= statefulSetName (nameText db)
+          , "namespace" .= nsText db
+          , "labels" .= dbLabels db
+          , "annotations"
+              .= object
+                [ "nagare.dev/version" .= engineVersionText (db ^. #version)
+                , "nagare.dev/size" .= quantityText (db ^. #size)
+                , "nagare.dev/retention" .= retentionToken (db ^. #retention)
+                ]
+          ]
     , "spec"
         .= object
           [ "serviceName" .= dbServiceName (nameText db)

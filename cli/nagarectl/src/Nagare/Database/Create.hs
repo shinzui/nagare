@@ -151,20 +151,20 @@ runDbCreateWithGuard eng nameT params checkOwnership = do
 -- same validated typed value.
 resolveDatabase :: Engine -> Text -> DbCreateParams -> IO Database
 resolveDatabase eng nameT params = case params ^. #config of
-    Just path -> do
-      eDb <- loadDatabase path
-      case eDb of
-        Left err -> dieT (renderLoadError err)
-        Right d -> pure d
-    Nothing -> orDie (buildDatabase eng nameT params)
+  Just path -> do
+    eDb <- loadDatabase path
+    case eDb of
+      Left err -> dieT (renderLoadError err)
+      Right d -> pure d
+  Nothing -> orDie (buildDatabase eng nameT params)
 
 -- | The pure create-only credential decision helper retained for callers that
 -- supply their own reviewed observation and mutation adapter.
-ensureCredential
-  :: IO (Either Text (Maybe Text))
-  -> IO Text
-  -> (Text -> IO Bool)
-  -> IO (Either Text Text)
+ensureCredential ::
+  IO (Either Text (Maybe Text)) ->
+  IO Text ->
+  (Text -> IO Bool) ->
+  IO (Either Text Text)
 ensureCredential observe generate createOnly = do
   firstRead <- observe
   case firstRead of
@@ -173,12 +173,14 @@ ensureCredential observe generate createOnly = do
     Right Nothing -> do
       password <- generate
       created <- createOnly password
-      if created then pure (Right password) else do
-        secondRead <- observe
-        pure $ case secondRead of
-          Right (Just winner) -> Right winner
-          Right Nothing -> Left "database Secret create failed and no valid concurrent Secret exists"
-          Left reason -> Left reason
+      if created
+        then pure (Right password)
+        else do
+          secondRead <- observe
+          pure $ case secondRead of
+            Right (Just winner) -> Right winner
+            Right Nothing -> Left "database Secret create failed and no valid concurrent Secret exists"
+            Left reason -> Left reason
 
 -- | Only a successful, empty --ignore-not-found response proves absence.
 -- Failed or malformed reads never authorize a replacement credential.
