@@ -239,6 +239,7 @@ library
     Nagare.Inventory.RegistryCredentials
     Nagare.Inventory.ReleaseEvidence
     Nagare.Inventory.Restore
+    Nagare.Inventory.RestoreNative
     Nagare.Inventory.ScheduledGcs
     Nagare.Inventory.ScheduledIngest
     Nagare.Inventory.ScheduledPrune
@@ -257,6 +258,8 @@ library
     Nagare.Inventory.TaskRun
     Nagare.Inventory.VmPower
     Nagare.Inventory.VolumePrune
+    Nagare.Inventory.VolumeRestore
+    Nagare.Inventory.VolumeRestoreSource
     Nagare.Ops.Cleanup
     Nagare.Ops.ClusterGuard
     Nagare.Ops.ContextGuard
@@ -522,6 +525,7 @@ test-suite nagarectl-test
     InventoryTransactionSpec
     InventoryUpstreamSpec
     InventoryVmPowerSpec
+    InventoryVolumeRestorePinSpec
     Nagare.Test.Application
     Nagare.Test.Backend
     Nagare.Test.Backup.Escrow

@@ -5,7 +5,6 @@
   "cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesRuntime.hs": 1425,
   "cli/nagarectl/src/Nagare/Inventory/Command.hs": 1060,
   "cli/nagarectl/src/Nagare/Inventory/DataFence/KubernetesExclusion.hs": 1199,
-  "cli/nagarectl/src/Nagare/Inventory/Restore.hs": 1203,
   "cli/nagarectl/src/Nagare/Inventory/Site.hs": 1429,
   "cli/nagarectl/src/Nagare/Inventory/Store.hs": 1373,
   "cli/nagarectl/src/Nagare/Target.hs": 1020,

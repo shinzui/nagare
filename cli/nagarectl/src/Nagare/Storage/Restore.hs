@@ -10,6 +10,7 @@ module Nagare.Storage.Restore
   , ReviewedVolumeRestoreInputs (..)
   , renderReviewedVolumeRestoreJob
   , safeVolumeExtractPython
+  , volumeManifestPython
   , previewStorageRestore
   )
 where
@@ -24,6 +25,7 @@ import Data.Time (getCurrentTime)
 import Data.Yaml qualified as Y
 import Nagare.Cluster.GcsJob
   ( DataMovementJob (..)
+  , MinioRef (..)
   , StoreBackend (..)
   , dataMovementJobSpec
   , storeCpToStdout
@@ -164,6 +166,10 @@ data ReviewedVolumeRestoreInputs = ReviewedVolumeRestoreInputs
   , expectedReceiptSha256 :: !Text
   , expectedArchiveSha256 :: !Text
   , expiresAtEpoch :: !(Maybe Integer)
+  , pinnedVersions :: !(Maybe (Text, Text))
+  -- ^ Exact archive and receipt object versions verified at planning. When
+  -- present the Job downloads only those versions; without them it keeps the
+  -- original current-object script, so earlier saved reviews stay valid.
   }
   deriving stock (Generic, Eq, Show)
 
@@ -208,6 +214,7 @@ renderReviewedVolumeRestoreJob input =
                                       (input ^. #expiresAtEpoch)
                                   )
                               ]
+                                <> pinnedEnv
                                 <> storeEnv backend
                             )
                       , "volumeMounts"
@@ -235,20 +242,88 @@ renderReviewedVolumeRestoreJob input =
       MinioBackend {} ->
         "command -v sha256sum >/dev/null 2>&1 || dnf install -y -q coreutils >/dev/null 2>&1; "
           <> "command -v sha256sum >/dev/null 2>&1; "
+    pinnedEnv = case (backend, input ^. #pinnedVersions) of
+      (_, Nothing) -> []
+      (GcsBackend {}, Just (objectVersion, receiptVersion)) ->
+        [plainEnv "OBJECT_VERSION" objectVersion, plainEnv "RECEIPT_VERSION" receiptVersion]
+      (MinioBackend ref, Just (objectVersion, receiptVersion)) ->
+        let prefix = "s3://" <> ref ^. #bucket <> "/"
+            key url = fromMaybe "" (T.stripPrefix prefix url)
+         in [ plainEnv "STORE_ENDPOINT" (ref ^. #endpoint)
+            , plainEnv "STORE_BUCKET" (ref ^. #bucket)
+            , plainEnv "OBJECT_KEY" (key (job ^. #sourceUrl))
+            , plainEnv "RECEIPT_KEY" (key (input ^. #sourceReceiptUrl))
+            , plainEnv "OBJECT_VERSION" objectVersion
+            , plainEnv "RECEIPT_VERSION" receiptVersion
+            ]
+    -- Download exactly the reviewed versions; a newer object at the same key
+    -- is never read. Hashes are still compared before the first write.
+    download = case (backend, input ^. #pinnedVersions) of
+      (_, Nothing) ->
+        storeCpToStdout backend "\"$RECEIPT\""
+          <> " > /dump/receipt.json; "
+          <> "test \"$(sha256sum /dump/receipt.json | cut -d' ' -f1)\" = \"$RECEIPT_SHA256\"; "
+          <> storeCpToStdout backend "\"$SRC\""
+          <> " > /dump/archive.tar.gz; "
+      (MinioBackend {}, Just _) ->
+        "aws s3api get-object --bucket \"$STORE_BUCKET\" --key \"$RECEIPT_KEY\" --version-id \"$RECEIPT_VERSION\" --endpoint-url \"$STORE_ENDPOINT\" /dump/receipt.json > /dump/receipt-response.json; "
+          <> "aws s3api get-object --bucket \"$STORE_BUCKET\" --key \"$OBJECT_KEY\" --version-id \"$OBJECT_VERSION\" --endpoint-url \"$STORE_ENDPOINT\" /dump/archive.tar.gz > /dump/object-response.json; "
+          <> "python3 -c 'import json,os; assert json.load(open(\"/dump/receipt-response.json\")).get(\"VersionId\")==os.environ[\"RECEIPT_VERSION\"]; assert json.load(open(\"/dump/object-response.json\")).get(\"VersionId\")==os.environ[\"OBJECT_VERSION\"]'; "
+          <> "test \"$(sha256sum /dump/receipt.json | cut -d' ' -f1)\" = \"$RECEIPT_SHA256\"; "
+      (GcsBackend {}, Just _) ->
+        "gcloud storage cp --do-not-decompress \"$RECEIPT#$RECEIPT_VERSION\" /dump/receipt.json; "
+          <> "test \"$(sha256sum /dump/receipt.json | cut -d' ' -f1)\" = \"$RECEIPT_SHA256\"; "
+          <> "gcloud storage cp --do-not-decompress \"$SRC#$OBJECT_VERSION\" /dump/archive.tar.gz; "
     shell =
       "set -e; "
         <> storeShellPreamble backend
         <> verifyTools
         <> "test \"$EXPIRY_EPOCH\" = 0 || test \"$(date -u +%s)\" -lt \"$EXPIRY_EPOCH\"; "
-        <> storeCpToStdout backend "\"$RECEIPT\""
-        <> " > /dump/receipt.json; "
-        <> "test \"$(sha256sum /dump/receipt.json | cut -d' ' -f1)\" = \"$RECEIPT_SHA256\"; "
-        <> storeCpToStdout backend "\"$SRC\""
-        <> " > /dump/archive.tar.gz; "
+        <> download
         <> "test \"$(sha256sum /dump/archive.tar.gz | cut -d' ' -f1)\" = \"$ARCHIVE_SHA256\"; "
         <> "python3 - /dump/archive.tar.gz /restore <<'NAGARE_VOLUME_EXTRACT'\n"
         <> safeVolumeExtractPython
         <> "NAGARE_VOLUME_EXTRACT\n"
+        <> manifest
+    -- A pinned restore also prints the verified tree to its log, so a reader
+    -- can check restored content without mounting the scratch claim.
+    manifest = case input ^. #pinnedVersions of
+      Nothing -> ""
+      Just _ ->
+        "python3 - /restore <<'NAGARE_VOLUME_MANIFEST'\n"
+          <> volumeManifestPython
+          <> "NAGARE_VOLUME_MANIFEST\n"
+
+-- | Print one line per restored regular file, at most 1,000, in byte order:
+-- @NAGARE_VOLUME_RESTORE_FILE <sha256> <bytes> <path>@. Then print one summary
+-- line: @NAGARE_VOLUME_RESTORE_MANIFEST files=<n> bytes=<total> tree=<sha256>@.
+-- The tree digest covers every file line, including any beyond the printed
+-- bound.
+volumeManifestPython :: Text
+volumeManifestPython =
+  T.unlines
+    [ "import hashlib, os, sys"
+    , "root = os.path.realpath(sys.argv[1])"
+    , "entries = []"
+    , "for directory, _, names in os.walk(root):"
+    , "    for name in names:"
+    , "        path = os.path.join(directory, name)"
+    , "        if os.path.islink(path) or not os.path.isfile(path):"
+    , "            continue"
+    , "        digest = hashlib.sha256()"
+    , "        with open(path, 'rb') as source:"
+    , "            for chunk in iter(lambda: source.read(1024 * 1024), b''):"
+    , "                digest.update(chunk)"
+    , "        entries.append((os.path.relpath(path, root), digest.hexdigest(), os.path.getsize(path)))"
+    , "entries.sort(key=lambda entry: entry[0].encode())"
+    , "tree = hashlib.sha256()"
+    , "for index, (relative, sha, size) in enumerate(entries):"
+    , "    line = 'NAGARE_VOLUME_RESTORE_FILE %s %d %s' % (sha, size, relative)"
+    , "    tree.update((line + '\\n').encode())"
+    , "    if index < 1000:"
+    , "        print(line)"
+    , "print('NAGARE_VOLUME_RESTORE_MANIFEST files=%d bytes=%d tree=%s' % (len(entries), sum(entry[2] for entry in entries), tree.hexdigest()))"
+    ]
 
 -- | Reject links, special files, duplicate paths, escapes, and existing
 -- symlink parents before the first write. Files are copied and fsynced through

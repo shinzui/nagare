@@ -82,8 +82,8 @@ import Nagare.Inventory.Restore
       , volumeRestoreTargetPvcUid
       , volumeRestoreTargetRevision
       )
-  , compileVolumeRestoreScope
   )
+import Nagare.Inventory.ScheduledGcs (withScheduledObjectStore)
 import Nagare.Inventory.Status qualified as InventoryStatus
 import Nagare.Inventory.VolumePrune
   ( VolumePruneRequest
@@ -102,6 +102,8 @@ import Nagare.Inventory.VolumePrune
       )
   , compileVolumePruneScope
   )
+import Nagare.Inventory.VolumeRestore (compileVolumeRestoreScopeWithPins)
+import Nagare.Inventory.VolumeRestoreSource (verifyVolumeBackupObjects)
 import Nagare.Resource.Inventory qualified as ResourceInventory
 import Nagare.Resource.Reference qualified as ResourceReference
 import Nagare.Resource.Types qualified as Resource
@@ -495,6 +497,19 @@ runReviewedVolumeRestorePlan mctx dep volume backupId restoreId backend output =
       (backupJob ^. #identity)
       backupUid
       >>= either dieT pure
+  -- Pin the exact stored objects now: a newer or altered archive or receipt
+  -- refuses here, before any review exists or any destination is written.
+  let backupField key =
+        maybe
+          (dieT ("accepted volume snapshot lacks " <> key))
+          pure
+          (Map.lookup key (ResourceInventory.scopeOverrides backupScope))
+  objectUrl <- backupField "volume-backup.object"
+  receiptUrl <- backupField "volume-backup.receipt"
+  pins <-
+    withScheduledObjectStore (contextNameText (active ^. #contextName)) backend (\reader -> verifyVolumeBackupObjects reader objectUrl receiptUrl receiptBytes)
+      >>= either dieT pure
+      >>= either dieT pure
   now <- getCurrentTime
   let request =
         VolumeRestoreRequest
@@ -520,7 +535,7 @@ runReviewedVolumeRestorePlan mctx dep volume backupId restoreId backend output =
     either
       (dieT . T.pack . show)
       pure
-      (compileVolumeRestoreScope request targetScope acceptedNative)
+      (compileVolumeRestoreScopeWithPins (Just pins) request targetScope acceptedNative)
   case Map.lookup
     (ResourceInventory.scopeId restoreScope)
     (ResourceInventory.snapshotScopes snapshot) of

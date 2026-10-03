@@ -51,6 +51,7 @@ import InventoryTransactionSpec
   , runInventoryLockProbe
   )
 import InventoryUpstreamSpec (inventoryUpstreamTests)
+import InventoryVolumeRestorePinSpec (inventoryVolumeRestorePinTests)
 import Nagare.Dsl.Prelude hiding ((<.>))
 import Nagare.Test.Application (appTests, deploymentsTests)
 import Nagare.Test.Backend
@@ -177,6 +178,7 @@ main = do
             , inventoryMigrationTests
             , inventoryCompanionCollectionTests
             , inventoryPostgresRenameTests
+            , inventoryVolumeRestorePinTests
             , inventoryStatusTests
             , inventoryObservationTests
             , inventoryGcloudAuthTests
