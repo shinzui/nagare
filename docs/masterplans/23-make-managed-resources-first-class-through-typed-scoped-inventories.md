@@ -449,7 +449,7 @@ Open findings ([tracker](../audits/mp23-findings.md)): F35 (preflight refusal af
 - **Rename.** `db rename` is the first native binding of EP-149's migration contract. On cp3 it moved a seeded database through 72 reviewed stages. The rows survived, all nine old incarnations stayed retained and fenced, and the auth signing key kept its identity.
 - **Fixture.** `fixtures/inventory-release/local/scenario.json` defines the full C2 run and is validated against the gate's check names.
 
-The native run exposed two review readers that assumed base mutations; both are fixed in `bc2fd90e` (Surprises). 1,148 tests, the style gate, the command audit and the CLI architecture check pass. The Haskell architecture check still fails on four size allowances that predate B5. Collection of durable members, topics and migrated-away incarnations is the scope proposal below.
+The native run exposed two review readers that assumed base mutations; both are fixed in `bc2fd90e` (Surprises). 1,148 tests, the style gate, the command audit and the CLI architecture check pass. The four Haskell architecture size overages came from `9fef284a`; they were fixed in `2124ce2a`. Collection of durable members, topics and migrated-away incarnations is the scope proposal below.
 
 **Remaining work.** Each item is owned by the named child, whose plan holds the detail. Work proceeds in this order; items within a phase can run in parallel.
 
@@ -485,7 +485,7 @@ Phase D — close-out: finalize each child's living sections, mark the registry,
 
 - D4 — Recovery-time and retention targets for production use (no values have been agreed). It gates production use, not MP-23 completion; EP-157 reports it as an unmet production target.
 
-Scope proposal from B5 (operator's call; the implementer recommends deferral). Three collections would each need a new operation, not a missing binding:
+Scope proposal from B5, decided 2026-10-03 as deferred (Decision Log). Three collections would each need a new operation, not a missing binding:
 - releasing durable PVCs and credential Secrets;
 - deleting broker topics, which also keep a retired broker's StatefulSet blocked;
 - collecting a migrated-away incarnation that shares a live ResourceId.
@@ -543,6 +543,12 @@ Earlier discoveries (derived controller claims, explicit candidate changes, nati
 ## Decision Log
 
 Decisions still in force, condensed. Full verbatim entries are in [the snapshot](../audits/mp23-archive/plan-history/mp23-before-consolidation-2026-10-02.md).
+
+2026-10-03 (implementer, under the operator's instruction to decide defaults and keep going): The B5 collection scope proposal is deferred. That covers releasing durable PVCs and credential Secrets, deleting broker topics, and collecting migrated-away incarnations. None is in the supported release contract; it matches the 2026-09-28 retain-by-default reduction; and retained members stay visible in status, with renamed databases' old writers fenced. Revisit with MP-21 or a later data-lifecycle plan.
+
+2026-10-03 (implementer): Manual cloud receipts for Redis and ClickHouse (B2) will be proven inside the bounded C3 cloud sequence rather than narrowing the contract to scheduled-only. The cost is two extra manual backup and isolated restore pairs in a run that already happens.
+
+2026-10-03 (implementer): F35's repair is the reviewed `abandon-refused-operation` decision. The optional admission-time absence check was not added: the decision covers every refusal point, including objects appearing after admission, while an admission check covers only the window before admission.
 
 2026-10-03 (operator): Orphaned scheduled uploads (an archive without a receipt, a receipt without an archive, an unrecognized key) stay permanently unresolved and documented. Nagare never ingests, counts, restores or deletes them; storage is the operator's responsibility. No reviewed resolution command is added. This is consistent with deferred pruning.
 
