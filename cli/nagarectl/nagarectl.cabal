@@ -203,6 +203,9 @@ library
     Nagare.Inventory.HelmReview
     Nagare.Inventory.Host
     Nagare.Inventory.ImageBuild
+    Nagare.Inventory.ImagePrune
+    Nagare.Inventory.ImagePruneAdapter
+    Nagare.Inventory.ImagePruneScript
     Nagare.Inventory.Journal
     Nagare.Inventory.Kubernetes
     Nagare.Inventory.KubernetesReview
@@ -368,6 +371,7 @@ executable nagarectl
     Nagare.Cli.Inventory.CloudCatalog
     Nagare.Cli.Inventory.Execution
     Nagare.Cli.Inventory.Foundation
+    Nagare.Cli.Inventory.ImagePrune
     Nagare.Cli.Inventory.Planning
     Nagare.Cli.Inventory.PruneEvidence
     Nagare.Cli.Inventory.PublicEvidence
@@ -397,6 +401,7 @@ executable nagarectl
     Nagare.Cli.Runtime.Error
     Nagare.Cli.Runtime.Guards
     Nagare.Cli.Runtime.HostImage
+    Nagare.Cli.Runtime.ImageCleanup
     Nagare.Cli.Runtime.ObjectStore
     Nagare.Cli.Runtime.Ownership
     Nagare.Cli.Runtime.PlatformStatus
@@ -478,6 +483,7 @@ test-suite nagarectl-test
     InventoryGcloudAuthSpec
     InventoryGogolSpec
     InventoryHostSpec
+    InventoryImagePruneSpec
     InventoryIntegrationSpec
     InventoryKubernetesLifecycleSpec
     InventoryKubernetesSpec

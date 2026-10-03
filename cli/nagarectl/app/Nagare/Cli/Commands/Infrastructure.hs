@@ -29,6 +29,7 @@ import Nagare.Cli.Platform.InfrastructureReview
   , prepareInfraMutation
   , saveReviewedPlan
   )
+import Nagare.Cli.Runtime.ImageCleanup (saveReviewedImageCleanup)
 import Nagare.Cli.Runtime.Cleanup (saveReviewedReleaseCleanup)
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Cli.Runtime.Guards (guardLegacyMutationInventory)
@@ -148,9 +149,11 @@ runInfraDestroy mctx yes = do
 -- images/previews/releases, then print the report. Dry-run by default.
 runCleanup :: Maybe String -> CleanupOpts -> IO ()
 runCleanup mctx o = case o ^. #savePlan of
+  Just output | o ^. #doImages -> saveReviewedImageCleanup mctx o output
   Just output | o ^. #doPreviews -> saveReviewedPreviewCleanup mctx o output
   Just output -> saveReviewedReleaseCleanup mctx o output
   Nothing -> do
+    when (isJust (o ^. #imageRequestId)) (dieT "--id requires --images --save-plan DIR")
     active <- activeTarget mctx
     when (o ^. #confirm) (guardLegacyMutationInventory "cleanup --confirm" active)
     (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)

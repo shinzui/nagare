@@ -148,7 +148,7 @@ vmPowerBindings address scopes = Map.fromList <$> traverse bind intents
       pure (digest, VmPowerBinding target address (op ^. #operationKind == StartVm))
 
 -- Keep completed one-shot IDs when the ordinary cloud compiler repairs drift.
--- This prevents a later use of an old ID from becoming a fresh power request.
+-- This prevents a later use of an old ID from becoming a fresh power or image-pruning request.
 retainVmPowerIntents :: ScopeDeclaration -> ScopeDeclaration -> Either Text ScopeDeclaration
 retainVmPowerIntents prior next = do
   unless (scopeId prior == scopeId next) (Left "VM power history belongs to another scope")
@@ -166,7 +166,7 @@ retainVmPowerIntents prior next = do
       [ intent
       | bundle <- scopeBundles prior
       , intent <- bundle ^. #operations
-      , intent ^. #operationKind `elem` [StartVm, StopVm]
+      , intent ^. #operationKind `elem` [StartVm, StopVm, PruneHostImage]
       ]
 
 -- The platform inventory names the native Pulumi registration. Its accepted

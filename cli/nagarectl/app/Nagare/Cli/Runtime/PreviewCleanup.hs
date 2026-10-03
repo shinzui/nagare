@@ -33,6 +33,7 @@ saveReviewedPreviewCleanup selected options output = do
     (options ^. #doPreviews && not (options ^. #doImages || options ^. #doReleases || options ^. #confirm))
     (dieT "this preview cleanup review requires --previews alone; apply the saved review separately")
   unless (options ^. #previewTtlDays >= 0) (dieT "--preview-ttl-days must not be negative")
+  when (isJust (options ^. #imageRequestId)) (dieT "--id is only supported with --images")
   active <- activeTarget selected
   (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
   store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure

@@ -118,6 +118,7 @@ import Nagare.Resource.Inventory
     ( ActivateHost
     , StartVm
     , StopVm
+    , PruneHostImage
     , PurgeCdnCache
     , PurgeCdnZone
     , CreateLogicalCache
@@ -418,7 +419,7 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
         && Map.lookup (operation ^. #identity) provenOperations == Just operation
     forwardOnly operation =
       operation ^. #operationKind
-        `elem` [SchemaMigration, PreDeployHook, ActivateHost, MaintainData, RestoreLiveData, PurgeCdnCache, PurgeCdnZone, StartVm, StopVm]
+        `elem` [SchemaMigration, PreDeployHook, ActivateHost, MaintainData, RestoreLiveData, PurgeCdnCache, PurgeCdnZone, StartVm, StopVm, PruneHostImage]
         || ( operation ^. #operationKind == PublishRelease
                && all isArtifact (NE.toList (operation ^. #affects))
            )

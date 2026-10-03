@@ -25,6 +25,7 @@ saveReviewedReleaseCleanup selected options output = do
   unless (options ^. #doReleases && not (options ^. #doImages || options ^. #doPreviews || options ^. #confirm)) $
     dieT "this cleanup review requires --releases alone; apply the saved review separately with inventory apply"
   unless (options ^. #keepReleases >= 1) (dieT "--keep-releases must be positive")
+  when (isJust (options ^. #imageRequestId)) (dieT "--id is only supported with --images")
   active <- activeTarget selected
   (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
   store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure

@@ -67,6 +67,7 @@ data CleanupOpts = CleanupOpts
   -- ^ releases kept per log (default 10)
   , namespace :: !(Maybe Text)
   , savePlan :: !(Maybe FilePath)
+  , imageRequestId :: !(Maybe Text)
   }
   deriving stock (Generic, Show)
 

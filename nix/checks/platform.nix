@@ -33,6 +33,7 @@ in
     ''
       bash ${src}/scripts/test-inventory-host-transport.sh
       python3 ${src}/scripts/test-host-key-recovery.py
+      python3 ${src}/scripts/test-image-prune-protocol.py
       touch "$out"
     '';
 

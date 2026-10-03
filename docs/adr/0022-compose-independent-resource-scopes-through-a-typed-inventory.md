@@ -1347,3 +1347,17 @@ Kubernetes/Helm members selected by the final planner requirements, alongside it
 changed history bytes. Contribution-generated members remain the contribution
 compiler's responsibility. A same-scope neighbor is not necessarily backed by a
 packaged manifest; its accepted native evidence must be retained for verification.
+
+Host image-cache cleanup records one forward-only declared operation per full CRI
+image ID, bound to the accepted platform VM and its numeric Compute incarnation.
+The native plan includes every current image alias; changed aliases, pinned
+images, running or stopped container references, ambiguous alias ownership and
+unreadable CRI evidence refuse removal. The remote request independently checks
+the metadata-server instance ID and current references, then removes only that
+full ID with transport retries disabled. It never runs a mutable prune selector
+or deletes published registry artifacts. CRI offers no atomic unused-image CAS:
+a container can start between the last observation and removal, and disk space
+reclamation is asynchronous. This is derived-cache cleanup, not a data-retention
+guarantee. Durable completion receipts survive store export/restore and prevent
+an old request from deleting a later re-pull. An ambiguous still-present removal
+remains unresolved and is never automatically resent.

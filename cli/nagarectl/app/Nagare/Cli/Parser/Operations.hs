@@ -128,7 +128,8 @@ cleanupOptsParser =
       auto
       (long "keep-releases" <> value defaultKeepReleases <> showDefault <> metavar "N" <> help "Keep the most recent N releases per log (current always kept)")
     <*> optional (T.pack <$> strOption (long "namespace" <> short 'n' <> metavar "NS" <> help "Namespace to scan for previews/releases"))
-    <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save exact accepted preview or release-history cleanup for inventory apply"))
+    <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save exact accepted image, preview, or release-history cleanup for inventory apply"))
+    <*> optional (T.pack <$> strOption (long "id" <> metavar "REQUEST_ID" <> help "Stable one-shot image cleanup request ID; reuse never prunes a later re-pull"))
 
 doctorCmd :: ParserInfo Command
 doctorCmd =

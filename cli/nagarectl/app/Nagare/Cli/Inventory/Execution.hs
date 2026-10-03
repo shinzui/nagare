@@ -14,6 +14,7 @@ import Data.Set qualified as Set
 import Data.Text qualified as T
 import Nagare.Cli.Inventory.CdnHistory
 import Nagare.Cli.Inventory.CdnPurge (cdnPurgeRuntime)
+import Nagare.Cli.Inventory.ImagePrune (imagePruneRuntime)
 import Nagare.Cli.Inventory.VmPower (vmPowerRuntime)
 import Nagare.Cli.Inventory.Adapters
   ( acceptedTopicResources
@@ -447,7 +448,8 @@ inventoryExecutionRegistry mctx store bundle = do
         if null registrations
           then pure (Inventory.executionBlockedAdapterFor ResourceInventory.PulumiExecutor)
           else withWorkspace (\root -> inventoryPulumiAdapter active root binding scopes allRegistrations)
-      pulumi <- vmPowerRuntime (pure store) active scopes pulumiBase
+      pulumiPower <- vmPowerRuntime (pure store) active scopes pulumiBase
+      pulumi <- maybe (pure pulumiPower) (\root -> imagePruneRuntime (pure store) active root scopes pulumiPower) workspace
       foundation <-
         if Set.null (selected ResourceInventory.CloudFoundationExecutor)
           then pure (Inventory.executionBlockedAdapterFor ResourceInventory.CloudFoundationExecutor)

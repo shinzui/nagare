@@ -197,10 +197,10 @@ known = either (error . show) id . mkName
 packInteger :: Integer -> Text
 packInteger = Data.Text.pack . show
 
-data OperationInput = CapabilityInput !SomeRef | SecretInput !SecretRef | ContentInput !ContentDigest | CdnPathsInput ![Text]
+data OperationInput = CapabilityInput !SomeRef | SecretInput !SecretRef | ContentInput !ContentDigest | CdnPathsInput ![Text] | HostImageInput !Text
   deriving stock (Eq, Ord, Show, Generic)
 
-data OperationKind = SchemaMigration | PreDeployHook | CreateLogicalCache | SnapshotData | RestoreData | RestoreLiveData | PruneData | MaintainData | PublishRelease | ActivateHost | PurgeCdnCache | PurgeCdnZone | StartVm | StopVm
+data OperationKind = SchemaMigration | PreDeployHook | CreateLogicalCache | SnapshotData | RestoreData | RestoreLiveData | PruneData | MaintainData | PublishRelease | ActivateHost | PurgeCdnCache | PurgeCdnZone | StartVm | StopVm | PruneHostImage
   deriving stock (Eq, Ord, Show, Generic)
 
 data DeclaredOperation = DeclaredOperation

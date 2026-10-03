@@ -12,6 +12,7 @@ import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified
 import Data.Text.Encoding qualified as TE
+import InventoryImagePruneSpec (inventoryImagePruneTests)
 import InventoryVmPowerSpec (inventoryVmPowerTests)
 import Nagare.Dsl.Prelude hiding (contains, (.=))
 import Nagare.Inventory.Adapter
@@ -35,6 +36,7 @@ inventoryHostTests =
   testGroup
     "host inventory adapter"
     [ contextReviewTests
+    , inventoryImagePruneTests
     , inventoryVmPowerTests
     , testCase "legacy host plan bytes omit replacement authority" $ do
         case Aeson.toJSON activationPlan of
