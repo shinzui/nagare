@@ -585,16 +585,17 @@ See [CDN (edge caching)](cdn.md).
 | `nagarectl domains list [-n NS] [--all-namespaces] [--base-domain DOMAIN] [--json]` | Show live public DNS, route, and certificate observations. Partial/unavailable observations still exit successfully; JSON schema version is 1. |
 | `nagarectl domains check [-n NS] [--all-namespaces] [--base-domain DOMAIN] [--json]` | Print the same inventory and exit non-zero for missing/mismatched DNS, unavailable or unready routes, or non-ready certificates while TLS is enabled. |
 | `nagarectl cleanup [selectors]` | Preview unused-image, stale-preview, and old-release cleanup. It deletes nothing without `--confirm`; confirmed legacy cleanup refuses after substantive resource inventory history exists. |
-| `nagarectl cleanup --images --id REQUEST_ID --save-plan DIR` | Review exact unused, unpinned image IDs on the accepted cloud host. Running and stopped container images are protected. Apply with `inventory apply DIR --yes`; reusing the ID never prunes a later re-pull. Registry artifacts remain retained. |
+| `nagarectl cleanup --images --id REQUEST_ID --save-plan DIR` | Review exact unused, unpinned image IDs on the accepted cloud host. Running and stopped container images, every pod sandbox's image and the configured runtime sandbox image are protected; a missing or ambiguous sandbox observation refuses the review. Apply with `inventory apply DIR --yes`; reusing the ID never prunes a later re-pull. Registry artifacts remain retained. |
 | `nagarectl cleanup --releases --namespace NS --keep-releases N --save-plan DIR` | Review pruning of accepted application/site release-history records; retain the current record and most recent N. Apply with `inventory apply DIR --yes`. |
-| `nagarectl cleanup --previews --namespace NS --preview-ttl-days N --save-plan DIR` | Review retirement of accepted previews older than N days using exact native Service age and UID. After applying, repeat with a fresh output directory to review one eligible retained member's collection at a time. Prior explicit retirement also makes stateless members eligible; durable volumes and members with remaining dependents stay retained. Knative Service collection reviews its exact controller descendants. |
+| `nagarectl cleanup --previews --namespace NS --preview-ttl-days N --save-plan DIR` | Review retirement of accepted previews older than N days using exact native Service age and UID. After applying, repeat with a fresh output directory to review one eligible retained member's collection at a time. Prior explicit retirement also makes stateless members eligible; durable volumes and members with remaining dependents stay retained. Knative Service and DomainMapping collection reviews their exact controller descendants (a DomainMapping's KIngress and certificate chain); a plain `inventory collect` of a DomainMapping refuses. |
 
-> **Known status-probe gap:** the current `server status`/`doctor` backup rows
-> still probe the legacy `postgres/`, `litestream/`, and `volumes/` prefixes.
-> Managed-database objects now live under `databases/<name>/`, so a database
-> freshness row can be `UNKNOWN` even when backups exist. Verify with
-> `gsutil ls gs://<backup-bucket>/databases/<name>/` until EP-101 updates the
-> inventory probe.
+> **Recovery-point rows:** `server status` and `doctor` print one
+> `recovery point` row per accepted scheduled database backup, graded from
+> freshly verified, accepted signed receipts, never from object timestamps:
+> `OK` below 30 minutes, `WARN` from 30 minutes, `FAIL` at one hour or with no
+> or a future recovery point, and `UNKNOWN` when receipts cannot be observed.
+> Verified uploads that have not been accepted do not count. The `litestream`
+> and `volumes` rows still report newest-object age.
 
 `cleanup` selectors are `--images`, `--previews`, and `--releases`; with none,
 all three are included. Retention flags are `--preview-ttl-days N` (default 7)

@@ -178,7 +178,10 @@ change, then apply that review. This installs the current signed producer and
 cadence while preserving database credentials and existing receipt history.
 Unknown customized schedule scripts refuse this migration.
 
-Use `db backup-receipts pg-main --check-freshness` in operational monitoring.
+`nagarectl server status` and `nagarectl doctor` show the same freshness as one
+`recovery point` row per accepted scheduled database backup; `doctor` exits
+nonzero on a breach. For a single database, or a monitoring exit code, use
+`db backup-receipts pg-main --check-freshness`.
 It freshly verifies accepted receipt/archive versions and reports a warning once
 the latest accepted recovery point is 30 minutes old, and unhealthy at one hour.
 Warnings, breaches, missing timestamps and future timestamps exit nonzero.

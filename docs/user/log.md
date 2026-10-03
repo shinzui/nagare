@@ -5,6 +5,8 @@
 * **Change**: Add `nagarectl app check`, which evaluates a typed Application config without any context, inventory or provider access.
 * **Update**: Describe inventory evidence as a mandatory input to release assembly rather than an optional attachment.
 * **Update**: Replace the stale "GCS scheduled ingestion awaits native acceptance" statement with the installed cloud evidence and its pre-candidate limit.
+* **Change**: `server status` and `doctor` grade each accepted managed database's recovery point from verified receipts; the object-timestamp database rows are removed.
+* **Change**: Image cleanup protects pod sandbox and configured sandbox images; DomainMapping collection always includes its controller descendants.
 
 ## 2026-10-01
 

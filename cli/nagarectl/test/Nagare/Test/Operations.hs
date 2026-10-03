@@ -14,6 +14,7 @@ import Data.Time (UTCTime (UTCTime), fromGregorian)
 import InventoryCleanupSpec (inventoryCleanupTests)
 import InventoryPreviewCleanupSpec (inventoryPreviewCleanupTests)
 import Nagare.Dsl.Prelude hiding ((<.>))
+import Nagare.Inventory.BackupFreshness (BackupFreshness (..))
 import Nagare.Ops.Cleanup
   ( CleanupReport (..)
   , ImagePlan (..)
@@ -47,6 +48,7 @@ import Nagare.Ops.Probe
   , parseNodeExternalIp
   , parseNodeReady
   , parseSkipTagResolvingHosts
+  , recoveryPointProbe
   , renderInventory
   , statusLabel
   )
@@ -119,11 +121,15 @@ opsTests =
       parseNewestBackupAge gsutilLs @?= Just "2026-06-09T03:00:01Z"
   , testCase "parseNewestBackupAge: empty prefix" $
       parseNewestBackupAge "" @?= Nothing
-  , testCase "backupPrefixes: one databases/<name> prefix per db + fixed tails" $
-      backupPrefixes ["notes", "shop"]
-        @?= ["databases/notes", "databases/shop", "litestream", "volumes"]
-  , testCase "backupPrefixes: no discoverable dbs -> bare databases prefix" $
-      backupPrefixes [] @?= ["databases", "litestream", "volumes"]
+  , testCase "backupPrefixes: managed databases are graded by receipts, not object age" $
+      backupPrefixes ["notes", "shop"] @?= ["litestream", "volumes"]
+  , testCase "recoveryPointProbe: fresh, warning, breach and unknown grades" $ do
+      recoveryPointProbe "personal/notes" (Right (Fresh 120)) @?= Probe "recovery point" StatusOk "personal/notes: healthy; age=120s"
+      status (recoveryPointProbe "personal/notes" (Right (Deteriorating 1900))) @?= StatusWarn
+      map (status . recoveryPointProbe "personal/notes" . Right) [Breached 3600, NoRecoveryPoint, FutureRecoveryPoint]
+        @?= [StatusFail, StatusFail, StatusFail]
+      recoveryPointProbe "personal/notes" (Left "object store unavailable")
+        @?= Probe "recovery point" StatusUnknown "personal/notes: receipts unobservable: object store unavailable"
   , testCase "parseDfUsage: data mount" $
       parseDfUsage dfOutput "/var/lib/nagare" @?= Just "12% of 100G"
   , testCase "parseDfUsage: boot mount" $
@@ -281,6 +287,9 @@ doctorTests :: [TestTree]
 doctorTests =
   [ testCase "remediationFor: OK probe has no hint" $
       remediationFor tnbProfile (Probe "VM" StatusOk "RUNNING") @?= Nothing
+  , testCase "remediationFor: recovery point FAIL -> receipt ingestion" $
+      cmdOf (Probe "recovery point" StatusFail "personal/notes: unhealthy; age=4000s; one-hour objective breached")
+        `containsT` "nagarectl db backup-receipts"
   , testCase "remediationFor: VM FAIL -> gcloud start" $
       cmdOf (Probe "VM" StatusFail "TERMINATED")
         `containsT` "gcloud compute instances start nagare-01 --zone=us-west1-a"

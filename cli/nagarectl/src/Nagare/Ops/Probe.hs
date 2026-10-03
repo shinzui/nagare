@@ -40,6 +40,7 @@ module Nagare.Ops.Probe
   , parseClusterIssuerReady
   , parseNewestBackupAge
   , backupPrefixes
+  , recoveryPointProbe
   , parseDfUsage
 
     -- * EP-4 doctor-correctness helpers (unit-tested)
@@ -65,6 +66,7 @@ import Data.Text qualified as T
 import Data.Text.Encoding (decodeUtf8)
 import Data.Vector qualified as V
 import Nagare.Dsl.Prelude
+import Nagare.Inventory.BackupFreshness (BackupFreshness (..), renderBackupFreshness)
 import System.Exit (ExitCode (..))
 
 -- ---------------------------------------------------------------------------
@@ -255,16 +257,25 @@ parseNewestBackupAge out =
         ]
    in if null stamps then Nothing else Just (maximum stamps)
 
--- | Object-store prefixes probed by @nagarectl server status@ for backup
--- freshness. Managed database dumps live under @databases/<name>@; when no
--- databases can be discovered, retain one database-level fallback probe so a
--- missing or unreachable cluster does not erase backup visibility altogether.
--- The removed host-Postgres flow's legacy @postgres@ prefix is intentionally
--- absent.
+-- | Object-store prefixes probed by @nagarectl server status@ by newest object
+-- age. Managed databases are graded by 'recoveryPointProbe' from accepted
+-- receipts instead, so their dump prefixes are no longer probed here. The
+-- removed host-Postgres flow's legacy @postgres@ prefix is intentionally absent.
 backupPrefixes :: [Text] -> [Text]
-backupPrefixes dbNames =
-  (if null dbNames then ["databases"] else map ("databases/" <>) dbNames)
-    <> ["litestream", "volumes"]
+backupPrefixes _ = ["litestream", "volumes"]
+
+-- | One managed database's recovery point, graded from accepted, verified
+-- signed receipts against the one-hour objective. Object timestamps are not
+-- evidence. A source that cannot be observed is unknown, never healthy.
+recoveryPointProbe :: Text -> Either Text BackupFreshness -> Probe
+recoveryPointProbe database result = Probe "recovery point" grade (database <> ": " <> detail)
+  where
+    grade = case result of
+      Left _ -> StatusUnknown
+      Right (Fresh _) -> StatusOk
+      Right (Deteriorating _) -> StatusWarn
+      Right _ -> StatusFail
+    detail = either ("receipts unobservable: " <>) (fromMaybe "" . T.stripPrefix "Recovery-point freshness: " . renderBackupFreshness) result
 
 -- | Extract a @"<Use%> of <Size>"@ description for a given mountpoint from
 -- @df -h@ output. The standard six columns are

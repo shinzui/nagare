@@ -108,6 +108,7 @@ why tp name detail
   | name == "platform version" = detail
   | name == "host age key" = "The host age key is missing or invalid, so sops-nix cannot activate runtime secrets."
   | isDisk name = "Disk is filling up."
+  | isRecoveryPoint name = "The managed database's one-hour recovery-point objective is at risk or breached; only accepted, verified receipts count."
   | isBackup name = "No recent backup object found."
   | otherwise = detail
 
@@ -171,6 +172,9 @@ commandAt root pulumiDir iapSsh tp name
         <> tp ^. #instanceName
         <> " -- 'df -h'; "
         <> "then run nagarectl cleanup once available (EP-41)"
+  | isRecoveryPoint name =
+      "list and ingest verified receipts: nagarectl db backup-receipts <name> -n <namespace>, then save and apply the ingestion review; consult "
+        <> asset "docs/user/backups-and-disaster-recovery.md"
   | isBackup name = "take an on-demand managed-DB backup: nagarectl db backup <name>; consult " <> asset "docs/runbooks/disaster-recovery.md"
   | otherwise = "see " <> asset "docs/runbooks/"
   where
@@ -213,6 +217,10 @@ isDisk name = name == "disk" || " disk" `T.isSuffixOf` name
 -- | Whether a probe name is a backup-freshness probe (@"backup postgres"@, …).
 isBackup :: Text -> Bool
 isBackup name = "backup " `T.isPrefixOf` name
+
+-- | Whether a probe name is a receipt-based recovery-point probe.
+isRecoveryPoint :: Text -> Bool
+isRecoveryPoint name = name == "recovery point"
 
 -- ---------------------------------------------------------------------------
 -- Rendering

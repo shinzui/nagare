@@ -1,10 +1,15 @@
 -- | Data / ScheduledReceipts. Executable-private CLI boundary.
 module Nagare.Cli.Data.ScheduledReceipts
-  ( runListScheduledReceipts
+  ( ScheduledReceiptReport (..)
+  , ReceiptReportError (..)
+  , runListScheduledReceipts
   , runReviewedScheduledReceiptPlan
+  , scheduledReceiptReport
+  , scheduledRecoveryPointProbes
   )
 where
 
+import Control.Exception (Exception, Handler (..), catches, throwIO, try)
 import Control.Monad (forM)
 import Data.Generics.Labels ()
 import Data.List.NonEmpty qualified as NE
@@ -74,19 +79,89 @@ import Nagare.Inventory.ScheduledStore
   , readSecretField
   )
 import Nagare.Inventory.Status qualified as InventoryStatus
+import Nagare.Ops.Probe (Probe, recoveryPointProbe)
 import Nagare.Resource.Inventory qualified as ResourceInventory
 import Nagare.Resource.Types qualified as Resource
 import Nagare.Target (contextNameText)
-import System.Exit (exitFailure)
+import System.Exit (ExitCode, exitFailure)
+
+-- | A failed observation inside 'scheduledReceiptReport'. The listing command
+-- reports it and exits; status probes degrade it to an unknown result.
+newtype ReceiptReportError = ReceiptReportError Text
+  deriving stock (Show)
+  deriving anyclass (Exception)
+
+data ScheduledReceiptReport = ScheduledReceiptReport
+  { keep :: !Int
+  , rows :: ![Text]
+  , freshness :: !BackupFreshness
+  }
+  deriving stock (Generic)
+
+reportFail :: Text -> IO a
+reportFail = throwIO . ReceiptReportError
 
 runListScheduledReceipts :: Maybe String -> Text -> Text -> Maybe String -> Bool -> IO ()
 runListScheduledReceipts mctx database namespaceName bucketArg checkFreshness = do
+  report <-
+    try (scheduledReceiptReport mctx database namespaceName bucketArg)
+      >>= either (\(ReceiptReportError reason) -> dieT reason) pure
+  TIO.putStrLn
+    ( "Scheduled retention: keep="
+        <> T.pack (show (report ^. #keep))
+        <> " and expiry are unenforced; backups are retained by default."
+    )
+  if null (report ^. #rows)
+    then TIO.putStrLn "No scheduled backup objects or accepted receipts."
+    else mapM_ TIO.putStrLn (report ^. #rows)
+  TIO.putStrLn (renderBackupFreshness (report ^. #freshness))
+  when checkFreshness $ case report ^. #freshness of
+    Fresh _ -> pure ()
+    _ -> exitFailure
+
+-- | One recovery-point probe per accepted scheduled backup in the selected
+-- context, for @server status@ and @doctor@. Read-only; a source that cannot be
+-- observed (including a context without inventory) is reported unknown.
+scheduledRecoveryPointProbes :: Maybe String -> IO [Probe]
+scheduledRecoveryPointProbes mctx =
+  ( do
+      snapshot <- activeTarget mctx >>= Inventory.loadTargetSnapshotReadOnly
+      let sources =
+            Set.toAscList
+              ( Set.fromList
+                  [ (Resource.nameText namespace, database)
+                  | (_, scope) <- Map.elems (ResourceInventory.snapshotScopes snapshot)
+                  , bundle <- ResourceInventory.scopeBundles scope
+                  , ResourceInventory.Managed member <- ResourceInventory.declarations bundle
+                  , Resource.Kubernetes _ "batch" kind (Just namespace) name <- [member ^. #address]
+                  , Resource.nameText kind == "cronjob"
+                  , Just database <- [T.stripPrefix "nagare-dbbackup-" (Resource.nameText name)]
+                  ]
+              )
+      forM sources $ \(namespaceName, database) ->
+        recoveryPointProbe (namespaceName <> "/" <> database)
+          <$> ( (Right . (^. #freshness) <$> scheduledReceiptReport mctx database namespaceName Nothing)
+                  `catches` unobservable
+              )
+  )
+    `catches` [ Handler (\(_ :: ExitCode) -> pure [recoveryPointProbe "(context)" (Left "accepted inventory is unavailable")])
+              ]
+  where
+    unobservable =
+      [ Handler (\(ReceiptReportError reason) -> pure (Left reason))
+      , Handler (\(_ :: ExitCode) -> pure (Left "source or object store observation failed"))
+      ]
+
+-- | Verify every scheduled object and receipt of one accepted database source
+-- and compute recovery-point freshness from accepted signed receipts only.
+scheduledReceiptReport :: Maybe String -> Text -> Text -> Maybe String -> IO ScheduledReceiptReport
+scheduledReceiptReport mctx database namespaceName bucketArg = do
   active <- activeTarget mctx
   snapshot <- Inventory.loadTargetSnapshot active
-  (cluster, _) <- either dieT pure (acceptedFoundationNamespace snapshot namespaceName)
+  (cluster, _) <- either reportFail pure (acceptedFoundationNamespace snapshot namespaceName)
   let findAddress api kind name =
         either
-          dieT
+          reportFail
           pure
           (Resource.kubernetesAddress cluster api kind (Just namespaceName) name)
       members scope address =
@@ -105,7 +180,7 @@ runListScheduledReceipts mctx database namespaceName bucketArg checkFreshness = 
         ]
   (sourceScope, stateful) <- case sources of
     [single] -> pure single
-    _ -> dieT "scheduled receipt listing requires one accepted database source"
+    _ -> reportFail "scheduled receipt listing requires one accepted database source"
   pvcAddress <- findAddress "v1" "PersistentVolumeClaim" (dbPvcName database)
   cronAddress <- findAddress "batch/v1" "CronJob" ("nagare-dbbackup-" <> database)
   signingAddress <-
@@ -115,48 +190,48 @@ runListScheduledReceipts mctx database namespaceName bucketArg checkFreshness = 
       ("nagare-dbbackup-" <> database <> "-signing")
   let unique label address = case members sourceScope address of
         [single] -> pure single
-        _ -> dieT ("scheduled receipt listing requires one accepted " <> label)
+        _ -> reportFail ("scheduled receipt listing requires one accepted " <> label)
   pvc <- unique "database PVC" pvcAddress
   cron <- unique "backup CronJob" cronAddress
   signing <- unique "backup signing Secret" signingAddress
-  store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
-  history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
+  store <- Inventory.openTargetStoreReadOnly active >>= either (reportFail . T.pack . show) pure
+  history <- InventoryPlan.loadInventoryHistory store >>= either (reportFail . T.pack . show) pure
   acceptedInventory <-
     either
-      (dieT . T.pack . show)
+      (reportFail . T.pack . show)
       pure
       (ResourceInventory.composeSnapshot snapshot)
   let sourceIds = map (^. #identity) [stateful, pvc, cron, signing]
   (acceptedNative, _) <-
     InventoryStatus.loadAcceptedNativeSelected (Set.fromList sourceIds) store history acceptedInventory
-      >>= either dieT pure
+      >>= either reportFail pure
   let sourceNative = acceptedNative
   unless
     (Map.size sourceNative == 4)
-    (dieT "scheduled receipt listing lacks accepted private native evidence")
+    (reportFail "scheduled receipt listing lacks accepted private native evidence")
   sourceAdapter <-
     inventoryKubernetesAdapter
       active
       (ResourceInventory.snapshotBinding snapshot)
       (\_ -> pure (Left "scheduled receipt listing does not use a cache key"))
       sourceNative
-  observed <- InventoryAdapter.adapterObserve sourceAdapter sourceIds >>= either dieT pure
+  observed <- InventoryAdapter.adapterObserve sourceAdapter sourceIds >>= either reportFail pure
   let physical resource = case Map.lookup resource (InventoryAdapter.observationMap observed) of
         Just (InventoryAdapter.ObservedPresent uid) -> pure uid
-        _ -> dieT "scheduled receipt listing source, schedule, or signing key is absent or drifted"
+        _ -> reportFail "scheduled receipt listing source, schedule, or signing key is absent or drifted"
   statefulUid <- physical (stateful ^. #identity)
   pvcUid <- physical (pvc ^. #identity)
   _ <- physical (cron ^. #identity)
   _ <- physical (signing ^. #identity)
   (_, cronBytes) <-
     maybe
-      (dieT "accepted CronJob lacks native bytes")
+      (reportFail "accepted CronJob lacks native bytes")
       pure
       (Map.lookup (cron ^. #identity) sourceNative)
   backend <- resolveStoreBackend mctx bucketArg
   expectation <-
     either
-      dieT
+      reportFail
       pure
       ( scheduledReceiptExpectationFromCronJob
           backend
@@ -172,7 +247,7 @@ runListScheduledReceipts mctx database namespaceName bucketArg checkFreshness = 
       namespaceName
       ("nagare-dbbackup-" <> database <> "-signing")
       "HMAC_KEY"
-      >>= either dieT pure
+      >>= either reportFail pure
   let accepted =
         Map.fromList
           [ (selected, scope)
@@ -197,7 +272,7 @@ runListScheduledReceipts mctx database namespaceName bucketArg checkFreshness = 
       bucketPrefix = storeObjectUrl backend ""
   keyPrefix <-
     maybe
-      (dieT "accepted schedule has another local bucket")
+      (reportFail "accepted schedule has another local bucket")
       pure
       (T.stripPrefix bucketPrefix prefix)
   listed <- withScheduledObjectStore (contextNameText (active ^. #contextName)) backend $
@@ -275,22 +350,14 @@ runListScheduledReceipts mctx database namespaceName bucketArg checkFreshness = 
                       inspected
             pure (selected <> "  " <> status, recoveryPoint)
           pure (Right (rows <> [("unresolved provider key: " <> key, Nothing) | key <- unknown]))
-  verifiedRows <- either dieT pure listed >>= either dieT pure
+  verifiedRows <- either reportFail pure listed >>= either reportFail pure
   now <- getCurrentTime
-  let rows = map fst verifiedRows
-      freshness = backupFreshness now (catMaybes (map snd verifiedRows))
-  TIO.putStrLn
-    ( "Scheduled retention: keep="
-        <> T.pack (show (scheduledKeep expectation))
-        <> " and expiry are unenforced; backups are retained by default."
-    )
-  if null rows
-    then TIO.putStrLn "No scheduled backup objects or accepted receipts."
-    else mapM_ TIO.putStrLn rows
-  TIO.putStrLn (renderBackupFreshness freshness)
-  when checkFreshness $ case freshness of
-    Fresh _ -> pure ()
-    _ -> exitFailure
+  pure
+    ScheduledReceiptReport
+      { keep = scheduledKeep expectation
+      , rows = map fst verifiedRows
+      , freshness = backupFreshness now (catMaybes (map snd verifiedRows))
+      }
 
 runReviewedScheduledReceiptPlan ::
   Maybe String -> Text -> Text -> Maybe String -> Text -> FilePath -> IO ()

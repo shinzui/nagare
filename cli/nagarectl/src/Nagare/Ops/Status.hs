@@ -37,7 +37,6 @@ import Nagare.Cluster.CertificatePolicy
   , parseLabeledNamespaces
   , renderCertificateViolations
   )
-import Nagare.Database.Discover (DbRow (..), listDatabases)
 import Nagare.Dsl.Prelude
 import Nagare.Host.AgeKey (RemoteAgeKeyStatus (..), parseRemoteAgeKeyStatus)
 import Nagare.Ops.Probe
@@ -66,7 +65,6 @@ gatherInventory tp o = do
   publicIp <- stackOutput (o ^. #pulumiDir) "publicIp"
   baseDomain <- stackOutput (o ^. #pulumiDir) "baseDomain"
   bucket <- maybe (tp ^. #backupBucket) id <$> stackOutput (o ^. #pulumiDir) "backupBucket"
-  dbNames <- either (const []) (map (^. #name)) <$> listDatabases "personal"
   core <-
     sequence
       ( [ probeVm o
@@ -87,7 +85,7 @@ gatherInventory tp o = do
         , probePrivateImagePull tp
         , probeArch tp
         ]
-          <> map (probeBackup bucket) (backupPrefixes dbNames)
+          <> map (probeBackup bucket) (backupPrefixes [])
       )
   host <- probeHost o
   pure (core <> host)

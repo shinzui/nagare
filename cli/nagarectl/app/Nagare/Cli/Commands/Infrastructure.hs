@@ -13,6 +13,7 @@ where
 import Data.Generics.Labels ()
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
+import Nagare.Cli.Data.ScheduledReceipts (scheduledRecoveryPointProbes)
 import Nagare.Cli.Inventory.Workflow
   ( runInventoryApply
   , runInventoryPlan
@@ -74,8 +75,9 @@ runServerStatus mctx o = do
   tp <- activeProfile mctx
   let invOpts = inventoryOptsFor (workspace ^. #pulumiDir) (workspace ^. #scriptsDir </> "iap-ssh.sh") tp & #skipVm .~ o ^. #skipVm
   probes <- gatherInventory tp invOpts
+  recoveryPoints <- scheduledRecoveryPointProbes mctx
   (_, versionStatus) <- gatherPlatformStatus mctx
-  TIO.putStr (renderInventory (probes <> [platformProbe versionStatus]))
+  TIO.putStr (renderInventory (probes <> recoveryPoints <> [platformProbe versionStatus]))
 
 -- | @doctor@: gather EP-38's probes, re-grade them into a remediation checklist,
 -- print it, and exit non-zero iff any check FAILs. Read-only and advisory —
@@ -88,8 +90,9 @@ runDoctor mctx o = do
   tp <- activeProfile mctx
   let invOpts = inventoryOptsFor (workspace ^. #pulumiDir) (workspace ^. #scriptsDir </> "iap-ssh.sh") tp & #skipVm .~ o ^. #skipVm
   probes <- gatherInventory tp invOpts
+  recoveryPoints <- scheduledRecoveryPointProbes mctx
   (_, versionStatus) <- gatherPlatformStatus mctx
-  let checks = gradeChecksAt (workspace ^. #root) (workspace ^. #pulumiDir) (workspace ^. #scriptsDir </> "iap-ssh.sh") tp (probes <> [platformProbe versionStatus])
+  let checks = gradeChecksAt (workspace ^. #root) (workspace ^. #pulumiDir) (workspace ^. #scriptsDir </> "iap-ssh.sh") tp (probes <> recoveryPoints <> [platformProbe versionStatus])
   TIO.putStr (formatDoctor checks)
   unless (doctorExitOk checks) (exitWith (ExitFailure 1))
 
