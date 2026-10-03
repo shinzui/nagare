@@ -117,6 +117,11 @@ provenance:
       at: 2026-10-03T17:30:19Z
       mode: "implement"
       note: "F35 reviewed exit for refused preflight after admission, with native cp3 proof"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-03T20:36:19Z
+      mode: "implement"
+      note: "F37: execute-time no-effect abandonment (d9aed800), reviewed field takeover (1df735a6); C2 adoption/drift/storage notes"
 ---
 
 # Close managed command coverage for the inventory release

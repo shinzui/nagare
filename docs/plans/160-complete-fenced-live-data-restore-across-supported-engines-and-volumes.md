@@ -87,6 +87,11 @@ provenance:
       at: 2026-10-03T18:03:23Z
       mode: "implement"
       note: "F36 Redis scratch restore abandonment and B2 recovery argument"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-03T20:36:19Z
+      mode: "implement"
+      note: "F37: execute-time no-effect abandonment (d9aed800), reviewed field takeover (1df735a6); C2 adoption/drift/storage notes"
 ---
 
 # Complete verified isolated database and volume restore

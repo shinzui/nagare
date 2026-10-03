@@ -67,6 +67,11 @@ provenance:
       at: 2026-10-03T16:03:44Z
       mode: "implement"
       note: "B5: scenario fixture, native stateless companion collection, native reviewed PostgreSQL rename with cp3 proof"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-03T20:36:19Z
+      mode: "implement"
+      note: "F37: execute-time no-effect abandonment (d9aed800), reviewed field takeover (1df735a6); C2 adoption/drift/storage notes"
 ---
 
 # Prove local application and data recovery end to end
