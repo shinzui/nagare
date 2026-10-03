@@ -166,11 +166,20 @@ fi
 jq -e '.state == "applied"' "$evidence_dir/run.json" >/dev/null || die "verify requires a completed apply"
 candidate_digest="$(cat "$candidate/candidate.sha256")"
 [[ "$candidate_digest" == "$(sha256_file "$candidate/candidate.json")" ]] || die "verification candidate digest differs from candidate.sha256"
-"$cli" --context "$context" inventory plan --inventory "$candidate" --out "$evidence_dir/no-op-review"
-jq -e '.operations == []' "$evidence_dir/no-op-review/review.json" >/dev/null \
+# Verify is re-runnable until it writes the verified marker. An interrupted
+# run can leave its no-op review behind; plan into a partial directory and
+# replace the earlier attempt only after the new review proves zero operations.
+no_op_partial="$evidence_dir/no-op-review.partial"
+rm -rf -- "$no_op_partial"
+"$cli" --context "$context" inventory plan --inventory "$candidate" --out "$no_op_partial"
+jq -e '.operations == []' "$no_op_partial/review.json" >/dev/null \
   || die "unchanged candidate has planned operations; no-op convergence is unproved"
+rm -rf -- "$evidence_dir/no-op-review"
+mv -- "$no_op_partial" "$evidence_dir/no-op-review"
 "$cli" --context "$context" inventory status --json > "$evidence_dir/final-observation.json"
 if [[ -n "$private_store_export" ]]; then
+  [[ ! -e "$private_store_export" ]] \
+    || die "private store export already exists; choose a new path rather than replacing private history"
   "$cli" --context "$context" inventory export --out "$private_store_export"
 fi
 jq -S --arg candidate "$candidate_digest" \

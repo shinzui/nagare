@@ -27,8 +27,10 @@ case "$1 $2" in
   'context guard') printf '%s\n' '{"context":"demo","mode":"local","confined":true}' ;;
   'inventory plan')
     [[ "$3" == --inventory && "$5" == --out ]] || exit 31
+    # Like nagarectl, refuse to plan into an existing review directory.
+    [[ ! -e "$6" ]] || exit 36
     mkdir -p "$6"
-    if [[ "$6" == */no-op-review && "${NAGARE_TEST_NON_NOOP:-0}" != 1 ]]; then
+    if [[ "$6" == */no-op-review* && "${NAGARE_TEST_NON_NOOP:-0}" != 1 ]]; then
       jq -n '{operations: []}' > "$6/review.json"
     else
       jq -n '{operations: [{summary: "one reviewed operation"}]}' > "$6/review.json"
@@ -43,7 +45,14 @@ case "$1 $2" in
     [[ "${4:-}" == --yes ]] || exit 32
     [[ "${NAGARE_TEST_FAIL_APPLY:-0}" != 1 ]] || exit 35
     ;;
-  'inventory status') printf '%s\n' '{"observed":true}' ;;
+  'inventory status')
+    [[ "${NAGARE_TEST_FAIL_STATUS:-0}" != 1 ]] || exit 37
+    printf '%s\n' '{"observed":true}'
+    ;;
+  'inventory export')
+    [[ "$3" == --out && ! -e "$4" ]] || exit 38
+    mkdir -p "$4"
+    ;;
   *) exit 33 ;;
 esac
 FAKE_CLI
@@ -153,5 +162,20 @@ if "$runner" --phase apply "${interrupted[@]}" --yes >/dev/null 2>&1; then
   printf 'ambiguous apply was repeated\n' >&2
   exit 1
 fi
+
+rerun=(--mode local --context demo --expected-cluster fixture-cluster --evidence-dir "$test_root/rerun")
+"$runner" --phase plan "${rerun[@]}" --candidate "$test_root/candidate" >/dev/null
+"$runner" --phase apply "${rerun[@]}" --yes >/dev/null
+if NAGARE_TEST_FAIL_STATUS=1 "$runner" --phase verify "${rerun[@]}" \
+  --candidate "$test_root/candidate" >/dev/null 2>&1; then
+  printf 'interrupted verification was accepted\n' >&2
+  exit 1
+fi
+jq -e '.state == "applied"' "$test_root/rerun/run.json" >/dev/null
+[[ -f "$test_root/rerun/no-op-review/review.json" ]]
+"$runner" --phase verify "${rerun[@]}" --candidate "$test_root/candidate" \
+  --private-store-export "$test_root/rerun-export" >/dev/null
+jq -e '.state == "verified" and .noOp == true' "$test_root/rerun/run.json" >/dev/null
+[[ -d "$test_root/rerun-export" && ! -e "$test_root/rerun/no-op-review.partial" ]]
 
 printf 'managed-resource rehearsal launcher tests passed\n'
