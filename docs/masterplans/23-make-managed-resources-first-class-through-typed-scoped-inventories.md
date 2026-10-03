@@ -306,6 +306,11 @@ provenance:
       at: 2026-10-03T04:05:29Z
       mode: "implement"
       note: "Phase A: style gate, F31-F33 source fixes, A5 producers; A4 blocked by new F34"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-03T13:56:58Z
+      mode: "implement"
+      note: "Record operator decisions D1-D3, D5, D6; B1 unattended freshness, signing-key escrow and configurable objective"
   reviews:
     - model: "claude-fable-5-1"
       harness: "claude-code"
@@ -399,7 +404,7 @@ Feature children produce code and focused local proof; the native children (EP-1
 
 ## Integration Points
 
-**Typed domain contract — EP-144, consumed by every child.** `cli/nagare-dsl/src/Nagare/Resource/{Types,Reference,Policy,Inventory,Compile,Wire}.hs` and `schemas/resource-inventory-v1.json` define ContextId/ScopeId/ResourceId, provider claims, physical identity, typed exports, owner contributions and delegation, lifecycle/data/sensitivity policy, and canonical serialization. `composeInventory` is the only route to a validated inventory; there is no decoder from bytes to a validated inventory. Types with hidden constructors never derive Generic, public setters, unchecked FromJSON or coercible roles. Content digests follow composed content and never scope revisions. The canonical SHA-256 digest currently lives in nagare-dsl (`Nagare/Resource/Canonical.hs`, re-exported by nagarectl's `Nagare/Inventory/Digest.hs`), contrary to the original 2026-09-16 decision; that reversal awaits operator confirmation (decision D5 in Progress), and no further hashing is added to nagare-dsl meanwhile.
+**Typed domain contract — EP-144, consumed by every child.** `cli/nagare-dsl/src/Nagare/Resource/{Types,Reference,Policy,Inventory,Compile,Wire}.hs` and `schemas/resource-inventory-v1.json` define ContextId/ScopeId/ResourceId, provider claims, physical identity, typed exports, owner contributions and delegation, lifecycle/data/sensitivity policy, and canonical serialization. `composeInventory` is the only route to a validated inventory; there is no decoder from bytes to a validated inventory. Types with hidden constructors never derive Generic, public setters, unchecked FromJSON or coercible roles. Content digests follow composed content and never scope revisions. The canonical SHA-256 digest lives in nagare-dsl (`Nagare/Resource/Canonical.hs`, re-exported by nagarectl's `Nagare/Inventory/Digest.hs`); the operator confirmed this on 2026-10-03 (D5, ADR 22 amendment), and it remains the only inventory digest function.
 
 **State, review and operation protocol — EP-145.** `cli/nagarectl/src/Nagare/Inventory/{Store,Plan,Journal,Execute,Adapter}.hs` own heads, scope revision vectors, incarnations, review bundles, operation identity, adapter capabilities and recovery states. The pipeline is compile → observe → plan → prepare review (adapter-native bundles) → publish by digest → verify → admit under the store lock → execute. Only admission yields executable authority. The store contract is three conditional writes (publish-if-absent, append-at-sequence, replace-head-if-generation-matches), tested against an in-memory store. Apply and resume share one serial operation driver (EP-153). Adapters never call a command that takes the context lock.
 
@@ -411,7 +416,7 @@ Feature children produce code and focused local proof; the native children (EP-1
 
 **Command surface and coverage — EP-153.** `cli/nagarectl/app/Main.hs` is a 16-line entrypoint and the dispatcher only routes; behavior lives in named modules. `docs/architecture/managed-resource-coverage.md` lists every supported mutation family with owner, compiler, executor, evidence and legacy disposition; it is a traceability aid, not a second authority. `scripts/audit-managed-commands.py` enforces that deferred routes refuse and recovery-only routes stay available. Shared Cabal, `Spec.hs` and Nix test registrations preserve every child's modules.
 
-**Backup, restore and tool boundary — EP-159 and EP-160.** Native engines own backup/restore semantics; Nagare owns source identity, declared membership, review and durable outcomes. EP-159's receipts (v5: signed timestamp taken before the dump) feed EP-160's restores. Freshness is computed by `cli/nagarectl/src/Nagare/Inventory/BackupFreshness.hs` (warning at 30 minutes, breach at one hour).
+**Backup, restore and tool boundary — EP-159 and EP-160.** Native engines own backup/restore semantics; Nagare owns source identity, declared membership, review and durable outcomes. EP-159's receipts (v5: signed timestamp taken before the dump) feed EP-160's restores; only accepted receipts authorize restore. Freshness is computed by `cli/nagarectl/src/Nagare/Inventory/BackupFreshness.hs` against the accepted schedule's objective (`hourly`: warning at 30 minutes, breach at one hour; `daily`: 25 and 26 hours), counting accepted receipts and verified pending uploads. `DatabaseBackupTarget` (`Nagare/Inventory/Database.hs`) carries the store backend and objective to every database compiler; the escrow format lives in `Nagare/Inventory/SigningKeyEscrow.hs`.
 
 **Release evidence — EP-157, supplied by EP-153/154/155/156.** `scripts/assemble-release.sh`, `scripts/assemble-inventory-release-index.py`, `cli/nagarectl/src/Nagare/Inventory/ReleaseEvidence.hs` and `.github/workflows/release.yml` require, for one candidate: native build outputs and clone-free rehearsals for both supported systems (EP-154), `coverage.json` (EP-153), and local and cloud `fixture`, `target`, health and inventory-evidence files (EP-155, EP-156) under `docs/release-evidence/<revision>/`. Producers must emit exactly the check names the gate requires (see Surprises, 2026-10-02). Private secrets and native bundles never enter public evidence; publication itself is outside this initiative's authorization.
 
@@ -424,7 +429,9 @@ Feature children produce code and focused local proof; the native children (EP-1
 
 **Phase A checkpoint (2026-10-02, claude-opus-5-5, `d4aa7168`–`7e26a1bb`).** A6 is done: the full style gate passes. A1 (F33), A2 (F32) and A3 (F31) have source fixes with regressions that fail on the old code, and await independent closure and their native proofs (C3, or a cp3 image-cleanup run for F32). A5 is source-complete for the clone-free `typed-config` check (new read-only `nagarectl app check`) and the cloud fixture/health producer. The scenario-assertion names in health records still have no producer (see Surprises). A4 reached its terminal state later the same day. F34 was traced to reviewed DomainMapping collection using Orphan propagation and fixed in `beca6886` (ADR 22 amendment); cp3 was repaired under the gated EP-155 recovery, and the F30 transaction converged with identities, data and a zero-operation replan intact. F30, F16 and F34 await independent verification.
 
-**Phase B checkpoint (2026-10-02, `cf3cd7fd`).** Two B1 pieces are done: `server status`/`doctor` grade each accepted database's recovery point from verified receipts, and the stale GCS statement in the backups guide is corrected. On cp3 the new rows show breaches without operator ingestion, which is the D1 gap now visible on the operational surface. The rest of B1 waits on D1/D2. B2–B6 need native local or cloud runs, and B3/B6 need operator approval for cloud mutation.
+**Phase B checkpoint (2026-10-02, `cf3cd7fd`).** Two B1 pieces are done: `server status`/`doctor` grade each accepted database's recovery point from verified receipts, and the stale GCS statement in the backups guide is corrected. On cp3 the new rows show breaches without operator ingestion, which is the D1 gap now visible on the operational surface. B2–B6 need native local or cloud runs, and B3/B6 need operator approval for cloud mutation.
+
+**Operator decisions and B1 checkpoint (2026-10-03, claude-opus-5-5).** The operator decided D1, D2, D3, D5 and the new D6 (Decision Log). D1 and D6 are source-complete. Freshness counts verified pending uploads. `db escrow-signing-key` and `db verify-escrowed-backup` escrow the signing key and verify receipts without the cluster. `NAGARE_BACKUP_RECOVERY_POINT=hourly|daily` sets the schedule and is bound into the signed metadata. 1,138 tests and the style gate pass. On cp3 (read-only, development binary), all five recovery-point rows turned healthy without ingestion, and escrow plus offline verification succeeded with refusals intact. D2 and D3 are recorded in docs and EP-157/158. D5 is recorded in an ADR 22 amendment. B1 still needs source-replacement ingestion, the public `scheduledRetention` check and the orphan disposition. Each needs a native run.
 
 Open findings ([tracker](../audits/mp23-findings.md)): F34 (DomainMapping Orphan collection broke the Kourier gateway; source fix and cp3 repair done, verification pending), F30 (status-only churn strands an admitted Service correction; source fix in `95b58a24`/`52432400`, native correction interrupted at the operator's instruction with its transaction preserved, per `c57f1638`), F31 (registry credential refresh can lag expiry), F32 (image cleanup can select a sandbox image in use), F33 (cloud collection does not recheck the reviewed physical incarnation; unfinished guard checkpointed in `27bb0cd4`). F15 and F16 are Verifying.
 
@@ -441,7 +448,7 @@ Phase A — blockers (code and local regressions; no cloud mutation):
 
 Phase B — finish the supported features (code plus focused local proof):
 
-- B1 (EP-159): make the one-hour recovery-point objective hold unattended (decision D1), surface freshness in `server status`/doctor rather than only `--check-freshness`, settle volume freshness (decision D2), prove source-replacement ingestion, give orphaned uploads (objects without a receipt) a public disposition, show `scheduledRetention` as unenforced in `inventory status`, and correct the stale GCS-acceptance statement in `docs/user/backups-and-disaster-recovery.md`.
+- B1 (EP-159): make the recovery-point objective hold unattended by counting verified pending uploads and escrowing the signing key off-cluster (D1); make the objective a per-context `hourly`/`daily` preset bound into the signed schedule (D6); surface freshness in `server status`/doctor rather than only `--check-freshness`; state volumes as outside the objective (D2); prove source-replacement ingestion; give orphaned uploads (objects without a receipt) a public disposition, show `scheduledRetention` as unenforced in `inventory status`, and correct the stale GCS-acceptance statement in `docs/user/backups-and-disaster-recovery.md`.
 - B2 (EP-160): native refusal of a tampered accepted backup (database and volume) and of a wrong-incarnation destination; interruption during Redis load and a partial ClickHouse restore, or a recorded argument that existing runs cover them; manual cloud receipts for Redis and ClickHouse or an explicit scheduled-only statement.
 - B3 (EP-158): native Google DNS/CDN create, disable, retire and collect; record the HTTPS/browser-login disposition (decision D3).
 - B4 (EP-153): promote the `Cleanup` and `InfraDestroy` routes and the `infra-destroy`, `smoke` and `local-smoke` recipes; bring every gap row in the coverage catalogue to migrated or an explicit guarded exclusion.
@@ -458,18 +465,14 @@ Phase C — one frozen candidate, proven natively:
 
 Phase D — close-out: finalize each child's living sections, mark the registry, distill durable lessons into ADR 22, update IR-24's status from evidence.
 
-**Pending operator decisions.** These change acceptance and are not the implementer's to make:
+**Operator decisions.** D1, D2, D3, D5 and D6 were decided on 2026-10-03 (see Decision Log). One remains pending and is not the implementer's to make:
 
-- D1 — Recovery-point objective in unattended operation. Today only manually accepted receipts count toward freshness, so an unattended context breaches within an hour. Options: scheduled automatic ingestion of verified v5 receipts, or counting verified-but-unaccepted uploads toward freshness with that scope stated.
-- D2 — Volumes. No scheduled volume backup exists, so volume data has no recovery-point bound. Options: add a scheduled volume producer, or scope volumes out of the one-hour objective explicitly.
-- D3 — HTTPS and protected browser login. The fixture is HTTP-only and browser login was never accepted. Options: make HTTPS/browser login part of this release, or record it as a stated restriction.
-- D4 — Recovery-time and retention targets for production use (no values have been agreed).
-- D5 — Digest ownership: confirm moving canonical hashing into nagare-dsl (and amend ADR 22), or move it back to nagarectl.
+- D4 — Recovery-time and retention targets for production use (no values have been agreed). It gates production use, not MP-23 completion; EP-157 reports it as an unmet production target.
 
 **Cross-plan gates.**
 
 - *Safe-use gate* (before any real low-risk workload): on one candidate that first passed C1 — the six cloud operational checks and F15 on a fresh context; EP-158 access grant/revoke; [the operations runbook](../runbooks/inventory-operations.md) executed end to end by an independent reviewer with F14–F18 recorded in the tracker; driver consolidation present. Final production go/no-go remains the operator's.
-- *Data-protection gate* (before real company data): every authoritative store backed up off-cluster within the one-hour objective measured from the latest usable recovery point (including upload, verification and retry delays); freshness deterioration visible before breach and a breach reported unhealthy; backups and recovery credentials retrievable with the cluster and operator root gone; verified restored content; corruption and incomplete-upload refusal; documented, timed recovery procedure.
+- *Data-protection gate* (before real company data): the context uses the `hourly` objective; every signing key is escrowed; every authoritative store backed up off-cluster within the one-hour objective measured from the latest usable recovery point (including upload, verification and retry delays); freshness deterioration visible before breach and a breach reported unhealthy; backups and recovery credentials retrievable with the cluster and operator root gone; verified restored content; corruption and incomplete-upload refusal; documented, timed recovery procedure.
 - *Production gate* (outside MP-23 completion): the MP-21 supported upgrade/recovery rehearsal on an inventory-backed context.
 
 **IR-24 verification cases** (update only with evidence):
@@ -513,6 +516,16 @@ Earlier discoveries (derived controller claims, explicit candidate changes, nati
 ## Decision Log
 
 Decisions still in force, condensed. Full verbatim entries are in [the snapshot](../audits/mp23-archive/plan-history/mp23-before-consolidation-2026-10-02.md).
+
+2026-10-03 (operator, D1): The recovery-point objective holds unattended by counting verified-but-unaccepted v5 uploads toward freshness, and status says so. A pending upload counts only after the operator side has re-read its exact stored bytes, checked the HMAC with the current signing key, and matched the current source StatefulSet/PVC UIDs. Reviewed acceptance remains the only route to restore authority. The per-database signing key is escrowed off-cluster in operator material, so pending receipts stay verifiable after total cluster loss. Rationale: no daemon and no second writer to the single-writer store (rejected: automatic ingestion).
+
+2026-10-03 (operator, D2): Volumes are outside the recovery-point objective in MP-23. Docs and status state it, and EP-157 reports it as an unmet production target. Manual volume backup and isolated restore to a new PVC remain supported.
+
+2026-10-03 (operator, D3): HTTPS routes and protected browser login are a stated restriction of this release (the fixture is HTTP-only) and an unmet production target. They are not acceptance criteria.
+
+2026-10-03 (operator, D5): Canonical SHA-256 digests stay in nagare-dsl beside canonical serialization; ADR 22 is amended. There is still exactly one inventory digest function.
+
+2026-10-03 (operator, D6): The recovery-point objective is a per-context setting, `NAGARE_BACKUP_RECOVERY_POINT`, with two presets. `hourly` (the default) keeps today's 15-minute schedule with a warning at 30 minutes and a breach at one hour. `daily` runs once a day with a warning at 25 hours and a breach at 26 hours, leaving margin for dump and upload time. The preset is written into the signed schedule metadata, so freshness is graded against the accepted CronJob, never against an editable environment value. Changing it is a reviewed CronJob update. The data-protection and safe-use gates still require `hourly` for the critical intranet context. Rationale: some clusters accept daily backups. Two proven presets keep test and native-proof cost bounded (rejected: arbitrary durations, per-database overrides).
 
 2026-10-02 (consolidation): Rewrite this MasterPlan as a single current-state document, archive superseded audits and closed findings unchanged under `docs/audits/mp23-archive/`, and clean each active child's living sections the same way. Rationale: accumulated dated paragraphs and audit documents made the next step unclear and let status drift. No scope, dependency or acceptance criterion changes.
 

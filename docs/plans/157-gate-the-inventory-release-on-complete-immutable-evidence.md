@@ -62,6 +62,11 @@ provenance:
       at: 2026-10-03T04:05:29Z
       mode: "implement"
       note: "A5 producers and docs; record scenario-assertion producer gap"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-03T13:56:59Z
+      mode: "update"
+      note: "List concrete unmet production targets from D2, D3, D4 and D6"
 ---
 
 # Gate the inventory release on complete immutable evidence
@@ -85,7 +90,7 @@ This plan does not publish a release; publication is a separate, explicitly auth
 - [x] `docs/user/upgrades.md` describes inventory evidence as mandatory (2026-10-02, `7e26a1bb`; `okf validate docs/user --strict …` passes).
 - [ ] `docs/release-evidence/<revision>/` exists for the final candidate with coverage, local and cloud inputs produced by EP-153/155/156, and the native artifacts from a workflow build of the same revision exist for x86_64-linux and aarch64-darwin (MP-23 C1–C4 inputs).
 - [ ] A `workflow_dispatch` release run with `candidate_revision` and `evidence_revision` assembles without refusal, `nagarectl release publish` without `--yes` reports "Review only", and IR-24 cases 1–7 each map to a named evidence file (MP-23 C5).
-- [ ] `docs/releases/v<version>.md` states the unmet production targets (data-protection gate, MP-21 upgrade gate, decisions D1–D4 if still open) and documentation and ADRs match supported behavior (MP-23 C5, D).
+- [ ] `docs/releases/v<version>.md` states the unmet production targets and that documentation and ADRs match supported behavior (MP-23 C5, D). The targets are: the data-protection gate (including restore after total cluster loss); the MP-21 upgrade gate; volumes outside the recovery-point objective (D2); HTTPS and protected browser login as a stated restriction (D3); recovery-time and retention targets not yet agreed (D4); and, for any context using `NAGARE_BACKUP_RECOVERY_POINT=daily`, an objective weaker than the one-hour production target (D6).
 
 
 ## Surprises & Discoveries

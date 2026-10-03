@@ -1431,3 +1431,56 @@ exact absence proves collection completion; a no-change preview alone cannot.
 An ambiguous still-present delete remains unresolved. Conservative retained
 layer dependencies can leave stateless infrastructure blocked; the public report
 names that retained outcome and does not claim complete physical teardown.
+
+## Amendment — 2026-10-03: canonical digests live beside canonical serialization
+
+Rule 3 of the 2026-09-16 amendment said the pure model stays free of a hashing
+dependency and that one operator-side module derives every digest. Since
+`84afb03e` (2026-09-22) the canonical SHA-256 digest has lived in nagare-dsl's
+`Nagare/Resource/Canonical.hs`, next to the canonical JSON serialization, because
+pure composers such as the database bundle compiler need content digests of the
+objects they build. nagarectl's `Nagare/Inventory/Digest.hs` only re-exports it.
+The operator confirmed this placement on 2026-10-03 (MasterPlan 23, decision D5).
+
+The part of rule 3 that still holds is that there is exactly one digest function,
+SHA-256 of the exact canonical bytes, and every digest in the inventory, review,
+journal and evidence is derived through it. nagare-dsl owns it. nagarectl must not
+add a second hashing path for inventory content. Hashes of provider objects (backup
+archives, receipts) are evidence about bytes outside the canonical model, and they
+stay in nagarectl.
+
+## Amendment — 2026-10-03: unattended recovery points and a reviewed objective
+
+The operator decided how the recovery-point objective holds without an operator
+(MasterPlan 23, decisions D1, D2 and D6).
+
+**Freshness counts verified pending uploads, and acceptance stays the restore
+gate.** A scheduled upload that has not been ingested counts toward freshness
+once the operator side has reread its exact stored bytes, checked its HMAC with
+the current signing key, and matched the current source StatefulSet and PVC
+UIDs. Status says when the newest point is still pending. Only a reviewed,
+accepted receipt authorizes a restore. Automatic ingestion was rejected: it
+needs either a second writer to the single-writer inventory store or an
+always-on process, and this ADR excludes both.
+
+**The objective is reviewed state, not ambient configuration.** A context
+selects `hourly` (the default: 15-minute schedule, warning at 30 minutes, breach
+at one hour) or `daily` (daily schedule, warning at 25 hours, breach at 26) through
+`NAGARE_BACKUP_RECOVERY_POINT`. The preset becomes part of the CronJob's signed
+receipt metadata, which the schedule revision digest covers. Freshness reads it
+from the accepted CronJob bytes. Changing it is a reviewed CronJob-only update.
+Hourly metadata keeps exactly its original seven fields, so schedules accepted
+before the objective became configurable keep their bytes and digests. There are
+two proven presets, not arbitrary durations, so each cadence is natively tested.
+
+**The signing key is escrowed off the cluster.** `db escrow-signing-key` writes
+the key to create-only, sops-encrypted operator material (ADR 13). The escrow is
+bound to the observed Secret, StatefulSet and PVC UIDs, and the plaintext travels
+only on standard input. `db verify-escrowed-backup` verifies a receipt with only
+that escrow and the object store. The verification is evidence, never restore
+authority. Accepted receipts were already verifiable without the key, because
+they are pinned by digest.
+
+Volumes have no scheduled producer and are outside the objective. Like the
+unaccepted HTTPS/browser-login path (D3), this is reported as an unmet
+production target rather than hidden.

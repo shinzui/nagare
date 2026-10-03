@@ -37,6 +37,11 @@ provenance:
       at: 2026-10-03T03:28:10Z
       mode: "update"
       note: "Consolidated with MP-23 into a current-state plan; prior body archived in docs/audits/mp23-archive/plan-history"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-03T13:56:59Z
+      mode: "update"
+      note: "Record operator decision D3: HTTPS and browser login are a stated release restriction"
 ---
 
 # Complete reviewed access and CDN operations
@@ -59,7 +64,7 @@ To see it working: `nagarectl access grant --host HOST --user SUBJECT --save-pla
 - [x] (2026-10-02) Reviewed Cloudflare host, exact-path and explicit whole-zone purge with durable receipts, and exact retained DNS collection for Google and Cloudflare. Commit `71068ad0`; `scripts/test-cdn-purge-public.py` (including `--ambiguous-response redirect`, `--collection --last-contributor` and `--google-dns --last-contributor`) proves no resend after an ambiguous response, changed-record refusal and lost-response collection recovery. F21 (redirect replay) Closed; collection independently verified ([proof](../audits/mp23-independent-results-2026-10-02/cdn-retained-collection-public-71068ad0.json)).
 - [ ] On the final candidate's fresh cloud context, a Google CDN host record is created by reviewed application deploy, disabled, retired and collected with exact identities and neighbors preserved, and an independent reviewer records the lifecycle result (MP-23 B3, run under EP-156 in C3).
 - [ ] Access grant/revoke with lost-acknowledgement recovery and portal sync re-proven natively on the final candidate (MP-23 C3; safe-use gate).
-- [ ] The HTTPS and protected-browser-login disposition is recorded from operator decision D3: either proven on the candidate or stated as a release restriction (MP-23 B3).
+- [x] The HTTPS and protected-browser-login disposition is recorded (2026-10-03, operator decision D3): it is a stated restriction of this release, not an acceptance criterion. The fixture is HTTP-only and protected browser login has not been accepted; EP-157's release notes list both as unmet production targets (MP-23 B3).
 
 
 ## Surprises & Discoveries
@@ -81,6 +86,8 @@ The public CDN tests found missing retirement observations, missing historical c
 
 Decisions still in force, condensed. Verbatim entries are in [the snapshot](../audits/mp23-archive/plan-history/ep158-before-consolidation-2026-10-02.md).
 
+2026-10-03 (operator, MP-23 D3): HTTPS routes and protected browser login are a stated restriction of this release and an unmet production target, not acceptance criteria.
+
 2026-10-02 (consolidation): rewrite this plan as a current-state document aligned with MasterPlan 23 items B3 and C3. No scope or acceptance change.
 
 2026-10-02: `f15-preview` is retired from acceptance ([disposition](../audits/mp23-prerelease-fixture-disposition.md)). Native access evidence gathered there is kept as diagnostic history and must be re-bound to the final candidate in C3.
@@ -96,7 +103,7 @@ Decisions still in force, condensed. Verbatim entries are in [the snapshot](../a
 
 ## Outcomes & Retrospective
 
-All four reviewed operations — access grant/revoke, portal sync, CDN purge and disable, and exact retained DNS collection — exist and pass public-command tests against bounded or recording providers, and their source fixes are independently verified. Native access was demonstrated, but only on a retired fixture. Remaining: native Google CDN lifecycle and native access on the final candidate, and the D3 HTTPS/browser-login decision. Lesson: public-command tests with realistic composed scopes found integration defects that unit tests over single scopes missed; run them before any native attempt.
+All four reviewed operations — access grant/revoke, portal sync, CDN purge and disable, and exact retained DNS collection — exist and pass public-command tests against bounded or recording providers, and their source fixes are independently verified. Native access was demonstrated, but only on a retired fixture. Remaining: native Google CDN lifecycle and native access on the final candidate. D3 is decided: HTTPS/browser login is a stated release restriction. Lesson: public-command tests with realistic composed scopes found integration defects that unit tests over single scopes missed; run them before any native attempt.
 
 
 ## Context and Orientation
@@ -110,7 +117,7 @@ Access: `cli/nagarectl/src/Nagare/Inventory/Access.hs` and `AccessRuntime.hs` co
 
 ## Plan of Work
 
-Source work is complete. What remains is native proof on the final candidate, executed inside EP-156's bounded, operator-approved cloud sequence (MasterPlan C3) rather than as a separate cloud run. On the fresh cloud context with the platform CDN backend enabled: deploy an application whose scope declares a Google CDN host, then `cdn disable` it, retire the application scope, and collect the retained DNS record, checking at each step the exact record value and TTL, the preserved apex and neighbor records, and unchanged unrelated scope revisions. In the same sequence, grant one user to one of two protected hosts, interrupt the acknowledgement, resume, revoke, and run portal sync, checking that the second host and other users are untouched. An independent reviewer records the result in this plan and [the findings tracker](../audits/mp23-findings.md). Ask the operator for decision D3 and record it here before C5.
+Source work is complete. What remains is native proof on the final candidate, executed inside EP-156's bounded, operator-approved cloud sequence (MasterPlan C3) rather than as a separate cloud run. On the fresh cloud context with the platform CDN backend enabled: deploy an application whose scope declares a Google CDN host, then `cdn disable` it, retire the application scope, and collect the retained DNS record, checking at each step the exact record value and TTL, the preserved apex and neighbor records, and unchanged unrelated scope revisions. In the same sequence, grant one user to one of two protected hosts, interrupt the acknowledgement, resume, revoke, and run portal sync, checking that the second host and other users are untouched. An independent reviewer records the result in this plan and [the findings tracker](../audits/mp23-findings.md).
 
 
 ## Concrete Steps
