@@ -65,7 +65,7 @@ def main():
         root = Path(temporary)
         (root / "bin").mkdir()
         (root / "bin/k3s").write_text(K3S)
-        (root / "bin/curl").write_text("#!/bin/sh\nprintf '%s\\n' '{\"access_token\":\"fixture-token\",\"expires_in\":3600}'\n")
+        (root / "bin/curl").write_text("#!/bin/sh\nprintf '{\"access_token\":\"%s\",\"expires_in\":%s}\\n' \"$REGISTRY_TEST_TOKEN\" \"$REGISTRY_TEST_LIFETIME\"\n")
         (root / "bin/jq").symlink_to(subprocess.check_output(["which", "jq"], text=True).strip())
         for name in ["k3s", "curl"]:
             (root / "bin" / name).chmod(0o700)
@@ -83,21 +83,34 @@ def main():
               registryCredentialOwner = if enabled then "platform:host/nixos-system/system" else "";
               registryServingControllerOwner = if enabled then "platform:serving/serving/object-0000000000000000000000000000000000000000" else "";
             }; services.k3s.package = root; };
-          }).systemd.services.nagare-registry-pull-secret.serviceConfig.ExecStart;
-        in { controller = render true; legacy = render false; }'''
-        scripts = json.loads(subprocess.check_output(["nix", "eval", "--impure", "--json", "--expr", expression], env=env, text=True))
-        for key, body in scripts.items():
-            (root / (key + ".sh")).write_text(body)
+          });
+          scriptOf = enabled: (render enabled).systemd.services.nagare-registry-pull-secret.serviceConfig.ExecStart;
+          module' = render true;
+        in { controller = scriptOf true; legacy = scriptOf false;
+             timer = module'.systemd.timers.nagare-registry-pull-secret.timerConfig;
+             timeout = module'.systemd.services.nagare-registry-pull-secret.serviceConfig.TimeoutStartSec;
+             assertions = map (a: a.assertion) module'.assertions; }'''
+        rendered = json.loads(subprocess.check_output(["nix", "eval", "--impure", "--json", "--expr", expression], env=env, text=True))
+        # F31: a cached metadata token has just over 300 s left, so the next run
+        # (interval + accuracy + run timeout) must complete before that.
+        seconds = lambda value: int(value.removesuffix("s"))
+        timer = rendered["timer"]
+        assert rendered["assertions"] == [True]
+        assert seconds(timer["OnUnitActiveSec"]) + seconds(timer["AccuracySec"]) + seconds(rendered["timeout"]) < 300, timer
+        for key in ["controller", "legacy"]:
+            (root / (key + ".sh")).write_text(rendered[key])
         account = {"apiVersion": "v1", "kind": "ServiceAccount", "metadata": {
             "namespace": "knative-serving", "name": "controller", "uid": "fixture-account", "resourceVersion": "5",
             "annotations": {"nagare.dev/resource-id": ACCOUNT, "nagare.dev/registry-credential-controller": HOST}}}
         initial = {"namespace": "knative-serving", "account": account, "secret": None, "writes": []}
 
-        def run(state, script="controller"):
+        def run(state, script="controller", token="fixture-token", lifetime=3600):
             location = root / "state.json"
             location.write_text(json.dumps(state))
-            result = subprocess.run(["bash", str(root / (script + ".sh"))], env=env | {"REGISTRY_TEST_STATE": str(location)}, text=True, capture_output=True, timeout=20)
-            assert "fixture-token" not in result.stdout + result.stderr, "credential leaked in timer output"
+            result = subprocess.run(["bash", str(root / (script + ".sh"))], env=env | {
+                "REGISTRY_TEST_STATE": str(location), "REGISTRY_TEST_TOKEN": token,
+                "REGISTRY_TEST_LIFETIME": str(lifetime)}, text=True, capture_output=True, timeout=20)
+            assert token not in result.stdout + result.stderr, "credential leaked in timer output"
             return result, json.loads(location.read_text())
 
         result, created = run(initial)
@@ -106,9 +119,17 @@ def main():
         assert created["secret"]["metadata"]["annotations"]["nagare.dev/resource-id"] == HOST
         assert created["account"]["metadata"]["annotations"]["nagare.dev/resource-id"] == ACCOUNT
         assert created["account"]["imagePullSecrets"] == [{"name": "nagare-registry-pull"}]
-        result, replaced = run(created)
+        # The same cached token is already installed: no Kubernetes write.
+        result, unchanged = run(created, lifetime=301)
+        assert result.returncode == 0 and unchanged["writes"] == created["writes"], unchanged["writes"]
+        # A rotated token replaces the Secret conditionally; the account is current.
+        result, replaced = run(created, token="rotated-token")
         assert result.returncode == 0 and replaced["secret"]["metadata"]["uid"] == "fixture-secret"
         assert replaced["secret"]["metadata"]["resourceVersion"] == "2"
+        assert replaced["writes"] == created["writes"] + ["secret:replace"], replaced["writes"]
+        # A token at or below the metadata cache floor is refused without a write.
+        result, short = run(created, token="short-token", lifetime=300)
+        assert result.returncode != 0 and short["writes"] == created["writes"]
 
         negatives = []
         for key, value in [("nagare.dev/resource-id", "foreign-account"), ("nagare.dev/registry-credential-controller", "foreign-host")]:
@@ -129,14 +150,14 @@ def main():
         changed["secretRace"] = True
         negatives.append(changed)
         for state in negatives:
-            result, refused = run(state)
+            result, refused = run(state, token="rotated-token")
             assert result.returncode != 0 and refused["writes"] == [], "foreign/raced target received a write"
 
         legacy = {"namespace": "personal", "account": {"metadata": {"name": "default", "resourceVersion": "5"}}, "secret": None, "writes": []}
         result, retained = run(legacy, "legacy")
         assert result.returncode == 0 and retained["writes"] == ["secret:create", "account:patch"]
         assert "nagare.dev/resource-id" not in retained["secret"]["metadata"]["annotations"]
-        print("registry timer: owned controller create/refresh, six foreign/race refusals and legacy policy passed")
+        print("registry timer: cadence invariant, owned controller create/no-op/refresh, short-token refusal, six foreign/race refusals and legacy policy passed")
 
 
 if __name__ == "__main__":

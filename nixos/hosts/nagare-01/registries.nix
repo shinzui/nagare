@@ -11,6 +11,18 @@ let
     ++ pkgs.lib.optional (controllerOwner != "") "knative-serving|controller|${controllerOwner}";
   registrySourceVersion = builtins.hashFile "sha256" ./registries.nix;
 
+  # The GCE metadata server caches the node token and returns the same token
+  # until about five minutes of lifetime remain
+  # (https://docs.cloud.google.com/compute/docs/access/authenticate-workloads),
+  # so a healthy refresh may install a token with only just over 300 seconds
+  # left. Every refresh must therefore finish before that minimum lifetime
+  # elapses: interval + timer accuracy + run timeout < minimum lifetime. The
+  # module asserts this, and unchanged tokens cause no Kubernetes write.
+  minimumTokenLifetimeSec = 300;
+  refreshIntervalSec = 120;
+  refreshAccuracySec = 5;
+  refreshTimeoutSec = 60;
+
   # Refresh script: mint a fresh OAuth access token for the node service account
   # from the GCE metadata server and write k3s's per-registry credential file.
   # No secret is configured anywhere — the VM's attached service account
@@ -51,7 +63,7 @@ let
     if ! TOKEN="$(printf '%s' "$METADATA" | ${pkgs.jq}/bin/jq -er \
       '.access_token | select(type == "string" and length > 0)')" \
       || ! LIFETIME="$(printf '%s' "$METADATA" | ${pkgs.jq}/bin/jq -er \
-        '.expires_in | select(type == "number" and . > 300 and . <= 86400)')"; then
+        '.expires_in | select(type == "number" and . > ${toString minimumTokenLifetimeSec} and . <= 86400)')"; then
       echo "nagare-registry-pull-secret: invalid or short-lived metadata access token" >&2
       exit 1
     fi
@@ -124,7 +136,7 @@ let
         fail_or_retry "ServiceAccount $account in $ns has no resource version"
       fi
 
-      if ! kubectl -n "$ns" create secret docker-registry nagare-registry-pull \
+      if ! DESIRED_SECRET="$(kubectl -n "$ns" create secret docker-registry nagare-registry-pull \
         --docker-server="${registryHost}" \
         --docker-username=oauth2accesstoken \
         --docker-password="$TOKEN" \
@@ -135,11 +147,33 @@ let
             "nagare.dev/delegated-owner": "host-registry-timer",
             "nagare.dev/credential-source-version": $version,
             "nagare.dev/credential-expires-at": $expiry
-          } + (if $owner == "" then {} else {"nagare.dev/resource-id":$owner} end))' \
-        | kubectl -n "$ns" "$WRITE_ACTION" -f -; then
+          } + (if $owner == "" then {} else {"nagare.dev/resource-id":$owner} end))')"; then
+        fail_or_retry "failed to render pull Secret for $ns"
+      fi
+      # The same cached token needs no write; its recorded expiry is unchanged.
+      # Both documents travel on stdin so the credential never enters argv.
+      if [ -n "$EXISTING_SECRET" ] && printf '%s\n%s\n' "$EXISTING_SECRET" "$DESIRED_SECRET" \
+        | ${pkgs.jq}/bin/jq -es '
+          .[0] as $existing | .[1] as $desired
+          | $existing.type == $desired.type
+          and $existing.data == $desired.data
+          and $existing.metadata.annotations["nagare.dev/credential-source-version"]
+            == $desired.metadata.annotations["nagare.dev/credential-source-version"]
+          and $existing.metadata.annotations["nagare.dev/resource-id"]
+            == $desired.metadata.annotations["nagare.dev/resource-id"]
+        ' >/dev/null; then
+        :
+      elif ! printf '%s' "$DESIRED_SECRET" | kubectl -n "$ns" "$WRITE_ACTION" -f -; then
         fail_or_retry "failed to write pull Secret in $ns"
       fi
 
+      if printf '%s' "$EXISTING_ACCOUNT" | ${pkgs.jq}/bin/jq -e --arg version "${registrySourceVersion}" '
+        .imagePullSecrets == [{"name":"nagare-registry-pull"}]
+        and .metadata.annotations["nagare.dev/delegated-owner"] == "host-registry-timer"
+        and .metadata.annotations["nagare.dev/credential-source-version"] == $version
+      ' >/dev/null; then
+        continue
+      fi
       PATCH="$(${pkgs.jq}/bin/jq -cn --arg version "${registrySourceVersion}" --arg rv "$ACCOUNT_VERSION" \
         '{metadata:{resourceVersion:$rv,annotations:{
           "nagare.dev/delegated-owner":"host-registry-timer",
@@ -165,7 +199,7 @@ in
   # plane.
   #
   # The boot unit remains useful during initial cluster startup. Once the API is
-  # ready, nagare-registry-pull-secret refreshes per-pod credentials every 30
+  # ready, nagare-registry-pull-secret refreshes per-pod credentials every two
   # minutes and wires them into each app namespace's default ServiceAccount.
   systemd.services.nagare-registries-refresh = {
     description = "Refresh k3s Artifact Registry pull credentials from the metadata server";
@@ -193,6 +227,7 @@ in
     serviceConfig = {
       Type = "oneshot";
       ExecStart = pullSecretScript;
+      TimeoutStartSec = "${toString refreshTimeoutSec}s";
     };
   };
 
@@ -201,8 +236,16 @@ in
     wantedBy = [ "timers.target" ];
     timerConfig = {
       OnBootSec = "2min";
-      OnUnitActiveSec = "30min";
+      OnUnitActiveSec = "${toString refreshIntervalSec}s";
+      AccuracySec = "${toString refreshAccuracySec}s";
       Persistent = true;
     };
   };
+
+  assertions = [
+    {
+      assertion = refreshIntervalSec + refreshAccuracySec + refreshTimeoutSec < minimumTokenLifetimeSec;
+      message = "nagare registry pull Secret refresh must complete before a cached metadata token can expire";
+    }
+  ];
 }
