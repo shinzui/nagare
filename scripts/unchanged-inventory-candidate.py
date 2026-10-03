@@ -60,7 +60,7 @@ def derived(decl):
     return out
 
 reservations = []
-for entry in head["retained"]:
+for entry in head.get("retained", []):
     rid, inc = entry["resource"], entry["incarnation"]
     scope = json.loads((export / "scopes" / f"{inc['revision']['digest']}.json").read_text())
     decl = find(scope, rid)

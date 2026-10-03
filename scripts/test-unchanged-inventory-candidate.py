@@ -90,6 +90,16 @@ def main() -> None:
 
         assert run(export, root / "missing.json", "Platform:absent").returncode != 0
 
+        # An export without retained incarnations omits the key entirely.
+        bare = root / "bare"
+        write_export(bare)
+        head = json.loads((bare / "head.json").read_text())
+        del head["retained"]
+        (bare / "head.json").write_text(json.dumps(head))
+        result = run(bare, root / "bare.json", "Platform:kourier")
+        assert result.returncode == 0, result.stderr
+        assert json.loads((root / "bare.json").read_text())["reservations"] == []
+
         busy = root / "busy"
         write_export(busy, active="tx-open")
         assert run(busy, root / "busy.json", "Platform:kourier").returncode != 0
