@@ -435,6 +435,8 @@ Feature children produce code and focused local proof; the native children (EP-1
 
 Open findings ([tracker](../audits/mp23-findings.md)): F34 (DomainMapping Orphan collection broke the Kourier gateway; source fix and cp3 repair done, verification pending), F30 (status-only churn strands an admitted Service correction; source fix in `95b58a24`/`52432400`, native correction interrupted at the operator's instruction with its transaction preserved, per `c57f1638`), F31 (registry credential refresh can lag expiry), F32 (image cleanup can select a sandbox image in use), F33 (cloud collection does not recheck the reviewed physical incarnation; unfinished guard checkpointed in `27bb0cd4`). F15 and F16 are Verifying.
 
+**Scenario assertion checkpoint (2026-10-03).** The record shape is agreed and implemented across EP-155, EP-156 and EP-157. C2 and C3 now produce gate-ready health by recording each assertion as it passes and finalizing after verify. A name without a bound record refuses at assembly and in the CLI validator.
+
 **Remaining work.** Each item is owned by the named child, whose plan holds the detail. Work proceeds in this order; items within a phase can run in parallel.
 
 Phase A — blockers (code and local regressions; no cloud mutation):
@@ -492,7 +494,7 @@ Phase D — close-out: finalize each child's living sections, mark the registry,
 
 ## Surprises & Discoveries
 
-2026-10-02 (Phase A): The release gate's health records require every scenario assertion name, but both scenario runners write only infrastructure health checks at plan time. A complete local or cloud run would still be refused at assembly until EP-155 (B5/C2) and EP-156 (C3) record each assertion as it passes, bound to its evidence, in a shape agreed with EP-157. A5 deliberately does not emit those names.
+2026-10-02 (Phase A): The release gate's health records require every scenario assertion name, but both scenario runners write only infrastructure health checks at plan time. A complete local or cloud run would still be refused at assembly until EP-155 (B5/C2) and EP-156 (C3) record each assertion as it passes, bound to its evidence, in a shape agreed with EP-157. A5 deliberately does not emit those names. Resolved in source on 2026-10-03: `scripts/scenario-assertions.py` records bound assertions and finalizes health, and both gates require the bound records (EP-157 Decision Log).
 
 2026-10-02 (Phase A): F34. On cp3, Kourier rejects every gateway snapshot (`listener_8443`/`listener_9443`: overlapping filter chains) once a second Service in `personal` terminates TLS with the namespace wildcard secret, so no new local route becomes Ready. It blocks A4 and would block C2. Diagnosis showed a product defect in collection rather than route/TLS rendering: Orphan DELETE of a preview DomainMapping strands its KIngress (Knative blocks this only for Services). Fixed in `beca6886`.
 

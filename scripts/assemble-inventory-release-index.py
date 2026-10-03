@@ -26,6 +26,12 @@ MODE_SCENARIO_CHECKS = {
     "cloud": {"shared-history-takeover", "google-cdn"},
 }
 SENSITIVE_KEY = re.compile(r"password|credential|access.?token|private.?key|secret", re.I)
+RECORDED_AT = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")
+ASSERTION_KEYS = {"schemaVersion", "name", "mode", "context", "cluster", "operatorRevision",
+                  "fixtureDigest", "passed", "recordedAt", "summary", "evidence"}
+BINDING_KEYS = ("context", "cluster", "operatorRevision", "fixtureDigest")
+RESERVED_EVIDENCE = {"target.json", "fixture.json", "inventory-evidence.json",
+                     "local-health.json", "cloud-health.json"}
 
 
 def fail(message: str) -> None:
@@ -76,6 +82,67 @@ def reject_sensitive(value: object, path: str) -> None:
                 f"sensitive public evidence value: {path}")
 
 
+def required_checks(mode: str) -> set:
+    return COMMON_SCENARIO_CHECKS | MODE_SCENARIO_CHECKS[mode]
+
+
+def evidence_file(directory: Path, relative: object) -> Path:
+    """Resolve one public evidence path inside a scenario directory."""
+    require(isinstance(relative, str) and bool(relative) and not relative.startswith("/")
+            and "\\" not in relative and all(part not in ("", ".", "..") for part in relative.split("/"))
+            and not relative.startswith("assertions/") and relative not in RESERVED_EVIDENCE,
+            f"scenario assertion evidence path is not a plain public file: {relative!r}")
+    path = directory / relative
+    current = directory
+    for part in relative.split("/"):
+        current = current / part
+        require(not current.is_symlink(), f"scenario assertion evidence is linked: {relative}")
+    require(path.is_file(), f"scenario assertion evidence is missing: {relative}")
+    return path
+
+
+def validate_assertion(record: object, health: dict, directory: Path, mode: str) -> str:
+    """Check one scenario assertion against its run bindings and evidence bytes."""
+    require(isinstance(record, dict) and set(record) == ASSERTION_KEYS
+            and record.get("schemaVersion") == 1 and record.get("mode") == mode
+            and record.get("passed") is True
+            and isinstance(record.get("name"), str) and record["name"] in required_checks(mode)
+            and isinstance(record.get("summary"), str) and bool(record["summary"].strip())
+            and isinstance(record.get("recordedAt"), str)
+            and RECORDED_AT.fullmatch(record["recordedAt"]) is not None,
+            f"{mode} scenario assertion is malformed or unsupported")
+    name = record["name"]
+    require(all(record.get(key) == health.get(key) for key in BINDING_KEYS),
+            f"{mode} scenario assertion {name} belongs to another run")
+    evidence = record.get("evidence")
+    require(isinstance(evidence, list) and bool(evidence)
+            and all(isinstance(item, dict) and set(item) == {"path", "sha256"} for item in evidence),
+            f"{mode} scenario assertion {name} has no bound evidence")
+    paths = [item["path"] for item in evidence]
+    require(len(paths) == len(set(paths)), f"{mode} scenario assertion {name} repeats evidence")
+    for item in evidence:
+        path = evidence_file(directory, item["path"])
+        require(is_hex(item["sha256"]) and digest(path) == item["sha256"],
+                f"{mode} scenario assertion {name} evidence changed: {item['path']}")
+    reject_sensitive(record, f"{mode}.assertions.{name}")
+    return name
+
+
+def validate_assertions(health: dict, directory: Path, mode: str) -> None:
+    """Every required check needs exactly one bound, passed assertion record."""
+    records = health.get("assertions")
+    preflight = health.get("preflightChecks")
+    require(isinstance(records, list) and isinstance(preflight, list) and bool(preflight)
+            and all(isinstance(check, str) and check for check in preflight),
+            f"{mode} health evidence lacks recorded scenario assertions")
+    names = [validate_assertion(record, health, directory, mode) for record in records]
+    require(len(names) == len(set(names)), f"{mode} health repeats a scenario assertion")
+    require(required_checks(mode) <= set(names),
+            f"{mode} health evidence lacks required supported assertions")
+    require(health.get("checks") == sorted(set(preflight) | set(names)),
+            f"{mode} health checks differ from preflight checks and recorded assertions")
+
+
 def scenario(mode: str, directory: Path, version: str, revision: str,
              payloads: dict, coverage_digest: str) -> dict:
     target_path = directory / "target.json"
@@ -111,8 +178,9 @@ def scenario(mode: str, directory: Path, version: str, revision: str,
     require(health["fixtureDigest"] == digest(fixture_path),
             f"{mode} health differs from the saved fixture definition")
     require(all(isinstance(check, str) for check in health["checks"])
-            and COMMON_SCENARIO_CHECKS | MODE_SCENARIO_CHECKS[mode] <= set(health["checks"]),
+            and required_checks(mode) <= set(health["checks"]),
             f"{mode} health evidence lacks required supported assertions")
+    validate_assertions(health, directory, mode)
     payload = evidence.get("payload", {})
     run = evidence.get("run", {})
     require(evidence.get("schemaVersion") == 1 and payload.get("version") == version

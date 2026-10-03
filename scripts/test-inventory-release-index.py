@@ -12,6 +12,7 @@ from pathlib import Path
 
 
 ASSEMBLER = Path(__file__).with_name("assemble-inventory-release-index.py")
+ASSERTIONS = Path(__file__).with_name("scenario-assertions.py")
 CONTRACT = runpy.run_path(str(ASSEMBLER))
 REVISION = "fixture-revision"
 VERSION = "0.4.0"
@@ -36,6 +37,13 @@ def sha(path: Path) -> str:
 def canonical_sha(value: dict) -> str:
     encoded = json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n"
     return hashlib.sha256(encoded.encode()).hexdigest()
+
+
+def assertions(*arguments: str, success: bool = True, expected: str = "") -> None:
+    result = subprocess.run([sys.executable, str(ASSERTIONS), *arguments], text=True, capture_output=True)
+    assert (result.returncode == 0) == success, (arguments, result.stdout, result.stderr)
+    if expected:
+        assert expected in result.stderr, result.stderr
 
 
 def run(root: Path, success: bool, expected: str = "") -> None:
@@ -93,7 +101,38 @@ with tempfile.TemporaryDirectory(prefix="nagare-inventory-index-test.") as tempo
               {"schemaVersion": 1, "mode": mode, "context": target["context"],
                "cluster": target["expectedCluster"], "operatorRevision": REVISION,
                "fixtureDigest": sha(directory / "fixture.json"), "healthy": True,
-               "checks": sorted(CONTRACT["COMMON_SCENARIO_CHECKS"] | CONTRACT["MODE_SCENARIO_CHECKS"][mode])})
+               "checks": ["kubernetes-api", "object-store"]})
+        required = sorted(CONTRACT["COMMON_SCENARIO_CHECKS"] | CONTRACT["MODE_SCENARIO_CHECKS"][mode])
+        assertions("finalize", "--evidence-dir", str(directory), "--mode", mode,
+                   success=False, expected="has recorded no scenario assertions")
+        for name in required:
+            write(directory / "steps" / name / "result.json", {"assertion": name, "observed": "passed"})
+            assertions("record", "--evidence-dir", str(directory), "--mode", mode, "--name", name,
+                       "--summary", f"synthetic {name} passed",
+                       "--evidence", f"steps/{name}/result.json")
+            if name == required[0]:
+                assertions("finalize", "--evidence-dir", str(directory), "--mode", mode,
+                           success=False, expected="lacks required assertions")
+        assertions("record", "--evidence-dir", str(directory), "--mode", mode, "--name", required[0],
+                   "--summary", f"synthetic {required[0]} passed", "--evidence", f"steps/{required[0]}/result.json")
+        assertions("record", "--evidence-dir", str(directory), "--mode", mode, "--name", required[0],
+                   "--summary", "a different result", "--evidence", f"steps/{required[0]}/result.json",
+                   success=False, expected="already recorded with different evidence")
+        assertions("record", "--evidence-dir", str(directory), "--mode", mode, "--name", "not-a-gate-check",
+                   "--summary", "unsupported", "--evidence", f"steps/{required[0]}/result.json",
+                   success=False, expected="is not a supported")
+        write(directory / "steps" / "leak.json", {"dbPassword": "x"})
+        assertions("record", "--evidence-dir", str(directory), "--mode", mode, "--name", required[1],
+                   "--summary", "leaks", "--evidence", "steps/leak.json",
+                   success=False, expected="sensitive public evidence key")
+        (directory / "steps" / "leak.json").unlink()
+        assertions("record", "--evidence-dir", str(directory), "--mode", mode, "--name", required[1],
+                   "--summary", "escapes", "--evidence", "../target.json",
+                   success=False, expected="not a plain public file")
+        assertions("finalize", "--evidence-dir", str(directory), "--mode", mode)
+        finalized = (directory / f"{mode}-health.json").read_bytes()
+        assertions("finalize", "--evidence-dir", str(directory), "--mode", mode)
+        assert (directory / f"{mode}-health.json").read_bytes() == finalized
         write(directory / "inventory-evidence.json",
               {"schemaVersion": 1,
                "payload": {"version": VERSION, "sourceRevision": REVISION,
@@ -174,6 +213,32 @@ with tempfile.TemporaryDirectory(prefix="nagare-inventory-index-test.") as tempo
         write(health_path, changed)
         run(root, False, "lacks required supported assertions")
         health_path.write_bytes(health_original)
+    # A name in checks is not enough: the bound record must exist.
+    changed = read(health_path)
+    changed["assertions"] = [item for item in changed["assertions"] if item["name"] != "google-cdn"]
+    write(health_path, changed)
+    run(root, False, "lacks required supported assertions")
+    health_path.write_bytes(health_original)
+    changed = read(health_path)
+    changed["assertions"][0]["context"] = "another-context"
+    write(health_path, changed)
+    run(root, False, "belongs to another run")
+    health_path.write_bytes(health_original)
+    changed = read(health_path)
+    changed["assertions"][0]["passed"] = False
+    write(health_path, changed)
+    run(root, False, "malformed or unsupported")
+    health_path.write_bytes(health_original)
+    step = root / "cloud/steps/redis-backup-restore/result.json"
+    step_original = step.read_bytes()
+    write(step, {"assertion": "redis-backup-restore", "observed": "edited later"})
+    run(root, False, "evidence changed: steps/redis-backup-restore/result.json")
+    step.write_bytes(step_original)
+    changed = read(health_path)
+    changed["checks"].append("unrecorded-extra")
+    write(health_path, changed)
+    run(root, False, "differ from preflight checks and recorded assertions")
+    health_path.write_bytes(health_original)
 
     local_evidence = root / "local/inventory-evidence.json"
     local_original = local_evidence.read_bytes()

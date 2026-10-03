@@ -6,7 +6,7 @@ module Nagare.Inventory.ReleaseEvidence
 where
 
 import Control.Monad (forM_)
-import Data.Aeson (Value (..), eitherDecodeStrict')
+import Data.Aeson (Value (..), eitherDecodeStrict', toJSON)
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
@@ -92,6 +92,7 @@ validateInventoryReleaseEvidence version revision assets = do
     forM_ [("context", "context"), ("kubeContext", "kubeContext"), ("cluster", "expectedCluster"), ("project", "expectedProject")] $ \(key, targetKey) -> require (field key entry == field targetKey target) "scenario index differs from target"
     checks <- strings (field "checks" health)
     require (field "schemaVersion" health == Number 1 && field "mode" health == String mode && field "context" health == field "context" target && field "cluster" health == field "expectedCluster" target && field "operatorRevision" health == String revision && field "healthy" health == Bool True && hexValue (field "fixtureDigest" health) && all (`elem` checks) (requiredChecks mode)) "scenario health lacks required supported assertions"
+    require (scenarioAssertionsBound mode health) "scenario health lacks bound assertion records"
     let payload = field "payload" evidence
         run = field "run" evidence
     canonicalTarget <- canonicalValue target
@@ -111,6 +112,34 @@ validateInventoryReleaseEvidence version revision assets = do
     boundDigest value key name = do
       actual <- digestText . contentDigest <$> bytes name
       require (field key value == String actual) ("release evidence digest differs: " <> T.pack name)
+
+-- | Each required check needs exactly one passed assertion record bound to
+-- this run's context, cluster, operator revision and fixture, with hashed
+-- public evidence. A bare name in @checks@ is not acceptance. The assembler
+-- additionally rehashes the evidence files, which are not release assets.
+scenarioAssertionsBound :: Text -> Value -> Bool
+scenarioAssertionsBound mode health = case (field "assertions" health, field "preflightChecks" health) of
+  (Array records, Array preflight) ->
+    let entries = toList records
+        names = [name | record <- entries, String name <- [field "name" record]]
+        preflightNames = [name | String name <- toList preflight]
+        bound record =
+          field "schemaVersion" record == Number 1
+            && field "mode" record == String mode
+            && field "passed" record == Bool True
+            && nonempty (field "summary" record)
+            && all (\key -> field key record == field key health) ["context", "cluster", "operatorRevision", "fixtureDigest"]
+            && evidenced (field "evidence" record)
+        evidenced (Array items) = not (null items) && all (\item -> nonempty (field "path" item) && hexValue (field "sha256" item)) items
+        evidenced _ = False
+     in all bound entries
+          && length names == length entries
+          && unique names
+          && all (`elem` names) (requiredChecks mode)
+          && not (null preflightNames)
+          && length preflightNames == length (toList preflight)
+          && field "checks" health == toJSON (Set.toAscList (Set.fromList (preflightNames <> names)))
+  _ -> False
 
 requiredChecks :: Text -> [Text]
 requiredChecks mode =

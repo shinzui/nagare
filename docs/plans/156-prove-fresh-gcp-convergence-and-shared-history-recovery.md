@@ -117,6 +117,11 @@ provenance:
       at: 2026-10-03T04:05:29Z
       mode: "implement"
       note: "F31 fixed in source; GCP runner target fixture and cloud health producer; A4 blocked by F34"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-03T14:20:42Z
+      mode: "update"
+      note: "Adopt the agreed scenario assertion record and finalize procedure"
 ---
 
 # Prove fresh GCP convergence and shared history recovery
@@ -147,7 +152,7 @@ Evidence counts toward final acceptance only where its recorded inputs (operator
 - [x] Fresh host with typed credential delegation, closing F27 (2026-10-02, independent, installed `762657ed`, context `mp23-host-fixed`): staged foundation, perimeter, image and VM; the receipt-required credential review converged through the real IAP/SSH sender in 113.582 s; the full cluster then converged with the three host-owned pull Secrets and the Serving account grant ([evidence](../audits/mp23-independent-results-2026-10-02/host-fixed-762657ed-native-credential-f27.json)). The earlier `mp23-host-acceptance` fixture on `3905012e` that exposed F27 is preserved as diagnostic evidence.
 - [x] (MP-23 A3) F31 is fixed: the refresh cadence, token-lifetime check and scheduling margin account for metadata-token caching, and a regression shows a refresh always lands before the previous credential expires (2026-10-02, `ebe9d3a7`). The timer runs every 120 s with 5 s accuracy and a 60 s timeout, and a module assertion keeps their sum under the 300 s minimum lifetime. The rendered-timer regression fails on the old module. Independent closure and the installed observation are the C3 item below.
 - [ ] (MP-23 A4) The interrupted F30 correction transaction reaches a terminal state through the supported resume path with the same Service, database and PVC identities and known row, and F30 and F16 are independently verified (shared with EP-153). Terminal (2026-10-02, implementer): after the F34 fix and the gated cp3 repair, the public resume converged with identities, the known row and a zero-operation replan intact. Independent verification remains (see EP-153).
-- [ ] (MP-23 A5) The GCP runner takes the fresh candidate's target instead of the hard-coded `ep150-target.json` and emits `fixture.json` and `cloud-health.json` with every check name the release gate requires. Partial (2026-10-02, `7e26a1bb`): `--target-fixture FILE` replaces the hard-coded target, and candidate plan writes `fixture.json` and `cloud-health.json` with the local record's identity fields and cloud health checks. The gate's scenario assertion names still need a producer from the C3 scenario run.
+- [ ] (MP-23 A5) The GCP runner takes the fresh candidate's target instead of the hard-coded `ep150-target.json` and emits `fixture.json` and `cloud-health.json` with every check name the release gate requires. Partial (2026-10-02, `7e26a1bb`): `--target-fixture FILE` replaces the hard-coded target, and candidate plan writes `fixture.json` and `cloud-health.json` with the local record's identity fields and cloud health checks. The assertion record shape is agreed (2026-10-03, EP-157 Decision Log). During C3, record each assertion with `scripts/scenario-assertions.py record --mode cloud` as it passes, then `finalize` after verify.
 - [ ] (MP-23 B6) Takeover is proven from a genuinely different client (another machine or client identity): it refuses the active writer, then explicit takeover resumes the original transaction without a duplicate effect.
 - [ ] (MP-23 B3, with EP-158) Native Google DNS/CDN create, disable, retire and collect pass on a cloud context with an enabled platform CDN backend, preserving shared routing; the HTTPS/browser-login disposition follows decision D3.
 - [ ] (MP-23 C3) A fresh cloud context on the final candidate, with typed host credential delegation, passes the six operational checks.

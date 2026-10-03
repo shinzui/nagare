@@ -70,6 +70,8 @@ with tempfile.TemporaryDirectory(prefix="mp23-release-public-") as temporary:
         path = evidence / mode / f"{mode}-health.json"
         value = read(path)
         value["operatorRevision"] = revision
+        for record in value["assertions"]:
+            record["operatorRevision"] = revision
         write(path, value)
     output = root / "assets"
     subprocess.run(["bash", str(REPO / "scripts/assemble-release.sh"), "--version", version,
@@ -111,6 +113,19 @@ with tempfile.TemporaryDirectory(prefix="mp23-release-public-") as temporary:
     write(index_path, changed_index)
     sums()
     run(False, "lacks required supported assertions")
+    health_path.write_bytes(original_health)
+    index_path.write_bytes(original_index)
+    # A required name whose bound record was removed is refused by the
+    # validator itself, even with a recomputed index and sums.
+    changed = read(health_path)
+    changed["assertions"] = [item for item in changed["assertions"] if item["name"] != "google-cdn"]
+    write(health_path, changed)
+    changed_index = read(index_path)
+    cloud = next(item for item in changed_index["scenarios"] if item["mode"] == "cloud")
+    cloud["healthDigest"] = digest(health_path)
+    write(index_path, changed_index)
+    sums()
+    run(False, "lacks bound assertion records")
     health_path.write_bytes(original_health)
     index_path.write_bytes(original_index)
     # Recompute the public index and sums so the validator must compare the

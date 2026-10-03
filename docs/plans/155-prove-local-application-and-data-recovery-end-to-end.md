@@ -57,6 +57,11 @@ provenance:
       at: 2026-10-03T04:25:08Z
       mode: "implement"
       note: "F34 diagnosis and gated recovery: DomainMapping Orphan collection leaves KIngress that breaks Kourier"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-03T14:20:42Z
+      mode: "update"
+      note: "Adopt the agreed scenario assertion record and finalize procedure"
 ---
 
 # Prove local application and data recovery end to end
@@ -80,7 +85,7 @@ Evidence counts toward final acceptance only where its recorded inputs (operator
 - [x] Local Redis, ClickHouse and volume isolated restores through MinIO (2026-10-02, independent, installed `ec2e1cd4` on cp3): automatic signed producers ran, the producer Jobs were removed before ingestion, isolated restores returned the original content while sources kept later changes, and accepted-only freshness reported healthy at 515 s ([evidence](../audits/mp23-independent-results-2026-10-02/local-engine-recovery-ec2e1cd4.json)). Local PostgreSQL through MinIO is not part of this record.
 - [x] Local release-history pruning and preview cleanup (2026-10-02, independent, cp3, frozen source executables rather than an immutable release binding): the F28 fix updates exactly one history ConfigMap and preserves adjacent members and 29 unselected scopes ([evidence](../audits/mp23-independent-results-2026-10-02/release-cleanup-native-f28-fixed.json)); the F29 bounded preview-route correction and the following preview cleanup collect two stateless members and retain the durable PVC and its contents ([correction](../audits/mp23-independent-results-2026-10-02/preview-domainmapping-correction-f29.json), [cleanup](../audits/mp23-independent-results-2026-10-02/preview-cleanup-native-b805d64a.json)).
 - [x] (F34 recovery, before C2) Kourier on cp3 accepts gateway updates again and preview cleanup no longer orphans DomainMapping descendants; see "F34 recovery" in Plan of Work for the gates. Diagnosis (2026-10-02, read-only): the orphaned KIngress and KCertificate of collected preview DomainMapping `7c6ab388…` put host `mp23-cleanup-pr-review.personal.127-0-0-1.sslip.io` into two HTTPS filter chains. Done (2026-10-02): step 1 source fix `beca6886` (gate: three authority regressions, 1,132 tests, six public cleanup variants, style gate). Step 2: two preconditioned Background DELETEs at 04:38:09Z; gate met within 20 s (no listener `error_state`, `mp23-correction-proof` Ready, prior routes Ready). Step 3: F30 resume converged; identities, known row and the zero-operation replan check out. Independent F34 verification and a native reviewed DomainMapping collection on the candidate remain (C2).
-- [ ] (MP-23 B5) The full local scenario fixture is checked in under `fixtures/inventory-release/local/` and the local runner emits `local-health.json` containing every check name the release gate requires (listed in Validation); today only the health fixture `fixtures/inventory-release/local/health.json` exists.
+- [ ] (MP-23 B5) The full local scenario fixture is checked in under `fixtures/inventory-release/local/`; today only the health fixture `fixtures/inventory-release/local/health.json` exists. The evidence shape is agreed (2026-10-03, EP-157 Decision Log). During C2, record each assertion with `scripts/scenario-assertions.py record --mode local` as it passes, and run `finalize` after verify to produce the gate-ready `local-health.json`.
 - [ ] (MP-23 B5) A bounded retained PostgreSQL rename (IR-24 case 3) creates the new incarnation, migrates, verifies known rows and an unchanged auth signing-key identity, and retires the old one through public commands; today only a recording-adapter proof exists and the native binding is missing.
 - [ ] (MP-23 B5) Companion collection bindings collect only exactly eligible database and broker companions, broker topics and schedules while protected neighbors survive, each with a focused local proof.
 - [ ] (MP-23 C1) The final candidate passes the installed local platform bootstrap gate on cp3: a verification-only unchanged replan with zero provider mutations and all accepted scope digests unchanged.

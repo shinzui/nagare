@@ -13,6 +13,10 @@ Usage: scripts/rehearse-local-inventory-release.sh --phase plan|apply|verify \
 
 Check the exact local k3d target before entering the shared saved-review protocol.
 Plan and verify require a compiled candidate; apply requires the saved review and --yes.
+Plan records local-health.json with infrastructure checks only. Record each
+release scenario assertion as it passes with scripts/scenario-assertions.py
+record --mode local, then fold them in with scripts/scenario-assertions.py
+finalize --mode local after verify; the release gate refuses unrecorded names.
 EOF
 }
 

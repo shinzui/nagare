@@ -19,7 +19,10 @@ the saved stage and requires --yes. Set XDG_CONFIG_HOME and XDG_STATE_HOME to
 an isolated disposable operator root before using this runner.
 --target-fixture names the checked-in disposable target (default: the EP-150
 fixture). Release scenario evidence (--candidate) requires a fixture with
-"mode": "cloud"; plan copies it to fixture.json and records cloud-health.json.
+"mode": "cloud"; plan copies it to fixture.json and records cloud-health.json
+with infrastructure checks only. Record each release scenario assertion as it
+passes with scripts/scenario-assertions.py record --mode cloud, then run
+scripts/scenario-assertions.py finalize --mode cloud after verify.
 EOF
 }
 
