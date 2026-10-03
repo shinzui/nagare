@@ -457,6 +457,8 @@ Open findings ([tracker](../audits/mp23-findings.md)): F36 (a failed Redis scrat
 
 Every platform scope and the cloud scope then retired natively. Collection stopped at the design gap described in the Decision Log, which has moved to MasterPlan 25. The checkpoint was deleted out of band with operator approval. In the C3 checkpoint, F15 and F31 refresh behaviour was observed: an uncached private controller pull 109 minutes after boot, and a timer refresh four minutes before expiry. The next candidate collects these fixes plus the local MinIO durability work (F41, nagare-phase-b). It then needs C1, a fresh C2, and a fresh C3 on [`c3-final-target.json`](../../fixtures/inventory-release/gcp/c3-final-target.json).
 
+**Candidate `14071e58` (2026-10-03).** Frozen with F39, F40 and F41. C1 passed on the fresh local C2 context immediately after its platform bootstrap: 214 verification-only operations, zero provider mutations, digests unchanged, 35 pods ready ([proof](../audits/mp23-implementer-results-2026-10-03/c1-local-gate-14071e58.json)). The acceptance C2 (nagare-phase-b) and the final C3 (`mp23-c3f`, `*-c3-1004`, operator-approved) are running on it.
+
 **Scenario assertion checkpoint (2026-10-03).** The record shape is agreed and implemented across EP-155, EP-156 and EP-157. C2 and C3 now produce gate-ready health by recording each assertion as it passes and finalizing after verify. A name without a bound record refuses at assembly and in the CLI validator.
 
 **B5 checkpoint (2026-10-03, claude-opus-5-5, `dc53beb3`–`6ed92e61`).** B5 is source-complete with bounded cp3 proof on development binaries.
