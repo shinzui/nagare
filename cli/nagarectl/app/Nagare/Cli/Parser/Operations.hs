@@ -128,6 +128,7 @@ cleanupOptsParser =
       auto
       (long "keep-releases" <> value defaultKeepReleases <> showDefault <> metavar "N" <> help "Keep the most recent N releases per log (current always kept)")
     <*> optional (T.pack <$> strOption (long "namespace" <> short 'n' <> metavar "NS" <> help "Namespace to scan for previews/releases"))
+    <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save exact accepted release-history cleanup for inventory apply"))
 
 doctorCmd :: ParserInfo Command
 doctorCmd =

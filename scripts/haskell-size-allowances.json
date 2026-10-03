@@ -1,7 +1,6 @@
 {
   "cli/nagare-dsl/test/Spec.hs": 1277,
   "cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesRuntime.hs": 1303,
-  "cli/nagarectl/src/Nagare/Inventory/Command.hs": 1011,
   "cli/nagarectl/src/Nagare/Inventory/Store.hs": 1233,
   "cli/nagarectl/src/Nagare/Target.hs": 1038,
   "cli/nagarectl/test/AppDeploySpec.hs": 2491,

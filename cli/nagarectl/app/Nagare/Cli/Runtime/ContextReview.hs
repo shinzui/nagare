@@ -17,6 +17,7 @@ import Nagare.Dsl.Prelude
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Store (HeadManifest, inventoryStoreRoot, readHead)
+import Nagare.Inventory.Store qualified as InventoryStore
 import Nagare.Resource.Types (digestText)
 import Nagare.Target
   ( ActiveTarget (ActiveTarget)
@@ -63,7 +64,10 @@ runContextReview restoring input yes = do
         case selected of
           Left reason -> pure (Left reason)
           Right target -> do
-            observed <- observe target
+            observed <-
+              if restoring
+                then Inventory.openProfileReviewStoreReadOnly review >>= observeOpened
+                else observe target
             pure $ do
               (selectedRoot, headValue) <- observed
               unless
@@ -87,6 +91,10 @@ guardRemovedContext name = do
 observe :: ActiveTarget -> IO (Either Text (Maybe FilePath, HeadManifest))
 observe active = do
   opened <- Inventory.openTargetStoreReadOnly active
+  observeOpened opened
+
+observeOpened :: Either InventoryStore.StoreError InventoryStore.InventoryStore -> IO (Either Text (Maybe FilePath, HeadManifest))
+observeOpened opened = do
   case opened of
     Left reason -> pure (Left (T.pack (show reason)))
     Right store -> do

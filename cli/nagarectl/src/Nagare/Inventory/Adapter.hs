@@ -25,6 +25,7 @@ module Nagare.Inventory.Adapter
   , emptyAdapterRegistry
   , withAdapterFence
   , lookupAdapter
+  , withPreparationGuard
   , lookupAdapterFences
   , lookupAdapterFenceByCapability
   , observeWithRegistry
@@ -268,6 +269,18 @@ lookupAdapter (AdapterRegistry registry _ _) executor =
   maybe (Left ("no adapter registered for " <> showText executor)) Right (Map.lookup executor registry)
   where
     showText = T.pack . show
+
+-- | Narrow a command's review before any native plan is prepared or published.
+-- Provider capabilities, recovery handlers and fences remain unchanged.
+withPreparationGuard :: (PlannedOperation -> Either Text ()) -> AdapterRegistry -> AdapterRegistry
+withPreparationGuard check (AdapterRegistry adapters fences recoveries) =
+  AdapterRegistry (Map.map guarded adapters) fences recoveries
+  where
+    guarded adapter = adapter
+      { adapterPrepare = \operation -> case check operation of
+          Left reason -> pure (Left (PrepareRefused (plannedOperationId operation) reason))
+          Right () -> adapterPrepare adapter operation
+      }
 
 lookupAdapterFences :: AdapterRegistry -> Executor -> [AdapterFence]
 lookupAdapterFences (AdapterRegistry _ fences _) executor =

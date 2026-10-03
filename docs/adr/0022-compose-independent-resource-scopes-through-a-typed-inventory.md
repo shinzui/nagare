@@ -1308,3 +1308,17 @@ current CLI: updating the operator alone does not update an older payload script
 Image build/publication remain separate reviewed stages, with image-link config
 and VM changes owned by subsequent bootstrap reviews. Nix evaluation and builds
 cannot update the selected host lock file.
+
+A completed local profile removal retains the validated original profile as a
+read-only store-opening capability. Restoration cannot depend on rereading the
+removed profile. It still verifies the retained store's project/bucket ownership,
+existing format and context-bound head, and refuses migration or missing history;
+it never initializes a replacement store. Ordinary store-opening paths continue
+to require the persisted profile and agree on both project and remote URL.
+
+Release-history cleanup derives its ownership from accepted application/site
+ConfigMaps and their digest-bound private native bytes. It changes only the
+release log, retaining both the current entry and the requested recent window.
+The review's preparation guard permits only those exact conditional updates and
+verification; unrelated drift repair, creates and hook execution require a
+separate review. Other cleanup families retain their own lifecycle gates.

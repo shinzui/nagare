@@ -29,6 +29,7 @@ import Nagare.Cli.Platform.InfrastructureReview
   , prepareInfraMutation
   , saveReviewedPlan
   )
+import Nagare.Cli.Runtime.Cleanup (saveReviewedReleaseCleanup)
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Cli.Runtime.Guards (guardLegacyMutationInventory)
 import Nagare.Cli.Runtime.PlatformStatus (gatherPlatformStatus)
@@ -145,9 +146,11 @@ runInfraDestroy mctx yes = do
 -- | @cleanup@: gather (and, under @--confirm@, perform) reclamation across
 -- images/previews/releases, then print the report. Dry-run by default.
 runCleanup :: Maybe String -> CleanupOpts -> IO ()
-runCleanup mctx o = do
-  active <- activeTarget mctx
-  when (o ^. #confirm) (guardLegacyMutationInventory "cleanup --confirm" active)
-  (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
-  report <- executeCleanup (workspace ^. #scriptsDir </> "iap-ssh.sh") (active ^. #profile . #instanceName) o
-  TIO.putStr (formatCleanupReport report)
+runCleanup mctx o = case o ^. #savePlan of
+  Just output -> saveReviewedReleaseCleanup mctx o output
+  Nothing -> do
+    active <- activeTarget mctx
+    when (o ^. #confirm) (guardLegacyMutationInventory "cleanup --confirm" active)
+    (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+    report <- executeCleanup (workspace ^. #scriptsDir </> "iap-ssh.sh") (active ^. #profile . #instanceName) o
+    TIO.putStr (formatCleanupReport report)

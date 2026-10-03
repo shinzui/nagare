@@ -65,6 +65,7 @@ library
     Nagare.Inventory.Plan.Publication
     Nagare.Inventory.Plan.Types
     Nagare.Inventory.Plan.Validation
+    Nagare.Inventory.Store.Target
     Paths_nagarectl
 
   exposed-modules:
@@ -156,6 +157,7 @@ library
     Nagare.Inventory.BootstrapRegistryTransport
     Nagare.Inventory.Cache
     Nagare.Inventory.CdnPurge
+    Nagare.Inventory.Cleanup
     Nagare.Inventory.Cloud
     Nagare.Inventory.Collection.Adapter
     Nagare.Inventory.Collection.Authority
@@ -386,6 +388,7 @@ executable nagarectl
     Nagare.Cli.Platform.InfrastructureReview
     Nagare.Cli.Platform.KubernetesReview
     Nagare.Cli.Platform.Upgrade
+    Nagare.Cli.Runtime.Cleanup
     Nagare.Cli.Runtime.Cluster
     Nagare.Cli.Runtime.Config
     Nagare.Cli.Runtime.Context
@@ -463,6 +466,7 @@ test-suite nagarectl-test
     InventoryCdnCollectionSpec
     InventoryCdnPurgeSpec
     InventoryCdnSpec
+    InventoryCleanupSpec
     InventoryCloudSpec
     InventoryCloudflareSpec
     InventoryControllerCollectionSpec

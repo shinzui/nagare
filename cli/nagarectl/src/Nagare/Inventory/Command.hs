@@ -6,6 +6,7 @@ module Nagare.Inventory.Command
   , loadTargetSnapshotReadOnly
   , openTargetStore
   , openTargetStoreReadOnly
+  , openProfileReviewStoreReadOnly
   , selectFoundationStore
   , migrateTargetStore
   , planInventory
@@ -67,6 +68,7 @@ import Nagare.Inventory.Lifecycle
 import Nagare.Inventory.Migration
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Store
+import Nagare.Inventory.Store.Target (openTargetStoreReadOnly, openProfileReviewStoreReadOnly, openRemoteStore, remoteInventoryUrl)
 import Nagare.Inventory.Store.Discovery
 import Nagare.Inventory.Store.Remote (remoteObjectOps)
 import Nagare.Inventory.Store.Remote qualified as Remote
@@ -633,14 +635,6 @@ openTargetStore target = do
         when (isNothing remoteHead) (dieText "migrated remote inventory head is missing; refusing a new history")
       pure remote
 
-openTargetStoreReadOnly :: ActiveTarget -> IO (Either StoreError InventoryStore)
-openTargetStoreReadOnly target = do
-  stateRoot <- nagareStateDir
-  let path = stateRoot </> T.unpack (contextNameText (target ^. #contextName)) </> "inventory"
-  case effectiveInventoryStore (target ^. #profile) of
-    InventoryStoreLocal -> openFilesystemStoreReadOnly path
-    InventoryStoreGcs -> openRemoteStore False target stateRoot
-
 -- | Select authority once before bootstrap work. This probe never creates local
 -- state, remote format/head, cache, or client identity; migration stays explicit.
 selectFoundationStore :: ActiveTarget -> IO (Either StoreError ActiveTarget)
@@ -789,113 +783,6 @@ migrateTargetStore target destinationKind dryRun = do
                   case destination of
                     Left err -> pure (Left err)
                     Right destStore -> fmap (destinationLabel <$) (migrateStore sourceStore destStore sourceLabel destinationLabel)
-
-remoteInventoryUrl :: ActiveTarget -> T.Text
-remoteInventoryUrl target =
-  let profile = target ^. #profile
-   in if T.null (profile ^. #inventoryStoreUrl)
-        then defaultGcsInventoryStoreUrl (contextNameText (target ^. #contextName)) profile
-        else profile ^. #inventoryStoreUrl
-
-openRemoteStore :: Bool -> ActiveTarget -> FilePath -> IO (Either StoreError InventoryStore)
-openRemoteStore mayInitialize target stateRoot = do
-  let contextName = target ^. #contextName
-      profile = target ^. #profile
-      project = profile ^. #project
-      contextText = contextNameText contextName
-      url = if T.null (profile ^. #inventoryStoreUrl)
-        then defaultGcsInventoryStoreUrl contextText profile
-        else profile ^. #inventoryStoreUrl
-      invalid reason = Left (StoreConditionFailed reason)
-  ambientProject <- lookupEnv "CLOUDSDK_CORE_PROJECT"
-  stored <- readContextProfile contextName
-  case stored of
-    Left reason -> pure (invalid reason)
-    Right persisted | persisted ^. #project /= project ->
-      pure (invalid "active project disagrees with the stored inventory context")
-    Right _ | Just ambient <- ambientProject, T.pack ambient /= project ->
-      pure (invalid "ambient gcloud project disagrees with the inventory context")
-    Right _ -> case gcsBucketOfUrl url of
-      Nothing -> pure (invalid "inventory store URL has no GCS bucket")
-      Just _ -> do
-        selected <- remoteObjectOps project url
-        case selected of
-          Left reason -> pure (invalid reason)
-          Right ops -> do
-            clientResult <- localStoreClientIdentity mayInitialize stateRoot contextText
-            case clientResult of
-              Left err -> pure (Left err)
-              Right client -> do
-                case (mkContextId contextText, mkName project) of
-                  (Right contextId, Right providerName) -> do
-                    let binding = ContextBinding contextId providerName
-                    cacheRoot <- inventoryCacheRoot contextText
-                    cacheReady <- validateInventoryCache mayInitialize cacheRoot
-                    case cacheReady of
-                      Left err -> pure (Left err)
-                      Right () ->
-                        if mayInitialize
-                          then newObjectStoreWithLock ops binding client (Just cacheRoot)
-                            (stateRoot </> T.unpack contextText </> "inventory-remote.lock")
-                          else openObjectStoreReadOnlyWithLock ops binding client (Just cacheRoot)
-                            (stateRoot </> T.unpack contextText </> "inventory-remote.lock")
-                  (Left err, _) -> pure (invalid err)
-                  (_, Left err) -> pure (invalid err)
-
-inventoryCacheRoot :: T.Text -> IO FilePath
-inventoryCacheRoot context = do
-  root <- lookupEnv "XDG_CACHE_HOME"
-  home <- lookupEnv "HOME"
-  let base = maybe (maybe "" (</> ".cache") home) id root
-  unless (isAbsolute base) (ioError (userError "inventory cache requires an absolute XDG_CACHE_HOME or HOME"))
-  pure (base </> "nagare" </> T.unpack context </> "inventory-blobs")
-
-validateInventoryCache :: Bool -> FilePath -> IO (Either StoreError ())
-validateInventoryCache mayCreate root = do
-  attempted <- try $ do
-    when mayCreate (createDirectoryIfMissing True root)
-    exists <- doesPathExist root
-    when exists $ do
-      linked <- pathIsSymbolicLink root
-      when linked (ioError (userError "inventory cache root is a symlink"))
-      status <- getFileStatus root
-      unless (isDirectory status) (ioError (userError "inventory cache root is not a directory"))
-      when mayCreate (setFileMode root 0o700)
-  pure $ case attempted of
-    Left (err :: IOException) -> Left (StoreIoError (T.pack (show err)))
-    Right () -> Right ()
-
-localStoreClientIdentity :: Bool -> FilePath -> T.Text -> IO (Either StoreError T.Text)
-localStoreClientIdentity mayCreate stateRoot context = do
-  let path = stateRoot </> T.unpack context </> "inventory-client-id"
-  exists <- doesPathExist path
-  if exists then readClient path
-  else if not mayCreate then pure (Right "status-only")
-  else do
-    createDirectoryIfMissing True (takeDirectory path)
-    randomBytes <- getRandomBytes 32 :: IO ByteString
-    let identityText = "client-" <> digestText (contentDigest randomBytes)
-    attempted <- try (openFd path WriteOnly defaultFileFlags {exclusive = True, creat = Just 0o600})
-    case attempted of
-      Left (err :: IOException) | isAlreadyExistsError err -> readClient path
-      Left (err :: IOException) -> pure (Left (StoreIoError (T.pack (show err))))
-      Right fd -> do
-        handle <- fdToHandle fd
-        BS.hPut handle (TE.encodeUtf8 identityText)
-        hClose handle
-        pure (Right identityText)
-  where
-    readClient path = do
-      attempted <- try $ do
-        linked <- pathIsSymbolicLink path
-        when linked (ioError (userError "inventory client identity is a symlink"))
-        status <- getFileStatus path
-        unless (fileMode status .&. 0o077 == 0) (ioError (userError "inventory client identity is not private"))
-        bytes <- BS.readFile path
-        case TE.decodeUtf8' bytes of
-          Right value | "client-" `T.isPrefixOf` value, T.length value == 71 -> pure value
-          _ -> ioError (userError "inventory client identity is invalid")
-      pure (first (StoreIoError . T.pack . show) (attempted :: Either IOException T.Text))
 
 -- | Use the accepted complete scopes as the base of a freshly compiled
 -- component candidate. The planner still checks unresolved transactions.

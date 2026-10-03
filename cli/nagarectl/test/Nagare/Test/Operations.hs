@@ -11,6 +11,7 @@ import Data.Generics.Labels ()
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Time (UTCTime (UTCTime), fromGregorian)
+import InventoryCleanupSpec (inventoryCleanupTests)
 import Nagare.Dsl.Prelude hiding ((<.>))
 import Nagare.Ops.Cleanup
   ( CleanupReport (..)
@@ -198,7 +199,8 @@ opsTests =
 
 cleanupTests :: [TestTree]
 cleanupTests =
-  [ testCase "pruneReleases: 14-entry log, keep 10 -> 10 kept, 4 removed" $
+  [ inventoryCleanupTests
+  , testCase "pruneReleases: 14-entry log, keep 10 -> 10 kept, 4 removed" $
       let logv = StaticReleaseLog (Just "r14") (map mkRel [14, 13 .. 1])
           (trimmed, removed) = pruneReleases 10 logv
        in (length (trimmed ^. #releases), length removed) @?= (10, 4)
