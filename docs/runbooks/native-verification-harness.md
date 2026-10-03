@@ -97,6 +97,21 @@ Take the claim first. The gate passes only when the public platform bootstrap re
 `<root>/candidate-<rev>-c1/proof.json`. Copy that proof into the dated results directory. This is a CLI
 gate on the retained accepted payload, not a fresh-payload bootstrap.
 
+Two things make the gate fail for reasons unrelated to the candidate:
+
+- **An unpinned payload workspace.** Without `NAGARE_PLATFORM_ROOT`, a new candidate CLI installs its own
+  payload workspace beside the accepted one (`state/nagare/<ctx>/platform/nagare-<version>-<rev>-…`).
+  Planning then refuses with `accepted local substrate differs from the selected specification`, because
+  the accepted substrate scope binds the absolute path of the accepted workspace's
+  `cluster/bootstrap/local-substrate.json`. Pin `NAGARE_PLATFORM_ROOT` to the accepted workspace in the
+  wrapper. Platform upgrades are out of scope for MP-23.
+- **A stale bootstrap stamp.** The `nagare-platform-version` ConfigMap records a digest over every platform
+  scope's generation and content. An `operator-cli` review that re-accepts a platform scope (even with zero
+  operations) advances its generation. Every later bootstrap plan then proposes one `UpdateResource` on the
+  stamp, and the gate's verification-only assertion fails. Confirm the proposal is state-induced by planning
+  with the previous accepted CLI on the same state (planning is read-only), apply that one-operation review
+  under the claim, and re-run the gate into a new `--evidence-dir`. This is what C1 for `44ff0fd7` did.
+
 ## 5. Object-store drills (local MinIO)
 
 Use a throwaway pod with the platform's pinned MinIO client image. Credentials come in through `envFrom`,
@@ -152,10 +167,48 @@ A fresh host also needs these inputs, as the retained F15 root shows:
   - `NAGARE_BUILDER_PROJECT/ZONE/INSTANCE` set to the reused builder
   - `NAGARE_AUTH_{SHOMEI,EN,ACCESS}_IMAGE` set to immutable `…@sha256:` references, which already
     exist in `us-west1-docker.pkg.dev/tan-ng-labs/nagare/`
-- Stages: each `platform bootstrap plan --out <new evidence dir>/review`, then `apply` (through the
-  runner without `--candidate`), advances one stage. In order: foundation, host image, VM, host,
-  credential, kubeconfig, cluster. After the first boot, run `nagarectl host place-age-key`. Release
-  scenario evidence then uses the runner with `--candidate`.
+- A builder SSH key the operator can read. The workstation's `/etc/nix/builder_ed25519` is root-only,
+  so generate a key in the operator root (`ssh-keygen -t ed25519 -N '' -f <root>/builder_ed25519`) and
+  append its public half to `/home/builder/.ssh/authorized_keys` on the builder. `gcloud compute ssh`
+  to the builder fails in its ProxyCommand, so open the tunnel yourself
+  (`gcloud compute start-iap-tunnel <builder> 22 --local-host-port=localhost:28222 --zone <zone>`) and
+  `ssh -p 28222 <you>@localhost`. Then set `NIX_BUILDER_SSH_KEY=<root>/builder_ed25519` and
+  `NIX_BUILDER_HOST_KEY_B64` (the builder's pinned host key, base64 on **one** line; a wrapped value
+  breaks the context env file) in the context env.
+- A sops-encrypted `grafana-admin.yaml` Secret (`monitoring/grafana-admin`, `stringData` keys
+  `admin-user` and `admin-password`) at `<root>/config/nagare/cluster-secrets/<ctx>/`. The cluster
+  stage refuses without it (`required encrypted observability Secret is missing`). Generate the
+  password in a shell variable, pipe the manifest into
+  `sops --config <root>/sops-encrypt.yaml --encrypt --encrypted-regex '^(data|stringData)$' --input-type yaml --output-type yaml /dev/stdin`,
+  and check it decrypts with `SOPS_AGE_KEY_FILE=<root>/age-key.txt`. Add `alertmanager-config.yaml`
+  too when the context enables Alertmanager.
+- Stages: each `platform bootstrap plan --out <new evidence dir>/review`, then
+  `platform bootstrap apply <dir>/review --yes`, advances exactly one stage. A fresh `tan-ng-labs`
+  context on candidate `db808a74` took these, in order (plan / apply seconds):
+
+  | Stage | Review | Plan | Apply |
+  | --- | --- | --- | --- |
+  | foundation (state bucket, registry) | 2 creates | 22 | 46 |
+  | perimeter | 1 create | 61 | 76 |
+  | host image build (remote builder) | 1 create | 107 | 563 |
+  | GCE image | 1 create | 132 | 202 |
+  | stack config | 1 update | 31 | 30 |
+  | VM | 1 create | 41 | 47 |
+  | host activation | 1 create, 1 declared op | 152 | 1838, exit 1, then `inventory resume` converged |
+  | kubeconfig | 1 create | 40 | 15 |
+  | cluster (charts, auth, net-certmanager image) | 207 creates, 3 declared ops | 326 | see below |
+
+  Filter each review before applying: no operation may name a standing project resource. Strip hex
+  runs from summaries before matching names, since digests contain short strings like `f15`.
+  After the first boot, run `nagarectl host place-age-key`. Release scenario evidence then uses the
+  runner with `--candidate`.
+- Host activation and Tailscale SSH. The host transport proves a fresh login over the tailnet
+  (ADR 11). If the tailnet's SSH policy uses `check` mode, the first connection waits for a browser
+  re-authentication, so the activation step can time out and report an ambiguous outcome. Do not
+  re-run activation. Read `inventory status --json`, then `inventory resume`, which re-observes the
+  host and converges when activation in fact succeeded (as it did here). Use an `accept` rule for the
+  tag the ephemeral auth key grants. Keys and SSH checks can only be managed in the admin console or
+  through the Tailscale API with an API token; the `tailscale` CLI cannot do either.
 
 Before any cloud stage, check credentials and standing inputs read-only:
 
