@@ -1,0 +1,29 @@
+{
+  "operatorRevision": "db808a748352df79b05698da8b716f3a387db8bf",
+  "system": "aarch64-darwin",
+  "colimaProfile": "nagare-mp23-cp3",
+  "acceptedPayloadPreserved": "nagare-0.4.0-705716b7bdb7",
+  "gate": "MP-23 C1 installed public local platform bootstrap plan/apply on retained accepted cluster",
+  "reviewDigest": "aa775a3c84f7cf669136ba6a3670fcf4c7af86885c3fd0d084892e8cd8b87ff9",
+  "operations": 213,
+  "actions": [
+    "VerifyResource"
+  ],
+  "providerMutations": 0,
+  "planSeconds": 39.146,
+  "applySeconds": 55.336,
+  "acceptedScopeContentDigestsUnchanged": true,
+  "head": {
+    "generation": 10019,
+    "sequence": 9878,
+    "activeTransaction": null,
+    "executorClaim": null
+  },
+  "acceptedScopeCount": 36,
+  "podsReadyOrSucceeded": 71,
+  "podsNotReady": [],
+  "freshCandidatePayloadBootstrap": false,
+  "recordedBy": "implementer (claude-opus-5-5, session nagare-f3); not independent verification",
+  "candidateBuild": "nix build .#nagarectl at db808a74 -> /nix/store/pl52mxv9imvzir3dr5yca4m90ichzd2k-nagarectl-0.4.0",
+  "recordedAt": "2026-10-03"
+}
