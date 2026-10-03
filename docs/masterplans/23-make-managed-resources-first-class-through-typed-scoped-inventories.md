@@ -311,6 +311,11 @@ provenance:
       at: 2026-10-03T13:56:58Z
       mode: "implement"
       note: "Record operator decisions D1-D3, D5, D6; B1 unattended freshness, signing-key escrow and configurable objective"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-03T16:03:44Z
+      mode: "implement"
+      note: "B5 checkpoint, IR-24 case 3 evidence, review-reader surprise, collection scope proposal"
   reviews:
     - model: "claude-fable-5-1"
       harness: "claude-code"
@@ -439,6 +444,13 @@ Open findings ([tracker](../audits/mp23-findings.md)): F35 (preflight refusal af
 
 **Scenario assertion checkpoint (2026-10-03).** The record shape is agreed and implemented across EP-155, EP-156 and EP-157. C2 and C3 now produce gate-ready health by recording each assertion as it passes and finalizing after verify. A name without a bound record refuses at assembly and in the CLI validator.
 
+**B5 checkpoint (2026-10-03, claude-opus-5-5, `dc53beb3`–`6ed92e61`).** B5 is source-complete with bounded cp3 proof on development binaries.
+- **Companion collection.** Retained collection now admits StatefulSets (Background propagation), ServiceAccounts, Roles and RoleBindings. On cp3 a retired PostgreSQL lost exactly its six stateless companions in three dependency-ordered reviews, while its PVC and Secrets kept their UIDs.
+- **Rename.** `db rename` is the first native binding of EP-149's migration contract. On cp3 it moved a seeded database through 72 reviewed stages. The rows survived, all nine old incarnations stayed retained and fenced, and the auth signing key kept its identity.
+- **Fixture.** `fixtures/inventory-release/local/scenario.json` defines the full C2 run and is validated against the gate's check names.
+
+The native run exposed two review readers that assumed base mutations; both are fixed in `bc2fd90e` (Surprises). 1,148 tests, the style gate, the command audit and the CLI architecture check pass. The Haskell architecture check still fails on four size allowances that predate B5. Collection of durable members, topics and migrated-away incarnations is the scope proposal below.
+
 **Remaining work.** Each item is owned by the named child, whose plan holds the detail. Work proceeds in this order; items within a phase can run in parallel.
 
 Phase A — blockers (code and local regressions; no cloud mutation):
@@ -456,7 +468,7 @@ Phase B — finish the supported features (code plus focused local proof):
 - B2 (EP-160): native refusal of a tampered accepted backup (database and volume) and of a wrong-incarnation destination; interruption during Redis load and a partial ClickHouse restore, or a recorded argument that existing runs cover them; manual cloud receipts for Redis and ClickHouse or an explicit scheduled-only statement.
 - B3 (EP-158): native Google DNS/CDN create, disable, retire and collect; record the HTTPS/browser-login disposition (decision D3).
 - B4 (EP-153): promote the `Cleanup` and `InfraDestroy` routes and the `infra-destroy`, `smoke` and `local-smoke` recipes; bring every gap row in the coverage catalogue to migrated or an explicit guarded exclusion.
-- B5 (EP-155): check in the full local scenario fixture; implement the bounded retained PostgreSQL rename (IR-24 case 3) and companion collection bindings.
+- B5 (EP-155): check in the full local scenario fixture; implement the bounded retained PostgreSQL rename (IR-24 case 3) and companion collection bindings. Source-complete with cp3 proof (2026-10-03 checkpoint); final-candidate proof is C2.
 - B6 (EP-156): prove takeover from a genuinely different client.
 
 Phase C — one frozen candidate, proven natively:
@@ -473,6 +485,13 @@ Phase D — close-out: finalize each child's living sections, mark the registry,
 
 - D4 — Recovery-time and retention targets for production use (no values have been agreed). It gates production use, not MP-23 completion; EP-157 reports it as an unmet production target.
 
+Scope proposal from B5 (operator's call; the implementer recommends deferral). Three collections would each need a new operation, not a missing binding:
+- releasing durable PVCs and credential Secrets;
+- deleting broker topics, which also keep a retired broker's StatefulSet blocked;
+- collecting a migrated-away incarnation that shares a live ResourceId.
+
+None is required by the supported release contract. Retained members stay visible in status, and a renamed database's old writers are fenced.
+
 **Cross-plan gates.**
 
 - *Safe-use gate* (before any real low-risk workload): on one candidate that first passed C1 — the six cloud operational checks and F15 on a fresh context; EP-158 access grant/revoke; [the operations runbook](../runbooks/inventory-operations.md) executed end to end by an independent reviewer with F14–F18 recorded in the tracker; driver consolidation present. Final production go/no-go remains the operator's.
@@ -485,7 +504,7 @@ Phase D — close-out: finalize each child's living sections, mark the registry,
 |---|---|
 | 1. Collisions refused before mutation | EP-144 unit coverage only |
 | 2. Foreign or absent owner reported as an adoption decision | Foreign-UID refusal at retirement (installed); no adoption-decision report |
-| 3. Rename creates, migrates, verifies, retires with data preserved | Recording-adapter proof only; native PostgreSQL rename is B5/C2 |
+| 3. Rename creates, migrates, verifies, retires with data preserved | Native `db rename` on cp3 (implementer, development binary): known rows preserved, old incarnations retained; final-candidate proof is C2 |
 | 4. Interrupted multi-component operation resumes without replaying effects | Installed cloud resume and takeover; independent native F20 interrupted delete |
 | 5. Drift categories distinguished | Foreign, missing, retained orphan and policy-bound collection proven; repairable configuration drift and immutable replacement not |
 | 6. Disposable context renders, applies, converges, no-ops, removes per policy | Installed cloud convergence and unchanged replay; full-platform no-op and local scenario open |
@@ -495,6 +514,8 @@ Phase D — close-out: finalize each child's living sections, mark the registry,
 
 
 ## Surprises & Discoveries
+
+2026-10-03 (B5): Migration bundles keep the base Kubernetes adapter identity. Review readers that decode Kubernetes members therefore have to branch on `MigrateResource`. Two did not: execution's spec reconstruction refused the review before admission, and observation publication left the accepted members without evidence, so `inventory status` failed context-wide until `inventory store materialize-native` ran. Both are fixed. Any future reader of review members (EP-157 evidence projection included) must follow the same rule (ADR 22 amendment).
 
 2026-10-03 (B5): Companion collection is bounded by the lifecycle policy already in force. A retired database's stateless companions now collect natively, in dependency order. Its PVC and Secrets, and every broker topic, are `Retain`/`Durable`. Retained topics also block their broker's StatefulSet as consumers. Releasing durable data or deleting topics would be a new operation with a typed release policy. EP-155 records this as a scope proposal for the operator. It is not implemented and not assumed to be required.
 

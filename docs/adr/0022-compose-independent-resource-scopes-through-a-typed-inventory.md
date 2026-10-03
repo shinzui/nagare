@@ -1484,3 +1484,47 @@ they are pinned by digest.
 Volumes have no scheduled producer and are outside the objective. Like the
 unaccepted HTTPS/browser-login path (D3), this is reported as an unmet
 production target rather than hidden.
+
+## Amendment — 2026-10-03: native migration stages and retained companions
+
+The first native provider binding of EP-149's eight-stage migration contract is
+the bounded PostgreSQL rename (`db rename`, IR-24 case 3; MP-23 B5). Five durable
+rules follow from it.
+
+**A migration stage is bound to its review by the shared stage digest.** Only
+the reviewed planner prepares a stage. The planner recomputes the digest every
+stage of the chain shares (source revision, source declaration, observed source
+incarnation, destination, destination absence, contract) and refuses a mismatch.
+Execution acts only from the saved bundle. It rechecks exact UIDs and ownership
+stamps before every effect and proves each stage by re-observation.
+
+**Review readers must branch on the action, not only on adapter identity.**
+Migration bundles keep the base Kubernetes adapter identity, so existing reviews
+still match at execution. Every reader that decodes a Kubernetes review member
+must handle `MigrateResource`: execution's native bindings, observation evidence,
+and any later consumer. Each takes the stamped destination object from the
+bundle. A reader that assumes a base mutation either refuses the review or
+leaves accepted members without observation evidence. The second outcome stops
+status and planning for the whole context.
+
+**Data policies may differ only by a recovery credential renamed in the same
+proposal.** Source and destination policies agree after each source Secret
+reference is mapped to the Secret it migrates into, within the source's
+namespace. Validation, paired planning and admission use the same comparison.
+
+**A migrated-away incarnation is retained and made inert, not collected.** Its
+ResourceId is still desired, so reviewed collection cannot select it, and
+adapter bindings are keyed by ResourceId. Writers are fenced instead. The old
+StatefulSet is scaled to zero and the old backup CronJob is suspended, each by a
+conditional patch carrying `nagare.dev/migration-fence`. Observation treats
+exactly that state as the retained incarnation, never as drift. Collecting such
+an incarnation would need incarnation-addressed collection, which is not part of
+MP-23.
+
+**Retained collection stays bounded by policy and dependency order.** Stateless
+companions of a retired database collect natively one dependency layer per
+review, because every retained declaration counts as a consumer: the backup
+CronJob first, then the StatefulSet (with Background propagation, so no Pod keeps
+writing a retained PVC) and its RoleBinding, then the Service, Role and
+ServiceAccount. Durable PVCs and Secrets, and broker topics, have no release
+policy. Releasing them would be a new operation, not a missing binding.
