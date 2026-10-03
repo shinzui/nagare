@@ -316,6 +316,11 @@ provenance:
       at: 2026-10-03T16:03:44Z
       mode: "implement"
       note: "B5 checkpoint, IR-24 case 3 evidence, review-reader surprise, collection scope proposal"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-03T22:30:17Z
+      mode: "implement"
+      note: "Teardown decision: perimeter-only exact cleanup; full-context collection moves to MP-25"
   reviews:
     - model: "claude-fable-5-1"
       harness: "claude-code"
@@ -446,6 +451,12 @@ Open findings ([tracker](../audits/mp23-findings.md)): F36 (a failed Redis scrat
 
 **Candidate `44ff0fd7` (2026-10-03).** The F37 fixes made a new candidate, `44ff0fd7`: abandonment of a `Failed (KnownNoEffect)` operation (`d9aed800`), and the reviewed field-ownership takeover `app deploy --take-over-fields` (`1df735a6`). C1 passed for it on the C2 context's accepted `db808a74` payload: 213 verification-only operations, zero mutations, digests unchanged ([proof](../audits/mp23-implementer-results-2026-10-03/c1-local-gate-44ff0fd7.json)). That first required one reviewed refresh of the bootstrap stamp, which was stale from C2's platform-scope reviews; the runbook explains why. C2 must restart on a fresh local context carrying the `44ff0fd7` payload (EP-155 Decision Log, ADR 6). The C3 run on `db808a74` (context `mp23-c3`) continues only as a checkpoint. Its cluster stage found F38 (P2): a failed GCS head advance after a published journal event stops ambiguous and drops the store error. `inventory resume` adopted the orphan event. Final C3 needs a fresh cloud context on the final candidate.
 
+**Checkpoint teardown and new fixes (2026-10-03).** Staged teardown ran natively for the first time, on the C3 checkpoint, and found:
+- **F39:** Pulumi preparation; fixed in `24320d82`.
+- **F40:** contribution targets, scope cycles, host and artifact retention, and cloud-retirement observation; fixed in `8fef3559` and `07d203ad`.
+
+Every platform scope and the cloud scope then retired natively. Collection stopped at the design gap described in the Decision Log, which has moved to MasterPlan 25. The checkpoint was deleted out of band with operator approval. In the C3 checkpoint, F15 and F31 refresh behaviour was observed: an uncached private controller pull 109 minutes after boot, and a timer refresh four minutes before expiry. The next candidate collects these fixes plus the local MinIO durability work (F41, nagare-phase-b). It then needs C1, a fresh C2, and a fresh C3 on [`c3-final-target.json`](../../fixtures/inventory-release/gcp/c3-final-target.json).
+
 **Scenario assertion checkpoint (2026-10-03).** The record shape is agreed and implemented across EP-155, EP-156 and EP-157. C2 and C3 now produce gate-ready health by recording each assertion as it passes and finalizing after verify. A name without a bound record refuses at assembly and in the CLI validator.
 
 **B5 checkpoint (2026-10-03, claude-opus-5-5, `dc53beb3`–`6ed92e61`).** B5 is source-complete with bounded cp3 proof on development binaries.
@@ -549,6 +560,8 @@ Earlier discoveries (derived controller claims, explicit candidate changes, nati
 ## Decision Log
 
 Decisions still in force, condensed. Full verbatim entries are in [the snapshot](../audits/mp23-archive/plan-history/mp23-before-consolidation-2026-10-02.md).
+
+2026-10-03 (operator): Teardown acceptance is perimeter-only exact cleanup plus full-context retirement. The first native full-context teardown (C3 checkpoint `mp23-c3`) showed something by design: retained workload consumers pin the VM, and host and artifact members have no collection. So a full context cannot be collected through reviews. Implementing that collection is a new capability, so it moves to the follow-up [MasterPlan 25](25-reviewed-full-context-teardown-with-vm-workload-collection.md). C3 S9 therefore proves policy, retirement of every scope including the cloud scope, and exact collection on a perimeter-only context. A disposable full context is removed with operator-approved, bounded provider commands; the C3 checkpoint was removed that way on 2026-10-03, after its history was exported.
 
 2026-10-03 (implementer, under the operator's instruction to decide defaults and keep going): The B5 collection scope proposal is deferred. That covers releasing durable PVCs and credential Secrets, deleting broker topics, and collecting migrated-away incarnations. None is in the supported release contract; it matches the 2026-09-28 retain-by-default reduction; and retained members stay visible in status, with renamed databases' old writers fenced. Revisit with MP-21 or a later data-lifecycle plan.
 

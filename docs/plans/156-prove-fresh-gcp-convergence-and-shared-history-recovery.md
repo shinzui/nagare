@@ -127,6 +127,11 @@ provenance:
       at: 2026-10-03T18:06:24Z
       mode: "update"
       note: "Prepare the bounded C3 cloud sequence and target fixture for one operator approval"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-03T22:30:18Z
+      mode: "implement"
+      note: "Teardown decision: perimeter-only exact cleanup; full-context collection moves to MP-25"
 ---
 
 # Prove fresh GCP convergence and shared history recovery
@@ -189,6 +194,8 @@ F30 was first observed and remains interrupted on the local `nagare-mp23-cp3` st
 ## Decision Log
 
 Condensed decisions still in force; the full entries are in [the snapshot](../audits/mp23-archive/plan-history/ep156-before-consolidation-2026-10-02.md).
+
+2026-10-03 (operator): S9 is narrowed to staged policy verification, retirement of every scope including the cloud scope, and exact collection on a perimeter-only context. Full-context VM collection and protected-data destruction belong to [MasterPlan 25](../masterplans/25-reviewed-full-context-teardown-with-vm-workload-collection.md). The `db808a74` C3 run (`*-c3-1003`) is checkpoint evidence. Its stages S1 to S8, the cluster stage, and the retirement of every scope are recorded in the native verification runbook and in findings F38–F40. After its history was exported, it was deleted with operator-approved, bounded gcloud commands. The final C3 uses a fresh context on [`c3-final-target.json`](../../fixtures/inventory-release/gcp/c3-final-target.json) (names `*-c3-1004`).
 
 2026-10-02 (consolidation): Rewrite this plan as a current-state document with history moved to the snapshot. No scope, dependency or acceptance change.
 

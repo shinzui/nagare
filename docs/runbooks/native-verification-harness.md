@@ -47,7 +47,12 @@ exec env -i PATH="$PATH" HOME="$HOME" \
 ```
 
 Earlier wrappers sit beside each root as `runctl-<rev>*.sh`. Copy the newest and change only the
-binary. Before any direct `kubectl`, assert the kube server and node:
+binary. Never forward the caller's `NAGARE_PLATFORM_ROOT` into a wrapper. The repository's `.envrc` exports
+it as the source checkout, and the packaged CLI only sets its own payload when the variable is unset, so a
+forwarded value silently selects a source-development workspace instead of the payload. Either pin the
+accepted payload workspace explicitly (gates on an existing context) or leave it unset (a fresh context
+on a new candidate). A C1 gate pins it; a fresh C2 or C3 context must carry the candidate's own payload,
+because an admitted context cannot change platform version (ADR 6). Before any direct `kubectl`, assert the kube server and node:
 
 ```bash
 KUBECONFIG=$root/config/nagare/kubeconfigs/local.yaml kubectl get nodes -o name   # node/k3d-nagare-local-server-0
@@ -196,7 +201,7 @@ A fresh host also needs these inputs, as the retained F15 root shows:
   | VM | 1 create | 41 | 47 |
   | host activation | 1 create, 1 declared op | 152 | 1838, exit 1, then `inventory resume` converged |
   | kubeconfig | 1 create | 40 | 15 |
-  | cluster (charts, auth, net-certmanager image) | 207 creates, 3 declared ops | 326 | see below |
+  | cluster (charts, auth, net-certmanager image) | 207 creates, 3 declared ops | 326 | 241, exit 1 ambiguous ([F38](../audits/mp23-findings.md#f38)), then `inventory resume` converged in 872 |
 
   Filter each review before applying: no operation may name a standing project resource. Strip hex
   runs from summaries before matching names, since digests contain short strings like `f15`.
@@ -209,6 +214,13 @@ A fresh host also needs these inputs, as the retained F15 root shows:
   host and converges when activation in fact succeeded (as it did here). Use an `accept` rule for the
   tag the ephemeral auth key grants. Keys and SSH checks can only be managed in the admin console or
   through the Tailscale API with an API token; the `tailscale` CLI cannot do either.
+
+Staged teardown on a full context, as natively proven on the `db808a74` checkpoint with the F39 and F40 fixes:
+1. `infra destroy --save-plan` stage 1, the cloud policy review (verify-only).
+2. `inventory retire --scope …` for every platform scope. Repeat `--scope` for scopes that consume each other: Serving, Kourier, net-certmanager, cert-manager and certificate-issuer go together, and so do the host and artifact scopes.
+3. `infra destroy --save-plan` stage 2, which retires the cloud scope.
+
+Exact collection of a full context's VM and data is not supported yet ([MasterPlan 25](../masterplans/25-reviewed-full-context-teardown-with-vm-workload-collection.md)). Remove a disposable full context with operator-approved, bounded `gcloud` deletes, listing exact names from its own Pulumi stack export first. Export the inventory history before deleting the state bucket.
 
 Before any cloud stage, check credentials and standing inputs read-only:
 
