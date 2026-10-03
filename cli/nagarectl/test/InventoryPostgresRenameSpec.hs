@@ -60,7 +60,7 @@ inventoryPostgresRenameTests =
         map snd roles
           @?= map
             Right
-            [ RenameObject
+            [ RenameSchedule
             , RenameObject
             , RenameObject
             , RenameObject
@@ -110,7 +110,7 @@ inventoryPostgresRenameTests =
         assertBool
           "source claim is mounted read-only"
           (Just (Bool True) == (volumes >>= firstVolume >>= jsonPath ["persistentVolumeClaim", "readOnly"]))
-    , testCase "a fenced StatefulSet is its retained incarnation, not drift" $ do
+    , testCase "a fenced StatefulSet or suspended schedule is its retained incarnation, not drift" $ do
         (declaration, native) <- case [entry | entry@(member, _) <- Map.elems oldNative, roleOf member == "statefulset"] of
           [entry] -> pure entry
           _ -> assertFailure "fixture lacks one StatefulSet" >> fail "unreachable"
@@ -124,6 +124,13 @@ inventoryPostgresRenameTests =
         case observe scaled of
           Right state -> assertBool "unmarked scale-down must remain drift" (stateDigest state /= Just (contentDigest native))
           Left reason -> assertFailure (T.unpack reason)
+        (schedule, scheduleNative) <- case [entry | entry@(member, _) <- Map.elems oldNative, roleOf member == "backup"] of
+          [entry] -> pure entry
+          _ -> assertFailure "fixture lacks one backup schedule" >> fail "unreachable"
+        let suspended = setPath ["spec", "suspend"] (Bool True) (setPath ["metadata", "annotations", "nagare.dev/migration-fence"] (String "op-x") (stamped (schedule ^. #identity) scheduleNative "cron-uid"))
+        case parseObserved config (schedule ^. #identity) scheduleNative (TE.decodeUtf8 (checked (canonicalValue suspended))) of
+          Right (KubernetesNotReady _ _ _ digest) -> digest @?= contentDigest scheduleNative
+          other -> assertFailure ("suspended schedule was not its retained incarnation: " <> show other)
     , testCase "reviewed rename converges and retains every old incarnation" $
         withSystemTempDirectory "postgres-rename" $ \root -> do
           (store, world, reviewed, executionRegistry') <- plannedRename root
@@ -496,6 +503,8 @@ verifyRenamedWorld final = do
   Map.lookup "nagare-db-pg-new-data" (final ^. #volumes) @?= Just "pgdata:known-row-1"
   Map.lookup "nagare-db-pg-old-data" (final ^. #volumes) @?= Just "pgdata:known-row-1"
   (oldWriter >>= jsonPath ["spec", "replicas"]) @?= Just (Number 0)
+  (objectAt ("cronjob.batch", "default", "nagare-dbbackup-pg-old") >>= jsonPath ["spec", "suspend"]) @?= Just (Bool True)
+  assertBool "renamed backup schedule runs" (isNothing (objectAt ("cronjob.batch", "default", "nagare-dbbackup-pg-new") >>= jsonPath ["spec", "suspend"]))
   assertBool "old writer carries the reviewed fence" (isJust (oldWriter >>= jsonPath ["metadata", "annotations", "nagare.dev/migration-fence"]))
   assertBool "old writer Pod is stopped" (isNothing (objectAt ("pod", "default", "pg-old-0")))
   assertBool "new writer Pod runs" (isJust (objectAt ("pod", "default", "pg-new-0")))

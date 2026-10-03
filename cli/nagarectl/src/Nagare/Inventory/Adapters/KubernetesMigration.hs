@@ -197,6 +197,7 @@ kubernetesMigrationAdapter config planning base =
               created <- adapterPreflight base (createOperation bundle) prepared
               pure (source >> created)
       (FenceWriters, kind) | kind `elem` [RenameVolume, RenameWorkload] -> void <$> writerOwned bundle
+      (FenceWriters, RenameSchedule) -> void <$> sourceValue bundle
       (TransferState, RenameVolume) -> do
         fenced <- writerFenced bundle
         source <- sourceOwned bundle
@@ -215,6 +216,7 @@ kubernetesMigrationAdapter config planning base =
             | kind `elem` [RenameCredential, RenameSigningKey] -> copySecret bundle
             | otherwise -> either (pure . AdapterEffectFailed . KnownNoEffect) (adapterExecute base (createOperation bundle)) (createPrepared bundle)
           (FenceWriters, kind) | kind `elem` [RenameVolume, RenameWorkload] -> fenceWriter bundle
+          (FenceWriters, RenameSchedule) -> suspendSchedule bundle
           (TransferState, RenameVolume) -> do
             transferred <- runTransfer bundle TransferCopy
             pure (either AdapterEffectAmbiguous (const AdapterEffectCompleted) transferred)
@@ -227,6 +229,9 @@ kubernetesMigrationAdapter config planning base =
       (FenceWriters, kind) | kind `elem` [RenameVolume, RenameWorkload] -> do
         fenced <- writerFenced bundle
         pure (fenced >> proof bundle ["writer" .= (bundle ^. #writerAddress), "writerPhysical" .= (bundle ^. #writerPhysical), "fenced" .= True])
+      (FenceWriters, RenameSchedule) -> do
+        suspended <- scheduleSuspended bundle
+        pure (suspended >> proof bundle ["sourcePhysical" .= (bundle ^. #sourcePhysical), "suspended" .= True])
       (TransferState, RenameVolume) -> do
         manifest <- runTransfer bundle TransferVerify
         destination <- destinationOwned bundle
@@ -241,7 +246,10 @@ kubernetesMigrationAdapter config planning base =
             pure (source >> proof bundle ["sourcePhysical" .= (bundle ^. #sourcePhysical)])
         | stageName == RetainSource -> do
             source <- sourceOwned bundle
-            fenced <- if kind == RenameWorkload then writerFenced bundle else pure (Right ())
+            fenced <- case kind of
+              RenameWorkload -> writerFenced bundle
+              RenameSchedule -> scheduleSuspended bundle
+              _ -> pure (Right ())
             pure (source >> fenced >> proof bundle ["sourcePhysical" .= (bundle ^. #sourcePhysical), "retained" .= True])
         | otherwise -> do
             destination <- destinationOwned bundle
@@ -264,6 +272,11 @@ kubernetesMigrationAdapter config planning base =
         case fenced of
           Right () -> either RecoveryUnresolved RecoveryProvedComplete <$> verify bundle
           Left _ -> either RecoveryUnresolved (const RecoverySafeToRetry) <$> writerOwned bundle
+      (FenceWriters, RenameSchedule) -> do
+        suspended <- scheduleSuspended bundle
+        case suspended of
+          Right () -> either RecoveryUnresolved RecoveryProvedComplete <$> verify bundle
+          Left _ -> either RecoveryUnresolved (const RecoverySafeToRetry) <$> sourceValue bundle
       -- The copy Job refuses a destination that differs from its source, so
       -- re-running it after a lost acknowledgement proves or refuses.
       (TransferState, RenameVolume) -> pure RecoverySafeToRetry
@@ -337,6 +350,23 @@ kubernetesMigrationAdapter config planning base =
         (physical, _) <- observed
         unless (physical == bundle ^. #sourcePhysical) (Left "rename source incarnation changed since review")
 
+    sourceValue bundle = do
+      observed <- observeOwned (bundle ^. #sourceAddress) (bundle ^. #resource)
+      pure $ do
+        (physical, value) <- observed
+        unless (physical == bundle ^. #sourcePhysical) (Left "rename source incarnation changed since review")
+        pure value
+
+    scheduleSuspended bundle = do
+      source <- sourceValue bundle
+      pure $ do
+        value <- source
+        unless
+          ( valueAt ["spec", "suspend"] value == Just (Bool True)
+              && maybe False (not . T.null) (annotation (Key.toText fenceAnnotation) value)
+          )
+          (Left "retained backup schedule is not suspended")
+
     destinationOwned bundle = do
       observed <- observeOwned (bundle ^. #destinationAddress) (bundle ^. #resource)
       pure $ do
@@ -400,10 +430,34 @@ kubernetesMigrationAdapter config planning base =
                   settled <- poll 90 (either (const False) (const True) <$> writerFenced bundle)
                   pure (if settled then AdapterEffectCompleted else AdapterEffectAmbiguous "fenced writer Pod has not stopped")
 
+    -- The old backup schedule would otherwise keep firing against a fenced
+    -- database; suspension is a conditional patch on the reviewed incarnation.
+    suspendSchedule bundle = do
+      source <- sourceValue bundle
+      case source of
+        Left reason -> pure (AdapterEffectFailed (KnownNoEffect reason))
+        Right value -> do
+          suspended <- scheduleSuspended bundle
+          case suspended of
+            Right () -> pure AdapterEffectCompleted
+            Left _ -> do
+              let patch =
+                    object
+                      [ "metadata"
+                          .= object
+                            [ "uid" .= physicalIdentityText (bundle ^. #sourcePhysical)
+                            , "resourceVersion" .= fromMaybe "" (textAt ["metadata", "resourceVersion"] value)
+                            , "annotations" .= object [fenceAnnotation .= (bundle ^. #operation)]
+                            ]
+                      , "spec" .= object ["suspend" .= True]
+                      ]
+              patched <- kubectlWrite (patchArguments (bundle ^. #sourceAddress) patch) ""
+              pure (either AdapterEffectAmbiguous (const AdapterEffectCompleted) patched)
+
     copySecret bundle = do
-      source <- getObject (bundle ^. #sourceAddress)
+      source <- sourceValue bundle
       let built = do
-            value <- source >>= maybe (Left "rename source credential is absent") Right
+            value <- source
             fields <- expectedData bundle value
             template <- first T.pack (eitherDecodeStrict (TE.encodeUtf8 (bundle ^. #destinationNative)))
             case template of
@@ -422,11 +476,11 @@ kubernetesMigrationAdapter config planning base =
       _ -> Left "rename source credential has no data"
 
     secretCopied bundle = do
-      source <- getObject (bundle ^. #sourceAddress)
+      source <- sourceValue bundle
       destination <- destinationOwned bundle
       pure $ do
-        sourceValue <- source >>= maybe (Left "rename source credential is absent") Right
-        expected <- expectedData bundle sourceValue
+        current <- source
+        expected <- expectedData bundle current
         (uid, value) <- destination
         unless (valueAt ["data"] value == Just (Object expected)) (Left "rename destination credential differs from its source")
         dataDigest <- contentDigest <$> canonicalValue (Object expected)
@@ -629,6 +683,7 @@ memberText = \case
   RenameSigningKey -> "signing-key"
   RenameVolume -> "volume"
   RenameWorkload -> "workload"
+  RenameSchedule -> "schedule"
   RenameObject -> "object"
 
 memberFromText :: Text -> Parser RenameMember
@@ -637,6 +692,7 @@ memberFromText = \case
   "signing-key" -> pure RenameSigningKey
   "volume" -> pure RenameVolume
   "workload" -> pure RenameWorkload
+  "schedule" -> pure RenameSchedule
   "object" -> pure RenameObject
   _ -> fail "unknown rename member"
 

@@ -14,6 +14,8 @@ module Nagare.Inventory.Migration.PostgresRename
   , renameContract
   , rewriteCredentialData
   , fenceAnnotation
+  , migrationFenced
+  , scaledToZero
   , transferJobName
   , transferJob
   , transferScript
@@ -24,6 +26,7 @@ module Nagare.Inventory.Migration.PostgresRename
 where
 
 import Data.Aeson
+import Data.Aeson.Key (Key)
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
@@ -53,6 +56,9 @@ data RenameMember
     RenameVolume
   | -- | The StatefulSet: started on the verified copy; the old one stays fenced.
     RenameWorkload
+  | -- | The backup schedule: created under the new name; the old one is
+    -- suspended so the retained incarnation never writes again.
+    RenameSchedule
   | -- | Stateless companions created under the new name.
     RenameObject
   deriving stock (Eq, Show)
@@ -80,7 +86,7 @@ renameMember declaration = case (role, declaration ^. #address) of
   ("backup-account", Kubernetes _ "" kind (Just _) _) | nameText kind == "serviceaccount" -> stateless RenameObject
   ("backup-read-role", Kubernetes _ "rbac.authorization.k8s.io" kind (Just _) _) | nameText kind == "role" -> stateless RenameObject
   ("backup-read-binding", Kubernetes _ "rbac.authorization.k8s.io" kind (Just _) _) | nameText kind == "rolebinding" -> stateless RenameObject
-  ("backup", Kubernetes _ "batch" kind (Just _) _) | nameText kind == "cronjob" -> stateless RenameObject
+  ("backup", Kubernetes _ "batch" kind (Just _) _) | nameText kind == "cronjob" -> stateless RenameSchedule
   _ -> Left "member is outside the bounded PostgreSQL rename"
   where
     role = last (T.splitOn "/" (resourceIdText (declaration ^. #identity)))
@@ -183,10 +189,46 @@ rewriteCredentialData scope fields = case KM.lookup "DATABASE_URL" fields of
     pure (KM.insert "DATABASE_URL" (String (b64encode (T.replace sourceHost destinationHost url))) fields)
   _ -> Left "source credential lacks a connection URL"
 
--- | Marks a StatefulSet scaled to zero by a reviewed migration. Observation
--- treats exactly this state as the retained incarnation, not as drift.
+-- | Marks a StatefulSet scaled to zero, or a CronJob suspended, by a reviewed
+-- migration. Observation treats exactly that state as the retained
+-- incarnation, not as drift.
 fenceAnnotation :: Key
 fenceAnnotation = "nagare.dev/migration-fence"
+
+-- | A reviewed rename scales the old StatefulSet to zero, or suspends the old
+-- CronJob, and marks it. That exact state is the retained incarnation,
+-- observed unready rather than as drift; any other difference still counts.
+migrationFenced :: Value -> Value -> Bool
+migrationFenced (Object desired) (Object observed) =
+  KM.lookup "kind" desired `elem` [Just (String "StatefulSet"), Just (String "CronJob")]
+    && ( case KM.lookup "metadata" observed of
+           Just (Object metadata) -> case KM.lookup "annotations" metadata of
+             Just (Object annotations) -> case KM.lookup fenceAnnotation annotations of
+               Just (String marker) -> not (T.null marker)
+               _ -> False
+             _ -> False
+           _ -> False
+       )
+    && ( case KM.lookup "spec" observed of
+           Just (Object spec) -> KM.lookup fencedField spec == Just fencedValue
+           _ -> False
+       )
+  where
+    (fencedField, fencedValue) = migrationFence (Object desired)
+migrationFenced _ _ = False
+
+migrationFence :: Value -> (Key, Value)
+migrationFence (Object root)
+  | KM.lookup "kind" root == Just (String "CronJob") = ("suspend", Bool True)
+migrationFence _ = ("replicas", Number 0)
+
+scaledToZero :: Value -> Value
+scaledToZero (Object root) = case KM.lookup "spec" root of
+  Just (Object spec) ->
+    let (field, value) = migrationFence (Object root)
+     in Object (KM.insert "spec" (Object (KM.insert field value spec)) root)
+  _ -> Object root
+scaledToZero value = value
 
 data TransferMode = TransferCopy | TransferVerify
   deriving stock (Eq, Show)

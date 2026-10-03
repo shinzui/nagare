@@ -72,7 +72,7 @@ import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect))
 import Nagare.Inventory.KubernetesConfiguration (configurationDigest, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor)
 import Nagare.Inventory.KubernetesTransport (KubernetesRuntimeConfig (..), invokeKubectl)
-import Nagare.Inventory.Migration.PostgresRename (fenceAnnotation)
+import Nagare.Inventory.Migration.PostgresRename (migrationFenced, scaledToZero)
 import Nagare.Resource.Inventory (ManagedResource (..))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
@@ -601,32 +601,6 @@ parseObservedWithConfiguration stable config resource native response = do
             if fenced || not (observedReady observed)
               then KubernetesNotReady uid revision owner driftDigest
               else KubernetesPresent uid revision owner driftDigest
-
--- | A reviewed rename scales the old StatefulSet to zero and marks it. That
--- exact state is the retained incarnation, observed unready rather than as
--- drift; any other difference from the reviewed object still counts.
-migrationFenced :: Value -> Value -> Bool
-migrationFenced (Object desired) (Object observed) =
-  KM.lookup "kind" desired == Just (String "StatefulSet")
-    && ( case KM.lookup "metadata" observed of
-           Just (Object metadata) -> case KM.lookup "annotations" metadata of
-             Just (Object annotations) -> case KM.lookup fenceAnnotation annotations of
-               Just (String marker) -> not (T.null marker)
-               _ -> False
-             _ -> False
-           _ -> False
-       )
-    && ( case KM.lookup "spec" observed of
-           Just (Object spec) -> KM.lookup "replicas" spec == Just (Number 0)
-           _ -> False
-       )
-migrationFenced _ _ = False
-
-scaledToZero :: Value -> Value
-scaledToZero (Object root) = case KM.lookup "spec" root of
-  Just (Object spec) -> Object (KM.insert "spec" (Object (KM.insert "replicas" (Number 0) spec)) root)
-  _ -> Object root
-scaledToZero value = value
 
 -- A failed controller condition is a health finding, not a failed read of
 -- the object's configuration or ownership. Execution still refuses to verify
