@@ -55,7 +55,7 @@
     "channels": [
       {"application": "scenario-a", "scope": "runtime", "source": "literal", "key": "SCENARIO_MODE"},
       {"application": "scenario-a", "scope": "preview", "source": "literal", "key": "SCENARIO_PREVIEW_BANNER"},
-      {"application": "scenario-a", "scope": "runtime", "source": "encrypted-store", "key": "SCENARIO_API_TOKEN", "store": "scenario-a-api", "value": "generated at run time from stdin; only its SHA-256 is recorded"}
+      {"application": "scenario-a", "scope": "runtime", "source": "encrypted-store", "key": "SCENARIO_API_TOKEN", "store": "nagare-secret-scenario-a-runtime", "value": "generated at run time from stdin; only its SHA-256 is recorded"}
     ],
     "broker": {
       "name": "scenario-events",

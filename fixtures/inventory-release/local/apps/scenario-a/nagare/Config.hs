@@ -7,7 +7,7 @@
 -- application-owned PostgreSQL @scenario-pg@ (retained, with scheduled
 -- backups), the @uploads@ volume, a scheduled report Task, and one value on
 -- each environment channel: a Runtime literal, a Preview literal and a
--- Runtime value from the encrypted Secret store. The image is built from
+-- Runtime value from its managed encrypted Secret store (`secret set`). The image is built from
 -- this directory and published to the context registry.
 --
 -- Embedded records use qualified imports because the loader's GHC2024 does
@@ -44,11 +44,11 @@ import Nagare.Dsl.Types
   )
 import System.Environment (lookupEnv)
 
-applicationConfig :: Text -> Either Text Application
-applicationConfig baseDomain = do
+applicationConfig :: Text -> Text -> Either Text Application
+applicationConfig registry baseDomain = do
   appName <- mkServiceName "scenario-a"
   namespace' <- mkNamespace "personal"
-  image' <- mkImageRef "scenario-a"
+  image' <- mkImageRef (registry <> "/scenario-a")
   databaseName <- DB.mkDatabaseName "scenario-pg"
   version' <- DB.mkEngineVersion DB.Postgres "18"
   databaseSize <- mkQuantity "1Gi"
@@ -63,14 +63,14 @@ applicationConfig baseDomain = do
           , DB.resources = Nothing
           , DB.retention = Retain
           }
-  web <- webService "scenario-a" "scenario-a" >>= attachVolume "uploads" "1Gi" "/uploads"
+  web <- webService "scenario-a" (registry <> "/scenario-a") >>= attachVolume "uploads" "1Gi" "/uploads"
   dockerfile <- mkFilePathText "Dockerfile"
   context <- mkFilePathText "."
   domains' <- mkDomains [("scenario-a." <> baseDomain, True)]
   mode <- mkEnvName "SCENARIO_MODE"
   banner <- mkEnvName "SCENARIO_PREVIEW_BANNER"
   token <- mkEnvName "SCENARIO_API_TOKEN"
-  tokenStore <- mkSecretName "scenario-a-api"
+  tokenStore <- mkSecretName "nagare-secret-scenario-a-runtime"
   previewOnly <- scopedEnv (Set.fromList [Preview]) (EnvLiteral "preview build")
   reportName <- mkServiceName "scenario-a-report"
   schedule' <- mkSchedule "*/30 * * * *"
@@ -123,5 +123,6 @@ applicationConfig baseDomain = do
 
 main :: IO ()
 main = do
+  registry <- maybe "k3d-registry.localhost:5000" Text.pack <$> lookupEnv "NAGARE_REGISTRY_HOST"
   baseDomain <- maybe "apps.example.com" Text.pack <$> lookupEnv "NAGARE_BASE_DOMAIN"
-  either (ioError . userError . Text.unpack) emitApplication (applicationConfig baseDomain)
+  either (ioError . userError . Text.unpack) emitApplication (applicationConfig registry baseDomain)

@@ -7,13 +7,15 @@ module Main (main) where
 import Data.Bifunctor (first)
 import Nagare.Dsl.Config (emitStaticSite)
 import Nagare.Dsl.Static.Types
+import Data.Text qualified as T
 import Nagare.Dsl.Types (mkImageRef, mkNamespace)
+import System.Environment (lookupEnv)
 
-staticSite :: Either String StaticSite
-staticSite = do
+staticSite :: T.Text -> Either String StaticSite
+staticSite registry = do
   name' <- first show (mkSiteName "scenario-site")
   namespace' <- first show (mkNamespace "personal")
-  image' <- first show (mkImageRef "scenario-site")
+  image' <- first show (mkImageRef (registry <> "/scenario-site"))
   directory <- first show (mkFilePathText "public")
   cache' <- first show (mkCachePolicy True (Just 60))
   notFound' <- first show (mkFilePathText "404.html")
@@ -32,4 +34,6 @@ staticSite = do
       }
 
 main :: IO ()
-main = either (ioError . userError) emitStaticSite staticSite
+main = do
+  registry <- maybe "k3d-registry.localhost:5000" T.pack <$> lookupEnv "NAGARE_REGISTRY_HOST"
+  either (ioError . userError) emitStaticSite (staticSite registry)

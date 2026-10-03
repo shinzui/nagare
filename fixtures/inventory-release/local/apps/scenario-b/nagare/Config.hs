@@ -22,12 +22,13 @@ import Nagare.Dsl.Database qualified as DB
 import Nagare.Dsl.Path (mkFilePathText)
 import Nagare.Dsl.Presets (webService)
 import Nagare.Dsl.Types (RetentionPolicy (..), mkImageRef, mkNamespace, mkQuantity, mkServiceName)
+import System.Environment (lookupEnv)
 
-applicationConfig :: Either Text Application
-applicationConfig = do
+applicationConfig :: Text -> Either Text Application
+applicationConfig registry = do
   appName <- mkServiceName "scenario-b"
   namespace' <- mkNamespace "personal"
-  image' <- mkImageRef "scenario-b"
+  image' <- mkImageRef (registry <> "/scenario-b")
   cacheName <- DB.mkDatabaseName "scenario-redis"
   version' <- DB.mkEngineVersion DB.Redis "8"
   cacheSize <- mkQuantity "1Gi"
@@ -42,7 +43,7 @@ applicationConfig = do
           , DB.resources = Nothing
           , DB.retention = Retain
           }
-  web <- webService "scenario-b" "scenario-b"
+  web <- webService "scenario-b" (registry <> "/scenario-b")
   dockerfile <- mkFilePathText "Dockerfile"
   context <- mkFilePathText "."
   broker <- mkBrokerName "scenario-events"
@@ -68,4 +69,6 @@ applicationConfig = do
       }
 
 main :: IO ()
-main = either (ioError . userError . Text.unpack) emitApplication applicationConfig
+main = do
+  registry <- maybe "k3d-registry.localhost:5000" Text.pack <$> lookupEnv "NAGARE_REGISTRY_HOST"
+  either (ioError . userError . Text.unpack) emitApplication (applicationConfig registry)
