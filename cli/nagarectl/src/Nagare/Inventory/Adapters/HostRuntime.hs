@@ -169,7 +169,9 @@ runTransport config action plan = do
       credentialProtocol =
         maybe False ((== 2) . hostPlanVersion) plan
           || (action == "prepare" && lookup "NAGARE_HOST_REVIEW_CREDENTIAL" childEnvironment == Just "1")
-      transportRequest = (request config plan) {requestVersion = if credentialProtocol then 2 else 1}
+      -- Version 3 requires argv-preserving SSH delivery as well as the v2
+      -- credential receipt. Older payloads reject it before native effects.
+      transportRequest = (request config plan) {requestVersion = if credentialProtocol then 3 else 1}
       command = (proc (runtimeHostExecutable config) [action]) {env = Just childEnvironment}
   case canonicalValue (toJSON transportRequest) of
     Left err -> pure (Left err)

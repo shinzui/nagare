@@ -1237,7 +1237,7 @@ rewriting it. Changed keys or failed writes remain unresolved for explicit
 recovery. The receipt is an internal host-executor artifact; it grants no new
 scope or independent credential owner.
 
-Credential receipt authority is also a transport capability: a credential-required preparation and every v2 native inspection or activation use host transport request protocol v2. A retained payload supporting only protocol v1 refuses before effects; the operator cannot delegate a stronger saved plan to a shell that silently ignores its authority fields. Historical v1 requests remain unchanged.
+Credential receipt authority is also a transport capability: a credential-required preparation and every v2 native inspection or activation use host transport request protocol v3. This requires both credential receipts and argv-preserving SSH delivery. A retained payload supporting only an older protocol refuses before effects; the operator cannot delegate a stronger saved plan to a shell that silently ignores its authority fields. Historical v1 requests remain unchanged.
 
 
 ### Reviewed Compute Engine power transitions
@@ -1322,3 +1322,12 @@ release log, retaining both the current entry and the requested recent window.
 The review's preparation guard permits only those exact conditional updates and
 verification; unrelated drift repair, creates and hook execution require a
 separate review. Other cleanup families retain their own lifecycle gates.
+
+SSH file delivery serializes each remote argument as a literal shell word before
+passing one command string to OpenSSH. Local argv boundaries alone do not survive
+SSH: empty prior-key digests and multiline `bash -c` scripts must remain distinct
+arguments. Regression tests execute the joined remote command through a shell,
+including real credential retry logic, rather than directly executing an argv
+stub. A failed disposable development payload remains immutable diagnostic
+evidence; verify the corrected payload on a new disposable fixture instead of
+patching the old payload or inventing an in-place upgrade path.

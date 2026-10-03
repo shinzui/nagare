@@ -348,10 +348,21 @@ cmd_recv_file() {
 # Internal: open a tunnel and stream a local file to a remote command. The
 # shell `<` lives INSIDE the retried subshell, so every attempt reopens the
 # source at byte zero instead of inheriting already-consumed stdin.
+quote_remote_argv() {
+  local argument quoted
+  for argument in "$@"; do
+    quoted=${argument//\'/\'\\\'\'}
+    printf "'%s' " "${quoted}"
+  done
+}
+
 _do_send_file_inner() (
   set -e
   local instance="$1" local_path="$2"; shift 2
-  local info port pid logfile
+  local info port pid logfile remote_command
+  # OpenSSH joins command arguments with spaces; it does not serialize argv.
+  # Pass one shell command whose literal words preserve empty/multiline args.
+  remote_command="$(quote_remote_argv "$@")"
   info="$(start_tunnel "${instance}" 22)"
   port="$(echo "${info}" | awk '{print $1}')"
   pid="$(echo "${info}" | awk '{print $2}')"
@@ -361,7 +372,7 @@ _do_send_file_inner() (
   # shellcheck disable=SC2046
   ssh $(ssh_common_args) \
     -o ProxyCommand="$(ssh_proxy_cmd "${instance}" "${port}")" \
-    "${SSH_USER}@localhost" "$@" < "${local_path}"
+    "${SSH_USER}@localhost" "${remote_command}" < "${local_path}"
 )
 
 cmd_send_file() {

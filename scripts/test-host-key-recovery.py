@@ -22,6 +22,8 @@ quote = shlex.quote
 module = (repo/'nixos/modules/nagare-host.nix').read_text()
 helper_source = textwrap.dedent(module.split("    text = ''\n", 1)[1].split("    '';", 1)[0]).replace("''${", '${')
 transport_source = (repo/'scripts/inventory-host-transport.sh').read_text()
+iap_source = (repo/'scripts/iap-ssh.sh').read_text()
+send_file = re.search(r'^quote_remote_argv\(\) \{\n.*?^\}', iap_source, re.M | re.S)[0] + '\n' + re.search(r'^_do_send_file_inner\(\) \(\n.*?^\)', iap_source, re.M | re.S)[0]
 activate = '\n'.join(re.search(r'^'+name+r'\(\) \{\n.*?^\}', transport_source, re.M | re.S)[0]
                      for name in ['credential_receipt_path', 'credential_activation_ready', 'previous_key_matches', 'tailnet_fresh_closure', 'inspect', 'activate', 'emit_state'])
 rows = []
@@ -92,6 +94,7 @@ systemctl() {{
                                   'instance': 'gce://fixture', 'ageKeyDigest': digest, 'previousAgeKeyDigest': previous, 'credentialReceiptRequired': requires_receipt}})
     runner = case/'activate.sh'
     runner.write_text(f'''set -euo pipefail
+{send_file}
 {activate.replace('/var/lib/nagare/host-credential-receipts', str(case/'receipts'))}
 script_dir={quote(str(repo/'scripts'))}
 request={quote(request)}
@@ -121,15 +124,27 @@ bash() {{
       printf 'concurrent synthetic key\\n' > {quote(str(installed))}
       chmod 0400 {quote(str(installed))}
     fi
-    shift 9
-    remote="$1"; shift
-    remote="${{remote//\\/run\\/current-system\\/sw\\/bin\\/nagare-host-age-key/{helper}}}"
-    command bash -c "$remote" "$@" < "$NAGARE_HOST_AGE_KEY_FILE"
-  else
-    command bash {quote(str(helper))} install --sha256 "$age_key_digest" < "$NAGARE_HOST_AGE_KEY_FILE"
   fi
+  shift 5
+  _do_send_file_inner fixture "$NAGARE_HOST_AGE_KEY_FILE" "$@"
 }}
+SSH_USER=fixture
+start_tunnel() {{ printf '1 1 %s\\n' {quote(str(case/'tunnel.log'))}; }}
+ssh_common_args() {{ :; }}
+ssh_proxy_cmd() {{ printf fixture; }}
+kill() {{ :; }}
+wait() {{ :; }}
+sudo() {{ [ "$1" = -- ]; shift; "$@"; }}
+export -f sudo
 ssh() {{
+  if [ "$1" = -o ] && [ "$2" = ProxyCommand=fixture ]; then
+    [ "$3" = fixture@localhost ]; shift 3
+    remote="$*"
+    remote="${{remote//\\/run\\/current-system\\/sw\\/bin\\/nagare-host-age-key/{helper}}}"
+    remote="${{remote//\\/run\\/current-system\\/sw\\/bin\\/bash/bash}}"
+    command bash -c "$remote"
+    return
+  fi
   printf 'fresh-ssh %s\\n' "$*" >> {quote(str(calls))}
   [ -f {quote(str(case/'ready'))} ]
   echo /fixture/system
