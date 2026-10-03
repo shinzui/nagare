@@ -329,5 +329,17 @@ Two structural limits followed:
 - All 1,175 tests, `just haskell-style-check` and both architecture checks pass.
 - Native: on `mp23-c3` the development build retired, store-only, the stamp, all observability scopes, `auth` (31 retentions, including both contributed targets), `foundation`, and then `cert-manager`, `certificate-issuer`, `kourier`, `net-certmanager` and `serving` together (132 retentions, no operations, 42 s).
 
-**Remaining:** Host and artifact members (`host`, `kubeconfig`, `net-controller-image`, `host-image`, `host-image-build`) need a supported retention, with its admission observation and an execution adapter, before the cloud scope can retire and VM, disk, bucket and DNS leaves can be collected. Until then a full context cannot be torn down through reviews. Independent review is also needed.
+**Implementation update 2 (2026-10-03; claude-opus-5-5), host, artifact and cloud retention:**
+- `Plan/Lifecycle` accepts host and artifact members for retirement as history only; no collection supports them.
+- Execution observes retiring host and artifact members with the accepted-manifest observer, which can't prepare or execute. Its Kubernetes and Helm native-evidence check excludes them.
+- A cloud retirement now installs the Pulumi observer and Pulumi environment: its retained members count as selected even though the review has no operations. Before this, admission refused with `retention-observation`.
+- New regression: `scope retirement retains a host system as history (F40)`.
+- All 1,176 tests and every gate pass.
+- Native: `host`, `kubeconfig`, `net-controller-image`, `host-image` and `host-image-build` retired together (5 retentions, 16 s). Then teardown stage 2 retired the cloud scope (26 retentions, `tx-705bf20b…`).
+
+**Remaining, a design gap:** Staged collection then reports `No eligible cloud collection; 26 protected or dependency-blocked members remain retained`. The `inventory gc --plan` assessment gives two reasons for every cloud member:
+- `dependent-consumers`: retained consumers block their producers. The retained `bootstrap-stamp` ConfigMap consumes every cloud member; the retained host system consumes the VM; Pulumi ordering makes even `nagare-apex` depend on the VM and firewalls.
+- `exact-incarnation-not-present`: observation was `unknown`, so the gc assessment also lacks a Pulumi observer for retained cloud members.
+
+Kubernetes members can be collected one review at a time, but host and artifact members have no collection at all. So the VM, image and buckets they consume never become eligible. A full context still cannot be torn down through reviews; it needs a way to collect a VM's workloads along with it (operator decision pending). Independent review is also needed.
 

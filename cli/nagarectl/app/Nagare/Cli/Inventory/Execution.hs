@@ -9,7 +9,7 @@ import Control.Monad (forM, forM_)
 import Data.Generics.Labels ()
 import Data.List.NonEmpty qualified as NE
 import Data.Map qualified as Map
-import Data.Maybe (catMaybes)
+import Data.Maybe (catMaybes, maybeToList)
 import Data.Set qualified as Set
 import Data.Text qualified as T
 import Nagare.Cli.Inventory.Adapters
@@ -230,12 +230,20 @@ inventoryExecutionRegistry mctx store bundle = do
           )
       pulumiScopes = scopes <> cloudHistoricalScopes cloudHistory
   allRegistrations <- either dieT pure (InventoryCloud.registrationsFromDeclarations cloudDeclarations)
-  let registrations =
+  -- A cloud scope retirement has no operations, yet admission must reverify
+  -- every retained cloud member through the Pulumi observer (F40).
+  let cloudRetained =
+        Map.keysSet
+          ( Map.filter
+              ((\owner -> Resource.scopeKind owner == Resource.Platform && Resource.nameText (Resource.scopeName owner) == "cloud") . InventoryPlan.retentionOwner)
+              (InventoryPlan.reviewRetentions document)
+          )
+      registrations =
         filter
           ( \registration ->
               Set.member
                 (InventoryCloud.registrationResource registration)
-                (selected ResourceInventory.PulumiExecutor)
+                (selected ResourceInventory.PulumiExecutor `Set.union` cloudRetained)
           )
           allRegistrations
   allArtifactSpecs <- either dieT pure (InventoryArtifact.artifactExecutionSpecsFromDeclarations declarations)
@@ -365,23 +373,46 @@ inventoryExecutionRegistry mctx store bundle = do
         (Map.toAscList reviewedKubernetesSpecs)
     )
     (dieT "manual data source native evidence differs from the saved review")
+  -- Host and artifact members are retained as history only. They have no
+  -- stored native bytes; the accepted-manifest observer reverifies them (F40).
+  retainedHistory <-
+    if Map.null (InventoryPlan.reviewRetentions document)
+      then pure Nothing
+      else Just <$> (InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure)
+  let historicalExecutors =
+        Map.fromList
+          [ (resource ^. #identity, resource ^. #executor)
+          | history <- maybeToList retainedHistory
+          , ResourceInventory.Managed resource <- InventoryPlan.historyDeclarations history
+          ]
+      retainedOnlyOf executor =
+        Set.filter
+          ((== Just executor) . (`Map.lookup` historicalExecutors))
+          (Map.keysSet (InventoryPlan.reviewRetentions document))
+      retainedHosts = retainedOnlyOf ResourceInventory.HostExecutor
+      retainedArtifacts = retainedOnlyOf ResourceInventory.ArtifactExecutor
+      manifestObserver executor retained = case retainedHistory of
+        Just history | not (Set.null retained) -> Inventory.manifestAdapterFor history executor
+        _ -> Inventory.executionBlockedAdapterFor executor
   let retiredIds =
         ( Map.keysSet (InventoryPlan.reviewRetentions document)
             `Set.union` Map.keysSet (InventoryPlan.reviewCollections document)
         )
           `Set.difference` Map.keysSet historicalCdn
           `Set.difference` Map.keysSet (cloudHistoricalMembers cloudHistory)
+          `Set.difference` Set.union retainedHosts retainedArtifacts
       binding = InventoryPlan.reviewContextBinding document
       activeExecutors =
         Set.fromList
           [InventoryAdapter.plannedExecutor operation | operation <- operations]
       selectedInfra =
-        any
-          (`Set.member` activeExecutors)
-          [ ResourceInventory.PulumiExecutor
-          , ResourceInventory.ArtifactExecutor
-          , ResourceInventory.HostExecutor
-          ]
+        not (Set.null cloudRetained)
+          || any
+            (`Set.member` activeExecutors)
+            [ ResourceInventory.PulumiExecutor
+            , ResourceInventory.ArtifactExecutor
+            , ResourceInventory.HostExecutor
+            ]
   (retiringKubernetesSpecs, retiringHelmSpecs) <-
     if Set.null retiredIds
       then pure (Map.empty, Map.empty)
@@ -424,7 +455,7 @@ inventoryExecutionRegistry mctx store bundle = do
         Map.restrictKeys
           (Map.union helmSpecs retiringHelmSpecs)
           (selected ResourceInventory.HelmExecutor `Set.union` Map.keysSet retiringHelmSpecs)
-  if null registrations && Set.null (selected ResourceInventory.CloudFoundationExecutor) && Set.null (selected ResourceInventory.AccessExecutor) && Map.null artifactSpecs && isNothing hostInputs && Map.null kubernetesSpecs && Map.null cacheSpecs && Map.null topicSpecs && Map.null dnsSpecs && Map.null cloudflareSpecs && Map.null allHelmSpecs
+  if null registrations && Set.null retainedHosts && Set.null retainedArtifacts && Set.null (selected ResourceInventory.CloudFoundationExecutor) && Set.null (selected ResourceInventory.AccessExecutor) && Map.null artifactSpecs && isNothing hostInputs && Map.null kubernetesSpecs && Map.null cacheSpecs && Map.null topicSpecs && Map.null dnsSpecs && Map.null cloudflareSpecs && Map.null allHelmSpecs
     then either dieT pure (InventoryAdapter.mkAdapterRegistry (map Inventory.executionBlockedAdapterFor [ResourceInventory.KubernetesExecutor, ResourceInventory.PulumiExecutor, ResourceInventory.CloudFoundationExecutor, ResourceInventory.HostExecutor, ResourceInventory.ArtifactExecutor, ResourceInventory.CacheExecutor, ResourceInventory.BrokerExecutor, ResourceInventory.HelmExecutor, ResourceInventory.CdnExecutor, ResourceInventory.AccessExecutor]))
     else do
       let needsWorkspace =
@@ -490,11 +521,11 @@ inventoryExecutionRegistry mctx store bundle = do
               )
       artifact <-
         if Map.null artifactSpecs
-          then pure (Inventory.executionBlockedAdapterFor ResourceInventory.ArtifactExecutor)
+          then pure (manifestObserver ResourceInventory.ArtifactExecutor retainedArtifacts)
           else withWorkspace (\root -> inventoryArtifactAdapter active root artifactSpecs)
       host <-
         maybe
-          (pure (Inventory.executionBlockedAdapterFor ResourceInventory.HostExecutor))
+          (pure (manifestObserver ResourceInventory.HostExecutor retainedHosts))
           (\inputs -> withWorkspace (\root -> inventoryHostAdapter active root False scopes inputs))
           hostInputs
       (cache, cacheKey) <-

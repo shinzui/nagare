@@ -61,9 +61,11 @@ import Nagare.Resource.Inventory
   ( CompositionCandidate
   , Declaration (Managed)
   , Executor
-    ( BrokerExecutor
+    ( ArtifactExecutor
+    , BrokerExecutor
     , CdnExecutor
     , HelmExecutor
+    , HostExecutor
     , KubernetesExecutor
     , PulumiExecutor
     )
@@ -327,6 +329,9 @@ validateLifecycleDecisions candidate history observations proposals =
                 | Just (ObservedPresent _) <- fact
                 , retirementSelected resource
                 , ( old ^. #executor `elem` [KubernetesExecutor, HelmExecutor, BrokerExecutor, CdnExecutor]
+                      -- Host systems and artifacts (kubeconfig, images) are retained as
+                      -- history only; no reviewed collection deletes them (F40).
+                      || old ^. #executor `elem` [HostExecutor, ArtifactExecutor]
                       || ( old ^. #executor == PulumiExecutor
                              && scopeKind (old ^. #owner) == Platform
                              && nameText (scopeName (old ^. #owner)) == "cloud"
@@ -334,7 +339,7 @@ validateLifecycleDecisions candidate history observations proposals =
                   )
                 , Map.notMember resource (headRetained (historyHead history)) ->
                     []
-              _ -> issue "invalid-retirement" "retention needs a selected scope replacement or retirement that removes an owned present Kubernetes, Helm, broker topic, CDN, or platform cloud declaration"
+              _ -> issue "invalid-retirement" "retention needs a selected scope replacement or retirement that removes an owned present Kubernetes, Helm, broker topic, CDN, host, artifact, or platform cloud declaration"
             ApproveCollection -> case (Map.lookup resource desired, Map.lookup resource (historyRetained history), fact) of
               (Nothing, Just (incarnation, old), Just (ObservedPresent physical))
                 | CollectRetained resource `elem` NE.toList (candidateChanges candidate)

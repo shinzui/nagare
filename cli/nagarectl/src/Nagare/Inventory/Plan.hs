@@ -27,6 +27,7 @@ module Nagare.Inventory.Plan
   , combineDecisions
   , PlanError (..)
   , ChangeProposal
+  , historyDeclarations
   , proposalOperations
   , proposalDesired
   , candidateDesiredRevisions
@@ -110,6 +111,7 @@ import Nagare.Inventory.Plan.Types
   , ReviewOperation (..)
   , ReviewedPlan (..)
   , encodeReviewDocument
+  , historyDeclarations
   , historyReservations
   , reviewBundleDocument
   , reviewBundleFenceRecord
