@@ -54,8 +54,9 @@ Implementation owner: existing session `01a0e893-337f-7b82-ac5d-16f41bf5ce21` (I
 | [F24](#f24) | P1 | Host image planning can start a stopped builder | Closed | EP-153 / EP-154 |
 | [F25](#f25) | P2 | Reviewed context control rejects supported builder transport inputs | Closed | EP-153 |
 | [F26](#f26) | P1 | Removed GCS context cannot restore its retained authority | Closed | EP-153 |
-| [F27](#f27) | P1 | Credential streaming loses argument boundaries at the real SSH transport | Verifying | EP-153 / EP-154 |
+| [F27](#f27) | P1 | Credential streaming loses argument boundaries at the real SSH transport | Closed | EP-153 / EP-154 |
 | [F28](#f28) | P1 | Release cleanup omits native evidence for adjacent scope members | Closed | EP-153 |
+| [F29](#f29) | P1 | Admitted preview route failure lacks a bounded configuration correction | Closed | EP-153 |
 
 F01 and F11 retain their [earlier independent closure](mp23-verification.md). F02, F03, F04, F05, F06, F07, F08 and F20 now have [2026-10-02 independent closure](mp23-independent-verification-2026-10-02.md). Other entries retain their status shown above.
 
@@ -746,7 +747,7 @@ binding remains a separate release gate.
 
 ## F27
 
-**Credential streaming loses argument boundaries at the real SSH transport** — P1; **Verifying**; owners EP-153 / EP-154.
+**Credential streaming loses argument boundaries at the real SSH transport** — P1; **Closed**; owners EP-153 / EP-154.
 
 **Independent installed native evidence (2026-10-02):** Fresh immutable `3905012e`
 bootstrap successfully creates the isolated image and VM, then the original
@@ -774,6 +775,16 @@ prepare, inspect and activate before target sourcing or provider access.
 Installed 762 passes the cp3 gate. Native credential acceptance remains pending
 on the new isolated `mp23-host-fixed` fixture; F27 remains Verifying.
 
+**Independent installed native closure (2026-10-02):** A new isolated fixture
+built and booted the immutable 762 payload, preserving the failed 390 fixture.
+The original receipt-required review then converged through the real IAP/SSH
+sender in 113.582 seconds. Both exact plan-bound receipts match the fresh key;
+read-only native verification proves root-owned mode 0400 and active SOPS,
+Tailscale, k3s and registry pull-Secret timer. All five accepted scopes converge
+at generation 47/sequence 32 with no active transaction. The single-use auth
+input was consumed only by this corrected host. [Installed native proof](mp23-independent-results-2026-10-02/host-fixed-762657ed-native-credential-f27.json).
+This closes F27; automatic credential-expiry/re-pull acceptance remains F15.
+
 ## F28
 
 **Release cleanup omits native evidence for adjacent scope members** — P1; **Closed**; owner EP-153.
@@ -799,3 +810,37 @@ ConfigMaps, and all 29 unselected scope revisions. Completed transaction resume
 adds no provider effect; a fresh public cleanup review has zero operations and
 applies successfully with exact native bytes preserved. [Native closure proof](mp23-independent-results-2026-10-02/release-cleanup-native-f28-fixed.json)
 binds the frozen executable; final immutable release binding remains separate.
+
+## F29
+
+**Admitted preview route failure lacks a bounded configuration correction** — P1; **Closed**; owner EP-153.
+
+**Independent native evidence (2026-10-02):** The disposable typed preview
+fixture accidentally uses the Service's automatic hostname as its DomainMapping
+alias. Its Service becomes Ready and durable PVC becomes Bound, but the route
+reports DomainConflict and its create transaction stops Ambiguous. The existing
+stop-incomplete-application proof only supports an Application scope with a
+failing Service create. It cannot safely release this exact standalone preview
+route for correction. This begins with an independent fixture-input mistake,
+not a defect in route rendering; the missing bounded recovery path affects the
+new supported preview lifecycle. [Exact diagnostic proof](mp23-independent-results-2026-10-02/preview-domainmapping-correction-f29.json).
+
+**Required repair/verification:** Validate the complete original preview contract,
+one owned stateless DomainMapping create and settled companion effects before
+allowing a stop without convergence. Preserve original accepted ownership and
+all durable data. Independently correct only the Service visibility label through
+a new conditional inventory review, leaving route/PVC identities, bytes and
+dependencies unchanged; resume ordinary native preview cleanup afterward.
+No generic arbitrary abandonment, raw provider patch or history reset is allowed.
+
+**Independent native closure (2026-10-02):** Source b805d64a was frozen and
+executed against the exact original transaction. Its bounded stop preserved both
+accepted and converged vectors without asserting convergence. The subsequent
+review changed only the Service visibility label, with route and volume Verify
+operations. Both Service and DomainMapping became Ready while retaining their
+UIDs; the durable PVC UID and known file contents stayed unchanged. All 30
+unselected scope revisions remained exact, and all 31 scopes converged. Public
+preview cleanup then resumed successfully with a zero-provider-operation
+retirement review retaining all three native objects. The linked diagnostic proof
+now includes the repair executable hash and exact correction review. Final
+immutable release binding remains a separate acceptance gate.

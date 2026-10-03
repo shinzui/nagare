@@ -1,0 +1,47 @@
+{
+  "finding": "F29",
+  "sourceRevision": "def531689db2f98ab4dbd9b007e391ff75880c9c",
+  "binarySha256": "064e37a604313ca0ab1e94fc6dc9075d9103d53f5abcd4711cf49b3c158af6c6",
+  "scope": "standalone:site-preview-mp23-cleanup-pr-review",
+  "reviewDigest": "740f400341b73495a4fe1bef1a6673bc32e4566bd2b9b2448cc19cafdb4cb1d0",
+  "activeTransaction": "tx-740f400341b73495a4fe1bef1a6673bc32e4566bd2b9b2448cc19cafdb4cb1d0",
+  "ambiguousOperation": "op-7523015a8345697415eb378c",
+  "operatorFixtureError": "DomainMapping alias equals automatic Service public hostname, causing DomainConflict",
+  "nativeServiceReady": true,
+  "nativePvcBound": true,
+  "nativePvcUid": "c9422943-0b39-4eb3-80b0-4a165a559c62",
+  "knownContentVerified": true,
+  "claimReleased": true,
+  "supportedExistingStopRefusesByDesign": "Only Application scope with failing Knative Service Create; no Standalone preview DomainMapping support",
+  "noRawMutationOrHistoryReset": true,
+  "plannedCorrection": "Retain exact full preview contract and failed owned route create proof; stop without convergence, then reviewed conditional Service cluster-local label update; preserve route/PVC identity/dependencies/bytes",
+  "repairProof": {
+    "sourceRevision": "b805d64a6dd90b54f5404bc0578361e540bbaa16",
+    "frozenBinarySha256": "097ae04358b65ff5f4bf0459c58224851a2e01e9b54723259a59967a8f4cfb1f",
+    "originalTransactionPublicRecoverySucceeded": true,
+    "stoppedHead": {
+      "generation": 8776,
+      "sequence": 8699,
+      "activeTransaction": null
+    },
+    "acceptedAndConvergedEachUnchangedByStop": true,
+    "correctionReviewDigest": "97ce2d76a842c56b0b04c702bde3a8cce1b1f42c32c03dd6b4e05fe14b99181a",
+    "onlyMutation": "conditional Service metadata visibility label update to cluster-local",
+    "routeAndVolumeVerifyOnly": true,
+    "other30ScopeRevisionsUnchanged": true,
+    "serviceUidPreserved": true,
+    "routeUidPreserved": true,
+    "pvcUidPreserved": true,
+    "knownContentsPreserved": true,
+    "serviceReady": true,
+    "routeReady": true,
+    "convergedHead": {
+      "generation": 8786,
+      "sequence": 8707,
+      "activeTransaction": null
+    },
+    "focusedExactPreviewStopRegressionPassed": true,
+    "immutableReleaseBindingPending": true,
+    "subsequentLifecycleProof": "preview-cleanup-native-b805d64a.json"
+  }
+}

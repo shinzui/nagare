@@ -1,0 +1,76 @@
+{
+  "candidate": "762657ed1925e630d83c09defd351bd6e7a854a8",
+  "immutableInstalledVersionVerified": true,
+  "sourceBoundNotImmutableInstalled": false,
+  "operationalInputUpdateAndReturn": true,
+  "transportFieldsPreserved": [
+    "NAGARE_BUILDER_INSTANCE",
+    "NAGARE_BUILDER_PROJECT",
+    "NAGARE_BUILDER_ZONE",
+    "NIX_BUILDER_HOST_KEY_B64",
+    "NIX_BUILDER_SSH_KEY"
+  ],
+  "localProfileValuesReturnedToOriginal": true,
+  "restoredLocalProfileSha256": "ee45415b9fa8852dcbe8f702ce9fe6614ea57bd3cde05ed85077690796be9e60",
+  "boundary": "isolated new operator root with copied nonsecret profile and real accepted GCS authority; original operator root untouched",
+  "context": {
+    "identity": "ep150-preview",
+    "project": "tan-ng-labs"
+  },
+  "reviewDigest": "ca8a483a6341c72b2eb98797e20fd7aed839f734367ca844f7d1fc76d5a23f57",
+  "profileSha256": "def842f39d5f1ba0297abe005fdbaab8d41858f46a940c57d6593041825bfdec",
+  "originalProfileBytesPreserved": true,
+  "remoteHeadExact": true,
+  "remoteHeadSha256": "9a7e39af6fea5ee396075906a089c33662b4d175d549dea24b72813f8622eacb",
+  "head": {
+    "generation": 1006,
+    "sequence": 836,
+    "activeTransaction": null,
+    "executorClaim": null
+  },
+  "removalRetainedAuthorityAndBlockedReuse": true,
+  "restoreExactBytes": true,
+  "completedRemovalReplayPreservedRestoredProfile": true,
+  "timings": {
+    "prepare-update": {
+      "exit": 0,
+      "seconds": 5.368
+    },
+    "apply-update": {
+      "exit": 0,
+      "seconds": 4.038
+    },
+    "prepare-update-back": {
+      "exit": 0,
+      "seconds": 5.341
+    },
+    "apply-update-back": {
+      "exit": 0,
+      "seconds": 5.249
+    },
+    "prepare-removal": {
+      "exit": 0,
+      "seconds": 4.077
+    },
+    "remove": {
+      "exit": 0,
+      "seconds": 4.273
+    },
+    "refuse-reuse": {
+      "exit": 1,
+      "seconds": 0.073
+    },
+    "restore": {
+      "exit": 0,
+      "seconds": 2.362
+    },
+    "replay-remove": {
+      "exit": 0,
+      "seconds": 0.075
+    },
+    "replay-restore": {
+      "exit": 0,
+      "seconds": 0.072
+    }
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "protectedObjectsPreserved": 48,
+  "durablePvcUid": "c9422943-0b39-4eb3-80b0-4a165a559c62",
+  "knownContentsPreservedAfterServiceCollection": true,
+  "all30UnselectedScopeRevisionsUnchanged": true,
+  "retainedDurableMembers": 1,
+  "collectedStatelessMembers": 2,
+  "repeatCleanupCreatesNoReview": true,
+  "controllerBoundaryLimit": "One uninventoried ownerless Endpoints sharing a reviewed descendant Service name also disappeared; no atomic namespace UID boundary claim.",
+  "sourceRevision": "b805d64a6dd90b54f5404bc0578361e540bbaa16",
+  "frozenBinarySha256": "097ae04358b65ff5f4bf0459c58224851a2e01e9b54723259a59967a8f4cfb1f",
+  "fixtureScope": "standalone:site-preview-mp23-cleanup-pr-review",
+  "disposableLocalRuntime": "nagare-mp23-cp3",
+  "retirementProviderOperations": 0,
+  "retirementNativeIdentitiesUnchanged": true,
+  "serviceCollectionObservedDescendants": 17,
+  "serviceCollectionWait": "Original transaction remained ambiguous while one reviewed Pod completed its declared300s normal termination grace; original resume converged afterward",
+  "noForcedDeletionOrHistoryReset": true,
+  "terminalResumeSucceeded": true,
+  "immutableReleaseBindingPending": true,
+  "reviewDigests": {
+    "retire-review": "658c8fd41d81646944abf776a10a04240065843d2923fea573f7621c84acd65c",
+    "collect-route-review": "faf69cf36153c412193bc8b9f872bffc0a57d238d8ac6cd85bfeca50756cab33",
+    "collect-service-review": "76c44c3c98c5f3e74346d60ac2cf5efe3b439b7e534e136d558ab6a902a07ddc"
+  },
+  "finalHead": {
+    "generation": 8807,
+    "sequence": 8718,
+    "activeTransaction": null,
+    "executorClaim": null
+  }
+}
