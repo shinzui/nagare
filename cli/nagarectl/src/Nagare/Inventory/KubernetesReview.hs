@@ -15,6 +15,7 @@ import Data.Text.Encoding qualified as TE
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes
+import Nagare.Inventory.Adapters.KubernetesMigration (migrationDestinationMember)
 import Nagare.Inventory.BackendMap (renderBackendMapNative, renderShomeiSettingsNative)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
@@ -77,16 +78,25 @@ kubernetesSpecsFromReview bundle = do
           Right
           (Map.lookup memberDigest (reviewBundleNative bundle))
       unless (contentDigest bytes == memberDigest) (Left "reviewed Kubernetes native member digest differs")
-      mutation <- first T.pack (eitherDecodeStrict bytes)
-      unless
-        ( mutationOperation mutation == plannedOperationId operation
-            && mutationResource mutation == resource
-            && mutationAction mutation == plannedAction operation
-            && mutationInputDigest mutation == plannedInputDigest operation
-            && mutationAddress mutation == address declaration
-        )
-        (Left "reviewed Kubernetes mutation differs from its operation")
-      native <- unstampNative context resource (mutationNativeDigest mutation) (mutationNativeJson mutation)
+      (nativeDigest, nativeJson) <- case plannedAction operation of
+        -- A migration stage carries the stamped destination object inside
+        -- its rename bundle, bound to the same reviewed operation.
+        MigrateResource _ -> do
+          (target, digest, json) <- migrationDestinationMember operation bytes
+          unless (target == address declaration) (Left "reviewed migration destination differs from its declaration")
+          pure (digest, json)
+        _ -> do
+          mutation <- first T.pack (eitherDecodeStrict bytes)
+          unless
+            ( mutationOperation mutation == plannedOperationId operation
+                && mutationResource mutation == resource
+                && mutationAction mutation == plannedAction operation
+                && mutationInputDigest mutation == plannedInputDigest operation
+                && mutationAddress mutation == address declaration
+            )
+            (Left "reviewed Kubernetes mutation differs from its operation")
+          pure (mutationNativeDigest mutation, mutationNativeJson mutation)
+      native <- unstampNative context resource nativeDigest nativeJson
       value <- first T.pack (eitherDecodeStrict native)
       cluster <- case address declaration of
         Kubernetes target _ _ _ _ -> Right target
@@ -99,7 +109,7 @@ kubernetesSpecsFromReview bundle = do
               , ownerScope = declaration ^. #owner
               , clusterId = cluster
               , inputObject = value
-              , objectDigest = mutationNativeDigest mutation
+              , objectDigest = nativeDigest
               , lifecyclePolicy = declaration ^. #lifecycle
               , inputDataPolicy = declaration ^. #dataPolicy
               , inputSensitivity = declaration ^. #sensitivity

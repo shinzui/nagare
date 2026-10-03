@@ -9,6 +9,7 @@ module Nagare.Inventory.Adapters.KubernetesMigration
   ( MigrationPlanning (..)
   , kubernetesMigrationAdapter
   , renameProposal
+  , migrationDestinationMember
   )
 where
 
@@ -608,6 +609,13 @@ renameProposal candidate context owner observations = do
         _ -> Left "rename destination address is not confirmed absent"
       contract <- renameContract facts source
       pure (MigrationTarget resourceId (source ^. #address) physical (destination ^. #address) absence contract)
+
+-- | The stamped destination object a reviewed migration stage will create,
+-- for execution to rebuild its native bindings from the saved review.
+migrationDestinationMember :: PlannedOperation -> ByteString -> Either Text (ProviderAddress, ContentDigest, Text)
+migrationDestinationMember planned bytes = do
+  bundle <- decodeBundle planned (PreparedNative bytes "")
+  pure (bundle ^. #destinationAddress, bundle ^. #destinationDigest, bundle ^. #destinationNative)
 
 decodeBundle :: PlannedOperation -> PreparedNative -> Either Text Bundle
 decodeBundle planned prepared = do

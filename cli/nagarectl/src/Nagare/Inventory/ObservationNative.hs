@@ -12,7 +12,8 @@ module Nagare.Inventory.ObservationNative
   )
 where
 
-import Data.Aeson (eitherDecodeStrict')
+import Data.Aeson (Value (..), eitherDecodeStrict')
+import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
 import Data.List.NonEmpty qualified as NE
@@ -28,6 +29,7 @@ import Nagare.Inventory.Adapters.Kubernetes
 import Nagare.Inventory.BackendMap
 import Nagare.Inventory.Components.Foundation (compileContributedNamespaces)
 import Nagare.Inventory.Digest (contentDigest)
+import Nagare.Inventory.Journal (operationIdText)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.Store
 import Nagare.Resource.Inventory
@@ -51,9 +53,32 @@ observationBytesFromMutation ::
   ByteString ->
   Either Text (Maybe ByteString)
 observationBytesFromMutation context identity version operation bytes
-  -- A reviewed migration stage carries a rename bundle, not one observed
-  -- object; its source and destination are bound by the stage digest.
-  | MigrateResource _ <- plannedAction operation = Right Nothing
+  -- A reviewed migration stage carries a rename bundle. Its observation
+  -- member is the destination object the stage creates, bound to the same
+  -- operation, resource and stage digest.
+  | MigrateResource _ <- plannedAction operation
+  , identity == "kubernetes-conditional-object" && version == "1" = do
+      value <- first T.pack (eitherDecodeStrict' bytes)
+      let field key = case value of
+            Object root -> KM.lookup key root
+            _ -> Nothing
+          text key = case field key of
+            Just (String found) -> Right found
+            _ -> Left "migration bundle lacks a destination member"
+      format <- text "format"
+      unless (format == "kubernetes-postgres-rename-v1") (Left "unsupported migration bundle format")
+      resource <- text "resource" >>= mkResourceId
+      digest <- text "destinationDigest" >>= mkContentDigest
+      native <- text "destinationNative"
+      reviewedOperation <- text "operation"
+      reviewedInput <- text "inputDigest"
+      unless
+        ( [resource] == NE.toList (plannedResources operation)
+            && reviewedOperation == operationIdText (plannedOperationId operation)
+            && reviewedInput == digestText (plannedInputDigest operation)
+        )
+        (Left "observation migration bundle differs from reviewed operation")
+      Just <$> unstampNative context resource digest native
   | identity == "kubernetes-conditional-object" && version == "1" = do
       mutation <- first T.pack (eitherDecodeStrict' bytes)
       unless

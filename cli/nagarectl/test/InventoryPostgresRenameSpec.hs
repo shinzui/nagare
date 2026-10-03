@@ -33,10 +33,12 @@ import Nagare.Inventory.Database (DatabaseBackupTarget (DatabaseBackupTarget))
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Execute (TransactionResult (..), applyReviewed, resumeTransaction)
 import Nagare.Inventory.Journal (OperationId, mkOperationId)
+import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
 import Nagare.Inventory.KubernetesTransport
 import Nagare.Inventory.Migration (decideMigration)
 import Nagare.Inventory.Migration.PostgresRename
 import Nagare.Inventory.Migration.Types (migrationPoliciesCompatible)
+import Nagare.Inventory.ObservationNative (loadObservationNative, observationKubernetes)
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Store
 import Nagare.Resource.Database (DatabaseDirectInput (..))
@@ -146,6 +148,12 @@ inventoryPostgresRenameTests =
             "retained incarnations keep their reviewed physical identities"
             (all (\(identity, incarnation) -> physicalIdentityText (retainedPhysical incarnation) == uidFor identity) (Map.toList (headRetained headAfter)))
           assertBool "every retained incarnation names its migration review" (all (isJust . retainedMigrationReview) (Map.elems (headRetained headAfter)))
+          -- Status and later planning read accepted members from observation
+          -- evidence published with the review, not from the private bundle.
+          observed <- loadObservationNative store (map fst (Map.elems newNative))
+          case observed of
+            Right native -> Map.map snd (observationKubernetes native) @?= Map.map snd newNative
+            Left reason -> assertFailure ("renamed members lack observation evidence: " <> T.unpack reason)
     , testCase "a lost transfer acknowledgement resumes without a second copy" $
         withSystemTempDirectory "postgres-rename-loss" $ \root -> do
           (store, world, reviewed, executionRegistry') <- plannedRename root
@@ -478,6 +486,9 @@ plannedRename root = do
     @?= 8 * Map.size newNative
   snapshotBefore <- must (readStoreSnapshot store)
   bundle <- expectRight' =<< prepareReview destinationRegistry snapshotBefore proposal
+  -- The CLI execution factory rebuilds native bindings from the saved review.
+  rebuilt <- expectRight (kubernetesSpecsFromReview bundle)
+  Map.map snd rebuilt @?= Map.map snd newNative
   _ <- must (publishReview store bundle)
   published <- must (readStoreSnapshot store)
   reviewed <- expectRight (verifyReview published bundle)
