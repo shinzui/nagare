@@ -112,6 +112,11 @@ provenance:
       at: 2026-10-03T04:05:29Z
       mode: "implement"
       note: "A6 style gate green; F33 and F32 source fixes; A4 resume refused by F34"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-03T17:30:19Z
+      mode: "implement"
+      note: "F35 reviewed exit for refused preflight after admission, with native cp3 proof"
 ---
 
 # Close managed command coverage for the inventory release
@@ -141,6 +146,7 @@ Full dated history is in [the snapshot](../audits/mp23-archive/plan-history/ep15
 - [ ] (MP-23 A2) F32 closed: `cleanup --images` (`cb782ad8`) protects image IDs referenced by Ready and retained sandboxes and the configured sandbox image, fails closed when sandbox observations are missing or ambiguous, and a fresh installed native review excludes those images while deleting an ordinary unused image. The unsafe saved review in [the F32 evidence](../audits/mp23-independent-results-2026-10-02/image-prune-sandbox-f32.json) is never applied. Source complete (2026-10-02, `c2dc2bb1`): sandbox (`crictl pods`/`inspectp .info.image`) and configured sandbox images are protected and fail closed. `scripts/test-image-prune-protocol.py` passes 23 cases, and the new cases fail on the old script. The installed native review and independent closure remain.
 - [ ] (MP-23 A4, with EP-156) The interrupted F30 correction transaction reaches a terminal state through the public `inventory resume` path, with the same Service, PostgreSQL and PVC identities and the known row intact; F30 and F16 are then independently verified. Blocked (2026-10-02): the public resume with the admitting binary refused in 3 s as `ambiguous … at op-fed6a9432af7669b7446f230` with no effect, because Kourier on cp3 rejects every gateway snapshot ([F34](../audits/mp23-findings.md#f34)). The transaction stays preserved; repair F34 under a written recovery step first. Terminal (2026-10-02, implementer): after the F34 fix (`beca6886`) and the gated cp3 repair, the same public resume converged in 3 s. Identities and the known row are unchanged, and an unchanged replan has zero operations (tracker F30). Independent F30/F16 verification remains.
 - [x] (MP-23 A6) `just haskell-style-check` (structural checks, Fourmolu over every tracked `cli/**/*.hs` file, Cabal Gild) passes (2026-10-02). Formatting-only commit `d4aa7168` reformatted 167 files and rebased `scripts/haskell-size-allowances.json` on formatted line counts. The gate exits 0 on that tree and on every later commit this session; all 1,129 `nagarectl` and the `nagare-dsl` tests pass, and `nagare-access` builds.
+- [ ] F35 closed: an admitted transaction stopped by a later operation's refused preflight has a reviewed exit. Source and native implementer proof (2026-10-03, `570467f0`): new decision `abandon-refused-operation`, four regression variants, and a native cp3 race that ended without deleting the foreign object (tracker F35). Independent verification remains.
 - [ ] (MP-23 B4) The `Cleanup` and `InfraDestroy` routes and the `infra-destroy`, `smoke` and `local-smoke` recipes are promoted from `pending` with public review → apply → observe/recover proof; each of the 26 gap rows (`partial` or `adapter-ready`) in `docs/architecture/managed-resource-coverage.md` is migrated or an explicit guarded exclusion; the audit emits `complete: true` for the candidate revision for EP-157 (MP-23 C5).
 
 

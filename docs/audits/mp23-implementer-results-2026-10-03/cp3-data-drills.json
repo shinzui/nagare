@@ -108,5 +108,35 @@
   "notRun": {
     "B2-tamper-volume": "volume restores pin no object version and check bytes only inside the restore Job, after the scratch PVC is created; a native drill would end in abandon-partial-volume-restore with an unresolved PVC (see EP-160 Surprises)",
     "B1-source-replacement": "no supported reviewed operation replaces a database StatefulSet under the same name; an out-of-band replacement would break the fixture database without a repair path (see EP-159)"
+  },
+  "f35FixNativeRerun": {
+    "sourceRevision": "570467f0",
+    "binary": "development cabal build",
+    "claim": "taken 2026-10-03T17:29:02Z by nagare-f3, released with the store idle at generation 9569",
+    "plan": {
+      "restoreId": "f3abandon",
+      "exit": 0
+    },
+    "foreignObject": "unowned PVC uid be75172b-c54a-49b2-8803-1b0264fcd560 created after planning",
+    "apply": {
+      "exit": 1,
+      "output": "stopped tx-4d66348e162eaab18e1a803405f35fcc9235d50260d865d70479f2e4626b2ef1 at op-148299d7ab451ebb4664ced7: KnownNoEffect \"adapter preflight refused\"",
+      "effects": "none; the refused PVC operation was the first operation in this review"
+    },
+    "recover": {
+      "action": "abandon-refused-operation",
+      "exit": 0,
+      "output": "Refused operation abandoned and its review ended without convergence; completed earlier effects remain unaccepted; inspect inventory status before saving a new review"
+    },
+    "after": {
+      "activeTransaction": null,
+      "executorClaim": null,
+      "foreignPvcUidUnchanged": true,
+      "newRestorePlan": {
+        "restoreId": "f3after",
+        "exit": 0
+      }
+    },
+    "cleanup": "foreign PVC deleted after UID check"
   }
 }
