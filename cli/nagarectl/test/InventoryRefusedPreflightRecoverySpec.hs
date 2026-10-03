@@ -1,6 +1,8 @@
 -- | F35: an admitted transaction stopped by a later operation's refused
 -- preflight gets a reviewed exit that does not require deleting the object
--- that caused the refusal.
+-- that caused the refusal. An operation the adapter journalled as failed with
+-- no effect at execute time is abandoned on that journal proof, even while its
+-- preflight passes.
 module InventoryRefusedPreflightRecoverySpec (inventoryRefusedPreflightRecoveryTests) where
 
 import Data.Either (isLeft)
@@ -25,7 +27,7 @@ import Nagare.Resource.Types
 import Test.Tasty
 import Test.Tasty.HUnit
 
-data Variant = ForeignStillPresent | ForeignRemoved | CompletedOperation | EarlierUncertain
+data Variant = ForeignStillPresent | ForeignRemoved | CompletedOperation | EarlierUncertain | ExecuteRefusal
   deriving stock (Eq, Show)
 
 inventoryRefusedPreflightRecoveryTests :: TestTree
@@ -33,7 +35,7 @@ inventoryRefusedPreflightRecoveryTests =
   testGroup
     "refused preflight after admission (F35)"
     [ testCase (show variant) (scenario variant)
-    | variant <- [ForeignStillPresent, ForeignRemoved, CompletedOperation, EarlierUncertain]
+    | variant <- [ForeignStillPresent, ForeignRemoved, CompletedOperation, EarlierUncertain, ExecuteRefusal]
     ]
 
 scenario :: Variant -> IO ()
@@ -53,13 +55,20 @@ scenario variant = do
         recordingRegistryWith
           ( \operation _ -> do
               present <- readIORef foreignPresent
-              pure (if touches secondId operation && present then Left "object changed since review" else Right ())
+              pure
+                ( if touches secondId operation && present && variant /= ExecuteRefusal
+                    then Left "object changed since review"
+                    else Right ()
+                )
           )
           ( \operation _ ->
               pure
                 ( if variant == EarlierUncertain && not (touches secondId operation)
                     then AdapterEffectAmbiguous "lost acknowledgement"
-                    else AdapterEffectCompleted
+                    else
+                      if variant == ExecuteRefusal && touches secondId operation
+                        then AdapterEffectFailed (KnownNoEffect "fields managed by another writer")
+                        else AdapterEffectCompleted
                 )
           )
           (\_ _ -> pure (RecoveryUnresolved "no proof"))
@@ -97,7 +106,7 @@ scenario variant = do
   after <- readHead store >>= expectRight >>= maybe (assertFailure "head missing" >> undefined) pure
   headConverged after @?= headConverged before
   case variant of
-    ForeignStillPresent -> do
+    _ | variant `elem` [ForeignStillPresent, ExecuteRefusal] -> do
       void (expectRight recovered)
       -- Like other abandonments, the never-converged review loses acceptance.
       headAccepted after @?= headConverged before

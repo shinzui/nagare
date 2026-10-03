@@ -164,6 +164,14 @@ scope returns to its last converged revision and its partial objects remain
 unresolved until a separate reviewed recovery. Save a new review, for example
 with a fresh restore ID, rather than replaying the old one (finding F35).
 
+The same decision ends an operation whose execution stopped with `KnownNoEffect`
+after its intent was recorded, for example a Kubernetes update refused because
+another field manager owns some of the object's fields. The adapter already
+journalled that no effect occurred, so no fresh preflight refusal is required;
+the preflight may pass while execution keeps refusing. The other conditions still
+apply: no active data fence, and no other operation in an uncertain state
+(finding F37).
+
 If recovery also needs takeover, add `--take-over` after establishing that the
 original executor stopped. Supported terminal scratch-restore abandonment leaves
 the partial scratch database/PVC available for a separate reviewed recovery; it

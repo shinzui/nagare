@@ -120,6 +120,10 @@ The release gate requires exact check names in `local-health.json`; a producer t
 2026-10-03: `scripts/check-haskell-architecture.py` already failed at the handoff commit for `Target.hs`, `AppDeploySpec.hs`, `InventoryApplicationSpec.hs` and `InventoryKubernetesSpec.hs`. B5 kept its own files within their allowances by moving the collection request, the migration planner and the fence predicates into separate modules. The pre-existing overages are not addressed here.
 
 
+2026-10-03 (C2 adoption): `inventory status` reports only accepted addresses. Its `unowned` category means an accepted address observed without its owner stamp (`Status.hs` `UnownedResource`). A foreign object at an address no review has accepted is not listed. The adoption evidence is therefore the planner refusal: a restore whose scratch PVC address already held an unowned PVC refused with `adoption-required`, saved no review and left the store generation unchanged. Status was captured to show the object absent from findings (`checks/adoption/status-unowned.json`). Accepted by the implementer (nagare-f3) as the adoption evidence.
+
+2026-10-03 (C2 drift, F37): Classification works: one `configuration-drift` finding for a `kubectl patch` on application B's Service, distinct from the `retained-orphan` members of the retired `scenario-retire`. The reviewed repair was refused because the field belongs to another manager (`kubectl-patch`). The admitted transaction `tx-a248f688…` then had no supported exit (`abandon-refused-operation` requires an operation with no recorded intent; resume repeats the refusal), which blocked the rest of the C2 run on that store. Tracked as [F37](../audits/mp23-findings.md#f37); `drift-classification` is not recorded as passed.
+
 ## Decision Log
 
 Condensed decisions still in force; the full entries are in [the snapshot](../audits/mp23-archive/plan-history/ep155-before-consolidation-2026-10-02.md).

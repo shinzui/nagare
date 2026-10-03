@@ -77,7 +77,7 @@ import Nagare.Inventory.Execute.Types
   , showText
   )
 import Nagare.Inventory.Journal
-  ( FailureClass (PartialOrUnknown)
+  ( FailureClass (KnownNoEffect, PartialOrUnknown)
   , JournalEvent
     ( eventDetail
     , eventOperation
@@ -231,6 +231,12 @@ prepareBootstrapRegistryRecovery store registry transaction operationId = do
                     _ -> pure (Left "registry recovery requires the exact original created Deployment awaiting readiness")
     _ -> pure (Left "registry recovery requires an idle active transaction with no fence or migration")
 
+-- | The adapter journalled this operation as failed before any effect.
+knownNoEffect :: Maybe OperationState -> Bool
+knownNoEffect state = case state of
+  Just (Failed (KnownNoEffect _)) -> True
+  _ -> False
+
 -- | The decision file selects an action; the adapter must independently prove
 -- that action from the current provider state under the writer lock. An
 -- unresolved adapter outcome never becomes operator authority.
@@ -278,11 +284,16 @@ recordOperatorRecovery store registry input takeOver = do
           , not
               ( recoveryAction input `elem` [StopIncompleteApplication, AbandonRefusedOperation]
                   && Map.findWithDefault Pending operationId (operationStates transaction events) == Pending
+              )
+          , not
+              ( recoveryAction input == AbandonRefusedOperation
+                  && knownNoEffect (Map.lookup operationId (operationStates transaction events))
               ) ->
               pure (failure "recovery-state" "operation has no uncertain effect to resolve")
           | recoveryAction input == AbandonRefusedOperation
-          , Map.findWithDefault Pending operationId (operationStates transaction events) /= Pending ->
-              pure (failure "recovery-state" "only an operation with no recorded intent can be abandoned after a refused preflight")
+          , Map.findWithDefault Pending operationId (operationStates transaction events) /= Pending
+          , not (knownNoEffect (Map.lookup operationId (operationStates transaction events))) ->
+              pure (failure "recovery-state" "only an operation with no recorded intent or a journalled no-effect refusal can be abandoned")
           | recoveryAction input == AbandonRefusedOperation
           , any
               (\(other, state) -> other /= operationId && recoverableState (Just state))
@@ -438,7 +449,13 @@ recordOperatorRecovery store registry input takeOver = do
                       | recoveryAction input == AbandonRefusedOperation ->
                           if isJust selection
                             then pure (failure "data-fence-capability" "a fenced operation cannot be abandoned after a refused preflight")
-                            else abandonRefused lock (reviewPlannedOperation reviewOperation) adapter prepared
+                            else
+                              abandonRefused
+                                lock
+                                (Map.lookup operationId (operationStates transaction events))
+                                (reviewPlannedOperation reviewOperation)
+                                adapter
+                                prepared
                     Right selection -> do
                       let operation = reviewPlannedOperation reviewOperation
                       let previous = Map.lookup operationId (operationStates transaction events)
@@ -573,28 +590,35 @@ recordOperatorRecovery store registry input takeOver = do
     -- intent, so it cannot have taken effect. Re-run the same preflight under
     -- the lock; only a current refusal ends the transaction. Completed earlier
     -- effects keep their journal identities and stay unaccepted.
+    -- An operation with no recorded intent needs a fresh preflight refusal.
+    -- One the adapter already journalled as failed with no effect needs no
+    -- fresh refusal: execute can keep refusing while preflight passes, and the
+    -- journal is the proof that no effect occurred.
     abandonRefused ::
       forall s.
       LockedStore s ->
+      Maybe OperationState ->
       PlannedOperation ->
       Adapter ->
       PreparedNative ->
       IO (Either (NonEmpty AdmissionError) ())
-    abandonRefused lock operation adapter prepared = do
-      preflight <- withAdapterEnv transaction operation (adapterPreflight adapter operation prepared)
-      case preflight of
-        Right () -> pure (failure "recovery-state" "operation preflight passes now; resume the transaction instead")
-        Left reason -> do
+    abandonRefused lock state operation adapter prepared
+      | Just (Failed (KnownNoEffect reason)) <- state =
+          abandonWith ("operation abandoned after its journalled no-effect refusal (" <> reason <> ")")
+      | otherwise = do
+          preflight <- withAdapterEnv transaction operation (adapterPreflight adapter operation prepared)
+          case preflight of
+            Right () -> pure (failure "recovery-state" "operation preflight passes now; resume the transaction instead")
+            Left reason -> abandonWith ("operation abandoned after a fresh preflight refusal (" <> reason <> ")")
+      where
+        abandonWith detail = do
           appended <-
             appendEvent
               lock
               transaction
               (Just operationId)
               (OperatorResolved "abandoned-refused-operation")
-              ( "operation abandoned after a fresh preflight refusal ("
-                  <> reason
-                  <> "); completed earlier effects remain unaccepted until a separate reviewed recovery"
-              )
+              (detail <> "; completed earlier effects remain unaccepted until a separate reviewed recovery")
           pure (first (\err -> AdmissionError "journal" (showText err) :| []) (() <$ appended))
     runBootstrapThroughDriver ::
       forall s.
