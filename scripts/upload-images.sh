@@ -16,9 +16,14 @@ fi
 
 DRY_RUN=0
 BUILD_MODE=publish
+REQUIRE_READ_ONLY=0
 ALLOW_SHARED_BUILDER=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --require-read-only)
+      REQUIRE_READ_ONLY=1
+      shift
+      ;;
     --inspect-build|--describe-build|--build-only)
       [ "${BUILD_MODE}" = publish ] || { echo "choose one build mode" >&2; exit 2; }
       BUILD_MODE="${1#--}"
@@ -39,6 +44,10 @@ while [ "$#" -gt 0 ]; do
       ;;
   esac
 done
+if [ "$REQUIRE_READ_ONLY" -eq 1 ] && [ "$BUILD_MODE" != inspect-build ] && [ "$BUILD_MODE" != describe-build ]; then
+  echo '--require-read-only requires an inspection mode' >&2
+  exit 2
+fi
 
 # Load the target profile and run the configurable, fail-closed project-isolation
 # preflight (EP-60). Exports TARGET_PROJECT / TARGET_REGION / TARGET_ZONE.
@@ -88,6 +97,13 @@ context_alias="$(printf '%s' "${NAGARE_CONTEXT}" | tr '[:upper:]' '[:lower:]' | 
 BUILDER_ALIAS="nagare-builder-${context_alias}"
 BUILDER_STATE_DIR="$(_nagare_state_dir)/${NAGARE_CONTEXT}/nix-builder"
 SSH_CONFIG="${BUILDER_STATE_DIR}/ssh_config"
+PROXY_MODE=""
+case "$BUILD_MODE" in
+  inspect-build|describe-build)
+    SSH_CONFIG="${BUILDER_STATE_DIR}/ssh_config_read_only"
+    PROXY_MODE=" --read-only"
+    ;;
+esac
 BUILDERS_FILE="${BUILDER_STATE_DIR}/builders"
 BUILDER_KEY="${NIX_BUILDER_SSH_KEY:-/etc/nix/builder_ed25519}"
 PROXY_BIN="$(command -v nagare-nix-builder-proxy || true)"
@@ -116,7 +132,7 @@ printf '%s\n' \
   "  LogLevel ERROR" \
   "  ServerAliveInterval 15" \
   "  ServerAliveCountMax 3" \
-  "  ProxyCommand \"${PROXY_BIN}\" \"${BUILDER_PROJECT}\" \"${BUILDER_ZONE}\" \"${BUILDER_INSTANCE}\"" \
+  "  ProxyCommand \"${PROXY_BIN}\" \"${BUILDER_PROJECT}\" \"${BUILDER_ZONE}\" \"${BUILDER_INSTANCE}\"${PROXY_MODE}" \
   >"${ssh_tmp}"
 BUILDER_URI="ssh-ng://builder@${BUILDER_ALIAS}"
 BUILDERS_SPEC="${BUILDER_URI} ${TARGET_SYSTEM} ${BUILDER_KEY} 4 1 big-parallel,benchmark,kvm"
@@ -157,7 +173,7 @@ _require_target_project
 show_builder_selection >&2
 
 image_build_path() {
-  (cd "${NAGARE_HOST_FLAKE}" && nix eval --raw ".#${ATTR}")
+  (cd "${NAGARE_HOST_FLAKE}" && nix eval --raw ".#${ATTR}" --no-update-lock-file)
 }
 
 check_reviewed_build() {
@@ -175,10 +191,18 @@ check_reviewed_build() {
 }
 
 build_present() {
-  local path="$1" q
+  local path="$1" q result
   [ -d "${path}" ] && return 0
   q="$(printf '%q' "${path}")"
-  ssh -F "${SSH_CONFIG}" "${BUILDER_ALIAS}" "test -d ${q}" 2>/dev/null
+  result="$(ssh -F "${SSH_CONFIG}" "${BUILDER_ALIAS}" "if test -d ${q}; then printf present; else printf missing; fi")" || {
+    echo 'host image observation unavailable; failed transport is not absence' >&2
+    return 2
+  }
+  case "$result" in
+    present) return 0 ;;
+    missing) return 1 ;;
+    *) echo 'invalid host image observation' >&2; return 2 ;;
+  esac
 }
 
 if [ "${BUILD_MODE}" = inspect-build ]; then
@@ -188,7 +212,11 @@ if [ "${BUILD_MODE}" = inspect-build ]; then
   if [ -z "${store_path}" ]; then store_path="$(image_build_path)"; fi
   [[ "${store_path}" = /* ]] || { echo "build destination must be absolute" >&2; exit 2; }
   reviewed_digest="$(check_reviewed_build "${store_path}")"
-  if build_present "${store_path}"; then build_status=present; else build_status=missing; fi
+  if build_present "${store_path}"; then build_status=present; else
+    observed_status="$?"
+    [ "$observed_status" -eq 1 ] || exit "$observed_status"
+    build_status=missing
+  fi
   printf 'nagare-build\t%s\t%s\t%s\n' "${build_status}" "${store_path}" "${reviewed_digest}"
   exit 0
 fi
@@ -295,7 +323,7 @@ build_image() {
   # endpoint makes the same reviewed derivation reachable by that daemon.
   direct_builders="ssh-ng://builder@localhost:${direct_port} ${TARGET_SYSTEM} ${BUILDER_KEY} 4 1 big-parallel,benchmark,kvm - ${host_key_b64}"
   if out_path=$( (cd "${NAGARE_HOST_FLAKE}" && NIX_SSHOPTS= \
-    nix build --builders "${direct_builders}" --print-out-paths --no-link ".#${ATTR}") 2>"${NIX_BUILD_ERR}" ); then
+    nix build --builders "${direct_builders}" --print-out-paths --no-link ".#${ATTR}" --no-update-lock-file) 2>"${NIX_BUILD_ERR}" ); then
     if [ -n "${tunnel_pid}" ]; then
       kill "${tunnel_pid}" 2>/dev/null || true
       wait "${tunnel_pid}" 2>/dev/null || true
@@ -312,7 +340,7 @@ build_image() {
     daemon_tunnel_pid=""
     daemon_tunnel_log=""
   fi
-  out_path=$(cd "${NAGARE_HOST_FLAKE}" && nix eval --raw ".#${ATTR}" 2>/dev/null) || {
+  out_path=$(cd "${NAGARE_HOST_FLAKE}" && nix eval --raw ".#${ATTR}" --no-update-lock-file 2>/dev/null) || {
     log "nix build failed and nix eval could not resolve the output path:"; cat "${NIX_BUILD_ERR}" >&2; return 1; }
   local q; q="$(printf '%q' "${out_path}")"
   if ssh -F "${SSH_CONFIG}" "${BUILDER_ALIAS}" "test -d ${q}" 2>/dev/null; then

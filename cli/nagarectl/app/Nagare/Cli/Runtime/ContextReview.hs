@@ -40,7 +40,7 @@ saveContextReview name replacement output = do
   profile <- readContextProfile name >>= either dieT pure
   selected <- Inventory.selectFoundationStore (ActiveTarget name profile) >>= either (dieT . T.pack . show) pure
   (selectedRoot, headValue) <- observe selected >>= either dieT pure
-  safeReplacement <- traverse (either dieT pure . renderProfileReplacement . profileFromContextMap . parseContextEnv) replacement
+  safeReplacement <- traverse (either dieT pure . renderProfileReplacementPreserving original . profileFromContextMap . parseContextEnv) replacement
   request <- newProfileRequest
   review <- either dieT pure (prepareProfileReview request name location original safeReplacement selectedRoot headValue)
   saveProfileReview output review >>= either dieT pure

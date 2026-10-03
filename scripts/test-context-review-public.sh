@@ -13,6 +13,11 @@ cat > "$profile" <<'PROFILE'
 CLOUDSDK_CORE_PROJECT=project
 NAGARE_MODE=local
 NAGARE_PLATFORM_VERSION=0.4.0
+NAGARE_BUILDER_PROJECT=project
+NAGARE_BUILDER_ZONE=us-west1-a
+NAGARE_BUILDER_INSTANCE=fixture-builder
+NIX_BUILDER_SSH_KEY=/private/fixture-key
+NIX_BUILDER_HOST_KEY_B64=cHVibGlj
 PROFILE
 python3 - "$head" <<'PY'
 import json,sys
@@ -49,6 +54,8 @@ grep -q 'local state root changed' "$root/output"
 cmp "$profile" "$root/profile-before"
 run context apply "$root/update" --yes
 grep -q "NAGARE_MACHINE_TYPE='e2-standard-4'" "$profile"
+grep -q "NAGARE_BUILDER_INSTANCE='fixture-builder'" "$profile"
+grep -q "NIX_BUILDER_SSH_KEY='/private/fixture-key'" "$profile"
 cmp "$head" "$root/head-before"
 run context apply "$root/update" --yes
 refuse context create fixture --force --project foreign --save-plan "$root/foreign"

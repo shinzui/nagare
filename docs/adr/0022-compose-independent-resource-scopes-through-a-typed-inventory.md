@@ -1294,3 +1294,17 @@ refuses migrated authority or conflicting files, and restores the exact profile.
 It may restore access to an active transaction without modifying its history.
 The protocol claims local process exclusion, not exclusion across workstations;
 other operators retain their own profiles and shared inventory transactions.
+
+### Read-only artifact observation across payload versions (2026-10-02)
+
+Host image planning may inspect a named immutable builder output, but that
+inspection cannot implicitly start the builder. Unavailable transport is unknown,
+not absence. Inspection uses an explicit read-only proxy capability; an older
+accepted payload that cannot honor it must refuse before target/provider work.
+BuildJob artifact requests require outer transport version 2, including recovery
+observations and publication preflight. Other artifact kinds retain version 1.
+This capability check belongs at the accepted payload boundary as well as in the
+current CLI: updating the operator alone does not update an older payload script.
+Image build/publication remain separate reviewed stages, with image-link config
+and VM changes owned by subsequent bootstrap reviews. Nix evaluation and builds
+cannot update the selected host lock file.

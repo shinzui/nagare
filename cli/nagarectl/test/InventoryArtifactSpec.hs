@@ -263,6 +263,32 @@ inventoryArtifactTests =
         case retirement of
           Left (PrepareRefused _ message) | "consumer completeness is unknown" `Text.isInfixOf` message -> pure ()
           other -> assertFailure ("expected collection refusal, got " <> show other)
+    , testCase "build observe and publish require outer protocol v2 while other artifacts retain v1" $
+        withSystemTempDirectory "artifact-read-only-protocol" $ \temporary -> do
+          let executable = temporary </> "transport"
+              absent = contentDigest "protocol-absence"
+          writeFile executable $
+            unlines
+              [ "#!/bin/sh"
+              , "set -eu"
+              , "request=$(cat)"
+              , "test \"$(printf '%s' \"$request\" | jq -er .version)\" = \"$EXPECTED_VERSION\""
+              , "if [ \"$1\" = publish ]; then"
+              , "  jq -nc --arg physical \"$EXPECTED_PHYSICAL\" --arg digest \"$(printf '%s' \"$request\" | jq -er .expectedDigest)\" '{tag:\"TransportPresent\",contents:[$physical,$digest]}'"
+              , "else"
+              , "printf '%s\\n' '{\"tag\":\"TransportMissing\",\"contents\":\"" <> Text.unpack (digestText absent) <> "\"}'"
+              , "fi"
+              ]
+          setFileMode executable 0o700
+          forM_ [(BuildJobArtifact, "2", "build-job:///fixture/output"), (GceImageArtifact, "1", "gce:///fixture/output")] $ \(kind, version, physicalValue) -> do
+            let selected =
+                  Map.singleton
+                    artifactResource
+                    (ArtifactExecutionSpec kind "/fixture/output" expectedDigest expectedDigest False Nothing)
+                runtime = ArtifactRuntimeConfig executable [("EXPECTED_VERSION", version), ("EXPECTED_PHYSICAL", physicalValue)] selected
+            observed <- artifactObserveResources (mkArtifactRuntimeOps runtime) [artifactResource] >>= expectRight
+            Map.lookup artifactResource (observationMap observed) @?= Just (ConfirmedAbsent absent)
+            artifactPublish (mkArtifactRuntimeOps runtime) mutationPlan {artifactPlanKind = kind, artifactPlanDestination = "/fixture/output"} >>= (@?= AdapterEffectCompleted)
     , testCase "subprocess runtime binds the reviewed destination and digest" $
         withSystemTempDirectory "nagare-artifact-runtime-test" $ \temporary -> do
           let executable = temporary </> "artifact-transport"

@@ -98,16 +98,11 @@ vm-stop *args:
 vm-start *args:
     nagarectl host start {{args}}
 
-# EP-3 (docs/plans/3-nixos-host-nagare-01-with-k3s.md): build the NixOS
-# GCE image on the remote x86_64-linux Nix builder, upload the tarball to
-# the image-staging GCS bucket, register it as a GCE image, and write its
-# self-link into Pulumi config key `nagareImageSelfLink`. The script owns
-# the details.
-# Build + upload + register the NixOS GCE image.
+# Review the next immutable image build/publication stage. Apply separately with
+# inventory apply; bootstrap reviews the image-link config and VM stages.
 [group('host')]
 host-image *args:
-    @if [ -z "${NAGARE_UPGRADE_APPLY:-}" ]; then nagarectl platform guard; fi
-    scripts/upload-images.sh {{args}}
+    nagarectl host image {{args}}
 
 # Show the registry host now carried by the generated context host flake.
 [group('host')]

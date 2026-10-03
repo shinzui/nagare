@@ -62,7 +62,7 @@ printf 'gcloud %s\n' "$*" >>"$NAGARE_TEST_LOG"
 case " $* " in
   *" storage buckets describe "*) printf '%s\n' 123 ;;
   *" projects describe "*) printf '%s\n' 123 ;;
-  *" compute instances describe "*) printf '%s\n' RUNNING ;;
+  *" compute instances describe "*) printf '%s\n' "${NAGARE_TEST_BUILDER_STATUS:-RUNNING}" ;;
   *" compute start-iap-tunnel "*) sleep 30 ;;
   *" compute images describe "*" --format=value(name) "*) exit 1 ;;
   *" compute images describe "*" --format=value(selfLink) "*)
@@ -138,6 +138,26 @@ grep -Fqx "$(printf 'nagare-build\tpresent\t%s\t%s' "$NAGARE_TEST_STORE_PATH" "$
 bash scripts/upload-images.sh --describe-build >"$work/describe-build.out"
 tarball_digest="$(shasum -a 256 "$NAGARE_TEST_STORE_PATH/nagare.raw.tar.gz" | awk '{print $1}')"
 grep -Fqx "$(printf 'nagare-image\t%s\tnagare-image-image\t%s' "$NAGARE_TEST_STORE_PATH" "$tarball_digest")" "$work/describe-build.out"
+# Inspecting a remote output must not start a stopped builder or call absence
+# when the transport cannot observe it. Exercise the real proxy separately.
+printf '#!/usr/bin/env bash\nexit 97\n' > "$work/bin/socat"
+chmod +x "$work/bin/socat"
+if NAGARE_TEST_BUILDER_STATUS=TERMINATED bash scripts/nix-builder-proxy.sh labs-project us-west1-a fixture-builder --read-only > "$work/proxy.out" 2> "$work/proxy.err"; then
+  echo 'read-only proxy accepted stopped builder' >&2; exit 1
+fi
+grep -q 'refusing implicit start' "$work/proxy.err"
+if grep -q 'compute instances start' "$work/tools.log"; then
+  echo 'read-only proxy started builder' >&2; exit 1
+fi
+unavailable_path="$work/unavailable-remote-output"
+unavailable_digest="$(printf '%s' "$unavailable_path" | shasum -a 256 | awk '{print $1}')"
+if NAGARE_ARTIFACT_DESTINATION="$unavailable_path" NAGARE_ARTIFACT_EXPECTED_DIGEST="$unavailable_digest" \
+  bash scripts/upload-images.sh --inspect-build > "$work/unavailable.out" 2> "$work/unavailable.err"; then
+  echo 'failed image inspection became confirmed absence' >&2; exit 1
+fi
+grep -q 'failed transport is not absence' "$work/unavailable.err"
+grep -q -- '--read-only$' "$XDG_STATE_HOME/nagare/labs/nix-builder/ssh_config_read_only"
+grep -q -- '--no-update-lock-file' "$work/tools.log"
 if grep -Eq 'gsutil cp|compute images create' "$work/tools.log"; then
   printf 'reviewed build prerequisite published an image\n' >&2
   exit 1
@@ -177,7 +197,7 @@ grep -q 'ProxyCommand.*"shared-project".*"us-west1-a".*"nix-builder-x86"' "$buil
 : >"$work/tools.log"
 bash scripts/upload-images.sh >"$work/real.out" 2>"$work/real.err"
 grep -q '^builder project: labs-project$' "$work/real.err"
-grep -q 'nix NIX_SSHOPTS= argv=build --builders ssh-ng://builder@localhost:28157 x86_64-linux /etc/nix/builder_ed25519 4 1 big-parallel,benchmark,kvm - .* --print-out-paths --no-link .#packages.x86_64-linux.nagare-image$' "$work/tools.log"
+grep -q 'nix NIX_SSHOPTS= argv=build --builders ssh-ng://builder@localhost:28157 x86_64-linux /etc/nix/builder_ed25519 4 1 big-parallel,benchmark,kvm - .* --print-out-paths --no-link .#packages.x86_64-linux.nagare-image --no-update-lock-file$' "$work/tools.log"
 if grep -q '/etc/nix/machines' "$work/tools.log"; then
   echo "ambient Nix builders leaked into the host-image invocation" >&2
   exit 1
@@ -197,7 +217,7 @@ NAGARE_INVENTORY_TRANSACTION=tx-test NAGARE_INVENTORY_ADAPTER_CHILD=artifact \
   NAGARE_ARTIFACT_EXPECTED_DIGEST="$reviewed_path_digest" \
   bash scripts/upload-images.sh --build-only >"$work/automatic-tunnel.out"
 grep -q 'compute start-iap-tunnel' "$work/tools.log"
-grep -q 'nix NIX_SSHOPTS= argv=build --builders ssh-ng://builder@localhost:[0-9]* x86_64-linux /etc/nix/builder_ed25519 4 1 big-parallel,benchmark,kvm - .* --print-out-paths --no-link .#packages.x86_64-linux.nagare-image$' "$work/tools.log"
+grep -q 'nix NIX_SSHOPTS= argv=build --builders ssh-ng://builder@localhost:[0-9]* x86_64-linux /etc/nix/builder_ed25519 4 1 big-parallel,benchmark,kvm - .* --print-out-paths --no-link .#packages.x86_64-linux.nagare-image --no-update-lock-file$' "$work/tools.log"
 grep -Fqx "$(printf 'nagare-build\tpresent\t%s\t%s' "$NAGARE_TEST_STORE_PATH" "$reviewed_path_digest")" "$work/automatic-tunnel.out"
 
 printf '%s\n' 'upload-images builder confinement tests passed'

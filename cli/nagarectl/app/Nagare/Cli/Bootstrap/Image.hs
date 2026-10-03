@@ -71,7 +71,7 @@ buildImageBuildStageCandidate active workspace snapshot
       evaluated <-
         try
           ( readCreateProcessWithExitCode
-              ( (proc "nix" ["eval", "--raw", ".#packages.x86_64-linux.nagare-image"])
+              ( (proc "nix" ["eval", "--raw", ".#packages.x86_64-linux.nagare-image", "--no-update-lock-file"])
                   { cwd = Just hostRoot
                   }
               )
@@ -156,7 +156,7 @@ runHostImageProbe active workspace hostRoot option = do
       names = map fst selected
       process :: CreateProcess
       process =
-        (proc "bash" [workspace ^. #scriptsDir </> "upload-images.sh", option])
+        (proc "bash" [workspace ^. #scriptsDir </> "upload-images.sh", option, "--require-read-only"])
           { env = Just (selected <> filter ((`notElem` names) . fst) environment)
           }
   try (readCreateProcessWithExitCode process "") >>= \case

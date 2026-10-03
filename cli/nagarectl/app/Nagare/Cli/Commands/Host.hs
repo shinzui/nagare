@@ -30,6 +30,7 @@ import Nagare.Cli.Options
   )
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Cli.Runtime.Guards (guardLegacyMutationInventory)
+import Nagare.Cli.Runtime.HostImage (runHostImageReview)
 import Nagare.Cli.Runtime.Target
   ( activeTarget
   , resolvePlatformWorkspace
@@ -99,6 +100,7 @@ import System.Process
 
 runHost :: Maybe String -> HostCommand -> IO ()
 runHost globalContext = \case
+  HostImagePlan output -> runHostImageReview globalContext output
   HostStart requestId output -> runPowerReview globalContext requestId output True
   HostStop requestId output -> runPowerReview globalContext requestId output False
   HostApply directory yes -> do

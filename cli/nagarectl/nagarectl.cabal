@@ -392,6 +392,7 @@ executable nagarectl
     Nagare.Cli.Runtime.ContextReview
     Nagare.Cli.Runtime.Error
     Nagare.Cli.Runtime.Guards
+    Nagare.Cli.Runtime.HostImage
     Nagare.Cli.Runtime.ObjectStore
     Nagare.Cli.Runtime.Ownership
     Nagare.Cli.Runtime.PlatformStatus

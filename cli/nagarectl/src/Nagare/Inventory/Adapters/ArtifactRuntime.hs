@@ -143,7 +143,7 @@ publishArtifact config plan = case Map.lookup (artifactPlanResource plan) (runti
 requestFor :: ResourceId -> ArtifactExecutionSpec -> Maybe ArtifactMutationPlan -> TransportRequest
 requestFor resource spec plan =
   TransportRequest
-    { requestVersion = 1
+    { requestVersion = if executionArtifactKind spec == BuildJobArtifact then 2 else 1
     , requestResource = resource
     , requestKind = executionArtifactKind spec
     , requestDestination = executionArtifactDestination spec

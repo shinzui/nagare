@@ -19,7 +19,9 @@ destination="$(jq -er '.destination' <<<"${request}")"
 expected="$(jq -er '.expectedDigest' <<<"${request}")"
 source_digest="$(jq -er '.specDigest' <<<"${request}")"
 archive="$(jq -r '.archive // empty' <<<"${request}")"
-[ "${version}" = 1 ] || { echo "unsupported artifact transport version" >&2; exit 2; }
+if [ "${version}" != 1 ] && { [ "${version}" != 2 ] || [ "${kind}" != BuildJobArtifact ]; }; then
+  echo "unsupported artifact transport version" >&2; exit 2
+fi
 [[ "${expected}" =~ ^[0-9a-f]{64}$ ]] || { echo "invalid expected artifact digest" >&2; exit 2; }
 [[ "${source_digest}" =~ ^[0-9a-f]{64}$ ]] || { echo "invalid source artifact digest" >&2; exit 2; }
 if [ "${action}" = publish ]; then
@@ -189,7 +191,7 @@ observe_build_job() {
   [[ "${destination}" = /* ]] || { echo "build destination must be absolute" >&2; return 2; }
   output="$(NAGARE_ARTIFACT_DESTINATION="${destination}" \
     NAGARE_ARTIFACT_EXPECTED_DIGEST="${expected}" \
-    bash "${script_dir}/upload-images.sh" --inspect-build)"
+    bash "${script_dir}/upload-images.sh" --inspect-build --require-read-only)"
   IFS=$'\t' read -r marker status path digest <<<"${output}"
   [ "${marker}" = nagare-build ] && [ "${path}" = "${destination}" ] && [ "${digest}" = "${expected}" ] || {
     echo "build observation differs from the reviewed output" >&2; return 2;

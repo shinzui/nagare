@@ -5,6 +5,7 @@ module Nagare.Context.Review
   , prepareProfileReview
   , newProfileRequest
   , renderProfileReplacement
+  , renderProfileReplacementPreserving
   , decodeProfileReview
   , profileReviewBytes
   , profileReviewContext
@@ -100,13 +101,32 @@ profileReviewBytes = canonicalValue . toJSON
 -- Quote every field so the shell consumers cannot interpret replacement values.
 -- The existing context reader understands one surrounding quote pair only.
 renderProfileReplacement :: TargetProfile -> Either Text Text
-renderProfileReplacement profile = do
-  let fields = Map.toAscList (parseContextEnv (renderTargetEnv profile))
+renderProfileReplacement = renderProfileReplacementPreserving ""
+
+-- Script transport inputs are immutable local profile inputs, not credentials.
+-- Keep their exact values even though TargetProfile does not model them.
+renderProfileReplacementPreserving :: Text -> TargetProfile -> Either Text Text
+renderProfileReplacementPreserving originalProfile profile = do
+  let fields = Map.toAscList (Map.union (transportFields originalProfile) (parseContextEnv (renderTargetEnv profile)))
   for_ fields $ \(_, value) ->
     unless
       (not (T.any (`elem` ("'\n\r\0" :: String)) value))
       (Left "context values cannot contain apostrophes, line breaks or NUL")
   pure (T.unlines ["export " <> T.pack key <> "='" <> value <> "'" | (key, value) <- fields])
+
+transportKeys :: Set.Set String
+transportKeys =
+  Set.fromList
+    [ "NAGARE_BUILDER_PROJECT"
+    , "NAGARE_BUILDER_ZONE"
+    , "NAGARE_BUILDER_INSTANCE"
+    , "NIX_BUILDER_SSH_KEY"
+    , "NIX_BUILDER_HOST_KEY_B64"
+    , "NIX_BUILDER_TUNNEL_PORT"
+    ]
+
+transportFields :: Text -> Map.Map String Text
+transportFields = (`Map.restrictKeys` transportKeys) . parseContextEnv
 
 newProfileRequest :: IO Text
 newProfileRequest = digestText . contentDigest <$> (getRandomBytes 32 :: IO ByteString)
@@ -168,7 +188,7 @@ validate review = do
     _ -> pure ()
 
   let originalFields = parseContextEnv (original review)
-      allowedFields = Map.keysSet (parseContextEnv (renderTargetEnv (profileReviewOriginal review)))
+      allowedFields = Map.keysSet (parseContextEnv (renderTargetEnv (profileReviewOriginal review))) `Set.union` transportKeys
   unless
     (Map.keysSet originalFields `Set.isSubsetOf` allowedFields)
     (Left "context review refuses unrecognized profile fields; keep credentials outside the profile")
@@ -187,7 +207,7 @@ validate review = do
             , acmeEmail = after ^. #acmeEmail
             , acmeDirectory = after ^. #acmeDirectory
             }
-    canonical <- renderProfileReplacement after
+    canonical <- renderProfileReplacementPreserving (original review) after
     unless (next == canonical) (Left "replacement profile must use canonical quoted exports without extra shell commands")
     _ <- validateVmShape (vmShapeOf after)
     validateNixCacheMode after

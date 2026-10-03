@@ -55,6 +55,21 @@ contextReviewTests =
           applyProfileReview path observe plan >>= (@?= Right ())
           BS.readFile path >>= (@?= TE.encodeUtf8 original)
           restoreProfileReview path observe plan >>= (@?= Right ())
+    , testCase "builder transport values survive update and exact removal restoration" $
+        withSystemTempDirectory "context-builder-inputs" $ \root -> do
+          let path = root </> "fixture.env"
+              before = original <> "NAGARE_BUILDER_PROJECT=project\nNAGARE_BUILDER_ZONE=zone\nNAGARE_BUILDER_INSTANCE=builder\nNIX_BUILDER_SSH_KEY=/private/key\nNIX_BUILDER_HOST_KEY_B64=cHVibGlj\nNIX_BUILDER_TUNNEL_PORT=28157\n"
+          after <- right (renderProfileReplacementPreserving before (profileFromContextMap (parseContextEnv updated)))
+          plan <- right (prepareProfileReviewAt name path before (Just after) headValue)
+          assertBool "stripped builder inputs accepted" (isLeft (prepareProfileReviewAt name path before (Just updated) headValue))
+          assertBool "changed builder accepted" (isLeft (prepareProfileReviewAt name path before (Just (T.replace "='builder'" "='foreign'" after)) headValue))
+          BS.writeFile path (TE.encodeUtf8 before)
+          applyProfileReview path observe plan >>= (@?= Right ())
+          BS.readFile path >>= (@?= TE.encodeUtf8 after)
+          removal <- right (prepareProfileReviewAt name path after Nothing headValue)
+          applyProfileReview path observe removal >>= (@?= Right ())
+          restoreProfileReview path observe removal >>= (@?= Right ())
+          BS.readFile path >>= (@?= TE.encodeUtf8 after)
     , testCase "foreign profile and changed history refuse without writing" $
         withSystemTempDirectory "context-refuse" $ \root -> do
           let path = root </> "fixture.env"

@@ -240,7 +240,7 @@ Shell recipes use `NAGARE_CONTEXT=NAME just <recipe>`.
 | `just infra-up --plan DIR --yes` | Verify and non-interactively apply the exact reviewed plan | MP-22 EP-136 |
 | `just infra-destroy --yes` | Guard and deliberately destroy the selected Pulumi stack | MP-22 EP-136 |
 | `just vm-stop --operation-id ID --save-plan DIR` / `just vm-start --operation-id ID --save-plan DIR` | Review power changes for the accepted VM; apply the saved directory with `nagarectl inventory apply DIR --yes` | MP-23 |
-| `just host-image [--dry-run] [--allow-shared-builder PROJECT]` | Build + upload + register the NixOS GCE image with an explicit context-owned builder (`scripts/upload-images.sh`) | MP-22 EP-136 |
+| `nagarectl host image --save-plan DIR` (`just host-image --save-plan DIR`) | Review the next immutable image build or GCE publication stage. Apply with `inventory apply DIR --yes`, then review again. Bootstrap separately reviews the Pulumi image link and VM. | MP-23 EP-153 |
 | `just nixos-registry-host` | Compatibility alias that shows the generated host module; it no longer writes source | MP-20 EP-107 |
 | `just host-switch REVIEW_DIR` | Apply the exact saved host review; no-argument legacy switching refuses after inventory admission | MP-20 EP-107 |
 | `just cluster-bootstrap` | Guard the selected cluster; apply cert-manager, Knative, Kourier, and config-domain; import the payload's patched latest net-certmanager controller; verify certificate policy | EP-4 ✅ / MP-22 EP-134, EP-138 |
@@ -361,7 +361,7 @@ it. Only Traefik is disabled.
 | `lib/target.sh` | Sourced helper: resolves the active context, sets `TARGET_PROJECT`/`REGION`/`ZONE`, exports `NAGARE_REGISTRY_PREFIX`, and runs the fail-closed `_require_target_project` guardrail. Every script sources it. |
 | `lib/host.sh` | Resolve and validate `NAGARE_HOST_FLAKE`, defaulting to `nagarectl host path` for the active context. |
 | `enable-apis.sh` | Enable the six GCP service APIs against the target project (run by `nagarectl init`). |
-| `upload-images.sh` | Render an explicit per-context builder, build the NixOS image, upload to GCS, register it, and write `nagareImageSelfLink`. |
+| `upload-images.sh` | Artifact transport for reviewed image builds/publication. Inspection requires a running builder and cannot implicitly start it; old payloads without the read-only inspection protocol refuse. |
 | `nix-builder-proxy.sh` | Packaged as `nagare-nix-builder-proxy`; start one positional project/zone/instance and proxy SSH through an IAP local tunnel. |
 | `host-switch.sh` | Internal reviewed host transport, or guarded compatibility switching before inventory admission; apply the active generated host flake over its logical Tailscale/SSH name; `--dry-run` prints the GCE instance, Nix attribute, and SSH target separately. |
 | `setup-nix-builder.sh` | Provision the on-demand x86_64-linux Nix builder. |

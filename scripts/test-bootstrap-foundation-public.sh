@@ -746,6 +746,8 @@ new="$XDG_STATE_HOME/host-closure"
 current='/fixture/old-closure'
 if test -e "$XDG_STATE_HOME/host-activated"; then current="$new"; fi
 case "$*" in
+  *"if test -d "*"then printf present; else printf missing; fi")
+    if test -d "$NAGARE_TEST_IMAGE_OUTPUT"; then printf present; else printf missing; fi ;;
   *"printf \"current=%s"*)
     printf 'current=%s\n' "$current"
     if test -e "$XDG_STATE_HOME/host-committed"; then
@@ -776,7 +778,7 @@ case "$*" in
 esac
 EOF
 chmod +x "$fixture_root/bin/nix" "$fixture_root/bin/ssh"
-"$nagarectl_bin" --context freshlocal platform bootstrap plan --out "$fixture_root/build-review" \
+"$nagarectl_bin" --context freshlocal host image --save-plan "$fixture_root/build-review" \
   > "$fixture_root/build-plan-out" 2>&1 || {
   cat "$fixture_root/build-plan-out" >&2
   exit 1
@@ -816,7 +818,7 @@ printf 'changed payload pin refused the retained build review before its provide
 }
 test -s "$NAGARE_TEST_IMAGE_OUTPUT/nagare.raw.tar.gz"
 printf 'public bootstrap reviewed the Nix image build before its first build effect\n'
-"$nagarectl_bin" --context freshlocal platform bootstrap plan --out "$fixture_root/image-review" \
+"$nagarectl_bin" --context freshlocal host image --save-plan "$fixture_root/image-review" \
   > "$fixture_root/image-plan-out" 2>&1 || {
   cat "$fixture_root/image-plan-out" >&2
   exit 1
@@ -861,6 +863,19 @@ test -e "$XDG_STATE_HOME/image-created"
 test -e "$XDG_STATE_HOME/image-object-created"
 test "$(grep -Fc 'compute images create nagare-image-image' "$XDG_STATE_HOME/gcloud-apply.log")" -eq 1
 printf 'public inventory resume proved GCE image publication without repeating registration\n'
+"$nagarectl_bin" --context freshlocal host image --save-plan "$fixture_root/image-repeat-review" > "$fixture_root/image-repeat-out" 2>&1 || {
+  cat "$fixture_root/image-repeat-out" >&2; exit 1
+}
+python3 - "$fixture_root/image-repeat-review/review.json" <<'REVIEW'
+import json,sys
+review=json.load(open(sys.argv[1]))
+assert all(row['operation']['action']['tag']=='VerifyResource' for row in review['operations']), review['operations']
+base={row['scope']['name']:row['revision'] for row in review['baseRevisions']}
+desired={row['scope']['name']:row['revision'] for row in review['desiredRevisions']}
+assert base.pop('host-image')['digest']==desired.pop('host-image')['digest']
+assert base==desired
+REVIEW
+test "$(grep -Fc 'compute images create nagare-image-image' "$XDG_STATE_HOME/gcloud-apply.log")" -eq 1
 "$nagarectl_bin" --context freshlocal platform bootstrap plan --out "$fixture_root/image-config-review" \
   > "$fixture_root/image-config-plan-out" 2>&1 || {
   cat "$fixture_root/image-config-plan-out" >&2

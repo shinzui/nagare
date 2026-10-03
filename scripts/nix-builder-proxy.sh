@@ -3,8 +3,8 @@
 # Intended for use as an OpenSSH ProxyCommand; stdin/stdout belong to SSH.
 set -euo pipefail
 
-if [ "$#" -ne 3 ]; then
-  echo "usage: nagare-nix-builder-proxy PROJECT ZONE INSTANCE" >&2
+if [ "$#" -lt 3 ] || [ "$#" -gt 4 ] || { [ "$#" -eq 4 ] && [ "$4" != --read-only ]; }; then
+  echo "usage: nagare-nix-builder-proxy PROJECT ZONE INSTANCE [--read-only]" >&2
   exit 2
 fi
 
@@ -30,6 +30,10 @@ fi
 status="$(gcloud --project="$PROJECT" compute instances describe "$INSTANCE" \
   --zone="$ZONE" --format='value(status)')"
 if [ "$status" != "RUNNING" ]; then
+  if [ "${4:-}" = --read-only ]; then
+    echo "nagare-nix-builder-proxy: read-only observation requires a running builder; refusing implicit start" >&2
+    exit 2
+  fi
   printf '[nagare-builder] starting %s in %s/%s\n' "$INSTANCE" "$PROJECT" "$ZONE" >&2
   gcloud --project="$PROJECT" compute instances start "$INSTANCE" \
     --zone="$ZONE" --quiet >/dev/null

@@ -207,6 +207,7 @@ hostSubparser :: Parser HostCommand
 hostSubparser =
   subparser
     ( command "init" (info (HostInit <$> hostInitOptsParser <**> helper) (progDesc "Generate and validate a context-owned host flake"))
+        <> command "image" (info (HostImagePlan <$> strOption (long "save-plan" <> metavar "DIR" <> help "Review the next image build/publication stage; apply with inventory apply") <**> helper) (progDesc "Review immutable host image build and publication"))
         <> command "start" (info (HostStart <$> powerId <*> powerReview <**> helper) (progDesc "Review starting the accepted VM without changing its disks"))
         <> command "stop" (info (HostStop <$> powerId <*> powerReview <**> helper) (progDesc "Review stopping the accepted VM while retaining its disks"))
         <> command "show" (info (HostShow <$> optional hostContextOption <**> helper) (progDesc "Print the generated operator module"))

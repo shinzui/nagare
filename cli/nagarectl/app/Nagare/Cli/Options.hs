@@ -405,6 +405,7 @@ data HostCommand
   | HostPath (Maybe String)
   | HostName (Maybe String) Bool
   | HostPlaceAgeKey HostPlaceAgeKeyOpts
+  | HostImagePlan FilePath
   | HostPlan FilePath (Maybe FilePath) Bool
   | HostStart String FilePath
   | HostStop String FilePath
