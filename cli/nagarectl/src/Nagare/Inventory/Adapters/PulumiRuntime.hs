@@ -29,7 +29,7 @@ import Nagare.Infra.Plan (digestFile, digestPulumiProgram)
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Pulumi
 import Nagare.Inventory.Cloud
-import Nagare.Inventory.CloudCollection (cloudCollectionPhysicalDigest, cloudCollectionProgramDigest, validateCloudCollectionProtection)
+import Nagare.Inventory.CloudCollection (cloudCollectionPhysicalDigest, cloudCollectionProgramDigest)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect), operationIdText)
 import Nagare.Resource.Types
@@ -51,6 +51,8 @@ data PulumiRuntimeConfig = PulumiRuntimeConfig
   , runtimeStackConfig :: !FilePath
   , runtimeDeclarationBundle :: !ByteString
   , runtimeRegistrations :: ![NativeRegistration]
+  , runtimeCollectionPhysical :: !(Map Text PhysicalIdentity)
+  -- ^ Reviewed retained physical identity of each URN selected for collection.
   }
   deriving stock (Eq, Show)
 
@@ -91,12 +93,13 @@ prepareSavedPlan config operation = do
         exported <- runPulumi config ["stack", "export", "--stack", T.unpack (runtimeStack config), "--show-secrets=false"]
         pure $
           successful "Pulumi collection protection observation" exported >>= \body ->
-            validateCloudCollectionProtection
-              [ registration
-              | registration <- runtimeRegistrations config
-              , registrationResource registration `elem` NE.toList (plannedResources operation)
-              ]
-              (TE.encodeUtf8 (T.pack body))
+            void
+              ( cloudCollectionPhysicalDigest
+                  (contentDigest "cloud-collection-preparation")
+                  (runtimeCollectionPhysical config)
+                  (selectedRegistrations config operation)
+                  (TE.encodeUtf8 (T.pack body))
+              )
   case protected of
     Left message -> pure (Left message)
     Right () -> prepareUnprotectedPlan config operation
@@ -127,6 +130,13 @@ prepareUnprotectedPlan config operation = case operationTargets config operation
               , preparationRegistrations = runtimeRegistrations config
               }
 
+selectedRegistrations :: PulumiRuntimeConfig -> PlannedOperation -> [NativeRegistration]
+selectedRegistrations config operation =
+  [ registration
+  | registration <- runtimeRegistrations config
+  , registrationResource registration `elem` NE.toList (plannedResources operation)
+  ]
+
 readIdentity :: PulumiRuntimeConfig -> PlannedOperation -> IO (Either Text PulumiIdentity)
 readIdentity config operation = do
   result <- try $ do
@@ -145,10 +155,8 @@ readIdentity config operation = do
             body <- successful "Pulumi collection identity" exported
             cloudCollectionPhysicalDigest
               declaredProgram
-              [ registration
-              | registration <- runtimeRegistrations config
-              , registrationResource registration `elem` NE.toList (plannedResources operation)
-              ]
+              (runtimeCollectionPhysical config)
+              (selectedRegistrations config operation)
               (TE.encodeUtf8 (T.pack body))
     stackConfig <- digestFile (runtimeStackConfig config) >>= digestFromText "stack config"
     versionResult <- runPulumi config ["version"]

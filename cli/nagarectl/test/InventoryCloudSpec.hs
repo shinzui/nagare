@@ -187,6 +187,7 @@ inventoryCloudTests =
                   , runtimeStackConfig = stackConfig
                   , runtimeDeclarationBundle = encodeCloudDeclarationBundle bundle
                   , runtimeRegistrations = [registration]
+                  , runtimeCollectionPhysical = Map.empty
                   }
               adapter = mkPulumiAdapter [registration] (mkPulumiRuntimeOps config)
           prepared <- adapterPrepare adapter operation >>= expectRight

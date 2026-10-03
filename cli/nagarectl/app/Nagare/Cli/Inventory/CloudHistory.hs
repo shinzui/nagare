@@ -32,6 +32,8 @@ data CloudHistory = CloudHistory
   { cloudHistoricalScopes :: ![ScopeDeclaration]
   , cloudHistoricalMembers :: !(Map ResourceId ManagedResource)
   , cloudOmittedUrns :: ![Text]
+  , cloudCollectingPhysical :: !(Map Text PhysicalIdentity)
+  -- ^ Retained physical identity of each URN being collected, from history.
   }
 
 -- References come from the admitted original review or retained/tombstoned
@@ -84,12 +86,20 @@ loadCloudHistory store headValue cached requested collecting = do
     pure (resourceId, member)
   let byResource = Map.fromList members
       omitted = Set.union collecting (Map.keysSet (Map.filter (cloudOwner . fst) collected))
-  urns <- forM (Set.toAscList omitted) $ \resource -> do
-    member <- maybe (dieT "collected cloud member lacks original declaration") pure (Map.lookup resource byResource)
-    case registrationsFromDeclarations [Managed member] of
-      Right [registration] -> pure (registrationPulumiUrn registration)
-      _ -> dieT "collected cloud member lacks exact native registration"
-  pure (CloudHistory (Map.elems scopes) byResource urns)
+      urnFor resource = do
+        member <- maybe (dieT "collected cloud member lacks original declaration") pure (Map.lookup resource byResource)
+        case registrationsFromDeclarations [Managed member] of
+          Right [registration] -> pure (registrationPulumiUrn registration)
+          _ -> dieT "collected cloud member lacks exact native registration"
+  urns <- forM (Set.toAscList omitted) urnFor
+  physical <- forM (Set.toAscList collecting) $ \resource -> do
+    urn <- urnFor resource
+    identity <- case (Map.lookup resource (headRetained headValue), Map.lookup resource (headCollected headValue)) of
+      (Just retainedValue, _) -> pure (retainedPhysical retainedValue)
+      (Nothing, Just tombstone) -> pure (tombstonePhysical tombstone)
+      (Nothing, Nothing) -> dieT "collected cloud member lacks its retained physical identity"
+    pure (urn, identity)
+  pure (CloudHistory (Map.elems scopes) byResource urns (Map.fromList physical))
 
 requireCloudCollectionProtocol :: PlatformWorkspace -> IO ()
 requireCloudCollectionProtocol workspace = do

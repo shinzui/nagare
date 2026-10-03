@@ -184,9 +184,12 @@ validateCloudCollectionProtection selected bytes = do
       unless unprotected (Left "VM collection requires separately reviewed native deletionProtection=false; teardown cannot clear it")
 
 -- Bind the selected native stack entry, including physical ID and protection,
--- to its saved plan. This is a fresh guard, not a provider atomic ID CAS.
-cloudCollectionPhysicalDigest :: ContentDigest -> [NativeRegistration] -> ByteString -> Either Text ContentDigest
-cloudCollectionPhysicalDigest program selected bytes = do
+-- to its saved plan. Each entry must still be the retained incarnation the
+-- review proved, keyed by URN. This is a fresh guard repeated at preparation,
+-- preflight and immediately before execution; it is not a provider atomic ID
+-- CAS and cannot exclude an external writer racing the native call itself.
+cloudCollectionPhysicalDigest :: ContentDigest -> Map.Map Text PhysicalIdentity -> [NativeRegistration] -> ByteString -> Either Text ContentDigest
+cloudCollectionPhysicalDigest program retained selected bytes = do
   unless (not (null selected)) (Left "cloud collection has no selected native registration")
   validateCloudCollectionProtection selected bytes
   value <- first T.pack (eitherDecodeStrict' bytes)
@@ -203,7 +206,22 @@ cloudCollectionPhysicalDigest program selected bytes = do
                               | Object fields <- resources
                               , Data.Aeson.KeyMap.lookup "urn" fields == Just (String (registrationPulumiUrn registration))
                               ] of
-          [one] -> Right one
+          [one@(Object fields)] -> do
+            let urn = registrationPulumiUrn registration
+            expected <-
+              maybe
+                (Left "cloud collection lacks its reviewed retained physical identity")
+                Right
+                (Map.lookup urn retained)
+            current <- case Data.Aeson.KeyMap.lookup "id" fields of
+              Just (String identifier) -> mkPhysicalIdentity identifier
+              Nothing -> mkPhysicalIdentity urn
+              Just Null -> mkPhysicalIdentity urn
+              Just _ -> Left "collection physical binding has a malformed native ID"
+            unless
+              (current == expected)
+              (Left "cloud collection target is no longer the reviewed retained incarnation")
+            Right one
           _ -> Left "collection physical binding is missing or ambiguous"
       )
       (sort selected)

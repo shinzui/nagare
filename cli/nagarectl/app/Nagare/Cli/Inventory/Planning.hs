@@ -120,7 +120,7 @@ inventoryPlanRegistryWithMode controllerCollection active workspace suppliedNati
         ]
   cloudHistory <-
     if Set.null (selected ResourceInventory.PulumiExecutor)
-      then pure (CloudHistory [] Map.empty [])
+      then pure (CloudHistory [] Map.empty [] Map.empty)
       else do
         store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
         let currentIds = Set.fromList (map ResourceInventory.declarationId declarations)
@@ -293,7 +293,7 @@ inventoryPlanRegistryWithMode controllerCollection active workspace suppliedNati
   pulumiBase <-
     if null registrations
       then pure (Inventory.manifestAdapterFor history ResourceInventory.PulumiExecutor)
-      else inventoryPulumiAdapterWithCollections (cloudOmittedUrns cloudHistory) active workspace (ResourceInventory.inventoryBinding inventory) pulumiScopes allRegistrations
+      else inventoryPulumiAdapterWithCollections (cloudOmittedUrns cloudHistory) (cloudCollectingPhysical cloudHistory) active workspace (ResourceInventory.inventoryBinding inventory) pulumiScopes allRegistrations
   pulumiPower <- vmPowerRuntime (Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure) active scopes pulumiBase
   pulumi <- imagePruneRuntime (Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure) active workspace scopes pulumiPower
   foundation <-

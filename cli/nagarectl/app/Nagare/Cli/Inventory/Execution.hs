@@ -212,7 +212,7 @@ inventoryExecutionRegistry mctx store bundle = do
   cloudHistory <-
     if Set.null (selected ResourceInventory.PulumiExecutor)
       && not (any ((\owner -> Resource.scopeKind owner == Resource.Platform && Resource.nameText (Resource.scopeName owner) == "cloud") . InventoryPlan.retentionOwner) (Map.elems (InventoryPlan.reviewRetentions document)))
-      then pure (CloudHistory [] Map.empty [])
+      then pure (CloudHistory [] Map.empty [] Map.empty)
       else do
         currentHead <- InventoryStore.readHead store >>= either (dieT . T.pack . show) pure >>= maybe (dieT "inventory head missing") pure
         let requested =
@@ -471,7 +471,7 @@ inventoryExecutionRegistry mctx store bundle = do
       pulumiBase <-
         if null registrations
           then pure (Inventory.executionBlockedAdapterFor ResourceInventory.PulumiExecutor)
-          else withWorkspace (\root -> inventoryPulumiAdapterWithCollections (cloudOmittedUrns cloudHistory) active root binding pulumiScopes allRegistrations)
+          else withWorkspace (\root -> inventoryPulumiAdapterWithCollections (cloudOmittedUrns cloudHistory) (cloudCollectingPhysical cloudHistory) active root binding pulumiScopes allRegistrations)
       pulumiPower <- vmPowerRuntime (pure store) active scopes pulumiBase
       pulumi <- maybe (pure pulumiPower) (\root -> imagePruneRuntime (pure store) active root scopes pulumiPower) workspace
       foundation <-

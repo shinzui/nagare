@@ -103,6 +103,7 @@ import Nagare.Inventory.Adapters.PulumiRuntime
   ( PulumiRuntimeConfig
       ( PulumiRuntimeConfig
       , runtimeBackend
+      , runtimeCollectionPhysical
       , runtimeContext
       , runtimeDeclarationBundle
       , runtimePayloadDigest
@@ -469,10 +470,10 @@ inventoryHostAdapter active workspace accepted _ reviewedDigests = do
   pure (mkHostAdapter (mkHostRuntimeOps config))
 
 inventoryPulumiAdapter :: ActiveTarget -> PlatformWorkspace -> Resource.ContextBinding -> [ResourceInventory.ScopeDeclaration] -> [InventoryCloud.NativeRegistration] -> IO InventoryAdapter.Adapter
-inventoryPulumiAdapter = inventoryPulumiAdapterWithCollections []
+inventoryPulumiAdapter = inventoryPulumiAdapterWithCollections [] Map.empty
 
-inventoryPulumiAdapterWithCollections :: [Text] -> ActiveTarget -> PlatformWorkspace -> Resource.ContextBinding -> [ResourceInventory.ScopeDeclaration] -> [InventoryCloud.NativeRegistration] -> IO InventoryAdapter.Adapter
-inventoryPulumiAdapterWithCollections collected active workspace binding scopes registrations = do
+inventoryPulumiAdapterWithCollections :: [Text] -> Map.Map Text Resource.PhysicalIdentity -> ActiveTarget -> PlatformWorkspace -> Resource.ContextBinding -> [ResourceInventory.ScopeDeclaration] -> [InventoryCloud.NativeRegistration] -> IO InventoryAdapter.Adapter
+inventoryPulumiAdapterWithCollections collected collectingPhysical active workspace binding scopes registrations = do
   unless (null collected) (requireCloudCollectionProtocol workspace)
   stateRoot <- nagareStateDir
   stackConfig <- contextStackConfigPath (active ^. #contextName)
@@ -537,5 +538,6 @@ inventoryPulumiAdapterWithCollections collected active workspace binding scopes 
           , runtimeStackConfig = stackConfig
           , runtimeDeclarationBundle = declarationBundle
           , runtimeRegistrations = allRegistrations
+          , runtimeCollectionPhysical = collectingPhysical
           }
   pure (mkPulumiAdapter allRegistrations (mkPulumiRuntimeOps config))

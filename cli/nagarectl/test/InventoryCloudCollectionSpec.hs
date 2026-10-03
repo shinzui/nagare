@@ -128,6 +128,7 @@ cloudCollectionTests =
                   stackConfig
                   (encodeCloudDeclarationBundle fixture)
                   (expectedRegistrations fixture)
+                  (Map.singleton (registrationPulumiUrn registration) (ok (mkPhysicalIdentity "original-id")))
               operation =
                 PlannedOperation
                   (ok (mkOperationId "op-collect"))
@@ -138,6 +139,7 @@ cloudCollectionTests =
                   []
                   Idempotent
               adapter = mkPulumiAdapter (expectedRegistrations fixture) (mkPulumiRuntimeOps config)
+              unbound = mkPulumiAdapter (expectedRegistrations fixture) (mkPulumiRuntimeOps config {runtimeCollectionPhysical = Map.empty})
               exportedObject identity protected = "{\"deployment\":{\"resources\":[{\"urn\":\"" <> urn <> "\",\"id\":\"" <> identity <> "\",\"protect\":" <> protected <> "}]}}"
           createDirectory program
           writeFile (program </> "index.ts") "export {};"
@@ -166,7 +168,15 @@ cloudCollectionTests =
             executed <- adapterExecute adapter operation prepared
             case executed of AdapterEffectFailed (KnownNoEffect _) -> pure (); other -> assertFailure (show other)
           invoked <- BS.readFile calls
-          assertBool "changed collection authority reached up" (not (" up " `BS.isInfixOf` invoked))
+          assertBool "changed collection authority reached up" (not (any ("up " `BS.isPrefixOf`) (BS.lines invoked)))
+          -- A same-URN replacement before preparation never binds a saved plan.
+          writeFile calls ""
+          writeFile exported (exportedObject "replacement-id" "false")
+          adapterPrepare adapter operation >>= assertBool "replacement incarnation was prepared" . isLeft
+          writeFile exported (exportedObject "original-id" "false")
+          adapterPrepare unbound operation >>= assertBool "collection without retained identity was prepared" . isLeft
+          refused <- BS.readFile calls
+          assertBool "refused preparation reached preview" (not (any ("preview " `BS.isPrefixOf`) (BS.lines refused)))
     , testCase "collection recovery requires exact absence, never a no-change preview" $
         withSystemTempDirectory "cloud-collection" $ \temporary -> do
           let program = temporary </> "program"
@@ -186,6 +196,7 @@ cloudCollectionTests =
                   (temporary </> "Pulumi.dev.yaml")
                   (encodeCloudDeclarationBundle fixture)
                   (expectedRegistrations fixture)
+                  Map.empty
               registration = head (expectedRegistrations fixture)
               operation =
                 PlannedOperation
