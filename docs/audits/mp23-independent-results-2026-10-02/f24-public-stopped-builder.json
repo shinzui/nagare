@@ -1,0 +1,19 @@
+{
+  "boundary": "actual built public CLI, native artifact transport, upload-images script and proxy; synthetic admitted local history and provider recorders",
+  "exit": 1,
+  "reviewCreated": false,
+  "headBytesUnchanged": true,
+  "computeStarts": 0,
+  "calls": [
+    "ssh-proxy-read-only",
+    "--project=fixture-project compute instances describe nix-builder-x86 --zone=us-west1-a --format=value(status)"
+  ],
+  "binarySha256": "634bee70fcc549712b5be73af22200a9e4272f376b3cc338bb3d6bef6b026ff2",
+  "sourceHashes": {
+    "scripts/nix-builder-proxy.sh": "5d70556b973e097357145674c17f13d34f1d4bf0575318e266f54b09c11d36f4",
+    "scripts/upload-images.sh": "da6a82dc206b978d633ea1332f4c6e252e86ec2afb703082806947c07944044a",
+    "scripts/inventory-artifact-transport.sh": "8289f4b8063296336bab2fbaa26ed4ef35f76e164d56d850d124c37f8a90b6c3",
+    "cli/nagarectl/src/Nagare/Inventory/Adapters/ArtifactRuntime.hs": "31696de9adce170b53a37b86b088fdfbfc8ff7eeaff35a6c478e7c30335f9945",
+    "cli/nagarectl/app/Nagare/Cli/Bootstrap/Image.hs": "8ce2e9465befbf744b001a734e4bdafd5b4389a32413c677a8f5e2cc2ddf15b4"
+  }
+}

@@ -1,0 +1,29 @@
+fresh profile update preserved absent local foundation history before its GCS bucket exists
+reviewed initial profile update/removal/restore retained its local foundation root and future GCS locator
+fresh cloud bootstrap planned nine reviewed foundation resources before Kubernetes
+shared-project bootstrap left seven enabled APIs outside the owned fixture
+public inventory resume proved a lost foundation API acknowledgement without repeating its write
+public foundation apply converged and retained its local inventory journal
+initial GCS foundation resumed its original local journal and migrated only after convergence
+an observed foundation drift planned a focused reviewed repair
+the next public review grouped all 24 Pulumi registrations in one saved plan
+initial GCS recovery refused an unrelated active local transaction without effects
+public inventory resume proved a lost grouped Pulumi acknowledgement without repeating its write
+one public cloud review converged all 24 foundation-managed Pulumi registrations
+an observed Pulumi absence planned one reviewed cloud repair
+changed payload pin refused the retained build review before its provider effect
+public bootstrap reviewed the Nix image build before its first build effect
+public bootstrap bound the built tarball digest to a separate GCE image review
+public inventory resume proved GCE image publication without repeating registration
+reviewed image config enabled and converged both VM registrations
+reviewed VM stop/start recovered a lost acknowledgement without host access or repeated power requests
+public bootstrap planned guarded host activation after the VM receipts
+public inventory resume proved guarded host activation after lost commit acknowledgement
+reviewed host input update and replay preserved the already committed closure without activation
+inherited host credential input requires v2 activation receipt without exposing key bytes
+accepted host input changes refused before installation-image evaluation
+public inventory resume proved the reviewed kubeconfig install after lost acknowledgement
+public credential recovery materialized a second root and preserved changed-file refusal
+public bootstrap planned 211 cluster operations with kubeconfig edges and a final marker
+public cluster apply reconstructed the Serving grant and refused a stale head before admission
+public foundation apply initialized and seeded a native local Pulumi stack

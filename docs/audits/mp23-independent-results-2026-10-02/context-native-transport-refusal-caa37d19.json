@@ -1,0 +1,21 @@
+{
+  "candidate": "caa37d19e59b9a580940bd337ee1082da2a38f76",
+  "boundary": "fresh operator root, copied existing ep150 profile, native GCS authority",
+  "command": "context delete ep150-preview --save-plan <private review>",
+  "exit": 1,
+  "error": "nagarectl: context review refuses unrecognized profile fields; keep credentials outside the profile",
+  "extraInputNames": [
+    "NAGARE_BUILDER_PROJECT",
+    "NAGARE_BUILDER_ZONE",
+    "NAGARE_BUILDER_INSTANCE",
+    "NIX_BUILDER_SSH_KEY",
+    "NIX_BUILDER_HOST_KEY_B64"
+  ],
+  "profileSha256": "def842f39d5f1ba0297abe005fdbaab8d41858f46a940c57d6593041825bfdec",
+  "reviewCreated": false,
+  "profileRemoved": false,
+  "originalOperatorRootChanged": false,
+  "providerMutations": 0,
+  "remoteHeadUnchanged": true,
+  "originalProfileExact": true
+}

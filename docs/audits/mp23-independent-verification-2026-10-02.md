@@ -511,3 +511,20 @@ tool-version checks are recorded separately. Initial API and PostgreSQL recovery
 readiness delays resolve on read-only probes after start. This proves bounded
 workload recovery as well as the power state. Compute's name-based transition
 after numeric-ID preflight remains non-atomic against arbitrary external writers.
+
+[F24 closes](mp23-independent-results-2026-10-02/image-plan-readonly-f24.json) after
+independent public stopped-builder refusal, actual legacy-payload early refusal,
+outer-protocol checks and complete image-command success/recovery verification.
+The [caa installed cp3 gate](mp23-independent-results-2026-10-02/installed-local-gate-caa37d19.json)
+also passes 213 verification operations with 29 unchanged scope content digests
+and 57 ready or succeeded Pods. Installed public profile checks pass, but the
+actual GCS-authority profile roundtrip exposes F25: supported existing builder
+transport fields are rejected before a review is saved. Original profile and
+remote head remain unchanged. F25 remains Open.
+
+The [fresh-host checkpoint](mp23-independent-results-2026-10-02/fresh-host-bootstrap-3905012e.json)
+records independently executed foundation migration, exact perimeter creation,
+new child DNS delegation and the converged immutable image build. The selected
+existing builder is started only within the authorized build work. Image
+publication, VM, fresh credential activation and F15/F16 acceptance remain
+separate subsequent stages. No retired fixture was used.

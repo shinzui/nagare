@@ -1,0 +1,58 @@
+[
+  {
+    "payload": "3905012e",
+    "action": "--inspect-build",
+    "exit": 2,
+    "sourceSha256": "f9da6da4530cc848729e6a7c4c996ad6ba44a0a2bb728d40a0cca4905d0e0219",
+    "beforeProviderOrTarget": true
+  },
+  {
+    "payload": "3905012e",
+    "action": "--describe-build",
+    "exit": 2,
+    "sourceSha256": "f9da6da4530cc848729e6a7c4c996ad6ba44a0a2bb728d40a0cca4905d0e0219",
+    "beforeProviderOrTarget": true
+  },
+  {
+    "payload": "3905012e",
+    "action": "observe",
+    "exit": 2,
+    "sourceSha256": "d6267b7ecfacade4f9213aa86e46f7314d62cf5cd02b3c0a7bdc89ac037e201f",
+    "beforeProviderOrTarget": true
+  },
+  {
+    "payload": "3905012e",
+    "action": "publish",
+    "exit": 2,
+    "sourceSha256": "d6267b7ecfacade4f9213aa86e46f7314d62cf5cd02b3c0a7bdc89ac037e201f",
+    "beforeProviderOrTarget": true
+  },
+  {
+    "payload": "6082dbd6",
+    "action": "--inspect-build",
+    "exit": 2,
+    "sourceSha256": "f9da6da4530cc848729e6a7c4c996ad6ba44a0a2bb728d40a0cca4905d0e0219",
+    "beforeProviderOrTarget": true
+  },
+  {
+    "payload": "6082dbd6",
+    "action": "--describe-build",
+    "exit": 2,
+    "sourceSha256": "f9da6da4530cc848729e6a7c4c996ad6ba44a0a2bb728d40a0cca4905d0e0219",
+    "beforeProviderOrTarget": true
+  },
+  {
+    "payload": "6082dbd6",
+    "action": "observe",
+    "exit": 2,
+    "sourceSha256": "d6267b7ecfacade4f9213aa86e46f7314d62cf5cd02b3c0a7bdc89ac037e201f",
+    "beforeProviderOrTarget": true
+  },
+  {
+    "payload": "6082dbd6",
+    "action": "publish",
+    "exit": 2,
+    "sourceSha256": "d6267b7ecfacade4f9213aa86e46f7314d62cf5cd02b3c0a7bdc89ac037e201f",
+    "beforeProviderOrTarget": true
+  }
+]

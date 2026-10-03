@@ -1,0 +1,23 @@
+{
+  "finding": "F24",
+  "status": "Closed",
+  "sourceBound": true,
+  "installedNativeFreshPayloadNotClaimed": true,
+  "publicCliSha256": "634bee70fcc549712b5be73af22200a9e4272f376b3cc338bb3d6bef6b026ff2",
+  "checks": [
+    "actual public CLI stopped-builder refusal before saved review; exact head bytes and zero starts",
+    "actual proxy read-only TERMINATED refusal",
+    "actual upload-images read-only config, unavailable-vs-absence refusal and immutable lock flags",
+    "exact outer .version observe and publish protocol for BuildJob2 and Gce1",
+    "actual accepted390 and6082 shells refuse new probes/protocol before target/provider",
+    "full public build/publication/lost-ack recovery/repeated verification and remaining foundation checks"
+  ],
+  "legacyPayloadBoundary": "Old accepted image probes refuse safely; no payload replacement or implicit old-builder start",
+  "results": {
+    "docs/audits/mp23-independent-results-2026-10-02/f24-foundation-public.txt": "ee297ac312651f4d983c5313b989dad047ccd544f3976e9c145c0e9dcad275e1",
+    "docs/audits/mp23-independent-results-2026-10-02/f24-upload-script.txt": "cfb4e6f4e8057885ff34f6f5ea902f3947976945c816b0f4141f59a457cd805c",
+    "docs/audits/mp23-independent-results-2026-10-02/f24-outer-protocol.txt": "84d1fd70f964b8df9b80f11dbf910fd60e0a7dd684905997873ef4c8d4f13c07",
+    "docs/audits/mp23-independent-results-2026-10-02/f24-public-stopped-builder.json": "20a5598b66dc43ae486efc6c906269a66178f10c5a1e8e818d7d5807e78afb22",
+    "docs/audits/mp23-independent-results-2026-10-02/f24-legacy-payload-refusal.json": "89b555724627c2782e3185e979c2286d065fd236e972c9bb15c2cdf3dd4e2a23"
+  }
+}

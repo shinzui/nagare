@@ -1,0 +1,15 @@
+nagarectl
+  host inventory adapter
+    local context review
+      operational update and receipt replay preserve later local inputs:                   OK (0.01s)
+      removal retains authority and restores exact bytes:                                  OK
+      foreign profile and changed history refuse without writing:                          OK
+      authority changes and active history cannot be reviewed:                             OK
+      removal restore refuses occupying bytes and foreign roots:                           OK
+      replacement decoder rejects extra executable lines and invalid shapes:               OK
+      canonical quoted replacement preserves shell substitution as literal data:           OK (0.04s)
+      local foundation authority excludes other scopes and migration:                      OK
+      fresh request permits returning to a previous profile without replaying old reviews: OK
+      review roundtrip validates version and binding:                                      OK
+
+All 10 tests passed (0.07s)

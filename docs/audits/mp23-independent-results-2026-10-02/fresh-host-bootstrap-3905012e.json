@@ -1,0 +1,104 @@
+{
+  "candidateRevision": "3905012e36d45358608343b5ea70ebc9cf45511c",
+  "context": "mp23-host-acceptance",
+  "project": "tan-ng-labs",
+  "fixture": {
+    "vm": "nagare-mp23-host",
+    "machineType": "e2-standard-4",
+    "zone": "us-west1-a",
+    "domain": "mp23-host.labs.topagentnetwork.net",
+    "certificateIssuer": "ACME staging",
+    "standingFixturesPreserved": true,
+    "retiredF15Accessed": false
+  },
+  "stages": {
+    "foundation": {
+      "reviewDigest": "e0cce42e5f620b90f3acad96037241a3143720dbf27dcc1e7e161fa1405064c0",
+      "apply": {
+        "exit": 0,
+        "seconds": 45.674
+      },
+      "operationCount": 2,
+      "historyMigratedTo": "gs://tan-ng-labs-mp23-host-pmkjjpp-state/inventory"
+    },
+    "perimeter": {
+      "reviewDigest": "ecf8eccf1d5cf9667188941ba6d2e2b84e90e5a8c5e63317f75c3dcea432f84d",
+      "apply": {
+        "exit": 0,
+        "seconds": 77.618
+      },
+      "operationCount": 1,
+      "nativeResources": 24,
+      "onlyCreate": true,
+      "headAfter": {
+        "generation": 15,
+        "sequence": 10,
+        "activeTransaction": null,
+        "executorClaim": null,
+        "dataFence": null,
+        "migration": null
+      }
+    }
+  },
+  "standingComputeBaseline": [
+    {
+      "id": "8681937123827966632",
+      "name": "nagare-01",
+      "status": "RUNNING",
+      "zone": "https://www.googleapis.com/compute/v1/projects/tan-ng-labs/zones/us-west1-a"
+    },
+    {
+      "id": "865479739011671762",
+      "name": "nagare-ep150",
+      "status": "RUNNING",
+      "zone": "https://www.googleapis.com/compute/v1/projects/tan-ng-labs/zones/us-west1-a"
+    },
+    {
+      "id": "8815729645771508447",
+      "name": "nix-builder-ep150",
+      "status": "TERMINATED",
+      "zone": "https://www.googleapis.com/compute/v1/projects/tan-ng-labs/zones/us-west1-a"
+    }
+  ],
+  "standingComputeExactAfterPerimeter": true,
+  "delegation": {
+    "parentZone": "nagare-zone-89da8ae",
+    "childZone": "nagare-zone-ed859e1",
+    "name": "mp23-host.labs.topagentnetwork.net.",
+    "ttl": 300,
+    "nameservers": [
+      "ns-cloud-a1.googledomains.com.",
+      "ns-cloud-a2.googledomains.com.",
+      "ns-cloud-a3.googledomains.com.",
+      "ns-cloud-a4.googledomains.com."
+    ],
+    "transactionDigest": "9ea15a0e04005202ad6c7f4e2763bc27a3cff33081eb21da6dd1fa3469eea132",
+    "otherParentRecordsPreserved": 4,
+    "expectedParentSoaSerialChange": "2 to 3"
+  },
+  "imageBuild": {
+    "reviewDigest": "4a9909d4c8fb5cd0ca719e58417059749760ffefe9d6d0b178feccb8dd0b2d3e",
+    "state": "converged; publication review pending",
+    "originalReviewPreserved": true,
+    "builderInstance": "nix-builder-ep150",
+    "builderNumericId": "8815729645771508447",
+    "apply": {
+      "exit": 0,
+      "seconds": 646.533
+    },
+    "headAfter": {
+      "generation": 21,
+      "sequence": 14,
+      "activeTransaction": null,
+      "executorClaim": null
+    }
+  },
+  "credentialPreparation": {
+    "newSingleUseAuthKeyUserAuthorized": true,
+    "freshHostAgeKey": true,
+    "privateEncryptedSecretSha256": "c8a295188f9f2523503fbfe0222ee240f5dda8f609bf9b71eb6f8682f7dd3d7d",
+    "independentHostAndWorkstationDecryptVerified": true,
+    "freshIsolatedHomePreventedFallback": true,
+    "plaintextNotPublished": true
+  }
+}

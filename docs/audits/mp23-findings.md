@@ -51,6 +51,8 @@ Implementation owner: existing session `01a0e893-337f-7b82-ac5d-16f41bf5ce21` (I
 | [F21](#f21) | P1 | HTTP redirect automatically resubmits reviewed CDN purge | Closed | EP-158 |
 | [F22](#f22) | P1 | ClickHouse restore fails after a transient read-only verification refusal | Closed | EP-160 |
 | [F23](#f23) | P1 | Credential review can delegate to an older receipt-unaware host transport | Closed | EP-153 / EP-154 |
+| [F24](#f24) | P1 | Host image planning can start a stopped builder | Closed | EP-153 / EP-154 |
+| [F25](#f25) | P2 | Reviewed context control rejects supported builder transport inputs | Open | EP-153 |
 
 F01 and F11 retain their [earlier independent closure](mp23-verification.md). F02, F03, F04, F05, F06, F07, F08 and F20 now have [2026-10-02 independent closure](mp23-independent-verification-2026-10-02.md). Other entries retain their status shown above.
 
@@ -643,3 +645,60 @@ installed c4 public regression covers explicit and inherited key review.
 [F23 evidence](mp23-independent-results-2026-10-02/host-protocol-f23-1b0d5a61.json).
 No native new credential activation on the legacy payload is claimed; fresh
 host timer/expiry acceptance remains F15.
+
+## F24
+
+**Host image planning can start a stopped builder** — P1; **Closed**; owners EP-153 / EP-154.
+
+**Independent source/reproduction evidence (2026-10-02):** The new reviewed
+`host image` entrypoint reuses `buildImageBuildStageCandidate`. For an accepted
+build this calls `upload-images.sh --inspect-build`, whose `build_present` probe
+uses SSH through `nix-builder-proxy.sh`. That proxy starts a stopped Compute
+instance before opening the tunnel. A saved-plan command can therefore perform
+a provider mutation before a new review is applied. This path also exists in
+bootstrap image planning. [The actual-script recorder reproduction](mp23-independent-results-2026-10-02/image-plan-builder-start-reproduction.json)
+observes describe followed by start; it performs no real provider call. The
+authorized fresh image apply already permits its existing builder to start and
+is not a plan-only verification of this boundary.
+
+**Required repair/verification:** Make image inspection use a read-only builder
+transport: stopped or inaccessible builders must not be started by planning.
+Retain explicit start capability for authorized build execution. Independently
+exercise the actual script path and public image planning, including stopped and
+running builders, unchanged completion, and failure before a saved review.
+Preserve the immutable host lock-file inputs during image evaluation.
+
+**Independent closure (2026-10-02):** The actual public CLI now reaches the
+read-only proxy and refuses a stopped builder after exactly one describe, before
+saving a review and with exact head bytes unchanged. The actual upload script
+distinguishes unavailable transport from confirmed absence; both image evaluation
+and build preserve the lock file. Exact outer-version observe/publish regressions
+pass. Both retained 390 and 6082 payload scripts independently refuse the new
+inspection flag and BuildJob protocol before target/provider access. The complete
+public foundation/image fixture independently passes publication, lost-ack
+recovery and repeat verification. [Source-bound closure evidence](mp23-independent-results-2026-10-02/image-plan-readonly-f24.json)
+records the exact executable and source hashes. It does not claim a native fresh
+payload build with the repair; old accepted payloads refuse the new image probe
+rather than silently retaining its former start behavior.
+
+## F25
+
+**Reviewed context control rejects supported builder transport inputs** — P2; **Open**; owner EP-153.
+
+**Independent installed evidence (2026-10-02):** Candidate `caa37d19` passes
+the installed cp3 gate and public profile fixture. On a fresh operator root
+containing the exact copied ep150 profile, `context delete --save-plan` refuses
+with “context review refuses unrecognized profile fields”. The original profile
+contains supported `NAGARE_BUILDER_PROJECT`, `NAGARE_BUILDER_ZONE`,
+`NAGARE_BUILDER_INSTANCE`, `NIX_BUILDER_SSH_KEY` and
+`NIX_BUILDER_HOST_KEY_B64` settings. No review, profile removal, original-root
+change or remote-head change occurred. The fields were not stripped to force
+acceptance. [The refusal proof](mp23-independent-results-2026-10-02/context-native-transport-refusal-caa37d19.json)
+records only input names and hashes.
+
+**Required repair/verification:** Preserve the known supported builder transport
+inputs as immutable local profile authority through update, removal and restore,
+using canonical quoted replacement bytes. Refuse changes to those values and
+unrecognized fields. Independently execute the actual accepted GCS-authority
+roundtrip from the new operator root, checking exact original profile and remote
+head bytes throughout.

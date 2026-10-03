@@ -110,7 +110,19 @@
     "docs/audits/mp23-independent-results-2026-10-02/scheduled-gcs-ingestion-a027d1f6.json": "1f60c7fb6e2f0489cc7010fcc324cefda6988e3be2f62f5147eee9f6f8ef5610",
     "docs/audits/mp23-independent-results-2026-10-02/public-cdn-disable.txt": "46c8dadd22a87a3b6635a03a90894e9a5a95560782a01d08fb90591bbd36be28",
     "docs/audits/mp23-independent-results-2026-10-02/native-vm-power-3905012e.json": "af3bcb405b8d066511d883d0fa8d6fc73ae5b76edb295f913520b6f998473ff1",
-    "docs/audits/mp23-independent-results-2026-10-02/installed-local-gate-3905012e.json": "f598db19003c3ebe10f0791c47c4f10f6e31c2882cbfae8ee2d86aa6dadbcecb"
+    "docs/audits/mp23-independent-results-2026-10-02/installed-local-gate-3905012e.json": "f598db19003c3ebe10f0791c47c4f10f6e31c2882cbfae8ee2d86aa6dadbcecb",
+    "docs/audits/mp23-independent-results-2026-10-02/f24-foundation-public.txt": "ee297ac312651f4d983c5313b989dad047ccd544f3976e9c145c0e9dcad275e1",
+    "docs/audits/mp23-independent-results-2026-10-02/f24-upload-script.txt": "cfb4e6f4e8057885ff34f6f5ea902f3947976945c816b0f4141f59a457cd805c",
+    "docs/audits/mp23-independent-results-2026-10-02/f24-outer-protocol.txt": "84d1fd70f964b8df9b80f11dbf910fd60e0a7dd684905997873ef4c8d4f13c07",
+    "docs/audits/mp23-independent-results-2026-10-02/f24-public-stopped-builder.json": "20a5598b66dc43ae486efc6c906269a66178f10c5a1e8e818d7d5807e78afb22",
+    "docs/audits/mp23-independent-results-2026-10-02/f24-legacy-payload-refusal.json": "89b555724627c2782e3185e979c2286d065fd236e972c9bb15c2cdf3dd4e2a23",
+    "docs/audits/mp23-independent-results-2026-10-02/installed-local-gate-caa37d19.json": "d8d5484950cc3c674370f75a5468f3a954d315b5e5e6fb60f16ba54796891462",
+    "docs/audits/mp23-independent-results-2026-10-02/context-installed-public-caa37d19.txt": "7c9df4cf7ed4a706c8c76319bfbfbac38fe033165175669a54f96dd52779138b",
+    "docs/audits/mp23-independent-results-2026-10-02/context-source-units-caa37d19.txt": "5dcb22d1bf4387718df56bc0cd3a6c5297b28ef69c1ca5a190034cc0f6eec837",
+    "docs/audits/mp23-independent-results-2026-10-02/image-plan-readonly-f24.json": "2ce41daed8e116c207a1df5cf2cbcfd52e1e35e4f9587aa6843255613d8e7495",
+    "docs/audits/mp23-independent-results-2026-10-02/image-plan-builder-start-reproduction.json": "7f4ee8d90e8a17dcefef5d1f60a3527c743cf77eb536462d8fcac5e1c8b6a76b",
+    "docs/audits/mp23-independent-results-2026-10-02/context-native-transport-refusal-caa37d19.json": "96ffe0efc17ca6b2838900fbfc348213216782f33fabbfea807203efa4254d4b",
+    "docs/audits/mp23-independent-results-2026-10-02/fresh-host-bootstrap-3905012e.json": "50ddb9285091073c016b0d4ccaf2605b68c829d3cd6e5dbb8b8e42699ebf19f2"
   },
   "scheduledGcsReview": {
     "candidate": "a027d1f632d50ee4cf853127e7932ab94c09aaf1",
@@ -233,5 +245,15 @@
     "evidence": "docs/audits/mp23-independent-results-2026-10-02/native-vm-power-3905012e.json",
     "localGate": "docs/audits/mp23-independent-results-2026-10-02/installed-local-gate-3905012e.json",
     "result": "passed with numeric-ID/name-based API boundary"
-  }
+  },
+  "F24": {
+    "status": "Closed",
+    "evidence": "docs/audits/mp23-independent-results-2026-10-02/image-plan-readonly-f24.json"
+  },
+  "F25": {
+    "status": "Open",
+    "evidence": "docs/audits/mp23-independent-results-2026-10-02/context-native-transport-refusal-caa37d19.json"
+  },
+  "freshHostBootstrap": "docs/audits/mp23-independent-results-2026-10-02/fresh-host-bootstrap-3905012e.json",
+  "caaLocalGate": "docs/audits/mp23-independent-results-2026-10-02/installed-local-gate-caa37d19.json"
 }

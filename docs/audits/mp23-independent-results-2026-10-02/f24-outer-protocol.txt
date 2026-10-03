@@ -1,0 +1,5 @@
+nagarectl
+  artifact inventory adapter
+    build observe and publish require outer protocol v2 while other artifacts retain v1: OK (0.41s)
+
+All 1 tests passed (0.42s)

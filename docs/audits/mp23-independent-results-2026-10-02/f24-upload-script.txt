@@ -1,0 +1,49 @@
+context: labs
+project: labs-project
+local system: aarch64-darwin
+target system: x86_64-linux
+builder URI: ssh-ng://builder@nagare-builder-labs
+builder project: labs-project
+builder zone: us-west1-a
+builder instance: nix-builder-x86
+shared builder exception: no
+builder spec: ssh-ng://builder@nagare-builder-labs x86_64-linux /etc/nix/builder_ed25519 4 1 big-parallel,benchmark,kvm
+builder SSH config: /var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-upload-images.Q4df8X/state/nagare/labs/nix-builder/ssh_config_read_only
+builder build transport: pinned IAP loopback tunnel
+context: labs
+project: labs-project
+local system: aarch64-darwin
+target system: x86_64-linux
+builder URI: ssh-ng://builder@nagare-builder-labs
+builder project: labs-project
+builder zone: us-west1-a
+builder instance: nix-builder-x86
+shared builder exception: no
+builder spec: ssh-ng://builder@nagare-builder-labs x86_64-linux /etc/nix/builder_ed25519 4 1 big-parallel,benchmark,kvm
+builder SSH config: /var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-upload-images.Q4df8X/state/nagare/labs/nix-builder/ssh_config
+builder build transport: pinned IAP loopback tunnel
+context: labs
+project: labs-project
+local system: aarch64-darwin
+target system: x86_64-linux
+builder URI: ssh-ng://builder@nagare-builder-labs
+builder project: labs-project
+builder zone: us-west1-a
+builder instance: nix-builder-x86
+shared builder exception: no
+builder spec: ssh-ng://builder@nagare-builder-labs x86_64-linux /etc/nix/builder_ed25519 4 1 big-parallel,benchmark,kvm
+builder SSH config: /var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-upload-images.Q4df8X/state/nagare/labs/nix-builder/ssh_config_read_only
+builder build transport: pinned IAP loopback tunnel
+context: labs
+project: labs-project
+local system: aarch64-darwin
+target system: x86_64-linux
+builder URI: ssh-ng://builder@nagare-builder-labs
+builder project: labs-project
+builder zone: us-west1-a
+builder instance: nix-builder-x86
+shared builder exception: no
+builder spec: ssh-ng://builder@nagare-builder-labs x86_64-linux /etc/nix/builder_ed25519 4 1 big-parallel,benchmark,kvm
+builder SSH config: /var/folders/fn/022xr90s5mz417hz7fllrhv80000gn/T/nagare-upload-images.Q4df8X/state/nagare/labs/nix-builder/ssh_config
+builder build transport: pinned IAP loopback tunnel
+upload-images builder confinement tests passed

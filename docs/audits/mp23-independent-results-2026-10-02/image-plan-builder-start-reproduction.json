@@ -1,0 +1,10 @@
+{
+  "sourceSha256": "ada3a6d1ad6c36b479409fe42f71948a925b1e8a3afce5222f0dd817b881d13a",
+  "boundary": "actual proxy script invoked by upload-images --inspect-build through SSH ProxyCommand; provider recorder only",
+  "exit": 97,
+  "providerCalls": [
+    "--project=project compute instances describe builder --zone=zone --format=value(status)",
+    "--project=project compute instances start builder --zone=zone --quiet"
+  ],
+  "realProviderAccess": false
+}
