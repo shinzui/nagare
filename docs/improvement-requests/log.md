@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-10-03
+* **Add**: Record IR-26 as proposed to migrate local object storage from MinIO to RustFS, covering pinned artifacts, conditional S3 writes, backup and inventory recovery, retained-data migration, and rollback.
+
 ## 2026-09-25
 * **Add**: Record IR-25 as proposed for optional Coraza and OWASP CRS support on Nagare's direct ingress, informed by research RES-2.
 
