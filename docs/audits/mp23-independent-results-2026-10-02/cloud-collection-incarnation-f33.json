@@ -1,0 +1,26 @@
+{
+  "finding": "F33",
+  "status": "Open",
+  "reviewedSourceRevision": "3fb9213646ab7564efa8c91cbe8cf63afa3e5c48",
+  "nativeTeardownAttempted": false,
+  "sourceBoundaries": [
+    "Plan/Lifecycle.hs collection physical equality at preparation",
+    "Adapters/PulumiRuntime.hs prepareSavedPlan protection observation",
+    "Adapters/Pulumi.hs preflight identity-only validation",
+    "Adapters/PulumiRuntime.hs applySavedPlan no collection incarnation check",
+    "Execute/Admission.hs reviewRetentions-only reobservation"
+  ],
+  "dependency": "mori://pulumi/pulumi/repos/pulumi",
+  "dependencySourcePaths": [
+    "pkg/resource/deploy/plan.go",
+    "pkg/resource/deploy/step_generator.go"
+  ],
+  "dependencyArtifactUri": "pending",
+  "requiredRegression": [
+    "same URN changed physical ID after review",
+    "native protection changed after review",
+    "change after preflight before execute",
+    "ordinary identity bytes preserved"
+  ],
+  "limits": "Fresh checks are not an atomic external-writer/provider CAS."
+}

@@ -1,0 +1,27 @@
+{
+  "finding": "F32",
+  "status": "Open",
+  "operatorRevision": "b805d64a6dd90b54f5404bc0578361e540bbaa16",
+  "payloadRevision": "762657ed1925e630d83c09defd351bd6e7a854a8",
+  "context": "mp23-host-fixed",
+  "project": "tan-ng-labs",
+  "instanceId": "786040818479522250",
+  "reviewDigest": "1a3592d960d865dee87358a0a40cfbfc15f6b1fe9d24dc5c47bf95aa3ce4525f",
+  "head": {
+    "generation": 477,
+    "sequence": 458
+  },
+  "operationCount": 2,
+  "selectedPauseImageId": "sha256:4a83b15d3ecfe0d916b2d0a7991bc2854a629b8097017c2ee1ff65b30ae4c07c",
+  "reportedPinned": false,
+  "sandboxes": 35,
+  "ordinaryContainers": 46,
+  "readySandboxId": "50f15cd2668be2a90e7fa40a353245371ebf102ba93d2bde11a2f7dda1325cef",
+  "readySandboxState": "SANDBOX_READY",
+  "criInspectSandboxImage": "docker.io/rancher/mirrored-pause:3.10.2",
+  "containerdSandboxImage": "docker.io/rancher/mirrored-pause:3.10.2",
+  "runtimeVersion": "2.2.7-k3s1",
+  "applied": false,
+  "requiredProof": "protect sandbox/configured runtime images; fresh native unused-image deletion and receipt replay",
+  "privateEvidenceRoot": "/tmp/mp23-fixed-image-cleanup-b805d64a"
+}

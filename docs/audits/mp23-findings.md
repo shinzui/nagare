@@ -57,6 +57,8 @@ Implementation owner: existing session `01a0e893-337f-7b82-ac5d-16f41bf5ce21` (I
 | [F27](#f27) | P1 | Credential streaming loses argument boundaries at the real SSH transport | Closed | EP-153 / EP-154 |
 | [F28](#f28) | P1 | Release cleanup omits native evidence for adjacent scope members | Closed | EP-153 |
 | [F29](#f29) | P1 | Admitted preview route failure lacks a bounded configuration correction | Closed | EP-153 |
+| [F30](#f30) | P1 | Controller status churn strands admitted conditional Service correction | Open | EP-153 / EP-156 |
+| [F31](#f31) | P1 | Registry refresh cadence permits credentials to expire before its next run | Open | EP-154 / EP-156 |
 
 F01 and F11 retain their [earlier independent closure](mp23-verification.md). F02, F03, F04, F05, F06, F07, F08 and F20 now have [2026-10-02 independent closure](mp23-independent-verification-2026-10-02.md). Other entries retain their status shown above.
 
@@ -844,3 +846,101 @@ preview cleanup then resumed successfully with a zero-provider-operation
 retirement review retaining all three native objects. The linked diagnostic proof
 now includes the repair executable hash and exact correction review. Final
 immutable release binding remains a separate acceptance gate.
+
+## F30
+
+**Controller status churn strands admitted conditional Service correction** — P1; **Open**; owners EP-153 / EP-156.
+
+**Independent installed native evidence (2026-10-02):** A fresh public Application
+review creates its PostgreSQL/PVC and an intentionally unschedulable Service.
+Exact stop preserves ownership; an unchanged replan refuses NotReady, and an
+unrelated scope completes without falsely converging the application. Its
+corrected review then completes the original unfinished backup create but refuses
+the conditional Service update: Knative's status-only RevisionFailed transition
+changes resourceVersion after planning. UID, generation, spec, labels, annotations,
+finalizers, deletion timestamp and owner references remain exact. The existing
+strict saved-state preflight says to replan, but the admitted transaction cannot
+replan, and ordinary resume repeats the same refusal. No provider write was
+attempted for the correction. [Exact native evidence](mp23-independent-results-2026-10-02/application-status-race-f30.json).
+
+**Required repair/verification:** Preserve the original review and transaction.
+Preserve legacy full-object observation semantics; the old digest cannot prove a
+status-only refresh. Stop only this never-intended owned Service Update and its
+never-intended dependent release-history Create, with completed companions and
+unchanged accepted/converged vectors. Fresh reviews may use a versioned
+status-stable observation retaining spec/ownership/identity authority and a fresh
+atomic UID/resourceVersion write precondition. Refuse changed desired fields,
+foreign ownership, deletion, replacement and any prior selected intent; test a
+race after refresh. Execute the fresh correction, prove the same Service/database/
+PVC identities and known row, and complete independent F16 verification. No generic precondition
+relaxation, history reset or raw patch is authorized.
+
+## F31
+
+**Registry refresh cadence permits credentials to expire before its next run** — P1; **Open**; owners EP-154 / EP-156.
+
+**Independent installed native evidence (2026-10-02):** The fresh immutable 762
+host and full cluster converge, with all three exact host-owned pull Secrets, the
+Serving account grant, and all 33 Pods Ready/Succeeded. Its automatic timer ran
+successfully at 02:22:18 UTC, yet every current credential expires at 02:50:10.
+The native 30-minute timer next deadline is approximately 02:52:18, leaving at
+least 128 seconds after expiry before the next scheduled refresh. A successful
+metadata request reused the cached boot token. [Google's documented metadata
+cache behavior](https://docs.cloud.google.com/compute/docs/access/authenticate-workloads)
+retains a token until five minutes of remaining lifetime; the current validation
+accepts any lifetime above 300 seconds. Thus a healthy refresh can install a token
+that expires before the next run. [Native timer and credential evidence](mp23-independent-results-2026-10-02/registry-timer-expiry-gap-f31.json).
+
+**Required repair/verification:** Align automatic refresh cadence, lifetime checks
+and scheduling margin with metadata-token caching. Independently prove a genuine
+automatic replacement before the previous credentials expire, then authenticate
+the exact private controller image after the original boot credential expires.
+Preserve typed Secret/account ownership, exact conditional writes, and the
+immutable/disposable fixture decision. Do not manually start the refresh unit or
+patch credentials to manufacture the acceptance result. F15 remains Verifying.
+
+## F32
+
+**Image-cache cleanup selects an image used by active pod sandboxes** — P1; **Open**; owners EP-153 / EP-156.
+
+**Independent installed native evidence (2026-10-02):** Installed b805 prepares
+two exact cache deletions on the fixed 762 host, including the full image ID for
+`rancher/mirrored-pause:3.10.2`. The runtime reports `pinned=false`, but independent
+`crictl inspectp` and containerd container inspection show a Ready sandbox uses
+that exact image alias. Thirty-five sandboxes exist. The production capture only
+lists ordinary containers with `crictl ps -a`, omitting sandbox image references.
+No apply occurred; the original review and idle head remain preserved.
+[Native review and sandbox evidence](mp23-independent-results-2026-10-02/image-prune-sandbox-f32.json).
+
+**Required repair/verification:** Resolve and protect exact image IDs referenced
+by Ready and retained stopped sandboxes, and fail closed when required sandbox
+observations are missing or ambiguous. Account for the configured runtime sandbox
+image rather than relying solely on the reported pinned flag. Exercise the actual
+production script with sandbox-only use and inspection failure, then independently
+prepare and execute a fresh installed native review that excludes those protected
+images. Prove ordinary unused-image deletion, workload preservation and durable
+one-shot replay behavior. Do not apply the unsafe saved review.
+
+## F33
+
+**Cloud collection does not recheck its reviewed physical incarnation before deletion** — P1; **Open**; owners EP-153 / EP-156.
+
+**Independent source evidence (2026-10-02):** The collection planner checks the
+retained physical identity, and native preparation checks protection. Pulumi
+preflight subsequently compares only context, program, configuration and tool
+identity; execution sends the saved plan without a fresh resource check. Admission
+reobserves retirement proofs, but not collection proofs. A same-URN replacement
+between review and apply can therefore escape the retained-incarnation boundary.
+Pulumi's saved deletion constraints bind the URN and operation class rather than
+an atomic physical-ID condition; see canonical project
+`mori://pulumi/pulumi/repos/pulumi`, `pkg/resource/deploy/plan.go` and
+`pkg/resource/deploy/step_generator.go` (artifact-level URI pending). No native
+teardown was attempted.
+
+**Required repair/verification:** Bind the exact selected native stack entry and
+protection state into collection evidence, and recheck both during preflight and
+immediately before saved-plan execution. Refuse changed ID, protection, and
+relevant entry contents, including a change between preflight and execution.
+Preserve ordinary-operation compatibility. Document that these checks do not
+create atomic provider CAS against arbitrary external writers. Independently
+verify the regression and a fresh disposable native collection before closure.

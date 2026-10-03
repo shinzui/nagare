@@ -1,0 +1,105 @@
+{
+  "finding": "F31",
+  "sourceRevision": "762657ed1925e630d83c09defd351bd6e7a854a8",
+  "context": "mp23-host-fixed",
+  "numericInstanceId": "786040818479522250",
+  "bootCredentialFileMtimeEpoch": 1790992209,
+  "nativeTimerLastTrigger": "2026-10-03T02:22:18Z",
+  "nativeTimerIntervalSeconds": 1800,
+  "nativeTimerNextMonotonicMicroseconds": 3748228067,
+  "currentCredentialExpiry": "2026-10-03T02:50:10Z",
+  "nextRefreshNominalTime": "2026-10-03T02:52:18Z",
+  "minimumNominalExpiryGapSeconds": 128,
+  "lastAutomaticRefreshExit": 0,
+  "secretNamespaces": [
+    "personal",
+    "nagare-system",
+    "knative-serving"
+  ],
+  "allSecretDataHashesEqual": true,
+  "currentCredentials": [
+    {
+      "namespace": "personal",
+      "secretUid": "2b61989d-2d20-4aee-8881-e12c8db4e011",
+      "secretResourceVersion": "2830",
+      "secretAnnotations": {
+        "nagare.dev/credential-expires-at": "2026-10-03T02:50:10Z",
+        "nagare.dev/credential-source-version": "403c6ddd32d8e042a2964178e81a35face882cd5a8698b024750d2b5ccbfb48f",
+        "nagare.dev/delegated-owner": "host-registry-timer",
+        "nagare.dev/resource-id": "platform:host/nixos-system/system"
+      },
+      "secretDataSha256": "86e4dfa1b6b30f15a48b201ee8b3a130df5a1bdbd57f159ef044fa1fe80591fc",
+      "account": "default",
+      "accountUid": "b225fa5f-c7d7-4b69-be3d-ec32bab2cf36",
+      "accountAnnotations": {
+        "nagare.dev/credential-source-version": "403c6ddd32d8e042a2964178e81a35face882cd5a8698b024750d2b5ccbfb48f",
+        "nagare.dev/delegated-owner": "host-registry-timer"
+      },
+      "imagePullSecrets": [
+        {
+          "name": "nagare-registry-pull"
+        }
+      ]
+    },
+    {
+      "namespace": "nagare-system",
+      "secretUid": "b51020e5-6691-461d-bab5-a1eef626d8e5",
+      "secretResourceVersion": "2833",
+      "secretAnnotations": {
+        "nagare.dev/credential-expires-at": "2026-10-03T02:50:10Z",
+        "nagare.dev/credential-source-version": "403c6ddd32d8e042a2964178e81a35face882cd5a8698b024750d2b5ccbfb48f",
+        "nagare.dev/delegated-owner": "host-registry-timer",
+        "nagare.dev/resource-id": "platform:host/nixos-system/system"
+      },
+      "secretDataSha256": "86e4dfa1b6b30f15a48b201ee8b3a130df5a1bdbd57f159ef044fa1fe80591fc",
+      "account": "default",
+      "accountUid": "0f0f9e7e-3ea1-4f1a-887a-1fbc2b904136",
+      "accountAnnotations": {
+        "nagare.dev/credential-source-version": "403c6ddd32d8e042a2964178e81a35face882cd5a8698b024750d2b5ccbfb48f",
+        "nagare.dev/delegated-owner": "host-registry-timer"
+      },
+      "imagePullSecrets": [
+        {
+          "name": "nagare-registry-pull"
+        }
+      ]
+    },
+    {
+      "namespace": "knative-serving",
+      "secretUid": "93a5a0b5-f942-4afa-853f-6bacd1f2bec9",
+      "secretResourceVersion": "2842",
+      "secretAnnotations": {
+        "nagare.dev/credential-expires-at": "2026-10-03T02:50:10Z",
+        "nagare.dev/credential-source-version": "403c6ddd32d8e042a2964178e81a35face882cd5a8698b024750d2b5ccbfb48f",
+        "nagare.dev/delegated-owner": "host-registry-timer",
+        "nagare.dev/resource-id": "platform:host/nixos-system/system"
+      },
+      "secretDataSha256": "86e4dfa1b6b30f15a48b201ee8b3a130df5a1bdbd57f159ef044fa1fe80591fc",
+      "account": "controller",
+      "accountUid": "69e85fdd-5565-47c6-baa3-41c521b31b0e",
+      "accountAnnotations": {
+        "nagare.dev/context-id": "mp23-host-fixed",
+        "nagare.dev/credential-source-version": "403c6ddd32d8e042a2964178e81a35face882cd5a8698b024750d2b5ccbfb48f",
+        "nagare.dev/delegated-owner": "host-registry-timer",
+        "nagare.dev/registry-credential-controller": "platform:host/nixos-system/system",
+        "nagare.dev/resource-id": "platform:serving/serving/object-cb13aaa7348f14c3bc1ee1cf94987eb1803ad266",
+        "nagare.dev/spec-digest": "0614fd58a234f39b0d6b65e0178db4086a7f664a4cc391710d44d72d50a062ab"
+      },
+      "imagePullSecrets": [
+        {
+          "name": "nagare-registry-pull"
+        }
+      ]
+    }
+  ],
+  "headAtBaseline": {
+    "generation": 477,
+    "sequence": 458,
+    "activeTransaction": null
+  },
+  "metadataCacheSemanticsSource": "https://docs.cloud.google.com/compute/docs/access/authenticate-workloads",
+  "metadataCacheSemantics": "Compute metadata caches an access token until it has five minutes of remaining lifetime",
+  "cause": "A successful thirty-minute refresh can receive the same metadata token with less than thirty minutes remaining; the current >300-second validation accepts it",
+  "noTimerOrSecretMutation": true,
+  "productionAcceptance": false
+}
