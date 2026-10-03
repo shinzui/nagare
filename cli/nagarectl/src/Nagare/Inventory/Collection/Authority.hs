@@ -1,6 +1,7 @@
--- | Review-bound controller collection. An observed graph is evidence, not an
--- atomic Kubernetes graph transaction. The grant covers the parent's exclusive
--- controller descendants; preflight rejects changed evidence before submission.
+-- | Review-bound controller collection of a Knative Service or DomainMapping.
+-- An observed graph is evidence, not an atomic Kubernetes graph transaction.
+-- The grant covers the parent's exclusive controller descendants; preflight
+-- rejects changed evidence before submission.
 module Nagare.Inventory.Collection.Authority
   ( CollectionNode (..)
   , CollectionAuthority (..)
@@ -144,6 +145,20 @@ allowed n =
            , ("podautoscalers.autoscaling.internal.knative.dev", "PodAutoscaler")
            , ("metrics.autoscaling.internal.knative.dev", "Metric")
            , ("serverlessservices.networking.internal.knative.dev", "ServerlessService")
+           , -- A route's or DomainMapping's certificate chain (net-certmanager).
+             ("certificates.networking.internal.knative.dev", "Certificate")
+           , ("certificates.cert-manager.io", "Certificate")
+           , ("certificaterequests.cert-manager.io", "CertificateRequest")
+           , ("orders.acme.cert-manager.io", "Order")
+           , ("challenges.acme.cert-manager.io", "Challenge")
+           ]
+
+-- | Controller parents whose exclusive descendants may be collected with them.
+collectionRoot :: CollectionNode -> Bool
+collectionRoot n =
+  (token n, kind n)
+    `elem` [ ("services.serving.knative.dev", "Service")
+           , ("domainmappings.serving.knative.dev", "DomainMapping")
            ]
 
 authorizeCollection :: CollectionNode -> [Text] -> [CollectionNode] -> Either Text CollectionAuthority
@@ -152,7 +167,7 @@ authorizeCollection root apis nodes = do
   unless
     (not (null apis) && length apis == Set.size (Set.fromList apis) && all ((`elem` apis) . token) nodes)
     (Left "collection API coverage is incomplete or duplicated")
-  unless (token root == "services.serving.knative.dev" && kind root == "Service") (Left "controller collection requires a Knative Service")
+  unless (collectionRoot root) (Left "controller collection requires a Knative Service or DomainMapping")
   unless (root `elem` nodes) (Left "reviewed parent differs from complete namespace observation")
   let children = closure (Set.singleton (uid root)) nodes
       members = Set.fromList (uid root : map uid children)

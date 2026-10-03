@@ -53,7 +53,7 @@ saveReviewedPreviewCleanup selected options output = do
     resource : _ -> do
       let member = snd (Plan.historyRetained history Map.! resource)
           controller = case member ^. #address of
-            Kubernetes _ "serving.knative.dev" kind _ _ -> nameText kind == "service"
+            Kubernetes _ "serving.knative.dev" kind _ _ -> nameText kind `elem` ["service", "domainmapping"]
             _ -> False
           collectionRegistry candidate previous =
             withPreparationGuard (collectOnly resource)

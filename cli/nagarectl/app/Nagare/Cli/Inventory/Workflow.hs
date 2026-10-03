@@ -235,7 +235,7 @@ runInventoryRetire mctx rawScope output = do
 
 runInventoryCollect :: Maybe String -> NE.NonEmpty String -> FilePath -> Bool -> IO ()
 runInventoryCollect mctx rawResources output descendants = do
-  when (descendants && length rawResources /= 1) (dieT "controller collection reviews exactly one Knative Service")
+  when (descendants && length rawResources /= 1) (dieT "controller collection reviews exactly one Knative Service or DomainMapping")
   active <- activeTarget mctx
   (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
   resources <- traverse (either dieT pure . Resource.mkResourceId . T.pack) rawResources

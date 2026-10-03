@@ -50,7 +50,60 @@ nativeCollectionTests =
     , testCase "incomplete recovery cannot tombstone after parent absence" incompleteRecovery
     , testCase "unexpected transitive descendant after parent absence cannot tombstone" unexpectedRecovery
     , testCase "protected ownership drift after parent absence cannot tombstone" protectedRecovery
+    , testCase "DomainMapping authority covers its KIngress and certificate chain (F34)" domainMappingAuthority
+    , testCase "DomainMapping descendant with a shared owner refuses authority" $
+        assertBool "shared certificate accepted" $
+          isLeftE (authorizeMapping (mappingGraph True Nothing))
+    , testCase "DomainMapping descendant with another inventory identity refuses authority" $
+        assertBool "independently inventoried KIngress accepted" $
+          isLeftE (authorizeMapping (mappingGraph False (Just "standalone:other/route/route")))
     ]
+
+-- The graph a reviewed preview DomainMapping left on cp3 (F34): Knative's
+-- KIngress and KCertificate, net-certmanager's Certificate and its request. The
+-- namespace wildcard KCertificate and the unowned TLS Secret are not
+-- descendants and stay outside the grant.
+mappingRoot :: C.CollectionNode
+mappingRoot = node "domainmappings.serving.knative.dev" "DomainMapping" "dm" "dm-uid" [] (Just mappingId)
+
+mappingId :: Text
+mappingId = "standalone:site-preview-x/route/route"
+
+node :: Text -> Text -> Text -> Text -> [Text] -> Maybe Text -> C.CollectionNode
+node token kind name uid owners = C.CollectionNode token "personal" name uid "1" kind (sort owners) (sort owners)
+
+mappingGraph :: Bool -> Maybe Text -> [C.CollectionNode]
+mappingGraph shared ingressOwner =
+  [ mappingRoot
+  , node "ingresses.networking.internal.knative.dev" "Ingress" "x.example" "ingress-uid" ["dm-uid"] (Just (fromMaybe mappingId ingressOwner))
+  , node "certificates.networking.internal.knative.dev" "Certificate" "x.example" "kcert-uid" ["dm-uid"] (Just mappingId)
+  , (node "certificates.cert-manager.io" "Certificate" "x.example" "cert-uid" ["kcert-uid"] Nothing)
+      { C.owners = if shared then ["kcert-uid", "other-uid"] else ["kcert-uid"]
+      }
+  , node "certificaterequests.cert-manager.io" "CertificateRequest" "x.example-1" "request-uid" ["cert-uid"] Nothing
+  , node "certificates.networking.internal.knative.dev" "Certificate" "personal.example" "wildcard-uid" [] Nothing
+  , node "secrets" "Secret" "x.example" "secret-uid" [] Nothing
+  , node "services.serving.knative.dev" "Service" "neighbor" "neighbor-uid" [] (Just "application:neighbor/service")
+  ]
+    <> [node "services" "Service" "other" "other-uid" [] Nothing | shared]
+
+apisOf :: [C.CollectionNode] -> [Text]
+apisOf = Map.keys . Map.fromList . map (\n -> (C.token n, ()))
+
+authorizeMapping :: [C.CollectionNode] -> Either Text C.CollectionAuthority
+authorizeMapping nodes = C.authorizeCollection mappingRoot (apisOf nodes) nodes
+
+domainMappingAuthority :: Assertion
+domainMappingAuthority = do
+  let apis = apisOf (mappingGraph False Nothing)
+  authority <- either (assertFailure . T.unpack) pure (authorizeMapping (mappingGraph False Nothing))
+  sort (map C.uid (C.descendants authority)) @?= ["cert-uid", "ingress-uid", "kcert-uid", "request-uid"]
+  map C.uid (C.protected authority) @?= ["neighbor-uid"]
+  assertBool "unsupported root accepted" $
+    isLeftE (C.authorizeCollection (mappingRoot {C.token = "configmaps", C.kind = "ConfigMap"}) apis (mappingGraph False Nothing))
+
+isLeftE :: Either a b -> Bool
+isLeftE = either (const True) (const False)
 
 -- Frozen recording omits resourceVersion and full object bodies. Supply only
 -- synthetic versions/envelopes; retain recorded kinds, names, UIDs and edges.

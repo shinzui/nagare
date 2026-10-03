@@ -45,6 +45,13 @@ if options.knative and not options.expect_orphan_block:
             "metadata": {"name": child_name, "namespace": "personal",
                          "ownerReferences": [{"uid": "web-uid", "controller": True}]}}}
     (root / "native.json").write_text(json.dumps(list(native.values())) + "\n")
+# F34: the route DomainMapping's certificate is a controller child that an
+# Orphan DELETE would strand; reviewed collection must garbage-collect it.
+native["controller-route-certificate"] = {"controllerChild": True, "digest": "controller", "native": {
+    "apiVersion": "networking.internal.knative.dev/v1alpha1", "kind": "Certificate",
+    "metadata": {"name": "controller-route-certificate", "namespace": "personal",
+                 "ownerReferences": [{"uid": "web.example.test-uid", "controller": True}]}}}
+(root / "native.json").write_text(json.dumps(list(native.values())) + "\n")
 state = {name: {"present": True, "uid": name + "-uid", "version": "10",
                 "digest": item["digest"]} for name, item in native.items()}
 (root / "provider-state.json").write_text(json.dumps(state) + "\n")
@@ -122,6 +129,8 @@ if 'delete' in args and '--raw' in args:
     obj=native[name]['native']
     if obj['kind']=='Service' and obj['apiVersion'].startswith('serving.knative.dev/'):
         assert body['propagationPolicy']==('Orphan' if os.environ['MP23_EXPECT_ORPHAN_BLOCK']=='1' else 'Background'), 'Knative webhook refuses orphaned Route/Configuration dependents'
+    elif obj['kind']=='DomainMapping':
+        assert body['propagationPolicy']=='Background', 'an Orphan DomainMapping DELETE strands its KIngress and certificate'
     else:
         assert body['propagationPolicy']=='Orphan',body
     assert entry['present'] and body['preconditions']=={
@@ -130,6 +139,11 @@ if 'delete' in args and '--raw' in args:
         entry['terminating']=True
     else:
         entry['present']=False
+    if obj['kind']=='DomainMapping':
+        # Background garbage collection of its controller children.
+        for child,item in native.items():
+            if any(ref.get('uid')==entry['uid'] for ref in item['native']['metadata'].get('ownerReferences',[])):
+                state[child]['present']=False
     (root/'provider-state.json').write_text(json.dumps(state)+'\\n')
     print('{}'); sys.exit(0)
 if 'wait' in args and '--for=delete' in args:
@@ -253,8 +267,14 @@ for resource, name in [(fixture["history"], "web-history"),
                        (fixture["service"], "web")]:
     review = root / (name + "-review")
     cascade = options.knative and not options.expect_orphan_block and name == "web"
+    mapping = name == "web.example.test"
+    if mapping:
+        # F34: an ordinary review would Orphan the DomainMapping's children.
+        before_refusal = (store / "head.json").read_bytes()
+        run("inventory", "collect", "--resource", resource, "--out", str(root / "orphan-route-review"), expect=1)
+        assert (store / "head.json").read_bytes() == before_refusal
     run("inventory", "collect", "--resource", resource, "--out", str(review),
-        *(["--controller-descendants"] if cascade else []))
+        *(["--controller-descendants"] if cascade or mapping else []))
     if options.expect_orphan_block and name == "web":
         calls = run("inventory", "apply", str(review), "--yes", expect=1)
         assert head()["activeTransaction"] == "tx-" + (review / "review.sha256").read_text().strip()
@@ -285,6 +305,8 @@ for resource, name in [(fixture["history"], "web-history"),
         calls = run("inventory", "apply", str(review), "--yes")
     assert len([c for c in calls if "delete" in c]) == 1
     assert not json.loads((root / "provider-state.json").read_text())[name]["present"]
+    if mapping:
+        assert not json.loads((root / "provider-state.json").read_text())["controller-route-certificate"]["present"]
     assert data_revision() == original_data
     if name == "web-history":
         before_refusal = (store / "head.json").read_bytes()

@@ -35,7 +35,7 @@ import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes
 import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), backupReceiptFromPodList, cacheClientDataMatches, certificateReady, collectionDeleteRequest, completedJobContainerMessageFromPodList, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, crdEstablished, credentialDataMatches, deploymentAvailable, deploymentSelectorReplacement, desiredFieldsMatch, generatedCredentialTemplate, jobCompleted, knativeReady, materializeCacheKey, materializeCredential, mkKubernetesRuntimeOps, observeCacheClientOutput, observeKubernetesBatchWithGuard, parseObserved, readinessForAddress, statefulSetImmutableReplacement, statefulSetReady, supportedUpdateAddress, withoutCacheClientData)
 import Nagare.Inventory.Backup (BackupReceiptExpectation (..), BackupSourceProof (..), ManualBackupRequest (..), VolumeSnapshotRequest (..), compileManualBackupScope, compileVolumeSnapshotScope, manualBackupJobReceiptExpectation, manualBackupJobSourcePins, manualBackupSourceProof, parseBackupReceipt, parseManualBackupReceipt, volumeSnapshotJobSourcePins)
-import Nagare.Inventory.CollectionPolicy (supportsRetainedCollection)
+import Nagare.Inventory.CollectionPolicy (requiresControllerCollection, supportsRetainedCollection)
 import Nagare.Inventory.Components.Foundation (compileContributedNamespaces)
 import Nagare.Inventory.DataService (NativeDataKind (..), compileBackupPruneRemovalScope, compileStandaloneDatabase, compileStatefulSetRestartScope, standaloneStatefulSetOwned)
 import Nagare.Inventory.Database (compileDatabaseForBackend)
@@ -4366,7 +4366,7 @@ inventoryKubernetesTests =
         readIORef state >>= (@?= KubernetesAbsent absence)
         readIORef calls >>= (@?= 2)
     , testCase "retired release history and route must be collected before its web Service" reviewedReleaseCleanup
-    , testCase "central access DomainMapping collection carries exact UID and revision" $ do
+    , testCase "central access DomainMapping collection refuses an Orphan DELETE" $ do
         let value =
               object
                 [ "apiVersion" .= ("serving.knative.dev/v1beta1" :: Text)
@@ -4398,20 +4398,12 @@ inventoryKubernetesTests =
                 )
             uid = ok (mkPhysicalIdentity "domain-uid")
         supportsRetainedCollection declaration @?= True
-        (arguments, body) <-
-          expectRight
-            ( collectionDeleteRequest
-                (declaration ^. #address)
-                uid
-                "resource-version"
-            )
-        arguments
-          @?= ["delete", "--raw", "/apis/serving.knative.dev/v1beta1/namespaces/nagare-system/domainmappings/app.example.test", "-f", "-"]
+        -- F34: an Orphan DELETE strands the DomainMapping's KIngress, so the
+        -- ordinary request refuses and only controller collection may delete it.
+        requiresControllerCollection declaration @?= True
         assertBool
-          "DomainMapping deletion dropped its physical preconditions"
-          ( BS.isInfixOf "domain-uid" (TE.encodeUtf8 body)
-              && BS.isInfixOf "resource-version" (TE.encodeUtf8 body)
-          )
+          "ordinary DomainMapping collection still issues an Orphan DELETE"
+          (isLeft (collectionDeleteRequest (declaration ^. #address) uid "resource-version"))
     , testCase "Knative preview Service collection carries exact UID and revision" $ do
         let value =
               object

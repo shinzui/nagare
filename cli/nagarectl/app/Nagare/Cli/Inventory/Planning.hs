@@ -63,6 +63,7 @@ import Nagare.Inventory.BackendMap
   , compileContributedShomeiSettings
   )
 import Nagare.Inventory.Cloud qualified as InventoryCloud
+import Nagare.Inventory.CollectionPolicy (requiresControllerCollection)
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Components.Foundation
   ( compileContributedNamespaces
@@ -385,7 +386,7 @@ inventoryPlanRegistryWithMode controllerCollection active workspace suppliedNati
       else
         if controllerCollection
           then inventoryControllerCollectionAdapter active (ResourceInventory.inventoryBinding inventory) kubernetesSpecs
-          else inventoryKubernetesAdapter active (ResourceInventory.inventoryBinding inventory) cacheKey kubernetesSpecs
+          else refuseOrphanDomainMapping kubernetesSpecs <$> inventoryKubernetesAdapter active (ResourceInventory.inventoryBinding inventory) cacheKey kubernetesSpecs
   helm <-
     if Map.null helmSpecs
       then pure (Inventory.manifestAdapterFor history ResourceInventory.HelmExecutor)
@@ -446,3 +447,24 @@ inventoryPlanRegistryWithMode controllerCollection active workspace suppliedNati
         verifyRecovery
         withMaintenance
     )
+
+-- An ordinary review would delete a DomainMapping with Orphan propagation and
+-- strand its gateway KIngress (F34); refuse before any native preparation.
+refuseOrphanDomainMapping :: Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString) -> InventoryAdapter.Adapter -> InventoryAdapter.Adapter
+refuseOrphanDomainMapping specs adapter =
+  adapter
+    { InventoryAdapter.adapterPrepare = \operation ->
+        if InventoryAdapter.plannedAction operation == InventoryAdapter.RetireResource
+          && any
+            (maybe False (requiresControllerCollection . fst) . (`Map.lookup` specs))
+            (NE.toList (InventoryAdapter.plannedResources operation))
+          then
+            pure
+              ( Left
+                  ( InventoryAdapter.PrepareRefused
+                      (InventoryAdapter.plannedOperationId operation)
+                      "a DomainMapping is collected with its controller descendants; use inventory collect --controller-descendants"
+                  )
+              )
+          else InventoryAdapter.adapterPrepare adapter operation
+    }

@@ -1147,6 +1147,23 @@ proof](../audits/mp23-archive/mp23-reviewed-controller-collection-proof.md) for 
 obligations and compatibility boundaries; local simulation does not close them.
 
 
+## Amendment — 2026-10-02: DomainMappings are collected only with their controller descendants
+
+A DomainMapping is collected only through the reviewed controller-descendant
+authority (the same Background grant and evidence rules as a Knative Service).
+The ordinary Orphan DELETE of a DomainMapping is refused at review and, for an
+older saved review, at execution. Reason (F34): Knative blocks orphaning a
+Service's Route and Configuration, so that mistake fails closed, but nothing
+blocks orphaning a DomainMapping's KIngress and KCertificate. The stranded
+KIngress keeps programming the shared Kourier gateway for a deleted backend. On
+cp3 it later made Envoy reject every listener update cluster-wide, once another
+Service in the namespace joined the wildcard-TLS group. Preview cleanup selects
+the controller authority for DomainMappings automatically. The supported
+descendant kinds now include the net-certmanager chain (KCertificate,
+cert-manager Certificate, CertificateRequest, ACME Order and Challenge). cert-manager
+leaves its issued Secret unowned by default, so that Secret is not a descendant
+and remains after collection; it does not program the gateway.
+
 ## Amendment — 2026-10-02: disposable prerelease fixtures are not compatibility commitments
 
 Nagare has no deployed users at this boundary. Its first inventory release starts

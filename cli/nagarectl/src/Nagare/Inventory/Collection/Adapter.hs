@@ -1,5 +1,6 @@
--- | Opt-in reviewed Knative controller collection. Its distinct adapter identity
--- prevents an older/ordinary runtime from executing a cascade review as Orphan.
+-- | Opt-in reviewed Knative controller collection of a Service or DomainMapping.
+-- Its distinct adapter identity prevents an older/ordinary runtime from
+-- executing a cascade review as Orphan.
 module Nagare.Inventory.Collection.Adapter (controllerCollectionAdapter, controllerCollectionIdentity) where
 
 import Data.Aeson
@@ -50,7 +51,8 @@ controllerCollectionAdapter config specs =
             pure $ first (PrepareRefused (plannedOperationId operation)) $ do
               (apis, nodes) <- snapshot
               (expectedUid, expectedVersion) <- identityOf mutation
-              parent <- case [n | n <- nodes, C.token n == "services.serving.knative.dev", C.name n == nameOf mutation] of
+              root <- rootOf mutation
+              parent <- case [n | n <- nodes, C.token n == rootToken root, C.name n == nameOf mutation] of
                 [one] | C.uid one == expectedUid && C.version one == expectedVersion -> Right one
                 _ -> Left "parent identity changed during collection review"
               authority <- C.authorizeCollection parent apis nodes
@@ -76,9 +78,7 @@ controllerCollectionAdapter config specs =
             && mutationOperation mutation == plannedOperationId operation
         )
         (Left "controller collection only accepts a reviewed RetireResource mutation")
-      case mutationAddress mutation of
-        Kubernetes _ "serving.knative.dev" kind (Just _) _ | nameText kind == "service" -> pure ()
-        _ -> Left "controller collection only supports a namespaced Knative Service"
+      _ <- rootOf mutation
       pure mutation
     decode operation prepared = do
       mutation <- decodeBase operation prepared
@@ -109,11 +109,11 @@ controllerCollectionAdapter config specs =
           pure (current >>= uncurry (C.checkCollectionBefore authority))
     execute operation prepared = do
       guarded <- preflight operation prepared
-      case guarded >> decode operation prepared of
+      case guarded >> decode operation prepared >>= \(mutation, authority) -> (mutation,authority,) <$> rootOf mutation of
         Left reason -> pure (AdapterEffectFailed (KnownNoEffect reason))
-        Right (mutation, authority) -> do
+        Right (mutation, authority, kindRoot) -> do
           let root = C.parent authority
-              path = "/apis/serving.knative.dev/v1/namespaces/" <> C.namespace root <> "/services/" <> C.name root
+              path = rootPath kindRoot <> "/namespaces/" <> C.namespace root <> "/" <> rootPlural kindRoot <> "/" <> C.name root
               body =
                 canonicalValue
                   ( object
@@ -134,7 +134,7 @@ controllerCollectionAdapter config specs =
                       config
                       [ "wait"
                       , "--for=delete"
-                      , "service.serving.knative.dev/" <> T.unpack (nameOf mutation)
+                      , rootWaitKind kindRoot <> "/" <> T.unpack (nameOf mutation)
                       , "--timeout=30s"
                       , "--namespace"
                       , T.unpack (namespaceOf mutation)
@@ -161,6 +161,35 @@ controllerCollectionAdapter config specs =
           RecoveryProvedComplete _ -> either RecoveryUnresolved RecoveryProvedComplete <$> verify operation prepared
           RecoverySafeToRetry -> either RecoveryUnresolved (const RecoverySafeToRetry) <$> preflight operation prepared
           other -> pure other
+
+data CollectionRoot = ServiceRoot | DomainMappingRoot
+
+rootOf :: KubernetesMutation -> Either Text CollectionRoot
+rootOf mutation = case mutationAddress mutation of
+  Kubernetes _ "serving.knative.dev" kind (Just _) _
+    | nameText kind == "service" -> Right ServiceRoot
+    | nameText kind == "domainmapping" -> Right DomainMappingRoot
+  _ -> Left "controller collection only supports a namespaced Knative Service or DomainMapping"
+
+rootToken :: CollectionRoot -> Text
+rootToken root = case root of
+  ServiceRoot -> "services.serving.knative.dev"
+  DomainMappingRoot -> "domainmappings.serving.knative.dev"
+
+rootPath :: CollectionRoot -> Text
+rootPath root = case root of
+  ServiceRoot -> "/apis/serving.knative.dev/v1"
+  DomainMappingRoot -> "/apis/serving.knative.dev/v1beta1"
+
+rootPlural :: CollectionRoot -> Text
+rootPlural root = case root of
+  ServiceRoot -> "services"
+  DomainMappingRoot -> "domainmappings"
+
+rootWaitKind :: CollectionRoot -> String
+rootWaitKind root = case root of
+  ServiceRoot -> "service.serving.knative.dev"
+  DomainMappingRoot -> "domainmapping.serving.knative.dev"
 
 identityOf :: KubernetesMutation -> Either Text (Text, Text)
 identityOf mutation = case mutationBefore mutation of

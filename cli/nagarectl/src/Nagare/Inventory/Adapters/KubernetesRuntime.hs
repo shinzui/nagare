@@ -254,6 +254,9 @@ observeKubernetesBatchWithGuard checkGuard observe resources
 
 collectionDeleteRequest :: ProviderAddress -> PhysicalIdentity -> Text -> Either Text ([String], Text)
 collectionDeleteRequest address uid revision = case address of
+  Kubernetes _ "serving.knative.dev" kind (Just _) _
+    | nameText kind == "domainmapping" ->
+        Left "an Orphan DomainMapping DELETE strands its gateway KIngress; collect it with its controller descendants"
   Kubernetes _ group kind (Just namespace) name
     | Just prefix <- collectionPathPrefix group (nameText kind) -> do
         bytes <-
@@ -287,7 +290,6 @@ collectionPathPrefix "" kind
   | kind `elem` ["configmap", "service", "persistentvolumeclaim"] = Just "/api/v1"
 collectionPathPrefix "batch" "cronjob" = Just "/apis/batch/v1"
 collectionPathPrefix "batch" "job" = Just "/apis/batch/v1"
-collectionPathPrefix "serving.knative.dev" "domainmapping" = Just "/apis/serving.knative.dev/v1beta1"
 collectionPathPrefix "serving.knative.dev" "service" = Just "/apis/serving.knative.dev/v1"
 collectionPathPrefix _ _ = Nothing
 
