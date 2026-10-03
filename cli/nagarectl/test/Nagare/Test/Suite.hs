@@ -28,6 +28,7 @@ import InventoryGcloudAuthSpec (inventoryGcloudAuthTests)
 import InventoryGogolSpec (inventoryGogolTests)
 import InventoryHostSpec (inventoryHostTests)
 import InventoryIntegrationSpec (inventoryIntegrationTests)
+import InventoryKubernetesConfigurationSpec (kubernetesConfigurationTests)
 import InventoryKubernetesSpec (inventoryKubernetesTests)
 import InventoryLifecycleSpec (inventoryLifecycleTests)
 import InventoryMaintenanceSpec (inventoryMaintenanceTests)
@@ -39,6 +40,7 @@ import InventoryObservationSpec (inventoryObservationTests)
 import InventoryPublicationSpec (inventoryPublicationTests)
 import InventorySpec (inventoryTests)
 import InventoryStatusSpec (inventoryStatusTests)
+import InventoryApplicationUpdateRecoverySpec
 import InventoryPreviewRecoverySpec (inventoryPreviewRecoveryTests)
 import InventoryTransactionSpec
   ( inventoryTransactionTests
@@ -164,6 +166,7 @@ main = do
             , controllerCollectionTests
             , inventoryEffectfulCollectionTests
             , inventoryEffectfulTests
+            , kubernetesConfigurationTests
             , inventoryKubernetesTests
             , inventoryApplicationTests
             , inventoryCdnTests
@@ -175,6 +178,7 @@ main = do
             , inventoryGogolTests
             , inventoryObjectOpsTests
             , inventoryTests
+            , inventoryApplicationUpdateRecoveryTests
             , inventoryPreviewRecoveryTests
             , inventoryTransactionTests
             , dataFenceTests

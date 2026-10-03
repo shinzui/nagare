@@ -90,6 +90,7 @@ import Nagare.Inventory.Journal
     , Failed
     , IntentRecorded
     , OperatorResolved
+    , Pending
     )
   , TransactionId
   , operationStates
@@ -272,7 +273,9 @@ recordOperatorRecovery store registry input takeOver = do
               pure (failure "data-fence" "reviewed transaction has no active data fence")
           | Just (recoveryReview input) /= transactionDigest transaction ->
               pure (failure "recovery-review" "decision file review digest differs from transaction")
-          | not (recoverableState (Map.lookup operationId (operationStates transaction events))) ->
+          | not (recoverableState (Map.lookup operationId (operationStates transaction events)))
+          , not (recoveryAction input == StopIncompleteApplication
+              && Map.findWithDefault Pending operationId (operationStates transaction events) == Pending) ->
               pure (failure "recovery-state" "operation has no uncertain effect to resolve")
           | Just (OperatorResolved marker) <- Map.lookup operationId (operationStates transaction events)
           , Just (native, Nothing) <- bootstrapRecoveryMarker marker

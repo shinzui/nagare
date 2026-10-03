@@ -209,6 +209,7 @@ library
     Nagare.Inventory.ImagePruneScript
     Nagare.Inventory.Journal
     Nagare.Inventory.Kubernetes
+    Nagare.Inventory.KubernetesConfiguration
     Nagare.Inventory.KubernetesReview
     Nagare.Inventory.KubernetesSources
     Nagare.Inventory.KubernetesTransport
@@ -471,6 +472,7 @@ test-suite nagarectl-test
     HostSpec
     InventoryAccessSpec
     InventoryApplicationSpec
+    InventoryApplicationUpdateRecoverySpec
     InventoryArtifactSpec
     InventoryAuthSpec
     InventoryCacheSpec
@@ -490,6 +492,7 @@ test-suite nagarectl-test
     InventoryHostSpec
     InventoryImagePruneSpec
     InventoryIntegrationSpec
+    InventoryKubernetesConfigurationSpec
     InventoryKubernetesLifecycleSpec
     InventoryKubernetesSpec
     InventoryLifecycleSpec

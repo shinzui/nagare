@@ -89,10 +89,11 @@ import Nagare.Inventory.Adapters.HostRuntime
   , mkHostRuntimeOps
   )
 import Nagare.Inventory.Adapters.Kubernetes
-  ( mkKubernetesAdapterWithBackupReceiptAndBatch
+  ( mkKubernetesAdapterWithConfigurationObservation
   )
 import Nagare.Inventory.Adapters.KubernetesRuntime
   ( KubernetesRuntimeConfig (KubernetesRuntimeConfig)
+  , observeKubernetesConfiguration
   , mkKubernetesRuntimeOpsAndBatchWithCacheKey
   , readBackupReceiptFromCompletedPod
   )
@@ -149,10 +150,11 @@ inventoryKubernetesAdapter active binding cacheKey specs
       let config = KubernetesRuntimeConfig context (contextNameText (active ^. #contextName)) (fmap (fmap (const ())) (guardKubernetesContext active))
           (ops, observeBatch) = mkKubernetesRuntimeOpsAndBatchWithCacheKey config cacheKey specs
       pure
-        ( mkKubernetesAdapterWithBackupReceiptAndBatch
+        ( mkKubernetesAdapterWithConfigurationObservation
             specs
             ops
             observeBatch
+            (observeKubernetesConfiguration config cacheKey specs)
             (readBackupReceiptFromCompletedPod config specs)
         )
 

@@ -8,6 +8,7 @@ module Nagare.Inventory.Adapters.Kubernetes
   , KubernetesAdapterOps (..)
   , mkKubernetesAdapter
   , mkKubernetesAdapterWithBackupReceipt
+  , mkKubernetesAdapterWithConfigurationObservation
   , mkKubernetesAdapterWithBackupReceiptAndBatch
   , unstampNative
   )
@@ -104,7 +105,23 @@ mkKubernetesAdapterWithBackupReceiptAndBatch
   -> ([ResourceId] -> IO [KubernetesState])
   -> (ResourceId -> PhysicalIdentity -> IO (Either Text ByteString))
   -> Adapter
-mkKubernetesAdapterWithBackupReceiptAndBatch specs ops observeBatch readBackupReceipt =
+mkKubernetesAdapterWithBackupReceiptAndBatch specs ops observeBatch =
+  mkKubernetesAdapterWithObservations specs ops observeBatch Nothing
+
+-- Version 1 keeps exact legacy observations. Only new Knative Service updates
+-- opt into a separately versioned status-independent configuration observation.
+mkKubernetesAdapterWithConfigurationObservation
+  :: Map ResourceId (ManagedResource, ByteString) -> KubernetesAdapterOps
+  -> ([ResourceId] -> IO [KubernetesState]) -> (ResourceId -> IO KubernetesState)
+  -> (ResourceId -> PhysicalIdentity -> IO (Either Text ByteString)) -> Adapter
+mkKubernetesAdapterWithConfigurationObservation specs ops batch stable =
+  mkKubernetesAdapterWithObservations specs ops batch (Just stable)
+
+mkKubernetesAdapterWithObservations
+  :: Map ResourceId (ManagedResource, ByteString) -> KubernetesAdapterOps
+  -> ([ResourceId] -> IO [KubernetesState]) -> Maybe (ResourceId -> IO KubernetesState)
+  -> (ResourceId -> PhysicalIdentity -> IO (Either Text ByteString)) -> Adapter
+mkKubernetesAdapterWithObservations specs ops observeBatch stableObserve readBackupReceipt =
   Adapter
     { adapterExecutor = KubernetesExecutor
     , adapterIdentity = "kubernetes-conditional-object"
@@ -117,6 +134,9 @@ mkKubernetesAdapterWithBackupReceiptAndBatch specs ops observeBatch readBackupRe
     , adapterRecover = recover
     }
   where
+    observeMutation mutation = if mutationVersion mutation == 2
+      then maybe (pure (KubernetesUnknown "version 2 configuration observation is unavailable")) ($ mutationResource mutation) stableObserve
+      else kubernetesObserve ops (mutationResource mutation)
     observeAll resources = do
       states <- observeBatch resources
       pure (observationSet (zipWith toObservation resources states))
@@ -148,16 +168,18 @@ mkKubernetesAdapterWithBackupReceiptAndBatch specs ops observeBatch readBackupRe
     prepare operation = case singleSpec specs operation of
       Left reason -> pure (Left (PrepareRefused (plannedOperationId operation) reason))
       Right (resource, declaration, native) -> do
-        before <- kubernetesObserve ops resource
+        let versioned = plannedAction operation == UpdateResource && knativeServiceAddress (address declaration) && isJust stableObserve
+        before <- if versioned then maybe (kubernetesObserve ops resource) ($ resource) stableObserve else kubernetesObserve ops resource
         pure $ do
           validateBefore operation resource (address declaration) (contentDigest native) before
-          mutation <- buildMutation (kubernetesContext ops) operation resource declaration native before
+          initial <- buildMutation (kubernetesContext ops) operation resource declaration native before
+          let mutation = initial {mutationVersion = if versioned then 2 else 1}
           bytes <- first (PrepareRefused (plannedOperationId operation)) (canonicalValue (toJSON mutation))
           pure (PreparedNative bytes (summary mutation))
     preflight operation prepared = case decodeMutation (kubernetesContext ops) specs operation prepared of
       Left reason -> pure (Left reason)
       Right mutation -> do
-        current <- kubernetesObserve ops (mutationResource mutation)
+        current <- observeMutation mutation
         sourceGuard <- verifyBackupSources mutation
         pure $ do
           if mutationAction mutation == RunDeclaredOperation && current == mutationBefore mutation
@@ -167,7 +189,7 @@ mkKubernetesAdapterWithBackupReceiptAndBatch specs ops observeBatch readBackupRe
     execute operation prepared = case decodeMutation (kubernetesContext ops) specs operation prepared of
       Left reason -> pure (AdapterEffectFailed (KnownNoEffect reason))
       Right mutation -> do
-        current <- kubernetesObserve ops (mutationResource mutation)
+        current <- observeMutation mutation
         case requireSameBefore mutation current of
           Left reason -> pure (AdapterEffectFailed (KnownNoEffect reason))
           Right () -> do
@@ -176,7 +198,7 @@ mkKubernetesAdapterWithBackupReceiptAndBatch specs ops observeBatch readBackupRe
               Left reason -> pure (AdapterEffectFailed (KnownNoEffect reason))
               Right () -> if mutationAction mutation `elem` [RunDeclaredOperation, VerifyResource]
                 then pure AdapterEffectCompleted
-                else kubernetesMutateConditional ops mutation
+                else kubernetesMutateConditional ops (if mutationVersion mutation == 2 then mutation {mutationBefore = current} else mutation)
     verify operation prepared = case decodeMutation (kubernetesContext ops) specs operation prepared of
       Left reason -> pure (Left reason)
       Right mutation -> do
@@ -195,28 +217,39 @@ mkKubernetesAdapterWithBackupReceiptAndBatch specs ops observeBatch readBackupRe
           Right () -> case completionProof mutation current of
             Right _ -> either RecoveryUnresolved RecoveryProvedComplete
               <$> verifiedProof mutation current
-            Left _ -> pure $ case requireSameBefore mutation current of
-              Right () -> RecoverySafeToRetry
-              Left reason -> case current of
-                KubernetesNotReady physical _ (Just owner) digest
-                  | owner == mutationResource mutation
-                    && digest == mutationNativeDigest mutation
-                    && mutationAction mutation == CreateResource
-                    && (case mutationBefore mutation of KubernetesAbsent {} -> True; _ -> False)
-                    && (case mutationAddress mutation of
-                      Kubernetes _ "apps" kind _ _ -> nameText kind == "deployment"
-                      Kubernetes _ "serving.knative.dev" kind _ _ -> nameText kind `elem` ["service", "domainmapping"]
-                      _ -> False) -> RecoveryAwaitingReadiness physical
-                KubernetesFailed physical _ (Just owner) digest
-                  | owner == mutationResource mutation
-                    && digest == mutationNativeDigest mutation
-                    && (case mutationAddress mutation of
-                      Kubernetes _ "batch" kind _ _ -> nameText kind == "job"
-                      _ -> False)
-                    && mutationAction mutation `elem`
-                      [CreateResource, RunDeclaredOperation] ->
-                        RecoveryTerminalFailure physical
-                _ -> RecoveryUnresolved reason
+            Left _ -> do
+              before <- observeMutation mutation
+              pure $ case requireSameBefore mutation before of
+                Right () -> RecoverySafeToRetry
+                Left reason -> case current of
+                  KubernetesNotReady physical _ (Just owner) digest
+                    | owner == mutationResource mutation
+                      && digest == mutationNativeDigest mutation
+                      && mutationAction mutation == CreateResource
+                      && (case mutationBefore mutation of KubernetesAbsent {} -> True; _ -> False)
+                      && (case mutationAddress mutation of
+                        Kubernetes _ "apps" kind _ _ -> nameText kind == "deployment"
+                        Kubernetes _ "serving.knative.dev" kind _ _ -> nameText kind `elem` ["service", "domainmapping"]
+                        _ -> False) -> RecoveryAwaitingReadiness physical
+                  KubernetesNotReady physical _ (Just owner) _
+                    | mutationVersion mutation == 1
+                    , mutationAction mutation == UpdateResource
+                    , knativeServiceAddress (mutationAddress mutation)
+                    , owner == mutationResource mutation
+                    , (case mutationBefore mutation of
+                        KubernetesPresent prior _ (Just previousOwner) _ -> prior == physical && previousOwner == owner
+                        KubernetesNotReady prior _ (Just previousOwner) _ -> prior == physical && previousOwner == owner
+                        _ -> False) -> RecoveryAwaitingReadiness physical
+                  KubernetesFailed physical _ (Just owner) digest
+                    | owner == mutationResource mutation
+                      && digest == mutationNativeDigest mutation
+                      && (case mutationAddress mutation of
+                        Kubernetes _ "batch" kind _ _ -> nameText kind == "job"
+                        _ -> False)
+                      && mutationAction mutation `elem`
+                        [CreateResource, RunDeclaredOperation] ->
+                          RecoveryTerminalFailure physical
+                  _ -> RecoveryUnresolved reason
     verifiedProof mutation current = case completionProof mutation current of
       Left reason -> pure (Left reason)
       Right jobProof
@@ -424,7 +457,7 @@ decodeMutation :: ContextId -> Map ResourceId (ManagedResource, ByteString) -> P
 decodeMutation context specs operation prepared = do
   mutation <- first T.pack (eitherDecodeStrict (preparedNativeBytes prepared))
   (resource, declaration, native) <- singleSpec specs operation
-  unless (mutationVersion mutation == 1) (Left "unsupported Kubernetes mutation version")
+  unless (mutationVersion mutation == 1 || (mutationVersion mutation == 2 && mutationAction mutation == UpdateResource && knativeServiceAddress (mutationAddress mutation))) (Left "unsupported Kubernetes mutation version")
   unless (mutationOperation mutation == plannedOperationId operation && mutationInputDigest mutation == plannedInputDigest operation) (Left "Kubernetes mutation operation binding changed")
   unless (mutationResource mutation == resource && mutationAction mutation == plannedAction operation && mutationAddress mutation == address declaration) (Left "Kubernetes mutation resource binding changed")
   value <- first T.pack (eitherDecodeStrict native)
@@ -508,9 +541,21 @@ requireSameBefore mutation current =
           , owner == mutationResource mutation
           , expectedDigest == digest && digest == mutationNativeDigest mutation -> Right ()
         _ -> Left "Kubernetes object identity or desired fields changed since review"
+    else if mutationVersion mutation == 2 && mutationAction mutation == UpdateResource
+      then case (configured (mutationBefore mutation), configured current) of
+        (Just before, Just now) | before == now -> Right ()
+        _ -> Left "Knative Service configuration or ownership changed since review"
     else if current == mutationBefore mutation
       then Right ()
       else Left "Kubernetes object changed since review; replan before mutation"
+  where
+    configured (KubernetesPresent uid _ (Just owner) digest) | owner == mutationResource mutation = Just (uid, owner, digest)
+    configured (KubernetesNotReady uid _ (Just owner) digest) | owner == mutationResource mutation = Just (uid, owner, digest)
+    configured _ = Nothing
+
+knativeServiceAddress :: ProviderAddress -> Bool
+knativeServiceAddress (Kubernetes _ "serving.knative.dev" kind (Just _) _) = nameText kind == "service"
+knativeServiceAddress _ = False
 
 completionProof :: KubernetesMutation -> KubernetesState -> Either Text ContentDigest
 completionProof mutation state

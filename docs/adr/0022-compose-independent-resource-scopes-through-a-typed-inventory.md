@@ -927,6 +927,26 @@ Knative Service configuration updates retain exclusive non-status field
 ownership checks and API-server UID/resourceVersion write preconditions. Actual
 cloud update acceptance remains required before claiming this consumer proved.
 
+Application update recovery (2026-10-02): the same stop decision may close a
+never-intended stateless Knative Service update in one changed Application scope.
+Every operation must be unfenced Kubernetes work owned by that scope. Companions
+must be Completed or never-intended stateless ConfigMap creates explicitly ordered
+after the selected Service. Missing operation journal entries represent Pending;
+any recorded mutation intent refuses this boundary. This is a typed no-effect
+boundary for the pending ConfigMaps, not a claim about their release-history
+contents. Preserve admitted ownership and prior convergence and require a new
+review before correcting configuration.
+
+New Service update plans use native mutation version 2. Their before-state digest
+excludes status, resourceVersion, status-only managed fields and managed-field
+timestamps; UID, generation, configuration and non-status ownership stay bound.
+Execution reobserves this same configuration and submits its current resourceVersion
+as a conditional write. A race after observation refuses with no effect. Recovery
+permits retry only for unchanged configuration; changed configuration stays
+unresolved. Version 1 retains its original strict digest and can use only the
+read-only, never-intended stop boundary above. Readiness and observed generation
+remain separate completion requirements.
+
 The same explicit stopped-configuration decision also accepts a newly created,
 unready DomainMapping in an exact typed Standalone site-preview scope. Validate
 the complete original preview member/address/policy contract, require all other

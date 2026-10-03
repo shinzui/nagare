@@ -14,6 +14,8 @@ module Nagare.Inventory.Adapters.KubernetesRuntime
   , desiredFieldsMatch
   , deploymentSelectorReplacement
   , statefulSetImmutableReplacement
+  , observeKubernetesConfiguration
+  , parseObservedConfiguration
   , parseObserved
   , confirmInventoryFieldOwnership
   , confirmInventoryFieldOwnershipFor
@@ -62,6 +64,7 @@ import Data.Vector qualified as V
 import Nagare.Database.Secret (ConnectionParts (..), DbSecretInputs (..), b64decode, b64encode, dbHost, defaultDbUser, renderDbSecret, sanitizeDbName, secretKeysFor)
 import Nagare.Dsl.Database (Engine, dbSecretName, parseEngine)
 import Nagare.Dsl.Prelude hiding ((.=))
+import Nagare.Inventory.KubernetesConfiguration (configurationDigest, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor)
 import Nagare.Inventory.Adapter (AdapterExecution (..), OperationAction (..))
 import Nagare.Inventory.Adapters.Kubernetes
 import Nagare.Inventory.Digest (contentDigest)
@@ -92,7 +95,15 @@ mkKubernetesRuntimeOpsAndBatchWithCacheKey
   -> (ResourceId -> IO (Either Text Text))
   -> Map ResourceId (ManagedResource, ByteString)
   -> (KubernetesAdapterOps, [ResourceId] -> IO [KubernetesState])
-mkKubernetesRuntimeOpsAndBatchWithCacheKey config resolveCacheKey specs =
+mkKubernetesRuntimeOpsAndBatchWithCacheKey = mkKubernetesRuntimeObservations False
+
+observeKubernetesConfiguration :: KubernetesRuntimeConfig -> (ResourceId -> IO (Either Text Text))
+  -> Map ResourceId (ManagedResource, ByteString) -> ResourceId -> IO KubernetesState
+observeKubernetesConfiguration config cache specs = kubernetesObserve (fst (mkKubernetesRuntimeObservations True config cache specs))
+
+mkKubernetesRuntimeObservations :: Bool -> KubernetesRuntimeConfig -> (ResourceId -> IO (Either Text Text))
+  -> Map ResourceId (ManagedResource, ByteString) -> (KubernetesAdapterOps, [ResourceId] -> IO [KubernetesState])
+mkKubernetesRuntimeObservations stable config resolveCacheKey specs =
   (KubernetesAdapterOps
     { kubernetesContext = runtimeContext config
     , kubernetesObserve = observe
@@ -110,7 +121,7 @@ mkKubernetesRuntimeOpsAndBatchWithCacheKey config resolveCacheKey specs =
         Kubernetes _ group kind namespace name -> do
           result <- invoke config
             (["get", kindToken group kind, T.unpack (nameText name)]
-              <> namespaceArgs namespace <> ["-o", "json", "--ignore-not-found"])
+              <> namespaceArgs namespace <> ["-o", "json", "--ignore-not-found"] <> ["--show-managed-fields" | stable])
             ""
           case result of
             Left reason -> pure (KubernetesUnknown reason)
@@ -124,7 +135,7 @@ mkKubernetesRuntimeOpsAndBatchWithCacheKey config resolveCacheKey specs =
               | otherwise -> pure (KubernetesUnknown "kubectl get failed")
             Right (ExitSuccess, output, _)
               | null output -> pure (KubernetesAbsent (contentDigest (TE.encodeUtf8 (resourceIdText resource <> ":absent"))))
-              | otherwise -> case parseObserved config resource native (T.pack output) of
+              | otherwise -> case parseObservedWithConfiguration stable config resource native (T.pack output) of
                   Left reason -> pure (KubernetesUnknown reason)
                   Right state -> observeCacheClientOutput resolveCacheKey native (T.pack output) state
         _ -> pure (KubernetesUnknown "bound resource has no Kubernetes address")
@@ -490,7 +501,13 @@ desiredFieldsMatch desired observed
       | otherwise = Nothing
 
 parseObserved :: KubernetesRuntimeConfig -> ResourceId -> ByteString -> Text -> Either Text KubernetesState
-parseObserved config resource native response = do
+parseObserved = parseObservedWithConfiguration False
+
+parseObservedConfiguration :: KubernetesRuntimeConfig -> ResourceId -> ByteString -> Text -> Either Text KubernetesState
+parseObservedConfiguration = parseObservedWithConfiguration True
+
+parseObservedWithConfiguration :: Bool -> KubernetesRuntimeConfig -> ResourceId -> ByteString -> Text -> Either Text KubernetesState
+parseObservedWithConfiguration stable config resource native response = do
   observed <- first (T.pack . show) (eitherDecodeStrict (TE.encodeUtf8 response))
   desired <- first (T.pack . show) (eitherDecodeStrict native)
   metadata <- metadataOf observed
@@ -512,8 +529,9 @@ parseObserved config resource native response = do
         ["nagare.dev/context-id", "nagare.dev/resource-id", "nagare.dev/spec-digest"]
   when (hasAnyStamp && (stampedContext == Nothing || stampedOwner == Nothing))
     (Left "Kubernetes inventory ownership stamp is incomplete or malformed")
-  driftDigest <- if fieldsMatch && (not hasAnyStamp || stampMatches)
-    then Right desiredDigest else contentDigest <$> canonicalValue observed
+  driftDigest <- if stable then configurationDigest observed
+    else if fieldsMatch && (not hasAnyStamp || stampMatches)
+      then Right desiredDigest else contentDigest <$> canonicalValue observed
   -- Keep a different logical owner visible to status. A foreign context is
   -- refused below rather than being misclassified as an unstamped object.
   when (stampedContext /= Nothing && stampedContext /= Just (contextIdText (runtimeContext config)))
@@ -1198,75 +1216,6 @@ servicePortPatch uid revision native observed = do
     annotationsOf metadata = case KM.lookup "annotations" metadata of
       Just (Object value) -> Right value
       _ -> Left "Service inventory annotations are missing"
-
--- | A create is recorded as an Update field manager even when it uses the
--- same manager name as later server-side apply. Force is safe only while all
--- non-status fields still belong exclusively to that manager. The subsequent
--- apply includes the observed UID/resourceVersion, so a change after this
--- read makes the API server reject the write.
-confirmInventoryFieldOwnership :: PhysicalIdentity -> Text -> Value -> Either Text ()
-confirmInventoryFieldOwnership = confirmInventoryFieldOwnershipFor Nothing
-
-confirmInventoryFieldOwnershipFor :: Maybe ProviderAddress -> PhysicalIdentity -> Text -> Value -> Either Text ()
-confirmInventoryFieldOwnershipFor target uid revision observed = do
-  metadata <- metadataOf observed
-  actualUid <- fieldText "uid" metadata
-  actualRevision <- fieldText "resourceVersion" metadata
-  unless (actualUid == physicalIdentityText uid && actualRevision == revision)
-    (Left "Kubernetes object changed after the reviewed observation")
-  fields <- case KM.lookup "managedFields" metadata of
-    Just (Array entries) | not (null entries) -> Right (foldr (:) [] entries)
-    _ -> Left "Kubernetes managed fields are missing; update ownership is unknown"
-  mapM_ checkEntry fields
-  unless (any isInventoryOwner fields)
-    (Left "Kubernetes object has no inventory-managed fields to update")
-  where
-    checkEntry (Object entry) = do
-      manager <- fieldText "manager" entry
-      fieldSet <- case KM.lookup "fieldsV1" entry of
-        Just (Object value) -> Right value
-        _ -> Left "Kubernetes managed-field entry is malformed"
-      unless (manager == "nagare-inventory" || statusOnly fieldSet || expectedControllerFields target manager fieldSet)
-        (Left ("Kubernetes object has fields managed by another writer: " <> manager))
-    checkEntry _ = Left "Kubernetes managed-field entry is malformed"
-    isInventoryOwner (Object entry) = textAt "manager" entry == Just "nagare-inventory"
-    isInventoryOwner _ = False
-    statusOnly fields = all (== "f:status") (KM.keys fields)
-
--- PVC provisioners add these annotations after the create-only write. They
--- do not intersect inventory's desired fields. Any other controller field is
--- still a refusal until its specific owner and path have been established.
-expectedControllerFields :: Maybe ProviderAddress -> Text -> Object -> Bool
-expectedControllerFields (Just (Kubernetes _ "" kind _ _)) "k3s" fields
-  | nameText kind == "persistentvolumeclaim" =
-      not (null paths) && all (`elem` allowed) paths
-  where
-    paths = managedPaths [] fields
-    allowed =
-      [ ["f:metadata", "f:annotations", "f:volume.beta.kubernetes.io/storage-provisioner"]
-      , ["f:metadata", "f:annotations", "f:volume.kubernetes.io/selected-node"]
-      , ["f:metadata", "f:annotations", "f:volume.kubernetes.io/storage-provisioner"]
-      , ["f:spec", "f:volumeName"]
-      ]
-expectedControllerFields (Just (Kubernetes _ "apps" kind _ _)) "k3s" fields
-  | nameText kind == "deployment" =
-      ["f:metadata", "f:annotations", "f:deployment.kubernetes.io/revision"] `elem` paths
-        && all permitted paths
-  where
-    paths = managedPaths [] fields
-    permitted ["f:metadata", "f:annotations", "."] = True
-    permitted ["f:metadata", "f:annotations", "f:deployment.kubernetes.io/revision"] = True
-    permitted ("f:status" : _) = True
-    permitted _ = False
-expectedControllerFields _ _ _ = False
-
-managedPaths :: [Text] -> Object -> [[Text]]
-managedPaths prefix fields = concatMap one (KM.toList fields)
-  where
-    one (key, Object nested)
-      | KM.null nested = [prefix <> [Key.toText key]]
-      | otherwise = managedPaths (prefix <> [Key.toText key]) nested
-    one (key, _) = [prefix <> [Key.toText key]]
 
 verifyLiveOwnership :: KubernetesRuntimeConfig -> ProviderAddress -> PhysicalIdentity -> Text -> IO (Either Text Value)
 verifyLiveOwnership config target uid revision = case target of
