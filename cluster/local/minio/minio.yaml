@@ -37,6 +37,23 @@ stringData:
   AWS_ACCESS_KEY_ID: minioadmin
   AWS_SECRET_ACCESS_KEY: minioadmin
 ---
+# The bucket lives on a k3d local-path volume (F41, superseding the EP-100
+# emptyDir choice). The volume is stored on the k3d node container's
+# filesystem, so local backups, receipts and snapshots survive a MinIO pod
+# restart and a node `docker stop`/`docker start`. Deleting the k3d cluster
+# (`k3d cluster delete`, `just local-down`) still removes it with the node.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minio-data
+  namespace: nagare-system
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 2Gi
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -45,6 +62,8 @@ metadata:
   labels: { app: minio }
 spec:
   replicas: 1
+  # One writer on a ReadWriteOnce volume: stop the old pod before the new one.
+  strategy: { type: Recreate }
   selector: { matchLabels: { app: minio } }
   template:
     metadata:
@@ -68,13 +87,8 @@ spec:
           volumeMounts:
             - { name: data, mountPath: /data }
       volumes:
-        # emptyDir is deliberate (EP-100 Decision Log): local mode is disposable
-        # (`just local-down` wipes the cluster) and local-smoke deletes its
-        # snapshot object on exit. A MinIO pod restart therefore evaporates
-        # local "backups" — acceptable for a GCS stand-in used only by tests.
-        # Do not rely on local snapshots surviving a restart.
         - name: data
-          emptyDir: {}
+          persistentVolumeClaim: { claimName: minio-data }
 ---
 apiVersion: v1
 kind: Service

@@ -77,10 +77,11 @@ compileLocalObjectStore root foundation store
     credentialRole = known (mkName ("object-" <> T.take 40 (digestText (contentDigest credentialAddressBytes))))
     credentialId = mintResourceId owner (known (mkLogicalKey "local-object-store")) credentialRole
     deployment = address "apps/v1" "Deployment" (Just "nagare-system") "minio"
+    dataClaim = address "v1" "PersistentVolumeClaim" (Just "nagare-system") "minio-data"
     service = address "v1" "Service" (Just "nagare-system") "minio"
     bucketJob = address "batch/v1" "Job" (Just "nagare-system") "minio-make-bucket"
     manifestPath = "cluster/local/minio/minio.yaml"
-    manifestDigest = known (mkContentDigest "6a7a311d1fb5b842eed85625d907bffa0ef88d215110339001a65cf2b9c03961")
+    manifestDigest = known (mkContentDigest "3d6a394b5061f2290cccdb1a87b0a0f08bc70dc902fa667c3a6b611127cc18a9")
     configureImages Nothing Nothing objects = Right objects
     configureImages (Just serverImage) (Just clientImage) objects = do
       unless
@@ -180,7 +181,7 @@ compileLocalObjectStore root foundation store
         , upstreamAfter =
             Map.fromList
               [ (address "v1" "Secret" (Just "personal") "nagare-minio-credentials", [credential])
-              , (deployment, [credential])
+              , (deployment, [credential, dataClaim])
               , (service, [deployment])
               , (bucketJob, [credential, deployment, service])
               ]

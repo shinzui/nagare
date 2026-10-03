@@ -713,6 +713,9 @@ Initial findings date from authoring (2026-07-15); later observations are dated 
   object on exit. A PVC would imply a durability promise local mode does not
   make. The comment prevents anyone from mistaking local "backups" for real
   ones.
+  Superseded 2026-10-03 by MP-23 finding F41 (EP-155 Decision Log): local mode
+  now carries release evidence for backups and recovery, and a node restart
+  deleted every local backup, so MinIO uses a `local-path` PersistentVolumeClaim.
   Date: 2026-07-15.
 - Decision: pin the VictoriaLogs Grafana datasource plugin at 0.31.0 rather than
   the 0.29.0 version found during plan authoring.

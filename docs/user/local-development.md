@@ -163,6 +163,11 @@ local mode they use the AWS CLI image, MinIO credentials from the
 `nagare-minio-credentials` Secret, and the same object keys under
 `s3://nagare-backups/...`.
 
+Local MinIO keeps the `nagare-backups` bucket on a k3d `local-path` volume, so
+local backups, receipts and snapshots survive a MinIO pod restart and a stop and
+start of the k3d node container. `just local-down` (deleting the k3d cluster)
+still removes them with the node.
+
 Restore commands are also local-mode aware:
 
 ```bash

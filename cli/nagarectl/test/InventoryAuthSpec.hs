@@ -423,7 +423,15 @@ inventoryAuthTests =
                 "nagare-backups"
                 "nagare-minio-credentials"
         (scope, native) <- compileLocalObjectStore "../.." foundation store >>= expectRight
-        Map.size native @?= 5
+        Map.size native @?= 6
+        -- F41: the bucket survives a pod or node restart on a local-path claim.
+        let member kind name = [(resource, bytes) | (resource, bytes) <- Map.elems native, case resource ^. #address of Kubernetes _ _ k _ n -> nameText k == kind && nameText n == name; _ -> False]
+        case (member "persistentvolumeclaim" "minio-data", member "deployment" "minio") of
+          ([(claim, claimBytes)], [(server, serverBytes)]) -> do
+            assertBool "MinIO claim is not on local-path" (BC.isInfixOf "\"storageClassName\":\"local-path\"" claimBytes)
+            assertBool "MinIO does not mount its claim" (BC.isInfixOf "\"claimName\":\"minio-data\"" serverBytes && not (BC.isInfixOf "emptyDir" serverBytes))
+            assertBool "MinIO starts before its claim exists" (OrderedAfter (claim ^. #identity) `elem` (server ^. #dependencies))
+          other -> assertFailure ("MinIO claim or Deployment missing: " <> show (length (fst other), length (snd other)))
         serverImage <- lookupEnv "NAGARE_LOCAL_MINIO_IMAGE"
         clientImage <- lookupEnv "NAGARE_LOCAL_MC_IMAGE"
         forM_ [serverImage, clientImage] $ \selected -> forM_ selected $ \image ->
