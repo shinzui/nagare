@@ -1,0 +1,112 @@
+{
+  "recordedBy": "implementer (claude-opus-5-5, session nagare-f3); not independent verification",
+  "recordedAt": "2026-10-03",
+  "sourceRevision": "dc53beb376561b185432c1a86fddbc40670f2dc4",
+  "binarySha256": "84be47c993a0349e73d3471c01afc3317a0a48d6f09505fedb47068a0e7bc97f",
+  "binary": "development cabal build, not an installed candidate",
+  "cluster": {
+    "colimaProfile": "nagare-mp23-cp3",
+    "node": "k3d-nagare-local-server-0",
+    "context": "local",
+    "operatorRoot": "/private/tmp/nagare-mp23-cp3.1EQ78L"
+  },
+  "storeHeadBefore": {
+    "generation": 9322,
+    "activeTransaction": null
+  },
+  "coordination": "cp3 claim taken 2026-10-03T14:43:04Z by nagare-f3 and released after the store was idle; peer session nagare-phase-b agreed to the protocol",
+  "drills": [
+    {
+      "id": "B2-tamper-database",
+      "target": "accepted scheduled Redis receipt 0841cd1d-3b51-484b-9a47-d26fee8b7672 (object version 178b9bd1-7ac3-4644-9699-7fb958a6e0ac, receipt version e7e6ef39-2084-4bae-9320-a8e263f33be3)",
+      "baselinePlan": {
+        "restoreId": "f3base",
+        "exit": 0,
+        "seconds": 3.4,
+        "output": [
+          "Saved reviewed scratch restore. Apply it to verify the backup again and create the fixed scratch target.",
+          "exit=0"
+        ]
+      },
+      "tamper": "added MinIO object version d5cd920c-77f6-4955-b89c-f5f3c4285f25 (45 bytes, different content) at the accepted archive key via a throwaway nagare-mc pod",
+      "plan": {
+        "restoreId": "f3tamper",
+        "exit": 1,
+        "output": [
+          "exit=1"
+        ],
+        "reviewSaved": false
+      },
+      "listing": "0841cd1d-3b51-484b-9a47-d26fee8b7672  unresolved: accepted scheduled backup object version or bytes changed",
+      "storeHeadUnchanged": true,
+      "revert": "mc rm --version-id d5cd920c-77f6-4955-b89c-f5f3c4285f25; listing returned to accepted with the original two pinned versions",
+      "result": "refused at planning before any destination object or transaction existed"
+    },
+    {
+      "id": "B2-wrong-incarnation-before-plan",
+      "target": "Redis scratch PVC mp23-independent-redis-restore-f3wrong",
+      "foreignObject": "unowned PVC uid c9160ebb-f3ca-44f9-b005-723964b7f15e created before planning",
+      "plan": {
+        "restoreId": "f3wrong",
+        "exit": 1,
+        "output": [
+          "exit=1"
+        ],
+        "reviewSaved": false
+      },
+      "storeHeadUnchanged": true,
+      "revert": "foreign PVC deleted after UID check",
+      "result": "refused at planning (adoption-required)"
+    },
+    {
+      "id": "B2-wrong-incarnation-between-plan-and-apply",
+      "target": "Redis scratch PVC mp23-independent-redis-restore-f3race",
+      "plan": {
+        "restoreId": "f3race",
+        "exit": 0,
+        "review": "27d8b8edcc009bbe9c77194209b598c4fa7049044d118123ae5e61c7865a76ae",
+        "operations": 5
+      },
+      "foreignObject": "unowned PVC uid bc33a1f4-5ecc-4a61-a900-3fb90a4a654c created after planning",
+      "apply": {
+        "exit": 1,
+        "seconds": 2,
+        "output": [
+          "stopped tx-27d8b8edcc009bbe9c77194209b598c4fa7049044d118123ae5e61c7865a76ae at op-a1a9e71dc6f2e542860785e3: KnownNoEffect \"adapter preflight refused\""
+        ],
+        "effects": "the first operation (Service mp23-independent-redis-restore-f3race) was created before the PVC operation's preflight refused; the foreign PVC was untouched",
+        "activeTransactionAfter": "tx-27d8b8edcc009bbe9c77194209b598c4fa7049044d118123ae5e61c7865a76ae"
+      },
+      "resumeWhileForeignPresent": {
+        "exit": 1,
+        "output": [
+          "stopped tx-27d8b8edcc009bbe9c77194209b598c4fa7049044d118123ae5e61c7865a76ae at op-a1a9e71dc6f2e542860785e3: KnownNoEffect \"adapter preflight refused\""
+        ]
+      },
+      "recoverWhileForeignPresent": {
+        "action": "abandon-partial-database-restore",
+        "exit": 1,
+        "output": [
+          "[AdmissionError {admissionErrorCode = \"recovery-state\", admissionErrorMessage = \"operation has no uncertain effect to resolve\"}]"
+        ]
+      },
+      "exit": "foreign PVC deleted after UID check, then the same public resume converged",
+      "resumeAfterRemoval": {
+        "exit": 0,
+        "seconds": 31,
+        "output": [
+          "converged tx-27d8b8edcc009bbe9c77194209b598c4fa7049044d118123ae5e61c7865a76ae"
+        ]
+      },
+      "storeAfter": {
+        "activeTransaction": null
+      },
+      "result": "F35: preflight refusal after admission strands the transaction; the only exit is removing the conflicting object out of band",
+      "fixtureChange": "accepted scratch restore scope database-restore-personal-mp23-independent-redis-f3race now exists on cp3"
+    }
+  ],
+  "notRun": {
+    "B2-tamper-volume": "volume restores pin no object version and check bytes only inside the restore Job, after the scratch PVC is created; a native drill would end in abandon-partial-volume-restore with an unresolved PVC (see EP-160 Surprises)",
+    "B1-source-replacement": "no supported reviewed operation replaces a database StatefulSet under the same name; an out-of-band replacement would break the fixture database without a repair path (see EP-159)"
+  }
+}

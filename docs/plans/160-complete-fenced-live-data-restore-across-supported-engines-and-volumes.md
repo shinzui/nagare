@@ -72,6 +72,11 @@ provenance:
       at: 2026-10-03T03:28:10Z
       mode: "update"
       note: "Consolidated with MP-23 into a current-state plan; prior body archived in docs/audits/mp23-archive/plan-history"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-03T14:47:59Z
+      mode: "implement"
+      note: "Native cp3 tamper and wrong-destination drills; F35; volume tamper gap"
 ---
 
 # Complete verified isolated database and volume restore
@@ -97,8 +102,8 @@ To see it working, follow the public path in Concrete Steps. Back up a disposabl
 - [x] Cloud new-PVC volume restore (2026-10-02, independent): a manual GCS snapshot restored into a scratch PVC, verified read-only with the source Pod and PVC intact ([proof](../audits/mp23-independent-results-2026-10-02/cloud-volume-recovery-ec2e1cd4.json)).
 - [x] Source-unavailable content drills for all engines and the volume (2026-10-02, independent). A fresh operator root with source Kubernetes access denied fetched accepted history and exact generations from GCS and restored known content into isolated containers ([PostgreSQL](../audits/mp23-independent-results-2026-10-02/source-unavailable-content-ec2e1cd4.json), [Redis/ClickHouse/volume](../audits/mp23-independent-results-2026-10-02/source-unavailable-engines-e6255e6f.json)). Separately encrypted credentials were decrypted from the fresh root ([credentials](../audits/mp23-independent-results-2026-10-02/encrypted-credential-recovery-ec2e1cd4.json)). Limits: these were manual drills, not a public command after a real outage, and no recovery time was recorded.
 - [x] Interruption handling (mixed evidence; see the matrix). Independent: the six-scenario effectful restore pilot inside the 47-scenario `just test-inventory-effects` run covers lost write acknowledgement, failure before write, readiness timeout, changed source, and corrupt or missing download generations. Also independent: native ClickHouse terminal failure followed by explicit digest-bound abandonment ([ec2e1cd4](../audits/mp23-independent-results-2026-10-02/cloud-clickhouse-terminal-verification-ec2e1cd4.json)). Implementer native (2026-09-28): PostgreSQL partial `COPY` abandoned and restored fresh; ClickHouse lost acknowledgement; Redis destination-created resume; volume interruption at destination creation, mid-extraction and lost verification acknowledgement.
-- [ ] Native refusal of a tampered accepted backup. For a database receipt and a volume snapshot whose stored bytes or object version/generation changed after acceptance, the restore refuses before any destination write, and history is unchanged. (MP-23 B2)
-- [ ] Native refusal of a wrong-incarnation destination. A pre-existing or substituted destination (scratch database, Redis StatefulSet/PVC, or scratch PVC with a foreign UID) refuses at preflight and at execution with zero writes. Today this is proved only in adapter tests. (MP-23 B2)
+- [ ] Native refusal of a tampered accepted backup. For a database receipt and a volume snapshot whose stored bytes or object version/generation changed after acceptance, the restore refuses before any destination write, and history is unchanged. (MP-23 B2) Database part done natively (2026-10-03, implementer, cp3): a newer MinIO version at accepted Redis receipt `0841cd1d…`'s archive key made restore planning refuse with `accepted scheduled backup object version or bytes changed`. No review was saved, the store head was unchanged, the listing showed the receipt unresolved, and deleting exactly that version restored it ([record](../audits/mp23-implementer-results-2026-10-03/cp3-data-drills.json)). A review saved before such a tamper still downloads the pinned versions, which is correct. Volume part open: see Surprises (2026-10-03).
+- [ ] Native refusal of a wrong-incarnation destination. A pre-existing or substituted destination (scratch database, Redis StatefulSet/PVC, or scratch PVC with a foreign UID) refuses at preflight and at execution with zero writes. (MP-23 B2) Native results (2026-10-03, implementer, cp3; [record](../audits/mp23-implementer-results-2026-10-03/cp3-data-drills.json)): a foreign PVC at the Redis scratch address before planning is refused with `adoption-required`, with no review saved. A foreign PVC created between plan and apply is refused at that operation's preflight, and the foreign object is untouched. But the earlier Service create had already run, and the transaction stayed active with no supported exit. That is [F35](../audits/mp23-findings.md#f35). It is resolved by removing the foreign object and resuming; the restore then converged in 31 s. This item closes only once F35 is repaired and the race is re-run.
 - [ ] Redis interruption during RDB load in the init container, and a ClickHouse restore with a genuinely partial data effect, each recovered without replay. Alternatively, a recorded argument, accepted by the independent reviewer, that the existing runs cover these cases. (MP-23 B2)
 - [ ] Manual cloud receipts for Redis and ClickHouse proved through restore, or an explicit statement in `docs/user/backups-and-disaster-recovery.md` and the coverage catalogue that cloud Redis/ClickHouse recovery is scheduled-only. (MP-23 B2)
 - [ ] Independent local PostgreSQL isolated restore with known content and source preserved. (MP-23 C2)
@@ -121,6 +126,8 @@ Evidence keys: [sgcs] [scheduled GCS restore](../audits/mp23-independent-results
 
 
 ## Surprises & Discoveries
+
+2026-10-03: Volume snapshot restores pin no object version, unlike scheduled database receipts. Planning reads only the completed snapshot Pod's receipt, and the restore Job compares the current archive and receipt hashes with the accepted checksum. So a tampered volume archive is caught only after the scratch PVC is created (no data is extracted), and the transaction then needs `abandon-partial-volume-restore`, which leaves an unresolved PVC. Meeting this plan's "refuses before any destination write" for volumes needs planning-time verification of the exact object versions, and pinned versions in the restore Job, mirroring the scheduled database path. A native drill was not run, to avoid leaving an unresolved PVC on cp3.
 
 Earlier discoveries, including the full data-fence design findings, are in [the snapshot](../audits/mp23-archive/plan-history/ep160-before-consolidation-2026-10-02.md).
 
