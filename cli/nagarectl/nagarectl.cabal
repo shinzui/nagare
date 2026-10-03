@@ -91,6 +91,7 @@ library
     Nagare.Cluster.GcsJob
     Nagare.Cluster.Kubeconfig
     Nagare.Cluster.Namespace
+    Nagare.Context.Review
     Nagare.Database.Backup
     Nagare.Database.Connection
     Nagare.Database.Create
@@ -146,17 +147,15 @@ library
     Nagare.Inventory.Adapters.PulumiRuntime
     Nagare.Inventory.Application
     Nagare.Inventory.Artifact
-    Nagare.Inventory.ReleaseEvidence
-    Nagare.Inventory.CdnPurge
-    Nagare.Inventory.VmPower
     Nagare.Inventory.BackendMap
     Nagare.Inventory.Backup
-    Nagare.Inventory.BackupReceipt
     Nagare.Inventory.BackupFreshness
+    Nagare.Inventory.BackupReceipt
     Nagare.Inventory.Bootstrap
     Nagare.Inventory.BootstrapRegistryRecovery
     Nagare.Inventory.BootstrapRegistryTransport
     Nagare.Inventory.Cache
+    Nagare.Inventory.CdnPurge
     Nagare.Inventory.Cloud
     Nagare.Inventory.Collection.Adapter
     Nagare.Inventory.Collection.Authority
@@ -225,6 +224,7 @@ library
     Nagare.Inventory.Plan
     Nagare.Inventory.Prune
     Nagare.Inventory.RegistryCredentials
+    Nagare.Inventory.ReleaseEvidence
     Nagare.Inventory.Restore
     Nagare.Inventory.ScheduledGcs
     Nagare.Inventory.ScheduledIngest
@@ -241,6 +241,7 @@ library
     Nagare.Inventory.Store.Remote
     Nagare.Inventory.TaskLifecycle
     Nagare.Inventory.TaskRun
+    Nagare.Inventory.VmPower
     Nagare.Inventory.VolumePrune
     Nagare.Ops.Cleanup
     Nagare.Ops.ClusterGuard
@@ -359,16 +360,16 @@ executable nagarectl
     Nagare.Cli.Dispatch
     Nagare.Cli.Environment.Selection
     Nagare.Cli.Inventory.Adapters
+    Nagare.Cli.Inventory.CdnHistory
+    Nagare.Cli.Inventory.CdnPurge
     Nagare.Cli.Inventory.CloudCatalog
     Nagare.Cli.Inventory.Execution
     Nagare.Cli.Inventory.Foundation
     Nagare.Cli.Inventory.Planning
-    Nagare.Cli.Inventory.CdnHistory
-    Nagare.Cli.Inventory.CdnPurge
-    Nagare.Cli.Inventory.VmPower
     Nagare.Cli.Inventory.PruneEvidence
     Nagare.Cli.Inventory.PublicEvidence
     Nagare.Cli.Inventory.SourceEvidence
+    Nagare.Cli.Inventory.VmPower
     Nagare.Cli.Inventory.Workflow
     Nagare.Cli.Options
     Nagare.Cli.Parser
@@ -388,6 +389,7 @@ executable nagarectl
     Nagare.Cli.Runtime.Cluster
     Nagare.Cli.Runtime.Config
     Nagare.Cli.Runtime.Context
+    Nagare.Cli.Runtime.ContextReview
     Nagare.Cli.Runtime.Error
     Nagare.Cli.Runtime.Guards
     Nagare.Cli.Runtime.ObjectStore
@@ -445,9 +447,10 @@ test-suite nagarectl-test
   other-modules:
     AccessGrantsSpec
     AccessResolveSpec
-    AppDeploySpec
     AppDeployPhaseSpec
+    AppDeploySpec
     CertificateMigrationSpec
+    ContextReviewSpec
     DataFenceSpec
     DomainBindingSpec
     HostSpec
@@ -456,11 +459,11 @@ test-suite nagarectl-test
     InventoryArtifactSpec
     InventoryAuthSpec
     InventoryCacheSpec
-    InventoryCdnSpec
-    InventoryCloudflareSpec
     InventoryCdnCollectionSpec
     InventoryCdnPurgeSpec
+    InventoryCdnSpec
     InventoryCloudSpec
+    InventoryCloudflareSpec
     InventoryControllerCollectionSpec
     InventoryEffectfulCollectionSpec
     InventoryEffectfulSpec
@@ -468,11 +471,9 @@ test-suite nagarectl-test
     InventoryGcloudAuthSpec
     InventoryGogolSpec
     InventoryHostSpec
-    InventoryVmPowerSpec
     InventoryIntegrationSpec
-    InventoryKubernetesSpec
     InventoryKubernetesLifecycleSpec
-    Nagare.Test.Support.Kubernetes
+    InventoryKubernetesSpec
     InventoryLifecycleSpec
     InventoryMaintenanceSpec
     InventoryMigrationSpec
@@ -483,8 +484,10 @@ test-suite nagarectl-test
     InventoryPublicationSpec
     InventorySpec
     InventoryStatusSpec
+    InventoryStoreBackupSpec
     InventoryTransactionSpec
     InventoryUpstreamSpec
+    InventoryVmPowerSpec
     Nagare.Test.Application
     Nagare.Test.Backend
     Nagare.Test.Backup.Paths
@@ -525,6 +528,7 @@ test-suite nagarectl-test
     Nagare.Test.Support.Assertions
     Nagare.Test.Support.Build
     Nagare.Test.Support.Environment
+    Nagare.Test.Support.Kubernetes
     Nagare.Test.Support.Profiles
     Nagare.Test.Support.Release
     Nagare.Test.Support.Site

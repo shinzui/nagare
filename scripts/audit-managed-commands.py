@@ -55,7 +55,7 @@ ROUTES = {
     "ContextCommand": {
         "read": "ContextList ContextCurrent ContextShow ContextGuard ContextEnv",
         "local": "ContextUse",
-        "pending": "ContextCreate ContextDelete",
+        "bounded": "ContextCreate ContextDelete ContextApply ContextRestore",
     },
     "InfraCommand": {
         "read": "InfraGuard",

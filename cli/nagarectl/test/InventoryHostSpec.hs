@@ -1,5 +1,6 @@
 module InventoryHostSpec (inventoryHostTests) where
 
+import ContextReviewSpec (contextReviewTests)
 import Data.Aeson qualified as Aeson
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString.Char8 qualified as BC
@@ -33,7 +34,8 @@ inventoryHostTests :: TestTree
 inventoryHostTests =
   testGroup
     "host inventory adapter"
-    [ inventoryVmPowerTests
+    [ contextReviewTests
+    , inventoryVmPowerTests
     , testCase "legacy host plan bytes omit replacement authority" $ do
         case Aeson.toJSON activationPlan of
           Aeson.Object fields -> KeyMap.lookup "previousAgeKeyDigest" fields @?= Nothing

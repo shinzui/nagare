@@ -1264,3 +1264,33 @@ provider work. This prevents an old stop from running again after a later start
 and an unrelated unconverged revision. The receipt proves historical one-shot
 completion, never current power readiness; malformed or conflicting receipts
 refuse. Receipt-write acknowledgement loss recovers from the retained bytes.
+
+
+### Reviewed local context control
+
+A per-operator profile is local control metadata, not a new cloud ownership scope.
+Its reviewed update/removal binds exact prior bytes, local path, context, selected
+history root and idle head. Initial cloud foundation records its proven local
+origin separately from the profile’s future GCS locator. Before effect the CLI
+rediscovers that authority; restoration requires the recorded original head and
+refuses migration markers, without creating missing history or guessing from
+remote denial. This initial local authority permits only foundation scopes and
+no retained/collected incarnations. Operational input changes leave provider state unchanged until a
+subsequent inventory review. Project, store, payload and resource identity changes
+refuse; inventory store migration retains its separate authority protocol.
+
+Replacement profiles contain only canonical single-quoted exports. The decoder
+rejects extra commands, unrecognized fields and values the profile parser cannot
+round-trip safely; shell substitution remains literal data. Historical original
+bytes stay exact for restoration.
+
+Local control serializes through a process lock and retains an immutable intent,
+completion receipt and original profile. File and directory synchronization order
+those records before replacement/removal; interrupted completion is proved from
+exact after-state bytes. A completed review never reapplies after a later local
+change. Removal publishes a tombstone before unlink and prevents fresh creation
+from hiding the old history. Explicit restore checks the original store binding,
+refuses migrated authority or conflicting files, and restores the exact profile.
+It may restore access to an active transaction without modifying its history.
+The protocol claims local process exclusion, not exclusion across workstations;
+other operators retain their own profiles and shared inventory transactions.

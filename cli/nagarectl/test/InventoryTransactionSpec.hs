@@ -14,6 +14,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
+import InventoryStoreBackupSpec (inventoryStoreBackupTests)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Helm
@@ -2088,29 +2089,7 @@ inventoryTransactionTests =
         readIORef observed >>= (@?= Just (KubernetesExecutor, Just (transactionToken reviewed), Just "kubernetes"))
         lookupEnv "NAGARE_INVENTORY_TRANSACTION" >>= (@?= transactionBefore)
         lookupEnv "NAGARE_INVENTORY_ADAPTER_CHILD" >>= (@?= childBefore)
-    , testCase "complete backup restores and incomplete backup is refused" $
-        withSystemTempDirectory "inventory-backup" $ \root -> do
-          source <- openFilesystemStore (root </> "source") >>= expectRight
-          _ <- initializeStore source fixtureBinding "client-test" >>= expectRight
-          _ <- publishIfAbsent source (objectKeyFor "objects" (contentDigest "retained")) "retained" >>= expectRight
-          let receipts = [("vm-power/completed.json", "original-power-proof"), ("cdn-purge/completed.json", "original-purge-proof")]
-          forM_ receipts $ \(key, bytes) -> void (publishIfAbsent source key bytes >>= expectRight)
-          let backup = root </> "backup"
-          exported <- withProcessLock source (\locked -> exportStore locked backup) >>= expectRight
-          _ <- expectRight exported
-          restored <- newMemoryStore
-          readHead restored >>= (@?= Right Nothing)
-          let wrongBinding = ContextBinding (ok (mkContextId "different")) (ok (mkName "project"))
-          refusedBinding <- restoreStoreFor restored backup wrongBinding
-          assertBool "restore wrote a different context" (isLeft refusedBinding)
-          readHead restored >>= (@?= Right Nothing)
-          _ <- restoreStoreFor restored backup fixtureBinding >>= expectRight
-          readHead restored >>= expectRight >>= (@?= Just (HeadManifest 1 0 0 fixtureBinding "client-test" Map.empty Map.empty Map.empty Map.empty Nothing Nothing Nothing Nothing))
-          forM_ receipts $ \(key, bytes) -> readObject restored key >>= (@?= Right (Just bytes))
-          removeFile (backup </> "head.json")
-          incomplete <- newMemoryStore
-          refused <- restoreStore incomplete backup
-          assertBool "missing backup member refused" (isLeft refused)
+    , inventoryStoreBackupTests fixtureBinding
     , testCase "a second process is refused while the filesystem process lock is held" $
         withSystemTempDirectory "inventory-lock" $ \root -> do
           store <- openFilesystemStore root >>= expectRight

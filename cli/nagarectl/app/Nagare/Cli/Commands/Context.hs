@@ -17,6 +17,7 @@ import Nagare.Cli.Runtime.Context
   , parseContextNameOrDie
   , writeContextProfile
   )
+import Nagare.Cli.Runtime.ContextReview (guardRemovedContext, runContextReview, saveContextReview)
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Cli.Runtime.ProjectGuard (runContextGuard)
 import Nagare.Cli.Runtime.Pulumi
@@ -94,10 +95,12 @@ runContext mctx = \case
     TIO.putStr (renderTargetEnv tp)
   ContextCreate rawName o -> do
     name <- parseContextNameOrDie rawName
+    guardRemovedContext name
     exists <- contextExists name
+    when (isJust (o ^. #savePlan) && (not exists || o ^. #use)) (dieT "a profile review requires an existing context and cannot change the current selection")
     when (exists && not (o ^. #force)) $
       dieT ("context '" <> contextNameText name <> "' already exists; pass --force to change the given fields")
-    when exists (guardExistingContextMutation "context create --force" name)
+    when (exists && isNothing (o ^. #savePlan)) (guardExistingContextMutation "context create --force" name)
     -- EP-112: validate the ACME identity BEFORE a context file exists, so a typo
     -- is reported here rather than at `nagare cluster-bootstrap`. The contact is
     -- OPTIONAL here (unlike `init`): this is the low-level writer that also
@@ -117,8 +120,11 @@ runContext mctx = \case
     when
       (tp ^. #mode == Local && tp ^. #externalDomainTlsEnabled)
       (dieT "external domain TLS belongs to cloud contexts")
-    writeContextProfile name tp
-    TIO.putStrLn ("Wrote context '" <> contextNameText name <> "' (" <> T.pack path <> ")")
+    case o ^. #savePlan of
+      Just output -> saveContextReview name (Just (renderTargetEnv tp)) output
+      Nothing -> writeContextProfile name tp
+    when (isNothing (o ^. #savePlan)) $
+      TIO.putStrLn ("Wrote context '" <> contextNameText name <> "' (" <> T.pack path <> ")")
     forM_ stored $ \previous -> do
       let before = T.lines (renderTargetEnv (profileFromContextMap previous))
           changed = filter (`notElem` before) (T.lines (renderTargetEnv tp))
@@ -132,20 +138,24 @@ runContext mctx = \case
       TIO.putStrLn ("Set current context to '" <> contextNameText name <> "'")
   ContextGuard asJson -> runContextGuard mctx asJson
   ContextEnv -> runContextEnv mctx
-  ContextDelete rawName yes -> do
+  ContextApply input yes -> runContextReview False input yes
+  ContextRestore input yes -> runContextReview True input yes
+  ContextDelete rawName yes savePlan -> do
     name <- parseContextNameOrDie rawName
     ok <- contextExists name
     if not ok
       then dieT ("no such context: " <> contextNameText name)
-      else
-        if not yes
-          then dieT ("refusing to delete '" <> contextNameText name <> "' without --yes")
-          else do
-            guardExistingContextMutation "context delete" name
-            deleteContext name
-            cur <- readCurrentContext
-            when (cur == Just name) clearCurrentContext
-            TIO.putStrLn ("Deleted context '" <> contextNameText name <> "'")
+      else case savePlan of
+        Just output -> saveContextReview name Nothing output
+        Nothing ->
+          if not yes
+            then dieT ("refusing to delete '" <> contextNameText name <> "' without --yes")
+            else do
+              guardExistingContextMutation "context delete" name
+              deleteContext name
+              cur <- readCurrentContext
+              when (cur == Just name) clearCurrentContext
+              TIO.putStrLn ("Deleted context '" <> contextNameText name <> "'")
 
 -- | @nagarectl context env@ (EP-113). Print the active context's shell environment
 -- as @export K=V@ lines and nothing else, so the packaged @nagare@ launcher can

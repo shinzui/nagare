@@ -98,6 +98,7 @@ contextCreateOptsParser =
     <*> optional (strOption (long "acme-directory" <> metavar "ENDPOINT" <> help "production | staging | https:// ACME directory URL (default production)"))
     <*> switch (long "force" <> help "Update an existing context: passed flags change, every other stored field is kept")
     <*> switch (long "use" <> help "Also set this context as the current context")
+    <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Review a local profile update while preserving accepted history authority"))
 
 contextCmd :: ParserInfo Command
 contextCmd =
@@ -113,7 +114,9 @@ contextSubparser =
         <> command "use" (info (ContextUse <$> contextNameArg <**> helper) (progDesc "Set the current context"))
         <> command "show" (info (ContextShow <$> optional contextNameArg <**> helper) (progDesc "Print a context bundle (default: active context)"))
         <> command "create" (info (ContextCreate <$> contextNameArg <*> contextCreateOptsParser <**> helper) (progDesc "Write a new context into the store"))
-        <> command "delete" (info (ContextDelete <$> contextNameArg <*> switch (long "yes" <> help "Confirm deletion") <**> helper) (progDesc "Delete a context from the store"))
+        <> command "delete" (info (ContextDelete <$> contextNameArg <*> switch (long "yes" <> help "Confirm deletion") <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Review local profile removal with retained recovery authority")) <**> helper) (progDesc "Delete a context from the store"))
+        <> command "apply" (info (ContextApply <$> strArgument (metavar "REVIEW_DIR") <*> switch (long "yes" <> help "Apply the reviewed local profile change") <**> helper) (progDesc "Apply or resume a local context review"))
+        <> command "restore" (info (ContextRestore <$> strArgument (metavar "REVIEW_DIR") <*> switch (long "yes" <> help "Restore the exact removed context profile") <**> helper) (progDesc "Restore access using a completed local removal review"))
         <> command "guard" (info (ContextGuard <$> switch (long "json" <> help "Emit the compared values as JSON") <**> helper) (progDesc "Refuse unless the Pulumi stack, the environment and gcloud all agree with the active context's project"))
         <> command "env" (info (pure ContextEnv <**> helper) (progDesc "Print the active context's shell environment as export lines, safe to eval"))
     )

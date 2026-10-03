@@ -16,10 +16,12 @@ import Data.Maybe (catMaybes)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Nagare.Cli.Options (ContextCreateOpts (..))
+import Nagare.Cli.Runtime.ContextReview (guardRemovedContext)
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Cli.Runtime.Guards (guardLegacyMutationInventory)
 import Nagare.Dsl.Prelude
 import Nagare.Init (renderTargetEnv)
+import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Target
   ( ActiveTarget (ActiveTarget)
   , ContextName
@@ -106,10 +108,12 @@ resolveField required label flag Nothing def = do
 -- accepted history or point subsequent provider work at the wrong project.
 guardExistingContextMutation :: Text -> ContextName -> IO ()
 guardExistingContextMutation operation name = do
+  guardRemovedContext name
   exists <- contextExists name
   when exists $ do
     profile <- readContextProfile name >>= either dieT pure
-    guardLegacyMutationInventory operation (ActiveTarget name profile)
+    selected <- Inventory.selectFoundationStore (ActiveTarget name profile) >>= either (dieT . T.pack . show) pure
+    guardLegacyMutationInventory operation selected
 
 parseContextNameOrDie :: String -> IO ContextName
 parseContextNameOrDie raw =
@@ -117,6 +121,7 @@ parseContextNameOrDie raw =
 
 writeContextProfile :: ContextName -> TargetProfile -> IO ()
 writeContextProfile name tp = do
+  guardRemovedContext name
   dir <- contextsDir
   createDirectoryIfMissing True dir
   path <- contextFilePath name

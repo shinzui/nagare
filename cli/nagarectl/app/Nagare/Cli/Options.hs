@@ -474,7 +474,9 @@ data ContextCommand
   | ContextUse String
   | ContextShow (Maybe String)
   | ContextCreate String ContextCreateOpts
-  | ContextDelete String Bool
+  | ContextDelete String Bool (Maybe FilePath)
+  | ContextApply FilePath Bool
+  | ContextRestore FilePath Bool
   | -- | EP-113: refuse when anything disagrees about which project the next
     -- Pulumi operation would write to. The 'Bool' is @--json@.
     ContextGuard Bool
@@ -513,6 +515,7 @@ data ContextCreateOpts = ContextCreateOpts
   , acmeDirectory :: !(Maybe String)
   , force :: !Bool
   , use :: !Bool
+  , savePlan :: !(Maybe FilePath)
   }
   deriving stock (Generic, Show)
 

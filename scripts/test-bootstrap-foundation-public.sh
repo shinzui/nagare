@@ -103,6 +103,15 @@ exit 38
 EOF
 chmod +x "$fixture_root/bin/pulumi"
 
+test ! -e "$XDG_STATE_HOME/nagare/fresh/inventory/head.json"
+"$nagarectl_bin" context create fresh --force --machine-type e2-standard-2 > "$fixture_root/fresh-profile.out" 2>&1 || {
+  cat "$fixture_root/fresh-profile.out" >&2
+  exit 1
+}
+test ! -e "$XDG_STATE_HOME/nagare/fresh/inventory/head.json"
+test ! -e "$XDG_STATE_HOME/pulumi-plan.log"
+printf 'fresh profile update preserved absent local foundation history before its GCS bucket exists\n'
+
 "$nagarectl_bin" --context fresh platform bootstrap plan --out "$fixture_root/review" > "$fixture_root/out" 2>&1 || {
   cat "$fixture_root/out" >&2
   cat "$XDG_STATE_HOME/gcloud.log" >&2 2>/dev/null || true
@@ -125,6 +134,20 @@ if grep -Eq 'buckets (create|update)|services enable|kubectl|pulumi' "$XDG_STATE
   exit 1
 fi
 test ! -e "$XDG_STATE_HOME/pulumi-plan.log"
+cp "$XDG_STATE_HOME/nagare/fresh/inventory/head.json" "$fixture_root/fresh-head-before-profile"
+if "$nagarectl_bin" context create fresh --force --machine-type e2-standard-4 > "$fixture_root/fresh-profile-refusal.out" 2>&1; then
+  echo 'published foundation history unexpectedly permitted legacy profile replacement' >&2
+  exit 1
+fi
+grep -q 'resource inventory history or transaction state' "$fixture_root/fresh-profile-refusal.out"
+cmp "$XDG_STATE_HOME/nagare/fresh/inventory/head.json" "$fixture_root/fresh-head-before-profile"
+"$nagarectl_bin" context create fresh --force --machine-type e2-standard-2 --save-plan "$fixture_root/foundation-profile" > "$fixture_root/foundation-profile.out" 2>&1 || { cat "$fixture_root/foundation-profile.out" >&2; exit 1; }
+"$nagarectl_bin" context apply "$fixture_root/foundation-profile" --yes >> "$fixture_root/foundation-profile.out" 2>&1 || { cat "$fixture_root/foundation-profile.out" >&2; exit 1; }
+"$nagarectl_bin" context delete fresh --save-plan "$fixture_root/foundation-profile-removal" >> "$fixture_root/foundation-profile.out" 2>&1 || { cat "$fixture_root/foundation-profile.out" >&2; exit 1; }
+"$nagarectl_bin" context apply "$fixture_root/foundation-profile-removal" --yes >> "$fixture_root/foundation-profile.out" 2>&1 || { cat "$fixture_root/foundation-profile.out" >&2; exit 1; }
+"$nagarectl_bin" context restore "$fixture_root/foundation-profile-removal" --yes >> "$fixture_root/foundation-profile.out" 2>&1 || { cat "$fixture_root/foundation-profile.out" >&2; exit 1; }
+cmp "$XDG_STATE_HOME/nagare/fresh/inventory/head.json" "$fixture_root/fresh-head-before-profile"
+printf 'reviewed initial profile update/removal/restore retained its local foundation root and future GCS locator\n'
 printf 'fresh cloud bootstrap planned nine reviewed foundation resources before Kubernetes\n'
 
 # A fresh context in a shared project must verify already enabled APIs without
@@ -150,7 +173,7 @@ printf 'shared-project bootstrap left seven enabled APIs outside the owned fixtu
 
 # A second isolated context keeps its inventory journal local so the fixture
 # can exercise public apply without emulating the GCS object store migration.
-sed 's/NAGARE_INVENTORY_STORE=gcs/NAGARE_INVENTORY_STORE=local/' \
+sed "s/NAGARE_INVENTORY_STORE='gcs'/NAGARE_INVENTORY_STORE=local/;s/NAGARE_INVENTORY_STORE=gcs/NAGARE_INVENTORY_STORE=local/" \
   "$XDG_CONFIG_HOME/nagare/contexts/fresh.env" \
   > "$XDG_CONFIG_HOME/nagare/contexts/freshlocal.env"
 printf '%s\n' 'NAGARE_PULUMI_BACKEND_MEMBER=serviceAccount:deployer@fixture-project.iam.gserviceaccount.com' \
@@ -505,7 +528,7 @@ printf 'public foundation apply converged and retained its local inventory journ
   export XDG_STATE_HOME="$fixture_root/gcs-recovery/state"
   export XDG_CACHE_HOME="$fixture_root/gcs-recovery/cache"
   mkdir -p "$XDG_CONFIG_HOME/nagare/contexts" "$XDG_STATE_HOME"
-  sed 's/NAGARE_INVENTORY_STORE=local/NAGARE_INVENTORY_STORE=gcs/' \
+  sed "s/NAGARE_INVENTORY_STORE='local'/NAGARE_INVENTORY_STORE=gcs/;s/NAGARE_INVENTORY_STORE=local/NAGARE_INVENTORY_STORE=gcs/" \
     "$fixture_root/original-backend.env" > "$XDG_CONFIG_HOME/nagare/contexts/freshlocal.env"
   python3 scripts/foundation_bucket_fixture.py "$XDG_STATE_HOME" "$fixture_root/gcs-recovery/endpoint" &
   recovery_fixture_pid=$!
@@ -624,7 +647,7 @@ print(head["activeTransaction"])
 PY
 )"
 cp "$XDG_CONFIG_HOME/nagare/contexts/freshlocal.env" "$fixture_root/local-profile-before-refusal.env"
-sed 's/NAGARE_INVENTORY_STORE=local/NAGARE_INVENTORY_STORE=gcs/' \
+sed "s/NAGARE_INVENTORY_STORE='local'/NAGARE_INVENTORY_STORE=gcs/;s/NAGARE_INVENTORY_STORE=local/NAGARE_INVENTORY_STORE=gcs/" \
   "$fixture_root/local-profile-before-refusal.env" > "$XDG_CONFIG_HOME/nagare/contexts/freshlocal.env"
 cp "$XDG_STATE_HOME/nagare/freshlocal/inventory/head.json" "$fixture_root/nonfoundation-head-before.json"
 cp "$XDG_STATE_HOME/pulumi.log" "$fixture_root/nonfoundation-pulumi-before.log"
@@ -772,7 +795,7 @@ assert operations[0]["operation"]["resources"] == [
 PY
 test ! -e "$NAGARE_TEST_IMAGE_OUTPUT"
 cp "$XDG_CONFIG_HOME/nagare/contexts/freshlocal.env" "$fixture_root/freshlocal.env.saved"
-sed 's/NAGARE_PLATFORM_VERSION=0.4.0/NAGARE_PLATFORM_VERSION=0.4.1/' \
+sed "s/NAGARE_PLATFORM_VERSION='0.4.0'/NAGARE_PLATFORM_VERSION=0.4.1/;s/NAGARE_PLATFORM_VERSION=0.4.0/NAGARE_PLATFORM_VERSION=0.4.1/" \
   "$fixture_root/freshlocal.env.saved" > "$XDG_CONFIG_HOME/nagare/contexts/freshlocal.env"
 if "$nagarectl_bin" --context freshlocal platform bootstrap apply "$fixture_root/build-review" --yes \
   > "$fixture_root/changed-payload-apply-out" 2>&1; then
@@ -1403,8 +1426,8 @@ printf 'public cluster apply reconstructed the Serving grant and refused a stale
 
 # A separate context exercises the same reviewed stack operation with the
 # actual Pulumi CLI and an isolated file backend. No cloud provider is used.
-sed -e 's/NAGARE_PULUMI_BACKEND=gcs/NAGARE_PULUMI_BACKEND=local/' \
-  -e 's/NAGARE_INVENTORY_STORE=gcs/NAGARE_INVENTORY_STORE=local/' \
+sed -e "s/NAGARE_PULUMI_BACKEND='gcs'/NAGARE_PULUMI_BACKEND=local/;s/NAGARE_PULUMI_BACKEND=gcs/NAGARE_PULUMI_BACKEND=local/" \
+  -e "s/NAGARE_INVENTORY_STORE='gcs'/NAGARE_INVENTORY_STORE=local/;s/NAGARE_INVENTORY_STORE=gcs/NAGARE_INVENTORY_STORE=local/" \
   "$XDG_CONFIG_HOME/nagare/contexts/fresh.env" \
   > "$XDG_CONFIG_HOME/nagare/contexts/native.env"
 export XDG_STATE_HOME="$fixture_root/native-state"
