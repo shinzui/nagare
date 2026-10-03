@@ -205,7 +205,7 @@ mkKubernetesAdapterWithBackupReceiptAndBatch specs ops observeBatch readBackupRe
                     && (case mutationBefore mutation of KubernetesAbsent {} -> True; _ -> False)
                     && (case mutationAddress mutation of
                       Kubernetes _ "apps" kind _ _ -> nameText kind == "deployment"
-                      Kubernetes _ "serving.knative.dev" kind _ _ -> nameText kind == "service"
+                      Kubernetes _ "serving.knative.dev" kind _ _ -> nameText kind `elem` ["service", "domainmapping"]
                       _ -> False) -> RecoveryAwaitingReadiness physical
                 KubernetesFailed physical _ (Just owner) digest
                   | owner == mutationResource mutation

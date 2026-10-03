@@ -228,6 +228,7 @@ library
     Nagare.Inventory.OperationStep
     Nagare.Inventory.Plan
     Nagare.Inventory.PreviewCleanup
+    Nagare.Inventory.PreviewOwnership
     Nagare.Inventory.Prune
     Nagare.Inventory.RegistryCredentials
     Nagare.Inventory.ReleaseEvidence
@@ -495,6 +496,7 @@ test-suite nagarectl-test
     InventoryObservabilitySpec
     InventoryObservationSpec
     InventoryPreviewCleanupSpec
+    InventoryPreviewRecoverySpec
     InventoryPublicationSpec
     InventorySpec
     InventoryStatusSpec

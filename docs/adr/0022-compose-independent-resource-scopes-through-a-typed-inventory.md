@@ -927,6 +927,18 @@ Knative Service configuration updates retain exclusive non-status field
 ownership checks and API-server UID/resourceVersion write preconditions. Actual
 cloud update acceptance remains required before claiming this consumer proved.
 
+The same explicit stopped-configuration decision also accepts a newly created,
+unready DomainMapping in an exact typed Standalone site-preview scope. Validate
+the complete original preview member/address/policy contract, require all other
+unfenced Kubernetes creates to be Completed, and independently prove the owned
+originally absent route still has its reviewed digest. Preserve accepted Service,
+route and volume ownership without claiming convergence. A new review can correct
+the Service visibility label while retaining the route and PVC. Pending companion
+creates, incomplete/foreign preview shapes and arbitrary Standalone resources
+cannot use this path. The never-started durable-member exception below remains
+Application-only. This handles a current preview's configuration failure without
+rewriting its original transaction or changing immutable payload bytes.
+
 A stopped application may admit durable members whose original creates never
 started. Accepted absence alone cannot distinguish these from lost data. For an
 idle unconverged Application revision only, load and validate the committed

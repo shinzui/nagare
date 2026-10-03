@@ -38,6 +38,7 @@ import InventoryObservationSpec (inventoryObservationTests)
 import InventoryPublicationSpec (inventoryPublicationTests)
 import InventorySpec (inventoryTests)
 import InventoryStatusSpec (inventoryStatusTests)
+import InventoryPreviewRecoverySpec (inventoryPreviewRecoveryTests)
 import InventoryTransactionSpec
   ( inventoryTransactionTests
   , runInventoryLockHoldProbe
@@ -172,6 +173,7 @@ main = do
             , inventoryGogolTests
             , inventoryObjectOpsTests
             , inventoryTests
+            , inventoryPreviewRecoveryTests
             , inventoryTransactionTests
             , dataFenceTests
             , inventoryMaintenanceTests

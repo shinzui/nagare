@@ -51,6 +51,7 @@ import Nagare.Dsl.Static.Types (StaticSite (..), siteNameText)
 import Nagare.Dsl.Types (DomainSpec (..), DomainTls (..), EnvScope (Runtime, Build, Preview), EnvVar (..), ScopedEnvVar (..), SecretName, Volume (..), VolumeName, domainText, imageRefText, mkDomains, namespaceText, secretNameText, volumeNameText)
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Dsl.Render (managedConfigMapName, managedSecretName, pvcName)
+import Nagare.Inventory.PreviewOwnership (sitePreviewRetirementScope)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Resource.Application (domainMappingResourceId, volumeResourceId)
@@ -311,39 +312,6 @@ acceptedSitePreviewStoreIds snapshot cluster name ns = do
 
 -- | Select only the exact reviewed preview scope requested by a delete
 -- command. Retirement retains its native members for later collection.
-sitePreviewRetirementScope
-  :: ScopeSnapshot -> ResourceId -> T.Text -> T.Text -> T.Text -> [T.Text]
-  -> Either T.Text ScopeId
-sitePreviewRetirementScope snapshot cluster serviceName ns host volumeNames = do
-  owner <- mkScopeId Standalone ("site-preview-" <> serviceName)
-  (_, scope) <- maybe (Left "accepted site preview scope is absent") Right
-    (Map.lookup owner (snapshotScopes snapshot))
-  serviceAddress <- kubernetesAddress cluster "serving.knative.dev/v1" "Service"
-    (Just ns) serviceName
-  domainAddress <- kubernetesAddress cluster "serving.knative.dev/v1beta1" "DomainMapping"
-    (Just ns) host
-  volumeAddresses <- traverse (\volumeName -> kubernetesAddress cluster "v1"
-    "PersistentVolumeClaim" (Just ns) (pvcName serviceName volumeName)) volumeNames
-  unless (Set.size (Set.fromList volumeAddresses) == length volumeNames)
-    (Left "preview volume names are not distinct")
-  let members = [member | bundle <- scopeBundles scope,
-        Managed member <- declarations bundle]
-      declarationsCount = sum [length (declarations bundle) | bundle <- scopeBundles scope]
-      expected = Set.fromList ([serviceAddress, domainAddress] <> volumeAddresses)
-      volumeSet = Set.fromList volumeAddresses
-      validMember member = member ^. #owner == owner
-        && (if (member ^. #address) `Set.member` volumeSet
-            then case (member ^. #lifecycle, member ^. #dataPolicy) of
-              (Retain, Durable _) -> True
-              (DeleteWhenUnreferenced, Stateless) -> True
-              _ -> False
-            else member ^. #lifecycle == DeleteWhenUnreferenced
-              && member ^. #dataPolicy == Stateless)
-  unless (length members == Set.size expected && declarationsCount == Set.size expected
-      && Set.fromList (map (^. #address) members) == expected
-      && all validMember members)
-    (Left "accepted site preview has unexpected owned members or native addresses")
-  pure owner
 
 sitePreviewStoreIds :: ResourceId -> T.Text -> T.Text -> [Declaration]
   -> Either T.Text [ResourceId]

@@ -42,6 +42,7 @@ import Nagare.Inventory.Journal
   , transactionIdText
   , validateJournal
   )
+import Nagare.Inventory.PreviewOwnership (previewScopeMembers)
 import Nagare.Inventory.Plan.Publication (loadPublishedReview)
 import Nagare.Inventory.Plan.Types
   ( InventoryHistory (..)
@@ -113,7 +114,7 @@ import Nagare.Resource.Types
   ( ProviderAddress (Kubernetes)
   , ResourceId
   , ScopeId
-  , ScopeKind (Application)
+  , ScopeKind (Application, Standalone)
   , mkContentDigest
   , nameText
   , scopeKind
@@ -294,7 +295,7 @@ incompleteApplicationOnlyReview published events transaction operationId operati
           )
           (scopeBundles scope)
    in case changed of
-        [owner] | scopeKind owner == Application -> case [scope | scope <- scopes, scopeId scope == owner] of
+        [owner] | scopeKind owner `elem` [Application, Standalone] -> case [scope | scope <- scopes, scopeId scope == owner] of
           [scope] ->
             all
               ( \entry ->
@@ -305,14 +306,22 @@ incompleteApplicationOnlyReview published events transaction operationId operati
                         && all (owns scope) (NE.toList (plannedResources planned))
               )
               reviewed
-              && all otherSettled reviewed
+              && (if scopeKind owner == Application then all otherSettled reviewed else
+                    all (\entry -> let op = plannedOperationId (reviewPlannedOperation entry)
+                      in op == operationId || case Map.lookup op previous of
+                        Just (Completed _) -> True
+                        _ -> False) reviewed)
               && case [ member
                       | bundle <- scopeBundles scope
                       , Managed member <- declarations bundle
                       , [member ^. #identity] == selected
                       ] of
                 [member] | member ^. #dataPolicy == Stateless -> case member ^. #address of
-                  Kubernetes _ "serving.knative.dev" kind (Just _) _ -> nameText kind == "service"
+                  Kubernetes _ "serving.knative.dev" kind (Just _) _
+                    | scopeKind owner == Application -> nameText kind == "service"
+                    | nameText kind == "domainmapping" -> case previewScopeMembers scope of
+                        Right (_, route) -> route == member
+                        Left _ -> False
                   _ -> False
                 _ -> False
           _ -> False

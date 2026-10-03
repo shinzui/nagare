@@ -133,6 +133,15 @@ nagarectl --context "$CONTEXT" inventory store status --json
 nagarectl --context "$CONTEXT" inventory resume "$TRANSACTION" --yes
 ```
 
+For an exact created Application Service that remains unready, or a typed preview
+DomainMapping whose companion creates have all completed, the
+`stop-incomplete-application` decision stops the original transaction without
+claiming convergence or discarding admitted ownership. The adapter must prove the
+object still matches its original owned native digest. Review the corrected
+configuration afterward; retain the existing preview PVC and route. This decision
+refuses arbitrary standalone resources, uncertain companion effects and incomplete
+preview contracts.
+
 If recovery also needs takeover, add `--take-over` after establishing that the
 original executor stopped. Supported terminal scratch-restore abandonment leaves
 the partial scratch database/PVC available for a separate reviewed recovery; it

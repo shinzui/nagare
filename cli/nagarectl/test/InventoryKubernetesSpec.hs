@@ -281,7 +281,7 @@ inventoryKubernetesTests =
         Map.lookup resource (observationMap result) @?= Just (ObservedPresent physical)
         verified <- adapterVerify adapter createOperation prepared
         assertBool "unready object completed the reviewed operation" (case verified of Left _ -> True; Right _ -> False)
-    , testCase "only exact created Deployments and Knative Services can await readiness during recovery" $ forM_ [("apps/v1", "Deployment"), ("serving.knative.dev/v1", "Service")] $ \(api, kind) -> do
+    , testCase "only exact created Deployments, Knative Services and routes can await readiness during recovery" $ forM_ [("apps/v1", "Deployment"), ("serving.knative.dev/v1", "Service"), ("serving.knative.dev/v1beta1", "DomainMapping")] $ \(api, kind) -> do
         let native = object ["apiVersion" .= (api :: Text), "kind" .= (kind :: Text),
               "metadata" .= object ["name" .= ("activator" :: Text), "namespace" .= ("knative-serving" :: Text)]]
             bytes = ok (canonicalValue native)
