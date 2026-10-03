@@ -5,6 +5,7 @@ module Nagare.Cli.Platform.InfrastructureReview
   , instanceReplacementGuard
   , prepareInfraMutation
   , prepareInfraMutationWithPulumi
+  , prepareInfraTargetWithPulumi
   , prepareVmPowerMutation
   , saveReviewedPlan
   , verifyLocalReviewedPlanBundle

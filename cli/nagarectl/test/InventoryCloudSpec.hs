@@ -208,6 +208,37 @@ inventoryCloudTests =
                 (filter (\line -> " preview " `isInfixOf` line || " up " `isInfixOf` line) (lines calls))
             )
           length (filter (isInfixOf "--save-plan") (lines calls)) @?= 1
+    , testCase "an unchanged targeted Pulumi resource prepares from its same step (F39)" $
+        withSystemTempDirectory "pulumi-inventory-sames" $ \temporary -> do
+          let program = temporary </> "program"
+              executable = temporary </> "pulumi"
+              stackConfig = temporary </> "Pulumi.dev.yaml"
+              logPath = temporary </> "calls.log"
+              verifyOperation = operation {plannedOperationId = ok (mkOperationId "op-cloud-verify"), plannedAction = VerifyResource}
+          createDirectory program
+          writeFile (program </> "index.ts") "export {};\n"
+          writeFile stackConfig "config: {}\n"
+          writeFile executable (fakePulumiOmittingSames logPath)
+          setFileMode executable 0o700
+          let config =
+                PulumiRuntimeConfig
+                  { runtimeContext = "dev"
+                  , runtimeProject = "example-project"
+                  , runtimeStack = "dev"
+                  , runtimeBackend = "gs://example-state"
+                  , runtimePayloadId = "payload-v1"
+                  , runtimePayloadDigest = contentDigest "payload"
+                  , runtimePulumiExecutable = executable
+                  , runtimePulumiDirectory = program
+                  , runtimeStackConfig = stackConfig
+                  , runtimeDeclarationBundle = encodeCloudDeclarationBundle bundle
+                  , runtimeRegistrations = [registration]
+                  , runtimeCollectionPhysical = Map.empty
+                  }
+              adapter = mkPulumiAdapter [registration] (mkPulumiRuntimeOps config)
+          _ <- adapterPrepare adapter verifyOperation >>= expectRight
+          calls <- readFile logPath
+          assertBool "the saved-plan preview asked Pulumi to report unchanged resources" (" --show-sames " `isInfixOf` calls)
     ]
 
 fakePulumi :: FilePath -> String
@@ -236,6 +267,30 @@ fakePulumi logPath =
     ]
   where
     stackExport = "{\"deployment\":{\"resources\":[{\"urn\":\"" <> T.unpack (registrationPulumiUrn registration) <> "\",\"id\":\"bucket-123\"}]}}"
+
+-- | Pulumi 3.255 omits unchanged resources from @preview --json@ unless
+-- @--show-sames@ is passed; only the implicit stack step remains.
+fakePulumiOmittingSames :: FilePath -> String
+fakePulumiOmittingSames logPath =
+  unlines
+    [ "#!/usr/bin/env bash"
+    , "set -euo pipefail"
+    , "printf '%s\\n' \"$*\" >> " <> show logPath
+    , "case \" $* \" in"
+    , "  *\" version \"*) printf '%s\\n' 'v3.255.0' ;;"
+    , "  *\" stack export \"*) printf '%s\\n' '" <> stackExport <> "' ;;"
+    , "  *\" preview \"*\" --save-plan \"*)"
+    , "    sames=false; case \" $* \" in *\" --show-sames \"*) sames=true ;; esac"
+    , "    while [ \"$#\" -gt 0 ]; do if [ \"$1\" = --save-plan ]; then shift; printf '%s' 'opaque-pulumi-plan' > \"$1\"; break; fi; shift; done"
+    , "    if $sames; then printf '%s\\n' '" <> sameStep <> "'; else printf '%s\\n' '{\"steps\":[]}'; fi"
+    , "    ;;"
+    , "  *) exit 64 ;;"
+    , "esac"
+    ]
+  where
+    urn = T.unpack (registrationPulumiUrn registration)
+    stackExport = "{\"deployment\":{\"resources\":[{\"urn\":\"" <> urn <> "\",\"id\":\"bucket-123\"}]}}"
+    sameStep = "{\"steps\":[{\"op\":\"same\",\"urn\":\"" <> urn <> "\",\"replaceReasons\":[]}]}"
 
 bundle :: CloudDeclarationBundle
 bundle =

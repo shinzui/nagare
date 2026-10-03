@@ -9,8 +9,9 @@ import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Nagare.Cli.Inventory.CloudHistory (requireCloudCollectionProtocol)
 import Nagare.Cli.Inventory.Planning (inventoryPlanRegistry)
+import Nagare.Cli.Platform.InfrastructureReview (prepareInfraTargetWithPulumi)
 import Nagare.Cli.Runtime.Error (dieT)
-import Nagare.Cli.Runtime.Target (activeTarget, resolvePlatformWorkspace)
+import Nagare.Cli.Runtime.Target (activeTarget)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.CloudCollection
@@ -26,7 +27,10 @@ saveReviewedCloudTeardown :: Maybe String -> FilePath -> IO ()
 saveReviewedCloudTeardown selected output = do
   active <- activeTarget selected
   unless (active ^. #profile . #mode == Cloud) (dieT "infra destroy requires a cloud context")
-  (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+  -- Planning prepares Pulumi collection plans, so it needs the context's
+  -- Pulumi home, backend and passphrase file exactly as inventory apply does.
+  -- This target-level preparation never probes the guest being torn down.
+  (_, workspace) <- prepareInfraTargetWithPulumi True active
   requireCloudCollectionProtocol workspace
   store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
   snapshot <- Inventory.loadTargetSnapshotReadOnly active

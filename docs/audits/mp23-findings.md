@@ -57,6 +57,7 @@ This is the authoritative list of implementation findings for [MP-23](../masterp
 | [F36](#f36) | P1 | A failed Redis scratch restore cannot be abandoned and wedges the store | Verifying | EP-160 |
 | [F37](#f37) | P1 | Configuration drift written by another field manager has no reviewed repair | Verifying | EP-149 / EP-153 |
 | [F38](#f38) | P2 | A failed GCS head advance after a published journal event stops ambiguous and discards the store error | Open | EP-153 / EP-156 |
+| [F39](#f39) | P1 | Staged cloud teardown cannot prepare any Pulumi operation on a real stack | Verifying | EP-153 / EP-156 |
 
 Closed findings keep their full text, location, implementation updates and verification in [the closed-findings archive](mp23-archive/mp23-findings-closed.md). F01 and F11 retain their [earlier independent closure](mp23-archive/mp23-verification.md). F02, F03, F04, F05, F06, F07, F08 and F20 now have [2026-10-02 independent closure](mp23-independent-verification-2026-10-02.md). Other entries retain their status shown above.
 
@@ -278,4 +279,26 @@ The transaction then had no supported exit. `inventory recover … abandon-refus
 - After a failed head advance, reread the head once. If it already names the event, return success. If it is unchanged and the claim is still held, retry the conditional head write a bounded number of times before stopping.
 - Make orphan adoption independent of proof equality. For example, compare against the orphan's journal state and adopt it when the recovering adapter independently proves the same completion. Or give an explicit reviewed exit for an uncommitted orphan event.
 - Regression: a fake object store fails the head write once after the journal write. Two outcomes must be covered: the transaction continues, or it stops with the reported reason, and resume converges with no wedge, including for an adapter whose recovery proof differs from its execution receipt.
+
+## F39
+
+**Staged cloud teardown cannot prepare any Pulumi operation on a real stack** — P1; **Verifying**; owners EP-153 / EP-156.
+
+**Implementer native evidence (2026-10-03, claude-opus-5-5, candidate `db808a74`, checkpoint C3 context `mp23-c3` in `tan-ng-labs`):** This is the first native run of staged teardown; F33 records that none had been attempted. In the clean `env -i` operator wrapper the runbook prescribes, `infra destroy --save-plan` refused before saving a review. Every one of the 14 cloud operations failed in `PrepareRefused` with `passphrase must be set with PULUMI_CONFIG_PASSPHRASE or PULUMI_CONFIG_PASSPHRASE_FILE`. The planner was then given the context's own documented exports (`PULUMI_HOME`, `PULUMI_BACKEND_URL`, `PULUMI_CONFIG_PASSPHRASE_FILE`, `NAGARE_PULUMI_STACK`, as printed by `nagarectl context env`). Every operation then refused with `PulumiResourceStepMissing`. A manual targeted `pulumi preview --json` of `nagare-apex` (Pulumi v3.255.0) returned only the implicit stack step. The same command with `--show-sames` returned `same` steps.
+
+**Cause (source):**
+- `Runtime/CloudTeardown.saveReviewedCloudTeardown` resolved the workspace with `resolvePlatformWorkspace`, so the Pulumi home, backend and passphrase file were never set. `inventory apply` and bootstrap get them through `Platform/InfrastructureReview.prepareInfraTargetWithPulumi`.
+- `Adapters/PulumiRuntime.prepareUnprotectedPlan` ran the saved-plan preview without `--show-sames`. `Adapters/Pulumi.validatePulumiPreparation` requires a step for every selected resource, so any Pulumi operation with no native change (verify-only, policy-only) could never prepare.
+- Both defects are present unchanged in candidate `44ff0fd7`.
+
+**Why it matters:** S9 of the C3 sequence, and any operator teardown of a cloud context, cannot start. A reviewed `VerifyResource` over cloud resources in any other review fails the same way.
+
+**Implementation update (2026-10-03; claude-opus-5-5):**
+- Teardown planning now calls `prepareInfraTargetWithPulumi True`. That is the same ADC check, reviewed Pulumi selection and project guard as inventory apply, and it doesn't probe the guest being torn down.
+- The adapter preview passes `--show-sames`.
+- New regression in `test/InventoryCloudSpec.hs`: `an unchanged targeted Pulumi resource prepares from its same step (F39)`. A fake Pulumi omits `same` steps unless `--show-sames` is passed, matching the native behaviour above. Without the fix the test fails with the native `PulumiResourceStepMissing`.
+- All 1,174 `nagarectl` tests pass, as do `just haskell-style-check`, `scripts/check-haskell-architecture.py`, `scripts/check-cli-architecture.py` and `scripts/test-managed-command-audit.sh`.
+- Native check: the development build, in the clean wrapper without the Pulumi exports, saved the stage-1 teardown policy review on `mp23-c3` (14 `VerifyResource` operations, 89 s).
+
+Remaining: the rest of the staged teardown on the checkpoint, then the final candidate's C3 teardown and independent review.
 

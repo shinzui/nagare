@@ -109,11 +109,13 @@ prepareUnprotectedPlan config operation = case operationTargets config operation
   Left err -> pure (Left err)
   Right targets -> withSystemTempDirectory "nagare-pulumi-inventory-plan" $ \temporary -> do
     let planPath = temporary </> "pulumi-plan.json"
+    -- JSON previews omit unchanged resources unless asked; validation needs a
+    -- step for every selected resource, including verify-only and policy-only ones.
     result <-
       runPulumiWithDeclarations
         config
         temporary
-        (["preview", "--json", "--save-plan", planPath, "--stack", T.unpack (runtimeStack config), "--non-interactive"] <> targets)
+        (["preview", "--json", "--show-sames", "--save-plan", planPath, "--stack", T.unpack (runtimeStack config), "--non-interactive"] <> targets)
     case successful "Pulumi preview" result of
       Left err -> pure (Left err)
       Right nativePreview -> do
