@@ -52,6 +52,7 @@ This is the authoritative list of implementation findings for [MP-23](../masterp
 | [F31](#f31) | P1 | Registry refresh cadence permits credentials to expire before its next run | Open | EP-154 / EP-156 |
 | [F32](#f32) | P1 | Image-cache cleanup selects an image used by active pod sandboxes | Open | EP-153 / EP-156 |
 | [F33](#f33) | P1 | Cloud collection does not recheck its reviewed physical incarnation before deletion | Open | EP-153 / EP-156 |
+| [F34](#f34) | P1 | Kourier gateway rejects HTTPS listener updates on cp3, so new routes never become Ready | Open | EP-155 / EP-153 |
 
 Closed findings keep their full text, location, implementation updates and verification in [the closed-findings archive](mp23-archive/mp23-findings-closed.md). F01 and F11 retain their [earlier independent closure](mp23-archive/mp23-verification.md). F02, F03, F04, F05, F06, F07, F08 and F20 now have [2026-10-02 independent closure](mp23-independent-verification-2026-10-02.md). Other entries retain their status shown above.
 
@@ -132,6 +133,8 @@ Unknown. At the user's instruction, only the waiting CLI was interrupted after
 transaction remains preserved; final data/replay checks were not run. F30 native
 closure remains pending. [Exact stopped state](mp23-independent-results-2026-10-02/application-status-race-f30-handoff.json).
 
+**Implementation update (2026-10-02, MP-23 A4 resume attempt; claude-opus-5-5):** With no live executor process and the store still at generation 9314 with the original claim, the admitting binary (`ab3aabf7…`, same isolated operator root) ran the public `inventory resume tx-b4da295e… --yes`. It exited 1 after 3 s with `ambiguous … at op-fed6a9432af7669b7446f230` and wrote no provider effect. That is the driver's correct refusal to retry an unproved update. Read-only observation: the Service keeps UID `470ff139…` at generation/observedGeneration 2; ConfigurationsReady is True; revision 00002 is Running 2/2; Ready/RoutesReady are Unknown ("Waiting for load balancer to be ready"). The cause is [F34](#f34), not the F30 repair. Following the stop rule, no `inventory recover`, takeover, patch or rollback was attempted, and the transaction remains preserved. Private record: `/tmp/mp23-independent-application-correction/a4-resume-refusal.json`. Next: diagnose and repair F34 under a written recovery plan, then resume the same transaction and verify identities, the known row and replay.
+
 ## F31
 
 **Registry refresh cadence permits credentials to expire before its next run** — P1; **Open**; owners EP-154 / EP-156.
@@ -156,6 +159,8 @@ Preserve typed Secret/account ownership, exact conditional writes, and the
 immutable/disposable fixture decision. Do not manually start the refresh unit or
 patch credentials to manufacture the acceptance result. F15 remains Verifying.
 
+**Implementation update (2026-10-02, `ebe9d3a7`; claude-opus-5-5):** `nixos/hosts/nagare-01/registries.nix` now runs the pull-Secret timer every 120 s (`AccuracySec` 5 s) with a 60 s `TimeoutStartSec`. A module assertion requires interval + accuracy + timeout < 300 s, the minimum `expires_in` the script accepts, which is the metadata cache floor. An unchanged token and current ServiceAccount cause no Kubernetes write (compared on stdin; the token never enters argv), and a rotated token keeps the resourceVersion-conditional replace. `python3 scripts/test-registry-credential-delegation.py` passes the cadence invariant, create, no-op, rotation, ≤300 s refusal, six foreign/race refusals and the legacy policy. It fails against the previous module. `nix eval` of the `nagare-01` toplevel drv succeeds. Remaining: an installed fresh-host observation of an automatic replacement before expiry and an expired-boot-credential private pull (EP-156 C3); independent closure.
+
 ## F32
 
 **Image-cache cleanup selects an image used by active pod sandboxes** — P1; **Open**; owners EP-153 / EP-156.
@@ -177,6 +182,8 @@ production script with sandbox-only use and inspection failure, then independent
 prepare and execute a fresh installed native review that excludes those protected
 images. Prove ordinary unused-image deletion, workload preservation and durable
 one-shot replay behavior. Do not apply the unsafe saved review.
+
+**Implementation update (2026-10-02, `c2dc2bb1`; claude-opus-5-5):** The production script (`cli/nagarectl/src/Nagare/Inventory/ImagePruneScript.hs`) adds every pod sandbox's image (`crictl pods -o json`, then `crictl inspectp -o json` `.info.image`, for Ready and NotReady sandboxes) and the configured sandbox image (`pinned_images` `sandbox` or legacy `sandbox_image` in `/var/lib/rancher/k3s/agent/etc/containerd/config.toml`) to the resolved used set that both inspection and removal protect. A failed listing or inspection, a missing image field, or an absent or ambiguous configured image refuses the capture. Read-only observation on local k3s v1.34.6 (cp3) confirmed `crictl info` lacks the sandbox image, `inspectp` reports `.info.image`, and the pause image is `pinned=false`. `python3 scripts/test-image-prune-protocol.py` passes 23 cases (was 10), including sandbox-only, configured-only, seven fail-closed observations, ordinary deletion beside protected sandboxes, and inspection reporting sandbox images as used. The first sandbox case fails against the previous script. Remaining: a fresh installed native review that excludes protected images and deletes an ordinary unused one, with one-shot replay; independent closure.
 
 ## F33
 
@@ -201,3 +208,14 @@ relevant entry contents, including a change between preflight and execution.
 Preserve ordinary-operation compatibility. Document that these checks do not
 create atomic provider CAS against arbitrary external writers. Independently
 verify the regression and a fresh disposable native collection before closure.
+
+**Implementation update (2026-10-02, `e1371442`; claude-opus-5-5):** This completes the `27bb0cd4` checkpoint. `cloudCollectionPhysicalDigest` now takes the retained physical identity of each selected URN from inventory history (`CloudHistory.cloudCollectingPhysical`, passed as `PulumiRuntimeConfig.runtimeCollectionPhysical`; admission already checks the review's collection proof against the head). Preparation (before `pulumi preview`), preflight and the check immediately before `pulumi up --plan` require each selected stack entry's `id` to equal that identity, beside the existing protection and entry binding. Regression `collection rechecks exact incarnation and native protection immediately before effect` covers a replacement before preparation, a missing retained identity, and changed ID or protection between preflight and execution. Each refuses before preview or up. All 1,129 `nagarectl` tests pass. The code comment records that these are fresh guards, not provider CAS. Remaining: independent review and a fresh disposable native collection.
+
+## F34
+
+**Kourier gateway rejects HTTPS listener updates on cp3, so new routes never become Ready** — P1; **Open**; owners EP-155 / EP-153.
+
+**Observation (2026-10-02, implementation session claude-opus-5-5, read-only):** On local context `local` (Colima `nagare-mp23-cp3`, k3s v1.34.6), `net-kourier-controller` logs `Error pushing snapshot to gateway: … listener_8443 … listener_9443: multiple filter chains with overlapping matching rules` every ~0.3 s: 3,664 occurrences between 03:44:24Z and 04:02:42Z, continuous, with earlier logs rotated. Every Kubernetes Ingress reconciles, but the gateway refuses each new snapshot. The F30 Service's KIngress stays `LoadBalancerReady=Unknown`, while existing routes (`nagare-access`, `mp23-independent-volume`, `mp23-cleanup-pr-review`) stay Ready. Two ingresses, `mp23-correction-proof` (Ingress created 03:08:34Z) and `mp23-independent-volume`, terminate TLS with the same namespace wildcard secret `personal/personal.127-0-0-1.sslip.io` (`*.personal.127-0-0-1.sslip.io`). That is the leading hypothesis for the overlapping filter chains, but it is not confirmed: Kourier source was not available for inspection. This blocks MP-23 A4 (F30 terminal state) and any new local route, so EP-155 C2 too.
+
+**Required diagnosis/repair:** Write the recovery as an ExecPlan step with pass/fail gates before any cluster change. Confirm from the Kourier/Envoy configuration which filter chains overlap. Decide whether Nagare's route/TLS rendering (ADR 20) produces the overlap for any second wildcard-TLS Service in a namespace; if so, it is a product defect needing a source fix and a local regression. Otherwise identify the fixture state that caused it. Do not patch Kourier objects, delete the shared certificate or reset history. After repair, resume the preserved F30 transaction through the public path.
+

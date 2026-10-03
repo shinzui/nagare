@@ -301,6 +301,11 @@ provenance:
       at: 2026-10-03T03:28:09Z
       mode: "update"
       note: "Consolidate into a current-state plan: ordered Phases A-D, decisions D1-D5, three gates; archive superseded audits, closed findings and plan history"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-03T04:05:29Z
+      mode: "implement"
+      note: "Phase A: style gate, F31-F33 source fixes, A5 producers; A4 blocked by new F34"
   reviews:
     - model: "claude-fable-5-1"
       harness: "claude-code"
@@ -417,7 +422,9 @@ Feature children produce code and focused local proof; the native children (EP-1
 
 **Snapshot (2026-10-02, consolidation assessment at `c57f1638`).** Seven foundation children are complete; eight remain In Progress. The architecture is implemented and holds up under independent review: typed composition, reviewed plans, the shared serial driver, conditional filesystem/GCS history, deferred-admission guards and the registration-only entrypoint all have evidence. Independent verification on 2026-10-02 additionally proved native F20 collection with interrupted-delete recovery, clean-root recovery, VM power transitions, CDN disable and purge, and isolated restores with checked content for PostgreSQL, Redis, ClickHouse and a volume on GCS. Access grant/revoke has only the implementer's native run on the retired fixture and must be re-proven in C3. That evidence spans roughly ten different candidates and partly the retired fixture, so none of it is yet final-candidate acceptance.
 
-Open findings ([tracker](../audits/mp23-findings.md)): F30 (status-only churn strands an admitted Service correction; source fix in `95b58a24`/`52432400`, native correction interrupted at the operator's instruction with its transaction preserved, per `c57f1638`), F31 (registry credential refresh can lag expiry), F32 (image cleanup can select a sandbox image in use), F33 (cloud collection does not recheck the reviewed physical incarnation; unfinished guard checkpointed in `27bb0cd4`). F15 and F16 are Verifying.
+**Phase A checkpoint (2026-10-02, claude-opus-5-5, `d4aa7168`–`7e26a1bb`).** A6 is done: the full style gate passes. A1 (F33), A2 (F32) and A3 (F31) have source fixes with regressions that fail on the old code, and await independent closure and their native proofs (C3, or a cp3 image-cleanup run for F32). A5 is source-complete for the clone-free `typed-config` check (new read-only `nagarectl app check`) and the cloud fixture/health producer. The scenario-assertion names in health records still have no producer (see Surprises). A4 is blocked: resume refused as ambiguous because Kourier on cp3 rejects every gateway snapshot (new finding F34). By the stop rule no recovery was attempted.
+
+Open findings ([tracker](../audits/mp23-findings.md)): F34 (Kourier on cp3 rejects HTTPS listener updates; blocks A4 and new local routes), F30 (status-only churn strands an admitted Service correction; source fix in `95b58a24`/`52432400`, native correction interrupted at the operator's instruction with its transaction preserved, per `c57f1638`), F31 (registry credential refresh can lag expiry), F32 (image cleanup can select a sandbox image in use), F33 (cloud collection does not recheck the reviewed physical incarnation; unfinished guard checkpointed in `27bb0cd4`). F15 and F16 are Verifying.
 
 **Remaining work.** Each item is owned by the named child, whose plan holds the detail. Work proceeds in this order; items within a phase can run in parallel.
 
@@ -480,6 +487,12 @@ Phase D — close-out: finalize each child's living sections, mark the registry,
 
 ## Surprises & Discoveries
 
+2026-10-02 (Phase A): The release gate's health records require every scenario assertion name, but both scenario runners write only infrastructure health checks at plan time. A complete local or cloud run would still be refused at assembly until EP-155 (B5/C2) and EP-156 (C3) record each assertion as it passes, bound to its evidence, in a shape agreed with EP-157. A5 deliberately does not emit those names.
+
+2026-10-02 (Phase A): F34. On cp3, Kourier rejects every gateway snapshot (`listener_8443`/`listener_9443`: overlapping filter chains) once a second Service in `personal` terminates TLS with the namespace wildcard secret, so no new local route becomes Ready. It blocks A4 and would block C2. It may be a product defect in route/TLS rendering (ADR 20), which EP-155 must settle before the full local scenario.
+
+2026-10-02 (Phase A): Making the style gate pass required rebasing the architecture size ratchet (`scripts/haskell-size-allowances.json`), because its counts predated Fourmolu formatting. The `typed-config` rehearsal check had been removed, not renamed, because reviewed deploy commands need an accepted platform; `nagarectl app check` is the offline replacement.
+
 2026-10-02 (consolidation assessment): The release path has defects that no child had recorded. The clone-free rehearsal (`scripts/rehearse-clone-free-release.sh`) emits a check named `inventory-compile`, while `scripts/assemble-inventory-release-index.py` and `Nagare/Inventory/ReleaseEvidence.hs` require `typed-config`, so every real rehearsal would be refused at assembly. No cloud fixture or cloud-health producer exists, `docs/release-evidence/` does not exist, and x86_64-linux has never been exercised. These are now A5 and C4.
 
 2026-10-02 (consolidation assessment): The one-hour recovery-point objective is computed correctly but does not hold without an operator. Only manually accepted receipts count, nothing runs the freshness check on an operational surface, and volumes have no scheduled producer. All source-unavailable drills were manual restores with Kubernetes access denied, not public commands after a real outage, and recorded no recovery time. These feed D1, D2, D4 and B1.
@@ -527,6 +540,8 @@ Decisions still in force, condensed. Full verbatim entries are in [the snapshot]
 
 
 ## Outcomes & Retrospective
+
+Phase A (2026-10-02) delivered the style gate, source fixes for F31–F33 and the clone-free/cloud evidence producers; it surfaced F34 and the missing scenario-assertion producer.
 
 Delivered so far: the typed inventory foundation, reviewed plans and durable journal, cloud/host/artifact and cluster adapters, lifecycle policy, the GCS store and fresh bootstrap (EP-144–147, 149, 151, 152), plus substantial command, access, CDN, backup and restore implementation with independent checkpoint evidence. Remaining: the Phase A–D items in Progress, and the pending operator decisions D1–D5.
 

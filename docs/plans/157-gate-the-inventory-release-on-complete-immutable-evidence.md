@@ -57,6 +57,11 @@ provenance:
       at: 2026-10-03T03:28:10Z
       mode: "update"
       note: "Consolidated with MP-23 into a current-state plan; prior body archived in docs/audits/mp23-archive/plan-history"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-03T04:05:29Z
+      mode: "implement"
+      note: "A5 producers and docs; record scenario-assertion producer gap"
 ---
 
 # Gate the inventory release on complete immutable evidence
@@ -76,8 +81,8 @@ This plan does not publish a release; publication is a separate, explicitly auth
 - [x] (2026-09-27) Aggregate evidence index binds both native systems, complete coverage and one local plus one cloud scenario to one candidate. Commit `fe048bde`; `python3 scripts/test-inventory-release-index.py` passes complete, missing-cloud, stale-native, incomplete-coverage, secret-canary and changed-target cases.
 - [x] (2026-10-02) Assembly, workflow and checked publisher require the complete evidence directory and the exact supported/deferred contract. Commit `d1f2f9ec`; `scripts/test-release-evidence-public.py` accepts complete synthetic evidence and refuses a missing index, stale bindings, a missing Redis assertion with recomputed hashes, a changed target and expanded deferrals before any forge request. Independently re-run ([verification](../audits/mp23-independent-verification-2026-10-02.md), [output](../audits/mp23-independent-results-2026-10-02/release-public-e6255e6f.txt)).
 - [x] (2026-10-02) Each scenario's public `fixture.json` definition is bound by its health record, the index and the publisher (attached as `inventory-<mode>-fixture.json`). Commit `32d59ee0`; a semantically foreign fixture refuses even with recomputed hashes. Independently verified ([output](../audits/mp23-independent-results-2026-10-02/host-and-release-public-c4-32d59ee0.json)).
-- [ ] The clone-free rehearsal emits the check names the gate requires (`typed-config`, not `inventory-compile`) for both systems, and a cloud producer writes `cloud/fixture.json` and `cloud/cloud-health.json` with the local record's identity fields (MP-23 A5; co-owned with EP-154 and EP-156).
-- [ ] `docs/user/upgrades.md` describes inventory evidence as mandatory; it currently calls it an optional eighth attachment that the workflow does not supply (MP-23 A5).
+- [ ] The clone-free rehearsal emits the check names the gate requires (`typed-config`, not `inventory-compile`) for both systems, and a cloud producer writes `cloud/fixture.json` and `cloud/cloud-health.json` with the local record's identity fields (MP-23 A5; co-owned with EP-154 and EP-156). Source complete (2026-10-02, `7e26a1bb`): a real `typed-config` check via `nagarectl app check` plus `inventory-compile`, both required by the index and `ReleaseEvidence`, and the GCP runner's cloud fixture/health producer. Outstanding: native reports for both systems, and the scenario assertion names each health record must carry (see Surprises).
+- [x] `docs/user/upgrades.md` describes inventory evidence as mandatory (2026-10-02, `7e26a1bb`; `okf validate docs/user --strict …` passes).
 - [ ] `docs/release-evidence/<revision>/` exists for the final candidate with coverage, local and cloud inputs produced by EP-153/155/156, and the native artifacts from a workflow build of the same revision exist for x86_64-linux and aarch64-darwin (MP-23 C1–C4 inputs).
 - [ ] A `workflow_dispatch` release run with `candidate_revision` and `evidence_revision` assembles without refusal, `nagarectl release publish` without `--yes` reports "Review only", and IR-24 cases 1–7 each map to a named evidence file (MP-23 C5).
 - [ ] `docs/releases/v<version>.md` states the unmet production targets (data-protection gate, MP-21 upgrade gate, decisions D1–D4 if still open) and documentation and ADRs match supported behavior (MP-23 C5, D).
@@ -88,6 +93,10 @@ This plan does not publish a release; publication is a separate, explicitly auth
 Full history is in [the snapshot](../audits/mp23-archive/plan-history/ep157-before-consolidation-2026-10-02.md).
 
 2026-10-02 (consolidation assessment): every real clone-free rehearsal would be refused at assembly. `scripts/rehearse-clone-free-release.sh` lists `inventory-compile` in its full clone-free record (line 376; the installed-smoke record at line 174 uses the same name), while `scripts/assemble-inventory-release-index.py` (line 214) and `cli/nagarectl/src/Nagare/Inventory/ReleaseEvidence.hs` (line 72) require `typed-config`. The synthetic fixtures used by the gate tests write the required names, so the tests stayed green. Also, `scripts/rehearse-gcp-inventory-release.sh` writes only `target.json` and the review; no producer writes the cloud fixture definition or `cloud-health.json`. `fixtures/inventory-release/gcp/` holds only `ep150-target.json` (context `ep150-preview`) and the retired `f15-target.json`.
+
+2026-10-02 (A5 implementation): the health records' `checks` serve two roles that no producer reconciles. The gate requires every scenario assertion name (`collision-refusal`, `adoption`, the three engine restores, `access-grant-revoke`, …, plus `retained-postgresql-rename` locally or `shared-history-takeover`/`google-cdn` in the cloud). Both runners write only infrastructure health checks (`kubernetes-api`, `knative-webhook`, …) at plan time. So even a complete scenario run is refused at assembly until the scenario runners (EP-155 B5/C2, EP-156 C3) record each assertion as it passes, bound to its evidence. Emitting the names without those runs would fabricate acceptance. The record shape must be agreed with EP-155/156 before C2/C3.
+
+2026-10-02 (A5 implementation): `9600f18e` replaced the rehearsal's typed-config check (`deploy --dry-run --file Config.hs`) rather than renaming it, because reviewed `deploy`/`app deploy` require an accepted platform after loading. The read-only `nagarectl app check` restores an offline typed-config evaluation through the installed runtime.
 
 2026-09-27: the existing one-run projector (`inventory-evidence.json`) cannot stand for both scenarios. The index therefore consumes one projector result per scenario and binds each to its own target and health record instead of redesigning the private export.
 
