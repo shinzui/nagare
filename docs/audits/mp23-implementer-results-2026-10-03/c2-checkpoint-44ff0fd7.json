@@ -1,0 +1,197 @@
+{
+ "recordedBy": "implementer (claude-opus-5-5, session nagare-phase-b); checkpoint, not acceptance; not independent verification",
+ "recordedAt": "2026-10-03",
+ "candidate": {
+  "revision": "44ff0fd771bbb894dd8c8d4b2c9e6ae520b48e4b",
+  "package": "nix build .#nagare (CLI plus payload), built by nagare-f3 from a pinned worktree",
+  "payloadWorkspace": "nagare-0.4.0-44ff0fd771bb-18dffef37c69e8e2"
+ },
+ "cluster": {
+  "colimaProfile": "nagare-mp23-cp3",
+  "node": "k3d-nagare-local-server-0",
+  "context": "local",
+  "operatorRoot": "fresh root under /private/tmp (nagare-mp23-c2-44ff0fd7.*)"
+ },
+ "coordination": "user-approved teardown of the db808a74 C2 cluster (2026-10-03 21:05Z); cp3 claim held by nagare-phase-b throughout",
+ "bootstrap": "registry/cluster and kubeconfig reviews converged; the 217-operation platform review stopped ambiguous three times on readiness waits (a CRD create whose reply was lost, routing-serving-certs, nagare-access readiness) and each resume converged (21:08-21:15Z)",
+ "runner": {
+  "plan": "unchanged kourier and cert-manager candidate",
+  "apply": "converged",
+  "verify": "verified, noOp true, after one final-marker interruption and a rerun",
+  "health": "healthy, operator revision 44ff0fd7, fixture digest dd431786"
+ },
+ "assertionsRecorded": [
+  {
+   "name": "access-grant-revoke",
+   "summary": "Reviewed access grant and revoke for a test subject on scenario-a.127-0-0-1.sslip.io converged as en viewer tuples; access list showed the subject after the grant and not after the revoke (polled past en's read cache); browser login remains a stated restriction"
+  },
+  {
+   "name": "adoption",
+   "summary": "An unowned PVC at a restore's planned scratch address refused planning with adoption-required; no review saved, store generation unchanged; the object was then deleted by exact UID"
+  },
+  {
+   "name": "backup-freshness",
+   "summary": "server status and db backup-receipts --check-freshness grade scenario-pg, scenario-redis and scenario-ch healthy under the hourly objective from verified scheduled receipts"
+  },
+  {
+   "name": "clickhouse-backup-restore",
+   "summary": "A reviewed manual MinIO backup of scenario-ch restored through native RESTORE into an isolated scratch database with exactly the seeded rows while the source kept its later row"
+  },
+  {
+   "name": "collision-refusal",
+   "summary": "A second application claiming application A's route host is refused at composition with claim-conflict; no review is published and the head is unchanged"
+  },
+  {
+   "name": "convergence-noop-removal",
+   "summary": "The runner's verify replan of the unchanged platform candidate has zero operations, and reviewed preview cleanup retired pr-scenario and collected its DomainMapping and Service with the KIngress and KCertificate descendants removed and the other route unchanged"
+  },
+  {
+   "name": "drift-classification",
+   "summary": "Status separated application B's kubectl-patch configuration drift from scenario-retire's retained orphans; the strict replan refused the foreign field manager and was closed by abandon-refused-operation, and the --take-over-fields replan restored the reviewed bytes under the same UID with Nagare as sole field manager"
+  },
+  {
+   "name": "independent-scope-preservation",
+   "summary": "update-a (env set scenario-a, one operation) changed only application A's runtime env scope; scenario-b's revision and Service UID and all 19 platform revisions were unchanged"
+  },
+  {
+   "name": "interrupted-recovery",
+   "summary": "Killed applies at database readiness, cluster completion and migration TransferState each resumed through the recorded transaction with pre-interruption UIDs unchanged and one completed effect per operation (the migration copy recorded a second intent on its adapter-proved retry and adopted the same Job); verify killed before its marker re-ran to verified with the store head unchanged"
+  },
+  {
+   "name": "postgresql-backup-restore",
+   "summary": "A reviewed manual MinIO backup of scenario-pg restored into an isolated scratch database with exactly the seeded rows while the source kept its later row; a pre-existing scratch database was refused by the restore Job with zero writes and closed with abandon-partial-database-restore"
+  },
+  {
+   "name": "redis-backup-restore",
+   "summary": "A reviewed manual MinIO backup of scenario-redis restored into an isolated scratch instance with exactly the seeded keys while the source kept its later key; a foreign PVC created at the scratch address between plan and apply was refused at preflight, left untouched, and the review ended through abandon-refused-operation"
+  },
+  {
+   "name": "retained-data",
+   "summary": "Reviewed collection removed only scenario-retire's stateless companions in dependency order while the PVC, credential and signing key stayed retained and PVC collection was refused; the private history export restored into an isolated state root with identical accepted, converged and retained identities"
+  },
+  {
+   "name": "retained-postgresql-rename",
+   "summary": "db rename moved scenario-rename-src to scenario-renamed through 72 reviewed migration stages; the three known rows read back, the old incarnations stay retained with unchanged UIDs and fenced writers, and the unrelated auth signing key is unchanged"
+  },
+  {
+   "name": "secret-read-refusal",
+   "summary": "The run-time SCENARIO_API_TOKEN was passed only on stdin; secret list prints names only and a scan of 2227 evidence, review and status files found zero raw or base64 matches (value recorded by SHA-256 only)"
+  },
+  {
+   "name": "volume-backup-restore",
+   "summary": "Reviewed snapshot c2vol1 of scenario-a uploads restored into a separate PVC; the restore Job's manifest proves scenario-known.txt at the seeded sha after the source changed"
+  }
+ ],
+ "assertionsMissing": [
+  {
+   "name": "source-unavailable-recovery",
+   "reason": "not provable on this candidate's local MinIO; see sourceUnavailableAttempt and finding F41"
+  }
+ ],
+ "finalize": "refused: local run lacks required assertions: source-unavailable-recovery (expected)",
+ "f37NativeProof": {
+  "managedFieldsAfter": [
+   {
+    "manager": "nagare-inventory",
+    "operation": "Apply",
+    "subresource": null
+   },
+   {
+    "manager": "nagare-inventory",
+    "operation": "Update",
+    "subresource": null
+   },
+   {
+    "manager": "controller",
+    "operation": "Update",
+    "subresource": "status"
+   }
+  ],
+  "maxScaleAfter": "3",
+  "reviewedBytesRestored": true,
+  "serviceUidUnchanged": true,
+  "statusAfter": {
+   "activeTransaction": null,
+   "findingCategories": {
+    "converged": 278
+   }
+  },
+  "strictRepair": {
+   "applyResult": "stopped tx-fe6f663732816cf2181455188e0002e43e9e7c5c8452a80c334b840f11ee954a at op-7cba97a44f7ef240481526b9: KnownNoEffect \"Kubernetes object has fields managed by another writer: kubectl-patch\"",
+   "closedWith": "inventory recover ... abandon-refused-operation (execute-time KnownNoEffect, F37 fix A)",
+   "recoverResult": "Refused operation abandoned and its review ended without convergence; completed earlier effects remain unaccepted; inspect inventory status before saving a new review",
+   "review": "fe6f663732816cf2181455188e0002e43e9e7c5c8452a80c334b840f11ee954a"
+  },
+  "takeoverRepair": {
+   "applyResult": "converged tx-ee8a4049ae412414576a0a6779a3632971fd849456f4d999e90c962346f4e3b2",
+   "command": "nagarectl app deploy -f apps/scenario-b/nagare/Config.hs ... --take-over-fields --save-plan DIR",
+   "review": "ee8a4049ae412414576a0a6779a3632971fd849456f4d999e90c962346f4e3b2",
+   "reviewSummaryNames": "takes over fields from kubectl-patch"
+  }
+ },
+ "f36NativeProof": {
+  "finding": "F36",
+  "candidate": "44ff0fd771bbb894dd8c8d4b2c9e6ae520b48e4b",
+  "context": "fresh C2 local context on cp3",
+  "backup": {
+   "id": "c2f36",
+   "database": "scenario-redis",
+   "review": "7ceb4464cf94d4d170ef8df5ac2b38164f38647c5507a80e62aee6f663658533"
+  },
+  "restoreReview": "3a34ab218574f1b513eae9e297a1ecf9ae07dcc27b8e5b0c76cbdd5d1c4eb2c0",
+  "restoreId": "c2f36r",
+  "removedObjectVersion": {
+   "object": "s3://nagare-backups/manual-databases/personal/scenario-redis/c2f36.rdb.gz",
+   "versionId": "80ab0c9b-f17a-4216-a3b3-a1d983005593",
+   "tool": "throwaway nagare-mc pod (pinned image)"
+  },
+  "applyResult": "ambiguous tx-3a34ab218574f1b513eae9e297a1ecf9ae07dcc27b8e5b0c76cbdd5d1c4eb2c0 at op-5dd5c3a67da4a369c12bb59c",
+  "downloadLogTail": "download failed: s3://nagare-backups/manual-databases/personal/scenario-redis/c2f36.rdb.gz to - An error occurred (404) when calling the HeadObject operation: Not Found",
+  "scratchStatefulSetUid": "86eaad58-ab8b-4e5a-a14c-b8e59e4f5f31",
+  "recovery": {
+   "action": "abandon-partial-database-restore",
+   "result": "Terminal database restore review abandoned; unaccepted scratch database remains unresolved until a separate reviewed recovery; use a fresh restore ID"
+  },
+  "unacceptedScratchObjects": [
+   "statefulset.apps/scenario-redis-restore-c2f36r",
+   "persistentvolumeclaim/scenario-redis-restore-c2f36r",
+   "service/scenario-redis-restore-c2f36r"
+  ],
+  "storeIdleAfter": true
+ },
+ "sourceUnavailableAttempt": {
+  "candidate": "44ff0fd771bbb894dd8c8d4b2c9e6ae520b48e4b",
+  "decision": "2026-10-03 operator decision (a): escrow, stop the k3d server, docker cp the MinIO data, disposable MinIO, verify-escrowed-backup, disposable PostgreSQL restore",
+  "escrow": "Escrowed the scheduled-backup signing key for personal/scenario-pg at /private/tmp/nagare-mp23-c2-44ff0fd7.WC5h1k/escrow/personal-scenario-pg.sops.yaml",
+  "onlineVerify": [
+   "Verified scheduled backup 37ae52ab-70b0-4527-abad-9ee105ff9241 of personal/scenario-pg with the escrowed signing key.",
+   "  object:  s3://nagare-backups/databases/scenario-pg/37ae52ab-70b0-4527-abad-9ee105ff9241.sql.gz (version 2d7ffc36-a167-4617-bd65-6b2e4ac878bc)",
+   "  receipt: version 4d6f8d00-f011-4f21-878f-7b60d5b7fcbc",
+   "  sha256:  4e09329837b36642db1d74565bfc8023cb9a7a91f64837649cbea8029630b75c",
+   "  recovery point: 2026-10-03 21:30:01 UTC (age 1805s)",
+   "This is evidence only; restore requires reviewed ingestion of the receipt."
+  ],
+  "headBeforeStop": {
+   "generation": 1025,
+   "sequence": 914,
+   "activeTransaction": null
+  },
+  "serverStoppedAt": "2026-10-03T22:00:40Z",
+  "apiWhileStopped": "Unable to connect to the server: EOF",
+  "minioPodBeforeStop": "minio pod uid c4d7d6ad-321f-460f-8083-8a7ce2bcec43",
+  "copyAttempt": "docker cp from the stopped node and a read-only mount of its /var/lib/kubelet volume: the MinIO pod directory (emptyDir data) no longer existed; every remaining emptyDir in the kubelet volume was empty",
+  "serverStartedAt": "2026-10-03T22:02:19Z",
+  "minioAfterRestart": "new MinIO pod; mc ls lists no buckets (nagare-backups absent)",
+  "storeAfterRestart": "generation 1025, sequence 914, activeTransaction null (unchanged; never mutated while stopped)",
+  "finding": "local MinIO keeps the bucket in an emptyDir, so stopping the node container destroys every local backup, receipt and snapshot and removes the bucket; verify-escrowed-backup in local mode also needs the cluster (credentials from a Secret, kubectl port-forward), so it cannot target an offline copy",
+  "result": "source-unavailable-recovery NOT achieved as decided; assertion not recorded"
+ },
+ "harnessFindings": [
+  "the runner's verify phase was not re-runnable once no-op-review/ existed (fixed: plan into a partial directory and replace)",
+  "the plan-time runner candidate goes stale once retained incarnations exist; scripts/unchanged-inventory-candidate.py builds a reservation-aware unchanged candidate from a private export",
+  "storage snapshot/restore still need an emitDeployment projection of an Application config (EP-160 limitation)",
+  "cleanup --previews defaults to namespace default; the scenario needs -n personal",
+  "en caches reads for about 5 s, so access list immediately after a grant can read (none)"
+ ],
+ "note": "Acceptance needs the next candidate (F39, F40, F41) on a fresh context with its own payload"
+}
