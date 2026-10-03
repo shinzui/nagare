@@ -1,0 +1,110 @@
+{
+  "recordedBy": "implementer (claude-opus-5-5, session nagare-phase-b); not independent verification",
+  "recordedAt": "2026-10-03",
+  "assertion": "EP-160 B2 (volume): a tampered accepted volume snapshot refuses at restore planning before any review or destination write; a review pinned before tampering restores only the original bytes; the pinned Job prints a verification manifest",
+  "sourceRevision": "fc8cba5b",
+  "binary": "development cabal build, not an installed candidate",
+  "cluster": {
+    "colimaProfile": "nagare-mp23-cp3",
+    "node": "k3d-nagare-local-server-0",
+    "context": "local",
+    "operatorRoot": "/private/tmp/nagare-mp23-cp3.1EQ78L"
+  },
+  "coordination": "cp3 claim taken 2026-10-03T17:49:24Z by nagare-phase-b and released with activeTransaction null",
+  "snapshot": {
+    "scope": "standalone:volume-snapshot-personal-mp23-independent-volume-uploads-indvolv1",
+    "archive": "s3://nagare-backups/manual-volumes/personal/mp23-independent-volume/uploads/indvolv1.tar.gz",
+    "acceptedArchiveVersion": "4efbce8d-24ad-4511-993f-200660407802",
+    "acceptedReceiptVersion": "940d3675-4564-4a21-8875-54afa5bae6a0",
+    "archiveSha256": "974a952c84d92013eb64a693a49fbe1fced85e49e9cd0f922ca9ea1b41357d7c"
+  },
+  "steps": [
+    {
+      "step": "baseline pinned plan",
+      "command": "storage restore mp23-independent-volume -f Service.hs --ghc-env ENV uploads indvolv1 --restore-id b2pin1 --save-plan DIR",
+      "review": "f990c6ebcf0bfe4bd65b3924eb070026ac34ca55e8f76792d32114b71f7c9b60",
+      "pins": {
+        "volume-restore.backup.object.version": "4efbce8d-24ad-4511-993f-200660407802",
+        "volume-restore.backup.object.length": "171",
+        "volume-restore.backup.receipt.version": "940d3675-4564-4a21-8875-54afa5bae6a0",
+        "volume-restore.backup.receipt.length": "626"
+      }
+    },
+    {
+      "step": "baseline apply",
+      "result": "converged in 27 s",
+      "manifest": [
+        "NAGARE_VOLUME_RESTORE_FILE a90a290fcb48d3ca6ba705371983ec9aab0af6d103078fbdbeae3da676fb7ebc 22 acceptance.txt",
+        "NAGARE_VOLUME_RESTORE_MANIFEST files=1 bytes=22 tree=802e03a5faf18f0b9c1aefe3f62bf8e0bf09490652c56cdfda3866d49ec17936"
+      ]
+    },
+    {
+      "step": "tamper",
+      "detail": "throwaway nagare-mc Pod (envFrom personal/nagare-minio-credentials) added MinIO version cee483c9-539e-4cbd-bade-06c85a3a2b8f (26 bytes) at the archive key",
+      "listing": [
+        "BEFORE",
+        "[2026-10-02 21:09:41 UTC]   171B STANDARD 4efbce8d-24ad-4511-993f-200660407802 v1 PUT indvolv1.tar.gz",
+        "[2026-10-02 21:09:42 UTC]   626B STANDARD 940d3675-4564-4a21-8875-54afa5bae6a0 v1 PUT indvolv1.tar.gz.receipt.json",
+        "AFTER",
+        "[2026-10-03 17:50:50 UTC]    26B STANDARD cee483c9-539e-4cbd-bade-06c85a3a2b8f v2 PUT indvolv1.tar.gz",
+        "[2026-10-02 21:09:41 UTC]   171B STANDARD 4efbce8d-24ad-4511-993f-200660407802 v1 PUT indvolv1.tar.gz",
+        "[2026-10-02 21:09:42 UTC]   626B STANDARD 940d3675-4564-4a21-8875-54afa5bae6a0 v1 PUT indvolv1.tar.gz.receipt.json"
+      ]
+    },
+    {
+      "step": "plan against tampered archive",
+      "restoreId": "b2tamper",
+      "exit": 1,
+      "output": "nagarectl: stored volume archive differs from the accepted receipt checksum",
+      "reviewSaved": false,
+      "scratchObjectsForId": 0,
+      "activeTransaction": null
+    },
+    {
+      "step": "revert",
+      "detail": "mc rm --version-id cee483c9-539e-4cbd-bade-06c85a3a2b8f",
+      "listing": [
+        "Removed `local/nagare-backups/manual-volumes/personal/mp23-independent-volume/uploads/indvolv1.tar.gz` (versionId=cee483c9-539e-4cbd-bade-06c85a3a2b8f).",
+        "[2026-10-02 21:09:41 UTC]   171B STANDARD 4efbce8d-24ad-4511-993f-200660407802 v1 PUT indvolv1.tar.gz",
+        "[2026-10-02 21:09:42 UTC]   626B STANDARD 940d3675-4564-4a21-8875-54afa5bae6a0 v1 PUT indvolv1.tar.gz.receipt.json"
+      ]
+    },
+    {
+      "step": "pinned review before tamper",
+      "restoreId": "b2pin2",
+      "review": "83a968cec6542621476ae03a4c8fb96be3cb16b002191a70245c2c8503800743"
+    },
+    {
+      "step": "tamper again",
+      "detail": "added MinIO version 5fb43fb8-f634-4f39-95e9-c0963d084527 (28 bytes)",
+      "listing": [
+        "[2026-10-03 17:52:18 UTC]    28B STANDARD 5fb43fb8-f634-4f39-95e9-c0963d084527 v2 PUT indvolv1.tar.gz",
+        "[2026-10-02 21:09:41 UTC]   171B STANDARD 4efbce8d-24ad-4511-993f-200660407802 v1 PUT indvolv1.tar.gz",
+        "[2026-10-02 21:09:42 UTC]   626B STANDARD 940d3675-4564-4a21-8875-54afa5bae6a0 v1 PUT indvolv1.tar.gz.receipt.json"
+      ]
+    },
+    {
+      "step": "apply pre-tamper pinned review while tamper is current",
+      "result": "converged; the Job downloaded only the pinned versions",
+      "manifest": [
+        "NAGARE_VOLUME_RESTORE_FILE a90a290fcb48d3ca6ba705371983ec9aab0af6d103078fbdbeae3da676fb7ebc 22 acceptance.txt",
+        "NAGARE_VOLUME_RESTORE_MANIFEST files=1 bytes=22 tree=802e03a5faf18f0b9c1aefe3f62bf8e0bf09490652c56cdfda3866d49ec17936"
+      ]
+    },
+    {
+      "step": "revert",
+      "detail": "mc rm --version-id 5fb43fb8-f634-4f39-95e9-c0963d084527",
+      "listing": [
+        "Removed `local/nagare-backups/manual-volumes/personal/mp23-independent-volume/uploads/indvolv1.tar.gz` (versionId=5fb43fb8-f634-4f39-95e9-c0963d084527).",
+        "[2026-10-02 21:09:41 UTC]   171B STANDARD 4efbce8d-24ad-4511-993f-200660407802 v1 PUT indvolv1.tar.gz",
+        "[2026-10-02 21:09:42 UTC]   626B STANDARD 940d3675-4564-4a21-8875-54afa5bae6a0 v1 PUT indvolv1.tar.gz.receipt.json"
+      ]
+    }
+  ],
+  "sentinel": {
+    "path": "acceptance.txt",
+    "content": "independent-volume-v1\\n",
+    "sha256": "a90a290fcb48d3ca6ba705371983ec9aab0af6d103078fbdbeae3da676fb7ebc"
+  },
+  "finalState": "MinIO listing for the archive and receipt keys equals the two accepted versions; no drill Pods remain; new accepted scratch restore scopes b2pin1 and b2pin2"
+}
