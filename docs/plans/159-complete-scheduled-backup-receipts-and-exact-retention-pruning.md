@@ -57,6 +57,11 @@ provenance:
       at: 2026-10-03T03:28:10Z
       mode: "update"
       note: "Consolidated with MP-23 into a current-state plan; prior body archived in docs/audits/mp23-archive/plan-history"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-03T04:06:56Z
+      mode: "implement"
+      note: "Correct stale GCS ingestion statement in backups guide (B1)"
 ---
 
 # Complete scheduled receipts and explicit retention limits
@@ -88,7 +93,7 @@ Scope follows MP-23's supported release contract. Required: native backup format
 - [ ] Source replacement: after a database's StatefulSet is replaced (new UID), new runs ingest under the new source identity, runs from the old incarnation stay restorable only through their accepted digest, and a restore from each is shown. (MP-23 B1)
 - [ ] `inventory status` on the current candidate shows `scheduledRetention` as `retain-by-default` / `keepAndExpiry: unenforced` for accepted signed schedules. The field exists in source but has not been checked publicly against a matching candidate workspace. (MP-23 B1)
 - [ ] Orphaned uploads (an object without a receipt) have a public, reviewed disposition: either a reviewed exact-version resolution, or a documented permanent unresolved state with stated storage responsibility. This item is carried from M1 and is not separately named in MP-23 B1.
-- [ ] User documentation matches evidence: `docs/user/backups-and-disaster-recovery.md` (around lines 166–167) still says GCS scheduled ingestion awaits installed native acceptance, which independent evidence now contradicts. (MP-23 B1)
+- [x] User documentation matches evidence for GCS scheduled ingestion (2026-10-02): `docs/user/backups-and-disaster-recovery.md` now cites the installed cloud ingestion and restore evidence and states that it predates the final candidate. (MP-23 B1)
 - [ ] All of the above re-proved on the one frozen candidate in the EP-155 local and EP-156 cloud scenarios. (MP-23 C2, C3)
 
 

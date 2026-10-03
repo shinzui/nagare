@@ -4,6 +4,7 @@
 
 * **Change**: Add `nagarectl app check`, which evaluates a typed Application config without any context, inventory or provider access.
 * **Update**: Describe inventory evidence as a mandatory input to release assembly rather than an optional attachment.
+* **Update**: Replace the stale "GCS scheduled ingestion awaits native acceptance" statement with the installed cloud evidence and its pre-candidate limit.
 
 ## 2026-10-01
 

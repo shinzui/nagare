@@ -164,7 +164,11 @@ Listing distinguishes verified candidates, accepted receipts and unresolved
 objects. Ingestion rereads exact MinIO versions or GCS generations and checks
 receipt authentication, source identity, lengths and archive hashes. Only the
 accepted receipt may authorize a later isolated restore. GCS scheduled ingestion
-is implemented; installed native acceptance remains pending. Existing schedules change only through a reviewed update. Version-4 receipts
+has installed native evidence on a disposable cloud context: signed receipts were
+ingested after their producer Job was removed and restored into an isolated
+PostgreSQL target, an earlier receipt still restored after a schedule change,
+and a genuine automatic producer reported freshness. That evidence predates the
+final release candidate, so it is not yet release acceptance. Existing schedules change only through a reviewed update. Version-4 receipts
 remain restorable but cannot establish freshness because they lack a signed
 recovery-point timestamp.
 
