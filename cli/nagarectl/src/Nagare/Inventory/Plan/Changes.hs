@@ -16,6 +16,7 @@ import Data.Maybe (listToMaybe, mapMaybe)
 import Data.Set qualified as Set
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude hiding ((.=), (<.>))
+import Nagare.Inventory.CloudCollection (cloudCollectionPolicyOnly)
 import Nagare.Inventory.Adapter
   ( MigrationStage
       ( AdmitWrites
@@ -646,7 +647,7 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
          in canonicalBytes (toJSON (Managed (canonicalDependencies previous)))
               == canonicalBytes (toJSON (Managed (canonicalDependencies resource)))
       _ -> False
-    classifyDesired (resourceId, resource, Just (Managed old), _)
+    classifyDesired (resourceId, resource, Just (Managed old), observation)
       | Set.member resourceId hookJobIds
       , old ^. #spec /= resource ^. #spec =
           (
@@ -669,6 +670,9 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
           ([], Just (resourceOperation VerifyResource resource))
       | old ^. #owner /= resource ^. #owner =
           ([PlanError "owner-transfer-required" "moving a known resource between scopes needs a reviewed two-scope transfer" [resourceId]], Nothing)
+      | cloudCollectionPolicyOnly old resource
+      , Just (ObservedPresent _) <- observation =
+          ([], Just (resourceOperation VerifyResource resource))
     classifyDesired (resourceId, resource, previous, observation) = case (previous, observation) of
       (Nothing, Just (ConfirmedAbsent _)) -> ([], Just (resourceOperation CreateResource resource))
       (Nothing, Just (ObservedPresent _)) ->

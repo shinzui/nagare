@@ -159,6 +159,7 @@ library
     Nagare.Inventory.CdnPurge
     Nagare.Inventory.Cleanup
     Nagare.Inventory.Cloud
+    Nagare.Inventory.CloudCollection
     Nagare.Inventory.Collection.Adapter
     Nagare.Inventory.Collection.Authority
     Nagare.Inventory.Collection.Runtime
@@ -370,6 +371,7 @@ executable nagarectl
     Nagare.Cli.Inventory.CdnHistory
     Nagare.Cli.Inventory.CdnPurge
     Nagare.Cli.Inventory.CloudCatalog
+    Nagare.Cli.Inventory.CloudHistory
     Nagare.Cli.Inventory.Execution
     Nagare.Cli.Inventory.Foundation
     Nagare.Cli.Inventory.ImagePrune
@@ -395,6 +397,7 @@ executable nagarectl
     Nagare.Cli.Platform.KubernetesReview
     Nagare.Cli.Platform.Upgrade
     Nagare.Cli.Runtime.Cleanup
+    Nagare.Cli.Runtime.CloudTeardown
     Nagare.Cli.Runtime.Cluster
     Nagare.Cli.Runtime.Config
     Nagare.Cli.Runtime.Context
@@ -475,6 +478,7 @@ test-suite nagarectl-test
     InventoryCdnPurgeSpec
     InventoryCdnSpec
     InventoryCleanupSpec
+    InventoryCloudCollectionSpec
     InventoryCloudSpec
     InventoryCloudflareSpec
     InventoryControllerCollectionSpec

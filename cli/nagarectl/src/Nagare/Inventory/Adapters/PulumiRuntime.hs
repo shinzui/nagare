@@ -29,6 +29,7 @@ import Nagare.Infra.Plan (digestFile, digestPulumiProgram)
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Pulumi
 import Nagare.Inventory.Cloud
+import Nagare.Inventory.CloudCollection (cloudCollectionProgramDigest, validateCloudCollectionProtection)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect), operationIdText)
 import Nagare.Resource.Types
@@ -82,7 +83,20 @@ observeResources config resources = do
         Nothing -> (resource, ConfirmedAbsent (contentDigest (TE.encodeUtf8 ("pulumi-absence:" <> urn))))
 
 prepareSavedPlan :: PulumiRuntimeConfig -> PlannedOperation -> IO (Either Text PulumiPreparation)
-prepareSavedPlan config operation = case operationTargets config operation of
+prepareSavedPlan config operation = do
+  protected <- if plannedAction operation /= RetireResource then pure (Right ()) else do
+    exported <- runPulumi config ["stack", "export", "--stack", T.unpack (runtimeStack config), "--show-secrets=false"]
+    pure $ successful "Pulumi collection protection observation" exported >>= \body ->
+      validateCloudCollectionProtection
+        [registration | registration <- runtimeRegistrations config,
+          registrationResource registration `elem` NE.toList (plannedResources operation)]
+        (TE.encodeUtf8 (T.pack body))
+  case protected of
+    Left message -> pure (Left message)
+    Right () -> prepareUnprotectedPlan config operation
+
+prepareUnprotectedPlan :: PulumiRuntimeConfig -> PlannedOperation -> IO (Either Text PulumiPreparation)
+prepareUnprotectedPlan config operation = case operationTargets config operation of
   Left err -> pure (Left err)
   Right targets -> withSystemTempDirectory "nagare-pulumi-inventory-plan" $ \temporary -> do
     let planPath = temporary </> "pulumi-plan.json"
@@ -107,7 +121,9 @@ prepareSavedPlan config operation = case operationTargets config operation of
 readIdentity :: PulumiRuntimeConfig -> IO (Either Text PulumiIdentity)
 readIdentity config = do
   result <- try $ do
-    program <- digestPulumiProgram (runtimePulumiDirectory config) >>= digestFromText "program"
+    originalProgram <- digestPulumiProgram (runtimePulumiDirectory config) >>= digestFromText "program"
+    program <- either (ioError . userError . T.unpack) pure
+      (cloudCollectionProgramDigest originalProgram (runtimeDeclarationBundle config))
     stackConfig <- digestFile (runtimeStackConfig config) >>= digestFromText "stack config"
     versionResult <- runPulumi config ["version"]
     version <- either (ioError . userError . T.unpack) pure (successful "pulumi version" versionResult)
@@ -126,6 +142,7 @@ readIdentity config = do
   pure (first (\(err :: IOException) -> "could not capture Pulumi inventory identity: " <> T.pack (show err)) result)
 
 applySavedPlan :: PulumiRuntimeConfig -> PlannedOperation -> ByteString -> IO AdapterExecution
+applySavedPlan _ operation _ | plannedAction operation == VerifyResource = pure AdapterEffectCompleted
 applySavedPlan config operation planBytes = case operationTargets config operation of
   Left err -> pure (AdapterEffectFailed (KnownNoEffect err))
   Right targets -> withSystemTempDirectory "nagare-pulumi-inventory-apply" $ \temporary -> do
@@ -138,6 +155,15 @@ applySavedPlan config operation planBytes = case operationTargets config operati
       Right _ -> AdapterEffectCompleted
 
 verifyResources :: PulumiRuntimeConfig -> PlannedOperation -> ByteString -> IO (Either Text ContentDigest)
+verifyResources config operation planBytes | plannedAction operation == RetireResource = do
+  observed <- observeResources config (NE.toList (plannedResources operation))
+  pure $ do
+    facts <- observationMap <$> observed
+    unless (all (\resource -> case Map.lookup resource facts of
+      Just (ConfirmedAbsent _) -> True
+      _ -> False) (NE.toList (plannedResources operation)))
+      (Left "collected Pulumi resource is still present or its absence is uncertain")
+    pure (contentDigest (planBytes <> TE.encodeUtf8 (operationIdText (plannedOperationId operation)) <> "collected"))
 verifyResources config operation planBytes = case operationTargets config operation of
   Left err -> pure (Left err)
   Right targets -> withSystemTempDirectory "nagare-pulumi-inventory-verify" $ \temporary -> do

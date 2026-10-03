@@ -12,6 +12,7 @@ module Nagare.Cli.Inventory.Adapters
   , inventoryKubernetesAdapter
   , inventoryControllerCollectionAdapter
   , inventoryPulumiAdapter
+  , inventoryPulumiAdapterWithCollections
   , reviewBaseDnsResources
   )
 where
@@ -114,6 +115,8 @@ import Nagare.Inventory.Adapters.PulumiRuntime
   , mkPulumiRuntimeOps
   )
 import Nagare.Inventory.Artifact qualified as InventoryArtifact
+import Nagare.Cli.Inventory.CloudHistory (requireCloudCollectionProtocol)
+import Nagare.Inventory.CloudCollection (encodeCloudCollectionBundle)
 import Nagare.Inventory.Cloud qualified as InventoryCloud
 import Nagare.Inventory.Collection.Adapter (controllerCollectionAdapter)
 import Nagare.Inventory.Command qualified as Inventory
@@ -464,7 +467,11 @@ inventoryHostAdapter active workspace accepted _ reviewedDigests = do
   pure (mkHostAdapter (mkHostRuntimeOps config))
 
 inventoryPulumiAdapter :: ActiveTarget -> PlatformWorkspace -> Resource.ContextBinding -> [ResourceInventory.ScopeDeclaration] -> [InventoryCloud.NativeRegistration] -> IO InventoryAdapter.Adapter
-inventoryPulumiAdapter active workspace binding scopes registrations = do
+inventoryPulumiAdapter = inventoryPulumiAdapterWithCollections []
+
+inventoryPulumiAdapterWithCollections :: [Text] -> ActiveTarget -> PlatformWorkspace -> Resource.ContextBinding -> [ResourceInventory.ScopeDeclaration] -> [InventoryCloud.NativeRegistration] -> IO InventoryAdapter.Adapter
+inventoryPulumiAdapterWithCollections collected active workspace binding scopes registrations = do
+  unless (null collected) (requireCloudCollectionProtocol workspace)
   stateRoot <- nagareStateDir
   stackConfig <- contextStackConfigPath (active ^. #contextName)
   stackName <- either dieT pure (Resource.mkName (contextNameText (active ^. #contextName)))
@@ -504,14 +511,16 @@ inventoryPulumiAdapter active workspace binding scopes registrations = do
             )
         pure (registrations <> bookkeeping)
       else pure registrations
-  let declarationBundle =
+  let ordinaryDeclarationBundle =
         InventoryCloud.encodeRegistrationBundle
           (binding ^. #identity)
           (binding ^. #project)
           stackName
           (map ResourceInventory.scopeId scopes)
           allRegistrations
-      config =
+  declarationBundle <- if null collected then pure ordinaryDeclarationBundle
+    else either dieT pure (encodeCloudCollectionBundle ordinaryDeclarationBundle collected)
+  let config =
         PulumiRuntimeConfig
           { runtimeContext = context
           , runtimeProject = profile ^. #project

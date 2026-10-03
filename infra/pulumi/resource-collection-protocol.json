@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "declarationVersion": 2,
+  "types": [
+    "gcp:compute/address:Address",
+    "gcp:compute/firewall:Firewall",
+    "gcp:compute/instance:Instance",
+    "gcp:compute/network:Network",
+    "gcp:compute/subnetwork:Subnetwork",
+    "gcp:dns/managedZone:ManagedZone",
+    "gcp:dns/recordSet:RecordSet",
+    "nagare:compute:NagareInstance",
+    "nagare:env:NagareNixCache",
+    "nagare:net:NagareNetwork"
+  ]
+}

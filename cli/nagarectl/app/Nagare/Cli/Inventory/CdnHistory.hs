@@ -65,4 +65,9 @@ reviewedHistoricalCdn store bundle = fmap (Map.filter ((== CdnExecutor) . (^. #e
   pure (resourceId, resource)
   where
     document = reviewBundleDocument bundle
-    selected = Map.toAscList (Map.union (reviewRetentions document) (reviewCollections document))
+    -- Retirement can have no operations, so select original proof authority.
+    -- Platform cloud proofs are reconstructed by CloudHistory, never as CDN.
+    selected = Map.toAscList (Map.filter
+      (\proof -> let owner = retentionOwner proof in
+        not (scopeKind owner == Platform && nameText (scopeName owner) == "cloud"))
+      (Map.union (reviewRetentions document) (reviewCollections document)))

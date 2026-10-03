@@ -29,6 +29,7 @@ import Nagare.Cli.Platform.InfrastructureReview
   , prepareInfraMutation
   , saveReviewedPlan
   )
+import Nagare.Cli.Runtime.CloudTeardown (saveReviewedCloudTeardown)
 import Nagare.Cli.Runtime.ImageCleanup (saveReviewedImageCleanup)
 import Nagare.Cli.Runtime.Cleanup (saveReviewedReleaseCleanup)
 import Nagare.Cli.Runtime.Error (dieT)
@@ -134,8 +135,11 @@ runInfraApply mctx options = do
       result <- applyReviewedPlan active workspace (options ^. #plan) (options ^. #allowReplacement)
       either dieT TIO.putStr result
 
-runInfraDestroy :: Maybe String -> Bool -> IO ()
-runInfraDestroy mctx yes = do
+runInfraDestroy :: Maybe String -> Bool -> Maybe FilePath -> IO ()
+runInfraDestroy mctx yes (Just output) = do
+  when yes (dieT "--save-plan prepares a review; apply it separately with inventory apply --yes")
+  saveReviewedCloudTeardown mctx output
+runInfraDestroy mctx yes Nothing = do
   unless yes $
     dieT "refusing to destroy the selected context's infrastructure without --yes"
   selected <- activeTarget mctx

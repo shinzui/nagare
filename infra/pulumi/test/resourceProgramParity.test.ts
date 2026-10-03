@@ -112,6 +112,29 @@ function verifyGuardedVariant(variant: string, observed: Registration[]): void {
     }
 }
 
+function verifyCollectedVariant(variant: string, observed: Registration[], omittedNames: string[]): void {
+    const temporary = mkdtempSync(join(tmpdir(), "nagare-collection-parity-"));
+    try {
+        const registrations = observed.map((registration, index) => ({
+            resourceId: `platform:cloud/native-${index}/resource`, ...registration,
+            pulumiUrn: `urn:pulumi:dev::nagare::${registration.pulumiType}::${registration.pulumiName}`,
+            specDigest: "1".repeat(64), class: "managed",
+        }));
+        const collections = registrations.filter((r) => omittedNames.includes(r.pulumiName));
+        const declarationPath = join(temporary, "declarations.json");
+        writeFileSync(declarationPath, canonicalJson({
+            version: 2, context: "dev", project: "example-project", stack: "dev",
+            scope: [{kind: "Platform", name: "cloud"}], resources: [], registrations, collections,
+            bundleDigest: createHash("sha256").update(canonicalJson(registrations), "utf8").digest("hex"),
+        }));
+        const actual = runVariant(variant, declarationPath);
+        const expected = observed.filter((r) => !omittedNames.includes(r.pulumiName));
+        assert(JSON.stringify(actual) === JSON.stringify(expected), "collection changed an unselected registration");
+    } finally {
+        rmSync(temporary, {recursive: true, force: true});
+    }
+}
+
 function names(values: Registration[]): Set<string> {
     return new Set(values.map((value) => `${value.pulumiType}::${value.pulumiName}`));
 }
@@ -137,6 +160,19 @@ async function main(): Promise<void> {
     const managerCdn = runVariant("cdn-manager");
     for (const [label, registrations] of Object.entries({ base, foundationManaged, foundationManagedCache, foundationManagedImage, image, cache, legacyCdn, prepareCdn, managerCdn })) {
         assert(names(registrations).size === registrations.length, `${label} contains duplicate native registrations`);
+    }
+    verifyCollectedVariant("foundation-managed", foundationManaged, ["nagare-network-fw-web"]);
+    verifyCollectedVariant("foundation-managed", foundationManaged,
+        ["nagare-network-fw-web", "nagare-network-fw-iap-ssh", "nagare-network-fw-lb-health", "nagare-network-fw-tailscale", "nagare-network-subnet"]);
+    verifyCollectedVariant("foundation-managed-image", foundationManagedImage, ["nagare-01"]);
+    verifyCollectedVariant("foundation-managed", foundationManaged, ["nagare-nix-cache"]);
+    for (const [variant, observed, selected] of [
+        ["foundation-managed-cache", foundationManagedCache, ["nagare-nix-cache"]],
+        ["foundation-managed", foundationManaged, ["nagare-network"]],
+    ] as [string, Registration[], string[]][]) {
+        let refused = false;
+        try { verifyCollectedVariant(variant, observed, selected); } catch { refused = true; }
+        assert(refused, "component omission silently removed unselected child resources");
     }
     verifyGuardedVariant("base", base);
     verifyGuardedVariant("foundation-managed", foundationManaged);

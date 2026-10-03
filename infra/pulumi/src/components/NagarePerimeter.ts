@@ -1,5 +1,6 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as gcp from "@pulumi/gcp";
+import { shouldDeclareResource } from "../resourceDeclarations";
 import { NagareNetwork } from "./NagareNetwork";
 import { NagareInstance } from "./NagareInstance";
 import { NagareCdn } from "./NagareCdn";
@@ -57,14 +58,14 @@ export class NagarePerimeter extends pulumi.ComponentResource {
     constructor(name: string, args: NagarePerimeterArgs, opts?: pulumi.ComponentResourceOptions) {
         super("nagare:env:NagarePerimeter", name, {}, opts);
 
-        const net = new NagareNetwork(`${name}-network`, { region: args.region }, { parent: this });
+        const net = shouldDeclareResource("nagare:net:NagareNetwork", `${name}-network`) ? new NagareNetwork(`${name}-network`, { region: args.region }, { parent: this }) : undefined;
 
         // Static external IPv4 address, regional. Reserving it means the
         // VM keeps the same public IP across rebuilds, so the wildcard DNS
         // record stays valid.
-        const address = new gcp.compute.Address(`${name}-ip`, {
+        const address = shouldDeclareResource("gcp:compute/address:Address", `${name}-ip`) ? new gcp.compute.Address(`${name}-ip`, {
             region: args.region,
-        }, { parent: this });
+        }, { parent: this }) : undefined;
 
         // Persistent data disk (IP-3). pd-balanced is the cost/perf
         // sweet spot; 100 GB default. EP-3 attaches and mounts it at
@@ -170,10 +171,10 @@ export class NagarePerimeter extends pulumi.ComponentResource {
         // Cloud DNS managed zone for the apps domain (IP-4). dnsName must
         // be a fully-qualified domain with a trailing dot.
         const dnsName = `${args.baseDomain}.`;
-        const dnsZone = new gcp.dns.ManagedZone(`${name}-zone`, {
+        const dnsZone = shouldDeclareResource("gcp:dns/managedZone:ManagedZone", `${name}-zone`) ? new gcp.dns.ManagedZone(`${name}-zone`, {
             dnsName,
             description: "Nagare apps wildcard zone",
-        }, { parent: this });
+        }, { parent: this }) : undefined;
 
         // EP-99: DNS rights for the cert-manager (EP-4) Let's Encrypt DNS-01
         // solver, scoped as tightly as the solver actually allows. This
@@ -190,7 +191,7 @@ export class NagarePerimeter extends pulumi.ComponentResource {
         // template and dropping dns.reader is an optional follow-up.
         new gcp.dns.DnsManagedZoneIamMember(`${name}-iam-dns-zone`, {
             project: args.gcpProject,
-            managedZone: dnsZone.name,
+            managedZone: dnsZone!.name,
             role: "roles/dns.admin",
             member: saMember,
         }, { parent: this });
@@ -211,18 +212,18 @@ export class NagarePerimeter extends pulumi.ComponentResource {
         // The VM exists only once EP-3 has produced the boot image.
         let instance: NagareInstance | undefined;
         if (args.imageSelfLink) {
-            instance = new NagareInstance(args.instanceName, {
+            instance = shouldDeclareResource("nagare:compute:NagareInstance", args.instanceName) ? new NagareInstance(args.instanceName, {
                 zone: args.zone,
                 machineType: args.machineType,
                 imageSelfLink: args.imageSelfLink,
-                subnetId: net.subnet.id,
-                publicIp: address.address,
+                subnetId: net!.subnet!.id,
+                publicIp: (address?.address ?? pulumi.output("(collected)")),
                 dataDiskId: dataDisk.id,
                 serviceAccountEmail: sa.email,
                 deletionProtection: args.vmDeletionProtection,
                 bootDiskSizeGb: args.bootDiskSizeGb,
                 bootDiskType: args.bootDiskType,
-            }, { parent: this });
+            }, { parent: this }) : undefined;
         }
 
         // MasterPlan 11 / EP-56: the standing Google Cloud CDN load balancer.
@@ -232,16 +233,16 @@ export class NagarePerimeter extends pulumi.ComponentResource {
         // treats as "no Google CDN provisioned".
         const CDN_DISABLED = "(cdn disabled)";
         let cdn: NagareCdn | undefined;
-        if (args.enableCdn && instance) {
+        if (args.enableCdn && instance?.instance) {
             cdn = new NagareCdn(`${name}-cdn`, {
                 gcpProject: args.gcpProject,
                 region: args.region,
                 zone: args.zone,
                 baseDomain: args.baseDomain,
                 instanceSelfLink: instance.instance.selfLink,
-                network: net.network.id,
-                publicIp: address.address,
-                dnsZone: dnsZone.name,
+                network: net!.network!.id,
+                publicIp: (address?.address ?? pulumi.output("(collected)")),
+                dnsZone: dnsZone!.name,
                 certificateMode: args.cdnCertificateMode,
             }, { parent: this });
             this.cdnGlobalIp = cdn.cdnGlobalIp;
@@ -265,36 +266,36 @@ export class NagarePerimeter extends pulumi.ComponentResource {
         const domainTopology = resolveDomainTopology({
             enableCdn: args.enableCdn,
             cdnExists: cdn !== undefined,
-            vmPublicIp: address.address,
+            vmPublicIp: (address?.address ?? pulumi.output("(collected)")),
             cdnGlobalIp: cdn?.cdnGlobalIp,
         });
-        new gcp.dns.RecordSet(`${name}-wildcard`, {
-            managedZone: dnsZone.name,
+        shouldDeclareResource("gcp:dns/recordSet:RecordSet", `${name}-wildcard`) ? new gcp.dns.RecordSet(`${name}-wildcard`, {
+            managedZone: dnsZone!.name,
             name: pulumi.interpolate`*.${dnsName}`,
             type: "A",
             ttl: 300,
             rrdatas: [domainTopology.wildcardIp],
-        }, { parent: this });
-        new gcp.dns.RecordSet(`${name}-apex`, {
-            managedZone: dnsZone.name,
+        }, { parent: this }) : undefined;
+        shouldDeclareResource("gcp:dns/recordSet:RecordSet", `${name}-apex`) ? new gcp.dns.RecordSet(`${name}-apex`, {
+            managedZone: dnsZone!.name,
             name: dnsName,
             type: "A",
             ttl: 300,
             rrdatas: [domainTopology.apexIp],
-        }, { parent: this });
+        }, { parent: this }) : undefined;
 
-        this.publicIp = address.address;
+        this.publicIp = (address?.address ?? pulumi.output("(collected)"));
         this.apexIp = domainTopology.apexIp;
         this.serviceAccountEmail = sa.email;
         this.dataDiskName = dataDisk.name;
-        this.dnsZoneName = dnsZone.name;
+        this.dnsZoneName = dnsZone?.name ?? pulumi.output("(collected)");
         // Stable Docker registry hostname/path EP-6 pushes to.
         this.artifactRegistry = pulumi.interpolate`${args.region}-docker.pkg.dev/${args.gcpProject}/${args.artifactRegistryId}`;
         this.backupBucket = backupBucket.name;
         // instanceName is known even before the VM resource exists, so
         // EP-3 can read it from config-time inputs; if the VM exists we
         // use its real name for fidelity.
-        this.instanceName = instance ? instance.instance.name : pulumi.output(args.instanceName);
+        this.instanceName = instance?.instance?.name ?? pulumi.output(args.instanceName);
 
         this.registerOutputs({
             publicIp: this.publicIp,

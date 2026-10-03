@@ -284,16 +284,32 @@ backup-bucket replacement. Stop and reconcile the preview first.
 
 ### Deliberate teardown
 
-Complete teardown is separate from apply and never inferred as recovery:
+Inventory-managed teardown uses a sequence of saved reviews:
 
 ```bash
-nagare infra-destroy --yes
+nagarectl --context DISPOSABLE infra destroy --save-plan /tmp/teardown-policy
+nagarectl --context DISPOSABLE inventory apply /tmp/teardown-policy --yes
 ```
 
-The command repeats the platform, ADC, and context/project guards immediately before
-`pulumi destroy --yes --non-interactive`. It destroys only the selected stack; Pulumi-protected
-resources and GCE deletion protection still refuse until deliberately removed. There is no saved
-plan-bundle workflow for teardown, and omitting `--yes` refuses before Pulumi.
+Run `infra destroy --save-plan` again with a new directory after each accepted stage. The first
+review changes only the finite stateless cloud collection policy. The second retires the cloud
+scope with every native object retained; active consumers must be retired through their own
+reviewed paths first. Later reviews collect one eligible retained leaf through an exact saved
+Pulumi plan. Inspect each review before applying it. No collection bypasses active or retained
+dependencies.
+
+Data disks, snapshot protection, buckets, backup/image objects, registry artifacts, credentials,
+IAM authority, provider/stack state and foundation ownership remain protected or retained.
+The command reports members that remain protected or dependency-blocked; it does not claim the
+whole context is gone. VM collection cannot clear GCE deletion protection. It requires a separate
+accepted native configuration with `deletionProtection=false`; unknown or protected state refuses.
+An enabled Nix cache component remains blocked by its protected children.
+
+The selected immutable payload must support declaration protocol 2 and its exact collection type
+manifest. Older payloads refuse before provider preparation. Apply and recovery use the captured
+plan and exact original ownership; recovery proves absence and does not resubmit an ambiguous
+delete. Historical tombstones keep already collected constructors omitted in later reviews.
+Legacy `infra destroy --yes` remains guarded and refuses substantive inventory history.
 
 ## Stack outputs (the integration contract)
 

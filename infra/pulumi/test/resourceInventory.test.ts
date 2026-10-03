@@ -1,6 +1,8 @@
+import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import {
     decodeCloudDeclarationBundle,
+    collectionTypes,
     NativeRegistration,
     validateResourceRegistrations,
 } from "../src/resourceDeclarations";
@@ -66,3 +68,33 @@ try {
 if (!refusedDigest) throw new Error("declaration decoder accepted a changed registration digest");
 
 console.log("ok");
+
+// Exact omission is a new protocol, never an incidental v1 optional field.
+decodeCloudDeclarationBundle(JSON.stringify({...wire, version: 2, collections: [registration]}));
+for (const invalid of [
+    {...wire, collections: [registration]},
+    {...wire, version: 2, collections: []},
+    {...wire, version: 2, collections: [registration, registration]},
+    {...wire, version: 2, collections: [{...registration, specDigest: "2".repeat(64)}]},
+    {...wire, version: 2, collections: [{...registration, class: {bookkeeping: "provider"}}]},
+]) {
+    let refused = false;
+    try { decodeCloudDeclarationBundle(JSON.stringify(invalid)); } catch { refused = true; }
+    if (!refused) throw new Error("unsafe collection protocol accepted");
+}
+
+const protectedRegistration = {...registration, pulumiType: "gcp:compute/disk:Disk",
+    pulumiUrn: "urn:pulumi:dev::nagare::gcp:compute/disk:Disk::nagare-network-net"};
+let refusedProtected = false;
+try {
+    decodeCloudDeclarationBundle(JSON.stringify({...wire, version: 2,
+        registrations: [protectedRegistration], collections: [protectedRegistration],
+        bundleDigest: digest([protectedRegistration])}));
+} catch { refusedProtected = true; }
+if (!refusedProtected) throw new Error("protected disk omission accepted");
+
+const collectionProtocol = JSON.parse(readFileSync("resource-collection-protocol.json", "utf8"));
+if (collectionProtocol.version !== 1 || collectionProtocol.declarationVersion !== 2
+    || JSON.stringify([...collectionProtocol.types].sort()) !== JSON.stringify([...collectionTypes].sort())) {
+    throw new Error("packaged collection capability differs from the actual declaration guard");
+}

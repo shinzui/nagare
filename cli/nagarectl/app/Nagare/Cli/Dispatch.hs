@@ -160,7 +160,7 @@ dispatch (mctx, cmd0) = case cmd0 of
   Infra (InfraGuard allowReplacement) -> runInfraGuard mctx allowReplacement
   Infra (InfraPreview options) -> runInfraPreview mctx options
   Infra (InfraApply options) -> runInfraApply mctx options
-  Infra (InfraDestroy yes) -> runInfraDestroy mctx yes
+  Infra (InfraDestroy yes output) -> runInfraDestroy mctx yes output
   Domains (DomainsList o) -> runDomainsList mctx o
   Domains (DomainsCheck o) -> runDomainsCheck mctx o
   CdnCmd ccmd -> runCdn mctx ccmd

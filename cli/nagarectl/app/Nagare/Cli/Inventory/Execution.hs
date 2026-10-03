@@ -12,6 +12,7 @@ import Data.Map qualified as Map
 import Data.Maybe (catMaybes)
 import Data.Set qualified as Set
 import Data.Text qualified as T
+import Nagare.Cli.Inventory.CloudHistory
 import Nagare.Cli.Inventory.CdnHistory
 import Nagare.Cli.Inventory.CdnPurge (cdnPurgeRuntime)
 import Nagare.Cli.Inventory.ImagePrune (imagePruneRuntime)
@@ -26,7 +27,7 @@ import Nagare.Cli.Inventory.Adapters
   , inventoryHelmAdapter
   , inventoryHostAdapter
   , inventoryKubernetesAdapter
-  , inventoryPulumiAdapter
+  , inventoryPulumiAdapterWithCollections
   , reviewBaseDnsResources
   )
 import Nagare.Cli.Inventory.Foundation
@@ -208,7 +209,20 @@ inventoryExecutionRegistry mctx store bundle = do
           && active ^. #profile . #platformVersion == Just (manifest ^. #platformVersion)
       )
       (dieT "reviewed bootstrap stage requires the selected immutable payload and context pin")
-  allRegistrations <- either dieT pure (InventoryCloud.registrationsFromDeclarations declarations)
+  cloudHistory <- if Set.null (selected ResourceInventory.PulumiExecutor)
+      && not (any ((\owner -> Resource.scopeKind owner == Resource.Platform && Resource.nameText (Resource.scopeName owner) == "cloud") . InventoryPlan.retentionOwner) (Map.elems (InventoryPlan.reviewRetentions document)))
+    then pure (CloudHistory [] Map.empty [])
+    else do
+      currentHead <- InventoryStore.readHead store >>= either (dieT . T.pack . show) pure >>= maybe (dieT "inventory head missing") pure
+      let requested = Map.map (\proof -> (InventoryPlan.retentionOwner proof, InventoryPlan.retentionRevision proof))
+            (Map.union (InventoryPlan.reviewRetentions document) (InventoryPlan.reviewCollections document))
+          collecting = Set.intersection (Map.keysSet (InventoryPlan.reviewCollections document)) (selected ResourceInventory.PulumiExecutor)
+      loadCloudHistory store currentHead scopes requested collecting
+  let cloudDeclarations = Map.elems (Map.union
+        (Map.fromList [(ResourceInventory.declarationId member, member) | member <- declarations])
+        (Map.map ResourceInventory.Managed (cloudHistoricalMembers cloudHistory)))
+      pulumiScopes = scopes <> cloudHistoricalScopes cloudHistory
+  allRegistrations <- either dieT pure (InventoryCloud.registrationsFromDeclarations cloudDeclarations)
   let registrations =
         filter
           ( \registration ->
@@ -348,6 +362,7 @@ inventoryExecutionRegistry mctx store bundle = do
         (Map.keysSet (InventoryPlan.reviewRetentions document)
           `Set.union` Map.keysSet (InventoryPlan.reviewCollections document))
           `Set.difference` Map.keysSet historicalCdn
+          `Set.difference` Map.keysSet (cloudHistoricalMembers cloudHistory)
       binding = InventoryPlan.reviewContextBinding document
       activeExecutors =
         Set.fromList
@@ -447,7 +462,7 @@ inventoryExecutionRegistry mctx store bundle = do
       pulumiBase <-
         if null registrations
           then pure (Inventory.executionBlockedAdapterFor ResourceInventory.PulumiExecutor)
-          else withWorkspace (\root -> inventoryPulumiAdapter active root binding scopes allRegistrations)
+          else withWorkspace (\root -> inventoryPulumiAdapterWithCollections (cloudOmittedUrns cloudHistory) active root binding pulumiScopes allRegistrations)
       pulumiPower <- vmPowerRuntime (pure store) active scopes pulumiBase
       pulumi <- maybe (pure pulumiPower) (\root -> imagePruneRuntime (pure store) active root scopes pulumiPower) workspace
       foundation <-

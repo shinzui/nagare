@@ -6,6 +6,7 @@ module Nagare.Inventory.CollectionPolicy
 where
 
 import Data.Generics.Labels ()
+import Nagare.Inventory.CloudCollection (cloudCollectionEligible)
 import Nagare.Dsl.Prelude
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
@@ -16,6 +17,7 @@ supportsRetainedCollection declaration =
   declaration ^. #lifecycle == DeleteWhenUnreferenced
     && declaration ^. #dataPolicy == Stateless
     && case (declaration ^. #executor, declaration ^. #address) of
+      (PulumiExecutor, _) -> cloudCollectionEligible declaration
       (CdnExecutor, DnsRecord {}) -> scopeKind (declaration ^. #owner) `elem` [Application, Standalone]
       (CdnExecutor, CloudflareDnsRecord {}) -> scopeKind (declaration ^. #owner) `elem` [Application, Standalone]
       (KubernetesExecutor, Kubernetes _ "" kind (Just _) _) ->

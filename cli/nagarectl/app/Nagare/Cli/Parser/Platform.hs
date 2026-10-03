@@ -373,8 +373,8 @@ infraCmd =
             <> command
               "destroy"
               ( info
-                  (Infra . InfraDestroy <$> switch (long "yes" <> help "Confirm complete infrastructure teardown") <**> helper)
-                  (progDesc "Guard and destroy the selected context's Pulumi stack")
+                  ((Infra <$> (InfraDestroy <$> switch (long "yes" <> help "Confirm legacy teardown only") <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save the next staged inventory teardown review")))) <**> helper)
+                  (progDesc "Review cloud teardown policy, retained retirement, and exact leaf collection")
               )
         )
         <**> helper

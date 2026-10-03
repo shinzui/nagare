@@ -74,7 +74,7 @@ infra-up *args:
 infra-preview *args:
     nagarectl infra preview {{args}}
 
-# Completely tear down the selected stack after all guards and explicit confirmation.
+# Save each staged cloud teardown review; apply it separately with inventory apply.
 [group('infra')]
 infra-destroy *args:
     nagarectl infra destroy {{args}}
@@ -82,8 +82,8 @@ infra-destroy *args:
 # Cheapest reversible "off": halts compute charges; the boot/data disks and the
 # reserved static IP keep their small storage/reservation cost. Targets the
 # instance/zone/project from the target profile (.envrc / nagare.target.env),
-# defaulting to nagare-01 / us-west1-a / tan-nb-exp. For a FULL teardown instead,
-# use `nagare infra-destroy --yes` (see docs/user/provisioning-with-pulumi.md).
+# defaulting to nagare-01 / us-west1-a / tan-nb-exp. For reviewed teardown stages,
+# use `nagare infra-destroy --save-plan DIR` (see docs/user/provisioning-with-pulumi.md).
 # Stop the VM (reversible; restart with `just vm-start`).
 [group('infra')]
 vm-stop *args:

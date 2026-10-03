@@ -5,7 +5,7 @@ import { NagareNixCache } from "./src/components/NagareNixCache";
 import { buildSshCommand } from "./src/outputs";
 import { parseCdnCertificateMode } from "./src/cdnCertificateMode";
 import { resolveVmShape } from "./src/vmShape";
-import { installResourceDeclarationGuard } from "./src/resourceDeclarations";
+import { installResourceDeclarationGuard, shouldDeclareResource } from "./src/resourceDeclarations";
 
 const cfg = new pulumi.Config();
 const gcpCfg = new pulumi.Config("gcp");
@@ -110,13 +110,13 @@ const perimeter = new NagarePerimeter(
     { dependsOn: apiServices },
 );
 
-const nixCache = new NagareNixCache("nagare-nix-cache", {
+const nixCache = shouldDeclareResource("nagare:env:NagareNixCache", "nagare-nix-cache") ? new NagareNixCache("nagare-nix-cache", {
     enabled: enableNixCacheCfg,
     gcpProject,
     region,
     bucketName: nixCacheBucketCfg,
     serviceAccountEmail: perimeter.serviceAccountEmail,
-}, { dependsOn: apiServices });
+}, { dependsOn: apiServices }) : undefined;
 
 // Integration Point 1 — the stable core stack-output names. The exported
 // binding name *is* the stack-output name, so do not rename any of these
@@ -130,10 +130,10 @@ export const dataDiskName = perimeter.dataDiskName;
 export const dnsZoneName = perimeter.dnsZoneName;
 export const artifactRegistry = perimeter.artifactRegistry;
 export const backupBucket = perimeter.backupBucket;
-export const nixCacheEnabled = nixCache.enabled;
-export const nixCacheBucket = nixCache.bucket;
-export const nixCacheHmacAccessId = nixCache.hmacAccessId;
-export const nixCacheHmacSecret = nixCache.hmacSecret;
+export const nixCacheEnabled = nixCache?.enabled ?? pulumi.output(false);
+export const nixCacheBucket = nixCache?.bucket ?? pulumi.output("");
+export const nixCacheHmacAccessId = nixCache?.hmacAccessId ?? pulumi.output("");
+export const nixCacheHmacSecret = nixCache?.hmacSecret ?? pulumi.secret("");
 export const sshCommand = buildSshCommand(perimeter.instanceName, zone, gcpProject);
 
 // MasterPlan 11 / EP-56 — Integration Point 2. The exported binding name *is*

@@ -1373,3 +1373,24 @@ reclamation is asynchronous. This is derived-cache cleanup, not a data-retention
 guarantee. Durable completion receipts survive store export/restore and prevent
 an old request from deleting a later re-pull. An ambiguous still-present removal
 remains unresolved and is never automatically resent.
+
+Cloud teardown first reviews an exact metadata-only `Protect` to
+`DeleteWhenUnreferenced` transition for the finite supported stateless types.
+Only an otherwise identical declaration with a fresh present observation gets
+verification-only authority. Ordinary bootstrap never loosens protection.
+A separate cloud scope retirement preserves native resources and original private
+scope revisions. Collection remains one exact eligible retained leaf at a time;
+active and retained consumers retain their full dependency authority. Data,
+credential, artifact and provider/store authority are never implicitly collected.
+GCE deletion protection remains a separate native guard that this path cannot clear.
+
+Cloud collection uses ordinary saved `pulumi preview`/`up --plan` with a versioned
+registration omission set, never raw `destroy` or mutable dependent selectors.
+The full registration bundle remains the ownership authority. The omission set
+and all earlier cloud tombstones contribute to the program fingerprint; the
+selected payload must declare the matching protocol capability. Unselected
+children, unknown types and replacement or unrelated mutations refuse. Fresh
+exact absence proves collection completion; a no-change preview alone cannot.
+An ambiguous still-present delete remains unresolved. Conservative retained
+layer dependencies can leave stateless infrastructure blocked; the public report
+names that retained outcome and does not claim complete physical teardown.

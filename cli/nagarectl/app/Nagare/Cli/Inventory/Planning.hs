@@ -14,6 +14,7 @@ import Data.Map qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
 import Nagare.Access.Reviewed qualified as ReviewedAccess
+import Nagare.Cli.Inventory.CloudHistory
 import Nagare.Cli.Inventory.CdnHistory
 import Nagare.Cli.Inventory.CdnPurge (cdnPurgeRuntime)
 import Nagare.Cli.Inventory.ImagePrune (imagePruneRuntime)
@@ -30,7 +31,7 @@ import Nagare.Cli.Inventory.Adapters
   , inventoryHelmAdapter
   , inventoryHostAdapter
   , inventoryKubernetesAdapter
-  , inventoryPulumiAdapter
+  , inventoryPulumiAdapterWithCollections
   )
 import Nagare.Cli.Inventory.Foundation
   ( inventoryFoundationAdapter
@@ -117,7 +118,27 @@ inventoryPlanRegistryWithMode controllerCollection active workspace suppliedNati
         , bundle <- ResourceInventory.scopeBundles scope
         , declaration <- ResourceInventory.declarations bundle
         ]
-  allRegistrations <- either dieT pure (InventoryCloud.registrationsFromDeclarations declarations)
+  cloudHistory <- if Set.null (selected ResourceInventory.PulumiExecutor)
+    then pure (CloudHistory [] Map.empty [])
+    else do
+      store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
+      let currentIds = Set.fromList (map ResourceInventory.declarationId declarations)
+          requested = Map.fromList
+            [(member ^. #identity, (owner, revision))
+            | (owner, (revision, scope)) <- Map.toList (InventoryPlan.historyAccepted history)
+            , bundle <- ResourceInventory.scopeBundles scope
+            , ResourceInventory.Managed member <- ResourceInventory.declarations bundle
+            , Set.member (member ^. #identity) (selected ResourceInventory.PulumiExecutor)
+            , Set.notMember (member ^. #identity) currentIds]
+          collecting = Set.fromList [resource | ResourceInventory.CollectRetained resource <- NE.toList (ResourceInventory.candidateChanges candidate),
+            Set.member resource (selected ResourceInventory.PulumiExecutor)]
+      loadCloudHistory store (InventoryPlan.historyHead history)
+        (scopes <> map (snd . snd) (Map.toList (InventoryPlan.historyAccepted history))) requested collecting
+  let cloudDeclarations = Map.elems (Map.union
+        (Map.fromList [(ResourceInventory.declarationId member, member) | member <- declarations])
+        (Map.map ResourceInventory.Managed (cloudHistoricalMembers cloudHistory)))
+      pulumiScopes = scopes <> cloudHistoricalScopes cloudHistory
+  allRegistrations <- either dieT pure (InventoryCloud.registrationsFromDeclarations cloudDeclarations)
   let registrations =
         filter
           ( \registration ->
@@ -256,7 +277,7 @@ inventoryPlanRegistryWithMode controllerCollection active workspace suppliedNati
   pulumiBase <-
     if null registrations
       then pure (Inventory.manifestAdapterFor history ResourceInventory.PulumiExecutor)
-      else inventoryPulumiAdapter active workspace (ResourceInventory.inventoryBinding inventory) scopes allRegistrations
+      else inventoryPulumiAdapterWithCollections (cloudOmittedUrns cloudHistory) active workspace (ResourceInventory.inventoryBinding inventory) pulumiScopes allRegistrations
   pulumiPower <- vmPowerRuntime (Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure) active scopes pulumiBase
   pulumi <- imagePruneRuntime (Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure) active workspace scopes pulumiPower
   foundation <-

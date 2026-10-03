@@ -18,6 +18,7 @@ import InventoryArtifactSpec (inventoryArtifactTests)
 import InventoryAuthSpec (inventoryAuthTests)
 import InventoryCacheSpec (inventoryCacheTests)
 import InventoryCdnSpec (inventoryCdnTests)
+import InventoryCloudCollectionSpec (cloudCollectionTests)
 import InventoryCloudSpec (inventoryCloudTests)
 import InventoryControllerCollectionSpec (controllerCollectionTests)
 import InventoryEffectfulCollectionSpec (inventoryEffectfulCollectionTests, runCollectionResumeProbe)
@@ -156,6 +157,7 @@ main = do
             , inventoryAuthTests
             , inventoryObservabilityTests
             , inventoryPublicationTests
+            , cloudCollectionTests
             , inventoryCloudTests
             , inventoryHostTests
             , nativeCollectionTests

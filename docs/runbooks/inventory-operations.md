@@ -309,3 +309,22 @@ overwrite/promotion, custom interactive mutating maintenance, generalized
 scheduled pruning and admitted-context platform upgrades stay deferred.
 Safe-use acceptance is pending; remaining implementation continues through
 steps 5–6 without waiting for recovery of the retired fixture.
+
+
+## Staged cloud teardown acceptance
+
+Use a new disposable current-payload perimeter for this proof. Preserve the accepted host/application
+fixtures and their retained diagnostic transactions. Save and apply `infra destroy --save-plan DIR`
+stages separately: policy verification, retained retirement, then exact leaf collection. Record
+accepted revisions and native IDs before each stage. Policy and retirement must send no native
+mutation. Each collection must contain exactly one selected delete and an immutable saved Pulumi
+plan; all other native registrations, retained dependencies, durable disks, backup/image buckets,
+credentials, IAM, foundation, provider and stack authority remain unchanged. Repeat until no eligible
+leaf remains, then verify the reported retained set rather than asserting total deletion.
+
+Test old-payload refusal, unresolved/protected VM refusal, an active or retained dependency refusal,
+and component omission with an unselected child. Simulate acknowledgement loss after one exact
+collection, then resume the original review: prove absence with no second delete. Repeating an
+already completed review must preserve later state. Later collection plans must omit earlier tombstones
+without recreating them. Candidate-bound independent native acceptance is required before marking
+this command's coverage complete.

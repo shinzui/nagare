@@ -1,5 +1,6 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as gcp from "@pulumi/gcp";
+import { shouldDeclareResource } from "../resourceDeclarations";
 
 export interface NagareInstanceArgs {
     zone: string;
@@ -27,12 +28,12 @@ export interface NagareInstanceArgs {
 }
 
 export class NagareInstance extends pulumi.ComponentResource {
-    public readonly instance: gcp.compute.Instance;
+    public readonly instance: gcp.compute.Instance | undefined;
 
     constructor(name: string, args: NagareInstanceArgs, opts?: pulumi.ComponentResourceOptions) {
         super("nagare:compute:NagareInstance", name, {}, opts);
 
-        this.instance = new gcp.compute.Instance(name, {
+        this.instance = shouldDeclareResource("gcp:compute/instance:Instance", name) ? new gcp.compute.Instance(name, {
             name,                       // GCE instance name == resource name == "nagare-01"
             zone: args.zone,
             machineType: args.machineType,
@@ -89,7 +90,7 @@ export class NagareInstance extends pulumi.ComponentResource {
             //
             // The data disk must survive the VM. Leave it out of the
             // instance lifecycle: it is its own gcp.compute.Disk resource.
-        }, { parent: this });
+        }, { parent: this }) : undefined;
 
         this.registerOutputs({});
     }

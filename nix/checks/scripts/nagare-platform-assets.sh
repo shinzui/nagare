@@ -4,6 +4,7 @@ set -euo pipefail
 root="$payload/share/nagare"
 jq -e '.assetSchemaVersion == 1 and (.payloadId | length > 0)' "$root/release.json" >/dev/null
 test -f "$root/infra/pulumi/Pulumi.yaml"
+jq -e '.version == 1 and .declarationVersion == 2 and (.types | length == 10)' "$root/infra/pulumi/resource-collection-protocol.json" >/dev/null
 test -f "$root/cli/nagare-dsl/nagare-dsl.cabal"
 test -f "$root/cli/nagare-access/nagare-access.cabal"
 test -f "$root/cli/nagare-access/Dockerfile"

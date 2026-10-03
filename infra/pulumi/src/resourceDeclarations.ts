@@ -14,7 +14,7 @@ export interface NativeRegistration {
 }
 
 export interface CloudDeclarationBundle {
-    version: 1;
+    version: 1 | 2;
     context: string;
     project: string;
     stack: string;
@@ -22,6 +22,7 @@ export interface CloudDeclarationBundle {
     resources: unknown[];
     registrations: NativeRegistration[];
     bundleDigest: string;
+    collections?: NativeRegistration[];
 }
 
 export interface ObservedRegistration {
@@ -71,7 +72,7 @@ export function decodeCloudDeclarationBundle(bytes: string): CloudDeclarationBun
     const parsed: unknown = JSON.parse(bytes);
     if (parsed === null || typeof parsed !== "object") throw new Error("cloud declaration bundle must be an object");
     const bundle = parsed as Record<string, unknown>;
-    if (bundle.version !== 1) throw new Error("unsupported cloud declaration bundle version");
+    if (bundle.version !== 1 && bundle.version !== 2) throw new Error("unsupported cloud declaration bundle version");
     if (typeof bundle.context !== "string" || typeof bundle.project !== "string" || typeof bundle.stack !== "string") {
         throw new Error("cloud declaration bundle identity is missing");
     }
@@ -95,6 +96,21 @@ export function decodeCloudDeclarationBundle(bytes: string): CloudDeclarationBun
             throw new Error(`declared native registration URN disagrees with type/name: ${registration.resourceId}`);
         }
     }
+    if (bundle.version === 1 && bundle.collections !== undefined) throw new Error("legacy declaration cannot omit resources");
+    if (bundle.version === 2) {
+        if (!Array.isArray(bundle.collections) || bundle.collections.length === 0 || !bundle.collections.every(isRegistration)) {
+            throw new Error("collection declaration requires exact registrations");
+        }
+        const selected = new Set<string>();
+        for (const collection of bundle.collections as NativeRegistration[]) {
+            const original = (bundle.registrations as NativeRegistration[]).find((r) => r.resourceId === collection.resourceId);
+            if (!original || canonicalJson(original) !== canonicalJson(collection) || collection.class !== "managed"
+                || !collectionTypes.has(collection.pulumiType) || selected.has(collection.pulumiUrn)) {
+                throw new Error("unsupported, duplicate or unowned cloud collection");
+            }
+            selected.add(collection.pulumiUrn);
+        }
+    }
     return bundle as unknown as CloudDeclarationBundle;
 }
 
@@ -113,15 +129,38 @@ export function validateResourceRegistrations(declared: NativeRegistration[], ob
     }
 }
 
+// This finite protocol is also checked by the CLI before native preparation.
+// Keep in parity with resource-collection-protocol.json and CloudCollection.
+export const collectionTypes = new Set([
+    "gcp:compute/address:Address",
+    "gcp:compute/firewall:Firewall",
+    "gcp:compute/instance:Instance",
+    "gcp:compute/network:Network",
+    "gcp:compute/subnetwork:Subnetwork",
+    "gcp:dns/managedZone:ManagedZone",
+    "gcp:dns/recordSet:RecordSet",
+    "nagare:compute:NagareInstance",
+    "nagare:env:NagareNixCache",
+    "nagare:net:NagareNetwork"
+]);
+let omittedRegistrations = new Set<string>();
+
+/** Omit only a reviewed registration. A protected/unknown type never reaches this set. */
+export function shouldDeclareResource(type: string, name: string): boolean {
+    return !omittedRegistrations.has(registrationKey(type, name));
+}
+
 export interface ResourceDeclarationGuard {
     readonly enabled: boolean;
     assertComplete(): void;
 }
 
 export function installResourceDeclarationGuard(path = process.env.NAGARE_RESOURCE_DECLARATIONS): ResourceDeclarationGuard {
+    omittedRegistrations = new Set();
     if (!path) return { enabled: false, assertComplete: () => undefined };
     const bundle = decodeCloudDeclarationBundle(readFileSync(path, "utf8"));
     const declared = new Map(bundle.registrations.map((registration) => [registrationKey(registration.pulumiType, registration.pulumiName), registration]));
+    omittedRegistrations = new Set((bundle.collections ?? []).map((r) => registrationKey(r.pulumiType, r.pulumiName)));
     const consumed = new Set<string>();
 
     pulumi.runtime.registerStackTransformation((args) => {
@@ -133,6 +172,7 @@ export function installResourceDeclarationGuard(path = process.env.NAGARE_RESOUR
             }
             return undefined;
         }
+        if (omittedRegistrations.has(key)) throw new Error(`collected resource was registered: ${args.type}::${args.name}`);
         consumed.add(key);
         return { props: args.props, opts: args.opts };
     });
@@ -140,7 +180,7 @@ export function installResourceDeclarationGuard(path = process.env.NAGARE_RESOUR
     return {
         enabled: true,
         assertComplete: () => {
-            const missing = [...declared.keys()].filter((key) => !consumed.has(key));
+            const missing = [...declared.keys()].filter((key) => !consumed.has(key) && !omittedRegistrations.has(key));
             if (missing.length > 0) throw new Error(`declared Pulumi resources were not registered: ${missing.join(",")}`);
         },
     };

@@ -217,7 +217,7 @@ transaction's staged host flake, so inherited values from another context cannot
 | `nagarectl infra guard [--allow-replacement]` | Compatibility guard that previews and classifies protected replacements. New apply workflows use the saved-plan commands below. |
 | `nagarectl infra preview --save-plan DIR [--allow-replacement]` | Guard, save, classify, and bind one Pulumi preview as a private immutable bundle. |
 | `nagarectl infra apply --plan DIR --yes [--allow-replacement]` | Apply an inventory review through the shared executor, or re-run guards and apply an older Pulumi plan only while the context has no substantive inventory history. |
-| `nagarectl infra destroy --yes` | Re-run the platform, ADC, and project guards before deliberate selected-stack teardown; refuse once the context has substantive inventory history. |
+| `nagarectl infra destroy --save-plan DIR` | Review stateless cloud policy, retained scope retirement, then one eligible exact collection per invocation; preserve protected data, authority and dependency-blocked members. Apply each saved review separately. |
 | `nagarectl host init [--context NAME] --ssh-public-key-file PATH... --sops-file PATH` | Atomically generate and Nix-evaluate a context-owned host flake. `--dry-run` needs no secrets file; `--force` preserves an existing encrypted file when `--sops-file` is omitted. |
 | `nagarectl host place-age-key [--context NAME] --key-file PATH [--force] [--save-plan DIR]` | Save a reviewed credential transition with `--save-plan`; replacement pins the observed prior key and requires `--force`. Apply with `host apply` and the same `NAGARE_HOST_AGE_KEY_FILE`. Private key bytes stay outside reviews. Direct placement remains available only before inventory admission. |
 | `nagarectl host plan --save-plan DIR [--age-key-file PATH] [--replace-age-key]` | Review operator host configuration under the unchanged accepted dependency lock; binds the exact host, closures and optional credential digest. |
@@ -238,7 +238,7 @@ Shell recipes use `NAGARE_CONTEXT=NAME just <recipe>`.
 | `just` / `just default` | List all recipes | — |
 | `just infra-preview --save-plan DIR` | Save and classify one guarded cloud-perimeter plan | MP-22 EP-136 |
 | `just infra-up --plan DIR --yes` | Verify and non-interactively apply the exact reviewed plan | MP-22 EP-136 |
-| `just infra-destroy --yes` | Guard and deliberately destroy the selected Pulumi stack | MP-22 EP-136 |
+| `just infra-destroy --save-plan DIR` | Save the next inventory-managed cloud teardown stage | MP-23 EP-153 |
 | `just vm-stop --operation-id ID --save-plan DIR` / `just vm-start --operation-id ID --save-plan DIR` | Review power changes for the accepted VM; apply the saved directory with `nagarectl inventory apply DIR --yes` | MP-23 |
 | `nagarectl host image --save-plan DIR` (`just host-image --save-plan DIR`) | Review the next immutable image build or GCE publication stage. Apply with `inventory apply DIR --yes`, then review again. Bootstrap separately reviews the Pulumi image link and VM. | MP-23 EP-153 |
 | `just nixos-registry-host` | Compatibility alias that shows the generated host module; it no longer writes source | MP-20 EP-107 |

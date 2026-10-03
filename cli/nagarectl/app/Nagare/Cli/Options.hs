@@ -524,7 +524,7 @@ data InfraCommand
   = InfraGuard Bool
   | InfraPreview InfraPreviewOpts
   | InfraApply InfraApplyOpts
-  | InfraDestroy Bool
+  | InfraDestroy Bool (Maybe FilePath)
   deriving stock (Generic, Show)
 
 data InfraPreviewOpts = InfraPreviewOpts
