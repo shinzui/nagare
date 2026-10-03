@@ -1,0 +1,35 @@
+{
+  "payloadRevision": "3905012e36d45358608343b5ea70ebc9cf45511c",
+  "requestVersion": 3,
+  "results": [
+    {
+      "action": "prepare",
+      "exit": 2,
+      "stderr": "unsupported host transport version"
+    },
+    {
+      "action": "inspect",
+      "exit": 2,
+      "stderr": "unsupported host transport version"
+    },
+    {
+      "action": "activate",
+      "exit": 2,
+      "stderr": "unsupported host transport version"
+    }
+  ],
+  "targetSourcingReached": false,
+  "providerEffects": 0,
+  "correctedSourceRevision": "762657ed1925e630d83c09defd351bd6e7a854a8",
+  "independentActualSshJoinTest": "PASS: literal empty/newline/quote/metacharacter arguments and binary stdin preserved",
+  "independentRealSenderServiceRetryCases": [
+    "sops",
+    "tailscale",
+    "replacement-sops",
+    "replacement-tailscale",
+    "reinspect-sops",
+    "reinspect-tailscale"
+  ],
+  "allSixRetryCasesPassed": true,
+  "newNativeCredentialAcceptancePending": true
+}

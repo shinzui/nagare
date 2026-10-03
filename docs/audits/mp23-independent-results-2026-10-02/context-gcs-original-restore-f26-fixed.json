@@ -1,0 +1,39 @@
+{
+  "findings": [
+    "F25",
+    "F26"
+  ],
+  "binarySha256": "720c6cf59753f99570a22815b5936268f97b93753d152b9f1e7afa02c9adb319",
+  "sourceBound": true,
+  "installedImmutableBindingPending": true,
+  "context": "ep150-preview",
+  "project": "tan-ng-labs",
+  "originalRemovalReviewDigest": "28b8df71985a9576aca7ffb76837a248afa0e071f0090de19c9f2f579afa3b5e",
+  "originalFailedRemovalRecovered": true,
+  "restoredExactProfileSha256": "ee45415b9fa8852dcbe8f702ce9fe6614ea57bd3cde05ed85077690796be9e60",
+  "originalOperatorProfileUnchanged": true,
+  "remoteHeadBytesUnchanged": true,
+  "remoteHeadSha256": "9a7e39af6fea5ee396075906a089c33662b4d175d549dea24b72813f8622eacb",
+  "updateAndReturnPreservedAllFiveBuilderInputs": true,
+  "completedRemovalReplayKeptRestoredProfile": true,
+  "restoreReplayIdempotent": true,
+  "timings": {
+    "restore-fixed": {
+      "exit": 0,
+      "seconds": 3.968
+    },
+    "replay-remove-fixed": {
+      "exit": 0,
+      "seconds": 0.039
+    },
+    "replay-restore-fixed": {
+      "exit": 0,
+      "seconds": 0.041
+    }
+  },
+  "sourceHashes": {
+    "cli/nagarectl/src/Nagare/Context/Review.hs": "53157b80803f352870884e742de295a7bc65ac0f864131b4d21a645465eb72c6",
+    "cli/nagarectl/src/Nagare/Inventory/Store/Target.hs": "f061d5cc80b6fcac5957e303abcb8ad7320873b5df3032ce69b2aef6ea8ca055",
+    "cli/nagarectl/app/Nagare/Cli/Runtime/ContextReview.hs": "32a9428b084a1e273b935b29442ebeb6e07bb5f81dc70e4db93d02e1e8bafe3d"
+  }
+}

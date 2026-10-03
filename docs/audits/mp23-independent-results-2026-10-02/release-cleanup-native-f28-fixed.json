@@ -1,0 +1,28 @@
+{
+  "finding": "F28",
+  "binarySha256": "64732ba3f67fe16bd0613b5c365f4dda4596de536f222cb84d21634b7ca77a04",
+  "sourceBound": true,
+  "context": "local",
+  "project": "tan-nb-exp",
+  "fixtureScope": "standalone:mp23-release-cleanup-proof",
+  "createdThroughTypedReviewAndPublicApply": true,
+  "pruneReviewDigest": "0e933f2f696d1b4380720e6629c2cf65fc7c96c1ca64474078e99a267d244536",
+  "pruneUpdates": 1,
+  "otherEffects": 0,
+  "retainedReleaseIds": [
+    "r4",
+    "r1"
+  ],
+  "currentRelease": "r1",
+  "historyUidUnchanged": true,
+  "allOtherNamespaceConfigMapsExact": 4,
+  "unselectedScopeRevisionsPreserved": 29,
+  "completedTransactionResumeNoProviderEffect": true,
+  "repeatPublicPlanOperations": 0,
+  "repeatApplySucceeded": true,
+  "nativeBytesExactAfterReplay": true,
+  "nativeFixtureSource": "/tmp/mp23-independent-cleanup-native/Fixture.hs",
+  "installedImmutableBindingPending": true,
+  "fixtureSourceSha256": "f19eebb019b427526abe70c5679f8b01e4cece1b4194d593d84ddcb0b204326d",
+  "fixtureSourceArtifact": "release-cleanup-native-fixture.hs"
+}

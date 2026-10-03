@@ -1,0 +1,27 @@
+{
+  "finding": "F27",
+  "operatorRevision": "3905012e36d45358608343b5ea70ebc9cf45511c",
+  "context": "mp23-host-acceptance",
+  "project": "tan-ng-labs",
+  "payload": "nagare-0.4.0-3905012e36d4-813556791f39f601",
+  "reviewDigest": "39831e0147ad6db0065437c89c3815bafecd18056101bbedd51c4e92369f5257",
+  "transaction": "tx-39831e0147ad6db0065437c89c3815bafecd18056101bbedd51c4e92369f5257",
+  "operation": "op-3950bf36899fd7b75a2f196b",
+  "head": {
+    "generation": 44,
+    "sequence": 29
+  },
+  "journalError": "host transport exited 1: /run/current-system/sw/bin/bash: -c: option requires an argument\nbash: line 7: $1: unbound variable",
+  "readOnlyNativeCheck": {
+    "ageKey": "missing",
+    "sopsInstallSecrets": "failed",
+    "tailscaled": "active",
+    "credentialReceiptDirectory": "absent"
+  },
+  "nativeVmId": "4759788940635795681",
+  "originalTransactionPreserved": true,
+  "credentialDelivered": false,
+  "authInputConsumed": false,
+  "diagnosis": "send-file passes argv directly to OpenSSH; remote shell joining loses multiline bash -c script and empty previous-key argument",
+  "repairBoundary": "Retain failed disposable fixture unchanged. Correct source and version credential transport, then use a new immutable candidate in a new disposable fixture; no accepted-payload patch or technical override."
+}

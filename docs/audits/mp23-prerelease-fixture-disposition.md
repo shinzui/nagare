@@ -66,3 +66,20 @@ or failed fixture. Preserve existing regression coverage and production recovery
 semantics. New refactoring, compatibility mechanisms or fixture repair must name
 the supported acceptance assertion they unblock; preserving an obsolete
 prerelease transaction is not such an assertion.
+
+## Fresh credential diagnostic fixture, 2026-10-02
+
+The independently bootstrapped `mp23-host-acceptance` fixture on payload
+`nagare-0.4.0-3905012e36d4-813556791f39f601` exposed F27 at the real SSH
+credential-streaming boundary. Its original active transaction
+`tx-39831e0147ad6db0065437c89c3815bafecd18056101bbedd51c4e92369f5257`,
+head generation 44 / sequence 29, VM identity `4759788940635795681`, private
+history and payload remain preserved as diagnostic evidence. A read-only check
+confirms the key is missing and the enrollment input was not delivered.
+
+Apply the same disposable development-fixture decision: do not patch that
+accepted payload or add an old-transaction transport override. The corrected
+immutable candidate uses the new isolated `mp23-host-fixed` fixture under the
+existing technical verification authorization. F27 still requires successful
+corrected native acceptance; replacing this diagnostic fixture does not close it.
+No teardown or terminal transaction event is claimed.

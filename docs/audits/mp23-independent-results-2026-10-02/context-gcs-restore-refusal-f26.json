@@ -1,0 +1,18 @@
+{
+  "finding": "F26",
+  "binarySha256": "064b3522409783fe0627e77908712117cf8c4a57509fdf8e2c827eef44c1e169",
+  "sourceBound": true,
+  "context": "ep150-preview",
+  "project": "tan-ng-labs",
+  "root": "isolated copied operator root",
+  "updateAndReturnPassed": true,
+  "immutableTransportFieldsPreserved": true,
+  "removalCompleted": true,
+  "restoreExit": 1,
+  "restoreError": "nagarectl: user error (StoreConditionFailed \"context \\\"ep150-preview\\\" not found (expected /tmp/mp23-independent-context-native-f25/config/nagare/contexts/ep150-preview.env)\")",
+  "remoteHeadUnchanged": true,
+  "originalOperatorProfileSha256": "def842f39d5f1ba0297abe005fdbaab8d41858f46a940c57d6593041825bfdec",
+  "retainedOriginalRemovalReviewDigest": "28b8df71985a9576aca7ffb76837a248afa0e071f0090de19c9f2f579afa3b5e",
+  "reviewMarkerAndReceiptsPreserved": true,
+  "providerMutations": 0
+}

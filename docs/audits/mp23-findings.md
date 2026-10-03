@@ -52,7 +52,10 @@ Implementation owner: existing session `01a0e893-337f-7b82-ac5d-16f41bf5ce21` (I
 | [F22](#f22) | P1 | ClickHouse restore fails after a transient read-only verification refusal | Closed | EP-160 |
 | [F23](#f23) | P1 | Credential review can delegate to an older receipt-unaware host transport | Closed | EP-153 / EP-154 |
 | [F24](#f24) | P1 | Host image planning can start a stopped builder | Closed | EP-153 / EP-154 |
-| [F25](#f25) | P2 | Reviewed context control rejects supported builder transport inputs | Open | EP-153 |
+| [F25](#f25) | P2 | Reviewed context control rejects supported builder transport inputs | Closed | EP-153 |
+| [F26](#f26) | P1 | Removed GCS context cannot restore its retained authority | Closed | EP-153 |
+| [F27](#f27) | P1 | Credential streaming loses argument boundaries at the real SSH transport | Verifying | EP-153 / EP-154 |
+| [F28](#f28) | P1 | Release cleanup omits native evidence for adjacent scope members | Closed | EP-153 |
 
 F01 and F11 retain their [earlier independent closure](mp23-verification.md). F02, F03, F04, F05, F06, F07, F08 and F20 now have [2026-10-02 independent closure](mp23-independent-verification-2026-10-02.md). Other entries retain their status shown above.
 
@@ -683,7 +686,7 @@ rather than silently retaining its former start behavior.
 
 ## F25
 
-**Reviewed context control rejects supported builder transport inputs** — P2; **Open**; owner EP-153.
+**Reviewed context control rejects supported builder transport inputs** — P2; **Closed**; owner EP-153.
 
 **Independent installed evidence (2026-10-02):** Candidate `caa37d19` passes
 the installed cp3 gate and public profile fixture. On a fresh operator root
@@ -702,3 +705,97 @@ using canonical quoted replacement bytes. Refuse changes to those values and
 unrecognized fields. Independently execute the actual accepted GCS-authority
 roundtrip from the new operator root, checking exact original profile and remote
 head bytes throughout.
+
+**Independent native closure (2026-10-02):** The corrected source executable
+completes the real GCS-authority update, return, removal and original-review
+restore from the isolated operator root. All five transport inputs survive;
+the original operator profile and exact remote head bytes remain unchanged.
+The public field-preservation regression and negative strip/change cases pass.
+[Exact native roundtrip and executable/source binding](mp23-independent-results-2026-10-02/context-gcs-original-restore-f26-fixed.json).
+Immutable final-candidate binding remains a separate release gate.
+
+## F26
+
+**Removed GCS context cannot restore its retained authority** — P1; **Closed**; owner EP-153.
+
+**Independent native evidence (2026-10-02):** The F25 source repair permits a
+fresh copied ep150 profile to review/apply an operational input update, return
+to the original values, and complete reviewed removal while retaining all five
+existing builder transport inputs. Every step preserves the original operator
+profile and native remote head. The subsequent original-review restore refuses:
+`StoreConditionFailed` reports the removed local context file is missing.
+`openTargetStoreReadOnly` calls `openRemoteStore`, which still requires
+`readContextProfile` even when restore supplies the validated retained original
+profile. The isolated root remains removed with its original review, marker and
+completion receipts intact. [Native refusal evidence](mp23-independent-results-2026-10-02/context-gcs-restore-refusal-f26.json).
+
+**Required repair/verification:** Read the original GCS authority through a narrow
+validated removal-review capability without requiring the deleted profile. Keep
+project, bucket ownership, binding, migration and exact local path checks. Resume
+this original removal review to restore exact saved profile bytes, then verify
+completed removal/restore replay without remote writes or changes to the original
+operator root. Do not reconstruct the file manually before verification.
+
+**Independent native closure (2026-10-02):** The narrow retained-authority opener
+recovers the same failed removal review in 3.968 seconds, restoring the exact
+saved profile bytes without manual file reconstruction. Replaying the completed
+removal keeps the restored file; restore replay is idempotent. Remote head and
+original-root profile bytes remain exact. [Recovery proof](mp23-independent-results-2026-10-02/context-gcs-original-restore-f26-fixed.json)
+binds the frozen executable and reviewed source hashes; immutable final-candidate
+binding remains a separate release gate.
+
+## F27
+
+**Credential streaming loses argument boundaries at the real SSH transport** — P1; **Verifying**; owners EP-153 / EP-154.
+
+**Independent installed native evidence (2026-10-02):** Fresh immutable `3905012e`
+bootstrap successfully creates the isolated image and VM, then the original
+receipt-required credential apply stops Ambiguous. `iap-ssh.sh send-file` forwards
+multiple argv values directly to OpenSSH. Its remote shell joins the multiline
+`bash -c` script and drops the empty previous-key argument, producing “option
+requires an argument” and “$1: unbound variable”. A read-only native check proves
+the age key remains missing, no credential receipt exists, and the authentication
+input was not delivered. The original review, active transaction, VM and payload
+remain unchanged. [Exact native finding](mp23-independent-results-2026-10-02/host-send-file-ssh-quoting-f27.json).
+
+**Required repair/verification:** Serialize the send-file argv contract into one
+correctly quoted remote command, preserving empty values, multiline scripts and
+stdin streaming. Exercise actual OpenSSH remote-shell joining rather than a
+direct argv-execution stub. Version the credential transport so older payloads
+refuse before effects. Preserve the failed disposable fixture without patching
+its accepted payload; complete native credential acceptance on a new fixture
+from the corrected immutable candidate.
+
+**Independent repair verification (2026-10-02):** Source `762657ed` passes
+the real sender's SSH-shell serialization test and all six service-failure/retry
+cases. The exact retained 390 payload independently refuses protocol v3 for
+prepare, inspect and activate before target sourcing or provider access.
+[Protocol and regression evidence](mp23-independent-results-2026-10-02/host-f27-legacy-v3-refusal.json).
+Installed 762 passes the cp3 gate. Native credential acceptance remains pending
+on the new isolated `mp23-host-fixed` fixture; F27 remains Verifying.
+
+## F28
+
+**Release cleanup omits native evidence for adjacent scope members** — P1; **Closed**; owner EP-153.
+
+**Independent native evidence (2026-10-02):** A typed reviewed disposable scope
+creates a four-entry release-history ConfigMap and an adjacent sentinel ConfigMap
+in the existing cp3 namespace. The public cleanup plan then refuses “Kubernetes
+declaration lacks a packaged document source”, before saving a review or changing
+the head. Cleanup supplies only selected history-member native bytes, while
+ReplaceScope requires Verify observations of adjacent members. Generated
+application Service/PVC members have the same boundary. [Exact native reproduction](mp23-independent-results-2026-10-02/release-cleanup-adjacent-native-f28.json).
+
+**Required repair/verification:** Supply digest-bound accepted native evidence
+for exactly the planner-selected members, preserving generated contribution
+ownership and preparation guards. Resume public planning on this unchanged
+fixture; verify only history updates, current/most-recent retention, unchanged
+adjacent identity/content and unselected scope revisions, and effect-free replay.
+
+**Independent native closure (2026-10-02):** The corrected public cleanup
+reviews and applies exactly one history ConfigMap update on the same fixture.
+It retains r4 and current r1, preserves the history UID, all four other namespace
+ConfigMaps, and all 29 unselected scope revisions. Completed transaction resume
+adds no provider effect; a fresh public cleanup review has zero operations and
+applies successfully with exact native bytes preserved. [Native closure proof](mp23-independent-results-2026-10-02/release-cleanup-native-f28-fixed.json)
+binds the frozen executable; final immutable release binding remains separate.

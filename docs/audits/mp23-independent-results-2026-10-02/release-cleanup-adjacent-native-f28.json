@@ -1,0 +1,35 @@
+{
+  "finding": "F28",
+  "binarySha256": "84bc0fcef3f562e6df43c34fab238b7a807b52abe30c5db9ee89b0aa12a90187",
+  "sourceRevision": "0c6f228e3a6c09ddb8581726f33a4f235e1b8e83",
+  "context": "local",
+  "project": "tan-nb-exp",
+  "scope": "standalone:mp23-release-cleanup-proof",
+  "fixtureCreationReviewDigest": "7150b58bc17ca1b3475b43c418780fad4e82ee84b98faf4211a316984c034359",
+  "fixtureCreatedThroughTypedReviewAndPublicApply": true,
+  "fixtureCreateOperations": 2,
+  "releaseOrder": [
+    "r4",
+    "r3",
+    "r2",
+    "r1"
+  ],
+  "currentRelease": "r1",
+  "adjacentResource": "ConfigMap/personal/mp23-cleanup-adjacent",
+  "command": [
+    "cleanup",
+    "--releases",
+    "--namespace",
+    "personal",
+    "--keep-releases",
+    "1",
+    "--save-plan",
+    "REVIEW"
+  ],
+  "exit": 1,
+  "error": "nagarectl: Kubernetes declaration lacks a packaged document source",
+  "reviewCreated": false,
+  "headUnchanged": true,
+  "pruneProviderEffects": 0,
+  "diagnosis": "Only history member native bytes supplied, but same-scope Verify resources require their accepted immutable native bytes too."
+}

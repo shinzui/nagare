@@ -78,7 +78,7 @@
   },
   "imageBuild": {
     "reviewDigest": "4a9909d4c8fb5cd0ca719e58417059749760ffefe9d6d0b178feccb8dd0b2d3e",
-    "state": "converged; publication review pending",
+    "state": "converged",
     "originalReviewPreserved": true,
     "builderInstance": "nix-builder-ep150",
     "builderNumericId": "8815729645771508447",
@@ -100,5 +100,47 @@
     "independentHostAndWorkstationDecryptVerified": true,
     "freshIsolatedHomePreventedFallback": true,
     "plaintextNotPublished": true
+  },
+  "imagePublication": {
+    "reviewDigest": "2918ee35e029318148b5adbeea24f56e1d5e06493445cf9976cfaed0ffd434ef",
+    "apply": {
+      "exit": 0,
+      "seconds": 210.104
+    },
+    "nativeImageId": "3739928366127379962",
+    "status": "READY",
+    "imageName": "nagare-image-sxnyj8ycgz09"
+  },
+  "imageBinding": {
+    "reviewDigest": "8db36c3da1562d7e2b79d4246551d55fa3be31865c8c6ffe0d2e736a07fabe2e",
+    "apply": {
+      "exit": 0,
+      "seconds": 31.514
+    },
+    "onlyNewConfigKey": "nagare:nagareImageSelfLink",
+    "previousConfigValuesPreserved": 16
+  },
+  "vm": {
+    "reviewDigest": "ffdfaa12eb0e13e8cfe14e0e3c26bf336b9e0a4798be5515c7e4a259a6636902",
+    "apply": {
+      "exit": 0,
+      "seconds": 47.154
+    },
+    "createResources": 2,
+    "nativeInstanceId": "4759788940635795681",
+    "status": "RUNNING",
+    "standingVmIdentitiesAndStatesPreserved": true
+  },
+  "credentialActivation": {
+    "reviewDigest": "39831e0147ad6db0065437c89c3815bafecd18056101bbedd51c4e92369f5257",
+    "apply": {
+      "exit": 1,
+      "seconds": 29.864
+    },
+    "result": "Ambiguous; F27 actual SSH argument serialization defect",
+    "readOnlyKeyStatus": "missing",
+    "inputDelivered": false,
+    "originalTransactionAndPayloadPreserved": true,
+    "acceptanceDisposition": "Diagnostic disposable fixture; no in-place patch or old-transaction compatibility extension. Use corrected immutable candidate in new mp23-host-fixed fixture."
   }
 }
