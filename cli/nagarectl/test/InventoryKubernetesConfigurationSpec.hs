@@ -3,6 +3,7 @@ module InventoryKubernetesConfigurationSpec (kubernetesConfigurationTests) where
 import Control.Monad (forM_)
 import Data.Aeson
 import Data.Aeson.KeyMap qualified as KM
+import Data.ByteString.Lazy qualified as BL
 import Data.Either (isLeft)
 import Data.IORef
 import Data.Map.Strict qualified as Map
@@ -13,6 +14,7 @@ import Nagare.Inventory.Digest
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect))
 import Nagare.Inventory.Kubernetes
 import Nagare.Inventory.KubernetesConfiguration
+import Nagare.Inventory.ObservationNative (observationBytesFromMutation)
 import Nagare.Resource.Kubernetes
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
@@ -60,6 +62,18 @@ kubernetesConfigurationTests =
         reviewed <- adapterPrepare adapter K.updateOperation >>= K.expectRight
         mutation <- K.expectRight (eitherDecodeStrict' (preparedNativeBytes reviewed))
         mutationVersion mutation @?= 2
+        let extract operation native =
+              observationBytesFromMutation
+                (kubernetesContext runtime)
+                "kubernetes-conditional-object"
+                "1"
+                operation
+                native
+        extract K.updateOperation (preparedNativeBytes reviewed) @?= Right (Just bytes)
+        extract K.updateOperation (preparedNativeBytes oldReview) @?= Right (Just bytes)
+        assertBool
+          "version 2 non-update observation accepted"
+          (isLeft (extract K.createOperation (BL.toStrict (encode (mutation {mutationAction = CreateResource})))))
         writeIORef state (KubernetesNotReady K.physical "5" (Just K.resource) (contentDigest "old-configuration"))
         adapterPreflight legacy K.updateOperation oldReview >>= assertBool "legacy review changed semantics" . isLeft
         adapterPreflight legacy K.updateOperation reviewed >>= assertBool "v2 ran without its observation capability" . isLeft
