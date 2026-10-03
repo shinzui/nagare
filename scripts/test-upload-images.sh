@@ -37,6 +37,12 @@ else
 fi
 EOF
 
+sed -e "s|@BASH@|$(command -v bash)|g" >"$work/bin/nagarectl" <<'EOF'
+#!@BASH@
+printf 'nagarectl argv=%s\n' "$*" >> "$NAGARE_TEST_LOG"
+[ "${NAGARE_TEST_ADMITTED:-0}" = 0 ] || { echo 'legacy mutation refused: admitted inventory history' >&2; exit 1; }
+EOF
+chmod +x "$work/bin/nagarectl"
 sed -e "s|@BASH@|$(command -v bash)|g" >"$work/bin/pulumi" <<'EOF'
 #!@BASH@
 set -eu
@@ -195,7 +201,18 @@ grep -q '^shared builder exception: yes (shared-project)$' <<<"$shared_output"
 grep -q 'ProxyCommand.*"shared-project".*"us-west1-a".*"nix-builder-x86"' "$builder_dir/ssh_config"
 
 : >"$work/tools.log"
+if NAGARE_TEST_ADMITTED=1 bash scripts/upload-images.sh >"$work/admitted.out" 2>"$work/admitted.err"; then
+  echo "legacy direct publish ran on an admitted context" >&2
+  exit 1
+fi
+grep -q 'nagarectl argv=inventory guard-legacy upload-images' "$work/tools.log"
+if grep -Eq '^(nix|gsutil|gcloud|pulumi) ' "$work/tools.log"; then
+  echo "refused legacy publish still built or published" >&2
+  exit 1
+fi
+: >"$work/tools.log"
 bash scripts/upload-images.sh >"$work/real.out" 2>"$work/real.err"
+grep -q 'nagarectl argv=inventory guard-legacy upload-images' "$work/tools.log"
 grep -q '^builder project: labs-project$' "$work/real.err"
 grep -q 'nix NIX_SSHOPTS= argv=build --builders ssh-ng://builder@localhost:28157 x86_64-linux /etc/nix/builder_ed25519 4 1 big-parallel,benchmark,kvm - .* --print-out-paths --no-link .#packages.x86_64-linux.nagare-image --no-update-lock-file$' "$work/tools.log"
 if grep -q '/etc/nix/machines' "$work/tools.log"; then

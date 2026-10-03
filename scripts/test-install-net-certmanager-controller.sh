@@ -14,6 +14,14 @@ printf '%s\n' 'nagare/net-certmanager-controller:v1.14.0-nagare.1' \
 printf '%s\n' 'fixture image archive' \
   > "$payload/cluster/bootstrap/net-certmanager/nagare-net-certmanager-controller.tar.gz"
 
+sed -e "s|@BASH@|$(command -v bash)|g" > "$fake_bin/nagarectl" <<'NAGARECTL'
+#!@BASH@
+set -euo pipefail
+printf '%s %s\n' 'nagarectl' "$*" >> "${NAGARE_TEST_LOG:?}"
+[ "${NAGARE_TEST_ADMITTED:-0}" = 0 ] || { echo 'legacy mutation refused: admitted inventory history' >&2; exit 1; }
+NAGARECTL
+chmod +x "$fake_bin/nagarectl"
+
 for tool in k3d kubectl; do
   sed -e "s/@TOOL@/$tool/g" -e "s|@BASH@|$(command -v bash)|g" > "$fake_bin/$tool" <<'EOF'
 #!@BASH@
@@ -38,15 +46,30 @@ export NAGARE_TEST_LOG="$log"
 export PATH="$fake_bin:$PATH"
 
 bash "$repo_root/scripts/install-net-certmanager-controller.sh" --k3d-cluster nagare-test
+if grep -q '^nagarectl ' "$log"; then echo 'disposable k3d import consulted the context guard' >&2; exit 1; fi
 grep -Fqx "k3d image import $payload/cluster/bootstrap/net-certmanager/nagare-net-certmanager-controller.tar.gz --cluster nagare-test" "$log"
 grep -Fqx 'kubectl -n knative-serving set image deployment/net-certmanager-controller controller=nagare/net-certmanager-controller:v1.14.0-nagare.1' "$log"
 grep -Fqx 'kubectl -n knative-serving rollout status deployment/net-certmanager-controller --timeout=5m' "$log"
 
 : > "$log"
 bash "$repo_root/scripts/install-net-certmanager-controller.sh" --cloud-instance nagare-01
+grep -Fqx 'nagarectl inventory guard-legacy install-net-certmanager-controller' "$log"
 grep -Eq "^iap-ssh scp $payload/cluster/bootstrap/net-certmanager/nagare-net-certmanager-controller.tar.gz nagare-01:/tmp/nagare-net-certmanager-controller-[0-9]+.tar.gz$" "$log"
 grep -Eq '^iap-ssh ssh nagare-01 -- set -eu; trap .*sudo k3s ctr images import .* >/dev/null$' "$log"
 grep -Fqx 'kubectl -n knative-serving set image deployment/net-certmanager-controller controller=nagare/net-certmanager-controller:v1.14.0-nagare.1' "$log"
+
+for target in '--cloud-instance nagare-01' '--k3d-cluster nagare-local'; do
+  : > "$log"
+  # shellcheck disable=SC2086
+  if NAGARE_TEST_ADMITTED=1 bash "$repo_root/scripts/install-net-certmanager-controller.sh" $target > /dev/null 2>&1; then
+    echo "admitted context accepted a direct controller import ($target)" >&2
+    exit 1
+  fi
+  if grep -Eq '^(k3d|kubectl|iap-ssh) ' "$log"; then
+    echo "refused direct import still touched the cluster ($target)" >&2
+    exit 1
+  fi
+done
 
 if bash "$repo_root/scripts/install-net-certmanager-controller.sh" --k3d-cluster '../../foreign' > /dev/null 2>&1; then
   echo 'unsafe k3d cluster name unexpectedly accepted' >&2

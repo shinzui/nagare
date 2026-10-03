@@ -120,13 +120,17 @@ ENTRYPOINTS = {
     "scripts/live-smoke.sh": ("nagarectl app image-plan", "--image-resource", "nagarectl storage snapshot", "--snapshot-id", "nagarectl storage restore", "--restore-id", "nagarectl inventory apply"),
     "scripts/run-reviewed-bootstrap.sh": ("platform bootstrap plan", "platform bootstrap apply"),
     "scripts/host-switch.sh": ("NAGARE_INVENTORY_ADAPTER_CHILD",),
-    "scripts/upload-images.sh": ("NAGARE_INVENTORY_ADAPTER_CHILD",),
+    "scripts/upload-images.sh": ("NAGARE_INVENTORY_ADAPTER_CHILD", "inventory guard-legacy upload-images"),
+    "scripts/install-net-certmanager-controller.sh": ("inventory guard-legacy install-net-certmanager-controller",),
+    # Delegated operator build infrastructure; never inventory-managed.
+    "scripts/setup-nix-builder.sh": ("NAGARE_INVENTORY_ADAPTER_CHILD",),
+    "scripts/nix-builder-proxy.sh": ("--read-only",),
     "scripts/vm-power.sh": ("NAGARE_INVENTORY_ADAPTER_CHILD",),
     "scripts/iap-ssh.sh": ("gcloud",),
     "scripts/inventory-host-transport.sh": ("NAGARE_INVENTORY",),
     "scripts/inventory-artifact-transport.sh": ("NAGARE_INVENTORY",),
     "scripts/inventory-cache-transport.sh": ("NAGARE_INVENTORY",),
-    "justfile": ("vm-stop *args:", "vm-start *args:", 'host-switch review="":', "cluster-bootstrap:", "local-bootstrap:", "smoke:", "local-smoke:"),
+    "justfile": ("vm-stop *args:", "vm-start *args:", 'host-switch review="":', "cluster-bootstrap:", "local-bootstrap:", "smoke:", "local-smoke:", "nagarectl inventory guard-legacy local-down"),
 }
 
 SMOKE_BYPASS_PATTERNS = (
@@ -382,14 +386,12 @@ def catalogue_gaps(body: str) -> list[str]:
         if not line.startswith("| ") or line.startswith("| Mutation family"):
             continue
         cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        # `excluded` rows are explicit guarded exclusions: their routes refuse
+        # new admission and the catalogue names the guard.
         if len(cells) == 8 and cells[-1] in {
             "partial", "adapter-ready", "unavailable-after-admission"
         }:
-            if cells[0] not in {
-                "Coarse platform version upgrade",
-                "Legacy platform release adoption and predeployment re-pin",
-            }:
-                gaps.append(cells[0])
+            gaps.append(cells[0])
     return gaps
 
 

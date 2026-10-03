@@ -193,9 +193,10 @@ shomei and en on local managed Postgres, and installs a self-signed
 `nagare-local-ca` `ClusterIssuer`:
 
 ```bash
-# Build + push shomei, en, and nagare-access to k3d-registry.localhost:5000,
-# create the shomei-db/en-db managed Postgres, install the auth manifests, and
-# stand up the nagare-local-ca ClusterIssuer + Knative auto-TLS wiring.
+# Build shomei, en, and nagare-access into k3d-registry.localhost:5000 and export
+# NAGARE_AUTH_{SHOMEI,EN,ACCESS}_IMAGE with their digests (see the access guide).
+# The installer then runs the reviewed platform bootstrap, which owns the
+# shomei-db/en-db databases, the auth workloads and their generated Secrets.
 cluster/bootstrap/local-auth/install.sh
 ```
 

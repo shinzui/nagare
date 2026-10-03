@@ -45,8 +45,9 @@ each read, records provider IDs and versions in the private review, and refuses
 an update when the observed old state changes. A lost write acknowledgement
 requires operator recovery. Set `CF_ZONE_ID`, `CF_ACCOUNT_ID`, and
 `CF_API_TOKEN` for that reviewed route. Create and accept the platform zone
-grant before reviewing a workload. Direct Cloudflare deploy remains available
-only in contexts with no accepted or retained Cloudflare zone owner.
+grant before reviewing a workload. There is no direct Cloudflare deploy path. The
+platform zone grant is declared through `nagarectl inventory compile --input`, and
+Cloudflare proof is offline in this release: no live Cloudflare mutation is claimed.
 Google CDN uses the standing cache policy owned by Pulumi; a
 per-application TTL, cache-mode change, or path rule refuses during planning.
 For the base-domain apex, direct deploy reads and checks the Pulumi-owned A

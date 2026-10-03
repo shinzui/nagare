@@ -48,6 +48,12 @@ if [ "$REQUIRE_READ_ONLY" -eq 1 ] && [ "$BUILD_MODE" != inspect-build ] && [ "$B
   echo '--require-read-only requires an inspection mode' >&2
   exit 2
 fi
+# Outside the artifact adapter, the legacy publish path also writes the
+# inventory-managed Pulumi config (nagareImageSelfLink). Refuse it once the
+# context has inventory history; reviewed host image publication replaces it.
+if [ "${NAGARE_INVENTORY_ADAPTER_CHILD:-}" != "artifact" ] && [ "$DRY_RUN" -eq 0 ] && [ "$BUILD_MODE" = publish ]; then
+  "${NAGARECTL_BIN:-nagarectl}" inventory guard-legacy upload-images
+fi
 
 # Load the target profile and run the configurable, fail-closed project-isolation
 # preflight (EP-60). Exports TARGET_PROJECT / TARGET_REGION / TARGET_ZONE.

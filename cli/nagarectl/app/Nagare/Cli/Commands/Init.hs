@@ -182,25 +182,9 @@ runNamedInit o contextName = do
     then TIO.putStrLn ("DRY RUN — would write context '" <> context <> "' and set it current.")
     else TIO.putStrLn ("Wrote context '" <> context <> "' and set it current.")
 
-  unless (o ^. #skipEnable || tp ^. #mode == Cloud) $ do
-    putStrLn "Enabling GCP service APIs..."
-    if o ^. #dryRun
-      then do
-        TIO.putStrLn "DRY RUN: would run:"
-        TIO.putStrLn ("  gcloud services enable " <> T.unwords requiredApis <> " --project=" <> project)
-      else do
-        code <- enableApis (workspace ^. #scriptsDir </> "enable-apis.sh") False
-        case code of
-          ExitSuccess -> pure ()
-          ExitFailure _ ->
-            dieT
-              ( "enable-apis failed; see the gcloud output above. The context '"
-                  <> context
-                  <> "' is written and current. After fixing the cause, re-run `nagarectl init "
-                  <> context
-                  <> " --force --skip-preflight` (it keeps the context's stored values)."
-              )
-
+  -- Named contexts never enable cloud APIs here: a cloud context's reviewed
+  -- foundation scope owns them, and a local context must not call gcloud at
+  -- all, because the project guardrail steps aside in local mode.
   unless (o ^. #skipSeed || tp ^. #mode == Cloud) $ do
     putStrLn "Seeding Pulumi stack config from the profile..."
     bootstrapResult <- bootstrapPulumiStateBucket (o ^. #dryRun) context tp (T.pack <$> o ^. #pulumiBackendMember)

@@ -92,6 +92,7 @@ refuse 'context replacement' context create guarded --force --project other-proj
 refuse 'named init' init guarded --project other-project --skip-preflight
 refuse 'legacy init' --context guarded init --project other-project --skip-preflight
 refuse 'confirmed cleanup' --context guarded cleanup --confirm
+refuse 'legacy infra destroy' --context guarded infra destroy --yes
 refuse 'host compatibility guard' --context guarded inventory guard-legacy host-switch
 refuse 'host credential placement' host place-age-key --context guarded --key-file "$fixture_root/missing-age-key"
 refuse 'platform adoption' --context guarded platform adopt --version 0.2.2 --yes

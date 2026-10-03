@@ -219,6 +219,7 @@ local-up:
 [group('local')]
 local-down:
     @if [ -z "${NAGARE_UPGRADE_APPLY:-}" ]; then nagarectl platform guard; fi
+    nagarectl inventory guard-legacy local-down
     k3d cluster delete nagare-local
 
 # Reconcile the complete local bootstrap inventory against the selected k3d

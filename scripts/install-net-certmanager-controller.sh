@@ -64,6 +64,15 @@ case "${cluster:-${instance:-}}" in
     ;;
 esac
 
+# Production installs the patched controller through the reviewed bootstrap
+# (artifact adapter plus Kubernetes review). This direct import is a test and
+# pre-admission helper: it refuses once the active context has inventory
+# history, except for an explicitly named disposable k3d test cluster, which
+# cannot hold Nagare inventory.
+if [ -n "$instance" ] || [ "$cluster" = "nagare-local" ]; then
+  "${NAGARECTL_BIN:-nagarectl}" inventory guard-legacy install-net-certmanager-controller
+fi
+
 reference_file="$root/cluster/bootstrap/net-certmanager/image-reference"
 if [ ! -f "$reference_file" ]; then
   echo "error: missing patched controller reference: $reference_file" >&2

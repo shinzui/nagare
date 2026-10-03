@@ -47,37 +47,35 @@ deployment = do
 
 ## Install the optional auth plane
 
-> **Local mode:** the steps below are the cloud install. To run the auth plane on
-> a local k3d cluster, use the scripted local installer
-> `cluster/bootstrap/local-auth/install.sh`. Build and push the three images, create
-> `shomei-db` and `en-db`, and install local TLS first; the installer applies the
-> auth manifests, generates the required Secrets, and runs both migration Jobs. See
+> **Local mode:** on a local k3d cluster, `cluster/bootstrap/local-auth/install.sh`
+> runs the same reviewed platform bootstrap. Build the three images and install local
+> TLS first, then export the three image references as shown below. See
 > [Local development → optional auth plane](local-development.md#optional-the-auth-plane).
 
-The auth plane is not part of `just cluster-bootstrap`. Install it only on
-clusters that need protected sites:
+The auth plane is a reviewed platform component. `nagarectl platform bootstrap`
+composes it together with the other platform scopes: the `shomei-db` and `en-db`
+managed databases, the `nagare-system` namespace, the generated credentials, the
+migration Jobs and the three workloads. Build the three images first, then pass
+their immutable references to the reviewed bootstrap:
 
 ```bash
-kubectl create namespace nagare-system --dry-run=client -o yaml | kubectl apply -f -
-
-nagarectl db create postgres shomei-db --namespace nagare-system
-nagarectl db create postgres en-db --namespace nagare-system
-
 for service in shomei en nagare-access; do
-  cluster/bootstrap/auth-images/build-local-image.sh "$service"
+  cluster/bootstrap/auth-images/build-local-image.sh "$service"   # prints the image reference
 done
 
-cp cluster/bootstrap/nagare-access/secret.example.yaml.tmpl /tmp/nagare-access-secret.yaml
-# edit /tmp/nagare-access-secret.yaml before applying it
-kubectl apply -f /tmp/nagare-access-secret.yaml
+export NAGARE_AUTH_SHOMEI_IMAGE=<registry>/shomei@sha256:<digest>
+export NAGARE_AUTH_EN_IMAGE=<registry>/en@sha256:<digest>
+export NAGARE_AUTH_ACCESS_IMAGE=<registry>/nagare-access@sha256:<digest>
 
-cluster/bootstrap/auth-install.sh
+nagarectl platform bootstrap plan --out ./platform-review
+nagarectl platform bootstrap apply ./platform-review --yes
 ```
 
-Before applying for real, edit the Secret template:
-
-- `cluster/bootstrap/nagare-access/secret.example.yaml.tmpl` needs a long random
-  `cookie-key`.
+`cluster/bootstrap/auth-install.sh` runs the same plan and apply. Do not create the
+namespace, the databases or the `nagare-access` Secret with `kubectl` or
+`nagarectl db create` first: they are inventory members of the auth component, and a
+pre-existing object at their addresses is refused as unowned. The bootstrap generates
+the `nagare-access` cookie key the first time it creates that Secret.
 
 The installer generates and preserves En's read-write/read-only API keys and Shomei's
 mandatory key-encryption key. It never prints or commits those generated values.
