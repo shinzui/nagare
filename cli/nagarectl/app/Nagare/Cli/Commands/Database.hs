@@ -26,6 +26,11 @@ import Nagare.Cli.Data.ScheduledReceipts
   ( runListScheduledReceipts
   , runReviewedScheduledReceiptPlan
   )
+import Nagare.Cli.Data.SigningKeyEscrow
+  ( defaultEscrowPath
+  , runEscrowSigningKey
+  , runVerifyEscrowedBackup
+  )
 import Nagare.Cli.Inventory.Execution
   ( inventoryExecutionRegistry
   )
@@ -67,13 +72,14 @@ import Nagare.Inventory.DataService
   , compileStandaloneDatabase
   , databaseNativeOwned
   )
+import Nagare.Inventory.Database (DatabaseBackupTarget (DatabaseBackupTarget))
 import Nagare.Inventory.Plan qualified as InventoryPlan
 import Nagare.Inventory.Status qualified as InventoryStatus
 import Nagare.Resource.Database (DatabaseDirectInput (..))
 import Nagare.Resource.Inventory qualified as ResourceInventory
 import Nagare.Resource.Policy (RecoveryIntent (..), mkSecretRef)
 import Nagare.Resource.Types qualified as Resource
-import Nagare.Target (storeBackendFor)
+import Nagare.Target (contextNameText, storeBackendFor)
 
 -- | Dispatch the @db@ subcommands (MasterPlan 9, EP-45). The namespace defaults
 -- to @personal@. EP-47 adds @DbBackup@/@DbRestore@ cases here.
@@ -205,6 +211,16 @@ runDb mctx = \case
         (o ^. #bucket)
         (o ^. #checkFreshness)
     _ -> dieT "scheduled receipt ingestion requires both --backup-id and --save-plan"
+  DbEscrowSigningKey o ->
+    runEscrowSigningKey mctx (T.pack (o ^. #name)) (nsOf (o ^. #namespace)) (o ^. #output)
+  DbVerifyEscrowedBackup o -> do
+    active <- activeTarget mctx
+    path <-
+      maybe
+        (defaultEscrowPath (contextNameText (active ^. #contextName)) (nsOf (o ^. #namespace)) (T.pack (o ^. #name)))
+        pure
+        (o ^. #escrow)
+    runVerifyEscrowedBackup mctx (T.pack (o ^. #name)) (nsOf (o ^. #namespace)) path (o ^. #bucket) (T.pack (o ^. #backupId))
   DbManualReceipt o -> case (o ^. #backupId, o ^. #savePlan) of
     (Just selected, Just output) ->
       runReviewedManualReceiptPlan
@@ -297,7 +313,13 @@ runDisableBackupPrunePlan mctx name namespaceName output = do
     either
       (dieT . T.pack . show)
       pure
-      (compileBackupPruneRemovalScope name namespaceName backend scope acceptedNative)
+      ( compileBackupPruneRemovalScope
+          name
+          namespaceName
+          (DatabaseBackupTarget backend (active ^. #profile . #backupRecoveryPoint))
+          scope
+          acceptedNative
+      )
   candidate <-
     either
       (dieT . T.pack . show)
@@ -348,7 +370,7 @@ runDbCreatePlan mctx eng name params backupName keyVersion output = do
   (cluster, namespaceId) <- either dieT pure (acceptedFoundationNamespace snapshot namespaceName)
   let direct = DatabaseDirectInput db owner cluster (Just namespaceId) recovery source
   backend <- either dieT pure (storeBackendFor (active ^. #profile) (active ^. #profile . #backupBucket))
-  (scope, native) <- either (dieT . T.pack . show) pure (compileStandaloneDatabase direct backend)
+  (scope, native) <- either (dieT . T.pack . show) pure (compileStandaloneDatabase direct (DatabaseBackupTarget backend (active ^. #profile . #backupRecoveryPoint)))
   candidate <-
     either
       (dieT . T.pack . show)

@@ -206,6 +206,7 @@ validate review = do
             , externalDomainTlsEnabled = after ^. #externalDomainTlsEnabled
             , acmeEmail = after ^. #acmeEmail
             , acmeDirectory = after ^. #acmeDirectory
+            , backupRecoveryPoint = after ^. #backupRecoveryPoint
             }
     canonical <- renderProfileReplacementPreserving (original review) after
     unless (next == canonical) (Left "replacement profile must use canonical quoted exports without extra shell commands")

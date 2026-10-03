@@ -17,12 +17,14 @@ import Nagare.Cli.Options
   , DbBackupReceiptsOpts (..)
   , DbCommand (..)
   , DbCreateOpts (..)
+  , DbEscrowSigningKeyOpts (..)
   , DbListOpts (..)
   , DbNameOpts (..)
   , DbPruneBackupOpts (..)
   , DbPruneScheduledBackupsOpts (..)
   , DbRecoverScheduledPruneOpts (..)
   , DbRestoreOpts (..)
+  , DbVerifyEscrowedBackupOpts (..)
   , StandaloneRetireOpts (..)
   , StorageCommand (..)
   )
@@ -209,7 +211,23 @@ dbBackupReceiptsOptsParser =
     <*> dbBackupBucketOpt
     <*> optional (strOption (long "backup-id" <> metavar "JOB_UID" <> help "Physical scheduled backup Job UID to ingest"))
     <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save an exact scheduled receipt ingestion review"))
-    <*> switch (long "check-freshness" <> help "Fail unless a verified recovery point is less than 30 minutes old (one-hour objective)")
+    <*> switch (long "check-freshness" <> help "Fail unless the newest verified recovery point is within the warning threshold of the schedule's accepted objective")
+
+dbEscrowSigningKeyOptsParser :: Parser DbEscrowSigningKeyOpts
+dbEscrowSigningKeyOptsParser =
+  DbEscrowSigningKeyOpts
+    <$> dbNameArg
+    <*> namespaceOpt
+    <*> optional (strOption (long "output" <> metavar "FILE" <> help "sops-encrypted escrow path (default: the context's cluster-secrets backup-signing directory)"))
+
+dbVerifyEscrowedBackupOptsParser :: Parser DbVerifyEscrowedBackupOpts
+dbVerifyEscrowedBackupOptsParser =
+  DbVerifyEscrowedBackupOpts
+    <$> dbNameArg
+    <*> namespaceOpt
+    <*> strOption (long "backup-id" <> metavar "JOB_UID" <> help "Physical scheduled backup Job UID to verify")
+    <*> optional (strOption (long "escrow" <> metavar "FILE" <> help "sops-encrypted escrow path (default: the context's cluster-secrets backup-signing directory)"))
+    <*> dbBackupBucketOpt
 
 dbManualReceiptOptsParser :: Parser DbBackupReceiptsOpts
 dbManualReceiptOptsParser =
@@ -533,6 +551,18 @@ dbSubparser =
           ( info
               (Db . DbBackupReceipts <$> dbBackupReceiptsOptsParser <**> helper)
               (progDesc "List accepted scheduled receipts or save one exact ingestion review")
+          )
+        <> command
+          "escrow-signing-key"
+          ( info
+              (Db . DbEscrowSigningKey <$> dbEscrowSigningKeyOptsParser <**> helper)
+              (progDesc "Escrow the scheduled-backup signing key in sops-encrypted operator material")
+          )
+        <> command
+          "verify-escrowed-backup"
+          ( info
+              (Db . DbVerifyEscrowedBackup <$> dbVerifyEscrowedBackupOptsParser <**> helper)
+              (progDesc "Verify one scheduled backup with only the escrowed key and the object store")
           )
         <> command
           "backup-receipt"

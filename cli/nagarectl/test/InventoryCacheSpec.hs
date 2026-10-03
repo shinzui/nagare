@@ -13,11 +13,13 @@ import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Cache
 import Nagare.Inventory.Adapters.CacheRuntime
+import Nagare.Inventory.BackupFreshness (RecoveryPointObjective (..))
 import Nagare.Inventory.Bootstrap (BootstrapInput (..), compileBootstrapCandidate, compilePinnedBootstrap)
 import Nagare.Inventory.Cache
 import Nagare.Inventory.Components.ControllerImage (compileControllerImage)
 import Nagare.Inventory.Components.Foundation (FoundationInput (..), compileFoundation, foundationNamespaceId)
 import Nagare.Inventory.Components.PackagedCache (compilePackagedCache, compilePackagedCacheWithVerifiedImage)
+import Nagare.Inventory.Database (DatabaseBackupTarget (DatabaseBackupTarget))
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect), mkOperationId)
 import Nagare.Inventory.KubernetesSources (validateSuppliedKubernetesMembers)
@@ -55,6 +57,7 @@ inventoryCacheTests =
               "project"
               "registry.example/project/nagare"
               "backups"
+              HourlyRecoveryPoint
               "nix-cache-bucket"
               >>= expectRight
           assertBool "released cache scope has no native members" (Map.size native >= 15)
@@ -92,6 +95,7 @@ inventoryCacheTests =
               "project"
               "registry.example/project/nagare"
               "backups"
+              HourlyRecoveryPoint
               "nix-cache-bucket"
           assertBool "malformed Attic archive reached review" (either (const True) (const False) invalidArchive)
           let archiveDigest = contentDigest "fixture-archive"
@@ -103,6 +107,7 @@ inventoryCacheTests =
               "project"
               "registry.example/project/nagare"
               "backups"
+              HourlyRecoveryPoint
               "nix-cache-bucket"
               "abcdef123456"
               imageDigest
@@ -159,11 +164,11 @@ inventoryCacheTests =
             databaseId role = ok (databaseResourceId cacheOwner (ok (mkName role)) databaseSpec)
             cacheInput = renderInput {renderDatabase = databaseId "statefulset", renderCredential = databaseId "credential"}
             binding = ContextBinding (ok (mkContextId "test")) (ok (mkName "project"))
-        (scope, native) <- compileCacheComponent databaseInput (GcsBackend "project" "bucket") cacheInput >>= expectRight
+        (scope, native) <- compileCacheComponent databaseInput (DatabaseBackupTarget (GcsBackend "project" "bucket") HourlyRecoveryPoint) cacheInput >>= expectRight
         length (concatMap declarations (scopeBundles scope)) @?= 20
         Map.size native @?= 19
         let snapshot = ok (mkScopeSnapshot binding Map.empty Map.empty)
-        (candidate, candidateNative) <- compileCacheCandidate snapshot databaseInput (GcsBackend "project" "bucket") cacheInput >>= expectRight
+        (candidate, candidateNative) <- compileCacheCandidate snapshot databaseInput (DatabaseBackupTarget (GcsBackend "project" "bucket") HourlyRecoveryPoint) cacheInput >>= expectRight
         Map.size candidateNative @?= Map.size native
         Map.size (inventoryScopes (candidateInventory candidate)) @?= 1
         let members = [member | Managed member <- inventoryDeclarations (candidateInventory candidate), member ^. #executor == KubernetesExecutor]
@@ -179,7 +184,7 @@ inventoryCacheTests =
               )
           [] -> assertFailure "cache candidate has no native members"
         let renamed = databaseInput {directDatabase = databaseSpec & #name .~ ok (mkDatabaseName "other-db")}
-        refused <- compileCacheComponent renamed (GcsBackend "project" "bucket") cacheInput
+        refused <- compileCacheComponent renamed (DatabaseBackupTarget (GcsBackend "project" "bucket") HourlyRecoveryPoint) cacheInput
         assertBool "cache transport's fixed database address was not validated" (either (const True) (const False) refused)
     , testCase "lost cache creation acknowledgement recovers from the public key and configuration" $ do
         state <- newIORef CacheMissing
@@ -229,7 +234,7 @@ inventoryCacheTests =
             cacheInput = renderInput {renderDatabase = databaseId "statefulset", renderCredential = databaseId "credential", renderNamespaceId = Just namespaceId}
             binding = ContextBinding (ok (mkContextId "test")) (ok (mkName "project"))
         (foundationBundle, _) <- compileFoundation foundationInput >>= expectRight
-        (cacheScope, _) <- compileCacheComponent databaseInput (GcsBackend "project" "bucket") cacheInput >>= expectRight
+        (cacheScope, _) <- compileCacheComponent databaseInput (DatabaseBackupTarget (GcsBackend "project" "bucket") HourlyRecoveryPoint) cacheInput >>= expectRight
         let foundationScope = ok (mkScopeDeclaration fixtureFoundationOwner [foundationBundle])
             candidate =
               composeInventory
@@ -249,7 +254,7 @@ inventoryCacheTests =
         (bootstrap, bootstrapNative) <-
           compileBootstrapCandidate
             snapshot
-            (BootstrapInput foundationInput (Just (databaseInput, GcsBackend "project" "bucket", cacheInput)) [] [])
+            (BootstrapInput foundationInput (Just (databaseInput, (DatabaseBackupTarget (GcsBackend "project" "bucket") HourlyRecoveryPoint), cacheInput)) [] [])
             >>= expectRight
         Map.size (inventoryScopes (candidateInventory bootstrap)) @?= 2
         Map.size bootstrapNative @?= 22
@@ -257,7 +262,7 @@ inventoryCacheTests =
           compilePinnedBootstrap
             snapshot
             foundationInput
-            (Just (databaseInput, GcsBackend "project" "bucket", cacheInput))
+            (Just (databaseInput, (DatabaseBackupTarget (GcsBackend "project" "bucket") HourlyRecoveryPoint), cacheInput))
             "../.."
             >>= expectRight
         Map.size (inventoryScopes (candidateInventory fullBootstrap)) @?= 6

@@ -93,12 +93,12 @@ import Nagare.Inventory.Application
       ( ApplicationScopeInput
       , scopeAccessBinding
       , scopeApplication
-      , scopeBackupBackend
       , scopeBrokerServices
       , scopeBrokerTopics
       , scopeBuildSecrets
       , scopeCdnBinding
       , scopeCluster
+      , scopeDatabaseBackup
       , scopeDatabaseRecovery
       , scopeEnvSecrets
       , scopeHookEffects
@@ -133,6 +133,7 @@ import Nagare.Inventory.Application
   )
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.DataService (acceptedFoundationNamespace)
+import Nagare.Inventory.Database (DatabaseBackupTarget (DatabaseBackupTarget))
 import Nagare.Inventory.Lifecycle qualified as InventoryLifecycle
 import Nagare.Inventory.Plan qualified as InventoryPlan
 import Nagare.Inventory.Status qualified as InventoryStatus
@@ -423,7 +424,7 @@ runAppDeployPlan mctx params appOptions output = do
           , scopeEnvSecrets = envSecrets
           , scopeBuildSecrets = buildSecrets
           , scopeWorkerVolumeRecovery = workerVolumeRecovery
-          , scopeBackupBackend = backend
+          , scopeDatabaseBackup = DatabaseBackupTarget backend (active ^. #profile . #backupRecoveryPoint)
           , scopeRelease = (priorReleases, release)
           , scopeHookEffects = hookEffects
           , scopeInputOverrides =

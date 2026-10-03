@@ -6,6 +6,7 @@ module Nagare.Test.Support.Profiles
 where
 
 import Nagare.Dsl.Prelude hiding ((<.>))
+import Nagare.Inventory.BackupFreshness (RecoveryPointObjective (..))
 import Nagare.Target
   ( InventoryStoreKind (InventoryStoreLocal)
   , Mode (Cloud)
@@ -46,6 +47,7 @@ initProfile =
     , pulumiBackendMember = Nothing
     , inventoryStore = InventoryStoreLocal
     , inventoryStoreUrl = ""
+    , backupRecoveryPoint = HourlyRecoveryPoint
     , acmeEmail = "ops@acme.example"
     , acmeDirectory = "production"
     , platformVersion = Just "0.1.0"
@@ -87,6 +89,7 @@ tnbProfile =
     , pulumiBackendMember = Nothing
     , inventoryStore = InventoryStoreLocal
     , inventoryStoreUrl = ""
+    , backupRecoveryPoint = HourlyRecoveryPoint
     , acmeEmail = ""
     , acmeDirectory = "production"
     , platformVersion = Nothing

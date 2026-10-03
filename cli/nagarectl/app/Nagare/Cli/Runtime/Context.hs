@@ -21,6 +21,7 @@ import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Cli.Runtime.Guards (guardLegacyMutationInventory)
 import Nagare.Dsl.Prelude
 import Nagare.Init (renderTargetEnv)
+import Nagare.Inventory.BackupFreshness (recoveryPointObjectiveText)
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Target
   ( ActiveTarget (ActiveTarget)
@@ -75,6 +76,7 @@ exportProfileEnv name tp = mapM_ (uncurry setOrUnset) fields
       , ("NAGARE_PULUMI_BACKEND_URL", tp ^. #pulumiBackendUrl)
       , ("NAGARE_INVENTORY_STORE", inventoryStoreToken (effectiveInventoryStore tp))
       , ("NAGARE_INVENTORY_STORE_URL", tp ^. #inventoryStoreUrl)
+      , ("NAGARE_BACKUP_RECOVERY_POINT", recoveryPointObjectiveText (tp ^. #backupRecoveryPoint))
       , ("NAGARE_REGISTRY_PREFIX", registryPrefix tp)
       , ("NAGARE_PULUMI_STACK", context)
       ]

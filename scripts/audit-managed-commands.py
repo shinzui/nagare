@@ -69,7 +69,8 @@ ROUTES = {
         "reviewed": "StorageSnapshot StorageRestore StoragePrune",
     },
     "DbCommand": {
-        "read": "DbList DbGet",
+        "read": "DbList DbGet DbVerifyEscrowedBackup",
+        "local": "DbEscrowSigningKey",
         "reviewed": "DbCreate DbRestart DbDelete DbRetire DbBackup DbPruneBackup DbBackupReceipts DbManualReceipt DbDisableBackupPrune DbRestore",
         "recovery": "DbRecoverScheduledPrune",
         "deferred": "DbShell DbPruneScheduledBackups",

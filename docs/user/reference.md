@@ -166,6 +166,7 @@ unnamed `nagarectl init` writes the old `nagare.target.env`.
 | `NAGARE_PULUMI_BACKEND` | `local` | Pulumi state backend: `local` (per-context `file://`) or `gcs` (opt-in remote, cloud-only). |
 | `NAGARE_PULUMI_BACKEND_URL` | — (derived) | explicit `gs://bucket/path`; empty + `gcs` derives `gs://<project>-nagare-pulumi-state/nagare/<context>`. |
 | `NAGARE_PLATFORM_VERSION` | current payload for new contexts | explicit per-context release intent; absent means legacy/unadopted. |
+| `NAGARE_BACKUP_RECOVERY_POINT` | `hourly` | scheduled database backup objective: `hourly` (15-minute schedule; warning at 30 minutes, breach at one hour) or `daily` (daily schedule; warning at 25 hours, breach at 26 hours). Written into each reviewed backup CronJob's signed metadata; an unrecognized value is an error. Applies to local contexts too. |
 
 See [Getting started](getting-started.md), [Target contexts](contexts.md), and
 [`CLAUDE.md`](../../CLAUDE.md) for the configurable-isolation model.
@@ -551,6 +552,8 @@ the labels `nagare.dev/managed-by: nagarectl` + `nagare.dev/database=<name>` +
 | `nagarectl db backup NAME --backup-id ID --save-plan DIR` | Save a reviewed manual backup Job and apply separately. |
 | `nagarectl db backup-receipt NAME --backup-id ID --save-plan DIR` | Verify one accepted completed manual backup against stored bytes and save a reviewed durable receipt record; apply separately, then review Job collection separately. |
 | `nagarectl db backup-receipts NAME` | List scheduled backup receipts; an exact `--backup-id ID --save-plan DIR` ingests a verified run for review and apply. |
+| `nagarectl db escrow-signing-key NAME [--output FILE]` | Write the scheduled-backup signing key, bound to the observed Secret and source UIDs, to a create-only sops-encrypted escrow in operator material. |
+| `nagarectl db verify-escrowed-backup NAME --backup-id ID [--escrow FILE]` | Verify one scheduled backup's receipt, source identities and archive hash with only the escrow and the object store; grants no restore authority. |
 | `nagarectl db prune-scheduled-backups NAME --save-plan DIR` | New scheduled pruning is deferred. Scheduled keep-N and expiry are unenforced; backups remain until supported reviewed disposal. |
 | `nagarectl db recover-scheduled-prune NAME BACKUP_ID --failed-review DIR --save-plan DIR` | Recover an already-admitted partial prune against its original failed review and exact provider evidence. |
 | `nagarectl db restore NAME BACKUP_ID --restore-id ID --save-plan DIR` | Save a reviewed PostgreSQL or ClickHouse scratch restore Job, or Redis scratch Service/PVC/StatefulSet and verification Job; apply separately. |

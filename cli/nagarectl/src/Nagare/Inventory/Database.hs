@@ -1,7 +1,11 @@
 -- | Bind the pure database bundle to exact canonical Kubernetes members.
 -- The private bytes returned here are the only native inputs suitable for a
 -- reviewed Kubernetes adapter; no YAML is rendered again at apply time.
-module Nagare.Inventory.Database (compileDatabaseForBackend) where
+module Nagare.Inventory.Database
+  ( DatabaseBackupTarget (DatabaseBackupTarget)
+  , compileDatabaseForBackend
+  )
+where
 
 import Data.Aeson (Value)
 import Data.ByteString (ByteString)
@@ -17,6 +21,7 @@ import Nagare.Database.Backup (renderInventoryDbBackupCronJob)
 import Nagare.Dsl.Database (Database (..), engineVersionText)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types (RetentionPolicy (..), databaseNameText, namespaceText)
+import Nagare.Inventory.BackupFreshness (RecoveryPointObjective)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Resource.Database
@@ -44,24 +49,34 @@ compileDatabaseNativeWithBackup input backupObject = do
   where
     digestOf value = contentDigest <$> canonicalValue value
 
+-- | Where a context's scheduled database backups are stored and which
+-- recovery-point objective sets their cadence. Both come from the active
+-- context; the objective is written into the reviewed CronJob.
+data DatabaseBackupTarget = DatabaseBackupTarget
+  { backend :: !StoreBackend
+  , objective :: !RecoveryPointObjective
+  }
+  deriving stock (Eq, Show, Generic)
+
 -- | Compile the same scheduled backup manifest the legacy database command
 -- renders, using the selected backend and the complete typed Database value.
 -- Throwaway databases intentionally have no scheduled backup.
 compileDatabaseForBackend ::
   DatabaseDirectInput ->
-  StoreBackend ->
+  DatabaseBackupTarget ->
   Either (NonEmpty InventoryError) (ResourceBundle, Map ResourceId (ManagedResource, ByteString))
-compileDatabaseForBackend input backend
+compileDatabaseForBackend input target
   | directDatabase input ^. #retention == Delete = compileDatabaseNative input
   | otherwise = do
       let database = directDatabase input
           rendered =
             renderInventoryDbBackupCronJob
+              (target ^. #objective)
               (namespaceText (database ^. #namespace))
               (databaseNameText (database ^. #name))
               (database ^. #engine)
               (engineVersionText (database ^. #version))
-              backend
+              (target ^. #backend)
               7
       backup <- first (\err -> invalid (T.pack (show err))) (Yaml.decodeEither' rendered)
       compileDatabaseNativeWithBackup input backup

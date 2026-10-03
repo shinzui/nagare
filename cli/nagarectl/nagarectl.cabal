@@ -240,6 +240,7 @@ library
     Nagare.Inventory.ScheduledPrune
     Nagare.Inventory.ScheduledReceipt
     Nagare.Inventory.ScheduledStore
+    Nagare.Inventory.SigningKeyEscrow
     Nagare.Inventory.Site
     Nagare.Inventory.Status
     Nagare.Inventory.Store
@@ -366,6 +367,7 @@ executable nagarectl
     Nagare.Cli.Data.ScheduleObservation
     Nagare.Cli.Data.ScheduledPrune
     Nagare.Cli.Data.ScheduledReceipts
+    Nagare.Cli.Data.SigningKeyEscrow
     Nagare.Cli.Dispatch
     Nagare.Cli.Environment.Selection
     Nagare.Cli.Inventory.Adapters
@@ -513,6 +515,7 @@ test-suite nagarectl-test
     InventoryVmPowerSpec
     Nagare.Test.Application
     Nagare.Test.Backend
+    Nagare.Test.Backup.Escrow
     Nagare.Test.Backup.Paths
     Nagare.Test.Backup.Prune
     Nagare.Test.Backup.Rendering

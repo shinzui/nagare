@@ -335,14 +335,18 @@ rendered `deploy` shows, for a Postgres reference:
 ## Backups and restore
 
 For a retained database, a newly reviewed `nagarectl db create` includes a
-**backup CronJob every 15 minutes** that writes to the active object store — GCS in cloud mode, MinIO in
-local mode. A newly compiled inventory-reviewed CronJob does not prune older
+**backup CronJob** that writes to the active object store: GCS in cloud mode,
+MinIO in local mode. It runs every 15 minutes under the context's default
+`hourly` recovery-point objective, or once a day under `daily`
+(`NAGARE_BACKUP_RECOVERY_POINT`). A newly compiled inventory-reviewed CronJob does not prune older
 backups. It compresses the dump to a temporary file, uploads it, reads the exact
 object back, and compares SHA-256 digests before the Job reports success. This
 requires temporary space for the compressed dump as well as the raw dump. The
 signed receipt binds the stored bytes, source identities, schedule revision and
-pre-dump recovery time. Accept that receipt through `db backup-receipts` before
-using it for restore or freshness monitoring; see [Backups and disaster recovery](backups-and-disaster-recovery.md).
+pre-dump recovery time. Freshness counts verified receipts whether or not they
+are accepted yet; accept a receipt through `db backup-receipts` before restoring
+from it. Escrow the signing key with `db escrow-signing-key`; see
+[Backups and disaster recovery](backups-and-disaster-recovery.md).
 Existing schedules change only through review. To remove inline pruning from an already accepted schedule and add readback verification, save and
 apply a focused review:
 
@@ -358,9 +362,11 @@ still prune. Jobs already started from the old template can finish and prune
 after the review is applied; inspect active backup Jobs before relying on the
 new policy. Scheduled backups retain their objects by default; generalized
 scheduled pruning is deferred, and keep-N/expiry are unenforced. Monitor storage
-usage and accepted recovery-point freshness with `db backup-receipts NAME
---check-freshness`. This warns at 30 minutes and reports a one-hour breach as
-unhealthy; a successful schedule alone does not prove source-loss recovery. A database with
+usage and recovery-point freshness with `db backup-receipts NAME
+--check-freshness`, `server status` or `doctor`. Under `hourly` they warn at 30
+minutes and report a one-hour breach as unhealthy; under `daily` the thresholds
+are 25 and 26 hours. A successful schedule alone does not prove source-loss
+recovery. A database with
 `retention = Delete` is throwaway and has no scheduled
 backup. For an accepted database, save and apply a manual backup review:
 

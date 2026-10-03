@@ -22,9 +22,11 @@ import Nagare.Dsl.Database (Database (..), Engine (Postgres), defaultEngineVersi
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Inventory.Artifact
+import Nagare.Inventory.BackupFreshness (RecoveryPointObjective)
 import Nagare.Inventory.Cache
 import Nagare.Inventory.Components.ControllerImage (inspectArchive)
 import Nagare.Inventory.Components.Foundation (FoundationInput (..), foundationNamespaceId)
+import Nagare.Inventory.Database (DatabaseBackupTarget (DatabaseBackupTarget))
 import Nagare.Resource.Database (DatabaseDirectInput (..), databaseResourceId)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
@@ -39,13 +41,14 @@ compilePackagedCache ::
   Text ->
   Text ->
   Text ->
+  RecoveryPointObjective ->
   Text ->
   IO
     ( Either
         (NonEmpty InventoryError)
         (ScopeDeclaration, ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
     )
-compilePackagedCache root foundation project registryPrefix backupBucket cacheBucket = do
+compilePackagedCache root foundation project registryPrefix backupBucket objective cacheBucket = do
   let cacheRoot = root </> "cluster/bootstrap/nix-cache"
       pinPath = cacheRoot </> "attic-pin.json"
       archivePath = cacheRoot </> "attic-server-image.tar.gz"
@@ -62,7 +65,7 @@ compilePackagedCache root foundation project registryPrefix backupBucket cacheBu
           Left reason -> pure (Left (single (invalid ("Attic payload image archive is invalid: " <> reason))))
           Right (archiveDigest, manifestDigest)
             | manifestDigest /= digest -> pure (Left (single (invalid "Attic payload image digest differs from its release pin")))
-            | otherwise -> compilePackagedCacheWithVerifiedImage root foundation project registryPrefix backupBucket cacheBucket commit digest archiveDigest
+            | otherwise -> compilePackagedCacheWithVerifiedImage root foundation project registryPrefix backupBucket objective cacheBucket commit digest archiveDigest
 
 -- | The production entry point above proves the archive bytes and OCI
 -- manifest first. Fixtures can exercise composition with those verified
@@ -73,6 +76,7 @@ compilePackagedCacheWithVerifiedImage ::
   Text ->
   Text ->
   Text ->
+  RecoveryPointObjective ->
   Text ->
   Text ->
   ContentDigest ->
@@ -82,7 +86,7 @@ compilePackagedCacheWithVerifiedImage ::
         (NonEmpty InventoryError)
         (ScopeDeclaration, ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
     )
-compilePackagedCacheWithVerifiedImage root foundation project registryPrefix backupBucket cacheBucket commit digest archiveDigest = do
+compilePackagedCacheWithVerifiedImage root foundation project registryPrefix backupBucket objective cacheBucket commit digest archiveDigest = do
   let cacheRoot = root </> "cluster/bootstrap/nix-cache"
       pinPath = cacheRoot </> "attic-pin.json"
   let owner = knownScope "cache"
@@ -146,7 +150,7 @@ compilePackagedCacheWithVerifiedImage root foundation project registryPrefix bac
           cacheBucket
           cacheRoot
           (Just namespaceId)
-  cache <- compileCacheComponent direct (GcsBackend project backupBucket) render
+  cache <- compileCacheComponent direct (DatabaseBackupTarget (GcsBackend project backupBucket) objective) render
   pure $ do
     imageScope <- compileArtifactScope (ArtifactDeclarationBundle 1 artifactOwner (artifactSpec :| []))
     (cacheScope, cacheNative) <- cache

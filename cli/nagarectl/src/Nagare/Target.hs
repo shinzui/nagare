@@ -58,6 +58,7 @@ module Nagare.Target
   , effectivePulumiBackend
   , parseInventoryStoreKind
   , inventoryStoreToken
+  , parseBackupRecoveryPoint
   , effectiveInventoryStore
   , defaultGcsInventoryStoreUrl
   , resolveActiveContext
@@ -85,6 +86,10 @@ import Nagare.Cluster.GcsJob
   , parseLocalObjectStore
   )
 import Nagare.Dsl.Prelude hiding ((<.>))
+import Nagare.Inventory.BackupFreshness
+  ( RecoveryPointObjective (..)
+  , recoveryPointObjectiveText
+  )
 import System.Directory (canonicalizePath, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, listDirectory, removeFile, renameFile)
 import System.Environment (lookupEnv)
 import System.FilePath (dropExtension, takeExtension, (<.>), (</>))
@@ -143,6 +148,14 @@ parseInventoryStoreKind raw = case fmap (map toLower) raw of
 inventoryStoreToken :: InventoryStoreKind -> Text
 inventoryStoreToken InventoryStoreLocal = "local"
 inventoryStoreToken InventoryStoreGcs = "gcs"
+
+-- | NAGARE_BACKUP_RECOVERY_POINT (MasterPlan 23, D6). Only an explicit
+-- @daily@ relaxes the objective; any other value keeps the stricter hourly
+-- preset. @scripts/lib/target.sh@ rejects unknown values before this point.
+parseBackupRecoveryPoint :: Maybe String -> RecoveryPointObjective
+parseBackupRecoveryPoint raw = case fmap (map toLower) raw of
+  Just "daily" -> DailyRecoveryPoint
+  _ -> HourlyRecoveryPoint
 
 -- | Which ACME service a context's issuer talks to (EP-112). 'AcmeProduction' is
 -- Let's Encrypt's real service; 'AcmeStaging' issues certificates that are NOT
@@ -541,6 +554,10 @@ data TargetProfile = TargetProfile
   -- ^ NAGARE_INVENTORY_STORE; local unless a cloud context explicitly selects GCS.
   , inventoryStoreUrl :: !Text
   -- ^ NAGARE_INVENTORY_STORE_URL; empty selects the context state-bucket prefix.
+  , backupRecoveryPoint :: !RecoveryPointObjective
+  -- ^ NAGARE_BACKUP_RECOVERY_POINT; the scheduled database backup objective
+  -- (@hourly@, the default, or @daily@). Rendered into each reviewed backup
+  -- CronJob, whose signed metadata then carries it to freshness grading.
   , acmeEmail :: !Text
   -- ^ NAGARE_ACME_EMAIL (EP-112), the contact address the cluster's Let's
   -- Encrypt account is registered under. Default @""@, which means NOT
@@ -667,6 +684,7 @@ renderContextShellEnv name tp penv =
     , line "NAGARE_PULUMI_BACKEND_MEMBER" (maybe "" (\member -> member) (tp ^. #pulumiBackendMember))
     , line "NAGARE_INVENTORY_STORE" (inventoryStoreToken (effectiveInventoryStore tp))
     , line "NAGARE_INVENTORY_STORE_URL" (tp ^. #inventoryStoreUrl)
+    , line "NAGARE_BACKUP_RECOVERY_POINT" (recoveryPointObjectiveText (tp ^. #backupRecoveryPoint))
     , line "NAGARE_REGISTRY_PREFIX" (registryPrefix tp)
     , line "PULUMI_HOME" (T.pack (penv ^. #home))
     , line "PULUMI_BACKEND_URL" (penv ^. #backendUrl)
@@ -875,6 +893,7 @@ profileFromContextMap ctx =
       pulumiBackendMember = T.pack <$> mapRaw ctx "NAGARE_PULUMI_BACKEND_MEMBER"
       inventoryStore = parseInventoryStoreKind (mapRaw ctx "NAGARE_INVENTORY_STORE")
       inventoryStoreUrl = mapOr ctx "NAGARE_INVENTORY_STORE_URL" ""
+      backupRecoveryPoint = parseBackupRecoveryPoint (mapRaw ctx "NAGARE_BACKUP_RECOVERY_POINT")
       acmeEmail = mapOr ctx "NAGARE_ACME_EMAIL" ""
       acmeDirectory = mapOr ctx "NAGARE_ACME_DIRECTORY" "production"
       platformVersion = T.pack <$> mapRaw ctx "NAGARE_PLATFORM_VERSION"
@@ -904,6 +923,7 @@ profileFromContextMap ctx =
         , pulumiBackendMember = pulumiBackendMember
         , inventoryStore = inventoryStore
         , inventoryStoreUrl = inventoryStoreUrl
+        , backupRecoveryPoint = backupRecoveryPoint
         , acmeEmail = acmeEmail
         , acmeDirectory = acmeDirectory
         , platformVersion = platformVersion
@@ -936,6 +956,7 @@ resolveProfileFrom ctx = do
   pulumiBackendMember <- fmap T.pack <$> ctxRaw ctx "NAGARE_PULUMI_BACKEND_MEMBER"
   inventoryStore <- parseInventoryStoreKind <$> ctxRaw ctx "NAGARE_INVENTORY_STORE"
   inventoryStoreUrl <- ctxOr ctx "NAGARE_INVENTORY_STORE_URL" ""
+  backupRecoveryPoint <- parseBackupRecoveryPoint <$> ctxRaw ctx "NAGARE_BACKUP_RECOVERY_POINT"
   acmeEmail <- ctxOr ctx "NAGARE_ACME_EMAIL" ""
   acmeDirectory <- ctxOr ctx "NAGARE_ACME_DIRECTORY" "production"
   platformVersion <- fmap T.pack <$> ctxRaw ctx "NAGARE_PLATFORM_VERSION"
@@ -966,6 +987,7 @@ resolveProfileFrom ctx = do
       , pulumiBackendMember = pulumiBackendMember
       , inventoryStore = inventoryStore
       , inventoryStoreUrl = inventoryStoreUrl
+      , backupRecoveryPoint = backupRecoveryPoint
       , acmeEmail = acmeEmail
       , acmeDirectory = acmeDirectory
       , platformVersion = platformVersion
@@ -1003,6 +1025,8 @@ resolveActiveTarget arg = do
                 .~ (storedProfile ^. #inventoryStore)
                 & #inventoryStoreUrl
                 .~ (storedProfile ^. #inventoryStoreUrl)
+                & #backupRecoveryPoint
+                .~ (storedProfile ^. #backupRecoveryPoint)
                 & #pulumiBackend
                 .~ (storedProfile ^. #pulumiBackend)
                 & #pulumiBackendUrl

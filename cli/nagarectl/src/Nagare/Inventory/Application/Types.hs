@@ -20,6 +20,7 @@ import Nagare.Dsl.Broker (BrokerName, TopicName)
 import Nagare.Dsl.Database (Engine)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types (DatabaseName, SecretName, VolumeName)
+import Nagare.Inventory.Database (DatabaseBackupTarget)
 import Nagare.Resource.Inventory (Declaration, ManagedResource)
 import Nagare.Resource.Policy (RecoveryIntent)
 import Nagare.Resource.Types
@@ -90,7 +91,8 @@ data ApplicationScopeInput = ApplicationScopeInput
   , scopeBuildSecrets :: !(Set.Set SecretName)
   -- ^ Build-only references proved by the accepted image publication inputs.
   , scopeWorkerVolumeRecovery :: !(Map ResourceId RecoveryIntent)
-  , scopeBackupBackend :: !StoreBackend
+  , scopeDatabaseBackup :: !DatabaseBackupTarget
+  -- ^ Backup store and recovery-point objective of the active context.
   , scopeRelease :: !(StaticReleaseLog, StaticRelease)
   -- ^ Accepted prior log and the release this rollout records. The command
   -- service must source the prior log from immutable accepted native evidence.

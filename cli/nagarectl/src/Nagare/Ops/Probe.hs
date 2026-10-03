@@ -66,7 +66,7 @@ import Data.Text qualified as T
 import Data.Text.Encoding (decodeUtf8)
 import Data.Vector qualified as V
 import Nagare.Dsl.Prelude
-import Nagare.Inventory.BackupFreshness (BackupFreshness (..), renderBackupFreshness)
+import Nagare.Inventory.BackupFreshness (BackupFreshness (..), RecoveryPointGrade (RecoveryPointGrade), recoveryPointDetail)
 import System.Exit (ExitCode (..))
 
 -- ---------------------------------------------------------------------------
@@ -264,18 +264,19 @@ parseNewestBackupAge out =
 backupPrefixes :: [Text] -> [Text]
 backupPrefixes _ = ["litestream", "volumes"]
 
--- | One managed database's recovery point, graded from accepted, verified
--- signed receipts against the one-hour objective. Object timestamps are not
--- evidence. A source that cannot be observed is unknown, never healthy.
-recoveryPointProbe :: Text -> Either Text BackupFreshness -> Probe
+-- | One managed database's recovery point, graded from verified signed
+-- receipts (accepted, or verified and awaiting ingestion) against the accepted
+-- schedule's objective. Object timestamps are not evidence. A source that
+-- cannot be observed is unknown, never healthy.
+recoveryPointProbe :: Text -> Either Text RecoveryPointGrade -> Probe
 recoveryPointProbe database result = Probe "recovery point" grade (database <> ": " <> detail)
   where
     grade = case result of
       Left _ -> StatusUnknown
-      Right (Fresh _) -> StatusOk
-      Right (Deteriorating _) -> StatusWarn
+      Right (RecoveryPointGrade _ (Fresh _) _) -> StatusOk
+      Right (RecoveryPointGrade _ (Deteriorating _) _) -> StatusWarn
       Right _ -> StatusFail
-    detail = either ("receipts unobservable: " <>) (fromMaybe "" . T.stripPrefix "Recovery-point freshness: " . renderBackupFreshness) result
+    detail = either ("receipts unobservable: " <>) recoveryPointDetail result
 
 -- | Extract a @"<Use%> of <Size>"@ description for a given mountpoint from
 -- @df -h@ output. The standard six columns are

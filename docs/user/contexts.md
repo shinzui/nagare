@@ -57,6 +57,7 @@ The core fields are:
 | Build platform | `NAGARE_TARGET_PLATFORM` |
 | Mode | `NAGARE_MODE` (`cloud` or `local`) |
 | Local object store | `NAGARE_LOCAL_OBJECT_STORE` |
+| Backup recovery point | `NAGARE_BACKUP_RECOVERY_POINT` (`hourly`, the default, or `daily` — see [Backups](backups-and-disaster-recovery.md#managed-databases-backed-up-by-default)) |
 
 ## Commands
 

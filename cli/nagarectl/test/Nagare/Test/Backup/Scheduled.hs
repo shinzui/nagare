@@ -47,10 +47,18 @@ import Nagare.Inventory.Backup
     , scheduledKeep
     , scheduledMetadataDigest
     , scheduledObjectPrefix
+    , scheduledObjective
     )
   , scheduledReceiptExpectationFromCronJob
   )
-import Nagare.Inventory.BackupFreshness (BackupFreshness (..), backupFreshness)
+import Nagare.Inventory.BackupFreshness
+  ( BackupFreshness (..)
+  , RecoveryPointGrade (RecoveryPointGrade)
+  , RecoveryPointObjective (..)
+  , backupFreshness
+  , parseRecoveryPointObjective
+  , recoveryPointDetail
+  )
 import Nagare.Inventory.ScheduledGcs (parseGcsObjectListing)
 import Nagare.Inventory.ScheduledIngest
   ( ingestScriptFor
@@ -98,12 +106,55 @@ scheduledReceiptTests =
   [ testCase "backup freshness uses the recovery point and warns before the one-hour breach" $ do
       let now = UTCTime (fromGregorian 2026 10 2) 43200
           ago seconds = addUTCTime (negate seconds) now
-      backupFreshness now [] @?= NoRecoveryPoint
-      backupFreshness now [ago 7200, ago 900] @?= Fresh 900
-      backupFreshness now [ago 1800] @?= Deteriorating 1800
-      backupFreshness now [ago 3599] @?= Deteriorating 3599
-      backupFreshness now [ago 3600] @?= Breached 3600
-      backupFreshness now [addUTCTime 1 now] @?= FutureRecoveryPoint
+      backupFreshness HourlyRecoveryPoint now [] @?= NoRecoveryPoint
+      backupFreshness HourlyRecoveryPoint now [ago 7200, ago 900] @?= Fresh 900
+      backupFreshness HourlyRecoveryPoint now [ago 1800] @?= Deteriorating 1800
+      backupFreshness HourlyRecoveryPoint now [ago 3599] @?= Deteriorating 3599
+      backupFreshness HourlyRecoveryPoint now [ago 3600] @?= Breached 3600
+      backupFreshness HourlyRecoveryPoint now [addUTCTime 1 now] @?= FutureRecoveryPoint
+  , testCase "daily recovery-point objective warns at 25 hours and breaches at 26" $ do
+      let now = UTCTime (fromGregorian 2026 10 2) 43200
+          ago seconds = addUTCTime (negate seconds) now
+      backupFreshness DailyRecoveryPoint now [ago 3600] @?= Fresh 3600
+      backupFreshness DailyRecoveryPoint now [ago 89999] @?= Fresh 89999
+      backupFreshness DailyRecoveryPoint now [ago 90000] @?= Deteriorating 90000
+      backupFreshness DailyRecoveryPoint now [ago 93600] @?= Breached 93600
+      map parseRecoveryPointObjective ["hourly", "daily"] @?= [Right HourlyRecoveryPoint, Right DailyRecoveryPoint]
+      assertBool "an unknown objective was accepted" (isLeft (parseRecoveryPointObjective "weekly"))
+      recoveryPointDetail (RecoveryPointGrade DailyRecoveryPoint (Fresh 600) True)
+        @?= "healthy; age=600s; objective=daily; newest point is verified and awaits reviewed ingestion"
+      recoveryPointDetail (RecoveryPointGrade HourlyRecoveryPoint (Breached 3600) False)
+        @?= "unhealthy; age=3600s; hourly objective breached"
+  , testCase "daily schedules bind their objective into signed metadata; hourly bytes are unchanged" $ do
+      let decode bytes = either (error . show) id (Yaml.decodeEither' bytes :: Either Yaml.ParseException Aeson.Value)
+          hourly = decode (renderInventoryDbBackupCronJob HourlyRecoveryPoint "personal" "mydb" Postgres "18" localMinioBackend 7)
+          daily = decode (renderInventoryDbBackupCronJob DailyRecoveryPoint "personal" "mydb" Postgres "18" localMinioBackend 7)
+          scheduleOf value = case value of
+            Aeson.Object root
+              | Just (Aeson.Object spec) <- KeyMap.lookup "spec" root ->
+                  KeyMap.lookup "schedule" spec
+            _ -> Nothing
+          uid = either (error . T.unpack) id (Resource.mkPhysicalIdentity "22222222-2222-2222-2222-222222222222")
+          expect value =
+            scheduledReceiptExpectationFromCronJob
+              localMinioBackend
+              "personal"
+              "mydb"
+              uid
+              uid
+              (either (error . T.unpack) id (canonicalValue value))
+      scheduleOf hourly @?= Just (Aeson.String "*/15 * * * *")
+      scheduleOf daily @?= Just (Aeson.String "17 3 * * *")
+      -- The parser accepts hourly metadata only with exactly the seven
+      -- original fields, so this also proves hourly bytes did not change.
+      fmap scheduledObjective (expect hourly) @?= Right HourlyRecoveryPoint
+      fmap scheduledObjective (expect daily) @?= Right DailyRecoveryPoint
+      let retimed = case daily of
+            Aeson.Object root
+              | Just (Aeson.Object spec) <- KeyMap.lookup "spec" root ->
+                  Aeson.Object (KeyMap.insert "spec" (Aeson.Object (KeyMap.insert "schedule" (Aeson.String "*/15 * * * *") spec)) root)
+            other -> other
+      assertBool "a daily objective accepted an hourly cadence" (isLeft (expect retimed))
   , testCase "scheduled GCS listing validates complete provider identities" $ do
       let entry :: Text -> Text -> Text -> Aeson.Value
           entry bucket name generation =
@@ -143,7 +194,7 @@ scheduledReceiptTests =
           (T.unpack (ingestScriptFor tnbGcsBackend))
       assertBool errors (status == ExitSuccess)
   , testCase "scheduled backup receipt expectation comes from accepted CronJob bytes" $ do
-      let rendered = renderInventoryDbBackupCronJob "personal" "mydb" Postgres "18" localMinioBackend 7
+      let rendered = renderInventoryDbBackupCronJob HourlyRecoveryPoint "personal" "mydb" Postgres "18" localMinioBackend 7
           value = either (error . show) id (Yaml.decodeEither' rendered :: Either Yaml.ParseException Aeson.Value)
           native = either (error . T.unpack) id (canonicalValue value)
           uid =
@@ -191,6 +242,7 @@ scheduledReceiptTests =
         )
       let zeroRendered =
             renderInventoryDbBackupCronJob
+              HourlyRecoveryPoint
               "personal"
               "mydb"
               Postgres
@@ -273,6 +325,7 @@ scheduledReceiptTests =
               (contentDigest (canonical metadata))
               uid
               uid
+              HourlyRecoveryPoint
           reader changeExactReceipt changeExactObject =
             ObjectReader
               ( \address selected path -> do

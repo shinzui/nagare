@@ -12,12 +12,12 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
-import Nagare.Cluster.GcsJob (StoreBackend)
 import Nagare.Dsl.Database (Database (..), Engine (Postgres), defaultEngineVersion, mkDatabaseName)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Inventory.Components.Auth
 import Nagare.Inventory.Components.Foundation (FoundationInput (..), foundationNamespaceId)
+import Nagare.Inventory.Database (DatabaseBackupTarget)
 import Nagare.Resource.Database (DatabaseDirectInput (..), databaseResourceId)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy (RecoveryIntent (..), mkSecretRef)
@@ -29,7 +29,7 @@ compilePackagedAuth ::
   AuthMode ->
   Text ->
   Map Text Text ->
-  StoreBackend ->
+  DatabaseBackupTarget ->
   IO
     ( Either
         (NonEmpty InventoryError)
@@ -46,8 +46,8 @@ packagedAuthInputs ::
   AuthMode ->
   Text ->
   Map Text Text ->
-  StoreBackend ->
-  Either (NonEmpty InventoryError) (AuthInput, [(Text, DatabaseDirectInput, StoreBackend)])
+  DatabaseBackupTarget ->
+  Either (NonEmpty InventoryError) (AuthInput, [(Text, DatabaseDirectInput, DatabaseBackupTarget)])
 packagedAuthInputs root foundation mode domain images backend =
   case traverse databaseInput ["shomei", "en"] of
     Left failure -> Left (failure :| [])

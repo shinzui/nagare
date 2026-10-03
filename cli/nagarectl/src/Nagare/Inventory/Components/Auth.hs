@@ -23,11 +23,10 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Vector qualified as V
-import Nagare.Cluster.GcsJob (StoreBackend)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Types (databaseNameText)
 import Nagare.Inventory.Components.Upstream
-import Nagare.Inventory.Database (compileDatabaseForBackend)
+import Nagare.Inventory.Database (DatabaseBackupTarget, compileDatabaseForBackend)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Resource.Database (DatabaseDirectInput (..), databaseResourceId)
 import Nagare.Resource.Inventory
@@ -55,7 +54,7 @@ data AuthInput = AuthInput
 -- Callers provide the full typed Database values, not a reconstructed flag set.
 compileAuthComponent ::
   AuthInput ->
-  [(Text, DatabaseDirectInput, StoreBackend)] ->
+  [(Text, DatabaseDirectInput, DatabaseBackupTarget)] ->
   IO (Either (NonEmpty InventoryError) (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString)))
 compileAuthComponent input databases = do
   compiledAuth <- compileAuth input

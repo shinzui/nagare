@@ -23,8 +23,10 @@ import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Broker
 import Nagare.Inventory.Adapters.BrokerRuntime (parseDescription, parseList)
 import Nagare.Inventory.Application (compileApplicationDatabases, reviewedTaskImages)
+import Nagare.Inventory.BackupFreshness (RecoveryPointObjective (..))
 import Nagare.Inventory.Components.Foundation (FoundationInput (..), compileFoundation)
 import Nagare.Inventory.DataService (NativeDataKind (..), acceptedFoundationNamespace, brokerNativeOwned, brokerTopicChangeRequiresReview, compileStandaloneBroker, dataCommandNativeOwned, databaseNativeOwned, standaloneRetirementScope)
+import Nagare.Inventory.Database (DatabaseBackupTarget (DatabaseBackupTarget))
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Environment (acceptedBuildChannelMember, acceptedEnvChannelValues, acceptedSecretChannelValues, compileBuildEnvChannel, compileBuildSecretChannel, compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeEnvChannel, compileRuntimeSecretChannel, validateSecretRotation)
 import Nagare.Inventory.Journal (mkOperationId)
@@ -799,7 +801,7 @@ inventoryApplicationTests =
               Map.fromList
                 [(database ^. #name, recovery) | database <- app ^. #databases]
             source = SourceLocation "test" "application"
-            backend = GcsBackend "project" "bucket"
+            backend = (DatabaseBackupTarget (GcsBackend "project" "bucket") HourlyRecoveryPoint)
         (bundles, native) <-
           either
             (fail . show)

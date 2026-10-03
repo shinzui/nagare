@@ -27,6 +27,8 @@ module Nagare.Cli.Options
   , ContextCreateOpts (..)
   , DbBackupOpts (..)
   , DbBackupReceiptsOpts (..)
+  , DbEscrowSigningKeyOpts (..)
+  , DbVerifyEscrowedBackupOpts (..)
   , DbCommand (..)
   , DbCreateOpts (..)
   , DbListOpts (..)
@@ -639,6 +641,10 @@ data DbCommand
   | DbRecoverScheduledPrune DbRecoverScheduledPruneOpts
   | DbBackupReceipts DbBackupReceiptsOpts
   | DbManualReceipt DbBackupReceiptsOpts
+  | -- | nagarectl db escrow-signing-key NAME [-n NS] [--output FILE] (MasterPlan 23 D1)
+    DbEscrowSigningKey DbEscrowSigningKeyOpts
+  | -- | nagarectl db verify-escrowed-backup NAME --backup-id JOB_UID [-n NS] [--escrow FILE] [--bucket B]
+    DbVerifyEscrowedBackup DbVerifyEscrowedBackupOpts
   | -- | nagarectl db disable-backup-prune NAME [-n NS] --save-plan DIR
     DbDisableBackupPrune DbNameOpts FilePath
   | -- | nagarectl db restore NAME BACKUP_ID [--into live] [--dry-run] (EP-47)
@@ -799,6 +805,22 @@ data DbBackupReceiptsOpts = DbBackupReceiptsOpts
   , backupId :: !(Maybe String)
   , savePlan :: !(Maybe FilePath)
   , checkFreshness :: !Bool
+  }
+  deriving stock (Generic, Show)
+
+data DbEscrowSigningKeyOpts = DbEscrowSigningKeyOpts
+  { name :: !String
+  , namespace :: !(Maybe String)
+  , output :: !(Maybe FilePath)
+  }
+  deriving stock (Generic, Show)
+
+data DbVerifyEscrowedBackupOpts = DbVerifyEscrowedBackupOpts
+  { name :: !String
+  , namespace :: !(Maybe String)
+  , backupId :: !String
+  , escrow :: !(Maybe FilePath)
+  , bucket :: !(Maybe String)
   }
   deriving stock (Generic, Show)
 

@@ -15,6 +15,7 @@ import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Helm
 import Nagare.Inventory.Adapters.HelmRuntime
+import Nagare.Inventory.BackupFreshness (RecoveryPointObjective (..))
 import Nagare.Inventory.Bootstrap (BootstrapInput (..), compileBootstrapStamp, compileBootstrapWithAuth, compilePinnedBootstrap)
 import Nagare.Inventory.Components.Auth (AuthMode (CloudAuth))
 import Nagare.Inventory.Components.ControllerImage (controllerImageDeclaration)
@@ -25,6 +26,7 @@ import Nagare.Inventory.Components.ObservabilitySecrets (compileObservabilitySec
 import Nagare.Inventory.Components.PackagedAuth (packagedAuthInputs)
 import Nagare.Inventory.Components.PackagedCache (compilePackagedCacheWithVerifiedImage)
 import Nagare.Inventory.Components.Upstream (bindNetCertManagerControllerImage, pinnedUpstreamInputs)
+import Nagare.Inventory.Database (DatabaseBackupTarget (DatabaseBackupTarget))
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Execute (TransactionResult (..), applyReviewed, resumeTransaction)
 import Nagare.Inventory.HelmReview (helmSpecsFromReview)
@@ -249,7 +251,7 @@ inventoryObservabilityTests =
                     )
                   | service <- ["en", "shomei", "nagare-access"]
                   ]
-              backend = GcsBackend "project" "backups"
+              backend = DatabaseBackupTarget (GcsBackend "project" "backups") HourlyRecoveryPoint
               binding = ContextBinding (ok (mkContextId "complete-bootstrap")) (name "project")
               snapshot = ok (mkScopeSnapshot binding Map.empty Map.empty)
           (secretScope, secretNative, secretIds) <-
@@ -274,6 +276,7 @@ inventoryObservabilityTests =
               "project"
               "registry.example/project/nagare"
               "backups"
+              HourlyRecoveryPoint
               "nix-cache-bucket"
               "abcdef123456"
               (ok (mkContentDigest (T.replicate 64 "a")))

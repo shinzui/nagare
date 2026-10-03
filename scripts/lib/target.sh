@@ -43,6 +43,7 @@ _NAGARE_CONTEXT_VARS=(
   NAGARE_MODE NAGARE_LOCAL_OBJECT_STORE
   NAGARE_PULUMI_BACKEND NAGARE_PULUMI_BACKEND_URL
   NAGARE_INVENTORY_STORE NAGARE_INVENTORY_STORE_URL
+  NAGARE_BACKUP_RECOVERY_POINT
   NAGARE_PLATFORM_VERSION
   NAGARE_ACME_EMAIL NAGARE_ACME_DIRECTORY
 )
@@ -259,6 +260,16 @@ _nagare_resolve_context() {
     echo "nagare: NAGARE_NIX_CACHE_ENABLED=1 is cloud-only" >&2
     return 1
   fi
+  # MasterPlan 23 D6: the scheduled database backup recovery-point objective.
+  # Each reviewed backup CronJob carries it in its signed metadata.
+  export NAGARE_BACKUP_RECOVERY_POINT="${NAGARE_BACKUP_RECOVERY_POINT:-hourly}"
+  case "${NAGARE_BACKUP_RECOVERY_POINT}" in
+    hourly|daily) ;;
+    *)
+      echo "nagare: NAGARE_BACKUP_RECOVERY_POINT must be hourly or daily" >&2
+      return 1
+      ;;
+  esac
   case "${NAGARE_EXTERNAL_DOMAIN_TLS_ENABLED}" in
     0|1) ;;
     *)

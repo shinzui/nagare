@@ -26,7 +26,9 @@ import Nagare.Dsl.Database (Database (Database), Engine (Postgres), defaultEngin
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Inventory.Backup (ManualBackupRequest (..), compileManualBackupScope)
+import Nagare.Inventory.BackupFreshness (RecoveryPointObjective (..))
 import Nagare.Inventory.DataService (compileStandaloneDatabase)
+import Nagare.Inventory.Database (DatabaseBackupTarget (DatabaseBackupTarget))
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.ManualReceipt (ManualReceiptEvidence (..), compileManualReceiptScope)
@@ -136,7 +138,7 @@ restoreFixture =
       checked
         ( compileStandaloneDatabase
             (DatabaseDirectInput database owner cluster Nothing recovery (SourceLocation "fixture" "postgres"))
-            backend
+            (DatabaseBackupTarget backend HourlyRecoveryPoint)
         )
     revision scope = ScopeRevision (checked (mkScopeGeneration 1)) (contentDigest (encodeCanonicalScope scope))
     backupRequest =

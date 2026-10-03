@@ -13,7 +13,7 @@ import Nagare.Cluster.GcsJob (StoreBackend)
 import Nagare.Dsl.Application (Application (..), mkApplication)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types (DatabaseName, databaseNameText)
-import Nagare.Inventory.Database (compileDatabaseForBackend)
+import Nagare.Inventory.Database (DatabaseBackupTarget, compileDatabaseForBackend)
 import Nagare.Resource.Application (applicationScopeId)
 import Nagare.Resource.Database
   ( DatabaseDirectInput (DatabaseDirectInput)
@@ -36,7 +36,7 @@ compileApplicationDatabases ::
   ResourceId ->
   Maybe ResourceId ->
   Map DatabaseName RecoveryIntent ->
-  StoreBackend ->
+  DatabaseBackupTarget ->
   SourceLocation ->
   Either
     (NonEmpty InventoryError)

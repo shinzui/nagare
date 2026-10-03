@@ -4,6 +4,7 @@ module Nagare.Inventory.BackupReceipt
   , ScheduledReceiptExpectation (..)
   , ScheduledBackupReceipt (..)
   , scheduledReceiptExpectationFromCronJob
+  , scheduleMetadataObjective
   , manualBackupJobReceiptExpectation
   , parseBackupReceipt
   , parseManualBackupReceipt
@@ -31,6 +32,11 @@ import Nagare.Cluster.GcsJob (StoreBackend, storePrefixUrl)
 import Nagare.Database.Backup (backupExt, dbBackupKeyPrefix)
 import Nagare.Dsl.Database (parseEngine)
 import Nagare.Dsl.Prelude
+import Nagare.Inventory.BackupFreshness
+  ( RecoveryPointObjective (HourlyRecoveryPoint)
+  , parseRecoveryPointObjective
+  , recoveryPointSchedule
+  )
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Resource.Inventory (ScopeDeclaration, scopeOverrides)
 import Nagare.Resource.Types
@@ -55,6 +61,7 @@ data ScheduledReceiptExpectation = ScheduledReceiptExpectation
   , scheduledMetadataDigest :: !ContentDigest
   , scheduledStatefulUid :: !PhysicalIdentity
   , scheduledPvcUid :: !PhysicalIdentity
+  , scheduledObjective :: !RecoveryPointObjective
   }
   deriving stock (Eq, Show)
 
@@ -143,9 +150,9 @@ scheduledReceiptExpectationFromCronJob backend namespaceName database statefulUi
     (Left "accepted scheduled backup has another signing key field")
   metadataJson <- plain "BACKUP_RECEIPT_METADATA"
   metadata <- first T.pack (eitherDecodeStrict (TE.encodeUtf8 metadataJson))
-  (format, revision, keep) <- case metadata of
+  (format, revision, keep, objective) <- case metadata of
     Object fields
-      | KM.size fields == 7
+      | Just objective <- scheduleMetadataObjective fields
       , KM.lookup "database" fields == Just (String database)
       , KM.lookup "namespace" fields == Just (String namespaceName)
       , KM.lookup "schedule" fields == Just (String schedule)
@@ -157,8 +164,14 @@ scheduledReceiptExpectationFromCronJob backend namespaceName database statefulUi
       , selectedKeep > (0 :: Int)
       , Just engine <- parseEngine engineName
       , extension == backupExt engine ->
-          Right (extension, digest, selectedKeep)
+          Right (extension, digest, selectedKeep, objective)
     _ -> Left "accepted scheduled backup has invalid receipt metadata"
+  unless
+    ( objective == HourlyRecoveryPoint
+        || lookupJsonPath ["spec", "schedule"] value
+          == Just (String (recoveryPointSchedule objective))
+    )
+    (Left "accepted scheduled backup cadence differs from its recovery-point objective")
   policyRevision <- mkContentDigest revision
   metadataBytes <- canonicalValue metadata
   pure
@@ -170,12 +183,24 @@ scheduledReceiptExpectationFromCronJob backend namespaceName database statefulUi
         (contentDigest metadataBytes)
         statefulUid
         pvcUid
+        objective
     )
   where
     schedule = "nagare-dbbackup-" <> database
     lookupJsonPath [] current = Just current
     lookupJsonPath (key : rest) (Object fields) = KM.lookup key fields >>= lookupJsonPath rest
     lookupJsonPath _ _ = Nothing
+
+-- | Hourly schedules carry exactly the seven original metadata fields; only a
+-- non-default objective adds one explicit eighth field.
+scheduleMetadataObjective :: KM.KeyMap Value -> Maybe RecoveryPointObjective
+scheduleMetadataObjective fields = case (KM.size fields, KM.lookup "recoveryPoint" fields) of
+  (7, Nothing) -> Just HourlyRecoveryPoint
+  (8, Just (String selected))
+    | Right objective <- parseRecoveryPointObjective selected
+    , objective /= HourlyRecoveryPoint ->
+        Just objective
+  _ -> Nothing
 
 -- | The exact receipt address and static metadata pinned by a bound manual
 -- backup Job. Ordinary Jobs have no expectation; partial annotations refuse.

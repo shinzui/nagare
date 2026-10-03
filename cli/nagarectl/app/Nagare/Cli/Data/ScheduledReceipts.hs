@@ -6,6 +6,8 @@ module Nagare.Cli.Data.ScheduledReceipts
   , runReviewedScheduledReceiptPlan
   , scheduledReceiptReport
   , scheduledRecoveryPointProbes
+  , ScheduledSource (..)
+  , resolveScheduledSource
   )
 where
 
@@ -30,7 +32,8 @@ import Nagare.Cli.Runtime.Target
   , resolvePlatformWorkspace
   )
 import Nagare.Cluster.GcsJob
-  ( storeObjectUrl
+  ( StoreBackend
+  , storeObjectUrl
   )
 import Nagare.Dsl.Database.Render (dbPvcName)
 import Nagare.Dsl.Prelude
@@ -38,14 +41,21 @@ import Nagare.Inventory.Adapter qualified as InventoryAdapter
 import Nagare.Inventory.Backup
   ( ScheduledBackupReceipt (scheduledRecoveryPoint)
   , ScheduledReceiptExpectation
-    ( scheduledFormat
+    ( ScheduledReceiptExpectation
+    , scheduledFormat
     , scheduledKeep
     , scheduledObjectPrefix
+    , scheduledObjective
     , scheduledPolicyRevision
     )
   , scheduledReceiptExpectationFromCronJob
   )
-import Nagare.Inventory.BackupFreshness (BackupFreshness (Fresh), backupFreshness, renderBackupFreshness)
+import Nagare.Inventory.BackupFreshness
+  ( BackupFreshness (Fresh)
+  , RecoveryPointGrade (RecoveryPointGrade)
+  , backupFreshness
+  , renderBackupFreshness
+  )
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.DataService (acceptedFoundationNamespace)
 import Nagare.Inventory.Plan qualified as InventoryPlan
@@ -82,7 +92,7 @@ import Nagare.Inventory.Status qualified as InventoryStatus
 import Nagare.Ops.Probe (Probe, recoveryPointProbe)
 import Nagare.Resource.Inventory qualified as ResourceInventory
 import Nagare.Resource.Types qualified as Resource
-import Nagare.Target (contextNameText)
+import Nagare.Target (ActiveTarget, contextNameText)
 import System.Exit (ExitCode, exitFailure)
 
 -- | A failed observation inside 'scheduledReceiptReport'. The listing command
@@ -94,7 +104,7 @@ newtype ReceiptReportError = ReceiptReportError Text
 data ScheduledReceiptReport = ScheduledReceiptReport
   { keep :: !Int
   , rows :: ![Text]
-  , freshness :: !BackupFreshness
+  , freshness :: !RecoveryPointGrade
   }
   deriving stock (Generic)
 
@@ -115,7 +125,7 @@ runListScheduledReceipts mctx database namespaceName bucketArg checkFreshness = 
     then TIO.putStrLn "No scheduled backup objects or accepted receipts."
     else mapM_ TIO.putStrLn (report ^. #rows)
   TIO.putStrLn (renderBackupFreshness (report ^. #freshness))
-  when checkFreshness $ case report ^. #freshness of
+  when checkFreshness $ case report ^. #freshness . #freshness of
     Fresh _ -> pure ()
     _ -> exitFailure
 
@@ -153,9 +163,28 @@ scheduledRecoveryPointProbes mctx =
       ]
 
 -- | Verify every scheduled object and receipt of one accepted database source
--- and compute recovery-point freshness from accepted signed receipts only.
-scheduledReceiptReport :: Maybe String -> Text -> Text -> Maybe String -> IO ScheduledReceiptReport
-scheduledReceiptReport mctx database namespaceName bucketArg = do
+-- and compute recovery-point freshness against the accepted schedule's
+-- objective. Accepted receipts and verified uploads awaiting ingestion both
+-- count (MasterPlan 23, D1): a pending upload counts only after its exact
+-- stored bytes, HMAC, and current source identities have been checked here.
+-- Acceptance remains the only route to restore authority.
+-- | The accepted source of one scheduled database backup, freshly observed:
+-- its StatefulSet, PVC and signing Secret incarnations, the store backend, and
+-- the receipt expectation derived from the accepted CronJob bytes.
+data ScheduledSource = ScheduledSource
+  { active :: !ActiveTarget
+  , snapshot :: !ResourceInventory.ScopeSnapshot
+  , sourceScope :: !ResourceInventory.ScopeDeclaration
+  , statefulUid :: !Resource.PhysicalIdentity
+  , pvcUid :: !Resource.PhysicalIdentity
+  , signingUid :: !Resource.PhysicalIdentity
+  , backend :: !StoreBackend
+  , expectation :: !ScheduledReceiptExpectation
+  }
+  deriving stock (Generic)
+
+resolveScheduledSource :: Maybe String -> Text -> Text -> Maybe String -> IO ScheduledSource
+resolveScheduledSource mctx database namespaceName bucketArg = do
   active <- activeTarget mctx
   snapshot <- Inventory.loadTargetSnapshot active
   (cluster, _) <- either reportFail pure (acceptedFoundationNamespace snapshot namespaceName)
@@ -222,7 +251,7 @@ scheduledReceiptReport mctx database namespaceName bucketArg = do
   statefulUid <- physical (stateful ^. #identity)
   pvcUid <- physical (pvc ^. #identity)
   _ <- physical (cron ^. #identity)
-  _ <- physical (signing ^. #identity)
+  signingUid <- physical (signing ^. #identity)
   (_, cronBytes) <-
     maybe
       (reportFail "accepted CronJob lacks native bytes")
@@ -241,6 +270,22 @@ scheduledReceiptReport mctx database namespaceName bucketArg = do
           pvcUid
           cronBytes
       )
+  pure
+    ScheduledSource
+      { active = active
+      , snapshot = snapshot
+      , sourceScope = sourceScope
+      , statefulUid = statefulUid
+      , pvcUid = pvcUid
+      , signingUid = signingUid
+      , backend = backend
+      , expectation = expectation
+      }
+
+scheduledReceiptReport :: Maybe String -> Text -> Text -> Maybe String -> IO ScheduledReceiptReport
+scheduledReceiptReport mctx database namespaceName bucketArg = do
+  ScheduledSource active snapshot sourceScope _ _ _ backend expectation <-
+    resolveScheduledSource mctx database namespaceName bucketArg
   signingKey <-
     readSecretField
       (contextNameText (active ^. #contextName))
@@ -304,6 +349,7 @@ scheduledReceiptReport mctx database namespaceName bucketArg = do
                     ((`Set.member` pruned) . Resource.scopeIdText . ResourceInventory.scopeId)
                     acceptedScope
                 unresolved message = pure (message, Nothing)
+                acceptedPoint stamp = fmap (\at -> (at, False)) stamp
                 point = scheduledRecoveryPoint . scheduledReceipt
             (status, recoveryPoint) <- case (objectPresent, receiptPresent, acceptedPrune) of
               (False, False, True) -> unresolved "pruned"
@@ -327,7 +373,7 @@ scheduledReceiptReport mctx database namespaceName bucketArg = do
                   case inspected of
                     Right evidence
                       | scheduledIngestEvidenceMatches scope evidence ->
-                          pure (acceptedStatus, point evidence)
+                          pure (acceptedStatus, acceptedPoint (point evidence))
                     _ -> do
                       let acceptedAddress = Map.lookup "scheduled.backup.object" (ResourceInventory.scopeOverrides scope)
                           expectedPrefix = scheduledObjectPrefix expectation <> selected <> "."
@@ -339,24 +385,37 @@ scheduledReceiptReport mctx database namespaceName bucketArg = do
                       pure $
                         either
                           (\reason -> ("unresolved: " <> reason, Nothing))
-                          (\stamp -> (acceptedStatus, stamp))
+                          (\stamp -> (acceptedStatus, acceptedPoint stamp))
                           checked
                 Nothing -> do
                   inspected <- inspectScheduledReceipt reader expectation selected signingKey
                   pure $
                     either
                       (\reason -> ("unresolved: " <> reason, Nothing))
-                      (const ("verified; ingestion pending", Nothing))
+                      ( \evidence ->
+                          ( "verified; ingestion pending"
+                          , fmap (\at -> (at, True)) (point evidence)
+                          )
+                      )
                       inspected
             pure (selected <> "  " <> status, recoveryPoint)
           pure (Right (rows <> [("unresolved provider key: " <> key, Nothing) | key <- unknown]))
   verifiedRows <- either reportFail pure listed >>= either reportFail pure
   now <- getCurrentTime
+  let points = catMaybes (map snd verifiedRows)
+      newest = maximum (map fst points)
+      latestPending =
+        not (null points)
+          && not (any (\(at, pending) -> at == newest && not pending) points)
   pure
     ScheduledReceiptReport
       { keep = scheduledKeep expectation
       , rows = map fst verifiedRows
-      , freshness = backupFreshness now (catMaybes (map snd verifiedRows))
+      , freshness =
+          RecoveryPointGrade
+            (scheduledObjective expectation)
+            (backupFreshness (scheduledObjective expectation) now (map fst points))
+            latestPending
       }
 
 runReviewedScheduledReceiptPlan ::

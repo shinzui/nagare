@@ -66,6 +66,7 @@ import Nagare.Inventory.Components.Upstream
   , bindNetCertManagerControllerImage
   , configuredUpstreamInputsWithIssuer
   )
+import Nagare.Inventory.Database (DatabaseBackupTarget (DatabaseBackupTarget))
 import Nagare.Inventory.RegistryCredentials qualified as RegistryCredentials
 import Nagare.Platform.Paths (PlatformPaths)
 import Nagare.Platform.Status
@@ -221,6 +222,7 @@ buildPlatformCandidate active paths workspace snapshot = do
                   (profile ^. #project)
                   (registryPrefix profile)
                   (profile ^. #backupBucket)
+                  (profile ^. #backupRecoveryPoint)
                   (profile ^. #nixCacheBucket)
                   >>= either (dieT . T.pack . show) pure
               )
@@ -247,7 +249,14 @@ buildPlatformCandidate active paths workspace snapshot = do
     either
       (dieT . T.pack . show)
       pure
-      (packagedAuthInputs root foundation authMode (profile ^. #baseDomain) authImages backupBackend)
+      ( packagedAuthInputs
+          root
+          foundation
+          authMode
+          (profile ^. #baseDomain)
+          authImages
+          (DatabaseBackupTarget backupBackend (profile ^. #backupRecoveryPoint))
+      )
   localPrerequisites <- case localStore of
     Nothing -> pure []
     Just (_, members) -> case [ resource ^. #identity

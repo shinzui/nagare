@@ -35,7 +35,8 @@ import Nagare.Dsl.Database (Database (..), dbSecretName, parseEngine)
 import Nagare.Dsl.Database.Render (dbConfigMapName, dbPvcName)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types (databaseNameText, namespaceText)
-import Nagare.Inventory.Database (compileDatabaseForBackend)
+import Nagare.Inventory.BackupFreshness (RecoveryPointObjective)
+import Nagare.Inventory.Database (DatabaseBackupTarget (DatabaseBackupTarget), compileDatabaseForBackend)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Resource.Broker (brokerResourceId, compileBrokerTopics)
@@ -49,16 +50,19 @@ import Nagare.Resource.Wire (canonicalValue)
 
 -- | Change only an accepted legacy backup schedule. Require its private bytes
 -- to match the old renderer, so unfamiliar schedules need a full database review.
+-- The target is the current signed producer at the context's recovery-point
+-- objective; a current schedule at another preset is a known earlier schedule,
+-- so changing the context objective is the same bounded CronJob-only update.
 compileBackupPruneRemovalScope ::
   T.Text ->
   T.Text ->
-  StoreBackend ->
+  DatabaseBackupTarget ->
   ScopeDeclaration ->
   Map ResourceId (ManagedResource, ByteString) ->
   Either
     (NonEmpty InventoryError)
     (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
-compileBackupPruneRemovalScope name namespaceName backend accepted native = do
+compileBackupPruneRemovalScope name namespaceName (DatabaseBackupTarget backend objective) accepted native = do
   let invalid message =
         inventoryError "invalid-backup-prune-removal" message
           & #scopes
@@ -105,17 +109,23 @@ compileBackupPruneRemovalScope name namespaceName backend accepted native = do
   let legacy = renderDbBackupCronJob namespaceName name engine version backend 7
       previousSafe = renderPreviousInventoryDbBackupCronJob namespaceName name engine version backend 7
       previousSigned = renderPreviousSignedInventoryDbBackupCronJob namespaceName name engine version backend 7
-      safe = renderInventoryDbBackupCronJob namespaceName name engine version backend 7
+      safe = renderInventoryDbBackupCronJob objective namespaceName name engine version backend 7
+      otherPresets =
+        [ renderInventoryDbBackupCronJob other namespaceName name engine version backend 7
+        | other <- [minBound .. maxBound :: RecoveryPointObjective]
+        , other /= objective
+        ]
   legacyCanonical <- decode invalid legacy >>= first invalid . canonicalValue
   previousSafeCanonical <- decode invalid previousSafe >>= first invalid . canonicalValue
   previousSignedCanonical <- decode invalid previousSigned >>= first invalid . canonicalValue
+  otherPresetCanonicals <- traverse (\bytes -> decode invalid bytes >>= first invalid . canonicalValue) otherPresets
   safeValue <- decode invalid safe
   safeCanonical <- first invalid (canonicalValue safeValue)
   if backupCanonical == safeCanonical
     then pure (accepted, native)
     else do
       unless
-        (backupCanonical `elem` [legacyCanonical, previousSafeCanonical, previousSignedCanonical])
+        (backupCanonical `elem` ([legacyCanonical, previousSafeCanonical, previousSignedCanonical] <> otherPresetCanonicals))
         (Left (invalid "accepted backup CronJob does not match a known earlier schedule"))
       cluster <- case backup ^. #address of
         Kubernetes clusterId _ _ _ _ -> Right clusterId
@@ -318,11 +328,11 @@ compileStatefulSetRestartScope dataKind name namespaceName stamp accepted native
 
 compileStandaloneDatabase ::
   DatabaseDirectInput ->
-  StoreBackend ->
+  DatabaseBackupTarget ->
   Either
     (NonEmpty InventoryError)
     (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
-compileStandaloneDatabase input backend
+compileStandaloneDatabase input target
   | scopeKind owner /= Standalone =
       Left
         ( inventoryError "wrong-data-scope" "standalone database requires a standalone scope"
@@ -333,7 +343,7 @@ compileStandaloneDatabase input backend
             & (:| [])
         )
   | otherwise = do
-      (bundle, native) <- compileDatabaseForBackend input backend
+      (bundle, native) <- compileDatabaseForBackend input target
       scope <- mkScopeDeclaration owner [bundle]
       pure (scope, native)
   where

@@ -36,6 +36,7 @@ import Nagare.Inventory.Backup
     )
   , parseScheduledBackupReceipt
   )
+import Nagare.Inventory.BackupFreshness (RecoveryPointObjective (..))
 import Nagare.Resource.Canonical (canonicalValue, contentDigest)
 import Nagare.Resource.Types qualified as Resource
 import Nagare.Test.DataFixtures
@@ -70,8 +71,8 @@ import Test.Tasty.HUnit
 backupUploadTests :: [TestTree]
 backupUploadTests =
   [ testCase "reviewed backup reads back exact stored bytes for both backends" $ do
-      let cloud = TE.decodeUtf8 (renderInventoryDbBackupCronJob "personal" "mydb" Postgres "18" tnbGcsBackend 7)
-          local = TE.decodeUtf8 (renderInventoryDbBackupCronJob "personal" "mydb" Postgres "18" localMinioBackend 7)
+      let cloud = TE.decodeUtf8 (renderInventoryDbBackupCronJob HourlyRecoveryPoint "personal" "mydb" Postgres "18" tnbGcsBackend 7)
+          local = TE.decodeUtf8 (renderInventoryDbBackupCronJob HourlyRecoveryPoint "personal" "mydb" Postgres "18" localMinioBackend 7)
           cloudScript =
             uploadShell
               ( backupJobInputsPg
@@ -657,6 +658,7 @@ backupUploadTests =
                 metadataDigest
                 (sourceUid "22222222-2222-2222-2222-222222222222")
                 (sourceUid "11111111-1111-1111-1111-111111111111")
+                HourlyRecoveryPoint
             accepted =
               parseScheduledBackupReceipt
                 expectation

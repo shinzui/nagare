@@ -30,12 +30,12 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
-import Nagare.Cluster.GcsJob (StoreBackend)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Cache
 import Nagare.Inventory.Components.Auth
 import Nagare.Inventory.Components.Foundation
 import Nagare.Inventory.Components.Upstream
+import Nagare.Inventory.Database (DatabaseBackupTarget)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.Store (ScopeRevision (..))
@@ -50,7 +50,7 @@ import Nagare.Resource.Wire (canonicalValue, encodeCanonicalScope)
 
 data BootstrapInput = BootstrapInput
   { bootstrapFoundation :: !FoundationInput
-  , bootstrapCache :: !(Maybe (DatabaseDirectInput, StoreBackend, CacheRenderInput))
+  , bootstrapCache :: !(Maybe (DatabaseDirectInput, DatabaseBackupTarget, CacheRenderInput))
   , bootstrapUpstream :: ![UpstreamInput]
   , bootstrapAdditionalScopes :: ![ScopeDeclaration]
   }
@@ -280,7 +280,7 @@ verifyBootstrapStampPayload expectedPayloadId expectedVectorDigest expected nati
 compilePinnedBootstrap ::
   ScopeSnapshot ->
   FoundationInput ->
-  Maybe (DatabaseDirectInput, StoreBackend, CacheRenderInput) ->
+  Maybe (DatabaseDirectInput, DatabaseBackupTarget, CacheRenderInput) ->
   FilePath ->
   IO
     ( Either
@@ -300,7 +300,7 @@ compilePinnedBootstrap snapshot foundation cache root =
 compileConfiguredBootstrap ::
   ScopeSnapshot ->
   FoundationInput ->
-  Maybe (DatabaseDirectInput, StoreBackend, CacheRenderInput) ->
+  Maybe (DatabaseDirectInput, DatabaseBackupTarget, CacheRenderInput) ->
   FilePath ->
   Text ->
   Text ->
@@ -319,7 +319,7 @@ compileConfiguredBootstrap snapshot foundation cache root domain registry certif
 compileIssuerBootstrap ::
   ScopeSnapshot ->
   FoundationInput ->
-  Maybe (DatabaseDirectInput, StoreBackend, CacheRenderInput) ->
+  Maybe (DatabaseDirectInput, DatabaseBackupTarget, CacheRenderInput) ->
   FilePath ->
   Text ->
   Text ->
@@ -339,7 +339,7 @@ compileBootstrapWithAuth ::
   ScopeSnapshot ->
   BootstrapInput ->
   AuthInput ->
-  [(Text, DatabaseDirectInput, StoreBackend)] ->
+  [(Text, DatabaseDirectInput, DatabaseBackupTarget)] ->
   IO
     ( Either
         (NonEmpty InventoryError)
@@ -352,7 +352,7 @@ compileBootstrapWithAuthAndScopes ::
   ScopeSnapshot ->
   BootstrapInput ->
   AuthInput ->
-  [(Text, DatabaseDirectInput, StoreBackend)] ->
+  [(Text, DatabaseDirectInput, DatabaseBackupTarget)] ->
   [ScopeDeclaration] ->
   IO
     ( Either

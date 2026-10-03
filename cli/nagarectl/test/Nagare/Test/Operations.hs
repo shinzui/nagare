@@ -14,7 +14,7 @@ import Data.Time (UTCTime (UTCTime), fromGregorian)
 import InventoryCleanupSpec (inventoryCleanupTests)
 import InventoryPreviewCleanupSpec (inventoryPreviewCleanupTests)
 import Nagare.Dsl.Prelude hiding ((<.>))
-import Nagare.Inventory.BackupFreshness (BackupFreshness (..))
+import Nagare.Inventory.BackupFreshness (BackupFreshness (..), RecoveryPointGrade (RecoveryPointGrade), RecoveryPointObjective (..))
 import Nagare.Ops.Cleanup
   ( CleanupReport (..)
   , ImagePlan (..)
@@ -124,9 +124,13 @@ opsTests =
   , testCase "backupPrefixes: managed databases are graded by receipts, not object age" $
       backupPrefixes ["notes", "shop"] @?= ["litestream", "volumes"]
   , testCase "recoveryPointProbe: fresh, warning, breach and unknown grades" $ do
-      recoveryPointProbe "personal/notes" (Right (Fresh 120)) @?= Probe "recovery point" StatusOk "personal/notes: healthy; age=120s"
-      status (recoveryPointProbe "personal/notes" (Right (Deteriorating 1900))) @?= StatusWarn
-      map (status . recoveryPointProbe "personal/notes" . Right) [Breached 3600, NoRecoveryPoint, FutureRecoveryPoint]
+      let hourly value = RecoveryPointGrade HourlyRecoveryPoint value False
+      recoveryPointProbe "personal/notes" (Right (hourly (Fresh 120)))
+        @?= Probe "recovery point" StatusOk "personal/notes: healthy; age=120s; objective=hourly"
+      recoveryPointProbe "personal/notes" (Right (RecoveryPointGrade DailyRecoveryPoint (Fresh 600) True))
+        @?= Probe "recovery point" StatusOk "personal/notes: healthy; age=600s; objective=daily; newest point is verified and awaits reviewed ingestion"
+      status (recoveryPointProbe "personal/notes" (Right (hourly (Deteriorating 1900)))) @?= StatusWarn
+      map (status . recoveryPointProbe "personal/notes" . Right . hourly) [Breached 3600, NoRecoveryPoint, FutureRecoveryPoint]
         @?= [StatusFail, StatusFail, StatusFail]
       recoveryPointProbe "personal/notes" (Left "object store unavailable")
         @?= Probe "recovery point" StatusUnknown "personal/notes: receipts unobservable: object store unavailable"

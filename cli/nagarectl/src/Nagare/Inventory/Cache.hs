@@ -21,11 +21,10 @@ import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
-import Nagare.Cluster.GcsJob (StoreBackend)
 import Nagare.Dsl.Database (Database (..), Engine (Postgres))
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Types (databaseNameText, namespaceText)
-import Nagare.Inventory.Database (compileDatabaseForBackend)
+import Nagare.Inventory.Database (DatabaseBackupTarget, compileDatabaseForBackend)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Resource.Cache (LogicalCacheInput (..), compileLogicalCache)
@@ -55,7 +54,7 @@ data CacheRenderInput = CacheRenderInput
 -- direct cache objects, and the Attic logical cache/output contract.
 compileCacheComponent ::
   DatabaseDirectInput ->
-  StoreBackend ->
+  DatabaseBackupTarget ->
   CacheRenderInput ->
   IO (Either (NonEmpty InventoryError) (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString)))
 compileCacheComponent databaseInput backend cacheInput = do
@@ -135,7 +134,7 @@ compileCacheComponent databaseInput backend cacheInput = do
 compileCacheCandidate ::
   ScopeSnapshot ->
   DatabaseDirectInput ->
-  StoreBackend ->
+  DatabaseBackupTarget ->
   CacheRenderInput ->
   IO (Either (NonEmpty InventoryError) (CompositionCandidate, Map ResourceId (ManagedResource, ByteString)))
 compileCacheCandidate snapshot databaseInput backend cacheInput = do

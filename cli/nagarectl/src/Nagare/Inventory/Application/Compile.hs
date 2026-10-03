@@ -345,7 +345,7 @@ compileApplicationScope input = do
       (scopeCluster input)
       (Just (scopeNamespace input))
       (scopeDatabaseRecovery input)
-      (scopeBackupBackend input)
+      (scopeDatabaseBackup input)
       source
   ownSecrets <-
     traverse

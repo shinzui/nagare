@@ -48,9 +48,11 @@ import Nagare.Inventory.Adapters.Cdn (DnsAdapterOps (..), DnsObservation (..), d
 import Nagare.Inventory.Adapters.Kubernetes (KubernetesAdapterOps (..), KubernetesMutation (..), KubernetesState (..), mkKubernetesAdapter)
 import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), mkKubernetesRuntimeOps)
 import Nagare.Inventory.Application (ApplicationScopeInput (..), CloudflareCdnBinding (..), GoogleCdnBinding (..), ReviewedCdnBinding (..), ServiceAction (..), acceptedAccessBinding, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationDeployment, compileApplicationScope, compileApplicationService, compileApplicationTasks, compileApplicationWorkers, compileServiceActionScope, compileStandaloneService, compileStandaloneServiceWithBrokers, compileStandaloneServiceWithDependencies, compileStandaloneServiceWithRelease, compileStandaloneServiceWithReleaseAndBuild, compileStandaloneWorker, compileStandaloneWorkerWithDependencies, compileStandaloneWorkerWithDependenciesAndBuild, databaseRecoveryBindings, hostnameClaimOwned, legacyApplicationReleaseImport, nativeWorkloadOwned, recordReviewedStandaloneOverrides, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
+import Nagare.Inventory.BackupFreshness (RecoveryPointObjective (..))
 import Nagare.Inventory.CollectionPolicy (supportsRetainedCollection)
 import Nagare.Inventory.Command (convergeInventoryCandidateWith, loadTargetSnapshot, openTargetStore)
 import Nagare.Inventory.DataService (NativeDataKind (..), compileStandaloneBroker, compileStandaloneDatabase, compileStatefulSetRestartScope)
+import Nagare.Inventory.Database (DatabaseBackupTarget (DatabaseBackupTarget))
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Environment (compilePreviewEnvChannel, compilePreviewSecretChannel, compileRuntimeSecretChannel)
 import Nagare.Inventory.Execute (TransactionResult (..), applyReviewed, resumeTransaction)
@@ -421,6 +423,7 @@ testProfile =
     , pulumiBackendMember = Nothing
     , inventoryStore = InventoryStoreLocal
     , inventoryStoreUrl = ""
+    , backupRecoveryPoint = HourlyRecoveryPoint
     , acmeEmail = "ops@example.com"
     , acmeDirectory = "production"
     , platformVersion = Nothing
@@ -784,7 +787,7 @@ nativeApplicationReview = do
               , scopeEnvSecrets = Map.empty
               , scopeBuildSecrets = Set.empty
               , scopeWorkerVolumeRecovery = Map.empty
-              , scopeBackupBackend = GcsBackend "project" "bucket"
+              , scopeDatabaseBackup = (DatabaseBackupTarget (GcsBackend "project" "bucket") HourlyRecoveryPoint)
               , scopeRelease = (emptyReleaseLog, release)
               , scopeHookEffects = Map.empty
               , scopeInputOverrides =
@@ -1857,7 +1860,7 @@ renderTests =
               , scopeEnvSecrets = Map.empty
               , scopeBuildSecrets = Set.empty
               , scopeWorkerVolumeRecovery = Map.empty
-              , scopeBackupBackend = GcsBackend "project" "bucket"
+              , scopeDatabaseBackup = (DatabaseBackupTarget (GcsBackend "project" "bucket") HourlyRecoveryPoint)
               , scopeRelease = (emptyReleaseLog, release)
               , scopeHookEffects = Map.empty
               , scopeInputOverrides =
@@ -3477,7 +3480,7 @@ renderTests =
         either
           (fail . show)
           pure
-          (compileStandaloneDatabase databaseInput (scopeBackupBackend input))
+          (compileStandaloneDatabase databaseInput (scopeDatabaseBackup input))
       standaloneDatabaseSnapshot <-
         either
           (fail . show)

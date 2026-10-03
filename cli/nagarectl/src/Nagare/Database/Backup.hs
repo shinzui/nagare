@@ -78,6 +78,11 @@ import Nagare.Database.Discover (DbRow (..), getDatabase)
 import Nagare.Dsl.Database (Engine (..), dbSecretName, engineImage, parseEngine)
 import Nagare.Dsl.Database.Render (dbPvcName)
 import Nagare.Dsl.Prelude hiding ((.=))
+import Nagare.Inventory.BackupFreshness
+  ( RecoveryPointObjective (HourlyRecoveryPoint)
+  , recoveryPointObjectiveText
+  , recoveryPointSchedule
+  )
 import Nagare.Resource.Canonical (canonicalValue, contentDigest)
 import Nagare.Resource.Types (digestText)
 import Nagare.Storage.Snapshot (snapshotTimestamp)
@@ -637,25 +642,29 @@ backupCronJobValueWithRecoveryPoint timed i =
 -- | Legacy scheduled backup. Inline keep-last-N deletion is confined to
 -- unadmitted contexts while reviewed pruning remains a separate lifecycle action.
 renderDbBackupCronJob :: Text -> Text -> Engine -> Text -> StoreBackend -> Int -> ByteString
-renderDbBackupCronJob = renderDbBackupCronJobWithOptions True False True
+renderDbBackupCronJob = renderDbBackupCronJobWithOptions HourlyRecoveryPoint True False True
 
 -- | A reviewed database may schedule uploads, but the CronJob must not delete
 -- older backup objects without a separate reviewed pruning decision. The Job
 -- downloads the exact object and checks its SHA-256 before reporting success.
-renderInventoryDbBackupCronJob :: Text -> Text -> Engine -> Text -> StoreBackend -> Int -> ByteString
-renderInventoryDbBackupCronJob = renderDbBackupCronJobWithOptions False True True
+-- The context's recovery-point objective selects the cadence; a daily
+-- objective is also written into the signed receipt metadata so freshness is
+-- graded against the accepted schedule. Hourly omits the field, keeping the
+-- bytes of schedules accepted before the objective became configurable.
+renderInventoryDbBackupCronJob :: RecoveryPointObjective -> Text -> Text -> Engine -> Text -> StoreBackend -> Int -> ByteString
+renderInventoryDbBackupCronJob objective = renderDbBackupCronJobWithOptions objective False True True
 
 -- | Native bytes issued before reviewed backup readback verification was added.
 -- Used only to recognize and upgrade an already accepted schedule.
 renderPreviousInventoryDbBackupCronJob :: Text -> Text -> Engine -> Text -> StoreBackend -> Int -> ByteString
-renderPreviousInventoryDbBackupCronJob = renderDbBackupCronJobWithOptions False False True
+renderPreviousInventoryDbBackupCronJob = renderDbBackupCronJobWithOptions HourlyRecoveryPoint False False True
 
 -- | Exact signed-v4 daily producer, for recognition of accepted schedules only.
 renderPreviousSignedInventoryDbBackupCronJob :: Text -> Text -> Engine -> Text -> StoreBackend -> Int -> ByteString
-renderPreviousSignedInventoryDbBackupCronJob = renderDbBackupCronJobWithOptions False True False
+renderPreviousSignedInventoryDbBackupCronJob = renderDbBackupCronJobWithOptions HourlyRecoveryPoint False True False
 
-renderDbBackupCronJobWithOptions :: Bool -> Bool -> Bool -> Text -> Text -> Engine -> Text -> StoreBackend -> Int -> ByteString
-renderDbBackupCronJobWithOptions shouldPrune shouldVerify timed ns name eng version backend keep =
+renderDbBackupCronJobWithOptions :: RecoveryPointObjective -> Bool -> Bool -> Bool -> Text -> Text -> Engine -> Text -> StoreBackend -> Int -> ByteString
+renderDbBackupCronJobWithOptions objective shouldPrune shouldVerify timed ns name eng version backend keep =
   Y.encode . backupCronJobValueWithRecoveryPoint timed $
     if shouldVerify
       then
@@ -691,7 +700,7 @@ renderDbBackupCronJobWithOptions shouldPrune shouldVerify timed ns name eng vers
         }
     withReceipt revision =
       let metadata =
-            object
+            object $
               [ "database" .= name
               , "namespace" .= ns
               , "engine" .= T.toLower (T.pack (show eng))
@@ -700,12 +709,15 @@ renderDbBackupCronJobWithOptions shouldPrune shouldVerify timed ns name eng vers
               , "scheduleRevision" .= revision
               , "keep" .= keep
               ]
+                <> [ "recoveryPoint" .= recoveryPointObjectiveText objective
+                   | timed && objective /= HourlyRecoveryPoint
+                   ]
           scheduledReceipt =
             BackupReceipt
               BackupObjectReceiptTarget
               (TE.decodeUtf8 (LBS.toStrict (Aeson.encode metadata)))
        in BackupCronInputs
-            (if timed then "*/15 * * * *" else defaultBackupSchedule)
+            (if timed then recoveryPointSchedule objective else defaultBackupSchedule)
             (baseInputs {receipt = Just scheduledReceipt})
 
 -- ---------------------------------------------------------------------------

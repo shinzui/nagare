@@ -24,6 +24,7 @@ import Nagare.Cluster.Kubeconfig
 import Nagare.Dsl.Prelude
 import Nagare.Host.AgeKey
 import Nagare.Host.Config
+import Nagare.Inventory.BackupFreshness (RecoveryPointObjective (..))
 import Nagare.Target (ContextName, InventoryStoreKind (..), Mode (..), PulumiBackendKind (..), TargetProfile (..), contextNameText, mkContextName)
 import Nagare.Version (BuildVersion (..))
 import System.Directory
@@ -448,6 +449,7 @@ fixtureProfile =
     , pulumiBackendMember = Nothing
     , inventoryStore = InventoryStoreLocal
     , inventoryStoreUrl = ""
+    , backupRecoveryPoint = HourlyRecoveryPoint
     , acmeEmail = "ops@example.com"
     , acmeDirectory = "production"
     , platformVersion = Just "0.2.2"

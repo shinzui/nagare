@@ -22,6 +22,7 @@ import Nagare.Inventory.Adapter (Adapter (..), AdapterExecution (AdapterEffectCo
 import Nagare.Inventory.Adapters.Kubernetes (KubernetesAdapterOps (..), KubernetesState (..), mkKubernetesAdapter)
 import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), credentialDataMatches, materializeLocalObjectStoreCredentialWith, minioSourceData, mkKubernetesRuntimeOps)
 import Nagare.Inventory.BackendMap (compileContributedBackendMaps, compileContributedShomeiSettings, renderBackendMapNative, renderShomeiSettingsNative)
+import Nagare.Inventory.BackupFreshness (RecoveryPointObjective (..))
 import Nagare.Inventory.Bootstrap (BootstrapInput (..), compileBootstrapStamp, compileBootstrapWithAuth, compileBootstrapWithAuthAndScopes)
 import Nagare.Inventory.Components.Auth
 import Nagare.Inventory.Components.ControllerImage (controllerImageDeclaration)
@@ -32,6 +33,7 @@ import Nagare.Inventory.Components.ObservabilityExtras (compileObservabilityExtr
 import Nagare.Inventory.Components.ObservabilitySecrets (compileObservabilitySecrets)
 import Nagare.Inventory.Components.PackagedAuth (compilePackagedAuth, packagedAuthInputs)
 import Nagare.Inventory.Components.Upstream (IssuerMode (LocalIssuer), bindNetCertManagerControllerImage, configuredUpstreamInputsWithIssuer, pinnedUpstreamInputs)
+import Nagare.Inventory.Database (DatabaseBackupTarget (DatabaseBackupTarget))
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (mkOperationId)
 import Nagare.Inventory.Plan (loadInventoryHistory, noLifecycleDecisions, observationRequirements, planChanges, proposalOperations, requiredResources)
@@ -303,7 +305,7 @@ inventoryAuthTests =
                       [("shomei", dbId "shomei"), ("en", dbId "en")]
                 }
             backends =
-              [ (service, direct service, GcsBackend "project" "bucket")
+              [ (service, direct service, (DatabaseBackupTarget (GcsBackend "project" "bucket") HourlyRecoveryPoint))
               | service <- ["shomei", "en"]
               ]
         (scope, native) <- compileAuthComponent input backends >>= expectRight
@@ -346,7 +348,7 @@ inventoryAuthTests =
                 , authDatabasePrerequisites = Map.fromList [(service, dbId service) | service <- ["shomei", "en"]]
                 }
             backends =
-              [ (service, direct service, GcsBackend "project" "bucket")
+              [ (service, direct service, (DatabaseBackupTarget (GcsBackend "project" "bucket") HourlyRecoveryPoint))
               | service <- ["shomei", "en"]
               ]
             bootstrap = BootstrapInput foundation Nothing (pinnedUpstreamInputs fixtureCluster "../..") []
@@ -374,7 +376,7 @@ inventoryAuthTests =
                 fixtureCluster
                 "../../cluster/bootstrap/job-runs/resourcequota.yaml"
                 []
-            backend = GcsBackend "project" "bucket"
+            backend = (DatabaseBackupTarget (GcsBackend "project" "bucket") HourlyRecoveryPoint)
             pinned = authImages fixture
         (auth, databases) <-
           expectRight
@@ -632,7 +634,7 @@ inventoryAuthTests =
                 "http://minio.nagare-system.svc.cluster.local:9000"
                 "nagare-backups"
                 "nagare-minio-credentials"
-            backend = MinioBackend store
+            backend = DatabaseBackupTarget (MinioBackend store) HourlyRecoveryPoint
             binding = ContextBinding (ok (mkContextId "local-auth-fixture")) (ok (mkName "project"))
             snapshot = ok (mkScopeSnapshot binding Map.empty Map.empty)
         rawUpstream <-

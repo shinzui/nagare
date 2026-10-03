@@ -143,7 +143,7 @@ See **[Managed databases](managed-databases.md)** for the full guide (declaring 
 `Database`, connecting an app, the per-engine connection env). A managed database
 (`nagarectl db create postgres|redis|clickhouse NAME`, EP-47) is backup-included
 from the moment it is created. Newly reviewed `db create` scopes provision a
-**CronJob** every 15 minutes that runs an engine-appropriate logical dump — `pg_dump` (Postgres),
+**CronJob** that runs an engine-appropriate logical dump — `pg_dump` (Postgres),
 an RDB dump (Redis), a ClickHouse database backup ZIP — gzips it, and uploads it to
 `databases/<name>/<Job UID>.<ext>` in the active object store. Newly reviewed
 schedules read stored bytes back, compare SHA-256, and publish an authenticated
@@ -151,6 +151,22 @@ per-object receipt bound to the source StatefulSet/PVC identities, accepted
 schedule template and the UTC time captured before the dump starts. They retain backups by default: keep-N and expiry are
 unenforced, and new scheduled pruning is deferred. Existing accepted schedules
 keep their earlier scripts until a review updates them.
+
+The schedule follows the context's recovery-point objective,
+`NAGARE_BACKUP_RECOVERY_POINT` (see [Contexts](contexts.md)):
+
+| Objective | Schedule | Warning | Breach |
+| --- | --- | --- | --- |
+| `hourly` (default) | every 15 minutes | 30 minutes | one hour |
+| `daily` | once a day at 03:17 UTC | 25 hours | 26 hours |
+
+Use `daily` only for clusters that can lose up to a day of data. The objective is
+written into each reviewed CronJob's signed receipt metadata, so status always
+grades a database against the objective its accepted schedule was reviewed with,
+not against the current environment. To change it, set the variable in the
+context, then review the CronJob-only update with
+`db disable-backup-prune NAME --save-plan DIR` (or any ordinary database review)
+and apply it.
 
 List and accept a scheduled receipt after its producer Job has gone:
 
@@ -182,15 +198,49 @@ Unknown customized schedule scripts refuse this migration.
 `recovery point` row per accepted scheduled database backup; `doctor` exits
 nonzero on a breach. For a single database, or a monitoring exit code, use
 `db backup-receipts pg-main --check-freshness`.
-It freshly verifies accepted receipt/archive versions and reports a warning once
-the latest accepted recovery point is 30 minutes old, and unhealthy at one hour.
-Warnings, breaches, missing timestamps and future timestamps exit nonzero.
-Unaccepted candidates cannot make this check healthy. The age starts before the
-dump, so upload and verification delays count against the objective. A 15-minute
-schedule leaves time for retries; it does not by itself establish the one-hour
-recovery guarantee. Monitoring must run frequently enough to act on the warning.
-Source-cluster-unavailable recovery and off-cluster credential survival remain
-unaccepted.
+It freshly verifies receipt and archive versions and grades the newest verified
+recovery point against the schedule's objective. Both accepted receipts and
+verified uploads still awaiting ingestion count. A pending upload counts only after
+its exact stored bytes, HMAC signature and current source StatefulSet/PVC identities
+have been checked, and the output says when the newest point is still pending. So
+an unattended context stays healthy while its schedule runs. Only an accepted
+receipt can authorize a restore, so ingest the receipt you intend to restore.
+Warnings, breaches, missing timestamps and future timestamps exit nonzero. The age
+starts before the dump, so upload and verification delays count against the
+objective. The hourly schedule leaves time for retries; it does not by itself
+establish the recovery guarantee, and monitoring must run often enough to act on
+the warning.
+
+Volumes are outside the recovery-point objective in this release: there is no
+scheduled volume backup, so volume data has only the manual snapshots described
+above. Status does not grade volumes.
+
+#### Escrow the signing key off the cluster
+
+Pending receipts are verified with each database's HMAC signing key, which lives in
+an in-cluster Secret. Escrow it once per database so receipts stay verifiable if
+the cluster is lost:
+
+```bash
+nagarectl db escrow-signing-key pg-main
+nagarectl db verify-escrowed-backup pg-main --backup-id JOB_UID
+```
+
+The escrow reads the live key, binds it to the observed Secret, StatefulSet and
+PVC UIDs, and writes a sops-encrypted file. By default the file goes to
+`$XDG_CONFIG_HOME/nagare/cluster-secrets/<context>/backup-signing/<namespace>-<name>.sops.yaml`;
+`--output` overrides that. sops finds the `.sops.yaml` creation rules from that
+directory, as for other operator secrets ([Secrets](secrets.md)). The plaintext
+never touches disk or argv. The command refuses to overwrite a different escrow,
+and it checks that the result decrypts with your available age key. Keep the file
+in the context's private operator repository. Re-run it after a database is
+replaced, because a new incarnation has a new key.
+
+`verify-escrowed-backup` needs only the escrow and the object store, not the
+cluster. It rereads the exact receipt and archive versions, checks the signature,
+source identities and archive hash, and prints the recovery point. It is evidence
+only and grants no restore authority. A full restore after total cluster loss
+remains outside this release's accepted evidence.
 
  For an accepted database, save a manual
 backup review with `nagarectl db backup NAME --backup-id ID --save-plan DIR`,

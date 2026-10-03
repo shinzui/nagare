@@ -10,6 +10,7 @@ module Nagare.Inventory.ScheduledStore
   , parseObjectEntries
   , parseObjectVersions
   , readSecretField
+  , readSecretFieldWithUid
   )
 where
 
@@ -101,7 +102,13 @@ readCredentials context ref = do
 -- | Read one operator-authorized Secret field privately. The decoded value is
 -- never put in a process argument, review, terminal output, or error message.
 readSecretField :: Text -> Text -> Text -> Text -> IO (Either Text Text)
-readSecretField context namespaceName secretRefName keyName = do
+readSecretField context namespaceName secretRefName keyName =
+  fmap (fmap snd) (readSecretFieldWithUid context namespaceName secretRefName keyName)
+
+-- | Read one Secret field together with the Secret's UID from the same
+-- response, so a caller can bind the value to an observed incarnation.
+readSecretFieldWithUid :: Text -> Text -> Text -> Text -> IO (Either Text (Maybe Text, Text))
+readSecretFieldWithUid context namespaceName secretRefName keyName = do
   outcome <-
     try
       ( readProcessWithExitCode
@@ -124,7 +131,10 @@ readSecretField context namespaceName secretRefName keyName = do
     Right (ExitFailure _, _, _) -> pure (Left "local object-store credentials are unavailable")
     Right (ExitSuccess, body, _) -> case eitherDecodeStrict (BC.pack body) of
       Right (Object root) | Just (Object fields) <- KM.lookup "data" root -> do
-        decodeField fields (K.fromText keyName)
+        let uid = case KM.lookup "metadata" root of
+              Just (Object metadata) | Just (String value) <- KM.lookup "uid" metadata -> Just value
+              _ -> Nothing
+        fmap (fmap (\value -> (uid, value))) (decodeField fields (K.fromText keyName))
       _ -> pure (Left "local object-store credential Secret is malformed")
   where
     decodeField fields key = case KM.lookup key fields of

@@ -47,6 +47,7 @@ import Data.Text.IO qualified as TIO
 import GHC.Generics (Generic)
 import Nagare.Dsl.Prelude
 import Nagare.Gcp.Adc (adcEnvFromProcess, observeAdc, validateAdc)
+import Nagare.Inventory.BackupFreshness (recoveryPointObjectiveText)
 import Nagare.Ops.Probe (captureTool)
 import Nagare.Platform.Paths (PlatformRootSource (..))
 import Nagare.Target
@@ -339,6 +340,7 @@ renderTargetEnv tp =
     , "export NAGARE_PULUMI_BACKEND_URL=" <> tp ^. #pulumiBackendUrl
     , "export NAGARE_INVENTORY_STORE=" <> inventoryStoreToken (tp ^. #inventoryStore)
     , "export NAGARE_INVENTORY_STORE_URL=" <> tp ^. #inventoryStoreUrl
+    , "export NAGARE_BACKUP_RECOVERY_POINT=" <> recoveryPointObjectiveText (tp ^. #backupRecoveryPoint)
     ]
       <> maybe [] (\member -> ["export NAGARE_PULUMI_BACKEND_MEMBER=" <> shellQuote member]) (tp ^. #pulumiBackendMember)
       <> maybe [] (\version -> ["export NAGARE_PLATFORM_VERSION=" <> version]) (tp ^. #platformVersion)

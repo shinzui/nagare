@@ -35,10 +35,11 @@ import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes
 import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), backupReceiptFromPodList, cacheClientDataMatches, certificateReady, collectionDeleteRequest, completedJobContainerMessageFromPodList, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, crdEstablished, credentialDataMatches, deploymentAvailable, deploymentSelectorReplacement, desiredFieldsMatch, generatedCredentialTemplate, jobCompleted, knativeReady, materializeCacheKey, materializeCredential, mkKubernetesRuntimeOps, observeCacheClientOutput, observeKubernetesBatchWithGuard, parseObserved, readinessForAddress, statefulSetImmutableReplacement, statefulSetReady, supportedUpdateAddress, withoutCacheClientData)
 import Nagare.Inventory.Backup (BackupReceiptExpectation (..), BackupSourceProof (..), ManualBackupRequest (..), VolumeSnapshotRequest (..), compileManualBackupScope, compileVolumeSnapshotScope, manualBackupJobReceiptExpectation, manualBackupJobSourcePins, manualBackupSourceProof, parseBackupReceipt, parseManualBackupReceipt, volumeSnapshotJobSourcePins)
+import Nagare.Inventory.BackupFreshness (RecoveryPointObjective (..))
 import Nagare.Inventory.CollectionPolicy (requiresControllerCollection, supportsRetainedCollection)
 import Nagare.Inventory.Components.Foundation (compileContributedNamespaces)
 import Nagare.Inventory.DataService (NativeDataKind (..), compileBackupPruneRemovalScope, compileStandaloneDatabase, compileStatefulSetRestartScope, standaloneStatefulSetOwned)
-import Nagare.Inventory.Database (compileDatabaseForBackend)
+import Nagare.Inventory.Database (DatabaseBackupTarget (DatabaseBackupTarget), compileDatabaseForBackend)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Execute (TransactionResult (..), applyReviewed, resumeTransaction)
 import Nagare.Inventory.Journal
@@ -746,7 +747,7 @@ inventoryKubernetesTests =
                 Dsl.Delete
             recovery = RecoveryIntent (ok (mkName "backup")) (mkSecretRef (ok (mkName "db-password")) (ok (mkName "v1")) :| [])
             direct = DatabaseDirectInput db scope cluster Nothing recovery (SourceLocation "database" "postgres")
-            (bundle, bound) = ok (compileDatabaseForBackend direct (GcsBackend "project" "bucket"))
+            (bundle, bound) = ok (compileDatabaseForBackend direct (DatabaseBackupTarget (GcsBackend "project" "bucket") HourlyRecoveryPoint))
         length (declarations bundle) @?= 4
         Map.size bound @?= 4
         mapM_
@@ -770,7 +771,7 @@ inventoryKubernetesTests =
             recovery = RecoveryIntent (ok (mkName "backup")) (mkSecretRef (ok (mkName "db-password")) (ok (mkName "v1")) :| [])
             direct = DatabaseDirectInput db scope cluster Nothing recovery (SourceLocation "database" "postgres")
             legacy = renderDbBackupCronJob "personal" "pg-main" Postgres (engineVersionText (defaultEngineVersion Postgres)) (GcsBackend "project" "bucket") 7
-            (bundle, bound) = ok (compileDatabaseForBackend direct (GcsBackend "project" "bucket"))
+            (bundle, bound) = ok (compileDatabaseForBackend direct (DatabaseBackupTarget (GcsBackend "project" "bucket") HourlyRecoveryPoint))
             backupBytes =
               [ bytes
               | (member, bytes) <- Map.elems bound
@@ -1666,7 +1667,7 @@ inventoryKubernetesTests =
                 recovery
                 (SourceLocation "database" "redis")
             backend = GcsBackend "project" "bucket"
-            (databaseScope, databaseNative) = ok (compileStandaloneDatabase direct backend)
+            (databaseScope, databaseNative) = ok (compileStandaloneDatabase direct (DatabaseBackupTarget backend HourlyRecoveryPoint))
             backupRequest =
               ManualBackupRequest
                 { databaseName = "redis-main"
@@ -1863,7 +1864,7 @@ inventoryKubernetesTests =
                 (mkSecretRef (ok (mkName "db-password")) (ok (mkName "v1")) :| [])
             direct = DatabaseDirectInput db owner cluster Nothing recovery (SourceLocation "database" "postgres")
             backend = GcsBackend "project" "bucket"
-            (databaseScope, databaseNative) = ok (compileStandaloneDatabase direct backend)
+            (databaseScope, databaseNative) = ok (compileStandaloneDatabase direct (DatabaseBackupTarget backend HourlyRecoveryPoint))
             expiry =
               maybe
                 (error "invalid test expiry")
@@ -3126,7 +3127,7 @@ inventoryKubernetesTests =
                 (mkSecretRef (ok (mkName "db-password")) (ok (mkName "v1")) :| [])
             direct = DatabaseDirectInput db owner cluster Nothing recovery (SourceLocation "database" "postgres")
             backend = GcsBackend "project" "bucket"
-            (safeScope, safeNative) = ok (compileStandaloneDatabase direct backend)
+            (safeScope, safeNative) = ok (compileStandaloneDatabase direct (DatabaseBackupTarget backend HourlyRecoveryPoint))
             backupId = ok (databaseResourceId owner (ok (mkName "backup")) db)
             (safeMember, safeBytes) = maybe (error "missing backup") id (Map.lookup backupId safeNative)
             legacyBytes =
@@ -3169,14 +3170,25 @@ inventoryKubernetesTests =
             acceptedNative = Map.insert backupId (legacyMember, legacyNative) safeNative
             (updated, updatedNative) =
               ok
-                (compileBackupPruneRemovalScope "pg-main" "personal" backend legacyScope acceptedNative)
+                (compileBackupPruneRemovalScope "pg-main" "personal" (DatabaseBackupTarget backend HourlyRecoveryPoint) legacyScope acceptedNative)
         Map.delete backupId updatedNative @?= Map.delete backupId acceptedNative
         Map.lookup backupId updatedNative @?= Map.lookup backupId safeNative
         scopeBundles updated @?= scopeBundles safeScope
         assertBool
           "legacy pruning remained in reviewed bytes"
           (not (BC.isInfixOf "pruning" (snd (updatedNative Map.! backupId))))
-        compileBackupPruneRemovalScope "pg-main" "personal" backend updated updatedNative
+        compileBackupPruneRemovalScope "pg-main" "personal" (DatabaseBackupTarget backend HourlyRecoveryPoint) updated updatedNative
+          @?= Right (updated, updatedNative)
+        -- A context objective change is the same bounded CronJob-only update:
+        -- the current hourly schedule moves to the daily one and back.
+        let dailyTarget = DatabaseBackupTarget backend DailyRecoveryPoint
+            (dailySafeScope, dailySafeNative) = ok (compileStandaloneDatabase direct dailyTarget)
+            (dailyScope, dailyNative) = ok (compileBackupPruneRemovalScope "pg-main" "personal" dailyTarget updated updatedNative)
+        Map.delete backupId dailyNative @?= Map.delete backupId updatedNative
+        Map.lookup backupId dailyNative @?= Map.lookup backupId dailySafeNative
+        scopeBundles dailyScope @?= scopeBundles dailySafeScope
+        assertBool "daily schedule lacks its signed objective" (BC.isInfixOf "recoveryPoint" (snd (dailyNative Map.! backupId)))
+        compileBackupPruneRemovalScope "pg-main" "personal" (DatabaseBackupTarget backend HourlyRecoveryPoint) dailyScope dailyNative
           @?= Right (updated, updatedNative)
         assertBool
           "mismatched accepted bytes were accepted"
@@ -3184,7 +3196,7 @@ inventoryKubernetesTests =
               ( compileBackupPruneRemovalScope
                   "pg-main"
                   "personal"
-                  backend
+                  (DatabaseBackupTarget backend HourlyRecoveryPoint)
                   legacyScope
                   (Map.insert backupId (legacyMember, BC.pack "{}") acceptedNative)
               )
@@ -3195,7 +3207,7 @@ inventoryKubernetesTests =
               ( compileBackupPruneRemovalScope
                   "pg-main"
                   "personal"
-                  (GcsBackend "project" "other-bucket")
+                  (DatabaseBackupTarget (GcsBackend "project" "other-bucket") HourlyRecoveryPoint)
                   legacyScope
                   acceptedNative
               )
@@ -3254,7 +3266,7 @@ inventoryKubernetesTests =
                     }
                 previousScope = ok (mkScopeDeclaration owner (map replacePrevious (scopeBundles safeScope)))
                 previousNative = Map.insert backupId (previousMember, previousBytes) safeNative
-            compileBackupPruneRemovalScope "pg-main" "personal" backend previousScope previousNative
+            compileBackupPruneRemovalScope "pg-main" "personal" (DatabaseBackupTarget backend HourlyRecoveryPoint) previousScope previousNative
               @?= Right (safeScope, safeNative)
     , testCase "disposable cluster updates a legacy backup CronJob without recreating it" $ do
         selected <- lookupEnv "NAGARE_EP148_BACKUP_TEST_CONTEXT"
@@ -3283,7 +3295,7 @@ inventoryKubernetesTests =
                     (mkSecretRef (ok (mkName "db-password")) (ok (mkName "v1")) :| [])
                 direct = DatabaseDirectInput db owner cluster Nothing recovery (SourceLocation "database" "provider-proof")
                 backend = GcsBackend "project" "bucket"
-                (safeScope, safeNative) = ok (compileStandaloneDatabase direct backend)
+                (safeScope, safeNative) = ok (compileStandaloneDatabase direct (DatabaseBackupTarget backend HourlyRecoveryPoint))
                 backupId = ok (databaseResourceId owner (ok (mkName "backup")) db)
                 (safeMember, _) = maybe (error "missing backup") id (Map.lookup backupId safeNative)
                 legacyValue =
@@ -3327,7 +3339,7 @@ inventoryKubernetesTests =
                     }
                 legacyScope = ok (mkScopeDeclaration owner (map replace (scopeBundles safeScope)))
                 acceptedNative = Map.insert backupId (legacyMember, legacyBytes) safeNative
-                (_, revisedNative) = ok (compileBackupPruneRemovalScope dbName "default" backend legacyScope acceptedNative)
+                (_, revisedNative) = ok (compileBackupPruneRemovalScope dbName "default" (DatabaseBackupTarget backend HourlyRecoveryPoint) legacyScope acceptedNative)
                 oldBound = Map.singleton backupId (legacyMember, legacyBytes)
                 newBound = Map.singleton backupId (revisedNative Map.! backupId)
                 config = KubernetesRuntimeConfig (ok (mkContextId "test")) (T.pack selectedContext) (pure (Right ()))
@@ -3406,7 +3418,7 @@ inventoryKubernetesTests =
                 (mkSecretRef (ok (mkName "db-password")) (ok (mkName "v1")) :| [])
             direct = DatabaseDirectInput db owner cluster Nothing recovery (SourceLocation "database" "standalone")
             backend = GcsBackend "project" "bucket"
-            (declaration, native) = ok (compileStandaloneDatabase direct backend)
+            (declaration, native) = ok (compileStandaloneDatabase direct (DatabaseBackupTarget backend HourlyRecoveryPoint))
         scopeId declaration @?= owner
         length (concatMap declarations (scopeBundles declaration)) @?= 9
         Map.size native @?= 9
@@ -3459,7 +3471,7 @@ inventoryKubernetesTests =
           (isLeft (compileStatefulSetRestartScope BrokerObjects "pg-main" "personal" "stamp" declaration native))
         assertBool "different namespace is not owned" (not (standaloneStatefulSetOwned "pg-main" "other" owned))
         assertBool "different name is not owned" (not (standaloneStatefulSetOwned "other" "personal" owned))
-        case compileStandaloneDatabase (direct {directOwnerScope = scope}) backend of
+        case compileStandaloneDatabase (direct {directOwnerScope = scope}) (DatabaseBackupTarget backend HourlyRecoveryPoint) of
           Left (err :| _) -> code err @?= "wrong-data-scope"
           Right _ -> assertFailure "platform scope was accepted for standalone database"
     , testCase "desired projection ignores server fields but detects changed desired data" $ do
@@ -5877,7 +5889,7 @@ inventoryKubernetesTests =
                     Nothing
                     Dsl.Retain
                 recovery = RecoveryIntent (ok (mkName "backup")) (mkSecretRef (ok (mkName "db-password")) (ok (mkName "v1")) :| [])
-                (bundle, bound) = ok (compileDatabaseForBackend (DatabaseDirectInput db scope cluster Nothing recovery (SourceLocation "database" "postgres")) (GcsBackend "project" "bucket"))
+                (bundle, bound) = ok (compileDatabaseForBackend (DatabaseDirectInput db scope cluster Nothing recovery (SourceLocation "database" "postgres")) (DatabaseBackupTarget (GcsBackend "project" "bucket") HourlyRecoveryPoint))
                 credentialId = ok (databaseResourceId scope (ok (mkName "credential")) db)
                 backupId = ok (databaseResourceId scope (ok (mkName "backup")) db)
                 credential = maybe (error "database bundle lacks credential") id (Map.lookup credentialId bound)
@@ -5923,7 +5935,7 @@ inventoryKubernetesTests =
                     Nothing
                     Dsl.Retain
                 recovery = RecoveryIntent (ok (mkName "backup")) (mkSecretRef (ok (mkName "db-password")) (ok (mkName "v1")) :| [])
-                (bundle, bound) = ok (compileDatabaseForBackend (DatabaseDirectInput db scope cluster Nothing recovery (SourceLocation "database" "postgres")) (GcsBackend "project" "bucket"))
+                (bundle, bound) = ok (compileDatabaseForBackend (DatabaseDirectInput db scope cluster Nothing recovery (SourceLocation "database" "postgres")) (DatabaseBackupTarget (GcsBackend "project" "bucket") HourlyRecoveryPoint))
                 binding = ContextBinding (ok (mkContextId "test")) (ok (mkName "project"))
                 scopeDeclaration = ok (mkScopeDeclaration scope [bundle])
                 candidate = ok (composeInventory (ok (mkScopeSnapshot binding Map.empty Map.empty)) (ReplaceScope scopeDeclaration :| []))
