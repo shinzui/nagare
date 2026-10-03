@@ -57,6 +57,7 @@ import Nagare.Cli.Inventory.Execution
 import Nagare.Cli.Inventory.Planning
   ( inventoryPlanRegistry
   , inventoryPlanRegistryWithNative
+  , inventoryPlanRegistryWithTakeover
   )
 import Nagare.Cli.Options
   ( AppCheckOpts
@@ -169,6 +170,9 @@ runAppDeployPlan mctx params appOptions output = do
   when
     (appOptions ^. #dryRun && isJust (appOptions ^. #savePlan))
     (dieT "--save-plan cannot be combined with --dry-run")
+  when
+    (appOptions ^. #takeOverFields && (isNothing (appOptions ^. #savePlan) || isJust (appOptions ^. #legacyReleaseImport)))
+    (dieT "--take-over-fields requires --save-plan for an ordinary reviewed deploy")
   when
     ( isNothing (appOptions ^. #savePlan)
         && ( isJust (appOptions ^. #legacyReleaseImport)
@@ -520,7 +524,7 @@ runAppDeployPlan mctx params appOptions output = do
           candidate
       (Nothing, Just _) ->
         Inventory.planInventoryCandidateWith
-          (inventoryPlanRegistryWithNative active workspace native)
+          (inventoryPlanRegistryWithTakeover (appOptions ^. #takeOverFields) active workspace native)
           active
           candidate
           output

@@ -4014,17 +4014,7 @@ inventoryKubernetesTests =
                 (Just (ok (mkName "default")))
                 (ok (mkName "unproved"))
             digest = contentDigest "{}"
-            mutation =
-              KubernetesMutation
-                1
-                (ok (mkOperationId "op-unproved-update"))
-                digest
-                UpdateResource
-                resource
-                address
-                "{}"
-                digest
-                (KubernetesPresent physical "4" (Just resource) digest)
+            mutation = KubernetesMutation 1 (ok (mkOperationId "op-unproved-update")) digest UpdateResource resource address "{}" digest (KubernetesPresent physical "4" (Just resource) digest) Nothing
         assertBool "unproved Job update was admitted" (not (supportedUpdateAddress address))
         result <- kubernetesMutateConditional (mkKubernetesRuntimeOps config Map.empty) mutation
         case result of

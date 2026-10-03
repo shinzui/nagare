@@ -189,6 +189,42 @@ off-cluster recovery archive. Export is evidence preservation, not permission to
 replace live shared history with an older copy. See the
 [recovery-material requirement](../user/backups-and-disaster-recovery.md).
 
+## Repair configuration drift
+
+`inventory status --json` reports a changed accepted object as
+`configuration-drift`, separate from `retained-orphan`, `unowned` and the other
+categories. The repair is an ordinary reviewed replan of the owning scope, for
+example the same `app deploy --save-plan` that created it. When Nagare's field
+manager (`nagare-inventory`) still owns every non-status field, that update
+restores the reviewed bytes.
+
+An edit made with `kubectl edit`, `kubectl patch` or another tool leaves that
+tool as the field manager of what it changed. The update then stops with
+`KnownNoEffect "Kubernetes object has fields managed by another writer: …"`
+before any write. Close the stopped transaction with `abandon-refused-operation`
+(see above), then decide whether Nagare should take those fields back. To take
+them back, save the repair with the explicit opt-in:
+
+```bash
+nagarectl --context "$CONTEXT" app deploy -f "$CONFIG" --save-plan "$REVIEW" \
+  --take-over-fields  # plus the deploy's usual reviewed inputs
+nagarectl --context "$CONTEXT" inventory apply "$REVIEW" --yes
+```
+
+Planning reads the object's managed fields and records the exact foreign entries
+(manager, operation and fields, without timestamps) together with the object's
+UID and resourceVersion. The review summary names the managers it will take over
+from. Apply proceeds only while the object has the same UID and resourceVersion
+and every live foreign entry is one of the recorded ones; a new manager, or the
+same manager owning different fields, refuses before writing. The write is
+Nagare's usual forced server-side apply of the reviewed object. Afterwards the
+object must have no foreign owner of a non-status field left; if one remains (it
+owns fields the declaration does not set), the operation stops ambiguous rather
+than reporting success. Without `--take-over-fields` the refusal stays, and
+objects without foreign managers plan exactly as before. Saved reviews from
+earlier releases keep their strict semantics. `inventory plan` does not yet accept
+the opt-in (finding F37).
+
 ## Synchronize a newly protected backend
 
 After applying a reviewed application that adds or removes a protected host,

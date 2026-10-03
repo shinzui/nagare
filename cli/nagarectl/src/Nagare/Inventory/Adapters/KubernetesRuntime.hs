@@ -19,6 +19,7 @@ module Nagare.Inventory.Adapters.KubernetesRuntime
   , parseObserved
   , confirmInventoryFieldOwnership
   , confirmInventoryFieldOwnershipFor
+  , readLiveManagedObject
   , jobCompleted
   , readBackupReceiptFromCompletedPod
   , readCompletedJobContainerMessage
@@ -70,7 +71,7 @@ import Nagare.Inventory.Adapters.Kubernetes
 import Nagare.Inventory.Adapters.KubernetesCollection (collectionDeleteRequest)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect))
-import Nagare.Inventory.KubernetesConfiguration (configurationDigest, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor)
+import Nagare.Inventory.KubernetesConfiguration (configurationDigest, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, confirmReviewedFieldTakeover, confirmTakeoverSettled)
 import Nagare.Inventory.KubernetesTransport (KubernetesRuntimeConfig (..), invokeKubectl)
 import Nagare.Inventory.Migration.PostgresRename (migrationFenced, scaledToZero)
 import Nagare.Resource.Inventory (ManagedResource (..))
@@ -206,7 +207,7 @@ mkKubernetesRuntimeObservations stable config resolveCacheKey specs =
                 Left reason -> pure (Left reason)
                 Right True -> pure (Left "generated credential updates require a dedicated data-preserving operation")
                 Right False -> do
-                  ownership <- verifyLiveOwnership config (mutationAddress mutation) uid revision
+                  ownership <- verifyLiveOwnership config (mutationAddress mutation) uid revision (maybe [] takeoverManagers (mutationTakeover mutation))
                   pure $ do
                     observed <- ownership
                     native <- resolved
@@ -232,6 +233,11 @@ mkKubernetesRuntimeObservations stable config resolveCacheKey specs =
                 Right (ExitSuccess, _, _)
                   | mutationAction mutation == RetireResource ->
                       waitForCollection config (mutationAddress mutation)
+                  | Just takeover <- mutationTakeover mutation -> do
+                      live <- readLiveManagedObject config (mutationAddress mutation)
+                      case live >>= confirmTakeoverSettled (Just (mutationAddress mutation)) (takeoverPhysical takeover) of
+                        Left reason -> pure (AdapterEffectAmbiguous reason)
+                        Right () -> waitForReadiness config (mutationAddress mutation)
                   | otherwise -> waitForReadiness config (mutationAddress mutation)
                 _ -> pure (AdapterEffectAmbiguous "Kubernetes write did not return success; reobserve before retry")
 
@@ -1366,23 +1372,20 @@ servicePortPatch uid revision native observed = do
       Just (Object value) -> Right value
       _ -> Left "Service inventory annotations are missing"
 
-verifyLiveOwnership :: KubernetesRuntimeConfig -> ProviderAddress -> PhysicalIdentity -> Text -> IO (Either Text Value)
-verifyLiveOwnership config target uid revision = case target of
+-- | An empty reviewed list is the strict check; a version-3 mutation passes
+-- the exact foreign entries its review recorded.
+verifyLiveOwnership :: KubernetesRuntimeConfig -> ProviderAddress -> PhysicalIdentity -> Text -> [Value] -> IO (Either Text Value)
+verifyLiveOwnership config target uid revision reviewed = do
+  live <- readLiveManagedObject config target
+  pure (live >>= \observed -> observed <$ confirmReviewedFieldTakeover (Just target) reviewed uid revision observed)
+
+readLiveManagedObject :: KubernetesRuntimeConfig -> ProviderAddress -> IO (Either Text Value)
+readLiveManagedObject config target = case target of
   Kubernetes _ group kind namespace name -> do
-    result <-
-      invoke
-        config
-        ( ["get", kindToken group kind, T.unpack (nameText name)]
-            <> namespaceArgs namespace
-            <> ["-o", "json", "--show-managed-fields"]
-        )
-        ""
+    result <- invoke config (["get", kindToken group kind, T.unpack (nameText name)] <> namespaceArgs namespace <> ["-o", "json", "--show-managed-fields"]) ""
     pure $ case result of
-      Right (ExitSuccess, output, _) -> do
-        observed <- first (T.pack . show) (eitherDecodeStrict (TE.encodeUtf8 (T.pack output)))
-        confirmInventoryFieldOwnershipFor (Just target) uid revision observed
-        pure observed
-      _ -> Left "could not verify Kubernetes field ownership before update"
+      Right (ExitSuccess, output, _) -> first (T.pack . show) (eitherDecodeStrict (TE.encodeUtf8 (T.pack output)))
+      _ -> Left "could not read Kubernetes field ownership"
   _ -> pure (Left "Kubernetes mutation has no Kubernetes address")
 
 kindToken :: Text -> Name -> String

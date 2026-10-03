@@ -5,10 +5,12 @@
 module Nagare.Inventory.Adapters.Kubernetes
   ( KubernetesState (..)
   , KubernetesMutation (..)
+  , FieldTakeover (..)
   , KubernetesAdapterOps (..)
   , mkKubernetesAdapter
   , mkKubernetesAdapterWithBackupReceipt
   , mkKubernetesAdapterWithConfigurationObservation
+  , mkKubernetesAdapterWithFieldTakeover
   , mkKubernetesAdapterWithBackupReceiptAndBatch
   , unstampNative
   )
@@ -22,6 +24,7 @@ import Data.Generics.Labels ()
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
@@ -39,6 +42,7 @@ import Nagare.Inventory.CollectionPolicy (supportsRetainedCollection)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect), OperationId)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
+import Nagare.Inventory.KubernetesConfiguration (foreignFieldManagers, liveIdentity)
 import Nagare.Inventory.Prune (manualPruneJobBackupPin)
 import Nagare.Inventory.Restore (manualRestoreJobTargetPins, volumeRestoreJobSourcePins)
 import Nagare.Inventory.ScheduledIngest (scheduledIngestJobSourcePins)
@@ -61,7 +65,8 @@ data KubernetesState
   deriving stock (Eq, Show, Generic)
 
 -- | Private reviewed plan. The native JSON is the exact canonical object
--- submitted by the transport, including any private Secret fields.
+-- submitted by the transport, including any private Secret fields. Version 3
+-- is a version-1 update that also carries a reviewed field takeover.
 data KubernetesMutation = KubernetesMutation
   { mutationVersion :: !Int
   , mutationOperation :: !OperationId
@@ -72,8 +77,19 @@ data KubernetesMutation = KubernetesMutation
   , mutationNativeJson :: !Text
   , mutationNativeDigest :: !ContentDigest
   , mutationBefore :: !KubernetesState
+  , mutationTakeover :: !(Maybe FieldTakeover)
   }
   deriving stock (Eq, Generic)
+
+-- | The foreign managed-field entries an operator reviewed for takeover (F37),
+-- bound to the object's UID and resourceVersion at planning. Execution may
+-- force Nagare's fields only while every live foreign entry is one of these.
+data FieldTakeover = FieldTakeover
+  { takeoverPhysical :: !PhysicalIdentity
+  , takeoverResourceVersion :: !Text
+  , takeoverManagers :: ![Value]
+  }
+  deriving stock (Eq, Show, Generic)
 
 data KubernetesAdapterOps = KubernetesAdapterOps
   { kubernetesContext :: !ContextId
@@ -115,7 +131,7 @@ mkKubernetesAdapterWithBackupReceiptAndBatch ::
   (ResourceId -> PhysicalIdentity -> IO (Either Text ByteString)) ->
   Adapter
 mkKubernetesAdapterWithBackupReceiptAndBatch specs ops observeBatch readBackupReceipt =
-  mkKubernetesAdapterWithObservations specs ops observeBatch Nothing readBackupReceipt noScratchFailureProbe
+  mkKubernetesAdapterWithObservations specs ops observeBatch Nothing readBackupReceipt noScratchFailureProbe Nothing
 
 -- | Without a runtime pod probe, a failed restore scratch workload is never
 -- proved terminal; recovery stays unresolved, as before.
@@ -132,8 +148,24 @@ mkKubernetesAdapterWithConfigurationObservation ::
   (ResourceId -> PhysicalIdentity -> IO (Either Text ByteString)) ->
   (ResourceId -> PhysicalIdentity -> IO (Either Text Bool)) ->
   Adapter
-mkKubernetesAdapterWithConfigurationObservation specs ops batch stable =
-  mkKubernetesAdapterWithObservations specs ops batch (Just stable)
+mkKubernetesAdapterWithConfigurationObservation specs ops batch stable receipt scratch =
+  mkKubernetesAdapterWithObservations specs ops batch (Just stable) receipt scratch Nothing
+
+-- | Planning with an explicit operator opt-in to reviewed field takeover. An
+-- update whose live object has foreign managed fields records those exact
+-- entries in a version-3 mutation instead of a review that apply refuses.
+-- The reader returns the live object with its managed fields.
+mkKubernetesAdapterWithFieldTakeover ::
+  Map ResourceId (ManagedResource, ByteString) ->
+  KubernetesAdapterOps ->
+  ([ResourceId] -> IO [KubernetesState]) ->
+  (ResourceId -> IO KubernetesState) ->
+  (ResourceId -> PhysicalIdentity -> IO (Either Text ByteString)) ->
+  (ResourceId -> PhysicalIdentity -> IO (Either Text Bool)) ->
+  (ProviderAddress -> IO (Either Text Value)) ->
+  Adapter
+mkKubernetesAdapterWithFieldTakeover specs ops batch stable receipt scratch reader =
+  mkKubernetesAdapterWithObservations specs ops batch (Just stable) receipt scratch (Just reader)
 
 mkKubernetesAdapterWithObservations ::
   Map ResourceId (ManagedResource, ByteString) ->
@@ -142,8 +174,9 @@ mkKubernetesAdapterWithObservations ::
   Maybe (ResourceId -> IO KubernetesState) ->
   (ResourceId -> PhysicalIdentity -> IO (Either Text ByteString)) ->
   (ResourceId -> PhysicalIdentity -> IO (Either Text Bool)) ->
+  Maybe (ProviderAddress -> IO (Either Text Value)) ->
   Adapter
-mkKubernetesAdapterWithObservations specs ops observeBatch stableObserve readBackupReceipt scratchFailed =
+mkKubernetesAdapterWithObservations specs ops observeBatch stableObserve readBackupReceipt scratchFailed takeoverReader =
   Adapter
     { adapterExecutor = KubernetesExecutor
     , adapterIdentity = "kubernetes-conditional-object"
@@ -197,14 +230,41 @@ mkKubernetesAdapterWithObservations specs ops observeBatch stableObserve readBac
     prepare operation = case singleSpec specs operation of
       Left reason -> pure (Left (PrepareRefused (plannedOperationId operation) reason))
       Right (resource, declaration, native) -> do
+        takeover <- case takeoverReader of
+          Just reader | plannedAction operation == UpdateResource -> prepareTakeover reader operation resource declaration
+          _ -> pure (Right Nothing)
         let versioned = plannedAction operation == UpdateResource && knativeServiceAddress (address declaration) && isJust stableObserve
-        before <- if versioned then maybe (kubernetesObserve ops resource) ($ resource) stableObserve else kubernetesObserve ops resource
+        before <- case takeover of
+          Right (Just (_, observed)) -> pure observed
+          _ | versioned -> maybe (kubernetesObserve ops resource) ($ resource) stableObserve
+          _ -> kubernetesObserve ops resource
         pure $ do
+          reviewedTakeover <- fmap fst <$> takeover
           validateBefore operation resource (address declaration) (contentDigest native) before
           initial <- buildMutation (kubernetesContext ops) operation resource declaration native before
-          let mutation = initial {mutationVersion = if versioned then 2 else 1}
+          let mutation = case reviewedTakeover of
+                Just _ -> initial {mutationVersion = 3, mutationTakeover = reviewedTakeover}
+                Nothing -> initial {mutationVersion = if versioned then 2 else 1}
           bytes <- first (PrepareRefused (plannedOperationId operation)) (canonicalValue (toJSON mutation))
           pure (PreparedNative bytes (summary mutation))
+    -- The exact object observation and its live managed fields must name the
+    -- same UID and resourceVersion; otherwise the object moved between reads.
+    prepareTakeover reader operation resource declaration = do
+      observed <- kubernetesObserve ops resource
+      live <- reader (address declaration)
+      pure $ first (PrepareRefused (plannedOperationId operation)) $ do
+        value <- live
+        (uid, revision) <- liveIdentity value
+        others <- foreignFieldManagers (Just (address declaration)) value
+        case observed of
+          _ | null others -> Right Nothing
+          KubernetesPresent physical observedRevision _ _
+            | physicalIdentityText physical == uid && observedRevision == revision ->
+                Right (Just (FieldTakeover physical revision others, observed))
+          KubernetesNotReady physical observedRevision _ _
+            | physicalIdentityText physical == uid && observedRevision == revision ->
+                Right (Just (FieldTakeover physical revision others, observed))
+          _ -> Left "Kubernetes object changed while its field takeover was prepared; replan"
     preflight operation prepared = case decodeMutation (kubernetesContext ops) specs operation prepared of
       Left reason -> pure (Left reason)
       Right mutation -> do
@@ -277,7 +337,7 @@ mkKubernetesAdapterWithObservations specs ops observeBatch stableObserve readBac
                            ) ->
                         RecoveryAwaitingReadiness physical
                   KubernetesNotReady physical _ (Just owner) _
-                    | mutationVersion mutation == 1
+                    | mutationVersion mutation `elem` [1, 3]
                     , mutationAction mutation == UpdateResource
                     , knativeServiceAddress (mutationAddress mutation)
                     , owner == mutationResource mutation
@@ -538,6 +598,7 @@ buildMutation context operation resource declaration native before = do
       , mutationNativeJson = TE.decodeUtf8 stamped
       , mutationNativeDigest = digest
       , mutationBefore = before
+      , mutationTakeover = Nothing
       }
   where
     refusal = PrepareRefused (plannedOperationId operation)
@@ -556,6 +617,7 @@ decodeMutation context specs operation prepared = do
   mutation <- first T.pack (eitherDecodeStrict (preparedNativeBytes prepared))
   (resource, declaration, native) <- singleSpec specs operation
   unless (mutationVersion mutation == 1 || (mutationVersion mutation == 2 && mutationAction mutation == UpdateResource && knativeServiceAddress (mutationAddress mutation))) (Left "unsupported Kubernetes mutation version")
+    `orTakeover` mutation
   unless (mutationOperation mutation == plannedOperationId operation && mutationInputDigest mutation == plannedInputDigest operation) (Left "Kubernetes mutation operation binding changed")
   unless (mutationResource mutation == resource && mutationAction mutation == plannedAction operation && mutationAddress mutation == address declaration) (Left "Kubernetes mutation resource binding changed")
   value <- first T.pack (eitherDecodeStrict native)
@@ -715,6 +777,10 @@ summary mutation =
     <> T.pack (show (mutationAddress mutation))
     <> "; native digest "
     <> digestText (mutationNativeDigest mutation)
+    <> maybe "" (\takeover -> "; takes over fields from " <> T.intercalate ", " (mapMaybe managerName (takeoverManagers takeover))) (mutationTakeover mutation)
+  where
+    managerName (Object entry) | Just (String manager) <- KM.lookup "manager" entry = Just manager
+    managerName _ = Nothing
 
 instance ToJSON KubernetesState where
   toJSON = \case
@@ -740,17 +806,50 @@ instance FromJSON KubernetesState where
 instance ToJSON KubernetesMutation where
   toJSON mutation =
     object
-      [ "version" .= mutationVersion mutation
-      , "operation" .= mutationOperation mutation
-      , "inputDigest" .= mutationInputDigest mutation
-      , "action" .= mutationAction mutation
-      , "resource" .= mutationResource mutation
-      , "address" .= mutationAddress mutation
-      , "nativeJson" .= mutationNativeJson mutation
-      , "nativeDigest" .= mutationNativeDigest mutation
-      , "before" .= mutationBefore mutation
-      ]
+      ( [ "version" .= mutationVersion mutation
+        , "operation" .= mutationOperation mutation
+        , "inputDigest" .= mutationInputDigest mutation
+        , "action" .= mutationAction mutation
+        , "resource" .= mutationResource mutation
+        , "address" .= mutationAddress mutation
+        , "nativeJson" .= mutationNativeJson mutation
+        , "nativeDigest" .= mutationNativeDigest mutation
+        , "before" .= mutationBefore mutation
+        ]
+          -- Versions 1 and 2 keep their exact earlier bytes.
+          <> maybe [] (\takeover -> ["takeover" .= takeover]) (mutationTakeover mutation)
+      )
 
 instance FromJSON KubernetesMutation where
   parseJSON = withObject "Kubernetes mutation" $ \o ->
-    KubernetesMutation <$> o .: "version" <*> o .: "operation" <*> o .: "inputDigest" <*> o .: "action" <*> o .: "resource" <*> o .: "address" <*> o .: "nativeJson" <*> o .: "nativeDigest" <*> o .: "before"
+    KubernetesMutation <$> o .: "version" <*> o .: "operation" <*> o .: "inputDigest" <*> o .: "action" <*> o .: "resource" <*> o .: "address" <*> o .: "nativeJson" <*> o .: "nativeDigest" <*> o .: "before" <*> o .:? "takeover"
+
+instance ToJSON FieldTakeover where
+  toJSON takeover =
+    object
+      [ "physical" .= takeoverPhysical takeover
+      , "resourceVersion" .= takeoverResourceVersion takeover
+      , "managers" .= takeoverManagers takeover
+      ]
+
+instance FromJSON FieldTakeover where
+  parseJSON = withObject "Kubernetes field takeover" $ \o ->
+    FieldTakeover <$> o .: "physical" <*> o .: "resourceVersion" <*> o .: "managers"
+
+-- | Only a version-3 update carries a takeover, bound to its own exact
+-- precondition; no other version may carry one.
+orTakeover :: Either Text () -> KubernetesMutation -> Either Text ()
+orTakeover versionCheck mutation = case (mutationVersion mutation, mutationTakeover mutation, mutationBefore mutation) of
+  (3, Just takeover, before)
+    | mutationAction mutation == UpdateResource
+    , not (null (takeoverManagers takeover))
+    , Just (physical, revision) <- presentIdentity before
+    , physical == takeoverPhysical takeover && revision == takeoverResourceVersion takeover ->
+        Right ()
+  (3, _, _) -> Left "Kubernetes field takeover is not bound to its reviewed update precondition"
+  (_, Just _, _) -> Left "only a version-3 Kubernetes update may carry a field takeover"
+  _ -> versionCheck
+  where
+    presentIdentity (KubernetesPresent physical revision _ _) = Just (physical, revision)
+    presentIdentity (KubernetesNotReady physical revision _ _) = Just (physical, revision)
+    presentIdentity _ = Nothing

@@ -175,6 +175,8 @@ appDeployOptsParser defaultFile =
       (strOption (long "legacy-release-import" <> metavar "FILE" <> help "Legacy release ConfigMap JSON to preserve during exact reviewed adoption"))
     <*> optional
       (strOption (long "release-adoption-input" <> metavar "FILE" <> help "Versioned exact-incarnation adoption proposal for --legacy-release-import"))
+    <*> switch
+      (long "take-over-fields" <> help "With --save-plan: record fields another writer manages on drifted objects so the reviewed apply takes them over")
 
 workerDeployOptsParser :: FilePath -> Parser WorkerDeployOpts
 workerDeployOptsParser defaultFile =

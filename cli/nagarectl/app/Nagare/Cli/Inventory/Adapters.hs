@@ -10,6 +10,7 @@ module Nagare.Cli.Inventory.Adapters
   , inventoryHelmAdapter
   , inventoryHostAdapter
   , inventoryKubernetesAdapter
+  , inventoryKubernetesAdapterWith
   , inventoryControllerCollectionAdapter
   , inventoryPulumiAdapter
   , inventoryPulumiAdapterWithCollections
@@ -91,12 +92,14 @@ import Nagare.Inventory.Adapters.HostRuntime
   )
 import Nagare.Inventory.Adapters.Kubernetes
   ( mkKubernetesAdapterWithConfigurationObservation
+  , mkKubernetesAdapterWithFieldTakeover
   )
 import Nagare.Inventory.Adapters.KubernetesRuntime
-  ( KubernetesRuntimeConfig (KubernetesRuntimeConfig)
+  ( KubernetesRuntimeConfig (KubernetesRuntimeConfig, runtimeGuard)
   , mkKubernetesRuntimeOpsAndBatchWithCacheKey
   , observeKubernetesConfiguration
   , readBackupReceiptFromCompletedPod
+  , readLiveManagedObject
   )
 import Nagare.Inventory.Adapters.Pulumi (mkPulumiAdapter)
 import Nagare.Inventory.Adapters.PulumiRuntime
@@ -144,15 +147,24 @@ import System.Environment (lookupEnv)
 import System.FilePath ((</>))
 
 inventoryKubernetesAdapter :: ActiveTarget -> Resource.ContextBinding -> (Resource.ResourceId -> IO (Either Text Text)) -> Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString) -> IO InventoryAdapter.Adapter
-inventoryKubernetesAdapter active binding cacheKey specs
+inventoryKubernetesAdapter = inventoryKubernetesAdapterWith False
+
+-- | With the operator's explicit takeover opt-in, planning records foreign
+-- field managers of drifted objects in the review (F37). Execution needs no
+-- opt-in; it follows what the saved review recorded.
+inventoryKubernetesAdapterWith :: Bool -> ActiveTarget -> Resource.ContextBinding -> (Resource.ResourceId -> IO (Either Text Text)) -> Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString) -> IO InventoryAdapter.Adapter
+inventoryKubernetesAdapterWith takeover active binding cacheKey specs
   | Map.null specs = pure (Inventory.executionBlockedAdapterFor ResourceInventory.KubernetesExecutor)
   | otherwise = do
       context <- either dieT pure (Resource.mkContextId (contextNameText (active ^. #contextName)))
       unless (context == binding ^. #identity) (dieT "Kubernetes inventory review belongs to a different context")
       let config = KubernetesRuntimeConfig context (contextNameText (active ^. #contextName)) (fmap (fmap (const ())) (guardKubernetesContext active))
           (ops, observeBatch) = mkKubernetesRuntimeOpsAndBatchWithCacheKey config cacheKey specs
+          construct
+            | takeover = \a b c d e f -> mkKubernetesAdapterWithFieldTakeover a b c d e f (guardedLiveObject config)
+            | otherwise = mkKubernetesAdapterWithConfigurationObservation
       pure
-        ( mkKubernetesAdapterWithConfigurationObservation
+        ( construct
             specs
             ops
             observeBatch
@@ -160,6 +172,10 @@ inventoryKubernetesAdapter active binding cacheKey specs
             (readBackupReceiptFromCompletedPod config specs)
             (restoreScratchPodFailed config specs)
         )
+  where
+    guardedLiveObject config target = do
+      guarded <- runtimeGuard config
+      either (pure . Left . ("cluster guard refused: " <>)) (const (readLiveManagedObject config target)) guarded
 
 inventoryControllerCollectionAdapter :: ActiveTarget -> Resource.ContextBinding -> Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString) -> IO InventoryAdapter.Adapter
 inventoryControllerCollectionAdapter active binding specs = do

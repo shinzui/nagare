@@ -12,7 +12,7 @@
   "cli/nagarectl/test/DataFenceSpec.hs": 5624,
   "cli/nagarectl/test/InventoryApplicationSpec.hs": 1057,
   "cli/nagarectl/test/InventoryKubernetesLifecycleSpec.hs": 1281,
-  "cli/nagarectl/test/InventoryKubernetesSpec.hs": 6041,
+  "cli/nagarectl/test/InventoryKubernetesSpec.hs": 6031,
   "cli/nagarectl/test/InventoryObjectOpsSpec.hs": 1096,
   "cli/nagarectl/test/InventoryTransactionSpec.hs": 3798
 }

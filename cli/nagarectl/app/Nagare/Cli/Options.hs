@@ -163,6 +163,7 @@ data AppDeployOpts = AppDeployOpts
   , requestNamespace :: !Bool
   , legacyReleaseImport :: !(Maybe FilePath)
   , releaseAdoptionInput :: !(Maybe FilePath)
+  , takeOverFields :: !Bool
   }
   deriving stock (Generic, Show)
 

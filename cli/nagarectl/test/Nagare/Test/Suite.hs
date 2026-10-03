@@ -31,6 +31,7 @@ import InventoryGogolSpec (inventoryGogolTests)
 import InventoryHostSpec (inventoryHostTests)
 import InventoryIntegrationSpec (inventoryIntegrationTests)
 import InventoryKubernetesConfigurationSpec (kubernetesConfigurationTests)
+import InventoryKubernetesFieldTakeoverSpec (kubernetesFieldTakeoverTests)
 import InventoryKubernetesSpec (inventoryKubernetesTests)
 import InventoryLifecycleSpec (inventoryLifecycleTests)
 import InventoryMaintenanceSpec (inventoryMaintenanceTests)
@@ -172,6 +173,7 @@ main = do
             , inventoryEffectfulCollectionTests
             , inventoryEffectfulTests
             , kubernetesConfigurationTests
+            , kubernetesFieldTakeoverTests
             , inventoryKubernetesTests
             , inventoryApplicationTests
             , inventoryCdnTests

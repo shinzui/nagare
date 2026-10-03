@@ -506,6 +506,7 @@ test-suite nagarectl-test
     InventoryImagePruneSpec
     InventoryIntegrationSpec
     InventoryKubernetesConfigurationSpec
+    InventoryKubernetesFieldTakeoverSpec
     InventoryKubernetesLifecycleSpec
     InventoryKubernetesSpec
     InventoryLifecycleSpec

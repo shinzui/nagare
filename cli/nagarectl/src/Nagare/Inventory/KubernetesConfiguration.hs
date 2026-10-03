@@ -1,5 +1,14 @@
 -- | Status-independent configuration evidence for versioned Knative updates.
-module Nagare.Inventory.KubernetesConfiguration (configurationDigest, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor) where
+module Nagare.Inventory.KubernetesConfiguration
+  ( configurationDigest
+  , confirmInventoryFieldOwnership
+  , confirmInventoryFieldOwnershipFor
+  , confirmReviewedFieldTakeover
+  , confirmTakeoverSettled
+  , foreignFieldManagers
+  , liveIdentity
+  )
+where
 
 import Data.Aeson
 import Data.Aeson.Key qualified as Key
@@ -45,33 +54,78 @@ confirmInventoryFieldOwnership :: PhysicalIdentity -> Text -> Value -> Either Te
 confirmInventoryFieldOwnership = confirmInventoryFieldOwnershipFor Nothing
 
 confirmInventoryFieldOwnershipFor :: Maybe ProviderAddress -> PhysicalIdentity -> Text -> Value -> Either Text ()
-confirmInventoryFieldOwnershipFor target uid revision observed = do
-  metadata <- metadataOf observed
-  actualUid <- fieldText "uid" metadata
-  actualRevision <- fieldText "resourceVersion" metadata
+confirmInventoryFieldOwnershipFor target = confirmReviewedFieldTakeover target []
+
+-- | A reviewed field takeover (F37) names the exact foreign managed-field
+-- entries observed at planning, without their timestamps. A live foreign
+-- entry is accepted only when it is one of those entries; a new manager, or
+-- the same manager owning different fields, refuses. The empty list is the
+-- strict check.
+confirmReviewedFieldTakeover :: Maybe ProviderAddress -> [Value] -> PhysicalIdentity -> Text -> Value -> Either Text ()
+confirmReviewedFieldTakeover target reviewed uid revision observed = do
+  (actualUid, actualRevision) <- liveIdentity observed
   unless
     (actualUid == physicalIdentityText uid && actualRevision == revision)
     (Left "Kubernetes object changed after the reviewed observation")
-  fields <- case KM.lookup "managedFields" metadata of
-    Just (Array entries) | not (null entries) -> Right (foldr (:) [] entries)
-    _ -> Left "Kubernetes managed fields are missing; update ownership is unknown"
-  mapM_ checkEntry fields
+  fields <- managedFieldEntries observed
+  others <- foreignEntries target fields
+  case [entry | entry <- others, untimed entry `notElem` reviewed] of
+    entry : _ -> Left ("Kubernetes object has fields managed by another writer: " <> fromMaybe "unknown" (managerOf entry))
+    [] -> pure ()
   unless
-    (any isInventoryOwner fields)
+    (any ((== Just "nagare-inventory") . managerOf) fields)
     (Left "Kubernetes object has no inventory-managed fields to update")
+
+-- | After a forced takeover write, the same object must have no foreign
+-- owner of a non-status field left; a remaining one owns fields that Nagare
+-- does not declare, so the next update would refuse again.
+confirmTakeoverSettled :: Maybe ProviderAddress -> PhysicalIdentity -> Value -> Either Text ()
+confirmTakeoverSettled target uid observed = do
+  (actualUid, _) <- liveIdentity observed
+  unless (actualUid == physicalIdentityText uid) (Left "Kubernetes object was replaced during its field takeover")
+  remaining <- foreignFieldManagers target observed
+  unless (null remaining) (Left "field takeover left fields owned by another writer; inspect managed fields")
+
+-- | The foreign managed-field entries of a live object, without timestamps,
+-- in API order. Status-only entries and proved controller paths are not
+-- foreign.
+foreignFieldManagers :: Maybe ProviderAddress -> Value -> Either Text [Value]
+foreignFieldManagers target observed = map untimed <$> (managedFieldEntries observed >>= foreignEntries target)
+
+liveIdentity :: Value -> Either Text (Text, Text)
+liveIdentity observed = do
+  metadata <- metadataOf observed
+  (,) <$> fieldText "uid" metadata <*> fieldText "resourceVersion" metadata
+
+managedFieldEntries :: Value -> Either Text [Value]
+managedFieldEntries observed = do
+  metadata <- metadataOf observed
+  case KM.lookup "managedFields" metadata of
+    Just (Array entries) | not (null entries) -> Right (toList entries)
+    _ -> Left "Kubernetes managed fields are missing; update ownership is unknown"
+
+foreignEntries :: Maybe ProviderAddress -> [Value] -> Either Text [Value]
+foreignEntries target = fmap catMaybes . traverse classify
   where
-    checkEntry (Object entry) = do
+    classify value@(Object entry) = do
       manager <- fieldText "manager" entry
       fieldSet <- case KM.lookup "fieldsV1" entry of
-        Just (Object value) -> Right value
+        Just (Object fields) -> Right fields
         _ -> Left "Kubernetes managed-field entry is malformed"
-      unless
-        (manager == "nagare-inventory" || statusOnly fieldSet || expectedControllerFields target manager fieldSet)
-        (Left ("Kubernetes object has fields managed by another writer: " <> manager))
-    checkEntry _ = Left "Kubernetes managed-field entry is malformed"
-    isInventoryOwner (Object entry) = textAt "manager" entry == Just "nagare-inventory"
-    isInventoryOwner _ = False
+      pure $
+        if manager == "nagare-inventory" || statusOnly fieldSet || expectedControllerFields target manager fieldSet
+          then Nothing
+          else Just value
+    classify _ = Left "Kubernetes managed-field entry is malformed"
     statusOnly fields = all (== "f:status") (KM.keys fields)
+
+untimed :: Value -> Value
+untimed (Object entry) = Object (KM.delete "time" entry)
+untimed other = other
+
+managerOf :: Value -> Maybe Text
+managerOf (Object entry) = textAt "manager" entry
+managerOf _ = Nothing
 
 -- PVC provisioners add these annotations after the create-only write. They
 -- do not intersect inventory's desired fields. Any other controller field is

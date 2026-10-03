@@ -2,6 +2,7 @@
 module Nagare.Cli.Inventory.Planning
   ( inventoryPlanRegistry
   , inventoryPlanRegistryWithNative
+  , inventoryPlanRegistryWithTakeover
   , inventoryControllerCollectionRegistry
   )
 where
@@ -25,7 +26,7 @@ import Nagare.Cli.Inventory.Adapters
   , inventoryControllerCollectionAdapter
   , inventoryHelmAdapter
   , inventoryHostAdapter
-  , inventoryKubernetesAdapter
+  , inventoryKubernetesAdapterWith
   , inventoryPulumiAdapterWithCollections
   )
 import Nagare.Cli.Inventory.CdnHistory
@@ -93,13 +94,17 @@ inventoryPlanRegistry :: ActiveTarget -> PlatformWorkspace -> ResourceInventory.
 inventoryPlanRegistry active workspace = inventoryPlanRegistryWithNative active workspace Map.empty
 
 inventoryPlanRegistryWithNative :: ActiveTarget -> PlatformWorkspace -> Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString) -> ResourceInventory.CompositionCandidate -> InventoryPlan.InventoryHistory -> IO InventoryAdapter.AdapterRegistry
-inventoryPlanRegistryWithNative = inventoryPlanRegistryWithMode False
+inventoryPlanRegistryWithNative = inventoryPlanRegistryWithTakeover False
+
+-- | The flag is the operator's explicit reviewed field-takeover opt-in (F37).
+inventoryPlanRegistryWithTakeover :: Bool -> ActiveTarget -> PlatformWorkspace -> Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString) -> ResourceInventory.CompositionCandidate -> InventoryPlan.InventoryHistory -> IO InventoryAdapter.AdapterRegistry
+inventoryPlanRegistryWithTakeover = inventoryPlanRegistryWithMode False
 
 inventoryControllerCollectionRegistry :: ActiveTarget -> PlatformWorkspace -> ResourceInventory.CompositionCandidate -> InventoryPlan.InventoryHistory -> IO InventoryAdapter.AdapterRegistry
-inventoryControllerCollectionRegistry active workspace = inventoryPlanRegistryWithMode True active workspace Map.empty
+inventoryControllerCollectionRegistry active workspace = inventoryPlanRegistryWithMode True False active workspace Map.empty
 
-inventoryPlanRegistryWithMode :: Bool -> ActiveTarget -> PlatformWorkspace -> Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString) -> ResourceInventory.CompositionCandidate -> InventoryPlan.InventoryHistory -> IO InventoryAdapter.AdapterRegistry
-inventoryPlanRegistryWithMode controllerCollection active workspace suppliedNative candidate history = do
+inventoryPlanRegistryWithMode :: Bool -> Bool -> ActiveTarget -> PlatformWorkspace -> Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString) -> ResourceInventory.CompositionCandidate -> InventoryPlan.InventoryHistory -> IO InventoryAdapter.AdapterRegistry
+inventoryPlanRegistryWithMode controllerCollection takeover active workspace suppliedNative candidate history = do
   let inventory = ResourceInventory.candidateInventory candidate
       declarations = ResourceInventory.inventoryDeclarations inventory
       scopes = Map.elems (ResourceInventory.inventoryScopes inventory)
@@ -386,7 +391,7 @@ inventoryPlanRegistryWithMode controllerCollection active workspace suppliedNati
       else
         if controllerCollection
           then inventoryControllerCollectionAdapter active (ResourceInventory.inventoryBinding inventory) kubernetesSpecs
-          else refuseOrphanDomainMapping kubernetesSpecs <$> inventoryKubernetesAdapter active (ResourceInventory.inventoryBinding inventory) cacheKey kubernetesSpecs
+          else refuseOrphanDomainMapping kubernetesSpecs <$> inventoryKubernetesAdapterWith takeover active (ResourceInventory.inventoryBinding inventory) cacheKey kubernetesSpecs
   helm <-
     if Map.null helmSpecs
       then pure (Inventory.manifestAdapterFor history ResourceInventory.HelmExecutor)
