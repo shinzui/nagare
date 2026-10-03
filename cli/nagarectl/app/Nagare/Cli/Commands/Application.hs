@@ -1,6 +1,7 @@
 -- | Commands / Application. Executable-private CLI boundary.
 module Nagare.Cli.Commands.Application
-  ( runAppDelete
+  ( runAppCheck
+  , runAppDelete
   , runAppDeploy
   , runAppGet
   , runAppList
@@ -58,7 +59,8 @@ import Nagare.Cli.Inventory.Planning
   , inventoryPlanRegistryWithNative
   )
 import Nagare.Cli.Options
-  ( AppDeleteOpts
+  ( AppCheckOpts
+  , AppDeleteOpts
   , AppDeployOpts
   , AppGetOpts
   , AppListOpts
@@ -543,6 +545,24 @@ toAppDeployParams tp o =
     , source = T.pack <$> o ^. #source
     , targetProfile = tp
     }
+
+-- | Load a typed Application through the configured GHC runtime and print a
+-- public summary. It reads no context, inventory or provider state.
+runAppCheck :: AppCheckOpts -> IO ()
+runAppCheck o = do
+  provisionGhcEnv (o ^. #ghcEnv)
+  app <- Load.loadApplication (o ^. #file) >>= either (dieT . Load.renderLoadError) pure
+  BC.putStrLn . BS.toStrict . Aeson.encode $
+    Aeson.object
+      [ "kind" Aeson..= ("application" :: Text)
+      , "name" Aeson..= serviceNameText (app ^. #name)
+      , "namespace" Aeson..= namespaceText (app ^. #namespace)
+      , "service" Aeson..= isJust (app ^. #service)
+      , "workers" Aeson..= length (app ^. #workers)
+      , "tasks" Aeson..= length (app ^. #tasks)
+      , "databases" Aeson..= length (app ^. #databases)
+      , "brokers" Aeson..= length (app ^. #brokers)
+      ]
 
 runAppList :: AppListOpts -> IO ()
 runAppList o = do

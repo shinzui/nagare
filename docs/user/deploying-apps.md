@@ -66,6 +66,12 @@ image resource ID. Use that ID in the app
 review below after the image review is accepted. The destination must match
 the tag resolved from the application's typed config.
 
+Before a review, `nagarectl app check --file nagare/Config.hs` evaluates the
+typed Application through the CLI's packaged GHC runtime and prints a one-line
+JSON summary (name, namespace, and workload, database and broker counts). It
+reads no context, inventory store or provider, so it works on a fresh machine
+and in CI; a config error exits nonzero with the compiler's message.
+
 ```bash
 nagarectl app deploy --file nagare/Config.hs --tag v1 \
   --image-resource publication:app-image-app-v1/app-v1/oci-image \

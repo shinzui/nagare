@@ -8,7 +8,7 @@ authority.
 <!-- managed-command-registry:start -->
 | Entrypoint | Registered routes | Unresolved routes |
 | --- | ---: | --- |
-| `Command` | 70 | `Cleanup` |
+| `Command` | 71 | `Cleanup` |
 | `HostCommand` | 10 | none |
 | `KubeconfigCommand` | 2 | none |
 | `ClusterCommand` | 2 | none |

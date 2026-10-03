@@ -69,7 +69,7 @@ validateInventoryReleaseEvidence version revision assets = do
     require (hashValue expectedPayload && field "payloadDigest" entry == expectedPayload && at ["outputs", "nagare-platform", "narHash"] output == expectedPayload && hashValue (at ["outputs", "nagarectl", "narHash"] output)) "native payload identity differs from release"
     checks <- strings (field "checks" rehearsal)
     nativeSupported <- strings (field "supportedSystems" rehearsal)
-    require (field "cloneFree" rehearsal == Bool True && field "installedSmoke" rehearsal /= Bool True && Set.fromList nativeSupported == Set.fromList systems && all (`elem` checks) ["version", "context", "typed-config", "payload", "operator-recipe"]) "native rehearsal is incomplete"
+    require (field "cloneFree" rehearsal == Bool True && field "installedSmoke" rehearsal /= Bool True && Set.fromList nativeSupported == Set.fromList systems && all (`elem` checks) ["version", "context", "typed-config", "inventory-compile", "payload", "operator-recipe"]) "native rehearsal is incomplete"
   scenarios <- array (field "scenarios" index)
   modes <- traverse (text . field "mode") scenarios
   require (Set.fromList modes == Set.fromList ["local", "cloud"] && unique modes) "both local and cloud scenarios are required"

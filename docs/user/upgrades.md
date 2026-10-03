@@ -112,8 +112,8 @@ rehearsal and coverage gate.
 
 ## Release publication and retry
 
-The release workflow assembles its native outputs into seven base attachments,
-then invokes the tagged `nagarectl release publish` command. The command
+The release workflow assembles its native outputs and the inventory evidence
+described below into checksummed attachments, then invokes the tagged `nagarectl release publish` command. The command
 checks the annotated tag object and commit, manifest identity, `SHA256SUMS`,
 and every candidate byte before creating a draft. The draft body holds the
 complete publication intent; an append-only, digest-addressed receipt records
@@ -126,13 +126,18 @@ to it but do not own it. A successful run writes
 recording the verified release and asset IDs; the workflow archives this local
 observation separately from the immutable release attachments.
 
-Release assembly can also accept one projected
-`nagare-inventory-evidence-vVERSION.json` file with
-`--inventory-evidence FILE`. The checked publisher includes it as an eighth
-immutable attachment only when present and verifies that its payload version,
-source revision, and native digest match the release manifest. The current
-workflow does not yet supply this file, so its seven-attachment release is not
-proof of the integrated inventory acceptance scenario.
+Inventory evidence is a mandatory part of release assembly, not an optional
+attachment. `scripts/assemble-release.sh` requires `--inventory-evidence DIR`,
+a directory holding `coverage.json` (the generated command-coverage result) and
+`local/` and `cloud/` scenario directories, each with `target.json`,
+`fixture.json`, `<mode>-health.json` and `inventory-evidence.json`. Assembly
+refuses before writing anything when an input is missing, stale, belongs to
+another candidate, lacks a required check or carries secret-looking keys. It
+then writes the bound index `nagare-inventory-evidence-vVERSION.json` and copies
+each public input as an `inventory-*.json` attachment listed in `SHA256SUMS`.
+The publisher re-validates that index against the release manifest before it
+contacts the forge. A release without complete local and cloud evidence for
+the same candidate cannot be assembled.
 
 The candidate files are still required when an upload is missing. If the
 temporary Actions artifacts have expired, reconstruct the exact candidate

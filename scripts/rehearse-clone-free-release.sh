@@ -79,6 +79,7 @@ trap cleanup EXIT
 mkdir -p "$test_root/home" "$test_root/config" "$test_root/state" "$test_root/work"
 cp "$repo_root/cli/nagarectl/test/fixtures/operator.pub" "$test_root/work/operator.pub"
 cp "$repo_root/cli/nagarectl/test/fixtures/inventory/valid.json" "$test_root/work/inventory.json"
+cp "$repo_root/cluster/examples/multi-workload-app/nagare/Config.hs" "$test_root/work/Config.hs"
 
 # A shell entered through .envrc exports the operator's active context. Drop it so the
 # rehearsal sees only the isolated XDG tree, as a clean CI runner does.
@@ -143,6 +144,11 @@ run_cli inventory compile --input "$test_root/work/inventory.json" \
   --out "$test_root/work/compiled-inventory" > inventory-compile.out
 test -s "$test_root/work/compiled-inventory/candidate.json"
 test -s "$test_root/work/compiled-inventory/candidate.sha256"
+# typed-config: the installed CLI evaluates a typed Config.hs through its own
+# packaged GHC runtime, with no checkout, context store or provider.
+run_cli app check --file "$test_root/work/Config.hs" > typed-config.json
+jq -e '.kind == "application" and .name == "kizashi" and .service == true and .workers == 2' \
+  typed-config.json >/dev/null
 run_cli platform root --json > platform-root.json
 jq -e --arg version "$version" \
   '.source == "installed" and .platformVersion == $version and (.workspaceRoot | length > 0)' \
@@ -171,7 +177,7 @@ if [[ "$smoke_only" == true ]]; then
     '{version: $version, revision: $revision, flakeRef: $flakeRef,
       system: $system, supportedSystems: $supportedSystems,
       installedSmoke: true, cloneFree: false,
-      checks: ["version", "context", "inventory-compile", "payload", "operator-tools", "local-init"]}')"
+      checks: ["version", "context", "typed-config", "inventory-compile", "payload", "operator-tools", "local-init"]}')"
   if [[ -n "$output" ]]; then
     mkdir -p "$(dirname "$output")"
     printf '%s\n' "$result" > "$output"
@@ -373,7 +379,7 @@ result="$(jq -n -S \
     supportedSystems: $supportedSystems, cloneFree: true,
     pulumiVersion: $pulumiVersion,
     platformUpgrade: {state: $upgradeState, previewCalls: $previewCalls},
-    checks: ["version", "context", "inventory-compile", "payload", "host-config", "local-init", "cloud-init", "context-env", "operator-recipe", "platform-upgrade"]}')"
+    checks: ["version", "context", "typed-config", "inventory-compile", "payload", "host-config", "local-init", "cloud-init", "context-env", "operator-recipe", "platform-upgrade"]}')"
 
 if [[ -n "$output" ]]; then
   mkdir -p "$(dirname "$output")"

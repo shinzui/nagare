@@ -7,7 +7,8 @@ where
 import Data.Text qualified as T
 import Nagare.Cli.Commands.Access (runAccess)
 import Nagare.Cli.Commands.Application
-  ( runAppDelete
+  ( runAppCheck
+  , runAppDelete
   , runAppDeploy
   , runAppGet
   , runAppList
@@ -137,6 +138,7 @@ dispatch (mctx, cmd0) = case cmd0 of
   SitePreviewDelete copts pname -> runPreviewDelete mctx copts (T.pack pname)
   Env ecmd -> runEnv mctx ecmd
   Secret scmd -> runSecret mctx scmd
+  AppCheck o -> runAppCheck o
   AppList o -> runAppList o
   AppGet o -> runAppGet o
   AppLogs o -> runAppLogs o

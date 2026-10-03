@@ -7,6 +7,7 @@ module Nagare.Cli.Options
   , AppDeployOpts (..)
   , AppGetOpts (..)
   , AppImagePlanOpts (..)
+  , AppCheckOpts (..)
   , AppListOpts (..)
   , AppLogsOpts (..)
   , AppNameOpts (..)
@@ -257,6 +258,13 @@ data SitePreviewDeleteOpts = SitePreviewDeleteOpts
 
 -- | Options for @app list@: a namespace (default @personal@) and @--all@ to drop
 -- the Nagare-managed label filter (EP-30).
+-- | @app check@: evaluate a typed Application config with no context access.
+data AppCheckOpts = AppCheckOpts
+  { file :: !FilePath
+  , ghcEnv :: !(Maybe FilePath)
+  }
+  deriving stock (Generic, Show)
+
 data AppListOpts = AppListOpts
   { namespace :: !(Maybe String)
   , allApps :: !Bool
@@ -367,6 +375,7 @@ data Command
   | SitePreviewDelete SitePreviewDeleteOpts String
   | Env EnvCommand
   | Secret SecretCommand
+  | AppCheck AppCheckOpts
   | AppList AppListOpts
   | AppGet AppGetOpts
   | AppLogs AppLogsOpts

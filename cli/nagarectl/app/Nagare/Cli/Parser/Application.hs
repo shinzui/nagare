@@ -9,7 +9,8 @@ module Nagare.Cli.Parser.Application
 where
 
 import Nagare.Cli.Options
-  ( AppDeleteOpts (..)
+  ( AppCheckOpts (..)
+  , AppDeleteOpts (..)
   , AppDeployOpts (..)
   , AppGetOpts (..)
   , AppImagePlanOpts (..)
@@ -337,17 +338,23 @@ appCmd :: ParserInfo Command
 appCmd =
   info
     (appSubparser <**> helper)
-    (fullDesc <> progDesc "Application lifecycle: list, get, logs, restart, stop, delete")
+    (fullDesc <> progDesc "Application lifecycle: check, list, get, logs, restart, stop, delete")
 
 appSubparser :: Parser Command
 appSubparser =
   subparser
     ( command
-        "list"
+        "check"
         ( info
-            (AppList <$> appListOptsParser <**> helper)
-            (progDesc "List Nagare-managed apps in a namespace")
+            (AppCheck <$> (AppCheckOpts <$> fileOpt defaultConfigFile <*> ghcEnvOpt) <**> helper)
+            (progDesc "Evaluate a typed Application Config.hs without contacting any context or provider")
         )
+        <> command
+          "list"
+          ( info
+              (AppList <$> appListOptsParser <**> helper)
+              (progDesc "List Nagare-managed apps in a namespace")
+          )
         <> command
           "get"
           ( info

@@ -211,7 +211,7 @@ def main() -> None:
                 and rehearsal.get("installedSmoke") is not True
                 and set(rehearsal.get("supportedSystems", [])) == set(systems)
                 and isinstance(rehearsal.get("checks"), list)
-                and {"version", "context", "typed-config", "payload", "operator-recipe"}
+                and {"version", "context", "typed-config", "inventory-compile", "payload", "operator-recipe"}
                     <= set(rehearsal["checks"]),
                 f"clone-free native rehearsal is missing or stale for {system}")
         native.append({"system": system, "payloadDigest": payloads[system],

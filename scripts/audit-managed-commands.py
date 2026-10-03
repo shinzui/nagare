@@ -35,7 +35,7 @@ ROUTES = {
         "read": "Version InventoryStatus InventoryLegacyGuard InventoryExplain InventoryStoreStatus PlatformRoot PlatformStatusCmd PlatformGuard PlatformUpgradeStatus SiteReleases SitePreviewList AppList AppGet AppLogs DeploymentsList DeploymentsLogs ServerStatus Doctor InventoryGc",
         "group": "Host Kubeconfig Cluster Env Secret Storage Broker Db Task Worker Access ContextCmdGroup Infra Domains CdnCmd",
         "reviewed": "InventoryPlan InventoryAdopt InventoryMigrate InventoryRetire InventoryCollect InventoryApply InventoryResume InventoryRecover InventoryRegistryRecoveryPlan InventoryStoreMigrate PlatformBootstrapPlan PlatformBootstrapApply Deploy SiteDeploy SiteRollback SitePreviewDeploy SitePreviewDelete AppRestart AppStop AppDelete AppDeploy AppImagePlan",
-        "local": "InventoryCompile",
+        "local": "InventoryCompile AppCheck",
         "bounded": "InventoryStoreMaterializeNative InventoryExport InventoryRestore Init",
         "retired": "PlatformStamp",
         "pending": "Cleanup",

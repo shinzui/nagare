@@ -9,13 +9,17 @@ usage() {
   cat <<'EOF'
 Usage: scripts/rehearse-gcp-inventory-release.sh --phase plan|apply|verify \
   --context NAME --expected-project PROJECT --expected-cluster CLUSTER \
-  --evidence-dir DIRECTORY [--candidate COMPILED_DIRECTORY] [--yes]
+  --evidence-dir DIRECTORY [--candidate COMPILED_DIRECTORY]
+  [--target-fixture FILE] [--yes]
 
 Without --candidate, plan/apply use one saved public platform-bootstrap review.
 Repeat with a new evidence directory for each bootstrap stage. With --candidate,
 plan/verify use the generic Kubernetes-backed inventory rehearsal. Apply reads
 the saved stage and requires --yes. Set XDG_CONFIG_HOME and XDG_STATE_HOME to
 an isolated disposable operator root before using this runner.
+--target-fixture names the checked-in disposable target (default: the EP-150
+fixture). Release scenario evidence (--candidate) requires a fixture with
+"mode": "cloud"; plan copies it to fixture.json and records cloud-health.json.
 EOF
 }
 
@@ -38,7 +42,7 @@ candidate=""
 yes=false
 while (($#)); do
   case "$1" in
-    --phase|--context|--expected-project|--expected-cluster|--evidence-dir|--candidate)
+    --phase|--context|--expected-project|--expected-cluster|--evidence-dir|--candidate|--target-fixture)
       (($# >= 2)) || die "$1 requires a value"
       case "$1" in
         --phase) phase="$2" ;;
@@ -47,6 +51,7 @@ while (($#)); do
         --expected-cluster) cluster="$2" ;;
         --evidence-dir) evidence="$2" ;;
         --candidate) candidate="$2" ;;
+        --target-fixture) fixture="$2" ;;
       esac
       shift 2 ;;
     --yes) yes=true; shift ;;
@@ -57,6 +62,11 @@ done
 
 [[ "$phase" == plan || "$phase" == apply || "$phase" == verify ]] || die "invalid phase"
 [[ -n "$context" && -n "$project" && -n "$cluster" && -n "$evidence" ]] || die "target arguments are required"
+[[ -f "$fixture" && ! -L "$fixture" ]] || die "target fixture is not a regular file: $fixture"
+if [[ -n "$candidate" ]]; then
+  jq -e '.mode == "cloud"' "$fixture" >/dev/null \
+    || die "release scenario evidence requires a target fixture with mode cloud"
+fi
 jq -e --arg context "$context" --arg project "$project" --arg cluster "$cluster" \
   '.schemaVersion == 1 and .context == $context and .project == $project and .cluster == $cluster' \
   "$fixture" >/dev/null || die "target differs from the checked-in disposable fixture"
@@ -132,8 +142,44 @@ if [[ -n "$candidate" || "$phase" == verify || ( "$phase" == apply && ! -f "$evi
   kubeconfig="$XDG_CONFIG_HOME/nagare/kubeconfigs/$context.yaml"
   [[ -f "$kubeconfig" && ! -L "$kubeconfig" ]] || die "selected context has no isolated Nagare kubeconfig"
 fi
+# Release scenario health: the same identity fields as the local record, with
+# cloud checks observed through the isolated operator root before any review.
+cloud_health() {
+  local output="$1" ready webhook
+  KUBECONFIG="$kubeconfig" kubectl --context "$context" get --raw=/readyz >/dev/null \
+    || die "Kubernetes API is not ready for $context"
+  ready="$(KUBECONFIG="$kubeconfig" kubectl --context "$context" get nodes -o json \
+    | jq '[.items[] | select(any(.status.conditions[]; .type == "Ready" and .status == "True"))] | length')" \
+    || die "cluster nodes are unobservable"
+  [[ "$ready" -ge 1 ]] || die "cluster has no Ready node"
+  webhook="$(KUBECONFIG="$kubeconfig" kubectl --context "$context" -n knative-serving get deployment webhook -o json)" \
+    || die "Knative webhook is unobservable"
+  jq -e '(.status.readyReplicas // 0) >= (.spec.replicas // 1)
+    and (.status.observedGeneration // 0) >= .metadata.generation' <<<"$webhook" >/dev/null \
+    || die "Knative webhook is not ready"
+  run_cli inventory store status > "$output.store" || die "inventory history store is unavailable"
+  rm -f -- "$output.store"
+  jq -n -S --arg context "$context" --arg cluster "$cluster" \
+    --arg revision "$(run_cli version --json | jq -er .revision)" \
+    --arg fixtureDigest "$(digest "$fixture")" \
+    '{schemaVersion: 1, mode: "cloud", context: $context, cluster: $cluster,
+      operatorRevision: $revision, fixtureDigest: $fixtureDigest,
+      healthy: true, checks: ["gcp-project", "kubernetes-api", "ready-node",
+        "knative-webhook", "inventory-store"]}' > "$output"
+}
+
 if [[ "$phase" == verify ]]; then
   [[ -n "$candidate" && "$yes" == false ]] || die "verify requires a candidate and no --yes"
+  [[ -f "$evidence/cloud-health.json" ]] || die "saved cloud fixture health evidence is missing"
+  cmp -s "$fixture" "$evidence/fixture.json" || die "saved cloud fixture definition changed"
+  health="$(mktemp "${TMPDIR:-/tmp}/nagare-cloud-health.XXXXXX")"
+  trap 'rm -f -- "$health"' EXIT
+  cloud_health "$health"
+  jq -e --arg context "$context" --arg cluster "$cluster" \
+    --arg fixtureDigest "$(jq -er .fixtureDigest "$health")" \
+    '.schemaVersion == 1 and .mode == "cloud" and .context == $context and .cluster == $cluster
+      and .fixtureDigest == $fixtureDigest and .healthy == true' \
+    "$evidence/cloud-health.json" >/dev/null || die "saved cloud fixture identity changed"
   env -i HOME="$HOME" USER="${USER:-operator}" PATH="$PATH" \
     CLOUDSDK_CORE_PROJECT="$project" CLOUDSDK_ACTIVE_CONFIG_NAME="$gcloud_configuration" \
     XDG_CONFIG_HOME="$XDG_CONFIG_HOME" \
@@ -145,11 +191,16 @@ fi
 if [[ "$phase" == plan ]]; then
   [[ "$yes" == false ]] || die "plan refuses --yes"
   if [[ -n "$candidate" ]]; then
+    health="$(mktemp "${TMPDIR:-/tmp}/nagare-cloud-health.XXXXXX")"
+    trap 'rm -f -- "$health"' EXIT
+    cloud_health "$health"
     env -i HOME="$HOME" USER="${USER:-operator}" PATH="$PATH" \
       CLOUDSDK_CORE_PROJECT="$project" CLOUDSDK_ACTIVE_CONFIG_NAME="$gcloud_configuration" \
       XDG_CONFIG_HOME="$XDG_CONFIG_HOME" \
       XDG_STATE_HOME="$XDG_STATE_HOME" KUBECONFIG="$kubeconfig" NAGARECTL_BIN="$cli" \
       "$generic" --phase plan "${common[@]}" --candidate "$candidate"
+    cp "$health" "$evidence/cloud-health.json"
+    cp "$fixture" "$evidence/fixture.json"
     exit
   fi
   [[ ! -e "$evidence" ]] || die "evidence directory already exists"

@@ -1,5 +1,10 @@
 # Bundle Update Log
 
+## 2026-10-02
+
+* **Change**: Add `nagarectl app check`, which evaluates a typed Application config without any context, inventory or provider access.
+* **Update**: Describe inventory evidence as a mandatory input to release assembly rather than an optional attachment.
+
 ## 2026-10-01
 
 * **Change**: Document saved access grant/revoke reviews, atomic En capability refusal, exact-tuple recovery, and complete accepted portal synchronization with a reviewed Shomei rollout.

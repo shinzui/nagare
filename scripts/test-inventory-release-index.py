@@ -78,7 +78,7 @@ with tempfile.TemporaryDirectory(prefix="nagare-inventory-index-test.") as tempo
         write(root / "native" / f"clone-free-{system}.json",
               {"version": VERSION, "revision": REVISION, "system": system,
                "supportedSystems": SYSTEMS, "cloneFree": True,
-               "checks": ["version", "context", "typed-config", "payload", "operator-recipe"]})
+               "checks": ["version", "context", "typed-config", "inventory-compile", "payload", "operator-recipe"]})
     for mode, system in (("local", "aarch64-darwin"), ("cloud", "x86_64-linux")):
         directory = root / mode
         target = {"schemaVersion": 1, "mode": mode,

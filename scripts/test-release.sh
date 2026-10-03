@@ -81,7 +81,7 @@ for system in x86_64-linux aarch64-darwin; do
     '{version: $version, revision: "fixture-revision", system: $system,
       supportedSystems: ["x86_64-linux", "aarch64-darwin"], cloneFree: true,
       pulumiVersion: "v3.255.0", platformUpgrade: {state: "planned", previewCalls: 1},
-      checks: ["version", "context", "typed-config", "payload", "host-config", "local-init", "cloud-init", "operator-recipe", "platform-upgrade"]}' \
+      checks: ["version", "context", "typed-config", "inventory-compile", "payload", "host-config", "local-init", "cloud-init", "operator-recipe", "platform-upgrade"]}' \
     > "$native_dir/clone-free-$system.json"
 done
 python3 "$repo_root/scripts/test-inventory-release-index.py" --write-fixture "$test_root/evidence"
