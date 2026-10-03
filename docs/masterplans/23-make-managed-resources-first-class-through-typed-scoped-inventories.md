@@ -512,6 +512,8 @@ None is required by the supported release contract. Retained members stay visibl
 | 6. Disposable context renders, applies, converges, no-ops, removes per policy | Installed cloud convergence and unchanged replay; full-platform no-op and local scenario open |
 | 7. Release evidence under one immutable payload identity | Gate code independently tested; no real evidence directory exists |
 
+**Native harness.** Before any native run, read [the native verification harness runbook](../runbooks/native-verification-harness.md). It covers pinned candidate builds, isolated operator roots and wrappers, the cp3 claim protocol, the C1 gate script, object-store drills, fresh cloud context inputs and shared-tree commit hygiene.
+
 **Working rules for remaining work.** Name the assertion, expected progress and time budget before any costly run; an unmeasured path gets a diagnostic checkpoint after 15 minutes, and a second identical failure stops dependent work until the cause is identified. Retry only after an input, implementation or observed condition changes. Never reset history or patch a provider to manufacture a result; recover already-admitted transactions through their recorded identity. Batch cloud mutations into one rehearsed, bounded sequence approved once. Record outcomes in the owning child plan and the tracker; do not create new standalone audit documents, competing entrypoint paragraphs or dated finish sequences in this file.
 
 
