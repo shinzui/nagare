@@ -122,6 +122,11 @@ provenance:
       at: 2026-10-03T14:20:42Z
       mode: "update"
       note: "Adopt the agreed scenario assertion record and finalize procedure"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-03T18:06:24Z
+      mode: "update"
+      note: "Prepare the bounded C3 cloud sequence and target fixture for one operator approval"
 ---
 
 # Prove fresh GCP convergence and shared history recovery
@@ -228,6 +233,36 @@ Key files: `scripts/rehearse-gcp-inventory-release.sh` (bootstrap stages, then t
 
 **Milestone 2 — final-candidate cloud run (MP-23 C3).** After the candidate passes the local cp3 gate (C1), create a fresh cloud context with a new target file, isolated operator root and its own names, and converge it with typed credential delegation. Run the six operational checks through the runner and public commands, reusing the scenario definitions from EP-155: application change with owner isolation and unchanged replay; GCS backup and isolated restore with content checks; interrupted-operation recovery; clean-root recovery; writer refusal and takeover; exact cleanup, ending with the staged teardown — each stage saved by `nagarectl infra destroy --save-plan DIR` and applied with `nagarectl inventory apply` (policy verification, retained retirement, then exact leaf collection) — once F32 and F33 are fixed. Observe a genuine automatic credential refresh and an expired-boot-credential private pull for F15. Hand the context to the independent reviewer for the runbook. Retired-fixture teardown can happen at any time and blocks nothing.
 
+
+## C3 bounded cloud sequence (prepared 2026-10-03; awaiting one operator approval)
+
+This is the single approval request for MP-23's cloud work. It folds in B3 (Google DNS/CDN lifecycle), B6 (takeover from a distinct client), the manual cloud Redis/ClickHouse receipts (EP-160 B2), and the native F32/F33 proofs, so the release's cloud evidence comes from one candidate and one run.
+
+**Candidate and target.** Operator CLI from candidate `db808a74`, built with `nix build .#nagarectl`, used only after it passes C1 on cp3. Target: the new disposable fixture [`fixtures/inventory-release/gcp/c3-target.json`](../../fixtures/inventory-release/gcp/c3-target.json). It defines context `mp23-c3` in project `tan-ng-labs` (gcloud configuration `labs`), with every resource named `*-c3-1003*`, DNS under `c3-1003.labs.topagentnetwork.net`, and reuse of the existing `nix-builder-ep150` builder without replacement or resize. The run uses an isolated operator root (`XDG_CONFIG_HOME`/`XDG_STATE_HOME` under `/tmp/nagare-mp23-c3-db808a74`) and a clean `env -i` shell; the kube server and node are asserted before any kubectl. No other context, standing project resource, or the parent DNS zone outside the `c3-1003` records is written. Reads of `tan-ng-labs` stay within this context's guard (ADR 9).
+
+**Stages.** Each stage saves one review into a new evidence directory, then applies it. Times come from the runbook's known cloud timings.
+
+| Stage | Effect | Budget |
+| --- | --- | ---: |
+| S1 foundation | context create; reviewed foundation (APIs, GCS state bucket, inventory store on GCS) | 10 min |
+| S2 host image | reviewed artifact build on the existing builder (powers it on, then idle-stops), image upload, GCE image | 10 min |
+| S3 VM and host | Pulumi saved plan for network, SA, VM (`e2-standard-4`) and DNS; guarded host operations with self-reverting activation (ADR 11) | 10 min |
+| S4 platform | fresh platform convergence with typed host credential delegation; platform CDN backend enabled for B3 | 30 min |
+| S5 scenario | apps A and B with owner isolation and unchanged replay; PostgreSQL hourly schedule, GCS ingestion and isolated restore with content check; manual Redis and ClickHouse receipts plus restores; volume snapshot, restore and smoke manifest readback; interrupted apply then resume without duplicate effect; clean-root recovery from the GCS store; writer refusal and explicit takeover from a second operator root with a distinct client identity (B6); Google CDN create, disable, retire, collect (B3) | 60 min |
+| S6 F15 | wait for the boot registry token to expire (at least 60 min after boot, overlapping S5), then observe an automatic refresh before expiry and an uncached private controller pull; no manual unit start | overlaps S5 |
+| S7 cleanup proofs | F32: reviewed image cleanup protects sandbox images and deletes one unused image, with one-shot replay. F33: collection rechecks the retained incarnation | 15 min |
+| S8 evidence | record each cloud assertion with `scripts/scenario-assertions.py record --mode cloud`, run verify, `finalize`, assemble the public evidence | 10 min |
+| S9 teardown | staged `infra destroy --save-plan` then `inventory apply` (policy verify, retained retirement, exact leaf collection) until only policy-retained data remains | 30 min |
+
+The independent runbook execution (safe-use gate) needs this context. It runs between S8 and S9 if a reviewer is available; otherwise S9 waits up to 24 h with the VM stopped through a reviewed VM-power stage.
+
+**Cost.** The VM, disks, load balancer/CDN backend, Artifact Registry, GCS objects and builder minutes come to an expected 5 USD or less for about 4 h of wall time, plus about 2 USD per extra day if the context is kept for the reviewer.
+
+**Stop rules.** Any guard refusal, an unexpected planned resource, or a review naming a standing resource stops the sequence for a report. There are no workarounds and no speculative recovery (CLAUDE.md). An unmeasured step gets a diagnostic checkpoint at 15 minutes; a second identical failure stops dependent work. Interrupted transactions are recovered only through their recorded identity.
+
+**What remains after S9.** Policy-retained data (backup objects, protected disks, the state bucket and its inventory history) is kept and listed in the stage report. Deleting it needs a separate explicit confirmation.
+
+**Approval requested.** One go-ahead covering stages S1–S9 exactly as bounded above, in `tan-ng-labs`, for resources named in `c3-target.json`, including builder power-on, VM power transitions, DNS records under `c3-1003`, the CDN backend, and the staged teardown.
 
 ## Concrete Steps
 
