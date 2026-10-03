@@ -99,7 +99,7 @@ Scope follows MP-23's supported release contract. Required: native backup format
 - [x] Volume recovery-point bound settled under D2 (2026-10-03): volumes are outside the objective; `docs/user/backups-and-disaster-recovery.md` states it, status does not grade volumes, and EP-157 reports it as an unmet production target. (MP-23 B1, D2)
 - [ ] Source replacement: after a database's StatefulSet is replaced (new UID), new runs ingest under the new source identity, runs from the old incarnation stay restorable only through their accepted digest, and a restore from each is shown. (MP-23 B1)
 - [x] `inventory status` shows `scheduledRetention` as `retain-by-default` / `keepAndExpiry: unenforced` for accepted signed schedules (2026-10-03, implementer). The public check found it always empty: selection matched the signing Secret on API group `v1`, but core-group addresses carry the empty group. The fix moves selection to `Nagare.Inventory.Status.signedScheduledBackups`, with a regression over a compiled database bundle. On cp3 (read-only, development binary) all five signed schedules are now listed, and the human summary says keep/expiry are unenforced. Re-proof on the final candidate is part of C2. (MP-23 B1)
-- [ ] Orphaned uploads (an object without a receipt) have a public, reviewed disposition: either a reviewed exact-version resolution, or a documented permanent unresolved state with stated storage responsibility. This item is carried from M1 and is not separately named in MP-23 B1.
+- [x] Orphaned uploads have a public disposition (2026-10-03, operator decision): they stay permanently unresolved. `docs/user/backups-and-disaster-recovery.md` states that archives without receipts, receipts without archives and unrecognized keys are listed as unresolved. It also states that they are never ingested, counted toward freshness, restored or deleted by Nagare, that their storage is the operator's responsibility, and that any removal is an out-of-band exact-version provider action. No reviewed resolution command was added.
 - [x] User documentation matches evidence for GCS scheduled ingestion (2026-10-02): `docs/user/backups-and-disaster-recovery.md` now cites the installed cloud ingestion and restore evidence and states that it predates the final candidate. (MP-23 B1)
 - [ ] All of the above re-proved on the one frozen candidate in the EP-155 local and EP-156 cloud scenarios. (MP-23 C2, C3)
 
@@ -136,6 +136,8 @@ Earlier and superseded discoveries are in [the snapshot](../audits/mp23-archive/
 ## Decision Log
 
 In-force decisions, condensed. Full verbatim entries are in [the snapshot](../audits/mp23-archive/plan-history/ep159-before-consolidation-2026-10-02.md).
+
+2026-10-03 (operator): Orphaned uploads stay permanently unresolved and documented, with no reviewed resolution command. Rationale: this is cheaper, it matches the deferred-pruning reduction, and the objects can never authorize restore or freshness.
 
 2026-10-03 (operator, MP-23 D1/D2/D6): Freshness counts verified pending uploads and the signing key is escrowed off-cluster; volumes are outside the objective; the objective is a per-context `hourly`/`daily` preset bound into the signed schedule metadata. This supersedes the 2026-10-02 entries below that say only accepted receipts count and that the objective is fixed at one hour. See ADR 22 (2026-10-03 amendment).
 
@@ -178,7 +180,7 @@ Database declarations are in `cli/nagare-dsl/src/Nagare/Resource/Database.hs`. B
 
 **M2 — Explicit retention limits.** Pruning stays deferred. The only remaining M2 assertion is public: run `inventory status` on a candidate whose workspace matches its payload and observe `scheduledRetention`. Do not add new pruning, lifecycle rules or keep-N selection.
 
-**B1 recovery-point work (not a numbered milestone).** D1, D2 and D6 are implemented, and the public `scheduledRetention` check is fixed (see Progress). What remains is source-replacement ingestion, the orphan disposition, and native proof on the frozen candidate: a daily-objective schedule review, pending-point freshness, and an escrowed verification against GCS.
+**B1 recovery-point work (not a numbered milestone).** D1, D2 and D6 are implemented, and the public `scheduledRetention` check is fixed (see Progress). What remains is source-replacement ingestion and native proof on the frozen candidate: a daily-objective schedule review, pending-point freshness, and an escrowed verification against GCS.
 
 
 ## Concrete Steps

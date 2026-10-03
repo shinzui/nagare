@@ -177,7 +177,23 @@ nagarectl inventory apply ./scheduled-receipt --yes
 ```
 
 Listing distinguishes verified candidates, accepted receipts and unresolved
-objects. Ingestion rereads exact MinIO versions or GCS generations and checks
+objects.
+
+**Unresolved objects stay unresolved.** An object whose upload or receipt did not
+complete is listed as unresolved, and it stays that way. This covers an archive
+without a receipt (an interrupted upload), a receipt without its archive, and an
+unrecognized key under the database prefix. Nagare never ingests such an object,
+never counts it toward freshness, and never restores from it. Nagare also never
+deletes it: no command resolves or removes it, a retry refuses to overwrite it,
+and scheduled pruning is deferred. These objects stay in the backup bucket, and
+their storage cost is the operator's responsibility. If you remove one, you do
+it outside Nagare with the provider's own tools: `gcloud storage rm` on that
+exact generation, or `mc rm --version-id` on that exact version for local MinIO.
+First confirm that `db backup-receipts` lists it as unresolved and that no
+accepted receipt names it. Nagare records no history of that removal, and the
+object simply stops being listed.
+
+Ingestion rereads exact MinIO versions or GCS generations and checks
 receipt authentication, source identity, lengths and archive hashes. Only the
 accepted receipt may authorize a later isolated restore. GCS scheduled ingestion
 has installed native evidence on a disposable cloud context: signed receipts were
