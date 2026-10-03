@@ -82,6 +82,11 @@ provenance:
       at: 2026-10-03T17:54:33Z
       mode: "implement"
       note: "B2 volume: planning-time object verification, pinned restore download, verification manifest, cp3 tamper drill"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-03T18:03:23Z
+      mode: "implement"
+      note: "F36 Redis scratch restore abandonment and B2 recovery argument"
 ---
 
 # Complete verified isolated database and volume restore
@@ -114,7 +119,7 @@ To see it working, follow the public path in Concrete Steps. Back up a disposabl
 
   `InventoryVolumeRestorePinSpec` covers the refusals, a race between the current and exact reads, pinned rendering for MinIO and GCS, and unchanged unpinned bytes.
 - [ ] Native refusal of a wrong-incarnation destination. A pre-existing or substituted destination (scratch database, Redis StatefulSet/PVC, or scratch PVC with a foreign UID) refuses at preflight and at execution with zero writes. (MP-23 B2) Native results (2026-10-03, implementer, cp3; [record](../audits/mp23-implementer-results-2026-10-03/cp3-data-drills.json)): a foreign PVC at the Redis scratch address before planning is refused with `adoption-required`, with no review saved. A foreign PVC created between plan and apply is refused at that operation's preflight, and the foreign object is untouched. But the earlier Service create had already run, and the transaction stayed active with no supported exit. That is [F35](../audits/mp23-findings.md#f35). It is resolved by removing the foreign object and resuming; the restore then converged in 31 s. This item closes only once F35 is repaired and the race is re-run.
-- [ ] Redis interruption during RDB load in the init container, and a ClickHouse restore with a genuinely partial data effect, each recovered without replay. Alternatively, a recorded argument, accepted by the independent reviewer, that the existing runs cover these cases. (MP-23 B2)
+- [ ] Redis interruption during RDB load in the init container, and a ClickHouse restore with a genuinely partial data effect, each recovered without replay. Alternatively, a recorded argument, accepted by the independent reviewer, that the existing runs cover these cases. (MP-23 B2) Argument and fix (2026-10-03, implementer), pending reviewer acceptance. (1) Interruption alone: the scratch StatefulSet restarts the `download` init container, and resume rereads the pinned versions and converges without a second scratch target; the existing "Redis destination-created resume" run (2026-09-28) covers this. (2) Terminal Redis load failure used to wedge the store; it is now abandonable (F36, `6d7951c9`), with native proof on the C2 fresh context. (3) A partial ClickHouse effect is a restore Job failure, covered by the independently verified terminal abandonment ([F22, ec2e1cd4](../audits/mp23-independent-results-2026-10-02/cloud-clickhouse-terminal-verification-ec2e1cd4.json)).
 - [ ] Manual cloud receipts for Redis and ClickHouse proved through restore (MP-23 B2). Decided 2026-10-03: prove them inside EP-156's bounded C3 sequence rather than narrowing the contract to scheduled-only.
 - [ ] Independent local PostgreSQL isolated restore with known content and source preserved. (MP-23 C2)
 - [ ] All of the above re-proved on the one frozen candidate in the EP-155 local and EP-156 cloud scenarios. (MP-23 C2, C3)
