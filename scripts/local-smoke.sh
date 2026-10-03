@@ -42,6 +42,8 @@ SMOKE_VOL="uploads"
 SMOKE_NS="personal"
 APP_DIR="${NAGARE_REPO_ROOT}/cluster/examples/${SMOKE_APP}"
 SENTINEL="smoke-sentinel-$$.txt"
+# shellcheck source=scripts/lib/smoke-readback.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/smoke-readback.sh"
 CONFIG="${APP_DIR}/nagare/Config.hs"
 
 # Resolve a runnable nagarectl. Packaged `nagare local-smoke` already puts the
@@ -157,7 +159,11 @@ curlapp -X POST --data "" "${BASE}/upload/${SENTINEL}" >/dev/null   # clobber th
 nagarectl storage restore "${SMOKE_APP}" "${SMOKE_VOL}" "${SNAP_ID}" --config "${CONFIG}" \
   --restore-id "${SMOKE_RUN_ID}" --save-plan "${REVIEW_ROOT}/volume-restore"
 review_apply "${REVIEW_ROOT}/volume-restore"
-echo "  RESTORE OK: accepted receipt and archive verified into scratch PVC"
+verify_restored_sentinel "${SMOKE_NS}" "nagare-volrestore-${SMOKE_APP}-${SMOKE_VOL}-${SMOKE_RUN_ID}" \
+  "${SENTINEL}" "smoke ok $$"
+live="$(curlapp "${BASE}/files/${SENTINEL}")"
+[ -z "${live}" ] || { echo "local smoke: restore changed the live volume: ${live}" >&2; exit 1; }
+echo "  RESTORE OK: scratch PVC holds the sentinel; the live copy kept its clobbered value"
 
 # --- Step 4 (vs. cloud Step 5): verify HTTP 200 — plain loopback, no gateway IP ---
 echo "== step 4: verify HTTP 200 =="

@@ -30,6 +30,8 @@ SMOKE_VOL="uploads"
 SMOKE_NS="personal"
 APP_DIR="${NAGARE_REPO_ROOT}/cluster/examples/${SMOKE_APP}"
 SENTINEL="smoke-sentinel-$$.txt"
+# shellcheck source=scripts/lib/smoke-readback.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/smoke-readback.sh"
 
 export ZONE="${ZONE:-${TARGET_ZONE}}"
 export SSH_KEY="${SSH_KEY:-${HOME}/.ssh/id_ed25519}"
@@ -114,12 +116,17 @@ nagarectl storage snapshot "${SMOKE_APP}" "${SMOKE_VOL}" \
 review_apply "${REVIEW_ROOT}/volume-backup"
 echo "  accepted volume snapshot: ${SNAP_ID}"
 
-echo "== step 4c: restore the accepted snapshot into a scratch PVC =="
+echo "== step 4c: clobber live data, then restore the accepted snapshot into a scratch PVC =="
+curlapp -X POST --data "" "http://${HOST}/upload/${SENTINEL}" >/dev/null
 nagarectl storage restore "${SMOKE_APP}" "${SMOKE_VOL}" "${SNAP_ID}" \
   --config "${APP_DIR}/nagare/Config.hs" --restore-id "${SMOKE_RUN_ID}" \
   --save-plan "${REVIEW_ROOT}/volume-restore"
 review_apply "${REVIEW_ROOT}/volume-restore"
-echo "  RESTORE OK: accepted receipt and archive verified into scratch PVC"
+verify_restored_sentinel "${SMOKE_NS}" "nagare-volrestore-${SMOKE_APP}-${SMOKE_VOL}-${SMOKE_RUN_ID}" \
+  "${SENTINEL}" "smoke ok $$"
+live="$(curlapp "http://${HOST}/files/${SENTINEL}")"
+[ -z "${live}" ] || { echo "live smoke: restore changed the live volume: ${live}" >&2; exit 1; }
+echo "  RESTORE OK: scratch PVC holds the sentinel; the live copy kept its clobbered value"
 
 # --- Step 5: verify HTTP 200 through the gateway ---
 echo "== step 5: verify HTTP 200 =="
