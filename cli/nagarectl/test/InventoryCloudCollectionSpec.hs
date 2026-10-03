@@ -106,6 +106,67 @@ cloudCollectionTests =
         fingerprint <- expectRight (cloudCollectionProgramDigest base omitted)
         assertBool "collection did not bind program" (fingerprint /= base)
         assertBool "unsupported version accepted" (isLeft (cloudCollectionProgramDigest base "{\"version\":3}"))
+    , testCase "collection rechecks exact incarnation and native protection immediately before effect" $
+        withSystemTempDirectory "collection-incarnation" $ \temporary -> do
+          let program = temporary </> "program"
+              executable = temporary </> "pulumi"
+              exported = temporary </> "export.json"
+              calls = temporary </> "calls"
+              stackConfig = temporary </> "Pulumi.dev.yaml"
+              registration = head (expectedRegistrations fixture)
+              urn = T.unpack (registrationPulumiUrn registration)
+              config =
+                PulumiRuntimeConfig
+                  "dev"
+                  "project"
+                  "dev"
+                  "gs://state"
+                  "payload"
+                  (contentDigest "payload")
+                  executable
+                  program
+                  stackConfig
+                  (encodeCloudDeclarationBundle fixture)
+                  (expectedRegistrations fixture)
+              operation =
+                PlannedOperation
+                  (ok (mkOperationId "op-collect"))
+                  RetireResource
+                  PulumiExecutor
+                  (registrationResource registration :| [])
+                  (contentDigest "spec")
+                  []
+                  Idempotent
+              adapter = mkPulumiAdapter (expectedRegistrations fixture) (mkPulumiRuntimeOps config)
+              exportedObject identity protected = "{\"deployment\":{\"resources\":[{\"urn\":\"" <> urn <> "\",\"id\":\"" <> identity <> "\",\"protect\":" <> protected <> "}]}}"
+          createDirectory program
+          writeFile (program </> "index.ts") "export {};"
+          writeFile stackConfig "config: {}"
+          writeFile
+            executable
+            ( unlines
+                [ "#!/bin/sh"
+                , "echo \"$*\" >> " <> show calls
+                , "case \" $* \" in"
+                , "*' stack export '*) cat " <> show exported <> ";;"
+                , "*' version '*) echo v3.255.0;;"
+                , "*' preview '*) while [ \"$#\" -gt 0 ]; do if [ \"$1\" = --save-plan ]; then shift; echo exact-plan > \"$1\"; break; fi; shift; done"
+                , "echo '{\"steps\":[{\"op\":\"delete\",\"urn\":\"" <> urn <> "\"}]}' ;;"
+                , "*) exit 99;;"
+                , "esac"
+                ]
+            )
+          setFileMode executable 0o700
+          forM_ [("replacement-id", "false"), ("original-id", "true")] $ \(identity, protected) -> do
+            writeFile exported (exportedObject "original-id" "false")
+            prepared <- adapterPrepare adapter operation >>= expectRight
+            adapterPreflight adapter operation prepared >>= expectRight
+            writeFile exported (exportedObject identity protected)
+            adapterPreflight adapter operation prepared >>= assertBool "changed native authority passed preflight" . isLeft
+            executed <- adapterExecute adapter operation prepared
+            case executed of AdapterEffectFailed (KnownNoEffect _) -> pure (); other -> assertFailure (show other)
+          invoked <- BS.readFile calls
+          assertBool "changed collection authority reached up" (not (" up " `BS.isInfixOf` invoked))
     , testCase "collection recovery requires exact absence, never a no-change preview" $
         withSystemTempDirectory "cloud-collection" $ \temporary -> do
           let program = temporary </> "program"

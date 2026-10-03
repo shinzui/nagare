@@ -29,7 +29,7 @@ import Nagare.Infra.Plan (digestFile, digestPulumiProgram)
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Pulumi
 import Nagare.Inventory.Cloud
-import Nagare.Inventory.CloudCollection (cloudCollectionProgramDigest, validateCloudCollectionProtection)
+import Nagare.Inventory.CloudCollection (cloudCollectionProgramDigest, cloudCollectionPhysicalDigest, validateCloudCollectionProtection)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect), operationIdText)
 import Nagare.Resource.Types
@@ -106,7 +106,7 @@ prepareUnprotectedPlan config operation = case operationTargets config operation
       Left err -> pure (Left err)
       Right nativePreview -> do
         planResult <- try (BS.readFile planPath)
-        identity <- readIdentity config
+        identity <- readIdentity config operation
         pure $ do
           planBytes <- first (\(err :: IOException) -> "Pulumi preview did not retain a readable saved plan: " <> T.pack (show err)) planResult
           current <- identity
@@ -118,12 +118,20 @@ prepareUnprotectedPlan config operation = case operationTargets config operation
               , preparationRegistrations = runtimeRegistrations config
               }
 
-readIdentity :: PulumiRuntimeConfig -> IO (Either Text PulumiIdentity)
-readIdentity config = do
+readIdentity :: PulumiRuntimeConfig -> PlannedOperation -> IO (Either Text PulumiIdentity)
+readIdentity config operation = do
   result <- try $ do
     originalProgram <- digestPulumiProgram (runtimePulumiDirectory config) >>= digestFromText "program"
-    program <- either (ioError . userError . T.unpack) pure
+    declaredProgram <- either (ioError . userError . T.unpack) pure
       (cloudCollectionProgramDigest originalProgram (runtimeDeclarationBundle config))
+    program <- if plannedAction operation /= RetireResource then pure declaredProgram else do
+      exported <- runPulumi config ["stack", "export", "--stack", T.unpack (runtimeStack config), "--show-secrets=false"]
+      either (ioError . userError . T.unpack) pure $ do
+        body <- successful "Pulumi collection identity" exported
+        cloudCollectionPhysicalDigest declaredProgram
+          [registration | registration <- runtimeRegistrations config,
+            registrationResource registration `elem` NE.toList (plannedResources operation)]
+          (TE.encodeUtf8 (T.pack body))
     stackConfig <- digestFile (runtimeStackConfig config) >>= digestFromText "stack config"
     versionResult <- runPulumi config ["version"]
     version <- either (ioError . userError . T.unpack) pure (successful "pulumi version" versionResult)

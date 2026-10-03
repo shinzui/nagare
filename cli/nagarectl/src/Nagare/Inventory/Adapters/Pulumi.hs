@@ -59,7 +59,7 @@ data PulumiPreparation = PulumiPreparation
 data PulumiAdapterOps = PulumiAdapterOps
   { pulumiObserveResources :: !([ResourceId] -> IO (Either Text ObservationSet))
   , pulumiPrepareSavedPlan :: !(PlannedOperation -> IO (Either Text PulumiPreparation))
-  , pulumiReadIdentity :: !(IO (Either Text PulumiIdentity))
+  , pulumiReadIdentity :: !(PlannedOperation -> IO (Either Text PulumiIdentity))
   , pulumiApplySavedPlan :: !(PlannedOperation -> ByteString -> IO AdapterExecution)
   , pulumiVerifyResources :: !(PlannedOperation -> ByteString -> IO (Either Text ContentDigest))
   , pulumiRecoverSavedPlan :: !(PlannedOperation -> ByteString -> IO RecoveryDecision)
@@ -112,7 +112,7 @@ mkPulumiAdapter declared ops =
         bytes <- first (PrepareRefused (plannedOperationId operation)) (encodePrepared header (preparationSavedPlan preparation))
         pure (PreparedNative bytes (renderSummary header))
     preflight operation prepared = do
-      current <- pulumiReadIdentity ops
+      current <- pulumiReadIdentity ops operation
       pure $ do
         identity <- current
         (header, _) <- first renderBundleError (decodePrepared (preparedNativeBytes prepared))
@@ -120,6 +120,11 @@ mkPulumiAdapter declared ops =
     executePlan operation prepared =
       case decodePrepared (preparedNativeBytes prepared) of
         Left err -> pure (AdapterEffectFailed (KnownNoEffect (renderBundleError err)))
+        Right (header, planBytes) | plannedAction operation == RetireResource -> do
+          current <- pulumiReadIdentity ops operation
+          case current >>= \identity -> first renderBundleError (validateHeader operation identity header) of
+            Left reason -> pure (AdapterEffectFailed (KnownNoEffect reason))
+            Right () -> pulumiApplySavedPlan ops operation planBytes
         Right (_, planBytes) -> pulumiApplySavedPlan ops operation planBytes
     verifyPlan operation prepared = case decodePrepared (preparedNativeBytes prepared) of
       Left err -> pure (Left (renderBundleError err))

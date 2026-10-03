@@ -3,6 +3,7 @@
 module Nagare.Inventory.CloudCollection
   ( cloudCollectionTypes
   , cloudCollectionEligible
+  , cloudCollectionPhysicalDigest
   , validateCloudCollectionProtection
   , cloudCollectionPolicyOnly
   , compileCloudCollectionPolicy
@@ -181,3 +182,30 @@ validateCloudCollectionProtection selected bytes = do
             Just (Object inputs) -> Data.Aeson.KeyMap.lookup "deletionProtection" inputs == Just (Bool False)
             _ -> False
       unless unprotected (Left "VM collection requires separately reviewed native deletionProtection=false; teardown cannot clear it")
+
+-- Bind the selected native stack entry, including physical ID and protection,
+-- to its saved plan. This is a fresh guard, not a provider atomic ID CAS.
+cloudCollectionPhysicalDigest :: ContentDigest -> [NativeRegistration] -> ByteString -> Either Text ContentDigest
+cloudCollectionPhysicalDigest program selected bytes = do
+  unless (not (null selected)) (Left "cloud collection has no selected native registration")
+  validateCloudCollectionProtection selected bytes
+  value <- first T.pack (eitherDecodeStrict' bytes)
+  resources <-
+    first
+      T.pack
+      ( Data.Aeson.Types.parseEither
+          (withObject "stack export" (\root -> root .: "deployment" >>= withObject "deployment" (.: "resources")))
+          value
+      )
+  entries <-
+    traverse
+      ( \registration -> case [ Object fields
+                              | Object fields <- resources
+                              , Data.Aeson.KeyMap.lookup "urn" fields == Just (String (registrationPulumiUrn registration))
+                              ] of
+          [one] -> Right one
+          _ -> Left "collection physical binding is missing or ambiguous"
+      )
+      (sort selected)
+  canonical <- canonicalValue (toJSON entries)
+  pure (contentDigest ("cloud-collection-physical-v1:" <> TE.encodeUtf8 (digestText program) <> canonical))
