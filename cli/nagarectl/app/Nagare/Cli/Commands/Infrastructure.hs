@@ -33,6 +33,7 @@ import Nagare.Cli.Runtime.Cleanup (saveReviewedReleaseCleanup)
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Cli.Runtime.Guards (guardLegacyMutationInventory)
 import Nagare.Cli.Runtime.PlatformStatus (gatherPlatformStatus)
+import Nagare.Cli.Runtime.PreviewCleanup (saveReviewedPreviewCleanup)
 import Nagare.Cli.Runtime.Process (runExternal)
 import Nagare.Cli.Runtime.Pulumi (ensurePulumiForActiveContext)
 import Nagare.Cli.Runtime.Target
@@ -147,6 +148,7 @@ runInfraDestroy mctx yes = do
 -- images/previews/releases, then print the report. Dry-run by default.
 runCleanup :: Maybe String -> CleanupOpts -> IO ()
 runCleanup mctx o = case o ^. #savePlan of
+  Just output | o ^. #doPreviews -> saveReviewedPreviewCleanup mctx o output
   Just output -> saveReviewedReleaseCleanup mctx o output
   Nothing -> do
     active <- activeTarget mctx

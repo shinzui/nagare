@@ -20,6 +20,7 @@ module Nagare.Inventory.Command
   , planInventoryAdoptionWith
   , planInventoryMigrationWith
   , planInventoryRetirementWith
+  , planInventoryRetirementsWith
   , planInventoryCollectionWith
   , planInventoryCollectionsWith
   , applyInventory
@@ -324,14 +325,25 @@ planInventoryMigrationWith sourceRegistryFor destinationRegistryFor target input
 planInventoryRetirementWith
   :: (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry)
   -> ActiveTarget -> ScopeId -> FilePath -> IO ()
-planInventoryRetirementWith registryFor target owner output = do
+planInventoryRetirementWith registryFor target owner =
+  planInventoryRetirementsWith registryFor (const (Right ())) target (owner :| [])
+
+-- | Batch retirement with an additional read-only observation guard. The
+-- ordinary lifecycle validator still supplies all retirement authority.
+planInventoryRetirementsWith
+  :: (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry)
+  -> (ObservationSet -> Either (NonEmpty PlanError) ())
+  -> ActiveTarget -> NonEmpty ScopeId -> FilePath -> IO ()
+planInventoryRetirementsWith registryFor check target owners output = do
   snapshot <- loadTargetSnapshot target
-  unless (Map.member owner (snapshotScopes snapshot))
+  unless (Set.size (Set.fromList (NE.toList owners)) == NE.length owners)
+    (dieText "retirement scope IDs must be distinct")
+  unless (all (`Map.member` snapshotScopes snapshot) owners)
     (dieText "retirement scope is absent from accepted inventory history")
   candidate <- either (dieText . showText . NE.toList) pure
-    (composeInventory snapshot (RetireScope owner RetainResources :| []))
+    (composeInventory snapshot (fmap (`RetireScope` RetainResources) owners))
   planInventoryCandidateWithDecider registryFor
-    (\history observations -> decideRetirement candidate history observations)
+    (\history observations -> check observations >> decideRetirement candidate history observations)
     target candidate output
 
 planInventoryCollectionWith

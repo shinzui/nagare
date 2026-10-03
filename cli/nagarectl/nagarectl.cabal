@@ -224,6 +224,7 @@ library
     Nagare.Inventory.ObservationNative
     Nagare.Inventory.OperationStep
     Nagare.Inventory.Plan
+    Nagare.Inventory.PreviewCleanup
     Nagare.Inventory.Prune
     Nagare.Inventory.RegistryCredentials
     Nagare.Inventory.ReleaseEvidence
@@ -399,6 +400,7 @@ executable nagarectl
     Nagare.Cli.Runtime.ObjectStore
     Nagare.Cli.Runtime.Ownership
     Nagare.Cli.Runtime.PlatformStatus
+    Nagare.Cli.Runtime.PreviewCleanup
     Nagare.Cli.Runtime.Process
     Nagare.Cli.Runtime.ProjectGuard
     Nagare.Cli.Runtime.Pulumi
@@ -486,6 +488,7 @@ test-suite nagarectl-test
     InventoryObjectOpsSpec
     InventoryObservabilitySpec
     InventoryObservationSpec
+    InventoryPreviewCleanupSpec
     InventoryPublicationSpec
     InventorySpec
     InventoryStatusSpec

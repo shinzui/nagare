@@ -1331,3 +1331,19 @@ including real credential retry logic, rather than directly executing an argv
 stub. A failed disposable development payload remains immutable diagnostic
 evidence; verify the corrected payload on a new disposable fixture instead of
 patching the old payload or inventing an in-place upgrade path.
+
+Stale-preview cleanup validates the accepted preview scope's complete shape and
+reads its exact Service creation time and UID. Retirement review observes that
+same incarnation again, and ordinary admission guards it before recording the
+retirement. Retirement retains every member; later cleanup reviews one eligible
+retained stateless member at a time, respecting active and retained consumers.
+Knative Service collection uses the existing reviewed controller-descendant
+protocol. Retained selection also validates the original immutable scope revision and exact member declaration against the complete preview contract; a scope-name prefix is never sufficient authority. Explicitly retired previews need no second TTL delay. Durable volumes
+remain retained regardless of preview age. Cleanup preparation cannot repair
+unrelated drift or run hooks.
+
+Release-history pruning supplies private native bytes for exactly the unchanged
+Kubernetes/Helm members selected by the final planner requirements, alongside its
+changed history bytes. Contribution-generated members remain the contribution
+compiler's responsibility. A same-scope neighbor is not necessarily backed by a
+packaged manifest; its accepted native evidence must be retained for verification.

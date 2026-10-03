@@ -586,6 +586,7 @@ See [CDN (edge caching)](cdn.md).
 | `nagarectl domains check [-n NS] [--all-namespaces] [--base-domain DOMAIN] [--json]` | Print the same inventory and exit non-zero for missing/mismatched DNS, unavailable or unready routes, or non-ready certificates while TLS is enabled. |
 | `nagarectl cleanup [selectors]` | Preview unused-image, stale-preview, and old-release cleanup. It deletes nothing without `--confirm`; confirmed legacy cleanup refuses after substantive resource inventory history exists. |
 | `nagarectl cleanup --releases --namespace NS --keep-releases N --save-plan DIR` | Review pruning of accepted application/site release-history records; retain the current record and most recent N. Apply with `inventory apply DIR --yes`. |
+| `nagarectl cleanup --previews --namespace NS --preview-ttl-days N --save-plan DIR` | Review retirement of accepted previews older than N days using exact native Service age and UID. After applying, repeat with a fresh output directory to review one eligible retained member's collection at a time. Prior explicit retirement also makes stateless members eligible; durable volumes and members with remaining dependents stay retained. Knative Service collection reviews its exact controller descendants. |
 
 > **Known status-probe gap:** the current `server status`/`doctor` backup rows
 > still probe the legacy `postgres/`, `litestream/`, and `volumes/` prefixes.

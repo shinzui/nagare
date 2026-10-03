@@ -5,6 +5,7 @@ import Control.Monad (foldM)
 import Data.Generics.Labels ()
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Nagare.Cli.Inventory.Planning (inventoryPlanRegistryWithNative)
@@ -57,8 +58,25 @@ saveReviewedReleaseCleanup selected options output = do
           (NE.toList selectedScopes)
       changes <- maybe (dieT "release cleanup selected no scopes") pure (NE.nonEmpty (map Resource.ReplaceScope revised))
       candidate <- either (dieT . T.pack . show) pure (Resource.composeInventory snapshot changes)
-      let registryFor desired accepted =
+      let registryFor desired accepted = do
+            let selectedResources = Plan.requiredResources (Plan.observationRequirements desired accepted)
+                desiredInventory = Resource.candidateInventory desired
+                preserved =
+                  Set.fromList
+                    [ resource ^. #identity
+                    | Resource.Managed resource <- Resource.inventoryDeclarations desiredInventory
+                    , Set.member (resource ^. #identity) selectedResources
+                    , Map.notMember (resource ^. #identity) updatedNative
+                    , resource ^. #executor `elem` [Resource.KubernetesExecutor, Resource.HelmExecutor]
+                    , -- Contribution compilers provide these bytes themselves.
+                    case resource ^. #spec of
+                      Resource.NamespaceSpec Nothing -> resource ^. #source . #file /= "contribution"
+                      Resource.BackendMapSpec {} -> resource ^. #source . #file /= "contribution"
+                      Resource.ShomeiSettingsSpec {} -> resource ^. #source . #file /= "contribution"
+                      _ -> True
+                    ]
+            (kubernetes, helm) <- Status.loadAcceptedNativeSelected preserved store accepted desiredInventory >>= either dieT pure
             withPreparationGuard (validateReleaseCleanupOperation (Map.keysSet members))
-              <$> inventoryPlanRegistryWithNative active workspace updatedNative desired accepted
+              <$> inventoryPlanRegistryWithNative active workspace (Map.unions [updatedNative, kubernetes, helm]) desired accepted
       Inventory.planInventoryCandidateWith registryFor active candidate output
       TIO.putStrLn "Saved exact accepted release-history pruning; current releases remain retained"
