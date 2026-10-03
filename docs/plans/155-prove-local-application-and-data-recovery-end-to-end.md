@@ -174,6 +174,74 @@ Steps and gates, in order; a failed gate stops the sequence:
 **Milestone 2 — final-candidate local run (MP-23 C1, C2).** When the frozen candidate exists, pass C1 on cp3, then create a fresh local context there bootstrapped with the candidate's own payload and run the whole scenario through the runner's plan/apply/verify phases: convergence, app-only isolation, unchanged replay, interruption at each real stage (database readiness, migration, cluster completion, final marker) with resume and no duplicate effect, wrong-incarnation refusal, isolated restore of all three engines and a volume with content checks, source-unavailable recovery from MinIO with the source cluster inaccessible, private history export restored into an isolated state root, the rename and companion collection. Consume EP-159's receipts, EP-160's isolated restore, EP-158's access commands and EP-153's deferred-route refusals rather than re-implementing them. Before the existing cp3 cluster is replaced, the preserved F30 transaction must reach a terminal state through the supported resume path (MP-23 A4, owned by EP-153/156); do not discard it by deleting the cluster.
 
 
+**Milestone 2 execution plan (prepared 2026-10-03, read-only; nothing below has run).** Owner: session nagare-phase-b. C1 and C3 belong to nagare-f3.
+
+*Inputs and gates.*
+- Candidate CLI: `result-mp23-db808a74/bin/nagarectl`, revision `db808a74`, with its packaged payload.
+- C2 starts only after nagare-f3 reports that C1 passed on this candidate. Every cp3 mutation runs under the claim protocol (`/private/tmp/nagare-mp23-cp3.1EQ78L/.cp3-claim`).
+- Every command runs with `env -i` through a wrapper for the fresh root, the same way the existing `runctl-*.sh` wrappers work.
+- Stop and report on any guard refusal. Name the expected progress and time budget before each phase. A phase that runs 15 minutes past its budget gets a diagnostic checkpoint.
+
+*A fresh context needs the existing cluster retired first.* A second k3d cluster cannot coexist on cp3:
+- The payload's `cluster/bootstrap/local-substrate.json` fixes the cluster name `nagare-local`, the registry `k3d-registry.localhost` and host ports 80, 443 and 5000.
+- Only the `nagare-mp23-cp3` Colima profile may be used.
+
+Memory is not the limit: the VM has about 7.7 GiB available with today's platform running.
+
+No reviewed teardown exists for an admitted local substrate. `just local-down` refuses after admission, `context delete --save-plan` removes only the profile, and `InfraDestroy` is the cloud route. So retiring the old cluster is the deliberate, exact step this plan's Idempotence section anticipates. It runs only with the operator's explicit approval, because it is hard to reverse and the cluster is shared with nagare-f3. Phase 0 sequence:
+1. Confirm that the `local` store has no active transaction (after C1).
+2. Run `inventory export --out /private/tmp/nagare-mp23-cp3.1EQ78L/exports/local-pre-c2-<UTC>` (private). Save `inventory status --json` beside it.
+3. Copy the registry images the fresh bootstrap needs, by digest, with `skopeo copy` through the loopback forward into an OCI layout under that root. The images are `en`, `shomei`, `nagare-access`, `nagare-minio` and `nagare-mc`, at the digests pinned in `runctl-b805d64a-independent.sh`. `skopeo` preserves manifest digests; `docker push` does not.
+4. Run `k3d cluster delete nagare-local`, then `k3d registry delete k3d-registry.localhost`, with `DOCKER_HOST` set to the cp3 socket.
+
+The old operator root, its journals and the export are kept, and the old context is never revived. Its in-cluster MinIO objects are lost with the cluster. They belong to retired checkpoint evidence, and their receipts remain in the export.
+
+*Phase 1 (budget 30 min): fresh bootstrap with the candidate payload.*
+1. Create a new root, `/private/tmp/nagare-mp23-c2-db808a74.XXXXXX`, with its own XDG config, state and cache, a new cluster-secrets directory, and the operator's sops age key.
+2. Run `context create local --mode local --registry-host k3d-registry.localhost:5000 --base-domain 127-0-0-1.sslip.io --target-platform linux/arm64 --local-object-store http://minio.nagare-system.svc.cluster.local:9000/nagare-backups`.
+3. Run `scripts/run-reviewed-bootstrap.sh` with the candidate CLI (registry and cluster review, kubeconfig review).
+4. Re-push the three auth images from the OCI copy, and run `scripts/publish-local-minio-images.sh`. Export `NAGARE_AUTH_{EN,SHOMEI,ACCESS}_IMAGE` and `NAGARE_LOCAL_{MINIO,MC}_IMAGE` with their digests.
+5. Plan and apply the platform bootstrap. The 2026-09-30 run took 217 operations and 496 s.
+6. Run the local runner's `plan`, `apply` and `verify` phases with a compiled candidate of the platform scopes. Verify writes `no-op-review/` and `final-observation.json`.
+
+*Phase 2 (budget 30 min): scenario resources.* Follow `fixtures/inventory-release/local/scenario.json` steps `data`, `deploy-a`, `deploy-b` and `site`, then seed every store with the fixture's rows, keys and files.
+
+*Phase 3: the checks.* Evidence goes under `$EV/checks/<name>/`, where `$EV` is the runner's evidence directory. Evidence holds public observations only: digests, UIDs, counts and the fixture's non-secret seed values. Each check, once it passes, is recorded with:
+
+```bash
+python3 scripts/scenario-assertions.py record --evidence-dir "$EV" --mode local \
+  --name NAME --summary "ONE LINE" --evidence checks/NAME/FILE ...
+```
+
+- `collision-refusal`: run `app deploy -f apps/scenario-collision/nagare/Config.hs --save-plan DIR`. Expected: non-zero exit with a composition collision on the route host, no review directory, and an unchanged head generation. Evidence: `checks/collision-refusal/result.json` (exit, error code, before and after head).
+- `adoption`: create one unowned object at an address a later review will claim (a Redis scratch PVC, as in the EP-160 drill), then plan that restore. Expected: `adoption-required` with no review saved, and `inventory status --json` reporting the object as unowned. Evidence: `refusal.json` and `status-unowned.json`. Delete the created object afterwards.
+- `drift-classification`: from `inventory status --json`, the companion collection's retained orphans plus a deliberate field edit on application B's Service, repaired through a reviewed replan. Expected: distinct `retained-orphan` and configuration-drift categories, and the replan restores the reviewed bytes. Evidence: `status-drift.json` and `repair.json`.
+- `convergence-noop-removal`: the runner's verify `no-op-review/review.json` (zero operations), plus preview removal through `cleanup --previews --save-plan` with DomainMapping descendants included. Evidence: `no-op-review/review.json` and `checks/convergence-noop-removal/preview-cleanup.json`.
+- `independent-scope-preservation`: accepted revisions of `application:scenario-b` and every platform scope, plus application B's Service UID, before and after step `update-a`. Evidence: `before.json`, `after.json` and `diff.json`.
+- `secret-read-refusal`: the encrypted value is generated at run time and passed only on stdin. There is no public `secret get`, and `secret list` prints names only. Scan every file under `$EV`, the saved review directories, the status outputs and the export summary for the value. Evidence: `scan.json` (value SHA-256, files scanned, matches = 0) and `secret-list.txt`.
+- `interrupted-recovery`: the four stages in the fixture. For each, poll `inventory status --json` until the target operation's intent is recorded, kill the `inventory apply` process, then run `inventory resume TX --yes`. Expected: completion with each created object's UID unchanged, and one intent and one effect per operation. Evidence: `<stage>.json` per stage (transaction, killed operation, UIDs before and after resume, journal event counts).
+- `postgresql-backup-restore`: back up `scenario-pg` through MinIO, insert the fixture's `afterBackup` row, restore under a new ID, and read the scratch database. Then the wrong-incarnation part: create the scratch database the next restore will target before applying it. Expected: refusal before any restore write, and the transaction closed with `abandon-partial-database-restore`. This method is to be confirmed before the run; if a write happens instead, record a failure. Evidence: `seed.json`, `restored.json`, `source-after.json` and `wrong-incarnation.json`.
+- `redis-backup-restore` and `clickhouse-backup-restore`: the same pattern with `db backup NAME --backup-id ID --save-plan` and `db restore NAME ID --restore-id ID --save-plan`, reading back the keys or rows. Evidence: `seed.json`, `restored.json` and `source-after.json`.
+- `volume-backup-restore`: `storage snapshot scenario-a uploads` and `storage restore` with pins. The restored file is proved by the Job's `NAGARE_VOLUME_RESTORE_FILE` line for `scenario-known.txt`. Evidence: `manifest.txt` and `source-after.json`.
+- `source-unavailable-recovery`: still open. Local MinIO runs inside the source cluster, so cloud-style recovery with the source cluster unreachable has no local equivalent. Proposal for the operator: stop the k3d server container, copy the MinIO volume out with `docker cp`, serve it from a disposable MinIO container, verify a receipt with `db verify-escrowed-backup` using the escrowed signing key, and restore known rows into a disposable PostgreSQL container. Otherwise, record a narrower local claim and leave this check to EP-156's cloud run.
+- `backup-freshness`: `server status` and `db backup-receipts NAME --check-freshness` show healthy rows under the hourly objective for all three databases. Evidence: `server-status.txt` and `freshness.json`.
+- `retained-data`: the companion collection (fixture `companionCollection`, with the PVC collection refused), plus history `inventory export` restored with `inventory restore --from PRIVATE --yes` into an isolated state root with identical accepted identities. Evidence: `collection.json` and `history-restore.json` (head digests, scope revisions). The export itself stays private.
+- `access-grant-revoke`: `access grant` and `access revoke` on `scenario-a.127-0-0-1.sslip.io`, observed through `access list`. Browser login over HTTPS is a stated restriction (D3). This needs an existing shomei user, and how to provision one headlessly is still open. Evidence: `grant.json` and `revoke.json`.
+- `retained-postgresql-rename`: fixture step `rename`. Evidence: `rows.json`, `uids.json` and `unrelated-identity.json`.
+
+*F36 native proof (EP-160 record, not a gate check).*
+1. Back up a throwaway Redis, then save its restore review.
+2. Delete exactly the pinned archive version with a throwaway `nagare-mc` Pod, then apply.
+3. Expected: the scratch StatefulSet's container exits non-zero, apply stops, and `inventory recover TX --operation OP --decision FILE` (version 1, `abandon-partial-database-restore`) closes the transaction with the scratch objects left unaccepted.
+
+*Phase 4 (budget 20 min).*
+1. Run the runner's `verify` with `--private-store-export`.
+2. Run `python3 scripts/scenario-assertions.py finalize --evidence-dir "$EV" --mode local`.
+3. Run `scripts/assemble-managed-resource-evidence.sh --release-manifest FILE --system aarch64-darwin --rehearsal-dir "$EV" --private-store-export PRIVATE --coverage-result FILE --output "$EV/inventory-evidence.json"`.
+4. `finalize` revalidates every bound record against the plan-time health and `fixture.json`. Full `scripts/assemble-inventory-release-index.py` assembly also needs the cloud directory, both native outputs and the coverage result, so it is EP-157's C5 step and is not claimed here.
+
+Results go in this plan and in a dated implementer results file.
+
 ## Concrete Steps
 
 Run from the repository root inside its development shell. Focused checks first:
