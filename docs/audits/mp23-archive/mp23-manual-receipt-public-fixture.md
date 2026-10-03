@@ -87,7 +87,7 @@ source row was `mp23-f15-source-after-backup`, the neighbor row was
 `mp23-f15-source-before-backup`. These are expected inputs to verify again,
 not permission to assume the shared head is unchanged.
 
-After login, first rerun the [runbook preflight](../runbooks/inventory-operations.md)
+After login, first rerun the [runbook preflight](../../runbooks/inventory-operations.md)
 with the frozen operator's exact generation 705 and digest. If it passes,
 inspect the current accepted backup Job, its UID, the database/PVC identities,
 and accepted dependents without effects. Only then prepare one new installed
@@ -119,7 +119,7 @@ repeat accepted backup, takeover, or broad bootstrap work to fill this proof.
 ## 2026-10-02 native checkpoint
 
 The earlier credential blocker and producer-Job dependency are superseded by
-[the native receipt/collection proof](mp23-native-bootstrap-results-2026-10-02/f15-receipt-collection-and-download-failure.json). The installed candidate accepts the
+[the native receipt/collection proof](../mp23-native-bootstrap-results-2026-10-02/f15-receipt-collection-and-download-failure.json). The installed candidate accepts the
 receipt and separately collects the exact Job, but its new restore fails before
 PostgreSQL starts because the rendered init container omits both GCS versions.
 Exact terminal recovery leaves idle generation 722/sequence 654; the failed Job

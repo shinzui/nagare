@@ -105,7 +105,7 @@ copied. No cluster apply occurred. Private evidence is retained in
 [redacted metrics](mp23-native-bootstrap-results-2026-09-29/fresh-root-repair.json)
 retain package identity, timings, scope revisions and review digest.
 
-The reusable [runner](mp23-reproductions/probe-bootstrap-second-root.py) retains
+The reusable [runner](../mp23-reproductions/probe-bootstrap-second-root.py) retains
 120-second credential and 360-second cluster-plan bounds, verifies the expected
 Ready node, checks the six accepted prerequisite scopes, compares shared status
 and global contexts, and never invokes cluster apply.

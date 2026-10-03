@@ -2,7 +2,7 @@
 
 2026-09-29. This implements the next repairs after `ebe91b7d`, under EP-153 and
 EP-156. Source identities, complete test output, CLI reports, and transport traces
-are retained in [the evidence directory](mp23-selected-read-results-2026-09-29/).
+are retained in [the evidence directory](mp23-selected-read-results-2026-09-29).
 The tested final executable SHA-256 is
 `bc1a46b08fcb4c879302051d46a5ff95a65372c6917d19e0865b15b3cb24a79f`;
 [the source manifest](mp23-selected-read-results-2026-09-29/source-hashes.json)

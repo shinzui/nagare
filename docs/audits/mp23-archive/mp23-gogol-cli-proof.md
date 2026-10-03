@@ -1,16 +1,16 @@
 # MP-23 Gogol command integration proof
 
 GCS inventory commands now select the SDK by default. The shared
-[remote factory](../../cli/nagarectl/src/Nagare/Inventory/Store/Remote.hs) serves
+[remote factory](../../../cli/nagarectl/src/Nagare/Inventory/Store/Remote.hs) serves
 ordinary reads/writes and migration dry runs; stored context/project, bucket
 ownership, private prefix and history binding checks remain in place. The
-[operator runbook](../runbooks/inventory-gcs-transport.md) describes authentication
+[operator runbook](../../runbooks/inventory-gcs-transport.md) describes authentication
 and the explicit `NAGARE_INVENTORY_GCS_TRANSPORT=gcloud` compatibility switch.
 No stored format changes or history migration are required for this adoption.
 
 ## Credential selection and lifecycle
 
-[The credential bridge](../../cli/nagarectl/src/Nagare/Inventory/Store/GcloudAuth.hs)
+[The credential bridge](../../../cli/nagarectl/src/Nagare/Inventory/Store/GcloudAuth.hs)
 uses gcloud's structured config-helper response, including real token expiry.
 It captures the account, named configuration, impersonation setting, project and
 Storage endpoint. Explicit account/configuration/impersonation selections must

@@ -1,6 +1,6 @@
 # MP-23: local F20 collection and recovery proof
 
-Date: 2026-10-02. Baseline: `f6ccc2ab`. Owner: [EP-153](../plans/153-close-managed-command-coverage-for-the-inventory-release.md); native agreement: [EP-156](../plans/156-prove-fresh-gcp-convergence-and-shared-history-recovery.md).
+Date: 2026-10-02. Baseline: `f6ccc2ab`. Owner: [EP-153](../../plans/153-close-managed-command-coverage-for-the-inventory-release.md); native agreement: [EP-156](../../plans/156-prove-fresh-gcp-convergence-and-shared-history-recovery.md).
 
 ## Outcome
 
@@ -10,11 +10,11 @@ The important result is that F20 can now be exercised cheaply: DELETE acceptance
 
 ## Scenario and assertions
 
-[The fixture](../../cli/nagarectl/test/Nagare/Test/Effectful/CollectionFixture.hs) seeds an accepted Knative Service and three data members in the same application scope (StatefulSet, durable PVC, completed backup Job), plus an independent neighboring Service. It represents the checkpoint after release-history and DomainMapping collection. Production retirement retains the four application members without deletion. Production collection then reviews only the exact parent, which declares no descendant delegation.
+[The fixture](../../../cli/nagarectl/test/Nagare/Test/Effectful/CollectionFixture.hs) seeds an accepted Knative Service and three data members in the same application scope (StatefulSet, durable PVC, completed backup Job), plus an independent neighboring Service. It represents the checkpoint after release-history and DomainMapping collection. Production retirement retains the four application members without deletion. Production collection then reviews only the exact parent, which declares no descendant delegation.
 
-[The persistent model](../../cli/nagarectl/test/Nagare/Test/Effectful/CollectionModel.hs) accepts only the expected request shapes. The DELETE must contain the exact parent path, UID, resourceVersion and `Orphan` propagation policy. Acceptance changes the parent resourceVersion, adds a deletion timestamp and orphan finalizer, and preserves all child objects. Five representative Route/Configuration/Revision/Deployment/Pod nodes retain direct and transitive owner references; they are not a reproduction of all sixteen native descendants. A virtual 30-second wait returns immediately with a timeout while the parent remains present.
+[The persistent model](../../../cli/nagarectl/test/Nagare/Test/Effectful/CollectionModel.hs) accepts only the expected request shapes. The DELETE must contain the exact parent path, UID, resourceVersion and `Orphan` propagation policy. Acceptance changes the parent resourceVersion, adds a deletion timestamp and orphan finalizer, and preserves all child objects. Five representative Route/Configuration/Revision/Deployment/Pod nodes retain direct and transitive owner references; they are not a reproduction of all sixteen native descendants. A virtual 30-second wait returns immediately with a timeout while the parent remains present.
 
-[The tests](../../cli/nagarectl/test/InventoryEffectfulCollectionSpec.hs) cover:
+[The tests](../../../cli/nagarectl/test/InventoryEffectfulCollectionSpec.hs) cover:
 
 - Accepted DELETE with blocked finalization: retained identities, accepted neighboring revisions and the original active transaction survive; no tombstone appears early.
 - Lost DELETE acknowledgement: a fresh process observes the pending parent without issuing another DELETE.

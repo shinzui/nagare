@@ -198,7 +198,7 @@ through environment input, never in command arguments or a saved review.
 ## Known cloud timings
 
 These are observed installed-command times, not service-level promises. The
-[retained interruption/second-root proof](../audits/mp23-native-bootstrap-results-2026-09-30/cloud-interruption-and-second-root.json)
+[retained interruption/second-root proof](../audits/mp23-archive/mp23-native-bootstrap-results-2026-09-30/cloud-interruption-and-second-root.json)
 uses candidate `2101b834` on `ep150-preview`, preserving payload `6082dbd6`.
 
 | Command or boundary | Observed time |
@@ -216,7 +216,7 @@ at 20.992 seconds and apply at 36.096 seconds, foreign executor refusal at
 The latter resumed the original third Job with its exact UID; no replacement Job
 was created. These checks do not establish another engine or volume procedure.
 
-The [fresh F15 stage report](../audits/mp23-native-bootstrap-results-2026-09-30/f15-cloud-sequence-rehearsal.json)
+The [fresh F15 stage report](../audits/mp23-archive/mp23-native-bootstrap-results-2026-09-30/f15-cloud-sequence-rehearsal.json)
 separately records original-payload image publication (249.546 s), image binding
 (37.798 s), VM creation (51.569 s), guarded host operations (86.780 s), and private
 kubeconfig installation (13.778 s). Fresh cluster convergence passed in 1,284.026
@@ -293,7 +293,7 @@ children. Missing access or incomplete lists are errors, not evidence of absence
 Apply can remain unresolved after the parent disappears. Resume the original
 transaction: completion also checks recorded descendants, observed new reachable
 children and protected inventory identities. Do not issue a replacement review or
-repeat DELETE to accelerate finalization. See the [proof and limitations](../audits/mp23-reviewed-controller-collection-proof.md).
+repeat DELETE to accelerate finalization. See the [proof and limitations](../audits/mp23-archive/mp23-reviewed-controller-collection-proof.md).
 
 ## Retired prerelease checkpoint — not a recovery task
 

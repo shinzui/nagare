@@ -1,7 +1,7 @@
 # MP-23 Gogol ObjectOps integration proof
 
 The pinned SDK now has a production-library `ObjectOps` adapter in
-[Store/Gogol.hs](../../cli/nagarectl/src/Nagare/Inventory/Store/Gogol.hs). The CLI
+[Store/Gogol.hs](../../../cli/nagarectl/src/Nagare/Inventory/Store/Gogol.hs). The CLI
 still selects the existing gcloud backend. This checkpoint establishes the
 transport/store contract before changing command authentication and selection.
 
@@ -40,7 +40,7 @@ No review, head, transaction, journal or migration schema changes.
 
 ## Verification
 
-[InventoryGogolSpec.hs](../../cli/nagarectl/test/InventoryGogolSpec.hs) sends real SDK
+[InventoryGogolSpec.hs](../../../cli/nagarectl/test/InventoryGogolSpec.hs) sends real SDK
 requests to loopback WAI storage/OAuth servers. It does not mock the SDK itself
 and uses no operator credentials or Google endpoint. Thirteen cases cover:
 

@@ -116,7 +116,7 @@ backend readiness portion of `inspectStack` interpret omission from a successful
 selected-project list as absence. That list cannot establish that a global name
 is free. GCS names occupy one namespace shared by all users, as documented by
 [Google](https://docs.cloud.google.com/storage/docs/buckets#bucket_name_considerations)
-and required by [ADR 9](../adr/0009-assert-the-active-context-project-on-every-cloud-mutating-path.md).
+and required by [ADR 9](../../adr/0009-assert-the-active-context-project-on-every-cloud-mutating-path.md).
 The experiment proves incorrect creation-review intent; it does not prove a
 foreign resource can be mutated through the later effect guards.
 
@@ -231,7 +231,7 @@ Provide an explicit context-local credential materialization/transition route
 bound to the accepted context, host and credential content, with a current private
 execution envelope. Preserve original immutable reviews and refusal of changed
 host/content; do not relocate old envelopes or copy authority markers. This follows
-[ADR 4](../adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md).
+[ADR 4](../../adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md).
 
 Acceptance must cover genuinely fresh foundation, existing bound history with no
 local state/cache, nonmigrated local conflicts, exact/wrong migration destinations,

@@ -1,6 +1,6 @@
 # MP-23: validated Effectful restore pilot
 
-Date: 2026-10-02. Baseline: `794064f0`. Parent: [MP-23](../masterplans/23-make-managed-resources-first-class-through-typed-scoped-inventories.md). Owners: EP-153 (shared boundary), EP-160 (restore), EP-156 (native agreement).
+Date: 2026-10-02. Baseline: `794064f0`. Parent: [MP-23](../../masterplans/23-make-managed-resources-first-class-through-typed-scoped-inventories.md). Owners: EP-153 (shared boundary), EP-160 (restore), EP-156 (native agreement).
 
 ## Result and architectural implication
 
@@ -10,13 +10,13 @@ The ownership/inventory/review/journal foundation stays. Replace test substituti
 
 ## Implemented boundary
 
-[The transport](../../cli/nagarectl/src/Nagare/Inventory/KubernetesTransport.hs) defines a dynamic `Kubectl` effect with context, arguments and stdin, returning the existing exit/output/unknown result. The production interpreter retains the existing context and request-timeout flags and IOException handling. Existing callers continue selecting it. Tests select an interpreter by explicit injection; no production environment variable switches to simulation.
+[The transport](../../../cli/nagarectl/src/Nagare/Inventory/KubernetesTransport.hs) defines a dynamic `Kubectl` effect with context, arguments and stdin, returning the existing exit/output/unknown result. The production interpreter retains the existing context and request-timeout flags and IOException handling. Existing callers continue selecting it. Tests select an interpreter by explicit injection; no production environment variable switches to simulation.
 
 This is a small request program with no `IOE`, interpreted beneath the existing IO runtime. The complete planner/orchestrator has **not** been converted to an effect stack. Other transports, filesystem persistence, target selection and authorization are not newly effect-isolated. No public dry-run command is added.
 
-[The fixture](../../cli/nagarectl/test/Nagare/Test/Effectful/Fixture.hs) uses production database, manual backup, receipt-only and isolated restore compilers. It seeds synthetic accepted history with real canonical scopes/native bytes, an absent producer Job, a source StatefulSet/PVC and a neighboring ConfigMap. [The scenarios](../../cli/nagarectl/test/InventoryEffectfulSpec.hs) use production composition, observations, planning, immutable review publication, apply/resume, filesystem store and Kubernetes runtime/adapters. A fresh test-binary process reloads the saved review and content-addressed source native inputs without rerendering them. Its source-registry loader is test support; this does not cover the entire public CLI source-selection path.
+[The fixture](../../../cli/nagarectl/test/Nagare/Test/Effectful/Fixture.hs) uses production database, manual backup, receipt-only and isolated restore compilers. It seeds synthetic accepted history with real canonical scopes/native bytes, an absent producer Job, a source StatefulSet/PVC and a neighboring ConfigMap. [The scenarios](../../../cli/nagarectl/test/InventoryEffectfulSpec.hs) use production composition, observations, planning, immutable review publication, apply/resume, filesystem store and Kubernetes runtime/adapters. A fresh test-binary process reloads the saved review and content-addressed source native inputs without rerendering them. Its source-registry loader is test support; this does not cover the entire public CLI source-selection path.
 
-[The model](../../cli/nagarectl/test/Nagare/Test/Effectful/Model.hs) persists provider objects separately from history. Create has before-write and after-write lost-ack faults; it retains an unready Job and refuses duplicate creation. Wait advances virtual time rather than sleeping. Unsupported request shapes fail. It is deliberately limited to this workflow, not a general Kubernetes simulator.
+[The model](../../../cli/nagarectl/test/Nagare/Test/Effectful/Model.hs) persists provider objects separately from history. Create has before-write and after-write lost-ack faults; it retains an unready Job and refuses duplicate creation. Wait advances virtual time rather than sleeping. Unsupported request shapes fail. It is deliberately limited to this workflow, not a general Kubernetes simulator.
 
 The actual rendered init-container shell command executes with its declared environment against a strict local `gcloud` fixture. That fixture requires exact generation-qualified URLs and output paths. Real local tools check the receipt/hash and decompress known SQL bytes. Missing generation variables and corrupt archive bytes must fail. Only then does the workload model mark the Job complete. Database loading itself is simulated.
 

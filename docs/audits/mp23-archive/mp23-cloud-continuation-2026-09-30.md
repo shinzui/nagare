@@ -47,7 +47,7 @@ Then continue healthy cluster convergence and the representative application,
 GCS backup and isolated restore path. EP-156 M1/M2 remain open.
 
 F02/F03/F04/F05/F06/F07/F08/F09/F10/F12/F13 remain unresolved at their
-[tracker statuses](mp23-findings.md). This continuation does not independently
+[tracker statuses](../mp23-findings.md). This continuation does not independently
 close them. The selected cluster review contains Kubernetes, Helm and artifact
 operations; it contains no host activation or scheduled-prune effect. Existing
 host and prune regression evidence remains applicable to their own boundaries.
@@ -86,14 +86,14 @@ No review or journal was reset.
 
 The candidate repair adds the explicit autoscaler predecessor to pinned and
 configured Serving inputs. For the existing immutable review, it adds the
-[bounded readiness recovery contract](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md):
+[bounded readiness recovery contract](../../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md):
 prove the exact created Deployment remains owned and unchanged, leave it
 ambiguous/uncompleted, and permit only an untouched dependency-ready stateless
 Deployment create from the same review. Recovery freshly reobserves the waiting
 Deployment after each completed create. Other uncertain effects, blocked states,
 fences, durable resources, updates and declared data operations do not receive
 this permission. Tests and installed original-transaction recovery must pass
-before claiming this correction accepted; track it as [F14](mp23-findings.md#f14).
+before claiming this correction accepted; track it as [F14](mp23-findings-closed.md#f14).
 
 Source acceptance: all 987 CLI tests pass, including the four new ordering,
 readiness-proof, same-transaction continuation and refusal cases. The managed

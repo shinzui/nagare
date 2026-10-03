@@ -29,7 +29,7 @@ Retain the original private roots and checked-in diagnostic records:
 - [Failure and accepted restore evidence](mp23-native-bootstrap-results-2026-10-02/f15-receipt-only-restore-and-web-cleanup.json).
 - [Unexecuted exception proposal](mp23-native-bootstrap-results-2026-10-02/f15-knative-collection-exception-review.json), now historical and withdrawn from the execution queue.
 - [Earlier restore failure](mp23-native-bootstrap-results-2026-10-02/f15-receipt-collection-and-download-failure.json).
-- [Corrected collection and recovery proof](mp23-reviewed-controller-collection-proof.md), using a separate disposable target.
+- [Corrected collection and recovery proof](mp23-archive/mp23-reviewed-controller-collection-proof.md), using a separate disposable target.
 
 EP-156 owns non-blocking teardown debt for the retired fixture, including the
 terminating Service, its descendants and failed restore Job. Before teardown,

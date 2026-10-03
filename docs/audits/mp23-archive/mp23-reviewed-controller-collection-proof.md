@@ -1,6 +1,6 @@
 # MP-23: reviewed controller collection, local and native proof
 
-Date: 2026-10-02. Baseline: `5c2d6d7e`. Implementation owner: [EP-153](../plans/153-close-managed-command-coverage-for-the-inventory-release.md). Native agreement: [EP-156](../plans/156-prove-fresh-gcp-convergence-and-shared-history-recovery.md).
+Date: 2026-10-02. Baseline: `5c2d6d7e`. Implementation owner: [EP-153](../../plans/153-close-managed-command-coverage-for-the-inventory-release.md). Native agreement: [EP-156](../../plans/156-prove-fresh-gcp-convergence-and-shared-history-recovery.md).
 
 ## Outcome and contract
 
@@ -11,9 +11,9 @@ executing that review. Existing reviews keep their Orphan semantics. The initial
 checkpoint was local only; the bounded native continuation below now proves the
 new review on a separate disposable application, preserving frozen F15.
 
-[Authority](../../cli/nagarectl/src/Nagare/Inventory/Collection/Authority.hs),
-[observation](../../cli/nagarectl/src/Nagare/Inventory/Collection/Runtime.hs) and
-[execution](../../cli/nagarectl/src/Nagare/Inventory/Collection/Adapter.hs) have
+[Authority](../../../cli/nagarectl/src/Nagare/Inventory/Collection/Authority.hs),
+[observation](../../../cli/nagarectl/src/Nagare/Inventory/Collection/Runtime.hs) and
+[execution](../../../cli/nagarectl/src/Nagare/Inventory/Collection/Adapter.hs) have
 separate responsibilities. Planning discovers all listable namespaced APIs and
 requires successful, complete namespace lists. It retains metadata only, binds
 the exact parent UID/resourceVersion, accepts a finite supported set of exclusive
@@ -56,7 +56,7 @@ reinterpretation of inventory field-reconciliation `Delegation`.
 
 ## Executable evidence
 
-[Eleven new scenarios](../../cli/nagarectl/test/InventoryControllerCollectionSpec.hs)
+[Eleven new scenarios](../../../cli/nagarectl/test/InventoryControllerCollectionSpec.hs)
 exercise the production planner, immutable review, filesystem journal and adapter
 through the existing Effectful request interpreter. They cover parent absence
 with surviving descendants, partial cleanup, lost acknowledgement, fresh-process
@@ -95,14 +95,14 @@ the prior checkpoint's `test-inventory-effects` recipe to its registry.
 
 ## Recorded native graph agreement (2026-10-02)
 
-[EP-156](../plans/156-prove-fresh-gcp-convergence-and-shared-history-recovery.md)
+[EP-156](../../plans/156-prove-fresh-gcp-convergence-and-shared-history-recovery.md)
 now validates the existing interpreter against the frozen
-[Knative recording](mp23-native-bootstrap-results-2026-10-02/f15-knative-collection-exception-review.json)
+[Knative recording](../mp23-native-bootstrap-results-2026-10-02/f15-knative-collection-exception-review.json)
 from `v1.35.8+k3s1`: sixteen descendants and seventy-five discovered namespaced
 listable APIs. The original exception proposal is unchanged and remains
 `awaiting-operator-approval`, with `providerMutationPerformed: false`.
 
-The [derived fixture](../../cli/nagarectl/test/fixtures/inventory/knative-collection-native.json)
+The [derived fixture](../../../cli/nagarectl/test/fixtures/inventory/knative-collection-native.json)
 copies the complete API list and all sixteen recorded kind/API-version, name,
 namespace, UID and owner-reference records, with the source SHA-256. Run
 `python3 scripts/knative-collection-fixture.py --check` to detect drift against the
@@ -125,7 +125,7 @@ List metadata and owner-reference interpretation were also checked in
 `mori://codedownio/kubernetes-api/packages/kubernetes-api-1.35`; no dependency
 bounds or versions changed.
 
-[Eighteen production-path scenarios](../../cli/nagarectl/test/InventoryNativeCollectionSpec.hs)
+[Eighteen production-path scenarios](../../../cli/nagarectl/test/InventoryNativeCollectionSpec.hs)
 reuse `collectionRequest`, `runKubectlWith`, the production planner/adapter and
 filesystem journal, including the existing fresh-process resume probe. They
 assert saved authority contains exactly sixteen descendant UIDs and all
@@ -190,7 +190,7 @@ protected database contents, or complete raw native response compatibility.
 The authorized next native proof uses the separate idle `ep150-preview` context,
 leaving frozen `f15-preview` untouched. A read-only scan with checksum-verified
 kubectl `v1.35.8` against `v1.35.8+k3s1` observed 75 APIs in 26.1 seconds.
-[Redacted response evidence](mp23-native-bootstrap-results-2026-10-02/knative-controller-collection-preflight.json)
+[Redacted response evidence](../mp23-native-bootstrap-results-2026-10-02/knative-controller-collection-preflight.json)
 exposed two omissions in the earlier metadata summary/model: successful Endpoints
 lists emit a deprecation warning on stderr, and Knative propagates the parent's
 inventory annotations to Configuration, Route, Ingress and the Route's core
@@ -208,7 +208,7 @@ and interrupted-transaction proof are the next step, not results of this scan.
 Creating the disposable `mp23-gc-native` application on the separate
 `ep150-preview` context exposed twenty Events through both `events` and
 `events.events.k8s.io`, with the same persisted UIDs. The new
-[metadata fixture](../../cli/nagarectl/test/fixtures/inventory/knative-event-aliases.json)
+[metadata fixture](../../../cli/nagarectl/test/fixtures/inventory/knative-event-aliases.json)
 retains one actual pair. Its production-path regression initially failed with
 `duplicate observed UID`. Complete namespace discovery now coalesces only this
 known Event API pair when name, namespace, kind and ownership agree, preferring
@@ -221,11 +221,11 @@ and Haskell style checks also pass.
 
 ## Native controller and recovery agreement — 2026-10-02
 
-[The redacted native proof](mp23-native-bootstrap-results-2026-10-02/knative-controller-collection-native.json)
+[The redacted native proof](../mp23-native-bootstrap-results-2026-10-02/knative-controller-collection-native.json)
 records installed `8a820ce8` on the separate existing `ep150-preview` Compute
 Engine/NixOS/k3s `v1.35.8+k3s1` context, using checksum-verified kubectl `v1.35.8`.
 It passed the installed public Knative fixture and the
-[local platform gate](mp23-native-bootstrap-results-2026-10-02/local-platform-candidate-8a820ce8.json):
+[local platform gate](../mp23-native-bootstrap-results-2026-10-02/local-platform-candidate-8a820ce8.json):
 213 verification operations, 19 unchanged scope contents, and 37 Ready/completed
 Pods. This validates the installed operator against the retained accepted local
 payload, not fresh candidate-payload creation.
@@ -278,7 +278,7 @@ replay made zero kubectl calls and left that head unchanged.
 ## Remaining acceptance
 
 The bounded new-review native assertion is complete. F20 is Verifying pending independent verification and the remaining native
-same-scope retained-data assertion. [The operator disposition](mp23-prerelease-fixture-disposition.md)
+same-scope retained-data assertion. [The operator disposition](../mp23-prerelease-fixture-disposition.md)
 retires the old F15 transaction from acceptance; its recovery is no longer required. This is implementer-supplied proof on the declared controller
 versions, with existing database neighbors preserved; it does not claim native
 same-scope retained-database coverage or an atomic graph deletion boundary.

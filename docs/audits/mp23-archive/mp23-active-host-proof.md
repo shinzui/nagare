@@ -149,7 +149,7 @@ of the cloud checkpoint, generate a separate fixture with
 creates and deletes disposable inventory objects; it is not necessary to
 repeat unchanged accepted measurements before continuing.
 
-Durable [results](mp23-active-host-results-2026-09-29/) retain cloud operation
+Durable [results](mp23-active-host-results-2026-09-29) retain cloud operation
 traces and generations, public CLI summaries with HTTP counts, failure/success
 transcripts, binary hashes and source hashes. F05/F07 remain Verifying pending
 independent review; F06 remains Partial for the complete public active cloud

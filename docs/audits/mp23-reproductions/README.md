@@ -3,7 +3,7 @@
 The current production-driver regression is
 `python3 scripts/test-inventory-operation-driver.py` after building
 `exe:nagarectl test:nagarectl-test --enable-tests` in `cli/nagarectl`.
-See [the production proof](../mp23-rescue-proof.md) for commands and retained results.
+See [the production proof](../mp23-archive/mp23-rescue-proof.md) for commands and retained results.
 The E1–E10 programs below are source-bound diagnostic evidence from the recorded
 pre-repair revision. In particular, `PruneBoundary.py` and the `prune-executor-cf` /
 `prune-executor-fixed` modes expect the old failing branch; they are not post-repair
@@ -12,7 +12,7 @@ regression commands. Their original outputs and hashes remain retained.
 
 These are archived diagnostic probes, not the supported regression suite. Findings and closure are tracked in [mp23-findings.md](../mp23-findings.md). They run locally and do not contact providers.
 
-The reproducible [2026-09-29 operational experiments](../mp23-operational-experiments.md)
+The reproducible [2026-09-29 operational experiments](../mp23-archive/mp23-operational-experiments.md)
 run with `python3 docs/audits/mp23-reproductions/run-operational-cost.py` from the
 repository root. The runner prepares its own temporary source overlay, records
 hashes, and executes `OperationalCost.hs`, `RecoveryBoundary.hs`, and five existing
@@ -34,7 +34,7 @@ claims that the described production repairs have shipped.
 
 Retained outputs are in the tracker. New checked-in regression tests should exercise supported public paths; these archived probes do not replace them.
 
-`HostTests.hs` runs the checked-in host regression group. `PutTests.hs` checks the exact-generation parser while compiling the current ObjectOps source. `HostIdentityTransportAudit.sh` records the post-fix physical-identity refusal. Commands/results/source hashes are in [the verification log](../mp23-verification.md).
+`HostTests.hs` runs the checked-in host regression group. `PutTests.hs` checks the exact-generation parser while compiling the current ObjectOps source. `HostIdentityTransportAudit.sh` records the post-fix physical-identity refusal. Commands/results/source hashes are in [the verification log](../mp23-archive/mp23-verification.md).
 
 Follow-up probes from E8–E10:
 

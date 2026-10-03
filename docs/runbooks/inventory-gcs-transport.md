@@ -9,7 +9,7 @@ Journal reads enumerate the complete prefix and download exact object generation
 with eight workers. Each available worker takes the next object immediately; a
 slow response does not hold up a whole batch. An incomplete download refuses the
 batch, and warm commands still validate the complete journal. The
-[500-event cloud proof](../audits/mp23-gcs-scale-proof.md) records the measured
+[500-event cloud proof](../audits/mp23-archive/mp23-gcs-scale-proof.md) records the measured
 limits and the scheduling regression that motivated this behavior.
 
 Select the intended gcloud configuration/account using the existing process
@@ -76,6 +76,6 @@ endpoint hosts are not accepted by the SDK path. An unset endpoint is captured a
 `https://storage.googleapis.com/storage/v1/`; exporting an empty endpoint breaks
 gcloud's bucket probe and is not equivalent to leaving the property unset.
 
-The [CLI integration proof](../audits/mp23-gogol-cli-proof.md) records correctness,
+The [CLI integration proof](../audits/mp23-archive/mp23-gogol-cli-proof.md) records correctness,
 request counts, migration and read-only GCS evidence. Those results do not accept
 MP-23's outstanding native/host/cloud mutation gates.

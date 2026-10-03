@@ -47,135 +47,122 @@ provenance:
       at: 2026-09-30T04:43:10Z
       mode: "update"
       note: "Prioritize cloud integration and safe ongoing operation ahead of full local integration; retain final release gates"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-03T03:28:10Z
+      mode: "update"
+      note: "Consolidated with MP-23 into a current-state plan; prior body archived in docs/audits/mp23-archive/plan-history"
 ---
 
 # Validate installed inventory packages on every supported system
 
-This ExecPlan is a living document for remaining work transferred from EP-150.
+This ExecPlan is a living document. It was consolidated with [MasterPlan 23](../masterplans/23-make-managed-resources-first-class-through-typed-scoped-inventories.md) on 2026-10-02; the previous text, including every dated checkpoint, is preserved verbatim in [the pre-consolidation snapshot](../audits/mp23-archive/plan-history/ep154-before-consolidation-2026-10-02.md). Nothing in that snapshot overrides this file.
 
 
 ## Purpose / Big Picture
 
+An operator installs Nagare from the immutable Nix flake, not from a source checkout. After this plan, the installed operator and developer packages run the inventory commands from any directory, with isolated operator state, on every system listed in `release.json` (`x86_64-linux` and `aarch64-darwin`). Every schema, manifest, payload file, transport script and typed-config capability the supported commands need is present in the installed outputs; secrets and private material are not; and an invalid explicit payload root fails instead of silently falling back to the source tree. The installed host package also refreshes private registry credentials before they expire (finding F31).
 
-The installed operator and developer packages run the inventory commands outside the source checkout on every system in release.json. Required schemas, manifests, images, transports, and typed-config support are present; native tests produce evidence for the exact candidate revision.
+To see it working, run `scripts/rehearse-clone-free-release.sh` against the exact candidate flake reference on each native system (see Concrete Steps). Each run writes a JSON report with `cloneFree: true`, the candidate revision, the system, and passing checks including `typed-config`; [EP-157](157-gate-the-inventory-release-on-complete-immutable-evidence.md) consumes those reports together with the native build outputs. Today the runner works only on `aarch64-darwin`, at revisions older than the final candidate, and names its compile check `inventory-compile`, which the release gate refuses.
 
 
 ## Progress
 
-**Cloud-first scheduling (operator request, 2026-09-29).** Prioritize the installed operator and runtime-resource checks required by EP-156 cloud continuation. Do not require the complete local scenario or full multi-system release matrix before the next cloud assertion. All M1/M2 package checks and both supported native-system gates remain required for final release acceptance.
+Full dated history is in [the snapshot](../audits/mp23-archive/plan-history/ep154-before-consolidation-2026-10-02.md). Item IDs in parentheses refer to the MasterPlan 23 Progress phases. The early reports below were written to private `/tmp` paths and are not repository evidence; their results are recorded in the cited commits.
 
-2026-09-28 scope update: no milestone is newly accepted by this edit. Use the revised MP-23 support boundary; historical findings retain their observations but do not reinstate deferred live overwrite, maintenance, or scheduled-pruning requirements.
-
-
-- [ ] M1: Operator/developer package boundaries and installed inventory resources pass clone-free command and missing-resource checks.
-- [ ] M2: Both supported native systems pass their required build, test, durability, and clone-free gates with matching source/payload evidence.
-
-Inherited baseline: Nix fixture-path fixes, Helm/OpenSSL test inputs, example logical keys, and one Darwin CLI package test were delivered in EP-150. Full flake validation remained incomplete at the formatting gate; no Linux success is inferred from Darwin.
-
-Early installed checkpoint (2026-09-27): `bash scripts/rehearse-clone-free-release.sh --version 0.4.0 --flake-ref 'git+file:///Users/shinzui/Keikaku/bokuno/nagare?rev=2717b386f3529e24ad09245f9236e9f2fa972914' --smoke-only --output /tmp/nagare-mp23-installed-smoke-darwin.json` passed on aarch64 Darwin from an isolated home and directory outside the checkout. The report binds revision `2717b386f3529e24ad09245f9236e9f2fa972914` and checks installed CLI/operator version, local context, inventory compilation, payload files, operator Pulumi tools, and a dry-run local recipe. The first full-run attempt exposed an obsolete `deploy --dry-run` fixture, which now requires an accepted image and tag; the bounded smoke uses the existing read-only inventory compiler instead. The report explicitly says `cloneFree: false` so final release assembly cannot count it as a complete rehearsal. M1/M2 remain open: typed-config and every-system native gates, full clone-free rehearsal, and final candidate identity still need proof. Next ordered checkpoint is EP-155's local fixture/health preparation.
-
-Installed guard checkpoint (2026-09-28): The same smoke passed from the exact committed flake revision `699ae909e5e0c01cce8be5000af382cbb6a566c8` after the deferred-admission and evidence-boundary changes. `/tmp/nagare-mp23-installed-smoke-699ae909.json` reports `installedSmoke: true`, `aarch64-darwin`, checks for version, context, inventory compilation, payload, operator tools, and local init, and `cloneFree: false` as expected for `--smoke-only`. This verifies packaging for that committed checkpoint, not the still-dirty later retention reporting or a final candidate. M1/M2 remain open for full clone-free typed-config, both native systems, and matching final evidence.
-
-Installed receipt/listing checkpoint (2026-09-28): The bounded smoke passed again from committed flake revision `7f3e2eac22cf01e8555ca4cc9b6e29805d674e27`, after the retention report and exact accepted-receipt listing changes. `/tmp/nagare-mp23-installed-smoke-7f3e2eac.json` binds that revision, reports `installedSmoke: true` on `aarch64-darwin`, and passes version, context, inventory compilation, payload, operator tools, and local init. Its `cloneFree: false` remains expected for `--smoke-only`; this does not satisfy the full clone-free rehearsal, native Linux gate, or final candidate identity. M1/M2 remain open.
-
-Full clone-free Darwin checkpoint (2026-09-28): `bash scripts/rehearse-clone-free-release.sh --version 0.4.0 --flake-ref 'git+file:///Users/shinzui/Keikaku/bokuno/nagare?rev=ba2161606275c3c0585e5a20bb76a7fbd4207f30' --output /tmp/nagare-mp23-clone-free-ba216160.json` passed outside the checkout with isolated home/config/state. The report binds that exact revision, `aarch64-darwin`, `cloneFree: true`, and version, context, inventory compilation, payload, host config, local/cloud init, context environment, operator recipe, and platform-upgrade checks. Its upgrade dry run remained `planned` with one Pulumi preview and no apply/cloud mutation. M1 still needs the negative package/public-API and secret-exclusion assertions; M2 still needs native `x86_64-linux`, final candidate identity, and the full required gates.
-
-Installed negative-package checkpoint (2026-09-28): Both `nix build --no-link` checks `nagare-clone-free-platform` and `nagarectl-external-config` passed on `aarch64-darwin` from exact committed revision `c7fdb132a22e62b853f666a57714c8ff93553215`. The first exercises installed root discovery, excluded `cluster/secrets`, external context-owned secret resolution, an invalid explicit payload root that now fails before fallback, current reviewed bootstrap recipe guards, and the broader isolated platform fixture. The second compiles a shipped typed config outside the checkout, proves the installed CLI reaches the accepted-foundation boundary with that valid config, rejects an invalid config before provider effects, and proves a caller cannot construct the private `ServiceName` constructor. The wrapper now preserves an explicitly supplied `NAGARE_PLATFORM_ROOT` while defaulting to the installed payload. M1 remains open for the full supported application/data/publication/provider payload matrix; M2 remains open for native Linux and final-candidate gates.
-
-Full rehearsal regression (2026-09-28): `bash scripts/rehearse-clone-free-release.sh --version 0.4.0 --flake-ref 'git+file:///Users/shinzui/Keikaku/bokuno/nagare?rev=c7fdb132a22e62b853f666a57714c8ff93553215' --output /tmp/nagare-mp23-clone-free-c7fdb132.json` passed after the wrapper correction. The report binds that revision and `aarch64-darwin`, says `cloneFree: true`, passes version, context, inventory compilation, payload, host config, local/cloud init, context environment, operator recipe, and platform-upgrade checks, and records a planned upgrade with one Pulumi preview and no apply. It does not replace native Linux or final-candidate evidence.
+- [x] Early installed smoke on `aarch64-darwin` (2026-09-27/28). `rehearse-clone-free-release.sh --smoke-only` passed outside the checkout at `2717b386`, `699ae909` and `7f3e2eac` (version, context, inventory compilation, payload, operator tools, local init; `cloneFree: false` by design). Evidence: commits `9600f18e`, `61064401`.
+- [x] Full clone-free rehearsal on `aarch64-darwin` (2026-09-28). Passed at `ba216160` and again at `c7fdb132` with `cloneFree: true` and ten checks (version, context, inventory-compile, payload, host-config, local-init, cloud-init, context-env, operator-recipe, platform-upgrade); the upgrade dry run stayed `planned` with one Pulumi preview and no apply. Evidence: commits `6ebc106d`, `dfd674e7`.
+- [x] Negative package checks on `aarch64-darwin` (2026-09-28). At `c7fdb132`, `nix build` of the checks `nagare-clone-free-platform` and `nagarectl-external-config` passed: packaged `cluster/secrets` are excluded, context-owned secrets resolve externally, an invalid explicit `NAGARE_PLATFORM_ROOT` is refused, an invalid typed config fails before provider effects, and the private `ServiceName` constructor is not constructible. Evidence: `c7fdb132` (wrapper fix), `6705e83f`.
+- [ ] (MP-23 A3, with EP-156) F31 fixed: the refresh timer in `nixos/hosts/nagare-01/registries.nix` and its token-lifetime check are aligned with metadata-server token caching so every successful refresh installs credentials that outlive the next scheduled run with margin; a rendered-timer regression demonstrates the old gap and its absence; EP-156 independently observes a genuine automatic replacement before expiry on a fresh host (F15 closure is EP-156's C3).
+- [ ] (MP-23 A5, with EP-157) The clone-free rehearsal performs and reports a `typed-config` check — loading a shipped typed config from outside the checkout, not merely renaming `inventory-compile` — and a real report is accepted by `scripts/assemble-inventory-release-index.py` and `Nagare.Inventory.ReleaseEvidence`. The other half of A5, the missing cloud `fixture.json`/`cloud-health.json` producer, belongs to EP-157.
+- [ ] (MP-23 C4) M1: at the final candidate, the runtime resources used by bootstrap, application/data commands, image publication, store recovery, provider transports and the deferred-route guards and recovery handlers resolve from installed outputs, with missing-resource and negative checks passing.
+- [ ] (MP-23 C4) M2: at the same candidate revision, `nix flake check` passes and the full clone-free rehearsal passes natively on both `aarch64-darwin` and `x86_64-linux`; a manifest of native output paths, payload digest, tool versions and both reports is handed to EP-157.
 
 
 ## Surprises & Discoveries
 
+Only entries that still shape the work are kept; the rest are in [the snapshot](../audits/mp23-archive/plan-history/ep154-before-consolidation-2026-10-02.md).
 
-2026-09-27: The prior clone-free runner's unqualified `deploy --dry-run` call stopped before typed-config loading because reviewed deploy now requires `--tag` and an accepted `--image-resource`. This was a runner assumption, not evidence of a broken installed CLI. The bounded smoke proves installed inventory compilation; the separate native typed-config checks and complete release rehearsal remain required.
+2026-09-27: The runner's unqualified `deploy --dry-run` stopped before typed-config loading because reviewed deploy now requires `--tag` and an accepted `--image-resource`. The runner was changed to use the read-only inventory compiler instead (`9600f18e`), which also renamed its check from `typed-config` to `inventory-compile`. The same day `fe048bde` made the release index require `typed-config`. This is the origin of the A5 mismatch: every real rehearsal would be refused at assembly.
 
-2026-09-28: The older negative package fixture expected `init --dry-run` to emit Pulumi `config set` calls and direct `kubectl` bootstrap recipes. Current init emits context variables and defers cloud state changes to a reviewed platform bootstrap plan; the recipes guard with `nagarectl platform guard` before their reviewed runner. After aligning those assertions, the full fixture passed. Its new invalid-root assertion found a real wrapper defect: `--set NAGARE_PLATFORM_ROOT` erased the caller's explicit root, so an invalid root silently succeeded using the installed payload. `--set-default` fixes this and the exact-revision fixture proves refusal.
+2026-09-28: Adding an invalid-root assertion to the negative fixture found a real wrapper defect: `--set NAGARE_PLATFORM_ROOT` erased the caller's explicit root, so an invalid root silently used the installed payload. Using `--set-default` fixes it (`c7fdb132`). The same fixture's older expectations (Pulumi `config set` calls from `init --dry-run`, direct `kubectl` bootstrap recipes) were stale against reviewed bootstrap and were aligned, not weakened.
+
+2026-10-02 (F31): The host timer refreshes every 30 minutes (`OnUnitActiveSec = "30min"`) and accepts any token with `expires_in > 300`. The metadata server returns a cached token until about five minutes of lifetime remain, so a successful refresh can install a credential that expires before the next run; native evidence showed at least 128 seconds of expiry before the next scheduled refresh ([F31 evidence](../audits/mp23-independent-results-2026-10-02/registry-timer-expiry-gap-f31.json)).
+
+2026-10-02: All existing installed evidence is `aarch64-darwin`-only and predates the EP-153/158–160 work: 98 commits since `c7fdb132` touch `cli/`, `nix/`, `scripts/` or `nixos/`. `x86_64-linux` has never been exercised. None of it is final-candidate evidence.
 
 
 ## Decision Log
 
-2026-09-29: Prioritize the installed operator and runtime-resource checks required by EP-156 cloud continuation. Do not require the complete local scenario or full multi-system release matrix before the next cloud assertion. All M1/M2 package checks and both supported native-system gates remain required for final release acceptance.
+Decisions still in force, condensed. Full entries are in [the snapshot](../audits/mp23-archive/plan-history/ep154-before-consolidation-2026-10-02.md).
 
-2026-09-28: Align with the operator-approved MP-23 reduction and ADR 22 amendment. Keep complete evidence for supported behavior and explicit guards/recovery compatibility for deferred routes. EP-161 is Cancelled and no longer a completion dependency; earlier full-feature decomposition instructions are superseded.
+2026-10-02: Consolidate this plan to current state with MP-23; history moves to the snapshot. No scope or acceptance change. This plan co-owns F31 (A3) with EP-156 and F15 (Verifying; native closure in EP-156 C3). F23, F24 and F27, which also list EP-154 as co-owner, are Closed and need no work here.
 
-2026-09-26: Redirect unfinished EP-148 dependencies to EP-158–161 and preserve this plan’s assigned integration, package, or release obligations. EP-148 is superseded history, not a pending completion gate.
+2026-10-02: Final evidence is bound to one candidate revision. Earlier runs count only where their recorded inputs match that candidate; evidence for an older payload is never relabelled.
 
+2026-09-29: Cloud-first scheduling: installed checks needed by EP-156's cloud work come first; the full multi-system matrix runs once, after feature and command work stabilizes, not after every small edit. Both native systems remain mandatory.
 
-2026-09-26: Carry forward completed EP-150 implementation and give this remaining outcome its own acceptance boundary. The split changes ownership and tracking, not the required functionality or proof.
+2026-09-28: Package the supported commands plus the deferred-route guards and retained recovery handlers (fence, session and partial-prune decoders) required by EP-153; deferral of new admission is not a reason to remove recovery code.
+
+2026-09-27: The `--smoke-only` report deliberately says `cloneFree: false` so the release gate can never count a smoke as a complete rehearsal. Darwin success never implies Linux success, and `supportedSystems` is not reduced to avoid a failing runner.
 
 
 ## Outcomes & Retrospective
 
+Current state (2026-10-02): installed smoke, full clone-free rehearsal and negative package checks have passed on `aarch64-darwin` at September 28 revisions. M1 and M2 are open: the payload matrix has not been traced at the final candidate, `x86_64-linux` has never run, `nix flake check` has not been recorded green (it previously stopped at the formatting gate, which EP-153's A6 owns), the runner's check name does not match the gate (A5), and F31 is open.
 
-Remaining-work plan created; no new acceptance run has been performed. Inherited capabilities are credited in Progress and must not be presented as newly completed work.
+Lesson: the smoke workaround of 2026-09-27 silently diverged from the gate written the same day because neither side ran the other's fixture. Producer and consumer of a check name must change in one commit with a test that feeds a real report to the gate.
 
 
 ## Context and Orientation
 
+Terms used here. The *payload* is the immutable Nix output holding platform files (Pulumi program, NixOS modules, cluster manifests, scripts) that the installed `nagarectl` uses; the *operator package* adds platform tools (Pulumi, kubectl, Helm and similar), the *developer package* only what application commands need. *Clone-free* means run from a directory outside the repository, with a fresh `HOME`, config and state root, against an exact flake reference such as `git+file:///path/to/nagare?rev=<sha>`. A *native system* is a real machine of that architecture and OS, not emulation. A *typed config* is a Haskell-DSL resource declaration compiled by `nagare-dsl`; the `typed-config` check proves an installed CLI can load one shipped with the payload.
 
-This plan replaces part of [EP-150](150-integrate-resource-inventories-into-upgrades-and-release-verification.md); its 2026-09-25 implementation is already present. A scope is one owner's desired resource set. The inventory composes all scopes; an immutable review binds exact native inputs, and a private journal records verified operation receipts. Completion of one scope must not change another owner's revision. cli/nagarectl/src/Nagare/Inventory/Command.hs supplies the shared command service; Plan.hs, Execute.hs, and Store.hs in that directory own review, execution, and history. Public evidence must exclude reusable credentials and private native plans.
+Key files. `release.json` declares `supportedSystems`. Packaging is `nix/platform-package.nix`, `nix/nagare-packages.nix` and `nix/haskell-packages.nix`; flake checks are `nix/checks/{haskell,infra,platform,scripts}.nix` (the negative checks are `nagare-clone-free-platform` in `nix/checks/platform.nix` and `nagarectl-external-config` in `nix/checks/haskell.nix`). `scripts/rehearse-clone-free-release.sh` is the clone-free runner; `scripts/check-release.sh` and `scripts/test-release.sh` check release metadata; `.github/workflows/release.yml` records native output identities. The gate readers are `scripts/assemble-inventory-release-index.py` and `cli/nagarectl/src/Nagare/Inventory/ReleaseEvidence.hs`, which require `cloneFree: true`, not `installedSmoke`, every supported system, and checks `version`, `context`, `typed-config`, `payload` and `operator-recipe`. The registry credential timer is in `nixos/hosts/nagare-01/registries.nix`, with typed ownership in `cli/nagarectl/src/Nagare/Inventory/RegistryCredentials.hs`. Finding status lives in [the findings tracker](../audits/mp23-findings.md).
 
-[ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md) requires complete ownership and reviewed effects. [ADR 6](../adr/0006-version-platform-state-across-cli-payload-context-host-and-cluster.md) permits this first release to start with fresh contexts while rejecting in-place platform version changes after admission. [ADR 4](../adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md) keeps operator state outside immutable payloads. [ADR 7](../adr/0007-publish-immutable-nix-releases-from-validated-tags.md) requires immutable release evidence. The operator's 2026-09-28 MP-23 decision reduces the supported feature set while retaining full validation, typed ownership, and cross-tool journal/state. General live overwrite, new custom interactive mutating maintenance, and generalized scheduled pruning are explicitly deferred. Refusal does not complete a retained feature; deferred routes need tested admission guards and recovery compatibility. Earlier no-reduction instructions are superseded.
-
-nix/platform-package.nix, nix/nagare-packages.nix, nix/haskell-packages.nix, nix/checks/haskell.nix, nix/checks/infra.nix, nix/checks/platform.nix, and nix/checks/scripts.nix define packaging and checks. release.json currently declares x86_64-linux and aarch64-darwin. scripts/check-release.sh, scripts/test-release.sh, and scripts/rehearse-clone-free-release.sh supply existing verification. .github/workflows/release.yml records native Nix output identities. Correct earlier source-relative test assumptions instead of disabling those tests.
+Relevant ADRs: [ADR 7](../adr/0007-publish-immutable-nix-releases-from-validated-tags.md) (immutable releases and native evidence), [ADR 4](../adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md) (operator state stays outside the payload), [ADR 6](../adr/0006-version-platform-state-across-cli-payload-context-host-and-cluster.md) (version identity across CLI, payload and host), [ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md) (revision-bound release evidence).
 
 
 ## Plan of Work
 
-**Cloud-first scheduling (operator request, 2026-09-29).** Prioritize the installed operator and runtime-resource checks required by EP-156 cloud continuation. Do not require the complete local scenario or full multi-system release matrix before the next cloud assertion. All M1/M2 package checks and both supported native-system gates remain required for final release acceptance.
+First the Phase A fixes, which need no native matrix. For F31 (A3), change the refresh schedule and lifetime acceptance in `registries.nix` so the installed credential's remaining lifetime always exceeds the time to the next run plus a retry margin — for example by refreshing well within the metadata cache window and rejecting tokens whose remaining lifetime does not cover the next interval — and extend the rendered-timer regression to fail against the current values. Coordinate with EP-156, which proves the behavior on a fresh host without manually starting the unit or patching credentials. For A5, restore a real typed-config check in `rehearse-clone-free-release.sh` (compile a shipped typed config from the installed payload outside the checkout and report `typed-config`), keep `inventory-compile` as an additional check if useful, and add a test that feeds a runner-shaped report to the release index so the names cannot drift again.
 
-**Revised packaging boundary (2026-09-28).** Package the supported commands and the guards/retained recovery required by EP-153. Do not remove fence, session, or partial-prune decoders/handlers merely because new admission is deferred. EP-161 no longer supplies a new-session release requirement. All systems in release.json and the complete clone-free native gates remain mandatory.
-
-**Early package checkpoint.** Before feature owners start lengthy native scenarios, run one installed operator/developer smoke outside the source checkout using the existing clone-free runner. Prove required runtime resources resolve; repair packaging assumptions immediately. This is preparation within M1, not completion of M1/M2. After feature and command integration stabilizes, run all required native gates for the final candidate. Do not defer the first installed execution until the end, or repeatedly run final multi-system gates after each small feature edit.
-
-
-M1 traces the runtime resources used by bootstrap, application/data commands, publication, store recovery, and provider transports into installed outputs. Test from a directory outside the checkout with isolated operator state and an exact candidate flake reference. The developer package includes only its needed tools; the operator includes platform tools. Invalid explicit payload roots must fail instead of silently finding the source checkout. Negative public-API and secret-exclusion checks remain required.
-
-M2 runs the current full flake and release gates on both declared native systems. Resolve the known formatting/test fixture failures in coherent batches while preserving concurrent changes. Record actual system, candidate source, payload digest, tool versions, and clone-free output. Reuse successful results only for unchanged relevant inputs; evidence for an older payload cannot be renamed to the current candidate. Keep native host activation behavior in the GCP rehearsal; a Linux package build alone does not prove activation. Do not reduce supportedSystems to avoid a failed runner.
+Then M1 at the candidate: trace each runtime resource used by the supported commands into the installed outputs, extending the two negative checks and the runner where a resource is unchecked. Finally M2: once EP-153's coverage and the feature children have converged on the final candidate, run `nix flake check` and the full rehearsal on both native systems at that one revision and assemble the manifest for EP-157. Host activation is proved by EP-156's cloud scenario; a Linux package build alone does not prove it.
 
 
 ## Concrete Steps
 
-
-Run from the repository root in its existing development environment. Commands for a new runner are explicitly marked as a required interface; implement them before running.
+Run from the repository root in the project development shell; the rehearsal must run on each native machine.
 
 ```bash
-nix flake check
 bash scripts/test-release.sh
-bash scripts/rehearse-clone-free-release.sh --help
-# On each native runner, use the candidate's exact clean revision and version:
-: "${NAGARE_CANDIDATE_VERSION:?candidate version from release.json}"
-: "${NAGARE_CANDIDATE_FLAKE:?exact candidate flake reference}"
-: "${NAGARE_NATIVE_EVIDENCE:?private runner output path}"
+nix build --no-link .#checks."$(nix eval --raw --impure --expr builtins.currentSystem)".nagare-clone-free-platform
+nix build --no-link .#checks."$(nix eval --raw --impure --expr builtins.currentSystem)".nagarectl-external-config
+nix flake check
+: "${NAGARE_CANDIDATE_VERSION:?version from release.json}"
+: "${NAGARE_CANDIDATE_FLAKE:?exact flake ref, e.g. git+file:///path/to/nagare?rev=<sha>}"
+: "${NAGARE_NATIVE_EVIDENCE:?private output path for the JSON report}"
 bash scripts/rehearse-clone-free-release.sh --version "$NAGARE_CANDIDATE_VERSION" --flake-ref "$NAGARE_CANDIDATE_FLAKE" --output "$NAGARE_NATIVE_EVIDENCE"
 ```
 
-Expected result: relevant checks exit zero; refused negative fixtures exit nonzero before effects. Native evidence must name the exact candidate and target.
+The runner exits nonzero on the first failing check. A successful run prints and writes a report whose `revision` equals the candidate, whose `system` is the machine's, with `cloneFree: true`, a `checks` list that includes `typed-config` once A5 lands, and `platformUpgrade.state` equal to `planned` with no apply. The negative checks build successfully because their refusals are asserted inside the check.
 
 
 ## Validation and Acceptance
 
-
-Both native runs exit successfully and identify the same source revision and release contract. Installed commands resolve all reviewed native sources without a checkout, private material never enters package outputs, and context state remains writable outside the immutable payload. Negative schema/constructor/invalid-root checks still fail as intended. Darwin evidence cannot substitute for Linux locks/durability or host behavior. Keep a manifest of exact native output and rehearsal artifacts for EP-157.
-
-Use focused checks during implementation and one relevant full acceptance gate for the coherent outcome; repeat broad checks only after a relevant change or failure. Record candidate source revision, command, fixture identity, observed result, and evidence location. Passing inherited tests is regression evidence, not proof that a newly required outcome exists. Keep Progress checkboxes directly under the Progress heading so Mina can read them. Use partial markers for actual unfinished implementation, never mark a milestone complete merely to improve a percentage.
+The plan is accepted when, for one candidate revision: both native systems pass `nix flake check` and the full clone-free rehearsal, and both reports carry the same revision and release contract with a passing `typed-config` check; the release index accepts the real reports; installed commands resolve every reviewed native source without a checkout, private material is absent from package outputs, and context state stays writable outside the payload; the negative schema, constructor and invalid-root checks still refuse; and F31 is Closed in the tracker by independent verification. Darwin evidence never substitutes for Linux.
 
 
 ## Idempotence and Recovery
 
-
-Work against isolated test state and exact named contexts. Preserve immutable reviews and private journals after interruption; inspect/resume the same transaction rather than regenerate a changed review or blindly retry effects. An unknown provider result is not absence. Never clean a resource by broad project, namespace, or prefix merely because a test failed. No plan here authorizes publication of a real Nagare release. Do not search or read /nix/store; Nix may execute its normal builds, but source inspection uses the checkout and Mori.
+Each rehearsal uses a fresh temporary home and state root and can be rerun; it performs only a planned upgrade preview and no apply. Do not reuse a report across revisions. Native cloud checks belong to EP-156 and follow its guardrails. Nothing here publishes a release, and source inspection never reads `/nix/store`.
 
 
 ## Interfaces and Dependencies
 
-
-Use completed EP-146/147/149/151 implementations. [EP-152](152-complete-fresh-platform-bootstrap-through-reviewed-components.md) and the delivered EP-148 baseline plus [EP-158](158-complete-reviewed-access-and-cdn-operations.md), [EP-159](159-complete-scheduled-backup-receipts-and-exact-retention-pruning.md), and [EP-160](160-complete-fenced-live-data-restore-across-supported-engines-and-volumes.md) supply the command code to package; [EP-153](153-close-managed-command-coverage-for-the-inventory-release.md) supplies the registration inventory. These are integration dependencies: packaging repairs can begin now, but final evidence must cover the final code. [EP-155](155-prove-local-application-and-data-recovery-end-to-end.md)/[EP-156](156-prove-fresh-gcp-convergence-and-shared-history-recovery.md) consume installed candidates, and [EP-157](157-gate-the-inventory-release-on-complete-immutable-evidence.md) consumes native evidence. Initial estimate: 4–8 active hours excluding runner queues, low confidence; reforecast after the first full native gate on each system.
+Produces, per system: the rehearsal JSON report and native build output identities, consumed by EP-157's `scripts/assemble-inventory-release-index.py` and `Nagare.Inventory.ReleaseEvidence` under `docs/release-evidence/<revision>/`. Consumes the code of [EP-153](153-close-managed-command-coverage-for-the-inventory-release.md) (commands, guards, style gate), [EP-158](158-complete-reviewed-access-and-cdn-operations.md), [EP-159](159-complete-scheduled-backup-receipts-and-exact-retention-pruning.md) and [EP-160](160-complete-fenced-live-data-restore-across-supported-engines-and-volumes.md); packaging repairs can land at any time, but final evidence must cover the final code. [EP-155](155-prove-local-application-and-data-recovery-end-to-end.md) and [EP-156](156-prove-fresh-gcp-convergence-and-shared-history-recovery.md) consume installed candidates; EP-156 co-owns F31 and owns F15 closure.
 
 
 ## Revision Notes
 
-2026-09-28: Align current implementation and acceptance with the reduced MP-23 contract while preserving native evidence requirements and existing transaction recovery.
-
-2026-09-27: Require the first installed-package smoke before lengthy feature/provider scenarios while preserving full native validation for the final candidate; this changes execution order, not acceptance.
+2026-10-02: Consolidated with MP-23; history in the snapshot.

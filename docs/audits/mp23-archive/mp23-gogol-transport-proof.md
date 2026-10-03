@@ -10,7 +10,7 @@ The operator requested a current upstream source pin instead of waiting for a
 release. Upstream's default branch is `main`, at
 `881cd14c9844131b4a8d96ca1bbb2bd9a2409ed9`; `master` remains at the old 0.5.0
 release, `4750be61b12982e07cc4910185874680524640e6`. The standalone
-[prototype project](mp23-reproductions/gogol-transport/cabal.project) pins the
+[prototype project](../mp23-reproductions/gogol-transport/cabal.project) pins the
 three packages from `mori://brendanhay/gogol/repos/gogol` to that exact `main`
 commit. Registry and upstream tags were checked before selecting it. Hackage's
 published versions were gogol/core 1.0.0.0 and storage 1.0.0; the source pin retains
@@ -81,7 +81,7 @@ are disabled. A token is passed privately through stdin, with no on-disk token,
 ADC fallback or global context change. A 25-second process bound expires before
 Gogol's token-file refresh interval. This proves only short-lived authentication,
 not the long-running refresh contract. Object contents and credentials are absent
-from committed reports. See the [reproduction instructions](mp23-reproductions/gogol-transport/README.md).
+from committed reports. See the [reproduction instructions](../mp23-reproductions/gogol-transport/README.md).
 
 This is a small, real protocol comparison, not a statistical estimate of pure CLI
 startup time: the old path also performs its own SDK setup and extra storage work.

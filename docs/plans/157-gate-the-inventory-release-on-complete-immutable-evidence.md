@@ -52,144 +52,135 @@ provenance:
       at: 2026-10-02T20:11:06Z
       mode: "implement"
       note: "Enforce complete supported-contract evidence during non-publishing release acceptance"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-03T03:28:10Z
+      mode: "update"
+      note: "Consolidated with MP-23 into a current-state plan; prior body archived in docs/audits/mp23-archive/plan-history"
 ---
 
 # Gate the inventory release on complete immutable evidence
 
-This ExecPlan is a living document for remaining work transferred from EP-150.
+This ExecPlan is a living document and a child of [MasterPlan 23](../masterplans/23-make-managed-resources-first-class-through-typed-scoped-inventories.md). Keep Progress, Surprises & Discoveries, Decision Log and Outcomes & Retrospective current. It was consolidated on 2026-10-02; the earlier dated narrative, superseded handoffs and full decision history are preserved verbatim in [the pre-consolidation snapshot](../audits/mp23-archive/plan-history/ep157-before-consolidation-2026-10-02.md). Nothing in that snapshot overrides this file.
 
 
 ## Purpose / Big Picture
 
-**Production handoff (2026-10-02).** The operator needs safely maintainable critical intranet tooling. MP-23 evidence establishes its supported foundation, not safe critical adoption while inventory-backed upgrades are unavailable or backup/recovery targets are unmet. The handoff must identify [MP-21's supported transition/recovery gate](../masterplans/21-rehearsed-replacement-upgrades-with-bounded-downtime-for-nagare.md), the maximum one-hour data-loss objective, the still-unagreed recovery-time and retention targets, and EP-159/160/155/156 backup/restoration/source-unavailable proof. Do not call a backup Job success sufficient recovery evidence or imply periodic backups guarantee zero data loss. No plan checkbox substitutes for these acceptance results; this child does not implement all replacement-upgrade features.
+A Nagare release that claims the managed-resource inventory feature must be backed by proof, not by a checkbox. After this plan, release assembly accepts only one *candidate* (an exact commit whose Nix payload is built and tested) whose evidence is complete, matching and secret-free: native build outputs and clone-free installed rehearsals for every system in `release.json`, a complete command-coverage result, and one local and one GCP scenario run. Any missing, stale, altered or narrowed input refuses before any GitHub request. The observable result is a checked-in `docs/release-evidence/<revision>/` directory, a non-publishing release workflow run that assembles checksummed attachments including `nagare-inventory-evidence-v<version>.json`, and a `nagarectl release publish` review that reports "Review only" without contacting the forge.
 
-
-The inventory release is accepted only when the complete candidate has working commands, installed native packages, local and GCP recovery evidence, and immutable public release attachments. A missing prerequisite fails the release gate. This plan integrates the existing publisher instead of implementing it again.
+This plan does not publish a release; publication is a separate, explicitly authorized action. It also does not make Nagare production-ready. MasterPlan 23 separates release acceptance from production readiness: production use additionally needs the data-protection gate (off-cluster backups within a one-hour recovery-point objective after total cluster loss, verified restored content, a documented recovery procedure) and [MP-21](../masterplans/21-rehearsed-replacement-upgrades-with-bounded-downtime-for-nagare.md)'s rehearsed upgrade on an inventory-backed context. The release notes this plan produces must state every unmet production target explicitly.
 
 
 ## Progress
 
-**Independent fixture-binding correction (2026-10-02).** Each scenario now ships a public `fixture.json` definition, bound by both the health record and the aggregate index. The publisher independently checks the exact bytes as `inventory-<mode>-fixture.json`; the run digest continues to bind the canonical target, which has a different meaning. Index, shell assembly/projector and public CLI checks pass, including a changed fixture with unchanged context and recomputed index/checksums. This closes the unbound health-fixture input, without claiming the remaining native scenario or release gates.
+- [x] (2026-09-27) Aggregate evidence index binds both native systems, complete coverage and one local plus one cloud scenario to one candidate. Commit `fe048bde`; `python3 scripts/test-inventory-release-index.py` passes complete, missing-cloud, stale-native, incomplete-coverage, secret-canary and changed-target cases.
+- [x] (2026-10-02) Assembly, workflow and checked publisher require the complete evidence directory and the exact supported/deferred contract. Commit `d1f2f9ec`; `scripts/test-release-evidence-public.py` accepts complete synthetic evidence and refuses a missing index, stale bindings, a missing Redis assertion with recomputed hashes, a changed target and expanded deferrals before any forge request. Independently re-run ([verification](../audits/mp23-independent-verification-2026-10-02.md), [output](../audits/mp23-independent-results-2026-10-02/release-public-e6255e6f.txt)).
+- [x] (2026-10-02) Each scenario's public `fixture.json` definition is bound by its health record, the index and the publisher (attached as `inventory-<mode>-fixture.json`). Commit `32d59ee0`; a semantically foreign fixture refuses even with recomputed hashes. Independently verified ([output](../audits/mp23-independent-results-2026-10-02/host-and-release-public-c4-32d59ee0.json)).
+- [ ] The clone-free rehearsal emits the check names the gate requires (`typed-config`, not `inventory-compile`) for both systems, and a cloud producer writes `cloud/fixture.json` and `cloud/cloud-health.json` with the local record's identity fields (MP-23 A5; co-owned with EP-154 and EP-156).
+- [ ] `docs/user/upgrades.md` describes inventory evidence as mandatory; it currently calls it an optional eighth attachment that the workflow does not supply (MP-23 A5).
+- [ ] `docs/release-evidence/<revision>/` exists for the final candidate with coverage, local and cloud inputs produced by EP-153/155/156, and the native artifacts from a workflow build of the same revision exist for x86_64-linux and aarch64-darwin (MP-23 C1–C4 inputs).
+- [ ] A `workflow_dispatch` release run with `candidate_revision` and `evidence_revision` assembles without refusal, `nagarectl release publish` without `--yes` reports "Review only", and IR-24 cases 1–7 each map to a named evidence file (MP-23 C5).
+- [ ] `docs/releases/v<version>.md` states the unmet production targets (data-protection gate, MP-21 upgrade gate, decisions D1–D4 if still open) and documentation and ADRs match supported behavior (MP-23 C5, D).
 
-
-**Current acceptance boundary (2026-10-02).** [The operator's prerelease fixture disposition](../audits/mp23-prerelease-fixture-disposition.md) supersedes historical freeze and old-transaction handoffs below. `f15-preview` is retired from acceptance; its recovery, cascade exception, failed-Job recovery and frozen operator do not gate this child or MP-23. Keep diagnostic evidence and existing regression coverage, but do not extend compatibility solely for obsolete development transactions. Verify supported recovery on the selected candidate. The safe-use review does not stop other supported implementation or release verification.
-
-Final evidence must contain successful candidate-bound local/cloud scenarios. A retired attempt remains a diagnostic failure, never a successful receipt or substitute for missing recovery proof. Do not require every historical prerelease transaction to converge before assembly.
-
-2026-09-28 scope update: no milestone is newly accepted by this edit. Use the revised MP-23 support boundary; historical findings retain their observations but do not reinstate deferred live overwrite, maintenance, or scheduled-pruning requirements.
-
-
-- [ ] M1: Assembly and publication require complete revision-bound coverage, local/cloud rehearsal evidence, and native-system artifacts; missing, stale, or tampered evidence refuses.
-- [ ] M2: A full non-publishing release rehearsal passes for the final candidate, documentation/ADRs match supported behavior, and every parent acceptance requirement has evidence.
-
-Inherited baseline: commit `1891b34c` delivered GitHubRelease/GitHubReleaseRuntime, checked publication, fault tests, and a real private-repository fresh-checkout retry without duplicate writes. Commits `432dad9a` and `cbd7c3cf` delivered evidence projection with exact receipt coverage. Do not repeat the provider probe or rewrite the publisher unless a relevant change invalidates its evidence.
-
-Early schema handoff (2026-09-27): `scripts/assemble-inventory-release-index.py` binds the assembled release manifest and `release.json` supported systems to each native output/rehearsal, complete command coverage, and one projected local plus cloud inventory run. Each scenario directory supplies `target.json`, `<mode>-health.json`, and `inventory-evidence.json`; the health record binds mode/context/cluster/operator revision/fixture digest, while the projector manifest binds the canonical target digest, candidate payload, completed receipts, final observation, and coverage digest. The index emits only safe identities and file digests. `python3 scripts/test-inventory-release-index.py` passed its complete, missing cloud, stale native, incomplete coverage, secret-canary, and changed-target checks. The current full clone-free runner lacks the already required `typed-config` check, so the index deliberately rejects it until EP-154 supplies that gate. Assembly/workflow/publication integration and actual matching local/cloud evidence remain open; neither M1 nor M2 is complete.
-
-Support-boundary schema checkpoint (2026-09-28): The command audit emits an exact `deferredRoutes` set for interactive maintenance, scheduled pruning, and live database/volume overwrite, plus `recoveryOnlyRoutes` for historical partial-prune recovery. The public evidence assembler now requires those exact fields; its fixture accepts the declared set and rejects a missing deferred set. `bash scripts/test-managed-resource-evidence.sh` and the audit fixture pass. This binds the operator-approved reduction to the coverage asset without treating still-pending supported commands as complete. M1 remains open for complete supported coverage, native-system inputs, and matching local/cloud candidate evidence.
-
-
-Implementation checkpoint (2026-10-02): Assembly now requires the complete local/cloud evidence directory and emits the aggregate index plus all public inputs as checksummed attachments. `Nagare.Inventory.ReleaseEvidence` independently checks the exact supported/deferred contract, candidate/native/scenario digests, required supported health assertions and secret-safe records before publication review reaches a provider. The workflow accepts separately pinned candidate and evidence commits, solving the self-reference problem without rebuilding a changed candidate. The public CLI regression passed complete review plus missing-index, semantically incomplete engine proof with recomputed hashes, changed target and undocumented-exclusion refusals. Python index and shell assembly regressions pass. These are implementation fixtures, not final native release evidence; M1 remains open pending independent review and matching complete inputs, and M2 remains open.
 
 ## Surprises & Discoveries
 
+Full history is in [the snapshot](../audits/mp23-archive/plan-history/ep157-before-consolidation-2026-10-02.md).
 
-The previous one-run projector cannot stand in for both scenario modes. The early index consumes its safe output twice and binds the scenario-specific target/health records rather than redesigning the private export. EP-154's current full clone-free manifest does not yet report the typed configuration check required by its own acceptance, so a matching native-system record still needs that work.
+2026-10-02 (consolidation assessment): every real clone-free rehearsal would be refused at assembly. `scripts/rehearse-clone-free-release.sh` lists `inventory-compile` in its full clone-free record (line 376; the installed-smoke record at line 174 uses the same name), while `scripts/assemble-inventory-release-index.py` (line 214) and `cli/nagarectl/src/Nagare/Inventory/ReleaseEvidence.hs` (line 72) require `typed-config`. The synthetic fixtures used by the gate tests write the required names, so the tests stayed green. Also, `scripts/rehearse-gcp-inventory-release.sh` writes only `target.json` and the review; no producer writes the cloud fixture definition or `cloud-health.json`. `fixtures/inventory-release/gcp/` holds only `ep150-target.json` (context `ep150-preview`) and the retired `f15-target.json`.
+
+2026-09-27: the existing one-run projector (`inventory-evidence.json`) cannot stand for both scenarios. The index therefore consumes one projector result per scenario and binds each to its own target and health record instead of redesigning the private export.
+
+2026-10-02: the health record's `fixtureDigest` (hash of the shipped fixture definition) and the projector's canonical target digest intentionally differ; both are checked, and neither substitutes for the other.
 
 
 ## Decision Log
 
-2026-10-02: Keep candidate source and later public-evidence commits separate and exact. Native builds use only the sealed candidate, while assembly checks the later evidence against that candidate's payloads. Require the aggregate index and its inputs again at the public publisher boundary; checksums alone do not establish complete supported-contract proof.
+Decisions still in force, condensed. Verbatim entries are in [the snapshot](../audits/mp23-archive/plan-history/ep157-before-consolidation-2026-10-02.md).
 
-2026-10-02 (critical intranet): Apply the parent production data-protection requirement before real company data is admitted. Preserve candidate-bound backup/restored-content evidence, make recovery-point/time assumptions explicit, and distinguish foundation acceptance from the separate supported-upgrade gate. Do not extend the disposable prerelease exception to production state.
+2026-10-02 (consolidation): rewrite this plan as a current-state document aligned with MasterPlan 23 Phases A–D. No scope or acceptance change.
 
-2026-10-02 (operator correction): Apply the prerelease fixture disposition: old F15 recovery and its frozen candidate are not acceptance dependencies; retain supported candidate recovery proof and continue ready work through the former step-4 scheduling stop.
+2026-10-02: keep the candidate commit and the later public-evidence commit separate and exact. Native builds use only the candidate; assembly checks evidence from `evidence_revision` against that candidate's payloads. The publisher re-validates the index and its inputs; checksums alone are not proof of complete supported-contract coverage.
 
-2026-09-28: Align with the operator-approved MP-23 reduction and ADR 22 amendment. Keep complete evidence for supported behavior and explicit guards/recovery compatibility for deferred routes. EP-161 is Cancelled and no longer a completion dependency; earlier full-feature decomposition instructions are superseded.
+2026-10-02: resolve the check-name mismatch on the producer side. The gate's `typed-config` name is the published contract recorded in evidence; the rehearsal must report the typed-configuration check under that name. Do not relax the gate.
 
-2026-09-26: Redirect unfinished EP-148 dependencies to EP-158–161 and preserve this plan’s assigned integration, package, or release obligations. EP-148 is superseded history, not a pending completion gate.
+2026-10-02: the retired `f15-preview` fixture and its transactions are not acceptance inputs ([disposition](../audits/mp23-prerelease-fixture-disposition.md)). A retired attempt is diagnostic history, never a successful receipt.
 
+2026-10-02: release acceptance is not production readiness. Release notes must name unmet production targets rather than imply readiness.
 
-2026-09-26: Carry forward completed EP-150 implementation and give this remaining outcome its own acceptance boundary. The split changes ownership and tracking, not the required functionality or proof.
+2026-09-28: bind the operator-approved scope reduction into evidence. Coverage must carry the exact `deferredRoutes` (interactive maintenance, scheduled pruning, live database/volume overwrite) and `recoveryOnlyRoutes` sets; a still-enabled deferred route, an undocumented exclusion or a missing supported assertion refuses. There is no bypass flag.
+
+2026-09-26: this plan takes the release-gate outcome from EP-150 and reuses its publisher (`1891b34c`) and projector (`432dad9a`, `cbd7c3cf`) rather than reimplementing them.
 
 
 ## Outcomes & Retrospective
 
-
-Remaining-work plan created; no new acceptance run has been performed. Inherited capabilities are credited in Progress and must not be presented as newly completed work.
+The gate is implemented and independently tested: assembly, index, publisher and workflow refuse incomplete or dishonest evidence before any provider call. No real candidate evidence exists yet, so IR-24 case 7 is unproven. Remaining: the A5 producer fixes, the stale user documentation, and final C5 assembly once EP-153/154/155/156 deliver matching inputs. Lesson: gate tests built from synthetic producers hid a contract mismatch with the real producer; every evidence schema needs one test that runs the real producer's output through the gate.
 
 
 ## Context and Orientation
 
+A *scope* is one owner's complete declared resource set; the *inventory* composes all scopes. A *review* is an immutable, digest-named plan of native effects; the private *journal* records execution receipts. The *projector* turns one run's private history into the public, secret-free `inventory-evidence.json`. A *clone-free rehearsal* installs `nagarectl` from the built Nix output, without a source checkout, and runs named checks. The *fixture definition* (`fixture.json`) describes the scenario environment; the *target* (`target.json`) is the saved-review target whose canonical digest the projector binds; the *health record* (`<mode>-health.json`) carries `schemaVersion`, `mode`, `context`, `cluster`, `operatorRevision`, `fixtureDigest`, `healthy` and `checks`.
 
-This plan replaces part of [EP-150](150-integrate-resource-inventories-into-upgrades-and-release-verification.md); its 2026-09-25 implementation is already present. A scope is one owner's desired resource set. The inventory composes all scopes; an immutable review binds exact native inputs, and a private journal records verified operation receipts. Completion of one scope must not change another owner's revision. cli/nagarectl/src/Nagare/Inventory/Command.hs supplies the shared command service; Plan.hs, Execute.hs, and Store.hs in that directory own review, execution, and history. Public evidence must exclude reusable credentials and private native plans.
+The gate lives in four places. `scripts/assemble-release.sh --version V --input-root DIR --inventory-evidence DIR --output-dir DIR` combines native artifacts with the evidence directory, calls `scripts/assemble-inventory-release-index.py`, and copies every public input as `inventory-*.json` with `SHA256SUMS`. `cli/nagarectl/src/Nagare/Inventory/ReleaseEvidence.hs` re-checks the same contract inside `nagarectl release publish` (publisher modules `cli/nagarectl/src/Nagare/Inventory/Adapters/GitHubRelease.hs` and `GitHubReleaseRuntime.hs`). `.github/workflows/release.yml` builds each system in `release.json` (`x86_64-linux`, `aarch64-darwin`), runs the clone-free rehearsal there, and on `workflow_dispatch` assembles without publishing; a tag push publishes. Coverage comes from `scripts/audit-managed-commands.py --coverage-result FILE` (EP-153); local scenario inputs from `scripts/rehearse-local-inventory-release.sh` (EP-155); cloud inputs from `scripts/rehearse-gcp-inventory-release.sh` (EP-156).
 
-[ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md) requires complete ownership and reviewed effects. [ADR 6](../adr/0006-version-platform-state-across-cli-payload-context-host-and-cluster.md) permits this first release to start with fresh contexts while rejecting in-place platform version changes after admission. [ADR 4](../adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md) keeps operator state outside immutable payloads. [ADR 7](../adr/0007-publish-immutable-nix-releases-from-validated-tags.md) requires immutable release evidence. The operator's 2026-09-28 MP-23 decision reduces the supported feature set while retaining full validation, typed ownership, and cross-tool journal/state. General live overwrite, new custom interactive mutating maintenance, and generalized scheduled pruning are explicitly deferred. Refusal does not complete a retained feature; deferred routes need tested admission guards and recovery compatibility. Earlier no-reduction instructions are superseded.
+The evidence directory, committed at `evidence_revision`, has this shape; native files come from the workflow's build jobs, not from the repository:
 
-cli/nagarectl/src/Nagare/Inventory/Adapters/GitHubRelease.hs and GitHubReleaseRuntime.hs, cli/nagarectl/test/InventoryPublicationSpec.hs, scripts/assemble-managed-resource-evidence.sh, scripts/assemble-release.sh, scripts/test-managed-resource-evidence.sh, scripts/test-release.sh, release.json, and .github/workflows/release.yml own publication/evidence. The workflow already calls checked `release publish`; EP-150's prose claiming it still uses softprops is historical. Inventory evidence is mandatory at assembly and checked publication; the workflow supplies public evidence from a separately pinned evidence commit. The existing projector binds one rehearsal/private export to a candidate; require both local and cloud evidence through an explicit aggregate/index rather than treating one as both.
+```text
+docs/release-evidence/<candidate-revision>/
+  coverage.json
+  local/  fixture.json  target.json  local-health.json  inventory-evidence.json
+  cloud/  fixture.json  target.json  cloud-health.json  inventory-evidence.json
+native artifacts (per system): nix-output-<system>.json  clone-free-<system>.json
+```
+
+[ADR 7](../adr/0007-publish-immutable-nix-releases-from-validated-tags.md) requires immutable release evidence from validated tags. [ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md) defines scopes, reviews and the reduced supported contract. [ADR 6](../adr/0006-version-platform-state-across-cli-payload-context-host-and-cluster.md) limits this first release to fresh inventory-backed contexts. [ADR 4](../adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md) keeps private state out of payloads and public evidence. [ADR 9](../adr/0009-assert-the-active-context-project-on-every-cloud-mutating-path.md) governs the cloud scenario's project guardrail.
 
 
 ## Plan of Work
 
-**Revised support contract (2026-09-28).** Retain mandatory native-system, local/GCP, immutable-candidate, receipt-integrity, and complete registration gates. Consume EP-153's explicit supported/deferred dispositions and proof; the only new exclusions are general live database/PVC overwrite, new custom interactive mutating maintenance/unscoped exec-migration, and generalized scheduled retention pruning. Bind this support contract to the candidate evidence. Keep deferred routes in the audited catalogue and reject missing refusal/recovery proof. Do not replace native behavior evidence with tool provenance or GitHub attestations.
+Milestone 1 — align the real producers with the gate (MasterPlan A5). In `scripts/rehearse-clone-free-release.sh`, report the typed-configuration check as `typed-config` in the full clone-free record (and, for consistency, in the installed-smoke record) so the clone-free record contains `version`, `context`, `typed-config`, `payload` and `operator-recipe`. Add a checked-in GCP fixture definition for the fresh cloud context EP-156 uses in C3 and make `scripts/rehearse-gcp-inventory-release.sh` copy it to `cloud/fixture.json` and write `cloud/cloud-health.json` with the same identity fields as the local record and cloud-specific checks, following the pattern in `scripts/rehearse-local-inventory-release.sh`. Add one test that feeds actual producer output (not a synthetic fixture) through the index. Correct `docs/user/upgrades.md` so inventory evidence is described as a mandatory part of assembly. Done when the index accepts real producer output and the existing refusal tests still pass.
 
-Add negative assembly cases for an undocumented exclusion, a still-enabled deferred route, and a missing supported engine/receipt/restore assertion. Do not add a generic bypass/ignore flag or treat a failed supported feature as deferred. EP-161's completion and any EP-163 prototype/tool selection are not release prerequisites. This plan edit changes the intended gate; the producer/reader changes and actual final evidence still need implementation/verification.
-
-**Early schema, late final acceptance.** Before EP-155/156 collect expensive native runs, implement/check the existing evidence index against representative local/cloud/native/coverage manifests and its missing-input tests with their producers. Bind the agreed schema and identity fields in those runners; do not redesign the evidence format after final provider proof. Final candidate assembly remains last, after complete matching evidence exists. Reuse the existing publisher and projector.
-
-The early index interface is `python3 scripts/assemble-inventory-release-index.py --release-metadata release.json --release-manifest FILE --native-dir DIR --coverage-result FILE --local-dir DIR --cloud-dir DIR --output FILE`. Each scenario directory contains a public `fixture.json` definition (schema version 1 and the scenario mode), the generic saved-review `target.json`, a public `<mode>-health.json` with schemaVersion/mode/context/cluster/operatorRevision/fixtureDigest/healthy/checks, and the public projector result named `inventory-evidence.json`. EP-155 already writes the local health shape; EP-156 must write its cloud counterpart with the same identity fields and cloud-specific checks. The health record’s fixture digest and index fixture digest must equal the exact definition file hash. The index checks the target's canonical digest against the projected run and each native output/rehearsal against the same release revision and system payload. Its output is a candidate-bound index for the later release assembler, an attachment validated again by the checked publisher, never a publication grant.
-
-**Closure discipline (2026-09-27).** Consume the existing child assertions and finite command catalogue. The final rehearsal must report each missing or failing existing assertion with its owner. Reuse matching targeted evidence only under the recorded candidate/fixture binding; collect the required final manifests for the same release candidate. A newly noticed implementation defect still blocks its existing assertion, while a new feature/provider/security guarantee is a product-scope proposal, not an automatic new release condition. The parent execution-log audit is explanatory history and is not another evidence artifact or release gate.
-
-
-M1 defines a versioned public evidence index over local and GCP run manifests, native-system output/rehearsal manifests, exact coverage result, and the candidate source/payload identity. Reuse the current projector for exact committed receipts and secret-safe fields. Extend schema/assembly/publisher validation together for the declared evidence asset shape. Require every supported system in release.json, both scenario modes, and complete command coverage. Different revisions, missing receipts, uncommitted journal objects, incomplete coverage, secret canaries, missing native runs, and absent cloud proof all fail before publication. Cached artifacts or prior provider probes cannot be relabeled as final candidate evidence. Same-tag retries retain exact bytes and physical IDs.
-
-M2 runs the complete release rehearsal without creating a tag or publishing a real Nagare release. Map all seven IR-24 verification cases—collision, adoption, data-preserving rename, resume, drift classification, real convergence/no-op/removal, and immutable evidence—to accepted results. Include independent-scope preservation, secret-read refusal, store corruption/concurrency/stale-review checks, and exact declaration/execution coverage. Review docs/user and affected ADRs; correct stale instructions and promote durable discoveries. The parent can close only after EP-152–156 and EP-158–160 are complete under the revised contract (EP-148/150 are superseded history and EP-161 is Cancelled) and all evidence matches the candidate. Publication itself remains a separate explicitly authorized release action.
+Milestone 2 — final non-publishing assembly (MasterPlan C5). After C1–C4 on one frozen candidate, commit the produced inputs under `docs/release-evidence/<candidate>/` in a separate evidence commit. Dispatch the release workflow with `version`, `candidate_revision` and `evidence_revision`; it must assemble without refusal. Run `nagarectl release publish --repo shinzui/nagare --version V --assets dist` without `--yes` on the assembled attachments and observe "Review only". Map each IR-24 verification case to the evidence file that proves it, update the release notes with unmet production targets, then record results here, in MasterPlan 23 and in IR-24. Evidence from an earlier candidate counts only where its recorded inputs match the final candidate.
 
 
 ## Concrete Steps
 
-
-Run from the repository root in its existing development environment. Commands for a new runner are explicitly marked as a required interface; implement them before running.
+Run from the repository root in the development shell. None of these publishes or touches a cloud project.
 
 ```bash
-(cd cli/nagarectl && cabal test nagarectl-test --test-options='-p publication' --test-show-details=failures)
-bash scripts/test-managed-resource-evidence.sh
+python3 scripts/test-inventory-release-index.py
+python3 scripts/test-release-evidence-public.py --nagarectl "$(cd cli/nagarectl && cabal list-bin exe:nagarectl)"
 bash scripts/test-release.sh
+bash scripts/test-managed-resource-evidence.sh
+(cd cli/nagarectl && cabal test nagarectl-test --test-options='-p publication' --test-show-details=failures)
+grep -n 'typed-config' scripts/rehearse-clone-free-release.sh
 okf validate docs/user --strict --profile mori/user-documentation-profile.dhall --profile-enforce --log-enforce
-bash scripts/assemble-release.sh --help
-bash scripts/assemble-managed-resource-evidence.sh --help
 ```
 
-Expected result: relevant checks exit zero; refused negative fixtures exit nonzero before effects. Native evidence must name the exact candidate and target.
+Expected: every test exits zero and the public evidence test prints `public release review accepts complete proof and refuses missing, stale and narrowed evidence`. After Milestone 1 the `grep` finds `typed-config` in the clone-free check list. For Milestone 2, with downloaded native artifacts in `native/` and the evidence directory checked out:
+
+```bash
+bash scripts/assemble-release.sh --version "$VERSION" --input-root native \
+  --inventory-evidence "docs/release-evidence/$CANDIDATE" --output-dir dist
+```
 
 
 ## Validation and Acceptance
 
-
-A valid complete candidate assembles reproducibly; removing either scenario mode, a native system, a receipt, or a required coverage entry makes the gate fail before any publication call. Altered source/payload/digest bindings refuse. Same inputs produce the same attachment bytes, while private archives and Secret values remain absent. The checked publisher still recovers exact already-verified assets from provider evidence after a fresh checkout. No release-ready claim is issued while any supported command/native/data assertion, deferred-admission guard, or required recovery compatibility is unresolved. Record final results in this plan, MasterPlan 23, and IR-24 only after the full gate passes.
-
-Use focused checks during implementation and one relevant full acceptance gate for the coherent outcome; repeat broad checks only after a relevant change or failure. Record candidate source revision, command, fixture identity, observed result, and evidence location. Passing inherited tests is regression evidence, not proof that a newly required outcome exists. Keep Progress checkboxes directly under the Progress heading so Mina can read them. Use partial markers for actual unfinished implementation, never mark a milestone complete merely to improve a percentage.
+A complete candidate assembles reproducibly: the same inputs produce the same attachment bytes and `SHA256SUMS`. Removing either scenario, either native system, a receipt or a coverage entry, changing a source, payload or fixture binding, or widening the deferred set refuses before any publication call. No private archive, native bundle or Secret value appears in any attachment. The checked publisher still recovers exact already-verified assets after a fresh checkout. Acceptance is the Milestone 2 workflow run plus the "Review only" result plus the IR-24 mapping, all bound to one candidate revision. No release-ready claim is made while any supported assertion, deferred-route guard or finding in [the tracker](../audits/mp23-findings.md) is unresolved.
 
 
 ## Idempotence and Recovery
 
-
-Work against isolated test state and exact named contexts. Preserve immutable reviews and private journals after interruption; inspect/resume the same transaction rather than regenerate a changed review or blindly retry effects. An unknown provider result is not absence. Never clean a resource by broad project, namespace, or prefix merely because a test failed. No plan here authorizes publication of a real Nagare release. Do not search or read /nix/store; Nix may execute its normal builds, but source inspection uses the checkout and Mori.
+The index, assembly and review steps are pure checks over files and can be rerun freely. Never relabel cached artifacts or earlier-candidate evidence as final-candidate evidence; a changed input needs a new evidence commit. Same-tag retries must keep exact bytes and provider asset IDs. Do not search `/nix/store`; inspect sources in the checkout and use Mori for dependencies.
 
 
 ## Interfaces and Dependencies
 
-
-Completed EP-146/147/149/151 are implementation prerequisites. [EP-153](153-close-managed-command-coverage-for-the-inventory-release.md) owns coverage, [EP-154](154-validate-installed-inventory-packages-on-every-supported-system.md) native artifacts, [EP-155](155-prove-local-application-and-data-recovery-end-to-end.md) local evidence, and [EP-156](156-prove-fresh-gcp-convergence-and-shared-history-recovery.md) cloud evidence. These interfaces can be implemented/tested offline before providers finish; all are mandatory final inputs. [EP-152](152-complete-fresh-platform-bootstrap-through-reviewed-components.md) bootstrap and [EP-158](158-complete-reviewed-access-and-cdn-operations.md), [EP-159](159-complete-scheduled-backup-receipts-and-exact-retention-pruning.md), and [EP-160](160-complete-fenced-live-data-restore-across-supported-engines-and-volumes.md) promised behavior must be accepted for parent closure. Historical, uncalibrated estimate (not a current delivery forecast): 4–8 active hours after evidence inputs are available, low confidence; assess missing-input rejection first. This estimate excludes public release publication and does not waive any gate.
+Index interface: `python3 scripts/assemble-inventory-release-index.py --release-metadata release.json --release-manifest FILE --native-dir DIR --coverage-result FILE --local-dir DIR --cloud-dir DIR --output FILE`. Workflow inputs: `version`, `candidate_revision`, `evidence_revision` (40-hex commits). Producers: [EP-153](153-close-managed-command-coverage-for-the-inventory-release.md) coverage, [EP-154](154-validate-installed-inventory-packages-on-every-supported-system.md) native artifacts on both systems, [EP-155](155-prove-local-application-and-data-recovery-end-to-end.md) local scenario, [EP-156](156-prove-fresh-gcp-convergence-and-shared-history-recovery.md) cloud scenario. [EP-158](158-complete-reviewed-access-and-cdn-operations.md), [EP-159](159-complete-scheduled-backup-receipts-and-exact-retention-pruning.md) and [EP-160](160-complete-fenced-live-data-restore-across-supported-engines-and-volumes.md) must be accepted for MasterPlan closure. Hard prerequisites EP-146, EP-147, EP-149 and EP-151 are complete.
 
 
 ## Revision Notes
 
-2026-10-02: Align acceptance and handoff with critical intranet backups, verified recovery and explicit production readiness limits.
-
-2026-10-02: Remove retired prerelease fixture recovery from the critical path; preserve truthful diagnostics and supported candidate acceptance.
-
-2026-09-28: Align current implementation and acceptance with the reduced MP-23 contract while preserving native evidence requirements and existing transaction recovery.
-
-2026-09-27: Apply the execution-log diagnosis to the existing outcome: drive implementation through its production command/recovery fixture, make handoffs and known ownership explicit, and prevent new requirements from entering through an open-ended audit. Existing functionality and final release acceptance remain required.
+2026-10-02: Consolidated with MP-23; history in the snapshot.

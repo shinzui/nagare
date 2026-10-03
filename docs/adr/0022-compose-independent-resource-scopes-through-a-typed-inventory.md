@@ -671,7 +671,7 @@ provider or maintenance framework now.
 
 ## Amendment — 2026-09-29: command boundaries preserve lifecycle and cost contracts
 
-[Local operational experiments](../audits/mp23-operational-experiments.md) demonstrate that
+[Local operational experiments](../audits/mp23-archive/mp23-operational-experiments.md) demonstrate that
 primitive correctness is insufficient when command orchestration adds historical scans,
 duplicate head discovery, or pre-effect predicates before recovery. Store conformance and
 executor tests remain valid at their tested boundary; they do not certify a complete command.
@@ -720,7 +720,7 @@ The current no-daemon, native-executor, and single-writer architecture remains u
 
 ## Amendment — 2026-09-29: reassessed execution and read responsibilities
 
-The [design reassessment](../audits/mp23-design-reassessment.md) retains this ADR's
+The [design reassessment](../audits/mp23-archive/mp23-design-reassessment.md) retains this ADR's
 ownership, native-tool, immutable-history, and single-writer decisions. It replaces
 distributed operation-phase decisions as an implementation strategy. Apply and
 resume must share one deterministic serial operation driver. Whole-review
@@ -748,7 +748,7 @@ expansion of this repair.
 
 
 Implementation checkpoint (2026-09-29): the shared serial driver and unified
-apply/resume registry now have [production consumer proof](../audits/mp23-rescue-proof.md).
+apply/resume registry now have [production consumer proof](../audits/mp23-archive/mp23-rescue-proof.md).
 Removing general live preflight does not remove admission-time authority checks:
 retention re-observes the original physical incarnation, and migration checks the
 original source before transferring it into retained history. The existing
@@ -799,7 +799,7 @@ rechecks under its guard; the object backend uses the captured provider generati
 A replay reads the committed journal prefix from the head it already observed.
 Neither change caches mutable heads across commands or removes writer-claim,
 takeover, hash-chain, or lost-acknowledgement checks. See the implementation's
-[bounded proof](../audits/mp23-selected-read-proof.md); GCS latency remains a
+[bounded proof](../audits/mp23-archive/mp23-selected-read-proof.md); GCS latency remains a
 separate acceptance gate.
 
 
@@ -812,7 +812,7 @@ permits compatibility reconstruction from original archived envelopes. Invalid
 selected bytes never trigger that fallback, including mixed missing/corrupt sets.
 No historical materialization prerequisite is introduced. Workspace resolution is
 conditional on the actual executor/cache runtime requirements; immutable bootstrap
-payload checks remain mandatory. See [the active-startup proof](../audits/mp23-active-startup-proof.md).
+payload checks remain mandatory. See [the active-startup proof](../audits/mp23-archive/mp23-active-startup-proof.md).
 
 
 Claim/publication implementation (2026-09-29): each admission, claim update and
@@ -824,10 +824,10 @@ Existing fresh effect-time and release observations remain. Saved-review executi
 verifies its exact publication without enumerating unrelated archive keys. This
 publication check bypasses the local immutable cache; cached integrity does not
 prove publication in the selected store. Complete original bundle validation is
-still required. See [the claim/publication proof](../audits/mp23-head-claims-proof.md).
+still required. See [the claim/publication proof](../audits/mp23-archive/mp23-head-claims-proof.md).
 
 
-GCS transport direction (2026-09-29): the [bounded Gogol experiment](../audits/mp23-gogol-transport-proof.md)
+GCS transport direction (2026-09-29): the [bounded Gogol experiment](../audits/mp23-archive/mp23-gogol-transport-proof.md)
 justifies replacing repeated object-level gcloud processes with a reused SDK
 manager within a command. The operator chose a current upstream source pin;
 use the exact tested commit from `mori://brendanhay/gogol/repos/gogol`, consistently
@@ -841,7 +841,7 @@ Only adopt the adapter after failure conformance and public-command evidence,
 including bounded paginated journal downloads. No state format or provider
 mutation policy changes are implied.
 
-GCS library integration (2026-09-29): the [SDK adapter proof](../audits/mp23-gogol-integration-proof.md)
+GCS library integration (2026-09-29): the [SDK adapter proof](../audits/mp23-archive/mp23-gogol-integration-proof.md)
 now establishes actual HTTP conformance through the existing ObjectOps/store
 protocol, bounded generation downloads, and explicit user-credential refresh.
 The public constructor accepts explicit credentials and performs no ambient
@@ -853,7 +853,7 @@ cannot establish that identity. The existing CLI backend remains selected until
 that boundary and public-command evidence pass. No state-format migration is
 required by the transport itself.
 
-GCS command adoption (2026-09-29): the [public CLI proof](../audits/mp23-gogol-cli-proof.md)
+GCS command adoption (2026-09-29): the [public CLI proof](../audits/mp23-archive/mp23-gogol-cli-proof.md)
 now supports the SDK default. gcloud remains the credential authority: capture
 account/configuration/impersonation and real expiry once, pin them for ownership
 probes and serialized refresh, and refuse changed identity or unsupported modes.
@@ -905,7 +905,7 @@ This reduces the repeated guard processes demonstrated by the 201-resource
 native bootstrap plan. It is a scan boundary only: native preparation, preflight,
 execution, verification and recovery retain fresh individually guarded reads,
 and writes retain their API-server-enforced conditions. The
-[native checkpoint](../audits/mp23-native-bootstrap-proof.md) records the measured
+[native checkpoint](../audits/mp23-archive/mp23-native-bootstrap-proof.md) records the measured
 source result separately from installed acceptance and cluster convergence.
 
 Incomplete application creation recovery (2026-09-30): an owned, unchanged
@@ -1113,7 +1113,7 @@ native checks when underlying components change. Models cannot prove admission,
 controllers, IAM, networking, database execution or future provider outcomes.
 Simulation is neither mutation authorization nor native release evidence. Preserve
 all current acceptance gates; move inexpensive defect discovery before cloud
-iteration. See the [validated pilot](../audits/mp23-effectful-restore-pilot.md).
+iteration. See the [validated pilot](../audits/mp23-archive/mp23-effectful-restore-pilot.md).
 
 ## Amendment — 2026-10-02: review controller collection as a distinct authority
 
@@ -1143,7 +1143,7 @@ chain after its intermediate owner disappears. The contract therefore relies on
 trusted supported controllers and namespace writers. Exact-set deletion or hostile
 concurrent ownership protection would require a different protocol. The public
 summary must disclose the dynamic descendant scope. See the [contract and local
-proof](../audits/mp23-reviewed-controller-collection-proof.md) for native acceptance
+proof](../audits/mp23-archive/mp23-reviewed-controller-collection-proof.md) for native acceptance
 obligations and compatibility boundaries; local simulation does not close them.
 
 
