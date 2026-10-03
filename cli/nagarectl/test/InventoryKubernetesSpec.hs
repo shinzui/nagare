@@ -64,7 +64,7 @@ import Nagare.Inventory.ScheduledPrune
   , recoverScheduledPruneCandidate
   )
 import Nagare.Inventory.ScheduledStore (StoredObject (..))
-import Nagare.Inventory.Status (DriftCategory (ImmutableReplacementRequired), classifyDrift, findingCategory, loadAcceptedNative, loadRetainedNative)
+import Nagare.Inventory.Status (DriftCategory (ImmutableReplacementRequired), classifyDrift, findingCategory, loadAcceptedNative, loadRetainedNative, signedScheduledBackups)
 import Nagare.Inventory.Store
 import Nagare.Inventory.TaskLifecycle (compileTaskSuspensionScope, retireSuspendedTaskScope, taskSuspended)
 import Nagare.Inventory.VolumePrune (VolumePruneRequest (..), compileVolumePruneScope, volumePruneJobCredentialPin)
@@ -3190,6 +3190,10 @@ inventoryKubernetesTests =
         assertBool "daily schedule lacks its signed objective" (BC.isInfixOf "recoveryPoint" (snd (dailyNative Map.! backupId)))
         compileBackupPruneRemovalScope "pg-main" "personal" (DatabaseBackupTarget backend HourlyRecoveryPoint) dailyScope dailyNative
           @?= Right (updated, updatedNative)
+        -- inventory status reports the signed schedule's retention boundary.
+        let safeMembers = [member | bundle <- scopeBundles safeScope, Managed member <- declarations bundle]
+        signedScheduledBackups safeMembers safeMembers @?= [backupId]
+        signedScheduledBackups safeMembers (filter ((/= backupId) . (^. #identity)) safeMembers) @?= []
         assertBool
           "mismatched accepted bytes were accepted"
           ( isLeft

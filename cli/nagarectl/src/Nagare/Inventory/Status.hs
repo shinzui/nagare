@@ -20,6 +20,7 @@ module Nagare.Inventory.Status
   , loadRetainedNative
   , loadActiveTransactionStatus
   , summarizeActiveTransaction
+  , signedScheduledBackups
   )
 where
 
@@ -663,3 +664,28 @@ instance ToJSON DriftFinding where
       , "observedDigest" .= findingObservedDigest finding
       , "reason" .= findingReason finding
       ]
+
+-- | Scheduled database backup CronJobs among @selected@ whose owner also
+-- declares the matching signing Secret in @universe@. These report
+-- retain-by-default with unenforced keep/expiry. Core-group addresses carry
+-- the empty API group, never @v1@.
+signedScheduledBackups :: [ManagedResource] -> [ManagedResource] -> [ResourceId]
+signedScheduledBackups universe selected =
+  [ resource ^. #identity
+  | resource <- selected
+  , Kubernetes cluster "batch" kind (Just namespaceName) name <- [resource ^. #address]
+  , nameText kind == "cronjob"
+  , "nagare-dbbackup-" `T.isPrefixOf` nameText name
+  , any
+      ( \signing ->
+          signing ^. #owner == resource ^. #owner
+            && case signing ^. #address of
+              Kubernetes signedCluster "" signedKind (Just signedNamespace) signedName ->
+                signedCluster == cluster
+                  && signedNamespace == namespaceName
+                  && nameText signedKind == "secret"
+                  && nameText signedName == nameText name <> "-signing"
+              _ -> False
+      )
+      universe
+  ]

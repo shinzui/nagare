@@ -151,26 +151,7 @@ runInventoryStatus mctx requested json gcOutput = do
               )
   let withWorkspace :: (PlatformWorkspace -> IO a) -> IO a
       withWorkspace action = maybe (dieT "selected provider requires a platform workspace") action workspace
-      scheduledBackups =
-        [ resource ^. #identity
-        | resource <- managed
-        , Resource.Kubernetes cluster "batch" kind (Just namespaceName) name <-
-            [resource ^. #address]
-        , Resource.nameText kind == "cronjob"
-        , "nagare-dbbackup-" `T.isPrefixOf` Resource.nameText name
-        , any
-            ( \signing ->
-                signing ^. #owner == resource ^. #owner
-                  && case signing ^. #address of
-                    Resource.Kubernetes signedCluster "v1" signedKind (Just signedNamespace) signedName ->
-                      signedCluster == cluster
-                        && signedNamespace == namespaceName
-                        && Resource.nameText signedKind == "secret"
-                        && Resource.nameText signedName == Resource.nameText name <> "-signing"
-                    _ -> False
-            )
-            allManaged
-        ]
+      scheduledBackups = InventoryStatus.signedScheduledBackups allManaged managed
       ids executor = [resource ^. #identity | resource <- managed, resource ^. #executor == executor]
       retainedIds executor =
         [ resource
