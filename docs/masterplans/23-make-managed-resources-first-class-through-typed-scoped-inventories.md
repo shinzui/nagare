@@ -496,6 +496,8 @@ Phase D — close-out: finalize each child's living sections, mark the registry,
 
 ## Surprises & Discoveries
 
+2026-10-03 (B5): Companion collection is bounded by the lifecycle policy already in force. A retired database's stateless companions now collect natively, in dependency order. Its PVC and Secrets, and every broker topic, are `Retain`/`Durable`. Retained topics also block their broker's StatefulSet as consumers. Releasing durable data or deleting topics would be a new operation with a typed release policy. EP-155 records this as a scope proposal for the operator. It is not implemented and not assumed to be required.
+
 2026-10-02 (Phase A): The release gate's health records require every scenario assertion name, but both scenario runners write only infrastructure health checks at plan time. A complete local or cloud run would still be refused at assembly until EP-155 (B5/C2) and EP-156 (C3) record each assertion as it passes, bound to its evidence, in a shape agreed with EP-157. A5 deliberately does not emit those names. Resolved in source on 2026-10-03: `scripts/scenario-assertions.py` records bound assertions and finalizes health, and both gates require the bound records (EP-157 Decision Log).
 
 2026-10-02 (Phase A): F34. On cp3, Kourier rejects every gateway snapshot (`listener_8443`/`listener_9443`: overlapping filter chains) once a second Service in `personal` terminates TLS with the namespace wildcard secret, so no new local route becomes Ready. It blocks A4 and would block C2. Diagnosis showed a product defect in collection rather than route/TLS rendering: Orphan DELETE of a preview DomainMapping strands its KIngress (Knative blocks this only for Services). Fixed in `beca6886`.

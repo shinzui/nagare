@@ -1,0 +1,125 @@
+{
+  "recordedBy": "implementer (claude-opus-5-5, session nagare-phase-b); not independent verification",
+  "recordedAt": "2026-10-03",
+  "assertion": "MP-23 B5: reviewed collection removes exactly the stateless companions of a retired standalone PostgreSQL in dependency order; durable members (PVC, credential and signing Secrets) stay retained with unchanged UIDs; durable collection is refused at planning; neighbors are untouched",
+  "sourceRevision": "dc53beb376561b185432c1a86fddbc40670f2dc4",
+  "binarySha256": "5a4d86f6869f15937c767789d5398b2afe2c5d42d2f901bdf0900739d04518a5",
+  "binary": "development cabal build, not an installed candidate",
+  "cluster": {
+    "colimaProfile": "nagare-mp23-cp3",
+    "node": "k3d-nagare-local-server-0",
+    "context": "local",
+    "operatorRoot": "/private/tmp/nagare-mp23-cp3.1EQ78L"
+  },
+  "coordination": "cp3 claim taken 2026-10-03T14:46:49Z by nagare-phase-b and released with activeTransaction null",
+  "database": {
+    "name": "mp23-b5-companion",
+    "namespace": "personal",
+    "scope": "standalone:database-mp23-b5-companion",
+    "knownRowSeeded": "b5_known(1,'b5-companion-known-row')"
+  },
+  "steps": [
+    {
+      "command": "db create postgres mp23-b5-companion --size 1Gi --recovery-backup b5-companion --recovery-key-version v1 --save-plan DIR; inventory apply DIR --yes",
+      "review": "1e44f6da0eedb895af381b8017b1b2295af24a0fa569f8b5d294f0304c8722fe",
+      "result": "converged"
+    },
+    {
+      "command": "db retire mp23-b5-companion --save-plan DIR; inventory apply DIR --yes",
+      "review": "4f309a11dbe5b9e5e765a10bf5ce4b8a05de2dad297630ad23f93712091ffb13",
+      "result": "converged; nine members retained"
+    },
+    {
+      "screening": "inventory status --json collectionAssessments after retirement: backup candidate; backup-account, backup-read-binding, backup-read-role, service, statefulset blocked only by dependent-consumers; pvc, credential, backup-signing-key blocked by retention-policy, durable-recovery-evidence and unsupported-collection-transport"
+    },
+    {
+      "command": "inventory collect --resource .../backup",
+      "review": "ace09ce2dccbca059acb65a9fc1d7e5590dd31daa760db8696483ab46a8c6c4d",
+      "result": "converged"
+    },
+    {
+      "command": "inventory collect --resource .../statefulset --resource .../backup-read-binding",
+      "review": "ce89c151e00227a3fa95973f63f89b5df5db0dae73cb3933792284968d285090",
+      "result": "converged; StatefulSet Pod removed by Background propagation"
+    },
+    {
+      "command": "inventory collect --resource .../service --resource .../backup-read-role --resource .../backup-account",
+      "review": "42a12cfc5ef2d2483e5d9240bb7db1a5a4b4282be8fc31a2f30328b475b1b822",
+      "result": "converged"
+    },
+    {
+      "command": "inventory collect --resource .../pvc",
+      "result": "refused at planning with invalid-collection; no review directory written"
+    }
+  ],
+  "before": [
+    {
+      "kind": "StatefulSet",
+      "name": "mp23-b5-companion",
+      "uid": "99792f31-c3c9-42a2-b066-196500527ac8"
+    },
+    {
+      "kind": "Service",
+      "name": "mp23-b5-companion",
+      "uid": "136f555f-673b-44de-a8a9-c0ebbe02a930"
+    },
+    {
+      "kind": "PersistentVolumeClaim",
+      "name": "nagare-db-mp23-b5-companion-data",
+      "uid": "d4690a71-98b8-4a3f-b004-01d83e6d702d"
+    },
+    {
+      "kind": "Secret",
+      "name": "nagare-db-mp23-b5-companion",
+      "uid": "f27a1d18-84ec-434d-8956-6e28472a6e05"
+    },
+    {
+      "kind": "Secret",
+      "name": "nagare-dbbackup-mp23-b5-companion-signing",
+      "uid": "866cde6e-50fb-4173-89b7-b16f5dec9d72"
+    },
+    {
+      "kind": "CronJob",
+      "name": "nagare-dbbackup-mp23-b5-companion",
+      "uid": "6065e3e3-6f4b-4ff8-974b-e671318b5725"
+    },
+    {
+      "kind": "ServiceAccount",
+      "name": "nagare-dbbackup-mp23-b5-companion",
+      "uid": "c32b83cf-688b-4087-bf78-dfbcbdff811f"
+    },
+    {
+      "kind": "Role",
+      "name": "nagare-dbbackup-mp23-b5-companion",
+      "uid": "c55f02db-8a2a-4621-be32-95aaf9d9d701"
+    },
+    {
+      "kind": "RoleBinding",
+      "name": "nagare-dbbackup-mp23-b5-companion",
+      "uid": "fd29c5f9-995f-425a-9fe5-632aaf94f54d"
+    }
+  ],
+  "after": [
+    {
+      "kind": "PersistentVolumeClaim",
+      "name": "nagare-db-mp23-b5-companion-data",
+      "uid": "d4690a71-98b8-4a3f-b004-01d83e6d702d"
+    },
+    {
+      "kind": "Secret",
+      "name": "nagare-db-mp23-b5-companion",
+      "uid": "f27a1d18-84ec-434d-8956-6e28472a6e05"
+    },
+    {
+      "kind": "Secret",
+      "name": "nagare-dbbackup-mp23-b5-companion-signing",
+      "uid": "866cde6e-50fb-4173-89b7-b16f5dec9d72"
+    }
+  ],
+  "neighborStatefulSetsAndPvcsUnchanged": true,
+  "storeAfter": {
+    "activeTransaction": null,
+    "summary": "268 resources; retained: 4; collected: 8"
+  },
+  "note": "Broker companions are not collectable: retained durable topics are OrderedAfter the broker StatefulSet and count as consumers. Collecting durable members or topics needs a typed release policy outside the MP-23 contract."
+}
