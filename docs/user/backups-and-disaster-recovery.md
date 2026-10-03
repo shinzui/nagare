@@ -258,6 +258,21 @@ source identities and archive hash, and prints the recovery point. It is evidenc
 only and grants no restore authority. A full restore after total cluster loss
 remains outside this release's accepted evidence.
 
+In local mode the object store is the in-cluster MinIO, so by default the command
+reads it through the cluster (its credential Secret and a port-forward). When the
+source cluster is unavailable, serve a copy of the bucket from a disposable MinIO
+on a loopback port and point the command at it. Put the copy's credentials in a
+private file (mode `0600`) with exactly `AWS_ACCESS_KEY_ID=` and
+`AWS_SECRET_ACCESS_KEY=` lines:
+
+```bash
+nagarectl db verify-escrowed-backup pg-main --backup-id JOB_UID \
+  --offline-object-store http://127.0.0.1:19000 --offline-credentials ./minio-copy.env
+```
+
+Only a loopback `http://127.0.0.1:PORT` or `http://localhost:PORT` endpoint is
+accepted, and the credentials never appear in arguments or output (finding F41).
+
  For an accepted database, save a manual
 backup review with `nagarectl db backup NAME --backup-id ID --save-plan DIR`,
 then run `nagarectl inventory apply DIR --yes`. The ID fixes the Job and object

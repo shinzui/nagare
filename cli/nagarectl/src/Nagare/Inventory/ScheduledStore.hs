@@ -6,6 +6,9 @@ module Nagare.Inventory.ScheduledStore
   , ListedObject (..)
   , ObjectReader (..)
   , withLocalObjectStore
+  , withOfflineObjectStore
+  , parseOfflineObjectStore
+  , parseObjectStoreCredentials
   , parseObjectList
   , parseObjectEntries
   , parseObjectVersions
@@ -80,18 +83,62 @@ withLocalObjectStore context ref action = do
                 ready <- timeout (10 * 1000000) (hGetLine output)
                 case ready >>= parseForwardPort . T.pack of
                   Nothing -> pure (Left "local object-store port-forward did not become ready")
-                  Just port ->
-                    Right
-                      <$> action
-                        ( ObjectReader
-                            (readViaCurl ref user port scratch)
-                            (listViaCurl ref user port scratch parseObjectList)
-                            (listViaCurl ref user port scratch parseObjectEntries)
-                            (listVersionsViaCurl ref user port scratch)
-                        )
+                  Just port -> Right <$> action (curlReader ref user ("http://127.0.0.1:" <> port) scratch)
           ) ::
           IO (Either IOException (Either Text a))
       pure (either (Left . const "local object-store read failed") id result)
+
+-- | Read a scheduled backup from an offline copy of the local object store,
+-- for example a disposable MinIO serving a copied bucket after the source
+-- cluster became unavailable (F41). No Kubernetes context is used: the origin
+-- is an explicit loopback HTTP endpoint and the credentials come from the
+-- caller, never argv. Exact-version and checksum checks are unchanged.
+withOfflineObjectStore :: forall a. Text -> Text -> MinioRef -> (ObjectReader -> IO a) -> IO (Either Text a)
+withOfflineObjectStore origin user ref action = do
+  result <-
+    try (withSystemTempDirectory "nagare-offline-store" (\scratch -> action (curlReader ref user origin scratch))) ::
+      IO (Either IOException a)
+  pure (first (const "offline object-store read failed") result)
+
+curlReader :: MinioRef -> Text -> Text -> FilePath -> ObjectReader
+curlReader ref user origin scratch =
+  ObjectReader
+    (readViaCurl ref user origin scratch)
+    (listViaCurl ref user origin scratch parseObjectList)
+    (listViaCurl ref user origin scratch parseObjectEntries)
+    (listVersionsViaCurl ref user origin scratch)
+
+-- | Only a loopback HTTP origin with an explicit port is accepted, so an
+-- offline verification cannot send the object-store credentials elsewhere.
+parseOfflineObjectStore :: Text -> Either Text Text
+parseOfflineObjectStore raw = case T.stripPrefix "http://" (T.dropWhileEnd (== '/') raw) of
+  Just authority
+    | (host, portPart) <- T.breakOn ":" authority
+    , host `elem` ["127.0.0.1", "localhost"]
+    , Just port <- T.stripPrefix ":" portPart
+    , not (T.null port) && T.length port <= 5 && T.all (\character -> character >= '0' && character <= '9') port ->
+        Right ("http://" <> host <> ":" <> port)
+  _ -> Left "offline object store must be a loopback http://127.0.0.1:PORT or http://localhost:PORT endpoint"
+
+-- | Parse an operator credentials file with exactly @AWS_ACCESS_KEY_ID=@ and
+-- @AWS_SECRET_ACCESS_KEY=@ lines into curl's @user@ value. Errors never echo
+-- the file's contents.
+parseObjectStoreCredentials :: BC.ByteString -> Either Text Text
+parseObjectStoreCredentials bytes = do
+  let entries =
+        [ (T.strip key, T.strip (T.drop 1 value))
+        | line <- T.lines (TE.decodeUtf8With (\_ _ -> Nothing) bytes)
+        , let stripped = T.strip line
+        , not (T.null stripped) && not ("#" `T.isPrefixOf` stripped)
+        , let (key, value) = T.breakOn "=" stripped
+        ]
+      lookupOne name = case [value | (key, value) <- entries, key == name] of
+        [value] | not (T.null value) && T.all (\character -> character > ' ' && character /= '"') value -> Right value
+        _ -> Left ("offline object-store credentials need exactly one valid " <> name <> " line")
+  unless (all ((`elem` ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"]) . fst) entries) (Left "offline object-store credentials contain an unexpected entry")
+  access <- lookupOne "AWS_ACCESS_KEY_ID"
+  secretValue <- lookupOne "AWS_SECRET_ACCESS_KEY"
+  pure (access <> ":" <> secretValue)
 
 readCredentials :: Text -> MinioRef -> IO (Either Text Text)
 readCredentials context ref = do
@@ -199,7 +246,7 @@ readViaCurl ::
   Maybe Text ->
   FilePath ->
   IO (Either Text StoredObject)
-readViaCurl ref user port scratch address selectedVersion output = do
+readViaCurl ref user origin scratch address selectedVersion output = do
   let prefix = "s3://" <> bucket ref <> "/"
   case T.stripPrefix prefix address of
     Nothing -> pure (Left "scheduled object is outside the accepted local bucket")
@@ -228,8 +275,7 @@ readViaCurl ref user port scratch address selectedVersion output = do
             pure (Left "scheduled object version has unsupported URL characters")
       _ -> do
         let url =
-              "http://127.0.0.1:"
-                <> port
+              origin
                 <> "/"
                 <> bucket ref
                 <> "/"
@@ -297,7 +343,7 @@ listViaCurl ::
   (Text -> BC.ByteString -> Either Text a) ->
   Text ->
   IO (Either Text a)
-listViaCurl ref user port scratch parseListing prefix
+listViaCurl ref user origin scratch parseListing prefix
   | T.null prefix
       || T.any
         ( \character ->
@@ -310,8 +356,7 @@ listViaCurl ref user port scratch parseListing prefix
       pure (Left "scheduled object prefix has unsupported URL characters")
   | otherwise = do
       let url =
-            "http://127.0.0.1:"
-              <> port
+            origin
               <> "/"
               <> bucket ref
               <> "/?list-type=2&prefix="
@@ -359,7 +404,7 @@ listVersionsViaCurl ::
   FilePath ->
   Text ->
   IO (Either Text [(Text, Text)])
-listVersionsViaCurl ref user port scratch prefix
+listVersionsViaCurl ref user origin scratch prefix
   | T.null prefix
       || T.any
         ( \character ->
@@ -372,8 +417,7 @@ listVersionsViaCurl ref user port scratch prefix
       pure (Left "scheduled version prefix has unsupported URL characters")
   | otherwise = do
       let url =
-            "http://127.0.0.1:"
-              <> port
+            origin
               <> "/"
               <> bucket ref
               <> "/?versions&prefix="

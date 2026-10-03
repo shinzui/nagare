@@ -228,6 +228,8 @@ dbVerifyEscrowedBackupOptsParser =
     <*> strOption (long "backup-id" <> metavar "JOB_UID" <> help "Physical scheduled backup Job UID to verify")
     <*> optional (strOption (long "escrow" <> metavar "FILE" <> help "sops-encrypted escrow path (default: the context's cluster-secrets backup-signing directory)"))
     <*> dbBackupBucketOpt
+    <*> optional (strOption (long "offline-object-store" <> metavar "URL" <> help "Local mode: read an offline copy of the object store at a loopback http://127.0.0.1:PORT instead of through the cluster"))
+    <*> optional (strOption (long "offline-credentials" <> metavar "FILE" <> help "Private file with AWS_ACCESS_KEY_ID= and AWS_SECRET_ACCESS_KEY= lines for --offline-object-store"))
 
 dbManualReceiptOptsParser :: Parser DbBackupReceiptsOpts
 dbManualReceiptOptsParser =

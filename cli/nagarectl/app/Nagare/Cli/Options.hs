@@ -824,6 +824,8 @@ data DbVerifyEscrowedBackupOpts = DbVerifyEscrowedBackupOpts
   , backupId :: !String
   , escrow :: !(Maybe FilePath)
   , bucket :: !(Maybe String)
+  , offlineObjectStore :: !(Maybe String)
+  , offlineCredentials :: !(Maybe FilePath)
   }
   deriving stock (Generic, Show)
 

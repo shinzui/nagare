@@ -246,7 +246,10 @@ runDb mctx = \case
         (defaultEscrowPath (contextNameText (active ^. #contextName)) (nsOf (o ^. #namespace)) (T.pack (o ^. #name)))
         pure
         (o ^. #escrow)
-    runVerifyEscrowedBackup mctx (T.pack (o ^. #name)) (nsOf (o ^. #namespace)) path (o ^. #bucket) (T.pack (o ^. #backupId))
+    when
+      (isJust (o ^. #offlineObjectStore) /= isJust (o ^. #offlineCredentials))
+      (dieT "--offline-object-store and --offline-credentials are required together")
+    runVerifyEscrowedBackup mctx (T.pack (o ^. #name)) (nsOf (o ^. #namespace)) path (o ^. #bucket) (T.pack (o ^. #backupId)) ((,) <$> (o ^. #offlineObjectStore) <*> (o ^. #offlineCredentials))
   DbManualReceipt o -> case (o ^. #backupId, o ^. #savePlan) of
     (Just selected, Just output) ->
       runReviewedManualReceiptPlan

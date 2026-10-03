@@ -81,7 +81,9 @@ import Nagare.Inventory.ScheduledStore
   , StoredObject (..)
   , parseObjectEntries
   , parseObjectList
+  , parseObjectStoreCredentials
   , parseObjectVersions
+  , parseOfflineObjectStore
   )
 import Nagare.Resource.Canonical (canonicalValue, contentDigest)
 import Nagare.Resource.Inventory qualified as InventoryModel
@@ -155,6 +157,16 @@ scheduledReceiptTests =
                   Aeson.Object (KeyMap.insert "spec" (Aeson.Object (KeyMap.insert "schedule" (Aeson.String "*/15 * * * *") spec)) root)
             other -> other
       assertBool "a daily objective accepted an hourly cadence" (isLeft (expect retimed))
+  , testCase "offline escrow verification accepts only a loopback store and a private credential file (F41)" $ do
+      parseOfflineObjectStore "http://127.0.0.1:19000/" @?= Right "http://127.0.0.1:19000"
+      parseOfflineObjectStore "http://localhost:9000" @?= Right "http://localhost:9000"
+      forM_ ["https://127.0.0.1:9000", "http://minio.example.com:9000", "http://127.0.0.1", "http://127.0.0.1:9000/bucket", "http://127.0.0.1:x"] $ \endpoint ->
+        assertBool ("non-loopback endpoint accepted: " <> T.unpack endpoint) (isLeft (parseOfflineObjectStore endpoint))
+      parseObjectStoreCredentials "# copied\nAWS_ACCESS_KEY_ID=access\nAWS_SECRET_ACCESS_KEY=hidden-value\n" @?= Right "access:hidden-value"
+      forM_ ["AWS_ACCESS_KEY_ID=a\n", "AWS_ACCESS_KEY_ID=a\nAWS_SECRET_ACCESS_KEY=b\nAWS_SECRET_ACCESS_KEY=c\n", "AWS_ACCESS_KEY_ID=a\nAWS_SECRET_ACCESS_KEY=b\nOTHER=c\n", "AWS_ACCESS_KEY_ID=a\nAWS_SECRET_ACCESS_KEY=\"b\"\n"] $ \bytes ->
+        case parseObjectStoreCredentials bytes of
+          Left reason -> assertBool "credential parse error echoed a value" (not (any (`T.isInfixOf` reason) ["=a", "=b", "=c"]))
+          Right _ -> assertFailure ("malformed credentials accepted: " <> BC.unpack bytes)
   , testCase "scheduled GCS listing validates complete provider identities" $ do
       let entry :: Text -> Text -> Text -> Aeson.Value
           entry bucket name generation =

@@ -11,6 +11,7 @@ module Nagare.Cli.Data.SigningKeyEscrow
 where
 
 import Control.Exception (IOException, try)
+import Data.Bits ((.&.), (.|.))
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BC
 import Data.Generics.Labels ()
@@ -24,7 +25,7 @@ import Nagare.Cli.Data.ScheduledReceipts
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Cli.Runtime.ObjectStore (resolveStoreBackend)
 import Nagare.Cli.Runtime.Target (activeTarget)
-import Nagare.Cluster.GcsJob (storePrefixUrl)
+import Nagare.Cluster.GcsJob (StoreBackend (MinioBackend), storePrefixUrl)
 import Nagare.Database.Backup (dbBackupKeyPrefix)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Backup
@@ -36,7 +37,7 @@ import Nagare.Inventory.ScheduledReceipt
   ( ScheduledReceiptEvidence (..)
   , inspectScheduledReceipt
   )
-import Nagare.Inventory.ScheduledStore (ObjectReader (readObjectToFile), readSecretFieldWithUid)
+import Nagare.Inventory.ScheduledStore (ObjectReader (readObjectToFile), parseObjectStoreCredentials, parseOfflineObjectStore, readSecretFieldWithUid, withOfflineObjectStore)
 import Nagare.Inventory.SigningKeyEscrow
   ( SigningKeyEscrow (SigningKeyEscrow)
   , escrowReceiptExpectation
@@ -51,6 +52,7 @@ import System.Exit (ExitCode (ExitSuccess), exitFailure)
 import System.FilePath (takeDirectory, (</>))
 import System.IO (IOMode (WriteMode), hClose, hSetBinaryMode)
 import System.IO.Temp (withSystemTempDirectory)
+import System.Posix.Files (fileMode, getFileStatus, groupModes, nullFileMode, otherModes)
 import System.Posix.IO (OpenFileFlags (..), OpenMode (WriteOnly), defaultFileFlags, fdToHandle, openFd)
 import System.Posix.Types (Fd)
 import System.Process (CreateProcess (cwd, env), proc, readCreateProcessWithExitCode)
@@ -111,8 +113,10 @@ runEscrowSigningKey mctx database namespaceName output = do
 -- | Verify one scheduled receipt with only the escrow and the object store.
 -- Success is evidence about stored bytes; restore still requires reviewed
 -- ingestion of the receipt.
-runVerifyEscrowedBackup :: Maybe String -> Text -> Text -> FilePath -> Maybe String -> Text -> IO ()
-runVerifyEscrowedBackup mctx requestedDatabase requestedNamespace escrowPath bucketArg backupId = do
+-- An offline target (F41) reads a copied local object store at an explicit
+-- loopback endpoint, so verification does not need the source cluster.
+runVerifyEscrowedBackup :: Maybe String -> Text -> Text -> FilePath -> Maybe String -> Text -> Maybe (String, FilePath) -> IO ()
+runVerifyEscrowedBackup mctx requestedDatabase requestedNamespace escrowPath bucketArg backupId offline = do
   active <- activeTarget mctx
   escrow@(SigningKeyEscrow context namespaceName database format _ _ _ key) <- decryptEscrow escrowPath
   unless
@@ -124,7 +128,18 @@ runVerifyEscrowedBackup mctx requestedDatabase requestedNamespace escrowPath buc
   backend <- resolveStoreBackend mctx bucketArg
   let prefix = storePrefixUrl backend (dbBackupKeyPrefix database)
       receiptAddress = prefix <> backupId <> "." <> format <> ".receipt.json"
-  checked <- withScheduledObjectStore context backend $ \reader ->
+  withStore <- case (offline, backend) of
+    (Nothing, _) -> pure (withScheduledObjectStore context backend)
+    (Just (endpoint, credentialFile), MinioBackend ref) -> do
+      origin <- either dieT pure (parseOfflineObjectStore (T.pack endpoint))
+      mode <- fileMode <$> getFileStatus credentialFile
+      when
+        (mode .&. (groupModes .|. otherModes) /= nullFileMode)
+        (dieT "--offline-credentials must not be readable by group or others")
+      user <- BS.readFile credentialFile >>= either dieT pure . parseObjectStoreCredentials
+      pure (withOfflineObjectStore origin user ref)
+    (Just _, _) -> dieT "--offline-object-store applies only to a local MinIO object store"
+  checked <- withStore $ \reader ->
     withSystemTempDirectory "nagare-escrowed-receipt" $ \scratch -> do
       current <- readObjectToFile reader receiptAddress Nothing (scratch </> "receipt")
       case current of
