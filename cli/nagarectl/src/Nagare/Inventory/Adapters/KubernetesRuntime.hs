@@ -67,10 +67,12 @@ import Nagare.Dsl.Database (Engine, dbSecretName, parseEngine)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter (AdapterExecution (..), OperationAction (..))
 import Nagare.Inventory.Adapters.Kubernetes
+import Nagare.Inventory.Adapters.KubernetesCollection (collectionDeleteRequest)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect))
 import Nagare.Inventory.KubernetesConfiguration (configurationDigest, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor)
 import Nagare.Inventory.KubernetesTransport (KubernetesRuntimeConfig (..), invokeKubectl)
+import Nagare.Inventory.Migration.PostgresRename (fenceAnnotation)
 import Nagare.Resource.Inventory (ManagedResource (..))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
@@ -257,54 +259,6 @@ observeKubernetesBatchWithGuard checkGuard observe resources
       replicate
         (length resources)
         (KubernetesUnknown ("cluster guard refused: " <> reason))
-
-collectionDeleteRequest :: ProviderAddress -> PhysicalIdentity -> Text -> Either Text ([String], Text)
-collectionDeleteRequest address uid revision = case address of
-  Kubernetes _ "serving.knative.dev" kind (Just _) _
-    | nameText kind == "domainmapping" ->
-        Left "an Orphan DomainMapping DELETE strands its gateway KIngress; collect it with its controller descendants"
-  Kubernetes _ group kind (Just namespace) name
-    | Just prefix <- collectionPathPrefix group (nameText kind) -> do
-        bytes <-
-          canonicalValue
-            ( object
-                [ "apiVersion" .= ("meta.k8s.io/v1" :: Text)
-                , "kind" .= ("DeleteOptions" :: Text)
-                , "preconditions"
-                    .= object
-                      ["uid" .= physicalIdentityText uid, "resourceVersion" .= revision]
-                , "propagationPolicy" .= collectionPropagation group (nameText kind)
-                ]
-            )
-        let path =
-              prefix
-                <> "/namespaces/"
-                <> T.unpack (nameText namespace)
-                <> "/"
-                <> T.unpack (nameText kind)
-                <> "s/"
-                <> T.unpack (nameText name)
-        pure (["delete", "--raw", path, "-f", "-"], TE.decodeUtf8 bytes)
-  _ -> Left "conditional collection does not support this Kubernetes kind"
-
--- | Job and StatefulSet Pods are exclusive controller children: orphaning them
--- would leave a running database writer on a retained PVC after its
--- StatefulSet is gone. Other admitted kinds have no controlled children.
-collectionPropagation :: Text -> Text -> Text
-collectionPropagation "batch" "job" = "Background"
-collectionPropagation "apps" "statefulset" = "Background"
-collectionPropagation _ _ = "Orphan"
-
-collectionPathPrefix :: Text -> Text -> Maybe String
-collectionPathPrefix "" kind
-  | kind `elem` ["configmap", "service", "persistentvolumeclaim", "serviceaccount"] = Just "/api/v1"
-collectionPathPrefix "apps" "statefulset" = Just "/apis/apps/v1"
-collectionPathPrefix "rbac.authorization.k8s.io" kind
-  | kind `elem` ["role", "rolebinding"] = Just "/apis/rbac.authorization.k8s.io/v1"
-collectionPathPrefix "batch" "cronjob" = Just "/apis/batch/v1"
-collectionPathPrefix "batch" "job" = Just "/apis/batch/v1"
-collectionPathPrefix "serving.knative.dev" "service" = Just "/apis/serving.knative.dev/v1"
-collectionPathPrefix _ _ = Nothing
 
 -- | A successful DELETE can precede actual removal, especially for controllers.
 -- Keep the effect ambiguous until the API confirms the address is absent; the
@@ -611,8 +565,9 @@ parseObservedWithConfiguration stable config resource native response = do
       stampedOwner = textAt "nagare.dev/resource-id" annotations >>= either (const Nothing) Just . mkResourceId
       owner = if stampedContext == Just (contextIdText (runtimeContext config)) then stampedOwner else Nothing
       desiredDigest = contentDigest native
+      fenced = migrationFenced desired observed
       fieldsMatch =
-        desiredFieldsMatch (withoutCacheClientData desired) observed
+        desiredFieldsMatch (withoutCacheClientData (if fenced then scaledToZero desired else desired)) observed
           && credentialDataMatches desired observed
           && cacheClientDataMatches desired observed
       stampMatches = textAt "nagare.dev/spec-digest" annotations == Just (digestText desiredDigest)
@@ -643,9 +598,35 @@ parseObservedWithConfiguration stable config resource native response = do
         if jobFailed observed
           then KubernetesFailed uid revision owner driftDigest
           else
-            if not (observedReady observed)
+            if fenced || not (observedReady observed)
               then KubernetesNotReady uid revision owner driftDigest
               else KubernetesPresent uid revision owner driftDigest
+
+-- | A reviewed rename scales the old StatefulSet to zero and marks it. That
+-- exact state is the retained incarnation, observed unready rather than as
+-- drift; any other difference from the reviewed object still counts.
+migrationFenced :: Value -> Value -> Bool
+migrationFenced (Object desired) (Object observed) =
+  KM.lookup "kind" desired == Just (String "StatefulSet")
+    && ( case KM.lookup "metadata" observed of
+           Just (Object metadata) -> case KM.lookup "annotations" metadata of
+             Just (Object annotations) -> case KM.lookup fenceAnnotation annotations of
+               Just (String marker) -> not (T.null marker)
+               _ -> False
+             _ -> False
+           _ -> False
+       )
+    && ( case KM.lookup "spec" observed of
+           Just (Object spec) -> KM.lookup "replicas" spec == Just (Number 0)
+           _ -> False
+       )
+migrationFenced _ _ = False
+
+scaledToZero :: Value -> Value
+scaledToZero (Object root) = case KM.lookup "spec" root of
+  Just (Object spec) -> Object (KM.insert "spec" (Object (KM.insert "replicas" (Number 0) spec)) root)
+  _ -> Object root
+scaledToZero value = value
 
 -- A failed controller condition is a health finding, not a failed read of
 -- the object's configuration or ownership. Execution still refuses to verify

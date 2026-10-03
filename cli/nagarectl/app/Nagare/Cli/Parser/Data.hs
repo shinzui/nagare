@@ -460,6 +460,21 @@ dbSubparser =
               (progDesc "Create a managed database: generate credentials and provision it")
           )
         <> command
+          "rename"
+          ( info
+              ( Db
+                  <$> ( DbRename
+                          <$> Options.Applicative.argument engineReader (metavar "ENGINE" <> help "postgres")
+                          <*> strArgument (metavar "OLD" <> help "Accepted database name")
+                          <*> strArgument (metavar "NEW" <> help "New database name (DNS label)")
+                          <*> optional (strOption (long "scope-key" <> metavar "KEY" <> help "Pinned standalone scope key (default: the old name)"))
+                          <*> dbCreateOptsParser
+                      )
+                    <**> helper
+              )
+              (progDesc "Review a bounded rename of a retained PostgreSQL database; the old incarnation stays retained")
+          )
+        <> command
           "get"
           ( info
               (Db . DbGet <$> dbNameOptsParser <**> helper)

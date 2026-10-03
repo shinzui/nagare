@@ -143,6 +143,8 @@ library
     Nagare.Inventory.Adapters.Host
     Nagare.Inventory.Adapters.HostRuntime
     Nagare.Inventory.Adapters.Kubernetes
+    Nagare.Inventory.Adapters.KubernetesCollection
+    Nagare.Inventory.Adapters.KubernetesMigration
     Nagare.Inventory.Adapters.KubernetesRuntime
     Nagare.Inventory.Adapters.Pulumi
     Nagare.Inventory.Adapters.PulumiRuntime
@@ -225,7 +227,9 @@ library
     Nagare.Inventory.ManualReceipt
     Nagare.Inventory.ManualReceiptSource
     Nagare.Inventory.Migration
+    Nagare.Inventory.Migration.PostgresRename
     Nagare.Inventory.Migration.Types
+    Nagare.Inventory.MigrationPlanning
     Nagare.Inventory.ObservationNative
     Nagare.Inventory.OperationStep
     Nagare.Inventory.Plan
@@ -361,6 +365,7 @@ executable nagarectl
     Nagare.Cli.Commands.Task
     Nagare.Cli.Commands.Worker
     Nagare.Cli.Data.Backup
+    Nagare.Cli.Data.DatabaseRename
     Nagare.Cli.Data.Lifecycle
     Nagare.Cli.Data.ManualReceipt
     Nagare.Cli.Data.Restore
@@ -485,6 +490,7 @@ test-suite nagarectl-test
     InventoryCloudCollectionSpec
     InventoryCloudSpec
     InventoryCloudflareSpec
+    InventoryCompanionCollectionSpec
     InventoryControllerCollectionSpec
     InventoryEffectfulCollectionSpec
     InventoryEffectfulSpec
@@ -504,6 +510,7 @@ test-suite nagarectl-test
     InventoryObjectOpsSpec
     InventoryObservabilitySpec
     InventoryObservationSpec
+    InventoryPostgresRenameSpec
     InventoryPreviewCleanupSpec
     InventoryPreviewRecoverySpec
     InventoryPublicationSpec

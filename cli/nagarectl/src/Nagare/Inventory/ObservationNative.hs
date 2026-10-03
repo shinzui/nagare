@@ -51,6 +51,9 @@ observationBytesFromMutation ::
   ByteString ->
   Either Text (Maybe ByteString)
 observationBytesFromMutation context identity version operation bytes
+  -- A reviewed migration stage carries a rename bundle, not one observed
+  -- object; its source and destination are bound by the stage digest.
+  | MigrateResource _ <- plannedAction operation = Right Nothing
   | identity == "kubernetes-conditional-object" && version == "1" = do
       mutation <- first T.pack (eitherDecodeStrict' bytes)
       unless

@@ -25,6 +25,7 @@ module Nagare.Inventory.Adapter
   , emptyAdapterRegistry
   , withAdapterFence
   , lookupAdapter
+  , wrapRegisteredAdapter
   , withPreparationGuard
   , lookupAdapterFences
   , lookupAdapterFenceByCapability
@@ -319,6 +320,13 @@ lookupAdapter (AdapterRegistry registry _ _) executor =
   maybe (Left ("no adapter registered for " <> showText executor)) Right (Map.lookup executor registry)
   where
     showText = T.pack . show
+
+-- | Wrap one executor's adapter in place; its fences and recovery
+-- capabilities stay registered unchanged.
+wrapRegisteredAdapter :: Executor -> (Adapter -> Adapter) -> AdapterRegistry -> Either Text AdapterRegistry
+wrapRegisteredAdapter executor wrap (AdapterRegistry adapters fences recoveries)
+  | Map.member executor adapters = Right (AdapterRegistry (Map.adjust wrap executor adapters) fences recoveries)
+  | otherwise = Left ("no adapter registered for " <> T.pack (show executor))
 
 -- | Narrow a command's review before any native plan is prepared or published.
 -- Provider capabilities, recovery handlers and fences remain unchanged.

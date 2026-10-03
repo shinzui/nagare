@@ -12,7 +12,7 @@ import Data.Either (isLeft)
 import Data.Foldable (toList)
 import Data.Generics.Labels ()
 import Data.IORef
-import Data.List (isInfixOf, sort)
+import Data.List (sort)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
@@ -4563,53 +4563,6 @@ inventoryKubernetesTests =
               (\part -> BS.isInfixOf part (TE.encodeUtf8 body))
               ["manual-job-uid", "resource-version", "Background"]
           )
-    , testCase "retained database companions are collectable only for stateless members" $ do
-        let owner = ok (mkScopeId Standalone "database-pg-companions")
-            db =
-              Database
-                (ok (mkDatabaseName "pg-companions"))
-                Nothing
-                Postgres
-                (defaultEngineVersion Postgres)
-                (ok (Dsl.mkNamespace "personal"))
-                (ok (Dsl.mkQuantity "1Gi"))
-                Nothing
-                Dsl.Retain
-            recovery =
-              RecoveryIntent
-                (ok (mkName "backup"))
-                (mkSecretRef (ok (mkName "nagare-db-pg-companions")) (ok (mkName "v1")) :| [])
-            direct =
-              DatabaseDirectInput
-                db
-                owner
-                cluster
-                Nothing
-                recovery
-                (SourceLocation "database" "pg-companions")
-            (_, databaseNative) =
-              ok
-                ( compileStandaloneDatabase
-                    direct
-                    (DatabaseBackupTarget (GcsBackend "project" "bucket") HourlyRecoveryPoint)
-                )
-            role declaration = last (T.splitOn "/" (resourceIdText (declaration ^. #identity)))
-            members = map fst (Map.elems databaseNative)
-            collectable = sort [role declaration | declaration <- members, supportsRetainedCollection declaration]
-            retained = sort [role declaration | declaration <- members, not (supportsRetainedCollection declaration)]
-            uid = ok (mkPhysicalIdentity "companion-uid")
-        collectable @?= sort ["backup", "backup-account", "backup-read-binding", "backup-read-role", "service", "statefulset"]
-        retained @?= sort ["backup-signing-key", "credential", "pvc"]
-        forM_ [declaration | declaration <- members, supportsRetainedCollection declaration] $ \declaration -> do
-          (arguments, body) <- expectRight (collectionDeleteRequest (declaration ^. #address) uid "resource-version")
-          let propagation = if role declaration == "statefulset" then "Background" else "Orphan"
-          assertBool
-            ("companion deletion dropped its preconditions or propagation: " <> T.unpack (role declaration))
-            (all (\part -> BS.isInfixOf part (TE.encodeUtf8 body)) ["companion-uid", "resource-version", propagation])
-          case arguments of
-            ["delete", "--raw", path, "-f", "-"] ->
-              assertBool ("companion deletion path is not namespaced: " <> path) ("/namespaces/personal/" `isInfixOf` path)
-            _ -> assertFailure "companion deletion is not a raw conditional DELETE"
     , testCase "unready access route prepares read-only verification but requires its original ready incarnation" $ do
         let value =
               object

@@ -42,6 +42,7 @@ import Nagare.Inventory.Migration.Types
     , validatedSource
     , validatedSourcePhysical
     )
+  , migrationPoliciesCompatible
   )
 import Nagare.Inventory.Plan.Types
   ( InventoryHistory (..)
@@ -219,6 +220,10 @@ validatePairedMigrations candidate history observations paired =
         , Managed resource <- bundle ^. #declarations
         , resource ^. #owner == scope
         ]
+    pairedResources =
+      [ (snd (validatedSource migration), validatedDestination migration)
+      | (migration, _) <- Map.elems paired
+      ]
     proposals =
       Map.mapWithKey
         ( \resource (migration, facts) ->
@@ -239,7 +244,7 @@ validatePairedMigrations candidate history observations paired =
           || ( source ^. #address == destination ^. #address
                  && source ^. #executor == destination ^. #executor
              )
-          || source ^. #dataPolicy /= destination ^. #dataPolicy
+          || not (migrationPoliciesCompatible pairedResources source destination)
           || not
             ( case (source ^. #dataPolicy, validatedContract migration) of
                 (Stateless, StatelessMigration) -> True

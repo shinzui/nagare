@@ -16,11 +16,12 @@ import Data.Text.Encoding qualified as TE
 import InventoryTransactionSpec (recordingRegistryWith)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
-import Nagare.Inventory.Command (compileInput, openTargetStore, planInventoryMigrationWith)
+import Nagare.Inventory.Command (compileInput, openTargetStore)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Execute (TransactionResult (..), applyReviewed, resumeTransaction)
 import Nagare.Inventory.Journal (operationIdText)
 import Nagare.Inventory.Migration
+import Nagare.Inventory.MigrationPlanning (planInventoryMigrationWith)
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Status qualified as Status
 import Nagare.Inventory.Store

@@ -624,6 +624,8 @@ data DbCommand
     DbList DbListOpts
   | -- | nagarectl db create ENGINE NAME [flags]
     DbCreate Engine String DbCreateOpts
+  | -- | nagarectl db rename ENGINE OLD NEW [--scope-key KEY] [create flags] --save-plan DIR
+    DbRename Engine String String (Maybe String) DbCreateOpts
   | -- | nagarectl db get NAME [-n NS]
     DbGet DbNameOpts
   | -- | nagarectl db shell NAME [-n NS] [--session-id ID --recovery-backup ID --save-plan DIR]

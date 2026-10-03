@@ -50,7 +50,7 @@ import Nagare.Inventory.Journal
   ( OperationState (Pending)
   , transactionIdText
   )
-import Nagare.Inventory.Migration.Types (MigrationContract (..))
+import Nagare.Inventory.Migration.Types (MigrationContract (..), migrationPoliciesCompatible)
 import Nagare.Inventory.Plan
   ( InventoryHistory (historyAccepted, historyHead)
   , MigrationProof
@@ -390,6 +390,12 @@ migrationCoverage store document = do
         newManaged =
           Map.fromList
             [(resource ^. #identity, resource) | Resource.Managed resource <- desiredDeclarations]
+        migratedPairs =
+          [ (source, destination)
+          | resourceId <- Map.keys (reviewMigrations document)
+          , Just source <- [Map.lookup resourceId oldManaged]
+          , Just destination <- [Map.lookup resourceId newManaged]
+          ]
     forM_ (Map.toAscList (reviewMigrations document)) $ \(resourceId, proof) -> do
       source <-
         maybe
@@ -410,7 +416,7 @@ migrationCoverage store document = do
             && source ^. #owner == destination ^. #owner
             && source ^. #address == migrationProofSourceAddress proof
             && destination ^. #address == migrationProofDestinationAddress proof
-            && source ^. #dataPolicy == destination ^. #dataPolicy
+            && migrationPoliciesCompatible migratedPairs source destination
             && Set.null (Set.intersection sourceClaims destinationClaims)
             && case (source ^. #dataPolicy, migrationProofContract proof) of
               (Stateless, StatelessMigration) -> True

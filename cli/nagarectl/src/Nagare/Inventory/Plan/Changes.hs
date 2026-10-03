@@ -62,6 +62,7 @@ import Nagare.Inventory.Migration.Types
       , validatedSource
       , validatedSourcePhysical
       )
+  , migrationStageDigest
   )
 import Nagare.Inventory.Plan.Lifecycle
   ( combineDecisions
@@ -742,22 +743,9 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
     migrationOperations (resourceId, (migration, _)) =
       zipWith addPrevious stages (Nothing : map (Just . plannedOperationId) stages)
       where
-        (sourceRevision, sourceResource) = validatedSource migration
+        sourceResource = snd (validatedSource migration)
         destinationResource = validatedDestination migration
-        digest =
-          contentDigest
-            ( canonicalBytes
-                ( object
-                    [ "resource" .= resourceId
-                    , "sourceRevision" .= sourceRevision
-                    , "source" .= Managed sourceResource
-                    , "sourcePhysical" .= validatedSourcePhysical migration
-                    , "destination" .= Managed destinationResource
-                    , "destinationAbsence" .= validatedDestinationAbsence migration
-                    , "contract" .= validatedContract migration
-                    ]
-                )
-            )
+        digest = either (error . T.unpack) id (migrationStageDigest resourceId migration)
         stages =
           [ stage PrepareDestination (destinationResource ^. #executor) Idempotent
           , stage BackUpSource (sourceResource ^. #executor) VerifyBeforeRetry

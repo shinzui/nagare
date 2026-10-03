@@ -98,6 +98,7 @@ import Nagare.Inventory.Adapters.HostRuntime
       )
   , mkHostRuntimeOps
   )
+import Nagare.Inventory.Adapters.KubernetesMigration (kubernetesMigrationAdapter)
 import Nagare.Inventory.Adapters.KubernetesRuntime
   ( KubernetesRuntimeConfig (KubernetesRuntimeConfig)
   )
@@ -582,7 +583,7 @@ inventoryExecutionRegistry mctx store bundle = do
               context
               (contextNameText (active ^. #contextName))
               (fmap (fmap (const ())) (guardKubernetesContext active))
-          (kubernetes, restoreRecovery, verifyRecovery) =
+          (kubernetesRestore, restoreRecovery, verifyRecovery) =
             liveRestoreRuntime
               runtime
               scopes
@@ -593,6 +594,8 @@ inventoryExecutionRegistry mctx store bundle = do
                   (Map.union maintenanceAcceptedNative kubernetesSpecs)
                   kubernetesBase
               )
+          -- Reviewed migration stages execute only from their saved bundle.
+          kubernetes = kubernetesMigrationAdapter runtime Nothing kubernetesRestore
           adapters = [pulumi, foundation, artifact, host, kubernetes, cache, broker, helm, dns, access]
       registry <- either dieT pure (InventoryAdapter.mkAdapterRegistry adapters)
       withMaintenance <-

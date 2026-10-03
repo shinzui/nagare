@@ -108,7 +108,7 @@ validateMigrationInput candidate history observations input = do
             && destination ^. #address == migrationDestinationAddress target
             && sourceFact == ObservedPresent (migrationSourcePhysical target)
             && destinationFact == ConfirmedAbsent (migrationDestinationAbsence target)
-            && source ^. #dataPolicy == destination ^. #dataPolicy
+            && migrationPoliciesCompatible proposedPairs source destination
             && case (source ^. #dataPolicy, migrationContract target) of
               (Stateless, StatelessMigration) -> True
               (Durable _, DurableMigration {}) -> True
@@ -123,6 +123,12 @@ validateMigrationInput candidate history observations input = do
             (migrationDestinationAbsence target)
             (migrationContract target)
         )
+    proposedPairs =
+      [ (source, destination)
+      | target <- migrationTargets input
+      , Just (_, source) <- [Map.lookup (migrationResource target) accepted]
+      , Just destination <- [Map.lookup (migrationResource target) desired]
+      ]
     valid = mapMaybe checked (migrationTargets input)
     errors =
       [ issue "migration-binding" "proposal belongs to another context or provider target" (migrationResource target)

@@ -18,7 +18,10 @@ module Nagare.Inventory.Command
   , convergeInventoryCandidateWith
   , planInventoryCandidateAdoptionWith
   , planInventoryAdoptionWith
-  , planInventoryMigrationWith
+  , validateTarget
+  , clientIdentity
+  , rejectReentry
+  , dieText
   , planInventoryRetirementWith
   , planInventoryRetirementsWith
   , planInventoryCollectionWith
@@ -312,65 +315,6 @@ planInventoryCandidateAdoptionWith registryFor target candidate proposalInput ou
 
 -- | A migration reads source and destination through distinct registries.
 -- One ordinary registry cannot represent two physical incarnations of an ID.
-planInventoryMigrationWith ::
-  (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry) ->
-  (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry) ->
-  ActiveTarget ->
-  FilePath ->
-  FilePath ->
-  IO ()
-planInventoryMigrationWith sourceRegistryFor destinationRegistryFor target inputFile output = do
-  bytes <-
-    (try (BS.readFile inputFile) :: IO (Either IOException ByteString))
-      >>= either (dieText . showText) pure
-  proposalInput <- either dieText pure (decodeMigrationInput bytes)
-  let relative = migrationCandidateDirectory proposalInput
-      candidateDirectory = if isAbsolute relative then relative else takeDirectory inputFile </> relative
-  candidate <- loadCandidate candidateDirectory >>= either dieText pure
-  rejectReentry
-  validateTarget target candidate
-  store <- openTargetStore target
-  let binding = inventoryBinding (candidateInventory candidate)
-  _ <- initializeStore store binding (clientIdentity target) >>= either (dieText . showText) pure
-  _ <- seedInventoryHistory store candidate >>= either (dieText . showText) pure
-  history <- loadInventoryPlanningHistory store candidate >>= either (dieText . showText) pure
-  destinationRegistry <- destinationRegistryFor candidate history
-  sourceRegistry <- sourceRegistryFor candidate history
-  let requirements = observationRequirements candidate history
-  destinations <-
-    observeWithRegistry destinationRegistry (requirementsByExecutor requirements)
-      >>= either dieText pure
-  incarnationFacts <-
-    observeMigrationIncarnations sourceRegistry destinationRegistry requirements
-      >>= either dieText pure
-  decisions <-
-    either
-      (dieText . showText . NE.toList)
-      pure
-      (decideMigration candidate proposalInput history destinations incarnationFacts)
-  proposal <-
-    either
-      (dieText . showText . NE.toList)
-      pure
-      (planChanges candidate decisions history destinations)
-  -- A source executor absent from the desired candidate can otherwise fall
-  -- back to manifest-only preparation. Its fabricated accepted observation
-  -- must never become native migration evidence in a published review.
-  forM_ (proposalOperations proposal) $ \operation -> case plannedAction operation of
-    MigrateResource _ -> do
-      adapter <- either dieText pure (lookupAdapter destinationRegistry (plannedExecutor operation))
-      when
-        (adapterIdentity adapter == "manifest-only")
-        (dieText "migration stage lacks an installed native provider adapter")
-    _ -> pure ()
-  snapshot <- readStoreSnapshot store >>= either (dieText . showText) pure
-  bundle <-
-    prepareReview destinationRegistry snapshot proposal
-      >>= either (dieText . showText . NE.toList) pure
-  digest <- publishReview store bundle >>= either (dieText . showText) pure
-  _ <- writeReviewBundle output bundle >>= either dieText pure
-  TIO.putStrLn (digestText digest)
-
 planInventoryRetirementWith ::
   (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry) ->
   ActiveTarget ->

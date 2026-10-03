@@ -17,7 +17,7 @@ authority.
 | `EnvCommand` | 4 | none |
 | `SecretCommand` | 4 | none |
 | `StorageCommand` | 5 | none |
-| `DbCommand` | 17 | none |
+| `DbCommand` | 18 | none |
 | `BrokerCommand` | 6 | none |
 | `TaskCommand` | 4 | none |
 | `WorkerCommand` | 2 | none |
@@ -26,7 +26,7 @@ authority.
 | `DomainsCommand` | 2 | none |
 | `CdnCommand` | 4 | none |
 | `justfile` | 35 | `infra-destroy`, `local-smoke`, `smoke` |
-| `Inventory.Command` production calls | 31 | none |
+| `Inventory.Command` production calls | 32 | none |
 <!-- managed-command-registry:end -->
 
 Each row names the lifecycle-owning scope, declaration compiler, native executor,

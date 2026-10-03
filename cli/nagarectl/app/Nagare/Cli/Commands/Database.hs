@@ -13,6 +13,7 @@ import Nagare.Cli.Data.Backup
   ( runReviewedDbBackupPlan
   , runReviewedDbPruneBackupPlan
   )
+import Nagare.Cli.Data.DatabaseRename (runDbRenamePlan)
 import Nagare.Cli.Data.Lifecycle
   ( runDataRestart
   , runStandaloneRetirePlan
@@ -118,6 +119,31 @@ runDb mctx = \case
           (o ^. #recoveryBackup)
           (o ^. #recoveryKeyVersion)
           (o ^. #savePlan)
+  DbRename eng old new scopeKey o -> do
+    when (o ^. #dryRun) (dieT "database rename has no --dry-run; it saves a review")
+    output <- maybe (dieT "reviewed database rename requires --save-plan") pure (o ^. #savePlan)
+    when (isJust (o ^. #config)) (provisionGhcEnv Nothing)
+    tp <- activeProfile mctx
+    runDbRenamePlan
+      mctx
+      eng
+      (T.pack old)
+      (T.pack new)
+      (T.pack <$> scopeKey)
+      DbCreateParams
+        { namespace = nsOf (o ^. #namespace)
+        , namespacePurpose = if o ^. #systemNamespace then PlatformNamespace else ApplicationNamespace
+        , version = T.pack <$> o ^. #version
+        , size = T.pack <$> o ^. #size
+        , cpu = T.pack <$> o ^. #cpu
+        , memory = T.pack <$> o ^. #memory
+        , config = o ^. #config
+        , dryRun = False
+        , targetProfile = tp
+        }
+      (o ^. #recoveryBackup)
+      (o ^. #recoveryKeyVersion)
+      output
   DbGet o -> runDbGet (nsOf (o ^. #namespace)) (T.pack (o ^. #name))
   DbShell _ _ _ _ ->
     dieT

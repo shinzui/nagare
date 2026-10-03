@@ -6,6 +6,8 @@ module Nagare.Cli.Inventory.Workflow
   , runInventoryCollect
   , runInventoryExport
   , runInventoryMigrate
+  , inventoryMigrationSourceRegistry
+  , acceptedMigrationNative
   , runInventoryPlan
   , runInventoryRecover
   , runInventoryRegistryRecoveryPlan
@@ -15,6 +17,7 @@ module Nagare.Cli.Inventory.Workflow
   )
 where
 
+import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
 import Data.List.NonEmpty qualified as NE
 import Data.Map qualified as Map
@@ -48,6 +51,7 @@ import Nagare.Inventory.Artifact qualified as InventoryArtifact
 import Nagare.Inventory.Cloud qualified as InventoryCloud
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Host qualified as InventoryHost
+import Nagare.Inventory.MigrationPlanning qualified as Inventory
 import Nagare.Inventory.Plan qualified as InventoryPlan
 import Nagare.Inventory.Status qualified as InventoryStatus
 import Nagare.Inventory.Store qualified as InventoryStore
@@ -175,6 +179,28 @@ inventoryMigrationSourceRegistry ::
   InventoryPlan.InventoryHistory ->
   IO InventoryAdapter.AdapterRegistry
 inventoryMigrationSourceRegistry active workspace candidate history = do
+  let binding = ResourceInventory.inventoryBinding (ResourceInventory.candidateInventory candidate)
+  (oldKubernetes, oldHelm) <- acceptedMigrationNative active candidate history
+  kubernetes <-
+    inventoryKubernetesAdapter
+      active
+      binding
+      (\_ -> pure (Left "migration source cache output unavailable"))
+      oldKubernetes
+  helm <- inventoryHelmAdapter active workspace binding oldHelm
+  either dieT pure (InventoryAdapter.mkAdapterRegistry [kubernetes, helm])
+
+-- | The accepted immutable native bytes of every migrating source, read from
+-- the private store. A source without such bytes cannot be migrated.
+acceptedMigrationNative ::
+  ActiveTarget ->
+  ResourceInventory.CompositionCandidate ->
+  InventoryPlan.InventoryHistory ->
+  IO
+    ( Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString)
+    , Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString)
+    )
+acceptedMigrationNative active candidate history = do
   let requirements = InventoryPlan.observationRequirements candidate history
       sourceIds = Map.keysSet (InventoryPlan.migrationIncarnations requirements)
       binding = ResourceInventory.inventoryBinding (ResourceInventory.candidateInventory candidate)
@@ -201,19 +227,11 @@ inventoryMigrationSourceRegistry active workspace candidate history = do
       >>= either dieT pure
   let oldKubernetes = Map.filterWithKey (\resource _ -> Set.member resource sourceIds) allKubernetes
       oldHelm = Map.filterWithKey (\resource _ -> Set.member resource sourceIds) allHelm
-      selected = Map.keysSet oldKubernetes `Set.union` Map.keysSet oldHelm
-      unsupported = sourceIds `Set.difference` selected
+      unsupported = sourceIds `Set.difference` (Map.keysSet oldKubernetes `Set.union` Map.keysSet oldHelm)
   unless
     (Set.null unsupported)
     (dieT "migration source needs an installed immutable provider observation contract")
-  kubernetes <-
-    inventoryKubernetesAdapter
-      active
-      binding
-      (\_ -> pure (Left "migration source cache output unavailable"))
-      oldKubernetes
-  helm <- inventoryHelmAdapter active workspace binding oldHelm
-  either dieT pure (InventoryAdapter.mkAdapterRegistry [kubernetes, helm])
+  pure (oldKubernetes, oldHelm)
 
 runInventoryRetire :: Maybe String -> String -> FilePath -> IO ()
 runInventoryRetire mctx rawScope output = do

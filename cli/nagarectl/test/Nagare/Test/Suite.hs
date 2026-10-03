@@ -21,6 +21,7 @@ import InventoryCacheSpec (inventoryCacheTests)
 import InventoryCdnSpec (inventoryCdnTests)
 import InventoryCloudCollectionSpec (cloudCollectionTests)
 import InventoryCloudSpec (inventoryCloudTests)
+import InventoryCompanionCollectionSpec (inventoryCompanionCollectionTests)
 import InventoryControllerCollectionSpec (controllerCollectionTests)
 import InventoryEffectfulCollectionSpec (inventoryEffectfulCollectionTests, runCollectionResumeProbe)
 import InventoryEffectfulSpec (inventoryEffectfulTests, runEffectfulResumeProbe)
@@ -38,6 +39,7 @@ import InventoryNativeCollectionSpec (nativeCollectionTests)
 import InventoryObjectOpsSpec (inventoryObjectOpsTests)
 import InventoryObservabilitySpec (inventoryObservabilityTests)
 import InventoryObservationSpec (inventoryObservationTests)
+import InventoryPostgresRenameSpec (inventoryPostgresRenameTests)
 import InventoryPreviewRecoverySpec (inventoryPreviewRecoveryTests)
 import InventoryPublicationSpec (inventoryPublicationTests)
 import InventorySpec (inventoryTests)
@@ -172,6 +174,8 @@ main = do
             , inventoryCdnTests
             , inventoryLifecycleTests
             , inventoryMigrationTests
+            , inventoryCompanionCollectionTests
+            , inventoryPostgresRenameTests
             , inventoryStatusTests
             , inventoryObservationTests
             , inventoryGcloudAuthTests

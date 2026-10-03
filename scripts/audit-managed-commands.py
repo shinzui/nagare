@@ -71,7 +71,7 @@ ROUTES = {
     "DbCommand": {
         "read": "DbList DbGet DbVerifyEscrowedBackup",
         "local": "DbEscrowSigningKey",
-        "reviewed": "DbCreate DbRestart DbDelete DbRetire DbBackup DbPruneBackup DbBackupReceipts DbManualReceipt DbDisableBackupPrune DbRestore",
+        "reviewed": "DbCreate DbRename DbRestart DbDelete DbRetire DbBackup DbPruneBackup DbBackupReceipts DbManualReceipt DbDisableBackupPrune DbRestore",
         "recovery": "DbRecoverScheduledPrune",
         "deferred": "DbShell DbPruneScheduledBackups",
     },
@@ -229,7 +229,7 @@ RECIPE_FAMILY = {
 # Public library calls from production consumers are checked as an exact set.
 # Pure observations are included so a new write cannot hide as an unlisted call.
 LIBRARY_CALLS = {
-    "cli/nagarectl/app": "applyInventoryWithFactory compileInventory convergeInventoryCandidateWith executionBlockedAdapterFor exportInventory loadCandidate loadTargetSnapshot loadTargetSnapshotReadOnly manifestAdapterFor migrateTargetStore openTargetStoreReadOnly openProfileReviewStoreReadOnly planInventory planInventoryAdoptionWith planInventoryCandidateAdoptionWith planInventoryCandidateWith planInventoryCandidateWithPayloadIdentity planInventoryCandidateWithRetirements planInventoryCollectionWith planInventoryCollectionsWith planInventoryMigrationWith planInventoryRetirementWith planInventoryRetirementsWith planInventoryWithRetirements prepareRegistryRecoveryWithFactory recoverInventoryWithFactory restoreInventory resumeInventoryWithFactoryTakeover selectFoundationStore",
+    "cli/nagarectl/app": "applyInventoryWithFactory compileInventory convergeInventoryCandidateWith executionBlockedAdapterFor exportInventory loadCandidate loadTargetSnapshot loadTargetSnapshotReadOnly manifestAdapterFor migrateTargetStore openTargetStoreReadOnly openProfileReviewStoreReadOnly planInventory planInventoryAdoptionWith planInventoryCandidateAdoptionWith planInventoryCandidateWith planInventoryCandidateWithPayloadIdentity planInventoryCandidateWithRetirements planInventoryCollectionWith planInventoryCollectionsWith planInventoryMigrationCandidateWith planInventoryMigrationWith planInventoryRetirementWith planInventoryRetirementsWith planInventoryWithRetirements prepareRegistryRecoveryWithFactory recoverInventoryWithFactory restoreInventory resumeInventoryWithFactoryTakeover selectFoundationStore",
     "cli/nagarectl/nagared/Main.hs": "loadTargetSnapshot openTargetStoreReadOnly",
 }
 
