@@ -58,6 +58,7 @@ kubernetesConfigurationTests =
                 (traverse (kubernetesObserve runtime))
                 (kubernetesObserve runtime)
                 (\_ _ -> pure (Left "not a backup"))
+                (\_ _ -> pure (Right False))
         oldReview <- adapterPrepare legacy K.updateOperation >>= K.expectRight
         reviewed <- adapterPrepare adapter K.updateOperation >>= K.expectRight
         mutation <- K.expectRight (eitherDecodeStrict' (preparedNativeBytes reviewed))
@@ -122,6 +123,7 @@ kubernetesConfigurationTests =
                 (traverse (kubernetesObserve runtime))
                 (kubernetesObserve runtime)
                 (\_ _ -> pure (Left "not a backup"))
+                (\_ _ -> pure (Right False))
         reviewed <- adapterPrepare adapter K.updateOperation >>= K.expectRight
         adapterExecute adapter K.updateOperation reviewed >>= \case
           AdapterEffectFailed (KnownNoEffect _) -> pure ()

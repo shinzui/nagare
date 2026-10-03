@@ -62,6 +62,7 @@ import Nagare.Inventory.Execute.RecoveryPolicy
   , databaseRestoreOnlyReview
   , fencedAction
   , recoverableState
+  , redisRestoreOnlyReview
   , sameReviewedFence
   , scheduledPruneOnlyReview
   , transactionDigest
@@ -526,7 +527,8 @@ recordOperatorRecovery store registry input takeOver = do
                                     (() <$ appended)
                                 )
                         (AbandonPartialDatabaseRestore, RecoveryTerminalFailure physical)
-                          | databaseRestoreOnlyReview published operation -> do
+                          | databaseRestoreOnlyReview published operation
+                              || redisRestoreOnlyReview published operation -> do
                               appended <-
                                 appendEvent
                                   lock

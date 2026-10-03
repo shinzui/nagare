@@ -117,6 +117,7 @@ import Nagare.Inventory.Adapters.PulumiRuntime
       )
   , mkPulumiRuntimeOps
   )
+import Nagare.Inventory.Adapters.RestoreScratch (restoreScratchPodFailed)
 import Nagare.Inventory.Artifact qualified as InventoryArtifact
 import Nagare.Inventory.Cloud qualified as InventoryCloud
 import Nagare.Inventory.CloudCollection (encodeCloudCollectionBundle)
@@ -157,6 +158,7 @@ inventoryKubernetesAdapter active binding cacheKey specs
             observeBatch
             (observeKubernetesConfiguration config cacheKey specs)
             (readBackupReceiptFromCompletedPod config specs)
+            (restoreScratchPodFailed config specs)
         )
 
 inventoryControllerCollectionAdapter :: ActiveTarget -> Resource.ContextBinding -> Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString) -> IO InventoryAdapter.Adapter

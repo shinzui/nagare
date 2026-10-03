@@ -114,8 +114,13 @@ mkKubernetesAdapterWithBackupReceiptAndBatch ::
   ([ResourceId] -> IO [KubernetesState]) ->
   (ResourceId -> PhysicalIdentity -> IO (Either Text ByteString)) ->
   Adapter
-mkKubernetesAdapterWithBackupReceiptAndBatch specs ops observeBatch =
-  mkKubernetesAdapterWithObservations specs ops observeBatch Nothing
+mkKubernetesAdapterWithBackupReceiptAndBatch specs ops observeBatch readBackupReceipt =
+  mkKubernetesAdapterWithObservations specs ops observeBatch Nothing readBackupReceipt noScratchFailureProbe
+
+-- | Without a runtime pod probe, a failed restore scratch workload is never
+-- proved terminal; recovery stays unresolved, as before.
+noScratchFailureProbe :: ResourceId -> PhysicalIdentity -> IO (Either Text Bool)
+noScratchFailureProbe _ _ = pure (Right False)
 
 -- Version 1 keeps exact legacy observations. Only new Knative Service updates
 -- opt into a separately versioned status-independent configuration observation.
@@ -125,6 +130,7 @@ mkKubernetesAdapterWithConfigurationObservation ::
   ([ResourceId] -> IO [KubernetesState]) ->
   (ResourceId -> IO KubernetesState) ->
   (ResourceId -> PhysicalIdentity -> IO (Either Text ByteString)) ->
+  (ResourceId -> PhysicalIdentity -> IO (Either Text Bool)) ->
   Adapter
 mkKubernetesAdapterWithConfigurationObservation specs ops batch stable =
   mkKubernetesAdapterWithObservations specs ops batch (Just stable)
@@ -135,8 +141,9 @@ mkKubernetesAdapterWithObservations ::
   ([ResourceId] -> IO [KubernetesState]) ->
   Maybe (ResourceId -> IO KubernetesState) ->
   (ResourceId -> PhysicalIdentity -> IO (Either Text ByteString)) ->
+  (ResourceId -> PhysicalIdentity -> IO (Either Text Bool)) ->
   Adapter
-mkKubernetesAdapterWithObservations specs ops observeBatch stableObserve readBackupReceipt =
+mkKubernetesAdapterWithObservations specs ops observeBatch stableObserve readBackupReceipt scratchFailed =
   Adapter
     { adapterExecutor = KubernetesExecutor
     , adapterIdentity = "kubernetes-conditional-object"
@@ -243,9 +250,21 @@ mkKubernetesAdapterWithObservations specs ops observeBatch stableObserve readBac
                 <$> verifiedProof mutation current
             Left _ -> do
               before <- observeMutation mutation
+              -- A created restore scratch StatefulSet whose pod has a failed,
+              -- restarted container never becomes Ready on its own (for example
+              -- its pinned download or load failed); prove that failure so the
+              -- restore-only review can be abandoned without claiming success.
+              scratchFailure <- case current of
+                KubernetesNotReady physical _ (Just owner) digest
+                  | createdScratchStatefulSet mutation owner digest -> scratchFailed (mutationResource mutation) physical
+                _ -> pure (Right False)
               pure $ case requireSameBefore mutation before of
                 Right () -> RecoverySafeToRetry
                 Left reason -> case current of
+                  KubernetesNotReady physical _ (Just owner) digest
+                    | createdScratchStatefulSet mutation owner digest
+                    , scratchFailure == Right True ->
+                        RecoveryTerminalFailure physical
                   KubernetesNotReady physical _ (Just owner) digest
                     | owner == mutationResource mutation
                         && digest == mutationNativeDigest mutation
@@ -279,6 +298,15 @@ mkKubernetesAdapterWithObservations specs ops observeBatch stableObserve readBac
                           `elem` [CreateResource, RunDeclaredOperation] ->
                         RecoveryTerminalFailure physical
                   _ -> RecoveryUnresolved reason
+    createdScratchStatefulSet mutation owner digest =
+      owner == mutationResource mutation
+        && digest == mutationNativeDigest mutation
+        && mutationAction mutation == CreateResource
+        && (case mutationBefore mutation of KubernetesAbsent {} -> True; _ -> False)
+        && ( case mutationAddress mutation of
+               Kubernetes _ "apps" kind _ _ -> nameText kind == "statefulset"
+               _ -> False
+           )
     verifiedProof mutation current = case completionProof mutation current of
       Left reason -> pure (Left reason)
       Right jobProof

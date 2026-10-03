@@ -5,6 +5,7 @@
 module Nagare.Inventory.Execute.RecoveryPolicy
   ( applicationStopMarker
   , databaseRestoreOnlyReview
+  , redisRestoreOnlyReview
   , fencedAction
   , recoverableState
   , sameReviewedFence
@@ -227,6 +228,53 @@ databaseRestoreOnlyReview published operation =
                         && T.isSuffixOf "/job" (resourceIdText job)
                         && managed == [job]
                         && all sameJob reviewed
+                _ -> False
+        _ -> False
+
+-- | A Redis isolated restore review: exactly the scratch Service, PVC,
+-- StatefulSet and verify Job of one restore scope, created and run in at most
+-- five operations. Only the scratch StatefulSet create can be abandoned, after the
+-- adapter proves its pod failed; the source database is never in the review.
+redisRestoreOnlyReview :: ReviewBundle -> PlannedOperation -> Bool
+redisRestoreOnlyReview published operation =
+  let reviewed =
+        map
+          reviewPlannedOperation
+          (reviewOperations (reviewBundleDocument published))
+      scopes =
+        mapMaybe
+          (either (const Nothing) Just . decodeScope)
+          (Map.elems (reviewBundleScopes published))
+      managedOf scope =
+        [ resource ^. #identity
+        | bundle <- Resource.scopeBundles scope
+        , Resource.Managed resource <- Resource.declarations bundle
+        ]
+      role member = snd (T.breakOnEnd "/" (resourceIdText member))
+   in case NE.toList (plannedResources operation) of
+        [stateful]
+          | plannedAction operation == CreateResource
+          , role stateful == "statefulset" ->
+              case [ scope
+                   | scope <- scopes
+                   , stateful `elem` managedOf scope
+                   , all
+                       (\key -> Map.member key (Resource.scopeOverrides scope))
+                       [ "restore.id"
+                       , "restore.target.database"
+                       , "restore.backup.scope"
+                       , "restore.target.statefulset.uid"
+                       , "restore.target.pvc.uid"
+                       ]
+                   ] of
+                [scope] ->
+                  let managed = managedOf scope
+                      members = Set.fromList managed
+                   in length managed == 4
+                        && Set.fromList (map role managed) == Set.fromList ["service", "pvc", "statefulset", "job"]
+                        && length reviewed <= 5
+                        && all (\entry -> all (`Set.member` members) (NE.toList (plannedResources entry))) reviewed
+                        && all (\entry -> plannedAction entry `elem` [CreateResource, RunDeclaredOperation]) reviewed
                 _ -> False
         _ -> False
 

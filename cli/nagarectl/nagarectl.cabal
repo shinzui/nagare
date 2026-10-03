@@ -148,6 +148,7 @@ library
     Nagare.Inventory.Adapters.KubernetesRuntime
     Nagare.Inventory.Adapters.Pulumi
     Nagare.Inventory.Adapters.PulumiRuntime
+    Nagare.Inventory.Adapters.RestoreScratch
     Nagare.Inventory.Application
     Nagare.Inventory.Artifact
     Nagare.Inventory.BackendMap
@@ -518,6 +519,7 @@ test-suite nagarectl-test
     InventoryPreviewCleanupSpec
     InventoryPreviewRecoverySpec
     InventoryPublicationSpec
+    InventoryRedisRestoreRecoverySpec
     InventoryRefusedPreflightRecoverySpec
     InventorySpec
     InventoryStatusSpec
