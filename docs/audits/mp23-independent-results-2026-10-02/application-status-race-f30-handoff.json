@@ -1,0 +1,53 @@
+{
+  "finding": "F30",
+  "status": "Native closure pending; stopped at user instruction",
+  "sourceCommits": [
+    "95b58a24",
+    "52432400"
+  ],
+  "binarySha256": "ab3aabf78900b716009f43437e568ac24eb2ec9264b274baeb588e44ca3186a2",
+  "oldTransactionStop": {
+    "exit": 0,
+    "seconds": 3.589,
+    "preservedAcceptedConvergedRetainedCollected": true,
+    "idleHeadGeneration": 9293,
+    "idleHeadSequence": 9190
+  },
+  "newReview": "b4da295e7e89a728b43ea21b870fd9514de21ce08e203a779ae44174f0149d72",
+  "reviewOperations": {
+    "CreateResource": 1,
+    "VerifyResource": 9,
+    "UpdateResource": 1
+  },
+  "unselectedScopeRevisionsPreservedAtReview": 31,
+  "newNativeVersion": 2,
+  "apply": {
+    "exit": -2,
+    "seconds": 183.115
+  },
+  "activeTransaction": "tx-b4da295e7e89a728b43ea21b870fd9514de21ce08e203a779ae44174f0149d72",
+  "headGeneration": 9314,
+  "headSequence": 9210,
+  "executorClaim": {
+    "clientIdentity": "client-25bf8e1a2393f1108d37029b",
+    "epoch": 1,
+    "timestamp": "2026-10-03T03:08:29Z",
+    "transaction": "tx-b4da295e7e89a728b43ea21b870fd9514de21ce08e203a779ae44174f0149d72"
+  },
+  "lastObservedService": {
+    "uid": "470ff139-7908-4e1d-97e7-fc7c1562eb09",
+    "generation": 2,
+    "observedGeneration": 2,
+    "ConfigurationsReady": "True",
+    "Ready": "Unknown",
+    "RoutesReady": "Unknown",
+    "reason": "Waiting for load balancer to be ready"
+  },
+  "beforeRepairDatabaseUid": "03a23352-5e4e-4450-9618-0ce34abd25de",
+  "beforeRepairPvcUid": "15138d3a-87d8-4f3a-83b8-25f1107fb633",
+  "beforeRepairKnownRow": "1|mp23-original-data-before-correction",
+  "finalDataVerificationPerformed": false,
+  "replayPerformed": false,
+  "providerRollbackOrPatch": false,
+  "privateEvidenceRoot": "/tmp/mp23-independent-application-correction"
+}

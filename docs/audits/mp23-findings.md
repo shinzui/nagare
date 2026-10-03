@@ -875,6 +875,17 @@ race after refresh. Execute the fresh correction, prove the same Service/databas
 PVC identities and known row, and complete independent F16 verification. No generic precondition
 relaxation, history reset or raw patch is authorized.
 
+**Stopped handoff (2026-10-02):** The independently executed bounded stop
+succeeded and preserved all ownership/convergence/retention vectors. Source fixes
+`95b58a24` and `52432400` then prepared a version-2 update with one dependent
+ConfigMap create, nine verifies, and all 31 unrelated scopes preserved. The
+conditional Service update landed on its original UID; generation 2 was observed
+and ConfigurationsReady became True, while route/load-balancer readiness remained
+Unknown. At the user's instruction, only the waiting CLI was interrupted after
+183.115 seconds. No rollback or provider patch occurred. The original new
+transaction remains preserved; final data/replay checks were not run. F30 native
+closure remains pending. [Exact stopped state](mp23-independent-results-2026-10-02/application-status-race-f30-handoff.json).
+
 ## F31
 
 **Registry refresh cadence permits credentials to expire before its next run** — P1; **Open**; owners EP-154 / EP-156.
