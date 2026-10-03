@@ -190,6 +190,12 @@ mkKubernetesRuntimeObservations stable config resolveCacheKey specs =
               | owner == mutationResource mutation
               , digest == mutationNativeDigest mutation ->
                   pure (collectionDeleteRequest (mutationAddress mutation) uid revision)
+            -- A retained StatefulSet is usually scaled down or unready; the
+            -- server preconditions still bind its exact UID and version.
+            (RetireResource, KubernetesNotReady uid revision (Just owner) digest)
+              | owner == mutationResource mutation
+              , digest == mutationNativeDigest mutation ->
+                  pure (collectionDeleteRequest (mutationAddress mutation) uid revision)
             (UpdateResource, KubernetesPresent _ _ _ _)
               | not (supportedUpdateAddress (mutationAddress mutation)) ->
                   pure (Left "Kubernetes update kind lacks a proved conditional mutation policy")
@@ -267,11 +273,7 @@ collectionDeleteRequest address uid revision = case address of
                 , "preconditions"
                     .= object
                       ["uid" .= physicalIdentityText uid, "resourceVersion" .= revision]
-                , "propagationPolicy"
-                    .= ( if group == "batch" && nameText kind == "job"
-                           then "Background"
-                           else "Orphan" :: Text
-                       )
+                , "propagationPolicy" .= collectionPropagation group (nameText kind)
                 ]
             )
         let path =
@@ -285,9 +287,20 @@ collectionDeleteRequest address uid revision = case address of
         pure (["delete", "--raw", path, "-f", "-"], TE.decodeUtf8 bytes)
   _ -> Left "conditional collection does not support this Kubernetes kind"
 
+-- | Job and StatefulSet Pods are exclusive controller children: orphaning them
+-- would leave a running database writer on a retained PVC after its
+-- StatefulSet is gone. Other admitted kinds have no controlled children.
+collectionPropagation :: Text -> Text -> Text
+collectionPropagation "batch" "job" = "Background"
+collectionPropagation "apps" "statefulset" = "Background"
+collectionPropagation _ _ = "Orphan"
+
 collectionPathPrefix :: Text -> Text -> Maybe String
 collectionPathPrefix "" kind
-  | kind `elem` ["configmap", "service", "persistentvolumeclaim"] = Just "/api/v1"
+  | kind `elem` ["configmap", "service", "persistentvolumeclaim", "serviceaccount"] = Just "/api/v1"
+collectionPathPrefix "apps" "statefulset" = Just "/apis/apps/v1"
+collectionPathPrefix "rbac.authorization.k8s.io" kind
+  | kind `elem` ["role", "rolebinding"] = Just "/apis/rbac.authorization.k8s.io/v1"
 collectionPathPrefix "batch" "cronjob" = Just "/apis/batch/v1"
 collectionPathPrefix "batch" "job" = Just "/apis/batch/v1"
 collectionPathPrefix "serving.knative.dev" "service" = Just "/apis/serving.knative.dev/v1"

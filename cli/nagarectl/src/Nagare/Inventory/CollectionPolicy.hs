@@ -22,7 +22,13 @@ supportsRetainedCollection declaration =
       (CdnExecutor, DnsRecord {}) -> scopeKind (declaration ^. #owner) `elem` [Application, Standalone]
       (CdnExecutor, CloudflareDnsRecord {}) -> scopeKind (declaration ^. #owner) `elem` [Application, Standalone]
       (KubernetesExecutor, Kubernetes _ "" kind (Just _) _) ->
-        nameText kind `elem` ["configmap", "service", "persistentvolumeclaim"]
+        nameText kind `elem` ["configmap", "service", "persistentvolumeclaim", "serviceaccount"]
+      -- Database and broker StatefulSets declare no durable data themselves:
+      -- their PVC and credential Secret are separate retained members.
+      (KubernetesExecutor, Kubernetes _ "apps" kind (Just _) _) ->
+        nameText kind == "statefulset"
+      (KubernetesExecutor, Kubernetes _ "rbac.authorization.k8s.io" kind (Just _) _) ->
+        nameText kind `elem` ["role", "rolebinding"]
       (KubernetesExecutor, Kubernetes _ "batch" kind (Just _) _) ->
         nameText kind `elem` ["cronjob", "job"]
       (KubernetesExecutor, Kubernetes _ "serving.knative.dev" kind (Just _) _) ->

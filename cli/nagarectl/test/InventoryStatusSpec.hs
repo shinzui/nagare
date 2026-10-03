@@ -105,11 +105,34 @@ inventoryStatusTests =
                       Nothing
                       (known (mkName "status-fixture"))
                 }
+            deployment =
+              supported
+                { address =
+                    Kubernetes
+                      cluster
+                      "apps"
+                      (known (mkName "deployment"))
+                      (Just (known (mkName "default")))
+                      (known (mkName "status-fixture"))
+                }
+            credential =
+              supported
+                { address =
+                    Kubernetes
+                      cluster
+                      ""
+                      (known (mkName "secret"))
+                      (Just (known (mkName "default")))
+                      (known (mkName "status-fixture"))
+                }
         supportsRetainedCollection supported @?= True
         supportsRetainedCollection resource @?= False
         supportsRetainedCollection service @?= True
         supportsRetainedCollection cronJob @?= True
-        supportsRetainedCollection statefulSet @?= False
+        supportsRetainedCollection statefulSet @?= True
+        supportsRetainedCollection (statefulSet {lifecycle = Retain}) @?= False
+        supportsRetainedCollection deployment @?= False
+        supportsRetainedCollection credential @?= False
         supportsRetainedCollection clusterScoped @?= False
     , testCase "read-only status does not initialize a missing inventory store" $
         withSystemTempDirectory "inventory-status" $ \temporary -> do
