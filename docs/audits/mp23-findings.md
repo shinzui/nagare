@@ -67,12 +67,12 @@ This is the authoritative list of implementation findings for [MP-23](../masterp
 | [F46](#f46) | P1 | A retired site's edge DNS record can never be collected, because retained release history orders after it | Verifying | EP-158 / EP-156 |
 | [F47](#f47) | P2 | CDN platform outputs are read with the caller's Pulumi environment, not the active context's | Verifying | EP-158 |
 | [F48](#f48) | P2 | Inventory evidence names the manifest's payload without checking the payload the context runs | Open | MP-26 (EP-168 port) |
-| [F49](#f49) | P1 | An out-of-band replacement of an accepted database is reported converged, and its new incarnation's receipts plan for ingestion | Verifying | EP-159 / EP-153 |
+| [F49](mp23-archive/mp23-findings-closed.md#f49) | P1 | An out-of-band replacement of an accepted database is reported converged, and its new incarnation's receipts plan for ingestion | Closed | EP-159 / EP-153 |
 | [F50](mp23-archive/mp23-findings-closed.md#f50) | P2 | One transient failed gcloud read makes the state-bucket ownership guard stop a run | Closed | EP-156 |
 | [F51](#f51) | P2 | Retirement retains an out-of-band replacement's identity instead of the accepted incarnation | Open | EP-153 / EP-159 |
 | [F52](#f52) | P2 | Incarnation records are keyed by resource ID, so a reviewed address-changing migration reads as `replaced-incarnation` until it converges | Open | EP-153 |
 
-Closed findings keep their full text, location, implementation updates and verification in [the closed-findings archive](mp23-archive/mp23-findings-closed.md). F01 and F11 retain their [earlier independent closure](mp23-archive/mp23-verification.md). F02, F03, F04, F05, F06, F07, F08 and F20 now have [2026-10-02 independent closure](mp23-independent-verification-2026-10-02.md). F34, F35, F36, F37, F38, F41 and F42 have 2026-10-04 independent closure on candidate `7596632c`, and F50 on candidate `847543896d07` ([records](mp23-independent-results-2026-10-04/phase1-source-and-regressions-7596632c.md)). Other entries retain their status shown above.
+Closed findings keep their full text, location, implementation updates and verification in [the closed-findings archive](mp23-archive/mp23-findings-closed.md). F01 and F11 retain their [earlier independent closure](mp23-archive/mp23-verification.md). F02, F03, F04, F05, F06, F07, F08 and F20 now have [2026-10-02 independent closure](mp23-independent-verification-2026-10-02.md). F34, F35, F36, F37, F38, F41 and F42 have 2026-10-04 independent closure on candidate `7596632c`, and F49 and F50 on candidate `847543896d07` ([records](mp23-independent-results-2026-10-04/phase1-source-and-regressions-7596632c.md)). Other entries retain their status shown above.
 
 ## F15
 
@@ -425,75 +425,6 @@ Remaining: B3 including collection on the next frozen candidate, and independent
 **Required repair/verification:** the runner records `nagarectl platform root --json` (payload id, source revision, digest), and the assembler requires its revision to equal the manifest's. Prove it with real runner output for both cases: a matching run assembles and a mixed run is refused. ADR 24 freezes the shell tools and assigns feature work to their Haskell port, so this lands with the EP-168 port.
 
 **Procedural guard until then:** each acceptance run bootstraps a fresh context from the candidate's own payload (runbook §6 step 0 and §7). The operator records `platform root --json` in the run root and confirms its `revision` equals the candidate before the runner's plan.
-
-## F49
-
-**An out-of-band replacement of an accepted database is reported converged, and its new incarnation's receipts plan for ingestion** — P1; **Verifying**; owners EP-159 / EP-153.
-
-**Native evidence (2026-10-04, candidate `7596632c`, C2 context on cp3):** The EP-159 source-replacement drill ([procedure and results](mp23-implementer-results-2026-10-03/ep159-source-replacement-7596632c.json), implementer nagare-phase-b, commit `d19df6d1`) replaced the accepted throwaway database `personal/ep159-throwaway` out of band:
-- StatefulSet `aa482c54…` became `ffd8af26…`, and PVC `8ab1d859…` became `51889c7f…`. The deletes were preconditioned raw DELETEs, followed by `kubectl create` from the saved objects, which carry the original `nagare.dev` identity annotations.
-- The replacement destroyed the data. Independent read by nagare-reviewer after the claim was released: in the live database, `to_regclass('public.ep159_known')` is null.
-- `inventory status --json` nevertheless classifies all ten throwaway members, StatefulSet and PVC included, as `converged`.
-- Receipt B, a pending pre-replacement receipt, is refused at planning, and isolated restore of the ingested receipt A is refused. Both are correct.
-- But receipt C, written by the replaced (empty) incarnation, saves an ingestion review (`db backup-receipts ep159-throwaway --backup-id C --save-plan`, exit 0, review `c79b06dc…`). It was not applied, so the apply-time behaviour is unverified.
-- Independent read of the head: the accepted throwaway scopes are exactly the database and receipt A; C was not ingested. The head is idle at generation 1510, sequence 1387.
-
-**Cause (source, reviewer read):**
-- `Nagare.Inventory.Status.classifyDrift` maps every `ObservedPresent uid` of an accepted member to `Converged` without comparing `uid` with the member's accepted incarnation. Retained members are compared (`retainedPhysical`, `Status.hs` around line 193).
-- Receipt ingestion builds its expectation from the live source's StatefulSet and PVC UIDs (`ScheduledIngest`, `scheduledReceiptExpectationFromCronJob`), not from the UIDs accepted for the database. A receipt from a same-name replacement therefore matches.
-
-**Why it matters:** after a source is destroyed and recreated out of band, the operator surface reports it healthy. Backups of the new, empty incarnation can become recovery points, freshness can turn healthy, and the earlier good receipts stay refused for isolated restore. This contradicts EP-159's re-scoped claim that "out-of-band replacement refuses ingestion and isolated restore".
-
-**Required repair/verification:**
-- Bind accepted stateful members, at least database StatefulSets and PVCs, to their accepted physical incarnation. Status must report a same-name replacement (for example as `foreign-owner`, `replacement-required` or a dedicated category), never `converged`.
-- Refuse receipt ingestion whose source UIDs differ from the accepted incarnation, not only from the live one.
-- Regression: a fake observation with the accepted annotations but a new UID is not `converged`, and ingestion of a receipt naming that new UID refuses at planning.
-- Native: rerun the EP-159 drill on a fresh throwaway database, taking the signing-key escrow **before** the replacement, so that step 7b (escrowed verification of A) is also evidenced. Show that C's ingestion refuses and that status reports the replacement.
-- Whether this blocks the MP-23 release is the operator's decision.
-
-**Implementation update (2026-10-04, claude-opus-5-5, nagare-phase-b; the operator decided to fix F49 before the release):**
-- **The record.** The head gains `incarnations`: the provider UID of each data-bearing Kubernetes member that a converged review created, adopted, updated or verified (`Execute/Incarnations`, recorded in `Claims.releaseClaimWith`).
-  - Data-bearing means durable members (a database's PVC and credential) and StatefulSets.
-  - The first commit (`38815245`) bound only durable members, which left the stateless StatefulSet unbound. The independent source review caught this, and the follow-up commit binds StatefulSets too, as the required repair asked ("at least StatefulSets and PVCs").
-  - A create or adoption establishes the record.
-  - An update or verification binds only a missing record, so a later review never launders a replacement.
-  - Retained and collected members drop their record.
-  - The field is omitted when empty, so existing heads keep their bytes.
-- **Status.** `Status.classifyDriftWith` reports `replaced-incarnation` (never `converged`) when the observed UID differs from the record.
-- **Ingestion.** `ScheduledIngest.compileScheduledIngestScope` refuses with "scheduled receipt source is not the accepted database incarnation; it was replaced outside Nagare" when the live StatefulSet or PVC differs from the record.
-- **Listing and freshness.** `db backup-receipts`, including `--check-freshness`, refuse to grade a replaced source with the same message.
-- **ADR 22** is amended.
-- **Regressions:** `test/InventoryIncarnationSpec.hs`.
-  - Convergence records a created durable member, then a reviewed update of a replacement object leaves the record unchanged.
-  - Convergence records a StatefulSet, which is stateless.
-  - Status classifies a different UID as `replaced-incarnation`, the same UID as `converged`, and no record as `converged`.
-  - Ingestion refuses a replaced StatefulSet or PVC, but not the recorded incarnation or a store without a record.
-
-  The tests use the new API, so each guard was checked by mutation: removing the convergence recording, the status comparison, the ingestion comparison or the never-rebind rule fails exactly its regression. All 1,187 nagarectl tests, the style check and the architecture check pass.
-- **Known limits (from the independent source review), recorded in ADR 22:**
-  - Recording is fail-open. An unavailable observation at convergence records nothing, and the next update or verification binds the live object.
-  - Members without a record pass status and ingestion as before.
-  - Binding from the journal's completion identity is follow-up work.
-- **Native rerun still required:** the EP-159 drill on a fresh throwaway, with the escrow taken before the replacement, showing C's ingestion refused, status `replaced-incarnation`, and 7b evidenced.
-- **Implementer native evidence (2026-10-04, frozen candidate `84754389`, the C2 context on cp3; [record](mp23-implementer-results-2026-10-03/ep159-source-replacement-84754389.json)):**
-  - Before the replacement, the head's incarnations equalled the live StatefulSet and PVC UIDs (the StatefulSet is bound).
-  - After the out-of-band replacement, status reported `replaced-incarnation` for exactly the throwaway's StatefulSet and PVC. The C2 run on this context had shown zero such findings after C1 and before the runner.
-  - Ingesting pending receipt B and restoring ingested receipt A both refused.
-  - `db backup-receipts` listing and `--check-freshness` refused the replaced source with F49's message.
-  - With the escrow taken before the replacement, A verified (7b).
-  - The incarnation records were unchanged through every refusal.
-  - The joint retire of the database and receipt scopes converged, the store is idle, and no other object changed.
-- **Gaps in that native run:**
-  - Receipt C, written by the replacement at 22:30Z (Job `6360c2ef…`), was not attempted. The driver discovered receipts through the listing, which now refuses the replaced source. The unit regression covers C's ingestion refusal.
-  - Retirement retained the replacement's UIDs (StatefulSet `b131b5a7…`, PVC `4a6d653c…`), not the recorded incarnation, because retirement binds what it observes. A later collection would target the replacement.
-- **Receipt C, native (2026-10-04, `84754389`, [record](mp23-implementer-results-2026-10-03/f49-receipt-c-84754389.json)):** a fresh throwaway was replaced out of band, and its 22:45Z backup Job (`43925446…`, UID taken from kubectl) wrote receipt C from the replacement.
-  - `db backup-receipts f49c-throwaway --backup-id C --save-plan DIR` refused: exit 1, "scheduled receipt source is not the accepted database incarnation; it was replaced outside Nagare".
-  - No review directory existed before or after, and the head was unchanged.
-  - The incarnation records were unchanged, and status listed `replaced-incarnation` for exactly the throwaway's StatefulSet and PVC.
-
-**Cleanup note:** `db retire ep159-throwaway` refuses with `dangling-reference` (receipt A's scope consumes the database's backup producer). The joint `inventory retire --scope standalone:database-ep159-throwaway --scope standalone:database-scheduled-receipt-personal-ep159-throwaway-42fee7bd-299e-47a7-90e4-fd726f5c9783 --out DIR` plans successfully (reviewer, read-only, head unchanged). That joint retire is the supported path for a database with ingested receipts.
-
-**Verification (2026-10-04, nagare-reviewer, candidate `847543896d07`):** Source read (`38815245`, `84754389`). All 1,190 tests pass at the candidate. The reviewer's own mutations each fail exactly their regression: removing recording at convergence, disabling the status comparison, disabling the ingestion check, allowing a Proved rebind, and dropping StatefulSet selection ([mutations](mp23-independent-results-2026-10-04/candidate-84754389-mutations.txt)). Native read-only cross-checks: the C2 head records the eight incarnations of the platform `en-db` and `shomei-db` members, and they equal the live UIDs. The drill v2 record matches its raw outputs (`pending-evidence/ep159/`): B and restore A refused, listing and `--check-freshness` refused with F49's message, 7b verified A, and `replaced-incarnation` appeared for exactly the throwaway's StatefulSet and PVC. **Not yet closed:** receipt C, the case this finding was opened for, still has no native refusal. `db backup-receipts --backup-id C --save-plan` does not go through the listing's source check (`resolveScheduledSource`). It observes the live UIDs and relies only on the F49 check in `compileScheduledIngestScope`, which only the unit regression covers. Also, `receipt-C.txt` records "no receipt C appeared", although a 22:30Z Job succeeded; correct that record. **Next check:** a native C ingestion attempt on a fresh throwaway, taking the Job UID from `kubectl`, must refuse with no review saved and the head unchanged. Two defects in the fix's surroundings are opened separately: [F51](#f51) and [F52](#f52).
 
 ## F51
 
