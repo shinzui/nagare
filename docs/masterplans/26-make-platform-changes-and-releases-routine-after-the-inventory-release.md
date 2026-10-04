@@ -9,6 +9,12 @@ provenance:
     model: "claude-opus-5-5"
     harness: "claude-code"
     at: 2026-10-04T04:49:45Z
+  revisions:
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-04T14:16:36Z
+      mode: "update"
+      note: "ADR 24 tooling decision"
 ---
 
 # Make platform changes and releases routine after the inventory release
@@ -109,6 +115,10 @@ Not started. Begins after MasterPlan 23 closes; EP-168 may start earlier as harn
 
 - Decision: Prove candidate-to-candidate upgrade mechanics here on disposable contexts, and leave work-data upgrade policy to MasterPlan 24 and MasterPlan 21.
   Rationale: The mechanics can be proven now and remove the rebuild-per-candidate cost; work-data policy depends on MasterPlan 24's evaluation and must not be pre-empted.
+  Date: 2026-10-04
+
+- Decision: New tooling in every stream is Haskell, under [ADR 24](../adr/0024-release-and-harness-tooling-follows-the-production-haskell-standard.md) (operator decision): the production standard, shared `nagarectl` types, real-output fixtures, no Python embedded in shell. The existing Python and shell tools are frozen; each stream ports the tools it touches. EP-168 starts this with the `nagare-harness` package.
+  Rationale: MasterPlan 23's acceptance ran on untested shell-plus-Python glue, which led to the F42 assembler defect and to one unassemblable acceptance run.
   Date: 2026-10-04
 
 
