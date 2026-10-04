@@ -35,6 +35,7 @@ import Nagare.Cli.Inventory.Foundation (foundationImageLink)
 import Nagare.Cli.Runtime.Cluster (guardKubernetesContext)
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Cli.Runtime.ProjectGuard (projectGuardInputsFor)
+import Nagare.Cli.Runtime.Pulumi (ensurePulumiInWorkspaceWithDependencies)
 import Nagare.Dsl.Prelude
 import Nagare.Host.Config (hostConfigDir, readContextHostName)
 import Nagare.Inventory.Adapter qualified as InventoryAdapter
@@ -298,6 +299,8 @@ inventoryDnsAdapter active workspace binding specs accepted
         (context == binding ^. #identity)
         (dieT "DNS inventory review belongs to a different context")
       project <- either dieT pure (Resource.mkName (active ^. #profile . #project))
+      -- The guard reads platform outputs through pulumi; use the context's backend (F47).
+      ensurePulumiInWorkspaceWithDependencies False False False (active ^. #contextName) (active ^. #profile) workspace
       let config =
             CdnRuntime.DnsRuntimeConfig
               { CdnRuntime.dnsRuntimeProject = project
@@ -322,11 +325,15 @@ inventoryDnsAdapter active workspace binding specs accepted
                               _ -> Left "reviewed DNS account, zone, or target differs from the platform outputs"
                         case expected of
                           Left reason -> pure (Left reason)
-                          Right () ->
+                          Right () -> do
+                            -- The program owns the apex and publishes its target. An inventory
+                            -- context keeps the apex on the VM (nagare:cdnApex false), so check
+                            -- the published apexIp; older stacks without it use the CDN IP (F45).
+                            apex <- stackOutput (workspace ^. #pulumiDir) "apexIp"
                             verifyGcpDnsReference
                               refs
                               (active ^. #profile . #baseDomain)
-                              (refs ^. #globalIp)
+                              (fromMaybe (refs ^. #globalIp) apex)
               , CdnRuntime.dnsRuntimeSpecs = specs
               }
       pure (mkDnsAdapter accepted specs (CdnRuntime.dnsRuntimeOps config))

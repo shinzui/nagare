@@ -1906,11 +1906,7 @@ renderTests =
                         (scopeInputOverrides input)
                     )
               }
-      (cdnScope, cdnNative) <-
-        either
-          (fail . ("cdn: " <>) . show)
-          pure
-          (compileApplicationScope cdnInput)
+      (cdnScope, cdnNative) <- either (fail . ("cdn: " <>) . show) pure (compileApplicationScope cdnInput)
       let dnsMembers =
             [ resource
             | bundle <- scopeBundles cdnScope
@@ -1928,6 +1924,8 @@ renderTests =
           assertBool
             "DNS operation must not impersonate a Kubernetes native member"
             (Map.notMember (dns ^. #identity) cdnNative)
+          -- Retained release history must not order after the edge record (F46).
+          [r ^. #identity | b <- scopeBundles cdnScope, Managed r <- declarations b, OrderedAfter (dns ^. #identity) `elem` r ^. #dependencies] @?= []
         _ -> assertFailure "reviewed application did not bind one Google DNS record"
       Map.size cdnNative @?= Map.size native + 1
       assertBool

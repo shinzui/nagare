@@ -75,20 +75,22 @@ dnsSpecsFromDeclarations declarations = do
       | Managed resource <- declarations
       , DnsRecord {} <- [resource ^. #address]
       ]
+    -- Canonical scope bytes sort dependencies, so match the two producers by
+    -- role rather than by position (F45).
     bind resource = case (resource ^. #address, resource ^. #spec) of
       (DnsRecord _ _ host, DnsARecord _ _)
         | Hostname host `elem` resource ^. #aliases
-        , [domain, backend] <- [producer | OrderedAfter producer <- resource ^. #dependencies]
-        , Just (Managed domainResource) <- Map.lookup domain byId
-        , Just (Managed backendResource) <- Map.lookup backend byId
-        , resource ^. #owner == domainResource ^. #owner
-        , case domainResource ^. #address of
-            Kubernetes _ "serving.knative.dev" kind _ domainHost ->
-              nameText kind == "domainmapping" && domainHost == host
-            _ -> False
-        , backendResource ^. #executor == PulumiExecutor ->
+        , producers@[_, _] <- [producer | OrderedAfter producer <- resource ^. #dependencies]
+        , members <- [member | producer <- producers, Just (Managed member) <- [Map.lookup producer byId]]
+        , [domainResource] <- filter (isDomainFor host) members
+        , [_backend] <- filter ((== PulumiExecutor) . (^. #executor)) members
+        , resource ^. #owner == domainResource ^. #owner ->
             Right (resource ^. #identity, DnsBinding resource)
       _ -> Left "DNS resource lacks its exact hostname, domain, or Pulumi backend dependency"
+    isDomainFor host member = case member ^. #address of
+      Kubernetes _ "serving.knative.dev" kind _ domainHost ->
+        nameText kind == "domainmapping" && domainHost == host
+      _ -> False
 
 mkDnsAdapter :: Map ResourceId ManagedResource -> Map ResourceId DnsBinding -> DnsAdapterOps -> Adapter
 mkDnsAdapter accepted specs ops =

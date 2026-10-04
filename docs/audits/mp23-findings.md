@@ -63,6 +63,9 @@ This is the authoritative list of implementation findings for [MP-23](../masterp
 | [F42](#f42) | P1 | The managed-resource evidence assembler can never accept real runner output | Verifying | EP-157 |
 | [F43](#f43) | P1 | A fresh inventory context cannot enable the platform Google CDN backend, so B3 cannot run | Verifying | EP-158 / EP-156 |
 | [F44](#f44) | P1 | Inventory status on a cloud context never observes cloud-foundation members, so cloud runner evidence cannot assemble | Verifying | EP-153 / EP-157 |
+| [F45](#f45) | P1 | Reviewed Google CDN deploy on an inventory context cannot observe or apply its DNS record | Verifying | EP-158 / EP-156 |
+| [F46](#f46) | P1 | A retired site's edge DNS record can never be collected, because retained release history orders after it | Verifying | EP-158 / EP-156 |
+| [F47](#f47) | P2 | CDN platform outputs are read with the caller's Pulumi environment, not the active context's | Verifying | EP-158 |
 
 Closed findings keep their full text, location, implementation updates and verification in [the closed-findings archive](mp23-archive/mp23-findings-closed.md). F01 and F11 retain their [earlier independent closure](mp23-archive/mp23-verification.md). F02, F03, F04, F05, F06, F07, F08 and F20 now have [2026-10-02 independent closure](mp23-independent-verification-2026-10-02.md). Other entries retain their status shown above.
 
@@ -418,3 +421,53 @@ Remaining: native B3 on the next candidate's fresh context (created with `--enab
 **Implementation update (2026-10-03; claude-opus-5-5, nagare-phase-b):** `inventory status` now builds the cloud-foundation adapter whenever accepted members use `CloudFoundationExecutor`, with the same `inventoryFoundationAdapter` path planning and execution use: the full accepted declarations, the selected member IDs, the platform workspace, the backend and inventory bucket checks. It observes through the adapter's read-only `foundationInspect` (bucket and stack describe), adds those facts to the observation set, and lists the adapter among the providers. To stop a future executor from being silently unobserved, `Executor` derives `Enum`/`Bounded`, `Nagare.Inventory.Status.missingStatusObservers` returns every executor without an observer, and status refuses to run if any is missing. Regression: `test/InventoryObservationSpec.hs` "inventory status must register an observer for every executor (F44)" fails for the pre-F44 observer set and passes with the cloud-foundation observer. This is a structural regression, not an end-to-end status run on a cloud fixture; the native check on `mp23-c3f` remains the proof that the final observation is complete. Gates: in a clean worktree at HEAD plus only these changes, all 1,178 `nagarectl` tests pass except the 18 that compile fixture configs, which fail there for want of a GHC package environment and pass in the main tree; the new test passes; fourmolu and both architecture checks pass.
 
 **Native verification (2026-10-03, nagare-f3 on the C3 checkpoint `mp23-c3f`, HEAD `9c831749` built into a separate build directory; recorded by nagare-phase-b):** `inventory status --json` reported `observationComplete: true` and `missingProviders: []`, listed the `gcloud-foundation` provider beside the Kubernetes, Helm, Pulumi, artifact, host, manifest and Redpanda providers, and classified all 306 findings `converged`, including the Pulumi stack and the state bucket. Evidence: `/private/tmp/nagare-mp23-c3f/pending-evidence/f44-status/status.json; summary archived in [the C3 checkpoint record](mp23-implementer-results-2026-10-03/c3-checkpoint-14071e58.json)` (to be archived with the C3 results). Remaining: the final candidate's C3 runner observation and independent review.
+
+## F45
+
+**Reviewed Google CDN deploy on an inventory context cannot observe or apply its DNS record** — P1; **Verifying**; owners EP-158 / EP-156.
+
+**Implementer native evidence (2026-10-04, claude-opus-5-5, candidate `7d486457`, final C3 context `mp23-c3g`):** B3 deployed the `scenario-cdn` server site (fixture `fixtures/inventory-release/gcp/apps/scenario-cdn`) with `--cdn-backend-resource platform:cloud/nagare-cdn-backend/nagare-cdn-backend` on a context created with `--enable-cdn`. Three defects stopped it in turn:
+- **(a) Observation unavailable.** The DNS adapter's guard required the apex record to point at the CDN global IP. F43 keeps the apex on the VM for an inventory context (`nagare:cdnApex: "false"`), so the guard always refused and the planner reported the record's observation as unavailable, although the exact `gcloud dns record-sets list` returned `[]` (missing).
+- **(b) Apply refused before any DNS change:** "DNS resource lacks its exact hostname, domain, or Pulumi backend dependency". Execution built the DNS bindings from the review's selected declarations only. The record's backend producer lives in the accepted platform `cloud` scope, which the site review does not select.
+- **(c) Positional binding.** `dnsSpecsFromDeclarations` expected the record's two `OrderedAfter` producers in the order `[domain, backend]`. Canonical scope encoding sorts dependencies, so an accepted record arrives in either order.
+
+**Implementation update (2026-10-04; claude-opus-5-5):**
+- (a) The guard reads the program's published `apexIp` output (`infra/pulumi/index.ts`; the VM IP when `cdnApex` is false, the CDN IP otherwise) and falls back to the CDN IP only for older stacks without that output (`app/Nagare/Cli/Inventory/Adapters.hs`). A failed read still compares against the CDN IP, so the guard stays fail-closed.
+- (b) When a review contains DNS records, execution binds them against the review's declarations unioned with the accepted history's declarations (`app/Nagare/Cli/Inventory/Execution.hs`). The review still decides what changes; history only supplies the producers.
+- (c) The binding matches producers by role: exactly two producers, exactly one Knative DomainMapping for the record's host with the same owner, and exactly one Pulumi member (`src/Nagare/Inventory/Adapters/Cdn.hs`).
+- **Regression:** `test/InventoryCdnSpec.hs` "DNS binding matches producers by role after canonical dependency sorting (F45)" fails on the old positional binding and passes now. It also proves that a record without its Pulumi backend producer still does not bind. (a) and (b) live in the executable's `app/` modules, which the test suite cannot import; their proof is native.
+- **Native (development CLI built from these changes, platform root pinned to the accepted `7d486457` payload):** on `mp23-c3g` the `scenario-cdn` deploy converged with the host record on the CDN IP `34.36.179.6`; the apex and wildcard records were unchanged. A reviewed `cdn disable` converged with the record back on the VM origin `136.118.42.29`. Retirement converged with the record retained. Collection was then blocked by F46.
+
+Remaining: B3 and the `google-cdn` check on the next frozen candidate, and independent review.
+
+## F46
+
+**A retired site's edge DNS record can never be collected, because retained release history orders after it** — P1; **Verifying**; owners EP-158 / EP-156.
+
+**Implementer native evidence (2026-10-04, claude-opus-5-5, final C3 context `mp23-c3g`):** After F45, the reviewed collection of the retained record `standalone:site-scenario-cdn/scenario-cdn.c3-1005.labs.topagentnetwork.net/dns-a` refused with `invalid-collection`. `inventory gc --plan` named the consumer: `standalone:site-scenario-cdn/release-history/configmap`. The release-history ConfigMap has lifecycle `Retain` by design, so it is never collected, and its dependencies included `OrderedAfter` the DNS record. That edge therefore blocks the record forever.
+
+**Cause (source):** The server and static site compiler (`src/Nagare/Inventory/Site.hs`) ordered release history after every managed member of the CDN bundles. The application compiler (`src/Nagare/Inventory/Application/Release.hs`) ordered it after every prior bundle member, CDN records included. History does not read DNS; the edge was only ordering.
+
+**Implementation update (2026-10-04; claude-opus-5-5):**
+- Site release history no longer orders after CDN bundle members. Both DNS compilers (`Nagare.Resource.Cdn` in `nagare-dsl`) emit only `CdnExecutor` members.
+- Application release history skips `CdnExecutor` members.
+- **Regressions:** `test/Nagare/Test/SiteInventory/Server.hs` (Cloudflare server site) and `test/AppDeploySpec.hs` (Google CDN application) assert that no member orders after the edge record. Both fail on the old compilers and pass now.
+- **Native (development CLI):** on `mp23-c3g` a fresh site `scenario-cdn2` (the retired `scenario-cdn` cannot be redeployed while its retained claims hold its addresses) ran the whole B3 cycle with exact zone listings after each step. Its history depended only on the namespace, image, domain mapping and service. The steps:
+  - deploy: the record was on the CDN IP;
+  - disable: the record was on the VM origin;
+  - retire: the record was retained;
+  - **collect** converged (`tx-e9cf9746…`) and the record was gone.
+- **Limitation:** histories accepted before this change keep the edge. On `mp23-c3g` the original `scenario-cdn` record stays retained until the context's perimeter teardown deletes the zone.
+
+Remaining: B3 including collection on the next frozen candidate, and independent review.
+
+## F47
+
+**CDN platform outputs are read with the caller's Pulumi environment, not the active context's** — P2; **Verifying**; owner EP-158.
+
+**Implementer native evidence (2026-10-04, claude-opus-5-5, `mp23-c3g`):** The CDN binding for `site deploy`/`app deploy` (`app/Nagare/Cli/Application/Cdn.hs`) and the DNS adapter run the project guard's `pulumi config` probe and read the platform outputs with a bare `pulumi -C <dir> stack output` (`Nagare.Ops.Pulumi.stackOutput`). They inherit the caller's `PULUMI_BACKEND_URL`, `PULUMI_HOME` and passphrase rather than exporting the active context's. In a clean `env -i` runner without the Pulumi variables, a CDN deploy plan refused with "no stack named 'mp23-c3g' found". It worked only after the wrapper exported `nagarectl context env`'s Pulumi variables.
+
+**Required repair/verification:** read the outputs through the context-derived Pulumi runtime used by the cloud teardown and bootstrap paths (`prepareInfraTargetWithPulumi`). Then prove a CDN deploy plan in a clean environment that sets only the context selection.
+
+**Implementation update (2026-10-04; claude-opus-5-5):** Both paths now call `ensurePulumiInWorkspaceWithDependencies False False False` before the guard. It exports the context's backend, home, passphrase file and stack, and selects the existing stack without installing dependencies or creating a missing stack. **Native:** with the development CLI, in the same clean runner without any Pulumi variable, the `scenario-cdn3` deploy plan now succeeds and observes its DNS record as missing (`review Cloud DNS A record … -> 34.36.179.6`). It was planned only, never applied. Before the change, the same command refused as above (`pending-evidence/f47/bare-before.log`, `bare-after.log` in the operator root). No unit regression: the change is environment preparation in the executable's `app/` modules.
+

@@ -1116,11 +1116,8 @@ compileSiteRenderedScope
       _ -> Left (invalid "site CDN requires exactly one matching typed binding")
     let historyBytes = renderReleaseConfigMap name ns history
         historySource = source {path = path source <> "/release-history"}
-        workloadIds =
-          volumeIds
-            <> [serviceId]
-            <> map ((^. #identity) . fst) domainMembers
-            <> [member ^. #identity | bundle <- cdnBundles, Managed member <- declarations bundle]
+        -- Retained history never orders after edge DNS records, or they could not be collected (F46).
+        workloadIds = volumeIds <> [serviceId] <> map ((^. #identity) . fst) domainMembers
     historyMember <-
       bindOne
         owner

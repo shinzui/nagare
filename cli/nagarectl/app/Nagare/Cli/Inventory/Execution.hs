@@ -252,7 +252,17 @@ inventoryExecutionRegistry mctx store bundle = do
   allTopicSpecs <- either dieT pure (topicSpecsFromDeclarations declarations)
   let topicSpecs = Map.restrictKeys allTopicSpecs (selected ResourceInventory.BrokerExecutor)
   historicalCdn <- reviewedHistoricalCdn store bundle
-  allDnsSpecs <- either dieT pure (dnsSpecsFromDeclarations declarations)
+  -- A Google CDN host record depends on the platform BackendService, which lives
+  -- in the accepted cloud scope rather than the reviewed workload scope. Resolve
+  -- dependencies against accepted history, preferring the review's own members (F45).
+  dnsUniverse <-
+    if any isDnsRecord declarations
+      then do
+        accepted <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
+        let byId = Map.fromList . map (\declaration -> (ResourceInventory.declarationId declaration, declaration))
+        pure (Map.elems (Map.union (byId declarations) (byId (InventoryPlan.historyDeclarations accepted))))
+      else pure declarations
+  allDnsSpecs <- either dieT pure (dnsSpecsFromDeclarations dnsUniverse)
   let dnsSpecs = Map.restrictKeys (Map.union allDnsSpecs (historicalDnsBindings historicalCdn)) (Set.union (selected ResourceInventory.CdnExecutor) (Map.keysSet historicalCdn))
   cdnDeclarations <-
     either
@@ -671,6 +681,11 @@ inventoryExecutionRegistry mctx store bundle = do
 
 -- Registry construction installs callbacks without native discovery. Only an
 -- explicit bounded recovery may load the completed historical host plan.
+isDnsRecord :: ResourceInventory.Declaration -> Bool
+isDnsRecord declaration = case declaration of
+  ResourceInventory.Managed resource | Resource.DnsRecord {} <- resource ^. #address -> True
+  _ -> False
+
 bootstrapRegistryRecovery ::
   ActiveTarget ->
   InventoryStore.InventoryStore ->

@@ -54,6 +54,7 @@ import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Resource.Application (applicationScopeId)
 import Nagare.Resource.Inventory
   ( Declaration (Managed)
+  , Executor (CdnExecutor)
   , ManagedResource (dependencies)
   , ResourceBundle (ResourceBundle, declarations)
   , ScopeSnapshot
@@ -345,10 +346,13 @@ compileApplicationRelease app rollout owner cluster namespaceId imageId priorBun
   unless
     (resource ^. #address == expected)
     (Left (invalid "release metadata render has an unexpected native address"))
+  -- Retained release history must not order after edge DNS records, or those
+  -- records could never be collected (F46).
   let workloadIds =
         [ member ^. #identity
         | bundle <- priorBundles
         , Managed member <- declarations bundle
+        , member ^. #executor /= CdnExecutor
         ]
       dependencies =
         map

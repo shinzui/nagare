@@ -12,6 +12,7 @@ import Data.Text qualified as T
 import Nagare.Cdn.Provision (GcpStackRefs (GcpStackRefs))
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Cli.Runtime.ProjectGuard (projectGuardInputsFor)
+import Nagare.Cli.Runtime.Pulumi (ensurePulumiInWorkspaceWithDependencies)
 import Nagare.Dsl.Cdn.Types (Cdn, CdnProvider (CloudflareCdn))
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Server.Types (ServerSite)
@@ -68,6 +69,9 @@ reviewedGoogleCdnBinding active workspace snapshot intent rawBackend =
   case (intent, rawBackend) of
     (Nothing, Nothing) -> pure Nothing
     (Just _, Just rawBackendId) -> do
+      -- The guard and the output reads run pulumi, so export the context's
+      -- backend, home and passphrase first instead of inheriting the caller's (F47).
+      ensurePulumiInWorkspaceWithDependencies False False False (active ^. #contextName) (active ^. #profile) workspace
       guardInputs <- projectGuardInputsFor (active ^. #contextName) (active ^. #profile) workspace
       either dieT pure (projectGuardVerdict guardInputs)
       refs <- gatherGcpStackRefs (workspace ^. #pulumiDir) (active ^. #profile)

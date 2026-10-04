@@ -189,6 +189,19 @@ serverSiteInventoryTests =
         , request@InventoryModel.RegisterCloudflareCache {} <- contributions bundle
         ]
         @?= 1
+      -- Retained release history must not order after edge DNS records, or a
+      -- retired site's DNS record could never be collected (F46).
+      let cloudflareMembers = [member | bundle <- scopeBundles cloudflareScope, Managed member <- declarations bundle]
+          edgeIds = [member ^. #identity | member <- cloudflareMembers, member ^. #executor == InventoryModel.CdnExecutor]
+          historyEdges =
+            [ producer
+            | member <- cloudflareMembers
+            , member ^. #identity == Resource.mintResourceId (scopeId scope) (unsafe (Resource.mkLogicalKey "release-history")) (unsafe (Resource.mkName "configmap"))
+            , OrderedAfter producer <- member ^. #dependencies
+            ]
+      assertBool "the Cloudflare scope must contain an edge DNS record" (not (null edgeIds))
+      assertBool "release history orders after the namespace" (namespaceId `elem` historyEdges)
+      filter (`elem` edgeIds) historyEdges @?= []
       let older =
             release
               { releaseId = "v0"

@@ -164,6 +164,17 @@ inventoryCdnTests =
             (validateLifecycleDecisions candidate history observations decisions)
         _ <- either (fail . show) pure (planChanges candidate approved history observations)
         pure ()
+    , testCase "DNS binding matches producers by role after canonical dependency sorting (F45)" $ do
+        let (_, _, members) = fixture
+            backend = members !! 0
+            dns = members !! 2
+            reordered = dns & #dependencies %~ reverse
+            withoutBackend = dns & #dependencies %~ filter (/= OrderedAfter (backend ^. #identity))
+            bound = dnsSpecsFromDeclarations [Managed backend, Managed (members !! 1), Managed reordered]
+        fmap Map.keys bound @?= Right [dns ^. #identity]
+        assertBool
+          "a record without its Pulumi backend producer must not bind"
+          (isLeft (dnsSpecsFromDeclarations [Managed backend, Managed (members !! 1), Managed withoutBackend]))
     , testCase "reviewed DNS create and exact-old update bind private mutations" $ do
         let (_, _, members) = fixture
             dns = members !! 2
