@@ -31,6 +31,7 @@ import InventoryGcloudAuthSpec (inventoryGcloudAuthTests)
 import InventoryGogolSpec (inventoryGogolTests)
 import InventoryHostSpec (inventoryHostTests)
 import InventoryIntegrationSpec (inventoryIntegrationTests)
+import InventoryJournalHeadAdvanceSpec (inventoryJournalHeadAdvanceTests)
 import InventoryKubernetesConfigurationSpec (kubernetesConfigurationTests)
 import InventoryKubernetesFieldTakeoverSpec (kubernetesFieldTakeoverTests)
 import InventoryKubernetesSpec (inventoryKubernetesTests)
@@ -188,6 +189,7 @@ main = do
             , inventoryGcloudAuthTests
             , inventoryGogolTests
             , inventoryObjectOpsTests
+            , inventoryJournalHeadAdvanceTests
             , inventoryTests
             , inventoryApplicationUpdateRecoveryTests
             , inventoryRefusedPreflightRecoveryTests

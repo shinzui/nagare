@@ -56,7 +56,7 @@ This is the authoritative list of implementation findings for [MP-23](../masterp
 | [F35](#f35) | P1 | Preflight refusal after admission strands the transaction with no supported exit | Verifying | EP-153 / EP-160 |
 | [F36](#f36) | P1 | A failed Redis scratch restore cannot be abandoned and wedges the store | Verifying | EP-160 |
 | [F37](#f37) | P1 | Configuration drift written by another field manager has no reviewed repair | Verifying | EP-149 / EP-153 |
-| [F38](#f38) | P2 | A failed GCS head advance after a published journal event stops ambiguous and discards the store error | Open | EP-153 / EP-156 |
+| [F38](#f38) | P2 | A failed GCS head advance after a published journal event stops ambiguous and discards the store error | Verifying | EP-153 / EP-156 |
 | [F39](#f39) | P1 | Staged cloud teardown cannot prepare any Pulumi operation on a real stack | Verifying | EP-153 / EP-156 |
 | [F40](#f40) | P1 | A real context cannot be retired: contribution targets, scope cycles and host or artifact members block every teardown | Partial | EP-153 / EP-156 |
 | [F41](#f41) | P1 | A local node restart destroys every local backup, and local escrow verification needs the source cluster | Verifying | EP-155 / EP-159 |
@@ -283,7 +283,7 @@ The transaction then had no supported exit. `inventory recover … abandon-refus
 
 ## F38
 
-**A failed GCS head advance after a published journal event stops ambiguous and discards the store error** — P2; **Open**; owners EP-153 / EP-156.
+**A failed GCS head advance after a published journal event stops ambiguous and discards the store error** — P2; **Verifying**; owners EP-153 / EP-156.
 
 **Implementer native evidence (2026-10-03, claude-opus-5-5, candidate `db808a74`, checkpoint C3 context `mp23-c3` in `tan-ng-labs`):** The cluster-stage apply (review `58266a9b…`, 210 operations) stopped after 241 s with `ambiguous tx-58266a9b… at op-60773165…`, a `CreateResource` for ClusterRoleBinding `cert-manager-controller-approve:cert-manager-io`. The object existed, created by `nagare-inventory` at 20:38:07Z. The GCS store held `journal/00000000000000000143.json` recording that operation as `Completed` at 20:38:08Z with an intact hash chain. But `head.json` stayed at `sequence` 143, which is the next sequence to write, and its executor claim was released. So the event was published, but the head compare-and-swap that commits it failed. `inventory status` correctly reported the operation as `intent-recorded`, because the event at 143 is not yet committed. Neither stdout nor stderr carried the store error.
 
@@ -296,6 +296,26 @@ The transaction then had no supported exit. `inventory recover … abandon-refus
 - After a failed head advance, reread the head once. If it already names the event, return success. If it is unchanged and the claim is still held, retry the conditional head write a bounded number of times before stopping.
 - Make orphan adoption independent of proof equality. For example, compare against the orphan's journal state and adopt it when the recovering adapter independently proves the same completion. Or give an explicit reviewed exit for an uncommitted orphan event.
 - Regression: a fake object store fails the head write once after the journal write. Two outcomes must be covered: the transaction continues, or it stops with the reported reason, and resume converges with no wedge, including for an adapter whose recovery proof differs from its execution receipt.
+
+**Implementation update (2026-10-04, claude-opus-5-5, nagare-phase-b; the operator decided to fix F38 before the release):** All changes are in `Execute/Journal.appendEvent`.
+- **Bounded head retry.** After a failed head write, the head is reread.
+  - If it already holds the replacement, the write landed despite an unknown outcome, and the append succeeds.
+  - If it is unchanged, and so still carries this executor's claim, the conditional write is retried with the fresh provider generation, up to 3 times with 250/500/750 ms backoff.
+  - Otherwise the original store error is returned.
+- **Orphan adoption independent of proof equality.** An event already published at the head's next sequence is checked: same sequence, previous digest and transaction means it is an uncommitted orphan of this chain. Such an orphan is first committed as history.
+  - If it has the same meaning as the new event, or both are `Completed` for the same operation (even with different receipt digests), the orphan and its original receipt are kept.
+  - Otherwise the new event is appended after it, with a bounded budget.
+  - An orphan from another transaction, or with a different chain position, is still refused with `StoreObjectConflict`.
+  - The journal validator checks only sequence and chain, and an operation's state is its latest event, so committing a same-transaction orphan is safe history.
+- **Store error reporting.** A failed append now prints the store's own error on stderr, with the transaction and operation, for example `nagarectl: inventory journal append for tx-… at op-… failed: StoreIoError "…"`. The `StoppedAmbiguous` result still carries no reason: adding a field would change about 80 constructor sites for no additional operator information, since the CLI already prints stderr.
+- **Regressions:** `test/InventoryJournalHeadAdvanceSpec.hs`, on a fake object store whose head write fails right after a `Completed` event is published:
+  - a refused head write is retried and converges;
+  - a head write that landed with a lost acknowledgement is read back and converges;
+  - a persistent failure (4 attempts) stops ambiguous, then resume, with a recovery proof that differs from the execution receipt, converges with one completion per operation and keeps the orphan's original receipt.
+
+  All three fail on the previous `Journal.hs`: each stops ambiguous, and the third wedges at resume. All 1,184 nagarectl tests, `just haskell-style-check` and `check-haskell-architecture.py` pass.
+
+  **Verification still required:** an independent check. A native injected GCS head failure is not practical on a real bucket; the regressions use the production `ObjectBackend` code path over fake object operations.
 
 ## F39
 

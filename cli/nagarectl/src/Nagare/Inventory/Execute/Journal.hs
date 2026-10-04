@@ -12,8 +12,10 @@ module Nagare.Inventory.Execute.Journal
   )
 where
 
+import Control.Concurrent (threadDelay)
 import Data.Maybe (listToMaybe)
 import Data.Text qualified as T
+import Data.Text.IO qualified as TIO
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Execute.Types (timestamp)
 import Nagare.Inventory.Journal
@@ -27,11 +29,12 @@ import Nagare.Inventory.Journal
       , eventTransaction
       )
   , OperationId
-  , OperationState (OperatorResolved)
+  , OperationState (Completed, OperatorResolved)
   , TransactionId
   , decodeJournalEvent
   , encodeJournalEvent
   , journalEventDigest
+  , operationIdText
   , transactionIdText
   , validateJournal
   )
@@ -40,6 +43,7 @@ import Nagare.Inventory.Store
   , HeadManifest (headExecutorClaim, headGeneration, headSequence)
   , InventoryStore
   , LockedStore
+  , ObservedHead
   , StoreError
     ( StoreConditionFailed
     , StoreInvalidObject
@@ -57,9 +61,29 @@ import Nagare.Inventory.Store
   , storeClientIdentity
   )
 import Nagare.Resource.Types (ContentDigest, mkContentDigest)
+import System.IO (stderr)
 
+-- | Append one event and commit it by advancing the head. A failure reports
+-- the store's own error on stderr, so an operator can tell a refused
+-- precondition from a transport failure (F38).
 appendEvent :: LockedStore s -> TransactionId -> Maybe OperationId -> OperationState -> Text -> IO (Either StoreError JournalEvent)
 appendEvent locked transaction operation state detail = do
+  result <- appendEventAt orphanBudget locked transaction operation state detail
+  case result of
+    Left err ->
+      TIO.hPutStrLn stderr $
+        "nagarectl: inventory journal append for "
+          <> transactionIdText transaction
+          <> maybe "" ((" at " <>) . operationIdText) operation
+          <> " failed: "
+          <> T.pack (show err)
+    Right _ -> pure ()
+  pure result
+  where
+    orphanBudget = 2 :: Int
+
+appendEventAt :: Int -> LockedStore s -> TransactionId -> Maybe OperationId -> OperationState -> Text -> IO (Either StoreError JournalEvent)
+appendEventAt orphanBudget locked transaction operation state detail = do
   let store = lockedStore locked
   headResult <- observeHead store
   case headResult of
@@ -87,7 +111,7 @@ appendEvent locked transaction operation state detail = do
                   key = journalKey (headSequence headValue)
               published <- appendAtObservedHead store headValue (encodeJournalEvent event)
               case published of
-                Right _ -> advance observed headValue event
+                Right _ -> commitHead store observed headValue event headRetries
                 Left (StoreObjectConflict _) -> do
                   existing <- readObject store key
                   case existing of
@@ -96,21 +120,65 @@ appendEvent locked transaction operation state detail = do
                     Right (Just bytes) -> case decodeJournalEvent bytes of
                       Left err -> pure (Left (StoreInvalidObject key err))
                       Right old
-                        | sameEventMeaning old event -> advance observed headValue old
-                        | otherwise -> pure (Left (StoreObjectConflict key))
+                        | not (orphanOfThisChain old event) -> pure (Left (StoreObjectConflict key))
+                        | otherwise -> do
+                            -- The event at the head's next sequence was published
+                            -- by this transaction but never committed: its head
+                            -- write failed (F38). Commit it as history rather than
+                            -- wedge every later append at this sequence.
+                            committed <- commitHead store observed headValue old headRetries
+                            case committed of
+                              Left err -> pure (Left err)
+                              Right _
+                                | sameEventMeaning old event || sameCompletion old event -> pure (Right old)
+                                | orphanBudget > 0 ->
+                                    appendEventAt (orphanBudget - 1) locked transaction operation state detail
+                                | otherwise -> pure (Left (StoreObjectConflict key))
                 Left err -> pure (Left err)
     Right _ -> pure (Left (StoreConditionFailed "inventory store is not initialized"))
   where
-    advance observed headValue event = do
-      let replacement = headValue {headGeneration = headGeneration headValue + 1, headSequence = headSequence headValue + 1}
-      replaced <- replaceObservedHead observed replacement
-      pure (event <$ replaced)
+    headRetries = 3 :: Int
+    orphanOfThisChain old new =
+      eventSequence old == eventSequence new
+        && eventPreviousDigest old == eventPreviousDigest new
+        && eventTransaction old == eventTransaction new
     sameEventMeaning left right =
-      eventSequence left == eventSequence right
-        && eventPreviousDigest left == eventPreviousDigest right
-        && eventTransaction left == eventTransaction right
+      orphanOfThisChain left right
         && eventOperation left == eventOperation right
         && eventState left == eventState right
+    -- A verified execution receipt and an independent recovery proof of the
+    -- same operation are both completions, even when their digests differ.
+    -- Keep the orphan's original receipt.
+    sameCompletion left right =
+      orphanOfThisChain left right
+        && isJust (eventOperation left)
+        && eventOperation left == eventOperation right
+        && isCompleted (eventState left)
+        && isCompleted (eventState right)
+    isCompleted (Completed _) = True
+    isCompleted _ = False
+
+-- | Advance the head over a published event. A failed conditional write may
+-- still have landed (an unknown outcome) or have been refused transiently,
+-- so reread the head: if it already commits this event, the append
+-- succeeded; if it is unchanged, and so still carries this executor's claim,
+-- retry the conditional write a bounded number of times. Otherwise stop with
+-- the store's original error.
+commitHead :: InventoryStore -> ObservedHead -> HeadManifest -> JournalEvent -> Int -> IO (Either StoreError JournalEvent)
+commitHead store observed headValue event retries = do
+  let replacement = headValue {headGeneration = headGeneration headValue + 1, headSequence = headSequence headValue + 1}
+  replaced <- replaceObservedHead observed replacement
+  case replaced of
+    Right () -> pure (Right event)
+    Left err -> do
+      reread <- observeHead store
+      case reread of
+        Right now
+          | observedHeadManifest now == Just replacement -> pure (Right event)
+          | observedHeadManifest now == Just headValue && retries > 0 -> do
+              threadDelay (250000 * (4 - retries))
+              commitHead store now headValue event (retries - 1)
+        _ -> pure (Left err)
 
 previousDigest :: InventoryStore -> Integer -> IO (Either StoreError (Maybe ContentDigest))
 previousDigest _ 0 = pure (Right Nothing)

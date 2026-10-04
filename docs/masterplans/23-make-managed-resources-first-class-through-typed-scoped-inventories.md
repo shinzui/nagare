@@ -481,9 +481,9 @@ This list says what remains before MP-23 is complete. It was agreed between sess
 
 **Independent verification** (owner reviewer, arranged by the user; implementer sessions never self-close)
 - [ ] Close every finding that is not yet Closed, per the [tracker](../audits/mp23-findings.md)'s closure rule:
-  - Open: F30, F31, F32, F33, F34, F38, F48
+  - Open: F30, F31, F32, F33, F34, F48
   - Partial: F40
-  - Verifying: F15, F16, F35, F36, F37, F39, F41, F42, F43, F44, F45, F46, F47
+  - Verifying: F15, F16, F35, F36, F37, F38, F39, F41, F42, F43, F44, F45, F46, F47
 
   Native proof already exists for:
   - F30: the A4 terminal resume, 2026-10-02;
@@ -494,7 +494,7 @@ This list says what remains before MP-23 is complete. It was agreed between sess
   - F36, F37, F41: the C2 runs;
   - F45, F46, F47: the CDN cycle on the `mp23-c3g` checkpoint, to be repeated in the acceptance C3.
 
-  So most of these need only the independent check. F38, F40 and F48 depend on the user decisions below.
+  So most of these need only the independent check. F40 and F48 depend on the user decisions below.
 - [ ] Accept or reject the recorded arguments:
   - EP-159 B1 source replacement, re-scoped to "out-of-band replacement refuses ingestion and isolated restore";
   - EP-160 B2 Redis load interruption and partial ClickHouse effect.
@@ -502,7 +502,7 @@ This list says what remains before MP-23 is complete. It was agreed between sess
 - [ ] Execute [the operations runbook](../runbooks/inventory-operations.md) end to end on the C3 context and record F14–F18 and the cloud operational checks (EP-156; safe-use gate). Required as written unless the user narrows it.
 
 **User decisions still needed**
-- [ ] F38 (P2, a GCS head-advance failure stops ambiguous): accept it as a known limitation for this release, or require a fix.
+- [x] F38 (P2, a GCS head-advance failure stops ambiguous): **fix before release** (operator decision, 2026-10-04). Implemented in `Execute/Journal`: bounded head retry with read-back, orphan adoption independent of proof equality, and store errors on stderr. It is in the next candidate.
 - [ ] Must independent closure come before the release, or may it follow it?
 - [ ] F40 remainder: confirm it moves to MasterPlan 25 together with full-context collection.
 - [ ] F48 (P2, evidence names the release manifest's payload without checking the payload the context runs): accept the procedural guard for this release (fresh context from the candidate's payload, and `platform root --json` recorded before the runner's plan), with the code fix in EP-168. Or require the fix before release.
