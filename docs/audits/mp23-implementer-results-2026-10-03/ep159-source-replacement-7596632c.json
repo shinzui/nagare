@@ -1,0 +1,215 @@
+{
+ "recordedBy": "implementer (claude-opus-5-5, session nagare-phase-b); evidence for nagare-reviewer's check, not independent verification",
+ "recordedAt": "2026-10-04",
+ "candidate": "7596632cee07d107a93b7d2032923b7f4b6b8904",
+ "context": "the 7596632c C2 context on cp3 (local)",
+ "procedure": "ep159-source-replacement-7596632c-procedure.md (reviewed before the run; additions 1-4 from nagare-reviewer)",
+ "claim": {
+  "heldBy": "nagare-phase-b",
+  "window": "18:52:33Z to 19:30:59Z"
+ },
+ "throwaway": {
+  "database": "ep159-throwaway",
+  "namespace": "personal",
+  "seed": "1|ep159-row-1"
+ },
+ "receipts": {
+  "A": {
+   "jobUid": "42fee7bd-299e-47a7-90e4-fd726f5c9783",
+   "ingested": true,
+   "accepted": {
+    "scheduled.backup.id": "42fee7bd-299e-47a7-90e4-fd726f5c9783",
+    "scheduled.backup.object": "s3://nagare-backups/databases/ep159-throwaway/42fee7bd-299e-47a7-90e4-fd726f5c9783.sql.gz",
+    "scheduled.backup.object.length": "620",
+    "scheduled.backup.object.sha256": "9043fa2b9d8816f3ca63b58b203ca5b0d066406b1ea3b8981638deec717ff943",
+    "scheduled.backup.object.version": "d42aadaf-e822-4e0e-b95a-3ff7f9be1e42",
+    "scheduled.backup.receipt": "s3://nagare-backups/databases/ep159-throwaway/42fee7bd-299e-47a7-90e4-fd726f5c9783.sql.gz.receipt.json",
+    "scheduled.backup.receipt.digest": "fcf3403f96b8feb27625c938ec19f011fe010c51c844d3e9f80f389c9a582fe1",
+    "scheduled.backup.receipt.length": "726",
+    "scheduled.backup.receipt.version": "6c73744f-4caf-49ad-a3b9-00585c9d7a60",
+    "scheduled.backup.recovery.point": "2026-10-04T19:00:01Z",
+    "scheduled.backup.schedule": "standalone:database-ep159-throwaway/ep159-throwaway/backup",
+    "scheduled.backup.schedule.revision": "0518bf5db21a3307e0fa6e57e7f58a290930364a5fed9620b78fceddc9c8ed84",
+    "scheduled.backup.schedule.uid": "0c09162c-8963-493c-a755-fa05969d0825",
+    "scheduled.backup.signing": "standalone:database-ep159-throwaway/ep159-throwaway/backup-signing-key",
+    "scheduled.backup.signing.uid": "0214049a-5716-4aa8-b642-ebb1d5e95c90",
+    "scheduled.backup.source.generation": "1",
+    "scheduled.backup.source.pvc": "standalone:database-ep159-throwaway/ep159-throwaway/pvc",
+    "scheduled.backup.source.pvc.uid": "8ab1d859-e87f-4daa-8a70-5be13ac969f8",
+    "scheduled.backup.source.revision": "12aa5d9c35165e91c203028279cbe6e80a21c08f895da630f9404da56257919d",
+    "scheduled.backup.source.scope": "standalone:database-ep159-throwaway",
+    "scheduled.backup.source.statefulset": "standalone:database-ep159-throwaway/ep159-throwaway/statefulset",
+    "scheduled.backup.source.statefulset.uid": "aa482c54-88b2-4200-a5c3-910d12bcbda3"
+   }
+  },
+  "B": {
+   "jobUid": "3f8c7fb2-49d5-44c9-b1e2-0b35eadde751",
+   "ingested": false
+  },
+  "C": {
+   "jobUid": "146f812f-e0e6-4666-a084-1b5322e9b0ad",
+   "producedBy": "the out-of-band incarnation"
+  }
+ },
+ "replacement": {
+  "statefulSet": {
+   "oldUid": "aa482c54-88b2-4200-a5c3-910d12bcbda3",
+   "newUid": "ffd8af26-73a9-4ce3-90d5-290b1b2af01c",
+   "deletePreconditions": {
+    "uid": "aa482c54-88b2-4200-a5c3-910d12bcbda3",
+    "resourceVersion": "29367"
+   }
+  },
+  "pvc": {
+   "oldUid": "8ab1d859-e87f-4daa-8a70-5be13ac969f8",
+   "newUid": "51889c7f-ebc4-4d6a-b6bd-a0650009c5b9",
+   "deletePreconditions": {
+    "uid": "8ab1d859-e87f-4daa-8a70-5be13ac969f8",
+    "resourceVersion": "29334"
+   }
+  },
+  "method": "raw API DELETE with uid+resourceVersion preconditions, then kubectl create from the saved objects with server fields stripped; the recreated objects keep the originals' nagare.dev identity annotations (as a recreate from an exported manifest would)"
+ },
+ "statusAfterReplacement": [
+  {
+   "resource": "backup",
+   "category": "converged"
+  },
+  {
+   "resource": "backup-account",
+   "category": "converged"
+  },
+  {
+   "resource": "backup-read-binding",
+   "category": "converged"
+  },
+  {
+   "resource": "backup-read-role",
+   "category": "converged"
+  },
+  {
+   "resource": "backup-signing-key",
+   "category": "converged"
+  },
+  {
+   "resource": "credential",
+   "category": "converged"
+  },
+  {
+   "resource": "pvc",
+   "category": "converged"
+  },
+  {
+   "resource": "service",
+   "category": "converged"
+  },
+  {
+   "resource": "statefulset",
+   "category": "converged"
+  },
+  {
+   "resource": "job",
+   "category": "converged"
+  }
+ ],
+ "refusals": {
+  "ingestB": {
+   "command": "nagarectl db backup-receipts ep159-throwaway --backup-id B --save-plan DIR",
+   "exitCode": 1,
+   "refusal": [
+    "nagarectl: scheduled receipt source incarnation differs from accepted evidence"
+   ],
+   "headBefore": {
+    "generation": 1510,
+    "sequence": 1387,
+    "activeTransaction": null
+   },
+   "headAfter": {
+    "generation": 1510,
+    "sequence": 1387,
+    "activeTransaction": null
+   },
+   "saveDirExistedBefore": false,
+   "saveDirExistsAfter": false,
+   "refused": true
+  },
+  "restoreA": {
+   "command": "nagarectl db restore ep159-throwaway <A scheduled.backup.id> --restore-id ep159r1 --save-plan DIR",
+   "exitCode": 1,
+   "refusal": [
+    "nagarectl: scheduled restore target source incarnation changed after ingestion"
+   ],
+   "headBefore": {
+    "generation": 1510,
+    "sequence": 1387,
+    "activeTransaction": null
+   },
+   "headAfter": {
+    "generation": 1510,
+    "sequence": 1387,
+    "activeTransaction": null
+   },
+   "saveDirExistedBefore": false,
+   "saveDirExistsAfter": false,
+   "refused": true
+  },
+  "scratchObjectsAfterRestoreAttempt": 0
+ },
+ "receiptC": {
+  "command": "nagarectl db backup-receipts ep159-throwaway --backup-id C --save-plan DIR",
+  "exitCode": 0,
+  "refusal": [
+   "c79b06dcd359dd93beccf06e8f5b4e9993ff2172b706b38171dbd6895853c055",
+   "Saved exact scheduled receipt ingestion review. Apply it to verify both stored versions. Scheduled keep=7 and expiry are unenforced; backups are retained by default."
+  ],
+  "headBefore": {
+   "generation": 1510,
+   "sequence": 1387,
+   "activeTransaction": null
+  },
+  "headAfter": {
+   "generation": 1510,
+   "sequence": 1387,
+   "activeTransaction": null
+  },
+  "saveDirExistedBefore": false,
+  "saveDirExistsAfter": true,
+  "refused": false
+ },
+ "acceptedThrowawayScopesAfter": [
+  {
+   "kind": "Standalone",
+   "name": "database-ep159-throwaway"
+  },
+  {
+   "kind": "Standalone",
+   "name": "database-scheduled-receipt-personal-ep159-throwaway-42fee7bd-299e-47a7-90e4-fd726f5c9783"
+  }
+ ],
+ "confinement": {
+  "othersCompared": 19,
+  "othersChanged": {}
+ },
+ "recoveryPathCheck7b": {
+  "result": "nagarectl: scheduled receipt source incarnation differs from accepted evidence",
+  "validity": "INVALID AS RUN: the escrow was taken after the replacement, and escrow verification takes its expected source UIDs from the escrow file (SigningKeyEscrow.escrowReceiptExpectation), so it carried the new UIDs and correctly refused A's receipt (old UIDs). A meaningful check needs an escrow taken before the replacement; this run provides none."
+ },
+ "retire": {
+  "result": "refused at planning, not worked around",
+  "refusal": "[InventoryError {code = \"dangling-reference\", message = \"dependency producer is absent\", scopes = [ScopeId Standalone (Name \"database-scheduled-receipt-personal-ep159-throwaway-42fee7bd-299e-47a7-90e4-fd726f5c9783\")], resources = [ResourceId \"standalone:database-ep159-throwaway/ep159-throwaway/backup\",ResourceId \"standalone:database-scheduled-receipt-personal-ep159-throwaway-42fee7bd-299e-47a7-90e4-fd726f5c9783/42fee7bd-299e-47a7-90e4-fd726f5c9783/job\"], claims = [], sources = [SourceLocation {file = \"db backup-receipts/ep159-throwaway\", path = \"42fee7bd-299e-47a7-90e4-fd726f5c9783\"}]},Invento"
+ },
+ "finalHead": {
+  "generation": 1510,
+  "sequence": 1387,
+  "activeTransaction": null
+ },
+ "corrections": [
+  "the run's 'accepted after' step read every scope file in the store, including scopes of saved but unapplied reviews, and listed C; the head's accepted scopes are the authority and contain only the database and receipt A"
+ ],
+ "openForReviewer": [
+  "status classifies the replaced StatefulSet and PVC (new UIDs, copied nagare.dev annotations) as converged; the operator surface does not report the replacement",
+  "an ingestion review for receipt C (written by the out-of-band incarnation) was saved at planning (exit 0); it was not applied, so whether apply refuses is untested",
+  "7b needs a rerun with the escrow taken before the replacement if the recovery-path half of the claim is to be evidenced",
+  "the throwaway stays as an accepted, drifted scope on the idle C2 store because retirement is blocked by receipt A's scope depending on the database's backup producer"
+ ]
+}
