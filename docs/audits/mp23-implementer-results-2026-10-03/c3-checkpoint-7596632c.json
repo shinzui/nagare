@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "kind": "c3-checkpoint",
+  "candidate": "7596632cee07d107a93b7d2032923b7f4b6b8904",
+  "context": "mp23-c3h",
+  "project": "tan-ng-labs",
+  "names": "*-c3-1007",
+  "evidenceStatus": "checkpoint only: the operator fixed F49 before the release, so candidate 84754389 supersedes it; acceptance C3 runs on mp23-c3i (c3-1008)",
+  "bootstrap": {
+    "stages": "foundation, perimeter, host image, GCE image, stack config, VM, host activation (70 s), kubeconfig, cluster (1035 s, no ambiguous stop); replan verify-only (206)"
+  },
+  "vmCreatedAt": "2026-10-04T12:06:37.981-07:00",
+  "checks": {
+    "scenario": "17/17 cloud assertions recorded and finalized; runner plan/apply/verify back to back with verify killed before its marker and re-run to verified; F48 guard: platform root revision equals the candidate",
+    "inventory-evidence": {
+      "assembled": true,
+      "payload": {
+        "digest": "sha256-LcFSxiad7Yoc4bbJ/wpwLBUmWXosyF7XfCQW3/GqEzQ=",
+        "sourceRevision": "7596632cee07d107a93b7d2032923b7f4b6b8904",
+        "system": "aarch64-darwin",
+        "version": "0.4.0"
+      }
+    },
+    "google-cdn (B3, candidate itself)": {
+      "cdnTargetAfterDeploy": [
+        [
+          "34.160.4.132"
+        ]
+      ],
+      "originAfterDisable": [
+        [
+          "136.118.42.29"
+        ]
+      ],
+      "retainedAfterRetire": true,
+      "absentAfterCollect": true
+    },
+    "image-cleanup (F32)": {
+      "removed": 3,
+      "sameRequestReplanOperations": 0,
+      "assessment": "The one not-ready pod is the first attempt of the reviewed Redis backup Job nagare-dbbackup-scenario-redis-c3grd1 (created 20:30:25Z, init dump exited 1 at 20:30:27Z, 'Connection refused'); the Job retried and succeeded (succeeded 1, failed 1). It predates this cleanup (planned ~20:56Z), so every pod that was Ready before the cleanup stayed Ready."
+    },
+    "source-unavailable": {
+      "selection": "3e269f94-8171-4d11-ad8e-831174dd64b2",
+      "rule": "newest verified scheduled backup created after the seed",
+      "seedRowsPresent": true
+    },
+    "f15-late": {
+      "pullsAfterBootCredentialExpiry": 5,
+      "privatePullFailures": 0
+    }
+  },
+  "findings": {
+    "F50": "one transient failed ownership read stopped the pg-restore plan; operator-approved re-run; fixed in ddeb6547",
+    "harness": "rehearse-gcp-inventory-release.sh cannot forward --private-store-export; the private export is taken right after verify (head unchanged)"
+  },
+  "removal": "exported (inventory history, Pulumi stack) and removed with an operator-approved bounded listed delete on 2026-10-04"
+}
