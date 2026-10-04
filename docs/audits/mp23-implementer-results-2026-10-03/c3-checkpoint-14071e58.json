@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "kind": "c3-checkpoint",
+  "candidate": "14071e589f9a9a6c02ef682771292a074e9ad1d8",
+  "context": "mp23-c3f",
+  "project": "tan-ng-labs",
+  "names": "*-c3-1004",
+  "evidenceStatus": "checkpoint only; the final C3 runs on the next candidate's fresh context",
+  "bootstrap": {
+    "stages": "foundation, perimeter, host image (builder started explicitly after the F24 guard), GCE image, stack config, VM, host activation (71 s), kubeconfig, cluster (1037 s); replan verify-only (206)"
+  },
+  "vmCreatedAt": "2026-10-03T16:38:57.172-07:00",
+  "checks": {
+    "interrupted-recovery": "deploy-a killed while scenario-pg not ready, resumed; deploy-b killed before ksvc Ready, completed by takeover",
+    "shared-history-takeover": "second operator root (distinct client id): plain resume refused executor-claim, unrelated plan refused active-transaction, --take-over converged in 15 s",
+    "collision-refusal": "claim-conflict on the hostname, no review, head unchanged",
+    "independent-scope-preservation": "env set on scenario-a added only env-scenario-a-runtime; scenario-b revision and ksvc UID unchanged",
+    "drift-classification": "one configuration-drift; strict replan refused KnownNoEffect kubectl-patch; abandon-refused-operation; --take-over-fields converged with the same UID, max-scale 3, managers controller + nagare-inventory",
+    "postgresql-backup-restore": "GCS backup c3pg1; scratch database holds rows 1-2, live holds later row 3",
+    "redis-backup-restore": "manual GCS receipt c3rd1; scratch StatefulSet returns both keys",
+    "clickhouse-backup-restore": "manual GCS receipt c3ch1; scratch database restored",
+    "volume-backup-restore": "snapshot c3vol1, file changed, restore manifest hash be6a2310 equals the snapshot-time file",
+    "application-change": "new-digest image c3b rolled out (1 create, 4 updates, 1 declared op); identical replan has 0 operations",
+    "backup-freshness": "healthy; hourly objective; newest verified point 608 s",
+    "image-cleanup-F32": "3 exact CRI cache images removed; 69/69 pods Ready; stale repeat refused; reused request ID gave a 0-op review"
+  },
+  "f15": {
+    "uncachedPrivatePull": "2026-10-04T00:49:48Z scenario-a:c3b from the private registry, 71 min after VM creation"
+  },
+  "f31": {
+    "refreshes": "2026-10-04T00:47:55Z 9491 2026-10-04T01:35:52Z\n2026-10-04T01:32:16Z 21501 2026-10-04T02:31:53Z"
+  },
+  "f44Status": {
+    "observationComplete": true,
+    "missingProviders": [],
+    "findings": 306,
+    "categories": [
+      "converged"
+    ]
+  },
+  "findings": [
+    "F43 Google CDN cannot be enabled on inventory contexts (fixed 0c6ad875)",
+    "F44 status lacks the CloudFoundation observer (fixed 9c831749, verified here)"
+  ]
+}
