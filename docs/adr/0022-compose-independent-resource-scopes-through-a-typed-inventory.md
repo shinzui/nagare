@@ -1530,7 +1530,7 @@ ServiceAccount. Durable PVCs and Secrets, and broker topics, have no release
 policy. Releasing them would be a new operation, not a missing binding.
 
 **Accepted durable members are bound to their physical incarnation (F49, 2026-10-04).**
-The head records, in `incarnations`, the provider UID of each durable Kubernetes member that a converged review created, adopted, updated or verified.
+The head records, in `incarnations`, the provider UID of each data-bearing Kubernetes member that a converged review created, adopted, updated or verified. Data-bearing means a durable member (a database's PVC and credential) or a StatefulSet (the controller that owns that data, which is itself stateless).
 - A create or adoption establishes the record, because Nagare made that object the accepted one.
 - An update or verification binds only a missing record. A later review therefore never launders an object that replaced the accepted one outside Nagare.
 - Retained and collected members drop their record, since `retained` carries their identity.
@@ -1541,5 +1541,9 @@ Three consumers use the record:
 - **Scheduled-receipt ingestion** refuses a receipt whose source StatefulSet or PVC is not the recorded incarnation.
 - **Receipt listing and freshness** refuse to grade a replaced source, so an empty replacement's uploads never become recovery points.
 
-A member with no record (a store from before this rule, or one never touched by a converging review) keeps the earlier behaviour. Rebinding to a deliberately replaced object needs a reviewed operation and is not part of MP-23. Until one exists, retire and recreate the database.
+**Known limits:**
+- **Recording is fail-open.** The record comes from a fresh observation at convergence, not from the execution receipt. If that observation is unavailable, nothing is recorded, and the next update or verification binds whatever object is live then. That leaves a narrow window in which a replacement could be bound.
+- **Unrecorded members pass.** A member with no record (a store from before this rule, one never touched by a converging review, or one hit by the limit above) keeps the earlier behaviour in status and ingestion.
+
+Binding established records from the journal's completion identity would close both limits, and is follow-up work. Rebinding to a deliberately replaced object needs a reviewed operation and is not part of MP-23. Until one exists, retire and recreate the database.
 

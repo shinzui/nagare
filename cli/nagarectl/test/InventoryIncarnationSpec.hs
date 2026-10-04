@@ -7,6 +7,7 @@ import Data.IORef
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import InventoryTransactionSpec (fixtureBinding)
@@ -47,6 +48,13 @@ inventoryIncarnationTests =
         writeIORef live (uid "uid-replacement")
         converge store registry (ReplaceScope (scopeWith "v2") :| []) (ObservedDrifted (uid "uid-replacement") (contentDigest "v1"))
         incarnations store >>= (@?= Map.singleton durableId (uid "uid-accepted"))
+    , testCase "convergence records a StatefulSet, the stateless controller of the data" $ do
+        store <- newMemoryStore
+        _ <- initializeStore store fixtureBinding "incarnation-test" >>= expectRight
+        live <- newIORef (uid "uid-statefulset")
+        converge store (observingRegistry live) (ReplaceScope statefulScope :| []) (ConfirmedAbsent (contentDigest "absent"))
+        recorded <- incarnations store
+        Map.lookup statefulId recorded @?= Just (uid "uid-statefulset")
     , testCase "status reports a member whose object is not the accepted incarnation as replaced" $ do
         let inventory = expectOk (composeInventory (expectOk (mkScopeSnapshot fixtureBinding Map.empty Map.empty)) (ReplaceScope (scopeWith "v1") :| []))
             recorded = Map.singleton durableId (uid "uid-accepted")
@@ -79,7 +87,9 @@ converge store registry changes fact = do
               (historyReservations history)
           )
       candidate = expectOk (composeInventory snapshot changes)
-      proposal = expectOk (planChanges candidate noLifecycleDecisions history (expectOk (observationSet [(durableId, fact)])))
+      required = Set.toList (requiredResources (observationRequirements candidate history))
+      facts = [(resource, if resource `elem` [durableId, statefulId] then fact else ConfirmedAbsent (contentDigest "absent")) | resource <- required]
+      proposal = expectOk (planChanges candidate noLifecycleDecisions history (expectOk (observationSet facts)))
   before <- readStoreSnapshot store >>= expectRight
   bundle <- prepareReview registry before proposal >>= expectRight
   _ <- publishReview store bundle >>= expectRight
@@ -140,6 +150,42 @@ scopeWith version =
                   , dependencies = []
                   , delegations = []
                   , source = SourceLocation "test" "data"
+                  }
+            ]
+            []
+            []
+            []
+            []
+            []
+        ]
+    )
+  where
+    cluster = mintResourceId incarnationOwner (expectOk (mkLogicalKey "cluster")) (expectOk (mkName "cluster"))
+
+statefulId :: ResourceId
+statefulId = mintResourceId incarnationOwner (expectOk (mkLogicalKey "statefulset")) (expectOk (mkName "resource"))
+
+-- A database's StatefulSet is Stateless; its data lives on the durable PVC.
+statefulScope :: ScopeDeclaration
+statefulScope =
+  expectOk
+    ( mkScopeDeclaration
+        incarnationOwner
+        [ ResourceBundle
+            [ Managed
+                ManagedResource
+                  { identity = statefulId
+                  , owner = incarnationOwner
+                  , executor = KubernetesExecutor
+                  , address = Kubernetes cluster "apps" (expectOk (mkName "statefulset")) (Just (expectOk (mkName "personal"))) (expectOk (mkName "pg"))
+                  , aliases = []
+                  , spec = StatefulSet 1 [] (contentDigest "statefulset")
+                  , lifecycle = Retain
+                  , dataPolicy = Stateless
+                  , sensitivity = Public
+                  , dependencies = []
+                  , delegations = []
+                  , source = SourceLocation "test" "statefulset"
                   }
             ]
             []

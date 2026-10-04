@@ -450,7 +450,9 @@ Remaining: B3 including collection on the next frozen candidate, and independent
 - Whether this blocks the MP-23 release is the operator's decision.
 
 **Implementation update (2026-10-04, claude-opus-5-5, nagare-phase-b; the operator decided to fix F49 before the release):**
-- **The record.** The head gains `incarnations`: the provider UID of each durable Kubernetes member that a converged review created, adopted, updated or verified (`Execute/Incarnations`, recorded in `Claims.releaseClaimWith`).
+- **The record.** The head gains `incarnations`: the provider UID of each data-bearing Kubernetes member that a converged review created, adopted, updated or verified (`Execute/Incarnations`, recorded in `Claims.releaseClaimWith`).
+  - Data-bearing means durable members (a database's PVC and credential) and StatefulSets.
+  - The first commit (`38815245`) bound only durable members, which left the stateless StatefulSet unbound. The independent source review caught this, and the follow-up commit binds StatefulSets too, as the required repair asked ("at least StatefulSets and PVCs").
   - A create or adoption establishes the record.
   - An update or verification binds only a missing record, so a later review never launders a replacement.
   - Retained and collected members drop their record.
@@ -461,10 +463,15 @@ Remaining: B3 including collection on the next frozen candidate, and independent
 - **ADR 22** is amended.
 - **Regressions:** `test/InventoryIncarnationSpec.hs`.
   - Convergence records a created durable member, then a reviewed update of a replacement object leaves the record unchanged.
+  - Convergence records a StatefulSet, which is stateless.
   - Status classifies a different UID as `replaced-incarnation`, the same UID as `converged`, and no record as `converged`.
   - Ingestion refuses a replaced StatefulSet or PVC, but not the recorded incarnation or a store without a record.
 
   The tests use the new API, so each guard was checked by mutation: removing the convergence recording, the status comparison, the ingestion comparison or the never-rebind rule fails exactly its regression. All 1,187 nagarectl tests, the style check and the architecture check pass.
+- **Known limits (from the independent source review), recorded in ADR 22:**
+  - Recording is fail-open. An unavailable observation at convergence records nothing, and the next update or verification binds the live object.
+  - Members without a record pass status and ingestion as before.
+  - Binding from the journal's completion identity is follow-up work.
 - **Native rerun still required:** the EP-159 drill on a fresh throwaway, with the escrow taken before the replacement, showing C's ingestion refused, status `replaced-incarnation`, and 7b evidenced.
 
 **Cleanup note:** `db retire ep159-throwaway` refuses with `dangling-reference` (receipt A's scope consumes the database's backup producer). The joint `inventory retire --scope standalone:database-ep159-throwaway --scope standalone:database-scheduled-receipt-personal-ep159-throwaway-42fee7bd-299e-47a7-90e4-fd726f5c9783 --out DIR` plans successfully (reviewer, read-only, head unchanged). That joint retire is the supported path for a database with ingested receipts.

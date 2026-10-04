@@ -30,7 +30,7 @@ import Nagare.Inventory.Store
   )
 import Nagare.Resource.Inventory (Declaration (Managed), Executor (KubernetesExecutor), ScopeDeclaration, declarations, scopeBundles)
 import Nagare.Resource.Policy (DataPolicy (Durable))
-import Nagare.Resource.Types (PhysicalIdentity, ResourceId)
+import Nagare.Resource.Types (PhysicalIdentity, ProviderAddress (Kubernetes), ResourceId, nameText)
 import Nagare.Resource.Wire (decodeScope)
 
 -- | How a converging review established a member's current object.
@@ -41,8 +41,11 @@ data IncarnationBinding
     Proved !PhysicalIdentity
   deriving stock (Eq, Show)
 
--- | Observe the durable Kubernetes members a converging review touched. An
--- unavailable observation records nothing; it never blocks convergence.
+-- | Observe the data-bearing Kubernetes members a converging review touched:
+-- durable members (a database's PVC and credential) and StatefulSets, the
+-- controllers that own that data. An unavailable observation records nothing;
+-- it never blocks convergence, so a later update or verification may be the
+-- first to bind that member.
 convergedIncarnations :: LockedStore s -> AdapterRegistry -> ReviewDocument -> IO (Map ResourceId IncarnationBinding)
 convergedIncarnations locked registry document = do
   scopes <- traverse loadScope (Map.elems (reviewDesiredRevisions document))
@@ -53,7 +56,7 @@ convergedIncarnations locked registry document = do
           , bundle <- scopeBundles scope
           , Managed member <- declarations bundle
           , member ^. #executor == KubernetesExecutor
-          , isDurable (member ^. #dataPolicy)
+          , isDurable (member ^. #dataPolicy) || isStatefulSet (member ^. #address)
           ]
       touched =
         Map.fromListWith
@@ -92,6 +95,8 @@ convergedIncarnations locked registry document = do
     establishes action = action `elem` [CreateResource, AdoptResource]
     isDurable (Durable _) = True
     isDurable _ = False
+    isStatefulSet (Kubernetes _ "apps" kind _ _) = nameText kind == "statefulset"
+    isStatefulSet _ = False
     present (ObservedPresent physical) = Just physical
     present (ObservedDrifted physical _) = Just physical
     present _ = Nothing
