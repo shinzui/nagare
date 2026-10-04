@@ -1,0 +1,59 @@
+{
+  "check": "Independent review of the acceptance C2 evidence for candidate 7596632c, MP-23 phase 2",
+  "reviewer": "nagare-reviewer (claude-opus-5-5), 2026-10-04",
+  "candidate": "7596632cee07d107a93b7d2032923b7f4b6b8904",
+  "evidenceDirectory": "/private/tmp/nagare-mp23-c2-7596632c.duGEtd/evidence/c2-7596632c (archive pending, nagare-phase-b)",
+  "evidenceDigests": {
+    "local-health.json": "d5cc967dc6f393371bc91e365d6d74f54a2ddb7804da323a78707d5918700bc4",
+    "inventory-evidence.json": "d0d331a605750e811600ee8dbcfcf84f120d77ec9925f3c71f5572bd76656e86",
+    "platform-root.json": "8eccb0ab12cb00a3e0818405d20716b1bc089087119c891a438a89a5f4c2c85a"
+  },
+  "localHealth": {
+    "method": "scripts/scenario-assertions.py finalize (candidate worktree) rerun on a scratch copy; it revalidates every assertion and its evidence hashes and writes only if different",
+    "result": "local health is already finalized with 16 assertions; copy byte-identical to the original",
+    "healthy": true,
+    "assertions": ["access-grant-revoke", "adoption", "backup-freshness", "clickhouse-backup-restore", "collision-refusal", "convergence-noop-removal", "drift-classification", "independent-scope-preservation", "interrupted-recovery", "postgresql-backup-restore", "redis-backup-restore", "retained-data", "retained-postgresql-rename", "secret-read-refusal", "source-unavailable-recovery", "volume-backup-restore"]
+  },
+  "inventoryEvidence": {
+    "method": "Removed inventory-evidence.json from a scratch copy and reran scripts/assemble-managed-resource-evidence.sh (candidate worktree) with the release manifest /private/tmp/nagare-release-7596632c/aarch64-darwin/nagare-release-0.4.0.json, --system aarch64-darwin, --private-store-export evidence-private/final-export and the release coverage.json",
+    "result": "assembled; jq -S output identical to the recorded inventory-evidence.json",
+    "payload": {"sourceRevision": "7596632cee07d107a93b7d2032923b7f4b6b8904", "digest": "sha256-LcFSxiad7Yoc4bbJ/wpwLBUmWXosyF7XfCQW3/GqEzQ="}
+  },
+  "f48ProceduralGuard": {
+    "platformRootRevision": "7596632cee07d107a93b7d2032923b7f4b6b8904",
+    "operatorVersionRevision": "7596632cee07d107a93b7d2032923b7f4b6b8904",
+    "payloadRoot": "/nix/store/wz51pm4pbwpppwa8lfpsvlbrlavvfjq3-nagare-platform-0.4.0/share/nagare",
+    "payloadNarHash": "sha256-LcFSxiad7Yoc4bbJ/wpwLBUmWXosyF7XfCQW3/GqEzQ= (nix path-info on the context's payload path)",
+    "narHashEqualsManifestPayloadDigest": true,
+    "result": "followed; the context ran the candidate's own payload, proved beyond the revision check by the payload NAR hash"
+  },
+  "secretKeyScan": {"jsonFiles": 160, "keysMatching": "password|credential|access.?token|private.?key|secret", "offendingKeys": 0},
+  "nativeFindings": {
+    "F34": {
+      "evidence": ["checks/convergence-noop-removal/preview-cleanup.json", "pending-evidence/{dm,descendants}-{before,after}.txt", "pending-evidence/preview-cleanup/*.log"],
+      "read": "collect-01 retired the preview DomainMapping with 'Background garbage collection of exclusive controller descendants ... observed 4'. Before: DomainMapping pr-scenario.scenario-site.preview (b3438290) with two KIngresses and a Certificate. After: all three descendants and the DomainMapping gone; neighbouring DomainMapping scenario-a (1ad1693c) unchanged; the final plan created no review.",
+      "liveRead": "net-kourier-controller (knative-serving), 113 log lines over 3 h, zero 'overlapping'/'error pushing snapshot' lines; all six KIngresses Ready=True",
+      "result": "pass"
+    },
+    "F36": {
+      "evidence": "pending-evidence/f36/*",
+      "read": "Pinned version f86d4522 of manual backup c2f36 removed after review 99394208; apply stopped ambiguous at op-3a96225c (download 404); abandon-partial-database-restore ended it.",
+      "liveRead": "Journal of tx-99394208: seq 1333 Ambiguous ('StatefulSet did not prove readiness'), seq 1334 OperatorResolved abandoned-terminal-database-restore naming StatefulSet 88ee069d; live scratch StatefulSet, Service and PVC c2f36r remain (unaccepted); head idle",
+      "result": "pass"
+    },
+    "F37": {
+      "evidence": "checks/drift-classification/{status-drift,repair}.json",
+      "read": "Strict replan 67a71fc0 stopped KnownNoEffect naming kubectl-patch and was closed with abandon-refused-operation; --take-over-fields review e80abdff converged; Service UID unchanged; max-scale 3; 279 converged findings.",
+      "liveRead": "ksvc personal/scenario-b UID 2ae59e2c (equal to ksvc-b-before.json), max-scale 3, managers only nagare-inventory (Apply, Update) and controller (status)",
+      "result": "pass"
+    },
+    "F41": {
+      "evidence": "checks/source-unavailable-recovery/*",
+      "read": "Escrow mode 0600, sops-encrypted. Online verify before stop (age 542 s); node stopped 17:39:03Z to 17:39:21Z with the API unreachable; offline verify through --offline-object-store http://127.0.0.1:19000 at age 557 s, inside that window, with the same object version bf52978d, receipt 7e38c2bb and sha256 5c0b2688; the archive restored rows 1-3 into a disposable PostgreSQL with zero errors; after restart the same version verified online and the head stayed at generation 1440, idle.",
+      "liveRead": "Deployment minio strategy Recreate with volume persistentVolumeClaim minio-data; PVC minio-data Bound on local-path (UID 5fcaeddc)",
+      "result": "pass"
+    }
+  },
+  "noteOnNeighbourCapture": "pending-evidence/collect-neighbors-{before,after}.json (10:18:36-10:19:12 PDT) bracket the retained-data StatefulSet collection, not the preview cleanup (10:40-10:42); the only removed neighbour is that collection's own target, StatefulSet personal/scenario-retire.",
+  "result": "pass"
+}

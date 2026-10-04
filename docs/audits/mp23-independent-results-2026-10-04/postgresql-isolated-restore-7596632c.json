@@ -1,0 +1,25 @@
+{
+  "check": "Independent local PostgreSQL isolated restore (EP-160), MP-23 phase 2",
+  "reviewer": "nagare-reviewer (claude-opus-5-5), 2026-10-04",
+  "candidate": "7596632cee07d107a93b7d2032923b7f4b6b8904",
+  "cli": "/private/tmp/result-7596632c-nagare/bin/nagarectl through the C2 root's env -i wrapper runctl.sh",
+  "context": "local (fresh C2 context /private/tmp/nagare-mp23-c2-7596632c.duGEtd), node k3d-nagare-local-server-0 asserted",
+  "cp3Claim": {"owner": "nagare-reviewer", "takenAt": "2026-10-04T18:42:58Z", "releasedAt": "2026-10-04T18:45:12Z", "headAtTake": {"generation": 1464, "sequence": 1349, "activeTransaction": null}, "headAtRelease": {"generation": 1480, "sequence": 1361, "activeTransaction": null, "executorClaim": null, "dataFence": null}},
+  "source": {"database": "personal/scenario-pg", "statefulSetUid": "12b840e7-603f-4287-b0d7-87e8ab378bd6", "pvcUid": "582d812e-25eb-40bf-88ed-7642a6f4218e"},
+  "knownRows": {"table": "reviewer_known (created by the reviewer, nonce 275b10ba)", "seededAt": "2026-10-04T18:43:09Z", "rows": ["1|rv-275b10ba-known-1", "2|rv-275b10ba-known-2"]},
+  "backup": {"command": "db backup scenario-pg --backup-id rvpg1 --save-plan DIR; inventory apply DIR --yes", "review": "296f67d90059f800bbb9d8aa64eecf8584ed5c928ae4ff3608c99ea87ebe7118", "operations": ["RunDeclaredOperation job", "CreateResource job"], "result": "converged tx-296f67d90059f800bbb9d8aa64eecf8584ed5c928ae4ff3608c99ea87ebe7118", "jobUid": "702bb0e3-84d4-4325-a3d8-0f084a04c964"},
+  "laterRow": {"writtenAt": "2026-10-04T18:43:47Z", "row": "3|rv-275b10ba-after-backup"},
+  "restore": {"command": "db restore scenario-pg rvpg1 --restore-id rvpgr1 --save-plan DIR; inventory apply DIR --yes", "review": "fd9f07d5f3338efa2738e69d4d226c665d32591e348f77908d0377f097bca285", "operations": ["CreateResource job", "RunDeclaredOperation job"], "operationTargets": "only the scratch database scenario-pg_restore_rvpgr1; no operation names scenario_pg", "result": "converged tx-fd9f07d5f3338efa2738e69d4d226c665d32591e348f77908d0377f097bca285", "applySeconds": 22, "jobUid": "20e35f67-d29a-496a-ac42-4554dc9ded83"},
+  "readBack": {
+    "restoredReviewerKnown": ["1|rv-275b10ba-known-1", "2|rv-275b10ba-known-2"],
+    "restoredEqualsKnownRows": true,
+    "restoredLacksLaterRow": true,
+    "restoredScenarioKnown": ["1|scenario-pg-row-1", "2|scenario-pg-row-2", "3|scenario-pg-after-backup"],
+    "sourceReviewerKnownAfter": ["1|rv-275b10ba-known-1", "2|rv-275b10ba-known-2", "3|rv-275b10ba-after-backup"],
+    "sourceKeptLaterRow": true,
+    "sourceScenarioKnownUnchanged": true,
+    "sourceStatefulSetAndPvcUidsUnchanged": true
+  },
+  "statusAfter": {"activeTransaction": null, "acceptedEqualsConverged": true, "findings": {"converged": 294, "unknown": 1}, "missingProviders": ["AccessExecutor"], "note": "The reviewer's wrapper did not forward the en endpoint (harness runbook section 6 rule 4), so the access provider was unobserved; this is a harness input, not a product finding."},
+  "result": "pass"
+}

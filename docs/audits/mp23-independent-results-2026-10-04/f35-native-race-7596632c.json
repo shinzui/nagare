@@ -1,0 +1,31 @@
+{
+  "check": "Independent native re-run of the F35 race (an object appears at a reviewed create address after admission)",
+  "reviewer": "nagare-reviewer (claude-opus-5-5), 2026-10-04",
+  "candidate": "7596632cee07d107a93b7d2032923b7f4b6b8904",
+  "context": "local C2 context /private/tmp/nagare-mp23-c2-7596632c.duGEtd through runctl.sh; node k3d-nagare-local-server-0 asserted",
+  "cp3Claim": {"owner": "nagare-reviewer", "takenAt": "2026-10-04T19:52:24Z", "releasedAt": "2026-10-04T19:53:49Z"},
+  "setup": {
+    "backup": "db backup scenario-redis --backup-id rvred1, converged tx-b1805c50f005787527c44dc48306d0a8b05ad20b25027cd24044f6bf34c308bf (a fresh backup, because c2red1's upload Pod receipt had been cleaned up: 'completed backup Job has no matching upload Pod receipt')",
+    "review": "db restore scenario-redis rvred1 --restore-id rvf35 --save-plan: review 9f285d75397c8f49d8fe75ede407002bd566fe6f1be40a362224fab02beb3994, five operations (CreateResource pvc, job, statefulset, service; RunDeclaredOperation job)",
+    "foreignObject": {"kind": "PersistentVolumeClaim", "name": "personal/scenario-redis-restore-rvf35", "uid": "0fa935b8-6e05-4ecb-b363-5ec20d9e704b", "resourceVersion": "41629", "label": "nagare.dev/drill=nagare-reviewer-f35", "createdBy": "reviewer, after the review was saved and before apply (admission runs adapter preflight only for migration sources)"}
+  },
+  "stranded": {
+    "apply": "exit 1: stopped tx-9f285d75… at op-96ca157d3416dc1562e2f5bd: KnownNoEffect \"adapter preflight refused\"",
+    "headAfterApply": {"generation": 1521, "sequence": 1394, "activeTransaction": "tx-9f285d75397c8f49d8fe75ede407002bd566fe6f1be40a362224fab02beb3994"},
+    "journal": "seq 1393 Pending (admitted); no intent recorded for op-96ca157d",
+    "resume": "exit 1, the same refusal",
+    "otherPlanning": "db backup scenario-pg --save-plan: exit 1, active-transaction 'resume or resolve the active inventory transaction before planning another review'",
+    "earlierEffects": "none: on this candidate the PVC create executed first, so no scratch object was created; the earlier-effect variant is covered by the regression suite and the implementer's 2026-10-03 run"
+  },
+  "exit": {
+    "command": "inventory recover tx-9f285d75… --operation op-96ca157d… --decision FILE (action abandon-refused-operation)",
+    "result": "exit 0: Refused operation abandoned and its review ended without convergence; completed earlier effects remain unaccepted",
+    "journal": "seq 1394 OperatorResolved abandoned-refused-operation, 'operation abandoned after a fresh preflight refusal (Kubernetes object changed since review; replan before mutation)'",
+    "headAfter": {"generation": 1526, "sequence": 1395, "activeTransaction": null, "executorClaim": null, "dataFence": null},
+    "restoreScopeAccepted": false,
+    "foreignPvcUntouched": "uid 0fa935b8 at resourceVersion 41629, unchanged",
+    "storeReusable": "a new db backup scenario-pg --save-plan saved immediately (exit 0; not applied)"
+  },
+  "cleanup": "the reviewer deleted its own drill PVC by label after the check",
+  "result": "pass"
+}
