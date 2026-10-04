@@ -511,6 +511,7 @@ This list says what remains before MP-23 is complete. It was agreed between sess
 - [x] F48 (P2, evidence names the release manifest's payload without checking the payload the context runs): **accept the procedural guard for this release**; the code fix goes in EP-168.
   - Every acceptance run uses a fresh context from the candidate's own payload.
   - `platform root --json` is recorded before the runner's plan and saved with the evidence, so the reviewer can confirm which payload ran.
+- [x] F51 (retirement retains a replacement's identity) and F52 (an address-changing migration reads as `replaced-incarnation` until it converges), both P2: **deferred as known limitations of this release**, documented in ADR 22 and the release notes, with fixes as follow-up work (operator decision, 2026-10-04).
 - [x] The independent runbook execution **stays required for MP-23 completion**. It is done in the same reviewer pass as the closures, on the acceptance C3 context before teardown. If reviewer availability becomes the bottleneck, the fallback is to narrow it to the safe-use gate, with the release notes saying the release is not cleared for real workloads until it passes.
 
 **Close-out (Phase D)**

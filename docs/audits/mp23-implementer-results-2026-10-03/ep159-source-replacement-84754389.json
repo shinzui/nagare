@@ -19,7 +19,7 @@
    "ingested": false
   },
   "C": {
-   "result": "no receipt C appeared within 16 minutes",
+   "result": "not attempted in this run: the drill discovered receipts through db backup-receipts listing, which refuses the replaced source, so it reported none; the 22:30Z backup Job did exist (correction requested by nagare-reviewer). C was attempted natively in a separate run: f49-receipt-c-84754389.json",
    "jobFound": "nagare-dbbackup-ep159-throwaway-29852550, uid 6360c2ef-e966-41bd-bd86-7fda0e340782, succeeded at 22:30Z",
    "gap": "not attempted: the drill discovered receipts through db backup-receipts, which now refuses the replaced source, so C was never listed; after the joint retire it can no longer be ingested against an accepted database. Driver fault (should have taken the Job UID from the backup Jobs)."
   }

@@ -1,0 +1,109 @@
+{
+ "recordedBy": "implementer (claude-opus-5-5, session nagare-phase-b); evidence for nagare-reviewer's check, not independent verification",
+ "recordedAt": "2026-10-04",
+ "candidate": "847543896d0742667e58dde723f4e9d230dfcddc",
+ "context": "the 84754389 C2 context on cp3 (local), under the cp3 claim",
+ "procedure": "nagare-reviewer's receipt-C procedure: fresh throwaway, out-of-band replacement, C's Job UID taken from kubectl, ingestion attempt expected to refuse with F49's message, no review directory, head unchanged, incarnations snapshotted before and after",
+ "throwaway": {
+  "database": "f49c-throwaway",
+  "namespace": "personal"
+ },
+ "incarnations": {
+  "beforeReplacement": [
+   {
+    "member": "backup-signing-key",
+    "uid": "0e60ee13-2a3e-4efd-bf2d-8dc8cb674c75"
+   },
+   {
+    "member": "credential",
+    "uid": "0f812e34-3c74-4bc0-af23-5b95a3a6b97b"
+   },
+   {
+    "member": "pvc",
+    "uid": "4a37029b-a5b1-484a-b16d-215010e8a42f"
+   },
+   {
+    "member": "statefulset",
+    "uid": "713e633f-a85e-45aa-a944-47160f7623fd"
+   }
+  ],
+  "afterIngestAttempt": [
+   {
+    "member": "backup-signing-key",
+    "uid": "0e60ee13-2a3e-4efd-bf2d-8dc8cb674c75"
+   },
+   {
+    "member": "credential",
+    "uid": "0f812e34-3c74-4bc0-af23-5b95a3a6b97b"
+   },
+   {
+    "member": "pvc",
+    "uid": "4a37029b-a5b1-484a-b16d-215010e8a42f"
+   },
+   {
+    "member": "statefulset",
+    "uid": "713e633f-a85e-45aa-a944-47160f7623fd"
+   }
+  ],
+  "unchanged": true
+ },
+ "replacement": {
+  "statefulSet": {
+   "oldUid": "713e633f-a85e-45aa-a944-47160f7623fd",
+   "newUid": "109dffa3-4452-40cf-ad4c-2a202fe84c22",
+   "deletePreconditions": {
+    "uid": "713e633f-a85e-45aa-a944-47160f7623fd",
+    "resourceVersion": "22406"
+   }
+  },
+  "pvc": {
+   "oldUid": "4a37029b-a5b1-484a-b16d-215010e8a42f",
+   "newUid": "d419be3c-edc8-4d4e-9af4-09b2ea0d8f12",
+   "deletePreconditions": {
+    "uid": "4a37029b-a5b1-484a-b16d-215010e8a42f",
+    "resourceVersion": "22390"
+   }
+  }
+ },
+ "statusAfterReplacement": {
+  "replacedIncarnationFindings": [
+   "standalone:database-f49c-throwaway/f49c-throwaway/pvc",
+   "standalone:database-f49c-throwaway/f49c-throwaway/statefulset"
+  ]
+ },
+ "receiptC": {
+  "job": {
+   "name": "nagare-dbbackup-f49c-throwaway-29852565",
+   "uid": "43925446-b0c8-42a4-bfa1-96df8ae0154f",
+   "created": "2026-10-04T22:45:00Z",
+   "succeeded": 1
+  },
+  "ingestion": {
+   "command": "nagarectl db backup-receipts f49c-throwaway --backup-id <C job uid> --save-plan DIR",
+   "exitCode": 1,
+   "output": "nagarectl: InventoryError {code = \"invalid-scheduled-ingest\", message = \"scheduled receipt source is not the accepted database incarnation; it was replaced outside Nagare\", scopes = [ScopeId Standalone (Name \"database-f49c-throwaway\")], resources = [], claims = [], sources = [SourceLocation {file = \"db backup-receipts/f49c-throwaway\", path = \"43925446-b0c8-42a4-bfa1-96df8ae0154f\"}]} :| []",
+   "headBefore": {
+    "generation": 1520,
+    "sequence": 1397,
+    "activeTransaction": null
+   },
+   "headAfter": {
+    "generation": 1520,
+    "sequence": 1397,
+    "activeTransaction": null
+   },
+   "saveDirExistedBefore": false,
+   "saveDirExistsAfter": false
+  }
+ },
+ "confinement": {
+  "othersCompared": 21,
+  "othersChanged": {}
+ },
+ "cleanup": "db retire converged; per F51 (deferred by operator decision) the retained records carry the replacement UIDs",
+ "finalHead": {
+  "generation": 1524,
+  "sequence": 1399,
+  "activeTransaction": null
+ }
+}

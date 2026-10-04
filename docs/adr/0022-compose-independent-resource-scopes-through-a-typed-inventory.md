@@ -1545,5 +1545,8 @@ Three consumers use the record:
 - **Recording is fail-open.** The record comes from a fresh observation at convergence, not from the execution receipt. If that observation is unavailable, nothing is recorded, and the next update or verification binds whatever object is live then. That leaves a narrow window in which a replacement could be bound.
 - **Unrecorded members pass.** A member with no record (a store from before this rule, one never touched by a converging review, or one hit by the limit above) keeps the earlier behaviour in status and ingestion.
 
-Binding established records from the journal's completion identity would close both limits, and is follow-up work. Rebinding to a deliberately replaced object needs a reviewed operation and is not part of MP-23. Until one exists, retire and recreate the database.
+- **Retirement binds the observed object** (F51). Retiring a member whose object replaced the recorded incarnation retains the replacement's identity.
+- **Records are keyed by resource ID** (F52). A reviewed migration that moves a member to a new address reads as `replaced-incarnation` until it converges.
+
+Binding established records from the journal's completion identity would close the first two limits, and is follow-up work. F51 and F52 are known limitations of this release by operator decision (2026-10-04). Rebinding to a deliberately replaced object needs a reviewed operation and is not part of MP-23. Until one exists, retire and recreate the database.
 
