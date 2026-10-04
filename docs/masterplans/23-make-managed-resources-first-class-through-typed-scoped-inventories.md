@@ -494,18 +494,24 @@ This list says what remains before MP-23 is complete. It was agreed between sess
   - F36, F37, F41: the C2 runs;
   - F45, F46, F47: the CDN cycle on the `mp23-c3g` checkpoint, to be repeated in the acceptance C3.
 
-  So most of these need only the independent check. F40 and F48 depend on the user decisions below.
+  So most of these need only the independent check. Per the operator decisions below, the F40 remainder moves to MasterPlan 25, and F48 is accepted for this release with a procedural guard. Its code fix belongs to EP-168.
 - [ ] Accept or reject the recorded arguments:
   - EP-159 B1 source replacement, re-scoped to "out-of-band replacement refuses ingestion and isolated restore";
   - EP-160 B2 Redis load interruption and partial ClickHouse effect.
 - [ ] Independent local PostgreSQL isolated restore with known content and the source preserved (EP-160).
-- [ ] Execute [the operations runbook](../runbooks/inventory-operations.md) end to end on the C3 context and record F14–F18 and the cloud operational checks (EP-156; safe-use gate). Required as written unless the user narrows it.
+- [ ] Execute [the operations runbook](../runbooks/inventory-operations.md) end to end on the acceptance C3 context, before its teardown, and record F14–F18 and the cloud operational checks (EP-156; safe-use gate). Required for MP-23 completion (operator decision), in the same reviewer pass as the closures.
 
-**User decisions still needed**
+**Operator decisions** (all decided 2026-10-04)
 - [x] F38 (P2, a GCS head-advance failure stops ambiguous): **fix before release** (operator decision, 2026-10-04). Implemented in `Execute/Journal`: bounded head retry with read-back, orphan adoption independent of proof equality, and store errors on stderr. It is in the next candidate.
-- [ ] Must independent closure come before the release, or may it follow it?
-- [ ] F40 remainder: confirm it moves to MasterPlan 25 together with full-context collection.
-- [ ] F48 (P2, evidence names the release manifest's payload without checking the payload the context runs): accept the procedural guard for this release (fresh context from the candidate's payload, and `platform root --json` recorded before the runner's plan), with the code fix in EP-168. Or require the fix before release.
+- [x] Independent closure comes **before the release is published**, but runs **in parallel** with the candidate gates.
+  - A reviewer session starts at the freeze, checking source fixes and regressions while C2–C4 run.
+  - Findings that need native evidence (F15, F31, F33, F45–F47) are checked once C3 produces it.
+  - The closures gate C5's publishing, not the runs.
+- [x] The F40 remainder (collecting a full context's VM and its workloads) **moves to MasterPlan 25**. MP-23 covers perimeter-only exact cleanup plus retirement of every scope.
+- [x] F48 (P2, evidence names the release manifest's payload without checking the payload the context runs): **accept the procedural guard for this release**; the code fix goes in EP-168.
+  - Every acceptance run uses a fresh context from the candidate's own payload.
+  - `platform root --json` is recorded before the runner's plan and saved with the evidence, so the reviewer can confirm which payload ran.
+- [x] The independent runbook execution **stays required for MP-23 completion**. It is done in the same reviewer pass as the closures, on the acceptance C3 context before teardown. If reviewer availability becomes the bottleneck, the fallback is to narrow it to the safe-use gate, with the release notes saying the release is not cleared for real workloads until it passes.
 
 **Close-out (Phase D)**
 - [ ] Finalize the living sections of EP-153 to EP-160 and mark the registry.
