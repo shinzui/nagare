@@ -89,6 +89,30 @@ def main() -> None:
             json.dumps([{"kind": "Standalone", "name": "database-old"}, "standalone:database-old/old/statefulset", "uid-old", "RetainedIncarnation"])
         }
 
+        # A retained Google DNS record reserves its record and hostname alias claims, in the
+        # address shape a real cloud export holds (F48 rehearsal on mp23-c3g).
+        dns_export = root / "dns-export"
+        write_export(dns_export)
+        retired = json.loads((dns_export / "scopes/retired.json").read_text())
+        host = "www.example.test"
+        retired["bundles"][0]["declarations"].append({
+            "identity": f"standalone:database-old/{host}/dns-a",
+            "address": {"tag": "DnsRecord", "contents": ["project", "zone", host]},
+            "aliases": [{"tag": "Hostname", "contents": host}],
+            "spec": {"tag": "DnsARecord", "contents": ["203.0.113.4", 300]},
+        })
+        (dns_export / "scopes/retired.json").write_text(json.dumps(retired))
+        head = json.loads((dns_export / "head.json").read_text())
+        head["retained"].append({"resource": f"standalone:database-old/{host}/dns-a",
+                                 "incarnation": {"owner": retired["scope"], "physical": "dns:project/zone/www",
+                                                 "revision": {"digest": "retired", "generation": 1}}})
+        (dns_export / "head.json").write_text(json.dumps(head))
+        result = run(dns_export, root / "dns.json", "Platform:kourier")
+        assert result.returncode == 0, result.stderr
+        dns_claims = {json.dumps(r["claim"]): r["holder"][1] for r in json.loads((root / "dns.json").read_text())["reservations"]}
+        assert dns_claims.get(json.dumps(["dns-record", "project", "zone", host])) == f"standalone:database-old/{host}/dns-a", dns_claims
+        assert dns_claims.get(json.dumps(["hostname", host])) == f"standalone:database-old/{host}/dns-a", dns_claims
+
         assert run(export, root / "missing.json", "Platform:absent").returncode != 0
 
         # An export without retained incarnations omits the key entirely.

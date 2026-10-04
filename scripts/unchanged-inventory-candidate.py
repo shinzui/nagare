@@ -51,11 +51,28 @@ def find(node, rid):
             if r: return r
     return None
 
+# Mirrors Nagare.Resource.Inventory.canonicalClaim for every provider address kind.
+CLAIM_PREFIX = {
+    "GlobalBucket": "bucket", "CloudService": "cloud-service", "CloudStack": "cloud-stack",
+    "CloudInstance": "instance", "PulumiUrn": "pulumi", "Host": "host", "Artifact": "artifact",
+    "Hostname": "hostname", "DatabaseName": "database", "BackendRoute": "route",
+    "AtticCache": "attic-cache", "BrokerTopic": "broker-topic", "Helm": "helm",
+    "DnsRecord": "dns-record", "CloudflareDnsRecord": "cloudflare-dns-record",
+}
+
 def claim(addr):
     tag, c = addr["tag"], addr.get("contents")
     if tag == "Kubernetes":
         cluster, group, kind, ns, name = c
         return ["kubernetes", cluster, group.lower(), kind, ns or "", name]
+    if tag == "AccessTuple":
+        return ["access-tuple", *c, "viewer"]
+    if tag == "CloudflareRuleset":
+        return ["cloudflare-ruleset", c, "http_request_cache_settings"]
+    if tag == "CloudflareTlsSetting":
+        return ["cloudflare-tls-setting", c, "ssl"]
+    if tag in CLAIM_PREFIX:
+        return [CLAIM_PREFIX[tag], *(c if isinstance(c, list) else [c])]
     raise SystemExit(f"unsupported retained address kind {tag}")
 
 def derived(decl):
