@@ -23,7 +23,7 @@ import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.ObservationNative
 import Nagare.Inventory.Plan
-import Nagare.Inventory.Status (loadAcceptedNativeSelected)
+import Nagare.Inventory.Status (loadAcceptedNativeSelected, missingStatusObservers)
 import Nagare.Inventory.Store
 import Nagare.Inventory.Store.ObjectOps
 import Nagare.Resource.Inventory
@@ -42,7 +42,11 @@ inventoryObservationTests :: TestTree
 inventoryObservationTests =
   testGroup
     "selected native observation"
-    [ testCase "execution source selection ignores missing siblings and corrupt unrelated reviews" (executionSourceRead "present")
+    [ testCase "inventory status must register an observer for every executor (F44)" $ do
+        let observedBeforeF44 = [KubernetesExecutor, HelmExecutor, PulumiExecutor, ArtifactExecutor, HostExecutor, CacheExecutor, BrokerExecutor, CdnExecutor, AccessExecutor]
+        missingStatusObservers observedBeforeF44 @?= [CloudFoundationExecutor]
+        missingStatusObservers (CloudFoundationExecutor : observedBeforeF44) @?= []
+    , testCase "execution source selection ignores missing siblings and corrupt unrelated reviews" (executionSourceRead "present")
     , testCase "legacy execution source still reconstructs its original private envelope" (executionSourceRead "missing")
     , testCase "legacy reconstruction populates a verified cache shared by later commands" (executionSourceRead "cached-missing")
     , testCase "corrupt reconstructed cache is discarded and original evidence is reread" (executionSourceRead "corrupt-cache")

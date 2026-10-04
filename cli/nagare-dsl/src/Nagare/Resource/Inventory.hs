@@ -75,7 +75,7 @@ import Nagare.Resource.Reference
 import Nagare.Resource.Types
 
 data Executor = KubernetesExecutor | PulumiExecutor | CloudFoundationExecutor | HostExecutor | ArtifactExecutor | CacheExecutor | BrokerExecutor | HelmExecutor | CdnExecutor | AccessExecutor
-  deriving stock (Eq, Ord, Show, Generic)
+  deriving stock (Eq, Ord, Show, Generic, Enum, Bounded)
 
 -- | Closed, versioned alternatives. Native bytes are referenced by content identity.
 -- Controller reservations are derived here, never supplied by an executor at apply.

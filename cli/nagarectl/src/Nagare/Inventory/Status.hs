@@ -21,6 +21,7 @@ module Nagare.Inventory.Status
   , loadActiveTransactionStatus
   , summarizeActiveTransaction
   , signedScheduledBackups
+  , missingStatusObservers
   )
 where
 
@@ -717,3 +718,10 @@ signedScheduledBackups universe selected =
       )
       universe
   ]
+
+-- | Executors that @inventory status@ would leave unobserved. Every executor
+-- needs a read-only observer, or a context holding its members can never
+-- report a complete observation (F44); a new executor appears here until
+-- status registers one.
+missingStatusObservers :: [Executor] -> [Executor]
+missingStatusObservers observed = [executor | executor <- [minBound .. maxBound], executor `notElem` observed]

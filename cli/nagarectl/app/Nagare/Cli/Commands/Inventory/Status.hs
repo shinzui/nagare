@@ -28,6 +28,7 @@ import Nagare.Cli.Inventory.Adapters
   , inventoryPulumiAdapter
   )
 import Nagare.Cli.Inventory.CdnHistory
+import Nagare.Cli.Inventory.Foundation (inventoryFoundationAdapter)
 import Nagare.Cli.Inventory.PublicEvidence (publicDataFence)
 import Nagare.Cli.Runtime.Cluster (guardKubernetesContext)
 import Nagare.Cli.Runtime.Error (dieT)
@@ -132,6 +133,7 @@ runInventoryStatus mctx requested json gcOutput = do
           ( \resource ->
               resource ^. #executor
                 `elem` [ ResourceInventory.PulumiExecutor
+                       , ResourceInventory.CloudFoundationExecutor
                        , ResourceInventory.ArtifactExecutor
                        , ResourceInventory.HostExecutor
                        , ResourceInventory.CacheExecutor
@@ -272,6 +274,22 @@ runInventoryStatus mctx requested json gcOutput = do
   cacheFacts <- inspect cache ResourceInventory.CacheExecutor
   brokerFacts <- inspect broker ResourceInventory.BrokerExecutor
   cdnFacts <- inspect cdn ResourceInventory.CdnExecutor
+  -- Cloud foundation buckets and the Pulumi stack are observed read-only
+  -- through the same guarded adapter that plans them (F44).
+  foundation <-
+    if null (ids ResourceInventory.CloudFoundationExecutor)
+      then pure (Inventory.executionBlockedAdapterFor ResourceInventory.CloudFoundationExecutor)
+      else
+        withWorkspace
+          ( \root ->
+              inventoryFoundationAdapter
+                active
+                root
+                binding
+                (ResourceInventory.inventoryDeclarations inventory)
+                (Set.fromList (ids ResourceInventory.CloudFoundationExecutor))
+          )
+  foundationFacts <- inspect foundation ResourceInventory.CloudFoundationExecutor
   access <-
     ReviewedAccess.accessAdapter
       active
@@ -279,6 +297,12 @@ runInventoryStatus mctx requested json gcOutput = do
       (ResourceInventory.inventoryDeclarations inventory)
       history
   accessFacts <- inspect access ResourceInventory.AccessExecutor
+  case InventoryStatus.missingStatusObservers
+    [ InventoryAdapter.adapterExecutor adapter
+    | adapter <- [kubernetes, helm, pulumi, foundation, artifact, host, cache, broker, cdn, access]
+    ] of
+    [] -> pure ()
+    missing -> dieT ("inventory status has no observer for " <> T.intercalate ", " (map (T.pack . show) missing))
   let inspectRetained adapter executor = do
         let requestedIds = retainedIds executor
         if null requestedIds
@@ -356,7 +380,7 @@ runInventoryStatus mctx requested json gcOutput = do
   unless
     (finalHead == Just (InventoryPlan.historyHead history))
     (dieT "accepted inventory changed during status; retry against the new head")
-  let allFacts = kubeFacts <> helmFacts <> pulumiFacts <> artifactFacts <> hostFacts <> cacheFacts <> brokerFacts <> cdnFacts <> accessFacts
+  let allFacts = kubeFacts <> helmFacts <> pulumiFacts <> foundationFacts <> artifactFacts <> hostFacts <> cacheFacts <> brokerFacts <> cdnFacts <> accessFacts
       knownFacts = Map.fromList allFacts
       remaining =
         [ ( resource ^. #identity
@@ -435,7 +459,7 @@ runInventoryStatus mctx requested json gcOutput = do
             , "identity" Aeson..= InventoryAdapter.adapterIdentity adapter
             , "version" Aeson..= InventoryAdapter.adapterVersion adapter
             ]
-        | adapter <- [kubernetes, helm, pulumi, artifact, host, cache, broker]
+        | adapter <- [kubernetes, helm, pulumi, foundation, artifact, host, cache, broker]
         ]
       revisions values =
         [ Aeson.object ["scope" Aeson..= scope, "revision" Aeson..= revision]
