@@ -449,10 +449,7 @@ This list says what remains before MP-23 is complete. It was agreed between sess
 
 **Gates on the frozen candidate**
 - [x] **C1** passed: 214 `VerifyResource`, zero mutations ([proof](../audits/mp23-implementer-results-2026-10-03/c1-local-gate-7d486457.json)).
-- [ ] **C2** (EP-155, owner phase-b): a fresh local context finalizes 16/16 **and** `assemble-managed-resource-evidence.sh` accepts the same directory.
-  - The first run finalized 16/16 but could not be assembled: the runner's plan and apply ran early and its verify ran late. A rerun with the runner last is in progress.
-  - Procedure: [runbook §6](../runbooks/native-verification-harness.md).
-  - Hand-off to f3: the evidence directory path.
+- [x] **C2** (EP-155, owner phase-b): a fresh local context finalized 16/16, and `assemble-managed-resource-evidence.sh` accepted the same directory (2026-10-04, [record](../audits/mp23-implementer-results-2026-10-03/c2-acceptance-7d486457.json)). The directory went to f3 for C5's index acceptance.
 - [ ] **C3** (EP-156, owner f3), context `mp23-c3g` (`*-c3-1005`). The bootstrap has converged.
   - [ ] the six operational checks:
     - application change with owner isolation and unchanged replay;

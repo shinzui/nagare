@@ -73,13 +73,6 @@ K -n personal exec scenario-ch-0 -- sh -c 'clickhouse-client --user "$CLICKHOUSE
 POD=$(K -n personal get pods -l serving.knative.dev/service=scenario-a -o jsonpath='{.items[0].metadata.name}')
 K -n personal exec $POD -c user-container -- sh -c 'printf mp23-local-scenario-volume > /uploads/scenario-known.txt && sha256sum /uploads/scenario-known.txt' > $SP/volume.txt 2>&1
 for f in postgresql rename redis clickhouse volume; do echo "seed $f: $(tr '\n' ' ' < $SP/$f.txt)"; done
-step runner
-./runctl.sh inventory export --out $ROOT/evidence-private/scenario-export >/dev/null 2>&1 || die "export"
-python3 $REPO/scripts/unchanged-inventory-candidate.py $ROOT/evidence-private/scenario-export $R/runner-candidate.json Platform:kourier Platform:cert-manager || die "candidate"
-./runctl.sh inventory compile --input $R/runner-candidate.json --out $R/runner-candidate > /dev/null || die "compile"
-mkdir -p $ROOT/evidence; EV=$ROOT/evidence/c2-14071e58; echo $EV > $S/c2-ev
-cd $REPO
-env KUBECONFIG=$KUBECONFIG DOCKER_HOST=$DOCKER_HOST NAGARECTL_BIN=$ROOT/nagarectl-bare.sh bash scripts/rehearse-local-inventory-release.sh --phase plan --context local --expected-cluster k3d-nagare-local --evidence-dir $EV --candidate $R/runner-candidate > $R/runner-plan.log 2>&1 || die "runner plan: $(tail -2 $R/runner-plan.log)"
-env KUBECONFIG=$KUBECONFIG DOCKER_HOST=$DOCKER_HOST NAGARECTL_BIN=$ROOT/nagarectl-bare.sh bash scripts/rehearse-local-inventory-release.sh --phase apply --context local --expected-cluster k3d-nagare-local --evidence-dir $EV --yes > $R/runner-apply.log 2>&1 || die "runner apply: $(tail -2 $R/runner-apply.log)"
-jq -c . $EV/run.json; jq -c '[.healthy, .operatorRevision, .fixtureDigest]' $EV/local-health.json
+mkdir -p $ROOT/evidence; EV=$ROOT/evidence/c2-7d486457-staging; mkdir -p $EV/checks; echo $EV > $S/c2-ev
+: > /private/tmp/claude-501/-Users-shinzui-Keikaku-bokuno-nagare/dc0e8853-c761-4c35-88cd-db57750f8f5b/scratchpad/rerun/record-queue.txt
 step PHASE2-OK

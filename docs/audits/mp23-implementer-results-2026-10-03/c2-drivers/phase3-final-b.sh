@@ -9,53 +9,46 @@ K() { command kubectl --context local "$@"; }
 die() { echo "FINAL FAILED: $*"; exit 1; }
 rec() { (cd $REPO && python3 scripts/scenario-assertions.py record --evidence-dir "$EV" --mode local "$@") || die "record $2"; }
 cd $ROOT
-echo "== preview cleanup"
-CP=$PE/preview-cleanup; mkdir -p $CP
-K get domainmappings.serving.knative.dev -A -o custom-columns=NS:.metadata.namespace,N:.metadata.name,U:.metadata.uid --no-headers > $PE/dm-before.txt
-K get kingress,kcert -A -o custom-columns=K:.kind,NS:.metadata.namespace,N:.metadata.name,U:.metadata.uid --no-headers 2>/dev/null | grep -i pr-scenario > $PE/descendants-before.txt
-./runctl.sh cleanup --previews --preview-ttl-days 0 -n personal --save-plan $R/preview-cleanup > $R/preview-cleanup.log 2>&1 || die "cleanup plan"
-./runctl.sh inventory apply $R/preview-cleanup --yes > $CP/00-retire.log 2>&1 || die "retire apply"
-echo "retire: $(tail -1 $CP/00-retire.log)"
-for i in $(seq 1 20); do n=$(printf %02d $i); D=$R/preview-collect-$n
-  ./runctl.sh cleanup --previews --preview-ttl-days 0 -n personal --save-plan $D > $CP/$n-plan.log 2>&1 || die "collect plan $n"
-  grep -q 'No stale accepted previews' $CP/$n-plan.log && { echo "collections: $((i-1))"; break; }
-  ./runctl.sh inventory apply $D --yes > $CP/$n-apply.log 2>&1 || die "collect apply $n: $(tail -1 $CP/$n-apply.log)"
-  echo "$n: $(tail -1 $CP/$n-apply.log)"
-done
-sleep 10
-K get domainmappings.serving.knative.dev -A -o custom-columns=NS:.metadata.namespace,N:.metadata.name,U:.metadata.uid --no-headers > $PE/dm-after.txt
-K get kingress,kcert,ksvc -A -o custom-columns=K:.kind,NS:.metadata.namespace,N:.metadata.name,U:.metadata.uid --no-headers 2>/dev/null | grep -i pr-scenario > $PE/descendants-after.txt
-D=$EV/checks/convergence-noop-removal; mkdir -p $D
-python3 - $ROOT $D <<'PY' || exit 1
-import json,sys,glob,os
-R,D=sys.argv[1:]; P=R+'/pending-evidence/preview-cleanup/'; pe=R+'/pending-evidence/'
-rows=lambda f:[l.split() for l in open(pe+f).read().strip().splitlines() if l.strip()]
-steps=[{"step":"retire","result":open(P+'00-retire.log').read().strip().splitlines()[-1]}]
-for d in sorted(glob.glob(R+'/reviews/preview-collect-*')):
-    n=d[-2:]
-    if os.path.exists(P+f'{n}-apply.log'):
-        steps.append({"step":f"collect-{n}","operations":[o['summary'] for o in json.load(open(d+'/review.json'))['operations']],"result":open(P+f'{n}-apply.log').read().strip().splitlines()[-1]})
-out={"command":"nagarectl cleanup --previews --preview-ttl-days 0 -n personal --save-plan DIR, then inventory apply DIR --yes, repeated until no review is created","preview":"pr-scenario (site scenario-site)","steps":steps,
- "domainMappingsBefore":rows('dm-before.txt'),"domainMappingsAfter":rows('dm-after.txt'),"previewDescendantsBefore":rows('descendants-before.txt'),"previewObjectsAfter":rows('descendants-after.txt'),
- "descendantsCollected":len(rows('descendants-after.txt'))==0,"otherDomainMappingUnchanged":[r for r in rows('dm-before.txt') if 'pr-scenario' not in r[1]]==rows('dm-after.txt')}
-json.dump(out,open(D+'/preview-cleanup.json','w'),indent=1)
-ok=out['descendantsCollected'] and out['otherDomainMappingUnchanged'] and len(rows('descendants-before.txt'))>0; print("cleanup ok",ok); sys.exit(0 if ok else 3)
-PY
+echo "== runner plan/apply (self-contained, after every scenario mutation)"
+STG=$EV; EV=$ROOT/evidence/c2-7d486457; echo $EV > $S/c2-ev; [ ! -e $EV ] || die "evidence dir exists"
+WS=$(ls -d $ROOT/state/nagare/local/platform/nagare-0.4.0-7d486457aa74-*)
+./runctl.sh inventory export --out $ROOT/evidence-private/runner-export >/dev/null 2>&1 || die "export"
+python3 $REPO/scripts/unchanged-inventory-candidate.py $ROOT/evidence-private/runner-export $R/runner-candidate.json Platform:kourier Platform:cert-manager --add-packaged-scope runner-probe=cluster/examples/hello-knative-service/service.yaml --payload-root $WS || die "candidate"
+./runctl.sh inventory compile --input $R/runner-candidate.json --out $R/runner-candidate > /dev/null || die "compile"
+K -n nagare-system port-forward svc/en 18082:80 > /dev/null 2>&1 & pf=$!; sleep 3
+export NAGARE_EN_URL=http://127.0.0.1:18082; export NAGARE_EN_API_KEY="$(K -n nagare-system get secret nagare-en-api-keys -o jsonpath='{.data.read-write}' | base64 -d)"
+$ROOT/nagarectl-bare-access.sh --context local inventory status --json 2>/dev/null | jq -e '.observationComplete == true and .missingProviders == []' >/dev/null || { kill $pf; die "status incomplete with en"; }
+cd $REPO
+env KUBECONFIG=$KUBECONFIG DOCKER_HOST=$DOCKER_HOST NAGARECTL_BIN=$ROOT/nagarectl-bare-access.sh bash scripts/rehearse-local-inventory-release.sh --phase plan --context local --expected-cluster k3d-nagare-local --evidence-dir $EV --candidate $R/runner-candidate > $R/runner-plan.log 2>&1 || { kill $pf; die "runner plan: $(tail -2 $R/runner-plan.log)"; }
+jq -c '[(.operations|length), [.operations[].operation.action.tag]]' $EV/review/review.json
+env KUBECONFIG=$KUBECONFIG DOCKER_HOST=$DOCKER_HOST NAGARECTL_BIN=$ROOT/nagarectl-bare-access.sh bash scripts/rehearse-local-inventory-release.sh --phase apply --context local --expected-cluster k3d-nagare-local --evidence-dir $EV --yes > $R/runner-apply.log 2>&1 || { kill $pf; die "runner apply: $(tail -2 $R/runner-apply.log)"; }
+kill $pf; unset NAGARE_EN_API_KEY
+jq -c . $EV/run.json; jq -c '[.healthy, .operatorRevision, .fixtureDigest]' $EV/local-health.json
+echo "== move staged checks and replay deferred records"
+[ ! -e $EV/checks ] || die "runner created checks/"
+cp -R $STG/checks $EV/checks
+while IFS= read -r line; do [ -n "$line" ] || continue; eval "rec $line" || die "replay"; done < /private/tmp/claude-501/-Users-shinzui-Keikaku-bokuno-nagare/dc0e8853-c761-4c35-88cd-db57750f8f5b/scratchpad/rerun/record-queue.txt
+echo "replayed $(grep -c . /private/tmp/claude-501/-Users-shinzui-Keikaku-bokuno-nagare/dc0e8853-c761-4c35-88cd-db57750f8f5b/scratchpad/rerun/record-queue.txt) records; assertions now $(ls $EV/assertions | wc -l)"
+cd $ROOT
 echo "== verify with final-marker interruption"
 ./runctl.sh inventory export --out $ROOT/evidence-private/verify-export >/dev/null 2>&1 || die "export"
-python3 $REPO/scripts/unchanged-inventory-candidate.py $ROOT/evidence-private/verify-export $R/verify-candidate.json Platform:kourier Platform:cert-manager || die "candidate"
+python3 $REPO/scripts/unchanged-inventory-candidate.py $ROOT/evidence-private/verify-export $R/verify-candidate.json Platform:kourier Platform:cert-manager Platform:runner-probe || die "candidate"
 ./runctl.sh inventory compile --input $R/verify-candidate.json --out $R/verify-candidate >/dev/null || die "compile"
 python3 -c "import json;h=json.load(open('$ROOT/state/nagare/local/inventory/head.json'));print(h['generation'],h['sequence'])" > $IP/final-marker-head-before.txt
 X1=$ROOT/evidence-private/final-export-1; X=$ROOT/evidence-private/final-export
+K -n nagare-system port-forward svc/en 18082:80 > /dev/null 2>&1 & pf=$!; sleep 3
+export NAGARE_EN_URL=http://127.0.0.1:18082; export NAGARE_EN_API_KEY="$(K -n nagare-system get secret nagare-en-api-keys -o jsonpath='{.data.read-write}' | base64 -d)"
 cd $REPO
-env NAGARECTL_BIN=$ROOT/nagarectl-bare.sh bash scripts/rehearse-local-inventory-release.sh --phase verify --context local --expected-cluster k3d-nagare-local --evidence-dir $EV --candidate $R/verify-candidate --private-store-export $X1 > $IP/final-marker-verify-1.log 2>&1 & pid=$!; killed=""
+env NAGARECTL_BIN=$ROOT/nagarectl-bare-access.sh bash scripts/rehearse-local-inventory-release.sh --phase verify --context local --expected-cluster k3d-nagare-local --evidence-dir $EV --candidate $R/verify-candidate --private-store-export $X1 > $IP/final-marker-verify-1.log 2>&1 & pid=$!; killed=""
 for i in $(seq 1 1200); do if [ -f $EV/final-observation.json ] && [ $EV/final-observation.json -nt $R/verify-candidate/candidate.json ]; then pkill -9 -f "inventory export --out $X1" 2>/dev/null; kill -9 $pid 2>/dev/null; killed=$(date -u +%H:%M:%S); break; fi; kill -0 $pid 2>/dev/null || break; sleep 0.1; done; wait $pid 2>/dev/null
 echo "verify killed=${killed:-none} state=$(jq -r .state $EV/run.json)"; [ -n "$killed" ] || die "verify not interrupted"
 [ "$(jq -r .state $EV/run.json)" = applied ] || die "marker written before kill"
 python3 -c "import json;h=json.load(open('$ROOT/state/nagare/local/inventory/head.json'));print(h['generation'],h['sequence'],h['activeTransaction'])" > $IP/final-marker-head-after-kill.txt
-env NAGARECTL_BIN=$ROOT/nagarectl-bare.sh bash scripts/rehearse-local-inventory-release.sh --phase verify --context local --expected-cluster k3d-nagare-local --evidence-dir $EV --candidate $R/verify-candidate --private-store-export $X > $IP/final-marker-verify-2.log 2>&1 || die "verify rerun: $(tail -2 $IP/final-marker-verify-2.log)"
+env NAGARECTL_BIN=$ROOT/nagarectl-bare-access.sh bash scripts/rehearse-local-inventory-release.sh --phase verify --context local --expected-cluster k3d-nagare-local --evidence-dir $EV --candidate $R/verify-candidate --private-store-export $X > $IP/final-marker-verify-2.log 2>&1 || die "verify rerun: $(tail -2 $IP/final-marker-verify-2.log)"
 jq -c . $EV/run.json; echo "noop ops: $(jq '.operations|length' $EV/no-op-review/review.json)"
 python3 -c "import json;h=json.load(open('$ROOT/state/nagare/local/inventory/head.json'));print(h['generation'],h['sequence'],h['activeTransaction'])" > $IP/final-marker-head-after.txt
+kill $pf; unset NAGARE_EN_API_KEY
+jq -c '{observationComplete, missingProviders}' $EV/final-observation.json
 cd $ROOT
 echo "== interrupted-recovery evidence"
 D=$EV/checks/interrupted-recovery; mkdir -p $D
@@ -80,7 +73,7 @@ res=[stage('database-readiness','database-readiness-status.json','database-readi
  stage('cluster-completion','cluster-completion-status.json','cluster-completion-uids-before.txt','cluster-completion-uids-after.txt','cluster-completion-resume.log',"application B deploy, after the Service write and before readiness"),
  stage('migration','migration-status.json','migration-copy-job-before.txt','migration-copy-job-before.txt','migration-resume.log',"rename TransferState, after the copy Job is created",{"copyJobEvents":json.load(open(P+'migration-copy-job-events.json'))})]
 fm={"stage":"final-marker","within":"platform verify, before the run marker is written","interruptedRunLog":open(P+'final-marker-verify-1.log').read().strip().splitlines()[-1] if open(P+'final-marker-verify-1.log').read().strip() else "",
- "runStateAfterKill":"applied","rerunLog":open(P+'final-marker-verify-2.log').read().strip().splitlines()[-1],"runStateAfterRerun":json.load(open(R+'/evidence/c2-14071e58/run.json'))['state'],
+ "runStateAfterKill":"applied","rerunLog":open(P+'final-marker-verify-2.log').read().strip().splitlines()[-1],"runStateAfterRerun":json.load(open(R+'/evidence/c2-7d486457/run.json'))['state'],
  "storeHead":{"before":open(P+'final-marker-head-before.txt').read().split(),"afterKill":open(P+'final-marker-head-after-kill.txt').read().split(),"afterRerun":open(P+'final-marker-head-after.txt').read().split()},
  "note":"verify has no transaction; the rerun replaced the interrupted no-op review and the store head did not move, so no effect was repeated"}
 json.dump(fm,open(f'{D}/final-marker.json','w'),indent=1)

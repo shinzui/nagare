@@ -7,7 +7,7 @@ R=$ROOT/reviews; PE=$ROOT/pending-evidence
 K() { command kubectl --context local "$@"; }
 die() { echo "RESTORES FAILED: $*"; exit 1; }
 pa() { local name=$1; shift; "$@" --save-plan $R/$name > $R/$name.log 2>&1 || die "$name plan: $(tail -1 $R/$name.log)"; $ROOT/runctl.sh inventory apply $R/$name --yes >> $R/$name.log 2>&1 || die "$name apply: $(tail -1 $R/$name.log)"; echo "$name: $(tail -1 $R/$name.log)"; }
-rec() { (cd $REPO && python3 scripts/scenario-assertions.py record --evidence-dir "$EV" --mode local "$@") || die "record $2"; }
+rec() { (cd $REPO && bash /private/tmp/claude-501/-Users-shinzui-Keikaku-bokuno-nagare/dc0e8853-c761-4c35-88cd-db57750f8f5b/scratchpad/rerun/defer-record.sh --evidence-dir "$EV" --mode local "$@") || die "record $2"; }
 cd $ROOT
 echo "== postgresql"
 pa backup-pg ./runctl.sh db backup scenario-pg --backup-id c2pg1

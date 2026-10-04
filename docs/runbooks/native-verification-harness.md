@@ -2,8 +2,8 @@
 
 This runbook is for maintainers proving a release candidate natively, as in MasterPlan 23 Phase C. It
 records the harness facts that earlier sessions had to rediscover: candidate builds, isolated operator
-roots, the shared local cluster and its claim protocol, the candidate gate, object-store drills, and
-fresh cloud context inputs. Operators running a real context use
+roots, the shared local cluster and its claim protocol, the candidate gate, object-store drills, the
+fresh local acceptance run (C2), and fresh cloud context inputs. Operators running a real context use
 [Operate and recover a reviewed inventory](inventory-operations.md) instead.
 
 The project rules in `CLAUDE.md` apply throughout. Use only the active context's project, stop when a
@@ -143,7 +143,90 @@ kubectl -n nagare-system exec drill-mc -- sh -c 'mc alias set d http://minio:900
 Revert every drill change by exact version ID and delete the pod. A tampered accepted backup must be
 refused at planning. Pinned reviews saved earlier keep downloading the pinned versions, which is correct.
 
-## 6. Fresh cloud context (C3)
+## 6. Fresh local acceptance (C2), step by step
+
+C2 proves a candidate on a **fresh** local context bootstrapped from the candidate's own payload. It
+yields two things that C5 combines:
+- `evidence/c2-<rev>/local-health.json`, finalized with all 16 required scenario assertions;
+- `evidence/c2-<rev>/inventory-evidence.json`, from `scripts/assemble-managed-resource-evidence.sh`.
+
+Both live in the **same** evidence directory, which the runner creates. The procedure is this
+section: the rules, inputs and step table below.
+
+The shell drivers that ran the passing `7d486457` acceptance are archived as a frozen record in
+[`c2-drivers/`](../audits/mp23-implementer-results-2026-10-03/c2-drivers/README.md). They are
+evidence of what ran, not tooling. The tested replacement is
+[EP-168](../plans/168-script-the-local-acceptance-run-as-one-command.md), in Haskell per
+[ADR 24](../adr/0024-release-and-harness-tooling-follows-the-production-haskell-standard.md).
+Until it lands, follow the step table, and use the archived drivers only as a reference for exact
+commands.
+
+### Hard rules
+
+Rules 1–3 have each cost a full rerun, and rule 6 cost a resume.
+
+1. **The runner runs last, and its phases run back to back.**
+   - Run the scenario, every check, the source-unavailable drill and preview cleanup first.
+   - Then run `rehearse-local-inventory-release.sh --phase plan`, `--phase apply` and `--phase verify`, in that order, with no store mutation between them.
+   - The assembler requires `final-observation.accepted == review.desiredRevisions`. Any scope accepted between the runner's plan and its verify makes the run unassemblable ("final observation is incomplete or diverged"). This is what happened to the first `7d486457` run.
+   - The final-marker interruption (kill the verify before its marker, then re-run it) happens on that same verify. It is read-only.
+2. **Checks write evidence into a staging directory; their records are deferred.**
+   - The runner's plan refuses an evidence directory that already exists, and `scenario-assertions.py record` needs the plan-time `local-health.json` that the plan writes.
+   - So the scenario drivers write to `evidence/c2-<rev>-staging/checks/` and queue each `record` call (`defer-record.sh`).
+   - After the runner's apply, `phase3-final-b.sh` copies `checks/` into the runner's directory and replays the queue.
+   - Three records depend on the runner's verify output and are recorded directly after it: `interrupted-recovery`, `convergence-noop-removal` and `secret-read-refusal`.
+3. **The runner probe can be used once per context.**
+   - The runner's initial review needs at least one real operation. Generic `inventory plan` cannot plan app or Helm scopes, so the candidate adds one packaged scope: `scripts/unchanged-inventory-candidate.py … --add-packaged-scope runner-probe=cluster/examples/hello-knative-service/service.yaml --payload-root <workspace>`. This is one `CreateResource` of `personal/hello`.
+   - The helper declares the member with lifecycle `Retain`. Once accepted it can be retired but never collected (`invalid-collection`), and it cannot be re-added (`retained-reactivation`).
+   - If the runner has to be redone, the context has to be rebuilt.
+4. **Every provider must be observable in all three runner phases.**
+   - Port-forward `svc/en` and export `NAGARE_EN_URL` and `NAGARE_EN_API_KEY` (the read-write key from `nagare-system/nagare-en-api-keys`, in the environment only).
+   - Run the runner through a wrapper that forwards them (`nagarectl-bare-access.sh`).
+   - Without en, `inventory status` reports `missingProviders: ["AccessExecutor"]` and the assembler refuses.
+5. **The CLI must run against its own payload.**
+   - F41 compiles the MinIO manifest digest into the CLI, so a candidate CLI on an older workspace refuses with `pinned MinIO manifest digest changed`.
+   - Bootstrap a fresh context instead of reusing the previous candidate's.
+6. **Let the cluster settle after any node restart before a reviewed collection.**
+   - A collection review binds the namespaced API discovery it saw.
+   - Right after the source-unavailable drill restarts the node, metrics-server's APIService is not yet back. A collection planned then gets refused at apply ("collection graph, protected objects, or API discovery changed since review"; 74 → 75 types) with no effect, and must be closed with `abandon-refused-operation`.
+   - Wait until every APIService is Available and `kubectl api-resources --namespaced=true` is identical across two reads 15 s apart.
+7. **Before the live run, rehearse the evidence pipeline.** Run the assembler and the record replay against the planned layout, using a scratch copy and real prior data. Cluster steps that pass prove nothing about whether the evidence will assemble.
+
+### Inputs
+
+- The candidate package, CLI plus payload (`result-<rev>-nagare`), built from a pinned clean worktree.
+- The release manifest from `scripts/check-release.sh --version <v> --output-dir …` in that worktree.
+- A coverage result from `scripts/audit-managed-commands.py`, run in that worktree. It must report `complete: true` and `dirty: false`.
+- The cp3 claim and the operator's teardown approval. A peer session's agreement is not approval.
+- Five pinned images in `images.env`: en, shomei, nagare-access, the MinIO server and the MinIO client. Copy them into the k3d registry by digest with `skopeo --preserve-digests` from `<cp3 root>/exports/registry-pre-c2`.
+  Every `platform bootstrap` plan, including the one inside the C1 gate, needs them in its environment: the wrapper forwards `NAGARE_AUTH_*` and `NAGARE_LOCAL_*` only when they are set. Source `images.env` in the same process. Without it the plan refuses with `bootstrap requires NAGARE_AUTH_EN_IMAGE as an immutable image reference`, which is harmless but stops the run.
+
+### Steps
+
+| # | Archived driver (reference) | What it does | Records |
+| --- | --- | --- | --- |
+| 0 | (manual) | Export the old store privately, delete the k3d cluster and registry, create a fresh `mktemp -d` root with wrappers pinned to the candidate, `context create local --mode local …` | — |
+| 1 | `phase1.sh` | Bootstrap stages 1–2; seed the five images by digest; stage-3 platform review (≈218 ops). It goes ambiguous once at the same op every time, and one `inventory resume <tx>` converges it. | — |
+| 2 | `run-local-candidate-gate.py` | C1 on the fresh payload: `VerifyResource` only, zero mutations, digests unchanged | C1 `proof.json` |
+| 3 | `phase2.sh` | Databases, broker, images, secret; deploy A and B, each killed mid-apply and resumed; site, env, preview; seed known rows and files | (staged) |
+| 4 | `phase2b.sh` | drift + `--take-over-fields` repair; collision refusal; rename killed at its copy Job and resumed; retained-data collection plus an isolated history restore | drift-classification, collision-refusal, retained-postgresql-rename, retained-data (deferred) |
+| 5 | `phase3-restores.sh` | backup/restore for PostgreSQL, Redis, ClickHouse and a volume, including wrong-incarnation refusals | 4 × *-backup-restore (deferred) |
+| 6 | `phase3-misc.sh` | adoption refusal, independent-scope preservation, access grant/revoke, F36 drill, freshness | adoption, independent-scope-preservation, access-grant-revoke, backup-freshness (deferred) |
+| 7 | `phase3-su.sh` | F41: escrow the key, live-copy the MinIO volume, `docker stop` the node, verify offline (`--offline-object-store`), restore the exact archive into a disposable PostgreSQL, restart | source-unavailable-recovery (deferred) |
+| 8 | `phase3-final-a.sh` | Wait for the cluster to settle (rule 6), then preview cleanup, repeated until no review remains (the last mutation) | (staged) |
+| 9 | `phase3-final-b.sh` | Runner plan → apply (probe, en forwarded); copy checks and replay deferred records; verify killed before its marker, then re-run; interrupted-recovery evidence; secret scan; `finalize` | interrupted-recovery, convergence-noop-removal, secret-read-refusal; 16/16 |
+| 10 | `chain.sh` (end) | `assemble-managed-resource-evidence.sh --release-manifest … --system aarch64-darwin --rehearsal-dir evidence/c2-<rev> --private-store-export evidence-private/final-export --coverage-result …` | `inventory-evidence.json` |
+
+Stop at the first failure. When any guard
+refuses, stop and report. Do not patch evidence, relax a check, or use a raw provider write.
+Expected, designed refusals:
+- the strict drift replan, closed with `abandon-refused-operation`;
+- the PostgreSQL and Redis wrong-incarnation applies;
+- the F36 restore, closed with `abandon-partial-database-restore`;
+- the collision and adoption refusals;
+- the retained PVC collection.
+
+## 7. Fresh cloud context (C3)
 
 The disposable target is a checked-in fixture (for example
 [`fixtures/inventory-release/gcp/c3-target.json`](../../fixtures/inventory-release/gcp/c3-target.json)).
@@ -231,7 +314,7 @@ CLOUDSDK_ACTIVE_CONFIG_NAME=labs gcloud compute instances describe nix-builder-e
 
 If Google asks for re-authentication mid-run, stop at a safe boundary and ask the operator.
 
-## 7. Shared working tree hygiene
+## 8. Shared working tree hygiene
 
 Several sessions may commit in the same checkout and stage their own files. Always stage and commit by
 explicit pathspec: `git add -- <paths> && git commit -F - -- <paths>`. A bare `git commit` would sweep a

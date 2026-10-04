@@ -77,6 +77,11 @@ provenance:
       at: 2026-10-03T22:41:09Z
       mode: "implement"
       note: "F41: durable local MinIO and offline escrow verification; 44ff0fd7 C2 checkpoint"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-04T14:16:36Z
+      mode: "update"
+      note: "C2 on 7d486457 finalized and assembled; what binds what"
 ---
 
 # Prove local application and data recovery end to end
@@ -108,6 +113,21 @@ Evidence counts toward final acceptance only where its recorded inputs (operator
 - [x] (MP-23 C2) In that same run: interruption at each stage resumes without duplicate effects; a wrong-incarnation destination is refused; PostgreSQL, Redis, ClickHouse and a volume restore into isolated targets with checked content through MinIO; content is recovered with the source cluster unavailable; the private history export restores into an isolated state root with identical accepted identities; the PostgreSQL rename and companion collection pass. Done 2026-10-03 (implementer) for frozen candidate `14071e58` on a fresh context with its own payload, after C1 passed on that payload (214 VerifyResource, zero mutations); [record](../audits/mp23-implementer-results-2026-10-03/c2-acceptance-14071e58.json).
 - [x] (MP-23 C2 checkpoint) Full scenario on a fresh context with candidate `44ff0fd7`'s own payload (2026-10-03, implementer). 15 of 16 assertions recorded; F37 (field takeover) and F36 (failed Redis scratch abandonment) proved natively; the runner verified a zero-operation replan after a final-marker interruption. `source-unavailable-recovery` was not provable because the node stop deleted the local `emptyDir` bucket (F41), so `finalize` refused as expected. Checkpoint only: the acceptance run needs the next candidate. [Record](../audits/mp23-implementer-results-2026-10-03/c2-checkpoint-44ff0fd7.json).
 - [ ] (MP-23 C2) The run's evidence directory is accepted by `scripts/assemble-inventory-release-index.py` for the final candidate revision, with private exports and credentials kept out of it. Not yet (2026-10-03): `local-health.json` is finalized with all 16 assertions for `14071e58`, but `scripts/assemble-managed-resource-evidence.sh` refuses with "initial review has no bound operations" because the runner's plan candidate is the unchanged kourier and cert-manager replacement (0 operations). The decision is with EP-157 (C5); see the [record](../audits/mp23-implementer-results-2026-10-03/c2-acceptance-14071e58.json).
+
+  **Update (2026-10-04, implementer, frozen candidate `7d486457`):** a fresh-context run finalized 16/16, and `assemble-managed-resource-evidence.sh` accepted the same directory. Index acceptance is the remaining step, done in C5 (nagare-f3).
+  - **Assembly inputs:** the pinned worktree's assembler, its release manifest and complete coverage.
+  - **Assembly result:** run `142b49a3…`, 46 scope revisions, 1 component receipt, no flagged keys.
+  - **What binds what:** the one directory `evidence/c2-7d486457` holds everything.
+    - `local-health.json` binds the 16 scenario assertions.
+    - `inventory-evidence.json` binds the self-contained runner rehearsal: one `CreateResource` of the packaged probe, applied, then a verified zero-operation replan with a complete final observation.
+    - `checks/` and `assertions/` hold the per-check evidence and records.
+    - nagare-f3 places the directory under `local/` for C5.
+  - **How the runner ran:** last, with plan, apply and verify back to back. Evidence was staged and records deferred until the runner's plan created the directory.
+  - **First run that day:** it finalized 16/16 but could not be assembled. The runner's plan and apply ran early and its verify ran late. A repair was refused because the probe is declared `Retain`.
+  - **Records:**
+    - [the C2 record](../audits/mp23-implementer-results-2026-10-03/c2-acceptance-7d486457.json);
+    - [the C1 proof](../audits/mp23-implementer-results-2026-10-03/c1-local-gate-7d486457-rerun.json);
+    - the procedure, in [runbook §6](../runbooks/native-verification-harness.md).
 
 
 ## Surprises & Discoveries
