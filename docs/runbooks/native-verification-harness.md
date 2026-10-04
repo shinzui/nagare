@@ -163,7 +163,7 @@ commands.
 
 ### Hard rules
 
-Rules 1–3 have each cost a full rerun, and rule 6 cost a resume.
+Rules 1–3 have each cost a full rerun, and rules 6 and 7 each cost a resume.
 
 1. **The runner runs last, and its phases run back to back.**
    - Run the scenario, every check, the source-unavailable drill and preview cleanup first.
@@ -190,8 +190,12 @@ Rules 1–3 have each cost a full rerun, and rule 6 cost a resume.
    - A collection review binds the namespaced API discovery it saw.
    - Right after the source-unavailable drill restarts the node, metrics-server's APIService is not yet back. A collection planned then gets refused at apply ("collection graph, protected objects, or API discovery changed since review"; 74 → 75 types) with no effect, and must be closed with `abandon-refused-operation`.
    - Wait until every APIService is Available and `kubectl api-resources --namespaced=true` is identical across two reads 15 s apart.
-7. **Confirm the context runs the candidate's payload before the runner's plan.** Save `nagarectl --context <ctx> platform root --json` in the run root and check that its `revision` equals the candidate's. The assembler does not check this yet ([F48](../audits/mp23-findings.md#f48)), so a mixed run would assemble under the wrong payload.
-8. **Before the live run, rehearse the evidence pipeline.** Run the assembler and the record replay against the planned layout, using a scratch copy and real prior data. Cluster steps that pass prove nothing about whether the evidence will assemble.
+7. **The source-unavailable drill restores a backup taken after the seed.**
+   - `db backup-receipts` does not list receipts in time order, so a scheduled backup chosen by position can predate the seed rows.
+   - Verify every listed receipt with `db verify-escrowed-backup`, select the newest verified recovery point, and require it to be later than the seed write. If none is, wait for the next scheduled run.
+   - The `7596632c` C2's first drill attempt broke this.
+8. **Confirm the context runs the candidate's payload before the runner's plan.** Save `nagarectl --context <ctx> platform root --json` in the run root and check that its `revision` equals the candidate's. The assembler does not check this yet ([F48](../audits/mp23-findings.md#f48)), so a mixed run would assemble under the wrong payload.
+9. **Before the live run, rehearse the evidence pipeline.** Run the assembler and the record replay against the planned layout, using a scratch copy and real prior data. Cluster steps that pass prove nothing about whether the evidence will assemble.
 
 ### Inputs
 

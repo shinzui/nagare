@@ -82,6 +82,11 @@ provenance:
       at: 2026-10-04T14:16:36Z
       mode: "update"
       note: "C2 on 7d486457 finalized and assembled; what binds what"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-04T17:47:54Z
+      mode: "implement"
+      note: "C1 and C2 on frozen candidate 7596632c, assembled"
 ---
 
 # Prove local application and data recovery end to end
@@ -128,6 +133,13 @@ Evidence counts toward final acceptance only where its recorded inputs (operator
     - [the C2 record](../audits/mp23-implementer-results-2026-10-03/c2-acceptance-7d486457.json);
     - [the C1 proof](../audits/mp23-implementer-results-2026-10-03/c1-local-gate-7d486457-rerun.json);
     - the procedure, in [runbook §6](../runbooks/native-verification-harness.md).
+
+  **Update (2026-10-04, implementer, frozen candidate `7596632c`):** `7d486457` became a checkpoint when C3 found F45–F47. The acceptance C2 for the new candidate finalized 16/16 on a fresh context with the candidate's own payload, and the assembler accepted the same directory.
+  - **Assembly result:** run `af847e74…`, 46 scope revisions, 1 component receipt.
+  - **C1:** 214 `VerifyResource`, zero mutations.
+  - **Payload guard (F48):** `platform-root.json` records payload `nagare-0.4.0-7596632cee07`.
+  - **Source-unavailable drill:** the first attempt picked a scheduled backup taken 62 s before the seed rows were written, because the receipts list is not time-ordered. Offline verification passed but the content check failed. The node was restarted and the attempt kept as evidence. The drill now selects the newest verified recovery point after the seed, and passed with the 17:30:01 backup.
+  - The directory went to nagare-f3 for C5 index acceptance. Records: [C2](../audits/mp23-implementer-results-2026-10-03/c2-acceptance-7596632c.json), [C1](../audits/mp23-implementer-results-2026-10-03/c1-local-gate-7596632c.json).
 
 
 ## Surprises & Discoveries

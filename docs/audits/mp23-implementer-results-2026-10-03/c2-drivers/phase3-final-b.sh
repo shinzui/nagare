@@ -10,14 +10,18 @@ die() { echo "FINAL FAILED: $*"; exit 1; }
 rec() { (cd $REPO && python3 scripts/scenario-assertions.py record --evidence-dir "$EV" --mode local "$@") || die "record $2"; }
 cd $ROOT
 echo "== runner plan/apply (self-contained, after every scenario mutation)"
-STG=$EV; EV=$ROOT/evidence/c2-7d486457; echo $EV > $S/c2-ev; [ ! -e $EV ] || die "evidence dir exists"
-WS=$(ls -d $ROOT/state/nagare/local/platform/nagare-0.4.0-7d486457aa74-*)
+STG=$EV; EV=$ROOT/evidence/c2-7596632c; echo $EV > $S/c2-ev; [ ! -e $EV ] || die "evidence dir exists"
+WS=$(ls -d $ROOT/state/nagare/local/platform/nagare-0.4.0-7596632cee07-*)
 ./runctl.sh inventory export --out $ROOT/evidence-private/runner-export >/dev/null 2>&1 || die "export"
 python3 $REPO/scripts/unchanged-inventory-candidate.py $ROOT/evidence-private/runner-export $R/runner-candidate.json Platform:kourier Platform:cert-manager --add-packaged-scope runner-probe=cluster/examples/hello-knative-service/service.yaml --payload-root $WS || die "candidate"
 ./runctl.sh inventory compile --input $R/runner-candidate.json --out $R/runner-candidate > /dev/null || die "compile"
 K -n nagare-system port-forward svc/en 18082:80 > /dev/null 2>&1 & pf=$!; sleep 3
 export NAGARE_EN_URL=http://127.0.0.1:18082; export NAGARE_EN_API_KEY="$(K -n nagare-system get secret nagare-en-api-keys -o jsonpath='{.data.read-write}' | base64 -d)"
 $ROOT/nagarectl-bare-access.sh --context local inventory status --json 2>/dev/null | jq -e '.observationComplete == true and .missingProviders == []' >/dev/null || { kill $pf; die "status incomplete with en"; }
+# F48 guard: the context must run the candidate's own payload; saved with the evidence.
+$ROOT/runctl.sh platform root --json > $STG/platform-root.json 2>/dev/null || { kill $pf; die "platform root"; }
+[ "$(jq -r .revision $STG/platform-root.json)" = 7596632cee07d107a93b7d2032923b7f4b6b8904 ] || { kill $pf; die "context runs payload $(jq -r .revision $STG/platform-root.json), not the candidate"; }
+echo "platform root: $(jq -c '{payloadId, revision, digest}' $STG/platform-root.json)"
 cd $REPO
 env KUBECONFIG=$KUBECONFIG DOCKER_HOST=$DOCKER_HOST NAGARECTL_BIN=$ROOT/nagarectl-bare-access.sh bash scripts/rehearse-local-inventory-release.sh --phase plan --context local --expected-cluster k3d-nagare-local --evidence-dir $EV --candidate $R/runner-candidate > $R/runner-plan.log 2>&1 || { kill $pf; die "runner plan: $(tail -2 $R/runner-plan.log)"; }
 jq -c '[(.operations|length), [.operations[].operation.action.tag]]' $EV/review/review.json
@@ -27,8 +31,9 @@ jq -c . $EV/run.json; jq -c '[.healthy, .operatorRevision, .fixtureDigest]' $EV/
 echo "== move staged checks and replay deferred records"
 [ ! -e $EV/checks ] || die "runner created checks/"
 cp -R $STG/checks $EV/checks
-while IFS= read -r line; do [ -n "$line" ] || continue; eval "rec $line" || die "replay"; done < /private/tmp/claude-501/-Users-shinzui-Keikaku-bokuno-nagare/dc0e8853-c761-4c35-88cd-db57750f8f5b/scratchpad/rerun/record-queue.txt
-echo "replayed $(grep -c . /private/tmp/claude-501/-Users-shinzui-Keikaku-bokuno-nagare/dc0e8853-c761-4c35-88cd-db57750f8f5b/scratchpad/rerun/record-queue.txt) records; assertions now $(ls $EV/assertions | wc -l)"
+cp $STG/platform-root.json $EV/platform-root.json
+while IFS= read -r line; do [ -n "$line" ] || continue; eval "rec $line" || die "replay"; done < /private/tmp/claude-501/-Users-shinzui-Keikaku-bokuno-nagare/dc0e8853-c761-4c35-88cd-db57750f8f5b/scratchpad/c2-7596/record-queue.txt
+echo "replayed $(grep -c . /private/tmp/claude-501/-Users-shinzui-Keikaku-bokuno-nagare/dc0e8853-c761-4c35-88cd-db57750f8f5b/scratchpad/c2-7596/record-queue.txt) records; assertions now $(ls $EV/assertions | wc -l)"
 cd $ROOT
 echo "== verify with final-marker interruption"
 ./runctl.sh inventory export --out $ROOT/evidence-private/verify-export >/dev/null 2>&1 || die "export"
@@ -73,7 +78,7 @@ res=[stage('database-readiness','database-readiness-status.json','database-readi
  stage('cluster-completion','cluster-completion-status.json','cluster-completion-uids-before.txt','cluster-completion-uids-after.txt','cluster-completion-resume.log',"application B deploy, after the Service write and before readiness"),
  stage('migration','migration-status.json','migration-copy-job-before.txt','migration-copy-job-before.txt','migration-resume.log',"rename TransferState, after the copy Job is created",{"copyJobEvents":json.load(open(P+'migration-copy-job-events.json'))})]
 fm={"stage":"final-marker","within":"platform verify, before the run marker is written","interruptedRunLog":open(P+'final-marker-verify-1.log').read().strip().splitlines()[-1] if open(P+'final-marker-verify-1.log').read().strip() else "",
- "runStateAfterKill":"applied","rerunLog":open(P+'final-marker-verify-2.log').read().strip().splitlines()[-1],"runStateAfterRerun":json.load(open(R+'/evidence/c2-7d486457/run.json'))['state'],
+ "runStateAfterKill":"applied","rerunLog":open(P+'final-marker-verify-2.log').read().strip().splitlines()[-1],"runStateAfterRerun":json.load(open(R+'/evidence/c2-7596632c/run.json'))['state'],
  "storeHead":{"before":open(P+'final-marker-head-before.txt').read().split(),"afterKill":open(P+'final-marker-head-after-kill.txt').read().split(),"afterRerun":open(P+'final-marker-head-after.txt').read().split()},
  "note":"verify has no transaction; the rerun replaced the interrupted no-op review and the store head did not move, so no effect was repeated"}
 json.dump(fm,open(f'{D}/final-marker.json','w'),indent=1)
