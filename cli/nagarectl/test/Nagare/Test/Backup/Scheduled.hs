@@ -84,6 +84,7 @@ import Nagare.Inventory.ScheduledStore
   , parseObjectStoreCredentials
   , parseObjectVersions
   , parseOfflineObjectStore
+  , readOfflineCredentials
   )
 import Nagare.Resource.Canonical (canonicalValue, contentDigest)
 import Nagare.Resource.Inventory qualified as InventoryModel
@@ -94,6 +95,9 @@ import Nagare.Test.DataFixtures
   )
 import Nagare.Test.Support.Assertions (unsafe)
 import System.Exit (ExitCode (ExitSuccess))
+import System.FilePath ((</>))
+import System.IO.Temp (withSystemTempDirectory)
+import System.Posix.Files (createSymbolicLink, setFileMode)
 import System.Process (readProcessWithExitCode)
 import Test.Tasty (TestTree)
 import Test.Tasty.HUnit
@@ -167,6 +171,22 @@ scheduledReceiptTests =
         case parseObjectStoreCredentials bytes of
           Left reason -> assertBool "credential parse error echoed a value" (not (any (`T.isInfixOf` reason) ["=a", "=b", "=c"]))
           Right _ -> assertFailure ("malformed credentials accepted: " <> BC.unpack bytes)
+  , testCase "offline credentials are read only from a private regular file (F41)" $
+      withSystemTempDirectory "offline-credentials" $ \dir -> do
+        let file = dir </> "credentials.env"
+            linked = dir </> "linked.env"
+            secret = "hidden-value"
+            refused path = do
+              result <- readOfflineCredentials path
+              case result of
+                Left reason -> assertBool "refusal echoed the secret" (not (secret `T.isInfixOf` reason))
+                Right _ -> assertFailure ("credentials accepted from " <> path)
+        BC.writeFile file ("AWS_ACCESS_KEY_ID=access\nAWS_SECRET_ACCESS_KEY=" <> TE.encodeUtf8 secret <> "\n")
+        setFileMode file 0o600
+        readOfflineCredentials file >>= (@?= Right ("access:" <> secret))
+        setFileMode file 0o640 >> refused file
+        setFileMode file 0o604 >> refused file
+        setFileMode file 0o600 >> createSymbolicLink file linked >> refused linked
   , testCase "scheduled GCS listing validates complete provider identities" $ do
       let entry :: Text -> Text -> Text -> Aeson.Value
           entry bucket name generation =

@@ -37,7 +37,7 @@ import Nagare.Inventory.ScheduledReceipt
   ( ScheduledReceiptEvidence (..)
   , inspectScheduledReceipt
   )
-import Nagare.Inventory.ScheduledStore (ObjectReader (readObjectToFile), parseObjectStoreCredentials, parseOfflineObjectStore, readSecretFieldWithUid, withOfflineObjectStore)
+import Nagare.Inventory.ScheduledStore (ObjectReader (readObjectToFile), parseOfflineObjectStore, readOfflineCredentials, readSecretFieldWithUid, withOfflineObjectStore)
 import Nagare.Inventory.SigningKeyEscrow
   ( SigningKeyEscrow (SigningKeyEscrow)
   , escrowReceiptExpectation
@@ -132,11 +132,7 @@ runVerifyEscrowedBackup mctx requestedDatabase requestedNamespace escrowPath buc
     (Nothing, _) -> pure (withScheduledObjectStore context backend)
     (Just (endpoint, credentialFile), MinioBackend ref) -> do
       origin <- either dieT pure (parseOfflineObjectStore (T.pack endpoint))
-      mode <- fileMode <$> getFileStatus credentialFile
-      when
-        (mode .&. (groupModes .|. otherModes) /= nullFileMode)
-        (dieT "--offline-credentials must not be readable by group or others")
-      user <- BS.readFile credentialFile >>= either dieT pure . parseObjectStoreCredentials
+      user <- readOfflineCredentials credentialFile >>= either dieT pure
       pure (withOfflineObjectStore origin user ref)
     (Just _, _) -> dieT "--offline-object-store applies only to a local MinIO object store"
   checked <- withStore $ \reader ->

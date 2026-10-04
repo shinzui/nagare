@@ -9,6 +9,7 @@ module Nagare.Inventory.ScheduledStore
   , withOfflineObjectStore
   , parseOfflineObjectStore
   , parseObjectStoreCredentials
+  , readOfflineCredentials
   , parseObjectList
   , parseObjectEntries
   , parseObjectVersions
@@ -31,6 +32,7 @@ import Data.Time (UTCTime)
 import Data.Time.Format (defaultTimeLocale, parseTimeM)
 import Nagare.Cluster.GcsJob (MinioRef (..))
 import Nagare.Dsl.Prelude
+import Nagare.Inventory.Store.FileIO (readPrivateFile)
 import System.Exit (ExitCode (..))
 import System.IO (Handle, hClose, hGetLine)
 import System.IO.Temp (withSystemTempDirectory)
@@ -119,6 +121,16 @@ parseOfflineObjectStore raw = case T.stripPrefix "http://" (T.dropWhileEnd (== '
     , not (T.null port) && T.length port <= 5 && T.all (\character -> character >= '0' && character <= '9') port ->
         Right ("http://" <> host <> ":" <> port)
   _ -> Left "offline object store must be a loopback http://127.0.0.1:PORT or http://localhost:PORT endpoint"
+
+-- | Read the operator credentials file for an offline object store. It must
+-- be a private regular file: not a symlink, and inaccessible to group and
+-- other users, because it holds the store's secret key (F41).
+readOfflineCredentials :: FilePath -> IO (Either Text Text)
+readOfflineCredentials path = do
+  loaded <- readPrivateFile path
+  pure $ case loaded of
+    Left err -> Left ("--offline-credentials must be a private regular file not readable by group or others: " <> T.pack (show err))
+    Right bytes -> parseObjectStoreCredentials bytes
 
 -- | Parse an operator credentials file with exactly @AWS_ACCESS_KEY_ID=@ and
 -- @AWS_SECRET_ACCESS_KEY=@ lines into curl's @user@ value. Errors never echo
