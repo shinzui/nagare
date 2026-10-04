@@ -112,6 +112,24 @@ def main() -> None:
         dns_claims = {json.dumps(r["claim"]): r["holder"][1] for r in json.loads((root / "dns.json").read_text())["reservations"]}
         assert dns_claims.get(json.dumps(["dns-record", "project", "zone", host])) == f"standalone:database-old/{host}/dns-a", dns_claims
         assert dns_claims.get(json.dumps(["hostname", host])) == f"standalone:database-old/{host}/dns-a", dns_claims
+        # A retained DomainMapping aliasing the same hostname shares that claim; as in the CLI's
+        # retainedReservations, the greater resource id holds it and the claim appears once.
+        retired["bundles"][0]["declarations"].append({
+            "identity": f"standalone:database-old/{host}/domain-mapping",
+            "address": address("domainmapping", "personal", host, "serving.knative.dev"),
+            "aliases": [{"tag": "Hostname", "contents": host}],
+            "spec": {"tag": "NativeObject", "contents": "digest"},
+        })
+        (dns_export / "scopes/retired.json").write_text(json.dumps(retired))
+        head["retained"].insert(0, {"resource": f"standalone:database-old/{host}/domain-mapping",
+                                    "incarnation": {"owner": retired["scope"], "physical": "uid-dm",
+                                                    "revision": {"digest": "retired", "generation": 1}}})
+        (dns_export / "head.json").write_text(json.dumps(head))
+        result = run(dns_export, root / "shared.json", "Platform:kourier")
+        assert result.returncode == 0, result.stderr
+        shared = json.loads((root / "shared.json").read_text())["reservations"]
+        hostname = [r["holder"][1] for r in shared if r["claim"] == ["hostname", host]]
+        assert hostname == [f"standalone:database-old/{host}/domain-mapping"], hostname
 
         assert run(export, root / "missing.json", "Platform:absent").returncode != 0
 

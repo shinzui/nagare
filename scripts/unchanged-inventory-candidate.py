@@ -93,8 +93,11 @@ def derived(decl):
         raise SystemExit("retained Helm release reservations are not supported by this helper")
     return out
 
-reservations = []
-for entry in head.get("retained", []):
+# Like Nagare.Inventory.Plan.Types.retainedReservations (Map.fromList over retained resources
+# in ascending id order): when two retained incarnations share a claim, such as a DNS record
+# and its DomainMapping aliasing one hostname, the greater resource id holds it.
+reserved = {}
+for entry in sorted(head.get("retained", []), key=lambda e: e["resource"]):
     rid, inc = entry["resource"], entry["incarnation"]
     scope = json.loads((export / "scopes" / f"{inc['revision']['digest']}.json").read_text())
     decl = find(scope, rid)
@@ -102,7 +105,8 @@ for entry in head.get("retained", []):
         raise SystemExit(f"retained declaration not found: {rid}")
     claims = [claim(decl["address"])] + [claim(x) for x in decl.get("aliases", [])] + derived(decl)
     holder = [inc["owner"], rid, inc["physical"], "RetainedIncarnation"]
-    reservations += [{"claim": c, "holder": holder} for c in claims]
+    reserved.update({json.dumps(c): {"claim": c, "holder": holder} for c in claims})
+reservations = list(reserved.values())
 
 snapshot, base, changes = [], [], []
 for entry in head["accepted"]:
