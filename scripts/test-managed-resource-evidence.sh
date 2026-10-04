@@ -38,15 +38,23 @@ jq -nS '{version: "0.4.0", revision: "fixture-revision"}' \
   > "$test_root/rehearsal/operator-version.json"
 jq -nS '{schemaVersion: 1, context: "fixture", mode: "local",
   expectedProject: null, expectedCluster: "fixture-cluster"}' > "$test_root/rehearsal/target.json"
-jq -nS '{scopes: ["fixture"]}' > "$test_root/rehearsal/candidate.json"
+scope_digest="$(printf 'c%.0s' {1..64})"
+# Real nagarectl shapes (F42): the compiled candidate lists desired scope
+# digests and generations; a review's candidateDigest is the planner's own
+# proposal digest and never the candidate manifest's digest.
+jq -nS --arg scope "$scope_digest" \
+  '{version: 1, desired: {context: {identity: "fixture"}, scopes: [{scope: {kind: "Platform", name: "fixture"},
+      member: ("scopes/" + $scope + ".json"), digest: $scope}]},
+    generations: [{scope: {kind: "Platform", name: "fixture"}, generation: 1}]}' \
+  > "$test_root/rehearsal/candidate.json"
 candidate_digest="$(sha256_file "$test_root/rehearsal/candidate.json")"
 printf '%s\n' "$candidate_digest" > "$test_root/rehearsal/candidate.sha256"
 verification_digest="$(printf 'a%.0s' {1..64})"
 receipt_digest="$(printf 'b%.0s' {1..64})"
-jq -nS --arg candidate "$candidate_digest" \
+jq -nS --arg scope "$scope_digest" --arg proposal "$(printf 'd%.0s' {1..64})" \
   '{version: 1, context: {identity: "fixture", project: "project"},
-    candidateDigest: $candidate, desiredRevisions: [{scope: {kind: "Platform", name: "fixture"},
-      revision: {generation: 1, digest: $candidate}}],
+    candidateDigest: $proposal, desiredRevisions: [{scope: {kind: "Platform", name: "fixture"},
+      revision: {generation: 1, digest: $scope}}],
     operations: [{operation: {id: "op-fixture"}, summary: "created fixture"}]}' \
   > "$test_root/rehearsal/review/review.json"
 review_digest="$(sha256_file "$test_root/rehearsal/review/review.json")"
@@ -56,8 +64,9 @@ jq -nS --arg candidate "$candidate_digest" --arg review "$review_digest" \
   '{state: "verified", noOp: true, candidateDigest: $candidate,
     reviewDigest: $review, verificationCandidateDigest: $verification}' \
   > "$test_root/rehearsal/run.json"
-jq -nS --arg verification "$verification_digest" \
-  '{version: 1, candidateDigest: $verification, operations: []}' \
+jq -nS --arg scope "$scope_digest" --arg proposal "$(printf 'e%.0s' {1..64})" \
+  '{version: 1, candidateDigest: $proposal, operations: [],
+    desiredRevisions: [{scope: {kind: "Platform", name: "fixture"}, revision: {generation: 2, digest: $scope}}]}' \
   > "$test_root/rehearsal/no-op-review/review.json"
 jq -nS --slurpfile reviewed "$test_root/rehearsal/review/review.json" \
   '{context: $reviewed[0].context, observationComplete: true, activeTransaction: null,
@@ -131,4 +140,35 @@ mv "$test_root/private-store/changed.json" "$test_root/private-store/backup.json
 expect_refusal 'completed component receipts do not match the reviewed operations'
 printf '\n' >> "$test_root/private-store/journal/00000000000000000000.json"
 expect_refusal 'private export member changed'
+
+# F42: each review is bound through desired scope revisions, with distinct
+# refusals for an unbound review, an empty initial review and a changed replan.
+reviewed="$test_root/rehearsal/review/review.json"
+cp "$reviewed" "$test_root/review-good.json"
+rebind() { sha256_file "$reviewed" > "$test_root/rehearsal/review/review.sha256"
+  jq -S --arg review "$(sha256_file "$reviewed")" '.reviewDigest = $review' "$test_root/rehearsal/run.json" > "$test_root/run.tmp"
+  mv "$test_root/run.tmp" "$test_root/rehearsal/run.json"; }
+jq -S '.desiredRevisions[0].revision.digest = "'"$(printf 'f%.0s' {1..64})"'"' "$test_root/review-good.json" > "$reviewed"; rebind
+expect_refusal "initial review is not bound to the candidate's desired scope revisions"
+jq -S '.operations = []' "$test_root/review-good.json" > "$reviewed"; rebind
+expect_refusal 'initial review has no operations'
+cp "$test_root/review-good.json" "$reviewed"; rebind
+noop="$test_root/rehearsal/no-op-review/review.json"; cp "$noop" "$test_root/noop-good.json"
+jq -S '.operations = [{summary: "late change"}]' "$test_root/noop-good.json" > "$noop"
+expect_refusal 'fresh review has operations'
+jq -S '.desiredRevisions[0].revision.digest = "'"$(printf 'f%.0s' {1..64})"'"' "$test_root/noop-good.json" > "$noop"
+expect_refusal 'fresh review is not bound to the accepted revisions it replans'
+cp "$test_root/noop-good.json" "$noop"
+
+# Real CLI output from the 14071e58 runner rehearsal: both reviews bind, and
+# its incomplete final observation (AccessExecutor unobserved) still refuses.
+real="$repo_root/fixtures/managed-resource-evidence/c2-14071e58-runner"
+rm -rf "$test_root/rehearsal"; mkdir -p "$test_root/rehearsal"
+cp -R "$real/." "$test_root/rehearsal/"; rm -f "$test_root/rehearsal/README.md"
+jq -S '.version = "0.4.0" | .revision = "fixture-revision"' "$real/operator-version.json" > "$test_root/rehearsal/operator-version.json"
+expect_refusal 'final observation is incomplete or diverged'
+jq -S '.desiredRevisions[0].revision.digest = "'"$(printf 'f%.0s' {1..64})"'"' "$real/review/review.json" > "$test_root/rehearsal/review/review.json"
+sha256_file "$test_root/rehearsal/review/review.json" > "$test_root/rehearsal/review/review.sha256"
+jq -S --arg review "$(sha256_file "$test_root/rehearsal/review/review.json")" '.reviewDigest = $review' "$real/run.json" > "$test_root/rehearsal/run.json"
+expect_refusal "initial review is not bound to the candidate's desired scope revisions"
 printf 'managed-resource evidence tests passed\n'

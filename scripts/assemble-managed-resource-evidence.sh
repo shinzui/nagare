@@ -74,12 +74,31 @@ jq -e --arg candidate "$candidate_digest" --arg review "$review_digest" \
   '.state == "verified" and .noOp == true and .candidateDigest == $candidate
     and .reviewDigest == $review and (.verificationCandidateDigest | type == "string" and length == 64)' \
   "$rehearsal_dir/run.json" >/dev/null || die "rehearsal has no verified, unchanged review"
-jq -e --arg candidate "$candidate_digest" \
-  '.version == 1 and .candidateDigest == $candidate and (.operations | length > 0)' \
-  "$rehearsal_dir/review/review.json" >/dev/null || die "initial review has no bound operations"
-jq -e --slurpfile run "$rehearsal_dir/run.json" \
-  '.version == 1 and .operations == [] and .candidateDigest == $run[0].verificationCandidateDigest' \
-  "$rehearsal_dir/no-op-review/review.json" >/dev/null || die "fresh review does not prove a no-op"
+# A review's candidateDigest is the planner's proposal digest, not the digest
+# of the compiled candidate manifest (F42). Bind each review to its candidate
+# through the desired scope revisions instead: every desired scope, its
+# content digest and its generation.
+jq -e --slurpfile candidate "$rehearsal_dir/candidate.json" \
+  '.version == 1 and ((.desiredRevisions | sort_by(.scope)) ==
+    ($candidate[0] as $c
+      | [$c.desired.scopes[] as $s
+          | {revision: {digest: $s.digest,
+                        generation: ([$c.generations[] | select(.scope == $s.scope) | .generation] | first)},
+             scope: $s.scope}]
+      | sort_by(.scope)))' \
+  "$rehearsal_dir/review/review.json" >/dev/null \
+  || die "initial review is not bound to the candidate's desired scope revisions"
+jq -e '(.operations | length > 0)' "$rehearsal_dir/review/review.json" >/dev/null \
+  || die "initial review has no operations; the rehearsal must apply a desired change"
+jq -e '.version == 1 and .operations == []' "$rehearsal_dir/no-op-review/review.json" >/dev/null \
+  || die "fresh review has operations; no-op convergence is unproved"
+# An unchanged replacement still advances its scope generation, so the no-op
+# review binds the accepted scopes and their content digests.
+jq -e --slurpfile observed "$rehearsal_dir/final-observation.json" \
+  '([.desiredRevisions[] | {scope, digest: .revision.digest}] | sort_by(.scope))
+    == ([$observed[0].accepted[] | {scope, digest: .revision.digest}] | sort_by(.scope))' \
+  "$rehearsal_dir/no-op-review/review.json" >/dev/null \
+  || die "fresh review is not bound to the accepted revisions it replans"
 jq -e --slurpfile reviewed "$rehearsal_dir/review/review.json" \
   '.observationComplete == true and .activeTransaction == null
     and .missingProviders == [] and .accepted == .converged
