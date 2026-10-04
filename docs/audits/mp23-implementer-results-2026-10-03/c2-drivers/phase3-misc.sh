@@ -7,7 +7,7 @@ source $ROOT/images.env
 R=$ROOT/reviews; PE=$ROOT/pending-evidence
 K() { command kubectl --context local "$@"; }
 die() { echo "MISC FAILED: $*"; exit 1; }
-rec() { (cd $REPO && bash /private/tmp/claude-501/-Users-shinzui-Keikaku-bokuno-nagare/dc0e8853-c761-4c35-88cd-db57750f8f5b/scratchpad/c2-7596/defer-record.sh --evidence-dir "$EV" --mode local "$@") || die "record $2"; }
+rec() { (cd $REPO && bash /private/tmp/claude-501/-Users-shinzui-Keikaku-bokuno-nagare/dc0e8853-c761-4c35-88cd-db57750f8f5b/scratchpad/c2-next/defer-record.sh --evidence-dir "$EV" --mode local "$@") || die "record $2"; }
 cd $ROOT
 echo "== adoption"
 D=$EV/checks/adoption; mkdir -p $D
@@ -102,7 +102,7 @@ python3 - $ROOT $P $VID ${TXF#tx-} <<'PY'
 import json,sys,re
 R,P,vid,rev=sys.argv[1:]; r=lambda f: open(P+'/'+f).read().strip()
 h=json.load(open(R+'/state/nagare/local/inventory/head.json'))
-json.dump({"finding":"F36","candidate":"7596632cee07d107a93b7d2032923b7f4b6b8904","backup":{"id":"c2f36","database":"scenario-redis"},"restoreReview":rev,"restoreId":"c2f36r",
+json.dump({"finding":"F36","candidate":"847543896d0742667e58dde723f4e9d230dfcddc","backup":{"id":"c2f36","database":"scenario-redis"},"restoreReview":rev,"restoreId":"c2f36r",
  "removedObjectVersion":{"object":"s3://nagare-backups/manual-databases/personal/scenario-redis/c2f36.rdb.gz","versionId":vid},"applyResult":r('apply.log').splitlines()[-1],"downloadLogTail":r('download-log-tail.txt'),
  "recovery":{"action":"abandon-partial-database-restore","result":r('recover.log').splitlines()[-1]},"storeIdleAfter":h['activeTransaction'] is None and h['accepted']==h['converged']},open(P+'/f36-native.json','w'),indent=1)
 print("f36 idle", h['activeTransaction'] is None)

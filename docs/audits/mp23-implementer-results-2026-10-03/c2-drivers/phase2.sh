@@ -73,6 +73,6 @@ K -n personal exec scenario-ch-0 -- sh -c 'clickhouse-client --user "$CLICKHOUSE
 POD=$(K -n personal get pods -l serving.knative.dev/service=scenario-a -o jsonpath='{.items[0].metadata.name}')
 K -n personal exec $POD -c user-container -- sh -c 'printf mp23-local-scenario-volume > /uploads/scenario-known.txt && sha256sum /uploads/scenario-known.txt' > $SP/volume.txt 2>&1
 for f in postgresql rename redis clickhouse volume; do echo "seed $f: $(tr '\n' ' ' < $SP/$f.txt)"; done
-mkdir -p $ROOT/evidence; EV=$ROOT/evidence/c2-7596632c-staging; mkdir -p $EV/checks; echo $EV > $S/c2-ev
-: > /private/tmp/claude-501/-Users-shinzui-Keikaku-bokuno-nagare/dc0e8853-c761-4c35-88cd-db57750f8f5b/scratchpad/c2-7596/record-queue.txt
+mkdir -p $ROOT/evidence; EV=$ROOT/evidence/c2-84754389-staging; mkdir -p $EV/checks; echo $EV > $S/c2-ev
+: > /private/tmp/claude-501/-Users-shinzui-Keikaku-bokuno-nagare/dc0e8853-c761-4c35-88cd-db57750f8f5b/scratchpad/c2-next/record-queue.txt
 step PHASE2-OK

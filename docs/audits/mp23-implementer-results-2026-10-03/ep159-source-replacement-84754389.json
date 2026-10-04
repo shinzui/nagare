@@ -1,0 +1,152 @@
+{
+ "recordedBy": "implementer (claude-opus-5-5, session nagare-phase-b); evidence for nagare-reviewer's check, not independent verification",
+ "recordedAt": "2026-10-04",
+ "candidate": "847543896d0742667e58dde723f4e9d230dfcddc",
+ "context": "the 84754389 C2 context on cp3 (local), under the cp3 claim",
+ "procedure": "ep159-source-replacement-84754389-procedure.md, plus the reviewer's read-only additions (incarnation snapshots)",
+ "throwaway": {
+  "database": "ep159-throwaway",
+  "namespace": "personal",
+  "seed": "1|ep159-row-1"
+ },
+ "receipts": {
+  "A": {
+   "jobUid": "d8b154c9-69d2-4701-873d-21c119bd111a",
+   "ingested": true
+  },
+  "B": {
+   "jobUid": "2a64070c-226f-4243-8ebd-46b5236b0d4b",
+   "ingested": false
+  },
+  "C": {
+   "result": "no receipt C appeared within 16 minutes",
+   "jobFound": "nagare-dbbackup-ep159-throwaway-29852550, uid 6360c2ef-e966-41bd-bd86-7fda0e340782, succeeded at 22:30Z",
+   "gap": "not attempted: the drill discovered receipts through db backup-receipts, which now refuses the replaced source, so C was never listed; after the joint retire it can no longer be ingested against an accepted database. Driver fault (should have taken the Job UID from the backup Jobs)."
+  }
+ },
+ "incarnations": {
+  "beforeReplacement": [
+   {
+    "member": "backup-signing-key",
+    "uid": "5378423b-15f4-433c-9611-69f01a5eeee1"
+   },
+   {
+    "member": "credential",
+    "uid": "d236db35-49bc-49eb-8bc4-164c89dea255"
+   },
+   {
+    "member": "pvc",
+    "uid": "241e2475-98d7-4f26-8f61-a4ebd8ff4f2c"
+   },
+   {
+    "member": "statefulset",
+    "uid": "770c18c5-5aca-44ec-8d34-8c118267714e"
+   }
+  ],
+  "recordedEqualsOldLiveUids": true,
+  "unchangedThroughEveryRefusal": true,
+  "afterRetire": []
+ },
+ "replacement": {
+  "statefulSet": {
+   "oldUid": "770c18c5-5aca-44ec-8d34-8c118267714e",
+   "newUid": "b131b5a7-779d-4f19-843e-3a5e78be5306",
+   "deletePreconditions": {
+    "uid": "770c18c5-5aca-44ec-8d34-8c118267714e",
+    "resourceVersion": "12739"
+   }
+  },
+  "pvc": {
+   "oldUid": "241e2475-98d7-4f26-8f61-a4ebd8ff4f2c",
+   "newUid": "4a6d653c-53fb-4630-99fc-902be522632d",
+   "deletePreconditions": {
+    "uid": "241e2475-98d7-4f26-8f61-a4ebd8ff4f2c",
+    "resourceVersion": "12719"
+   }
+  }
+ },
+ "statusAfterReplacement": {
+  "replacedIncarnationFindings": [
+   "standalone:database-ep159-throwaway/ep159-throwaway/pvc",
+   "standalone:database-ep159-throwaway/ep159-throwaway/statefulset"
+  ]
+ },
+ "refusals": {
+  "ingestB": {
+   "command": "nagarectl db backup-receipts ep159-throwaway --backup-id B --save-plan DIR",
+   "exitCode": 1,
+   "refusal": [
+    "nagarectl: scheduled receipt source incarnation differs from accepted evidence"
+   ],
+   "headBefore": {
+    "generation": 1494,
+    "sequence": 1375,
+    "activeTransaction": null
+   },
+   "headAfter": {
+    "generation": 1494,
+    "sequence": 1375,
+    "activeTransaction": null
+   },
+   "saveDirExistedBefore": false,
+   "saveDirExistsAfter": false,
+   "refused": true
+  },
+  "restoreA": {
+   "command": "nagarectl db restore ep159-throwaway <A scheduled.backup.id> --restore-id ep159r1 --save-plan DIR",
+   "exitCode": 1,
+   "refusal": [
+    "nagarectl: scheduled restore target source incarnation changed after ingestion"
+   ],
+   "headBefore": {
+    "generation": 1494,
+    "sequence": 1375,
+    "activeTransaction": null
+   },
+   "headAfter": {
+    "generation": 1494,
+    "sequence": 1375,
+    "activeTransaction": null
+   },
+   "saveDirExistedBefore": false,
+   "saveDirExistsAfter": false,
+   "refused": true
+  },
+  "scratchObjectsAfterRestoreAttempt": 0,
+  "listing": "nagarectl: scheduled receipt source is not the accepted database incarnation; it was replaced outside Nagare",
+  "freshness": "nagarectl: scheduled receipt source is not the accepted database incarnation; it was replaced outside Nagare"
+ },
+ "recoveryPath7b": {
+  "escrowTakenBeforeReplacement": true,
+  "verify": [
+   "Verified scheduled backup d8b154c9-69d2-4701-873d-21c119bd111a of personal/ep159-throwaway with the escrowed signing key.",
+   "  object:  s3://nagare-backups/databases/ep159-throwaway/d8b154c9-69d2-4701-873d-21c119bd111a.sql.gz (version 69613d73-42f4-4356-ac88-d9bf57fa2a78)",
+   "  receipt: version 179c98dd-618d-4be9-b97b-4f636301a142",
+   "  sha256:  03d8d8182525e4e3d7167ccb91ea917da204e4e67a7319b0f166a74695f9fc7f",
+   "  recovery point: 2026-10-04 22:00:02 UTC (age 1038s)",
+   "This is evidence only; restore requires reviewed ingestion of the receipt."
+  ]
+ },
+ "acceptedThrowawayScopesBeforeRetire": [
+  "database-ep159-throwaway",
+  "database-scheduled-receipt-personal-ep159-throwaway-d8b154c9-69d2-4701-873d-21c119bd111a"
+ ],
+ "confinement": {
+  "othersCompared": 19,
+  "othersChanged": {}
+ },
+ "cleanup": {
+  "method": "joint inventory retire of the database scope and receipt A's scope",
+  "result": "converged tx-dd0fef1dd6d719170cc4bcf2f9f16e0b57e1963e22c59559112b61433188a13e",
+  "retainedIdentityForReplacedMembers": {
+   "statefulset": "b131b5a7-779d-4f19-843e-3a5e78be5306",
+   "pvc": "4a6d653c-53fb-4630-99fc-902be522632d"
+  },
+  "retainedCarries": "the NEW (replacement) UIDs: retirement binds the identity it observes, not the recorded incarnation, so a later collection would target the replacement objects"
+ },
+ "finalHead": {
+  "generation": 1498,
+  "sequence": 1377,
+  "activeTransaction": null
+ }
+}

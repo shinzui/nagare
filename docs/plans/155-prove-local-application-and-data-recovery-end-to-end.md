@@ -141,6 +141,14 @@ Evidence counts toward final acceptance only where its recorded inputs (operator
   - **Source-unavailable drill:** the first attempt picked a scheduled backup taken 62 s before the seed rows were written, because the receipts list is not time-ordered. Offline verification passed but the content check failed. The node was restarted and the attempt kept as evidence. The drill now selects the newest verified recovery point after the seed, and passed with the 17:30:01 backup.
   - The directory went to nagare-f3 for C5 index acceptance. Records: [C2](../audits/mp23-implementer-results-2026-10-03/c2-acceptance-7596632c.json), [C1](../audits/mp23-implementer-results-2026-10-03/c1-local-gate-7596632c.json).
 
+  **Update (2026-10-04, implementer, frozen candidate `84754389`):** `7596632c` became a checkpoint when the EP-159 drill found F49.
+  - The acceptance C2 for `84754389` passed first time: 16/16, and the assembler accepted the same directory (run `282902a2…`).
+  - C1: 214 `VerifyResource`, zero mutations.
+  - F49 side-effect check: zero `replaced-incarnation` findings after C1 and before the runner.
+  - `platform-root.json` records payload `nagare-0.4.0-847543896d07`.
+  - The directory went to nagare-f3 for C5.
+  - Records: [C2](../audits/mp23-implementer-results-2026-10-03/c2-acceptance-84754389.json), [C1](../audits/mp23-implementer-results-2026-10-03/c1-local-gate-84754389.json). The F49 native drill on the same context is [recorded separately](../audits/mp23-implementer-results-2026-10-03/ep159-source-replacement-84754389.json).
+
 
 ## Surprises & Discoveries
 

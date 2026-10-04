@@ -473,6 +473,17 @@ Remaining: B3 including collection on the next frozen candidate, and independent
   - Members without a record pass status and ingestion as before.
   - Binding from the journal's completion identity is follow-up work.
 - **Native rerun still required:** the EP-159 drill on a fresh throwaway, with the escrow taken before the replacement, showing C's ingestion refused, status `replaced-incarnation`, and 7b evidenced.
+- **Implementer native evidence (2026-10-04, frozen candidate `84754389`, the C2 context on cp3; [record](mp23-implementer-results-2026-10-03/ep159-source-replacement-84754389.json)):**
+  - Before the replacement, the head's incarnations equalled the live StatefulSet and PVC UIDs (the StatefulSet is bound).
+  - After the out-of-band replacement, status reported `replaced-incarnation` for exactly the throwaway's StatefulSet and PVC. The C2 run on this context had shown zero such findings after C1 and before the runner.
+  - Ingesting pending receipt B and restoring ingested receipt A both refused.
+  - `db backup-receipts` listing and `--check-freshness` refused the replaced source with F49's message.
+  - With the escrow taken before the replacement, A verified (7b).
+  - The incarnation records were unchanged through every refusal.
+  - The joint retire of the database and receipt scopes converged, the store is idle, and no other object changed.
+- **Gaps in that native run:**
+  - Receipt C, written by the replacement at 22:30Z (Job `6360c2ef…`), was not attempted. The driver discovered receipts through the listing, which now refuses the replaced source. The unit regression covers C's ingestion refusal.
+  - Retirement retained the replacement's UIDs (StatefulSet `b131b5a7…`, PVC `4a6d653c…`), not the recorded incarnation, because retirement binds what it observes. A later collection would target the replacement.
 
 **Cleanup note:** `db retire ep159-throwaway` refuses with `dangling-reference` (receipt A's scope consumes the database's backup producer). The joint `inventory retire --scope standalone:database-ep159-throwaway --scope standalone:database-scheduled-receipt-personal-ep159-throwaway-42fee7bd-299e-47a7-90e4-fd726f5c9783 --out DIR` plans successfully (reviewer, read-only, head unchanged). That joint retire is the supported path for a database with ingested receipts.
 

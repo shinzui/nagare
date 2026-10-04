@@ -443,14 +443,14 @@ Feature children produce code and focused local proof; the native children (EP-1
 ### Finish line (canonical checklist, 2026-10-04)
 
 This list says what remains before MP-23 is complete. It was agreed between sessions nagare-phase-b and nagare-f3. Where a dated snapshot below or a child plan disagrees with it, this list wins.
-- **Candidate: `7596632c`** (frozen 2026-10-04 by f3, `b295530f`; includes F38 and F45–F48). The C3 checkpoint on `7d486457` found F45–F47, which needed code fixes, so `7d486457` is a checkpoint.
+- **Candidate: `84754389`** (frozen 2026-10-04 by f3, `ff3f1f48`; includes F38, F45–F50 and the F49 StatefulSet follow-up). The earlier candidates `7d486457` and `7596632c` are checkpoints: C3 found F45–F47, and the EP-159 drill found F49.
 - Tick a box only with linked evidence, on the frozen candidate unless the box says otherwise. Results on earlier candidates are linked as checkpoints.
 - When a box is ticked here, tick the matching `(MP-23 …)` box in its child plan.
 - Owners: **phase-b** = session nagare-phase-b; **f3** = session nagare-f3; **user** = the operator; **reviewer** = an independent session that did not implement the work.
 
 **Gates on the frozen candidate**
-- [x] **C1** (owner phase-b) on `7596632c`'s fresh payload: 214 `VerifyResource`, zero mutations, digests unchanged ([proof](../audits/mp23-implementer-results-2026-10-03/c1-local-gate-7596632c.json)). Checkpoint: [`7d486457`](../audits/mp23-implementer-results-2026-10-03/c1-local-gate-7d486457-rerun.json).
-- [x] **C2** (EP-155, owner phase-b): a fresh local context on `7596632c` finalized 16/16, and `assemble-managed-resource-evidence.sh` accepted the same directory. `platform-root.json` shows the candidate's payload (F48 guard). 2026-10-04, [record](../audits/mp23-implementer-results-2026-10-03/c2-acceptance-7596632c.json); the directory went to f3 for C5. Checkpoint: [`7d486457`](../audits/mp23-implementer-results-2026-10-03/c2-acceptance-7d486457.json).
+- [x] **C1** (owner phase-b) on `84754389`'s fresh payload: 214 `VerifyResource`, zero mutations, digests unchanged ([proof](../audits/mp23-implementer-results-2026-10-03/c1-local-gate-84754389.json)). Checkpoints: [`7596632c`](../audits/mp23-implementer-results-2026-10-03/c1-local-gate-7596632c.json), [`7d486457`](../audits/mp23-implementer-results-2026-10-03/c1-local-gate-7d486457-rerun.json).
+- [x] **C2** (EP-155, owner phase-b): a fresh local context on `84754389` finalized 16/16, and `assemble-managed-resource-evidence.sh` accepted the same directory. `platform-root.json` shows the candidate's payload (F48 guard), and zero `replaced-incarnation` findings appeared after C1 and before the runner (the F49 side-effect check). 2026-10-04, [record](../audits/mp23-implementer-results-2026-10-03/c2-acceptance-84754389.json); the directory went to f3 for C5. Checkpoints: [`7596632c`](../audits/mp23-implementer-results-2026-10-03/c2-acceptance-7596632c.json), [`7d486457`](../audits/mp23-implementer-results-2026-10-03/c2-acceptance-7d486457.json).
 - [ ] **C3** (EP-156, owner f3) on a **fresh** GCP context bootstrapped from the new candidate's payload. The user approves the new names. `mp23-c3g` (`*-c3-1005`, `7d486457` payload) is a checkpoint: it proved most of the checks below natively, and B3 on a development CLI after the F45–F47 fixes. Acceptance needs them again on the new candidate.
   - [ ] the six operational checks:
     - application change with owner isolation and unchanged replay;

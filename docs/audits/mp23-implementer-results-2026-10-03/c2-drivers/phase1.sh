@@ -13,7 +13,7 @@ sleep 5
 R=/private/tmp/nagare-mp23-cp3.1EQ78L; B=$R/exports/registry-pre-c2
 for pair in en:636575a0342bd552761d4b0fa631f14a2e2f691e42d55567087f5497618f9768 shomei:0ba0c4f2e58a294252ce950257b688dea6d8f54f3b6d23f26df59298084e2c7c nagare-access:9ca05a65ee7daa4684b76afa7eadb06b55ab31e0d9055a43aec98b24cbba228e nagare-minio:b472b80c4cf0caaedaa4ce8ae6554f21985f66bc0cebd8c22a00a271e5a1db6c nagare-mc:d7de6dcc1015cdba1e72abf68bd0daf3f525ed597cb7c21181c7f73e952420b8; do
   repo="${pair%%:*}"; want="${pair#*:}"
-  skopeo --policy $R/oci-policy.json copy --quiet --dest-tls-verify=false --preserve-digests "oci:${B}:${repo}" "docker://127.0.0.1:15013/${repo}:c2-7596" || { echo "PHASE1 FAILED push $repo"; exit 1; }
+  skopeo --policy $R/oci-policy.json copy --quiet --dest-tls-verify=false --preserve-digests "oci:${B}:${repo}" "docker://127.0.0.1:15013/${repo}:c2-8475" || { echo "PHASE1 FAILED push $repo"; exit 1; }
   got=$(skopeo --policy $R/oci-policy.json inspect --raw --tls-verify=false "docker://127.0.0.1:15013/${repo}@sha256:${want}" | shasum -a 256 | cut -c1-64)
   [ "$got" = "$want" ] && echo "$repo DIGEST-OK" || { echo "PHASE1 FAILED $repo digest $got"; exit 1; }
 done

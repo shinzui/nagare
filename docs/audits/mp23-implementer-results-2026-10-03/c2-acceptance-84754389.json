@@ -1,0 +1,169 @@
+{
+ "recordedBy": "implementer (claude-opus-5-5, session nagare-phase-b); acceptance run for the frozen candidate; not independent verification",
+ "recordedAt": "2026-10-04",
+ "candidate": {
+  "revision": "847543896d0742667e58dde723f4e9d230dfcddc",
+  "package": "nix build .#nagare from the clean worktree /private/tmp/nagare-cand-84754389-src (built by nagare-f3)",
+  "payload": "nagare-0.4.0-847543896d07"
+ },
+ "cluster": {
+  "colimaProfile": "nagare-mp23-cp3",
+  "node": "k3d-nagare-local-server-0",
+  "context": "local",
+  "operatorRoot": "fresh root /private/tmp/nagare-mp23-c2-84754389.*"
+ },
+ "coordination": "user-approved teardown of the idle 7596632c C2 context after a private export; cp3 claim held by nagare-phase-b",
+ "c1": {
+  "proof": "c1-local-gate-84754389.json",
+  "operations": 214,
+  "actions": [
+   "VerifyResource"
+  ],
+  "providerMutations": 0,
+  "acceptedScopeContentDigestsUnchanged": true
+ },
+ "f49CleanContext": {
+  "rule": "a clean context shows no replaced-incarnation finding (independent reviewer's side-effect check for StatefulSet binding)",
+  "checks": {
+   "noreplaced-before-runner": [
+    "replaced=0"
+   ],
+   "noreplaced-after-c1": [
+    "replaced=0"
+   ]
+  },
+  "incarnationsRecordedWhenThisRecordWasWritten": 24,
+  "countNote": "counted after C2, while the F49 drill v2 was already running on this context, so it may include the throwaway database"
+ },
+ "payloadGuard": {
+  "platformRoot": {
+   "payloadId": "nagare-0.4.0-847543896d07",
+   "revision": "847543896d0742667e58dde723f4e9d230dfcddc",
+   "digest": "9442ead5f5362fd39a23229d5f279b35c32bbd418a1dee26f23e4dddf2e17734"
+  },
+  "file": "platform-root.json"
+ },
+ "sourceUnavailable": {
+  "selection": {
+   "seedWrittenEpoch": 1791149133,
+   "chosenRecoveryPointEpoch": 1791150301,
+   "rule": "newest verified recovery point among listed receipts, required to be after the seed rows were written"
+  }
+ },
+ "runner": {
+  "initialReviewOperations": [
+   "CreateResource"
+  ],
+  "run": {
+   "candidateDigest": "6ba6227e0a87988f0e795762ac94f4f901541d5ee0fef1931601e74c3848132b",
+   "noOp": true,
+   "reviewDigest": "77c951c489843a656f61e1ad1bc3ae486454cafd61aa56f157ebf4d00e99f337",
+   "state": "verified",
+   "verificationCandidateDigest": "b696203c0b85fba75ae6479a82a33a48c52fb5346a2d25176d192f04ef2dda0c"
+  },
+  "finalObservation": {
+   "observationComplete": true,
+   "missingProviders": [],
+   "activeTransaction": null,
+   "acceptedEqualsConverged": true,
+   "acceptedScopes": 46
+  }
+ },
+ "finalize": {
+  "healthy": true,
+  "operatorRevision": "847543896d0742667e58dde723f4e9d230dfcddc",
+  "assertions": 16,
+  "checks": 21
+ },
+ "assertions": [
+  {
+   "name": "access-grant-revoke",
+   "summary": "Reviewed access grant and revoke for a test subject on scenario-a.127-0-0-1.sslip.io converged as en viewer tuples; access list showed the subject after the grant and not after the revoke (polled past en's read cache); browser login remains a stated restriction"
+  },
+  {
+   "name": "adoption",
+   "summary": "An unowned PVC at a restore's planned scratch address refused planning with adoption-required; no review saved, store generation unchanged; the object was then deleted by exact UID"
+  },
+  {
+   "name": "backup-freshness",
+   "summary": "server status and db backup-receipts --check-freshness grade scenario-pg, scenario-redis and scenario-ch healthy under the hourly objective from verified scheduled receipts"
+  },
+  {
+   "name": "clickhouse-backup-restore",
+   "summary": "A reviewed manual MinIO backup of scenario-ch restored through native RESTORE into an isolated scratch database with exactly the seeded rows while the source kept its later row"
+  },
+  {
+   "name": "collision-refusal",
+   "summary": "A second application claiming application A's route host is refused at composition with claim-conflict; no review is published and the head is unchanged"
+  },
+  {
+   "name": "convergence-noop-removal",
+   "summary": "The runner's verify replan of the unchanged platform candidate has zero operations, and reviewed preview cleanup retired pr-scenario and collected its DomainMapping and Service with the KIngress and KCertificate descendants removed and the other route unchanged"
+  },
+  {
+   "name": "drift-classification",
+   "summary": "Status separated application B's kubectl-patch configuration drift from scenario-retire's retained orphans; the strict replan refused the foreign field manager and was closed by abandon-refused-operation, and the --take-over-fields replan restored the reviewed bytes under the same UID with Nagare as sole field manager"
+  },
+  {
+   "name": "independent-scope-preservation",
+   "summary": "update-a (env set scenario-a, one operation) changed only application A's runtime env scope; scenario-b's revision and Service UID and all platform revisions were unchanged"
+  },
+  {
+   "name": "interrupted-recovery",
+   "summary": "Killed applies at database readiness, cluster completion and migration TransferState each resumed through the recorded transaction with pre-interruption UIDs unchanged and one completed effect per operation (the migration copy recorded a second intent on its adapter-proved retry and adopted the same Job); verify killed before its marker re-ran to verified with the store head unchanged"
+  },
+  {
+   "name": "postgresql-backup-restore",
+   "summary": "A reviewed manual MinIO backup of scenario-pg restored into an isolated scratch database with exactly the seeded rows while the source kept its later row; a pre-existing scratch database was refused by the restore Job with zero writes and closed with abandon-partial-database-restore"
+  },
+  {
+   "name": "redis-backup-restore",
+   "summary": "A reviewed manual MinIO backup of scenario-redis restored into an isolated scratch instance with exactly the seeded keys while the source kept its later key; a foreign PVC created at the scratch address between plan and apply was refused at preflight, left untouched, and the review ended through abandon-refused-operation"
+  },
+  {
+   "name": "retained-data",
+   "summary": "Reviewed collection removed only scenario-retire's stateless companions in dependency order while the PVC, credential and signing key stayed retained and PVC collection was refused; the private history export restored into an isolated state root with identical accepted, converged and retained identities"
+  },
+  {
+   "name": "retained-postgresql-rename",
+   "summary": "db rename moved scenario-rename-src to scenario-renamed through 72 reviewed migration stages; the three known rows read back, the old incarnations stay retained with unchanged UIDs and fenced writers, and the unrelated auth signing key is unchanged"
+  },
+  {
+   "name": "secret-read-refusal",
+   "summary": "The run-time SCENARIO_API_TOKEN was passed only on stdin; secret list prints names only and a scan of 2007 evidence, review and status files found zero raw or base64 matches (value recorded by SHA-256 only)"
+  },
+  {
+   "name": "source-unavailable-recovery",
+   "summary": "With the k3d server stopped (API unreachable), a live copy of the local MinIO bucket served offline verified the scheduled scenario-pg backup with only the escrowed signing key (verify-escrowed-backup --offline-object-store), its exact archive restored the known rows into a disposable PostgreSQL, and after restart the bucket survived and the store was unchanged and idle"
+  },
+  {
+   "name": "volume-backup-restore",
+   "summary": "Reviewed snapshot c2vol1 of scenario-a uploads restored into a separate PVC; the restore Job's manifest proves scenario-known.txt at the seeded sha after the source changed"
+  }
+ ],
+ "assembly": {
+  "tool": "scripts/assemble-managed-resource-evidence.sh from the candidate worktree",
+  "system": "aarch64-darwin",
+  "coverage": "coverage.json at the candidate: complete true, dirty false",
+  "result": {
+   "run": {
+    "fixtureDigest": "596a2ad928077fa244fa83863a304bdc953620aacf8ba5e5bb07630eb13fcfa7",
+    "id": "282902a2176f4f089d75572dad47617bf05c88107fd08dbdc9537a58d6a3f57f",
+    "mode": "local"
+   },
+   "payload": {
+    "digest": "sha256-Y6YQ4ftcBLOR+bxFbjvhKSo9wIIlN0RZmoyBOBNEjLE=",
+    "sourceRevision": "847543896d0742667e58dde723f4e9d230dfcddc",
+    "system": "aarch64-darwin",
+    "version": "0.4.0"
+   },
+   "scopeRevisions": 46,
+   "componentReceipts": 1
+  },
+  "flaggedKeyCount": 0
+ },
+ "evidenceDirectory": {
+  "location": "operator root evidence/c2-84754389 (handed to nagare-f3 for C5 local/)"
+ },
+ "note": "first pass with no stops; procedure: docs/runbooks/native-verification-harness.md section 6"
+}
