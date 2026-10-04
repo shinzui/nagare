@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 import sys
@@ -99,6 +100,35 @@ def main() -> None:
         result = run(bare, root / "bare.json", "Platform:kourier")
         assert result.returncode == 0, result.stderr
         assert json.loads((root / "bare.json").read_text())["reservations"] == []
+
+        # One packaged single-document manifest becomes a new file-backed scope.
+        payload = root / "payload"
+        (payload / "cluster/examples/probe").mkdir(parents=True)
+        (payload / "cluster/examples/probe/configmap.yaml").write_text(
+            "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: probe\n  namespace: personal\ndata:\n  mode: \"1\"\n"
+        )
+        foundation = {
+            "scope": {"kind": "Platform", "name": "foundation"},
+            "bundles": [{"declarations": [{"tag": "Managed", "contents": {"identity": "platform:foundation/foundation/namespace-personal", "address": address("namespace", None, "personal")}}]}],
+        }
+        added_export = root / "added"
+        write_export(added_export)
+        (added_export / "scopes/foundation.json").write_text(json.dumps(foundation))
+        head = json.loads((added_export / "head.json").read_text())
+        head["accepted"].append({"scope": foundation["scope"], "revision": {"digest": "foundation", "generation": 1}})
+        (added_export / "head.json").write_text(json.dumps(head))
+        packaged = run(added_export, root / "added.json", "Platform:kourier", "--add-packaged-scope", "probe=cluster/examples/probe/configmap.yaml", "--payload-root", str(payload))
+        assert packaged.returncode == 0, packaged.stderr
+        changes = json.loads((root / "added.json").read_text())["changes"]
+        assert [change["replace"]["scope"] for change in changes] == [{"kind": "Platform", "name": "kourier"}, {"kind": "Platform", "name": "probe"}]
+        member = changes[1]["replace"]["bundles"][0]["declarations"][0]["contents"]
+        canonical = '{"apiVersion":"v1","data":{"mode":"1"},"kind":"ConfigMap","metadata":{"name":"probe","namespace":"personal"}}'
+        assert member["spec"] == {"tag": "NativeObject", "contents": hashlib.sha256(canonical.encode()).hexdigest()}, member["spec"]
+        assert member["address"]["contents"] == [CLUSTER, "", "configmap", "personal", "probe"]
+        assert member["source"] == {"file": "cluster/examples/probe/configmap.yaml", "path": "probe#document[0]"}
+        assert member["dependencies"] == [{"tag": "OrderedAfter", "contents": "platform:foundation/foundation/namespace-personal"}]
+        escaping = run(added_export, root / "escape.json", "--add-packaged-scope", "probe=../outside.yaml", "--payload-root", str(payload))
+        assert escaping.returncode != 0
 
         busy = root / "busy"
         write_export(busy, active="tx-open")

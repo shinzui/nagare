@@ -10,13 +10,30 @@ certificate and StatefulSet claims). A native verification harness uses it for
 the runner's verify phase: an unchanged replan must have zero operations.
 
 Usage: scripts/unchanged-inventory-candidate.py EXPORT_DIR OUTPUT_JSON KIND:NAME [KIND:NAME ...]
+         [--add-packaged-scope NAME=MANIFEST --payload-root DIR]
 The export is private (it can contain credentials); the output contains only
-accepted declarations and claims."""
-import json, sys
+accepted declarations and claims.
+
+--add-packaged-scope adds one new Platform scope NAME whose single Kubernetes
+member is file-backed from MANIFEST (relative to the accepted payload root,
+one document). A runner rehearsal uses it to plan exactly one CreateResource
+through generic planning. It reads the manifest with yq, binds the spec digest
+the way nagarectl's canonicalValue does (sorted compact JSON, integers only),
+and orders the member after the accepted Namespace and kubeconfig members."""
+import argparse
+import hashlib
+import json
+import subprocess
 from pathlib import Path
 
-export, output = Path(sys.argv[1]), Path(sys.argv[2])
-selected = set(sys.argv[3:])
+parser = argparse.ArgumentParser(description="unchanged inventory candidate from a private export")
+parser.add_argument("export", type=Path)
+parser.add_argument("output", type=Path)
+parser.add_argument("selected", nargs="*", help="accepted scopes to replace unchanged, as KIND:NAME")
+parser.add_argument("--add-packaged-scope", metavar="NAME=MANIFEST")
+parser.add_argument("--payload-root", type=Path)
+args = parser.parse_args()
+export, output, selected = args.export, args.output, set(args.selected)
 head = json.loads((export / "head.json").read_text())
 if head.get("activeTransaction"):
     raise SystemExit("export has an active transaction")
@@ -80,6 +97,81 @@ for entry in head["accepted"]:
         changes.append({"replace": declaration})
 if len(changes) != len(selected):
     raise SystemExit("a selected scope is not accepted")
+def canonical(value):
+    if isinstance(value, dict):
+        return "{" + ",".join(json.dumps(k, ensure_ascii=False) + ":" + canonical(value[k]) for k in sorted(value)) + "}"
+    if isinstance(value, list):
+        return "[" + ",".join(canonical(v) for v in value) + "]"
+    if isinstance(value, bool) or value is None or isinstance(value, str):
+        return json.dumps(value, ensure_ascii=False)
+    if isinstance(value, int):
+        return str(value)
+    raise SystemExit("packaged manifest contains a non-integer number")
+
+
+def packaged_scope(spec_text, payload_root, accepted_declarations):
+    name, _, manifest = spec_text.partition("=")
+    if not name or not manifest or payload_root is None:
+        raise SystemExit("--add-packaged-scope NAME=MANIFEST requires --payload-root")
+    path = payload_root / manifest
+    if not path.is_file() or manifest.startswith("/") or ".." in Path(manifest).parts:
+        raise SystemExit(f"packaged manifest is missing or escapes the payload: {manifest}")
+    documents = subprocess.run(["yq", "-o=json", "-I=0", ".", str(path)], check=True, capture_output=True, text=True).stdout.strip().splitlines()
+    if len(documents) != 1:
+        raise SystemExit("packaged manifest must hold exactly one document")
+    document = json.loads(documents[0])
+    api, kind, meta = document["apiVersion"], document["kind"].lower(), document["metadata"]
+    group = api.split("/", 1)[0] if "/" in api else ""
+    managed = [d["contents"] for d in accepted_declarations if d.get("tag") == "Managed"]
+    clusters = {d["address"]["contents"][0] for d in managed if d["address"]["tag"] == "Kubernetes"}
+    if len(clusters) != 1:
+        raise SystemExit("accepted Kubernetes declarations name more than one cluster")
+    namespace = meta.get("namespace")
+    if (group, kind) == ("serving.knative.dev", "service"):
+        spec = {"tag": "KnativeService", "contents": hashlib.sha256(canonical(document).encode()).hexdigest()}
+    elif kind in ("configmap", "service"):
+        spec = {"tag": "NativeObject", "contents": hashlib.sha256(canonical(document).encode()).hexdigest()}
+    else:
+        raise SystemExit(f"packaged scope supports only a ConfigMap, Service or Knative Service, not {kind}")
+    dependencies = sorted(
+        d["identity"]
+        for d in managed
+        if d["identity"].startswith("platform:kubeconfig/")
+        or (namespace and d["address"]["tag"] == "Kubernetes" and d["address"]["contents"][2] == "namespace" and d["address"]["contents"][4] == namespace)
+    )
+    scope = {"kind": "Platform", "name": name}
+    declaration = {
+        "tag": "Managed",
+        "contents": {
+            "address": {"tag": "Kubernetes", "contents": [clusters.pop(), group, kind, namespace, meta["name"]]},
+            "aliases": [],
+            "dataPolicy": {"tag": "Stateless"},
+            "delegations": [],
+            "dependencies": [{"tag": "OrderedAfter", "contents": d} for d in dependencies],
+            "executor": "KubernetesExecutor",
+            "identity": f"platform:{name}/{name}/{meta['name']}",
+            "lifecycle": "Retain",
+            "owner": scope,
+            "sensitivity": "Private",
+            "source": {"file": manifest, "path": f"{name}#document[0]"},
+            "spec": spec,
+        },
+    }
+    bundle = {"conditions": [], "contributions": [], "declarations": [declaration], "exports": [], "grants": [], "operations": []}
+    return {"scope": scope, "version": 1, "bundles": [bundle]}
+
+
+if args.add_packaged_scope:
+    accepted_declarations = [
+        declaration
+        for item in snapshot
+        for bundle in item["declaration"].get("bundles", [])
+        for declaration in bundle.get("declarations", [])
+    ]
+    added = packaged_scope(args.add_packaged_scope, args.payload_root, accepted_declarations)
+    if any(item["declaration"]["scope"] == added["scope"] for item in snapshot):
+        raise SystemExit("the packaged scope is already accepted")
+    changes.append({"replace": added})
 reservations.sort(key=lambda r: r["claim"])
 output.write_text(json.dumps({"version": 1, "context": head["binding"], "base": base, "snapshot": snapshot,
                               "reservations": reservations, "changes": changes}, indent=1) + "\n")
