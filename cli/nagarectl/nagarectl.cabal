@@ -251,6 +251,7 @@ library
     Nagare.Inventory.Status
     Nagare.Inventory.Store
     Nagare.Inventory.Store.Discovery
+    Nagare.Inventory.Store.FileIO
     Nagare.Inventory.Store.GcloudAuth
     Nagare.Inventory.Store.Gogol
     Nagare.Inventory.Store.ObjectOps

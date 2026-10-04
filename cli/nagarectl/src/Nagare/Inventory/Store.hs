@@ -74,6 +74,7 @@ import Data.Text qualified as T
 import GHC.IO.Handle.Lock (LockMode (ExclusiveLock), hTryLock, hUnlock)
 import Nagare.Dsl.Prelude hiding ((.=), (<.>))
 import Nagare.Inventory.Digest
+import Nagare.Inventory.Store.FileIO (atomicWrite, syncDirectory, syncFile)
 import Nagare.Inventory.Store.ObjectOps
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
@@ -1339,33 +1340,6 @@ checkedKey key
   | any (`elem` ["", ".", ".."]) (splitDirectories key) = Left (StoreInvalidPath key)
   | normalise key /= key = Left (StoreInvalidPath key)
   | otherwise = Right key
-
-atomicWrite :: FilePath -> ByteString -> IO ()
-atomicWrite path bytes = do
-  let parent = takeDirectory path
-  createDirectoryIfMissing True parent
-  setFileMode parent 0o700
-  (temporary, handle) <- openBinaryTempFile parent ".inventory-object.tmp"
-  let cleanup = do
-        hClose handle `catch` (\(_ :: IOException) -> pure ())
-        removeFile temporary `catch` (\(_ :: IOException) -> pure ())
-  ( do
-      setFileMode temporary 0o600
-      BS.hPut handle bytes
-      hFlush handle
-      hClose handle
-      syncFile temporary
-      renameFile temporary path
-      setFileMode path 0o600
-      syncDirectory parent
-    )
-    `catch` \(err :: IOException) -> cleanup >> ioError err
-
-syncFile :: FilePath -> IO ()
-syncFile path = bracket (openFd path ReadOnly defaultFileFlags) closeFd fileSynchronise
-
-syncDirectory :: FilePath -> IO ()
-syncDirectory path = bracket (openFd path ReadOnly defaultFileFlags) closeFd fileSynchronise
 
 ioResult :: forall a. IO a -> IO (Either StoreError a)
 ioResult action = do
