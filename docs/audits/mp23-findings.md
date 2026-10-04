@@ -61,6 +61,8 @@ This is the authoritative list of implementation findings for [MP-23](../masterp
 | [F40](#f40) | P1 | A real context cannot be retired: contribution targets, scope cycles and host or artifact members block every teardown | Partial | EP-153 / EP-156 |
 | [F41](#f41) | P1 | A local node restart destroys every local backup, and local escrow verification needs the source cluster | Verifying | EP-155 / EP-159 |
 | [F42](#f42) | P1 | The managed-resource evidence assembler can never accept real runner output | Verifying | EP-157 |
+| [F43](#f43) | P1 | A fresh inventory context cannot enable the platform Google CDN backend, so B3 cannot run | Open | EP-158 / EP-156 |
+| [F44](#f44) | P1 | Inventory status on a cloud context never observes cloud-foundation members, so cloud runner evidence cannot assemble | Open | EP-153 / EP-157 |
 
 Closed findings keep their full text, location, implementation updates and verification in [the closed-findings archive](mp23-archive/mp23-findings-closed.md). F01 and F11 retain their [earlier independent closure](mp23-archive/mp23-verification.md). F02, F03, F04, F05, F06, F07, F08 and F20 now have [2026-10-02 independent closure](mp23-independent-verification-2026-10-02.md). Other entries retain their status shown above.
 
@@ -372,4 +374,30 @@ Kubernetes members can be collected one review at a time, but host and artifact 
 **Implementer native evidence (2026-10-03, candidate `14071e58`, acceptance C2 runner; nagare-phase-b):** `scripts/assemble-managed-resource-evidence.sh` refused the runner rehearsal `c2-14071e58-runner` (one `CreateResource` of `runner-probe`, a verified zero-operation replan) with "initial review has no bound operations". The check required `review.candidateDigest` to equal the SHA-256 of `candidate.json`, and the no-op check required the no-op review's `candidateDigest` to equal `run.json`'s `verificationCandidateDigest`. Those are different digests: a review's `candidateDigest` is the planner's proposal digest over binding, base, desired revisions and changes (`Plan/Changes.hs`), while `candidate.json` and `candidate.sha256` are the compile manifest (`Command.hs`). The checks could pass only against hand-made fixtures, and the operations message hid the mismatch.
 
 **Implementation update (2026-10-03; claude-opus-5-5, nagare-phase-b; decision relayed by nagare-f3):** The initial review is bound to the compiled candidate through its desired scope revisions: every desired scope, content digest and generation in `review.desiredRevisions` must equal `candidate.json`'s desired scopes and generations. The no-op review must have no operations and its desired scopes and content digests must equal the final observation's accepted revisions (an unchanged replacement still advances a generation). Each condition has its own refusal message. `scripts/test-managed-resource-evidence.sh` now uses real nagarectl shapes, adds refusals for each new condition, and replays real runner output from `fixtures/managed-resource-evidence/c2-14071e58-runner`: both reviews bind, and the run's incomplete final observation still refuses. The assembler ships in the payload, so the fix needs the next candidate. Remaining for a complete local assembly, all outside this finding: the runner must observe every provider (the C2 runner ran without the en endpoint, so `AccessExecutor` was unobserved); the coverage audit at `14071e58` is itself incomplete (`Command.Cleanup` and `InfraCommand.InfraDestroy` pending, `infra-destroy` recipe pending, one catalogue row incomplete); and the release manifest input is the release build manifest, not the payload's `release.json`.
+
+## F43
+
+**A fresh inventory context cannot enable the platform Google CDN backend, so B3 cannot run** — P1; **Open**; owners EP-158 / EP-156.
+
+**Implementer native evidence (2026-10-03, claude-opus-5-5, candidate `14071e58`, C3 checkpoint `mp23-c3f`):** B3 and the cloud gate's `google-cdn` check require a Google CDN host record created by reviewed application deploy. The CDN guide (`docs/user/cdn.md`) requires the platform BackendService to be accepted in inventory first. On the fresh context, `nagare:enableCdn: "true"` was added to the context's Pulumi stack config. Then:
+- `platform bootstrap plan` returned 206 `VerifyResource` operations and no cloud change.
+- `infra preview --save-plan` produced a legacy Pulumi bundle with 12 CDN creates and an apex update.
+- `infra apply --plan` refused it: "this context has resource inventory history … legacy infra apply cannot safely mutate it".
+
+No CDN resource was created, and the edit was reverted.
+
+**Cause (source):** `nagare:enableCdn` is not a field of the context profile (`Nagare.Target`; `context create` has no CDN option), so the stack-config projection never carries it. The cloud resource catalog that bootstrap admits (`infra/pulumi/resource-catalog.json`, read by `Bootstrap/Cloud.hs`) has `foundationManaged`, `imageEnabled` and `nixCacheEnabled` sections but no CDN entries. A CDN-enabled stack would also differ from the accepted cloud scope. `infra preview --inventory` needs a compiled cloud candidate that no command produces.
+
+**Required repair/verification:** Either add a typed context flag (for example `context create --enable-cdn`), projected to `nagare:enableCdn`, plus a `cdnEnabled` catalog section admitted by the cloud bootstrap stage (the Nix-cache flag is the precedent), so the platform BackendService becomes an accepted cloud member through a reviewed stage. Or record by operator decision that Google CDN is not supported on inventory contexts in this release, and remove `google-cdn` from the cloud gate. Then run B3 natively.
+
+## F44
+
+**Inventory status on a cloud context never observes cloud-foundation members, so cloud runner evidence cannot assemble** — P1; **Open**; owners EP-153 / EP-157.
+
+**Implementer native evidence (2026-10-03, claude-opus-5-5, candidate `14071e58`, C3 checkpoint `mp23-c3f`):** On the converged cloud context, `inventory status --json` reports `observationComplete: false` and `missingProviders: ["CloudFoundationExecutor"]`. The two foundation members (`platform:cloud-foundation/pulumi-stack/mp23-c3f` and the state bucket) are `unknown` with "provider observation is unavailable". The same was visible on the `db808a74` checkpoint ("unavailable providers: [CloudFoundationExecutor]"). The evidence assembler requires the runner's final observation to be complete with no missing providers (F42 keeps that check). So no cloud run can produce `inventory-evidence.json`, even with every other provider configured.
+
+**Required repair/verification:**
+- Install the CloudFoundation observer in the status and observation registry for cloud contexts: a read-only bucket and stack check through the same guarded path the foundation adapter uses.
+- Regression: status on a cloud fixture is complete.
+- Native: the C3 runner's final observation is complete.
 
