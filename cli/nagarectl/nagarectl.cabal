@@ -296,6 +296,7 @@ library
     Nagare.Storage.Restore
     Nagare.Storage.Snapshot
     Nagare.Target
+    Nagare.Target.Acme
     Nagare.Target.Kinds
     Nagare.Task.Delete
     Nagare.Task.Discover

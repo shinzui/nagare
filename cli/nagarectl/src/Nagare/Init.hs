@@ -90,6 +90,7 @@ data InitOpts = InitOpts
   , bootDiskSizeGb :: !(Maybe String)
   , dataDiskSizeGb :: !(Maybe String)
   , nixCacheEnabled :: !(Maybe String)
+  , cdnEnabled :: !(Maybe String)
   , nixCacheBucket :: !(Maybe String)
   , pulumiBackend :: !(Maybe String)
   , pulumiBackendUrl :: !(Maybe String)
@@ -123,6 +124,7 @@ initFlagPairs o =
     , pair "NAGARE_BOOT_DISK_SIZE_GB" (o ^. #bootDiskSizeGb)
     , pair "NAGARE_DATA_DISK_SIZE_GB" (o ^. #dataDiskSizeGb)
     , pair "NAGARE_NIX_CACHE_ENABLED" (o ^. #nixCacheEnabled)
+    , pair "NAGARE_CDN_ENABLED" (o ^. #cdnEnabled)
     , pair "NAGARE_NIX_CACHE_BUCKET" (o ^. #nixCacheBucket)
     , pair "NAGARE_PULUMI_BACKEND" (o ^. #pulumiBackend)
     , pair "NAGARE_PULUMI_BACKEND_URL" (o ^. #pulumiBackendUrl)
@@ -214,6 +216,7 @@ renderInitSummary context tp =
     , "  image bucket: " <> tp ^. #imageBucket
     , "  backup bucket: " <> tp ^. #backupBucket
     , "  Nix cache: " <> if tp ^. #nixCacheEnabled then "enabled" else "disabled"
+    , "  Google CDN: " <> if tp ^. #cdnEnabled then "enabled" else "disabled"
     , "  Nix cache bucket: " <> tp ^. #nixCacheBucket
     , "  instance name: " <> tp ^. #instanceName
     , "  Pulumi backend: " <> pulumiBackendToken backend
@@ -322,6 +325,7 @@ renderTargetEnv tp =
     , "export NAGARE_IMAGE_BUCKET=" <> tp ^. #imageBucket
     , "export NAGARE_BACKUP_BUCKET=" <> tp ^. #backupBucket
     , "export NAGARE_NIX_CACHE_ENABLED=" <> boolToken (tp ^. #nixCacheEnabled)
+    , "export NAGARE_CDN_ENABLED=" <> boolToken (tp ^. #cdnEnabled)
     , "export NAGARE_EXTERNAL_DOMAIN_TLS_ENABLED=" <> boolToken (tp ^. #externalDomainTlsEnabled)
     , "export NAGARE_NIX_CACHE_BUCKET=" <> tp ^. #nixCacheBucket
     , "export NAGARE_BASE_DOMAIN=" <> tp ^. #baseDomain
@@ -376,6 +380,13 @@ seedKeys tp =
   , ("nagare:dataDiskSizeGb", tp ^. #dataDiskSizeGb)
   , ("nagare:manageProjectApis", "false")
   ]
+    -- An inventory context keeps its apex on the VM: the CDN is created as
+    -- reviewed cloud members first, and application hostnames opt into it with
+    -- --cdn-backend-resource. Absent keys keep older stacks unchanged (F43).
+    <> ( if tp ^. #cdnEnabled
+           then [("nagare:enableCdn", "true"), ("nagare:cdnApex", "false")]
+           else []
+       )
 
 -- | The argv for one @pulumi -C infra/pulumi config set --stack STACK KEY VALUE@.
 -- Pure so it is unit-testable without Pulumi.

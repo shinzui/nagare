@@ -25,6 +25,8 @@ export interface NagarePerimeterArgs {
     /** MasterPlan 11 / EP-56: opt-in for the standing Google Cloud CDN load
      *  balancer (default false; billable, so never created implicitly). */
     enableCdn: boolean;
+    /** F43: route the exact apex through a constructed CDN (default true). */
+    cdnApex?: boolean;
     /** Staged migration from the legacy Compute certificate to Certificate Manager. */
     cdnCertificateMode: CdnCertificateMode;
     /** EP-99: GCP-level deletion protection on the VM (default true). */
@@ -264,7 +266,7 @@ export class NagarePerimeter extends pulumi.ComponentResource {
         // the standing CDN only when that optional component was constructed;
         // otherwise it follows the wildcard to the VM's regional static IP.
         const domainTopology = resolveDomainTopology({
-            enableCdn: args.enableCdn,
+            enableCdn: args.enableCdn && (args.cdnApex ?? true),
             cdnExists: cdn !== undefined,
             vmPublicIp: (address?.address ?? pulumi.output("(collected)")),
             cdnGlobalIp: cdn?.cdnGlobalIp,

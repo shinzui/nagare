@@ -230,6 +230,17 @@ initTests =
         let parsed = profileFromContextMap (parseContextEnv "export CLOUDSDK_CORE_PROJECT=acme-prod\nexport NAGARE_NIX_CACHE_ENABLED=1\n")
         parsed ^. #nixCacheEnabled @?= True
         parsed ^. #nixCacheBucket @?= "acme-prod-nagare-nix-cache"
+    , testCase "Google CDN is cloud-only, round-trips, and seeds the apex-preserving keys (F43)" $ do
+        let enabled = initProfile & #cdnEnabled .~ True
+        validateNixCacheMode enabled @?= Right ()
+        validateNixCacheMode (enabled & #mode .~ Local)
+          @?= Left "NAGARE_CDN_ENABLED=1 is cloud-only; disable it for local contexts"
+        let parsed = profileFromContextMap (parseContextEnv "export CLOUDSDK_CORE_PROJECT=acme-prod\nexport NAGARE_CDN_ENABLED=1\n")
+        parsed ^. #cdnEnabled @?= True
+        lookup "nagare:enableCdn" (seedKeys enabled) @?= Just "true"
+        lookup "nagare:cdnApex" (seedKeys enabled) @?= Just "false"
+        lookup "nagare:enableCdn" (seedKeys initProfile) @?= Nothing
+        lookup "nagare:cdnApex" (seedKeys initProfile) @?= Nothing
     , testCase "init summary shows both buckets and the effective GCS URL" $ do
         let out = renderInitSummary "labs" (initProfile & #pulumiBackend .~ PulumiBackendGcs)
         assertBool "heading" (T.isInfixOf "Derived names for context 'labs':" out)
@@ -462,6 +473,7 @@ defaultInitOpts =
     , bootDiskSizeGb = Nothing
     , dataDiskSizeGb = Nothing
     , nixCacheEnabled = Nothing
+    , cdnEnabled = Nothing
     , nixCacheBucket = Nothing
     , pulumiBackend = Nothing
     , pulumiBackendUrl = Nothing

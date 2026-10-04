@@ -43,6 +43,9 @@ const imageSelfLink = cfg.get("nagareImageSelfLink");
 // balancer. Default false so existing `pulumi up` runs are byte-for-byte
 // unchanged and the billable load balancer is never created implicitly.
 const enableCdnCfg = cfg.getBoolean("enableCdn") ?? false;
+// F43: an inventory context creates the CDN as reviewed cloud members first and
+// keeps its apex on the VM (`cdnApex: false`); the default keeps older stacks unchanged.
+const cdnApexCfg = cfg.getBoolean("cdnApex") ?? true;
 const cdnCertificateModeCfg = parseCdnCertificateMode(cfg.get("cdnCertificateMode"));
 
 // EP-99: GCP-level deletion protection for the VM. Default true — the API then
@@ -102,6 +105,7 @@ const perimeter = new NagarePerimeter(
         imageBucketName: imageBucketNameCfg,
         imageSelfLink,
         enableCdn: enableCdnCfg,
+        cdnApex: cdnApexCfg,
         cdnCertificateMode: cdnCertificateModeCfg,
         vmDeletionProtection: vmDeletionProtectionCfg,
         bootDiskSizeGb: bootDiskSizeGbCfg,

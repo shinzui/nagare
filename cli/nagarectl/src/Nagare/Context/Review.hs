@@ -203,6 +203,7 @@ validate review = do
             , bootDiskSizeGb = after ^. #bootDiskSizeGb
             , dataDiskSizeGb = after ^. #dataDiskSizeGb
             , nixCacheEnabled = after ^. #nixCacheEnabled
+            , cdnEnabled = after ^. #cdnEnabled
             , externalDomainTlsEnabled = after ^. #externalDomainTlsEnabled
             , acmeEmail = after ^. #acmeEmail
             , acmeDirectory = after ^. #acmeDirectory

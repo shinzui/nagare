@@ -65,6 +65,7 @@ buildCloudStageCandidate active workspace snapshot
             InventoryCloud.selectedCloudCatalog
               (profile ^. #nixCacheEnabled)
               (isJust imageLink)
+              (profile ^. #cdnEnabled)
               catalog
           acceptedMembers = case Map.lookup owner (ResourceInventory.snapshotScopes snapshot) of
             Nothing -> []

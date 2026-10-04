@@ -280,6 +280,8 @@ runLegacyInit mctx o = do
           .~ maybe "" T.pack (o ^. #inventoryStoreUrl)
           & #nixCacheEnabled
           .~ maybe (defs ^. #nixCacheEnabled) (== "1") (o ^. #nixCacheEnabled)
+          & #cdnEnabled
+          .~ maybe (defs ^. #cdnEnabled) (== "1") (o ^. #cdnEnabled)
           & #nixCacheBucket
           .~ maybe (project <> "-nagare-nix-cache") T.pack (o ^. #nixCacheBucket)
   contextName <- case o ^. #contextName of

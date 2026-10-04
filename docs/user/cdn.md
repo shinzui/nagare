@@ -300,9 +300,20 @@ ways before moving to `Full`/`Full (strict)`:
   otherwise the direct route discovers the zone from the hostname's registrable
   domain. Reviewed inventory requires an exact `CF_ZONE_ID` and `CF_ACCOUNT_ID`
   plus read permissions for the zone, DNS records, ruleset, and TLS setting.
-- **Google Cloud CDN.** Provision the standing load balancer once with `pulumi -C
-  infra/pulumi config set nagare:enableCdn true` (it is billable, so it is
-  opt-in). Certificate migration is deliberately staged:
+- **Google Cloud CDN.** On a context with inventory history (every context
+  created with `context create`), enable the standing load balancer through the
+  context profile: `nagarectl context create NAME --force --enable-cdn
+  --save-plan DIR`, then `nagarectl context apply DIR --yes`, then
+  `nagarectl platform bootstrap plan` and apply. The bootstrap's cloud stage
+  creates the 12 load-balancer resources as reviewed cloud members. Use
+  `--enable-cdn` at `context create` time for a new context; the CDN then lands in
+  the same stage as the VM. It is billable, so it is opt-in. The profile also
+  sets `nagare:cdnApex: false`: the base-domain apex keeps pointing at the VM, and
+  each application hostname opts into the CDN with `--cdn-backend-resource`. The
+  inventory route supports the `legacy` certificate mode only. On an older stack
+  without inventory history, `pulumi -C infra/pulumi config set
+  nagare:enableCdn true` still provisions the load balancer and moves the apex.
+  Certificate migration on such a stack is deliberately staged:
 
   ```bash
   # Existing stacks begin in legacy mode; new CDN setups should start prepare.

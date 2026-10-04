@@ -111,6 +111,9 @@ data CloudCatalog = CloudCatalog
   , catalogFoundationManaged :: ![CloudCatalogEntry]
   , catalogNixCacheEnabled :: ![CloudCatalogEntry]
   , catalogImageEnabled :: ![CloudCatalogEntry]
+  , catalogCdnEnabled :: ![CloudCatalogEntry]
+  -- ^ The opt-in Google CDN load balancer; it fronts the VM, so it is admitted
+  -- only with the image-enabled entries (F43).
   }
   deriving stock (Eq, Show, Generic)
 
@@ -132,6 +135,7 @@ decodeCloudCatalog bytes = do
         catalogFoundationManaged catalog
           <> catalogNixCacheEnabled catalog
           <> catalogImageEnabled catalog
+          <> catalogCdnEnabled catalog
       keys = map catalogKey allEntries
       byKey = Map.fromList [(catalogKey entry, entry) | entry <- allEntries]
   unless (length keys == Map.size byKey) (Left "cloud catalog has duplicate logical keys")
@@ -154,12 +158,14 @@ decodeCloudCatalog bytes = do
         <*> o .: "foundationManaged"
         <*> o .: "nixCacheEnabled"
         <*> o .:? "imageEnabled" .!= []
+        <*> o .:? "cdnEnabled" .!= []
 
-selectedCloudCatalog :: Bool -> Bool -> CloudCatalog -> [CloudCatalogEntry]
-selectedCloudCatalog cacheEnabled imageEnabled catalog =
+selectedCloudCatalog :: Bool -> Bool -> Bool -> CloudCatalog -> [CloudCatalogEntry]
+selectedCloudCatalog cacheEnabled imageEnabled cdnEnabled catalog =
   catalogFoundationManaged catalog
     <> (if cacheEnabled then catalogNixCacheEnabled catalog else [])
     <> (if imageEnabled then catalogImageEnabled catalog else [])
+    <> (if imageEnabled && cdnEnabled then catalogCdnEnabled catalog else [])
 
 withCloudInstanceName :: Name -> CloudCatalog -> CloudCatalog
 withCloudInstanceName instanceName catalog =
@@ -194,6 +200,7 @@ cloudCatalogUrn stack catalog entry = do
             catalogFoundationManaged catalog
               <> catalogNixCacheEnabled catalog
               <> catalogImageEnabled catalog
+              <> catalogCdnEnabled catalog
         ]
     go seen member
       | Set.member (catalogKey member) seen = Left "cloud catalog has a parent cycle"
@@ -214,11 +221,12 @@ cloudBookkeepingRegistrations ::
   Name ->
   Bool ->
   Bool ->
+  Bool ->
   CloudCatalog ->
   ContentDigest ->
   [NativeRegistration] ->
   Either Text [NativeRegistration]
-cloudBookkeepingRegistrations stack cacheEnabled imageEnabled catalog digest managed = do
+cloudBookkeepingRegistrations stack cacheEnabled imageEnabled cdnEnabled catalog digest managed = do
   owner <- mkScopeId Platform "cloud-bookkeeping"
   key <- mkLogicalKey "native-registration"
   let managedUrns = Set.fromList (map registrationPulumiUrn managed)
@@ -228,7 +236,7 @@ cloudBookkeepingRegistrations stack cacheEnabled imageEnabled catalog digest man
       unless
         (registrationPulumiUrn registration == expected)
         (Left "reviewed cloud registration URN differs from the program catalog")
-  registrations <- forM (selectedCloudCatalog cacheEnabled imageEnabled catalog) $ \entry -> do
+  registrations <- forM (selectedCloudCatalog cacheEnabled imageEnabled cdnEnabled catalog) $ \entry -> do
     urn <- cloudCatalogUrn stack catalog entry
     pure $
       if Set.member urn managedUrns
@@ -251,7 +259,7 @@ cloudBookkeepingRegistrations stack cacheEnabled imageEnabled catalog digest man
             catalogNativeType entry == registrationPulumiType registration
               && catalogNativeName entry == registrationPulumiName registration
         )
-        (selectedCloudCatalog cacheEnabled imageEnabled catalog)
+        (selectedCloudCatalog cacheEnabled imageEnabled cdnEnabled catalog)
 
 data RegistrationParityError
   = DuplicateDeclaredRegistration !ResourceId

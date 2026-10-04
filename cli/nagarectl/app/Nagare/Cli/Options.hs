@@ -513,6 +513,7 @@ data ContextCreateOpts = ContextCreateOpts
   , imageBucket :: !(Maybe String)
   , backupBucket :: !(Maybe String)
   , nixCacheEnabled :: !(Maybe String)
+  , cdnEnabled :: !(Maybe String)
   , nixCacheBucket :: !(Maybe String)
   , instanceName :: !(Maybe String)
   , serviceAccountId :: !(Maybe String)

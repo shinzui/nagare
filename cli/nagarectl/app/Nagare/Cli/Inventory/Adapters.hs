@@ -526,6 +526,7 @@ inventoryPulumiAdapterWithCollections collected collectingPhysical active worksp
                 stackName
                 (profile ^. #nixCacheEnabled)
                 (isJust imageLink)
+                (profile ^. #cdnEnabled)
                 catalog
                 (InventoryDigest.contentDigest catalogBytes)
                 registrations

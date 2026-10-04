@@ -71,7 +71,7 @@ module Nagare.Target
 where
 
 import Control.Exception (IOException, try)
-import Data.Char (isAsciiLower, isAsciiUpper, isDigit, isSpace, toLower)
+import Data.Char (isAsciiLower, isAsciiUpper, isDigit, toLower)
 import Data.Generics.Labels ()
 import Data.List (sort)
 import Data.Map.Strict (Map)
@@ -90,83 +90,12 @@ import Nagare.Inventory.BackupFreshness
   ( RecoveryPointObjective (..)
   , recoveryPointObjectiveText
   )
+import Nagare.Target.Acme
 import Nagare.Target.Kinds
 import System.Directory (canonicalizePath, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, listDirectory, removeFile, renameFile)
 import System.Environment (lookupEnv)
 import System.FilePath (dropExtension, takeExtension, (<.>), (</>))
 import Text.Read (readMaybe)
-
--- | Which ACME service a context's issuer talks to (EP-112). 'AcmeProduction' is
--- Let's Encrypt's real service; 'AcmeStaging' issues certificates that are NOT
--- browser-trusted but has far looser rate limits, for rehearsing issuance on a
--- new domain; 'AcmeCustom' is any other ACME directory URL.
-data AcmeDirectory = AcmeProduction | AcmeStaging | AcmeCustom Text
-  deriving stock (Eq, Show)
-
--- | Parse the @NAGARE_ACME_DIRECTORY@ token. Empty (or unset) means
--- 'AcmeProduction'. Unlike 'parseMode' and 'parsePulumiBackendKind', an
--- unrecognized value is an ERROR, not a fallback: silently choosing production
--- burns a real rate limit against a real domain and silently choosing staging
--- installs certificates no browser trusts, so neither is a safe landing place
--- for a typo.
-parseAcmeDirectory :: Text -> Either Text AcmeDirectory
-parseAcmeDirectory raw
-  | T.null token = Right AcmeProduction
-  | lowered == "production" = Right AcmeProduction
-  | lowered == "staging" = Right AcmeStaging
-  | "https://" `T.isPrefixOf` token = Right (AcmeCustom token)
-  | otherwise =
-      Left
-        ( "NAGARE_ACME_DIRECTORY='"
-            <> token
-            <> "' is not recognized (expected 'production', 'staging', or an absolute https:// ACME directory URL)."
-        )
-  where
-    token = T.strip raw
-    lowered = T.toLower token
-
--- | The @NAGARE_ACME_DIRECTORY@ token for a parsed endpoint (the inverse of
--- 'parseAcmeDirectory'), used by the context-file renderer. Round-tripping
--- through this normalizes case, so @--acme-directory STAGING@ is stored as
--- @staging@.
-acmeDirectoryToken :: AcmeDirectory -> Text
-acmeDirectoryToken AcmeProduction = "production"
-acmeDirectoryToken AcmeStaging = "staging"
-acmeDirectoryToken (AcmeCustom url) = url
-
--- | The directory URL for a parsed endpoint. Keep the two literals in sync with
--- @nagare_acme_directory_url@ in @scripts\/lib\/target.sh@; the
--- @cluster-bootstrap-defaults@ flake check fails the build if they drift.
-acmeDirectoryUrl :: AcmeDirectory -> Text
-acmeDirectoryUrl AcmeProduction = "https://acme-v02.api.letsencrypt.org/directory"
-acmeDirectoryUrl AcmeStaging = "https://acme-staging-v02.api.letsencrypt.org/directory"
-acmeDirectoryUrl (AcmeCustom url) = url
-
--- | Accept a single usable ACME contact address, or explain why not. This is a
--- SANITY CHECK (exactly one \'@\', a dotted domain, no whitespace or comma), not
--- an RFC 5322 validator: its job is to reject empty, placeholder and
--- multi-address values before they reach Let\'s Encrypt, where an account
--- registered under the wrong address cannot be re-pointed.
-validateAcmeEmail :: Text -> Either Text Text
-validateAcmeEmail raw
-  | T.null addr = Left "an ACME contact address is required (there is no default)"
-  | T.any (\c -> isSpace c || c == ',') addr = bad
-  | otherwise = case T.splitOn "@" addr of
-      [localPart, domain]
-        | not (T.null localPart)
-        , T.isInfixOf "." domain
-        , not ("." `T.isPrefixOf` domain)
-        , not ("." `T.isSuffixOf` domain) ->
-            Right addr
-      _ -> bad
-  where
-    addr = T.strip raw
-    bad =
-      Left
-        ( "NAGARE_ACME_EMAIL='"
-            <> addr
-            <> "' is not a usable ACME contact address (expected one address of the form you@example.com)."
-        )
 
 -- | The name of a stored context. It is used verbatim as a filename
 -- (@<name>.env@) and as the value of the @current-context@ pointer, so it is
@@ -444,6 +373,9 @@ data TargetProfile = TargetProfile
   -- ^ NAGARE_BACKUP_BUCKET, default @"\<project>-nagare-backups"@
   , nixCacheEnabled :: !Bool
   -- ^ NAGARE_NIX_CACHE_ENABLED; opt in to the cloud-only Attic component.
+  , cdnEnabled :: !Bool
+  -- ^ NAGARE_CDN_ENABLED; opt in to the billable, cloud-only Google CDN load
+  -- balancer as reviewed cloud members (F43).
   , nixCacheBucket :: !Text
   -- ^ NAGARE_NIX_CACHE_BUCKET, default @"\<project>-nagare-nix-cache"@
   , baseDomain :: !Text
@@ -606,6 +538,7 @@ renderContextShellEnv name tp penv =
     , line "NAGARE_IMAGE_BUCKET" (tp ^. #imageBucket)
     , line "NAGARE_BACKUP_BUCKET" (tp ^. #backupBucket)
     , line "NAGARE_NIX_CACHE_ENABLED" (boolToken (tp ^. #nixCacheEnabled))
+    , line "NAGARE_CDN_ENABLED" (boolToken (tp ^. #cdnEnabled))
     , line "NAGARE_EXTERNAL_DOMAIN_TLS_ENABLED" (boolToken (tp ^. #externalDomainTlsEnabled))
     , line "NAGARE_NIX_CACHE_BUCKET" (tp ^. #nixCacheBucket)
     , line "NAGARE_BASE_DOMAIN" (tp ^. #baseDomain)
@@ -815,6 +748,7 @@ profileFromContextMap ctx =
       imageBucket = mapOr ctx "NAGARE_IMAGE_BUCKET" (project <> "-nagare-images")
       backupBucket = mapOr ctx "NAGARE_BACKUP_BUCKET" (project <> "-nagare-backups")
       nixCacheEnabled = mapRaw ctx "NAGARE_NIX_CACHE_ENABLED" == Just "1"
+      cdnEnabled = mapRaw ctx "NAGARE_CDN_ENABLED" == Just "1"
       nixCacheBucket = mapOr ctx "NAGARE_NIX_CACHE_BUCKET" (project <> "-nagare-nix-cache")
       baseDomain = mapOr ctx "NAGARE_BASE_DOMAIN" "apps.example.com"
       externalDomainTlsEnabled = mapRaw ctx "NAGARE_EXTERNAL_DOMAIN_TLS_ENABLED" == Just "1"
@@ -845,6 +779,7 @@ profileFromContextMap ctx =
         , imageBucket = imageBucket
         , backupBucket = backupBucket
         , nixCacheEnabled = nixCacheEnabled
+        , cdnEnabled = cdnEnabled
         , nixCacheBucket = nixCacheBucket
         , baseDomain = baseDomain
         , externalDomainTlsEnabled = externalDomainTlsEnabled
@@ -878,6 +813,7 @@ resolveProfileFrom ctx = do
   imageBucket <- ctxOr ctx "NAGARE_IMAGE_BUCKET" (project <> "-nagare-images")
   backupBucket <- ctxOr ctx "NAGARE_BACKUP_BUCKET" (project <> "-nagare-backups")
   nixCacheEnabled <- (== Just "1") <$> ctxRaw ctx "NAGARE_NIX_CACHE_ENABLED"
+  cdnEnabled <- (== Just "1") <$> ctxRaw ctx "NAGARE_CDN_ENABLED"
   nixCacheBucket <- ctxOr ctx "NAGARE_NIX_CACHE_BUCKET" (project <> "-nagare-nix-cache")
   baseDomain <- ctxOr ctx "NAGARE_BASE_DOMAIN" "apps.example.com"
   externalDomainTlsEnabled <- (== Just "1") <$> ctxRaw ctx "NAGARE_EXTERNAL_DOMAIN_TLS_ENABLED"
@@ -909,6 +845,7 @@ resolveProfileFrom ctx = do
       , imageBucket = imageBucket
       , backupBucket = backupBucket
       , nixCacheEnabled = nixCacheEnabled
+      , cdnEnabled = cdnEnabled
       , nixCacheBucket = nixCacheBucket
       , baseDomain = baseDomain
       , externalDomainTlsEnabled = externalDomainTlsEnabled
@@ -958,6 +895,8 @@ resolveActiveTarget arg = do
                 .~ (storedProfile ^. #externalDomainTlsEnabled)
                 & #nixCacheEnabled
                 .~ (storedProfile ^. #nixCacheEnabled)
+                & #cdnEnabled
+                .~ (storedProfile ^. #cdnEnabled)
                 & #nixCacheBucket
                 .~ (storedProfile ^. #nixCacheBucket)
                 & #inventoryStore
@@ -989,6 +928,8 @@ validateNixCacheMode :: TargetProfile -> Either Text ()
 validateNixCacheMode tp
   | tp ^. #nixCacheEnabled && tp ^. #mode == Local =
       Left "NAGARE_NIX_CACHE_ENABLED=1 is cloud-only; disable it for local contexts"
+  | tp ^. #cdnEnabled && tp ^. #mode == Local =
+      Left "NAGARE_CDN_ENABLED=1 is cloud-only; disable it for local contexts"
   | otherwise = Right ()
 
 -- | The Kubernetes Secret (in the data-movement Job's namespace) holding the

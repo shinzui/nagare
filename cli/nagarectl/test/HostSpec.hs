@@ -432,6 +432,7 @@ fixtureProfile =
     , imageBucket = "labs-project-nagare-images"
     , backupBucket = "labs-project-nagare-backups"
     , nixCacheEnabled = False
+    , cdnEnabled = False
     , nixCacheBucket = "labs-project-nagare-nix-cache"
     , baseDomain = "apps.example.com"
     , externalDomainTlsEnabled = False

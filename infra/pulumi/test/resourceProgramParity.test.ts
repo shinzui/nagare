@@ -191,6 +191,7 @@ async function main(): Promise<void> {
         foundationManaged: CatalogEntry[];
         nixCacheEnabled: CatalogEntry[];
         imageEnabled: CatalogEntry[];
+        cdnEnabled: CatalogEntry[];
     };
     assert(catalog.version === 1, "cloud resource catalog version changed");
     const catalogNames = catalog.foundationManaged.map(({ type, name }) => `${type}::${name}`).sort();
@@ -207,7 +208,13 @@ async function main(): Promise<void> {
     const nativeImageNames = foundationManagedImage.map(({ pulumiType, pulumiName }) => `${pulumiType}::${pulumiName}`).sort();
     assert(JSON.stringify(imageNames) === JSON.stringify(nativeImageNames),
         "reviewed cloud image catalog differs from registrations in the actual Pulumi program");
-    const allEntries = catalog.foundationManaged.concat(catalog.nixCacheEnabled, catalog.imageEnabled);
+    // F43: the CDN section is exactly what the legacy-certificate CDN adds to the image topology.
+    const cdnNames = catalog.cdnEnabled.map(({ type, name }) => `${type}::${name}`).sort();
+    const imageSet = names(image);
+    const nativeCdnNames = [...names(legacyCdn)].filter((name) => !imageSet.has(name)).sort();
+    assert(JSON.stringify(cdnNames) === JSON.stringify(nativeCdnNames),
+        "reviewed cloud CDN catalog differs from registrations in the actual Pulumi program");
+    const allEntries = catalog.foundationManaged.concat(catalog.nixCacheEnabled, catalog.imageEnabled, catalog.cdnEnabled);
     const byKey = new Map(allEntries.map((entry) => [entry.key ?? entry.name, entry]));
     assert(byKey.size === allEntries.length, "cloud catalog has duplicate logical keys");
     for (const entry of allEntries) {

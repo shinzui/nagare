@@ -158,6 +158,7 @@ unnamed `nagarectl init` writes the old `nagare.target.env`.
 | `NAGARE_IMAGE_BUCKET` | `tan-nb-exp-nagare-images` | `<project>-nagare-images` |
 | `NAGARE_BACKUP_BUCKET` | `tan-nb-exp-nagare-backups` | `<project>-nagare-backups` |
 | `NAGARE_NIX_CACHE_ENABLED` | `0` | cloud-only Attic opt-in (`0` or `1`) |
+| `NAGARE_CDN_ENABLED` | `0` | cloud-only Google CDN opt-in (`0` or `1`); projects `nagare:enableCdn` and `nagare:cdnApex: false` |
 | `NAGARE_NIX_CACHE_BUCKET` | `tan-nb-exp-nagare-nix-cache` | `<project>-nagare-nix-cache` |
 | `NAGARE_BASE_DOMAIN` | `apps.example.com` | wildcard apps domain |
 | `NAGARE_ACME_EMAIL` | — (none) | Let's Encrypt contact for the cluster's ACME account. **No default**; rendering the `letsencrypt-dns` ClusterIssuer refuses without it. See [ACME identity](contexts.md#acme-identity). |
@@ -219,7 +220,7 @@ transaction's staged host flake, so inherited values from another context cannot
 | `nagarectl context current` | Print the current context name. |
 | `nagarectl context use NAME` | Set the current context, select its Pulumi stack/backend, and regenerate its config projection. |
 | `nagarectl context show [NAME]` | Print a context bundle as `export VAR=value`; with no name, show the active context. |
-| `nagarectl context create NAME [flags]` | Write a context. Flags include `--project`, `--region`, `--zone`, `--base-domain`, `--machine-type`, `--boot-disk-type`, `--boot-disk-size-gb`, `--data-disk-size-gb`, `--registry-host`, `--artifact-registry-id`, `--image-bucket`, `--backup-bucket`, `--enable-nix-cache`/`--disable-nix-cache`, `--nix-cache-bucket`, `--instance-name`, `--service-account-id`, `--target-platform`, `--mode`, `--local-object-store`, `--acme-email`, `--acme-directory` (`production`\|`staging`\|URL), `--pulumi-backend` (`local`\|`gcs`), `--pulumi-backend-url`, `--pulumi-backend-member`, `--force`, and `--use`. The cache is cloud-only and defaults off. Both ACME flags are optional here (unlike `nagarectl init`) because this command also writes local contexts. With `--force` on an existing context, only the passed flags change; every other field and the platform pin are kept. For admitted history, add `--save-plan DIR` to review compatible operational input changes, then run `context apply DIR --yes`. Authority/resource identity changes refuse; direct `--force` and `init NAME` remain guarded. |
+| `nagarectl context create NAME [flags]` | Write a context. Flags include `--project`, `--region`, `--zone`, `--base-domain`, `--machine-type`, `--boot-disk-type`, `--boot-disk-size-gb`, `--data-disk-size-gb`, `--registry-host`, `--artifact-registry-id`, `--image-bucket`, `--backup-bucket`, `--enable-nix-cache`/`--disable-nix-cache`, `--enable-cdn`/`--disable-cdn`, `--nix-cache-bucket`, `--instance-name`, `--service-account-id`, `--target-platform`, `--mode`, `--local-object-store`, `--acme-email`, `--acme-directory` (`production`\|`staging`\|URL), `--pulumi-backend` (`local`\|`gcs`), `--pulumi-backend-url`, `--pulumi-backend-member`, `--force`, and `--use`. The cache is cloud-only and defaults off. Both ACME flags are optional here (unlike `nagarectl init`) because this command also writes local contexts. With `--force` on an existing context, only the passed flags change; every other field and the platform pin are kept. For admitted history, add `--save-plan DIR` to review compatible operational input changes, then run `context apply DIR --yes`. Authority/resource identity changes refuse; direct `--force` and `init NAME` remain guarded. |
 | `nagarectl context delete NAME --save-plan DIR` | Review removal of the local profile, retaining its history locator and recovery material. Apply with `context apply DIR --yes`; no provider resources or history are deleted. Direct `--yes` remains available only before admission. |
 | `nagarectl context apply DIR --yes` | Apply or resume a local profile review. Changes to shared history since review refuse before a new local effect. |
 | `nagarectl context restore DIR --yes` | Restore the exact profile from a completed removal review in its original configuration root. Use its retained original profile to open existing history after removal; refuse another occupying profile, a foreign store/project, or migrated authority. |
@@ -308,7 +309,8 @@ with `scripts/migrate-pulumi-backend.sh`. See
 | `nagare:backupBucket` | no | `tan-nb-exp-nagare-backups` | |
 | `nagare:enableNixCache` | no | `false` | Opt in to the cloud-only Attic provider. |
 | `nagare:nixCacheBucket` | no | `<project>-nagare-nix-cache` | Dedicated unversioned cache-chunk bucket. |
-| `nagare:enableCdn` | no | `false` | Opt in to the standing, billable Google Cloud CDN load balancer. |
+| `nagare:enableCdn` | no | `false` | Opt in to the standing, billable Google Cloud CDN load balancer. Inventory contexts set it through `NAGARE_CDN_ENABLED`. |
+| `nagare:cdnApex` | no | `true` | Route the base-domain apex through a constructed CDN. Inventory contexts project `false`, so the apex stays on the VM. |
 | `nagare:cdnCertificateMode` | no | `legacy` | Google edge-certificate migration: `legacy`, `prepare`, or `certificate-map`. Invalid text fails the Pulumi program. Existing stacks stay legacy until explicitly prepared and activated. |
 
 ## Pulumi stack outputs (the integration contract — names are stable)

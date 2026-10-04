@@ -35,5 +35,19 @@
   "imageEnabled": [
     {"key": "nagare-instance", "type": "nagare:compute:NagareInstance", "name": "nagare-01", "parent": "nagare", "layer": 4},
     {"key": "nagare-instance-vm", "type": "gcp:compute/instance:Instance", "name": "nagare-01", "parent": "nagare-instance", "layer": 5}
+  ],
+  "cdnEnabled": [
+    {"type": "nagare:cdn:NagareCdn", "name": "nagare-cdn", "parent": "nagare", "layer": 6},
+    {"type": "gcp:compute/globalAddress:GlobalAddress", "name": "nagare-cdn-ip", "parent": "nagare-cdn", "layer": 7},
+    {"type": "gcp:compute/healthCheck:HealthCheck", "name": "nagare-cdn-hc", "parent": "nagare-cdn", "layer": 7},
+    {"type": "gcp:compute/managedSslCertificate:ManagedSslCertificate", "name": "nagare-cdn-cert", "parent": "nagare-cdn", "layer": 7},
+    {"type": "gcp:compute/uRLMap:URLMap", "name": "nagare-cdn-redirect", "parent": "nagare-cdn", "layer": 7},
+    {"type": "gcp:compute/instanceGroup:InstanceGroup", "name": "nagare-cdn-ig", "parent": "nagare-cdn", "layer": 7},
+    {"type": "gcp:compute/backendService:BackendService", "name": "nagare-cdn-backend", "parent": "nagare-cdn", "layer": 8},
+    {"type": "gcp:compute/targetHttpProxy:TargetHttpProxy", "name": "nagare-cdn-http-proxy", "parent": "nagare-cdn", "layer": 8},
+    {"type": "gcp:compute/uRLMap:URLMap", "name": "nagare-cdn-urlmap", "parent": "nagare-cdn", "layer": 9},
+    {"type": "gcp:compute/globalForwardingRule:GlobalForwardingRule", "name": "nagare-cdn-fr-http", "parent": "nagare-cdn", "layer": 9},
+    {"type": "gcp:compute/targetHttpsProxy:TargetHttpsProxy", "name": "nagare-cdn-https-proxy", "parent": "nagare-cdn", "layer": 10},
+    {"type": "gcp:compute/globalForwardingRule:GlobalForwardingRule", "name": "nagare-cdn-fr-https", "parent": "nagare-cdn", "layer": 11}
   ]
 }
