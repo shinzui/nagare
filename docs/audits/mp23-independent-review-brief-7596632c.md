@@ -96,22 +96,27 @@ Record your verdict on each in its plan's Progress item.
 - Native local proof inside that run: F34 (preview cleanup collects the DomainMapping and its descendants), F36, F37 and F41 (`checks/` and `assertions/`). Check the evidence, not just the assertion summaries.
 - **Independent local PostgreSQL isolated restore** ([EP-160](../plans/160-complete-fenced-live-data-restore-across-supported-engines-and-volumes.md)): do it yourself on the C2 context after nagare-phase-b releases the cp3 claim. Take the claim, back up a database with known rows, write a later row, restore into an isolated target, read the known rows back, confirm the source kept the later row, then release the claim.
 
-**Phase 3: cloud evidence and the runbook (after nagare-f3's acceptance C3 on `mp23-c3h` / `*-c3-1006`).**
+**Phase 3: cloud evidence and the runbook, on nagare-f3's acceptance C3.** The context is `mp23-c3h`. Its resource names are pending operator approval (proposed `c3-1007`).
+
+*3a, before teardown.* nagare-f3 keeps the context alive until you finish 3a.
+- **Execute [the operations runbook](../runbooks/inventory-operations.md) end to end on the acceptance C3 context.** Record F14–F18 and the cloud operational checks in the tracker. Any cloud-mutating step in the runbook needs the operator's go-ahead, which you ask for once for a bounded sequence.
 - Native cloud proof in that run:
   - F15: a genuine credential refresh and an expired-credential pull;
-  - F31: refresh lands before expiry;
-  - F33: exact collection;
+  - F31: a refresh observed before the credential expires. It cannot be reproduced on demand, so read the controller's timeline (refresh time against expiry) and record it as an evidence read;
+  - F33: exact cloud collection, as exercised by the reviewed collection in the F32 GCE-image cleanup step;
   - F45, F46, F47: the CDN cycle create, disable, retire and collect;
-  - F16, F30: application change and recovery;
-  - F39: staged retirement.
-- Check `platform-root.json` in the cloud evidence as well (F48 guard).
-- **Execute [the operations runbook](../runbooks/inventory-operations.md) end to end on the acceptance C3 context, before it is torn down.** Record F14–F18 and the cloud operational checks in the tracker. nagare-f3 keeps the context alive until you finish. Any cloud-mutating step in the runbook needs the operator's go-ahead, which you ask for once for a bounded sequence.
+  - F16, F30: application change and recovery.
+- Check `platform-root.json` in the cloud evidence (F48 guard).
+
+*3b, after teardown.* Staged retirement is part of the teardown, so its native evidence exists only after 3a. nagare-f3 exports the teardown's reviewed retirement and collection records before deleting the context.
+- F39: staged retirement, from those records.
+- F33 again: the teardown's leaf collections.
 
 ## 5. Recording results
 
 - Per finding: a **Verification** paragraph in its [tracker](mp23-findings.md) section, with the status set in both the section header and the status register.
 - Per run or check: JSON or Markdown records under `docs/audits/mp23-independent-results-2026-10-04/`, following the shape of `docs/audits/mp23-independent-results-2026-10-02/`.
-- When phase 3 is done, tick the "Independent verification" boxes in the MP-23 Finish line, with links to your records.
+- When phase 3b is done, tick the "Independent verification" boxes in the MP-23 Finish line, with links to your records.
 - Message both sessions after each phase: nagare-phase-b and nagare-f3, which can be found with `ListAgents`. Name every finding still Open, Partial or Verifying and the next required check.
 
 ## 6. Out of scope
