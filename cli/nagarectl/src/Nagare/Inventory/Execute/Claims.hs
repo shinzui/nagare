@@ -8,6 +8,7 @@ module Nagare.Inventory.Execute.Claims
   , observeCurrentHead
   , releaseAbortedClaim
   , releaseClaim
+  , releaseClaimWith
   , releaseStoppedApplicationClaim
   )
 where
@@ -18,6 +19,7 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Nagare.Dsl.Prelude
+import Nagare.Inventory.Execute.Incarnations (IncarnationBinding, bindIncarnations)
 import Nagare.Inventory.Execute.Types
   ( AdmissionError (..)
   , failure
@@ -42,10 +44,13 @@ import Nagare.Inventory.Store
     ( headAccepted
     , headActiveTransaction
     , headClientIdentity
+    , headCollected
     , headConverged
     , headDataFence
     , headExecutorClaim
     , headGeneration
+    , headIncarnations
+    , headRetained
     )
   , InventoryStore
   , LockedStore
@@ -59,7 +64,7 @@ import Nagare.Inventory.Store
   , replaceObservedHead
   , storeClientIdentity
   )
-import Nagare.Resource.Types (ScopeId)
+import Nagare.Resource.Types (ResourceId, ScopeId)
 
 executorStillClaimed :: LockedStore s -> TransactionId -> IO Bool
 executorStillClaimed locked transaction = do
@@ -95,7 +100,12 @@ acquireResumeClaim store transaction observed headValue takeOver = do
     localClient = maybe (headClientIdentity headValue) id (storeClientIdentity store)
 
 releaseClaim :: LockedStore s -> TransactionId -> Maybe ReviewDocument -> IO Bool
-releaseClaim locked transaction completedReview = do
+releaseClaim locked transaction completedReview = releaseClaimWith locked transaction completedReview Map.empty
+
+-- | Release the claim; a converged review also records the incarnations it
+-- established or proved (F49). Retained and collected members drop theirs.
+releaseClaimWith :: LockedStore s -> TransactionId -> Maybe ReviewDocument -> Map ResourceId IncarnationBinding -> IO Bool
+releaseClaimWith locked transaction completedReview bindings = do
   let converged = isJust completedReview
   let store = lockedStore locked
   headResult <- observeCurrentHead store
@@ -116,6 +126,13 @@ releaseClaim locked transaction completedReview = do
                             (headConverged headValue)
                             (convergedSelectedScopes (headConverged headValue))
                             completedReview
+                      , headIncarnations =
+                          if converged
+                            then
+                              Map.withoutKeys
+                                (bindIncarnations bindings (headIncarnations headValue))
+                                (Map.keysSet (headRetained headValue) <> Map.keysSet (headCollected headValue))
+                            else headIncarnations headValue
                       }
               isRight <$> replaceObservedHead observed replacement
     _ -> pure False

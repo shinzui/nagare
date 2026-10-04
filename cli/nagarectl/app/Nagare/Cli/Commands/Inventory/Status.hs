@@ -408,7 +408,7 @@ runInventoryStatus mctx requested json gcOutput = do
                 Just (Just False) -> InventoryStatus.HealthNotReady
                 _ -> InventoryStatus.findingHealth finding
             }
-        | finding <- InventoryStatus.classifyDrift inventory observations
+        | finding <- InventoryStatus.classifyDriftWith (InventoryStore.headIncarnations (InventoryPlan.historyHead history)) inventory observations
         , wanted (InventoryStatus.findingResource finding)
         ]
       retainedHealthById = Map.fromList (retainedHealthPairs <> retainedHelmHealthPairs)

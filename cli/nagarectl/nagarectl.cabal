@@ -50,6 +50,7 @@ library
     Nagare.Inventory.Execute.Claims
     Nagare.Inventory.Execute.Driver
     Nagare.Inventory.Execute.FencedRecovery
+    Nagare.Inventory.Execute.Incarnations
     Nagare.Inventory.Execute.Inputs
     Nagare.Inventory.Execute.Journal
     Nagare.Inventory.Execute.Recovery
@@ -507,6 +508,7 @@ test-suite nagarectl-test
     InventoryGogolSpec
     InventoryHostSpec
     InventoryImagePruneSpec
+    InventoryIncarnationSpec
     InventoryIntegrationSpec
     InventoryJournalHeadAdvanceSpec
     InventoryKubernetesConfigurationSpec

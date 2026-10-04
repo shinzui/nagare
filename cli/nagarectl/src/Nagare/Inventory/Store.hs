@@ -74,7 +74,7 @@ import Data.Text qualified as T
 import GHC.IO.Handle.Lock (LockMode (ExclusiveLock), hTryLock, hUnlock)
 import Nagare.Dsl.Prelude hiding ((.=), (<.>))
 import Nagare.Inventory.Digest
-import Nagare.Inventory.Store.FileIO (atomicWrite, syncDirectory, syncFile)
+import Nagare.Inventory.Store.FileIO (atomicWrite, readPrivateFile, syncDirectory, syncFile)
 import Nagare.Inventory.Store.ObjectOps
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
@@ -182,6 +182,9 @@ data HeadManifest = HeadManifest
   , headExecutorClaim :: !(Maybe ExecutorClaim)
   , headMigration :: !(Maybe MigrationTombstone)
   , headDataFence :: !(Maybe DataFenceRecord)
+  , headIncarnations :: !(Map ResourceId PhysicalIdentity)
+  -- ^ Physical identity of each accepted durable member, recorded when its
+  -- transaction converges and never silently replaced (F49).
   }
   deriving stock (Eq, Show, Generic)
 
@@ -445,6 +448,7 @@ instance ToJSON HeadManifest where
           <> ["collected" .= collectedValue (headCollected headValue) | not (Map.null (headCollected headValue))]
           <> maybe [] (\marker -> ["migration" .= marker]) (headMigration headValue)
           <> maybe [] (\fence -> ["dataFence" .= fence]) (headDataFence headValue)
+          <> ["incarnations" .= [object ["resource" .= r, "physical" .= p] | (r, p) <- Map.toAscList (headIncarnations headValue)] | not (Map.null (headIncarnations headValue))]
       )
     where
       revisionsValue revisions = [object ["scope" .= scope, "revision" .= revision] | (scope, revision) <- Map.toAscList revisions]
@@ -459,7 +463,7 @@ instance ToJSON HeadManifest where
 
 instance FromJSON HeadManifest where
   parseJSON = withObject "HeadManifest" $ \o -> do
-    let allowed = ["version", "generation", "sequence", "binding", "clientIdentity", "accepted", "converged", "retained", "collected", "activeTransaction", "executorClaim", "migration", "dataFence"]
+    let allowed = ["version", "generation", "sequence", "binding", "clientIdentity", "accepted", "converged", "retained", "collected", "activeTransaction", "executorClaim", "migration", "dataFence", "incarnations"]
     unless (all (`elem` allowed) (KM.keys o)) (fail "head manifest has an unknown field")
     version <- o .: "version"
     unless (version == 1) (fail "unsupported inventory head schema version")
@@ -470,6 +474,8 @@ instance FromJSON HeadManifest where
     converged <- parseRevisions =<< o .: "converged"
     retained <- parseRetained =<< o .:? "retained" .!= []
     collected <- parseCollected =<< o .:? "collected" .!= []
+    incarnations <- traverse (withObject "incarnation" (\v -> (,) <$> v .: "resource" <*> v .: "physical")) =<< o .:? "incarnations" .!= []
+    unless (length incarnations == Map.size (Map.fromList incarnations)) (fail "duplicate incarnation resource")
     unless
       (Map.null (Map.intersection retained collected))
       (fail "resource cannot be retained and collected in the same head")
@@ -504,6 +510,7 @@ instance FromJSON HeadManifest where
       <*> o .: "executorClaim"
       <*> o .:? "migration"
       <*> pure fence
+      <*> pure (Map.fromList incarnations)
     where
       parseRevisions values = do
         revisions <- traverse (withObject "scope revision" (\v -> (,) <$> v .: "scope" <*> v .: "revision")) values
@@ -613,7 +620,7 @@ initializeStore store binding clientIdentity = do
       | headBinding headValue == binding -> pure (Right headValue)
       | otherwise -> pure (Left (StoreConditionFailed "inventory store is bound to a different context or provider target"))
     Right Nothing -> do
-      let initial = HeadManifest 1 0 0 binding clientIdentity Map.empty Map.empty Map.empty Map.empty Nothing Nothing Nothing Nothing
+      let initial = HeadManifest 1 0 0 binding clientIdentity Map.empty Map.empty Map.empty Map.empty Nothing Nothing Nothing Nothing Map.empty
       replaced <- replaceHeadIfGenerationMatches store Nothing initial
       pure (initial <$ replaced)
 
@@ -1273,17 +1280,7 @@ immutableKeyDigest key = case splitDirectories key of
   _ -> Nothing
 
 readVerifiedFile :: FilePath -> IO (Either StoreError ByteString)
-readVerifiedFile path = do
-  attempted <- try $ do
-    linked <- pathIsSymbolicLink path
-    when linked (ioError (userError "file is a symlink"))
-    status <- getFileStatus path
-    unless (isRegularFile status) (ioError (userError "path is not a regular file"))
-    unless (fileMode status .&. 0o077 == 0) (ioError (userError "file is accessible by group or other users"))
-    BS.readFile path
-  pure $ case attempted of
-    Left (err :: IOException) -> Left (StoreInvalidObject path (T.pack (show err)))
-    Right bytes -> Right bytes
+readVerifiedFile path = first (StoreInvalidObject path . T.pack . show) <$> readPrivateFile path
 
 writeObjectUnlocked :: InventoryStore -> Bool -> FilePath -> ByteString -> IO (Either StoreError ())
 writeObjectUnlocked (InventoryStore (MemoryBackend stateVar _ _)) replace key bytes = do

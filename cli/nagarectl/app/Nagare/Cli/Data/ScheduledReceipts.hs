@@ -63,6 +63,7 @@ import Nagare.Inventory.ScheduledGcs (withScheduledObjectStore)
 import Nagare.Inventory.ScheduledIngest
   ( ScheduledIngestRequest
       ( ScheduledIngestRequest
+      , ingestAcceptedIncarnations
       , ingestBackend
       , ingestBackupId
       , ingestDatabase
@@ -89,6 +90,7 @@ import Nagare.Inventory.ScheduledStore
   , readSecretField
   )
 import Nagare.Inventory.Status qualified as InventoryStatus
+import Nagare.Inventory.Store qualified as InventoryStore
 import Nagare.Ops.Probe (Probe, recoveryPointProbe)
 import Nagare.Resource.Inventory qualified as ResourceInventory
 import Nagare.Resource.Types qualified as Resource
@@ -252,6 +254,13 @@ resolveScheduledSource mctx database namespaceName bucketArg = do
   pvcUid <- physical (pvc ^. #identity)
   _ <- physical (cron ^. #identity)
   signingUid <- physical (signing ^. #identity)
+  -- Pending uploads of an object that replaced the accepted incarnation
+  -- outside Nagare must not count as recovery points (F49).
+  let incarnations = InventoryStore.headIncarnations (InventoryPlan.historyHead history)
+      acceptedIncarnation member uid = maybe True (== uid) (Map.lookup (member ^. #identity) incarnations)
+  unless
+    (acceptedIncarnation stateful statefulUid && acceptedIncarnation pvc pvcUid)
+    (reportFail "scheduled receipt source is not the accepted database incarnation; it was replaced outside Nagare")
   (_, cronBytes) <-
     maybe
       (reportFail "accepted CronJob lacks native bytes")
@@ -539,6 +548,7 @@ runReviewedScheduledReceiptPlan mctx database namespaceName bucketArg backupId o
               Resource.SourceLocation
                 ("db backup-receipts/" <> database)
                 backupId
+          , ingestAcceptedIncarnations = InventoryStore.headIncarnations (InventoryPlan.historyHead history)
           }
   (receiptScope, receiptNative) <-
     either

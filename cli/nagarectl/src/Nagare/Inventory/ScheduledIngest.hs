@@ -58,6 +58,8 @@ data ScheduledIngestRequest = ScheduledIngestRequest
   , ingestEvidence :: !ScheduledReceiptEvidence
   , ingestBackend :: !StoreBackend
   , ingestSource :: !SourceLocation
+  , ingestAcceptedIncarnations :: !(Map ResourceId PhysicalIdentity)
+  -- ^ Accepted incarnations recorded in the head (F49); the live source must be them.
   }
   deriving stock (Eq, Show)
 
@@ -160,6 +162,12 @@ compileScheduledIngestScope request accepted native = do
   pvc <- unique "PersistentVolumeClaim" (dbPvcName database)
   cron <- unique "CronJob" scheduleName
   signing <- unique "Secret" (scheduleName <> "-signing")
+  -- A receipt from an object that replaced the accepted incarnation outside
+  -- Nagare must not become a recovery point (F49).
+  let acceptedIncarnation member uid = maybe True (== uid) (Map.lookup (member ^. #identity) (ingestAcceptedIncarnations request))
+  unless
+    (acceptedIncarnation stateful (ingestStatefulUid request) && acceptedIncarnation pvc (ingestPvcUid request))
+    (Left (invalid "scheduled receipt source is not the accepted database incarnation; it was replaced outside Nagare"))
   cronBytes <- acceptedBytes cron
   _ <- acceptedBytes stateful
   _ <- acceptedBytes pvc

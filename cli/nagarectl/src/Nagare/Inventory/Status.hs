@@ -9,6 +9,7 @@ module Nagare.Inventory.Status
   , RetainedFinding (..)
   , CollectionAssessment (..)
   , classifyDrift
+  , classifyDriftWith
   , traceDependencies
   , traceRetainedDependencies
   , consumersOf
@@ -602,6 +603,9 @@ data DriftCategory
   | MissingResource
   | UnownedResource
   | ForeignOwner
+  | -- | A different object than the accepted incarnation answers at the
+    -- member's address: a same-name replacement made outside Nagare (F49).
+    ReplacedIncarnation
   | UnknownObservation
   deriving stock (Eq, Ord, Show)
 
@@ -624,14 +628,26 @@ data DriftFinding = DriftFinding
   deriving stock (Eq, Show)
 
 classifyDrift :: ValidatedInventory -> ObservationSet -> [DriftFinding]
-classifyDrift inventory observations =
+classifyDrift = classifyDriftWith Map.empty
+
+-- | Classify drift against the recorded accepted incarnations as well: an
+-- object whose identity differs from the recorded one is never converged.
+classifyDriftWith :: Map ResourceId PhysicalIdentity -> ValidatedInventory -> ObservationSet -> [DriftFinding]
+classifyDriftWith incarnations inventory observations =
   [ classify resource (Map.lookup (resource ^. #identity) observed)
   | Managed resource <- inventoryDeclarations inventory
   ]
   where
     observed = observationMap observations
+    replaced resource uid = maybe False (/= uid) (Map.lookup (resource ^. #identity) incarnations)
     classify resource fact =
       let (category, health, physical, digest, reason) = case fact of
+            Just (ObservedPresent uid)
+              | replaced resource uid ->
+                  (ReplacedIncarnation, HealthUnknown, Just uid, Nothing, Just "observed object is not the accepted incarnation")
+            Just (ObservedDrifted uid changed)
+              | replaced resource uid ->
+                  (ReplacedIncarnation, HealthUnknown, Just uid, Just changed, Just "observed object is not the accepted incarnation")
             Just (ObservedPresent uid) -> (Converged, HealthUnknown, Just uid, Nothing, Nothing)
             Just (ObservedDrifted uid changed) ->
               (ConfigurationDrift, HealthUnknown, Just uid, Just changed, Nothing)
@@ -668,6 +684,7 @@ instance ToJSON DriftCategory where
     Converged -> ("converged" :: Text)
     ConfigurationDrift -> "configuration-drift"
     ImmutableReplacementRequired -> "immutable-replacement-required"
+    ReplacedIncarnation -> "replaced-incarnation"
     MissingResource -> "missing"
     UnownedResource -> "unowned"
     ForeignOwner -> "foreign-owner"

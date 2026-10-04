@@ -1528,3 +1528,18 @@ CronJob first, then the StatefulSet (with Background propagation, so no Pod keep
 writing a retained PVC) and its RoleBinding, then the Service, Role and
 ServiceAccount. Durable PVCs and Secrets, and broker topics, have no release
 policy. Releasing them would be a new operation, not a missing binding.
+
+**Accepted durable members are bound to their physical incarnation (F49, 2026-10-04).**
+The head records, in `incarnations`, the provider UID of each durable Kubernetes member that a converged review created, adopted, updated or verified.
+- A create or adoption establishes the record, because Nagare made that object the accepted one.
+- An update or verification binds only a missing record. A later review therefore never launders an object that replaced the accepted one outside Nagare.
+- Retained and collected members drop their record, since `retained` carries their identity.
+- The field is omitted when empty, so heads without incarnations keep their bytes. The inventory store ships for the first time in this release, so no released reader predates the field.
+
+Three consumers use the record:
+- **Status** reports a member whose observed UID differs from it as `replaced-incarnation`, never `converged`.
+- **Scheduled-receipt ingestion** refuses a receipt whose source StatefulSet or PVC is not the recorded incarnation.
+- **Receipt listing and freshness** refuse to grade a replaced source, so an empty replacement's uploads never become recovery points.
+
+A member with no record (a store from before this rule, or one never touched by a converging review) keeps the earlier behaviour. Rebinding to a deliberately replaced object needs a reviewed operation and is not part of MP-23. Until one exists, retire and recreate the database.
+

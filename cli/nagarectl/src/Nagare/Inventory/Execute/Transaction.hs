@@ -23,8 +23,10 @@ import Nagare.Inventory.Execute.Claims
   , observeCurrentHead
   , releaseAbortedClaim
   , releaseClaim
+  , releaseClaimWith
   )
 import Nagare.Inventory.Execute.Driver (runOperations)
+import Nagare.Inventory.Execute.Incarnations (convergedIncarnations)
 import Nagare.Inventory.Execute.Inputs (validateOperationInputs)
 import Nagare.Inventory.Execute.Journal
   ( appendEvent
@@ -139,7 +141,8 @@ executeWithJournal locked registry executable knownEvents = do
                       if not finalized
                         then pure (fallbackResult transaction document)
                         else do
-                          converged <- releaseClaim locked transaction (Just document)
+                          bindings <- convergedIncarnations locked registry document
+                          converged <- releaseClaimWith locked transaction (Just document) bindings
                           pure $ if converged then Converged transaction else fallbackResult transaction document
                 _ -> do
                   _ <- releaseClaim locked transaction Nothing
