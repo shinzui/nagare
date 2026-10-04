@@ -68,6 +68,7 @@ This is the authoritative list of implementation findings for [MP-23](../masterp
 | [F47](#f47) | P2 | CDN platform outputs are read with the caller's Pulumi environment, not the active context's | Verifying | EP-158 |
 | [F48](#f48) | P2 | Inventory evidence names the manifest's payload without checking the payload the context runs | Open | MP-26 (EP-168 port) |
 | [F49](#f49) | P1 | An out-of-band replacement of an accepted database is reported converged, and its new incarnation's receipts plan for ingestion | Open | EP-159 / EP-153 |
+| [F50](#f50) | P2 | One transient failed gcloud read makes the state-bucket ownership guard stop a run | Open | EP-156 (MP-26) |
 
 Closed findings keep their full text, location, implementation updates and verification in [the closed-findings archive](mp23-archive/mp23-findings-closed.md). F01 and F11 retain their [earlier independent closure](mp23-archive/mp23-verification.md). F02, F03, F04, F05, F06, F07, F08 and F20 now have [2026-10-02 independent closure](mp23-independent-verification-2026-10-02.md). F34, F35, F36, F37, F38, F41 and F42 have 2026-10-04 independent closure on candidate `7596632c` ([records](mp23-independent-results-2026-10-04/phase1-source-and-regressions-7596632c.md)). Other entries retain their status shown above.
 
@@ -449,3 +450,19 @@ Remaining: B3 including collection on the next frozen candidate, and independent
 - Whether this blocks the MP-23 release is the operator's decision.
 
 **Cleanup note:** `db retire ep159-throwaway` refuses with `dangling-reference` (receipt A's scope consumes the database's backup producer). The joint `inventory retire --scope standalone:database-ep159-throwaway --scope standalone:database-scheduled-receipt-personal-ep159-throwaway-42fee7bd-299e-47a7-90e4-fd726f5c9783 --out DIR` plans successfully (reviewer, read-only, head unchanged). That joint retire is the supported path for a database with ingested receipts.
+
+## F50
+
+**One transient failed gcloud read makes the state-bucket ownership guard stop a run** — P2; **Open**; owner EP-156, implementation with MP-26.
+
+**Implementer native evidence (2026-10-04, claude-opus-5-5, C3 checkpoint `mp23-c3h`, candidate `7596632c`):** In scenario phase 3, the reviewed `db restore scenario-pg c3gpg1 --restore-id c3gpgr1` plan refused before any review: `StoreConditionFailed "refusing: gs://tan-ng-labs-c3-1007-pmkjjpp-state is owned by project number '<unknown>', not the target project 'tan-ng-labs' (number '882581411903')…"`. The guard (`Nagare.Ops.PulumiBackend.bucketOwnershipVerdict`) read the bucket's project number with `gcloud storage buckets describe … --raw --format=value(projectNumber)` and got nothing. Right after, the same command returned `882581411903` three times in a row. The store was idle (generation 713, sequence 648, no transaction or claim), and nothing had been planned or changed.
+
+**Assessment:** the guard behaved correctly. An absent number fails closed, and must never mean "continue". The cost is operational: one failed read ends a multi-hour run, and its refusal message ("choose a state bucket name that is unique…") points the operator at a name collision that does not exist.
+
+**Required repair/verification:**
+- Retry the two project-number reads a bounded number of times, say 3 with short backoff, inside the guard. A mismatch or missing number after the retries still refuses.
+- Phrase the refusal differently for "could not read" and "read a different number".
+- Regression with a fake gcloud that fails once and then answers.
+
+**Operator decision (2026-10-04):** re-run from the refused step on the checkpoint; the re-run used the same guard.
+
