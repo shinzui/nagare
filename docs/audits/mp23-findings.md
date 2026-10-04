@@ -68,9 +68,11 @@ This is the authoritative list of implementation findings for [MP-23](../masterp
 | [F47](#f47) | P2 | CDN platform outputs are read with the caller's Pulumi environment, not the active context's | Verifying | EP-158 |
 | [F48](#f48) | P2 | Inventory evidence names the manifest's payload without checking the payload the context runs | Open | MP-26 (EP-168 port) |
 | [F49](#f49) | P1 | An out-of-band replacement of an accepted database is reported converged, and its new incarnation's receipts plan for ingestion | Verifying | EP-159 / EP-153 |
-| [F50](#f50) | P2 | One transient failed gcloud read makes the state-bucket ownership guard stop a run | Verifying | EP-156 |
+| [F50](mp23-archive/mp23-findings-closed.md#f50) | P2 | One transient failed gcloud read makes the state-bucket ownership guard stop a run | Closed | EP-156 |
+| [F51](#f51) | P2 | Retirement retains an out-of-band replacement's identity instead of the accepted incarnation | Open | EP-153 / EP-159 |
+| [F52](#f52) | P2 | Incarnation records are keyed by resource ID, so a reviewed address-changing migration reads as `replaced-incarnation` until it converges | Open | EP-153 |
 
-Closed findings keep their full text, location, implementation updates and verification in [the closed-findings archive](mp23-archive/mp23-findings-closed.md). F01 and F11 retain their [earlier independent closure](mp23-archive/mp23-verification.md). F02, F03, F04, F05, F06, F07, F08 and F20 now have [2026-10-02 independent closure](mp23-independent-verification-2026-10-02.md). F34, F35, F36, F37, F38, F41 and F42 have 2026-10-04 independent closure on candidate `7596632c` ([records](mp23-independent-results-2026-10-04/phase1-source-and-regressions-7596632c.md)). Other entries retain their status shown above.
+Closed findings keep their full text, location, implementation updates and verification in [the closed-findings archive](mp23-archive/mp23-findings-closed.md). F01 and F11 retain their [earlier independent closure](mp23-archive/mp23-verification.md). F02, F03, F04, F05, F06, F07, F08 and F20 now have [2026-10-02 independent closure](mp23-independent-verification-2026-10-02.md). F34, F35, F36, F37, F38, F41 and F42 have 2026-10-04 independent closure on candidate `7596632c`, and F50 on candidate `847543896d07` ([records](mp23-independent-results-2026-10-04/phase1-source-and-regressions-7596632c.md)). Other entries retain their status shown above.
 
 ## F15
 
@@ -487,26 +489,38 @@ Remaining: B3 including collection on the next frozen candidate, and independent
 
 **Cleanup note:** `db retire ep159-throwaway` refuses with `dangling-reference` (receipt A's scope consumes the database's backup producer). The joint `inventory retire --scope standalone:database-ep159-throwaway --scope standalone:database-scheduled-receipt-personal-ep159-throwaway-42fee7bd-299e-47a7-90e4-fd726f5c9783 --out DIR` plans successfully (reviewer, read-only, head unchanged). That joint retire is the supported path for a database with ingested receipts.
 
-## F50
+**Verification (2026-10-04, nagare-reviewer, candidate `847543896d07`):** Source read (`38815245`, `84754389`). All 1,190 tests pass at the candidate. The reviewer's own mutations each fail exactly their regression: removing recording at convergence, disabling the status comparison, disabling the ingestion check, allowing a Proved rebind, and dropping StatefulSet selection ([mutations](mp23-independent-results-2026-10-04/candidate-84754389-mutations.txt)). Native read-only cross-checks: the C2 head records the eight incarnations of the platform `en-db` and `shomei-db` members, and they equal the live UIDs. The drill v2 record matches its raw outputs (`pending-evidence/ep159/`): B and restore A refused, listing and `--check-freshness` refused with F49's message, 7b verified A, and `replaced-incarnation` appeared for exactly the throwaway's StatefulSet and PVC. **Not yet closed:** receipt C, the case this finding was opened for, still has no native refusal. `db backup-receipts --backup-id C --save-plan` does not go through the listing's source check (`resolveScheduledSource`). It observes the live UIDs and relies only on the F49 check in `compileScheduledIngestScope`, which only the unit regression covers. Also, `receipt-C.txt` records "no receipt C appeared", although a 22:30Z Job succeeded; correct that record. **Next check:** a native C ingestion attempt on a fresh throwaway, taking the Job UID from `kubectl`, must refuse with no review saved and the head unchanged. Two defects in the fix's surroundings are opened separately: [F51](#f51) and [F52](#f52).
 
-**One transient failed gcloud read makes the state-bucket ownership guard stop a run** — P2; **Verifying**; owner EP-156.
+## F51
 
-**Implementer native evidence (2026-10-04, claude-opus-5-5, C3 checkpoint `mp23-c3h`, candidate `7596632c`):** In scenario phase 3, the reviewed `db restore scenario-pg c3gpg1 --restore-id c3gpgr1` plan refused before any review: `StoreConditionFailed "refusing: gs://tan-ng-labs-c3-1007-pmkjjpp-state is owned by project number '<unknown>', not the target project 'tan-ng-labs' (number '882581411903')…"`. The guard (`Nagare.Ops.PulumiBackend.bucketOwnershipVerdict`) read the bucket's project number with `gcloud storage buckets describe … --raw --format=value(projectNumber)` and got nothing. Right after, the same command returned `882581411903` three times in a row. The store was idle (generation 713, sequence 648, no transaction or claim), and nothing had been planned or changed.
+**Retirement retains an out-of-band replacement's identity instead of the accepted incarnation** — P2; **Open**; owners EP-153 / EP-159.
 
-**Assessment:** the guard behaved correctly. An absent number fails closed, and must never mean "continue". The cost is operational: one failed read ends a multi-hour run, and its refusal message ("choose a state bucket name that is unique…") points the operator at a name collision that does not exist.
+**Native evidence (2026-10-04, candidate `847543896d07`, C2 context on cp3; F49 drill v2, implementer nagare-phase-b, [results](mp23-implementer-results-2026-10-03/ep159-source-replacement-84754389.json)):** the throwaway's accepted incarnations were StatefulSet `770c18c5…` and PVC `241e2475…`. After the out-of-band replacement, status correctly reported `replaced-incarnation`. The joint `inventory retire` of the database and receipt A's scope then converged. Independent read of the head by nagare-reviewer: `retained` carries the *replacement* UIDs, StatefulSet `b131b5a7-779d-4f19-843e-3a5e78be5306` and PVC `4a6d653c-53fb-4630-99fc-902be522632d`. The `incarnations` entries for the throwaway were dropped.
 
-**Required repair/verification:**
-- Retry the two project-number reads a bounded number of times, say 3 with short backoff, inside the guard. A mismatch or missing number after the retries still refuses.
-- Phrase the refusal differently for "could not read" and "read a different number".
-- Regression with a fake gcloud that fails once and then answers.
+**Cause (source):** `releaseClaimWith` drops incarnation records for retained members, "since `retained` carries their identity". But retirement records the identity it observes at retirement, not the recorded incarnation. A retirement review never compares the two.
 
-**Operator decision (2026-10-04):** re-run from the refused step on the checkpoint; the re-run used the same guard.
+**Why it matters:** this is the laundering ADR 22's F49 amendment rules out ("a later review never launders an object that replaced the accepted one outside Nagare"), only through retirement instead of update or verify. Retained history then names an object Nagare never accepted:
+- a later reviewed collection would target the replacement;
+- retained-data operations would treat the replacement PVC, possibly empty, as the retained data.
 
-**Implementation update (2026-10-04; claude-opus-5-5):**
-- `Nagare.Ops.PulumiBackend.readProjectNumber` retries a missing or non-numeric project-number answer, up to three attempts in all, with 0.5 s and 1 s pauses.
-- The bootstrap ownership assertion and the inventory store's ownership checks (`Nagare.Inventory.Store.Remote`, for both the gcloud and SDK transports, and the discovery read of the target number) use it.
-- A number still missing after the last attempt refuses as before, now with its own message: "could not read the owning project number … after 3 attempts; ownership is never assumed". A different number keeps the name-collision message.
-- **Regression:** `test/Nagare/Test/Pulumi.hs`, "one failed project-number read is retried before the guard refuses (F50)": a fake gcloud fails once and then answers, and a persistent failure still returns nothing after exactly three calls. The verdict test checks the new wording.
-- **Gates:** all 1,189 tests, the style gate and both architecture checks pass.
-- `FoundationRuntime`'s own observation reads are unchanged; they report unavailable rather than refusing a run.
+**Required repair/verification:** retirement of a member whose observed UID differs from its recorded incarnation must refuse, naming the member. Or it must retain the recorded incarnation and mark it absent or replaced, never the replacement's UID. Regression: retiring a scope with a replaced member never puts the replacement UID in `retained`. Native: on a throwaway, after an out-of-band replacement, the retirement refuses or retains the accepted identity.
 
+## F52
+
+**Incarnation records are keyed by resource ID, so a reviewed address-changing migration reads as `replaced-incarnation` until it converges** — P2; **Open**; owner EP-153.
+
+**Native evidence (2026-10-04, candidate `847543896d07`, acceptance C2 on cp3, nagare-phase-b's `retained-postgresql-rename` interruption):** during the reviewed rename `scenario-rename-src` → `scenario-renamed`, interrupted at its copy Job (`tx-c1e805c8…` active), `inventory status --json` (`pending-evidence/interrupted-recovery/migration-status.json`, 14:27:44 PDT) reported `replaced-incarnation` for three members:
+
+| Member of `database-scenario-rename-src` | Observed (the new `scenario-renamed` object) | Recorded (inferred: the pre-rename `scenario-rename-src` object; heads are not versioned locally) |
+| --- | --- | --- |
+| `pvc` | `945cb425…` | `85240ad1…` |
+| `credential` | `c1c2a1f2…` | `834c72f5…` |
+| `backup-signing-key` | `fbb46d3e…` | `230dbec0…` |
+
+After convergence, the creates re-established the records and status reported `converged` (`pending-evidence/status-adopt.json`). The C2 driver's "zero `replaced-incarnation`" assertions ran only after C1 and before the runner, so they did not cover this window.
+
+**Cause (source):** `headIncarnations` is a map from resource ID to physical identity, with no provider address. Status compares the object it observes at a member's current declared address with an incarnation recorded at the member's previous address.
+
+**Why it matters:** a reviewed, in-progress migration is reported as an out-of-band replacement, which is the signal F49 reserves for data loss. Under the fail-open recording limit, a migration whose convergence observation fails would leave a stale record. The renamed database would then read `replaced-incarnation` permanently, and its receipts would refuse ingestion with no reviewed way to rebind.
+
+**Required repair/verification:** bind each record to the provider address it was observed at, and compare only at the same address. Or skip the comparison for members selected by the active transaction. Regression: a member whose declared address changed in a reviewed migration is never `replaced-incarnation`, mid-transaction or after a failed convergence observation. Native: the next acceptance C2's status during the interrupted rename shows no `replaced-incarnation`.

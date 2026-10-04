@@ -1,0 +1,40 @@
+{
+  "check": "Independent re-review for candidate 84754389 (the F49 fix): diff since 7596632c, closures, F49/F50/F41 regressions, acceptance C2 and the F49 drill v2",
+  "reviewer": "nagare-reviewer (claude-opus-5-5), 2026-10-04",
+  "candidate": "847543896d0742667e58dde723f4e9d230dfcddc",
+  "inputs": {"worktree": "/private/tmp/nagare-cand-84754389-src (0 dirty)", "package": "/private/tmp/result-84754389-nagare (version --json revision = candidate)", "manifest": "/private/tmp/nagare-release-84754389/aarch64-darwin/nagare-release-0.4.0.json (consistent, payloadDigest sha256-Y6YQ4ftcBLOR+bxFbjvhKSo9wIIlN0RZmoyBOBNEjLE=)", "coverage": "complete true, dirty false"},
+  "diffSince7596632c": {
+    "commits": ["d74f69dc refactor: Store.FileIO extraction", "38815245 F49", "27798465 F41 follow-up", "ddeb6547 F50", "84754389 F49 StatefulSet binding"],
+    "closureImpact": "Store.hs atomicWrite/sync/readVerifiedFile moved byte-for-byte into Store.FileIO (F38 unaffected); F41 credential read is stricter (also refuses a symlink); no other closed finding's code changed. The full suite, which contains every phase-1 regression, passes.",
+    "fullSuite": "All 1190 tests passed (64.79s)"
+  },
+  "mutations": "candidate-84754389-mutations.txt: every F49 guard, the F50 retry and the F41 private read fail their regressions when disabled",
+  "c2": {
+    "evidenceDirectory": "/private/tmp/nagare-mp23-c2-84754389.ul1swT/evidence/c2-84754389",
+    "digests": {"local-health.json": "8d5bcffc8d50503956577631731581eb910acd90d487309e9d4a04b5c40864c4", "inventory-evidence.json": "2fc58eac1842a467d0f415eba50f21fa2ccf1e73d0fbaff75ece18a96bfa0d2d", "platform-root.json": "c95c698eee2eaa1f81f23b45a0b5f01bb8d30528d9566f0bc870873945722c89"},
+    "finalize": "already finalized with 16 assertions; byte-identical on a scratch copy",
+    "assembly": "re-assembled on a scratch copy with the candidate's manifest and coverage; jq -S identical to the recorded inventory-evidence.json",
+    "f48Guard": "platform-root and operator-version revision 847543896d07…; payload /nix/store/hn2kg3j1…-nagare-platform-0.4.0 narHash sha256-Y6YQ4ftc… equals the manifest payloadDigest",
+    "secretKeyScan": "160 JSON files, 0 offending keys",
+    "incarnationsNative": "head records 8 incarnations (en-db and shomei-db statefulset, pvc, credential, backup-signing-key); StatefulSet and PVC UIDs equal the live objects",
+    "replacedIncarnationOnCleanContext": "0 after C1 and before the runner (driver assertions), BUT 3 transient findings during the interrupted reviewed rename (pending-evidence/interrupted-recovery/migration-status.json): opened as F52"
+  },
+  "f49DrillV2": {
+    "record": "docs/audits/mp23-implementer-results-2026-10-03/ep159-source-replacement-84754389.json (f02eddc8)",
+    "checkedAgainstRawOutputs": {
+      "B": "nagarectl: scheduled receipt source incarnation differs from accepted evidence",
+      "restoreA": "nagarectl: scheduled restore target source incarnation changed after ingestion",
+      "listing": "nagarectl: scheduled receipt source is not the accepted database incarnation; it was replaced outside Nagare",
+      "checkFreshness": "nagarectl: scheduled receipt source is not the accepted database incarnation; it was replaced outside Nagare",
+      "statusReplaced": ["standalone:database-ep159-throwaway/ep159-throwaway/pvc", "standalone:database-ep159-throwaway/ep159-throwaway/statefulset"],
+      "7b": "A verified with the escrow taken before the replacement (object version 69613d73, receipt 179c98dd, sha256 03d8d818)",
+      "incarnationsBefore": {"statefulset": "770c18c5-5aca-44ec-8d34-8c118267714e", "pvc": "241e2475-98d7-4f26-8f61-a4ebd8ff4f2c"},
+      "headAfterReviewerRead": {"generation": 1498, "sequence": 1377, "activeTransaction": null, "throwawayIncarnations": [], "retainedStatefulset": "b131b5a7-779d-4f19-843e-3a5e78be5306", "retainedPvc": "4a6d653c-53fb-4630-99fc-902be522632d"}
+    },
+    "gaps": [
+      "receipt C (Job at 22:30Z) was never attempted: the ingestion plan path does not pass through the listing's source check, so C's native refusal is unproved; receipt-C.txt wrongly says no C appeared",
+      "retirement retained the replacement UIDs: opened as F51"
+    ]
+  },
+  "verdicts": {"F49": "Verifying: native C refusal required", "F50": "Closed", "F41": "closure stands", "F51": "Open (new, P2)", "F52": "Open (new, P2)"}
+}

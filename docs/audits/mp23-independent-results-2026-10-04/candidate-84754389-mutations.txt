@@ -1,0 +1,16 @@
+Candidate 847543896d0742667e58dde723f4e9d230dfcddc, reviewer mutations (nagare-reviewer, 2026-10-04)
+Full suite at the candidate: All 1190 tests passed (64.79s)
+F41-private: 1 out of 1 tests failed (0.02s)
+F49-ingest: 1 out of 22 tests failed (1.00s)
+     ingestion refuses a receipt whose source is not the accepted incarnation: FAIL
+F49-rebind: 1 out of 22 tests failed (0.86s)
+     convergence records a created durable member and never rebinds it to a later object: FAIL
+F49-record: 2 out of 22 tests failed (1.01s)
+     convergence records a created durable member and never rebinds it to a later object: FAIL
+     convergence records a StatefulSet, the stateless controller of the data: FAIL
+F49-statefulset: 1 out of 22 tests failed (0.87s)
+     convergence records a StatefulSet, the stateless controller of the data: FAIL
+F49-status: 1 out of 22 tests failed (0.90s)
+     status reports a member whose object is not the accepted incarnation as replaced: FAIL
+F50-retry: 1 out of 1 tests failed (0.01s)
+Mutations: F49-record bindings<-pure Map.empty (Transaction.hs:144); F49-status replaced = maybe False (const False) (Status.hs:642); F49-ingest acceptedIncarnation = maybe True (const True) (ScheduledIngest.hs:167); F49-rebind Proved -> Map.insert (Incarnations.hs:114); F49-statefulset isStatefulSet never matches (Incarnations.hs:98); F50-retry n < 1 (PulumiBackend.hs:157); F41-private plain BC.readFile instead of readPrivateFile (ScheduledStore.hs:130).

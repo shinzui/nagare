@@ -888,6 +888,8 @@ The transaction then had no supported exit. `inventory recover … abandon-refus
 
 **Verification (2026-10-04, nagare-reviewer, candidate `7596632c`):** Source read. The offline origin is loopback-only and the credentials reach curl through stdin. Without the fix, the MinIO scope regression fails (no PVC), and a loopback mutation fails the parser regression ([phase-1 record](../mp23-independent-results-2026-10-04/phase1-source-and-regressions-7596632c.md)). C2 native evidence ([C2 evidence review](../mp23-independent-results-2026-10-04/c2-evidence-review-7596632c.json)): the offline verification ran during the 17:39:03Z–17:39:21Z node stop with the same object version, receipt and sha256, the archive restored rows 1–3, and the bucket survived the restart. Live: `minio` uses Recreate on PVC `minio-data` (Bound, local-path), and the C2 offline credential file is mode 0600. **Closed.** The credential-file mode check has no unit test; recommended.
 
+
+**Re-verification on candidate `847543896d07` (2026-10-04, nagare-reviewer):** follow-up `27798465` moves the credential read to `ScheduledStore.readOfflineCredentials` over `Store.FileIO.readPrivateFile`, which now also refuses a symlink. Its regression ("offline credentials are read only from a private regular file") fails under a plain-read mutation ([mutations](../mp23-independent-results-2026-10-04/candidate-84754389-mutations.txt)). The closure stands.
 ## F42
 
 **The managed-resource evidence assembler can never accept real runner output** — P1; **Closed**; owner EP-157.
@@ -899,3 +901,28 @@ The transaction then had no supported exit. `inventory recover … abandon-refus
 **Cloud rehearsal (2026-10-04, claude-opus-5-5, C3 checkpoint `mp23-c3g`):** a nix build of `471cb409` (F45–F47) ran the cloud runner (`scripts/rehearse-gcp-inventory-release.sh --candidate`) on the checkpoint context, which runs the `7d486457` payload. Plan, apply and verify ran back to back: one `CreateResource` of `runner-probe`, verify killed before its marker and re-run to `verified`, a zero-operation no-op review, and a final observation with `observationComplete: true` and `missingProviders: []`. All 17 cloud assertions recorded and finalized. `scripts/assemble-managed-resource-evidence.sh` then assembled `inventory-evidence.json`, the first cloud assembly. This is pipeline evidence, not acceptance: the evidence is labelled with the `471cb409` payload although the context runs `7d486457` ([F48](../mp23-findings.md#f48)). Two helper defects were found and fixed on the way (`4ad4392a`, `e41b1cab`). The cloud wrapper cannot forward `--private-store-export`, so the private export was taken right after verify with the head unchanged (generation 940, sequence 809).
 
 **Verification (2026-10-04, nagare-reviewer, candidate `7596632c`):** Source read. The fixture replay fails on the parent assembler with the native refusal, and both helper regressions fail on their parents ([phase-1 record](../mp23-independent-results-2026-10-04/phase1-source-and-regressions-7596632c.md)). Natively, the reviewer re-assembled the acceptance C2 evidence from a scratch copy, with the release manifest and coverage result, and got output identical to the recorded `inventory-evidence.json` ([C2 evidence review](../mp23-independent-results-2026-10-04/c2-evidence-review-7596632c.json)). **Closed.** Cloud assembly is checked again in phase 3.
+
+## F50
+
+**One transient failed gcloud read makes the state-bucket ownership guard stop a run** — P2; **Closed**; owner EP-156.
+
+**Implementer native evidence (2026-10-04, claude-opus-5-5, C3 checkpoint `mp23-c3h`, candidate `7596632c`):** In scenario phase 3, the reviewed `db restore scenario-pg c3gpg1 --restore-id c3gpgr1` plan refused before any review: `StoreConditionFailed "refusing: gs://tan-ng-labs-c3-1007-pmkjjpp-state is owned by project number '<unknown>', not the target project 'tan-ng-labs' (number '882581411903')…"`. The guard (`Nagare.Ops.PulumiBackend.bucketOwnershipVerdict`) read the bucket's project number with `gcloud storage buckets describe … --raw --format=value(projectNumber)` and got nothing. Right after, the same command returned `882581411903` three times in a row. The store was idle (generation 713, sequence 648, no transaction or claim), and nothing had been planned or changed.
+
+**Assessment:** the guard behaved correctly. An absent number fails closed, and must never mean "continue". The cost is operational: one failed read ends a multi-hour run, and its refusal message ("choose a state bucket name that is unique…") points the operator at a name collision that does not exist.
+
+**Required repair/verification:**
+- Retry the two project-number reads a bounded number of times, say 3 with short backoff, inside the guard. A mismatch or missing number after the retries still refuses.
+- Phrase the refusal differently for "could not read" and "read a different number".
+- Regression with a fake gcloud that fails once and then answers.
+
+**Operator decision (2026-10-04):** re-run from the refused step on the checkpoint; the re-run used the same guard.
+
+**Implementation update (2026-10-04; claude-opus-5-5):**
+- `Nagare.Ops.PulumiBackend.readProjectNumber` retries a missing or non-numeric project-number answer, up to three attempts in all, with 0.5 s and 1 s pauses.
+- The bootstrap ownership assertion and the inventory store's ownership checks (`Nagare.Inventory.Store.Remote`, for both the gcloud and SDK transports, and the discovery read of the target number) use it.
+- A number still missing after the last attempt refuses as before, now with its own message: "could not read the owning project number … after 3 attempts; ownership is never assumed". A different number keeps the name-collision message.
+- **Regression:** `test/Nagare/Test/Pulumi.hs`, "one failed project-number read is retried before the guard refuses (F50)": a fake gcloud fails once and then answers, and a persistent failure still returns nothing after exactly three calls. The verdict test checks the new wording.
+- **Gates:** all 1,189 tests, the style gate and both architecture checks pass.
+- `FoundationRuntime`'s own observation reads are unchanged; they report unavailable rather than refusing a run.
+
+**Verification (2026-10-04, nagare-reviewer, candidate `847543896d07`):** Source read: the retry is bounded at 3 attempts, and a number still missing afterwards refuses with its own message, so the guard is still fail-closed. The regression passes, and a mutation removing the retry fails it ([mutations](../mp23-independent-results-2026-10-04/candidate-84754389-mutations.txt)). **Closed.**
