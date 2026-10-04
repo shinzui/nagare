@@ -34,11 +34,10 @@ ROUTES = {
     "Command": {
         "read": "Version InventoryStatus InventoryLegacyGuard InventoryExplain InventoryStoreStatus PlatformRoot PlatformStatusCmd PlatformGuard PlatformUpgradeStatus SiteReleases SitePreviewList AppList AppGet AppLogs DeploymentsList DeploymentsLogs ServerStatus Doctor InventoryGc",
         "group": "Host Kubeconfig Cluster Env Secret Storage Broker Db Task Worker Access ContextCmdGroup Infra Domains CdnCmd",
-        "reviewed": "InventoryPlan InventoryAdopt InventoryMigrate InventoryRetire InventoryCollect InventoryApply InventoryResume InventoryRecover InventoryRegistryRecoveryPlan InventoryStoreMigrate PlatformBootstrapPlan PlatformBootstrapApply Deploy SiteDeploy SiteRollback SitePreviewDeploy SitePreviewDelete AppRestart AppStop AppDelete AppDeploy AppImagePlan",
+        "reviewed": "InventoryPlan InventoryAdopt InventoryMigrate InventoryRetire InventoryCollect InventoryApply InventoryResume InventoryRecover InventoryRegistryRecoveryPlan InventoryStoreMigrate PlatformBootstrapPlan PlatformBootstrapApply Deploy SiteDeploy SiteRollback SitePreviewDeploy SitePreviewDelete AppRestart AppStop AppDelete AppDeploy AppImagePlan Cleanup",
         "local": "InventoryCompile AppCheck",
         "bounded": "InventoryStoreMaterializeNative InventoryExport InventoryRestore Init",
         "retired": "PlatformStamp",
-        "pending": "Cleanup",
         "excluded": "PlatformAdopt PlatformRepin PlatformUpgrade PlatformUpgradeRollback PlatformUpgradeRecoverPulumi",
         "release": "ReleasePublish ReleaseCleanupStarter",
     },
@@ -59,8 +58,7 @@ ROUTES = {
     },
     "InfraCommand": {
         "read": "InfraGuard",
-        "reviewed": "InfraPreview InfraApply",
-        "pending": "InfraDestroy",
+        "reviewed": "InfraPreview InfraApply InfraDestroy",
     },
     "EnvCommand": {"read": "EnvList", "reviewed": "EnvSet EnvDelete EnvSync"},
     "SecretCommand": {"read": "SecretList", "reviewed": "SecretSet SecretDelete SecretSync"},
@@ -203,10 +201,10 @@ def family_assignments() -> dict[str, str]:
 
 RECIPES = {
     "read": "default docs-validate terminology-validate reviews-validate user-documentation-validate nixos-registry-host nix-cache-status job-runs-status context-show status live-test test-inventory-effects haskell-style-check",
-    "reviewed": "infra-up infra-preview cluster-bootstrap nix-cache-publish nix-cache-bootstrap job-runs-bootstrap cluster-enable-tls local-bootstrap local-minio observability deploy-hello host-switch host-image vm-start vm-stop smoke local-smoke",
+    "reviewed": "infra-up infra-preview infra-destroy cluster-bootstrap nix-cache-publish nix-cache-bootstrap job-runs-bootstrap cluster-enable-tls local-bootstrap local-minio observability deploy-hello host-switch host-image vm-start vm-stop smoke local-smoke",
     "bounded": "iap-ssh",
     "local": "local-up local-down nix-cache-secret-init",
-    "pending": "infra-destroy",
+    "pending": "",
 }
 
 RECIPE_FAMILY = {
