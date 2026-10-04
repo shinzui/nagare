@@ -459,6 +459,8 @@ Every platform scope and the cloud scope then retired natively. Collection stopp
 
 **Candidate `14071e58` (2026-10-03).** Frozen with F39, F40 and F41. C1 passed on the fresh local C2 context immediately after its platform bootstrap: 214 verification-only operations, zero provider mutations, digests unchanged, 35 pods ready ([proof](../audits/mp23-implementer-results-2026-10-03/c1-local-gate-14071e58.json)). The acceptance C2 (nagare-phase-b) and the final C3 (`mp23-c3f`, `*-c3-1004`, operator-approved) are running on it.
 
+**Candidate `7d486457` (2026-10-04).** Frozen with F42, F43, F44 and the coverage dispositions; the managed-command audit is complete. C1 passed on the fresh local C2 context immediately after its platform bootstrap: 214 verification-only operations, zero mutations ([proof](../audits/mp23-implementer-results-2026-10-03/c1-local-gate-7d486457.json)). The candidate's own build proved perimeter-only exact collection on a disposable context (EP-156 Decision Log). The acceptance C2 (nagare-phase-b) and the final C3 (`mp23-c3g`, `*-c3-1005`, CDN enabled) are running on it. The `14071e58` C3 checkpoint ([record](../audits/mp23-implementer-results-2026-10-03/c3-checkpoint-14071e58.json)) was removed after export.
+
 **Scenario assertion checkpoint (2026-10-03).** The record shape is agreed and implemented across EP-155, EP-156 and EP-157. C2 and C3 now produce gate-ready health by recording each assertion as it passes and finalizing after verify. A name without a bound record refuses at assembly and in the CLI validator.
 
 **B5 checkpoint (2026-10-03, claude-opus-5-5, `dc53beb3`–`6ed92e61`).** B5 is source-complete with bounded cp3 proof on development binaries.
