@@ -321,6 +321,11 @@ provenance:
       at: 2026-10-03T22:30:17Z
       mode: "implement"
       note: "Teardown decision: perimeter-only exact cleanup; full-context collection moves to MP-25"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-04T13:53:51Z
+      mode: "update"
+      note: "Finish line: canonical MP-23 completion checklist agreed with nagare-f3"
   reviews:
     - model: "claude-fable-5-1"
       harness: "claude-code"
@@ -435,6 +440,88 @@ Feature children produce code and focused local proof; the native children (EP-1
 
 ## Progress
 
+### Finish line (canonical checklist, 2026-10-04)
+
+This list says what remains before MP-23 is complete. It was agreed between sessions nagare-phase-b and nagare-f3. Where a dated snapshot below or a child plan disagrees with it, this list wins.
+- Tick a box only with linked evidence, on the frozen candidate **`7d486457`** unless the box says otherwise.
+- When a box is ticked here, tick the matching `(MP-23 …)` box in its child plan.
+- Owners: **phase-b** = session nagare-phase-b; **f3** = session nagare-f3; **user** = the operator; **reviewer** = an independent session that did not implement the work.
+
+**Gates on the frozen candidate**
+- [x] **C1** passed: 214 `VerifyResource`, zero mutations ([proof](../audits/mp23-implementer-results-2026-10-03/c1-local-gate-7d486457.json)).
+- [ ] **C2** (EP-155, owner phase-b): a fresh local context finalizes 16/16 **and** `assemble-managed-resource-evidence.sh` accepts the same directory.
+  - The first run finalized 16/16 but could not be assembled: the runner's plan and apply ran early and its verify ran late. A rerun with the runner last is in progress.
+  - Procedure: [runbook §6](../runbooks/native-verification-harness.md).
+  - Hand-off to f3: the evidence directory path.
+- [ ] **C3** (EP-156, owner f3), context `mp23-c3g` (`*-c3-1005`). The bootstrap has converged.
+  - [ ] the six operational checks:
+    - application change with owner isolation and unchanged replay;
+    - GCS backup and isolated restore for every engine plus a volume, including manual Redis/ClickHouse receipts (EP-160);
+    - interrupted-operation recovery;
+    - clean-root recovery (a second operator root on the same GCS store);
+    - writer refusal and takeover;
+    - exact cleanup.
+  - [ ] exact cleanup:
+    - [x] perimeter-only exact collection, proven on the candidate's own build in disposable `mp23-c3p` (`b5d059d7`);
+    - [ ] on `mp23-c3g`, policy plus retirement of every scope, including the cloud scope.
+
+    Full-context VM collection is MasterPlan 25 by operator decision.
+  - [ ] F15: a genuine credential refresh and an expired-credential pull. Observed natively by f3 on 2026-10-04 (an uncached private pull at 13:25Z, about 8 h after boot); its evidence record is pending.
+  - [ ] B3 (EP-158): Google CDN create, disable, retire and collect.
+  - [ ] B6: takeover from a second root with a distinct client identity.
+  - [ ] EP-158 access grant/revoke, with an interrupted acknowledgement, resume, revoke and portal sync.
+  - [ ] the runner runs last, with plan, apply and verify back to back, and the cloud `inventory-evidence.json` assembles.
+- [ ] **C4** (EP-154, owner f3, not started):
+  - installed rehearsal without a repo clone on `aarch64-darwin` (workstation) and `x86_64-linux` (an amd64 container under Colima; if that can't run Nix plus the installed CLI, the user decides on the x86_64 builder VM);
+  - `nix flake check` at the candidate;
+  - this also proves A5's `typed-config` check name.
+- [ ] **C5** (EP-157, owner f3):
+  - `scripts/assemble-release.sh` over `coverage.json`, `local/` (C2), `cloud/` (C3), and per-system native outputs and clone-free records (C4);
+  - IR-24 cases 1–7 mapped to that evidence;
+  - `docs/releases/v<version>.md` stating the unmet production targets (D2 volumes, D4) and the D3 HTTPS/browser-login restriction;
+  - a `workflow_dispatch` assembly run.
+
+**Independent verification** (owner reviewer, arranged by the user; implementer sessions never self-close)
+- [ ] Close every finding that is not yet Closed, per the [tracker](../audits/mp23-findings.md)'s closure rule:
+  - Open: F30, F31, F32, F33, F34, F38
+  - Partial: F40
+  - Verifying: F15, F16, F35, F36, F37, F39, F41, F42, F43, F44
+
+  Native proof already exists for:
+  - F30: the A4 terminal resume, 2026-10-02;
+  - F32: native image cleanup on the `14071e58` checkpoint;
+  - F31: refreshes before expiry observed, with more during C3;
+  - F33: exact collection on `7d486457`;
+  - F34: the C2 preview cleanup;
+  - F36, F37, F41: the C2 runs.
+
+  So most of these need only the independent check. F38 and F40 depend on the user decisions below.
+- [ ] Accept or reject the recorded arguments:
+  - EP-159 B1 source replacement, re-scoped to "out-of-band replacement refuses ingestion and isolated restore";
+  - EP-160 B2 Redis load interruption and partial ClickHouse effect.
+- [ ] Independent local PostgreSQL isolated restore with known content and the source preserved (EP-160).
+- [ ] Execute [the operations runbook](../runbooks/inventory-operations.md) end to end on the C3 context and record F14–F18 and the cloud operational checks (EP-156; safe-use gate). Required as written unless the user narrows it.
+
+**User decisions still needed**
+- [ ] F38 (P2, a GCS head-advance failure stops ambiguous): accept it as a known limitation for this release, or require a fix.
+- [ ] Must independent closure come before the release, or may it follow it?
+- [ ] F40 remainder: confirm it moves to MasterPlan 25 together with full-context collection.
+
+**Close-out (Phase D)**
+- [ ] Finalize the living sections of EP-153 to EP-160 and mark the registry.
+- [ ] Distill durable lessons into ADR 22, and write this plan's Outcomes & Retrospective.
+- [ ] Update IR-24's status from the evidence.
+
+**Not required for MP-23** (recorded so nobody chases them):
+- D4 recovery-time and retention targets;
+- the data-protection and production gates;
+- full-context VM collection, durable and topic collection (MasterPlan 25 and the deferred B5 scope);
+- MasterPlan 26 streams.
+
+**Non-blocking follow-ups:**
+- cloud `server status` shows UNKNOWN for the litestream and volume backup rows ("gsutil unavailable"); f3 is recording it as a low-priority finding;
+- a collectable lifecycle for the runner probe (harness).
+
 **Snapshot (2026-10-02, consolidation assessment at `c57f1638`).** Seven foundation children are complete; eight remain In Progress. The architecture is implemented and holds up under independent review: typed composition, reviewed plans, the shared serial driver, conditional filesystem/GCS history, deferred-admission guards and the registration-only entrypoint all have evidence. Independent verification on 2026-10-02 additionally proved native F20 collection with interrupted-delete recovery, clean-root recovery, VM power transitions, CDN disable and purge, and isolated restores with checked content for PostgreSQL, Redis, ClickHouse and a volume on GCS. Access grant/revoke has only the implementer's native run on the retired fixture and must be re-proven in C3. That evidence spans roughly ten different candidates and partly the retired fixture, so none of it is yet final-candidate acceptance.
 
 **Phase A checkpoint (2026-10-02, claude-opus-5-5, `d4aa7168`–`7e26a1bb`).** A6 is done: the full style gate passes. A1 (F33), A2 (F32) and A3 (F31) have source fixes with regressions that fail on the old code, and await independent closure and their native proofs (C3, or a cp3 image-cleanup run for F32). A5 is source-complete for the clone-free `typed-config` check (new read-only `nagarectl app check`) and the cloud fixture/health producer. The scenario-assertion names in health records still have no producer (see Surprises). A4 reached its terminal state later the same day. F34 was traced to reviewed DomainMapping collection using Orphan propagation and fixed in `beca6886` (ADR 22 amendment); cp3 was repaired under the gated EP-155 recovery, and the F30 transaction converged with identities, data and a zero-operation replan intact. F30, F16 and F34 await independent verification.
@@ -470,7 +557,7 @@ Every platform scope and the cloud scope then retired natively. Collection stopp
 
 The native run exposed two review readers that assumed base mutations; both are fixed in `bc2fd90e` (Surprises). 1,148 tests, the style gate, the command audit and the CLI architecture check pass. The four Haskell architecture size overages came from `9fef284a`; they were fixed in `2124ce2a`. Collection of durable members, topics and migrated-away incarnations is the scope proposal below.
 
-**Remaining work.** Each item is owned by the named child, whose plan holds the detail. Work proceeds in this order; items within a phase can run in parallel.
+**Remaining work.** (Historical plan of record. For current status use the Finish line at the top of this section.) Each item is owned by the named child, whose plan holds the detail. Work proceeds in this order; items within a phase can run in parallel.
 
 Phase A — blockers (code and local regressions; no cloud mutation):
 
