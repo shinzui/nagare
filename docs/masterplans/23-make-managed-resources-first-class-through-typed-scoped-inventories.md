@@ -443,14 +443,15 @@ Feature children produce code and focused local proof; the native children (EP-1
 ### Finish line (canonical checklist, 2026-10-04)
 
 This list says what remains before MP-23 is complete. It was agreed between sessions nagare-phase-b and nagare-f3. Where a dated snapshot below or a child plan disagrees with it, this list wins.
-- Tick a box only with linked evidence, on the frozen candidate **`7d486457`** unless the box says otherwise.
+- **Candidate: pending freeze (≥ `e41b1cab`).** The C3 checkpoint on `7d486457` found F45–F47, which needed code fixes (`471cb409`). Its helper fixes (`4ad4392a`, `e41b1cab`) live in `scripts/`, which ships in the payload. So `7d486457` is no longer the release candidate. f3 freezes the next one once its runner rehearsal on `mp23-c3g` assembles, and this line then names it.
+- Tick a box only with linked evidence, on the frozen candidate unless the box says otherwise. Results on earlier candidates are linked as checkpoints.
 - When a box is ticked here, tick the matching `(MP-23 …)` box in its child plan.
 - Owners: **phase-b** = session nagare-phase-b; **f3** = session nagare-f3; **user** = the operator; **reviewer** = an independent session that did not implement the work.
 
 **Gates on the frozen candidate**
-- [x] **C1** passed: 214 `VerifyResource`, zero mutations ([proof](../audits/mp23-implementer-results-2026-10-03/c1-local-gate-7d486457.json)).
-- [x] **C2** (EP-155, owner phase-b): a fresh local context finalized 16/16, and `assemble-managed-resource-evidence.sh` accepted the same directory (2026-10-04, [record](../audits/mp23-implementer-results-2026-10-03/c2-acceptance-7d486457.json)). The directory went to f3 for C5's index acceptance.
-- [ ] **C3** (EP-156, owner f3), context `mp23-c3g` (`*-c3-1005`). The bootstrap has converged.
+- [ ] **C1** (owner phase-b) on the new candidate's fresh payload. Checkpoint: `7d486457` passed with 214 `VerifyResource` and zero mutations ([proof](../audits/mp23-implementer-results-2026-10-03/c1-local-gate-7d486457-rerun.json)).
+- [ ] **C2** (EP-155, owner phase-b): a fresh local context on the new candidate finalizes 16/16, and `assemble-managed-resource-evidence.sh` accepts the same directory. Use [runbook §6](../runbooks/native-verification-harness.md), and record `platform root --json` before the runner's plan (F48 guard). Checkpoint: `7d486457` finalized and assembled on 2026-10-04 ([record](../audits/mp23-implementer-results-2026-10-03/c2-acceptance-7d486457.json)).
+- [ ] **C3** (EP-156, owner f3) on a **fresh** GCP context bootstrapped from the new candidate's payload. The user approves the new names. `mp23-c3g` (`*-c3-1005`, `7d486457` payload) is a checkpoint: it proved most of the checks below natively, and B3 on a development CLI after the F45–F47 fixes. Acceptance needs them again on the new candidate.
   - [ ] the six operational checks:
     - application change with owner isolation and unchanged replay;
     - GCS backup and isolated restore for every engine plus a volume, including manual Redis/ClickHouse receipts (EP-160);
@@ -460,11 +461,11 @@ This list says what remains before MP-23 is complete. It was agreed between sess
     - exact cleanup.
   - [ ] exact cleanup:
     - [x] perimeter-only exact collection, proven on the candidate's own build in disposable `mp23-c3p` (`b5d059d7`);
-    - [ ] on `mp23-c3g`, policy plus retirement of every scope, including the cloud scope.
+    - [ ] on the acceptance C3 context, policy plus retirement of every scope, including the cloud scope.
 
     Full-context VM collection is MasterPlan 25 by operator decision.
   - [ ] F15: a genuine credential refresh and an expired-credential pull. Observed natively by f3 on 2026-10-04 (an uncached private pull at 13:25Z, about 8 h after boot); its evidence record is pending.
-  - [ ] B3 (EP-158): Google CDN create, disable, retire and collect.
+  - [ ] B3 (EP-158): Google CDN create, disable, retire and collect. Checkpoint: proven on `mp23-c3g` with the F45–F47 fixes (development CLI).
   - [ ] B6: takeover from a second root with a distinct client identity.
   - [ ] EP-158 access grant/revoke, with an interrupted acknowledgement, resume, revoke and portal sync.
   - [ ] the runner runs last, with plan, apply and verify back to back, and the cloud `inventory-evidence.json` assembles.
@@ -480,9 +481,9 @@ This list says what remains before MP-23 is complete. It was agreed between sess
 
 **Independent verification** (owner reviewer, arranged by the user; implementer sessions never self-close)
 - [ ] Close every finding that is not yet Closed, per the [tracker](../audits/mp23-findings.md)'s closure rule:
-  - Open: F30, F31, F32, F33, F34, F38
+  - Open: F30, F31, F32, F33, F34, F38, F48
   - Partial: F40
-  - Verifying: F15, F16, F35, F36, F37, F39, F41, F42, F43, F44
+  - Verifying: F15, F16, F35, F36, F37, F39, F41, F42, F43, F44, F45, F46, F47
 
   Native proof already exists for:
   - F30: the A4 terminal resume, 2026-10-02;
@@ -490,9 +491,10 @@ This list says what remains before MP-23 is complete. It was agreed between sess
   - F31: refreshes before expiry observed, with more during C3;
   - F33: exact collection on `7d486457`;
   - F34: the C2 preview cleanup;
-  - F36, F37, F41: the C2 runs.
+  - F36, F37, F41: the C2 runs;
+  - F45, F46, F47: the CDN cycle on the `mp23-c3g` checkpoint, to be repeated in the acceptance C3.
 
-  So most of these need only the independent check. F38 and F40 depend on the user decisions below.
+  So most of these need only the independent check. F38, F40 and F48 depend on the user decisions below.
 - [ ] Accept or reject the recorded arguments:
   - EP-159 B1 source replacement, re-scoped to "out-of-band replacement refuses ingestion and isolated restore";
   - EP-160 B2 Redis load interruption and partial ClickHouse effect.
@@ -503,6 +505,7 @@ This list says what remains before MP-23 is complete. It was agreed between sess
 - [ ] F38 (P2, a GCS head-advance failure stops ambiguous): accept it as a known limitation for this release, or require a fix.
 - [ ] Must independent closure come before the release, or may it follow it?
 - [ ] F40 remainder: confirm it moves to MasterPlan 25 together with full-context collection.
+- [ ] F48 (P2, evidence names the release manifest's payload without checking the payload the context runs): accept the procedural guard for this release (fresh context from the candidate's payload, and `platform root --json` recorded before the runner's plan), with the code fix in EP-168. Or require the fix before release.
 
 **Close-out (Phase D)**
 - [ ] Finalize the living sections of EP-153 to EP-160 and mark the registry.
