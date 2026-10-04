@@ -13,7 +13,7 @@ import Nagare.Dsl.Prelude
 import Nagare.Inventory.Store.GcloudAuth
 import Nagare.Inventory.Store.Gogol
 import Nagare.Inventory.Store.ObjectOps
-import Nagare.Ops.PulumiBackend (GcloudOps (..), bucketOwnershipVerdict, bucketProjectNumberArgs, gcsBucketOfUrl, projectNumberArgs, realGcloudOps)
+import Nagare.Ops.PulumiBackend (GcloudOps (..), bucketOwnershipVerdict, bucketProjectNumberArgs, gcsBucketOfUrl, ownershipReadPause, projectNumberArgs, readProjectNumber, realGcloudOps)
 import System.Environment (lookupEnv)
 import Text.Read (readMaybe)
 
@@ -36,7 +36,7 @@ remoteDiscoveryOps project url = case validateGogolLocation project url of
       Right auth -> case endpointOverride (sessionStorageEndpoint auth) of
         Left reason -> pure (Left reason)
         Right configure -> do
-          number <- sessionCapture auth (projectNumberArgs project)
+          number <- readProjectNumber ownershipReadPause (sessionCapture auth) (projectNumberArgs project)
           case number of
             Just expected
               | not (T.null expected)
@@ -92,8 +92,8 @@ remoteObjectOps project url = do
     ownership capture = case gcsBucketOfUrl url of
       Nothing -> pure (Left "inventory store URL has no GCS bucket")
       Just bucket -> do
-        bucketNumber <- capture (bucketProjectNumberArgs bucket)
-        projectNumber <- capture (projectNumberArgs project)
+        bucketNumber <- readProjectNumber ownershipReadPause capture (bucketProjectNumberArgs bucket)
+        projectNumber <- readProjectNumber ownershipReadPause capture (projectNumberArgs project)
         pure (bucketOwnershipVerdict bucket project bucketNumber projectNumber)
 
 -- The ordinary Google endpoint and explicit loopback emulators are supported.

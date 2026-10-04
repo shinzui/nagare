@@ -20,6 +20,7 @@ import Nagare.Ops.PulumiBackend
   , gcsBucketOfUrl
   , projectNumberArgs
   , pulumiStateBucket
+  , readProjectNumber
   )
 import Nagare.Target
   ( InventoryStoreKind (InventoryStoreGcs)
@@ -134,7 +135,24 @@ pulumiBackendBootstrapTests =
             assertBool "names the target project" ("acme-prod" `T.isInfixOf` msg)
         case bucketOwnershipVerdict "b" "acme-prod" Nothing (Just "999999999999") of
           Right () -> assertFailure "expected a refusal"
-          Left msg -> assertBool "reports the unreadable number" ("<unknown>" `T.isInfixOf` msg)
+          Left msg -> do
+            assertBool "reports the unreadable number" ("<unknown>" `T.isInfixOf` msg)
+            assertBool "says the read failed, not that the bucket is foreign" ("could not read" `T.isInfixOf` msg)
+    , testCase "one failed project-number read is retried before the guard refuses (F50)" $ do
+        answers <- newIORef [Nothing, Just "882581411903\n"]
+        pauses <- newIORef []
+        let capture _ = do
+              next <- readIORef answers
+              case next of
+                (a : rest) -> modifyIORef' answers (const rest) >> pure a
+                [] -> pure Nothing
+        number <- readProjectNumber (\n -> modifyIORef' pauses (n :)) capture (projectNumberArgs "tan-ng-labs")
+        number @?= Just "882581411903"
+        readIORef pauses >>= (@?= [1])
+        calls <- newIORef (0 :: Int)
+        missing <- readProjectNumber (const (pure ())) (\_ -> modifyIORef' calls (+ 1) >> pure Nothing) (projectNumberArgs "p")
+        missing @?= Nothing
+        readIORef calls >>= (@?= 3)
     , testCase "bootstrap refuses a foreign bucket before update or IAM" $ do
         (result, calls) <-
           runFakeBootstrap (Just "111111111111") (Just "999999999999")

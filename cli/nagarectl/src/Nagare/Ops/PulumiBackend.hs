@@ -32,6 +32,8 @@ module Nagare.Ops.PulumiBackend
   , bucketProjectNumberArgs
   , projectNumberArgs
   , bucketOwnershipVerdict
+  , readProjectNumber
+  , ownershipReadPause
   , bootstrapCommands
   , bootstrapPulumiStateBucket
   , GcloudOps (..)
@@ -40,6 +42,7 @@ module Nagare.Ops.PulumiBackend
   )
 where
 
+import Control.Concurrent (threadDelay)
 import Control.Monad (foldM)
 import Cradle (addArgs, cmd, run)
 import Data.Function ((&))
@@ -141,6 +144,23 @@ projectNumberArgs :: Text -> [String]
 projectNumberArgs project =
   ["projects", "describe", T.unpack project, "--format=value(projectNumber)"]
 
+-- | Read one project number, retrying a missing or non-numeric answer up to three
+-- attempts in all. One failed @gcloud@ read must not end a run (F50); a number still
+-- missing after the last attempt is returned as read, and the verdict refuses it.
+readProjectNumber :: (Int -> IO ()) -> ([String] -> IO (Maybe Text)) -> [String] -> IO (Maybe Text)
+readProjectNumber pause capture args = attempt (1 :: Int)
+  where
+    attempt n = do
+      answer <- capture args
+      case fmap T.strip answer of
+        Just v | not (T.null v), T.all (`elem` ['0' .. '9']) v -> pure (Just v)
+        _ | n < 3 -> pause n >> attempt (n + 1)
+        _ -> pure answer
+
+-- | The pause before retry @n@: 0.5 s, then 1 s.
+ownershipReadPause :: Int -> IO ()
+ownershipReadPause n = threadDelay (n * 500000)
+
 -- | Fail closed: refuse unless BOTH numbers are present, non-empty and equal. An
 -- absent number (missing gcloud, missing permission, network failure) is a mismatch,
 -- never permission to continue. The message mirrors the Bash helper
@@ -151,8 +171,21 @@ bucketOwnershipVerdict bucket project mBucketNumber mTargetNumber
   , Just t <- nonEmpty mTargetNumber
   , b == t =
       Right ()
+  | Nothing <- nonEmpty mBucketNumber = Left unreadable
+  | Nothing <- nonEmpty mTargetNumber = Left unreadable
   | otherwise = Left refusal
   where
+    -- A missing number is a failed read, not evidence of a foreign bucket (F50).
+    unreadable =
+      "refusing: could not read the owning project number of gs://"
+        <> bucket
+        <> " ('"
+        <> shown mBucketNumber
+        <> "') or of project '"
+        <> project
+        <> "' ('"
+        <> shown mTargetNumber
+        <> "') after 3 attempts; ownership is never assumed. Check gcloud credentials and retry."
     nonEmpty mv = case fmap T.strip mv of
       Just v | not (T.null v) -> Just v
       _ -> Nothing
@@ -253,8 +286,8 @@ runBootstrap ops bucket project location mMember = do
           Just m -> (ops ^. #execute) ("grant " <> m <> " on gs://" <> bucket) (bucketIamArgs bucket m)
   where
     assertOwnership = do
-      mBucketNumber <- (ops ^. #capture) (bucketProjectNumberArgs bucket)
-      mTargetNumber <- (ops ^. #capture) (projectNumberArgs project)
+      mBucketNumber <- readProjectNumber ownershipReadPause (ops ^. #capture) (bucketProjectNumberArgs bucket)
+      mTargetNumber <- readProjectNumber ownershipReadPause (ops ^. #capture) (projectNumberArgs project)
       pure (bucketOwnershipVerdict bucket project mBucketNumber mTargetNumber)
     chain (Left e) _ = pure (Left e)
     chain (Right ()) next = next
