@@ -66,6 +66,7 @@ This is the authoritative list of implementation findings for [MP-23](../masterp
 | [F45](#f45) | P1 | Reviewed Google CDN deploy on an inventory context cannot observe or apply its DNS record | Verifying | EP-158 / EP-156 |
 | [F46](#f46) | P1 | A retired site's edge DNS record can never be collected, because retained release history orders after it | Verifying | EP-158 / EP-156 |
 | [F47](#f47) | P2 | CDN platform outputs are read with the caller's Pulumi environment, not the active context's | Verifying | EP-158 |
+| [F48](#f48) | P2 | Inventory evidence names the manifest's payload without checking the payload the context runs | Open | MP-26 (EP-168 port) |
 
 Closed findings keep their full text, location, implementation updates and verification in [the closed-findings archive](mp23-archive/mp23-findings-closed.md). F01 and F11 retain their [earlier independent closure](mp23-archive/mp23-verification.md). F02, F03, F04, F05, F06, F07, F08 and F20 now have [2026-10-02 independent closure](mp23-independent-verification-2026-10-02.md). Other entries retain their status shown above.
 
@@ -470,4 +471,14 @@ Remaining: B3 including collection on the next frozen candidate, and independent
 **Required repair/verification:** read the outputs through the context-derived Pulumi runtime used by the cloud teardown and bootstrap paths (`prepareInfraTargetWithPulumi`). Then prove a CDN deploy plan in a clean environment that sets only the context selection.
 
 **Implementation update (2026-10-04; claude-opus-5-5):** Both paths now call `ensurePulumiInWorkspaceWithDependencies False False False` before the guard. It exports the context's backend, home, passphrase file and stack, and selects the existing stack without installing dependencies or creating a missing stack. **Native:** with the development CLI, in the same clean runner without any Pulumi variable, the `scenario-cdn3` deploy plan now succeeds and observes its DNS record as missing (`review Cloud DNS A record … -> 34.36.179.6`). It was planned only, never applied. Before the change, the same command refused as above (`pending-evidence/f47/bare-before.log`, `bare-after.log` in the operator root). No unit regression: the change is environment preparation in the executable's `app/` modules.
+
+## F48
+
+**Inventory evidence names the manifest's payload without checking the payload the context runs** — P2; **Open**; owner MP-26 (the EP-168 port of the runner and assembler).
+
+**Implementer evidence (2026-10-04, claude-opus-5-5, C3 checkpoint `mp23-c3g`):** `scripts/assemble-managed-resource-evidence.sh` binds the runner's operator revision (`operator-version.json`) to the release manifest. It then copies the manifest's payload digest into `inventory-evidence.json` as the run's payload. Neither the runner (`scripts/rehearse-managed-resources.sh`) nor the assembler records or checks the payload the context actually runs. The rehearsal on `mp23-c3g` shows the gap: a candidate `471cb409` CLI runs against a context bootstrapped from, and still pinned to, the `7d486457` payload. It produces evidence the assembler would label with the `471cb409` payload.
+
+**Required repair/verification:** the runner records `nagarectl platform root --json` (payload id, source revision, digest), and the assembler requires its revision to equal the manifest's. Prove it with real runner output for both cases: a matching run assembles and a mixed run is refused. ADR 24 freezes the shell tools and assigns feature work to their Haskell port, so this lands with the EP-168 port.
+
+**Procedural guard until then:** each acceptance run bootstraps a fresh context from the candidate's own payload (runbook §6 step 0 and §7). The operator records `platform root --json` in the run root and confirms its `revision` equals the candidate before the runner's plan.
 
