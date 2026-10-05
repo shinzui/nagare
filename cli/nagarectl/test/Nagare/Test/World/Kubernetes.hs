@@ -17,6 +17,7 @@ where
 import Control.Exception (throwIO)
 import Data.Aeson (Value, object, (.=))
 import Data.ByteString (ByteString)
+import Data.Generics.Labels ()
 import Data.IORef
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
@@ -56,13 +57,18 @@ data KubeWorld = KubeWorld
   -- (a persistent fault outlives the write that revealed it).
   , failedDigests :: !(Set.Set ContentDigest)
   , nextUid :: !Int
+  , churning :: !Bool
+  -- ^ Persistent status churn on every observation (fault 'ChurnAlways').
+  , quiet :: !Bool
+  -- ^ Churn quiets while the operator works an exit (a refused stop is retried
+  -- once status settles).
   , writes :: !(Map.Map OperationId Int)
   -- ^ Effective writes per reviewed operation (invariant I4).
   }
   deriving stock (Eq, Show)
 
 newKubeWorld :: Set.Set ContentDigest -> IO (IORef KubeWorld)
-newKubeWorld unready = newIORef (KubeWorld Map.empty unready Set.empty 1 Map.empty)
+newKubeWorld unready = newIORef (KubeWorld Map.empty unready Set.empty 1 False False Map.empty)
 
 effectiveWrites :: KubeWorld -> Map.Map OperationId Int
 effectiveWrites = writes
@@ -80,29 +86,66 @@ worldKubernetesAdapter context specs world adversary =
     specs
     ops
     (traverse (kubernetesObserve ops))
-    (stableObserve world)
+    (stableObserve specs world adversary)
     (\_ _ -> pure (Left "no backup receipt in the Kubernetes world"))
     (\_ _ -> pure (Right False))
     (liveObject world)
   where
-    ops = worldKubernetesOps context world adversary
+    ops = worldKubernetesOps context specs world adversary
 
-worldKubernetesOps :: ContextId -> IORef KubeWorld -> IORef Adversary -> KubernetesAdapterOps
-worldKubernetesOps context world adversary =
+worldKubernetesOps :: ContextId -> Map.Map ResourceId (ManagedResource, ByteString) -> IORef KubeWorld -> IORef Adversary -> KubernetesAdapterOps
+worldKubernetesOps context specs world adversary =
   KubernetesAdapterOps
     { kubernetesContext = context
-    , kubernetesObserve = observe world
+    , kubernetesObserve = observe specs world adversary
     , kubernetesMutateConditional = mutate world adversary
     }
 
-observe :: IORef KubeWorld -> ResourceId -> IO KubernetesState
-observe world resource = stateOf resource (\object' -> nativeDigest object') <$> readIORef world
+observe :: Map.Map ResourceId (ManagedResource, ByteString) -> IORef KubeWorld -> IORef Adversary -> ResourceId -> IO KubernetesState
+observe specs world adversary resource = do
+  observationFaults specs world adversary resource
+  stateOf resource (\object' -> nativeDigest object') <$> readIORef world
 
 -- | The status-independent configuration observation: status churn changes
 -- resourceVersion but not this digest.
-stableObserve :: IORef KubeWorld -> ResourceId -> IO KubernetesState
-stableObserve world resource =
+stableObserve :: Map.Map ResourceId (ManagedResource, ByteString) -> IORef KubeWorld -> IORef Adversary -> ResourceId -> IO KubernetesState
+stableObserve specs world adversary resource = do
+  observationFaults specs world adversary resource
   stateOf resource (\object' -> contentDigest (TE.encodeUtf8 ("configuration:" <> digestText (nativeDigest object')))) <$> readIORef world
+
+-- | Faults at an observation boundary, applied before the object is read.
+observationFaults :: Map.Map ResourceId (ManagedResource, ByteString) -> IORef KubeWorld -> IORef Adversary -> ResourceId -> IO ()
+observationFaults specs world adversary resource = do
+  fault <- nextFault adversary ObserveCall
+  when (fault == Just ChurnAlways) $ modifyIORef' world $ \state -> state {churning = True}
+  when (fault == Just ForeignObject) $ case Map.lookup resource specs of
+    Just (managed, _) -> modifyIORef' world $ \state ->
+      if Map.member resource (objects state)
+        then state
+        else
+          state
+            { objects =
+                Map.insert
+                  resource
+                  KubeObject
+                    { uid = either (error . T.unpack) id (mkPhysicalIdentity ("foreign-uid-" <> T.pack (show (nextUid state))))
+                    , address = managed ^. #address
+                    , owner = Nothing
+                    , generation = 1
+                    , resourceVersion = 1
+                    , nativeDigest = contentDigest "foreign-object"
+                    , foreignManager = False
+                    , readiness = Ready
+                    }
+                  (objects state)
+            , nextUid = nextUid state + 1
+            }
+    Nothing -> pure ()
+  -- A controller writes status (and so resourceVersion) on objects with status.
+  modifyIORef' world $ \state ->
+    if churning state && not (quiet state)
+      then state {objects = Map.adjust (\o -> if hasReadiness (address o) then o {resourceVersion = resourceVersion o + 1} else o) resource (objects state)}
+      else state
 
 stateOf :: ResourceId -> (KubeObject -> ContentDigest) -> KubeWorld -> KubernetesState
 stateOf resource digestOf state = case Map.lookup resource (objects state) of

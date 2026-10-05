@@ -75,26 +75,33 @@ scenarios =
 
 type Schedule = [(Boundary, Fault)]
 
-singleFaults :: Int -> [Schedule]
-singleFaults boundaries = [[(Boundary MutateCall n, fault)] | n <- [1 .. boundaries], fault <- [minBound .. maxBound]]
+-- | Every fault at every boundary of the provider call it is scheduled on.
+singleFaults :: Finished -> [Schedule]
+singleFaults finished = [[placement] | placement <- placements finished]
 
-faultPairs :: Int -> [Schedule]
-faultPairs boundaries =
-  [ [(Boundary MutateCall n, first'), (Boundary MutateCall m, second')]
-  | n <- [1 .. boundaries]
-  , m <- [n + 1 .. boundaries]
-  , first' <- [minBound .. maxBound]
-  , second' <- [minBound .. maxBound]
+faultPairs :: Finished -> [Schedule]
+faultPairs finished =
+  [ [first', second']
+  | first'@(Boundary call1 n, _) <- placements finished
+  , second'@(Boundary call2 m, _) <- placements finished
+  , (call1, n) < (call2, m)
   ]
 
-runTier :: (Int -> [Schedule]) -> Assertion
+placements :: Finished -> [(Boundary, Fault)]
+placements finished =
+  [ (Boundary (faultCall fault) n, fault)
+  | fault <- [minBound .. maxBound]
+  , n <- [1 .. Map.findWithDefault 0 (faultCall fault) (finishedCalls finished)]
+  ]
+
+runTier :: (Finished -> [Schedule]) -> Assertion
 runTier schedulesFor = do
   violations <- fmap concat . forM scenarios $ \scenario -> do
     clean <- runScenario scenario []
     case clean of
       Left violation -> pure ["the fault-free scenario violates the model:\n" <> violation]
       Right finished ->
-        fmap concat . forM (schedulesFor (finishedMutations finished)) $ \schedule ->
+        fmap concat . forM (schedulesFor finished) $ \schedule ->
           either (\violation -> [violation]) (const []) <$> runScenario scenario schedule
   case violations of
     [] -> pure ()
@@ -103,7 +110,7 @@ runTier schedulesFor = do
 -- * One execution
 
 data Finished = Finished
-  { finishedMutations :: !Int
+  { finishedCalls :: !(Map.Map Call Int)
   }
   deriving stock (Eq, Show)
 
@@ -120,11 +127,16 @@ data Move
 runScenario :: Scenario -> Schedule -> IO (Either Text Finished)
 runScenario scenario schedule = loop []
   where
+    -- I7 (liveness): persistent status churn alone must never need an exit.
+    liveness finished taken
+      | null (unready scenario) && all ((== ChurnAlways) . snd) schedule && not (null schedule) && any (not . null) taken =
+          Left (describe scenario schedule "(all)" ("I7: under persistent status churn a review needed the exits " <> T.pack (show taken)) [])
+      | otherwise = Right finished
     loop taken = do
       result <- replay scenario schedule taken []
       case result of
         Replayed (Left violation) -> pure (Left violation)
-        Replayed (Right mutations) -> pure (Right (Finished mutations))
+        Replayed (Right calls) -> pure (liveness (Finished calls) taken)
         AtStop image why moves -> do
           search <- searchExit scenario schedule taken moves
           case search of
@@ -137,8 +149,8 @@ runScenario scenario schedule = loop []
 type Taken = [[Move]]
 
 data Replay
-  = -- | The scenario finished (the mutation count) or violated an invariant.
-    Replayed !(Either Text Int)
+  = -- | The scenario finished (the provider call counts) or violated an invariant.
+    Replayed !(Either Text (Map.Map Call Int))
   | -- | A stopped review with no exit yet: its image, why it stopped, and
     -- the candidate moves.
     AtStop !Text !Text ![Move]
@@ -154,11 +166,17 @@ replay scenario schedule taken probe = do
   where
     go run [] _ = do
       adversary <- readIORef (runAdversary run)
-      pure (Replayed (Right (Map.findWithDefault 0 MutateCall (counts adversary))))
+      pure (Replayed (Right (counts adversary)))
     go run (image : rest) exits = do
       outcome <- reviewAndApply run (withVolume scenario) image (if historyFollows scenario then image else "v1")
       case outcome of
-        Left refusal -> pure (Replayed (Left (describe scenario schedule image ("planning refused: " <> refusal) [])))
+        Left refusal
+          | any ((== ForeignObject) . snd) schedule -> do
+              -- An unowned object at a planned address refuses planning; there is
+              -- no transaction to wedge, so the scenario ends here.
+              adversary <- readIORef (runAdversary run)
+              pure (Replayed (Right (counts adversary)))
+          | otherwise -> pure (Replayed (Left (describe scenario schedule image ("planning refused: " <> refusal) [])))
         Right (registry, reviewed, applied) -> do
           checked <- checkInvariants run
           case (checked, applied) of
@@ -173,11 +191,11 @@ replay scenario schedule taken probe = do
                   (Right (), MoveIdle : _) -> go run rest more
                   _ -> pure (Replayed (Left "internal: a replayed exit did not reach an idle head"))
               [] -> case probe of
-                [] -> AtStop image why <$> candidateMoves run transaction
+                [] -> AtStop image why <$> candidateMoves run reviewed transaction
                 path -> do
                   outcomes <- mapM (tryMove run registry reviewed transaction) path
                   afterProbe <- checkInvariants run
-                  next <- candidateMoves run transaction
+                  next <- candidateMoves run reviewed transaction
                   pure $ case (afterProbe, reverse outcomes) of
                     (Left violation, _) -> Replayed (Left (describe scenario schedule image (violation <> " (on exit path " <> T.pack (show path) <> ")") []))
                     (Right (), final : _) -> Probed final next
@@ -302,6 +320,13 @@ data MoveOutcome
 -- the next one from the same state is sound. A progressing move is kept.
 tryMove :: Run -> AdapterRegistry -> ReviewedPlan -> TransactionId -> Move -> IO MoveOutcome
 tryMove run registry reviewed transaction move = do
+  modifyIORef' (runWorld run) (\world -> world {quiet = True})
+  outcome <- tryMoveQuiet run registry reviewed transaction move
+  modifyIORef' (runWorld run) (\world -> world {quiet = False})
+  pure outcome
+
+tryMoveQuiet :: Run -> AdapterRegistry -> ReviewedPlan -> TransactionId -> Move -> IO MoveOutcome
+tryMoveQuiet run registry reviewed transaction move = do
   before <- progressSignature run transaction
   result <- try $ case move of
     Resume -> fmap (const ()) <$> resumeTransaction (runStore run) registry transaction
@@ -339,13 +364,14 @@ progressSignature run transaction = do
 
 -- | Resume, then every recovery action for every operation of the stopped
 -- transaction that has no completion.
-candidateMoves :: Run -> TransactionId -> IO [Move]
-candidateMoves run transaction = do
+candidateMoves :: Run -> ReviewedPlan -> TransactionId -> IO [Move]
+candidateMoves run reviewed transaction = do
   current <- readHead (runStore run) >>= orFail "read head"
   raw <- maybe (pure []) (\value -> readJournalPrefix (runStore run) (headSequence value) >>= orFail "read journal") current
   let events = [event | Right event <- map decodeJournalEvent raw, eventTransaction event == transaction]
       latest = Map.fromList [(operation, eventState event) | event <- events, Just operation <- [eventOperation event]]
-      open = [operation | (operation, state) <- Map.toList latest, not (completed state)]
+      reviewedOperations = [plannedOperationId (reviewPlannedOperation entry) | entry <- reviewOperations (reviewedDocument reviewed)]
+      open = [operation | operation <- reviewedOperations, maybe True (not . completed) (Map.lookup operation latest)]
   pure (Resume : [Recover action operation | operation <- open, action <- recoveryActions])
   where
     completed state = case state of

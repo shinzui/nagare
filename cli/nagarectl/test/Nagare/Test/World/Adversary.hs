@@ -9,6 +9,7 @@ module Nagare.Test.World.Adversary
   , Fault (..)
   , Interrupted (..)
   , Persistence (..)
+  , faultCall
   , faultPersistence
   , newAdversary
   , nextFault
@@ -48,7 +49,19 @@ data Fault
     ForeignManager
   | -- | The executor process dies right after the write lands.
     Interrupt
+  | -- | From this observation on, the controller updates status (and so
+    -- resourceVersion) before every observation of an object with status.
+    ChurnAlways
+  | -- | An unowned object appears at an address planned for creation.
+    ForeignObject
   deriving stock (Eq, Ord, Show, Enum, Bounded)
+
+-- | The provider operation whose boundaries a fault is scheduled at.
+faultCall :: Fault -> Call
+faultCall fault = case fault of
+  ChurnAlways -> ObserveCall
+  ForeignObject -> ObserveCall
+  _ -> MutateCall
 
 data Persistence
   = Transient
@@ -60,6 +73,8 @@ faultPersistence fault = case fault of
   LandsUnready -> Persistent
   LandsFailed -> Persistent
   ForeignManager -> Persistent
+  ChurnAlways -> Persistent
+  ForeignObject -> Persistent
   _ -> Transient
 
 data Adversary = Adversary
