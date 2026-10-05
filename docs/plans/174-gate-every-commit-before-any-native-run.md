@@ -16,6 +16,11 @@ provenance:
       at: 2026-10-05T17:56:25Z
       mode: "implement"
       note: "M2 and M5 done; M3/M4 implemented (acceptance pending); nagare-harness package created"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-05T20:37:07Z
+      mode: "implement"
+      note: "M3/M4 accepted (green full gate over tailnet at 07c954a6); plan complete"
 ---
 
 # Gate every commit before any native run
@@ -75,18 +80,17 @@ in [the 2026-10-04 retrospective](../audits/mp23-engineering-retrospective-2026-
   house-style violation in this plan's own harness code before commit. Original acceptance: Acceptance: `just gate-fast` passes on a clean tree;
   with a deliberately failing test, `git push` is refused by `.githooks/pre-push` after
   `just install-hooks`.
-- [ ] M3 (implemented 2026-10-05; the unreachable-builder half is accepted, the green half is blocked):
-  The negative run is observed at `99b51003`. With `NIX_CONFIG` pointing the builder at
-  `nagare-unreachable.invalid`, the gate passed the fast steps, then stopped at
-  `builder-probe-x86_64-linux` ("builder unreachable for x86_64-linux") and wrote a RED record. Two
-  real runs (operator-approved builder start) passed the probe, but `nix flake check --all-systems`
-  failed both times with "Timeout, server nix-gcp-builder not responding" (see Surprises). Each was
-  correctly recorded RED, not reported green. The green run waits for the SSH keepalive fix to be
-  activated on the host. A full local gate proves every system and writes a revision-bound record. Acceptance: on a
-  clean tree, `just gate` writes a green record whose `systems` list shows every check of
-  `aarch64-darwin` and `x86_64-linux` realised, plus a passing builder probe. With the Linux builder
-  unreachable, `just gate` fails at the probe instead of reporting success.
-- [ ] M4 (implemented 2026-10-05; three refusals observed live, the green acceptance waits on M3):
+- [x] (2026-10-05) M3: The full gate proves every system and writes a revision-bound record.
+  Observed:
+  - **Negative:** at `99b51003`, with the builder pointed at `nagare-unreachable.invalid`, the gate
+    stopped at `builder-probe-x86_64-linux` and wrote a RED record.
+  - **Green:** at `07c954a6`, after the builder moved to the tailnet (see Surprises), `just gate`
+    passed every fast step and the probe (7.5 s), then `nix flake check --all-systems` (1,312 s). It
+    reported "realised x86_64-linux 36/36" and "realised aarch64-darwin 37/37" and wrote a green
+    record at `~/.local/state/nagare/gates/07c954a6….json`.
+  - **IAP failures:** three earlier real runs failed on IAP tunnel drops and were each correctly
+    recorded RED.
+- [x] (2026-10-05) M4: `just gate-verify 07c954a6` printed "07c954a6… green, tree c7297228…, systems x86_64-linux aarch64-darwin" (observed). Earlier:
   Observed: `just gate-verify 7fbc6345` refused "no gate record". After the negative run it refused
   `99b51003` with "the gate record is red". `just gate` on a tree with an untracked file refused "the
   full gate needs a clean tree". `gate verify` exists, with unit tests
@@ -146,6 +150,16 @@ in [the 2026-10-04 retrospective](../audits/mp23-engineering-retrospective-2026-
   host side in `mori://shinzui/dotfiles.nix` (`darwin/gcp-nix-builder.nix`: `ServerAliveCountMax 10`,
   tunnel stderr logged to `/tmp/nix-gcp-builder-proxy-<user>.log`). This repo's provisioning default
   now matches the live shape (`fa421e39`).
+  Date: 2026-10-05
+
+
+- Observation: The IAP keepalive change (`ServerAliveCountMax 10`) was not enough. The newly kept
+  tunnel log showed the real cause: gcloud's IAP websocket dropped during a long build, and its
+  reconnect failed ("ConnectionCreationError: Unexpected error while reconnecting"), so SSH saw a
+  broken pipe. The builder now joins the operator's tailnet on every boot (`a885433c`). The host
+  ProxyCommand prefers the tailnet and falls back to IAP (`mori://shinzui/dotfiles.nix`,
+  `darwin/gcp-nix-builder.nix`). The next full gate went green with no fallback (observed in
+  `/tmp/nix-gcp-builder-proxy-root.log`).
   Date: 2026-10-05
 
 
@@ -237,7 +251,24 @@ in [the 2026-10-04 retrospective](../audits/mp23-engineering-retrospective-2026-
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+**2026-10-05: all five milestones met in one day.**
+
+**What every push and candidate now gets:**
+- a fast gate (both suites built then tested, style, and the flake's own architecture and command-audit script) enforced by `.githooks/pre-push`, installed repo-wide;
+- a full gate that proves both systems' check outputs exist after a salted builder probe, with a revision-bound record;
+- `gate verify` before native work;
+- a fixture smoke that refuses a daemon hosting k3d;
+- exhaustiveness as a compile error in every package.
+
+**What the gate caught while being built:**
+- its own house-style violation;
+- two unregistered recipes (the first flake check failure);
+- two fresh-checkout cabal traps, which explain the earlier "18 false failures";
+- three real Linux builder transport failures, recorded RED instead of reported green.
+
+**Remaining:**
+- EP-168's runner should call `gate verify` itself (runbook steps do it until then);
+- the gate's Linux half depends on the builder's tailnet membership, so key expiry for `nix-builder-x86` should be disabled in the Tailscale admin console.
 
 
 ## Context and Orientation

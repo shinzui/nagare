@@ -115,3 +115,18 @@ commits.
 - **Rules move into tools.** Rules that sessions repeatedly forgot under pressure are enforced by
   tools that refuse ([EP-174](../plans/174-gate-every-commit-before-any-native-run.md)). The prose
   checklist [Before a native run](../runbooks/before-a-native-run.md) covers what a tool cannot check.
+
+## Implementation note (2026-10-05)
+
+Decision 5 is implemented by [EP-174](../plans/174-gate-every-commit-before-any-native-run.md):
+- **`just gate-fast`** is enforced on push by `.githooks/pre-push`.
+- **`just gate`** writes a revision-bound record. It is green only when a salted probe build passed
+  on every remote system and every check of every `release.json` system is realised.
+- **`just gate-verify <rev>`** is called by the runbooks before native work.
+- **Exhaustiveness** is a compile error in every package's `common` stanza, and the architecture
+  check forbids module opt-outs.
+- **Decision 6** is `just fixture-smoke`.
+
+The Linux half depends on the remote builder's transport. A gcloud IAP websocket drop killed long
+builds, so the builder is reached over the operator's tailnet, with IAP as a fallback. When the
+builder fails, the gate records RED; it never reports a false green.

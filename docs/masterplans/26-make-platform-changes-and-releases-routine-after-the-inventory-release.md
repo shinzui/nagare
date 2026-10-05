@@ -92,7 +92,7 @@ Relevant local ADRs:
 | 4 | Move release tooling out of the platform payload | docs/plans/171-move-release-tooling-out-of-the-platform-payload.md | None | None | Not Started |
 | 5 | Rehearse candidate upgrades of an inventory context instead of rebuilding it | docs/plans/172-rehearse-candidate-upgrades-of-an-inventory-context-instead-of-rebuilding-it.md | EP-168 M1 | EP-170 | Not Started |
 | 6 | Find recovery defects with adversarial provider interpreters | docs/plans/173-find-recovery-defects-with-adversarial-provider-interpreters.md | None | None | In Progress (M1 done; M2 in progress, 2026-10-05) |
-| 7 | Gate every commit before any native run | docs/plans/174-gate-every-commit-before-any-native-run.md | None | EP-168 (shared `nagare-harness` package) | In Progress (2026-10-05) |
+| 7 | Gate every commit before any native run | docs/plans/174-gate-every-commit-before-any-native-run.md | None | EP-168 (shared `nagare-harness` package) | Completed (2026-10-05) |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 EP-172's hard dependency is only EP-168's first milestone: a scripted fresh-context bootstrap and scenario that leaves a converged context to upgrade. EP-169 is cancelled: its premise (GitHub Actions) conflicts with the operator's 2026-10-04 decision.
