@@ -5,7 +5,7 @@
 finds and fixes defects, using findings F01–F54 as data. It covers tooling and agent behaviour. It
 proposes concrete changes and does not reopen any product decision.
 **Outputs:**
-- [ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md), the rule;
+- [ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md), the rule (accepted);
 - [the pre-flight checklist](../runbooks/before-a-native-run.md), for every session before cp3 or cloud work;
 - the [MasterPlan 26](../masterplans/26-make-platform-changes-and-releases-routine-after-the-inventory-release.md)
   update, which adds [EP-173](../plans/173-find-recovery-defects-with-adversarial-provider-interpreters.md)
@@ -222,7 +222,7 @@ Prose is kept only for what a tool cannot check.
 
 ## 4. Changes
 
-### 4.1 The rule ([ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md), proposed)
+### 4.1 The rule ([ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md), accepted)
 
 Defects are found by interpreters. Native runs confirm that the interpreters match reality. A native
 run is never the first execution of a path. Every defect found natively is treated as a defect in the
@@ -361,6 +361,14 @@ precondition for accepting native evidence.
 Out of scope by plan, not by pressure: D4, the data-protection and production gates, MasterPlan 26.
 
 ## 6. Decisions the operator needs to make
+
+**Resolved 2026-10-04.** The operator accepted all four recommendations below:
+1. EP-169 is cancelled.
+2. MasterPlan 23's remaining native work waits for EP-173 M1–M2.
+3. F51 and F52 are un-deferred and fixed in MasterPlan 23.
+4. ADR 25 is accepted, and `CLAUDE.md` links the pre-flight checklist.
+
+Decisions are recorded in the MasterPlan 23 and 26 Decision Logs and in the F51/F52 register entries.
 
 1. **EP-169 needs re-scoping.** The operator decided on 2026-10-04 that gating does not use GitHub
    Actions, so the gate is local (EP-174). [EP-169](../plans/169-run-the-local-acceptance-in-ci.md)

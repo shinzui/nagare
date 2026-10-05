@@ -10,6 +10,12 @@ provenance:
     model: "claude-opus-5-5"
     harness: "claude-code"
     at: 2026-10-05T03:18:08Z
+  revisions:
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-05T03:50:52Z
+      mode: "update"
+      note: "F51/F52 un-deferred; F54 repair landed in 96d38d67"
 ---
 
 # Find recovery defects with adversarial provider interpreters
@@ -55,7 +61,8 @@ behind it is in
 - [ ] M2: Incarnation, store and transient faults (replaced, renamed, foreign object, store put
   refused or unacknowledged, one failed read) with the incarnation, store and transient invariants.
   Acceptance: documented reversions of the F38, F49 and F50 guards fail. The model reports F51 and
-  F52 as violations, and they are either fixed or registered as operator-approved known failures.
+  F52 as violations on their pre-fix source, and passes once their MasterPlan 23 fixes land
+  (operator decision, 2026-10-04: both un-deferred).
 - [ ] M3: The production adapter registry is constructed in the library from provider operation
   records, and the model runs that production wiring instead of a test-local copy. Acceptance: the
   model and the F44 observer check use the production registry builder, and every suite and the
@@ -146,7 +153,7 @@ These return a `TransactionResult`: `Converged`, `PausedAtBarrier`, `StoppedFail
 - `RecoveryProvedComplete`;
 - `RecoverySafeToRetry`;
 - `RecoveryAwaitingReadiness`;
-- `RecoveryLandedUnready`, added by the F54 repair that is in progress in the working tree;
+- `RecoveryLandedUnready`, added by the F54 repair in commit `96d38d67`;
 - `RecoveryTerminalFailure`;
 - `RecoveryUnresolved`.
 
@@ -314,10 +321,11 @@ rename, reusing `InventoryPostgresRenameSpec.hs`'s setup.
   journal event.
 - **I6 (transient).** One transient read failure never ends a run without a resume path.
 
-**Acceptance.** Mutations reverting the F38, F49 and F50 guards fail the model. F51 and F52 are
-currently deferred, so the model is expected to report them. If the operator un-defers them, fix them
-here. Otherwise register each as a tasty expected failure that names the finding, so it cannot change
-silently. Do this only on the operator's recorded decision.
+**Acceptance.** Mutations reverting the F38, F49 and F50 guards fail the model. The operator
+un-deferred F51 and F52 on 2026-10-04, and they are fixed in MasterPlan 23. Their MasterPlan 23
+fixes use this milestone's incarnation scenarios as their class-level regressions: the model fails on
+each pre-fix source and passes after the fixes. If M2 lands before the fixes, the two cases fail
+until the fixes land. They are not hidden or marked as expected failures.
 
 ### Milestone 3: production wiring in the library
 
@@ -455,8 +463,8 @@ New library module (M3): `Nagare.Inventory.Registry` exports `ProviderOps` and
 by tests.
 
 **Coordination.**
-- M1 must accommodate the F54 repair that is in progress in the working tree (`RecoveryLandedUnready`
-  in `Adapter.hs`). Coordinate with that session before editing the same modules.
+- The F54 repair landed in commit `96d38d67`, which adds `RecoveryLandedUnready` in `Adapter.hs`.
+  M1's model must pass on it and fail on `3135cdde`.
 - The plan writes only new test modules until M3.
 - MasterPlan 26 treats M1 and M2 as the slice that MasterPlan 23's remaining native work waits for.
 - M5's coverage record is consumed by [EP-170](170-size-the-release-gate-to-the-change.md) and

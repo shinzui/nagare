@@ -444,6 +444,10 @@ Remaining: B3 including collection on the next frozen candidate, and independent
 
 **Operator decision (2026-10-04, in session nagare-phase-b):** deferred as a known limitation of this release, to be documented in ADR 22 and the release notes and fixed in a follow-up. It does not block MP-23 completion.
 
+**Operator decision (2026-10-04, superseding the deferral above; [retrospective](mp23-engineering-retrospective-2026-10-04.md) §6):**
+- Un-deferred. Fix it in MP-23. It blocks MP-23 completion.
+- The fix lands with a class-level interpreter regression under [ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md), [EP-173](../plans/173-find-recovery-defects-with-adversarial-provider-interpreters.md) M2's incarnation invariant. The regression must fail on the pre-fix source.
+
 ## F52
 
 **Incarnation records are keyed by resource ID, so a reviewed address-changing migration reads as `replaced-incarnation` until it converges** — P2; **Open**; owner EP-153.
@@ -465,6 +469,10 @@ After convergence, the creates re-established the records and status reported `c
 **Required repair/verification:** bind each record to the provider address it was observed at, and compare only at the same address. Or skip the comparison for members selected by the active transaction. Regression: a member whose declared address changed in a reviewed migration is never `replaced-incarnation`, mid-transaction or after a failed convergence observation. Native: the next acceptance C2's status during the interrupted rename shows no `replaced-incarnation`.
 
 **Operator decision (2026-10-04, in session nagare-phase-b):** deferred as a known limitation of this release, to be documented in ADR 22 and the release notes and fixed in a follow-up. It does not block MP-23 completion.
+
+**Operator decision (2026-10-04, superseding the deferral above; [retrospective](mp23-engineering-retrospective-2026-10-04.md) §6):**
+- Un-deferred. Fix it in MP-23. It blocks MP-23 completion.
+- The fix lands with a class-level interpreter regression under [ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md), [EP-173](../plans/173-find-recovery-defects-with-adversarial-provider-interpreters.md) M2's incarnation invariant. The regression must fail on the pre-fix source.
 
 ## F53
 

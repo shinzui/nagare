@@ -1572,5 +1572,5 @@ Three consumers use the record:
 - **Retirement binds the observed object** (F51). Retiring a member whose object replaced the recorded incarnation retains the replacement's identity.
 - **Records are keyed by resource ID** (F52). A reviewed migration that moves a member to a new address reads as `replaced-incarnation` until it converges.
 
-Binding established records from the journal's completion identity would close the first two limits, and is follow-up work. F51 and F52 are known limitations of this release by operator decision (2026-10-04). Rebinding to a deliberately replaced object needs a reviewed operation and is not part of MP-23. Until one exists, retire and recreate the database.
+Binding established records from the journal's completion identity would close the first two limits, and is follow-up work. F51 and F52 were first deferred as known limitations of this release. On 2026-10-04 the operator reversed that: both are fixed in MasterPlan 23, and these two limits are removed when the fixes land. Rebinding to a deliberately replaced object needs a reviewed operation and is not part of MP-23. Until one exists, retire and recreate the database.
 

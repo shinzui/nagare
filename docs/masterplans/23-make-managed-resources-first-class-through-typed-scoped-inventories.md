@@ -326,6 +326,11 @@ provenance:
       at: 2026-10-04T13:53:51Z
       mode: "update"
       note: "Finish line: canonical MP-23 completion checklist agreed with nagare-f3"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-05T03:50:52Z
+      mode: "update"
+      note: "Operator decisions on the retrospective: native work waits for EP-173 M1-M2; F51/F52 un-deferred; ADR 25 accepted"
   reviews:
     - model: "claude-fable-5-1"
       harness: "claude-code"
@@ -654,6 +659,14 @@ Earlier discoveries (derived controller claims, explicit candidate changes, nati
 ## Decision Log
 
 Decisions still in force, condensed. Full verbatim entries are in [the snapshot](../audits/mp23-archive/plan-history/mp23-before-consolidation-2026-10-02.md).
+
+2026-10-04 (operator, on [the engineering retrospective](../audits/mp23-engineering-retrospective-2026-10-04.md)): The operator made four decisions:
+- **No native runs until the model exists.** The remaining native work waits for [EP-173](../plans/173-find-recovery-defects-with-adversarial-provider-interpreters.md) M1–M2: the Kubernetes application world and the stuck-state invariant model, extended with incarnation, store and transient faults. Until then there is no cp3 or cloud run. That covers phase 3b, the native F54 verification and any new candidate.
+- **The F54 fix is verified in the model first.** It is checked at source and interpreter level and must pass the model before it goes native.
+- **F51 and F52 are un-deferred.** Both are fixed in MP-23, and the release no longer ships them as known limitations.
+- **ADR 25 is accepted.** [ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md) applies to all remaining MP-23 work: native runs only confirm, and every native finding needs a class-level interpreter regression that fails on the pre-fix source.
+
+Gating is local; GitHub Actions is not used.
 
 2026-10-03 (operator): Teardown acceptance is perimeter-only exact cleanup plus full-context retirement. The first native full-context teardown (C3 checkpoint `mp23-c3`) showed something by design: retained workload consumers pin the VM, and host and artifact members have no collection. So a full context cannot be collected through reviews. Implementing that collection is a new capability, so it moves to the follow-up [MasterPlan 25](25-reviewed-full-context-teardown-with-vm-workload-collection.md). C3 S9 therefore proves policy, retirement of every scope including the cloud scope, and exact collection on a perimeter-only context. A disposable full context is removed with operator-approved, bounded provider commands; the C3 checkpoint was removed that way on 2026-10-03, after its history was exported.
 

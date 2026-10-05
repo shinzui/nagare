@@ -1,6 +1,6 @@
 ---
 title: "Defects are found by interpreters, and native runs only confirm"
-status: proposed
+status: accepted
 date: 2026-10-04
 authors: [shinzui]
 related:
@@ -18,8 +18,9 @@ related:
 
 ## Status
 
-Proposed, 2026-10-04, after MasterPlan 23's native verification day. It becomes accepted when the
-operator accepts it.
+Accepted, 2026-10-04, by operator decision on
+[the engineering retrospective](../audits/mp23-engineering-retrospective-2026-10-04.md), after
+MasterPlan 23's native verification day.
 
 ## Context
 

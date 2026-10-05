@@ -102,6 +102,9 @@ recorded in that MasterPlan's Decision Log.
   it, and do not chain speculative recovery actions against a host you cannot observe. Write the
   recovery as an ExecPlan with pass/fail gates first.
 - GCE startup scripts do not run on Nagare's NixOS image. Never use them for recovery.
+- Before any cp3 or cloud mutation, complete [Before a native run](docs/runbooks/before-a-native-run.md).
+  Native runs only confirm; defects are found by the effect interpreters first
+  ([ADR 25](docs/adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md)).
 - Cloud-mutating commands need the operator's go-ahead. Rehearse them first, then ask once for a
   bounded sequence rather than per command. No Claude Code hook enforces this; the agent guard was
   removed on 2026-09-13 (ADR 11 amendment).

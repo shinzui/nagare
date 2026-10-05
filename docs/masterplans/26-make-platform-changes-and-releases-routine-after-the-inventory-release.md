@@ -20,6 +20,11 @@ provenance:
       at: 2026-10-05T03:25:17Z
       mode: "update"
       note: "Add EP-173 and EP-174 (interpreter-first discovery, local gate); start them before MP-23 closes; no GitHub Actions"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-05T03:50:52Z
+      mode: "update"
+      note: "Operator accepted ordering; EP-169 cancelled; ADR 25 accepted"
 ---
 
 # Make platform changes and releases routine after the inventory release
@@ -39,7 +44,7 @@ In scope: adversarial provider interpreters and a stuck-state invariant model in
 
 Out of scope: the upgrade policy for installations that hold work data, which belongs to [MasterPlan 24](24-operate-nagare-as-a-team-run-workplace-intranet-paas.md) (its planned "upgrade path for contexts holding work data" stream) and to [MasterPlan 21](21-rehearsed-replacement-upgrades-with-bounded-downtime-for-nagare.md) (replacement upgrades with bounded downtime). This initiative proves upgrade mechanics on disposable rehearsal contexts and hands the evidence to those plans; it does not decide work-data policy. Also out of scope: hosted CI. By operator decision on 2026-10-04, gating does not use GitHub Actions; every gate runs locally. Also out of scope: weakening any MasterPlan 23 guarantee, GKE, mutating a real operator context, and full-context teardown (MasterPlan 25).
 
-EP-173 and EP-174 start immediately, before MasterPlan 23 closes. They change no shipped behaviour, and MasterPlan 23's remaining native work should wait for EP-173's first two milestones (pending the operator's decision; see the Decision Log). The other streams start after MasterPlan 23 closes. EP-168 may begin earlier as harness-only work, but it must target the final MasterPlan 23 candidate's commands and evidence formats.
+EP-173 and EP-174 start immediately, before MasterPlan 23 closes. They change no shipped behaviour, and MasterPlan 23's remaining native work waits for EP-173's first two milestones (operator decision, 2026-10-04). The other streams start after MasterPlan 23 closes. EP-168 may begin earlier as harness-only work, but it must target the final MasterPlan 23 candidate's commands and evidence formats.
 
 
 ## Decomposition Strategy
@@ -69,7 +74,7 @@ Relevant local ADRs:
 [ADR 18](../adr/0018-the-upgrade-transaction-is-as-guarded-as-the-recipes-it-replaces.md) (the upgrade transaction carries every guard of the recipes it replaces; EP-172 must preserve this);
 [ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md) (the typed inventory, reviews, journal and candidate-bound release evidence whose guarantees the scripted run must reproduce, not relax; EP-173 tests its adapter boundary);
 [ADR 24](../adr/0024-release-and-harness-tooling-follows-the-production-haskell-standard.md) (harness tooling in Haskell; EP-174's gate is a `nagare-harness` command);
-[ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md) (proposed: interpreters find defects and native runs confirm; EP-173 and EP-174 implement it, and EP-170 enforces it). No cross-repository ADR applies.
+[ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md) (accepted 2026-10-04: interpreters find defects and native runs confirm; EP-173 and EP-174 implement it, and EP-170 enforces it). No cross-repository ADR applies.
 
 
 ## Exec-Plan Registry
@@ -77,7 +82,7 @@ Relevant local ADRs:
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | 1 | Script the local acceptance run as one command | docs/plans/168-script-the-local-acceptance-run-as-one-command.md | None | None | Not Started |
-| 2 | Run the local acceptance in CI | docs/plans/169-run-the-local-acceptance-in-ci.md | EP-168 | EP-171 | Not Started |
+| 2 | Run the local acceptance in CI | docs/plans/169-run-the-local-acceptance-in-ci.md | EP-168 | EP-171 | Cancelled (operator, 2026-10-04: no GitHub Actions; EP-168 + EP-174 cover the need) |
 | 3 | Size the release gate to the change | docs/plans/170-size-the-release-gate-to-the-change.md | None | EP-168, EP-171 | Not Started |
 | 4 | Move release tooling out of the platform payload | docs/plans/171-move-release-tooling-out-of-the-platform-payload.md | None | None | Not Started |
 | 5 | Rehearse candidate upgrades of an inventory context instead of rebuilding it | docs/plans/172-rehearse-candidate-upgrades-of-an-inventory-context-instead-of-rebuilding-it.md | EP-168 M1 | EP-170 | Not Started |
@@ -85,14 +90,14 @@ Relevant local ADRs:
 | 7 | Gate every commit before any native run | docs/plans/174-gate-every-commit-before-any-native-run.md | None | EP-168 (shared `nagare-harness` package) | Not Started |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
-EP-172's hard dependency is only EP-168's first milestone: a scripted fresh-context bootstrap and scenario that leaves a converged context to upgrade. EP-169's premise (GitHub Actions) conflicts with the operator's 2026-10-04 decision; it must be re-scoped or cancelled before it starts.
+EP-172's hard dependency is only EP-168's first milestone: a scripted fresh-context bootstrap and scenario that leaves a converged context to upgrade. EP-169 is cancelled: its premise (GitHub Actions) conflicts with the operator's 2026-10-04 decision.
 
 
 ## Dependency Graph
 
-EP-173 and EP-174 come first and start now, in parallel with each other and with MasterPlan 23's remaining work. EP-173 M1–M2 (the Kubernetes application world and the incarnation, store and transient faults) is the slice MasterPlan 23's remaining native runs should wait for. EP-174 M1–M3 should land before the next MasterPlan 23 candidate is frozen. EP-170's native-evidence precondition consumes EP-173 M5's coverage record and EP-174's gate record. Among the original streams, EP-168 comes first because the others consume the scripted run. EP-169 needs the whole of EP-168 (a command that runs end to end without a human) before CI can execute it; it benefits from EP-171 because a CI job should check out harness tooling independently of the payload under test. EP-170 can design the change classes and the gate rules in parallel, but its acceptance (a gate decision proven on real candidates) uses EP-168's evidence and EP-171's tooling boundary, so both are soft dependencies. EP-171 is independent and can proceed immediately after MasterPlan 23 closes. EP-172 needs EP-168 M1, a scripted bootstrap and scenario that yields a converged context on the previous candidate, and benefits from EP-170 because the gate decides when an upgrade rehearsal can replace a fresh-context C2.
+EP-173 and EP-174 come first and start now, in parallel with each other and with MasterPlan 23's remaining work. EP-173 M1–M2 (the Kubernetes application world and the incarnation, store and transient faults) is the slice MasterPlan 23's remaining native runs wait for. EP-174 M1–M3 should land before the next MasterPlan 23 candidate is frozen. EP-170's native-evidence precondition consumes EP-173 M5's coverage record and EP-174's gate record. Among the original streams, EP-168 comes first because the others consume the scripted run. EP-169 needs the whole of EP-168 (a command that runs end to end without a human) before CI can execute it; it benefits from EP-171 because a CI job should check out harness tooling independently of the payload under test. EP-170 can design the change classes and the gate rules in parallel, but its acceptance (a gate decision proven on real candidates) uses EP-168's evidence and EP-171's tooling boundary, so both are soft dependencies. EP-171 is independent and can proceed immediately after MasterPlan 23 closes. EP-172 needs EP-168 M1, a scripted bootstrap and scenario that yields a converged context on the previous candidate, and benefits from EP-170 because the gate decides when an upgrade rehearsal can replace a fresh-context C2.
 
-Parallel lanes: now, EP-173 and EP-174; after MasterPlan 23, EP-168 and EP-171 together; then EP-170 and EP-172, and EP-169 once re-scoped.
+Parallel lanes: now, EP-173 and EP-174; after MasterPlan 23, EP-168 and EP-171 together; then EP-170 and EP-172.
 
 
 ## Integration Points
@@ -117,12 +122,12 @@ The production adapter registry. EP-173 M3 moves its construction from `cli/naga
 
 Representative early check: EP-168 M1's scripted bootstrap and scenario run must succeed on the final MasterPlan 23 candidate before EP-169 and EP-172 expand on it.
 
-Cross-plan decisions that should become ADRs: interpreters find defects and native runs confirm ([ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md), proposed 2026-10-04); the change classes and the evidence each requires (EP-170, likely an amendment to ADR 7); the payload/harness boundary (EP-171, an amendment to ADR 4 or ADR 7); and upgrade rehearsal as candidate evidence (EP-172, related to ADR 6 and ADR 18).
+Cross-plan decisions that should become ADRs: interpreters find defects and native runs confirm ([ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md), accepted 2026-10-04); the change classes and the evidence each requires (EP-170, likely an amendment to ADR 7); the payload/harness boundary (EP-171, an amendment to ADR 4 or ADR 7); and upgrade rehearsal as candidate evidence (EP-172, related to ADR 6 and ADR 18).
 
 
 ## Progress
 
-Not started. As of 2026-10-04, EP-173 and EP-174 are ready to start now, ahead of MasterPlan 23's remaining native work. The other streams begin after MasterPlan 23 closes, and EP-168 may start earlier as harness-only work against the final MasterPlan 23 candidate. EP-169 awaits re-scoping.
+Not started. As of 2026-10-04, EP-173 and EP-174 are ready to start now, ahead of MasterPlan 23's remaining native work. The other streams begin after MasterPlan 23 closes, and EP-168 may start earlier as harness-only work against the final MasterPlan 23 candidate. EP-169 is cancelled.
 
 
 ## Surprises & Discoveries
@@ -150,7 +155,7 @@ Not started. As of 2026-10-04, EP-173 and EP-174 are ready to start now, ahead o
   Rationale: Operator decision, 2026-10-04 ("GitHub Actions is so slow"; "do not use github action"). EP-169, which planned to run the acceptance on GitHub Actions, must be re-scoped or cancelled before it starts.
   Date: 2026-10-04
 
-- Decision (proposed, awaiting the operator): MasterPlan 23's remaining native work waits for EP-173 M1–M2. That work is phase 3b, the F54 native verification and any new candidate.
+- Decision (operator, 2026-10-04): MasterPlan 23's remaining native work waits for EP-173 M1–M2. That work is phase 3b, the F54 native verification and any new candidate. F51 and F52 are un-deferred and fixed in MasterPlan 23. ADR 25 is accepted. EP-169 is cancelled.
   Rationale: Otherwise the next native run is again the first execution of unmodelled failure states. The F54 repair should be proven by the model before it goes native.
   Date: 2026-10-04
 

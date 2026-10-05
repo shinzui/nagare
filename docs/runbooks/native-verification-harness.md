@@ -11,7 +11,9 @@ guard refuses, and batch cloud mutations into one rehearsed, operator-approved s
 
 Before any mutation on cp3 or a cloud context, complete [Before a native run](before-a-native-run.md).
 A native run confirms that the interpreters match reality. It is never the first execution of a path
-([ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md), proposed).
+([ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md)). Until
+[EP-173](../plans/173-find-recovery-defects-with-adversarial-provider-interpreters.md) M1–M2 land,
+MasterPlan 23 schedules no cp3 or cloud run (operator decision, 2026-10-04).
 
 ## 1. Build the candidate at an exact revision
 

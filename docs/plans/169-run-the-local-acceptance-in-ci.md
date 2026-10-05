@@ -16,6 +16,11 @@ provenance:
       at: 2026-10-05T03:25:17Z
       mode: "update"
       note: "On hold: operator rejects GitHub Actions; re-scope or cancel"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-05T03:50:52Z
+      mode: "update"
+      note: "Cancelled by operator: no GitHub Actions"
 ---
 
 # Run the local acceptance in CI
@@ -43,7 +48,7 @@ After [EP-168](168-script-the-local-acceptance-run-as-one-command.md), the local
 
 ## Decision Log
 
-- Decision: This plan must not use GitHub Actions. It is on hold until the operator either re-scopes it to a runner they accept or cancels it.
+- Decision: Cancelled (operator, 2026-10-04). This plan must not use GitHub Actions. EP-168's one-command local run and EP-174's local gates cover the need.
   Rationale: Operator decision, 2026-10-04: "GitHub Actions is so slow" and "do not use github action". The per-commit and per-candidate gates are local ([EP-174](174-gate-every-commit-before-any-native-run.md)), and EP-168's one-command run already gives a maintainer the acceptance on their own machine.
   Date: 2026-10-04
 
