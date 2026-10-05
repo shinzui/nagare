@@ -258,7 +258,7 @@ inventoryCloudTests =
 fakePulumi :: FilePath -> String
 fakePulumi logPath =
   unlines
-    [ "#!/usr/bin/env bash"
+    [ "#!/bin/sh"
     , "set -euo pipefail"
     , "test \"${PULUMI_BACKEND_URL:-}\" = gs://example-state"
     , "printf '%s\\n' \"$*\" >> " <> show logPath
@@ -287,7 +287,7 @@ fakePulumi logPath =
 fakePulumiOmittingSames :: FilePath -> String
 fakePulumiOmittingSames logPath =
   unlines
-    [ "#!/usr/bin/env bash"
+    [ "#!/bin/sh"
     , "set -euo pipefail"
     , "printf '%s\\n' \"$*\" >> " <> show logPath
     , "case \" $* \" in"

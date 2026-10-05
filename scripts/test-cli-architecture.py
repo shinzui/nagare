@@ -21,6 +21,9 @@ class ArchitectureTest(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.app = Path(self.temporary.name) / "app"
         shutil.copytree(architecture.APP, self.app)
+        # A Nix sandbox copies sources read-only; the fixture must be editable.
+        for path in [self.app, *self.app.rglob("*")]:
+            path.chmod(path.stat().st_mode | 0o200)
         self.cabal = ROOT / "cli/nagarectl/nagarectl.cabal"
 
     def inject_import(self, module, dependency):

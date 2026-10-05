@@ -2170,7 +2170,7 @@ inventoryTransactionTests =
                 [ "set -euo pipefail"
                 , "test \"$1\" = ssh && test \"$2\" = host && test \"$3\" = --"
                 , "arguments=\"${4#sudo /run/current-system/sw/bin/bash -s -- }\""
-                , "{ /bin/cat \"$NAGARE_TEST_PREFIX\"; /bin/cat; } | eval \"/bin/bash -s -- $arguments\""
+                , "{ cat \"$NAGARE_TEST_PREFIX\"; cat; } | eval \"bash -s -- $arguments\""
                 ]
             )
           writeFile prefix registryHostFixture

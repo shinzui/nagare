@@ -71,6 +71,7 @@ This is the authoritative list of implementation findings for [MP-23](../masterp
 | [F50](mp23-archive/mp23-findings-closed.md#f50) | P2 | One transient failed gcloud read makes the state-bucket ownership guard stop a run | Closed | EP-156 |
 | [F51](#f51) | P2 | Retirement retains an out-of-band replacement's identity instead of the accepted incarnation | Open | EP-153 / EP-159 |
 | [F52](#f52) | P2 | Incarnation records are keyed by resource ID, so a reviewed address-changing migration reads as `replaced-incarnation` until it converges | Open | EP-153 |
+| [F53](#f53) | P1 | `nix flake check` fails at the candidate: sandbox-only test failures and stale check assertions | Verifying | EP-154 |
 
 Closed findings keep their full text, location, implementation updates and verification in [the closed-findings archive](mp23-archive/mp23-findings-closed.md). F01 and F11 retain their [earlier independent closure](mp23-archive/mp23-verification.md). F02, F03, F04, F05, F06, F07, F08 and F20 now have [2026-10-02 independent closure](mp23-independent-verification-2026-10-02.md). F34, F35, F36, F37, F38, F41 and F42 have 2026-10-04 independent closure on candidate `7596632c`, and F49 and F50 on candidate `847543896d07` ([records](mp23-independent-results-2026-10-04/phase1-source-and-regressions-7596632c.md)). Other entries retain their status shown above.
 
@@ -463,3 +464,30 @@ After convergence, the creates re-established the records and status reported `c
 **Required repair/verification:** bind each record to the provider address it was observed at, and compare only at the same address. Or skip the comparison for members selected by the active transaction. Regression: a member whose declared address changed in a reviewed migration is never `replaced-incarnation`, mid-transaction or after a failed convergence observation. Native: the next acceptance C2's status during the interrupted rename shows no `replaced-incarnation`.
 
 **Operator decision (2026-10-04, in session nagare-phase-b):** deferred as a known limitation of this release, to be documented in ADR 22 and the release notes and fixed in a follow-up. It does not block MP-23 completion.
+
+## F53
+
+**`nix flake check` fails at the candidate: sandbox-only test failures and stale check assertions** — P1 (the C4 gate requires a green flake check); **Verifying**; owner EP-154.
+
+**Implementer evidence (2026-10-04, claude-opus-5-5, C4 on candidate `84754389`):** The aarch64-darwin clone-free rehearsal passed, `typed-config` included. `nix flake check` failed 5 of 46 aarch64-darwin checks, and `--all-systems` failed 2 more on x86_64-linux. Every failure was in the check harness, not in shipped behavior:
+- `nagarectl-build-test`, darwin: 8 of 1,190 tests failed only in the sandbox, because `jq`, `python3` and `shasum` were missing from the test PATH. All 1,190 pass outside it.
+- `upload-images-builder-confinement`: `shasum` was missing.
+- `managed-command-audit`: the CLI architecture test and the command-audit fixture copy the read-only sandbox sources and then edit them (`PermissionError`).
+- `gcp-bootstrap-rehearsal`: stale assertions. The host-image dry run no longer names `scripts/upload-images.sh` (reviewed image publication, `c352cfec`), and the bootstrap and TLS recipes run `scripts/run-reviewed-bootstrap.sh`.
+- `cluster-bootstrap-defaults`: a stale path. The ACME URLs moved into `Nagare/Target/Acme.hs` in the F43 split (`0c6ad875`), and a test helper (`test/Nagare/Test/Init.hs`) also names them.
+- x86_64-linux `nagarectl-build-test` (7 tests) and `host-transport-recovery`: scripts generated at test time used `#!/usr/bin/env …` or `/bin/bash` and `/bin/cat`, and a Linux build sandbox has neither. This included the payload's Helm capture plugin read from the source tree.
+
+Nothing had run the flake check for many commits, so earlier candidates carried most of these failures.
+
+**Operator decision (2026-10-04):** fix now, with a new candidate. `84754389` becomes non-final, and its runs (C1, C2 and the `mp23-c3i` C3) become checkpoints.
+
+**Implementation update (2026-10-04; claude-opus-5-5):**
+- The sandbox gets `jq`, `python3` and `perl` (for `shasum`) for the CLI tests, and `perl` for the upload-images test.
+- Both fixture copies are made writable.
+- The stale assertions are updated to the reviewed recipes.
+- The ACME check names `Target/Acme.hs` and allows `test/Nagare/Test/Init.hs`.
+- The CLI tests read a source copy whose `cluster/` scripts are shebang-patched (`sourceForTests`).
+- The fake Pulumi scripts use `#!/bin/sh`; the registry SSH fixture finds `cat` and `bash` on PATH; the image-prune fake `k3s` uses the running interpreter.
+- No file under `cli/*/src`, `cli/*/app`, `cluster/`, `infra/` or `nixos/` changed.
+- **Gates:** `nix flake check --all-systems` passes with 36/36 aarch64-darwin and 35/35 x86_64-linux checks. All 1,190 tests, the style gate, both architecture checks and the command audit pass locally.
+

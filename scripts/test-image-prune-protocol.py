@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -16,7 +17,7 @@ OTHER = 'sha256:' + 'b' * 64
 with tempfile.TemporaryDirectory(prefix='mp23-image-protocol-') as tmp:
     root = Path(tmp)
     (root / 'curl').write_text('#!/bin/sh\nprintf "%s" "$INSTANCE"\n')
-    (root / 'k3s').write_text('''#!/usr/bin/env python3
+    (root / 'k3s').write_text('#!' + sys.executable + '''
 import json, os, pathlib, sys
 root = pathlib.Path(os.environ['FIXTURE'])
 args = sys.argv[1:]

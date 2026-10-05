@@ -58,6 +58,9 @@ import sys
 repo, fixture = map(Path, sys.argv[1:])
 cli = fixture / "app"
 shutil.copytree(repo / "cli/nagarectl/app", cli)
+# A Nix sandbox copies sources read-only; the fixture must be editable.
+for path in [cli, *cli.rglob("*")]:
+    path.chmod(path.stat().st_mode | 0o200)
 audit = [sys.executable, str(repo / "scripts/audit-managed-commands.py"),
          "--cli-source-dir", str(cli)]
 before = json.loads(subprocess.check_output(audit, text=True))

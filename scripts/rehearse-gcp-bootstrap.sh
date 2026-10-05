@@ -305,9 +305,10 @@ assert_public_interfaces() {
 
   grep -q 'nagarectl infra preview --save-plan' "$NAGARE_REHEARSAL_ROOT/infra-preview-dry-run.txt"
   grep -q 'nagarectl infra apply --plan' "$NAGARE_REHEARSAL_ROOT/infra-apply-dry-run.txt"
-  grep -q 'scripts/upload-images.sh' "$NAGARE_REHEARSAL_ROOT/host-image-dry-run.txt"
-  grep -q 'nagarectl cluster guard' "$NAGARE_REHEARSAL_ROOT/bootstrap-dry-run.txt"
-  grep -q 'nagarectl cluster certificate-policy' "$NAGARE_REHEARSAL_ROOT/tls-dry-run.txt"
+  # Image publication and cluster bootstrap are reviewed (c352cfec, run-reviewed-bootstrap.sh).
+  grep -q 'nagarectl host image' "$NAGARE_REHEARSAL_ROOT/host-image-dry-run.txt"
+  grep -q 'scripts/run-reviewed-bootstrap.sh' "$NAGARE_REHEARSAL_ROOT/bootstrap-dry-run.txt"
+  grep -q 'scripts/run-reviewed-bootstrap.sh' "$NAGARE_REHEARSAL_ROOT/tls-dry-run.txt"
 }
 
 run_hermetic() {

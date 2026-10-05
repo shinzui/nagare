@@ -37,19 +37,20 @@ for url in \
     echo "missing $url in scripts/lib/target.sh" >&2
     exit 1
   }
-  grep -qF "$url" cli/nagarectl/src/Nagare/Target.hs || {
-    echo "missing $url in cli/nagarectl/src/Nagare/Target.hs" >&2
+  grep -qF "$url" cli/nagarectl/src/Nagare/Target/Acme.hs || {
+    echo "missing $url in cli/nagarectl/src/Nagare/Target/Acme.hs" >&2
     exit 1
   }
   stray="$(grep -rlF "$url" \
     --include='*.sh' --include='*.hs' --include='*.nix' --include='*.yaml' --include='*.tmpl' \
     . \
     | grep -v -e '^\./scripts/lib/target\.sh$' \
-              -e '^\./cli/nagarectl/src/Nagare/Target\.hs$' \
+              -e '^\./cli/nagarectl/src/Nagare/Target/Acme\.hs$' \
               -e '^\./nix/checks/scripts/cluster-bootstrap-defaults\.sh$' \
               -e '^\./scripts/test-render-context-template\.sh$' \
               -e '^\./cli/nagarectl/test/Spec\.hs$' \
               -e '^\./cli/nagarectl/test/InventoryUpstreamSpec\.hs$' \
+              -e '^\./cli/nagarectl/test/Nagare/Test/Init\.hs$' \
               -e '^\./cluster/bootstrap/vendor/' || true)"
   if [ -n "$stray" ]; then
     echo "$url is duplicated outside the two resolvers:" >&2

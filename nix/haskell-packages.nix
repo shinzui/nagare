@@ -100,6 +100,15 @@ let
     })
   );
 
+  # The tests run payload scripts (for example the Helm capture plugin) from the
+  # source tree. A Linux build sandbox has no /usr/bin/env, so they read a copy
+  # whose scripts have store-path interpreters.
+  sourceForTests = pkgs.runCommand "nagare-source-for-tests" { } ''
+    cp -R ${../.} "$out"
+    chmod -R u+w "$out"
+    patchShebangs "$out/cluster"
+  '';
+
   checkedNagarectl = hl.doCheck (
     hl.overrideCabal haskellPackages.nagarectl (_old: {
       postPatch = (_old.postPatch or "") + ''
@@ -107,17 +116,17 @@ let
           test/InventoryUpstreamSpec.hs test/InventoryApplicationSpec.hs \
           test/InventoryFoundationSpec.hs test/InventoryAuthSpec.hs \
           test/InventoryObservabilitySpec.hs test/InventoryCacheSpec.hs \
-          --replace-fail "../../cluster/" "${../cluster}/"
+          --replace-fail "../../cluster/" "${sourceForTests}/cluster/"
         substituteInPlace test/AppDeploySpec.hs test/InventoryApplicationSpec.hs \
           --replace-fail "../nagare-dsl/test/fixtures/" "${../cli/nagare-dsl/test/fixtures}/"
         substituteInPlace \
           test/InventoryUpstreamSpec.hs test/InventoryObservabilitySpec.hs \
           test/InventoryCacheSpec.hs test/InventoryAuthSpec.hs \
-          --replace-fail '"../.."' '"${../.}"'
+          --replace-fail '"../.."' '"${sourceForTests}"'
       '';
       preCheck = ''
         export GHC_ENVIRONMENT=-
-        export PATH=${lib.makeBinPath [ typedConfigRuntime pkgs.kubernetes-helm pkgs.openssl ]}:$PATH
+        export PATH=${lib.makeBinPath [ typedConfigRuntime pkgs.kubernetes-helm pkgs.openssl pkgs.jq pkgs.python3 pkgs.perl ]}:$PATH
         export HELM_CACHE_HOME="$TMPDIR/nagare-helm-cache"
         mkdir -p "$HELM_CACHE_HOME"
       '';
