@@ -26,6 +26,8 @@ import Data.Version (showVersion)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Numeric.Natural (Natural)
 import Paths_nagarectl qualified as Package
+import System.Environment (lookupEnv)
+import System.IO.Unsafe (unsafePerformIO)
 import Text.Read (readMaybe)
 
 -- | Nagare's release identity. The optional suffix follows semantic-version
@@ -113,13 +115,32 @@ data BuildVersion = BuildVersion
   }
   deriving stock (Generic, Eq, Show)
 
--- | Build identity for the running executable.
+-- | Build identity for the running executable. The revision is compiled in
+-- when the Nix build stamps it (@stampRevision@ in @nix/haskell-packages.nix@);
+-- otherwise the shipped wrapper supplies it as @NAGARE_SOURCE_REVISION@.
 currentBuildVersion :: BuildVersion
 currentBuildVersion =
   BuildVersion
     { version = Text.pack (showVersion Package.version)
-    , revision = Nothing
+    , revision = compiledRevision <|> wrapperRevision
     }
+
+-- | Replaced by the Nix build when it stamps the revision.
+compiledRevision :: Maybe Text
+compiledRevision = Nothing
+
+-- | The revision the shipped wrapper sets before the process starts. Revision
+-- stamping is off during development (operator decision, 2026-10-05; EP-178),
+-- so the wrapper reports what is running without recompiling nagarectl for
+-- every commit. The environment is fixed for the process, so reading it once
+-- is constant for the process's lifetime.
+wrapperRevision :: Maybe Text
+wrapperRevision = unsafePerformIO $ do
+  value <- lookupEnv "NAGARE_SOURCE_REVISION"
+  pure $ case value of
+    Just revision | not (null revision) -> Just (Text.pack revision)
+    _ -> Nothing
+{-# NOINLINE wrapperRevision #-}
 
 -- | Render the stable command-line representation.
 renderBuildVersionText :: BuildVersion -> Text

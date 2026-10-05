@@ -4,6 +4,32 @@ let
   inherit (pkgs) lib;
   hl = pkgs.haskell.lib;
 
+  # Compile the git revision into nagarectl? OFF until MasterPlans 24, 25 and
+  # 26 are finished (operator decision, 2026-10-05; EP-178). Stamping makes every
+  # commit, docs-only commits included, rebuild and retest nagarectl on every
+  # system. While it is off, the shipped wrapper below sets
+  # NAGARE_SOURCE_REVISION, and `nagarectl version --json` reports it, so the
+  # release tooling (check-release.sh, assemble-release.sh,
+  # rehearse-clone-free-release.sh) keeps working.
+  stampRevision = false;
+
+  # Nagare's own packages: no library profiling (nothing uses it, and it is a
+  # second full compile pass), no Haddock. Tests run in the one derivation that
+  # ships, so each package compiles once per system.
+  nagarePackage = drv: hl.dontHaddock (hl.disableLibraryProfiling drv);
+
+  # The nagarectl tests read payload files from cluster/ and run payload scripts
+  # (for example the Helm capture plugin). A Linux build sandbox has no
+  # /usr/bin/env, so they read a copy of cluster/ alone, with store-path
+  # interpreters. It is cluster/ only, so other repository changes do not
+  # invalidate the tested build.
+  sourceForTests = pkgs.runCommand "nagare-source-for-tests" { } ''
+    mkdir -p "$out"
+    cp -R ${../cluster} "$out/cluster"
+    chmod -R u+w "$out"
+    patchShebangs "$out/cluster"
+  '';
+
   haskellPackages = pkgs.haskell.packages.ghc9124.override {
     overrides = hfinal: _hprev: {
       generic-lens = hfinal.callHackage "generic-lens" "2.3.0.0" { };
@@ -48,29 +74,59 @@ let
         hfinal.callCabal2nix "gogol-storage" (gogolSrc + "/lib/services/gogol-storage") { }
       ));
 
-      nagare-dsl = hl.dontHaddock (hl.dontCheck (
+      # nagare-dsl's loader tests need a GHC that already has nagare-dsl
+      # (typedConfigRuntime), so its tests run in a separate derivation below;
+      # it is small (61 modules). nagarectl, the expensive one, tests in place.
+      nagare-dsl = nagarePackage (hl.dontCheck (
         hfinal.callCabal2nix "nagare-dsl" ../cli/nagare-dsl { }
       ));
 
       # EP-174: the local gate and acceptance harness (maintainer tooling,
       # outside the platform payload).
-      nagare-harness = hl.dontHaddock (hfinal.callCabal2nix "nagare-harness" ../cli/nagare-harness { });
+      nagare-harness = nagarePackage (hl.overrideCabal (hfinal.callCabal2nix "nagare-harness" ../cli/nagare-harness { }) (_old: {
+        postPatch = ''
+          substituteInPlace test/Spec.hs \
+            --replace-fail "../../fixtures/inventory-release/local" "${../fixtures/inventory-release/local}"
+        '';
+      }));
 
       nagarectl =
         let
           package = hfinal.callCabal2nix "nagarectl" ../cli/nagarectl { };
           revisionPackage =
-            if sourceRevision == null then package
+            if !stampRevision || sourceRevision == null then package
             else
               hl.overrideCabal package (_old: {
                 postPatch = ''
                   substituteInPlace src/Nagare/Version.hs \
-                    --replace-fail "revision = Nothing" \
-                    'revision = Just "${sourceRevision}"'
+                    --replace-fail "compiledRevision = Nothing" \
+                    'compiledRevision = Just "${sourceRevision}"'
                 '';
               });
         in
-        hl.dontHaddock (hl.dontCheck revisionPackage);
+        nagarePackage (hl.doCheck (
+          hl.overrideCabal revisionPackage (_old: {
+            postPatch = (_old.postPatch or "") + ''
+              substituteInPlace \
+                test/InventoryUpstreamSpec.hs test/InventoryApplicationSpec.hs \
+                test/InventoryFoundationSpec.hs test/InventoryAuthSpec.hs \
+                test/InventoryObservabilitySpec.hs test/InventoryCacheSpec.hs \
+                --replace-fail "../../cluster/" "${sourceForTests}/cluster/"
+              substituteInPlace test/AppDeploySpec.hs test/InventoryApplicationSpec.hs \
+                --replace-fail "../nagare-dsl/test/fixtures/" "${../cli/nagare-dsl/test/fixtures}/"
+              substituteInPlace \
+                test/InventoryUpstreamSpec.hs test/InventoryObservabilitySpec.hs \
+                test/InventoryCacheSpec.hs test/InventoryAuthSpec.hs \
+                --replace-fail '"../.."' '"${sourceForTests}"'
+            '';
+            preCheck = ''
+              export GHC_ENVIRONMENT=-
+              export PATH=${lib.makeBinPath [ typedConfigRuntime pkgs.kubernetes-helm pkgs.openssl pkgs.jq pkgs.python3 pkgs.perl ]}:$PATH
+              export HELM_CACHE_HOME="$TMPDIR/nagare-helm-cache"
+              mkdir -p "$HELM_CACHE_HOME"
+            '';
+          })
+        ));
     };
   };
 
@@ -89,6 +145,8 @@ let
     nixBuilderProxy
   ];
 
+  # nagarectl and nagare-harness run their own tests in the derivation that
+  # ships (one compile per system); the flake checks keep their attribute names.
   checkedNagareDsl = hl.doCheck (
     hl.overrideCabal haskellPackages.nagare-dsl (_old: {
       postPatch = ''
@@ -103,39 +161,7 @@ let
       '';
     })
   );
-
-  # The tests run payload scripts (for example the Helm capture plugin) from the
-  # source tree. A Linux build sandbox has no /usr/bin/env, so they read a copy
-  # whose scripts have store-path interpreters.
-  sourceForTests = pkgs.runCommand "nagare-source-for-tests" { } ''
-    cp -R ${../.} "$out"
-    chmod -R u+w "$out"
-    patchShebangs "$out/cluster"
-  '';
-
-  checkedNagarectl = hl.doCheck (
-    hl.overrideCabal haskellPackages.nagarectl (_old: {
-      postPatch = (_old.postPatch or "") + ''
-        substituteInPlace \
-          test/InventoryUpstreamSpec.hs test/InventoryApplicationSpec.hs \
-          test/InventoryFoundationSpec.hs test/InventoryAuthSpec.hs \
-          test/InventoryObservabilitySpec.hs test/InventoryCacheSpec.hs \
-          --replace-fail "../../cluster/" "${sourceForTests}/cluster/"
-        substituteInPlace test/AppDeploySpec.hs test/InventoryApplicationSpec.hs \
-          --replace-fail "../nagare-dsl/test/fixtures/" "${../cli/nagare-dsl/test/fixtures}/"
-        substituteInPlace \
-          test/InventoryUpstreamSpec.hs test/InventoryObservabilitySpec.hs \
-          test/InventoryCacheSpec.hs test/InventoryAuthSpec.hs \
-          --replace-fail '"../.."' '"${sourceForTests}"'
-      '';
-      preCheck = ''
-        export GHC_ENVIRONMENT=-
-        export PATH=${lib.makeBinPath [ typedConfigRuntime pkgs.kubernetes-helm pkgs.openssl pkgs.jq pkgs.python3 pkgs.perl ]}:$PATH
-        export HELM_CACHE_HOME="$TMPDIR/nagare-helm-cache"
-        mkdir -p "$HELM_CACHE_HOME"
-      '';
-    })
-  );
+  checkedNagarectl = haskellPackages.nagarectl;
 
   nagarectl = pkgs.buildEnv {
     name = "nagarectl-${haskellPackages.nagarectl.version}";
@@ -145,7 +171,8 @@ let
     postBuild = ''
       wrapProgram "$out/bin/nagarectl" \
         --prefix PATH : ${lib.makeBinPath [ typedConfigRuntime pkgs.bind.dnsutils ]} \
-        --set-default NAGARE_PLATFORM_ROOT ${platformPackage}/share/nagare
+        --set-default NAGARE_PLATFORM_ROOT ${platformPackage}/share/nagare \
+        ${lib.optionalString (sourceRevision != null) "--set NAGARE_SOURCE_REVISION ${sourceRevision}"}
     '';
     meta.mainProgram = "nagarectl";
   };
@@ -203,12 +230,7 @@ let
   };
 in
 {
-  checkedNagareHarness = hl.overrideCabal haskellPackages.nagare-harness (_old: {
-    postPatch = ''
-      substituteInPlace test/Spec.hs \
-        --replace-fail "../../fixtures/inventory-release/local" "${../fixtures/inventory-release/local}"
-    '';
-  });
+  checkedNagareHarness = haskellPackages.nagare-harness;
   inherit atticClient checkedNagareDsl checkedNagarectl haskellPackages nagare nagarectl nixBuilderProxy operatorNagarectl typedConfigRuntime;
   nagarePlatform = platformPackage;
 }

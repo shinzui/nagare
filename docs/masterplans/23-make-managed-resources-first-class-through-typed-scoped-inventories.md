@@ -488,7 +488,7 @@ The operator approved all six decisions of [the exhaustive review's proposal](..
 - [ ] 2. ([EP-176](../plans/176-record-physical-identity-at-creation-and-read-it-through-one-checked-accessor.md)) ADR 27: create-identity recorded in the journal, binding from it at convergence, one checked identity accessor for every consumer in C, and a reviewed rebind. Covers F51 (reopened, N1), F52's convergence half, F60, F62 and C's N2–N13.
 - [ ] 3. ([EP-177](../plans/177-generate-recovery-model-coverage-from-a-resource-kind-table.md)) ADR 25 amendment: the kind table and generated product for every kind in the line, the totality test, and the harness fixes (no refusal counted as done, `LandsFailed` effective, no `ForeignObject` exemption, the corrected-review exit explored); deletion, crash-at-store and claim-loss faults.
 - [ ] 4. (EP-175 M4) ADR 26 §5: the attested close-and-accept-nothing exit; E's U2 (CDN purge, VM power) routed to it.
-- [ ] 5. One final verification against this line, a new candidate with a green `just gate` record and `gate verify`, then C1–C5 (including the phase 3b teardown of `mp23-c3i`) under the finish line below.
+- [ ] 5. One final verification against this line, then a new candidate (the revision is reported by the shipped wrapper while compile-time stamping is off, [EP-178](../plans/178-make-the-flake-check-build-each-haskell-package-once.md)), with a green `just gate` record and `gate verify`, then C1–C5 (including the phase 3b teardown of `mp23-c3i`) under the finish line below.
 
 ### Finish line (canonical checklist, 2026-10-04)
 

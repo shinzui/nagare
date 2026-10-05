@@ -25,7 +25,11 @@ checkout of it if it has none:
 just gate-verify <full-revision>   # must print "<rev> green, tree ..., systems ..."
 ```
 
-The CLI embeds its git revision, and release evidence binds that revision. Build from a worktree
+The CLI reports its git revision, and release evidence binds that revision. Until MasterPlans 24,
+25 and 26 are finished, the revision is not compiled in
+([EP-178](../plans/178-make-the-flake-check-build-each-haskell-package-once.md)). The shipped wrapper sets
+`NAGARE_SOURCE_REVISION`, and `version --json` reports it, so use the wrapped `bin/nagarectl` from
+the package, never the unwrapped binary. Build from a worktree
 pinned to the candidate, never from a tree that has moved on:
 
 ```bash
