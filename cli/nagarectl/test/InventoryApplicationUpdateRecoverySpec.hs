@@ -1,15 +1,20 @@
 module InventoryApplicationUpdateRecoverySpec (inventoryApplicationUpdateRecoveryTests) where
 
 import Control.Monad (forM_)
-import Data.Aeson (toJSON)
+import Data.Aeson (Result (..), Value (..), eitherDecodeStrict, fromJSON, object, toJSON, (.=))
+import Data.Aeson.KeyMap qualified as KM
+import Data.ByteString qualified as BS
+import Data.ByteString.Char8 qualified as BC
 import Data.Either (isLeft)
+import Data.Foldable (toList)
 import Data.IORef
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
+import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import InventoryTransactionSpec (fixtureBinding, recordingRegistryWith)
-import Nagare.Dsl.Prelude
+import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Execute
@@ -22,6 +27,8 @@ import Nagare.Resource.Policy
 import Nagare.Resource.Reference (Dependency (..))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
+import System.FilePath ((</>))
+import System.IO.Temp (withSystemTempDirectory)
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -32,6 +39,7 @@ inventoryApplicationUpdateRecoveryTests =
     [ companionRules
     , testCase "a durable member only verified by a stopped update is never replanned or retired as absent (F55, F58)" durableVerifyNotRecreated
     , testCase "retirement drops a confirmed-absent stateless member only while it stays absent (F58)" absentMemberRecheckedAtAdmission
+    , testCase "admission refuses an absence proof for a member that holds data (F58)" durableAbsenceRefusedAtAdmission
     ]
 
 companionRules :: TestTree
@@ -274,6 +282,76 @@ absentMemberRecheckedAtAdmission = do
   retired <- loadInventoryHistory store >>= expectRight
   Map.null (historyAccepted retired) @?= True
   Map.keys (historyRetained retired) @?= [declarationId kept]
+
+-- | F58: only a stateless member or a never-started create may leave history
+-- as absent. A saved review edited to carry an absence proof for a durable
+-- volume (planning never produces one) is refused at admission, before any
+-- observation, and history keeps the volume.
+durableAbsenceRefusedAtAdmission :: Assertion
+durableAbsenceRefusedAtAdmission = withSystemTempDirectory "durable-absence" $ \root -> do
+  let owner = ok (mkScopeId Platform "retiring-data")
+      cluster = mintResourceId owner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
+      kept = member owner cluster "kept"
+      volume = case member owner cluster "volume" of
+        Managed resource -> Managed (resource {dataPolicy = Durable (RecoveryIntent (ok (mkName "volume")) (mkSecretRef (ok (mkName "volume-key")) (ok (mkName "v1")) :| []))})
+        other -> other
+      scope = ok (mkScopeDeclaration owner [ResourceBundle [kept, volume] [] [] [] [] []])
+      initial = ok (composeInventory (ok (mkScopeSnapshot fixtureBinding Map.empty Map.empty)) (ReplaceScope scope :| []))
+      present = Map.fromList [(declarationId kept, ObservedPresent (ok (mkPhysicalIdentity "kept-uid"))), (declarationId volume, ObservedPresent (ok (mkPhysicalIdentity "volume-uid")))]
+  world <- newIORef (Map.map (const (ConfirmedAbsent (contentDigest "absent"))) present)
+  let registry = observingRegistry world
+      observeAll = ok . observationSet . Map.toList <$> readIORef world
+  store <- newMemoryStore
+  _ <- initializeStore store fixtureBinding "durable-absence" >>= expectRight
+  emptyHistory <- loadInventoryHistory store >>= expectRight
+  created <- observeAll
+  createReview <- readStoreSnapshot store >>= expectRight >>= \snapshot -> prepareReview registry snapshot (ok (planChanges initial noLifecycleDecisions emptyHistory created)) >>= expectRight
+  _ <- publishReview store createReview >>= expectRight
+  createReviewed <- readStoreSnapshot store >>= expectRight >>= \snapshot -> expectRight (verifyReview snapshot createReview)
+  writeIORef world present
+  _ <- applyReviewed store registry createReviewed >>= expectRight
+  history <- loadInventoryHistory store >>= expectRight
+  let accepted = Map.map (\(revision, declared) -> (revisionGeneration revision, declared)) (historyAccepted history)
+      retirement = ok (composeInventory (ok (mkScopeSnapshot fixtureBinding accepted Map.empty)) (RetireScope owner RetainResources :| []))
+  planning <- loadInventoryPlanningHistory store retirement >>= expectRight
+  retiring <- observeAll
+  bundle <- readStoreSnapshot store >>= expectRight >>= \snapshot -> prepareReview registry snapshot (ok (decideRetirement retirement planning retiring >>= \decisions -> planChanges retirement decisions planning retiring)) >>= expectRight
+  -- Edit the saved review: the volume's retention proof becomes an absence proof.
+  _ <- writeReviewBundle (root </> "review") bundle >>= expectRight
+  original <- BS.readFile (root </> "review" </> "review.json")
+  edited <- case eitherDecodeStrict original of
+    Right (Object document)
+      | Just (Array retentions) <- KM.lookup "retentions" document -> do
+          let isVolume entry = case entry of
+                Object fields -> KM.lookup "resource" fields == Just (toJSON (declarationId volume))
+                _ -> False
+              (moved, keptRetentions) = (filter isVolume (toList retentions), filter (not . isVolume) (toList retentions))
+              absence entry = case entry of
+                Object fields
+                  | Just (Object proof) <- KM.lookup "proof" fields ->
+                      object
+                        [ "resource" .= KM.lookup "resource" fields
+                        , "proof" .= object ["owner" .= KM.lookup "owner" proof, "revision" .= KM.lookup "revision" proof, "evidence" .= contentDigest "deleted"]
+                        ]
+                _ -> entry
+          assertBool "the review retains the volume" (length moved == 1)
+          case fromJSON (Object (KM.insert "absences" (toJSON (map absence moved)) (KM.insert "retentions" (toJSON keptRetentions) document))) of
+            Success value -> pure (encodeReviewDocument value)
+            Error reason -> assertFailure reason >> pure original
+    other -> assertFailure ("unexpected review document: " <> show other) >> pure original
+  BS.writeFile (root </> "review" </> "review.json") edited
+  BS.writeFile (root </> "review" </> "review.sha256") (BC.pack (T.unpack (digestText (contentDigest edited))) <> "\n")
+  tampered <- loadReviewBundle (root </> "review") >>= expectRight
+  _ <- publishReview store tampered >>= expectRight
+  published <- readStoreSnapshot store >>= expectRight
+  reviewed <- expectRight (verifyReview published tampered)
+  -- The volume is now absent, as an operator deleting it out of band would make it.
+  modifyIORef' world (Map.insert (declarationId volume) (ConfirmedAbsent (contentDigest "deleted")))
+  applyReviewed store registry reviewed >>= \case
+    Left failures -> assertBool ("unexpected refusal: " <> show failures) ("retention-coverage" `elem` map admissionErrorCode (NE.toList failures))
+    Right outcome -> assertFailure ("a durable volume was dropped from history as absent: " <> show outcome)
+  after <- loadInventoryHistory store >>= expectRight
+  assertBool "the refused retirement changed accepted history" (Map.member owner (historyAccepted after))
 
 -- | A Kubernetes adapter that reports the observations in the world map and
 -- completes every operation.

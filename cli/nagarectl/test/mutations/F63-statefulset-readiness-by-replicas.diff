@@ -1,0 +1,12 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/KubernetesConfiguration.hs b/cli/nagarectl/src/Nagare/Inventory/KubernetesConfiguration.hs
+--- a/cli/nagarectl/src/Nagare/Inventory/KubernetesConfiguration.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/KubernetesConfiguration.hs
+@@ -115,7 +115,7 @@
+               readyCount = case KM.lookup "readyReplicas" status of
+                 Just (Number replicas) -> replicas
+                 _ -> 0
+-          when (readyCount >= wanted) (Left "Kubernetes StatefulSet has every replica ready")
++          when (readyCount >= 0) (Left "Kubernetes StatefulSet has every replica ready")
+     _ -> case KM.lookup "conditions" status of
+       Just (Array conditions) | any ready (toList conditions) -> Left "Kubernetes object is Ready"
+       _ -> pure ()

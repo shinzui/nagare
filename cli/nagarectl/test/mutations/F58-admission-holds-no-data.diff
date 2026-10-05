@@ -1,0 +1,12 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Execute/Admission.hs b/cli/nagarectl/src/Nagare/Inventory/Execute/Admission.hs
+--- a/cli/nagarectl/src/Nagare/Inventory/Execute/Admission.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Execute/Admission.hs
+@@ -346,7 +346,7 @@
+       unless
+         ( fmap (\(owner, revision, _) -> (owner, revision)) (Map.lookup resource removed)
+             == Just (absenceOwner proof, absenceRevision proof)
+-            && Set.member resource holdsNoData
++            && True
+         )
+         (Left "absence proof names a resource that holds data or differs from accepted ownership history")
+     forM_ (Map.toAscList proofs) $ \(resource, proof) ->

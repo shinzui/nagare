@@ -333,7 +333,8 @@ incompleteApplicationOnlyReview landed published events transaction operationId 
           events
       pendingUpdate scope =
         plannedAction operation == UpdateResource
-          && scopeKind (scopeId scope) == Application
+          -- F63: a standalone data service's StatefulSet update, as F54's.
+          && (scopeKind (scopeId scope) == Application || selectedStatefulSet scope)
           && (neverIntended operationId || (landed == LandedUpdateProved && landedUpdate operationId))
           && all
             ( \entry ->
@@ -345,30 +346,31 @@ incompleteApplicationOnlyReview landed published events transaction operationId 
                              then True
                              else case Map.findWithDefault Pending (plannedOperationId op) previous of
                                Completed _ -> True
-                               -- F55: a companion that never started had no effect. A verify of
-                               -- any member is admitted (a corrected review verifies unchanged
-                               -- members, durable ones included); a create or an update only of a
-                               -- stateless ConfigMap ordered after the stopped operation (an
-                               -- application update rewrites its release history).
-                               Pending ->
-                                 neverIntended (plannedOperationId op)
-                                   && case [ member
-                                           | bundle <- scopeBundles scope
-                                           , Managed member <- declarations bundle
-                                           , NE.toList (plannedResources op) == [member ^. #identity]
-                                           ] of
-                                     [member] ->
-                                       plannedAction op == VerifyResource
-                                         || ( plannedAction op `elem` [CreateResource, UpdateResource]
-                                                && member ^. #dataPolicy == Stateless
-                                                && (case member ^. #address of Kubernetes _ "" kind (Just _) _ -> nameText kind == "configmap"; _ -> False)
-                                                && any (\resource -> OrderedAfter resource `elem` (member ^. #dependencies)) selected
-                                            )
-                                     _ -> False
+                               Pending -> neverStartedCompanion scope op
                                _ -> False
                          )
             )
             reviewed
+      -- F55: a companion that never started had no effect. A verify of any
+      -- member is admitted (a corrected review verifies unchanged members,
+      -- durable ones included); a create or an update only of a stateless
+      -- ConfigMap ordered after the stopped operation (an application update
+      -- rewrites its release history).
+      neverStartedCompanion scope op =
+        neverIntended (plannedOperationId op)
+          && case [ member
+                  | bundle <- scopeBundles scope
+                  , Managed member <- declarations bundle
+                  , NE.toList (plannedResources op) == [member ^. #identity]
+                  ] of
+            [member] ->
+              plannedAction op == VerifyResource
+                || ( plannedAction op `elem` [CreateResource, UpdateResource]
+                       && member ^. #dataPolicy == Stateless
+                       && (case member ^. #address of Kubernetes _ "" kind (Just _) _ -> nameText kind == "configmap"; _ -> False)
+                       && any (\resource -> OrderedAfter resource `elem` (member ^. #dependencies)) selected
+                   )
+            _ -> False
       selectedStatefulSet scope =
         scopeKind (scopeId scope) == Standalone
           && any
@@ -400,7 +402,15 @@ incompleteApplicationOnlyReview landed published events transaction operationId 
                 || ( all
                        ( \entry ->
                            let planned = reviewPlannedOperation entry
-                            in plannedAction planned == CreateResource
+                            in ( plannedAction planned == CreateResource
+                                   -- F65: a review that recreates a Service deleted outside
+                                   -- review also rewrites its release history; a never-started
+                                   -- companion had no effect.
+                                   || ( plannedOperationId planned /= operationId
+                                          && Map.findWithDefault Pending (plannedOperationId planned) previous == Pending
+                                          && neverStartedCompanion scope planned
+                                      )
+                               )
                                  && plannedExecutor planned == KubernetesExecutor
                                  && isNothing (reviewFenceDigest entry)
                                  && all (owns scope) (NE.toList (plannedResources planned))
@@ -493,7 +503,9 @@ loadUnstartedApplicationCreates store selectedOwners headValue
         ( Map.filterWithKey
             ( \owner revision ->
                 Set.member owner selectedOwners
-                  && scopeKind owner == Application
+                  -- A stopped standalone data service (F59) leaves never-started
+                  -- members too, such as its backup signing key.
+                  && scopeKind owner `elem` [Application, Standalone]
                   && Map.lookup owner (headConverged headValue) /= Just revision
             )
             (headAccepted headValue)

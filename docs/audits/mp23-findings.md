@@ -82,6 +82,8 @@ This is the authoritative list of implementation findings for [MP-23](../masterp
 | [F61](#f61) | P1 | A reviewed PostgreSQL rename whose copy Job fails partway has no exit | Open | EP-173 / EP-153 |
 | [F62](#f62) | P2 | A reviewed rename copies from, and retains, a source replaced outside review | Open | EP-153 / EP-173 |
 | [F63](#f63) | P1 | A Deployment or database StatefulSet update that lands but never becomes Ready has no exit | Open | EP-153 / EP-173 |
+| [F64](#f64) | P1 | An intended update whose target is deleted outside review, and not recreated, has no exit | Verifying | EP-153 / EP-173 |
+| [F65](#f65) | P1 | The create-path stop refuses a review that recreates a deleted Service alongside its release-history update | Verifying | EP-153 / EP-173 |
 
 Closed findings keep their full text, location, implementation updates and verification in [the closed-findings archive](mp23-archive/mp23-findings-closed.md). F01 and F11 retain their [earlier independent closure](mp23-archive/mp23-verification.md). F02, F03, F04, F05, F06, F07, F08 and F20 now have [2026-10-02 independent closure](mp23-independent-verification-2026-10-02.md). F34, F35, F36, F37, F38, F41 and F42 have 2026-10-04 independent closure on candidate `7596632c`, and F49 and F50 on candidate `847543896d07` ([records](mp23-independent-results-2026-10-04/phase1-source-and-regressions-7596632c.md)). Other entries retain their status shown above.
 
@@ -609,6 +611,8 @@ invalid-retirement: retention needs a selected scope replacement or retirement t
 - **Gap:** admission's own `holdsNoData` check (`Execute/Admission.hs`) has no regression; the recorded mutation reverts only the planning side.
 - **Stays Verifying.** Needed: a regression in which a review carries an absence proof for a durable volume and admission refuses it, plus a mutation of the admission check that makes it fail.
 
+**Implementation update, admission regression (2026-10-05; claude-opus-5-5; item 9 of nagare-84's review):** `test/InventoryApplicationUpdateRecoverySpec.hs`, "admission refuses an absence proof for a member that holds data (F58)". A saved retirement review is edited on disk, as an operator could edit it: the durable volume's retention proof becomes an absence proof, and the bundle is reloaded through `loadReviewBundle`, published and verified. With the volume absent, admission must refuse with `retention-coverage`, and accepted history must keep the scope. Mutation `test/mutations/F58-admission-holds-no-data.diff` (drop the no-data condition in `retentionCoverage`) makes it fail (see the README row).
+
 ## F59
 
 **A standalone database whose StatefulSet is created but never becomes Ready has no exit** — P1 (a stuck state: every later plan on the context is refused); **Partial** (reopened 2026-10-05 by independent verification); owners EP-153 / EP-173.
@@ -636,6 +640,12 @@ invalid-retirement: retention needs a selected scope replacement or retirement t
 - **Gap A (inferred from source, model reproduction requested):** `loadUnstartedApplicationCreates` (`Plan/History.hs`) computes never-started creates only for `Application` scopes. After a database stop with `backup-signing-key` still `Pending`, both a corrected review and retirement refuse with `durable-resource-missing`. The operation order follows the operation-ID digest, so this depends on the database name. The store stays idle but the database scope cannot move, so the follow-up exit the fix promises is broken for those names.
 - **Gap B (inferred):** a broker StatefulSet with topics under `LandsUnready` has no exit, because the create path requires every operation to use `KubernetesExecutor` and topics use `BrokerExecutor`.
 - **Reopened as Partial.** Needed: a post-stop corrected-review or retire step in the database scenario, on a fixture whose signing-key create is unstarted at the stall (it should fail on HEAD); a broker scenario under `LandsUnready`; and fixes for both.
+
+**Implementation update, gap A (2026-10-05; claude-opus-5-5):**
+- **Reproduced on HEAD `ab3d5bdc` (observed).** The recovery model's new scenario "create a database, then retire it" runs under `LandsUnready` on the StatefulSet create, followed by the F59 stop. Retirement then refuses at planning with `durable-resource-missing` on `standalone:database-pg/pg/backup-signing-key`, the never-started create.
+- **Fix.** `loadUnstartedApplicationCreates` (`Plan/History.hs`) also computes never-started creates for standalone scopes, so a stopped database's unstarted members retire as F58 absences.
+- **Mutation.** `test/mutations/F59-standalone-unstarted-creates.diff`.
+- **Not started:** gap B (brokers) is held by the operator's instruction of 2026-10-05.
 
 ## F60
 
@@ -676,6 +686,18 @@ That design is also what this finding's follow-up work needs. The model's F60 to
 - a reviewed exit for a partially written destination, for example abandoning the partial transfer after proving the destination volume has no other users, then recreating or wiping it before a retry;
 - a mutation record.
 
+**Implementation update (2026-10-05; claude-opus-5-5).** The fix was completed before the operator's hold. It is committed separately, so it can be reverted on its own if the structural proposal replaces it.
+- **Reproduced on HEAD `ab3d5bdc` (observed).** The rename recovery model has a new `PartialCopy` fault: the first copy into an empty destination writes partial data and fails. The model reports "I1: the rename stopped with no supported exit; open operations [op-44817955d08dd1e54c34d829]".
+- **Fix.** The transfer script (`Migration/PostgresRename.hs`) marks the destination `.nagare-transfer-incomplete` before copying and removes the mark only after the whole copy succeeds. A copy that finds the mark clears the partial data and copies again. A non-empty destination without the mark still refuses.
+- **Why the clearing is safe (inferred from the review's stage order):**
+  - the destination is created by this transaction after planning proved it absent;
+  - only Nagare's copy writes the mark;
+  - the new writer is ordered after the transfer stage.
+- **Regressions:**
+  - the rename recovery model, with `PartialCopy` and the world modelling the mark;
+  - `test/InventoryTransferScriptSpec.hs`, which runs the real script under `bash` on temporary volumes: an empty destination is copied, a marked partial one is redone, an unmarked differing one is refused, and verification refuses a destination that is still marked.
+- **Mutation.** `test/mutations/F61-transfer-redoes-incomplete-copy.diff`.
+
 ## F62
 
 **A reviewed rename copies from, and retains, a source replaced outside review** — P2; **Open**; owner EP-153 / EP-173.
@@ -703,4 +725,43 @@ That design is also what this finding's follow-up work needs. The model's F60 to
 - a "worker update lands unready" scenario and a "database update lands unready" scenario under `LandsUnready`, which should fail I1 on HEAD;
 - a reviewed exit for each;
 - mutation records.
+
+**Implementation update, database StatefulSets (2026-10-05; claude-opus-5-5):**
+- **Reproduced on HEAD `ab3d5bdc` (observed).** The model's new scenario "create a database, update its resources, then update it again" fails two ways:
+  - I1 under `LandsUnready` on the StatefulSet update, and on its corrected update;
+  - after an F59 stop, the corrected update is refused at prepare: "Kubernetes object is present but its required condition is not ready".
+- **Fix:**
+  - the adapter proves a landed, unready StatefulSet update with `confirmLandedUnready`, judging readiness by `readyReplicas` against `spec.replicas`;
+  - the stop admits that update in a standalone scope;
+  - prepare lets a corrective review update an owned, unready StatefulSet.
+- **Mutations.** `test/mutations/F63-*.diff`, four records.
+- **Worker Deployments are not fixed.** The fix was written and is held, uncommitted, in [`mp23-held-work/`](mp23-held-work/README.md). The fault-free worker scenario fails I1 on HEAD (observed). With the held patch the fault sweep still shows nine worker wedges.
+- **World fidelity, for review (inferred):** the world now restricts persistent status churn to Knative Services. A settled StatefulSet's status changes only when its pods change. Without this restriction, the StatefulSet update gave 75 I7 violations (each needing `abandon-refused-operation`).
+
+## F64
+
+**An intended update whose target is deleted outside review, and not recreated, has no exit** — P1; **Verifying**; owners EP-153 / EP-173.
+
+**Found by the EP-173 recovery model (2026-10-05, claude-opus-5-5)**, with a new world fault `Deleted`: an owned object deleted out of band at an observation boundary, never recreated. This is item 5 of nagare-84's review. Reproduced on HEAD `ab3d5bdc` (observed): I1 in "create then good update", in the bad-update scenarios and in the database update scenario. The target was the release-history ConfigMap, the Service or the database StatefulSet. Recovery reported `RecoveryUnresolved`, and every exit refused.
+
+**Fix.** An intended update whose owned target is gone answers `RecoverySafeToRetry` (`Adapters/Kubernetes.hs`). The retry's preflight refuses the absent object before any effect, the driver journals the no-effect refusal (F57), and `abandon-refused-operation` ends the transaction. A corrected review then recreates the stateless member.
+
+A dedicated stop-only decision for Services and StatefulSets was written first. Its mutation survived, because the retry-then-abandon exit already covers those kinds. So it was removed to keep one rule.
+
+**Mutation.** `test/mutations/F64-deleted-update-target-retry.diff`.
+
+**Model changes made alongside, for review (each a relaxation; observed reasons):**
+- **I4** counts writes per transaction, and the deleted object's write no longer counts. A later review reuses deterministic operation IDs, and rewriting an object deleted out of band is not a repeated effect.
+- **I2** skips members deleted out of band after verification.
+- **A planning refusal** of `durable-resource-missing` that names only members deleted out of band ends the scenario as expected. Data loss needs reviewed recovery or collection.
+
+## F65
+
+**The create-path stop refuses a review that recreates a deleted Service alongside its release-history update** — P1; **Verifying**; owners EP-153 / EP-173.
+
+**Found by the EP-173 recovery model (2026-10-05, claude-opus-5-5)** under `Deleted`, observed on the F64-repaired tree. The Service is deleted out of band, so the next review plans `CreateResource` for it and `UpdateResource` for its release history. If the new revision is unready, F16's create-path stop refuses, because that path required every operation to be a create. The result is I1 in the bad-update scenarios.
+
+**Fix.** F55's never-started-companion rule (`neverStartedCompanion`, `Plan/History.hs`) is shared by the update path and the create path. A never-started verify, or a never-started create or update of a stateless ConfigMap ordered after the stopped Service, is admitted on both paths.
+
+**Mutation.** `test/mutations/F65-create-stop-companions.diff`.
 

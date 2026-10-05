@@ -329,7 +329,7 @@ mkKubernetesAdapterWithObservations specs ops observeBatch stableObserve readBac
                 (KubernetesNotReady physical revision (Just owner) digest, Just reader)
                   | landedUpdate mutation physical owner digest ->
                       (>>= confirmLandedUnready (Just (mutationAddress mutation)) physical revision) <$> reader (mutationAddress mutation)
-                _ -> pure (Left "not a landed Knative Service update")
+                _ -> pure (Left "not a landed Knative Service or StatefulSet update")
               pure $ case requireSameBefore mutation before of
                 Right () -> RecoverySafeToRetry
                 Left reason -> case current of
@@ -343,6 +343,11 @@ mkKubernetesAdapterWithObservations specs ops observeBatch stableObserve readBac
                     | replacedUpdateTarget mutation physical owner -> RecoveryTargetReplaced physical
                   KubernetesPresent physical _ (Just owner) _
                     | replacedUpdateTarget mutation physical owner -> RecoveryTargetReplaced physical
+                  KubernetesAbsent _
+                    -- F64: an owned update target deleted outside review. Its
+                    -- preflight refuses the absent object before any effect, so
+                    -- the retry journals a no-effect refusal to abandon.
+                    | ownedUpdateBefore mutation -> RecoverySafeToRetry
                   KubernetesNotReady physical _ (Just owner) digest
                     | createdScratchStatefulSet mutation owner digest
                     , scratchFailure == Right True ->
@@ -384,7 +389,8 @@ mkKubernetesAdapterWithObservations specs ops observeBatch stableObserve readBac
                   _ -> RecoveryUnresolved reason
     landedUpdate mutation physical owner digest =
       mutationAction mutation == UpdateResource
-        && knativeServiceAddress (mutationAddress mutation)
+        -- F63: a database's StatefulSet update lands unready the same way.
+        && (knativeServiceAddress (mutationAddress mutation) || statefulSetAddress (mutationAddress mutation))
         && owner == mutationResource mutation
         && digest == mutationNativeDigest mutation
         && case mutationBefore mutation of
@@ -401,6 +407,12 @@ mkKubernetesAdapterWithObservations specs ops observeBatch stableObserve readBac
         && case mutationBefore mutation of
           KubernetesPresent prior _ (Just previousOwner) _ -> prior /= physical && previousOwner == owner
           KubernetesNotReady prior _ (Just previousOwner) _ -> prior /= physical && previousOwner == owner
+          _ -> False
+    ownedUpdateBefore mutation =
+      mutationAction mutation == UpdateResource
+        && case mutationBefore mutation of
+          KubernetesPresent _ _ (Just previousOwner) _ -> previousOwner == mutationResource mutation
+          KubernetesNotReady _ _ (Just previousOwner) _ -> previousOwner == mutationResource mutation
           _ -> False
     createdScratchStatefulSet mutation owner digest =
       owner == mutationResource mutation
@@ -537,6 +549,12 @@ validateBefore operation resource target desiredDigest state =
       | owner == resource && not (T.null revision)
       , Kubernetes _ "serving.knative.dev" kind (Just _) _ <- target
       , nameText kind == "service" ->
+          Right ()
+    -- F63: correcting a StatefulSet that never became Ready (a bad resource
+    -- change, an unschedulable pod) is an update of the unready object.
+    (UpdateResource, KubernetesNotReady _ revision (Just owner) _)
+      | owner == resource && not (T.null revision)
+      , statefulSetAddress target ->
           Right ()
     (VerifyResource, KubernetesPresent _ revision (Just owner) digest)
       | owner == resource && not (T.null revision) && digest == desiredDigest -> Right ()
@@ -769,6 +787,10 @@ requireSameBefore mutation current =
 knativeServiceAddress :: ProviderAddress -> Bool
 knativeServiceAddress (Kubernetes _ "serving.knative.dev" kind (Just _) _) = nameText kind == "service"
 knativeServiceAddress _ = False
+
+statefulSetAddress :: ProviderAddress -> Bool
+statefulSetAddress (Kubernetes _ "apps" kind (Just _) _) = nameText kind == "statefulset"
+statefulSetAddress _ = False
 
 completionProof :: KubernetesMutation -> KubernetesState -> Either Text ContentDigest
 completionProof mutation state

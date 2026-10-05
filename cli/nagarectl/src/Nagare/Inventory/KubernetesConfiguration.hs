@@ -101,9 +101,24 @@ confirmLandedUnready target uid revision observed = do
   case (KM.lookup "generation" metadata, KM.lookup "observedGeneration" status) of
     (Just (Number generation), Just (Number seen)) | generation == seen -> pure ()
     _ -> Left "Kubernetes controller has not observed the landed generation"
-  case KM.lookup "conditions" status of
-    Just (Array conditions) | any ready (toList conditions) -> Left "Kubernetes object is Ready"
-    _ -> pure ()
+  case target of
+    -- F63: a StatefulSet reports readiness through its replica counts, not a
+    -- Ready condition.
+    Just (Kubernetes _ "apps" kind _ _)
+      | nameText kind == "statefulset" -> do
+          let wanted = case observed of
+                Object root
+                  | Just (Object spec) <- KM.lookup "spec" root
+                  , Just (Number replicas) <- KM.lookup "replicas" spec ->
+                      replicas
+                _ -> 1
+              readyCount = case KM.lookup "readyReplicas" status of
+                Just (Number replicas) -> replicas
+                _ -> 0
+          when (readyCount >= wanted) (Left "Kubernetes StatefulSet has every replica ready")
+    _ -> case KM.lookup "conditions" status of
+      Just (Array conditions) | any ready (toList conditions) -> Left "Kubernetes object is Ready"
+      _ -> pure ()
   where
     ready (Object condition) =
       KM.lookup "type" condition == Just (String "Ready")

@@ -1,0 +1,73 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs b/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs
+--- a/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs
+@@ -389,8 +389,9 @@
+                   _ -> RecoveryUnresolved reason
+     landedUpdate mutation physical owner digest =
+       mutationAction mutation == UpdateResource
+-        -- F63: a database's StatefulSet update lands unready the same way.
+-        && (knativeServiceAddress (mutationAddress mutation) || statefulSetAddress (mutationAddress mutation))
++        -- F63: a worker Deployment or database StatefulSet update lands
++        -- unready the same way.
++        && (knativeServiceAddress (mutationAddress mutation) || workloadAddress (mutationAddress mutation))
+         && owner == mutationResource mutation
+         && digest == mutationNativeDigest mutation
+         && case mutationBefore mutation of
+@@ -554,7 +555,7 @@
+     -- change, an unschedulable pod) is an update of the unready object.
+     (UpdateResource, KubernetesNotReady _ revision (Just owner) _)
+       | owner == resource && not (T.null revision)
+-      , statefulSetAddress target ->
++      , workloadAddress target ->
+           Right ()
+     (VerifyResource, KubernetesPresent _ revision (Just owner) digest)
+       | owner == resource && not (T.null revision) && digest == desiredDigest -> Right ()
+@@ -788,9 +789,10 @@
+ knativeServiceAddress (Kubernetes _ "serving.knative.dev" kind (Just _) _) = nameText kind == "service"
+ knativeServiceAddress _ = False
+ 
+-statefulSetAddress :: ProviderAddress -> Bool
+-statefulSetAddress (Kubernetes _ "apps" kind (Just _) _) = nameText kind == "statefulset"
+-statefulSetAddress _ = False
++-- | A Deployment or StatefulSet, which reports readiness by replica counts.
++workloadAddress :: ProviderAddress -> Bool
++workloadAddress (Kubernetes _ "apps" kind (Just _) _) = nameText kind `elem` ["deployment", "statefulset"]
++workloadAddress _ = False
+ 
+ completionProof :: KubernetesMutation -> KubernetesState -> Either Text ContentDigest
+ completionProof mutation state
+diff --git a/cli/nagarectl/src/Nagare/Inventory/KubernetesConfiguration.hs b/cli/nagarectl/src/Nagare/Inventory/KubernetesConfiguration.hs
+--- a/cli/nagarectl/src/Nagare/Inventory/KubernetesConfiguration.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/KubernetesConfiguration.hs
+@@ -105,7 +105,7 @@
+     -- F63: a StatefulSet reports readiness through its replica counts, not a
+     -- Ready condition.
+     Just (Kubernetes _ "apps" kind _ _)
+-      | nameText kind == "statefulset" -> do
++      | nameText kind `elem` ["deployment", "statefulset"] -> do
+           let wanted = case observed of
+                 Object root
+                   | Just (Object spec) <- KM.lookup "spec" root
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Plan/History.hs b/cli/nagarectl/src/Nagare/Inventory/Plan/History.hs
+--- a/cli/nagarectl/src/Nagare/Inventory/Plan/History.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Plan/History.hs
+@@ -448,6 +448,8 @@
+                   -- Ready. It is stateless; its data lives on the separately created PVC.
+                   Kubernetes _ "apps" kind (Just _) _
+                     | scopeKind owner == Standalone -> nameText kind == "statefulset"
++                    -- F63: an application worker's Deployment update.
++                    | scopeKind owner == Application -> nameText kind == "deployment" && plannedAction operation == UpdateResource
+                   _ -> False
+                 _ -> False
+           _ -> False
+diff --git a/cli/nagarectl/test/InventoryRecoveryModelSpec.hs b/cli/nagarectl/test/InventoryRecoveryModelSpec.hs
+--- a/cli/nagarectl/test/InventoryRecoveryModelSpec.hs
++++ b/cli/nagarectl/test/InventoryRecoveryModelSpec.hs
+@@ -91,6 +91,7 @@
+   , Scenario "create a database, then ingest a scheduled receipt" [CreateDatabase, IngestReceipt] [] True plainShape
+   , Scenario "create a database, then retire it" [CreateDatabase, RetireDatabase] [] True plainShape
+   , Scenario "create a database, update its resources, then update it again" [CreateDatabase, UpdateDatabase, CreateDatabase] [] True plainShape
++  , Scenario "create with a worker, bad worker update, corrected update" [Deploy "v1", Deploy "bad", Deploy "v3"] ["bad"] True workerShape
+   ]
+ 
+ -- | The application's members besides its Service and release history.

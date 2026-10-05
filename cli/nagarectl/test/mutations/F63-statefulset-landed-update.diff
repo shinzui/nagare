@@ -1,0 +1,12 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs b/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs
+--- a/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs
+@@ -391,7 +391,7 @@
+     landedUpdate mutation physical owner digest =
+       mutationAction mutation == UpdateResource
+         -- F63: a database's StatefulSet update lands unready the same way.
+-        && (knativeServiceAddress (mutationAddress mutation) || statefulSetAddress (mutationAddress mutation))
++        && knativeServiceAddress (mutationAddress mutation)
+         && owner == mutationResource mutation
+         && digest == mutationNativeDigest mutation
+         && case mutationBefore mutation of

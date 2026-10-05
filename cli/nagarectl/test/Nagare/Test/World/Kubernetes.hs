@@ -68,13 +68,17 @@ data KubeWorld = KubeWorld
   , writes :: !(Map.Map OperationId Int)
   -- ^ Effective writes per reviewed operation (invariant I4).
   , replacedUids :: !(Set.Set PhysicalIdentity)
+  , deletedOutOfBand :: !(Set.Set ResourceId)
+  -- ^ Members the 'Deleted' fault removed outside review.
+  , lastWriter :: !(Map.Map ResourceId OperationId)
+  -- ^ The reviewed operation whose write produced each object.
   -- ^ Objects created out of band by the 'Replaced' fault, never by a review
   -- (invariant I3: they are never an accepted incarnation).
   }
   deriving stock (Eq, Show)
 
 newKubeWorld :: Set.Set ContentDigest -> IO (IORef KubeWorld)
-newKubeWorld unready = newIORef (KubeWorld Map.empty unready Set.empty 1 False False False Map.empty Set.empty)
+newKubeWorld unready = newIORef (KubeWorld Map.empty unready Set.empty 1 False False False Map.empty Set.empty Set.empty Map.empty)
 
 effectiveWrites :: KubeWorld -> Map.Map OperationId Int
 effectiveWrites = writes
@@ -147,6 +151,17 @@ observationFaults specs world adversary resource = do
                 , replacedUids = Set.insert replacement (replacedUids state)
                 }
     _ -> state
+  -- The deleted object's write no longer stands, so writing it again is not
+  -- a repeated effect (I4).
+  when (fault == Just Deleted) $ modifyIORef' world $ \state -> case Map.lookup resource (objects state) of
+    Just object'
+      | isJust (owner object') ->
+          state
+            { objects = Map.delete resource (objects state)
+            , deletedOutOfBand = Set.insert resource (deletedOutOfBand state)
+            , writes = maybe id (Map.adjust (subtract 1)) (Map.lookup resource (lastWriter state)) (writes state)
+            }
+    _ -> state
   when (fault == Just ChurnAlways) $ modifyIORef' world $ \state -> state {churning = True}
   when (fault == Just ForeignObject) $ case Map.lookup resource specs of
     Just (managed, _) -> modifyIORef' world $ \state ->
@@ -171,10 +186,12 @@ observationFaults specs world adversary resource = do
             , nextUid = nextUid state + 1
             }
     Nothing -> pure ()
-  -- A controller writes status (and so resourceVersion) on objects with status.
+  -- Knative's controller writes Service status (and so resourceVersion)
+  -- continuously (F30). A settled StatefulSet's status changes only when its
+  -- pods do, so persistent churn is a Knative Service behaviour.
   modifyIORef' world $ \state ->
     if churning state && not (quiet state) && not (inspecting state)
-      then state {objects = Map.adjust (\o -> if hasReadiness (address o) then o {resourceVersion = resourceVersion o + 1} else o) resource (objects state)}
+      then state {objects = Map.adjust (\o -> if knativeService (address o) then o {resourceVersion = resourceVersion o + 1} else o) resource (objects state)}
       else state
   pure (fault == Just TransientReadFailure)
 
@@ -274,7 +291,16 @@ mutate world adversary mutation = do
                   }
             next = state {objects = Map.insert resource written (objects state), nextUid = nextUid state + 1}
          in (counted next, Just readinessFor)
-    counted state = state {writes = Map.insertWith (+) (mutationOperation mutation) 1 (writes state)}
+    counted state =
+      state
+        { writes = Map.insertWith (+) (mutationOperation mutation) 1 (writes state)
+        , lastWriter = Map.insert resource (mutationOperation mutation) (lastWriter state)
+        }
+
+knativeService :: ProviderAddress -> Bool
+knativeService target = case target of
+  Kubernetes _ "serving.knative.dev" kind _ _ -> nameText kind == "service"
+  _ -> False
 
 kindOf :: ProviderAddress -> Text
 kindOf target = case target of
@@ -307,10 +333,13 @@ liveObject world target = do
               , "generation" .= generation object'
               , "managedFields" .= ([inventoryEntry] <> [foreignEntry | foreignManager object'] <> [statusEntry])
               ]
+        , "spec" .= object ["replicas" .= (1 :: Int)]
         , "status"
             .= object
               [ "observedGeneration" .= generation object'
               , "conditions" .= [object ["type" .= ("Ready" :: Text), "status" .= (if readiness object' == Ready then "True" else "False" :: Text)]]
+              , -- A StatefulSet reports readiness by its replica counts.
+                "readyReplicas" .= (if readiness object' == Ready then 1 else 0 :: Int)
               ]
         ]
     inventoryEntry = object ["manager" .= ("nagare-inventory" :: Text), "operation" .= ("Apply" :: Text), "fieldsV1" .= object ["f:spec" .= object ["f:template" .= object []]]]

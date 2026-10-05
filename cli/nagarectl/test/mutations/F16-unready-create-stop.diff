@@ -1,12 +1,11 @@
 diff --git a/cli/nagarectl/src/Nagare/Inventory/Execute/Recovery.hs b/cli/nagarectl/src/Nagare/Inventory/Execute/Recovery.hs
-index 51ce0c3b..5d3e032b 100644
 --- a/cli/nagarectl/src/Nagare/Inventory/Execute/Recovery.hs
 +++ b/cli/nagarectl/src/Nagare/Inventory/Execute/Recovery.hs
-@@ -480,7 +480,6 @@ recordOperatorRecovery store registry input takeOver = do
+@@ -480,7 +480,6 @@
                            , Just (landed, stopProof) <- case (savedStop, decision) of
                                -- A saved marker records a proof accepted earlier.
                                (Just proof, _) -> Just (LandedUpdateProved, proof)
 -                              (Nothing, RecoveryAwaitingReadiness physical) -> Just (LandedUpdateUnproved, stopDigest physical)
                                (Nothing, RecoveryLandedUnready physical) -> Just (LandedUpdateProved, stopDigest physical)
-                               _ -> Nothing
-                           , incompleteApplicationOnlyReview landed published events transaction operationId operation -> do
+                               -- F56: the reviewed target is gone, so the update's
+                               -- outcome is settled; the stop records the live

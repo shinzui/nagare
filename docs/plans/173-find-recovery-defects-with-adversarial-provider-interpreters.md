@@ -107,6 +107,17 @@ behind it is in
     It passes in about 30 s.
   - **Fast tier.** It now takes about 69 s, above M1's 60 s target. The database scenario added about
     18 s.
+- [x] (2026-10-05) M2 part 4, from nagare-84's review items (checkpoint; further fixes held by the
+  operator, 2026-10-05):
+  - **Scenarios:**
+    - "create a database, then retire it";
+    - "create a database, update its resources, then update it again".
+  - **Model:** a `Shape` (volume, worker) replaces the volume flag. The worker scenario itself is held
+    in `docs/audits/mp23-held-work/`.
+  - **Faults:** `Deleted` in the Kubernetes world, and `PartialCopy` in the rename world.
+  - **Findings reproduced on HEAD `ab3d5bdc` and fixed:** F59 gap A, F61, F63 (StatefulSets) and the
+    new F64 and F65. F58's admission regression was added.
+  - **Fast tier:** about 130 s, against M1's 60 s target.
 - [x] (2026-10-05) M2 acceptance, except F50:
   - The F38, F49 (status and ingestion), F52 and F59 guard reversions each fail a model:
     `cli/nagarectl/test/mutations/README.md`, each mutant's diff checked in the scratch worktree
@@ -193,6 +204,22 @@ behind it is in
     observed fault:
     - a lost acknowledgement or an interrupt on the copy Job's cleanup delete;
     - any fault on the verification Job's create.
+  Date: 2026-10-05
+
+- Decision: Model relaxations made with the `Deleted` fault and the database update scenario. Each is
+  listed for independent verification (nagare-84's rule for invariant relaxations).
+  - **Per-transaction I4.** I4 counts writes per transaction. Observed: a later review reuses
+    deterministic operation IDs.
+  - **Deleted writes.** An object deleted out of band no longer counts toward its operation's writes.
+    Rewriting it is not a repeated effect.
+  - **I2.** I2 skips members deleted out of band after verification. That is an unavoidable race;
+    status, not convergence, reports it.
+  - **Expected refusals.** A planning refusal `durable-resource-missing` that names only members
+    deleted out of band ends the scenario as an expected refusal.
+  - **Persistent churn (inferred).** Persistent status churn is restricted to Knative Services, the
+    behaviour F30 observed natively. A settled StatefulSet's status changes only when its pods
+    change. Without the restriction, a StatefulSet update needed `abandon-refused-operation` under
+    every churn placement (75 I7 violations).
   Date: 2026-10-05
 
 - Decision: F60 is an explicit tolerance in the I3 receipt clause, by operator decision. Only a

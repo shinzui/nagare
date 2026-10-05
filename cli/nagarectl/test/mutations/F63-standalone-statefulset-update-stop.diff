@@ -1,12 +1,12 @@
 diff --git a/cli/nagarectl/src/Nagare/Inventory/Plan/History.hs b/cli/nagarectl/src/Nagare/Inventory/Plan/History.hs
 --- a/cli/nagarectl/src/Nagare/Inventory/Plan/History.hs
 +++ b/cli/nagarectl/src/Nagare/Inventory/Plan/History.hs
-@@ -335,7 +335,7 @@
+@@ -334,7 +334,7 @@
+       pendingUpdate scope =
          plannedAction operation == UpdateResource
            -- F63: a standalone data service's StatefulSet update, as F54's.
-           && (scopeKind (scopeId scope) == Application || selectedStatefulSet scope)
--          && (neverIntended operationId || (landed == LandedUpdateProved && landedUpdate operationId))
-+          && neverIntended operationId
+-          && (scopeKind (scopeId scope) == Application || selectedStatefulSet scope)
++          && scopeKind (scopeId scope) == Application
+           && (neverIntended operationId || (landed == LandedUpdateProved && landedUpdate operationId))
            && all
              ( \entry ->
-                 let op = reviewPlannedOperation entry

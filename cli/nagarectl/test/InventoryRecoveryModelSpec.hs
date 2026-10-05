@@ -75,21 +75,37 @@ data Scenario = Scenario
   , historyFollows :: !Bool
   -- ^ Whether the release-history ConfigMap records each image, as an
   -- application's release history does, or stays as first created.
-  , withVolume :: !Bool
-  -- ^ Whether the application also declares an independent durable volume.
+  , shape :: !Shape
+  -- ^ The application's other members: a durable volume, a worker.
   }
   deriving stock (Eq, Show)
 
 scenarios :: [Scenario]
 scenarios =
-  [ Scenario "create" [Deploy "v1"] [] True False
-  , Scenario "create then good update" [Deploy "v1", Deploy "v2"] [] True False
-  , Scenario "create, bad update, corrected update (history unchanged)" [Deploy "v1", Deploy "bad", Deploy "v3"] ["bad"] False False
-  , Scenario "create, bad update, corrected update (history follows the release)" [Deploy "v1", Deploy "bad", Deploy "v3"] ["bad"] True False
-  , Scenario "create, bad update, corrected update (with a durable volume)" [Deploy "v1", Deploy "bad", Deploy "v3"] ["bad"] True True
-  , Scenario "create with a durable volume, then retire" [Deploy "v1", Retire] [] True True
-  , Scenario "create a database, then ingest a scheduled receipt" [CreateDatabase, IngestReceipt] [] True False
+  [ Scenario "create" [Deploy "v1"] [] True plainShape
+  , Scenario "create then good update" [Deploy "v1", Deploy "v2"] [] True plainShape
+  , Scenario "create, bad update, corrected update (history unchanged)" [Deploy "v1", Deploy "bad", Deploy "v3"] ["bad"] False plainShape
+  , Scenario "create, bad update, corrected update (history follows the release)" [Deploy "v1", Deploy "bad", Deploy "v3"] ["bad"] True plainShape
+  , Scenario "create, bad update, corrected update (with a durable volume)" [Deploy "v1", Deploy "bad", Deploy "v3"] ["bad"] True volumeShape
+  , Scenario "create with a durable volume, then retire" [Deploy "v1", Retire] [] True volumeShape
+  , Scenario "create a database, then ingest a scheduled receipt" [CreateDatabase, IngestReceipt] [] True plainShape
+  , Scenario "create a database, then retire it" [CreateDatabase, RetireDatabase] [] True plainShape
+  , Scenario "create a database, update its resources, then update it again" [CreateDatabase, UpdateDatabase, CreateDatabase] [] True plainShape
   ]
+
+-- | The application's members besides its Service and release history.
+data Shape = Shape
+  { shapeVolume :: !Bool
+  , shapeWorker :: !Bool
+  -- ^ A worker Deployment whose image follows the release; in a worker
+  -- scenario only the worker's revision of an unready image fails readiness.
+  }
+  deriving stock (Eq, Show)
+
+plainShape, volumeShape, workerShape :: Shape
+plainShape = Shape False False
+volumeShape = Shape True False
+workerShape = Shape False True
 
 data Step
   = -- | Review and apply the application at this image.
@@ -100,6 +116,11 @@ data Step
     CreateDatabase
   | -- | Plan ingestion of a scheduled receipt as `db backup-receipts` does.
     IngestReceipt
+  | -- | Retire the database scope, retaining its members.
+    RetireDatabase
+  | -- | Review and apply the database with new resource requests, which
+    -- rewrites its StatefulSet.
+    UpdateDatabase
   deriving stock (Eq, Show)
 
 stepText :: Step -> Text
@@ -108,6 +129,8 @@ stepText step = case step of
   Retire -> "retire"
   CreateDatabase -> "create database"
   IngestReceipt -> "ingest receipt"
+  RetireDatabase -> "retire database"
+  UpdateDatabase -> "update database"
 
 type Schedule = [(Boundary, Fault)]
 
@@ -150,7 +173,7 @@ runTier schedulesFor = do
           either (\violation -> [violation]) (const []) <$> runScenario scenario schedule
   case violations of
     [] -> pure ()
-    _ -> assertFailure (T.unpack (T.intercalate "\n\n" (take 5 violations)) <> "\n\n" <> show (length violations) <> " violation(s)")
+    _ -> assertFailure (T.unpack (T.intercalate "\n\n" (take 400 violations)) <> "\n\n" <> show (length violations) <> " violation(s)")
 
 -- * One execution
 
@@ -228,14 +251,19 @@ replay scenario schedule taken probe = do
       let historyImage image' = if historyFollows scenario then image' else "v1"
           image = stepText step
       outcome <- case step of
-        Retire -> retireAndApply run (withVolume scenario) previous (historyImage previous)
-        CreateDatabase -> databaseAndApply run (withVolume scenario) previous (historyImage previous)
-        _ -> reviewAndApply run (withVolume scenario) image (historyImage image)
+        Retire -> retireAndApply run (shape scenario) previous (historyImage previous)
+        CreateDatabase -> databaseAndApply run (databaseScope, databaseNative) (shape scenario) previous (historyImage previous)
+        UpdateDatabase -> databaseAndApply run resizedDatabase (shape scenario) previous (historyImage previous)
+        RetireDatabase -> scopeRetireAndApply run databaseScopeId (shape scenario) previous (historyImage previous)
+        _ -> reviewAndApply run (shape scenario) image (historyImage image)
+      deletedData <- either (deletedDataRefusal run) (const (pure False)) outcome
       case outcome of
         Left refusal
-          | any ((== ForeignObject) . snd) schedule -> do
-              -- An unowned object at a planned address refuses planning; there is
-              -- no transaction to wedge, so the scenario ends here.
+          | any ((== ForeignObject) . snd) schedule || deletedData -> do
+              -- An unowned object at a planned address refuses planning, and a
+              -- durable member deleted outside review refuses until its data is
+              -- recovered or its collection reviewed. There is no transaction to
+              -- wedge, so the scenario ends here.
               adversary <- readIORef (runAdversary run)
               pure (Replayed (Right (counts adversary)))
           | otherwise -> pure (Replayed (Left (describe scenario schedule image ("planning refused: " <> refusal) [])))
@@ -253,7 +281,18 @@ replay scenario schedule taken probe = do
                   (Right (), MoveIdle : _) -> go run (next previous step) rest more
                   _ -> pure (Replayed (Left "internal: a replayed exit did not reach an idle head"))
               [] -> case probe of
-                [] -> AtStop image why <$> candidateMoves run reviewed transaction
+                [] -> do
+                  world <- readIORef (runWorld run)
+                  let operations =
+                        [ operationIdText (plannedOperationId planned) <> " " <> T.pack (show (plannedAction planned)) <> " " <> T.intercalate "," (map resourceIdText (NE.toList (plannedResources planned)))
+                        | entry <- reviewOperations (reviewedDocument reviewed)
+                        , let planned = reviewPlannedOperation entry
+                        ]
+                      context =
+                        "; operations: "
+                          <> T.intercalate "; " operations
+                          <> (if Set.null (deletedOutOfBand world) then "" else "; deleted outside review: " <> T.intercalate "," (map resourceIdText (Set.toList (deletedOutOfBand world))))
+                  AtStop image (why <> context) <$> candidateMoves run reviewed transaction
                 path -> do
                   outcomes <- mapM (tryMove run registry reviewed transaction) path
                   afterProbe <- checkInvariants run
@@ -272,12 +311,14 @@ data Run = Run
   , runAdversary :: !(IORef Adversary)
   , runBound :: !(IORef (Map.Map ContentDigest (Map.Map ResourceId ContentDigest)))
   -- ^ Native digests the review of each desired scope revision bound.
-  , runImages :: !(IORef (Map.Map ContentDigest (Bool, Text, Text)))
+  , runImages :: !(IORef (Map.Map ContentDigest (Shape, Text, Text)))
   -- ^ The volume, service image and history image each desired scope revision
   -- declares, so the model can observe accepted members (I3).
   , runIncarnations :: !(IORef (Map.Map ResourceId PhysicalIdentity))
   -- ^ The last incarnation the head recorded for each member, kept after the
   -- head drops the record (I3's retirement clause).
+  , runDatabase :: !(IORef (Map.Map ResourceId (ManagedResource, ByteString)))
+  -- ^ The database revision's native specs the current review binds.
   , runConverged :: !(IORef (Map.Map ScopeId ScopeRevision))
   -- ^ The converged revisions last checked; I2 checks a revision when the
   -- head first reports it converged.
@@ -291,12 +332,13 @@ newRun scenario schedule = do
   inspect <- newObjectStore base fixtureBinding "recovery-inspect" Nothing >>= orFail "open inspection store"
   _ <- initializeStore store fixtureBinding "recovery-model" >>= orFail "initialize store"
   modifyIORef' adversary (\value -> value {storeArmed = True})
-  world <- newKubeWorld (Set.fromList [serviceDigest image | image <- unready scenario])
+  world <- newKubeWorld (Set.fromList [if shapeWorker (shape scenario) then workerDigest image else serviceDigest image | image <- unready scenario])
   bound <- newIORef Map.empty
   images <- newIORef Map.empty
   incarnations <- newIORef Map.empty
+  database <- newIORef databaseNative
   converged <- newIORef Map.empty
-  pure (Run store inspect world adversary bound images incarnations converged)
+  pure (Run store inspect world adversary bound images incarnations database converged)
 
 data Applied
   = Done
@@ -306,7 +348,7 @@ data Applied
 -- command an operator simply re-runs, so planning is retried once when a store
 -- fault fired during it; an interrupted apply is a stopped transaction and is
 -- never retried.
-reviewAndApply :: Run -> Bool -> Text -> Text -> IO (Either Text (AdapterRegistry, ReviewedPlan, Applied))
+reviewAndApply :: Run -> Shape -> Text -> Text -> IO (Either Text (AdapterRegistry, ReviewedPlan, Applied))
 reviewAndApply run volume image historyImage = do
   planned <- retryingStoreFaults run (planReview run volume image historyImage)
   case planned of
@@ -315,33 +357,49 @@ reviewAndApply run volume image historyImage = do
       forM_ (Map.elems (reviewDesiredRevisions (reviewedDocument reviewed))) $ \revision ->
         modifyIORef' (runBound run) (Map.insert (revisionDigest revision) (boundDigests volume image historyImage))
           >> modifyIORef' (runImages run) (Map.insert (revisionDigest revision) (volume, image, historyImage))
+      startTransaction run
       applied <- try (applyReviewed (runStore run) registry reviewed)
       Right . (registry,reviewed,) <$> classify run applied
 
 -- | Retire the application scope, retaining its members, as `inventory
 -- retire` plans it.
-retireAndApply :: Run -> Bool -> Text -> Text -> IO (Either Text (AdapterRegistry, ReviewedPlan, Applied))
+retireAndApply :: Run -> Shape -> Text -> Text -> IO (Either Text (AdapterRegistry, ReviewedPlan, Applied))
 retireAndApply run volume image historyImage = do
   planned <- retryingStoreFaults run (planRetirement run volume image historyImage)
   case planned of
     Left err -> pure (Left err)
     Right (registry, reviewed) -> do
+      startTransaction run
       applied <- try (applyReviewed (runStore run) registry reviewed)
       Right . (registry,reviewed,) <$> classify run applied
 
-planRetirement :: Run -> Bool -> Text -> Text -> IO (Either Text (AdapterRegistry, ReviewedPlan))
-planRetirement run volume image historyImage =
-  planWith run (registryFor run volume image historyImage) (RetireScope appScope RetainResources) decideRetirement
+-- | Retire one scope, retaining its members, as `inventory retire` plans it.
+scopeRetireAndApply :: Run -> ScopeId -> Shape -> Text -> Text -> IO (Either Text (AdapterRegistry, ReviewedPlan, Applied))
+scopeRetireAndApply run scope volume image historyImage = do
+  planned <- retryingStoreFaults run (registryFor run volume image historyImage >>= \registry -> planWith run registry (RetireScope scope RetainResources) decideRetirement)
+  case planned of
+    Left err -> pure (Left err)
+    Right (registry, reviewed) -> do
+      startTransaction run
+      applied <- try (applyReviewed (runStore run) registry reviewed)
+      Right . (registry,reviewed,) <$> classify run applied
 
--- | Review and apply the standalone database scope.
-databaseAndApply :: Run -> Bool -> Text -> Text -> IO (Either Text (AdapterRegistry, ReviewedPlan, Applied))
-databaseAndApply run volume image historyImage = do
-  planned <- retryingStoreFaults run (planWith run (registryFor run volume image historyImage) (ReplaceScope databaseScope) (\_ _ _ -> Right noLifecycleDecisions))
+planRetirement :: Run -> Shape -> Text -> Text -> IO (Either Text (AdapterRegistry, ReviewedPlan))
+planRetirement run volume image historyImage =
+  registryFor run volume image historyImage >>= \registry -> planWith run registry (RetireScope appScope RetainResources) decideRetirement
+
+-- | Review and apply the standalone database scope at one compiled revision.
+databaseAndApply :: Run -> (ScopeDeclaration, Map.Map ResourceId (ManagedResource, ByteString)) -> Shape -> Text -> Text -> IO (Either Text (AdapterRegistry, ReviewedPlan, Applied))
+databaseAndApply run (scope, native) volume image historyImage = do
+  -- As production builds it: the reviewed revision's native specs.
+  writeIORef (runDatabase run) native
+  planned <- retryingStoreFaults run (registryFor run volume image historyImage >>= \registry -> planWith run registry (ReplaceScope scope) (\_ _ _ -> Right noLifecycleDecisions))
   case planned of
     Left err -> pure (Left err)
     Right (registry, reviewed) -> do
       forM_ (Map.lookup databaseScopeId (reviewDesiredRevisions (reviewedDocument reviewed))) $ \revision ->
-        modifyIORef' (runBound run) (Map.insert (revisionDigest revision) (Map.map (contentDigest . snd) databaseNative))
+        modifyIORef' (runBound run) (Map.insert (revisionDigest revision) (Map.map (contentDigest . snd) native))
+      startTransaction run
       applied <- try (applyReviewed (runStore run) registry reviewed)
       Right . (registry,reviewed,) <$> classify run applied
 
@@ -359,7 +417,8 @@ ingestReceipt run clean = do
       -- As the command does: the accepted members' native bytes come from the
       -- store's review evidence, not from the compiler.
       native <- either (const Map.empty) fst <$> Status.loadAcceptedNativeSelected (Set.fromList [statefulId, pvcId, cronId, signingId]) (runStore run) history acceptedInventory
-      observed <- observeWithRegistry (registryFor run False "v1" "v1") (Map.singleton KubernetesExecutor [statefulId, pvcId, cronId, signingId])
+      registry <- registryFor run plainShape "v1" "v1"
+      observed <- observeWithRegistry registry (Map.singleton KubernetesExecutor [statefulId, pvcId, cronId, signingId])
       world <- readIORef (runWorld run)
       let live resource = case Map.lookup resource . observationMap =<< either (const Nothing) Just observed of
             Just (ObservedPresent physical) -> Just physical
@@ -423,6 +482,20 @@ ingestReceipt run clean = do
       | clean = Left ("I3: fault-free ingestion could not be planned: " <> why)
       | otherwise = Right ()
 
+-- | Planning refuses `durable-resource-missing` naming only members the world
+-- deleted outside review: the expected refusal, not a wedge.
+deletedDataRefusal :: Run -> Text -> IO Bool
+deletedDataRefusal run refusal = do
+  world <- readIORef (runWorld run)
+  let named = [T.takeWhile (/= '"') chunk | chunk <- drop 1 (T.splitOn "ResourceId \"" refusal)]
+      deleted = Set.map resourceIdText (deletedOutOfBand world)
+  pure ("durable-resource-missing" `T.isInfixOf` refusal && not (null named) && all (`Set.member` deleted) named)
+
+-- | I4 is per transaction: a later review may write the same deterministic
+-- operation again as new reviewed intent.
+startTransaction :: Run -> IO ()
+startTransaction run = modifyIORef' (runWorld run) (\world -> world {writes = Map.empty})
+
 -- | Run a command; if it failed while a store fault fired, run it once more.
 retryingStoreFaults :: Run -> IO (Either Text a) -> IO (Either Text a)
 retryingStoreFaults run command = do
@@ -443,9 +516,9 @@ instance Exception StoreTrouble
 orTrouble :: (Show e) => Text -> Either e a -> IO a
 orTrouble context = either (\err -> throwIO (StoreTrouble (context <> ": " <> T.pack (show err)))) pure
 
-planReview :: Run -> Bool -> Text -> Text -> IO (Either Text (AdapterRegistry, ReviewedPlan))
+planReview :: Run -> Shape -> Text -> Text -> IO (Either Text (AdapterRegistry, ReviewedPlan))
 planReview run volume image historyImage =
-  planWith run (registryFor run volume image historyImage) (ReplaceScope (scopeFor volume image historyImage)) (\_ _ _ -> Right noLifecycleDecisions)
+  registryFor run volume image historyImage >>= \registry -> planWith run registry (ReplaceScope (scopeFor volume image historyImage)) (\_ _ _ -> Right noLifecycleDecisions)
 
 planWith ::
   Run ->
@@ -652,7 +725,9 @@ checkInvariants run = do
         , (resource, digest) <- Map.toList members
         , case Map.lookup resource (objects world) of
             Just object' -> nativeDigest object' /= digest || readiness object' /= Ready
-            Nothing -> True
+            -- Deleted outside review after its verification; status, not
+            -- convergence, reports that.
+            Nothing -> Set.notMember resource (deletedOutOfBand world)
         ]
   stale <- convergedStaleIncarnations run
   known <- Map.union (maybe Map.empty headIncarnations current) <$> readIORef (runIncarnations run)
@@ -677,7 +752,7 @@ convergedStaleIncarnations run = do
   history <- loadInventoryHistory (runInspect run) >>= orFail "load history"
   images <- readIORef (runImages run)
   let appImages = Map.lookup appScope (historyAccepted history) >>= \(revision, _) -> Map.lookup (revisionDigest revision) images
-  case (if Map.null (historyAccepted history) then Nothing else Just (fromMaybe (False, "v1", "v1") appImages)) of
+  case (if Map.null (historyAccepted history) then Nothing else Just (fromMaybe (plainShape, "v1", "v1") appImages)) of
     Nothing -> pure []
     Just (volume, image, historyImage) -> do
       let accepted = Map.map (\(revision, declared) -> (revisionGeneration revision, declared)) (historyAccepted history)
@@ -685,7 +760,8 @@ convergedStaleIncarnations run = do
           members = [resource ^. #identity | Managed resource <- inventoryDeclarations inventory]
       incarnations <- Status.statusIncarnations (runInspect run) (historyHead history) >>= orFail "status incarnations"
       modifyIORef' (runWorld run) (\world -> world {inspecting = True})
-      observed <- observeWithRegistry (registryFor run volume image historyImage) (Map.singleton KubernetesExecutor members)
+      registry <- registryFor run volume image historyImage
+      observed <- observeWithRegistry registry (Map.singleton KubernetesExecutor members)
       modifyIORef' (runWorld run) (\world -> world {inspecting = False})
       world <- readIORef (runWorld run)
       pure $ case observed of
@@ -708,7 +784,7 @@ describe scenario schedule image violation tried =
     , "violation: " <> violation
     ]
       <> ["exits tried:" | not (null tried)]
-      <> map ("  " <>) (take 12 tried)
+      <> map ("  " <>) (take 40 tried)
 
 -- * The application scope and its registry
 
@@ -763,27 +839,44 @@ volumeValue =
     , "spec" .= object ["accessModes" .= ["ReadWriteOnce" :: Text], "resources" .= object ["requests" .= object ["storage" .= ("1Gi" :: Text)]]]
     ]
 
-boundMembers :: Bool -> Text -> Text -> Map.Map ResourceId (ManagedResource, ByteString)
+boundMembers :: Shape -> Text -> Text -> Map.Map ResourceId (ManagedResource, ByteString)
 boundMembers volume image historyImage =
   Map.fromList $
     [ (serviceId, bindMember serviceId (serviceValue image))
     , (historyId, first (\history -> history {dependencies = [OrderedAfter serviceId]}) (bindMember historyId (historyValue historyImage)))
     ]
-      <> [(volumeId, bindMemberWith volumePolicy volumeId volumeValue) | volume]
+      <> [(volumeId, bindMemberWith volumePolicy volumeId volumeValue) | shapeVolume volume]
+      <> [(workerId, bindMember workerId (workerValue image)) | shapeWorker volume]
 
-boundDigests :: Bool -> Text -> Text -> Map.Map ResourceId ContentDigest
+boundDigests :: Shape -> Text -> Text -> Map.Map ResourceId ContentDigest
 boundDigests volume image historyImage = Map.map (contentDigest . snd) (boundMembers volume image historyImage)
+
+workerId :: ResourceId
+workerId = mintResourceId appScope (ok (mkLogicalKey "worker")) (ok (mkName "deployment"))
+
+workerValue :: Text -> Value
+workerValue image =
+  object
+    [ "apiVersion" .= ("apps/v1" :: Text)
+    , "kind" .= ("Deployment" :: Text)
+    , "metadata" .= object ["name" .= ("web-worker" :: Text), "namespace" .= ("personal" :: Text)]
+    , "spec" .= object ["replicas" .= (1 :: Int), "template" .= object ["spec" .= object ["containers" .= [object ["image" .= ("registry.example/worker:" <> image)]]]]]
+    ]
+
+workerDigest :: Text -> ContentDigest
+workerDigest image = contentDigest (snd (bindMember workerId (workerValue image)))
 
 serviceDigest :: Text -> ContentDigest
 serviceDigest image = contentDigest (snd (bindMember serviceId (serviceValue image)))
 
-scopeFor :: Bool -> Text -> Text -> ScopeDeclaration
+scopeFor :: Shape -> Text -> Text -> ScopeDeclaration
 scopeFor volume image historyImage = ok (mkScopeDeclaration appScope [ResourceBundle (map (Managed . fst) (Map.elems (boundMembers volume image historyImage))) [] [] [] [] []])
 
 -- | As production builds it for one review: the reviewed members' specs.
-registryFor :: Run -> Bool -> Text -> Text -> AdapterRegistry
-registryFor run volume image historyImage =
-  ok (mkAdapterRegistry [worldKubernetesAdapter (fixtureBinding ^. #identity) (boundMembers volume image historyImage <> databaseNative) (runWorld run) (runAdversary run)])
+registryFor :: Run -> Shape -> Text -> Text -> IO AdapterRegistry
+registryFor run volume image historyImage = do
+  database <- readIORef (runDatabase run)
+  pure (ok (mkAdapterRegistry [worldKubernetesAdapter (fixtureBinding ^. #identity) (boundMembers volume image historyImage <> database) (runWorld run) (runAdversary run)]))
 
 -- * The standalone database scope
 
@@ -795,7 +888,14 @@ databaseBackend = GcsBackend "project" "bucket"
 
 databaseScope :: ScopeDeclaration
 databaseNative :: Map.Map ResourceId (ManagedResource, ByteString)
-(databaseScope, databaseNative) =
+(databaseScope, databaseNative) = compiledDatabase Nothing
+
+-- | The same database with CPU requests: only its StatefulSet changes.
+resizedDatabase :: (ScopeDeclaration, Map.Map ResourceId (ManagedResource, ByteString))
+resizedDatabase = compiledDatabase (Just (Dsl.Resources (Just (ok (Dsl.mkQuantity "500m"))) Nothing Nothing Nothing))
+
+compiledDatabase :: Maybe Dsl.Resources -> (ScopeDeclaration, Map.Map ResourceId (ManagedResource, ByteString))
+compiledDatabase resources =
   ok
     ( compileStandaloneDatabase
         (DatabaseDirectInput database databaseScopeId appCluster Nothing recovery (SourceLocation "model" "pg"))
@@ -810,7 +910,7 @@ databaseNative :: Map.Map ResourceId (ManagedResource, ByteString)
         (defaultEngineVersion Postgres)
         (ok (Dsl.mkNamespace "personal"))
         (ok (Dsl.mkQuantity "1Gi"))
-        Nothing
+        resources
         Dsl.Retain
     recovery = RecoveryIntent (ok (mkName "backup")) (mkSecretRef (ok (mkName "nagare-db-pg")) (ok (mkName "v1")) :| [])
 

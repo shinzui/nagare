@@ -495,7 +495,8 @@ This list says what remains before MP-23 is complete. It was agreed between sess
 - [ ] Close every finding that is not yet Closed, per the [tracker](../audits/mp23-findings.md)'s closure rule:
   - Open: F48, F61, F62, F63 (F61–F63 opened 2026-10-05 by independent verification; model reproductions pending)
   - Partial: F40, F59 (F59 reopened 2026-10-05: its post-stop exit fails for standalone databases)
-  - Verifying: F15, F16, F30, F31, F32, F33, F39, F43, F44, F45, F46, F47, F52, F53, F55, F56, F57, F58
+  - Verifying: F15, F16, F30, F31, F32, F33, F39, F43, F44, F45, F46, F47, F52, F53, F55, F56, F57, F58, F64, F65
+  - Checkpoint 2026-10-05 (implementer, before the operator hold): fixes and model reproductions recorded for F59 gap A, F61, F63 (StatefulSets) and the new F64 and F65. Statuses are set by the reviewer. Further finding fixes are held pending the enumeration review and the structural exit-rule proposal; see [held work](../audits/mp23-held-work/README.md).
   - Closed 2026-10-05 by independent verification: F51, F54
   - F60 deferred again on 2026-10-05 under the operator's condition: the implementer estimated 4–6 hours, above the two-hour limit; the design is in the tracker
 

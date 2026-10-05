@@ -60,6 +60,9 @@ data Fault
     -- with a new UID and the same ownership stamp (an operator's
     -- `kubectl replace --force`, a restore from a manifest).
     Replaced
+  | -- | The object is deleted out of band and not recreated (an operator's
+    -- `kubectl delete`).
+    Deleted
   | -- | One observation cannot be read (an API timeout).
     TransientReadFailure
   | -- | One store write is refused before it lands.
@@ -77,6 +80,7 @@ faultCall fault = case fault of
   ForeignObject -> ObserveCall
   TransientReadFailure -> ObserveCall
   Replaced -> ObserveCall
+  Deleted -> ObserveCall
   PutRefused -> StorePutCall
   PutLandedUnacknowledged -> StorePutCall
   GetFailedOnce -> StoreGetCall
@@ -95,6 +99,7 @@ faultPersistence fault = case fault of
   ChurnAlways -> Persistent
   ForeignObject -> Persistent
   Replaced -> Persistent
+  Deleted -> Persistent
   _ -> Transient
 
 data Adversary = Adversary

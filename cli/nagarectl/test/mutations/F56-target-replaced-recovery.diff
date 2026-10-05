@@ -1,8 +1,7 @@
 diff --git a/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs b/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs
-index 390e5165..38a4cdda 100644
 --- a/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs
 +++ b/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs
-@@ -339,10 +339,6 @@ mkKubernetesAdapterWithObservations specs ops observeBatch stableObserve readBac
+@@ -339,10 +339,6 @@
                    _ | mutationAction mutation == VerifyResource -> RecoverySafeToRetry
                    KubernetesNotReady physical _ _ _
                      | Right () <- landed -> RecoveryLandedUnready physical
@@ -10,6 +9,6 @@ index 390e5165..38a4cdda 100644
 -                    | replacedUpdateTarget mutation physical owner -> RecoveryTargetReplaced physical
 -                  KubernetesPresent physical _ (Just owner) _
 -                    | replacedUpdateTarget mutation physical owner -> RecoveryTargetReplaced physical
-                   KubernetesNotReady physical _ (Just owner) digest
-                     | createdScratchStatefulSet mutation owner digest
-                     , scratchFailure == Right True ->
+                   KubernetesAbsent _
+                     -- F64: an owned update target deleted outside review. Its
+                     -- preflight refuses the absent object before any effect, so
