@@ -149,6 +149,12 @@ Evidence counts toward final acceptance only where its recorded inputs (operator
   - The directory went to nagare-f3 for C5.
   - Records: [C2](../audits/mp23-implementer-results-2026-10-03/c2-acceptance-84754389.json), [C1](../audits/mp23-implementer-results-2026-10-03/c1-local-gate-84754389.json). The F49 native drill on the same context is [recorded separately](../audits/mp23-implementer-results-2026-10-03/ep159-source-replacement-84754389.json).
 
+  **Update (2026-10-05, implementer, frozen candidate `b74b7e49`):** this adds only the F53 check-harness fix; no shipped source changed.
+  - C1 (214 `VerifyResource`, zero mutations) and the acceptance C2 passed first time: 16/16, assembled (run `39d59de4…`), zero `replaced-incarnation` after C1 and before the runner.
+  - `platform-root.json` records `nagare-0.4.0-b74b7e49bf33`.
+  - The deferred F52 shows during the interrupted rename, as expected, and is recorded.
+  - Records: [C2](../audits/mp23-implementer-results-2026-10-03/c2-acceptance-b74b7e49.json), [C1](../audits/mp23-implementer-results-2026-10-03/c1-local-gate-b74b7e49.json).
+
 
 ## Surprises & Discoveries
 
