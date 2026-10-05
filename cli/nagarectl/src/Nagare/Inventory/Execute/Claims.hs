@@ -31,7 +31,7 @@ import Nagare.Inventory.Journal
   , transactionIdText
   )
 import Nagare.Inventory.Plan
-  ( ReviewDocument (reviewBaseRevisions, reviewDesiredRevisions)
+  ( ReviewDocument (reviewBaseRevisions, reviewDesiredRevisions, reviewMigrations)
   )
 import Nagare.Inventory.Store
   ( ExecutorClaim
@@ -103,10 +103,15 @@ releaseClaim :: LockedStore s -> TransactionId -> Maybe ReviewDocument -> IO Boo
 releaseClaim locked transaction completedReview = releaseClaimWith locked transaction completedReview Map.empty
 
 -- | Release the claim; a converged review also records the incarnations it
--- established or proved (F49). Retained and collected members drop theirs.
+-- established or proved (F49). Retained, collected and migrated members drop
+-- their earlier record first; a migration's destination is then bound as the
+-- member's new object (F52).
 releaseClaimWith :: LockedStore s -> TransactionId -> Maybe ReviewDocument -> Map ResourceId IncarnationBinding -> IO Bool
 releaseClaimWith locked transaction completedReview bindings = do
   let converged = isJust completedReview
+      -- A migrated member's record names its previous address; its new object
+      -- is bound from the convergence observation, or stays unrecorded (F52).
+      migrated = maybe Set.empty (Map.keysSet . reviewMigrations) completedReview
   let store = lockedStore locked
   headResult <- observeCurrentHead store
   case headResult of
@@ -129,9 +134,12 @@ releaseClaimWith locked transaction completedReview bindings = do
                       , headIncarnations =
                           if converged
                             then
-                              Map.withoutKeys
-                                (bindIncarnations bindings (headIncarnations headValue))
-                                (Map.keysSet (headRetained headValue) <> Map.keysSet (headCollected headValue))
+                              bindIncarnations
+                                bindings
+                                ( Map.withoutKeys
+                                    (headIncarnations headValue)
+                                    (migrated <> Map.keysSet (headRetained headValue) <> Map.keysSet (headCollected headValue))
+                                )
                             else headIncarnations headValue
                       }
               isRight <$> replaceObservedHead observed replacement

@@ -1596,8 +1596,9 @@ Three consumers use the record:
 - **Recording is fail-open.** The record comes from a fresh observation at convergence, not from the execution receipt. If that observation is unavailable, nothing is recorded, and the next update or verification binds whatever object is live then. That leaves a narrow window in which a replacement could be bound.
 - **Unrecorded members pass.** A member with no record (a store from before this rule, one never touched by a converging review, or one hit by the limit above) keeps the earlier behaviour in status and ingestion.
 
-- **Retirement binds the observed object** (F51). Retiring a member whose object replaced the recorded incarnation retains the replacement's identity.
-- **Records are keyed by resource ID** (F52). A reviewed migration that moves a member to a new address reads as `replaced-incarnation` until it converges.
+Binding established records from the journal's completion identity would close these two limits, and is follow-up work.
 
-Binding established records from the journal's completion identity would close the first two limits, and is follow-up work. F51 and F52 were first deferred as known limitations of this release. On 2026-10-04 the operator reversed that: both are fixed in MasterPlan 23, and these two limits are removed when the fixes land. Rebinding to a deliberately replaced object needs a reviewed operation and is not part of MP-23. Until one exists, retire and recreate the database.
+Fixed after review (2026-10-05):
+- **Retirement retains the recorded incarnation** (F51). A retention proof names the recorded UID, so retained history never names an object that replaced the accepted one outside review. Status, collection and retained-data operations compare it with the live object and refuse a replacement.
+- **Migrations rebind records** (F52). While a transaction is active, status skips the records of members its reviewed migration moves; those records describe the previous address. At convergence, a migration destination is bound as the member's new object, after the old record is dropped. Rebinding to a deliberately replaced object needs a reviewed operation and is not part of MP-23. Until one exists, retire and recreate the database.
 

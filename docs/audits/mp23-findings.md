@@ -69,8 +69,8 @@ This is the authoritative list of implementation findings for [MP-23](../masterp
 | [F48](#f48) | P2 | Inventory evidence names the manifest's payload without checking the payload the context runs | Open | MP-26 (EP-168 port) |
 | [F49](mp23-archive/mp23-findings-closed.md#f49) | P1 | An out-of-band replacement of an accepted database is reported converged, and its new incarnation's receipts plan for ingestion | Closed | EP-159 / EP-153 |
 | [F50](mp23-archive/mp23-findings-closed.md#f50) | P2 | One transient failed gcloud read makes the state-bucket ownership guard stop a run | Closed | EP-156 |
-| [F51](#f51) | P2 | Retirement retains an out-of-band replacement's identity instead of the accepted incarnation | Open | EP-153 / EP-159 |
-| [F52](#f52) | P2 | Incarnation records are keyed by resource ID, so a reviewed address-changing migration reads as `replaced-incarnation` until it converges | Open | EP-153 |
+| [F51](#f51) | P2 | Retirement retains an out-of-band replacement's identity instead of the accepted incarnation | Verifying | EP-153 / EP-159 |
+| [F52](#f52) | P2 | Incarnation records are keyed by resource ID, so a reviewed address-changing migration reads as `replaced-incarnation` until it converges | Verifying | EP-153 |
 | [F53](#f53) | P1 | `nix flake check` fails at the candidate: sandbox-only test failures and stale check assertions | Verifying | EP-154 |
 | [F54](#f54) | P1 | A landed application Service update whose new revision never becomes Ready has no reviewed exit, so the store stays wedged | Verifying | EP-153 / EP-156 |
 | [F55](#f55) | P1 | A landed unready application update still has no exit when its review also updates its release history or verifies a member | Verifying | EP-153 / EP-173 |
@@ -433,7 +433,7 @@ Remaining: B3 including collection on the next frozen candidate, and independent
 
 ## F51
 
-**Retirement retains an out-of-band replacement's identity instead of the accepted incarnation** — P2; **Open**; owners EP-153 / EP-159.
+**Retirement retains an out-of-band replacement's identity instead of the accepted incarnation** — P2; **Verifying**; owners EP-153 / EP-159.
 
 **Native evidence (2026-10-04, candidate `847543896d07`, C2 context on cp3; F49 drill v2, implementer nagare-phase-b, [results](mp23-implementer-results-2026-10-03/ep159-source-replacement-84754389.json)):** the throwaway's accepted incarnations were StatefulSet `770c18c5…` and PVC `241e2475…`. After the out-of-band replacement, status correctly reported `replaced-incarnation`. The joint `inventory retire` of the database and receipt A's scope then converged. Independent read of the head by nagare-reviewer: `retained` carries the *replacement* UIDs, StatefulSet `b131b5a7-779d-4f19-843e-3a5e78be5306` and PVC `4a6d653c-53fb-4630-99fc-902be522632d`. The `incarnations` entries for the throwaway were dropped.
 
@@ -450,10 +450,18 @@ Remaining: B3 including collection on the next frozen candidate, and independent
 **Operator decision (2026-10-04, superseding the deferral above; [retrospective](mp23-engineering-retrospective-2026-10-04.md) §6):**
 - Un-deferred. Fix it in MP-23. It blocks MP-23 completion.
 - The fix lands with a class-level interpreter regression under [ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md), [EP-173](../plans/173-find-recovery-defects-with-adversarial-provider-interpreters.md) M2's incarnation invariant. The regression must fail on the pre-fix source.
+**Implementation update (2026-10-05; claude-opus-5-5):**
+- A retention proof (`buildRetentionProofs` in `src/Nagare/Inventory/Plan/Changes.hs`) now names the member's recorded incarnation when the head has one, and the observed object only when it has none. Retained history therefore never names an object that replaced the accepted one outside review.
+- Retirement is not refused. ADR 22's documented exit for a replaced database is to retire and recreate it, and a refusal would remove that exit.
+- Consumers of retained history already compare a retained UID with the live object:
+  - status reports the replacement as `replaced-incarnation`;
+  - a reviewed collection refuses it;
+  - retained-data operations refuse it.
+- **Regression:** EP-173's recovery model, scenario "create with a durable volume, then retire". I3's retirement clause requires every retained entry to carry the member's last recorded incarnation. On the pre-fix source, the model fails under `Replaced` on the PVC before retirement ("retirement retained …/uploads/pvc under a UID other than its accepted incarnation"). With the fix it passes.
 
 ## F52
 
-**Incarnation records are keyed by resource ID, so a reviewed address-changing migration reads as `replaced-incarnation` until it converges** — P2; **Open**; owner EP-153.
+**Incarnation records are keyed by resource ID, so a reviewed address-changing migration reads as `replaced-incarnation` until it converges** — P2; **Verifying**; owner EP-153.
 
 **Native evidence (2026-10-04, candidate `847543896d07`, acceptance C2 on cp3, nagare-phase-b's `retained-postgresql-rename` interruption):** during the reviewed rename `scenario-rename-src` → `scenario-renamed`, interrupted at its copy Job (`tx-c1e805c8…` active), `inventory status --json` (`pending-evidence/interrupted-recovery/migration-status.json`, 14:27:44 PDT) reported `replaced-incarnation` for three members:
 
@@ -476,6 +484,13 @@ After convergence, the creates re-established the records and status reported `c
 **Operator decision (2026-10-04, superseding the deferral above; [retrospective](mp23-engineering-retrospective-2026-10-04.md) §6):**
 - Un-deferred. Fix it in MP-23. It blocks MP-23 completion.
 - The fix lands with a class-level interpreter regression under [ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md), [EP-173](../plans/173-find-recovery-defects-with-adversarial-provider-interpreters.md) M2's incarnation invariant. The regression must fail on the pre-fix source.
+**Implementation update (2026-10-05; claude-opus-5-5):**
+- **During the transaction.** `statusIncarnations` (`src/Nagare/Inventory/Status.hs`) drops the records of members that the active transaction's reviewed migration moves. `inventory status` and the recovery model both use it. Admission makes the desired revision accepted, so status observes the new address. The old record describes the previous address and cannot be compared there.
+- **At convergence.** A `MigrateResource` destination is the member's new object. `convergedIncarnations` binds it as `Established`. `releaseClaimWith` drops migrated, retained and collected members' earlier records before binding, not after. Before this change, a renamed member, retained under the same resource ID, ended unrecorded. Now its new object is recorded. If the convergence observation is unavailable, the member stays unrecorded, never stale.
+- **Regression:** `test/InventoryPostgresRenameSpec.hs`, "status never reports a renamed member as replaced, at any step (F52)". The reviewed rename runs with the old members' incarnations recorded. Status is computed as `inventory status` computes it after every Kubernetes request.
+  - Without the status change, it reports `replaced-incarnation` for the moved members mid-transaction.
+  - Without the convergence change, no new object is recorded.
+  - With both, the run converges with no `replaced-incarnation` at any step, and every record names a new object.
 
 ## F53
 

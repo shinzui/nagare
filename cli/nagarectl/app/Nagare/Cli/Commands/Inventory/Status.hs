@@ -376,6 +376,9 @@ runInventoryStatus mctx requested json gcOutput = do
   transactionStatus <-
     InventoryStatus.loadActiveTransactionStatus store (InventoryPlan.historyHead history)
       >>= either dieT pure
+  incarnations <-
+    InventoryStatus.statusIncarnations store (InventoryPlan.historyHead history)
+      >>= either dieT pure
   finalHead <- InventoryStore.readHead store >>= either (dieT . T.pack . show) pure
   unless
     (finalHead == Just (InventoryPlan.historyHead history))
@@ -408,7 +411,7 @@ runInventoryStatus mctx requested json gcOutput = do
                 Just (Just False) -> InventoryStatus.HealthNotReady
                 _ -> InventoryStatus.findingHealth finding
             }
-        | finding <- InventoryStatus.classifyDriftWith (InventoryStore.headIncarnations (InventoryPlan.historyHead history)) inventory observations
+        | finding <- InventoryStatus.classifyDriftWith incarnations inventory observations
         , wanted (InventoryStatus.findingResource finding)
         ]
       retainedHealthById = Map.fromList (retainedHealthPairs <> retainedHelmHealthPairs)

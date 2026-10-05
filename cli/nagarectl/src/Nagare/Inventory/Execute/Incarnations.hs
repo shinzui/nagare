@@ -65,7 +65,7 @@ convergedIncarnations locked registry document = do
           | reviewOperation <- reviewOperations document
           , let planned = reviewPlannedOperation reviewOperation
           , plannedExecutor planned == KubernetesExecutor
-          , plannedAction planned `elem` [CreateResource, AdoptResource, UpdateResource, VerifyResource]
+          , plannedAction planned `elem` [CreateResource, AdoptResource, UpdateResource, VerifyResource] || migrates (plannedAction planned)
           , resource <- NE.toList (plannedResources planned)
           , Set.member resource durable
           ]
@@ -92,7 +92,10 @@ convergedIncarnations locked registry document = do
         if contentDigest bytes /= revisionDigest revision
           then Left "desired scope digest mismatch"
           else first showText (decodeScope bytes)
-    establishes action = action `elem` [CreateResource, AdoptResource]
+    -- A reviewed migration's destination is the member's new object (F52).
+    establishes action = action `elem` [CreateResource, AdoptResource] || migrates action
+    migrates (MigrateResource _) = True
+    migrates _ = False
     isDurable (Durable _) = True
     isDurable _ = False
     isStatefulSet (Kubernetes _ "apps" kind _ _) = nameText kind == "statefulset"

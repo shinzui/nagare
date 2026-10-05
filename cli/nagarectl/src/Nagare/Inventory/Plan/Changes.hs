@@ -94,6 +94,7 @@ import Nagare.Inventory.Store
       , headBinding
       , headCollected
       , headDataFence
+      , headIncarnations
       , headRetained
       )
   , RetainedIncarnation
@@ -353,7 +354,9 @@ buildRetentionProofs candidate (LifecycleDecisions _ decisions _) history observ
                                       ) of
       (Just decision, Just (ObservedPresent physical), Just (revision, _))
         | lifecycleDecision decision == ApproveRetirement ->
-            Right (resourceId, RetentionProof (resource ^. #owner) revision physical)
+            -- F51: retain the accepted incarnation. An object that replaced it
+            -- outside review never enters retained history.
+            Right (resourceId, RetentionProof (resource ^. #owner) revision (Map.findWithDefault physical resourceId (headIncarnations (historyHead history))))
       _ -> Left (PlanError "retention-proof" "retired resource lacks a reviewed present incarnation" [resourceId] :| [])
 
 buildCollectionProofs :: CompositionCandidate -> LifecycleDecisions -> InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) (Map ResourceId RetentionProof)

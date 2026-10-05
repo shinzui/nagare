@@ -10,6 +10,7 @@ module Nagare.Inventory.Status
   , CollectionAssessment (..)
   , classifyDrift
   , classifyDriftWith
+  , statusIncarnations
   , traceDependencies
   , traceRetainedDependencies
   , consumersOf
@@ -300,6 +301,19 @@ instance ToJSON CollectionAssessment where
 
 -- | Read the committed journal without taking the writer lock. The caller
 -- must compare the head again after its other observations, as status does.
+-- | The incarnation records status compares (F49). A member that the active
+-- transaction's reviewed migration moves still has the record of its previous
+-- address until that review converges, so status does not compare it (F52).
+statusIncarnations :: InventoryStore -> HeadManifest -> IO (Either Text (Map ResourceId PhysicalIdentity))
+statusIncarnations store headValue = case headActiveTransaction headValue >>= T.stripPrefix "tx-" >>= either (const Nothing) Just . mkContentDigest of
+  Nothing -> pure (Right (headIncarnations headValue))
+  Just digest -> do
+    published <- loadPublishedReview store digest
+    pure $ case published of
+      Left err -> Left (T.pack (show err))
+      Right bundle ->
+        Right (Map.withoutKeys (headIncarnations headValue) (Map.keysSet (reviewMigrations (reviewBundleDocument bundle))))
+
 loadActiveTransactionStatus :: InventoryStore -> HeadManifest -> IO (Either Text (Maybe ActiveTransactionStatus))
 loadActiveTransactionStatus store headValue = case headActiveTransaction headValue of
   Nothing -> pure (Right Nothing)

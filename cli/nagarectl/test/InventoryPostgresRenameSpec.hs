@@ -40,12 +40,13 @@ import Nagare.Inventory.Migration.PostgresRename
 import Nagare.Inventory.Migration.Types (migrationPoliciesCompatible)
 import Nagare.Inventory.ObservationNative (loadObservationNative, observationKubernetes)
 import Nagare.Inventory.Plan
+import Nagare.Inventory.Status (DriftCategory (ReplacedIncarnation), DriftFinding (..), classifyDriftWith, statusIncarnations)
 import Nagare.Inventory.Store
 import Nagare.Resource.Database (DatabaseDirectInput (..))
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
 import Nagare.Resource.Types hiding (resources)
-import Nagare.Resource.Wire (canonicalValue)
+import Nagare.Resource.Wire (canonicalValue, encodeCanonicalScope)
 import Nagare.Test.Effectful.Fixture (checked, must, seedAccepted)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
@@ -154,6 +155,24 @@ inventoryPostgresRenameTests =
           case observed of
             Right native -> Map.map snd (observationKubernetes native) @?= Map.map snd newNative
             Left reason -> assertFailure ("renamed members lack observation evidence: " <> T.unpack reason)
+    , testCase "status never reports a renamed member as replaced, at any step (F52)" $
+        withSystemTempDirectory "postgres-rename-status" $ \root -> do
+          probe <- newIORef Nothing
+          (store, world, reviewed, executionRegistry') <- plannedRenameWith recordOldIncarnations probe root
+          replaced <- newIORef []
+          let check = replacedMembers store world >>= \found -> modifyIORef' replaced (<> found)
+          writeIORef probe (Just check)
+          result <- must (applyReviewed store executionRegistry' reviewed)
+          writeIORef probe Nothing
+          check
+          case result of
+            Converged _ -> pure ()
+            other -> assertFailure ("rename did not converge: " <> describe reviewed other)
+          readIORef replaced >>= (@?= [])
+          -- Convergence records the renamed data-bearing members' new objects.
+          recorded <- headIncarnations <$> (must (readHead store) >>= maybe (fail "missing head") pure)
+          assertBool "the renamed members' new objects are not recorded" (not (Map.null recorded))
+          assertBool "a record still names an old object" (all (\(identity, physical) -> physicalIdentityText physical /= uidFor identity) (Map.toList recorded))
     , testCase "a lost transfer acknowledgement resumes without a second copy" $
         withSystemTempDirectory "postgres-rename-loss" $ \root -> do
           (store, world, reviewed, executionRegistry') <- plannedRename root
@@ -264,6 +283,37 @@ data World = World
 
 modelled :: IORef World -> KubernetesRuntimeConfig
 modelled world = withKubectlInterpreter (runKubectlWith (handle world)) config
+
+-- | The modelled API, running a probe after every request; the probe's own
+-- requests do not run it again.
+probed :: IORef World -> IORef (Maybe (IO ())) -> KubernetesRuntimeConfig
+probed world probe = withKubectlInterpreter (runKubectlWith answer) config
+  where
+    answer request = do
+      result <- handle world request
+      pending <- readIORef probe
+      mapM_ (\check -> writeIORef probe Nothing >> check >> writeIORef probe (Just check)) pending
+      pure result
+
+-- | The members status reports `replaced-incarnation`, computed as `inventory
+-- status` computes them.
+replacedMembers :: InventoryStore -> IORef World -> IO [ResourceId]
+replacedMembers store world = do
+  history <- must (loadInventoryHistory store)
+  let accepted = historyAccepted history
+      inventory = checked (composeSnapshot (checked (mkScopeSnapshot binding (Map.map (\(revision, declared) -> (revisionGeneration revision, declared)) accepted) (historyReservations history))))
+      renamed = (revisionDigest . fst <$> Map.lookup databaseOwner accepted) == Just (contentDigest (encodeCanonicalScope newScope))
+      native = if renamed then newNative else oldNative
+      registry = checked (mkAdapterRegistry [mkKubernetesAdapter native (mkKubernetesRuntimeOps (modelled world) native)])
+      members = [resource ^. #identity | Managed resource <- inventoryDeclarations inventory]
+  observed <- must (observeWithRegistry registry (Map.singleton KubernetesExecutor members))
+  incarnations <- must (statusIncarnations store (historyHead history))
+  pure [findingResource finding | finding <- classifyDriftWith incarnations inventory observed, findingCategory finding == ReplacedIncarnation]
+
+-- | The accepted old database's members, recorded as converged (F49).
+recordOldIncarnations :: HeadManifest -> HeadManifest
+recordOldIncarnations headValue =
+  headValue {headIncarnations = Map.fromList [(identity, checked (mkPhysicalIdentity (uidFor identity))) | identity <- Map.keys oldNative]}
 
 handle :: IORef World -> KubectlRequest -> IO KubectlResult
 handle world request = atomicModifyIORef' world (respond (request ^. #arguments) (request ^. #input))
@@ -452,9 +502,16 @@ stamped identity native uid =
 
 plannedRename :: FilePath -> IO (InventoryStore, IORef World, ReviewedPlan, AdapterRegistry)
 plannedRename root = do
+  probe <- newIORef Nothing
+  plannedRenameWith id probe root
+
+plannedRenameWith :: (HeadManifest -> HeadManifest) -> IORef (Maybe (IO ())) -> FilePath -> IO (InventoryStore, IORef World, ReviewedPlan, AdapterRegistry)
+plannedRenameWith seed probe root = do
   world <- newIORef seededWorld
   store <- must (openFilesystemStore (root </> "history"))
   seedAccepted store binding [oldScope] oldNative
+  seeded <- must (readHead store) >>= maybe (fail "missing head") pure
+  _ <- must (replaceHeadIfGenerationMatches store (Just (headGeneration seeded)) ((seed seeded) {headGeneration = headGeneration seeded + 1}))
   history <- must (loadInventoryHistory store)
   let snapshot =
         checked
@@ -473,7 +530,7 @@ plannedRename root = do
           | Managed declaration <- checked (composedDeclarations (fmap snd (historyAccepted history)))
           ]
       planning = MigrationPlanning (Map.mapWithKey (\identity (_, bytes) -> (revision, acceptedDeclarations Map.! identity, bytes)) oldNative) newNative
-      runtime = modelled world
+      runtime = probed world probe
       sourceRegistry = checked (mkAdapterRegistry [mkKubernetesAdapter oldNative (mkKubernetesRuntimeOps runtime oldNative)])
       destinationRegistry = checked (mkAdapterRegistry [kubernetesMigrationAdapter runtime (Just planning) (mkKubernetesAdapter newNative (mkKubernetesRuntimeOps runtime newNative))])
       requirements = observationRequirements candidate history
