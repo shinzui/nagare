@@ -61,8 +61,17 @@ behind it is in
   the release, and with a durable volume) run under every single fault at every Kubernetes write
   boundary. I1, I2 and I4 hold. The fast tier takes 12.6 s. The model found F55 on the F54-repaired
   source; it is fixed in MasterPlan 23.
-- [ ] M1 acceptance: fail on the pre-F54 worktree (`3135cdde`); mutation diffs for the F16, F30, F35
-  and F37 guards; a retire scenario.
+- [x] (2026-10-05) M1 acceptance:
+  - The fast tier passes on the repaired source in 27 s.
+  - It fails on the pre-F54 worktree (`3135cdde`) with I1 on all three bad-update scenarios, with no
+    injected fault.
+  - Each of the F16, F30, F35 and F37 mutation diffs (`cli/nagarectl/test/mutations/`) makes it fail,
+    naming that finding's scenario.
+  - The suites pass.
+  - Observation-boundary faults (`ChurnAlways`, `ForeignObject`) and the liveness invariant I7 were
+    added to reach F30 and F35.
+- [ ] M1 follow-up: a retire scenario (the create-then-retire review sequence), moved into M2's
+  scenario work.
 - [ ] M1: A Kubernetes provider world with an adversary drives the real Kubernetes adapter, driver and
   recovery policy through the application lifecycle. The exit, acceptance and at-most-once
   invariants pass. Acceptance: the model fails on the pre-F54-repair source and on documented
@@ -148,6 +157,14 @@ behind it is in
   status, so status churn changes resourceVersion but not its digest.
   Rationale: Each rule mirrors the runtime (`KubernetesRuntime.hs`) or the API server. A violation
   that depends on an unfaithful world is noise.
+  Date: 2026-10-05
+
+- Decision: Add I7 (liveness): with only persistent status churn, a scenario without a bad image
+  must converge without any exit. Status churn quiets while the operator works an exit.
+  Rationale: Abandon now exists, so reverting F30's guard no longer wedges anything. A correction
+  just never converges, which only a liveness check sees. A controller's status churn is bursty, and
+  a stop refused by a race is retried once it settles. Churning on every read during exits would
+  make the two-read landed proof unsatisfiable, which does not happen in practice.
   Date: 2026-10-05
 
 ## Outcomes & Retrospective

@@ -1,0 +1,17 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Execute/Recovery.hs b/cli/nagarectl/src/Nagare/Inventory/Execute/Recovery.hs
+index 51ce0c3b..990d0dcb 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/Execute/Recovery.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Execute/Recovery.hs
+@@ -605,11 +605,7 @@ recordOperatorRecovery store registry input takeOver = do
+     abandonRefused lock state operation adapter prepared
+       | Just (Failed (KnownNoEffect reason)) <- state =
+           abandonWith ("operation abandoned after its journalled no-effect refusal (" <> reason <> ")")
+-      | otherwise = do
+-          preflight <- withAdapterEnv transaction operation (adapterPreflight adapter operation prepared)
+-          case preflight of
+-            Right () -> pure (failure "recovery-state" "operation preflight passes now; resume the transaction instead")
+-            Left reason -> abandonWith ("operation abandoned after a fresh preflight refusal (" <> reason <> ")")
++      | otherwise = pure (failure "recovery-state" "only a journalled no-effect refusal can be abandoned")
+       where
+         abandonWith detail = do
+           appended <-
