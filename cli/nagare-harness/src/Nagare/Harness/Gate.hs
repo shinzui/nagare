@@ -76,7 +76,7 @@ newLogDir = do
 formatResult :: StepResult -> String
 formatResult result =
   printf
-    "gate: %-26s %-4s (%.1f s)"
+    "gate: %-32s %-4s (%.1f s)"
     (T.unpack (result ^. #name))
     (if stepSucceeded result then "ok" else "FAIL" :: String)
     (result ^. #seconds)

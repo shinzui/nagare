@@ -1,5 +1,4 @@
 {-# LANGUAGE RankNTypes #-}
-{-# OPTIONS_GHC -Werror=incomplete-patterns #-}
 
 -- | RecoveryPolicy responsibilities; internal implementation behind Nagare.Inventory.Execute.
 module Nagare.Inventory.Execute.RecoveryPolicy

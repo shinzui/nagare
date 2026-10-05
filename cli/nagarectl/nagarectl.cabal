@@ -24,6 +24,8 @@ common common
   ghc-options:
     -Wall
     -Wno-unused-imports
+    -Werror=incomplete-patterns
+    -Werror=incomplete-uni-patterns
     -threaded
 
 library
@@ -582,6 +584,7 @@ test-suite nagarectl-test
     Nagare.Test.Support.Environment
     Nagare.Test.Support.Kubernetes
     Nagare.Test.Support.Profiles
+    Nagare.Test.Support.RegistryHost
     Nagare.Test.Support.Release
     Nagare.Test.Support.Site
     Nagare.Test.Support.Volumes

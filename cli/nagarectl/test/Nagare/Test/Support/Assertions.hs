@@ -4,6 +4,7 @@ module Nagare.Test.Support.Assertions
   , assertInfix
   , assertInfixStr
   , assertLeftText
+  , single
   , unsafe
   , unsafeS
   )
@@ -47,3 +48,10 @@ unsafeS (Left e) = error ("test fixture invalid: " <> T.unpack e)
 unsafe :: Either Text a -> a
 unsafe (Right a) = a
 unsafe (Left e) = error ("test fixture invalid: " <> T.unpack e)
+
+-- | The single element a fixture expression must produce. Anything else is a
+-- broken fixture, reported with the count, instead of an incomplete pattern.
+single :: [a] -> a
+single = \case
+  [x] -> x
+  xs -> error ("fixture: expected exactly one element, got " <> show (length xs))

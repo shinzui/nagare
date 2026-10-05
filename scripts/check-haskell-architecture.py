@@ -9,6 +9,7 @@ import re
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGES = ('nagare-dsl', 'nagarectl', 'nagare-access', 'nagare-harness')
+EXHAUSTIVENESS = ('-Werror=incomplete-patterns', '-Werror=incomplete-uni-patterns')
 PRIVATE = ('Nagare.Inventory.Application.', 'Nagare.Inventory.Plan.',
            'Nagare.Inventory.Execute.', 'Nagare.Dsl.Load.')
 OPAQUE = {
@@ -51,6 +52,12 @@ def check(root: Path, limits: dict[str, int]) -> list[str]:
     for package in PACKAGES:
         cabal = root / 'cli' / package / (package + '.cabal')
         text = cabal.read_text()
+        common = section(text, 'common common')
+        # EP-174 M1: exhaustiveness is an error for every component (F13 was a
+        # missed recovery constructor that crashed at run time).
+        for flag in EXHAUSTIVENESS:
+            if flag not in common:
+                errors.append(f'{package}: {flag} missing from the common stanza (exhaustiveness errors)')
         library = section(text, 'library')
         test = section(text, 'test-suite ' + package + '-test')
         exposed = module_field(library, 'exposed-modules')
@@ -106,8 +113,8 @@ def check(root: Path, limits: dict[str, int]) -> list[str]:
             errors.append(f'{name}: domain tests import suite assembler')
         if area == 'src' and any(x.startswith('Nagare.Cli.') for x in imports):
             errors.append(f'{name}: library imports CLI workflows')
-        if name.startswith('Nagare.Inventory.Execute.') and '-Werror=incomplete-patterns' not in source:
-            errors.append(f'{name}: recovery exhaustiveness check missing')
+        if re.search(r'OPTIONS_GHC[^#]*-W(?:no-|warn=)(?:error=)?incomplete', source):
+            errors.append(f'{name}: disables exhaustiveness errors')
     for relative in limits:
         if not (root / relative).is_file():
             errors.append(f'{relative}: stale size allowance')

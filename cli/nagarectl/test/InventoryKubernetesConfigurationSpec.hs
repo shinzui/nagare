@@ -33,7 +33,9 @@ kubernetesConfigurationTests =
         forM_ ["uid", "generation", "labels", "annotations", "finalizers", "ownerReferences"] $ \key -> do
           let altered = metadataField key (String "changed") base
           assertBool "configuration change ignored" (configurationDigest altered /= configurationDigest base)
-        let Object fields = base
+        fields <- case base of
+          Object object' -> pure object'
+          other -> assertFailure ("fixture: expected an object, got " <> show other)
         assertBool "spec change ignored" (configurationDigest (Object (KM.insert "spec" (object ["image" .= ("changed" :: Text)]) fields)) /= configurationDigest base)
         assertBool "terminating object accepted" (isLeft (configurationDigest (metadataField "deletionTimestamp" (String "now") base)))
         assertBool "missing ownership accepted" (isLeft (configurationDigest (metadataField "managedFields" Null base)))

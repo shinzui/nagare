@@ -1,5 +1,4 @@
 {-# LANGUAGE RankNTypes #-}
-{-# OPTIONS_GHC -Werror=incomplete-patterns #-}
 
 -- | Types responsibilities; internal implementation behind Nagare.Inventory.Execute.
 module Nagare.Inventory.Execute.Types

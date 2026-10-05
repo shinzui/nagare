@@ -57,8 +57,13 @@ in [the 2026-10-04 retrospective](../audits/mp23-engineering-retrospective-2026-
 
 ## Progress
 
-- [ ] M1 (waiting until MasterPlan 23's in-flight EP-173 work had landed, since it touches the same
-  cabal stanza and sources): Incomplete patterns are compile errors in every Haskell package. Acceptance: all packages
+- [x] (2026-10-05) M1: Incomplete patterns are compile errors. Evidence (observed): the `common`
+  stanzas of `nagarectl`, `nagare-dsl`, `nagare-access` and `nagare-harness` carry both flags; all
+  four packages build with tests. With the per-module pragma removed, deleting the
+  `RecoveryLandedUnready` alternative from the `case decision of` in
+  `cli/nagarectl/src/Nagare/Inventory/Execute/Driver.hs` failed the build with "Patterns of type
+  ‘RecoveryDecision’ not matched: RecoveryLandedUnready _" (the alternative was restored). Original
+  acceptance: Incomplete patterns are compile errors in every Haskell package. Acceptance: all packages
   build and test with `-Werror=incomplete-patterns -Werror=incomplete-uni-patterns` in their shared
   stanza, and removing one alternative from a `case` over `RecoveryDecision` fails the build.
 - [x] (2026-10-05) M2: A fast local gate runs on every push. Evidence (observed): with one
@@ -187,6 +192,21 @@ in [the 2026-10-04 retrospective](../audits/mp23-engineering-retrospective-2026-
   `fixture-smoke`).
   Rationale: The narrower step let an unregistered recipe reach `nix flake check`. The full script
   adds about 50 seconds.
+  Date: 2026-10-05
+
+- Decision: M1 found no incomplete match in any library or executable (they were already clean
+  under `-Wall`). Every one was a test fixture pattern binding: 23 in `nagare-dsl`'s
+  `ResourceInventorySpec`, 5 in `nagarectl`'s `InventoryTransactionSpec`, 1 in
+  `InventoryKubernetesConfigurationSpec`. They now go through named helpers that fail with the
+  fixture's actual shape: `single` in `Nagare.Test.Support.Assertions`, plus `managedOf`/`single`
+  local to the DSL spec. `InventoryTransactionSpec` was at its size allowance, so its
+  `registryHostFixture` moved to `Nagare.Test.Support.RegistryHost`, and the allowance ratchets down
+  from 3,798 to 3,766. `scripts/check-haskell-architecture.py` now requires both flags in every
+  package's `common` stanza and refuses any module pragma that disables them. That replaces its
+  per-module check on `Nagare.Inventory.Execute.*`, whose 14 pragmas are removed.
+  Rationale: The plan forbids hiding constructors behind wildcards; the helpers keep each fixture's
+  expectation explicit. Module-level opt-outs would undo the package flag silently, so the checker
+  forbids them.
   Date: 2026-10-05
 
 - Decision: Add `just gate-verify REV` beside the planned recipes, and have the runbooks call it.

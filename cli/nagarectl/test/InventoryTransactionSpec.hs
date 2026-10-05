@@ -38,6 +38,8 @@ import Nagare.Resource.Policy
 import Nagare.Resource.Reference (Dependency (..), OutputConstraint (NonEmptyOutput), SomeRef (..), Witness (NixCachePublicKeyW), outputRef)
 import Nagare.Resource.Types
 import Nagare.Resource.Wire
+import Nagare.Test.Support.Assertions (single)
+import Nagare.Test.Support.RegistryHost (registryHostFixture)
 import System.Directory (doesFileExist, findExecutable, listDirectory, removeFile)
 import System.Environment (getEnvironment, getExecutablePath, lookupEnv)
 import System.Exit (ExitCode (..))
@@ -2351,7 +2353,7 @@ inventoryTransactionTests =
           >>= expectRight
         baseHistory <- loadInventoryHistory store >>= expectRight
         let accepted = historyAccepted baseHistory
-            [(owner, (_, scope))] = Map.toList accepted
+            (owner, (_, scope)) = single (Map.toList accepted)
             uncreated = [mintResourceId owner (ok (mkLogicalKey "uncreated")) (ok (mkName "resource"))]
             retained = [mintResourceId owner (ok (mkLogicalKey "untouched")) (ok (mkName "resource"))]
             snapshot =
@@ -2382,11 +2384,12 @@ inventoryTransactionTests =
           , plannedAction operation == CreateResource
           ]
           @?= [(CreateResource, uncreated)]
-        let [waitingResources] =
-              [ NE.toList (plannedResources (reviewPlannedOperation entry))
-              | entry <- reviewOperations (reviewedDocument reviewed)
-              , plannedOperationId (reviewPlannedOperation entry) == selected
-              ]
+        let waitingResources =
+              single
+                [ NE.toList (plannedResources (reviewPlannedOperation entry))
+                | entry <- reviewOperations (reviewedDocument reviewed)
+                , plannedOperationId (reviewPlannedOperation entry) == selected
+                ]
         assertBool
           "unchanged stopped workload lacks fresh readiness proof"
           ( any
@@ -2437,11 +2440,12 @@ inventoryTransactionTests =
         stoppedHead <- readHead store >>= expectRight >>= maybe (assertFailure "head missing" >> undefined) pure
         journal <- readJournalPrefix store (headSequence stoppedHead) >>= expectRight
         let previous = journalEventDigest (ok (decodeJournalEvent (last journal)))
-            [unstartedOperation] =
-              [ reviewPlannedOperation entry
-              | entry <- reviewOperations (reviewedDocument reviewed)
-              , NE.toList (plannedResources (reviewPlannedOperation entry)) == uncreated
-              ]
+            unstartedOperation =
+              single
+                [ reviewPlannedOperation entry
+                | entry <- reviewOperations (reviewedDocument reviewed)
+                , NE.toList (plannedResources (reviewPlannedOperation entry)) == uncreated
+                ]
             intent =
               JournalEvent
                 1
@@ -2536,7 +2540,7 @@ inventoryTransactionTests =
           False
           >>= expectRight
         history <- loadInventoryHistory store >>= expectRight
-        let [(stoppedOwner, _)] = Map.toList (historyAccepted history)
+        let (stoppedOwner, _) = single (Map.toList (historyAccepted history))
             otherOwner = ok (mkScopeId Application "other-app")
             cluster = mintResourceId otherOwner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
             otherMember = member otherOwner cluster "settings"
@@ -3243,7 +3247,7 @@ modelAssertStoppedScopePreserved = do
     False
     >>= expectRight
   stoppedHistory <- loadInventoryHistory store >>= expectRight
-  let [(stoppedOwner, _)] = Map.toAscList (historyAccepted stoppedHistory)
+  let (stoppedOwner, _) = single (Map.toAscList (historyAccepted stoppedHistory))
       otherOwner = ok (mkScopeId Application "model-unrelated")
       otherScope = modelScope otherOwner "settings" "model-unrelated-v1"
       registry =
@@ -3484,42 +3488,6 @@ preparedReadinessFixture store dependent policy kind effect recovery = do
   snapshot <- readStoreSnapshot store >>= expectRight
   reviewed <- either (assertFailure . show . NE.toList) pure (verifyReview snapshot bundle)
   pure (reviewed, registry)
-
--- Execute the production transport's actual stdin script against host responses.
--- Host primitives are intercepted; no credential file or provider is accessed.
-registryHostFixture :: String
-registryHostFixture =
-  unlines
-    [ "systemctl() {"
-    , "  case \"$*\" in"
-    , "    *nagare-switch-rollback.timer*) printf 'inactive\\n' ;;"
-    , "    *--property=Environment*) printf 'PATH=/usr/bin\\n' ;;"
-    , "    *--property=ActiveState*) printf 'inactive\\n' ;;"
-    , "    *--property=ExecMainStatus*) printf '0\\n' ;;"
-    , "    *--property=Job*) [ \"$NAGARE_TEST_JOB\" != lookup-failure ] || return 31; printf '%s\\n' \"$NAGARE_TEST_JOB\" ;;"
-    , "    *--property=ExecMainStartTimestampMonotonic*) printf '10\\n' ;;"
-    , "    *--property=InvocationID*) printf 'original\\n' ;;"
-    , "    'is-active --quiet k3s.service') return 0 ;;"
-    , "    *) return 32 ;;"
-    , "  esac"
-    , "}"
-    , "curl() { case \"$*\" in */instance/id) printf '123\\n' ;; */default/token) printf '%s\\n' '{\"access_token\":\"fixture-token\",\"expires_in\":1200}' ;; *) return 33 ;; esac; }"
-    , "readlink() { printf '/nix/store/accepted-test-closure\\n'; }"
-    , "stat() { printf '600:0\\n'; }"
-    , "cat() { [ \"$1\" = /proc/sys/kernel/random/boot_id ] || return 34; printf 'boot\\n'; }"
-    , "awk() { return 1; }"
-    , "flock() { return 0; }"
-    , "jq() { \"$NAGARE_TEST_JQ\" \"$@\"; }"
-    , "k3s() {"
-    , "  case \"$*\" in"
-    , "    'kubectl get nodes '*) printf '%s\\n' '{\"items\":[{\"metadata\":{\"uid\":\"node\"}}]}' ;;"
-    , "    'kubectl get deployment '*) printf '%s\\n' '{\"metadata\":{\"uid\":\"deployment-uid\",\"generation\":1},\"spec\":{\"replicas\":1},\"status\":{\"observedGeneration\":1,\"readyReplicas\":0,\"updatedReplicas\":0,\"conditions\":[{\"type\":\"Available\",\"status\":\"False\"}]}}' ;;"
-    , "    'kubectl get replicasets '*) printf '%s\\n' '{\"items\":[{\"metadata\":{\"uid\":\"replica-uid\",\"ownerReferences\":[{\"uid\":\"deployment-uid\"}]}}]}' ;;"
-    , "    'kubectl get pods '*) printf '%s\\n' '{\"items\":[{\"metadata\":{\"ownerReferences\":[{\"uid\":\"replica-uid\"}]},\"status\":{\"containerStatuses\":[{\"state\":{\"waiting\":{\"reason\":\"ImagePullBackOff\"}}}]}}]}' ;;"
-    , "    *) return 35 ;;"
-    , "  esac"
-    , "}"
-    ]
 
 preparedRegistryFixture :: InventoryStore -> IO (ReviewBundle, ReviewedPlan, AdapterRegistry)
 preparedRegistryFixture store = do

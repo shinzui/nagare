@@ -1,5 +1,3 @@
-{-# OPTIONS_GHC -Werror=incomplete-patterns #-}
-
 -- | Accepted incarnations of durable members (F49). The physical identity of a
 -- durable Kubernetes member is recorded when the review that created, adopted,
 -- updated or verified it converges, so that status and receipt ingestion can

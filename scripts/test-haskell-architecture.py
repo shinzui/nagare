@@ -97,9 +97,13 @@ class ArchitectureTests(unittest.TestCase):
         self.assert_error('exceeds 1000')
 
     def test_recovery_exhaustiveness_cannot_be_disabled(self):
+        self.replace('cli/nagarectl/nagarectl.cabal', '    -Werror=incomplete-patterns\n', '')
+        self.assert_error('-Werror=incomplete-patterns missing from the common stanza')
+
+    def test_a_module_cannot_opt_out_of_exhaustiveness(self):
         self.replace('cli/nagarectl/src/Nagare/Inventory/Execute/Driver.hs',
-                     '{-# OPTIONS_GHC -Werror=incomplete-patterns #-}', '')
-        self.assert_error('recovery exhaustiveness check missing')
+                     '\nmodule ', '\n{-# OPTIONS_GHC -Wno-error=incomplete-patterns #-}\nmodule ')
+        self.assert_error('disables exhaustiveness errors')
 
     def test_test_entrypoint_cannot_accumulate(self):
         target = self.root / 'cli/nagarectl/test/Spec.hs'

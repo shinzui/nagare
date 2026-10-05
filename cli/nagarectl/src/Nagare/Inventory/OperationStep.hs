@@ -1,5 +1,3 @@
-{-# OPTIONS_GHC -Werror=incomplete-patterns #-}
-
 -- | The single serial phase decision for apply and resume. No provider IO.
 module Nagare.Inventory.OperationStep
   ( OperationStep (..)

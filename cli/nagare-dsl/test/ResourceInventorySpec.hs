@@ -61,7 +61,23 @@ resource :: ScopeId -> Text -> ProviderAddress -> DesiredSpec -> ManagedResource
 resource owner key address spec = ManagedResource (rid owner key) owner KubernetesExecutor address [] spec Retain Stateless Public [] [] (SourceLocation "fixture" key)
 
 service :: ScopeId -> Text -> Text -> Declaration
-service owner key name = Managed (resource owner key (Kubernetes cluster "" (n "service") (Just (n "nagare-system")) (n name)) (NativeObject digest))
+service owner key name = Managed (serviceResource owner key name)
+
+serviceResource :: ScopeId -> Text -> Text -> ManagedResource
+serviceResource owner key name = resource owner key (Kubernetes cluster "" (n "service") (Just (n "nagare-system")) (n name)) (NativeObject digest)
+
+-- | The single element a fixture expression must produce; anything else is a
+-- broken fixture, reported with the count.
+single :: [a] -> a
+single = \case
+  [x] -> x
+  xs -> error ("fixture: expected exactly one element, got " <> show (length xs))
+
+-- | The resource of a fixture declaration that must be managed.
+managedOf :: Declaration -> ManagedResource
+managedOf = \case
+  Managed r -> r
+  other -> error ("fixture: expected a managed declaration, got " <> show other)
 
 emptySnapshot :: ScopeSnapshot
 emptySnapshot = ok (mkScopeSnapshot binding Map.empty Map.empty)
@@ -83,7 +99,7 @@ resourceInventoryTests =
         assertBool "separators" (either (const True) (const False) (mkLogicalKey "a/b"))
         assertBool "zero" (either (const True) (const False) (mkScopeGeneration 0))
     , testCase "stable key survives provider rename" $ do
-        let Managed x = service a "stable" "old"; Managed y = service a "stable" "new"
+        let x = serviceResource a "stable" "old"; y = serviceResource a "stable" "new"
         x ^. #identity @?= y ^. #identity
     , testCase "collection candidate requires a retained exact claim" $ do
         let resourceId = rid p "old"
@@ -271,7 +287,8 @@ resourceInventoryTests =
         fmap generationNumber (Map.lookup p (candidateGenerations result)) @?= Just 7
         fmap generationNumber (Map.lookup a (candidateGenerations result)) @?= Just 1
     , testCase "retained physical incarnation reserves its address" $ do
-        let d@(Managed r) = service a "new" "retained"
+        let r = serviceResource a "new" "retained"
+            d = Managed r
             reservation = ClaimHolder p (rid p "old") (ok (mkPhysicalIdentity "uid-1")) RetainedIncarnation
             snapshot = ok (mkScopeSnapshot binding Map.empty (Map.singleton (canonicalClaim (r ^. #address)) reservation))
         rejects "reserved-claim" (composeInventory snapshot (ReplaceScope (scope a [d]) :| []))
@@ -286,7 +303,7 @@ resourceInventoryTests =
             ref = outputRef DatabaseConnectionW (declarationId db) (n "connection") [NonEmptyOutput] Secret
             bad = outputRef OciImageW (declarationId db) (n "connection") [NonEmptyOutput] Secret
             producer = ok (mkScopeDeclaration p [bundle [db] & #exports .~ [SomeExport ref]])
-            consumer r = let Managed x = service a "app" "app" in scope a [Managed (x & #dependencies .~ [Consumes r])]
+            consumer r = let x = serviceResource a "app" "app" in scope a [Managed (x & #dependencies .~ [Consumes r])]
         assertBool "good unresolved reference" (either (const False) (const True) (compileScopes [producer, consumer (SomeRef ref)]))
         rejects "reference-mismatch" (compileScopes [producer, consumer (SomeRef bad)])
     , testCase "cache public key is a distinct typed output" $ do
@@ -296,7 +313,7 @@ resourceInventoryTests =
             cacheOperation = DeclaredOperation (rid p "configure-cache") (declarationId cache :| []) [] VerifyBeforeRetry CreateLogicalCache
             producer = ok (mkScopeDeclaration p [bundle [cache] & #exports .~ [SomeExport key] & #operations .~ [cacheOperation]])
             missingOperation = ok (mkScopeDeclaration p [bundle [cache] & #exports .~ [SomeExport key]])
-            consumer ref = let Managed x = service a "client" "client" in scope a [Managed (x & #dependencies .~ [Consumes ref])]
+            consumer ref = let x = serviceResource a "client" "client" in scope a [Managed (x & #dependencies .~ [Consumes ref])]
         assertBool "cache key reference did not compose" (either (const False) (const True) (compileScopes [producer, consumer (SomeRef key)]))
         rejects "output-operation" (compileScopes [missingOperation, consumer (SomeRef key)])
         rejects "reference-mismatch" (compileScopes [producer, consumer (SomeRef wrong)])
@@ -311,8 +328,8 @@ resourceInventoryTests =
           "config digest did not change canonical scope bytes"
           (encodeCanonicalScope tagged /= encodeCanonicalScope base)
     , testCase "logical Attic cache has its own executor and claim" $ do
-        let Managed first = service p "logical-cache" "cache"
-            Managed second = service a "other-cache" "cache"
+        let first = serviceResource p "logical-cache" "cache"
+            second = serviceResource a "other-cache" "cache"
             logical member = Managed (member {address = AtticCache cluster (n "nagare-cache"), executor = CacheExecutor, spec = LogicalCache digest})
             ownerScope = scope p [logical first]
         decodeScope (encodeCanonicalScope ownerScope) @?= Right ownerScope
@@ -396,8 +413,8 @@ resourceInventoryTests =
             length (declarations cacheBundle) @?= 9
             length native @?= 9
             length (cacheBundle ^. #operations) @?= 1
-            let Managed database = service p "database-prerequisite" "database-prerequisite"
-                Managed credential = service p "credential-prerequisite" "credential-prerequisite"
+            let database = serviceResource p "database-prerequisite" "database-prerequisite"
+                credential = serviceResource p "credential-prerequisite" "credential-prerequisite"
                 prerequisites =
                   bundle
                     [ Managed (database {identity = prerequisite "database"})
@@ -414,12 +431,12 @@ resourceInventoryTests =
               Right _ -> assertFailure "cache Services with swapped addresses were accepted"
           _ -> assertFailure "cache template object counts changed"
     , testCase "dependency cycles and dangling references refuse" $ do
-        let Managed x = service a "x" "x"; Managed y = service a "y" "y"
+        let x = serviceResource a "x" "x"; y = serviceResource a "y" "y"
         rejects "dependency-cycle" (compileScopes [scope a [Managed (x & #dependencies .~ [OrderedAfter (y ^. #identity)]), Managed (y & #dependencies .~ [OrderedAfter (x ^. #identity)])]])
         rejects "dangling-reference" (compileScopes [scope a [Managed (x & #dependencies .~ [OrderedAfter (y ^. #identity)])]])
     , testCase "resource can wait for a declared migration; reverse dependency cycles refuse" $ do
         let database = service a "database" "database"
-            Managed workload = service a "workload" "workload"
+            workload = serviceResource a "workload" "workload"
             migrationId = rid a "migration"
             migration affected = DeclaredOperation migrationId (affected :| []) [] VerifyBeforeRetry SchemaMigration
             waiting = Managed (workload & #dependencies .~ [OrderedAfter migrationId])
@@ -428,11 +445,11 @@ resourceInventoryTests =
         assertBool "migration dependency did not compose" (either (const False) (const True) (compileScopes [good]))
         rejects "dependency-cycle" (compileScopes [cyclic])
     , testCase "delegated fields cannot overlap" $ do
-        let Managed x = service a "app" "app"
+        let x = serviceResource a "app" "app"
             del = Delegation cluster (n "spec" :| []) (ReconcileChildren :| [])
         rejects "invalid-declaration" (mkScopeDeclaration a [bundle [Managed (x & #delegations .~ [del, del])]])
     , testCase "durable data cannot silently request deletion" $ do
-        let Managed x = service a "db" "db"
+        let x = serviceResource a "db" "db"
             recovery = RecoveryIntent (n "restore") (mkSecretRef (n "credential") (n "v1") :| [])
         rejects "invalid-declaration" (mkScopeDeclaration a [bundle [Managed (x & #dataPolicy .~ Durable recovery & #lifecycle .~ DeleteWhenUnreferenced)]])
     , testCase "authorized namespace contributions coalesce under the platform owner" $ do
@@ -526,9 +543,9 @@ resourceInventoryTests =
           ( compileScopes
               [owner, consumer a protected, consumer other protected]
           )
-        let [Managed emptyMap] = composed [owner]
+        let emptyMap = managedOf (single (composed [owner]))
         emptyMap ^. #spec @?= BackendMapSpec []
-        let [Managed completeMap] = composed [owner, consumer a protected, consumer other portal]
+        let completeMap = managedOf (single (composed [owner, consumer a protected, consumer other portal]))
         completeMap ^. #spec
           @?= BackendMapSpec
             [ (n "app.example.test", "http://app.personal.svc.cluster.local", ProtectedBackend)
@@ -557,7 +574,7 @@ resourceInventoryTests =
           )
         let standalone = s Standalone "web"
             standaloneRoute = route "web.example.test" "http://web.personal.svc.cluster.local" ProtectedBackend
-            [Managed standaloneMap] = composed [owner, consumer standalone standaloneRoute]
+            standaloneMap = managedOf (single (composed [owner, consumer standalone standaloneRoute]))
         standaloneMap ^. #spec
           @?= BackendMapSpec
             [(n "web.example.test", "http://web.personal.svc.cluster.local", ProtectedBackend)]
@@ -580,9 +597,9 @@ resourceInventoryTests =
               | Managed resource <- resources
               , ShomeiSettingsSpec {} <- [resource ^. #spec]
               ]
-        let [base] = setting (composed [owner])
+        let base = single (setting (composed [owner]))
         base ^. #spec @?= ShomeiSettingsSpec (n "example.test") Nothing
-        let [withPortal] = setting (composed [owner, app])
+        let withPortal = single (setting (composed [owner, app]))
         withPortal ^. #spec @?= ShomeiSettingsSpec (n "example.test") (Just (n "login.example.test"))
         withPortal ^. #identity @?= base ^. #identity
         fmap encodeCanonicalScope (decodeScope (encodeCanonicalScope owner)) @?= Right (encodeCanonicalScope owner)
@@ -656,7 +673,7 @@ resourceInventoryTests =
               | Managed member <- declarations
               , CloudflareRuleset _ <- [member ^. #address]
               ]
-        let [shared] = rules (composed [ownerScope, firstScope, secondScope])
+        let shared = single (rules (composed [ownerScope, firstScope, secondScope]))
         shared ^. #spec @?= CloudflareRulesSpec [firstIntent, secondIntent]
         shared ^. #identity @?= cloudflareRulesResourceId owner zoneName
         length
@@ -671,11 +688,12 @@ resourceInventoryTests =
             , OrderedAfter (firstRoute ^. #identity)
             , OrderedAfter (secondRoute ^. #identity)
             ]
-        let [tls] =
-              [ member
-              | Managed member <- composed [ownerScope, firstScope, secondScope]
-              , CloudflareTlsSetting _ <- [member ^. #address]
-              ]
+        let tls =
+              single
+                [ member
+                | Managed member <- composed [ownerScope, firstScope, secondScope]
+                , CloudflareTlsSetting _ <- [member ^. #address]
+                ]
         tls ^. #spec @?= CloudflareZoneTlsSpec CloudflareFlexible
         contributionDependents
           ( candidateInventory
@@ -702,7 +720,7 @@ resourceInventoryTests =
             changedIntent = firstIntent {cacheDefaultTtl = Just 900}
             changed = consumer a firstRoute changedIntent
             candidate = ok (composeInventory accepted (ReplaceScope changed :| []))
-            [changedRules] = rules (inventoryDeclarations (candidateInventory candidate))
+            changedRules = single (rules (inventoryDeclarations (candidateInventory candidate)))
         Map.lookup owner (candidateGenerations candidate) @?= Just generation
         Map.lookup other (candidateGenerations candidate) @?= Just generation
         changedRules ^. #spec @?= CloudflareRulesSpec [changedIntent, secondIntent]
@@ -714,11 +732,12 @@ resourceInventoryTests =
                 )
             strictCandidate = ok (composeInventory accepted (ReplaceScope strictOwner :| []))
             strictDeclarations = inventoryDeclarations (candidateInventory strictCandidate)
-            [strictTls] =
-              [ member
-              | Managed member <- strictDeclarations
-              , CloudflareTlsSetting _ <- [member ^. #address]
-              ]
+            strictTls =
+              single
+                [ member
+                | Managed member <- strictDeclarations
+                , CloudflareTlsSetting _ <- [member ^. #address]
+                ]
         strictTls ^. #spec @?= CloudflareZoneTlsSpec CloudflareFullStrict
         rules strictDeclarations @?= rules (composed [ownerScope, firstScope, secondScope])
         Map.lookup a (candidateGenerations strictCandidate) @?= Just generation
@@ -851,7 +870,7 @@ resourceInventoryTests =
               , consumer a firstRoute (firstIntent {cachePaths = [("/api\n", Nothing)]})
               ]
           )
-    , testCase "Cloudflare compiler emits only its scoped cache request" $ do
+    , testCase "Cloudflare compiler emits single its scoped cache request" $ do
         let owner = s Platform "cloudflare"
             zoneName = n "0123456789abcdef0123456789abcdef"
             routeId = rid a "domain"

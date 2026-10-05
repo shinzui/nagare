@@ -1,5 +1,4 @@
 {-# LANGUAGE RankNTypes #-}
-{-# OPTIONS_GHC -Werror=incomplete-patterns #-}
 
 -- | Lock-scoped admission, execution, and recovery of reviewed plans.
 module Nagare.Inventory.Execute
