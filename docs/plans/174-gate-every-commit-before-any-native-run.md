@@ -75,14 +75,21 @@ in [the 2026-10-04 retrospective](../audits/mp23-engineering-retrospective-2026-
   house-style violation in this plan's own harness code before commit. Original acceptance: Acceptance: `just gate-fast` passes on a clean tree;
   with a deliberately failing test, `git push` is refused by `.githooks/pre-push` after
   `just install-hooks`.
-- [ ] M3 (implemented 2026-10-05; acceptance runs pending): `nagare-harness gate --full`, the record
-  writer and `just gate` exist, and the dry-run parser is unit-tested. The green run and the
-  unreachable-builder run have not been made yet: the green run starts the on-demand Linux builder VM.
-  A full local gate proves every system and writes a revision-bound record. Acceptance: on a
+- [ ] M3 (implemented 2026-10-05; the unreachable-builder half is accepted, the green half is blocked):
+  The negative run is observed at `99b51003`. With `NIX_CONFIG` pointing the builder at
+  `nagare-unreachable.invalid`, the gate passed the fast steps, then stopped at
+  `builder-probe-x86_64-linux` ("builder unreachable for x86_64-linux") and wrote a RED record. Two
+  real runs (operator-approved builder start) passed the probe, but `nix flake check --all-systems`
+  failed both times with "Timeout, server nix-gcp-builder not responding" (see Surprises). Each was
+  correctly recorded RED, not reported green. The green run waits for the SSH keepalive fix to be
+  activated on the host. A full local gate proves every system and writes a revision-bound record. Acceptance: on a
   clean tree, `just gate` writes a green record whose `systems` list shows every check of
   `aarch64-darwin` and `x86_64-linux` realised, plus a passing builder probe. With the Linux builder
   unreachable, `just gate` fails at the probe instead of reporting success.
-- [ ] M4 (implemented 2026-10-05; live acceptance pending M3): `gate verify` exists, with unit tests
+- [ ] M4 (implemented 2026-10-05; three refusals observed live, the green acceptance waits on M3):
+  Observed: `just gate-verify 7fbc6345` refused "no gate record". After the negative run it refused
+  `99b51003` with "the gate record is red". `just gate` on a tree with an untracked file refused "the
+  full gate needs a clean tree". `gate verify` exists, with unit tests
   for the missing, red, dirty, tree-mismatch, missing-system, partial-realisation and failed-probe
   refusals plus one acceptance. The runbooks call `just gate-verify <rev>` first in sections 1, 4, 6
   and 7. Native work refuses a revision without a green full record. Acceptance:
@@ -126,6 +133,19 @@ in [the 2026-10-04 retrospective](../audits/mp23-engineering-retrospective-2026-
   `docs/architecture/managed-resource-coverage.md` was stale. The fast gate's architecture step ran
   only `check-haskell-architecture.py`, one of the five scripts the flake check runs. The fast gate
   now runs `scripts/test-managed-command-audit.sh`, the flake check's own script.
+  Date: 2026-10-05
+
+
+- Observation: Both real full-gate runs lost their remote builds to "Timeout, server nix-gcp-builder
+  not responding" mid-build, once in `nagare-platform` and once in `nagarectl`. The probe had passed
+  minutes earlier. The builder VM is `n2-standard-16`; it was resized outside
+  `scripts/setup-nix-builder.sh`, which still said `n2-standard-2`. Its serial log showed no OOM, no
+  hang and no reboot, and its SSH sessions outlived the client's timeout by 5–10 minutes (observed).
+  The client's keepalive budget was 90 s (`ServerAliveInterval 30`, default count 3), and the gcloud
+  IAP tunnel path stalled longer than that (inferred; the proxy discarded its stderr). Fixed on the
+  host side in `mori://shinzui/dotfiles.nix` (`darwin/gcp-nix-builder.nix`: `ServerAliveCountMax 10`,
+  tunnel stderr logged to `/tmp/nix-gcp-builder-proxy-<user>.log`). This repo's provisioning default
+  now matches the live shape (`fa421e39`).
   Date: 2026-10-05
 
 
