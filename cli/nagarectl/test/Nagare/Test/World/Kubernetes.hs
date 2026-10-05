@@ -62,13 +62,16 @@ data KubeWorld = KubeWorld
   , quiet :: !Bool
   -- ^ Churn quiets while the operator works an exit (a refused stop is retried
   -- once status settles).
+  , inspecting :: !Bool
+  -- ^ The model is computing status as an operator would: no faults fire
+  -- and no churn happens on these observations.
   , writes :: !(Map.Map OperationId Int)
   -- ^ Effective writes per reviewed operation (invariant I4).
   }
   deriving stock (Eq, Show)
 
 newKubeWorld :: Set.Set ContentDigest -> IO (IORef KubeWorld)
-newKubeWorld unready = newIORef (KubeWorld Map.empty unready Set.empty 1 False False Map.empty)
+newKubeWorld unready = newIORef (KubeWorld Map.empty unready Set.empty 1 False False False Map.empty)
 
 effectiveWrites :: KubeWorld -> Map.Map OperationId Int
 effectiveWrites = writes
@@ -103,20 +106,42 @@ worldKubernetesOps context specs world adversary =
 
 observe :: Map.Map ResourceId (ManagedResource, ByteString) -> IORef KubeWorld -> IORef Adversary -> ResourceId -> IO KubernetesState
 observe specs world adversary resource = do
-  observationFaults specs world adversary resource
-  stateOf resource (\object' -> nativeDigest object') <$> readIORef world
+  transient <- observationFaults specs world adversary resource
+  if transient
+    then pure (KubernetesUnknown "injected: Kubernetes API read timed out")
+    else stateOf resource (\object' -> nativeDigest object') <$> readIORef world
 
 -- | The status-independent configuration observation: status churn changes
 -- resourceVersion but not this digest.
 stableObserve :: Map.Map ResourceId (ManagedResource, ByteString) -> IORef KubeWorld -> IORef Adversary -> ResourceId -> IO KubernetesState
 stableObserve specs world adversary resource = do
-  observationFaults specs world adversary resource
-  stateOf resource (\object' -> contentDigest (TE.encodeUtf8 ("configuration:" <> digestText (nativeDigest object')))) <$> readIORef world
+  transient <- observationFaults specs world adversary resource
+  if transient
+    then pure (KubernetesUnknown "injected: Kubernetes API read timed out")
+    else stateOf resource (\object' -> contentDigest (TE.encodeUtf8 ("configuration:" <> digestText (nativeDigest object')))) <$> readIORef world
 
 -- | Faults at an observation boundary, applied before the object is read.
-observationFaults :: Map.Map ResourceId (ManagedResource, ByteString) -> IORef KubeWorld -> IORef Adversary -> ResourceId -> IO ()
+-- 'True' when this read itself fails transiently.
+observationFaults :: Map.Map ResourceId (ManagedResource, ByteString) -> IORef KubeWorld -> IORef Adversary -> ResourceId -> IO Bool
 observationFaults specs world adversary resource = do
-  fault <- nextFault adversary ObserveCall
+  inspection <- inspecting <$> readIORef world
+  fault <- if inspection then pure Nothing else nextFault adversary ObserveCall
+  when (fault == Just Replaced) $ modifyIORef' world $ \state -> case Map.lookup resource (objects state) of
+    Just object'
+      | isJust (owner object') ->
+          state
+            { objects =
+                Map.insert
+                  resource
+                  object'
+                    { uid = either (error . T.unpack) id (mkPhysicalIdentity ("replacement-uid-" <> T.pack (show (nextUid state))))
+                    , generation = 1
+                    , resourceVersion = 1
+                    }
+                  (objects state)
+            , nextUid = nextUid state + 1
+            }
+    _ -> state
   when (fault == Just ChurnAlways) $ modifyIORef' world $ \state -> state {churning = True}
   when (fault == Just ForeignObject) $ case Map.lookup resource specs of
     Just (managed, _) -> modifyIORef' world $ \state ->
@@ -143,9 +168,10 @@ observationFaults specs world adversary resource = do
     Nothing -> pure ()
   -- A controller writes status (and so resourceVersion) on objects with status.
   modifyIORef' world $ \state ->
-    if churning state && not (quiet state)
+    if churning state && not (quiet state) && not (inspecting state)
       then state {objects = Map.adjust (\o -> if hasReadiness (address o) then o {resourceVersion = resourceVersion o + 1} else o) resource (objects state)}
       else state
+  pure (fault == Just TransientReadFailure)
 
 stateOf :: ResourceId -> (KubeObject -> ContentDigest) -> KubeWorld -> KubernetesState
 stateOf resource digestOf state = case Map.lookup resource (objects state) of

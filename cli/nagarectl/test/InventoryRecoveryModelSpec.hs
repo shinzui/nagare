@@ -5,7 +5,7 @@
 -- converged (I2), and no reviewed operation may write twice (I4).
 module InventoryRecoveryModelSpec (inventoryRecoveryModelTests) where
 
-import Control.Exception (try)
+import Control.Exception (Exception, throwIO, try)
 import Control.Monad (foldM, forM, forM_)
 import Data.Aeson (Value, object, (.=))
 import Data.ByteString (ByteString)
@@ -16,6 +16,7 @@ import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
+import InventoryObjectOpsSpec (fakeObjectOps)
 import InventoryTransactionSpec (fixtureBinding)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
@@ -24,6 +25,7 @@ import Nagare.Inventory.Execute
 import Nagare.Inventory.Journal
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.Plan
+import Nagare.Inventory.Status qualified as Status
 import Nagare.Inventory.Store
 import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes (KubernetesInput (..))
@@ -33,6 +35,7 @@ import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
 import Nagare.Test.World.Adversary
 import Nagare.Test.World.Kubernetes
+import Nagare.Test.World.Store (faultingObjectOps)
 import System.Environment (lookupEnv)
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -76,11 +79,20 @@ scenarios =
 type Schedule = [(Boundary, Fault)]
 
 -- | Every fault at every boundary of the provider call it is scheduled on.
-singleFaults :: Finished -> [Schedule]
-singleFaults finished = [[placement] | placement <- placements finished]
+-- Store faults do not depend on the application's shape, so the fast tier
+-- sweeps them on one representative scenario; the deep tier sweeps them all.
+singleFaults :: Scenario -> Finished -> [Schedule]
+singleFaults scenario finished =
+  [ [placement]
+  | placement@(Boundary call' _, _) <- placements finished
+  , call' `notElem` [StorePutCall, StoreGetCall] || label scenario == storeScenario
+  ]
 
-faultPairs :: Finished -> [Schedule]
-faultPairs finished =
+storeScenario :: Text
+storeScenario = "create then good update"
+
+faultPairs :: Scenario -> Finished -> [Schedule]
+faultPairs _ finished =
   [ [first', second']
   | first'@(Boundary call1 n, _) <- placements finished
   , second'@(Boundary call2 m, _) <- placements finished
@@ -94,14 +106,14 @@ placements finished =
   , n <- [1 .. Map.findWithDefault 0 (faultCall fault) (finishedCalls finished)]
   ]
 
-runTier :: (Finished -> [Schedule]) -> Assertion
+runTier :: (Scenario -> Finished -> [Schedule]) -> Assertion
 runTier schedulesFor = do
   violations <- fmap concat . forM scenarios $ \scenario -> do
     clean <- runScenario scenario []
     case clean of
       Left violation -> pure ["the fault-free scenario violates the model:\n" <> violation]
       Right finished ->
-        fmap concat . forM (schedulesFor finished) $ \schedule ->
+        fmap concat . forM (schedulesFor scenario finished) $ \schedule ->
           either (\violation -> [violation]) (const []) <$> runScenario scenario schedule
   case violations of
     [] -> pure ()
@@ -166,7 +178,10 @@ replay scenario schedule taken probe = do
   where
     go run [] _ = do
       adversary <- readIORef (runAdversary run)
-      pure (Replayed (Right (counts adversary)))
+      consistent <- storeConsistent run
+      pure $ case consistent of
+        Left violation -> Replayed (Left (describe scenario schedule "(end)" violation []))
+        Right () -> Replayed (Right (counts adversary))
     go run (image : rest) exits = do
       outcome <- reviewAndApply run (withVolume scenario) image (if historyFollows scenario then image else "v1")
       case outcome of
@@ -203,10 +218,16 @@ replay scenario schedule taken probe = do
 
 data Run = Run
   { runStore :: !InventoryStore
+  , runInspect :: !InventoryStore
+  -- ^ A clean view of the same objects for the model's own reads; faults
+  -- reach only Nagare's commands.
   , runWorld :: !(IORef KubeWorld)
   , runAdversary :: !(IORef Adversary)
   , runBound :: !(IORef (Map.Map ContentDigest (Map.Map ResourceId ContentDigest)))
   -- ^ Native digests the review of each desired scope revision bound.
+  , runImages :: !(IORef (Map.Map ContentDigest (Bool, Text, Text)))
+  -- ^ The volume, service image and history image each desired scope revision
+  -- declares, so the model can observe accepted members (I3).
   , runConverged :: !(IORef (Map.Map ScopeId ScopeRevision))
   -- ^ The converged revisions last checked; I2 checks a revision when the
   -- head first reports it converged.
@@ -214,48 +235,82 @@ data Run = Run
 
 newRun :: Scenario -> Schedule -> IO Run
 newRun scenario schedule = do
-  store <- newMemoryStore
-  _ <- initializeStore store fixtureBinding "recovery-model" >>= orFail "initialize store"
-  world <- newKubeWorld (Set.fromList [serviceDigest image | image <- unready scenario])
   adversary <- newAdversary schedule
+  base <- fakeObjectOps
+  store <- newObjectStore (faultingObjectOps adversary base) fixtureBinding "recovery-model" Nothing >>= orFail "open store"
+  inspect <- newObjectStore base fixtureBinding "recovery-inspect" Nothing >>= orFail "open inspection store"
+  _ <- initializeStore store fixtureBinding "recovery-model" >>= orFail "initialize store"
+  modifyIORef' adversary (\value -> value {storeArmed = True})
+  world <- newKubeWorld (Set.fromList [serviceDigest image | image <- unready scenario])
   bound <- newIORef Map.empty
+  images <- newIORef Map.empty
   converged <- newIORef Map.empty
-  pure (Run store world adversary bound converged)
+  pure (Run store inspect world adversary bound images converged)
 
 data Applied
   = Done
   | Stopped !TransactionId !Text
 
+-- | Plan, review and apply one image. A store fault during planning is a
+-- command an operator simply re-runs, so planning is retried once when a store
+-- fault fired during it; an interrupted apply is a stopped transaction and is
+-- never retried.
 reviewAndApply :: Run -> Bool -> Text -> Text -> IO (Either Text (AdapterRegistry, ReviewedPlan, Applied))
 reviewAndApply run volume image historyImage = do
+  planned <- retryingStoreFaults run (planReview run volume image historyImage)
+  case planned of
+    Left err -> pure (Left err)
+    Right (registry, reviewed) -> do
+      forM_ (Map.elems (reviewDesiredRevisions (reviewedDocument reviewed))) $ \revision ->
+        modifyIORef' (runBound run) (Map.insert (revisionDigest revision) (boundDigests volume image historyImage))
+          >> modifyIORef' (runImages run) (Map.insert (revisionDigest revision) (volume, image, historyImage))
+      applied <- try (applyReviewed (runStore run) registry reviewed)
+      Right . (registry,reviewed,) <$> classify run applied
+
+-- | Run a command; if it failed while a store fault fired, run it once more.
+retryingStoreFaults :: Run -> IO (Either Text a) -> IO (Either Text a)
+retryingStoreFaults run command = do
+  before <- length . fired <$> readIORef (runAdversary run)
+  first' <- try command
+  after <- length . fired <$> readIORef (runAdversary run)
+  case first' of
+    Right (Right value) -> pure (Right value)
+    failed
+      | after > before -> either (\(StoreTrouble err) -> Left err) id <$> try command
+      | otherwise -> pure (either (\(StoreTrouble err) -> Left err) id failed)
+
+newtype StoreTrouble = StoreTrouble Text
+  deriving stock (Show)
+
+instance Exception StoreTrouble
+
+orTrouble :: (Show e) => Text -> Either e a -> IO a
+orTrouble context = either (\err -> throwIO (StoreTrouble (context <> ": " <> T.pack (show err)))) pure
+
+planReview :: Run -> Bool -> Text -> Text -> IO (Either Text (AdapterRegistry, ReviewedPlan))
+planReview run volume image historyImage = do
   let store = runStore run
       registry = registryFor run volume image historyImage
-  accepted <- historyAccepted <$> (loadInventoryHistory store >>= orFail "load history")
-  reservations <- historyReservations <$> (loadInventoryHistory store >>= orFail "load history")
-  let snapshot = ok (mkScopeSnapshot fixtureBinding (Map.map (\(revision, declared) -> (revisionGeneration revision, declared)) accepted) reservations)
+  loaded <- loadInventoryHistory store >>= orTrouble "load history"
+  let accepted = historyAccepted loaded
+      snapshot = ok (mkScopeSnapshot fixtureBinding (Map.map (\(revision, declared) -> (revisionGeneration revision, declared)) accepted) (historyReservations loaded))
   case composeInventory snapshot (ReplaceScope (scopeFor volume image historyImage) :| []) of
     Left err -> pure (Left (T.pack (show err)))
     Right candidate -> do
-      history <- loadInventoryPlanningHistory store candidate >>= orFail "load planning history"
+      history <- loadInventoryPlanningHistory store candidate >>= orTrouble "load planning history"
       let required = Set.toList (requiredResources (observationRequirements candidate history))
       observed <- observeWithRegistry registry (Map.singleton KubernetesExecutor required)
       case observed >>= \observations -> first (T.pack . show) (planChanges candidate noLifecycleDecisions history observations) of
         Left err -> pure (Left err)
         Right proposal -> do
-          before <- readStoreSnapshot store >>= orFail "read snapshot"
+          before <- readStoreSnapshot store >>= orTrouble "read snapshot"
           prepared <- prepareReview registry before proposal
           case prepared of
             Left err -> pure (Left (T.pack (show err)))
             Right bundle -> do
-              _ <- publishReview store bundle >>= orFail "publish review"
-              published <- readStoreSnapshot store >>= orFail "read snapshot"
-              case verifyReview published bundle of
-                Left errs -> pure (Left (T.pack (show (NE.toList errs))))
-                Right reviewed -> do
-                  forM_ (Map.elems (reviewDesiredRevisions (reviewedDocument reviewed))) $ \revision ->
-                    modifyIORef' (runBound run) (Map.insert (revisionDigest revision) (boundDigests volume image historyImage))
-                  applied <- try (applyReviewed store registry reviewed)
-                  Right . (registry,reviewed,) <$> classify run applied
+              _ <- publishReview store bundle >>= orTrouble "publish review"
+              published <- readStoreSnapshot store >>= orTrouble "read snapshot"
+              pure (first (T.pack . show . NE.toList) ((registry,) <$> verifyReview published bundle))
 
 classify :: (Show e) => Run -> Either Interrupted (Either e TransactionResult) -> IO Applied
 classify run applied = case applied of
@@ -269,7 +324,7 @@ classify run applied = case applied of
 
 stoppedFromHead :: Run -> Text -> IO Applied
 stoppedFromHead run why = do
-  current <- readHead (runStore run) >>= orFail "read head"
+  current <- readHead (runInspect run) >>= orFail "read head"
   case current >>= headActiveTransaction of
     Just active -> pure (Stopped (ok (mkTransactionId active)) why)
     Nothing -> pure Done
@@ -321,7 +376,12 @@ data MoveOutcome
 tryMove :: Run -> AdapterRegistry -> ReviewedPlan -> TransactionId -> Move -> IO MoveOutcome
 tryMove run registry reviewed transaction move = do
   modifyIORef' (runWorld run) (\world -> world {quiet = True})
-  outcome <- tryMoveQuiet run registry reviewed transaction move
+  before <- length . fired <$> readIORef (runAdversary run)
+  attempt <- tryMoveQuiet run registry reviewed transaction move
+  after <- length . fired <$> readIORef (runAdversary run)
+  outcome <- case attempt of
+    MoveRefused _ | after > before -> tryMoveQuiet run registry reviewed transaction move
+    _ -> pure attempt
   modifyIORef' (runWorld run) (\world -> world {quiet = False})
   pure outcome
 
@@ -338,7 +398,7 @@ tryMoveQuiet run registry reviewed transaction move = do
           (OperatorRecoveryInput transaction operation (contentDigest (encodeReviewDocument (reviewedDocument reviewed))) action)
           False
   later <- progressSignature run transaction
-  idle <- maybe True (isNothing . headActiveTransaction) <$> (readHead (runStore run) >>= orFail "read head")
+  idle <- maybe True (isNothing . headActiveTransaction) <$> (readHead (runInspect run) >>= orFail "read head")
   pure $ case result of
     Left Interrupted -> MoveRefused "interrupted"
     Right _ | idle -> MoveIdle
@@ -351,8 +411,8 @@ tryMoveQuiet run registry reviewed transaction move = do
 -- the same operation in the same state only appends journal events.
 progressSignature :: Run -> TransactionId -> IO (Maybe Text, Map.Map ScopeId ScopeRevision, Map.Map ScopeId ScopeRevision, Map.Map OperationId Text)
 progressSignature run transaction = do
-  current <- readHead (runStore run) >>= orFail "read head"
-  raw <- maybe (pure []) (\value -> readJournalPrefix (runStore run) (headSequence value) >>= orFail "read journal") current
+  current <- readHead (runInspect run) >>= orFail "read head"
+  raw <- maybe (pure []) (\value -> readJournalPrefix (runInspect run) (headSequence value) >>= orFail "read journal") current
   let events = [event | Right event <- map decodeJournalEvent raw, eventTransaction event == transaction]
       latest = Map.fromList [(operation, T.pack (takeWhile (/= ' ') (show (eventState event)))) | event <- events, Just operation <- [eventOperation event]]
   pure
@@ -366,8 +426,8 @@ progressSignature run transaction = do
 -- transaction that has no completion.
 candidateMoves :: Run -> ReviewedPlan -> TransactionId -> IO [Move]
 candidateMoves run reviewed transaction = do
-  current <- readHead (runStore run) >>= orFail "read head"
-  raw <- maybe (pure []) (\value -> readJournalPrefix (runStore run) (headSequence value) >>= orFail "read journal") current
+  current <- readHead (runInspect run) >>= orFail "read head"
+  raw <- maybe (pure []) (\value -> readJournalPrefix (runInspect run) (headSequence value) >>= orFail "read journal") current
   let events = [event | Right event <- map decodeJournalEvent raw, eventTransaction event == transaction]
       latest = Map.fromList [(operation, eventState event) | event <- events, Just operation <- [eventOperation event]]
       reviewedOperations = [plannedOperationId (reviewPlannedOperation entry) | entry <- reviewOperations (reviewedDocument reviewed)]
@@ -393,11 +453,27 @@ recoveryActions =
   , AbandonRefusedOperation
   ]
 
--- * Invariants I2 and I4
+-- * Invariants I2, I4 and I5
+
+-- | I5: after the scenario, the head reads back idle and every published
+-- journal event up to it decodes and validates as one chain.
+storeConsistent :: Run -> IO (Either Text ())
+storeConsistent run = do
+  current <- readHead (runInspect run)
+  case current of
+    Left err -> pure (Left ("I5: the head cannot be read: " <> T.pack (show err)))
+    Right Nothing -> pure (Left "I5: the head is missing")
+    Right (Just value)
+      | isJust (headActiveTransaction value) -> pure (Left "I5: the scenario ended with an active transaction")
+      | otherwise -> do
+          raw <- readJournalPrefix (runInspect run) (headSequence value)
+          pure $ case raw >>= first (StoreInvalidObject "journal") . traverse decodeJournalEvent of
+            Left err -> Left ("I5: the published journal is unreadable: " <> T.pack (show err))
+            Right events -> first (\err -> "I5: the journal chain is invalid: " <> err) (() <$ validateJournal events)
 
 checkInvariants :: Run -> IO (Either Text ())
 checkInvariants run = do
-  current <- readHead (runStore run) >>= orFail "read head"
+  current <- readHead (runInspect run) >>= orFail "read head"
   world <- readIORef (runWorld run)
   bound <- readIORef (runBound run)
   previous <- readIORef (runConverged run)
@@ -414,10 +490,40 @@ checkInvariants run = do
             Just object' -> nativeDigest object' /= digest || readiness object' /= Ready
             Nothing -> True
         ]
-  pure $ case (twice, unproven) of
-    (operation : _, _) -> Left ("I4: operation " <> operationIdText operation <> " wrote twice")
-    (_, resource : _) -> Left ("I2: scope reported converged while " <> resourceIdText resource <> " is not the reviewed Ready object")
+  stale <- convergedStaleIncarnations run
+  pure $ case (twice, unproven, stale) of
+    (operation : _, _, _) -> Left ("I4: operation " <> operationIdText operation <> " wrote twice")
+    (_, resource : _, _) -> Left ("I2: scope reported converged while " <> resourceIdText resource <> " is not the reviewed Ready object")
+    (_, _, resource : _) -> Left ("I3: status reports " <> resourceIdText resource <> " converged although its live UID differs from the recorded incarnation")
     _ -> Right ()
+
+-- | I3: status, computed as `inventory status` computes it, never reports a
+-- member converged when its live UID differs from the recorded incarnation.
+convergedStaleIncarnations :: Run -> IO [ResourceId]
+convergedStaleIncarnations run = do
+  history <- loadInventoryHistory (runInspect run) >>= orFail "load history"
+  images <- readIORef (runImages run)
+  case Map.lookup appScope (historyAccepted history) >>= \(revision, _) -> Map.lookup (revisionDigest revision) images of
+    Nothing -> pure []
+    Just (volume, image, historyImage) -> do
+      let accepted = Map.map (\(revision, declared) -> (revisionGeneration revision, declared)) (historyAccepted history)
+          inventory = ok (composeSnapshot (ok (mkScopeSnapshot fixtureBinding accepted (historyReservations history))))
+          members = [resource ^. #identity | Managed resource <- inventoryDeclarations inventory]
+          incarnations = headIncarnations (historyHead history)
+      modifyIORef' (runWorld run) (\world -> world {inspecting = True})
+      observed <- observeWithRegistry (registryFor run volume image historyImage) (Map.singleton KubernetesExecutor members)
+      modifyIORef' (runWorld run) (\world -> world {inspecting = False})
+      world <- readIORef (runWorld run)
+      pure $ case observed of
+        Left _ -> []
+        Right observations ->
+          [ Status.findingResource finding
+          | finding <- Status.classifyDriftWith incarnations inventory observations
+          , Status.findingCategory finding == Status.Converged
+          , Just recorded <- [Map.lookup (Status.findingResource finding) incarnations]
+          , Just object' <- [Map.lookup (Status.findingResource finding) (objects world)]
+          , uid object' /= recorded
+          ]
 
 describe :: Scenario -> Schedule -> Text -> Text -> [Text] -> Text
 describe scenario schedule image violation tried =

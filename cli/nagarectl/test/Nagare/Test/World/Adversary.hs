@@ -25,6 +25,8 @@ import Nagare.Dsl.Prelude
 data Call
   = MutateCall
   | ObserveCall
+  | StorePutCall
+  | StoreGetCall
   deriving stock (Eq, Ord, Show)
 
 -- | The n-th call (from 1) of one provider operation.
@@ -54,6 +56,18 @@ data Fault
     ChurnAlways
   | -- | An unowned object appears at an address planned for creation.
     ForeignObject
+  | -- | The object is deleted and recreated out of band at the same address
+    -- with a new UID and the same ownership stamp (an operator's
+    -- `kubectl replace --force`, a restore from a manifest).
+    Replaced
+  | -- | One observation cannot be read (an API timeout).
+    TransientReadFailure
+  | -- | One store write is refused before it lands.
+    PutRefused
+  | -- | One store write lands but its acknowledgement is lost.
+    PutLandedUnacknowledged
+  | -- | One store read fails.
+    GetFailedOnce
   deriving stock (Eq, Ord, Show, Enum, Bounded)
 
 -- | The provider operation whose boundaries a fault is scheduled at.
@@ -61,6 +75,11 @@ faultCall :: Fault -> Call
 faultCall fault = case fault of
   ChurnAlways -> ObserveCall
   ForeignObject -> ObserveCall
+  TransientReadFailure -> ObserveCall
+  Replaced -> ObserveCall
+  PutRefused -> StorePutCall
+  PutLandedUnacknowledged -> StorePutCall
+  GetFailedOnce -> StoreGetCall
   _ -> MutateCall
 
 data Persistence
@@ -75,24 +94,36 @@ faultPersistence fault = case fault of
   ForeignManager -> Persistent
   ChurnAlways -> Persistent
   ForeignObject -> Persistent
+  Replaced -> Persistent
   _ -> Transient
 
 data Adversary = Adversary
   { schedule :: ![(Boundary, Fault)]
   , counts :: !(Map.Map Call Int)
+  , storeArmed :: !Bool
+  -- ^ Store calls count only once the run's setup is done.
+  , fired :: ![Fault]
+  -- ^ Faults that have fired, most recent first.
   }
   deriving stock (Eq, Show)
 
 newAdversary :: [(Boundary, Fault)] -> IO (IORef Adversary)
-newAdversary faults = newIORef (Adversary faults Map.empty)
+newAdversary faults = newIORef (Adversary faults Map.empty False [])
 
 -- | Count one call and return the fault scheduled at its boundary, if any.
 nextFault :: IORef Adversary -> Call -> IO (Maybe Fault)
 nextFault ref operation = atomicModifyIORef' ref $ \adversary ->
+  if operation `elem` [StorePutCall, StoreGetCall] && not (storeArmed adversary)
+    then (adversary, Nothing)
+    else countCall adversary operation
+
+countCall :: Adversary -> Call -> (Adversary, Maybe Fault)
+countCall adversary operation =
   let count = Map.findWithDefault 0 operation (counts adversary) + 1
       boundary = Boundary operation count
-   in ( adversary {counts = Map.insert operation count (counts adversary)}
-      , lookup boundary (schedule adversary)
+      fault = lookup boundary (schedule adversary)
+   in ( adversary {counts = Map.insert operation count (counts adversary), fired = maybe id (:) fault (fired adversary)}
+      , fault
       )
 
 -- | What a killed executor looks like to the driver: the call never returns.

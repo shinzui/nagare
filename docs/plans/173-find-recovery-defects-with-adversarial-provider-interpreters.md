@@ -70,6 +70,14 @@ behind it is in
   - The suites pass.
   - Observation-boundary faults (`ChurnAlways`, `ForeignObject`) and the liveness invariant I7 were
     added to reach F30 and F35.
+- [x] (2026-10-05) M2 part 1: store and transient faults (`PutRefused`, `PutLandedUnacknowledged`,
+  `GetFailedOnce` through `Nagare.Test.World.Store`; `TransientReadFailure`) with I5 (the store reads
+  back idle with one valid journal chain). The `Replaced` fault, and I3's status clause computed as
+  `inventory status` computes it (`classifyDriftWith` over the accepted snapshot, read in an
+  inspection mode that fires no faults). The model found F56 and F57, and both are fixed in
+  MasterPlan 23. The fast tier passes in 51 s, and all 1,197 `nagarectl` tests pass.
+- [ ] M2 remaining: the retire scenario (F51), the reviewed rename (F52), a receipt-ingestion
+  scenario, and the F38 and F49 mutation records. F50 lives in the cloud-foundation world (M4).
 - [ ] M1 follow-up: a retire scenario (the create-then-retire review sequence), moved into M2's
   scenario work.
 - [ ] M1: A Kubernetes provider world with an adversary drives the real Kubernetes adapter, driver and
@@ -112,6 +120,13 @@ behind it is in
   case, committing to resume hid the real exit (abandon, then a corrected review). Progress is now a
   signature of the active transaction, the accepted and converged revisions, and each operation's
   latest state. The search replays from scratch per path (see the Decision Log).
+
+- 2026-10-05: The `Replaced` fault found two more wedges (F56, F57) within a minute of being added.
+  A Service replaced after a landed unready update could not be stopped, and the runbook told the
+  operator to "investigate" with no command to run afterwards. A verification whose target was
+  replaced after it ran stayed ambiguous forever, although a verification never writes. In both,
+  every refusal was correct in isolation, and only the exit search showed the composition wedged.
+  Evidence: `docs/audits/mp23-findings.md#f56`, `#f57`.
 
 
 ## Decision Log
@@ -165,6 +180,26 @@ behind it is in
   just never converges, which only a liveness check sees. A controller's status churn is bursty, and
   a stop refused by a race is retried once it settles. Churning on every read during exits would
   make the two-read landed proof unsatisfiable, which does not happen in practice.
+  Date: 2026-10-05
+
+- Decision: Store faults run on one representative scenario in the fast tier and on all of them in
+  the deep tier. The model's own reads use a second, fault-free store over the same objects, and a
+  planning step retries once when a store fault fired during it.
+  Rationale: Store faults do not depend on the application's shape. Sweeping them on all five
+  scenarios took the fast tier from 38 s to over 200 s with no new violation. A fault that reaches
+  the model's own reads would test the model, not Nagare.
+  Date: 2026-10-05
+
+- Decision: I3's status clause computes status the way `inventory status` does: `classifyDriftWith`
+  with the head's incarnations over the composed accepted snapshot. Observations go through the
+  production adapter with the world in an inspection mode where no fault fires and no churn happens.
+  Rationale: A model-side reimplementation of drift classification would test itself.
+  Date: 2026-10-05
+
+- Decision: F50's guard (a transient failed `gcloud` read in the state-bucket ownership check) is not
+  reachable from the Kubernetes or store worlds. Its mutation is recorded against M4's
+  cloud-foundation world instead of M2.
+  Rationale: F50 sits in the Pulumi or `gcloud` path, which these worlds do not drive.
   Date: 2026-10-05
 
 ## Outcomes & Retrospective

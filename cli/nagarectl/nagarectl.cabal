@@ -589,6 +589,7 @@ test-suite nagarectl-test
     Nagare.Test.Webhook
     Nagare.Test.World.Adversary
     Nagare.Test.World.Kubernetes
+    Nagare.Test.World.Store
     PlatformCutoverSpec
     PlatformSpec
 
