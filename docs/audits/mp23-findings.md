@@ -78,7 +78,7 @@ This is the authoritative list of implementation findings for [MP-23](../masterp
 | [F57](#f57) | P1 | A verification whose target is replaced after it ends ambiguous has no exit | Verifying | EP-153 / EP-173 |
 | [F58](#f58) | P2 | An application whose first deploy stopped unready cannot be retired, because a never-created member has nothing to retain | Verifying | EP-153 / EP-173 |
 | [F59](#f59) | P1 | A standalone database whose StatefulSet is created but never becomes Ready has no exit | Partial | EP-153 / EP-173 |
-| [F60](#f60) | P2 | One out-of-band replacement between a create and convergence is recorded as the accepted incarnation (F49's fail-open recording, reachable with one fault) | Deferred (operator) | EP-173 |
+| [F60](#f60) | P2 | One out-of-band replacement between a create and convergence is recorded as the accepted incarnation (F49's fail-open recording, reachable with one fault) | Open | EP-173 |
 | [F61](#f61) | P1 | A reviewed PostgreSQL rename whose copy Job fails partway has no exit | Open | EP-173 / EP-153 |
 | [F62](#f62) | P2 | A reviewed rename copies from, and retains, a source replaced outside review | Open | EP-153 / EP-173 |
 | [F63](#f63) | P1 | A Deployment or database StatefulSet update that lands but never becomes Ready has no exit | Open | EP-153 / EP-173 |
@@ -639,13 +639,18 @@ invalid-retirement: retention needs a selected scope replacement or retirement t
 
 ## F60
 
-**One out-of-band replacement between a create and convergence is recorded as the accepted incarnation** — P2; **Deferred (operator decision, 2026-10-05)**; owner EP-173.
+**One out-of-band replacement between a create and convergence is recorded as the accepted incarnation** — P2; **Open** (un-deferred by the operator, 2026-10-05); owner EP-173.
 
 **Found by the EP-173 recovery model (2026-10-05)** in the same database scenario. Its new I3 receipt clause plans scheduled-receipt ingestion the way `db backup-receipts` does. Under one `Replaced` fault at a Kubernetes observation between the StatefulSet's or PVC's create and the convergence observation, convergence records the replacement as the accepted incarnation. A receipt taken from the replacement then compiles for ingestion, and F49's guard passes because the record names the replacement.
 
 **Ledger:** this is the F49 limit already on the retrospective's deferral ledger: incarnation recording is fail-open, and the record comes from a fresh observation at convergence, not from the execution receipt. It is listed in ADR 22 "Known limits". The model shows a single fault reaches it.
 
 **Operator decision (2026-10-05):** keep it as a documented limit. The fix, binding established records from the create's own completion identity, remains the follow-up work ADR 22 names. The recovery model names it as an explicit tolerance: the I3 receipt clause exempts only a replacement that the head itself records as the accepted incarnation. A receipt from a replacement the head does not record must still refuse, and the `F49-ingestion-ignores-incarnation` mutation proves the model checks that.
+
+**Operator decision, superseding the deferral (2026-10-05, in session nagare-84):** "ok fix it in MP-23 unless it's going to take hours". The earlier deferral was recommended without the deferral ledger that ADR 25 decision 7 requires. With the ledger shown, the operator un-deferred it.
+- **Fix:** bind each established incarnation from the create's own completion identity, the UID the API server returned for the reviewed create. Refuse convergence, or stop with a reviewed exit, when the live object observed at convergence differs. Do not record a fresh observation.
+- **Coverage:** remove the recovery model's F60 tolerance from the I3 receipt clause, so a `Replaced` fault between create and convergence must no longer launder the replacement. Add a mutation record that restores observation-based recording.
+- **Time box:** if the implementer estimates the fix at more than about two hours, report the estimate to the operator before going further.
 
 ## F61
 

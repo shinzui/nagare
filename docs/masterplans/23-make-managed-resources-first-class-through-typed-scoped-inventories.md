@@ -493,11 +493,11 @@ This list says what remains before MP-23 is complete. It was agreed between sess
 
 **Independent verification** (owner reviewer, arranged by the user; implementer sessions never self-close)
 - [ ] Close every finding that is not yet Closed, per the [tracker](../audits/mp23-findings.md)'s closure rule:
-  - Open: F48, F61, F62, F63 (F61–F63 opened 2026-10-05 by independent verification; model reproductions pending)
+  - Open: F48, F60, F61, F62, F63 (F61–F63 opened 2026-10-05 by independent verification; model reproductions pending)
   - Partial: F40, F59 (F59 reopened 2026-10-05: its post-stop exit fails for standalone databases)
   - Verifying: F15, F16, F30, F31, F32, F33, F39, F43, F44, F45, F46, F47, F52, F53, F55, F56, F57, F58
   - Closed 2026-10-05 by independent verification: F51, F54
-  - Deferred by the operator: F60 (the F49 fail-open-recording ledger item)
+  - F60 un-deferred by the operator on 2026-10-05 (fix in MP-23 unless it takes hours); now Open
 
   (Register as of 2026-10-05. The independent reviewer closed F34–F38, F41, F42, F49 and F50 on 2026-10-04.)
 
@@ -675,6 +675,7 @@ Earlier discoveries (derived controller claims, explicit candidate changes, nati
 
 ## Decision Log
 
+
 Decisions still in force, condensed. Full verbatim entries are in [the snapshot](../audits/mp23-archive/plan-history/mp23-before-consolidation-2026-10-02.md).
 
 2026-10-05 (operator, three answers to implementer questions in Claude Code sessions):
@@ -738,6 +739,9 @@ Gating is local; GitHub Actions is not used.
 
 2026-09-16: Foundational architecture — compose independent scopes in one validated inventory; one typed declaration path for render, review and execution; separate desired, observed and historical state; keep native executors; constrained late-bound outputs behind review barriers; single-writer store specified as conditional writes; shared history in the context state bucket (EP-151); provider-durable draft-release evidence for publication.
 
+- Decision (operator, 2026-10-05): fix F60 in MasterPlan 23 "unless it's going to take hours", superseding the same day's deferral. That deferral had been recommended without the deferral ledger ADR 25 requires. Shown the ledger (F40 remainder and F48 deferred; limits inside closed F35, F37, F38, F49 and F50), the operator un-deferred F60. The fix binds incarnations from the create's own completion identity instead of a fresh observation at convergence. If the estimate exceeds about two hours, the implementer reports back first.
+  Rationale: F60 is the last open item of the F49/F51 incarnation class, and the recovery model already reproduces it with one fault, so a fix can be proven quickly.
+  Date: 2026-10-05
 
 ## Outcomes & Retrospective
 
