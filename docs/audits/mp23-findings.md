@@ -251,6 +251,8 @@ verify the regression and a fresh disposable native collection before closure.
 
 **Verification (2026-10-04, nagare-reviewer, candidate `7596632c`):** The recheck runs at preparation, at preflight, and in the identity reread immediately before `pulumi up --plan`, because collection is a `RetireResource`. With the ID comparison disabled, the regression fails ("replacement incarnation was prepared") ([phase-1 record](mp23-independent-results-2026-10-04/phase1-source-and-regressions-7596632c.md)). Status set to Verifying. Next check: native exact collection in phase 3a and the teardown leaf collections in 3b.
 
+**Brief deviation, pending reviewer write-up (2026-10-04; transcribed 2026-10-05 by nagare-84 from the nagare-reviewer and nagare-f3 session logs):** The independent review brief mapped F33 to phase 3a's image cleanup, and that mapping was wrong. At 19:58Z nagare-f3 corrected it: `cleanup --images` prunes the VM's container image cache (F32) and never runs a cloud collection. At 19:58:34Z the reviewer confirmed the correction in source. F33's native check therefore belongs entirely to phase 3b, in the teardown's reviewed leaf collections, with the evidence nagare-f3 agreed to export: each leaf's review and digest, plan and apply logs with preflight and execution results, the converged transaction, and the selected stack entry's URN, provider ID and protection before and after. The reviewer said it would record this deviation in its phase 3 results, and `phase3a-c3-mp23-c3i.json` does not yet contain it.
+
 ## F39
 
 **Staged cloud teardown cannot prepare any Pulumi operation on a real stack** — P1; **Verifying**; owners EP-153 / EP-156.
@@ -521,6 +523,8 @@ Nothing had run the flake check for many commits, so earlier candidates carried 
 - No file under `cli/*/src`, `cli/*/app`, `cluster/`, `infra/` or `nixos/` changed.
 - **Gates:** `nix flake check --all-systems` passes with 36/36 aarch64-darwin and 35/35 x86_64-linux checks. All 1,190 tests, the style gate, both architecture checks and the command audit pass locally.
 
+**Independent verdict, pending reviewer write-up (2026-10-05; transcribed by nagare-84 from nagare-reviewer's session at 00:54:21Z):** "I counted the new all-systems log myself: aarch64-darwin 36 passed and 0 failed, x86_64-linux 35 passed and 0 failed, with no build errors. The Linux checks ran through `ssh://builder@nix-gcp-builder`. So F53's `nix flake check` fix holds on both systems at `b74b7e49`." The reviewer noted that the log does not print its revision, so it relied on nagare-f3's statement that the run used the clean candidate worktree. This came after the reviewer had rejected an earlier "35/35 x86_64-linux" claim taken from the shared tree, in which every Linux check had failed because the builder refused connections. The status stays Verifying until the reviewer writes its own closure. [EP-174](../plans/174-gate-every-commit-before-any-native-run.md)'s full gate now makes that claim checkable: a salted builder probe plus a revision-bound record.
+
 ## F54
 
 **A landed application Service update whose new revision never becomes Ready has no reviewed exit, so the store stays wedged** — P1; **Verifying**; owners EP-153 / EP-156.
@@ -596,6 +600,8 @@ So the stated failure is corrected natively, and the store is no longer wedged. 
 - the driver's `RecoveryLandedUnready _ -> pure Nothing` fails "resume of a landed unready update stops ambiguous without a second write";
 - History's `landedUpdate = onlyStates (const True)` fails "landed update stop refuses an extra uncertain operation and an unproved landing".
 Every F54 guard is now pinned by a regression. F54 stays Verifying only for the operator's model-first rule (the EP-173 M1–M2 stuck-state model).
+
+**Archived raw evidence (2026-10-05, nagare-84):** the phase-3a sequence that wedged `mp23-c3i` is in [`phase3a-seq-mp23-c3i/`](mp23-independent-results-2026-10-04/phase3a-seq-mp23-c3i/README.md). nagare-phase-b's native F54 run (driver, step logs, reviews, status before and after) is in [`f54-native-mp23-c3i/`](mp23-implementer-results-2026-10-03/f54-native-mp23-c3i/README.md).
 
 ## F55
 
