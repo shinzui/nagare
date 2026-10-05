@@ -1,0 +1,11 @@
+VerifyResource	application:rvf16/rvf16-pg/backup-account
+CreateResource	application:rvf16/rvf16/release-history
+VerifyResource	application:rvf16/rvf16-pg/credential
+VerifyResource	application:rvf16/rvf16-pg/service
+VerifyResource	application:rvf16/rvf16-pg/statefulset
+VerifyResource	application:rvf16/rvf16-pg/backup
+UpdateResource	application:rvf16/rvf16/service
+VerifyResource	application:rvf16/rvf16-pg/pvc
+VerifyResource	application:rvf16/rvf16-pg/backup-read-role
+VerifyResource	application:rvf16/rvf16-pg/backup-signing-key
+VerifyResource	application:rvf16/rvf16-pg/backup-read-binding

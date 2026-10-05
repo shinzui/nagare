@@ -1,0 +1,15 @@
+[0] history: landed update not admitted: exit=1 fails=['landed update stops with ownership retained and a corrected review updates the same Service: FAIL', 'landed update stop refuses an extra uncertain operation and an unproved landing:             FAIL', 'Test suite nagarectl-test: FAIL']
+[1] history: landing proof not required: exit=1 fails=['landed update stop refuses an extra uncertain operation and an unproved landing:             FAIL', 'Test suite nagarectl-test: FAIL']
+[2] history: planning check unproved: exit=0 fails=[] COMPILE?:     "This is a partial function, it throws an error on empty lists. Use pattern matching, 'Data.List.uncons' or 'Data.Maybe.listToMaybe' instead. Consider refactoring to use "Data.List.NonEmpty"."
+    "This is a partial function, it throws an error on empty lists. Use pattern matching, 'Data.List.uncons' or 'Data.Maybe.listToMaybe' instead. Consider refactoring to use "Data.List.NonEmpty"."
+    "T
+[3] history: companion may be uncertain: exit=0 fails=[] COMPILE?: 
+[4] recovery: no landed arm: exit=1 fails=['landed update stops with ownership retained and a corrected review updates the same Service: FAIL', 'Test suite nagarectl-test: FAIL']
+[5] recovery: weak proof counts as landed: exit=1 fails=['landed update stop refuses an extra uncertain operation and an unproved landing:             FAIL', 'Test suite nagarectl-test: FAIL']
+[6] adapter: no landed branch: exit=1 fails=['adapter proves a landed Knative update only when exact, observed, exclusive and unready:     FAIL', 'Test suite nagarectl-test: FAIL']
+[7] adapter: no digest check: exit=1 fails=['adapter proves a landed Knative update only when exact, observed, exclusive and unready:     FAIL', 'Test suite nagarectl-test: FAIL']
+[8] adapter: no prior uid check: exit=1 fails=['adapter proves a landed Knative update only when exact, observed, exclusive and unready:     FAIL', 'Test suite nagarectl-test: FAIL']
+[9] adapter: no owner check: exit=0 fails=[] COMPILE?: 
+[10] config: no ownership/identity check: exit=1 fails=['adapter proves a landed Knative update only when exact, observed, exclusive and unready:     FAIL', 'Test suite nagarectl-test: FAIL']
+[11] config: no generation check: exit=1 fails=['adapter proves a landed Knative update only when exact, observed, exclusive and unready:     FAIL (0.01s)', 'Test suite nagarectl-test: FAIL']
+[12] config: no ready check: exit=1 fails=['adapter proves a landed Knative update only when exact, observed, exclusive and unready:     FAIL (0.01s)', 'Test suite nagarectl-test: FAIL']

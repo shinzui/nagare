@@ -1,0 +1,30 @@
+{
+ "command": "nagarectl db backup-receipts NAME --check-freshness",
+ "databases": [
+  {
+   "database": "scenario-pg",
+   "grade": "healthy",
+   "ageSeconds": 232,
+   "objective": "hourly",
+   "receipts": 2,
+   "line": "Recovery-point freshness: healthy; age=232s; objective=hourly; newest point is verified and awaits reviewed ingestion"
+  },
+  {
+   "database": "scenario-redis",
+   "grade": "healthy",
+   "ageSeconds": 233,
+   "objective": "hourly",
+   "receipts": 2,
+   "line": "Recovery-point freshness: healthy; age=233s; objective=hourly; newest point is verified and awaits reviewed ingestion"
+  },
+  {
+   "database": "scenario-ch",
+   "grade": "healthy",
+   "ageSeconds": 234,
+   "objective": "hourly",
+   "receipts": 2,
+   "line": "Recovery-point freshness: healthy; age=234s; objective=hourly; newest point is verified and awaits reviewed ingestion"
+  }
+ ],
+ "allHealthy": true
+}

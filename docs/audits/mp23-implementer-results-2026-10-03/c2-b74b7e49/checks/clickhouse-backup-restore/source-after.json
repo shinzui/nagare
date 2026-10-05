@@ -1,0 +1,8 @@
+{
+  "sourceRows": [
+    "1|scenario-ch-row-1",
+    "2|scenario-ch-row-2",
+    "3|scenario-ch-after-backup"
+  ],
+  "keepsLaterChange": true
+}

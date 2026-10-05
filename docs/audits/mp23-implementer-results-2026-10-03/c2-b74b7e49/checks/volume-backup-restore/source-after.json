@@ -1,0 +1,17 @@
+{
+ "snapshot": {
+  "id": "c2vol1",
+  "transaction": "tx-1e3089d5171f39ad1fce7e76ff7e8f11dfd53ed1339c219fb22209d5d103e371"
+ },
+ "restore": {
+  "id": "c2volr1",
+  "transaction": "tx-dd04116c22b11a534b10359a5b1c0262333eb4e9fd873b99e5f45384a7d245bd",
+  "pvc": "nagare-restore-scenario-a-uploads-c2volr1"
+ },
+ "seededSha256": "9718fa215dd0daa10eda4ccd5ff5f5826af7333ec28b4f36f1821ee33080f0a1",
+ "sourceAfterChangeSha256": "b0618137182e11f29951ea34fdd261fadef62eb14922d5bbda55453cb148808b",
+ "restoredSha256": "9718fa215dd0daa10eda4ccd5ff5f5826af7333ec28b4f36f1821ee33080f0a1",
+ "restoredMatchesSeed": true,
+ "sourceKeptChange": true,
+ "configNote": "storage snapshot/restore refuse an Application-emitting config; the run used a projection of the fixture config that emits the scenario-a Service via emitDeployment (EP-160 limitation)"
+}

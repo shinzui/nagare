@@ -1,0 +1,54 @@
+{
+ "stage": "cluster-completion",
+ "within": "application B deploy, after the Service write and before readiness",
+ "transaction": "tx-a18b98b6cc7e513788878176579e463aa8ac8bd1f191e150b2f71758cd71cd2e",
+ "killedOperation": [
+  "op-a71bbf69cf418c366d8a98c1"
+ ],
+ "uidsBefore": [
+  [
+   "Service",
+   "scenario-b",
+   "69a48725-85f3-4cbf-bff1-83b849ae2766"
+  ],
+  [
+   "StatefulSet",
+   "scenario-redis",
+   "fc70b012-1890-4846-adeb-16d3098c5142"
+  ],
+  [
+   "PersistentVolumeClaim",
+   "nagare-db-scenario-redis-data",
+   "0126d83b-1a98-41f9-830e-9ed7012b5a41"
+  ]
+ ],
+ "uidsAfter": [
+  [
+   "Service",
+   "scenario-b",
+   "69a48725-85f3-4cbf-bff1-83b849ae2766"
+  ],
+  [
+   "StatefulSet",
+   "scenario-redis",
+   "fc70b012-1890-4846-adeb-16d3098c5142"
+  ],
+  [
+   "PersistentVolumeClaim",
+   "nagare-db-scenario-redis-data",
+   "0126d83b-1a98-41f9-830e-9ed7012b5a41"
+  ]
+ ],
+ "journal": {
+  "events": 26,
+  "operations": 12,
+  "stateCounts": {
+   "IntentRecorded": 12,
+   "Completed": 12
+  },
+  "operationsWithRepeatedIntent": [],
+  "operationsWithRepeatedCompletion": []
+ },
+ "resumeResult": "converged tx-a18b98b6cc7e513788878176579e463aa8ac8bd1f191e150b2f71758cd71cd2e",
+ "preInterruptionUidsUnchanged": true
+}

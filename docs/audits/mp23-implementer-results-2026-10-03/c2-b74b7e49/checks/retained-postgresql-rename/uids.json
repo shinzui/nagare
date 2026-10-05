@@ -1,0 +1,116 @@
+{
+  "oldIncarnationsRetained": [
+    {
+      "kind": "CronJob",
+      "name": "nagare-dbbackup-scenario-rename-src",
+      "uid": "c8d5c6e3-8e87-4822-ad75-cde365443935",
+      "stillPresentWithSameUid": true
+    },
+    {
+      "kind": "PersistentVolumeClaim",
+      "name": "nagare-db-scenario-rename-src-data",
+      "uid": "5a62fd09-7fe8-4433-b337-dc859029e89f",
+      "stillPresentWithSameUid": true
+    },
+    {
+      "kind": "Role",
+      "name": "nagare-dbbackup-scenario-rename-src",
+      "uid": "d60791cb-5761-4a5e-a301-8da207a21757",
+      "stillPresentWithSameUid": true
+    },
+    {
+      "kind": "RoleBinding",
+      "name": "nagare-dbbackup-scenario-rename-src",
+      "uid": "a367bfff-d098-4027-8bf0-67a373cc2c2a",
+      "stillPresentWithSameUid": true
+    },
+    {
+      "kind": "Secret",
+      "name": "nagare-db-scenario-rename-src",
+      "uid": "168b4878-9524-4d2f-995f-8283b4b141b6",
+      "stillPresentWithSameUid": true
+    },
+    {
+      "kind": "Secret",
+      "name": "nagare-dbbackup-scenario-rename-src-signing",
+      "uid": "f9e41876-2fcd-4681-9eca-ebfc87dd5d07",
+      "stillPresentWithSameUid": true
+    },
+    {
+      "kind": "Service",
+      "name": "scenario-rename-src",
+      "uid": "740b4550-e4ae-4002-9d18-0df84eedad58",
+      "stillPresentWithSameUid": true
+    },
+    {
+      "kind": "ServiceAccount",
+      "name": "nagare-dbbackup-scenario-rename-src",
+      "uid": "0139b165-b2c2-41e7-aa5e-08f5bc2eac44",
+      "stillPresentWithSameUid": true
+    },
+    {
+      "kind": "StatefulSet",
+      "name": "scenario-rename-src",
+      "uid": "87d1fd9d-9fef-4ad4-afd4-c1f8c97a0df6",
+      "stillPresentWithSameUid": true
+    }
+  ],
+  "newIncarnations": [
+    {
+      "kind": "CronJob",
+      "name": "nagare-dbbackup-scenario-renamed",
+      "uid": "631adf0e-aa11-43f5-abf6-2b9ea4a32a75"
+    },
+    {
+      "kind": "PersistentVolumeClaim",
+      "name": "nagare-db-scenario-renamed-data",
+      "uid": "d0626bfc-af46-41ff-b6be-d098fe252514"
+    },
+    {
+      "kind": "Role",
+      "name": "nagare-dbbackup-scenario-renamed",
+      "uid": "a1b89fbd-1db5-4aaf-9fd1-12fe738e0f0c"
+    },
+    {
+      "kind": "RoleBinding",
+      "name": "nagare-dbbackup-scenario-renamed",
+      "uid": "927fb9a7-9bd8-41dc-ba81-71ae73acb3e9"
+    },
+    {
+      "kind": "Secret",
+      "name": "nagare-db-scenario-renamed",
+      "uid": "8da829c8-3822-4ef5-befe-545972b6c53c"
+    },
+    {
+      "kind": "Secret",
+      "name": "nagare-dbbackup-scenario-renamed-signing",
+      "uid": "1f365744-f178-48f7-a580-50e8d9340d1c"
+    },
+    {
+      "kind": "Service",
+      "name": "scenario-renamed",
+      "uid": "49c9453f-3f29-4718-aba1-b91501b0e400"
+    },
+    {
+      "kind": "ServiceAccount",
+      "name": "nagare-dbbackup-scenario-renamed",
+      "uid": "810b2778-84a7-4dbe-98e3-f7009757e162"
+    },
+    {
+      "kind": "StatefulSet",
+      "name": "scenario-renamed",
+      "uid": "154825f4-2f28-49fd-b7ed-7e479bca3385"
+    }
+  ],
+  "everyPreexistingObjectUnchanged": true,
+  "oldStatefulSet": {
+    "replicas": "0",
+    "migrationFence": "op-cf9ffffe8952b49598d0b519"
+  },
+  "oldBackupSchedule": {
+    "suspend": "true",
+    "migrationFence": "op-df0dff34e697b287046c2d70"
+  },
+  "review": "8695bd545db46b3a75772e5a643ee3a0ff15c6da9b5f847736e66db74e2dc1ae",
+  "operations": 72
+}

@@ -153,7 +153,7 @@ Evidence counts toward final acceptance only where its recorded inputs (operator
   - C1 (214 `VerifyResource`, zero mutations) and the acceptance C2 passed first time: 16/16, assembled (run `39d59de4…`), zero `replaced-incarnation` after C1 and before the runner.
   - `platform-root.json` records `nagare-0.4.0-b74b7e49bf33`.
   - The deferred F52 shows during the interrupted rename, as expected, and is recorded.
-  - Records: [C2](../audits/mp23-implementer-results-2026-10-03/c2-acceptance-b74b7e49.json), [C1](../audits/mp23-implementer-results-2026-10-03/c1-local-gate-b74b7e49.json).
+  - Records: [C2](../audits/mp23-implementer-results-2026-10-03/c2-acceptance-b74b7e49.json), [C1](../audits/mp23-implementer-results-2026-10-03/c1-local-gate-b74b7e49.json), and the archived C2 evidence directory [`c2-b74b7e49/`](../audits/mp23-implementer-results-2026-10-03/c2-b74b7e49/README.md).
 
 
 ## Surprises & Discoveries

@@ -1,0 +1,22 @@
+{
+  "cluster": "k3d-nagare-local",
+  "context": "local",
+  "evidence": [
+    {
+      "path": "checks/convergence-noop-removal/preview-cleanup.json",
+      "sha256": "9409a584dfac2d3ff5b3b8be330b876049916531784dbd7ef9b633b591fbe832"
+    },
+    {
+      "path": "no-op-review/review.json",
+      "sha256": "5c8fd5ba20177d3919fd349e09c1308b9a8ee7b23b475967294ed0cafdedd80a"
+    }
+  ],
+  "fixtureDigest": "dd431786f1905bccae8524ad465c1ea4fe81bcc81a619726dc2583b6232b4a1c",
+  "mode": "local",
+  "name": "convergence-noop-removal",
+  "operatorRevision": "b74b7e49bf33cee19a13b58020ab1762d8ae4638",
+  "passed": true,
+  "recordedAt": "2026-10-05T01:10:24Z",
+  "schemaVersion": 1,
+  "summary": "The runner's verify replan of the unchanged platform candidate has zero operations, and reviewed preview cleanup retired pr-scenario and collected its DomainMapping and Service with the KIngress and KCertificate descendants removed and the other route unchanged"
+}

@@ -1,0 +1,66 @@
+{
+ "command": "nagarectl cleanup --previews --preview-ttl-days 0 -n personal --save-plan DIR, then inventory apply DIR --yes, repeated until no review is created",
+ "preview": "pr-scenario (site scenario-site)",
+ "steps": [
+  {
+   "step": "retire",
+   "result": "converged tx-8f15d356e0537aa6eadacef34fff5199eef3af310c12407035d8c5d66a6ecea6"
+  },
+  {
+   "step": "collect-01",
+   "operations": [
+    "Kubernetes RetireResource standalone:site-preview-scenario-site-pr-pr-scenario/pr-scenario.scenario-site.preview.127-0-0-1.sslip.io/domain-mapping at Kubernetes (ResourceId \"platform:cluster/cluster/cluster\") \"serving.knative.dev\" (Name \"domainmapping\") (Just (Name \"personal\")) (Name \"pr-scenario.scenario-site.preview.127-0-0-1.sslip.io\"); native digest bc2a19ea4a624bf318ada6cdaca9bb1ba8154cbf5b598f4a92fd2de7c0554675; Background garbage collection of exclusive controller descendants (including later-created descendants); observed 4; preserve inventoried neighbors"
+   ],
+   "result": "converged tx-2439512e4ebd4ade0614e0db2f0c224d1a706aa01dadfcdc91891dc4ff181a83"
+  },
+  {
+   "step": "collect-02",
+   "operations": [
+    "Kubernetes RetireResource standalone:site-preview-scenario-site-pr-pr-scenario/scenario-site-pr-pr-scenario/service at Kubernetes (ResourceId \"platform:cluster/cluster/cluster\") \"serving.knative.dev\" (Name \"service\") (Just (Name \"personal\")) (Name \"scenario-site-pr-pr-scenario\"); native digest d0c87e341f2d2c2b2267f4822e95d4ef6f08ede4cf757cfa27b09060467d1e4b; Background garbage collection of exclusive controller descendants (including later-created descendants); observed 16; preserve inventoried neighbors"
+   ],
+   "result": "converged tx-98b00654b4bd7439955cfa1c00ef1218a7dd15522c5d04aff47c3163e0369ff3"
+  }
+ ],
+ "domainMappingsBefore": [
+  [
+   "nagare-system",
+   "scenario-a.127-0-0-1.sslip.io",
+   "af1cff48-3f8c-46ed-a40f-8df84dfb6017"
+  ],
+  [
+   "personal",
+   "pr-scenario.scenario-site.preview.127-0-0-1.sslip.io",
+   "253bf701-be5a-421e-8b97-9ea2bbbffbd1"
+  ]
+ ],
+ "domainMappingsAfter": [
+  [
+   "nagare-system",
+   "scenario-a.127-0-0-1.sslip.io",
+   "af1cff48-3f8c-46ed-a40f-8df84dfb6017"
+  ]
+ ],
+ "previewDescendantsBefore": [
+  [
+   "Ingress",
+   "personal",
+   "pr-scenario.scenario-site.preview.127-0-0-1.sslip.io",
+   "342ee544-6939-4e85-a1ad-36f24346db39"
+  ],
+  [
+   "Ingress",
+   "personal",
+   "scenario-site-pr-pr-scenario",
+   "e9ce5f42-6145-4ad0-99a9-ae396ed8801b"
+  ],
+  [
+   "Certificate",
+   "personal",
+   "pr-scenario.scenario-site.preview.127-0-0-1.sslip.io",
+   "7fcb384e-211a-4666-91e3-89e78282378a"
+  ]
+ ],
+ "previewObjectsAfter": [],
+ "descendantsCollected": true,
+ "otherDomainMappingUnchanged": true
+}

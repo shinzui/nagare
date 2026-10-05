@@ -1,0 +1,23 @@
+{
+  "restoreId": "c2pgr2",
+  "review": "0fa42ca80568d29056555423b284bd8e48580125eb720e13791ef1961064bcff",
+  "preexistingScratchDatabase": "scenario-pg_restore_c2pgr2",
+  "tablesBefore": "foreign_marker",
+  "tablesAndRowsAfter": [
+    "foreign_marker",
+    "1 rows: pre-existing"
+  ],
+  "restoreJob": [
+    "nagare-dbrestore-scenario-pg-c2pgr2",
+    "525b986d-ce86-41a3-b49a-5c98e6e03326",
+    "<none>",
+    "1"
+  ],
+  "jobLogTail": "createdb: error: database creation failed: ERROR:  database \"scenario-pg_restore_c2pgr2\" already exists",
+  "applyResult": "ambiguous tx-0fa42ca80568d29056555423b284bd8e48580125eb720e13791ef1961064bcff at op-f71d26f4a018a6813780eaf3",
+  "recovery": {
+    "action": "abandon-partial-database-restore",
+    "result": "Terminal database restore review abandoned; unaccepted scratch database remains unresolved until a separate reviewed recovery; use a fresh restore ID"
+  },
+  "preexistingDatabaseUnchanged": true
+}

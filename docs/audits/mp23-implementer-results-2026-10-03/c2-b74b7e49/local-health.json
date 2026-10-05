@@ -1,0 +1,445 @@
+{
+  "assertions": [
+    {
+      "cluster": "k3d-nagare-local",
+      "context": "local",
+      "evidence": [
+        {
+          "path": "checks/access-grant-revoke/grant.json",
+          "sha256": "13f5ed614c7364d2abb6979c9d5986bb617f49ef57c11293ea1868a43dfb16d0"
+        },
+        {
+          "path": "checks/access-grant-revoke/revoke.json",
+          "sha256": "8d05caf8ce6564c7b2615975013b3b166ead2d9e08c6ebd18a32756ce19d99d0"
+        }
+      ],
+      "fixtureDigest": "dd431786f1905bccae8524ad465c1ea4fe81bcc81a619726dc2583b6232b4a1c",
+      "mode": "local",
+      "name": "access-grant-revoke",
+      "operatorRevision": "b74b7e49bf33cee19a13b58020ab1762d8ae4638",
+      "passed": true,
+      "recordedAt": "2026-10-05T01:09:30Z",
+      "schemaVersion": 1,
+      "summary": "Reviewed access grant and revoke for a test subject on scenario-a.127-0-0-1.sslip.io converged as en viewer tuples; access list showed the subject after the grant and not after the revoke (polled past en's read cache); browser login remains a stated restriction"
+    },
+    {
+      "cluster": "k3d-nagare-local",
+      "context": "local",
+      "evidence": [
+        {
+          "path": "checks/adoption/cleanup.json",
+          "sha256": "e00ae79965cf20a99e8cb4c15f48aa89c329f1b2eae7951fc6a49b13dcd01924"
+        },
+        {
+          "path": "checks/adoption/refusal.json",
+          "sha256": "74610be2bf155469c67077242ae39eda93cd72c5f051a095810bd5451675abdd"
+        },
+        {
+          "path": "checks/adoption/status-unowned.json",
+          "sha256": "3dc052370db20d28677f3caf0d73782e4af54a4096a4be9a41d951484b51efc7"
+        }
+      ],
+      "fixtureDigest": "dd431786f1905bccae8524ad465c1ea4fe81bcc81a619726dc2583b6232b4a1c",
+      "mode": "local",
+      "name": "adoption",
+      "operatorRevision": "b74b7e49bf33cee19a13b58020ab1762d8ae4638",
+      "passed": true,
+      "recordedAt": "2026-10-05T01:09:30Z",
+      "schemaVersion": 1,
+      "summary": "An unowned PVC at a restore's planned scratch address refused planning with adoption-required; no review saved, store generation unchanged; the object was then deleted by exact UID"
+    },
+    {
+      "cluster": "k3d-nagare-local",
+      "context": "local",
+      "evidence": [
+        {
+          "path": "checks/backup-freshness/freshness.json",
+          "sha256": "a0fa28dc834baa18370da4aeee171762245b56a2037d2db78e09fdabbe9cce9f"
+        },
+        {
+          "path": "checks/backup-freshness/server-status.txt",
+          "sha256": "0db6ee3ef5fc04bdaaac959c86df787835f313ff2541d34e2a28396e6bab03e5"
+        }
+      ],
+      "fixtureDigest": "dd431786f1905bccae8524ad465c1ea4fe81bcc81a619726dc2583b6232b4a1c",
+      "mode": "local",
+      "name": "backup-freshness",
+      "operatorRevision": "b74b7e49bf33cee19a13b58020ab1762d8ae4638",
+      "passed": true,
+      "recordedAt": "2026-10-05T01:09:31Z",
+      "schemaVersion": 1,
+      "summary": "server status and db backup-receipts --check-freshness grade scenario-pg, scenario-redis and scenario-ch healthy under the hourly objective from verified scheduled receipts"
+    },
+    {
+      "cluster": "k3d-nagare-local",
+      "context": "local",
+      "evidence": [
+        {
+          "path": "checks/clickhouse-backup-restore/restored.json",
+          "sha256": "01fcf2352db161268a3133ff57b072084f465212b476c9739bae223e2b392e93"
+        },
+        {
+          "path": "checks/clickhouse-backup-restore/seed.json",
+          "sha256": "80cb9594d18ba75cbd7d96c012597e512fa84a2a2ae8baffaf3273b56f6b151a"
+        },
+        {
+          "path": "checks/clickhouse-backup-restore/source-after.json",
+          "sha256": "2ab450f13ed7d14b932eef91fd3c5b0b1d7b5b9ca5b3b0ef08027340aa465683"
+        }
+      ],
+      "fixtureDigest": "dd431786f1905bccae8524ad465c1ea4fe81bcc81a619726dc2583b6232b4a1c",
+      "mode": "local",
+      "name": "clickhouse-backup-restore",
+      "operatorRevision": "b74b7e49bf33cee19a13b58020ab1762d8ae4638",
+      "passed": true,
+      "recordedAt": "2026-10-05T01:09:30Z",
+      "schemaVersion": 1,
+      "summary": "A reviewed manual MinIO backup of scenario-ch restored through native RESTORE into an isolated scratch database with exactly the seeded rows while the source kept its later row"
+    },
+    {
+      "cluster": "k3d-nagare-local",
+      "context": "local",
+      "evidence": [
+        {
+          "path": "checks/collision-refusal/result.json",
+          "sha256": "5b82b5f528a820006dd06bdcaaa3bd6186df62dd7d40bee2a1a846758e2afe69"
+        }
+      ],
+      "fixtureDigest": "dd431786f1905bccae8524ad465c1ea4fe81bcc81a619726dc2583b6232b4a1c",
+      "mode": "local",
+      "name": "collision-refusal",
+      "operatorRevision": "b74b7e49bf33cee19a13b58020ab1762d8ae4638",
+      "passed": true,
+      "recordedAt": "2026-10-05T01:09:30Z",
+      "schemaVersion": 1,
+      "summary": "A second application claiming application A's route host is refused at composition with claim-conflict; no review is published and the head is unchanged"
+    },
+    {
+      "cluster": "k3d-nagare-local",
+      "context": "local",
+      "evidence": [
+        {
+          "path": "checks/convergence-noop-removal/preview-cleanup.json",
+          "sha256": "9409a584dfac2d3ff5b3b8be330b876049916531784dbd7ef9b633b591fbe832"
+        },
+        {
+          "path": "no-op-review/review.json",
+          "sha256": "5c8fd5ba20177d3919fd349e09c1308b9a8ee7b23b475967294ed0cafdedd80a"
+        }
+      ],
+      "fixtureDigest": "dd431786f1905bccae8524ad465c1ea4fe81bcc81a619726dc2583b6232b4a1c",
+      "mode": "local",
+      "name": "convergence-noop-removal",
+      "operatorRevision": "b74b7e49bf33cee19a13b58020ab1762d8ae4638",
+      "passed": true,
+      "recordedAt": "2026-10-05T01:10:24Z",
+      "schemaVersion": 1,
+      "summary": "The runner's verify replan of the unchanged platform candidate has zero operations, and reviewed preview cleanup retired pr-scenario and collected its DomainMapping and Service with the KIngress and KCertificate descendants removed and the other route unchanged"
+    },
+    {
+      "cluster": "k3d-nagare-local",
+      "context": "local",
+      "evidence": [
+        {
+          "path": "checks/drift-classification/repair.json",
+          "sha256": "e03aa1fc10d19ff6169a0db01d8d18cd9ab82e3865bed691cfaffd6c58d2f127"
+        },
+        {
+          "path": "checks/drift-classification/status-drift.json",
+          "sha256": "d497a875848414f9e286f263d9c999c319cc1ccff7c18ab810018181069c90c0"
+        }
+      ],
+      "fixtureDigest": "dd431786f1905bccae8524ad465c1ea4fe81bcc81a619726dc2583b6232b4a1c",
+      "mode": "local",
+      "name": "drift-classification",
+      "operatorRevision": "b74b7e49bf33cee19a13b58020ab1762d8ae4638",
+      "passed": true,
+      "recordedAt": "2026-10-05T01:09:30Z",
+      "schemaVersion": 1,
+      "summary": "Status separated application B's kubectl-patch configuration drift from scenario-retire's retained orphans; the strict replan refused the foreign field manager and was closed by abandon-refused-operation, and the --take-over-fields replan restored the reviewed bytes under the same UID with Nagare as sole field manager"
+    },
+    {
+      "cluster": "k3d-nagare-local",
+      "context": "local",
+      "evidence": [
+        {
+          "path": "checks/independent-scope-preservation/after.json",
+          "sha256": "e4106697bd180b49803807471682fa28a77de8bf2c1bfc149b8c1f24c9f63a46"
+        },
+        {
+          "path": "checks/independent-scope-preservation/before.json",
+          "sha256": "8abd35a62113f74243e1b06daae2e234775de7f36f8568812579102bf126606e"
+        },
+        {
+          "path": "checks/independent-scope-preservation/diff.json",
+          "sha256": "e8d0ae3e9c48adbfac3bdc9cbf590bb8d39b1fd966c4d5790577122c87522277"
+        }
+      ],
+      "fixtureDigest": "dd431786f1905bccae8524ad465c1ea4fe81bcc81a619726dc2583b6232b4a1c",
+      "mode": "local",
+      "name": "independent-scope-preservation",
+      "operatorRevision": "b74b7e49bf33cee19a13b58020ab1762d8ae4638",
+      "passed": true,
+      "recordedAt": "2026-10-05T01:09:30Z",
+      "schemaVersion": 1,
+      "summary": "update-a (env set scenario-a, one operation) changed only application A's runtime env scope; scenario-b's revision and Service UID and all platform revisions were unchanged"
+    },
+    {
+      "cluster": "k3d-nagare-local",
+      "context": "local",
+      "evidence": [
+        {
+          "path": "checks/interrupted-recovery/cluster-completion.json",
+          "sha256": "548f05a0fb4c7644e1527449df5e7dc0358c467108f5ca9da0d93c951f4105c3"
+        },
+        {
+          "path": "checks/interrupted-recovery/database-readiness.json",
+          "sha256": "fea300fae658c405a110cbfa114776739bd61717d196e467913a342c9802b5ae"
+        },
+        {
+          "path": "checks/interrupted-recovery/final-marker.json",
+          "sha256": "66412d4fb3842599c4ee573dc95b5b4933d519ed1a96630367ac20594f768458"
+        },
+        {
+          "path": "checks/interrupted-recovery/migration.json",
+          "sha256": "66f986309b18b6ba00c92429249bd6a4b74261df145f9795fdaecc66ed862531"
+        }
+      ],
+      "fixtureDigest": "dd431786f1905bccae8524ad465c1ea4fe81bcc81a619726dc2583b6232b4a1c",
+      "mode": "local",
+      "name": "interrupted-recovery",
+      "operatorRevision": "b74b7e49bf33cee19a13b58020ab1762d8ae4638",
+      "passed": true,
+      "recordedAt": "2026-10-05T01:10:24Z",
+      "schemaVersion": 1,
+      "summary": "Killed applies at database readiness, cluster completion and migration TransferState each resumed through the recorded transaction with pre-interruption UIDs unchanged and one completed effect per operation (the migration copy recorded a second intent on its adapter-proved retry and adopted the same Job); verify killed before its marker re-ran to verified with the store head unchanged"
+    },
+    {
+      "cluster": "k3d-nagare-local",
+      "context": "local",
+      "evidence": [
+        {
+          "path": "checks/postgresql-backup-restore/restored.json",
+          "sha256": "d4930132d32527173e18f208b49afd2a6c40c559af8311fc59976ac97d726db0"
+        },
+        {
+          "path": "checks/postgresql-backup-restore/seed.json",
+          "sha256": "04199554a4a6dd85b6c9e08a2b9d35e80574b2a349db3ba64218ff950aeee997"
+        },
+        {
+          "path": "checks/postgresql-backup-restore/source-after.json",
+          "sha256": "849bab2adc9626a54955521f426e068817420d4f29055f5d49579909768be26b"
+        },
+        {
+          "path": "checks/postgresql-backup-restore/wrong-incarnation-postgresql.json",
+          "sha256": "52e0b6a6df70b36ee5c7f31b801d2c662e445d81552ce3d4c43e8df6014725ec"
+        }
+      ],
+      "fixtureDigest": "dd431786f1905bccae8524ad465c1ea4fe81bcc81a619726dc2583b6232b4a1c",
+      "mode": "local",
+      "name": "postgresql-backup-restore",
+      "operatorRevision": "b74b7e49bf33cee19a13b58020ab1762d8ae4638",
+      "passed": true,
+      "recordedAt": "2026-10-05T01:09:30Z",
+      "schemaVersion": 1,
+      "summary": "A reviewed manual MinIO backup of scenario-pg restored into an isolated scratch database with exactly the seeded rows while the source kept its later row; a pre-existing scratch database was refused by the restore Job with zero writes and closed with abandon-partial-database-restore"
+    },
+    {
+      "cluster": "k3d-nagare-local",
+      "context": "local",
+      "evidence": [
+        {
+          "path": "checks/redis-backup-restore/restored.json",
+          "sha256": "b62e857d5f548e46453b798ddc32d3e5a61da8264a12846702c62e6f7adcf2fb"
+        },
+        {
+          "path": "checks/redis-backup-restore/seed.json",
+          "sha256": "0336b348628c5baa010a06dcd1c013d249043fcc9377bfc3d49e741bffaafcb4"
+        },
+        {
+          "path": "checks/redis-backup-restore/source-after.json",
+          "sha256": "2440d35ae276951659584914f529533d1270c7ae32b2234c113515a8e59aa91f"
+        },
+        {
+          "path": "checks/redis-backup-restore/wrong-incarnation-redis.json",
+          "sha256": "1ceeb254e22c09c0c76d9920b954870f3d28c25f7574806482941e93e873b9d7"
+        }
+      ],
+      "fixtureDigest": "dd431786f1905bccae8524ad465c1ea4fe81bcc81a619726dc2583b6232b4a1c",
+      "mode": "local",
+      "name": "redis-backup-restore",
+      "operatorRevision": "b74b7e49bf33cee19a13b58020ab1762d8ae4638",
+      "passed": true,
+      "recordedAt": "2026-10-05T01:09:30Z",
+      "schemaVersion": 1,
+      "summary": "A reviewed manual MinIO backup of scenario-redis restored into an isolated scratch instance with exactly the seeded keys while the source kept its later key; a foreign PVC created at the scratch address between plan and apply was refused at preflight, left untouched, and the review ended through abandon-refused-operation"
+    },
+    {
+      "cluster": "k3d-nagare-local",
+      "context": "local",
+      "evidence": [
+        {
+          "path": "checks/retained-data/collection.json",
+          "sha256": "18678470804db1e27396cbad1f3dc521988d75cd482f80de488bff0c2aedf32a"
+        },
+        {
+          "path": "checks/retained-data/history-restore.json",
+          "sha256": "931310f5ab1b4ea2a4919cd9b66cf0dee30f11cf7f769484b11ab2a38cd5c365"
+        }
+      ],
+      "fixtureDigest": "dd431786f1905bccae8524ad465c1ea4fe81bcc81a619726dc2583b6232b4a1c",
+      "mode": "local",
+      "name": "retained-data",
+      "operatorRevision": "b74b7e49bf33cee19a13b58020ab1762d8ae4638",
+      "passed": true,
+      "recordedAt": "2026-10-05T01:09:30Z",
+      "schemaVersion": 1,
+      "summary": "Reviewed collection removed only scenario-retire's stateless companions in dependency order while the PVC, credential and signing key stayed retained and PVC collection was refused; the private history export restored into an isolated state root with identical accepted, converged and retained identities"
+    },
+    {
+      "cluster": "k3d-nagare-local",
+      "context": "local",
+      "evidence": [
+        {
+          "path": "checks/retained-postgresql-rename/rows.json",
+          "sha256": "901be4612fdf4622d9a30030caeb9c51ff8c0b107695c61ba5c38dc36b5af5e2"
+        },
+        {
+          "path": "checks/retained-postgresql-rename/uids.json",
+          "sha256": "a5fd4466f576819f0870e2577683eba0c66e76a45130f215b19219a1aa822ca7"
+        },
+        {
+          "path": "checks/retained-postgresql-rename/unrelated-identity.json",
+          "sha256": "bcd16e4ef810ed01bf382e3ff38c4479ab46294670a09a1e641adfb07d05da8e"
+        }
+      ],
+      "fixtureDigest": "dd431786f1905bccae8524ad465c1ea4fe81bcc81a619726dc2583b6232b4a1c",
+      "mode": "local",
+      "name": "retained-postgresql-rename",
+      "operatorRevision": "b74b7e49bf33cee19a13b58020ab1762d8ae4638",
+      "passed": true,
+      "recordedAt": "2026-10-05T01:09:30Z",
+      "schemaVersion": 1,
+      "summary": "db rename moved scenario-rename-src to scenario-renamed through 72 reviewed migration stages; the three known rows read back, the old incarnations stay retained with unchanged UIDs and fenced writers, and the unrelated auth signing key is unchanged"
+    },
+    {
+      "cluster": "k3d-nagare-local",
+      "context": "local",
+      "evidence": [
+        {
+          "path": "checks/secret-read-refusal/scan.json",
+          "sha256": "7ad19f71998d9261b1ceb0f824d17a16429f297a8bc6ad8ee1535c9dce6c34ca"
+        },
+        {
+          "path": "checks/secret-read-refusal/secret-list.txt",
+          "sha256": "0b05ab826441c4a207e1ed11faca94f887d8b58b9507430dff0cba4e757c9dfd"
+        }
+      ],
+      "fixtureDigest": "dd431786f1905bccae8524ad465c1ea4fe81bcc81a619726dc2583b6232b4a1c",
+      "mode": "local",
+      "name": "secret-read-refusal",
+      "operatorRevision": "b74b7e49bf33cee19a13b58020ab1762d8ae4638",
+      "passed": true,
+      "recordedAt": "2026-10-05T01:10:53Z",
+      "schemaVersion": 1,
+      "summary": "The run-time SCENARIO_API_TOKEN was passed only on stdin; secret list prints names only and a scan of 2007 evidence, review and status files found zero raw or base64 matches (value recorded by SHA-256 only)"
+    },
+    {
+      "cluster": "k3d-nagare-local",
+      "context": "local",
+      "evidence": [
+        {
+          "path": "checks/source-unavailable-recovery/escrow.json",
+          "sha256": "0749d1d41b5bddd9922480ec08078d5e39c163c22aa036d431ee752d68eac2c9"
+        },
+        {
+          "path": "checks/source-unavailable-recovery/idle-after.json",
+          "sha256": "26749b1fc1b6974368f6e3d56411033db8093b257fba1af7539e1281a069e38a"
+        },
+        {
+          "path": "checks/source-unavailable-recovery/restored.json",
+          "sha256": "b86b081f285cf54b348442bf2b658a7154703d98c3155cbe6653f272a05438fb"
+        },
+        {
+          "path": "checks/source-unavailable-recovery/verify.json",
+          "sha256": "3728802bdf49d6cbc7dea62ac126e6b63de6e598715e9bb0047edacb6736a436"
+        }
+      ],
+      "fixtureDigest": "dd431786f1905bccae8524ad465c1ea4fe81bcc81a619726dc2583b6232b4a1c",
+      "mode": "local",
+      "name": "source-unavailable-recovery",
+      "operatorRevision": "b74b7e49bf33cee19a13b58020ab1762d8ae4638",
+      "passed": true,
+      "recordedAt": "2026-10-05T01:09:31Z",
+      "schemaVersion": 1,
+      "summary": "With the k3d server stopped (API unreachable), a live copy of the local MinIO bucket served offline verified the scheduled scenario-pg backup with only the escrowed signing key (verify-escrowed-backup --offline-object-store), its exact archive restored the known rows into a disposable PostgreSQL, and after restart the bucket survived and the store was unchanged and idle"
+    },
+    {
+      "cluster": "k3d-nagare-local",
+      "context": "local",
+      "evidence": [
+        {
+          "path": "checks/volume-backup-restore/manifest.txt",
+          "sha256": "1aa49ed71e003809a87f6dae1776d00f0b4888e63b914520be24a6a71a9f2b6c"
+        },
+        {
+          "path": "checks/volume-backup-restore/projection-Config.hs",
+          "sha256": "03070ba8e7e27ba5221f5fe034ffde0d7d6047a9edf0e98e52c4dfb94158cac8"
+        },
+        {
+          "path": "checks/volume-backup-restore/restore-log.txt",
+          "sha256": "403fb087aef384e1fe8280082031358f628c70b0d6287d6ed96f672d21ccb678"
+        },
+        {
+          "path": "checks/volume-backup-restore/source-after.json",
+          "sha256": "b8f6678c6784329964dc5caae86ab2c9a68312122a605e5c1a9be08d8298f58f"
+        }
+      ],
+      "fixtureDigest": "dd431786f1905bccae8524ad465c1ea4fe81bcc81a619726dc2583b6232b4a1c",
+      "mode": "local",
+      "name": "volume-backup-restore",
+      "operatorRevision": "b74b7e49bf33cee19a13b58020ab1762d8ae4638",
+      "passed": true,
+      "recordedAt": "2026-10-05T01:09:30Z",
+      "schemaVersion": 1,
+      "summary": "Reviewed snapshot c2vol1 of scenario-a uploads restored into a separate PVC; the restore Job's manifest proves scenario-known.txt at the seeded sha after the source changed"
+    }
+  ],
+  "checks": [
+    "access-grant-revoke",
+    "adoption",
+    "backup-freshness",
+    "clickhouse-backup-restore",
+    "collision-refusal",
+    "convergence-noop-removal",
+    "drift-classification",
+    "independent-scope-preservation",
+    "interrupted-recovery",
+    "knative-webhook",
+    "kubernetes-api",
+    "local-registry",
+    "object-store",
+    "object-store-bucket",
+    "postgresql-backup-restore",
+    "redis-backup-restore",
+    "retained-data",
+    "retained-postgresql-rename",
+    "secret-read-refusal",
+    "source-unavailable-recovery",
+    "volume-backup-restore"
+  ],
+  "cluster": "k3d-nagare-local",
+  "context": "local",
+  "fixtureDigest": "dd431786f1905bccae8524ad465c1ea4fe81bcc81a619726dc2583b6232b4a1c",
+  "healthy": true,
+  "mode": "local",
+  "operatorRevision": "b74b7e49bf33cee19a13b58020ab1762d8ae4638",
+  "preflightChecks": [
+    "kubernetes-api",
+    "knative-webhook",
+    "local-registry",
+    "object-store",
+    "object-store-bucket"
+  ],
+  "schemaVersion": 1
+}

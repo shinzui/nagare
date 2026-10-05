@@ -1,0 +1,22 @@
+{
+  "cluster": "k3d-nagare-local",
+  "context": "local",
+  "evidence": [
+    {
+      "path": "checks/retained-data/collection.json",
+      "sha256": "18678470804db1e27396cbad1f3dc521988d75cd482f80de488bff0c2aedf32a"
+    },
+    {
+      "path": "checks/retained-data/history-restore.json",
+      "sha256": "931310f5ab1b4ea2a4919cd9b66cf0dee30f11cf7f769484b11ab2a38cd5c365"
+    }
+  ],
+  "fixtureDigest": "dd431786f1905bccae8524ad465c1ea4fe81bcc81a619726dc2583b6232b4a1c",
+  "mode": "local",
+  "name": "retained-data",
+  "operatorRevision": "b74b7e49bf33cee19a13b58020ab1762d8ae4638",
+  "passed": true,
+  "recordedAt": "2026-10-05T01:09:30Z",
+  "schemaVersion": 1,
+  "summary": "Reviewed collection removed only scenario-retire's stateless companions in dependency order while the PVC, credential and signing key stayed retained and PVC collection was refused; the private history export restored into an isolated state root with identical accepted, converged and retained identities"
+}

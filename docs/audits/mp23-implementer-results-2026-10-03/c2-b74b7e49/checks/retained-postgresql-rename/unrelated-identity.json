@@ -1,0 +1,14 @@
+{
+  "object": "nagare-system/nagare-shomei-keys",
+  "before": {
+    "uid": "e22273e7-f4db-481e-b191-4a42811c87da",
+    "resourceVersion": "2327",
+    "dataSha256": "9b8cb80ddc49e0b9a6812d82ada3bfc68b450f64fa4f21bf99ae6ccd0a2dd495"
+  },
+  "after": {
+    "uid": "e22273e7-f4db-481e-b191-4a42811c87da",
+    "resourceVersion": "2327",
+    "dataSha256": "9b8cb80ddc49e0b9a6812d82ada3bfc68b450f64fa4f21bf99ae6ccd0a2dd495"
+  },
+  "unchanged": true
+}

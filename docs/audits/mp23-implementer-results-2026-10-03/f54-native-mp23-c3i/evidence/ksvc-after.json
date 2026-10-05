@@ -1,0 +1,165 @@
+{
+    "apiVersion": "serving.knative.dev/v1",
+    "kind": "Service",
+    "metadata": {
+        "annotations": {
+            "nagare.dev/context-id": "mp23-c3i",
+            "nagare.dev/resource-id": "application:rvf16/rvf16/service",
+            "nagare.dev/spec-digest": "4c115d18f37ef7f0ab12405364caccbe717ff0fb77411e883eca1c5c97e87a18",
+            "serving.knative.dev/creator": "system:admin",
+            "serving.knative.dev/lastModifier": "system:admin"
+        },
+        "creationTimestamp": "2026-10-05T02:24:11Z",
+        "generation": 3,
+        "labels": {
+            "nagare.dev/app": "rvf16",
+            "nagare.dev/managed-by": "nagarectl"
+        },
+        "name": "rvf16",
+        "namespace": "personal",
+        "resourceVersion": "61703",
+        "uid": "442ecbcb-9b03-41af-9543-0e293089585e"
+    },
+    "spec": {
+        "template": {
+            "metadata": {
+                "annotations": {
+                    "autoscaling.knative.dev/max-scale": "3",
+                    "autoscaling.knative.dev/min-scale": "0"
+                }
+            },
+            "spec": {
+                "containerConcurrency": 0,
+                "containers": [
+                    {
+                        "env": [
+                            {
+                                "name": "DATABASE_URL",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "key": "DATABASE_URL",
+                                        "name": "nagare-db-rvf16-pg"
+                                    }
+                                }
+                            },
+                            {
+                                "name": "POSTGRES_DB",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "key": "POSTGRES_DB",
+                                        "name": "nagare-db-rvf16-pg"
+                                    }
+                                }
+                            },
+                            {
+                                "name": "POSTGRES_HOST",
+                                "value": "rvf16-pg.personal.svc.cluster.local"
+                            },
+                            {
+                                "name": "POSTGRES_PASSWORD",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "key": "POSTGRES_PASSWORD",
+                                        "name": "nagare-db-rvf16-pg"
+                                    }
+                                }
+                            },
+                            {
+                                "name": "POSTGRES_PORT",
+                                "value": "5432"
+                            },
+                            {
+                                "name": "POSTGRES_USER",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "key": "POSTGRES_USER",
+                                        "name": "nagare-db-rvf16-pg"
+                                    }
+                                }
+                            },
+                            {
+                                "name": "REDIS_URL",
+                                "value": "redis://127.0.0.1:6379/0"
+                            }
+                        ],
+                        "envFrom": [
+                            {
+                                "configMapRef": {
+                                    "name": "nagare-env-rvf16-runtime",
+                                    "optional": true
+                                }
+                            },
+                            {
+                                "secretRef": {
+                                    "name": "nagare-secret-rvf16-runtime",
+                                    "optional": true
+                                }
+                            }
+                        ],
+                        "image": "us-west1-docker.pkg.dev/tan-ng-labs/nagare-c3-1008/scenario-b:c3",
+                        "name": "user-container",
+                        "ports": [
+                            {
+                                "containerPort": 8080,
+                                "protocol": "TCP"
+                            }
+                        ],
+                        "readinessProbe": {
+                            "successThreshold": 1,
+                            "tcpSocket": {
+                                "port": 0
+                            }
+                        },
+                        "resources": {
+                            "requests": {
+                                "cpu": "100m",
+                                "memory": "128Mi"
+                            }
+                        }
+                    }
+                ],
+                "enableServiceLinks": false,
+                "timeoutSeconds": 300
+            }
+        },
+        "traffic": [
+            {
+                "latestRevision": true,
+                "percent": 100
+            }
+        ]
+    },
+    "status": {
+        "address": {
+            "url": "http://rvf16.personal.svc.cluster.local"
+        },
+        "conditions": [
+            {
+                "lastTransitionTime": "2026-10-05T03:47:15Z",
+                "status": "True",
+                "type": "ConfigurationsReady"
+            },
+            {
+                "lastTransitionTime": "2026-10-05T03:47:15Z",
+                "status": "True",
+                "type": "Ready"
+            },
+            {
+                "lastTransitionTime": "2026-10-05T03:47:15Z",
+                "status": "True",
+                "type": "RoutesReady"
+            }
+        ],
+        "latestCreatedRevisionName": "rvf16-00003",
+        "latestReadyRevisionName": "rvf16-00003",
+        "observedGeneration": 3,
+        "traffic": [
+            {
+                "latestRevision": true,
+                "percent": 100,
+                "revisionName": "rvf16-00003"
+            }
+        ],
+        "url": "http://rvf16.personal.c3-1008.labs.topagentnetwork.net"
+    }
+}

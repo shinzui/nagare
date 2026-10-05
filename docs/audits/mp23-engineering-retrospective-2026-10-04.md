@@ -408,6 +408,11 @@ These facts were reported by nagare-phase-b and taken from its logs and the clus
 
 ### 7.1 The F54 native run, between the retrospective and the hold
 
+The raw evidence (driver, step logs, reviews, status before and after) is archived in
+[`f54-native-mp23-c3i/`](mp23-implementer-results-2026-10-03/f54-native-mp23-c3i/README.md). The
+phase-3a sequence that wedged the context is in
+[`phase3a-seq-mp23-c3i/`](mp23-independent-results-2026-10-04/phase3a-seq-mp23-c3i/README.md).
+
 **Timeline.**
 
 | Time | Event |
@@ -472,7 +477,8 @@ verify F54, F51 and F52 against EP-173 M2.
 - **The `b74b7e49` C2 assembled 16/16 on its first run.** It took about 39 minutes from the start of
   the chain (17:32:30) to assembly (18:11). C1 alone took 85 seconds: 214 `VerifyResource`, zero
   provider mutations. The runbook's hard rules and the rehearsed evidence pipeline worked. This is the
-  cost a native run should have once it only confirms.
+  cost a native run should have once it only confirms. Its evidence directory is archived in
+  [`c2-b74b7e49/`](mp23-implementer-results-2026-10-03/c2-b74b7e49/README.md).
 - **The F49 receipt-C attempt refused correctly natively** (candidate `84754389`). A backup taken
   after an out-of-band replacement was refused with `invalid-scheduled-ingest`. Incarnations were
   unchanged, and none of the 21 other members changed. The cheap F49 regression predicted this, and

@@ -1,0 +1,26 @@
+== 03:39:45 pre: node and identities (read-only)
+{"gen":2,"observed":2,"ready":["False"],"managers":[{"manager":"nagare-inventory","operation":"Apply","subresource":null},{"manager":"nagare-inventory","operation":"Update","subresource":null},{"manager":"controller","operation":"Update","subresource":"status"}]}
+== 03:39:47 pre: candidate CLI reads the store
+{"active":"tx-44577a2cbba91e46e8e754ffc3ce32b21c0caa146551385b6c6c28b8cc0c527a","tx":"tx-44577a2cbba91e46e8e754ffc3ce32b21c0caa146551385b6c6c28b8cc0c527a","reason":"operation-recovery-required"}
+== 03:42:50 a: reviewed stop of the landed unready update
+Incomplete application review stopped; ownership and data retained; inspect inventory status before saving a corrected review
+{"active":null,"tx":null,"reason":null}
+== 03:45:54 b: corrected review (REDIS_URL literal)
+VerifyResource	application:rvf16/rvf16-pg/backup-account
+CreateResource	application:rvf16/rvf16/release-history
+VerifyResource	application:rvf16/rvf16-pg/credential
+VerifyResource	application:rvf16/rvf16-pg/service
+VerifyResource	application:rvf16/rvf16-pg/statefulset
+VerifyResource	application:rvf16/rvf16-pg/backup
+UpdateResource	application:rvf16/rvf16/service
+VerifyResource	application:rvf16/rvf16-pg/pvc
+VerifyResource	application:rvf16/rvf16-pg/backup-read-role
+VerifyResource	application:rvf16/rvf16-pg/backup-signing-key
+VerifyResource	application:rvf16/rvf16-pg/backup-read-binding
+converged tx-5160965a57d00958714f035cbdf3bd256aacbc591acbbb68cc096c156159e72c
+{"active":null,"tx":null,"reason":null}
+{"gen":3,"observed":3,"ready":["True"]}
+== 03:50:24 c: zero-operation replan
+replan exit 0: 6b2d0145ca4a4bb7d6650aa85a6b1587cf5fe1fcc539c660d95dae98708141f9
+null
+F54-NATIVE-DONE

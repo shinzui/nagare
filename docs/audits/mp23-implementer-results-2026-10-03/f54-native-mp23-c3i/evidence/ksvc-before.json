@@ -1,0 +1,244 @@
+{
+    "apiVersion": "serving.knative.dev/v1",
+    "kind": "Service",
+    "metadata": {
+        "annotations": {
+            "nagare.dev/context-id": "mp23-c3i",
+            "nagare.dev/resource-id": "application:rvf16/rvf16/service",
+            "nagare.dev/spec-digest": "61207b100a21c943327d59a2f7ff6f88b1fff3397b6942140bf0c3ceb524c262",
+            "serving.knative.dev/creator": "system:admin",
+            "serving.knative.dev/lastModifier": "system:admin"
+        },
+        "creationTimestamp": "2026-10-05T02:24:11Z",
+        "generation": 2,
+        "labels": {
+            "nagare.dev/app": "rvf16",
+            "nagare.dev/managed-by": "nagarectl"
+        },
+        "managedFields": [
+            {
+                "apiVersion": "serving.knative.dev/v1",
+                "fieldsType": "FieldsV1",
+                "fieldsV1": {
+                    "f:metadata": {
+                        "f:annotations": {
+                            "f:nagare.dev/context-id": {},
+                            "f:nagare.dev/resource-id": {},
+                            "f:nagare.dev/spec-digest": {}
+                        },
+                        "f:labels": {
+                            "f:nagare.dev/app": {},
+                            "f:nagare.dev/managed-by": {}
+                        }
+                    },
+                    "f:spec": {
+                        "f:template": {
+                            "f:metadata": {
+                                "f:annotations": {
+                                    "f:autoscaling.knative.dev/max-scale": {},
+                                    "f:autoscaling.knative.dev/min-scale": {}
+                                }
+                            },
+                            "f:spec": {
+                                "f:containers": {}
+                            }
+                        }
+                    }
+                },
+                "manager": "nagare-inventory",
+                "operation": "Apply",
+                "time": "2026-10-05T02:35:17Z"
+            },
+            {
+                "apiVersion": "serving.knative.dev/v1",
+                "fieldsType": "FieldsV1",
+                "fieldsV1": {
+                    "f:metadata": {
+                        "f:annotations": {
+                            ".": {},
+                            "f:nagare.dev/context-id": {},
+                            "f:nagare.dev/resource-id": {}
+                        },
+                        "f:labels": {
+                            ".": {},
+                            "f:nagare.dev/app": {},
+                            "f:nagare.dev/managed-by": {}
+                        }
+                    },
+                    "f:spec": {
+                        ".": {},
+                        "f:template": {
+                            ".": {},
+                            "f:metadata": {
+                                ".": {},
+                                "f:annotations": {
+                                    ".": {},
+                                    "f:autoscaling.knative.dev/max-scale": {},
+                                    "f:autoscaling.knative.dev/min-scale": {}
+                                }
+                            },
+                            "f:spec": {}
+                        }
+                    }
+                },
+                "manager": "nagare-inventory",
+                "operation": "Update",
+                "time": "2026-10-05T02:24:11Z"
+            },
+            {
+                "apiVersion": "serving.knative.dev/v1",
+                "fieldsType": "FieldsV1",
+                "fieldsV1": {
+                    "f:status": {
+                        ".": {},
+                        "f:conditions": {},
+                        "f:latestCreatedRevisionName": {},
+                        "f:observedGeneration": {},
+                        "f:url": {}
+                    }
+                },
+                "manager": "controller",
+                "operation": "Update",
+                "subresource": "status",
+                "time": "2026-10-05T02:45:48Z"
+            }
+        ],
+        "name": "rvf16",
+        "namespace": "personal",
+        "resourceVersion": "49605",
+        "uid": "442ecbcb-9b03-41af-9543-0e293089585e"
+    },
+    "spec": {
+        "template": {
+            "metadata": {
+                "annotations": {
+                    "autoscaling.knative.dev/max-scale": "3",
+                    "autoscaling.knative.dev/min-scale": "0"
+                }
+            },
+            "spec": {
+                "containerConcurrency": 0,
+                "containers": [
+                    {
+                        "env": [
+                            {
+                                "name": "DATABASE_URL",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "key": "DATABASE_URL",
+                                        "name": "nagare-db-rvf16-pg"
+                                    }
+                                }
+                            },
+                            {
+                                "name": "POSTGRES_DB",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "key": "POSTGRES_DB",
+                                        "name": "nagare-db-rvf16-pg"
+                                    }
+                                }
+                            },
+                            {
+                                "name": "POSTGRES_HOST",
+                                "value": "rvf16-pg.personal.svc.cluster.local"
+                            },
+                            {
+                                "name": "POSTGRES_PASSWORD",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "key": "POSTGRES_PASSWORD",
+                                        "name": "nagare-db-rvf16-pg"
+                                    }
+                                }
+                            },
+                            {
+                                "name": "POSTGRES_PORT",
+                                "value": "5432"
+                            },
+                            {
+                                "name": "POSTGRES_USER",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "key": "POSTGRES_USER",
+                                        "name": "nagare-db-rvf16-pg"
+                                    }
+                                }
+                            }
+                        ],
+                        "envFrom": [
+                            {
+                                "configMapRef": {
+                                    "name": "nagare-env-rvf16-runtime",
+                                    "optional": true
+                                }
+                            },
+                            {
+                                "secretRef": {
+                                    "name": "nagare-secret-rvf16-runtime",
+                                    "optional": true
+                                }
+                            }
+                        ],
+                        "image": "us-west1-docker.pkg.dev/tan-ng-labs/nagare-c3-1008/scenario-b:c3",
+                        "name": "user-container",
+                        "ports": [
+                            {
+                                "containerPort": 8080,
+                                "protocol": "TCP"
+                            }
+                        ],
+                        "readinessProbe": {
+                            "successThreshold": 1,
+                            "tcpSocket": {
+                                "port": 0
+                            }
+                        },
+                        "resources": {
+                            "requests": {
+                                "cpu": "100m",
+                                "memory": "128Mi"
+                            }
+                        }
+                    }
+                ],
+                "enableServiceLinks": false,
+                "timeoutSeconds": 300
+            }
+        },
+        "traffic": [
+            {
+                "latestRevision": true,
+                "percent": 100
+            }
+        ]
+    },
+    "status": {
+        "conditions": [
+            {
+                "lastTransitionTime": "2026-10-05T02:45:48Z",
+                "message": "Revision \"rvf16-00002\" failed with message: Container failed with: Traceback (most recent call last):\n  File \"/app/app.py\", line 16, in \u003cmodule\u003e\n    r = redis.from_url(os.environ[\"REDIS_URL\"], decode_responses=True)\n                       ~~~~~~~~~~^^^^^^^^^^^^^\n  File \"\u003cfrozen os\u003e\", line 714, in __getitem__\nKeyError: 'REDIS_URL'\n.",
+                "reason": "RevisionFailed",
+                "status": "False",
+                "type": "ConfigurationsReady"
+            },
+            {
+                "lastTransitionTime": "2026-10-05T02:45:18Z",
+                "message": "Configuration \"rvf16\" does not have any ready Revision.",
+                "reason": "RevisionMissing",
+                "status": "False",
+                "type": "Ready"
+            },
+            {
+                "lastTransitionTime": "2026-10-05T02:45:18Z",
+                "message": "Configuration \"rvf16\" does not have any ready Revision.",
+                "reason": "RevisionMissing",
+                "status": "False",
+                "type": "RoutesReady"
+            }
+        ],
+        "latestCreatedRevisionName": "rvf16-00002",
+        "observedGeneration": 2,
+        "url": "http://rvf16.personal.c3-1008.labs.topagentnetwork.net"
+    }
+}

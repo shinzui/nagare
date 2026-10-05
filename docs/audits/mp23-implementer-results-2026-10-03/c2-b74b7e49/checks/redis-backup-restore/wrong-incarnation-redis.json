@@ -1,0 +1,22 @@
+{
+  "restoreId": "c2redr2",
+  "review": "5d8d4861daba782d4698b48e92a7a733f50ac773b1a151393ea105c9824873b5",
+  "foreignObject": "PersistentVolumeClaim personal/scenario-redis-restore-c2redr2 created between plan and apply",
+  "foreignBefore": [
+    "35c3a437-30e8-45bd-9f68-8f42d4ba012c",
+    "7396"
+  ],
+  "foreignAfterApply": [
+    "35c3a437-30e8-45bd-9f68-8f42d4ba012c",
+    "7396"
+  ],
+  "applyResult": "stopped tx-5d8d4861daba782d4698b48e92a7a733f50ac773b1a151393ea105c9824873b5 at op-d98b41bd10ab847c22d27dcf: KnownNoEffect \"adapter preflight refused\"",
+  "recovery": {
+    "action": "abandon-refused-operation",
+    "result": "Refused operation abandoned and its review ended without convergence; completed earlier effects remain unaccepted; inspect inventory status before saving a new review"
+  },
+  "unacceptedEarlierEffects": [
+    "scenario-redis-restore-c2redr2"
+  ],
+  "foreignObjectUntouched": true
+}

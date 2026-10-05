@@ -1,0 +1,16 @@
+{
+ "command": "nagarectl db restore scenario-redis c2red1 --restore-id c2adopt --save-plan DIR",
+ "foreignObject": {
+  "kind": "PersistentVolumeClaim",
+  "namespace": "personal",
+  "name": "scenario-redis-restore-c2adopt",
+  "uid": "36099cc2-0bbb-42a0-b9e4-cd205ca711b9",
+  "createdBeforePlanning": true
+ },
+ "exitCode": 1,
+ "output": "[PlanError {planErrorCode = \"adoption-required\", planErrorMessage = \"resource exists without inventory ownership\", planErrorResources = [ResourceId \"standalone:database-restore-personal-scenario-redis-c2adopt/c2adopt/pvc\"]}]",
+ "errorCode": "adoption-required",
+ "reviewDirectoryExists": false,
+ "storeBefore": "Inventory store local at local, generation 1399, data fence: none",
+ "storeAfter": "Inventory store local at local, generation 1399, data fence: none"
+}
