@@ -540,3 +540,15 @@ Native proof on `mp23-c3i` awaits the operator's approval of the bounded sequenc
 1. stop `tx-44577a2c…` with the fixed CLI;
 2. apply a corrected rvf16 review (literal `REDIS_URL`) and check Service `442ecbcb…`, StatefulSet `308a3ea3…` and PVC `6df5e086…` plus the known row;
 3. confirm a zero-operation replan.
+
+**Verification, source and interpreter level (2026-10-05, nagare-reviewer, `96d38d67`):** native work is on hold by operator decision (nagare-9's proposal). The diff was read in a private worktree.
+- **Adapter:** `RecoveryLandedUnready` needs all of: the before-UID and owner, the reviewed spec digest, a live read with managed fields at the same UID and resourceVersion, generation equal to observedGeneration, no foreign non-status manager, and Ready not True.
+- **History:** admits an intended update only with that proof, and only in `IntentRecorded` or `Ambiguous`.
+- **Driver:** resume still stops ambiguous.
+- **Tests:** all 1,193 tests pass, including the three `InventoryLandedUpdateStopSpec` cases.
+- **Reviewer mutations:** removing History's landed admission fails 2 tests. Disabling the generation, Ready, ownership, spec-digest or before-UID check each fails the adapter-proof test.
+- **Two mutants survive, as test gaps rather than defects:**
+  - letting History accept any state for the landed update. The recovery-state gate in `Recovery.hs` likely already refuses completed or failed operations, so this is untested defence in depth.
+  - making the driver treat `RecoveryLandedUnready` as "continue" (`pure Nothing`). No regression proves that resume of a landed, unready update stops ambiguous without a second write.
+- **Requested:** a regression for the resume behaviour, and one for a completed update refusing the stop.
+- **Next check:** the native stop and corrected convergence on `mp23-c3i` (`tx-44577a2c…`), once the operator lifts the native hold. EP-173's stuck-state model should also cover this class.
