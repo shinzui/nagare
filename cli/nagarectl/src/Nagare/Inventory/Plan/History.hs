@@ -343,18 +343,25 @@ incompleteApplicationOnlyReview landed published events transaction operationId 
                              then True
                              else case Map.findWithDefault Pending (plannedOperationId op) previous of
                                Completed _ -> True
+                               -- F55: a companion that never started had no effect. A verify of
+                               -- any member is admitted (a corrected review verifies unchanged
+                               -- members, durable ones included); a create or an update only of a
+                               -- stateless ConfigMap ordered after the stopped operation (an
+                               -- application update rewrites its release history).
                                Pending ->
-                                 plannedAction op == CreateResource
-                                   && neverIntended (plannedOperationId op)
+                                 neverIntended (plannedOperationId op)
                                    && case [ member
                                            | bundle <- scopeBundles scope
                                            , Managed member <- declarations bundle
                                            , NE.toList (plannedResources op) == [member ^. #identity]
                                            ] of
                                      [member] ->
-                                       member ^. #dataPolicy == Stateless
-                                         && (case member ^. #address of Kubernetes _ "" kind (Just _) _ -> nameText kind == "configmap"; _ -> False)
-                                         && any (\resource -> OrderedAfter resource `elem` (member ^. #dependencies)) selected
+                                       plannedAction op == VerifyResource
+                                         || ( plannedAction op `elem` [CreateResource, UpdateResource]
+                                                && member ^. #dataPolicy == Stateless
+                                                && (case member ^. #address of Kubernetes _ "" kind (Just _) _ -> nameText kind == "configmap"; _ -> False)
+                                                && any (\resource -> OrderedAfter resource `elem` (member ^. #dependencies)) selected
+                                            )
                                      _ -> False
                                _ -> False
                          )
@@ -491,9 +498,9 @@ loadUnstartedApplicationCreates store selectedOwners headValue
                 , plannedOperationId (reviewPlannedOperation entry) == selected
                 ]
               validStop = case selectedOperations of
-                -- This proof only releases never-started durable members. An
-                -- update stop's companions are stateless ConfigMaps, so a
-                -- landed update stop (F54) adds nothing here.
+                -- This proof only releases never-started durable members of an
+                -- unready create's review. A landed update stop (F54) adds
+                -- nothing here.
                 [operation] -> incompleteApplicationOnlyReview LandedUpdateUnproved bundle prefix transaction selected operation
                 _ -> False
               neverStarted operation =
@@ -516,6 +523,10 @@ loadUnstartedApplicationCreates store selectedOwners headValue
                   [ resource
                   | entry <- reviewOperations document
                   , let operation = reviewPlannedOperation entry
+                  , -- Only a never-started create may be replanned as a create. A
+                  -- never-started verify or update of a durable member that is
+                  -- later found absent was deleted out of band (F55).
+                  plannedAction operation == CreateResource
                   , neverStarted operation
                   , resource <- NE.toList (plannedResources operation)
                   ]

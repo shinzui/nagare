@@ -930,8 +930,10 @@ cloud update acceptance remains required before claiming this consumer proved.
 Application update recovery (2026-10-02): the same stop decision may close a
 never-intended stateless Knative Service update in one changed Application scope.
 Every operation must be unfenced Kubernetes work owned by that scope. Companions
-must be Completed or never-intended stateless ConfigMap creates explicitly ordered
-after the selected Service. Missing operation journal entries represent Pending;
+must be Completed or never-intended. A never-intended companion may verify any
+member, durable ones included. It may create or update only a stateless ConfigMap
+explicitly ordered after the selected Service; F55 widened this from creates only.
+Missing operation journal entries represent Pending;
 any recorded mutation intent refuses this boundary. This is a typed no-effect
 boundary for the pending ConfigMaps, not a claim about their release-history
 contents. Preserve admitted ownership and prior convergence and require a new
@@ -960,10 +962,18 @@ proof requires all of the following:
 - the Ready condition is not True.
 
 The selected update's journal may hold only intent, ambiguity and the stop
-marker. Companion rules are unchanged: they must be Completed, or be
-never-intended ConfigMap creates ordered after the Service. Any other uncertain
-operation, a data fence, a foreign or changed object, or a weaker readiness
-decision refuses.
+marker. Companions follow the rule above: Completed, or never-intended verifies of
+any member, or never-intended creates or updates of stateless ConfigMaps ordered
+after the Service. Any other uncertain operation, a data fence, a foreign or
+changed object, or a weaker readiness decision refuses.
+
+Companion widening (2026-10-05, finding F55, found by the EP-173 recovery model):
+F54's exit was refused for the common application update. That review also
+rewrites its release-history ConfigMap (an update) and verifies unchanged members.
+A companion that never recorded intent had no effect, so both are admitted. After
+a stop, only never-started *creates* may later be replanned as creates. A durable
+member that a stopped review only verified or updated, and that is later found
+absent, was deleted out of band. It stays a `durable-resource-missing` refusal.
 
 Resume still stops ambiguous, because waiting cannot make the revision Ready.
 The stop keeps admitted ownership and the prior converged revision and claims no

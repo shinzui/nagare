@@ -143,9 +143,10 @@ refuses arbitrary standalone resources, uncertain companion effects and incomple
 preview contracts.
 
 The same decision can stop a never-started Application Service update after a
-preflight refusal. All companions must be completed, except owned stateless
-ConfigMap creates explicitly ordered after that Service and having no mutation
-intent. The stop preserves accepted ownership and prior convergence; publish a
+preflight refusal, or an intended update that landed but never became Ready (F54).
+All companions must be completed, or have no mutation intent. A companion with no
+intent may verify any owned member, or create or update an owned stateless
+ConfigMap explicitly ordered after that Service (F55). The stop preserves accepted ownership and prior convergence; publish a
 new correction review afterward. New Service update reviews ignore readiness-only
 observation changes while retaining UID, configuration, field ownership and a
 fresh conditional resourceVersion. Existing saved reviews keep their original

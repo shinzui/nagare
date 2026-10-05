@@ -73,6 +73,7 @@ This is the authoritative list of implementation findings for [MP-23](../masterp
 | [F52](#f52) | P2 | Incarnation records are keyed by resource ID, so a reviewed address-changing migration reads as `replaced-incarnation` until it converges | Open | EP-153 |
 | [F53](#f53) | P1 | `nix flake check` fails at the candidate: sandbox-only test failures and stale check assertions | Verifying | EP-154 |
 | [F54](#f54) | P1 | A landed application Service update whose new revision never becomes Ready has no reviewed exit, so the store stays wedged | Verifying | EP-153 / EP-156 |
+| [F55](#f55) | P1 | A landed unready application update still has no exit when its review also updates its release history or verifies a member | Verifying | EP-153 / EP-173 |
 
 Closed findings keep their full text, location, implementation updates and verification in [the closed-findings archive](mp23-archive/mp23-findings-closed.md). F01 and F11 retain their [earlier independent closure](mp23-archive/mp23-verification.md). F02, F03, F04, F05, F06, F07, F08 and F20 now have [2026-10-02 independent closure](mp23-independent-verification-2026-10-02.md). F34, F35, F36, F37, F38, F41 and F42 have 2026-10-04 independent closure on candidate `7596632c`, and F49 and F50 on candidate `847543896d07` ([records](mp23-independent-results-2026-10-04/phase1-source-and-regressions-7596632c.md)). Other entries retain their status shown above.
 
@@ -575,3 +576,25 @@ So the stated failure is corrected natively, and the store is no longer wedged. 
 - the driver's `RecoveryLandedUnready _ -> pure Nothing` fails "resume of a landed unready update stops ambiguous without a second write";
 - History's `landedUpdate = onlyStates (const True)` fails "landed update stop refuses an extra uncertain operation and an unproved landing".
 Every F54 guard is now pinned by a regression. F54 stays Verifying only for the operator's model-first rule (the EP-173 M1–M2 stuck-state model).
+
+## F55
+
+**A landed unready application update still has no exit when its review also updates its release history or verifies a member** — P1; **Verifying**; owners EP-153 / EP-173.
+
+**Found by the EP-173 recovery model (2026-10-05, claude-opus-5-5) on the F54-repaired source (`96d38d67`), in under a second, with no native run.** The model runs real planning, the driver, the recovery policy and the Kubernetes adapter over an in-memory API server with an adversary (`cli/nagarectl/test/InventoryRecoveryModelSpec.hs`). Its scenario "create, bad update, corrected update (history follows the release)" fails invariant I1, a stopped transaction with no supported exit, even with no injected fault:
+- The adapter proves the landing (`RecoveryLandedUnready`).
+- `stop-incomplete-application` is still refused ("adapter did not prove the operator's requested action"), and resume and every other recovery action are refused too.
+
+**Cause (source):** `incompleteApplicationOnlyReview` (`src/Nagare/Inventory/Plan/History.hs`) admitted a never-started companion only as a `CreateResource` of a stateless ConfigMap. The rule came from the F30 never-started path, and F54 reused it. Three real reviews break it:
+- An ordinary application update rewrites its release-history ConfigMap on every deploy (an `UpdateResource` ordered after the Service; `addRelease` in `Application/Release.hs`).
+- A corrected review after a stop verifies unchanged members (a `VerifyResource`), so a second unready landing also wedged.
+- An independent durable member's verify can still be pending when the Service lands. The F54 native run on `mp23-c3i` escaped all three only because its release history had never been created.
+
+**Implementation update (2026-10-05; claude-opus-5-5, reviewed in outline by nagare-phase-b):**
+- A never-intended companion may verify any member of the scope, durable ones included. It may create or update only a stateless ConfigMap explicitly ordered after the stopped Service. A companion with no recorded intent had no effect.
+- The never-started-member set that lets a later plan recreate a `ConfirmedAbsent` durable member (`loadUnstartedApplicationCreates`) is restricted to `CreateResource` operations. A durable member that a stopped review only verified or updated, and that is later absent, stays a `durable-resource-missing` refusal; it is never replanned as a fresh create. This set is consulted only for stops that pass the unproved-landing check, which no recovery decision can reach for an intended update today, so the filter is defense in depth.
+- The F30 refusals stay: an intended companion, and a never-started create of another kind (a Secret).
+- **Regression:** the recovery model's fast tier covers five scenarios, including history-follows and an independent durable volume, under every single fault at every Kubernetes write boundary. It fails on the old rule: one fault-free violation, plus the good update and corrected update under `LandsUnready`. It passes with the fix. Refusing durable verifies again makes the durable-volume scenario fail twice, so that admission is needed.
+- `test/InventoryApplicationUpdateRecoverySpec.hs` still passes unchanged.
+- **Gates:** all 1,196 `nagarectl` tests, the style gate and the architecture check pass. ADR 22 and `docs/runbooks/inventory-operations.md` state the new companion rule.
+
