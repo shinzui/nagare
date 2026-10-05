@@ -17,6 +17,14 @@ MasterPlan 23 schedules no cp3 or cloud run (operator decision, 2026-10-04).
 
 ## 1. Build the candidate at an exact revision
 
+First, the revision must have a green full-gate record
+([EP-174](../plans/174-gate-every-commit-before-any-native-run.md)). Run `just gate` on a clean
+checkout of it if it has none:
+
+```bash
+just gate-verify <full-revision>   # must print "<rev> green, tree ..., systems ..."
+```
+
 The CLI embeds its git revision, and release evidence binds that revision. Build from a worktree
 pinned to the candidate, never from a tree that has moved on:
 
@@ -99,6 +107,7 @@ than deleting someone else's object.
 ## 4. Candidate gate (C1)
 
 ```bash
+just gate-verify <rev>   # refuses a revision without a green, clean, fully realised gate record
 scripts/run-local-candidate-gate.py --operator-root <root> --wrapper <root>/runctl-<rev>.sh \
   --revision <rev> --payload nagare-0.4.0-<accepted-payload>
 ```
@@ -165,7 +174,8 @@ evidence of what ran, not tooling. The tested replacement is
 [EP-168](../plans/168-script-the-local-acceptance-run-as-one-command.md), in Haskell per
 [ADR 24](../adr/0024-release-and-harness-tooling-follows-the-production-haskell-standard.md).
 Until it lands, follow the step table, and use the archived drivers only as a reference for exact
-commands.
+commands. The EP-168 runner calls `nagare-harness gate verify --revision <rev>` before any cluster
+step; until then, run `just gate-verify <rev>` yourself first.
 
 ### Hard rules
 
@@ -238,6 +248,9 @@ Expected, designed refusals:
 - the retained PVC collection.
 
 ## 7. Fresh cloud context (C3)
+
+Start with `just gate-verify <rev>`, as for C1 and C2. The scripted harness
+([EP-168](../plans/168-script-the-local-acceptance-run-as-one-command.md)) will call it itself.
 
 The disposable target is a checked-in fixture (for example
 [`fixtures/inventory-release/gcp/c3-target.json`](../../fixtures/inventory-release/gcp/c3-target.json)).

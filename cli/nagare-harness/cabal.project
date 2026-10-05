@@ -1,0 +1,7 @@
+-- cli/nagare-harness/cabal.project
+--
+-- Standalone workspace for the release and gate harness (EP-174, EP-168). It
+-- stays outside the platform payload (EP-171) and does not depend on the
+-- nagarectl library until a harness command needs its types, so the pre-push
+-- gate builds it in seconds.
+packages: .

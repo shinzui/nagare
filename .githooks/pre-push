@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# EP-174: refuse a push unless the fast local gate is green. Installed with
+# `just install-hooks`; it checks the working tree, not the pushed commits,
+# so push from a clean tree. `just gate` (the full gate) refuses dirty trees.
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+if ! just gate-fast; then
+  echo "pre-push: the fast gate is red; push refused (logs under \${XDG_STATE_HOME:-~/.local/state}/nagare/gates/logs)" >&2
+  exit 1
+fi

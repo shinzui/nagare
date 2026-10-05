@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "comment": "EP-174 M5: every fixture application the acceptance runs deploy, with the bindings its nagare/Config.hs declares written out explicitly. `just fixture-smoke` builds each image, starts the declared backing services, runs the app with only those variables and probes it. A new or corrected fixture is added here and smoke-run before any cluster sees it.",
+  "entries": [
+    {
+      "name": "scenario-a",
+      "directory": "apps/scenario-a",
+      "port": 8080,
+      "probe": { "path": "/", "status": 200 },
+      "bindings": [ { "env": "DATABASE_URL", "service": "postgres" } ]
+    },
+    {
+      "name": "scenario-b",
+      "directory": "apps/scenario-b",
+      "port": 8080,
+      "probe": { "path": "/", "status": 200 },
+      "bindings": [ { "env": "REDIS_URL", "service": "redis" } ]
+    },
+    {
+      "name": "scenario-collision",
+      "directory": "apps/scenario-collision",
+      "skip": "Never deployed: composition must refuse it before any review is published. It names the scenario-b image with no Redis binding, so it would crash-loop if it were ever applied."
+    },
+    {
+      "name": "scenario-site",
+      "directory": "apps/scenario-site",
+      "skip": "A static site: nagarectl builds its image from public/ and there is no application process to bind."
+    }
+  ],
+  "negative": [
+    {
+      "name": "scenario-b-bound-to-postgres",
+      "directory": "apps/scenario-b",
+      "port": 8080,
+      "probe": { "path": "/", "status": 200 },
+      "bindings": [ { "env": "DATABASE_URL", "service": "postgres" } ],
+      "reason": "The 2026-10-04 rvf16 wedge: the scenario-b image bound only to PostgreSQL crashes at import because REDIS_URL is unset. The smoke must fail it."
+    }
+  ]
+}

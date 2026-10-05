@@ -33,16 +33,35 @@ A saved review proves only that the change plans. Before applying any fixture ap
   check that the declaration provides them; or
 - run the container locally (`docker run` with the same environment) and see it serve.
 
+For the acceptance fixtures this is `just fixture-smoke`. It builds every application listed in
+[`fixtures/inventory-release/local/fixture-smoke.json`](../../fixtures/inventory-release/local/fixture-smoke.json),
+starts its declared backing services (`postgres:18`, `redis:8`) on a throwaway network, runs it with
+only the declared variables and probes it. It also checks that scenario-b bound only to PostgreSQL
+fails. A new or "corrected" fixture is added to that manifest and smoke-run before any cluster apply.
+The smoke refuses a Docker daemon that hosts a k3d cluster (cp3 or a local acceptance cluster), so
+point `DOCKER_HOST` at a separate daemon, such as another Colima profile.
+
 The phase-3a correction that wedged `mp23-c3i` ([F54](../audits/mp23-findings.md#f54)) reused the
 scenario-b image, which needs `REDIS_URL`, with a PostgreSQL binding.
 
 ## 3. The gates are green at this revision
 
-- The full `nagarectl` and `nagare-dsl` suites pass at the exact revision, run serially.
-- `nix flake check --all-systems` passes at that revision. Before trusting a Linux result, confirm the
-  Linux builder actually built: the check output must list x86_64-linux derivations as built or
-  substituted, not skipped.
-- `just haskell-style-check` and `python3 scripts/check-haskell-architecture.py` pass.
+[EP-174](../plans/174-gate-every-commit-before-any-native-run.md) turns this section into commands:
+
+- Every push: run `just install-hooks` once per clone. `.githooks/pre-push` then runs `just gate-fast`
+  and refuses the push when it is red. The fast gate builds and runs the `nagarectl` and
+  `nagare-dsl` suites serially, each from its package directory, then `just haskell-style-check` and
+  `scripts/test-managed-command-audit.sh` (the architecture checks and the managed-command audit). Its logs go under
+  `${XDG_STATE_HOME:-~/.local/state}/nagare/gates/logs/`. The hook tests the working tree, so push
+  from a clean tree.
+- Every candidate: on a clean checkout of the exact revision, run `just gate`. It runs the fast gate,
+  builds a salted probe derivation on every remote system (so a stopped Linux builder fails here
+  instead of hiding behind cached outputs), runs `nix flake check --all-systems`, then dry-runs every
+  check of every supported system and requires nothing left to build or fetch. It writes
+  `${XDG_STATE_HOME:-~/.local/state}/nagare/gates/<commit>.json`.
+- Before any native step: `just gate-verify <rev>` must print `green`. It refuses a missing, red or
+  dirty-tree record, a record for a different tree, a failed probe, and any `release.json` system
+  without every check realised.
 - A green result from an earlier revision is not a green result for this one.
 
 ## 4. Scripts and the evidence pipeline are rehearsed

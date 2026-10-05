@@ -8,7 +8,7 @@ from pathlib import Path
 import re
 
 ROOT = Path(__file__).resolve().parents[1]
-PACKAGES = ('nagare-dsl', 'nagarectl', 'nagare-access')
+PACKAGES = ('nagare-dsl', 'nagarectl', 'nagare-access', 'nagare-harness')
 PRIVATE = ('Nagare.Inventory.Application.', 'Nagare.Inventory.Plan.',
            'Nagare.Inventory.Execute.', 'Nagare.Dsl.Load.')
 OPAQUE = {

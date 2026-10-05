@@ -52,6 +52,10 @@ let
         hfinal.callCabal2nix "nagare-dsl" ../cli/nagare-dsl { }
       ));
 
+      # EP-174: the local gate and acceptance harness (maintainer tooling,
+      # outside the platform payload).
+      nagare-harness = hl.dontHaddock (hfinal.callCabal2nix "nagare-harness" ../cli/nagare-harness { });
+
       nagarectl =
         let
           package = hfinal.callCabal2nix "nagarectl" ../cli/nagarectl { };
@@ -199,6 +203,12 @@ let
   };
 in
 {
+  checkedNagareHarness = hl.overrideCabal haskellPackages.nagare-harness (_old: {
+    postPatch = ''
+      substituteInPlace test/Spec.hs \
+        --replace-fail "../../fixtures/inventory-release/local" "${../fixtures/inventory-release/local}"
+    '';
+  });
   inherit atticClient checkedNagareDsl checkedNagarectl haskellPackages nagare nagarectl nixBuilderProxy operatorNagarectl typedConfigRuntime;
   nagarePlatform = platformPackage;
 }

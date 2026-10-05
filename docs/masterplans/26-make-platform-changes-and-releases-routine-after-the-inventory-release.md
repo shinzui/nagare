@@ -25,6 +25,11 @@ provenance:
       at: 2026-10-05T03:50:52Z
       mode: "update"
       note: "Operator accepted ordering; EP-169 cancelled; ADR 25 accepted"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-05T17:56:25Z
+      mode: "implement"
+      note: "Registry and progress for EP-173/EP-174; stale CI prose; nagare-harness layout decision"
 ---
 
 # Make platform changes and releases routine after the inventory release
@@ -38,7 +43,7 @@ If durable project context changes, update or create ADRs in docs/adr/ in the sa
 
 [MasterPlan 23](23-make-managed-resources-first-class-through-typed-scoped-inventories.md) proves Nagare's typed inventory release with three native gates per frozen candidate: C1 (the candidate CLI against an installed local platform), C2 (a fresh local context bootstrapped with the candidate's own payload, running the full scenario) and C3 (the same on a fresh GCP context). In MasterPlan 23 every gate was driven by hand, every code change that ships in the payload minted a new candidate, every candidate required tearing down and rebuilding the shared local cluster, and in-place upgrades of an inventory context were explicitly out of scope. The first native runs were expensive because they also found defects in paths that had never run (F39-F44). This plan originally called that a one-time cost. 2026-10-04 disproved it: F49, F50, F51, F52, F53 and F54 were all found natively, and all were catchable in seconds by a fake adapter, a model test or a per-commit check. [The 2026-10-04 retrospective](../audits/mp23-engineering-retrospective-2026-10-04.md) shows that 26 of the 35 natively found MasterPlan 23 findings were cheap-layer defects, and only one needed the cloud. Two costs remain. The first is that native runs are still the main way defects are found. The second is that every platform change costs a full manual C1/C2/C3 cycle.
 
-After this initiative, defects are found by the effect interpreters and a local per-commit gate, and native runs only confirm ([ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md)). A maintainer changing Nagare also pays a cost proportional to the change. A documentation or harness-only change needs no native evidence. A change to the CLI or payload runs the local acceptance as one command, locally or in CI, and produces the finalized, assembled evidence the release gate consumes. A fix to release tooling no longer mints a new platform candidate. And a new candidate can be rehearsed as an in-place, reviewed upgrade of an already converged inventory context instead of a teardown and rebuild, so a routine candidate is verified the way a running installation would actually move to it.
+After this initiative, defects are found by the effect interpreters and a local per-commit gate, and native runs only confirm ([ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md)). A maintainer changing Nagare also pays a cost proportional to the change. A documentation or harness-only change needs no native evidence. A change to the CLI or payload runs the local acceptance as one local command and produces the finalized, assembled evidence the release gate consumes. A fix to release tooling no longer mints a new platform candidate. And a new candidate can be rehearsed as an in-place, reviewed upgrade of an already converged inventory context instead of a teardown and rebuild, so a routine candidate is verified the way a running installation would actually move to it.
 
 In scope: adversarial provider interpreters and a stuck-state invariant model in the ordinary test suite; a local per-commit and per-candidate gate with exhaustiveness errors, a builder-health proof and fixture smoke; one scripted local acceptance run (the C2 scenario, its interruptions, restores, source-unavailable drill, runner rehearsal, finalize and assembly); running it in CI; a change-class-based release gate; separating release tooling from the platform payload; and a candidate-to-candidate upgrade rehearsal of a disposable inventory context, local first.
 
@@ -57,7 +62,7 @@ The work splits by the kind of cost it removes, so each child is independently v
 
 [EP-168](../plans/168-script-the-local-acceptance-run-as-one-command.md) removes manual operation: one maintained command runs the whole local acceptance on a fresh local context and produces finalized local health and assembled inventory evidence. Its acceptance is a green run on the then-current candidate.
 
-[EP-169](../plans/169-run-the-local-acceptance-in-ci.md) removes the dependency on one maintainer's workstation and Colima profile: the same command runs in CI inside Docker (k3d in a Docker-in-Docker job) for every candidate.
+[EP-169](../plans/169-run-the-local-acceptance-in-ci.md) planned to run the same command in hosted CI. It is cancelled (operator decision, 2026-10-04: no GitHub Actions); EP-168's command and EP-174's local gate cover the need.
 
 [EP-170](../plans/170-size-the-release-gate-to-the-change.md) removes over-verification: the release gate classifies the change between the last accepted candidate and the new one and requires only the evidence that class needs.
 
@@ -86,8 +91,8 @@ Relevant local ADRs:
 | 3 | Size the release gate to the change | docs/plans/170-size-the-release-gate-to-the-change.md | None | EP-168, EP-171 | Not Started |
 | 4 | Move release tooling out of the platform payload | docs/plans/171-move-release-tooling-out-of-the-platform-payload.md | None | None | Not Started |
 | 5 | Rehearse candidate upgrades of an inventory context instead of rebuilding it | docs/plans/172-rehearse-candidate-upgrades-of-an-inventory-context-instead-of-rebuilding-it.md | EP-168 M1 | EP-170 | Not Started |
-| 6 | Find recovery defects with adversarial provider interpreters | docs/plans/173-find-recovery-defects-with-adversarial-provider-interpreters.md | None | None | Not Started |
-| 7 | Gate every commit before any native run | docs/plans/174-gate-every-commit-before-any-native-run.md | None | EP-168 (shared `nagare-harness` package) | Not Started |
+| 6 | Find recovery defects with adversarial provider interpreters | docs/plans/173-find-recovery-defects-with-adversarial-provider-interpreters.md | None | None | In Progress (M1 done; M2 in progress, 2026-10-05) |
+| 7 | Gate every commit before any native run | docs/plans/174-gate-every-commit-before-any-native-run.md | None | EP-168 (shared `nagare-harness` package) | In Progress (2026-10-05) |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 EP-172's hard dependency is only EP-168's first milestone: a scripted fresh-context bootstrap and scenario that leaves a converged context to upgrade. EP-169 is cancelled: its premise (GitHub Actions) conflicts with the operator's 2026-10-04 decision.
@@ -102,7 +107,7 @@ Parallel lanes: now, EP-173 and EP-174; after MasterPlan 23, EP-168 and EP-171 t
 
 ## Integration Points
 
-The acceptance runner command and its output layout. Defined by EP-168: a maintained script (proposed `scripts/run-local-acceptance.sh`) that takes a candidate package and an operator root and writes the assertion evidence directory, the runner rehearsal directory and the assembled `inventory-evidence.json`. EP-169 runs it unchanged in CI, EP-170 consumes its output as gate input, and EP-172 reuses its scenario and check stages against an upgraded context. Changes to its arguments or layout are coordinated through this MasterPlan.
+The acceptance runner command and its output layout. Defined by EP-168: the Haskell command `nagare-harness local-acceptance` (per ADR 24) that takes a candidate package and an operator root and writes the assertion evidence directory, the runner rehearsal directory and the assembled `inventory-evidence.json`. EP-170 consumes its output as gate input, and EP-172 reuses its scenario and check stages against an upgraded context. Changes to its arguments or layout are coordinated through this MasterPlan.
 
 The change classification. Defined by EP-170: a deterministic mapping from the files changed between two revisions to a change class (proposed: harness-only, CLI/app, payload/substrate) and the evidence each class requires. EP-171's payload boundary determines which paths count as payload; EP-172 adds "upgrade rehearsal" as acceptable evidence for some classes.
 
@@ -127,7 +132,7 @@ Cross-plan decisions that should become ADRs: interpreters find defects and nati
 
 ## Progress
 
-Not started. As of 2026-10-04, EP-173 and EP-174 are ready to start now, ahead of MasterPlan 23's remaining native work. The other streams begin after MasterPlan 23 closes, and EP-168 may start earlier as harness-only work against the final MasterPlan 23 candidate. EP-169 is cancelled.
+In progress. EP-173 started on 2026-10-05 (M1 done, M2 in progress). EP-174 started the same day: `nagare-harness` with the fast and full gates, `gate verify`, the pre-push hook and the fixture smoke; its M1 waits for MasterPlan 23's in-flight EP-173 work to land. As of 2026-10-04, EP-173 and EP-174 were ready to start now, ahead of MasterPlan 23's remaining native work. The other streams begin after MasterPlan 23 closes, and EP-168 may start earlier as harness-only work against the final MasterPlan 23 candidate. EP-169 is cancelled.
 
 
 ## Surprises & Discoveries
@@ -162,6 +167,10 @@ Not started. As of 2026-10-04, EP-173 and EP-174 are ready to start now, ahead o
 - Decision: New tooling in every stream is Haskell, under [ADR 24](../adr/0024-release-and-harness-tooling-follows-the-production-haskell-standard.md) (operator decision): the production standard, shared `nagarectl` types, real-output fixtures, no Python embedded in shell. The existing Python and shell tools are frozen; each stream ports the tools it touches. EP-168 starts this with the `nagare-harness` package.
   Rationale: MasterPlan 23's acceptance ran on untested shell-plus-Python glue, which led to the F42 assembler defect and to one unassemblable acceptance run.
   Date: 2026-10-04
+
+- Decision: EP-174 landed first and created `cli/nagare-harness` as its own Cabal project (`cli/nagare-harness/cabal.project`), with no `nagarectl` library dependency yet. EP-168 adds that dependency, and `../nagarectl` to the project's packages, when `local-acceptance` needs the shared types.
+  Rationale: There is no shared cabal workspace; each package has its own `cabal.project`. The pre-push hook builds the harness before running the gate, and a gate that first rebuilt the whole `nagarectl` library in a second build directory would add minutes to every push for no use. Otherwise the layout is what EP-168 describes: `src/Nagare/Harness/*`, `app/Main.hs`, a tasty suite, the Nix check `nagare-harness-build-test`, outside the platform payload.
+  Date: 2026-10-05
 
 
 ## Outcomes & Retrospective

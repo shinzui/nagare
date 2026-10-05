@@ -291,6 +291,45 @@ haskell-style-check:
     cabal-gild --mode check --input cli/nagare-dsl/nagare-dsl.cabal
     cabal-gild --mode check --input cli/nagarectl/nagarectl.cabal
     cabal-gild --mode check --input cli/nagare-access/nagare-access.cabal
+    cabal-gild --mode check --input cli/nagare-harness/nagare-harness.cabal
+
+# EP-174: the fast local gate the pre-push hook runs. Both Haskell suites
+# (serially), the style check and the architecture check; logs go to
+# ${XDG_STATE_HOME:-~/.local/state}/nagare/gates/logs/.
+# Run the fast local gate (both Haskell suites, style, architecture).
+[group('test')]
+gate-fast:
+    cabal run --project-dir=cli/nagare-harness -v0 nagare-harness -- gate --fast
+
+# EP-174: the full gate for a candidate: clean tree, fast gate, a salted probe
+# build on every remote system, `nix flake check --all-systems`, a dry-run
+# proof that every check of every supported system is realised, and a record
+# at ${XDG_STATE_HOME:-~/.local/state}/nagare/gates/<commit>.json.
+# Run the full local gate and write the revision's gate record.
+[group('test')]
+gate:
+    cabal run --project-dir=cli/nagare-harness -v0 nagare-harness -- gate --full
+
+# EP-174: refuse a revision without a green, clean, fully realised gate record.
+# Check that a revision has a green full-gate record (run before native work).
+[group('test')]
+gate-verify rev:
+    cabal run --project-dir=cli/nagare-harness -v0 nagare-harness -- gate verify --revision {{rev}}
+
+# EP-174: build and run every fixture application with only its declared
+# bindings (fixtures/inventory-release/local/fixture-smoke.json), plus the
+# scenario-b-on-PostgreSQL negative. Refuses a Docker daemon hosting k3d.
+# Smoke-run every acceptance fixture application locally.
+[group('test')]
+fixture-smoke *args:
+    cabal run --project-dir=cli/nagare-harness -v0 nagare-harness -- fixture-smoke {{args}}
+
+# EP-174: point git at the tracked hooks in .githooks/ (pre-push runs
+# `just gate-fast`). Undo with `git config --unset core.hooksPath`.
+# Install the tracked git hooks (pre-push runs the fast gate).
+[group('test')]
+install-hooks:
+    git config core.hooksPath .githooks
 
 # EP-5 (docs/plans/69-ci-pipeline-and-live-smoke-test.md): live smoke test.
 # Starts the VM if needed, deploys a private-registry build-mode app, snapshots

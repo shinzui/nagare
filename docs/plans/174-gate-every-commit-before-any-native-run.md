@@ -10,6 +10,12 @@ provenance:
     model: "claude-opus-5-5"
     harness: "claude-code"
     at: 2026-10-05T03:18:08Z
+  revisions:
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-05T17:56:25Z
+      mode: "implement"
+      note: "M2 and M5 done; M3/M4 implemented (acceptance pending); nagare-harness package created"
 ---
 
 # Gate every commit before any native run
@@ -51,29 +57,71 @@ in [the 2026-10-04 retrospective](../audits/mp23-engineering-retrospective-2026-
 
 ## Progress
 
-- [ ] M1: Incomplete patterns are compile errors in every Haskell package. Acceptance: all packages
+- [ ] M1 (waiting until MasterPlan 23's in-flight EP-173 work had landed, since it touches the same
+  cabal stanza and sources): Incomplete patterns are compile errors in every Haskell package. Acceptance: all packages
   build and test with `-Werror=incomplete-patterns -Werror=incomplete-uni-patterns` in their shared
   stanza, and removing one alternative from a `case` over `RecoveryDecision` fails the build.
-- [ ] M2: A fast local gate runs on every push. Acceptance: `just gate-fast` passes on a clean tree;
+- [x] (2026-10-05) M2: A fast local gate runs on every push. Evidence (observed): with one
+  `nagare-dsl` assertion deliberately broken, `git -c core.hooksPath=.githooks push` to a throwaway
+  bare repository was refused ("pre-push: the fast gate is red; push refused"); with it restored the
+  push went through after a green fast gate. That run passed 1,199 `nagarectl` and 461 `nagare-dsl`
+  tests, the style check and the architecture check (logs `20261005T174651…` and
+  `20261005T175155…` under `~/.local/state/nagare/gates/logs/`). The same gate caught a genuine
+  house-style violation in this plan's own harness code before commit. Original acceptance: Acceptance: `just gate-fast` passes on a clean tree;
   with a deliberately failing test, `git push` is refused by `.githooks/pre-push` after
   `just install-hooks`.
-- [ ] M3: A full local gate proves every system and writes a revision-bound record. Acceptance: on a
+- [ ] M3 (implemented 2026-10-05; acceptance runs pending): `nagare-harness gate --full`, the record
+  writer and `just gate` exist, and the dry-run parser is unit-tested. The green run and the
+  unreachable-builder run have not been made yet: the green run starts the on-demand Linux builder VM.
+  A full local gate proves every system and writes a revision-bound record. Acceptance: on a
   clean tree, `just gate` writes a green record whose `systems` list shows every check of
   `aarch64-darwin` and `x86_64-linux` realised, plus a passing builder probe. With the Linux builder
   unreachable, `just gate` fails at the probe instead of reporting success.
-- [ ] M4: Native work refuses a revision without a green full record. Acceptance:
+- [ ] M4 (implemented 2026-10-05; live acceptance pending M3): `gate verify` exists, with unit tests
+  for the missing, red, dirty, tree-mismatch, missing-system, partial-realisation and failed-probe
+  refusals plus one acceptance. The runbooks call `just gate-verify <rev>` first in sections 1, 4, 6
+  and 7. Native work refuses a revision without a green full record. Acceptance:
   `nagare-harness gate verify --revision <rev>` exits non-zero for a revision without a record,
   for a red record and for a dirty-tree record, and zero for a green one. The native verification
   runbook and [EP-168](168-script-the-local-acceptance-run-as-one-command.md)'s harness call it
   first.
-- [ ] M5: Fixture applications are smoke-run locally before a cluster sees them. Acceptance:
+- [x] (2026-10-05) M5: Fixture applications are smoke-run locally before a cluster sees them.
+  Evidence (observed, on the separate `default` Colima daemon): scenario-a (PostgreSQL 18) and
+  scenario-b (Redis 8) served HTTP 200. scenario-b bound only to PostgreSQL exited at import, so the
+  negative self-test failed as required, and the run ended "fixture-smoke: green" in 94 s with no
+  containers, networks or images left. Against the cp3 daemon the smoke refused ("this Docker daemon
+  runs a k3d cluster"). Original acceptance: Acceptance:
   `just fixture-smoke` serves every entry of `fixtures/inventory-release/local/fixture-smoke.json`
   with its declared bindings, and fails for scenario-b bound to PostgreSQL only.
 
 
 ## Surprises & Discoveries
 
-(None yet.)
+- Observation: The first `just gate-fast` in a fresh worktree failed 18 of 1,199 `nagarectl` tests,
+  all config-loader tests ("Could not find module ‘Data.Generics.Labels’" when compiling
+  `test/fixtures/app/*/Config.hs`). The cause: `cabal test nagarectl-test --project-dir=cli/nagarectl`
+  run from the repository root writes the project's `.ghc.environment.*` into the current directory
+  (the root), not `cli/nagarectl`, so the loader finds no package environment. The shared tree never
+  showed this, because earlier runs from `cli/nagarectl` had left an environment file there. This is
+  the same "18 false failures in a clean worktree" nagare-phase-b hit on 2026-10-04.
+  Evidence: `~/.local/state/nagare/gates/logs/20261005T171940.002113Z/nagarectl-test.log` (observed).
+  Running each suite from its package directory fixed it (1,199 passing in 190 s, observed).
+  Date: 2026-10-05
+
+- Observation: The same rerun then failed 14 of 461 `nagare-dsl` tests the same way, although it ran
+  from `cli/nagare-dsl`. In a fresh checkout `cabal test` writes the environment file only after the
+  tests have run: the file's timestamp followed the test run, a second `cabal test` passed all 461,
+  and after deleting the file a plain `cabal build nagare-dsl-test` wrote it again (all observed). The
+  fast gate now builds each suite, then tests it.
+  Date: 2026-10-05
+
+- Observation: `nix flake check` on the first EP-174 commit failed `managed-command-audit`, although
+  the fast gate had been green. The five new `just` recipes were not registered in
+  `scripts/audit-managed-commands.py`, and the command catalogue snapshot in
+  `docs/architecture/managed-resource-coverage.md` was stale. The fast gate's architecture step ran
+  only `check-haskell-architecture.py`, one of the five scripts the flake check runs. The fast gate
+  now runs `scripts/test-managed-command-audit.sh`, the flake check's own script.
+  Date: 2026-10-05
 
 
 ## Decision Log
@@ -100,6 +148,51 @@ in [the 2026-10-04 retrospective](../audits/mp23-engineering-retrospective-2026-
   every `checks.<system>.*` attribute that reports nothing left to build proves the exact outputs
   exist. A salted probe derivation then proves the builder works now.
   Date: 2026-10-04
+
+
+- Decision: `nagare-harness` is its own Cabal project with no `nagarectl` dependency yet; EP-168 adds
+  the dependency when `local-acceptance` needs shared types. The MasterPlan's Decision Log records it.
+  Rationale: There is no shared cabal workspace, and the pre-push hook builds the harness first, so
+  the dependency would rebuild the whole `nagarectl` library in a second build directory on every push.
+  Date: 2026-10-05
+
+- Decision: Each gate step names a working directory. The two suites are built and then tested from
+  `cli/nagarectl` and `cli/nagare-dsl` instead of using `--project-dir`.
+  Rationale: See Surprises & Discoveries. Cabal writes the package environment the config-loader
+  tests need into the current directory.
+  Date: 2026-10-05
+
+- Decision: The full gate reads the supported systems from `release.json` at the gated commit, probes
+  only systems other than the local one, and `gate verify` re-reads `release.json` at the revision. A
+  system's record holds `checks`, `realised` and `remaining` (the store paths the dry run would still
+  build or fetch); `realised` equals `checks` only when `remaining` is empty. The record is written
+  for red runs too.
+  Rationale: `release.json` is the platform's declared system list, so adding a system can't silently
+  shrink the gate. A red record explains itself, and `gate verify` refuses it.
+  Date: 2026-10-05
+
+- Decision: The fixture smoke manifest lists every directory under
+  `fixtures/inventory-release/local/apps/`, enforced by a harness test. `scenario-collision` (never
+  deployed by design) and `scenario-site` (a static site with no process to bind) carry a `skip`
+  reason. The smoke refuses a Docker daemon that runs a k3d cluster unless `--allow-shared-daemon` is
+  passed.
+  Rationale: A fixture missing from the manifest would bypass the smoke. Running throwaway containers
+  next to cp3 or a local acceptance cluster would mutate a host under verification (ADR 25, the
+  native-run checklist).
+  Date: 2026-10-05
+
+- Decision: The fast gate's last step is `scripts/test-managed-command-audit.sh`, the same script the
+  flake's `managed-command-audit` check runs, not just `check-haskell-architecture.py`. The new
+  recipes are registered as `read` (`gate-fast`, `gate`, `gate-verify`) or `local` (`install-hooks`,
+  `fixture-smoke`).
+  Rationale: The narrower step let an unregistered recipe reach `nix flake check`. The full script
+  adds about 50 seconds.
+  Date: 2026-10-05
+
+- Decision: Add `just gate-verify REV` beside the planned recipes, and have the runbooks call it.
+  Rationale: Native-run steps in the runbooks are shell commands; a recipe keeps the call identical
+  everywhere until EP-168's runner calls `gate verify` itself.
+  Date: 2026-10-05
 
 
 ## Outcomes & Retrospective
