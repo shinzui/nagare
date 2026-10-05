@@ -24,6 +24,7 @@ import Nagare.Inventory.Digest
 import Nagare.Inventory.Execute
 import Nagare.Inventory.Journal
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
+import Nagare.Inventory.Lifecycle (decideRetirement)
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Status qualified as Status
 import Nagare.Inventory.Store
@@ -74,7 +75,12 @@ scenarios =
   , Scenario "create, bad update, corrected update (history unchanged)" ["v1", "bad", "v3"] ["bad"] False False
   , Scenario "create, bad update, corrected update (history follows the release)" ["v1", "bad", "v3"] ["bad"] True False
   , Scenario "create, bad update, corrected update (with a durable volume)" ["v1", "bad", "v3"] ["bad"] True True
+  , Scenario "create with a durable volume, then retire" ["v1", retireStep] [] True True
   ]
+
+-- | The step that retires the application scope, retaining its members.
+retireStep :: Text
+retireStep = "retire"
 
 type Schedule = [(Boundary, Fault)]
 
@@ -174,16 +180,23 @@ data Replay
 replay :: Scenario -> Schedule -> Taken -> [Move] -> IO Replay
 replay scenario schedule taken probe = do
   run <- newRun scenario schedule
-  go run (steps scenario) taken
+  go run "v1" (steps scenario) taken
   where
-    go run [] _ = do
+    -- The image the accepted scope declares after a step; a retirement
+    -- leaves no accepted scope, and nothing follows it.
+    next image = image
+    go run _ [] _ = do
       adversary <- readIORef (runAdversary run)
       consistent <- storeConsistent run
       pure $ case consistent of
         Left violation -> Replayed (Left (describe scenario schedule "(end)" violation []))
         Right () -> Replayed (Right (counts adversary))
-    go run (image : rest) exits = do
-      outcome <- reviewAndApply run (withVolume scenario) image (if historyFollows scenario then image else "v1")
+    go run previous (image : rest) exits = do
+      let historyImage step = if historyFollows scenario then step else "v1"
+      outcome <-
+        if image == retireStep
+          then retireAndApply run (withVolume scenario) previous (historyImage previous)
+          else reviewAndApply run (withVolume scenario) image (historyImage image)
       case outcome of
         Left refusal
           | any ((== ForeignObject) . snd) schedule -> do
@@ -196,14 +209,14 @@ replay scenario schedule taken probe = do
           checked <- checkInvariants run
           case (checked, applied) of
             (Left violation, _) -> pure (Replayed (Left (describe scenario schedule image violation [])))
-            (Right (), Done) -> go run rest exits
+            (Right (), Done) -> go run (next image) rest exits
             (Right (), Stopped transaction why) -> case exits of
               path : more -> do
                 outcomes <- mapM (tryMove run registry reviewed transaction) path
                 afterExit <- checkInvariants run
                 case (afterExit, reverse outcomes) of
                   (Left violation, _) -> pure (Replayed (Left (describe scenario schedule image (violation <> " (after exit " <> T.pack (show path) <> ")") [])))
-                  (Right (), MoveIdle : _) -> go run rest more
+                  (Right (), MoveIdle : _) -> go run (next image) rest more
                   _ -> pure (Replayed (Left "internal: a replayed exit did not reach an idle head"))
               [] -> case probe of
                 [] -> AtStop image why <$> candidateMoves run reviewed transaction
@@ -228,6 +241,9 @@ data Run = Run
   , runImages :: !(IORef (Map.Map ContentDigest (Bool, Text, Text)))
   -- ^ The volume, service image and history image each desired scope revision
   -- declares, so the model can observe accepted members (I3).
+  , runIncarnations :: !(IORef (Map.Map ResourceId PhysicalIdentity))
+  -- ^ The last incarnation the head recorded for each member, kept after the
+  -- head drops the record (I3's retirement clause).
   , runConverged :: !(IORef (Map.Map ScopeId ScopeRevision))
   -- ^ The converged revisions last checked; I2 checks a revision when the
   -- head first reports it converged.
@@ -244,8 +260,9 @@ newRun scenario schedule = do
   world <- newKubeWorld (Set.fromList [serviceDigest image | image <- unready scenario])
   bound <- newIORef Map.empty
   images <- newIORef Map.empty
+  incarnations <- newIORef Map.empty
   converged <- newIORef Map.empty
-  pure (Run store inspect world adversary bound images converged)
+  pure (Run store inspect world adversary bound images incarnations converged)
 
 data Applied
   = Done
@@ -266,6 +283,21 @@ reviewAndApply run volume image historyImage = do
           >> modifyIORef' (runImages run) (Map.insert (revisionDigest revision) (volume, image, historyImage))
       applied <- try (applyReviewed (runStore run) registry reviewed)
       Right . (registry,reviewed,) <$> classify run applied
+
+-- | Retire the application scope, retaining its members, as `inventory
+-- retire` plans it.
+retireAndApply :: Run -> Bool -> Text -> Text -> IO (Either Text (AdapterRegistry, ReviewedPlan, Applied))
+retireAndApply run volume image historyImage = do
+  planned <- retryingStoreFaults run (planRetirement run volume image historyImage)
+  case planned of
+    Left err -> pure (Left err)
+    Right (registry, reviewed) -> do
+      applied <- try (applyReviewed (runStore run) registry reviewed)
+      Right . (registry,reviewed,) <$> classify run applied
+
+planRetirement :: Run -> Bool -> Text -> Text -> IO (Either Text (AdapterRegistry, ReviewedPlan))
+planRetirement run volume image historyImage =
+  planWith run (registryFor run volume image historyImage) (RetireScope appScope RetainResources) decideRetirement
 
 -- | Run a command; if it failed while a store fault fired, run it once more.
 retryingStoreFaults :: Run -> IO (Either Text a) -> IO (Either Text a)
@@ -288,19 +320,27 @@ orTrouble :: (Show e) => Text -> Either e a -> IO a
 orTrouble context = either (\err -> throwIO (StoreTrouble (context <> ": " <> T.pack (show err)))) pure
 
 planReview :: Run -> Bool -> Text -> Text -> IO (Either Text (AdapterRegistry, ReviewedPlan))
-planReview run volume image historyImage = do
+planReview run volume image historyImage =
+  planWith run (registryFor run volume image historyImage) (ReplaceScope (scopeFor volume image historyImage)) (\_ _ _ -> Right noLifecycleDecisions)
+
+planWith ::
+  Run ->
+  AdapterRegistry ->
+  ScopeChange ->
+  (CompositionCandidate -> InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) LifecycleDecisions) ->
+  IO (Either Text (AdapterRegistry, ReviewedPlan))
+planWith run registry change decide = do
   let store = runStore run
-      registry = registryFor run volume image historyImage
   loaded <- loadInventoryHistory store >>= orTrouble "load history"
   let accepted = historyAccepted loaded
       snapshot = ok (mkScopeSnapshot fixtureBinding (Map.map (\(revision, declared) -> (revisionGeneration revision, declared)) accepted) (historyReservations loaded))
-  case composeInventory snapshot (ReplaceScope (scopeFor volume image historyImage) :| []) of
+  case composeInventory snapshot (change :| []) of
     Left err -> pure (Left (T.pack (show err)))
     Right candidate -> do
       history <- loadInventoryPlanningHistory store candidate >>= orTrouble "load planning history"
       let required = Set.toList (requiredResources (observationRequirements candidate history))
       observed <- observeWithRegistry registry (Map.singleton KubernetesExecutor required)
-      case observed >>= \observations -> first (T.pack . show) (planChanges candidate noLifecycleDecisions history observations) of
+      case observed >>= \observations -> first (T.pack . show) (decide candidate history observations >>= \decisions -> planChanges candidate decisions history observations) of
         Left err -> pure (Left err)
         Right proposal -> do
           before <- readStoreSnapshot store >>= orTrouble "read snapshot"
@@ -491,10 +531,19 @@ checkInvariants run = do
             Nothing -> True
         ]
   stale <- convergedStaleIncarnations run
-  pure $ case (twice, unproven, stale) of
-    (operation : _, _, _) -> Left ("I4: operation " <> operationIdText operation <> " wrote twice")
-    (_, resource : _, _) -> Left ("I2: scope reported converged while " <> resourceIdText resource <> " is not the reviewed Ready object")
-    (_, _, resource : _) -> Left ("I3: status reports " <> resourceIdText resource <> " converged although its live UID differs from the recorded incarnation")
+  known <- Map.union (maybe Map.empty headIncarnations current) <$> readIORef (runIncarnations run)
+  writeIORef (runIncarnations run) known
+  let laundered =
+        [ resource
+        | (resource, retained) <- Map.toList (maybe Map.empty headRetained current)
+        , Just recorded <- [Map.lookup resource known]
+        , retainedPhysical retained /= recorded
+        ]
+  pure $ case (twice, unproven, stale, laundered) of
+    (operation : _, _, _, _) -> Left ("I4: operation " <> operationIdText operation <> " wrote twice")
+    (_, resource : _, _, _) -> Left ("I2: scope reported converged while " <> resourceIdText resource <> " is not the reviewed Ready object")
+    (_, _, resource : _, _) -> Left ("I3: status reports " <> resourceIdText resource <> " converged although its live UID differs from the recorded incarnation")
+    (_, _, _, resource : _) -> Left ("I3: retirement retained " <> resourceIdText resource <> " under a UID other than its accepted incarnation")
     _ -> Right ()
 
 -- | I3: status, computed as `inventory status` computes it, never reports a
@@ -509,7 +558,7 @@ convergedStaleIncarnations run = do
       let accepted = Map.map (\(revision, declared) -> (revisionGeneration revision, declared)) (historyAccepted history)
           inventory = ok (composeSnapshot (ok (mkScopeSnapshot fixtureBinding accepted (historyReservations history))))
           members = [resource ^. #identity | Managed resource <- inventoryDeclarations inventory]
-          incarnations = headIncarnations (historyHead history)
+      incarnations <- Status.statusIncarnations (runInspect run) (historyHead history) >>= orFail "status incarnations"
       modifyIORef' (runWorld run) (\world -> world {inspecting = True})
       observed <- observeWithRegistry (registryFor run volume image historyImage) (Map.singleton KubernetesExecutor members)
       modifyIORef' (runWorld run) (\world -> world {inspecting = False})

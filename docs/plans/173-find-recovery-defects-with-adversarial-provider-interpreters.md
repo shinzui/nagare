@@ -16,6 +16,11 @@ provenance:
       at: 2026-10-05T03:50:52Z
       mode: "update"
       note: "F51/F52 un-deferred; F54 repair landed in 96d38d67"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-05T14:39:49Z
+      mode: "implement"
+      note: "M2 part 2: retire scenario (F51, F58) and F38/F49 mutation records"
 ---
 
 # Find recovery defects with adversarial provider interpreters
@@ -76,10 +81,15 @@ behind it is in
   `inventory status` computes it (`classifyDriftWith` over the accepted snapshot, read in an
   inspection mode that fires no faults). The model found F56 and F57, and both are fixed in
   MasterPlan 23. The fast tier passes in 51 s, and all 1,197 `nagarectl` tests pass.
-- [ ] M2 remaining: the retire scenario (F51), the reviewed rename (F52), a receipt-ingestion
-  scenario, and the F38 and F49 mutation records. F50 lives in the cloud-foundation world (M4).
-- [ ] M1 follow-up: a retire scenario (the create-then-retire review sequence), moved into M2's
-  scenario work.
+- [x] (2026-10-05) M2 part 2: the retire scenario ("create with a durable volume, then retire") with
+  I3's retirement clause (a retained entry carries the member's last recorded incarnation), and the
+  F38 and F49 mutation records. On the pre-fix sources the scenario failed on F51 (I3 under
+  `Replaced`) and then on F58 (an application whose first deploy stopped unready could not be
+  retired); both are fixed in MasterPlan 23. I3's status clause now uses the production
+  `statusIncarnations`. F52's reviewed rename is covered by `InventoryPostgresRenameSpec`, which
+  computes status after every Kubernetes request; the model does not yet run a migration.
+- [ ] M2 remaining: a receipt-ingestion scenario, and the reviewed rename inside the model. F50 lives
+  in the cloud-foundation world (M4).
 - [ ] M1: A Kubernetes provider world with an adversary drives the real Kubernetes adapter, driver and
   recovery policy through the application lifecycle. The exit, acceptance and at-most-once
   invariants pass. Acceptance: the model fails on the pre-F54-repair source and on documented
