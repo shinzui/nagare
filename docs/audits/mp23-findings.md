@@ -72,6 +72,7 @@ This is the authoritative list of implementation findings for [MP-23](../masterp
 | [F51](#f51) | P2 | Retirement retains an out-of-band replacement's identity instead of the accepted incarnation | Open | EP-153 / EP-159 |
 | [F52](#f52) | P2 | Incarnation records are keyed by resource ID, so a reviewed address-changing migration reads as `replaced-incarnation` until it converges | Open | EP-153 |
 | [F53](#f53) | P1 | `nix flake check` fails at the candidate: sandbox-only test failures and stale check assertions | Verifying | EP-154 |
+| [F54](#f54) | P1 | A landed application Service update whose new revision never becomes Ready has no reviewed exit, so the store stays wedged | Open | EP-153 / EP-156 |
 
 Closed findings keep their full text, location, implementation updates and verification in [the closed-findings archive](mp23-archive/mp23-findings-closed.md). F01 and F11 retain their [earlier independent closure](mp23-archive/mp23-verification.md). F02, F03, F04, F05, F06, F07, F08 and F20 now have [2026-10-02 independent closure](mp23-independent-verification-2026-10-02.md). F34, F35, F36, F37, F38, F41 and F42 have 2026-10-04 independent closure on candidate `7596632c`, and F49 and F50 on candidate `847543896d07` ([records](mp23-independent-results-2026-10-04/phase1-source-and-regressions-7596632c.md)). Other entries retain their status shown above.
 
@@ -491,3 +492,25 @@ Nothing had run the flake check for many commits, so earlier candidates carried 
 - No file under `cli/*/src`, `cli/*/app`, `cluster/`, `infra/` or `nixos/` changed.
 - **Gates:** `nix flake check --all-systems` passes with 36/36 aarch64-darwin and 35/35 x86_64-linux checks. All 1,190 tests, the style gate, both architecture checks and the command audit pass locally.
 
+## F54
+
+**A landed application Service update whose new revision never becomes Ready has no reviewed exit, so the store stays wedged** — P1; **Open**; owners EP-153 / EP-156.
+
+**Native evidence (2026-10-04/05, nagare-reviewer, phase 3a on the acceptance C3 `mp23-c3i`, candidate `847543896d07`, operator-approved bounded sequence):**
+- A throwaway application `rvf16` (scope `application:rvf16`: PostgreSQL `rvf16-pg` plus a web Service with a 64-CPU request) was created with review `22572096…`. Apply stopped ambiguous after 354 s at the never-ready Service create.
+- `stop-incomplete-application` ended it in 11 s. Ownership was retained: Service `442ecbcb…`, StatefulSet `308a3ea3…`, PVC `6df5e086…`. A known row was written.
+- The corrected review `44577a2c…` (100m CPU) was saved: 3 never-started creates, 1 conditional Service update and verifies. Its apply was killed with SIGKILL after 15 s, and `inventory resume` ran 346 s.
+- The conditional update **landed on the original Service UID** (generation 2 observed). But revision `rvf16-00002` crash-loops: the borrowed `scenario-b` image needs `REDIS_URL`, a reviewer fixture error, standing in for any bad application change. The resume stopped `ambiguous … at op-7a4cc6b7364a9ad834f551a9`.
+- `inventory recover … stop-incomplete-application` for that operation refused with `unsupported-recovery: adapter did not prove the operator's requested action`.
+- `tx-44577a2c…` stays active (generation 964), and every other plan on the store is refused. No out-of-band repair was made, per the stop rule.
+
+**Cause (source, reviewer read):** `Plan/History.incompleteApplicationOnlyReview` admits a stop of an `UpdateResource` only when the update was never intended (`neverIntended`). That is F30's never-started branch; F16's branch covers unready creates. Once a Service update has landed, adapter recovery reports `RecoveryAwaitingReadiness`. Resume can only wait again. `abandon-refused-operation` needs a pending or `Failed (KnownNoEffect)` state. No decision can end the transaction while the new revision cannot become Ready. Only an unreviewed edit of the live Service, or the application becoming Ready by itself, can release the store.
+
+**Why it matters:** a bad application change (a crashing image, missing configuration, a failing readiness probe) is the most ordinary failure an operator meets. It blocks the whole context's inventory, including other applications, backups, restores and staged teardown, until someone writes to the cluster outside review. This is the update counterpart of F16.
+
+**Required repair/verification:**
+- Give a landed but unready application Service update a reviewed, bounded exit. For example, extend `stop-incomplete-application` to an intended update whose landed object the adapter proves is exactly the reviewed one (UID, generation, the reviewed spec digest and exclusive ownership) and unready. It must keep the scope at its last converged revision, record the landed incarnation, never claim convergence, and let a new corrected review update the same Service.
+- Regression: an update that lands and never becomes Ready can be stopped, and a corrected review then converges on the same UID with the data preserved.
+- Native: repeat this sequence on a fresh candidate context: create, stop, a bad correction, stop, a good correction that converges with the same Service, StatefulSet and PVC UIDs and the known row.
+
+**Current state of `mp23-c3i`:** the transaction is active and claim-free. Data and ownership are intact: the known row `1|rvf16-d747f5b7-before-correction` was written to `rvf16-pg`. The operator decides how the context continues (see the reviewer's report).

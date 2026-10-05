@@ -1,0 +1,43 @@
+{
+  "check": "MP-23 independent review phase 3a on the acceptance C3 mp23-c3i (candidate 84754389, accepted by operator decision as C3 for b74b7e49)",
+  "reviewer": "nagare-reviewer (claude-opus-5-5), 2026-10-04/05",
+  "context": {"name": "mp23-c3i", "project": "tan-ng-labs", "operatorRoot": "/private/tmp/nagare-mp23-c3i", "guard": "context guard: mp23-c3i confined to project tan-ng-labs (stack mp23-c3i)", "headAtStart": {"generation": 916, "activeTransaction": null}},
+  "evidenceReview": {
+    "cloudHealth": "re-finalized on a scratch copy: already finalized with 17 assertions, byte-identical",
+    "inventoryEvidence": "re-assembled on a scratch copy with the 84754389 manifest and coverage: identical to the recorded file",
+    "f48Guard": "platform-root revision 847543896d07…, payload nagare-0.4.0-847543896d07 at /nix/store/hn2kg3j1…, whose narHash equals the 84754389 manifest payloadDigest (checked in the 84754389 C2 review); live `platform root --json` agrees",
+    "f44": "final-observation observationComplete true, missingProviders [] (CloudFoundationExecutor and the CDN executor observed)",
+    "replacedIncarnationSamples": "0 in both interrupted-deploy windows, 0 after bootstrap and before the runner (F52 window not present on C3: no rename)",
+    "secretKeyHygiene": "42 JSON keys in public evidence match the brief's secret-key pattern (F15 records: secrets, secretSamples, credentialKind, nagare.dev/credential-*). Their values are Secret names, resourceVersions, expiry times and a source digest; no secret value is present. Deviation from the brief's key-name rule: rename the keys or accept them."
+  },
+  "findings": {
+    "F15": "native pass: 8 private Artifact Registry pulls (scenario-site, scenario-a, scenario-b images) between 23:29:31Z and 00:18:40Z, after the boot credential expired at 23:26:54Z, with 0 failures; all 3 owned pull Secrets were rewritten since boot. The private net-certmanager-controller pod (UID 6105ccba…) was created at 22:54:51Z, before expiry, with pullSecret nagare-registry-pull, and stays Ready; its exact image was not re-pulled after expiry in this run.",
+    "F31": "native pass, observed by the reviewer read-only (no manual trigger): sampling every 60 s from 01:12:29Z, the three nagare-registry-pull Secrets carried tokens expiring at 01:31:16Z; the timer replaced all three at 01:27:30–01:27:32Z (rv 23637→33594), 3 min 44 s before expiry, with tokens expiring at 02:27:27Z. Samples: f31-samples (scratch, summarised here).",
+    "F32": "native pass: reviewed cleanup --images --id c3i-images-1 removed exactly 3 unused CRI cache images on VM 2221349391937006657 (tx-d2492c9f…); the same request ID replans to 0 operations; live node images still include the sandbox image docker.io/rancher/mirrored-pause:3.10.2, the 3 removed IDs are absent, and all pods are Running (37) or Completed (31).",
+    "F43": "native pass: context NAGARE_CDN_ENABLED=1; all 12 CDN load-balancer members are accepted platform:cloud members, converged, in the final observation.",
+    "F45_F46_F47": "native pass: scenario-cdn deploy (tx-cc6e66a6…) put the host record on the CDN IP 34.36.179.6, disable (tx-495a6bb7…) moved it to the VM origin 136.66.48.10, retire (tx-83120223…) retained it, collect (tx-b6edc2a9…) removed it; the reviewer's live gcloud dns read shows the record absent and apex/wildcard unchanged on 136.66.48.10; all through runctl.sh, which exports no Pulumi variables (F47).",
+    "F16_F30": "partial, then stopped on a new finding (F54): see sequence below. The create stop and the conditional update on the original Service UID are proved natively; convergence of a correction was not reached.",
+    "sharedHistoryTakeover": "implementer evidence read: a second root was refused for planning (active-transaction) and for plain resume (executor-claim), then converged tx-964fa1f2… with --take-over"
+  },
+  "operatorApprovedSequence": {
+    "approval": "operator answered 'Run all six' in this session for the bounded sequence on mp23-c3i",
+    "step1_F16_create_and_stop": {
+      "review": "22572096fc62599ffe9d107c2e0cba167a216499e6981269019b8812fc5a9c68 (11 creates, all application:rvf16)",
+      "apply": "exit 1 after 354 s: ambiguous at op-ccef4bffab21af32a8a2351c (CreateResource application:rvf16/rvf16/service)",
+      "identities": {"service": "442ecbcb-9b03-41af-9543-0e293089585e", "statefulset": "308a3ea3-2cd2-4942-98df-a6ecce29ec62", "pvc": "6df5e086-0b2b-419c-a633-10ac9f484e48"},
+      "stop": "inventory recover … stop-incomplete-application: exit 0 in 11 s, 'Incomplete application review stopped; ownership and data retained'; head 938 idle; all three UIDs unchanged",
+      "knownRow": "1|rvf16-d747f5b7-before-correction in rvf16-pg table rv_known"
+    },
+    "step2_F30_correction": {
+      "review": "44577a2cbba91e46e8e754ffc3ce32b21c0caa146551385b6c6c28b8cc0c527a (CreateResource backup, release-history, backup-read-binding; UpdateResource service; 7 VerifyResource)",
+      "statusChurnBeforeApply": "none: Service resourceVersion stayed 45284 from planning to apply (conditions last transitioned 02:24:11Z), so the F30 status-race branch was not exercised naturally; no churn was injected",
+      "interruption": "apply killed with SIGKILL after 15 s (exit 137); transaction admitted, claim held by this root's client, no surviving process",
+      "resume": "exit 1 after 346 s: ambiguous at op-7a4cc6b7364a9ad834f551a9 (UpdateResource application:rvf16/rvf16/service)",
+      "landedUpdate": "Service UID 442ecbcb… unchanged, generation 2 observed; revision rvf16-00002 crash-loops (user-container KeyError 'REDIS_URL': the reviewer's fixture reused the scenario-b image with a PostgreSQL binding)",
+      "stopAttempt": "inventory recover … stop-incomplete-application on op-7a4cc6b7: exit 1 'unsupported-recovery: adapter did not prove the operator's requested action'",
+      "result": "store wedged with tx-44577a2c… active (generation 964); stop rule applied; opened F54 (P1)"
+    },
+    "steps3to6": "not run (drift repair, F35 exit, access portal sync, kubeconfig recover) because the store is blocked"
+  },
+  "status": "phase 3a incomplete: blocked by F54; awaiting the operator's decision"
+}
