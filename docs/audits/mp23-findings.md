@@ -570,3 +570,8 @@ The reviewer's independent read-only check afterwards:
 - StatefulSet `308a3ea3-2cd2-4942-98df-a6ecce29ec62` and PVC `6df5e086-0b2b-419c-a633-10ac9f484e48` are unchanged, and `rv_known` returns `1|rvf16-d747f5b7-before-correction`.
 - The store is idle at generation 993.
 So the stated failure is corrected natively, and the store is no longer wedged. **F54 stays Verifying** until both of these exist: the operator's model-first rule (EP-173 M1–M2 stuck-state model, dad4d632), and the two regressions for the surviving mutants, which nagare-phase-b is adding.
+
+**Reviewer re-check of the regression gaps (2026-10-05, `d58218d0`, test-only):** all 1,194 tests pass. Both previously surviving mutants now fail a named regression:
+- the driver's `RecoveryLandedUnready _ -> pure Nothing` fails "resume of a landed unready update stops ambiguous without a second write";
+- History's `landedUpdate = onlyStates (const True)` fails "landed update stop refuses an extra uncertain operation and an unproved landing".
+Every F54 guard is now pinned by a regression. F54 stays Verifying only for the operator's model-first rule (the EP-173 M1–M2 stuck-state model).
