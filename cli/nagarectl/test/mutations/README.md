@@ -19,6 +19,11 @@ git worktree remove --force "$SCRATCH/mut"
 | `F37-abandon-journalled-no-effect-refusal.diff` | abandoning an operation whose journal shows a no-effect refusal | I1 under a persistent foreign field manager (16 violations) |
 | `F38-journal-head-retry-and-orphan-adoption.diff` | a failed head advance is reread and retried, and an uncommitted orphan event of the same transaction is adopted | I1 under `PutRefused` or `PutLandedUnacknowledged` on a head write (4 violations, at `c9a0b170`) |
 | `F49-status-ignores-incarnation.diff` | status reports a member whose live UID differs from its recorded incarnation as `replaced-incarnation` | I3 under `Replaced` on the durable volume (7 violations, at `c9a0b170`) |
+| `F49-ingestion-ignores-incarnation.diff` | scheduled ingestion refuses a source that is not the recorded incarnation | I3 receipt clause under `Replaced` at an ingestion observation (2 violations, 2026-10-05) |
+| `F52-status-compares-migrated-records.diff` | status skips the records of members the active migration moves | rename recovery model: I3 at the first stop, for example under a lost acknowledgement on the first create (run with `-p "rename recovery model"`) |
+| `F59-statefulset-create-awaits-readiness.diff` | an unready created StatefulSet recovers as awaiting readiness | I1 under `LandsUnready` on the database StatefulSet create (1 violation) |
+| `F59-standalone-statefulset-stop.diff` | the stop admits a standalone scope's StatefulSet create | I1 under `LandsUnready` on the database StatefulSet create (1 violation) |
+| `F59-statefulset-pending-companions.diff` | never-started companions of a stopped StatefulSet create are admitted | I1 under `LandsUnready` on the database StatefulSet create (1 violation) |
 | `F58-absence-proof-holds-no-data.diff` | only a stateless or never-started member may leave history as absent | "a durable member only verified by a stopped update is never replanned or retired as absent (F55, F58)": the deleted volume is retired as absent |
 | `F58-admission-absence-recheck.diff` | admission re-observes absence-proved members | "retirement drops a confirmed-absent stateless member only while it stays absent (F58)": the reappeared member is dropped and the retirement converges |
 

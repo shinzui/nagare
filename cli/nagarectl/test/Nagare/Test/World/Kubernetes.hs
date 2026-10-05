@@ -67,11 +67,14 @@ data KubeWorld = KubeWorld
   -- and no churn happens on these observations.
   , writes :: !(Map.Map OperationId Int)
   -- ^ Effective writes per reviewed operation (invariant I4).
+  , replacedUids :: !(Set.Set PhysicalIdentity)
+  -- ^ Objects created out of band by the 'Replaced' fault, never by a review
+  -- (invariant I3: they are never an accepted incarnation).
   }
   deriving stock (Eq, Show)
 
 newKubeWorld :: Set.Set ContentDigest -> IO (IORef KubeWorld)
-newKubeWorld unready = newIORef (KubeWorld Map.empty unready Set.empty 1 False False False Map.empty)
+newKubeWorld unready = newIORef (KubeWorld Map.empty unready Set.empty 1 False False False Map.empty Set.empty)
 
 effectiveWrites :: KubeWorld -> Map.Map OperationId Int
 effectiveWrites = writes
@@ -129,18 +132,20 @@ observationFaults specs world adversary resource = do
   when (fault == Just Replaced) $ modifyIORef' world $ \state -> case Map.lookup resource (objects state) of
     Just object'
       | isJust (owner object') ->
-          state
-            { objects =
-                Map.insert
-                  resource
-                  object'
-                    { uid = either (error . T.unpack) id (mkPhysicalIdentity ("replacement-uid-" <> T.pack (show (nextUid state))))
-                    , generation = 1
-                    , resourceVersion = 1
-                    }
-                  (objects state)
-            , nextUid = nextUid state + 1
-            }
+          let replacement = either (error . T.unpack) id (mkPhysicalIdentity ("replacement-uid-" <> T.pack (show (nextUid state))))
+           in state
+                { objects =
+                    Map.insert
+                      resource
+                      object'
+                        { uid = replacement
+                        , generation = 1
+                        , resourceVersion = 1
+                        }
+                      (objects state)
+                , nextUid = nextUid state + 1
+                , replacedUids = Set.insert replacement (replacedUids state)
+                }
     _ -> state
   when (fault == Just ChurnAlways) $ modifyIORef' world $ \state -> state {churning = True}
   when (fault == Just ForeignObject) $ case Map.lookup resource specs of

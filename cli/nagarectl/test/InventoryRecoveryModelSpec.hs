@@ -18,16 +18,27 @@ import Data.Set qualified as Set
 import Data.Text qualified as T
 import InventoryObjectOpsSpec (fakeObjectOps)
 import InventoryTransactionSpec (fixtureBinding)
+import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
+import Nagare.Dsl.Database (Database (Database), Engine (Postgres), defaultEngineVersion, mkDatabaseName)
+import Nagare.Dsl.Database.Render (dbPvcName)
 import Nagare.Dsl.Prelude hiding ((.=))
+import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Inventory.Adapter
+import Nagare.Inventory.Backup (ScheduledBackupReceipt (..), ScheduledReceiptExpectation (..), scheduledReceiptExpectationFromCronJob)
+import Nagare.Inventory.BackupFreshness (RecoveryPointObjective (HourlyRecoveryPoint))
+import Nagare.Inventory.DataService (compileStandaloneDatabase)
+import Nagare.Inventory.Database (DatabaseBackupTarget (DatabaseBackupTarget))
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Execute
 import Nagare.Inventory.Journal
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.Lifecycle (decideRetirement)
 import Nagare.Inventory.Plan
+import Nagare.Inventory.ScheduledIngest (ScheduledIngestRequest (..), compileScheduledIngestScope)
+import Nagare.Inventory.ScheduledReceipt (ScheduledReceiptEvidence (..))
 import Nagare.Inventory.Status qualified as Status
 import Nagare.Inventory.Store
+import Nagare.Resource.Database (DatabaseDirectInput (..))
 import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes (KubernetesInput (..))
 import Nagare.Resource.Policy
@@ -53,11 +64,12 @@ inventoryRecoveryModelTests =
 
 -- * Scenarios
 
--- | A sequence of reviews of one application scope; each names the image of
--- its Knative Service and release-history ConfigMap.
+-- | A sequence of reviews: deploys of one application scope, each naming the
+-- image of its Knative Service and release-history ConfigMap, its retirement,
+-- and a standalone database with a scheduled receipt ingestion.
 data Scenario = Scenario
   { label :: !Text
-  , steps :: ![Text]
+  , steps :: ![Step]
   , unready :: ![Text]
   -- ^ Images whose revision never becomes Ready (a bad update).
   , historyFollows :: !Bool
@@ -70,17 +82,32 @@ data Scenario = Scenario
 
 scenarios :: [Scenario]
 scenarios =
-  [ Scenario "create" ["v1"] [] True False
-  , Scenario "create then good update" ["v1", "v2"] [] True False
-  , Scenario "create, bad update, corrected update (history unchanged)" ["v1", "bad", "v3"] ["bad"] False False
-  , Scenario "create, bad update, corrected update (history follows the release)" ["v1", "bad", "v3"] ["bad"] True False
-  , Scenario "create, bad update, corrected update (with a durable volume)" ["v1", "bad", "v3"] ["bad"] True True
-  , Scenario "create with a durable volume, then retire" ["v1", retireStep] [] True True
+  [ Scenario "create" [Deploy "v1"] [] True False
+  , Scenario "create then good update" [Deploy "v1", Deploy "v2"] [] True False
+  , Scenario "create, bad update, corrected update (history unchanged)" [Deploy "v1", Deploy "bad", Deploy "v3"] ["bad"] False False
+  , Scenario "create, bad update, corrected update (history follows the release)" [Deploy "v1", Deploy "bad", Deploy "v3"] ["bad"] True False
+  , Scenario "create, bad update, corrected update (with a durable volume)" [Deploy "v1", Deploy "bad", Deploy "v3"] ["bad"] True True
+  , Scenario "create with a durable volume, then retire" [Deploy "v1", Retire] [] True True
+  , Scenario "create a database, then ingest a scheduled receipt" [CreateDatabase, IngestReceipt] [] True False
   ]
 
--- | The step that retires the application scope, retaining its members.
-retireStep :: Text
-retireStep = "retire"
+data Step
+  = -- | Review and apply the application at this image.
+    Deploy !Text
+  | -- | Retire the application scope, retaining its members.
+    Retire
+  | -- | Review and apply the standalone PostgreSQL database.
+    CreateDatabase
+  | -- | Plan ingestion of a scheduled receipt as `db backup-receipts` does.
+    IngestReceipt
+  deriving stock (Eq, Show)
+
+stepText :: Step -> Text
+stepText step = case step of
+  Deploy image -> image
+  Retire -> "retire"
+  CreateDatabase -> "create database"
+  IngestReceipt -> "ingest receipt"
 
 type Schedule = [(Boundary, Fault)]
 
@@ -182,21 +209,28 @@ replay scenario schedule taken probe = do
   run <- newRun scenario schedule
   go run "v1" (steps scenario) taken
   where
-    -- The image the accepted scope declares after a step; a retirement
-    -- leaves no accepted scope, and nothing follows it.
-    next image = image
+    -- The image the accepted application declares after a step.
+    next previous step = case step of
+      Deploy image -> image
+      _ -> previous
     go run _ [] _ = do
       adversary <- readIORef (runAdversary run)
       consistent <- storeConsistent run
       pure $ case consistent of
         Left violation -> Replayed (Left (describe scenario schedule "(end)" violation []))
         Right () -> Replayed (Right (counts adversary))
-    go run previous (image : rest) exits = do
-      let historyImage step = if historyFollows scenario then step else "v1"
-      outcome <-
-        if image == retireStep
-          then retireAndApply run (withVolume scenario) previous (historyImage previous)
-          else reviewAndApply run (withVolume scenario) image (historyImage image)
+    go run previous (IngestReceipt : rest) exits = do
+      checked <- ingestReceipt run (null schedule)
+      case checked of
+        Left violation -> pure (Replayed (Left (describe scenario schedule (stepText IngestReceipt) violation [])))
+        Right () -> go run previous rest exits
+    go run previous (step : rest) exits = do
+      let historyImage image' = if historyFollows scenario then image' else "v1"
+          image = stepText step
+      outcome <- case step of
+        Retire -> retireAndApply run (withVolume scenario) previous (historyImage previous)
+        CreateDatabase -> databaseAndApply run (withVolume scenario) previous (historyImage previous)
+        _ -> reviewAndApply run (withVolume scenario) image (historyImage image)
       case outcome of
         Left refusal
           | any ((== ForeignObject) . snd) schedule -> do
@@ -209,14 +243,14 @@ replay scenario schedule taken probe = do
           checked <- checkInvariants run
           case (checked, applied) of
             (Left violation, _) -> pure (Replayed (Left (describe scenario schedule image violation [])))
-            (Right (), Done) -> go run (next image) rest exits
+            (Right (), Done) -> go run (next previous step) rest exits
             (Right (), Stopped transaction why) -> case exits of
               path : more -> do
                 outcomes <- mapM (tryMove run registry reviewed transaction) path
                 afterExit <- checkInvariants run
                 case (afterExit, reverse outcomes) of
                   (Left violation, _) -> pure (Replayed (Left (describe scenario schedule image (violation <> " (after exit " <> T.pack (show path) <> ")") [])))
-                  (Right (), MoveIdle : _) -> go run (next image) rest more
+                  (Right (), MoveIdle : _) -> go run (next previous step) rest more
                   _ -> pure (Replayed (Left "internal: a replayed exit did not reach an idle head"))
               [] -> case probe of
                 [] -> AtStop image why <$> candidateMoves run reviewed transaction
@@ -298,6 +332,96 @@ retireAndApply run volume image historyImage = do
 planRetirement :: Run -> Bool -> Text -> Text -> IO (Either Text (AdapterRegistry, ReviewedPlan))
 planRetirement run volume image historyImage =
   planWith run (registryFor run volume image historyImage) (RetireScope appScope RetainResources) decideRetirement
+
+-- | Review and apply the standalone database scope.
+databaseAndApply :: Run -> Bool -> Text -> Text -> IO (Either Text (AdapterRegistry, ReviewedPlan, Applied))
+databaseAndApply run volume image historyImage = do
+  planned <- retryingStoreFaults run (planWith run (registryFor run volume image historyImage) (ReplaceScope databaseScope) (\_ _ _ -> Right noLifecycleDecisions))
+  case planned of
+    Left err -> pure (Left err)
+    Right (registry, reviewed) -> do
+      forM_ (Map.lookup databaseScopeId (reviewDesiredRevisions (reviewedDocument reviewed))) $ \revision ->
+        modifyIORef' (runBound run) (Map.insert (revisionDigest revision) (Map.map (contentDigest . snd) databaseNative))
+      applied <- try (applyReviewed (runStore run) registry reviewed)
+      Right . (registry,reviewed,) <$> classify run applied
+
+-- | I3: plan ingestion of a scheduled receipt from the live source, as `db
+-- backup-receipts` plans it. A receipt whose source StatefulSet or PVC was
+-- created outside review never compiles for ingestion. In a fault-free run the
+-- receipt must compile, so the clause is never vacuous.
+ingestReceipt :: Run -> Bool -> IO (Either Text ())
+ingestReceipt run clean = do
+  history <- loadInventoryHistory (runStore run) >>= orFail "load history"
+  case Map.lookup databaseScopeId (historyAccepted history) of
+    Nothing -> pure (refusedWhen "the database is not accepted")
+    Just (revision, accepted) -> do
+      let acceptedInventory = ok (composeSnapshot (ok (mkScopeSnapshot fixtureBinding (Map.map (\(revision', declared) -> (revisionGeneration revision', declared)) (historyAccepted history)) (historyReservations history))))
+      -- As the command does: the accepted members' native bytes come from the
+      -- store's review evidence, not from the compiler.
+      native <- either (const Map.empty) fst <$> Status.loadAcceptedNativeSelected (Set.fromList [statefulId, pvcId, cronId, signingId]) (runStore run) history acceptedInventory
+      observed <- observeWithRegistry (registryFor run False "v1" "v1") (Map.singleton KubernetesExecutor [statefulId, pvcId, cronId, signingId])
+      world <- readIORef (runWorld run)
+      let live resource = case Map.lookup resource . observationMap =<< either (const Nothing) Just observed of
+            Just (ObservedPresent physical) -> Just physical
+            _ -> Nothing
+      pure $ case traverse live [statefulId, pvcId, cronId, signingId] of
+        Just [statefulUid, pvcUid, cronUid, signingUid] ->
+          let request expectation =
+                ScheduledIngestRequest
+                  { ingestDatabase = "pg"
+                  , ingestNamespace = "personal"
+                  , ingestBackupId = "job-1"
+                  , ingestSourceRevision = revision
+                  , ingestStatefulUid = statefulUid
+                  , ingestPvcUid = pvcUid
+                  , ingestScheduleUid = cronUid
+                  , ingestSigningUid = signingUid
+                  , ingestEvidence =
+                      ScheduledReceiptEvidence
+                        { scheduledReceipt =
+                            ScheduledBackupReceipt
+                              (ok (mkPhysicalIdentity "job-1"))
+                              (scheduledObjectPrefix expectation <> "job-1." <> scheduledFormat expectation)
+                              (T.replicate 64 "0")
+                              (scheduledPolicyRevision expectation)
+                              Nothing
+                        , scheduledObjectVersion = "1"
+                        , scheduledReceiptVersion = "1"
+                        , scheduledObjectLength = 1
+                        , scheduledReceiptLength = 1
+                        , scheduledReceiptDigest = contentDigest "receipt"
+                        }
+                  , ingestBackend = databaseBackend
+                  , ingestSource = SourceLocation "model" "ingest"
+                  , ingestAcceptedIncarnations = recorded
+                  }
+              recorded = headIncarnations (historyHead history)
+              -- F60 tolerance (ADR 22 "Known limits", fail-open recording): a
+              -- replacement made between Nagare's create and the convergence
+              -- observation is recorded as the accepted incarnation. Only a
+              -- replacement the head does not record must refuse.
+              replaced =
+                [ physical
+                | (resource, physical) <- [(statefulId, statefulUid), (pvcId, pvcUid)]
+                , Set.member physical (replacedUids world)
+                , Map.lookup resource recorded /= Just physical
+                ]
+              compiled =
+                maybe (Left "the accepted CronJob lacks native evidence") Right (Map.lookup cronId native)
+                  >>= \(_, cronBytes) ->
+                    first (T.pack . show) (scheduledReceiptExpectationFromCronJob databaseBackend "personal" "pg" statefulUid pvcUid cronBytes)
+                      >>= \expectation -> first (T.pack . show) (compileScheduledIngestScope (request expectation) accepted native)
+           in case compiled of
+                Right _
+                  | not (null replaced) ->
+                      Left ("I3: a scheduled receipt from " <> T.intercalate ", " (map physicalIdentityText replaced) <> ", created outside review, compiled for ingestion")
+                Left refusal | clean -> Left ("I3: the fault-free scheduled receipt was refused: " <> refusal)
+                _ -> Right ()
+        _ -> refusedWhen "the receipt source is not observed present"
+  where
+    refusedWhen why
+      | clean = Left ("I3: fault-free ingestion could not be planned: " <> why)
+      | otherwise = Right ()
 
 -- | Run a command; if it failed while a store fault fired, run it once more.
 retryingStoreFaults :: Run -> IO (Either Text a) -> IO (Either Text a)
@@ -552,7 +676,8 @@ convergedStaleIncarnations :: Run -> IO [ResourceId]
 convergedStaleIncarnations run = do
   history <- loadInventoryHistory (runInspect run) >>= orFail "load history"
   images <- readIORef (runImages run)
-  case Map.lookup appScope (historyAccepted history) >>= \(revision, _) -> Map.lookup (revisionDigest revision) images of
+  let appImages = Map.lookup appScope (historyAccepted history) >>= \(revision, _) -> Map.lookup (revisionDigest revision) images
+  case (if Map.null (historyAccepted history) then Nothing else Just (fromMaybe (False, "v1", "v1") appImages)) of
     Nothing -> pure []
     Just (volume, image, historyImage) -> do
       let accepted = Map.map (\(revision, declared) -> (revisionGeneration revision, declared)) (historyAccepted history)
@@ -658,7 +783,54 @@ scopeFor volume image historyImage = ok (mkScopeDeclaration appScope [ResourceBu
 -- | As production builds it for one review: the reviewed members' specs.
 registryFor :: Run -> Bool -> Text -> Text -> AdapterRegistry
 registryFor run volume image historyImage =
-  ok (mkAdapterRegistry [worldKubernetesAdapter (fixtureBinding ^. #identity) (boundMembers volume image historyImage) (runWorld run) (runAdversary run)])
+  ok (mkAdapterRegistry [worldKubernetesAdapter (fixtureBinding ^. #identity) (boundMembers volume image historyImage <> databaseNative) (runWorld run) (runAdversary run)])
+
+-- * The standalone database scope
+
+databaseScopeId :: ScopeId
+databaseScopeId = ok (mkScopeId Standalone "database-pg")
+
+databaseBackend :: StoreBackend
+databaseBackend = GcsBackend "project" "bucket"
+
+databaseScope :: ScopeDeclaration
+databaseNative :: Map.Map ResourceId (ManagedResource, ByteString)
+(databaseScope, databaseNative) =
+  ok
+    ( compileStandaloneDatabase
+        (DatabaseDirectInput database databaseScopeId appCluster Nothing recovery (SourceLocation "model" "pg"))
+        (DatabaseBackupTarget databaseBackend HourlyRecoveryPoint)
+    )
+  where
+    database =
+      Database
+        (ok (mkDatabaseName "pg"))
+        Nothing
+        Postgres
+        (defaultEngineVersion Postgres)
+        (ok (Dsl.mkNamespace "personal"))
+        (ok (Dsl.mkQuantity "1Gi"))
+        Nothing
+        Dsl.Retain
+    recovery = RecoveryIntent (ok (mkName "backup")) (mkSecretRef (ok (mkName "nagare-db-pg")) (ok (mkName "v1")) :| [])
+
+-- | The database member at one Kubernetes kind and name.
+databaseMember :: Text -> Text -> ResourceId
+databaseMember kind name =
+  case [ member ^. #identity
+       | (member, _) <- Map.elems databaseNative
+       , Kubernetes _ _ nativeKind _ nativeName <- [member ^. #address]
+       , nameText nativeKind == kind
+       , nameText nativeName == name
+       ] of
+    [resource] -> resource
+    found -> error ("database fixture lacks one " <> T.unpack kind <> " " <> T.unpack name <> ": " <> show found)
+
+statefulId, pvcId, cronId, signingId :: ResourceId
+statefulId = databaseMember "statefulset" "pg"
+pvcId = databaseMember "persistentvolumeclaim" (dbPvcName "pg")
+cronId = databaseMember "cronjob" "nagare-dbbackup-pg"
+signingId = databaseMember "secret" "nagare-dbbackup-pg-signing"
 
 orFail :: (Show e) => String -> Either e a -> IO a
 orFail context = either (\err -> assertFailure (context <> ": " <> show err) >> pure (error "unreachable")) pure

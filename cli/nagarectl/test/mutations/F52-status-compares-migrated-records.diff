@@ -1,0 +1,12 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Status.hs b/cli/nagarectl/src/Nagare/Inventory/Status.hs
+--- a/cli/nagarectl/src/Nagare/Inventory/Status.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Status.hs
+@@ -312,7 +312,7 @@
+     pure $ case published of
+       Left err -> Left (T.pack (show err))
+       Right bundle ->
+-        Right (Map.withoutKeys (headIncarnations headValue) (Map.keysSet (reviewMigrations (reviewBundleDocument bundle))))
++        Right (headIncarnations headValue)
+ 
+ loadActiveTransactionStatus :: InventoryStore -> HeadManifest -> IO (Either Text (Maybe ActiveTransactionStatus))
+ loadActiveTransactionStatus store headValue = case headActiveTransaction headValue of

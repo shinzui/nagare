@@ -1,19 +1,33 @@
 -- | The bounded retained PostgreSQL rename (IR-24 case 3): pure contract
 -- checks and a full reviewed run through the production planner, admission
 -- and serial driver against a modelled Kubernetes API.
-module InventoryPostgresRenameSpec (inventoryPostgresRenameTests) where
+module InventoryPostgresRenameSpec
+  ( inventoryPostgresRenameTests
+  , RenameWorld
+  , databaseOwner
+  , newScope
+  , plannedRenameThrough
+  , recordOldIncarnations
+  , renameVolumes
+  , replacedMembers
+  , transferJobs
+  , destinationCopies
+  , verifyRenamedWorld
+  )
+where
 
 import Data.Aeson (Value (..), eitherDecodeStrict, object, toJSON, (.=))
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
+import Data.Either (isRight)
 import Data.Generics.Labels ()
 import Data.IORef
 import Data.List (sortOn)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromJust)
+import Data.Maybe (fromJust, listToMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
@@ -278,6 +292,8 @@ data World = World
   , counter :: !Int
   , created :: ![Text]
   , loseJobAck :: !Bool
+  , destinationWrites :: !Int
+  -- ^ Copies into an empty destination volume; a retried copy only compares.
   }
   deriving stock (Generic)
 
@@ -287,10 +303,15 @@ modelled world = withKubectlInterpreter (runKubectlWith (handle world)) config
 -- | The modelled API, running a probe after every request; the probe's own
 -- requests do not run it again.
 probed :: IORef World -> IORef (Maybe (IO ())) -> KubernetesRuntimeConfig
-probed world probe = withKubectlInterpreter (runKubectlWith answer) config
+probed world = probedThrough world id
+
+-- | 'probed' with the API's transport wrapped (the rename recovery model's
+-- adversary).
+probedThrough :: IORef World -> Transport -> IORef (Maybe (IO ())) -> KubernetesRuntimeConfig
+probedThrough world transport probe = withKubectlInterpreter (runKubectlWith answer) config
   where
     answer request = do
-      result <- handle world request
+      result <- transport (handle world) request
       pending <- readIORef probe
       mapM_ (\check -> writeIORef probe Nothing >> check >> writeIORef probe (Just check)) pending
       pure result
@@ -422,7 +443,10 @@ runJob key@(_, namespace, name) job state =
                 ]
           ]
       status = either (const (object ["failed" .= (1 :: Int)])) (const (object ["succeeded" .= (1 :: Int)])) outcome
+      wrote = mode == "copy" && T.null (Map.findWithDefault "" (fromMaybe "" (listToMaybe (drop 1 claims))) (state ^. #volumes)) && isRight outcome
    in state
+        & #destinationWrites
+        %~ (if wrote then (+ 1) else id)
         & #volumes
         .~ nextVolumes
         & #objects
@@ -484,6 +508,7 @@ seededWorld =
     , counter = 0
     , created = []
     , loseJobAck = False
+    , destinationWrites = 0
     }
 
 stamped :: ResourceId -> ByteString -> Text -> Value
@@ -506,7 +531,17 @@ plannedRename root = do
   plannedRenameWith id probe root
 
 plannedRenameWith :: (HeadManifest -> HeadManifest) -> IORef (Maybe (IO ())) -> FilePath -> IO (InventoryStore, IORef World, ReviewedPlan, AdapterRegistry)
-plannedRenameWith seed probe root = do
+plannedRenameWith seed = plannedRenameThrough seed id
+
+-- | A wrapper around the modelled API's request handler.
+type Transport = (KubectlRequest -> IO KubectlResult) -> KubectlRequest -> IO KubectlResult
+
+type RenameWorld = IORef World
+
+-- | Plan and publish the reviewed rename with the API reached through a
+-- transport wrapper; planning issues no writes.
+plannedRenameThrough :: (HeadManifest -> HeadManifest) -> Transport -> IORef (Maybe (IO ())) -> FilePath -> IO (InventoryStore, IORef World, ReviewedPlan, AdapterRegistry)
+plannedRenameThrough seed transport probe root = do
   world <- newIORef seededWorld
   store <- must (openFilesystemStore (root </> "history"))
   seedAccepted store binding [oldScope] oldNative
@@ -530,7 +565,7 @@ plannedRenameWith seed probe root = do
           | Managed declaration <- checked (composedDeclarations (fmap snd (historyAccepted history)))
           ]
       planning = MigrationPlanning (Map.mapWithKey (\identity (_, bytes) -> (revision, acceptedDeclarations Map.! identity, bytes)) oldNative) newNative
-      runtime = probed world probe
+      runtime = probedThrough world transport probe
       sourceRegistry = checked (mkAdapterRegistry [mkKubernetesAdapter oldNative (mkKubernetesRuntimeOps runtime oldNative)])
       destinationRegistry = checked (mkAdapterRegistry [kubernetesMigrationAdapter runtime (Just planning) (mkKubernetesAdapter newNative (mkKubernetesRuntimeOps runtime newNative))])
       requirements = observationRequirements candidate history
@@ -555,6 +590,18 @@ plannedRenameWith seed probe root = do
   pure (store, world, reviewed, execution)
   where
     expectRight' = either (\errors -> assertFailure (show errors) >> fail "unreachable") pure
+
+-- | The volumes' contents, by claim name.
+renameVolumes :: World -> Map Text Text
+renameVolumes = volumes
+
+-- | Transfer Jobs the API server created, in order.
+transferJobs :: World -> [Text]
+transferJobs final = filter (T.isPrefixOf "job.batch/nagare-migrate-") (final ^. #created)
+
+-- | How many times a copy wrote into an empty destination volume.
+destinationCopies :: World -> Int
+destinationCopies = destinationWrites
 
 verifyRenamedWorld :: World -> Assertion
 verifyRenamedWorld final = do

@@ -88,8 +88,31 @@ behind it is in
   retired); both are fixed in MasterPlan 23. I3's status clause now uses the production
   `statusIncarnations`. F52's reviewed rename is covered by `InventoryPostgresRenameSpec`, which
   computes status after every Kubernetes request; the model does not yet run a migration.
-- [ ] M2 remaining: a receipt-ingestion scenario, and the reviewed rename inside the model. F50 lives
-  in the cloud-foundation world (M4).
+- [x] (2026-10-05) M2 part 3, receipt ingestion and the reviewed rename:
+  - **Database scenario.** "create a database, then ingest a scheduled receipt" reviews a standalone
+    PostgreSQL scope (`compileStandaloneDatabase`). It then plans ingestion as `db backup-receipts`
+    does: live UIDs through the adapter, accepted native bytes through
+    `Status.loadAcceptedNativeSelected`, and `compileScheduledIngestScope`. A new I3 clause fails when
+    a receipt from a source created outside review (the world's `replacedUids`) compiles. A
+    fault-free run must compile, so the clause is never vacuous. The scenario found F59 (P1, fixed) and
+    F60 (the F49 fail-open-recording limit, deferred by the operator, named as a tolerance).
+  - **Rename model.** `InventoryRenameRecoveryModelSpec` runs the reviewed PostgreSQL rename under one
+    fault (refused, lost acknowledgement, or interrupted after the write) at every `kubectl` write it
+    issues. It checks:
+    - I3 status at every stop and at the end;
+    - an exit (resume, then each recovery decision);
+    - the renamed data and the source volume;
+    - I4: the destination volume is written once.
+
+    It passes in about 30 s.
+  - **Fast tier.** It now takes about 69 s, above M1's 60 s target. The database scenario added about
+    18 s.
+- [x] (2026-10-05) M2 acceptance, except F50:
+  - The F38, F49 (status and ingestion), F52 and F59 guard reversions each fail a model:
+    `cli/nagarectl/test/mutations/README.md`, each mutant's diff checked in the scratch worktree
+    before the run.
+  - F51 and F58 failed the retire scenario on their pre-fix sources.
+  - F50 lives in the cloud-foundation world (M4).
 - [ ] M1: A Kubernetes provider world with an adversary drives the real Kubernetes adapter, driver and
   recovery policy through the application lifecycle. The exit, acceptance and at-most-once
   invariants pass. Acceptance: the model fails on the pre-F54-repair source and on documented
@@ -139,7 +162,45 @@ behind it is in
   Evidence: `docs/audits/mp23-findings.md#f56`, `#f57`.
 
 
+- 2026-10-05: The first database scenario found a P1 wedge (F59) on its first run, with one fault.
+  F16's stop had been fixed only for application Services, and nothing had driven a data service's
+  create through the model. The same run reached the F49 fail-open-recording limit (F60) with one
+  `Replaced` fault. Evidence: `docs/audits/mp23-findings.md#f59`, `#f60`.
+
 ## Decision Log
+
+- Decision: Run the reviewed rename under faults in the rename spec's own `kubectl`-level API world
+  (`InventoryPostgresRenameSpec`), not in `Nagare.Test.World.Kubernetes`.
+  Rationale: The migration adapter (`kubernetesMigrationAdapter`) reaches Kubernetes only through the
+  `Kubectl` effect: transfer Jobs, pod termination messages, raw Job deletes, StatefulSet scaling and
+  fences. The recovery model's world sits at `KubernetesAdapterOps` and models none of these.
+  Extending that world would re-implement the rename world. The exit search here is in place and
+  bounded (resume up to three times, then each recovery decision), because every rename fault is
+  transient.
+  Date: 2026-10-05
+
+- Decision: The rename's I4 counts writes into an empty destination volume, not transfer Jobs.
+  Rationale:
+  - Observed in the model: after a lost acknowledgement or an interrupt on the copy Job's cleanup
+    delete, or any fault on the verification Job's create, recovery creates the copy Job a second
+    time.
+  - Observed in source (`transferScript`, `src/Nagare/Inventory/Migration/PostgresRename.hs`): a copy
+    into a non-empty destination only compares manifests, and fails if they differ.
+  - Inferred: the second Job proves the earlier copy rather than repeating it, so it is a safe retry
+    and not a finding. The world counts real copies, and I4 requires exactly one.
+  - **Pending independent verification.** This change relaxes a model invariant. A reviewer must
+    confirm that the script's "non-empty destination, compare and do not copy" path covers every
+    observed fault:
+    - a lost acknowledgement or an interrupt on the copy Job's cleanup delete;
+    - any fault on the verification Job's create.
+  Date: 2026-10-05
+
+- Decision: F60 is an explicit tolerance in the I3 receipt clause, by operator decision. Only a
+  replacement the head itself records as the accepted incarnation is exempt.
+  Rationale: It is the F49 fail-open-recording item on the deferral ledger
+  (`docs/audits/mp23-findings.md#f60`). A replacement the head does not record must still refuse, and
+  the F49 ingestion mutation proves the clause checks that.
+  Date: 2026-10-05
 
 - Decision: Enumerate a bounded scenario space exhaustively instead of sampling it with a random
   property-testing library.

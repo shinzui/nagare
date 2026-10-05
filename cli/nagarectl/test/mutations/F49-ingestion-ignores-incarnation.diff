@@ -1,0 +1,12 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/ScheduledIngest.hs b/cli/nagarectl/src/Nagare/Inventory/ScheduledIngest.hs
+--- a/cli/nagarectl/src/Nagare/Inventory/ScheduledIngest.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/ScheduledIngest.hs
+@@ -164,7 +164,7 @@
+   signing <- unique "Secret" (scheduleName <> "-signing")
+   -- A receipt from an object that replaced the accepted incarnation outside
+   -- Nagare must not become a recovery point (F49).
+-  let acceptedIncarnation member uid = maybe True (== uid) (Map.lookup (member ^. #identity) (ingestAcceptedIncarnations request))
++  let acceptedIncarnation _ _ = True
+   unless
+     (acceptedIncarnation stateful (ingestStatefulUid request) && acceptedIncarnation pvc (ingestPvcUid request))
+     (Left (invalid "scheduled receipt source is not the accepted database incarnation; it was replaced outside Nagare"))
