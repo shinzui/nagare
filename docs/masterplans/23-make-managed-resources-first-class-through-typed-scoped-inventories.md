@@ -346,6 +346,11 @@ provenance:
       at: 2026-10-05T20:40:33Z
       mode: "update"
       note: "Exhaustive review and structural proposal; F51 reopened"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-05T21:55:41Z
+      mode: "update"
+      note: "Add EP-175/176/177 for release line (b) steps 1-4"
   reviews:
     - model: "claude-fable-5-1"
       harness: "claude-code"
@@ -418,6 +423,9 @@ Rejected alternatives: isolated platform/application inventories without shared 
 | 159 | Complete scheduled receipts and explicit retention limits | docs/plans/159-complete-scheduled-backup-receipts-and-exact-retention-pruning.md | EP-146, EP-147, EP-149, EP-151 | None | In Progress |
 | 160 | Complete verified isolated database and volume restore | docs/plans/160-complete-fenced-live-data-restore-across-supported-engines-and-volumes.md | EP-146, EP-147, EP-149, EP-151 | EP-159 | In Progress |
 | 161 | Interactive maintenance deferred; delivered recovery history retained | docs/plans/161-provide-scoped-interactive-maintenance-with-durable-recovery.md | None | None | Cancelled |
+| 175 | Close stopped inventory transactions by per-operation proof (ADR 26; line (b) steps 1 and 4) | docs/plans/175-close-stopped-inventory-transactions-by-per-operation-proof.md | None | None | In Progress |
+| 176 | Record physical identity at creation and read it through one checked accessor (ADR 27; step 2) | docs/plans/176-record-physical-identity-at-creation-and-read-it-through-one-checked-accessor.md | EP-175 M2 | None | Not Started |
+| 177 | Generate recovery model coverage from a resource kind table (ADR 25 amendment; step 3) | docs/plans/177-generate-recovery-model-coverage-from-a-resource-kind-table.md | EP-175, EP-176 (M2–M3 only) | None | Not Started |
 
 Hard dependencies must be Complete before starting the dependent child; soft dependencies supply real-adapter coverage but allow fixture-backed work to proceed. EP-157's gate code is already implemented; its final assembly additionally needs every other active child's accepted outcome (see Dependency Graph). File slugs for EP-159 and EP-160 predate their current titles and are kept so existing links stay valid.
 
@@ -476,10 +484,10 @@ The operator approved all six decisions of [the exhaustive review's proposal](..
 - E's U4–U7 (local cache publication, unlocked plan seeding, export/restore consistency, takeover liveness) unless they fall out of the work below.
 
 **Work, in order.** nagare (implementer) owns steps 1–4. The final verification is by a reviewer that did not implement the work.
-- [ ] 1. ADR 26: `adapterSettle` for every adapter in the line; `close-transaction` replacing the stop and abandon allowlists; scope-local, re-enterable abort; F61's forward wipe exit; verify never executes. Covers F16, F35–F37, F54–F59, F61, F63–F65, and A's in-line cells and E's U1 and U3.
-- [ ] 2. ADR 27: create-identity recorded in the journal, binding from it at convergence, one checked identity accessor for every consumer in C, and a reviewed rebind. Covers F51 (reopened, N1), F52's convergence half, F60, F62 and C's N2–N13.
-- [ ] 3. ADR 25 amendment: the kind table and generated product for every kind in the line, the totality test, and the harness fixes (no refusal counted as done, `LandsFailed` effective, no `ForeignObject` exemption, the corrected-review exit explored); deletion, crash-at-store and claim-loss faults.
-- [ ] 4. ADR 26 §5: the attested close-and-accept-nothing exit; E's U2 (CDN purge, VM power) routed to it.
+- [ ] 1. ([EP-175](../plans/175-close-stopped-inventory-transactions-by-per-operation-proof.md)) ADR 26: `adapterSettle` for every adapter in the line; `close-transaction` replacing the stop and abandon allowlists; scope-local, re-enterable abort; F61's forward wipe exit; verify never executes. Covers F16, F35–F37, F54–F59, F61, F63–F65, and A's in-line cells and E's U1 and U3.
+- [ ] 2. ([EP-176](../plans/176-record-physical-identity-at-creation-and-read-it-through-one-checked-accessor.md)) ADR 27: create-identity recorded in the journal, binding from it at convergence, one checked identity accessor for every consumer in C, and a reviewed rebind. Covers F51 (reopened, N1), F52's convergence half, F60, F62 and C's N2–N13.
+- [ ] 3. ([EP-177](../plans/177-generate-recovery-model-coverage-from-a-resource-kind-table.md)) ADR 25 amendment: the kind table and generated product for every kind in the line, the totality test, and the harness fixes (no refusal counted as done, `LandsFailed` effective, no `ForeignObject` exemption, the corrected-review exit explored); deletion, crash-at-store and claim-loss faults.
+- [ ] 4. (EP-175 M4) ADR 26 §5: the attested close-and-accept-nothing exit; E's U2 (CDN purge, VM power) routed to it.
 - [ ] 5. One final verification against this line, a new candidate with a green `just gate` record and `gate verify`, then C1–C5 (including the phase 3b teardown of `mp23-c3i`) under the finish line below.
 
 ### Finish line (canonical checklist, 2026-10-04)
