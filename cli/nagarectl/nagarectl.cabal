@@ -527,6 +527,7 @@ test-suite nagarectl-test
     InventoryPreviewCleanupSpec
     InventoryPreviewRecoverySpec
     InventoryPublicationSpec
+    InventoryRecoveryModelSpec
     InventoryRedisRestoreRecoverySpec
     InventoryRefusedPreflightRecoverySpec
     InventorySpec
@@ -586,6 +587,8 @@ test-suite nagarectl-test
     Nagare.Test.Task
     Nagare.Test.Version
     Nagare.Test.Webhook
+    Nagare.Test.World.Adversary
+    Nagare.Test.World.Kubernetes
     PlatformCutoverSpec
     PlatformSpec
 

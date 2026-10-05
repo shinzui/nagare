@@ -53,6 +53,16 @@ behind it is in
 
 ## Progress
 
+- [x] (2026-10-05) M1 core: `Nagare.Test.World.Adversary`, `Nagare.Test.World.Kubernetes` and
+  `InventoryRecoveryModelSpec`. Real planning (`observeWithRegistry`, `planChanges`, `prepareReview`),
+  the driver, the recovery policy and the production application adapter
+  (`mkKubernetesAdapterWithConfigurationObservation`) run over the world. Five application scenarios
+  (create; good update; bad update then corrected update, with release history unchanged, following
+  the release, and with a durable volume) run under every single fault at every Kubernetes write
+  boundary. I1, I2 and I4 hold. The fast tier takes 12.6 s. The model found F55 on the F54-repaired
+  source; it is fixed in MasterPlan 23.
+- [ ] M1 acceptance: fail on the pre-F54 worktree (`3135cdde`); mutation diffs for the F16, F30, F35
+  and F37 guards; a retire scenario.
 - [ ] M1: A Kubernetes provider world with an adversary drives the real Kubernetes adapter, driver and
   recovery policy through the application lifecycle. The exit, acceptance and at-most-once
   invariants pass. Acceptance: the model fails on the pre-F54-repair source and on documented
@@ -79,7 +89,20 @@ behind it is in
 
 ## Surprises & Discoveries
 
-(None yet.)
+- 2026-10-05: The first model run found a new P1, F55, on the F54-repaired source in under a second,
+  with no injected fault. A landed unready Service update could not be stopped whenever its review
+  also updated the release-history ConfigMap, which every application update does, or verified any
+  other member. F54's stop reused F30's companion rule (never-started ConfigMap creates only). The
+  F54 native run on `mp23-c3i` escaped only because its release history had never been created.
+  Evidence: `docs/audits/mp23-findings.md#f55`.
+- 2026-10-05: World fidelity mattered at once. Giving every kind readiness made ConfigMaps "land
+  unready", and giving Knative Services a Failed state (only failed Jobs report it) produced false
+  violations. The world now models readiness only for workloads and failure only for Jobs.
+- 2026-10-05: A greedy in-place exit search under-explored. Resume appends journal events on every
+  call, so measuring progress by head generation always committed to resume. In the refused-write
+  case, committing to resume hid the real exit (abandon, then a corrected review). Progress is now a
+  signature of the active transaction, the accepted and converged revisions, and each operation's
+  latest state. The search replays from scratch per path (see the Decision Log).
 
 
 ## Decision Log
@@ -109,6 +132,23 @@ behind it is in
   stays. An exit that works only after the provider fixes itself is not an exit.
   Date: 2026-10-04
 
+
+- Decision: Explore exits by deterministic replay, depth-first, at most four moves deep. Every
+  candidate path re-runs the scenario from a fresh world and store. A move the driver refuses ends
+  its path. A move that changes the progress signature without ending the transaction is extended.
+  An I2 or I4 violation on any explored path fails the run.
+  Rationale: The memory store and world cannot be snapshotted, and an in-place greedy search missed
+  real exits. Replay keeps paths independent and deterministic, and each run takes milliseconds.
+  Date: 2026-10-05
+
+- Decision: World fidelity rules. Only Knative Services, Deployments, StatefulSets, DomainMappings and
+  Jobs have readiness. Only Jobs fail. `Interrupt` throws after the write lands. Writes are
+  conditional on the reviewed UID and resourceVersion. An update of an object with a foreign manager
+  is refused unless the mutation carries a reviewed takeover. The configuration observation ignores
+  status, so status churn changes resourceVersion but not its digest.
+  Rationale: Each rule mirrors the runtime (`KubernetesRuntime.hs`) or the API server. A violation
+  that depends on an unfaithful world is noise.
+  Date: 2026-10-05
 
 ## Outcomes & Retrospective
 
