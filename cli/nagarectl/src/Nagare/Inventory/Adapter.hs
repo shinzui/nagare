@@ -158,6 +158,10 @@ data RecoveryDecision
   | RecoverySafeToRetry
   | -- The exact created workload exists, but readiness is not completion.
     RecoveryAwaitingReadiness !PhysicalIdentity
+  | -- The reviewed update landed on the accepted object exactly as reviewed
+    -- (same UID, reviewed spec, generation observed, no other field owner),
+    -- and its controller reports it not ready. Only a reviewed stop uses it.
+    RecoveryLandedUnready !PhysicalIdentity
   | RecoveryTerminalFailure !PhysicalIdentity
   | RecoveryUnresolved !Text
   deriving stock (Eq, Show, Generic)

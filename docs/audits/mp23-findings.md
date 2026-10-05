@@ -72,7 +72,7 @@ This is the authoritative list of implementation findings for [MP-23](../masterp
 | [F51](#f51) | P2 | Retirement retains an out-of-band replacement's identity instead of the accepted incarnation | Open | EP-153 / EP-159 |
 | [F52](#f52) | P2 | Incarnation records are keyed by resource ID, so a reviewed address-changing migration reads as `replaced-incarnation` until it converges | Open | EP-153 |
 | [F53](#f53) | P1 | `nix flake check` fails at the candidate: sandbox-only test failures and stale check assertions | Verifying | EP-154 |
-| [F54](#f54) | P1 | A landed application Service update whose new revision never becomes Ready has no reviewed exit, so the store stays wedged | Open | EP-153 / EP-156 |
+| [F54](#f54) | P1 | A landed application Service update whose new revision never becomes Ready has no reviewed exit, so the store stays wedged | Verifying | EP-153 / EP-156 |
 
 Closed findings keep their full text, location, implementation updates and verification in [the closed-findings archive](mp23-archive/mp23-findings-closed.md). F01 and F11 retain their [earlier independent closure](mp23-archive/mp23-verification.md). F02, F03, F04, F05, F06, F07, F08 and F20 now have [2026-10-02 independent closure](mp23-independent-verification-2026-10-02.md). F34, F35, F36, F37, F38, F41 and F42 have 2026-10-04 independent closure on candidate `7596632c`, and F49 and F50 on candidate `847543896d07` ([records](mp23-independent-results-2026-10-04/phase1-source-and-regressions-7596632c.md)). Other entries retain their status shown above.
 
@@ -494,7 +494,7 @@ Nothing had run the flake check for many commits, so earlier candidates carried 
 
 ## F54
 
-**A landed application Service update whose new revision never becomes Ready has no reviewed exit, so the store stays wedged** — P1; **Open**; owners EP-153 / EP-156.
+**A landed application Service update whose new revision never becomes Ready has no reviewed exit, so the store stays wedged** — P1; **Verifying**; owners EP-153 / EP-156.
 
 **Native evidence (2026-10-04/05, nagare-reviewer, phase 3a on the acceptance C3 `mp23-c3i`, candidate `847543896d07`, operator-approved bounded sequence):**
 - A throwaway application `rvf16` (scope `application:rvf16`: PostgreSQL `rvf16-pg` plus a web Service with a 64-CPU request) was created with review `22572096…`. Apply stopped ambiguous after 354 s at the never-ready Service create.
@@ -514,3 +514,29 @@ Nothing had run the flake check for many commits, so earlier candidates carried 
 - Native: repeat this sequence on a fresh candidate context: create, stop, a bad correction, stop, a good correction that converges with the same Service, StatefulSet and PVC UIDs and the known row.
 
 **Current state of `mp23-c3i`:** the transaction is active and claim-free. Data and ownership are intact: the known row `1|rvf16-d747f5b7-before-correction` was written to `rvf16-pg`. The operator decides how the context continues (see the reviewer's report).
+
+**Implementation update (2026-10-04, nagare-phase-b; operator decision: fix before release):** `stop-incomplete-application` now accepts an intended Service update when the adapter proves the landing exactly.
+- **Adapter:** recovery returns the stop-only decision `RecoveryLandedUnready` for an `UpdateResource` on a Knative Service only when all of these hold:
+  - the observed object has the reviewed before-state's UID and owner;
+  - its digest is the reviewed spec digest;
+  - a guarded live read with managed fields (`confirmLandedUnready`) shows the same UID and resourceVersion;
+  - `generation` equals `status.observedGeneration`;
+  - no writer other than `nagare-inventory` owns a non-status field;
+  - Ready is not True.
+
+  The production adapter receives the live reader. Without it, nothing is proved.
+- **Review check:** `Plan/History.incompleteApplicationOnlyReview` takes a `LandedUpdateProof`. With the proof, the selected update's journal may hold only `IntentRecorded`, `Ambiguous` and the stop marker. Companions must still be Completed, or never-intended ConfigMap creates ordered after the Service. A weaker `RecoveryAwaitingReadiness` for an intended update still refuses.
+- **Resume** still stops ambiguous at a landed update.
+- **The stop** keeps admitted ownership and the prior converged revision. A corrected review then updates the same Service in place.
+- **Regressions:** `test/InventoryLandedUpdateStopSpec.hs`.
+  - The adapter proof refuses eight cases: changed spec, replaced object, unowned, another owner, foreign field owner, unobserved generation, moved between reads, Ready.
+  - A landed update stops with head accepted/converged unchanged; the corrected review plans `UpdateResource` on the same Service plus the never-started ConfigMap create, and converges.
+  - An extra uncertain companion, a missing landing proof, or a weaker readiness decision each refuses.
+- **Mutation proof:** removing each guard fails a named test. The one equivalent mutant is the adapter's `owner == mutationResource` check, which `previousOwner == owner` implies because the reviewed before-state is owned by this resource; it is kept as defence in depth.
+- **Not changed:** the planning-history proof of never-started members. It releases only durable members, and an update stop's companions are stateless.
+- [ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md) and the [inventory runbook](../runbooks/inventory-operations.md) record the boundary.
+
+Native proof on `mp23-c3i` awaits the operator's approval of the bounded sequence:
+1. stop `tx-44577a2c…` with the fixed CLI;
+2. apply a corrected rvf16 review (literal `REDIS_URL`) and check Service `442ecbcb…`, StatefulSet `308a3ea3…` and PVC `6df5e086…` plus the known row;
+3. confirm a zero-operation replan.

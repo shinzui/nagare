@@ -169,7 +169,7 @@ prepared reader = do
   calls <- newIORef (0 :: Int)
   let runtime = K.ops state calls
       adapter = case reader of
-        Nothing -> mkKubernetesAdapterWithConfigurationObservation bound runtime (traverse (kubernetesObserve runtime)) (kubernetesObserve runtime) noReceipt noScratch
+        Nothing -> mkKubernetesAdapterWithConfigurationObservation bound runtime (traverse (kubernetesObserve runtime)) (kubernetesObserve runtime) noReceipt noScratch (\_ -> pure (Left "no live object reader"))
         Just selected -> takeoverAdapter state calls selected
   native <- adapterPrepare adapter K.updateOperation >>= K.expectRight
   K.expectRight (eitherDecodeStrict' (preparedNativeBytes native))

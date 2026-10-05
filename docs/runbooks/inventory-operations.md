@@ -151,6 +151,21 @@ observation changes while retaining UID, configuration, field ownership and a
 fresh conditional resourceVersion. Existing saved reviews keep their original
 strict comparison semantics.
 
+An intended Service update can land but never become Ready, for example when the
+new revision crash-loops. `inventory resume` then stops ambiguous at that
+update; waiting does not help. The same `stop-incomplete-application` decision
+ends that transaction once the adapter proves four things: the live Service is
+the reviewed object (same UID, the reviewed spec, controller generation
+observed), Nagare alone owns its non-status fields, and it is not Ready.
+
+After the stop, fix the configuration and publish a new review. That review
+updates the same Service in place. The decision refuses in these cases:
+- the Service was edited or replaced outside review;
+- another writer owns its fields;
+- any other operation in the transaction is uncertain.
+
+In those cases, investigate rather than editing the Service by hand.
+
 When `inventory apply` or `resume` stops with `KnownNoEffect "adapter preflight
 refused"`, a later operation found its target changed after admission. The usual
 cause is an object that appeared at an address the review creates. If the

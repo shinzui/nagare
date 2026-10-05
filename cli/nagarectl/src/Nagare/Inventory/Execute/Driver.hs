@@ -37,6 +37,7 @@ import Nagare.Inventory.Adapter
     )
   , RecoveryDecision
     ( RecoveryAwaitingReadiness
+    , RecoveryLandedUnready
     , RecoveryProvedComplete
     , RecoverySafeToRetry
     , RecoveryTerminalFailure
@@ -185,6 +186,9 @@ runOperations locked registry transaction reviewed initialEvents operations reco
               executeOne events reviewOperation
           | otherwise -> pure (Just (StoppedAmbiguous transaction (plannedOperationId operation)))
         RecoveryAwaitingReadiness _ -> continueReadiness events reviewOperation
+        -- Resume cannot make a landed update Ready; only a reviewed stop or a
+        -- corrected review ends it.
+        RecoveryLandedUnready _ -> pure (Just (StoppedAmbiguous transaction (plannedOperationId operation)))
         RecoveryTerminalFailure _ -> pure (Just (StoppedAmbiguous transaction (plannedOperationId operation)))
         RecoveryUnresolved _ -> pure (Just (StoppedAmbiguous transaction (plannedOperationId operation)))
     -- The operator decision supplies the immutable capsule, but this shared

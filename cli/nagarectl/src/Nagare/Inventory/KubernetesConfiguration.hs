@@ -5,6 +5,7 @@ module Nagare.Inventory.KubernetesConfiguration
   , confirmInventoryFieldOwnershipFor
   , confirmReviewedFieldTakeover
   , confirmTakeoverSettled
+  , confirmLandedUnready
   , foreignFieldManagers
   , liveIdentity
   )
@@ -85,6 +86,29 @@ confirmTakeoverSettled target uid observed = do
   unless (actualUid == physicalIdentityText uid) (Left "Kubernetes object was replaced during its field takeover")
   remaining <- foreignFieldManagers target observed
   unless (null remaining) (Left "field takeover left fields owned by another writer; inspect managed fields")
+
+-- | F54: a landed but unready update may be stopped only when the live object
+-- is the one the adapter observed (UID and resourceVersion), its controller has
+-- observed this generation, Nagare alone owns its non-status fields, and the
+-- controller does not report it Ready.
+confirmLandedUnready :: Maybe ProviderAddress -> PhysicalIdentity -> Text -> Value -> Either Text ()
+confirmLandedUnready target uid revision observed = do
+  confirmInventoryFieldOwnershipFor target uid revision observed
+  metadata <- metadataOf observed
+  status <- case observed of
+    Object root | Just (Object value) <- KM.lookup "status" root -> Right value
+    _ -> Left "Kubernetes object has no controller status"
+  case (KM.lookup "generation" metadata, KM.lookup "observedGeneration" status) of
+    (Just (Number generation), Just (Number seen)) | generation == seen -> pure ()
+    _ -> Left "Kubernetes controller has not observed the landed generation"
+  case KM.lookup "conditions" status of
+    Just (Array conditions) | any ready (toList conditions) -> Left "Kubernetes object is Ready"
+    _ -> pure ()
+  where
+    ready (Object condition) =
+      KM.lookup "type" condition == Just (String "Ready")
+        && KM.lookup "status" condition == Just (String "True")
+    ready _ = False
 
 -- | The foreign managed-field entries of a live object, without timestamps,
 -- in API order. Status-only entries and proved controller paths are not

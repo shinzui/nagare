@@ -42,7 +42,7 @@ import Nagare.Inventory.CollectionPolicy (supportsRetainedCollection)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect), OperationId)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
-import Nagare.Inventory.KubernetesConfiguration (foreignFieldManagers, liveIdentity)
+import Nagare.Inventory.KubernetesConfiguration (confirmLandedUnready, foreignFieldManagers, liveIdentity)
 import Nagare.Inventory.Prune (manualPruneJobBackupPin)
 import Nagare.Inventory.Restore (manualRestoreJobTargetPins, volumeRestoreJobSourcePins)
 import Nagare.Inventory.ScheduledIngest (scheduledIngestJobSourcePins)
@@ -131,7 +131,7 @@ mkKubernetesAdapterWithBackupReceiptAndBatch ::
   (ResourceId -> PhysicalIdentity -> IO (Either Text ByteString)) ->
   Adapter
 mkKubernetesAdapterWithBackupReceiptAndBatch specs ops observeBatch readBackupReceipt =
-  mkKubernetesAdapterWithObservations specs ops observeBatch Nothing readBackupReceipt noScratchFailureProbe Nothing
+  mkKubernetesAdapterWithObservations specs ops observeBatch Nothing readBackupReceipt noScratchFailureProbe Nothing Nothing
 
 -- | Without a runtime pod probe, a failed restore scratch workload is never
 -- proved terminal; recovery stays unresolved, as before.
@@ -140,6 +140,8 @@ noScratchFailureProbe _ _ = pure (Right False)
 
 -- Version 1 keeps exact legacy observations. Only new Knative Service updates
 -- opt into a separately versioned status-independent configuration observation.
+-- The reader returns the live object with its managed fields; recovery uses it
+-- only to prove a landed but unready update for a reviewed stop (F54).
 mkKubernetesAdapterWithConfigurationObservation ::
   Map ResourceId (ManagedResource, ByteString) ->
   KubernetesAdapterOps ->
@@ -147,9 +149,10 @@ mkKubernetesAdapterWithConfigurationObservation ::
   (ResourceId -> IO KubernetesState) ->
   (ResourceId -> PhysicalIdentity -> IO (Either Text ByteString)) ->
   (ResourceId -> PhysicalIdentity -> IO (Either Text Bool)) ->
+  (ProviderAddress -> IO (Either Text Value)) ->
   Adapter
-mkKubernetesAdapterWithConfigurationObservation specs ops batch stable receipt scratch =
-  mkKubernetesAdapterWithObservations specs ops batch (Just stable) receipt scratch Nothing
+mkKubernetesAdapterWithConfigurationObservation specs ops batch stable receipt scratch reader =
+  mkKubernetesAdapterWithObservations specs ops batch (Just stable) receipt scratch Nothing (Just reader)
 
 -- | Planning with an explicit operator opt-in to reviewed field takeover. An
 -- update whose live object has foreign managed fields records those exact
@@ -165,7 +168,7 @@ mkKubernetesAdapterWithFieldTakeover ::
   (ProviderAddress -> IO (Either Text Value)) ->
   Adapter
 mkKubernetesAdapterWithFieldTakeover specs ops batch stable receipt scratch reader =
-  mkKubernetesAdapterWithObservations specs ops batch (Just stable) receipt scratch (Just reader)
+  mkKubernetesAdapterWithObservations specs ops batch (Just stable) receipt scratch (Just reader) (Just reader)
 
 mkKubernetesAdapterWithObservations ::
   Map ResourceId (ManagedResource, ByteString) ->
@@ -175,8 +178,9 @@ mkKubernetesAdapterWithObservations ::
   (ResourceId -> PhysicalIdentity -> IO (Either Text ByteString)) ->
   (ResourceId -> PhysicalIdentity -> IO (Either Text Bool)) ->
   Maybe (ProviderAddress -> IO (Either Text Value)) ->
+  Maybe (ProviderAddress -> IO (Either Text Value)) ->
   Adapter
-mkKubernetesAdapterWithObservations specs ops observeBatch stableObserve readBackupReceipt scratchFailed takeoverReader =
+mkKubernetesAdapterWithObservations specs ops observeBatch stableObserve readBackupReceipt scratchFailed takeoverReader landedReader =
   Adapter
     { adapterExecutor = KubernetesExecutor
     , adapterIdentity = "kubernetes-conditional-object"
@@ -318,9 +322,19 @@ mkKubernetesAdapterWithObservations specs ops observeBatch stableObserve readBac
                 KubernetesNotReady physical _ (Just owner) digest
                   | createdScratchStatefulSet mutation owner digest -> scratchFailed (mutationResource mutation) physical
                 _ -> pure (Right False)
+              -- F54: an intended Knative Service update that landed exactly as
+              -- reviewed on the accepted object and never became Ready. The
+              -- live read must agree with this observation's UID and version.
+              landed <- case (current, landedReader) of
+                (KubernetesNotReady physical revision (Just owner) digest, Just reader)
+                  | landedUpdate mutation physical owner digest ->
+                      (>>= confirmLandedUnready (Just (mutationAddress mutation)) physical revision) <$> reader (mutationAddress mutation)
+                _ -> pure (Left "not a landed Knative Service update")
               pure $ case requireSameBefore mutation before of
                 Right () -> RecoverySafeToRetry
                 Left reason -> case current of
+                  KubernetesNotReady physical _ _ _
+                    | Right () <- landed -> RecoveryLandedUnready physical
                   KubernetesNotReady physical _ (Just owner) digest
                     | createdScratchStatefulSet mutation owner digest
                     , scratchFailure == Right True ->
@@ -358,6 +372,15 @@ mkKubernetesAdapterWithObservations specs ops observeBatch stableObserve readBac
                           `elem` [CreateResource, RunDeclaredOperation] ->
                         RecoveryTerminalFailure physical
                   _ -> RecoveryUnresolved reason
+    landedUpdate mutation physical owner digest =
+      mutationAction mutation == UpdateResource
+        && knativeServiceAddress (mutationAddress mutation)
+        && owner == mutationResource mutation
+        && digest == mutationNativeDigest mutation
+        && case mutationBefore mutation of
+          KubernetesPresent prior _ (Just previousOwner) _ -> prior == physical && previousOwner == owner
+          KubernetesNotReady prior _ (Just previousOwner) _ -> prior == physical && previousOwner == owner
+          _ -> False
     createdScratchStatefulSet mutation owner digest =
       owner == mutationResource mutation
         && digest == mutationNativeDigest mutation

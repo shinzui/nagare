@@ -947,6 +947,30 @@ unresolved. Version 1 retains its original strict digest and can use only the
 read-only, never-intended stop boundary above. Readiness and observed generation
 remain separate completion requirements.
 
+Landed application update recovery (2026-10-04, finding F54): the same stop
+decision may close an *intended* stateless Knative Service update that landed but
+never became Ready, for example a new revision that crash-loops. The adapter
+must prove the landing in a stop-only decision, `RecoveryLandedUnready`. The
+proof requires all of the following:
+- the observed object has the reviewed before-state's UID and owner;
+- its spec digest is the reviewed one;
+- a live read with managed fields shows the same UID and resourceVersion;
+- the controller has observed that generation;
+- no writer other than Nagare owns a non-status field;
+- the Ready condition is not True.
+
+The selected update's journal may hold only intent, ambiguity and the stop
+marker. Companion rules are unchanged: they must be Completed, or be
+never-intended ConfigMap creates ordered after the Service. Any other uncertain
+operation, a data fence, a foreign or changed object, or a weaker readiness
+decision refuses.
+
+Resume still stops ambiguous, because waiting cannot make the revision Ready.
+The stop keeps admitted ownership and the prior converged revision and claims no
+convergence. A new corrected review then updates the same Service in place.
+A recorded stop marker stands for the proof that was accepted when it was
+written.
+
 The same explicit stopped-configuration decision also accepts a newly created,
 unready DomainMapping in an exact typed Standalone site-preview scope. Validate
 the complete original preview member/address/policy contract, require all other

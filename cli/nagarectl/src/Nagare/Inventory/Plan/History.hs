@@ -1,6 +1,7 @@
 -- | History responsibilities; internal implementation behind Nagare.Inventory.Plan.
 module Nagare.Inventory.Plan.History
-  ( incompleteApplicationOnlyReview
+  ( LandedUpdateProof (..)
+  , incompleteApplicationOnlyReview
   , loadInventoryHistory
   , loadInventoryPlanningHistory
   , seedInventoryHistory
@@ -35,7 +36,7 @@ import Nagare.Inventory.Journal
       , eventTransaction
       )
   , OperationId
-  , OperationState (Completed, OperatorResolved, Pending)
+  , OperationState (Ambiguous, Completed, IntentRecorded, OperatorResolved, Pending)
   , TransactionId
   , decodeJournalEvent
   , operationStates
@@ -274,14 +275,23 @@ loadInventoryHistory store = do
             (Map.lookup resourceId (reviewMigrations document))
         pure (resourceId, proof)
 
+-- | Whether adapter recovery proved that the selected intended application
+-- update landed exactly as reviewed and is not Ready (F54). Without that proof
+-- only a never-started update may be stopped.
+data LandedUpdateProof
+  = LandedUpdateUnproved
+  | LandedUpdateProved
+  deriving stock (Eq, Show)
+
 incompleteApplicationOnlyReview ::
+  LandedUpdateProof ->
   ReviewBundle ->
   [JournalEvent] ->
   TransactionId ->
   OperationId ->
   PlannedOperation ->
   Bool
-incompleteApplicationOnlyReview published events transaction operationId operation =
+incompleteApplicationOnlyReview landed published events transaction operationId operation =
   let document = reviewBundleDocument published
       reviewed = reviewOperations document
       changed =
@@ -304,7 +314,11 @@ incompleteApplicationOnlyReview published events transaction operationId operati
             Just Pending -> True
             Just (Completed _) -> True
             _ -> False
-      neverIntended selectedOp =
+      neverIntended = onlyStates (const False)
+      -- A landed update was intended and its readiness wait ended ambiguous;
+      -- a completed or failed update is not a landed unready one.
+      landedUpdate = onlyStates (`elem` [IntentRecorded, Ambiguous])
+      onlyStates allowed selectedOp =
         all
           ( \event ->
               eventTransaction event /= transaction
@@ -312,13 +326,13 @@ incompleteApplicationOnlyReview published events transaction operationId operati
                 || case eventState event of
                   Pending -> True
                   OperatorResolved marker -> selectedOp == operationId && "stopped-incomplete-application:" `T.isPrefixOf` marker
-                  _ -> False
+                  state -> allowed state
           )
           events
       pendingUpdate scope =
         plannedAction operation == UpdateResource
           && scopeKind (scopeId scope) == Application
-          && neverIntended operationId
+          && (neverIntended operationId || (landed == LandedUpdateProved && landedUpdate operationId))
           && all
             ( \entry ->
                 let op = reviewPlannedOperation entry
@@ -477,7 +491,10 @@ loadUnstartedApplicationCreates store selectedOwners headValue
                 , plannedOperationId (reviewPlannedOperation entry) == selected
                 ]
               validStop = case selectedOperations of
-                [operation] -> incompleteApplicationOnlyReview bundle prefix transaction selected operation
+                -- This proof only releases never-started durable members. An
+                -- update stop's companions are stateless ConfigMaps, so a
+                -- landed update stop (F54) adds nothing here.
+                [operation] -> incompleteApplicationOnlyReview LandedUpdateUnproved bundle prefix transaction selected operation
                 _ -> False
               neverStarted operation =
                 all

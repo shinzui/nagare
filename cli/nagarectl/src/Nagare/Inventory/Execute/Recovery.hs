@@ -29,6 +29,7 @@ import Nagare.Inventory.Adapter
   , PreparedNative (preparedNativeBytes)
   , RecoveryDecision
     ( RecoveryAwaitingReadiness
+    , RecoveryLandedUnready
     , RecoveryProvedComplete
     , RecoverySafeToRetry
     , RecoveryTerminalFailure
@@ -99,7 +100,8 @@ import Nagare.Inventory.Journal
   )
 import Nagare.Inventory.OperationStep (bootstrapRecoveryMarker)
 import Nagare.Inventory.Plan
-  ( ReviewDocument (reviewOperations)
+  ( LandedUpdateProof (LandedUpdateProved, LandedUpdateUnproved)
+  , ReviewDocument (reviewOperations)
   , ReviewOperation
     ( reviewAdapterIdentity
     , reviewAdapterVersion
@@ -462,6 +464,8 @@ recordOperatorRecovery store registry input takeOver = do
                           savedStop = case previous of
                             Just (OperatorResolved marker) -> applicationStopMarker marker
                             _ -> Nothing
+                          stopDigest physical =
+                            contentDigest (preparedNativeBytes prepared <> TE.encodeUtf8 (physicalIdentityText physical))
                       decision <-
                         if recoveryAction input == StopIncompleteApplication && isJust savedStop
                           then pure (RecoveryUnresolved "saved stop needs only claim settlement")
@@ -473,17 +477,13 @@ recordOperatorRecovery store registry input takeOver = do
                       case (recoveryAction input, decision) of
                         (StopIncompleteApplication, _)
                           | isNothing selection
-                          , incompleteApplicationOnlyReview published events transaction operationId operation
-                          , Just stopProof <- case (savedStop, decision) of
-                              (Just proof, _) -> Just proof
-                              (Nothing, RecoveryAwaitingReadiness physical) ->
-                                Just
-                                  ( contentDigest
-                                      ( preparedNativeBytes prepared
-                                          <> TE.encodeUtf8 (physicalIdentityText physical)
-                                      )
-                                  )
-                              _ -> Nothing -> do
+                          , Just (landed, stopProof) <- case (savedStop, decision) of
+                              -- A saved marker records a proof accepted earlier.
+                              (Just proof, _) -> Just (LandedUpdateProved, proof)
+                              (Nothing, RecoveryAwaitingReadiness physical) -> Just (LandedUpdateUnproved, stopDigest physical)
+                              (Nothing, RecoveryLandedUnready physical) -> Just (LandedUpdateProved, stopDigest physical)
+                              _ -> Nothing
+                          , incompleteApplicationOnlyReview landed published events transaction operationId operation -> do
                               appended <- case savedStop of
                                 Just _ -> pure (Right ())
                                 Nothing ->

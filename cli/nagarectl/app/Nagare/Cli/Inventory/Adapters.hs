@@ -162,7 +162,7 @@ inventoryKubernetesAdapterWith takeover active binding cacheKey specs
       let config = KubernetesRuntimeConfig context (contextNameText (active ^. #contextName)) (fmap (fmap (const ())) (guardKubernetesContext active))
           (ops, observeBatch) = mkKubernetesRuntimeOpsAndBatchWithCacheKey config cacheKey specs
           construct
-            | takeover = \a b c d e f -> mkKubernetesAdapterWithFieldTakeover a b c d e f (guardedLiveObject config)
+            | takeover = mkKubernetesAdapterWithFieldTakeover
             | otherwise = mkKubernetesAdapterWithConfigurationObservation
       pure
         ( construct
@@ -172,6 +172,7 @@ inventoryKubernetesAdapterWith takeover active binding cacheKey specs
             (observeKubernetesConfiguration config cacheKey specs)
             (readBackupReceiptFromCompletedPod config specs)
             (restoreScratchPodFailed config specs)
+            (guardedLiveObject config)
         )
   where
     guardedLiveObject config target = do
