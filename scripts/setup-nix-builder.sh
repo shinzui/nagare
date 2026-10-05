@@ -6,7 +6,7 @@
 #   2. Creates a dedicated VPC (nix-builder-net), subnet, and IAP-only
 #      ingress firewall rule for SSH.
 #   3. Renders scripts/nix-builder-startup.sh.tpl with the host's builder
-#      public key and creates an Ubuntu 24.04 n2-standard-2 VM (nested
+#      public key and creates an Ubuntu 24.04 n2-standard-16 VM (nested
 #      virt enabled, ephemeral external IP for outbound) with that
 #      startup script. Inbound SSH is restricted to GCP's IAP range
 #      via the firewall rule, so the external IP only serves egress
@@ -17,7 +17,8 @@
 #      context-owned SSH ProxyCommand starts it on the next host-image build.
 #
 # Idempotent: re-running this script only creates resources that are
-# missing. Editing the startup template after the VM exists has no effect
+# missing, and it resizes an existing VM whose machine type differs (stopping
+# it first). Editing the startup template after the VM exists has no effect
 # unless you delete the VM first.
 
 set -euo pipefail
@@ -44,7 +45,12 @@ SUBNET="${NIX_BUILDER_SUBNET:-nix-builder-subnet}"
 SUBNET_CIDR="${NIX_BUILDER_SUBNET_CIDR:-10.10.0.0/24}"
 FIREWALL="${NIX_BUILDER_FIREWALL:-nix-builder-iap-ssh}"
 INSTANCE="${NIX_BUILDER_INSTANCE:-nix-builder-x86}"
-MACHINE_TYPE=n2-standard-2
+# n2-standard-16 (16 vCPU, 64 GB) is the live builder's shape (observed
+# 2026-10-05); it was resized outside this script, which still said
+# n2-standard-2. The host sends up to four concurrent GHC builds here (its
+# Nix buildMachines maxJobs). The VM runs only while building and stops itself
+# when idle. Re-running this script resizes a VM whose type differs.
+MACHINE_TYPE="${NIX_BUILDER_MACHINE_TYPE:-n2-standard-16}"
 DISK_SIZE=200GB
 DISK_TYPE=pd-balanced
 IMAGE_FAMILY=ubuntu-2404-lts-amd64
@@ -116,10 +122,30 @@ ensure_boot_disk_size() {
   fi
 }
 
+ensure_machine_type() {
+  local current status
+  current="$(basename "$(gcloud --project="$PROJECT" compute instances describe "$INSTANCE" \
+    --zone="$ZONE" --format='value(machineType)')")"
+  [ "$current" = "$MACHINE_TYPE" ] && return 0
+  status="$(gcloud --project="$PROJECT" compute instances describe "$INSTANCE" \
+    --zone="$ZONE" --format='value(status)')"
+  if [ "$status" = RUNNING ]; then
+    log "Stopping $INSTANCE to change its machine type (in-flight remote builds will fail and must be rerun)"
+    gcloud --project="$PROJECT" compute instances stop "$INSTANCE" --zone="$ZONE" --quiet
+  elif [ "$status" != TERMINATED ]; then
+    echo "error: cannot change the machine type of $INSTANCE in status $status" >&2
+    exit 2
+  fi
+  log "Changing $INSTANCE machine type from $current to $MACHINE_TYPE"
+  gcloud --project="$PROJECT" compute instances set-machine-type "$INSTANCE" \
+    --zone="$ZONE" --machine-type="$MACHINE_TYPE" --quiet
+}
+
 log "VM $INSTANCE ($MACHINE_TYPE, $IMAGE_FAMILY, nested-virt, ${DISK_SIZE} boot disk, ephemeral external IP)"
 if exists gcloud --project="$PROJECT" compute instances describe "$INSTANCE" --zone="$ZONE"; then
   log "VM already exists; skipping create. Delete it to re-apply the startup script."
   ensure_boot_disk_size
+  ensure_machine_type
   vm_status="$(gcloud --project="$PROJECT" compute instances describe "$INSTANCE" \
     --zone="$ZONE" --format='value(status)')"
   if [ "$vm_status" = TERMINATED ]; then
