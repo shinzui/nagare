@@ -40,6 +40,7 @@ inventoryLandedUpdateStopTests =
     [ testCase "adapter proves a landed Knative update only when exact, observed, exclusive and unready" adapterProof
     , testCase "landed update stops with ownership retained and a corrected review updates the same Service" stopThenCorrect
     , testCase "landed update stop refuses an extra uncertain operation and an unproved landing" extraUncertainRefuses
+    , testCase "resume of a landed unready update stops ambiguous without a second write" resumeStopsAmbiguous
     ]
 
 adapterProof :: Assertion
@@ -131,6 +132,8 @@ data Stopped = Stopped
   , transaction :: !TransactionId
   , selected :: !OperationId
   , history :: !InventoryHistory
+  , registry :: !AdapterRegistry
+  , updateWrites :: !(IORef Int)
   }
   deriving stock (Generic)
 
@@ -140,10 +143,15 @@ data Stopped = Stopped
 landedUpdate :: RecoveryDecision -> IO Stopped
 landedUpdate decision = do
   memory <- newMemoryStore
+  writes <- newIORef (0 :: Int)
   let registry =
         recordingRegistryWith
           (\_ _ -> pure (Right ()))
-          (\operation _ -> pure (if plannedAction operation == UpdateResource then AdapterEffectAmbiguous "readiness wait ended" else AdapterEffectCompleted))
+          ( \operation _ ->
+              if plannedAction operation == UpdateResource
+                then modifyIORef' writes (+ 1) >> pure (AdapterEffectAmbiguous "readiness wait ended")
+                else pure AdapterEffectCompleted
+          )
           (\_ _ -> pure decision)
       base = ok (mkScopeSnapshot fixtureBinding (Map.singleton appScope (ok (mkScopeGeneration 1), scope [service "old"])) Map.empty)
       dummy = ok (mkScopeDeclaration (ok (mkScopeId Standalone "dummy")) [])
@@ -159,7 +167,7 @@ landedUpdate decision = do
   published <- readStoreSnapshot memory >>= expectRight
   checked <- either (assertFailure . show . NE.toList) pure (verifyReview published prepared)
   applyReviewed memory registry checked >>= expectRight >>= \case
-    StoppedAmbiguous stoppedTransaction stoppedOperation -> pure (Stopped memory prepared checked stoppedTransaction stoppedOperation seeded)
+    StoppedAmbiguous stoppedTransaction stoppedOperation -> pure (Stopped memory prepared checked stoppedTransaction stoppedOperation seeded registry writes)
     other -> assertFailure (show other) >> undefined
 
 stopThenCorrect :: Assertion
@@ -226,6 +234,11 @@ extraUncertainRefuses = do
   assertBool "landed update was not stoppable" (check LandedUpdateProved events)
   assertBool "an unproved landing was stoppable" (not (check LandedUpdateUnproved events))
   assertBool "an extra uncertain operation was stoppable" (not (check LandedUpdateProved (events <> [uncertain])))
+  -- A completed or failed update did not land unready.
+  forM_ [Completed (contentDigest "completed"), Failed (KnownNoEffect "refused")] $ \state ->
+    assertBool
+      ("a selected update in state " <> show state <> " was stoppable")
+      (not (check LandedUpdateProved (events <> [(last events) {eventState = state}])))
   -- A weaker readiness decision for the intended update refuses at recovery.
   weak <- landedUpdate (RecoveryAwaitingReadiness serviceUid)
   refused <-
@@ -236,6 +249,16 @@ extraUncertainRefuses = do
       False
   assertBool "an unproved landed update was stopped" (isLeft refused)
   readHead (weak ^. #store) >>= expectRight >>= maybe (assertFailure "head missing") (\value -> headActiveTransaction value @?= Just (transactionIdText (weak ^. #transaction)))
+
+resumeStopsAmbiguous :: Assertion
+resumeStopsAmbiguous = do
+  stopped <- landedUpdate (RecoveryLandedUnready serviceUid)
+  readIORef (stopped ^. #updateWrites) >>= (@?= 1)
+  resumeTransaction (stopped ^. #store) (stopped ^. #registry) (stopped ^. #transaction) >>= expectRight >>= \case
+    StoppedAmbiguous resumed operation -> (resumed, operation) @?= (stopped ^. #transaction, stopped ^. #selected)
+    other -> assertFailure ("resume of a landed unready update: " <> show other)
+  readIORef (stopped ^. #updateWrites) >>= (@?= 1)
+  readHead (stopped ^. #store) >>= expectRight >>= maybe (assertFailure "head missing") (\value -> headActiveTransaction value @?= Just (transactionIdText (stopped ^. #transaction)))
 
 journal :: InventoryStore -> IO [JournalEvent]
 journal memory = do
