@@ -74,6 +74,8 @@ This is the authoritative list of implementation findings for [MP-23](../masterp
 | [F53](#f53) | P1 | `nix flake check` fails at the candidate: sandbox-only test failures and stale check assertions | Verifying | EP-154 |
 | [F54](#f54) | P1 | A landed application Service update whose new revision never becomes Ready has no reviewed exit, so the store stays wedged | Verifying | EP-153 / EP-156 |
 | [F55](#f55) | P1 | A landed unready application update still has no exit when its review also updates its release history or verifies a member | Verifying | EP-153 / EP-173 |
+| [F56](#f56) | P1 | A landed application Service update whose Service is then replaced outside review has no exit | Verifying | EP-153 / EP-173 |
+| [F57](#f57) | P1 | A verification whose target is replaced after it ends ambiguous has no exit | Verifying | EP-153 / EP-173 |
 
 Closed findings keep their full text, location, implementation updates and verification in [the closed-findings archive](mp23-archive/mp23-findings-closed.md). F01 and F11 retain their [earlier independent closure](mp23-archive/mp23-verification.md). F02, F03, F04, F05, F06, F07, F08 and F20 now have [2026-10-02 independent closure](mp23-independent-verification-2026-10-02.md). F34, F35, F36, F37, F38, F41 and F42 have 2026-10-04 independent closure on candidate `7596632c`, and F49 and F50 on candidate `847543896d07` ([records](mp23-independent-results-2026-10-04/phase1-source-and-regressions-7596632c.md)). Other entries retain their status shown above.
 
@@ -598,4 +600,40 @@ Every F54 guard is now pinned by a regression. F54 stays Verifying only for the 
 - **Hazard regression:** `test/InventoryApplicationUpdateRecoverySpec.hs`, "a durable member only verified by a stopped update is never replanned as a fresh create (F55)". Two never-intended updates are stopped; the second review verifies the durable volume, which stays pending. The volume is then deleted out of band. Without the filter, planning returns `CreateResource` for the volume and the test fails. With the filter it refuses `durable-resource-missing`.
 - The existing F30 companion test still passes unchanged.
 - **Gates:** all 1,196 `nagarectl` tests, the style gate and the architecture check pass. ADR 22 and `docs/runbooks/inventory-operations.md` state the new companion rule.
+
+## F56
+
+**A landed application Service update whose Service is then replaced outside review has no exit** — P1; **Verifying**; owners EP-153 / EP-173.
+
+**Found by the EP-173 recovery model (2026-10-05, claude-opus-5-5) when M2 added the `Replaced` fault, with no native run.** In every bad-update scenario, the reviewed write lands on the Service. The Service is then deleted and recreated outside review (an operator's `kubectl replace --force`) before Nagare observes readiness. The transaction stops ambiguous, and every exit is refused (invariant I1, six violations):
+- Resume makes no progress.
+- `stop-incomplete-application` needs F54's landed proof, which requires the reviewed UID, so the adapter cannot prove it.
+- `abandon-refused-operation` needs a no-effect refusal, and this operation's intent was recorded.
+
+`docs/runbooks/inventory-operations.md` documented this refusal ("the Service was edited or replaced outside review … investigate"), but no supported command ends the transaction afterwards.
+
+**Implementation update (2026-10-05; claude-opus-5-5):**
+- The Kubernetes adapter's recovery returns a new decision, `RecoveryTargetReplaced`, for an intended Knative Service update when the live object carries the member's ownership stamp but a different UID than the reviewed before-state. The conditional write was keyed on the old UID, so it can no longer land. Nothing proves that the replacement holds the write.
+- Resume still stops ambiguous on it. Only `stop-incomplete-application` accepts it, under F55's companion rules for a settled intended update. The stop marker records the replacement's UID, and the stop accepts nothing: the scope keeps its last accepted revision. A new review then plans from the live replacement, as it would if the replacement had happened while the scope was idle.
+- A Knative Service is stateless and has no incarnation record, so stopping launders no identity. Data-bearing members keep F49's rules.
+- An edited Service, one with a foreign field manager, is still refused.
+- **Regression:** the recovery model's fast tier. Without the fix it fails I1 under `Replaced` at the observation after the bad Service write in all three bad-update scenarios. With the fix it passes. `test/InventoryLandedUpdateStopSpec.hs` now expects `RecoveryTargetReplaced` for a replaced object, and still expects every other case to be refused.
+
+## F57
+
+**A verification whose target is replaced after it ends ambiguous has no exit** — P1; **Verifying**; owners EP-153 / EP-173.
+
+**Found by the EP-173 recovery model (2026-10-05, claude-opus-5-5) with the `Replaced` fault.** A corrected review verifies an unchanged member, such as the release-history ConfigMap. The member is replaced between the verification's execution and its completion read, so the verification ends ambiguous (two violations). From then on:
+- Recovery reports `RecoveryUnresolved`, because the before-state's UID changed.
+- Resume makes no progress.
+- `abandon-refused-operation` refuses an operation whose intent was recorded unless its refusal was journalled.
+
+A `VerifyResource` never writes, so this operation certainly had no effect, yet no command can end it.
+
+**Implementation update (2026-10-05; claude-opus-5-5):**
+- The Kubernetes adapter's recovery of a `VerifyResource` whose proof fails returns `RecoverySafeToRetry`, because a verification writes nothing.
+- When the driver retries an operation that already had recorded intent (a retry the adapter proved safe) and the retry's preflight refuses, the driver now journals `Failed (KnownNoEffect "adapter preflight refused: …")` instead of returning without an event. The adapter has already proved the earlier attempt had no effect, and the refusal comes before any new effect, so the record is accurate. `abandon-refused-operation` then ends the transaction under F37's rule. A first attempt at a never-intended operation is unchanged: it journals nothing, and F35's fresh-preflight rule applies.
+- **Regression:** the recovery model's fast tier. With only F56 it still fails I1 for the corrected review in the history-unchanged and durable-volume scenarios. With F57 it passes. `test/InventoryKubernetesSpec.hs` now expects a replaced verification target to recover as a safe retry, never as proved complete, and its preflight still refuses.
+
+**Gates (F56 and F57):** all 1,197 `nagarectl` tests pass.
 

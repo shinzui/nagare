@@ -275,9 +275,10 @@ loadInventoryHistory store = do
             (Map.lookup resourceId (reviewMigrations document))
         pure (resourceId, proof)
 
--- | Whether adapter recovery proved that the selected intended application
--- update landed exactly as reviewed and is not Ready (F54). Without that proof
--- only a never-started update may be stopped.
+-- | Whether adapter recovery settled the selected intended application
+-- update's outcome: it landed exactly as reviewed and is not Ready (F54), or
+-- its reviewed target was replaced outside review so it can no longer land
+-- (F56). Without that proof only a never-started update may be stopped.
 data LandedUpdateProof
   = LandedUpdateUnproved
   | LandedUpdateProved

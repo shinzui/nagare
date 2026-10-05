@@ -333,8 +333,16 @@ mkKubernetesAdapterWithObservations specs ops observeBatch stableObserve readBac
               pure $ case requireSameBefore mutation before of
                 Right () -> RecoverySafeToRetry
                 Left reason -> case current of
+                  -- F57: a verification writes nothing, so retrying it is
+                  -- always safe; its preflight then refuses a changed target
+                  -- with no effect.
+                  _ | mutationAction mutation == VerifyResource -> RecoverySafeToRetry
                   KubernetesNotReady physical _ _ _
                     | Right () <- landed -> RecoveryLandedUnready physical
+                  KubernetesNotReady physical _ (Just owner) _
+                    | replacedUpdateTarget mutation physical owner -> RecoveryTargetReplaced physical
+                  KubernetesPresent physical _ (Just owner) _
+                    | replacedUpdateTarget mutation physical owner -> RecoveryTargetReplaced physical
                   KubernetesNotReady physical _ (Just owner) digest
                     | createdScratchStatefulSet mutation owner digest
                     , scratchFailure == Right True ->
@@ -380,6 +388,17 @@ mkKubernetesAdapterWithObservations specs ops observeBatch stableObserve readBac
         && case mutationBefore mutation of
           KubernetesPresent prior _ (Just previousOwner) _ -> prior == physical && previousOwner == owner
           KubernetesNotReady prior _ (Just previousOwner) _ -> prior == physical && previousOwner == owner
+          _ -> False
+    -- F56: an intended Knative Service update whose reviewed object was
+    -- deleted and recreated outside review. The replacement carries the
+    -- member's ownership stamp but another UID.
+    replacedUpdateTarget mutation physical owner =
+      mutationAction mutation == UpdateResource
+        && knativeServiceAddress (mutationAddress mutation)
+        && owner == mutationResource mutation
+        && case mutationBefore mutation of
+          KubernetesPresent prior _ (Just previousOwner) _ -> prior /= physical && previousOwner == owner
+          KubernetesNotReady prior _ (Just previousOwner) _ -> prior /= physical && previousOwner == owner
           _ -> False
     createdScratchStatefulSet mutation owner digest =
       owner == mutationResource mutation

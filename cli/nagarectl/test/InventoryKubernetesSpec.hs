@@ -4587,7 +4587,7 @@ inventoryKubernetesTests =
         replacementProof <- adapterVerify adapter verification prepared
         assertBool "replacement route proved completion" (isLeft replacementProof)
         replacementRecovery <- adapterRecover adapter verification prepared
-        assertBool "replacement route recovered the old verification" (case replacementRecovery of RecoveryUnresolved {} -> True; _ -> False)
+        assertBool "replacement route recovery is not a no-effect retry (F57)" (replacementRecovery == RecoverySafeToRetry)
         readIORef calls >>= (@?= 0)
         forM_
           [ KubernetesNotReady physical "4" Nothing (contentDigest bytes)

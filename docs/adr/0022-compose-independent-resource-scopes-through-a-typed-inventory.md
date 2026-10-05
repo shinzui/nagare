@@ -975,6 +975,23 @@ a stop, only never-started *creates* may later be replanned as creates. A durabl
 member that a stopped review only verified or updated, and that is later found
 absent, was deleted out of band. It stays a `durable-resource-missing` refusal.
 
+Replaced update target (2026-10-05, finding F56, found by the EP-173 recovery
+model): when the live object at an intended Service update's address carries the
+member's ownership stamp but not the reviewed before-state's UID, the reviewed
+object was deleted and recreated outside review. The conditional write can no
+longer land. The adapter reports a stop-only decision, `RecoveryTargetReplaced`,
+and the same stop closes the transaction under the companion rules above. It
+accepts nothing and records the replacement's UID; a new review plans from the
+live replacement. A Knative Service has no incarnation record, so nothing is
+laundered. An edited Service, one with a foreign field manager, still refuses.
+
+No-effect retries (2026-10-05, finding F57): a verification writes nothing, so
+its recovery is a retry when its proof fails. When any retry the adapter proved
+safe is refused at preflight, the driver journals a no-effect refusal. The
+earlier attempt was proved to have had no effect and the refusal precedes any
+new one. `abandon-refused-operation` then applies. A never-intended operation's
+first preflight refusal still journals nothing.
+
 Resume still stops ambiguous, because waiting cannot make the revision Ready.
 The stop keeps admitted ownership and the prior converged revision and claims no
 convergence. A new corrected review then updates the same Service in place.

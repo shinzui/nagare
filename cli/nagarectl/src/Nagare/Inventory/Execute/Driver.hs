@@ -40,6 +40,7 @@ import Nagare.Inventory.Adapter
     , RecoveryLandedUnready
     , RecoveryProvedComplete
     , RecoverySafeToRetry
+    , RecoveryTargetReplaced
     , RecoveryTerminalFailure
     , RecoveryUnresolved
     )
@@ -189,6 +190,7 @@ runOperations locked registry transaction reviewed initialEvents operations reco
         -- Resume cannot make a landed update Ready; only a reviewed stop or a
         -- corrected review ends it.
         RecoveryLandedUnready _ -> pure (Just (StoppedAmbiguous transaction (plannedOperationId operation)))
+        RecoveryTargetReplaced _ -> pure (Just (StoppedAmbiguous transaction (plannedOperationId operation)))
         RecoveryTerminalFailure _ -> pure (Just (StoppedAmbiguous transaction (plannedOperationId operation)))
         RecoveryUnresolved _ -> pure (Just (StoppedAmbiguous transaction (plannedOperationId operation)))
     -- The operator decision supplies the immutable capsule, but this shared
@@ -352,6 +354,21 @@ runOperations locked registry transaction reviewed initialEvents operations reco
     executePrepared events operation operationId adapter prepared fenceSelection = do
       preflight <- adapterPreflight adapter operation prepared
       case preflight of
+        Left reason
+          | Map.findWithDefault Pending operationId (operationStates transaction events) /= Pending -> do
+              -- F57: a retry the adapter proved safe (the earlier attempt had
+              -- no effect) refused again before any new effect. Journal that
+              -- no-effect refusal so the operator can abandon it.
+              appended <-
+                appendEvent
+                  locked
+                  transaction
+                  (Just operationId)
+                  (Failed (KnownNoEffect ("adapter preflight refused: " <> reason)))
+                  "retried operation refused by adapter preflight"
+              pure $ Just $ case appended of
+                Left _ -> StoppedAmbiguous transaction operationId
+                Right _ -> StoppedFailed transaction operationId (KnownNoEffect "adapter preflight refused")
         Left _ -> pure (Just (StoppedFailed transaction operationId (KnownNoEffect "adapter preflight refused")))
         Right () -> do
           intent <- appendEvent locked transaction (Just operationId) IntentRecorded "operation intent recorded"

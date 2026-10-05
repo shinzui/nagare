@@ -32,6 +32,7 @@ import Nagare.Inventory.Adapter
     , RecoveryLandedUnready
     , RecoveryProvedComplete
     , RecoverySafeToRetry
+    , RecoveryTargetReplaced
     , RecoveryTerminalFailure
     , RecoveryUnresolved
     )
@@ -482,6 +483,10 @@ recordOperatorRecovery store registry input takeOver = do
                               (Just proof, _) -> Just (LandedUpdateProved, proof)
                               (Nothing, RecoveryAwaitingReadiness physical) -> Just (LandedUpdateUnproved, stopDigest physical)
                               (Nothing, RecoveryLandedUnready physical) -> Just (LandedUpdateProved, stopDigest physical)
+                              -- F56: the reviewed target is gone, so the update's
+                              -- outcome is settled; the stop records the live
+                              -- replacement's UID and accepts nothing.
+                              (Nothing, RecoveryTargetReplaced physical) -> Just (LandedUpdateProved, stopDigest physical)
                               _ -> Nothing
                           , incompleteApplicationOnlyReview landed published events transaction operationId operation -> do
                               appended <- case savedStop of

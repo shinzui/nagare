@@ -161,11 +161,21 @@ observed), Nagare alone owns its non-status fields, and it is not Ready.
 
 After the stop, fix the configuration and publish a new review. That review
 updates the same Service in place. The decision refuses in these cases:
-- the Service was edited or replaced outside review;
-- another writer owns its fields;
+- the Service was edited outside review, or another writer owns its fields;
 - any other operation in the transaction is uncertain.
 
 In those cases, investigate rather than editing the Service by hand.
+
+If the Service was deleted and recreated outside review after the update landed
+(for example with `kubectl replace --force`), the reviewed object is gone and
+the update can no longer land. The same decision then ends the transaction
+(finding F56). It accepts nothing, and the stop records the replacement's UID.
+The next review plans from the live replacement.
+
+A verification can also stop ambiguous, for example when its target is replaced
+just after it runs. Resume it: a verification writes nothing, so it is retried,
+and a retry refused at preflight is journalled as a no-effect refusal. Then use
+`abandon-refused-operation` on it as described below (finding F57).
 
 When `inventory apply` or `resume` stops with `KnownNoEffect "adapter preflight
 refused"`, a later operation found its target changed after admission. The usual

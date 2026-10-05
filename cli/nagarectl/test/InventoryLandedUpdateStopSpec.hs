@@ -81,7 +81,6 @@ adapterProof = do
       foreignOwner = object ["manager" .= ("kubectl-edit" :: Text), "operation" .= ("Update" :: Text), "fieldsV1" .= object ["f:spec" .= object ["f:template" .= object []]]]
   forM_
     [ ("changed spec", KubernetesNotReady K.physical "6" (Just K.resource) (contentDigest "other-configuration"), exact)
-    , ("replaced object", KubernetesNotReady replacement "6" (Just K.resource) (contentDigest bytes), liveService (physicalIdentityText replacement) "6" 2 2 "False" [inventoryEntry])
     , ("unowned object", KubernetesNotReady K.physical "6" Nothing (contentDigest bytes), exact)
     , ("another owner", KubernetesNotReady K.physical "6" (Just K.cluster) (contentDigest bytes), exact)
     , ("foreign field appScope", landed, liveService uid "6" 2 2 "False" [inventoryEntry, foreignOwner])
@@ -95,6 +94,11 @@ adapterProof = do
       adapterRecover adapter K.updateOperation reviewed >>= \case
         RecoveryUnresolved _ -> pure ()
         other -> assertFailure (label <> " was not refused: " <> show other)
+  -- F56: a replaced object is never a proved landing, but its reviewed target
+  -- is gone, so only the reviewed stop may end the update.
+  writeIORef state (KubernetesNotReady replacement "6" (Just K.resource) (contentDigest bytes))
+  writeIORef live (liveService (physicalIdentityText replacement) "6" 2 2 "False" [inventoryEntry])
+  adapterRecover adapter K.updateOperation reviewed >>= (@?= RecoveryTargetReplaced replacement)
   readIORef calls >>= (@?= 0)
 
 -- | The live object a reader returns: Nagare owns the spec, the controller

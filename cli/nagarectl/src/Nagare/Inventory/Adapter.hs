@@ -162,6 +162,12 @@ data RecoveryDecision
     -- (same UID, reviewed spec, generation observed, no other field owner),
     -- and its controller reports it not ready. Only a reviewed stop uses it.
     RecoveryLandedUnready !PhysicalIdentity
+  | -- The live object at the reviewed update's address is owned by the
+    -- member but is not the incarnation the update targeted: it was deleted
+    -- and recreated outside review (F56). The conditional write can no longer
+    -- land, and nothing proves the live object holds it. Only a reviewed stop
+    -- uses it.
+    RecoveryTargetReplaced !PhysicalIdentity
   | RecoveryTerminalFailure !PhysicalIdentity
   | RecoveryUnresolved !Text
   deriving stock (Eq, Show, Generic)
