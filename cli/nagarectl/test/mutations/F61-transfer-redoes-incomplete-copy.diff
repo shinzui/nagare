@@ -1,0 +1,12 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Migration/PostgresRename.hs b/cli/nagarectl/src/Nagare/Inventory/Migration/PostgresRename.hs
+--- a/cli/nagarectl/src/Nagare/Inventory/Migration/PostgresRename.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Migration/PostgresRename.hs
+@@ -316,7 +316,7 @@
+     , "[ -n \"$(cd \"$src\" && find . -mindepth 1 -maxdepth 1 ! -name lost+found -print)\" ] || fail 'source volume is empty'"
+     , "source_manifest=$(manifest \"$src\")"
+     , "if [ \"$MODE\" = copy ]; then"
+-    , "  if [ -z \"$(cd \"$dst\" && find . -mindepth 1 -maxdepth 1 ! -name lost+found -print)\" ] || [ -e \"$mark\" ]; then"
++    , "  if [ -z \"$(cd \"$dst\" && find . -mindepth 1 -maxdepth 1 ! -name lost+found -print)\" ]; then"
+     , "    ( cd \"$dst\" && find . -mindepth 1 -maxdepth 1 ! -name lost+found ! -name .nagare-transfer-incomplete -exec rm -rf {} + ) || fail 'clearing an incomplete copy failed'"
+     , "    : > \"$mark\" || fail 'copy failed'"
+     , "    cp -a \"$src\"/. \"$dst\"/ || fail 'copy failed'"

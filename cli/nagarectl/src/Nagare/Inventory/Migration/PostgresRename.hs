@@ -294,6 +294,11 @@ transferJob scope operation mode sourceClaim destinationClaim =
 -- its type, owner, mode and content digest, in byte order. Copy refuses a
 -- non-empty destination unless it already equals the source, so a retry after
 -- a lost acknowledgement proves the earlier copy rather than repeating it.
+--
+-- F61: a copy marks the destination incomplete before writing and clears the
+-- mark only after the whole copy. A copy that died part way (an evicted pod, a
+-- full disk) leaves the mark, so the retry clears that partial data and copies
+-- again. A destination with other data and no mark still refuses.
 transferScript :: Text
 transferScript =
   T.unlines
@@ -307,12 +312,15 @@ transferScript =
     , "      else printf 'o %s\\n' \"$p\"; fi"
     , "    done ) | sha256sum | cut -d' ' -f1"
     , "}"
-    , "src=/migration/source; dst=/migration/destination"
+    , "src=/migration/source; dst=/migration/destination; mark=\"$dst/.nagare-transfer-incomplete\""
     , "[ -n \"$(cd \"$src\" && find . -mindepth 1 -maxdepth 1 ! -name lost+found -print)\" ] || fail 'source volume is empty'"
     , "source_manifest=$(manifest \"$src\")"
     , "if [ \"$MODE\" = copy ]; then"
-    , "  if [ -z \"$(cd \"$dst\" && find . -mindepth 1 -maxdepth 1 ! -name lost+found -print)\" ]; then"
+    , "  if [ -z \"$(cd \"$dst\" && find . -mindepth 1 -maxdepth 1 ! -name lost+found -print)\" ] || [ -e \"$mark\" ]; then"
+    , "    ( cd \"$dst\" && find . -mindepth 1 -maxdepth 1 ! -name lost+found ! -name .nagare-transfer-incomplete -exec rm -rf {} + ) || fail 'clearing an incomplete copy failed'"
+    , "    : > \"$mark\" || fail 'copy failed'"
     , "    cp -a \"$src\"/. \"$dst\"/ || fail 'copy failed'"
+    , "    rm -f \"$mark\" || fail 'copy failed'"
     , "  elif [ \"$(manifest \"$dst\")\" != \"$source_manifest\" ]; then"
     , "    fail 'destination volume is not empty and differs from the source'"
     , "  fi"

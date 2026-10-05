@@ -17,6 +17,7 @@ import Data.Maybe (listToMaybe)
 import Data.Text qualified as T
 import InventoryPostgresRenameSpec
   ( RenameWorld
+  , armPartialCopy
   , databaseOwner
   , destinationCopies
   , newScope
@@ -51,7 +52,7 @@ inventoryRenameRecoveryModelTests =
         writes <- either (assertFailure . T.unpack . ("the fault-free rename violates the model: " <>)) pure clean
         assertBool "the rename issues writes" (writes > 0)
         violations <-
-          fmap concat . forM [(boundary, fault) | boundary <- [1 .. writes], fault <- [minBound .. maxBound]] $ \schedule ->
+          fmap concat . forM ((0, PartialCopy) : [(boundary, fault) | boundary <- [1 .. writes], fault <- [RefusedWrite, LostAcknowledgement, InterruptedAfterWrite]]) $ \schedule ->
             either (: []) (const []) <$> runRename (Just schedule)
         case violations of
           [] -> pure ()
@@ -66,6 +67,9 @@ data RenameFault
     LostAcknowledgement
   | -- | The executor dies right after the write lands.
     InterruptedAfterWrite
+  | -- | The copy Job dies part way through (evicted, disk full), leaving
+    -- partial data in the destination; scheduled once, not at a write.
+    PartialCopy
   deriving stock (Eq, Show, Enum, Bounded)
 
 -- | Count writes and fire the scheduled fault at its write.
@@ -79,6 +83,7 @@ adversary written schedule next request
               RefusedWrite -> pure (Right (ExitFailure 1, "", "injected: the API server refused the write"))
               LostAcknowledgement -> next request >> pure (Right (ExitFailure 1, "", "injected: unable to connect to the server: EOF"))
               InterruptedAfterWrite -> next request >> throwIO Interrupted
+              PartialCopy -> next request
         _ -> next request
   | otherwise = next request
   where
@@ -92,6 +97,7 @@ runRename schedule = withSystemTempDirectory "rename-model" $ \root -> do
   written <- newIORef []
   probe <- newIORef Nothing
   (store, world, reviewed, registry) <- plannedRenameThrough recordOldIncarnations (adversary written schedule) probe root
+  when (fmap snd schedule == Just PartialCopy) (armPartialCopy world)
   applied <- try @SomeException (applyReviewed store registry reviewed)
   seen <- readIORef written
   let faulted = maybe "" (\(boundary, _) -> " at `kubectl " <> fromMaybe "?" (listToMaybe (drop (boundary - 1) seen)) <> "`") schedule

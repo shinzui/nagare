@@ -12,6 +12,7 @@ module InventoryPostgresRenameSpec
   , replacedMembers
   , transferJobs
   , destinationCopies
+  , armPartialCopy
   , verifyRenamedWorld
   )
 where
@@ -294,6 +295,9 @@ data World = World
   , loseJobAck :: !Bool
   , destinationWrites :: !Int
   -- ^ Copies into an empty destination volume; a retried copy only compares.
+  , partialCopyOnce :: !Bool
+  -- ^ The next copy into an empty destination dies part way (an evicted pod,
+  -- a full disk): it leaves partial data and fails.
   }
   deriving stock (Generic)
 
@@ -417,10 +421,16 @@ runJob key@(_, namespace, name) job state =
         Just (Array entries) -> [claim | Just (String claim) <- map (jsonPath ["persistentVolumeClaim", "claimName"]) (V.toList entries)]
         _ -> []
       (outcome, nextVolumes) = case claims of
+        [source, destination]
+          | mode == "copy"
+          , state ^. #partialCopyOnce
+          , T.null (Map.findWithDefault "" destination (state ^. #volumes)) ->
+              (Left ("copy failed" :: Text), Map.insert destination (incompleteMark <> "pgdata:partial") (state ^. #volumes))
         [source, destination] ->
           let sourceContent = Map.findWithDefault "" source (state ^. #volumes)
               destinationContent = Map.findWithDefault "" destination (state ^. #volumes)
-              copied = if mode == "copy" && T.null destinationContent then sourceContent else destinationContent
+              -- F61: a copy redoes an empty or incompletely copied destination.
+              copied = if mode == "copy" && (T.null destinationContent || incompleteMark `T.isPrefixOf` destinationContent) then sourceContent else destinationContent
            in if not (T.null sourceContent) && copied == sourceContent
                 then (Right (digestText (contentDigest (TE.encodeUtf8 sourceContent))), Map.insert destination copied (state ^. #volumes))
                 else (Left ("destination volume is not empty and differs from the source" :: Text), state ^. #volumes)
@@ -443,8 +453,13 @@ runJob key@(_, namespace, name) job state =
                 ]
           ]
       status = either (const (object ["failed" .= (1 :: Int)])) (const (object ["succeeded" .= (1 :: Int)])) outcome
-      wrote = mode == "copy" && T.null (Map.findWithDefault "" (fromMaybe "" (listToMaybe (drop 1 claims))) (state ^. #volumes)) && isRight outcome
+      wrote =
+        mode == "copy"
+          && (\content -> T.null content || incompleteMark `T.isPrefixOf` content) (Map.findWithDefault "" (fromMaybe "" (listToMaybe (drop 1 claims))) (state ^. #volumes))
+          && isRight outcome
    in state
+        & #partialCopyOnce
+        .~ (state ^. #partialCopyOnce && mode /= "copy")
         & #destinationWrites
         %~ (if wrote then (+ 1) else id)
         & #volumes
@@ -509,6 +524,7 @@ seededWorld =
     , created = []
     , loseJobAck = False
     , destinationWrites = 0
+    , partialCopyOnce = False
     }
 
 stamped :: ResourceId -> ByteString -> Text -> Value
@@ -598,6 +614,15 @@ renameVolumes = volumes
 -- | Transfer Jobs the API server created, in order.
 transferJobs :: World -> [Text]
 transferJobs final = filter (T.isPrefixOf "job.batch/nagare-migrate-") (final ^. #created)
+
+-- | The transfer script's incomplete-copy mark, in the modelled volume's
+-- content.
+incompleteMark :: Text
+incompleteMark = "incomplete:"
+
+-- | Arm the partial-copy fault for the next copy.
+armPartialCopy :: IORef World -> IO ()
+armPartialCopy world = modifyIORef' world (#partialCopyOnce .~ True)
 
 -- | How many times a copy wrote into an empty destination volume.
 destinationCopies :: World -> Int

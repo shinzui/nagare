@@ -58,6 +58,7 @@ import InventoryTransactionSpec
   , runInventoryLockHoldProbe
   , runInventoryLockProbe
   )
+import InventoryTransferScriptSpec (inventoryTransferScriptTests)
 import InventoryUpstreamSpec (inventoryUpstreamTests)
 import InventoryVolumeRestorePinSpec (inventoryVolumeRestorePinTests)
 import Nagare.Dsl.Prelude hiding ((<.>))
@@ -200,6 +201,7 @@ main = do
             , inventoryLandedUpdateStopTests
             , inventoryRecoveryModelTests
             , inventoryRenameRecoveryModelTests
+            , inventoryTransferScriptTests
             , inventoryRefusedPreflightRecoveryTests
             , inventoryContributionRetirementTests
             , inventoryRedisRestoreRecoveryTests

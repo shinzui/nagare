@@ -537,6 +537,7 @@ test-suite nagarectl-test
     InventoryStatusSpec
     InventoryStoreBackupSpec
     InventoryTransactionSpec
+    InventoryTransferScriptSpec
     InventoryUpstreamSpec
     InventoryVmPowerSpec
     InventoryVolumeRestorePinSpec
