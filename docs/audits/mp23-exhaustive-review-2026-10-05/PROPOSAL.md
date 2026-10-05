@@ -1,6 +1,6 @@
 # Proposal: stop finding MP-23's defects one at a time
 
-Status: **for operator decision** (2026-10-05, nagare-84). Basis: the exhaustive review in this
+Status: **approved by the operator, 2026-10-05**: "approve all six, go with release line b". Written by nagare-84. Recorded as [ADR 26](../../adr/0026-stopped-transactions-close-by-per-operation-proof.md) (D1, D5), [ADR 27](../../adr/0027-physical-identity-is-recorded-at-creation-and-read-through-one-checked-accessor.md) (D2), the [ADR 25 amendment](../../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md) (D3, D6) and MP-23's finish line (D4). Basis: the exhaustive review in this
 directory, files A–F, read at master `09241d35`. Every number below comes from those files; they were
 derived from source reading, not test runs, unless marked observed.
 

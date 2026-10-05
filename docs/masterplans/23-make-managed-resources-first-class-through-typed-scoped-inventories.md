@@ -460,6 +460,28 @@ Feature children produce code and focused local proof; the native children (EP-1
 
 ## Progress
 
+### Release line (b) and the structural plan (operator decision, 2026-10-05)
+
+The operator approved all six decisions of [the exhaustive review's proposal](../audits/mp23-exhaustive-review-2026-10-05/PROPOSAL.md) and chose **release line (b)**. Where this section and the finish line below disagree, this section wins. The finish line's gates still apply, on a **new** candidate.
+
+**In the release line.** MP-23 guarantees reviewed, recoverable changes with a supported exit from every stopped state (ADR 26) and identity respect (ADR 27) for:
+- Kubernetes application scopes: Knative Service, worker Deployment, scheduled tasks (CronJob), DomainMapping, release history, application databases and attached volumes;
+- standalone databases (PostgreSQL, Redis) with their backups, receipts, restores and the reviewed PostgreSQL rename;
+- static sites and previews;
+- for each of these: create, update, verify, retire, collect, adopt and migrate, under every provider fault in the kind table (ADR 25 amendment).
+
+**Documented limits for this release.** Each one has ADR 26's attested close-and-accept-nothing exit, and each is recorded on the deferral ledger, not in MP-23:
+- the rare-fault paths of the Pulumi/foundation, host, CDN, Cloudflare, broker, Helm, cache and artifact executors, including F57's non-Kubernetes verifies and F59's broker gap;
+- identity for non-Kubernetes kinds without provider identities (ADR 27 §4);
+- E's U4–U7 (local cache publication, unlocked plan seeding, export/restore consistency, takeover liveness) unless they fall out of the work below.
+
+**Work, in order.** nagare (implementer) owns steps 1–4. The final verification is by a reviewer that did not implement the work.
+- [ ] 1. ADR 26: `adapterSettle` for every adapter in the line; `close-transaction` replacing the stop and abandon allowlists; scope-local, re-enterable abort; F61's forward wipe exit; verify never executes. Covers F16, F35–F37, F54–F59, F61, F63–F65, and A's in-line cells and E's U1 and U3.
+- [ ] 2. ADR 27: create-identity recorded in the journal, binding from it at convergence, one checked identity accessor for every consumer in C, and a reviewed rebind. Covers F51 (reopened, N1), F52's convergence half, F60, F62 and C's N2–N13.
+- [ ] 3. ADR 25 amendment: the kind table and generated product for every kind in the line, the totality test, and the harness fixes (no refusal counted as done, `LandsFailed` effective, no `ForeignObject` exemption, the corrected-review exit explored); deletion, crash-at-store and claim-loss faults.
+- [ ] 4. ADR 26 §5: the attested close-and-accept-nothing exit; E's U2 (CDN purge, VM power) routed to it.
+- [ ] 5. One final verification against this line, a new candidate with a green `just gate` record and `gate verify`, then C1–C5 (including the phase 3b teardown of `mp23-c3i`) under the finish line below.
+
 ### Finish line (canonical checklist, 2026-10-04)
 
 This list says what remains before MP-23 is complete. It was agreed between sessions nagare-phase-b and nagare-f3. Where a dated snapshot below or a child plan disagrees with it, this list wins.
@@ -498,12 +520,12 @@ This list says what remains before MP-23 is complete. It was agreed between sess
 
 **Independent verification** (owner reviewer, arranged by the user; implementer sessions never self-close)
 - [ ] Close every finding that is not yet Closed, per the [tracker](../audits/mp23-findings.md)'s closure rule:
-  - Open: F48, F61, F62, F63 (F61–F63 opened 2026-10-05 by independent verification; model reproductions pending)
+  - Open: F48, F60, F61, F62, F63 (F61–F63 opened 2026-10-05 by independent verification; model reproductions pending)
   - Partial: F40, F59 (F59 reopened 2026-10-05: its post-stop exit fails for standalone databases)
   - Verifying: F15, F16, F30, F31, F32, F33, F39, F43, F44, F45, F46, F47, F51, F52, F53, F55, F56, F57, F58, F64, F65
   - Checkpoint 2026-10-05 (implementer, before the operator hold): fixes and model reproductions recorded for F59 gap A, F61, F63 (StatefulSets) and the new F64 and F65. Statuses are set by the reviewer. Further finding fixes are held pending the enumeration review and the structural exit-rule proposal; see [held work](../audits/mp23-held-work/README.md).
   - Closed 2026-10-05 by independent verification: F54 (F51 was closed, then reopened the same day by the exhaustive review: its fix refuses retirement of a replaced member)
-  - F60 deferred again on 2026-10-05 under the operator's condition: the implementer estimated 4–6 hours, above the two-hour limit; the design is in the tracker
+  - F60 scheduled by ADR 27 (operator decision, 2026-10-05: approve all six); Open
 
   (Register as of 2026-10-05. The independent reviewer closed F34–F38, F41, F42, F49 and F50 on 2026-10-04.)
 
@@ -753,6 +775,15 @@ Gating is local; GitHub Actions is not used.
   Date: 2026-10-05
 
 - Decision request (2026-10-05, pending operator): replace finding-by-finding work with the structural plan in [the exhaustive review's proposal](../audits/mp23-exhaustive-review-2026-10-05/PROPOSAL.md): one proof-based close rule (ADR 26), identity through one checked accessor plus a create-identity record, coverage generated from a kind table, one release line, an operator-attested last-resort exit, and no new review rounds until a final verification. Seven review rounds produced 65 findings at about ten a day without converging, and the review enumerated 266 untracked wedge or stuck cells. Implementation holds after nagare's current checkpoint until the operator decides.
+
+- Decision (operator, 2026-10-05): "approve all six, go with release line b". The structural plan replaces finding-by-finding work:
+  - [ADR 26](../adr/0026-stopped-transactions-close-by-per-operation-proof.md): a proof-based close rule and the attested last-resort exit;
+  - [ADR 27](../adr/0027-physical-identity-is-recorded-at-creation-and-read-through-one-checked-accessor.md): identity recorded at creation and read through one checked accessor (this un-defers F60);
+  - the [ADR 25 amendment](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md): generated coverage and review against a line;
+  - release line (b), defined at the top of Progress.
+
+  Rationale: the exhaustive review enumerated 266 untracked wedge or stuck cells, 22 untracked identity paths and 17% model coverage. All of them trace to three structural causes that one change each removes.
+  Date: 2026-10-05
 
 ## Outcomes & Retrospective
 

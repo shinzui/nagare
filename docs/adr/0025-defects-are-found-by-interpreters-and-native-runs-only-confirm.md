@@ -130,3 +130,23 @@ Decision 5 is implemented by [EP-174](../plans/174-gate-every-commit-before-any-
 The Linux half depends on the remote builder's transport. A gcloud IAP websocket drop killed long
 builds, so the builder is reached over the operator's tailnet, with IAP as a fallback. When the
 builder fails, the gate records RED; it never reports a false green.
+
+## Amendment (2026-10-05): coverage is generated, and reviews verify against a line
+
+Accepted by the operator as decisions D3 and D6 of [the exhaustive review's proposal](../audits/mp23-exhaustive-review-2026-10-05/PROPOSAL.md).
+Seven review rounds on MasterPlan 23 found about ten defects a day without converging. Each round
+found the next instance of a class, because model coverage was sampled: 17% of reachable fault
+cells, all on Kubernetes ([D](../audits/mp23-exhaustive-review-2026-10-05/D-model-coverage.md)).
+
+- **Coverage is generated from a kind table.**
+  - Each resource kind declares its world behaviour in one test-harness table: actions, readiness,
+    single- or multi-step writes, identity, fixture.
+  - The scenario × applicable-fault × invariant product is generated from that table.
+  - A totality test fails when an executor or an admitted action has no row.
+  - A new kind or adapter ships with its row.
+- **The harness may not hide refusals.** An admission or planning refusal is never counted as a
+  successful exit. Every fault kind must have an effect in some world.
+- **Reviews verify against a declared release line; they do not sample for new instances.**
+  - Findings outside the line become documented limits on the ledger.
+  - Open-ended review rounds are not run while the model-plus-gate loop is the discovery mechanism.
+
