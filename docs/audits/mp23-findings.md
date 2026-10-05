@@ -69,7 +69,7 @@ This is the authoritative list of implementation findings for [MP-23](../masterp
 | [F48](#f48) | P2 | Inventory evidence names the manifest's payload without checking the payload the context runs | Open | MP-26 (EP-168 port) |
 | [F49](mp23-archive/mp23-findings-closed.md#f49) | P1 | An out-of-band replacement of an accepted database is reported converged, and its new incarnation's receipts plan for ingestion | Closed | EP-159 / EP-153 |
 | [F50](mp23-archive/mp23-findings-closed.md#f50) | P2 | One transient failed gcloud read makes the state-bucket ownership guard stop a run | Closed | EP-156 |
-| [F51](mp23-archive/mp23-findings-closed.md#f51) | P2 | Retirement retains an out-of-band replacement's identity instead of the accepted incarnation | Closed | EP-153 / EP-159 |
+| [F51](mp23-archive/mp23-findings-closed.md#f51) | P2 | Retirement retains an out-of-band replacement's identity instead of the accepted incarnation | Verifying (reopened 2026-10-05) | EP-153 / EP-159 |
 | [F52](#f52) | P2 | Incarnation records are keyed by resource ID, so a reviewed address-changing migration reads as `replaced-incarnation` until it converges | Verifying | EP-153 |
 | [F53](#f53) | P1 | `nix flake check` fails at the candidate: sandbox-only test failures and stale check assertions | Verifying | EP-154 |
 | [F54](mp23-archive/mp23-findings-closed.md#f54) | P1 | A landed application Service update whose new revision never becomes Ready has no reviewed exit, so the store stays wedged | Closed | EP-153 / EP-156 |

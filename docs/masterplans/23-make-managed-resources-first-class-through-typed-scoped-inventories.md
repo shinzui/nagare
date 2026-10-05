@@ -341,6 +341,11 @@ provenance:
       at: 2026-10-05T19:59:39Z
       mode: "update"
       note: "Independent verification: F51, F54 closed; F59 reopened Partial; F61-F63 opened"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-05T20:40:33Z
+      mode: "update"
+      note: "Exhaustive review and structural proposal; F51 reopened"
   reviews:
     - model: "claude-fable-5-1"
       harness: "claude-code"
@@ -495,9 +500,9 @@ This list says what remains before MP-23 is complete. It was agreed between sess
 - [ ] Close every finding that is not yet Closed, per the [tracker](../audits/mp23-findings.md)'s closure rule:
   - Open: F48, F61, F62, F63 (F61–F63 opened 2026-10-05 by independent verification; model reproductions pending)
   - Partial: F40, F59 (F59 reopened 2026-10-05: its post-stop exit fails for standalone databases)
-  - Verifying: F15, F16, F30, F31, F32, F33, F39, F43, F44, F45, F46, F47, F52, F53, F55, F56, F57, F58, F64, F65
+  - Verifying: F15, F16, F30, F31, F32, F33, F39, F43, F44, F45, F46, F47, F51, F52, F53, F55, F56, F57, F58, F64, F65
   - Checkpoint 2026-10-05 (implementer, before the operator hold): fixes and model reproductions recorded for F59 gap A, F61, F63 (StatefulSets) and the new F64 and F65. Statuses are set by the reviewer. Further finding fixes are held pending the enumeration review and the structural exit-rule proposal; see [held work](../audits/mp23-held-work/README.md).
-  - Closed 2026-10-05 by independent verification: F51, F54
+  - Closed 2026-10-05 by independent verification: F54 (F51 was closed, then reopened the same day by the exhaustive review: its fix refuses retirement of a replaced member)
   - F60 deferred again on 2026-10-05 under the operator's condition: the implementer estimated 4–6 hours, above the two-hour limit; the design is in the tracker
 
   (Register as of 2026-10-05. The independent reviewer closed F34–F38, F41, F42, F49 and F50 on 2026-10-04.)
@@ -746,6 +751,8 @@ Gating is local; GitHub Actions is not used.
 
 - Decision (operator's condition applied, 2026-10-05): F60 stays deferred. The implementer estimated 4–6 hours (journal schema change, adapter result type, create-identity binding), above the operator's "unless it's going to take hours" limit. The design is recorded in the tracker's F60 entry, and the model's tolerance remains.
   Date: 2026-10-05
+
+- Decision request (2026-10-05, pending operator): replace finding-by-finding work with the structural plan in [the exhaustive review's proposal](../audits/mp23-exhaustive-review-2026-10-05/PROPOSAL.md): one proof-based close rule (ADR 26), identity through one checked accessor plus a create-identity record, coverage generated from a kind table, one release line, an operator-attested last-resort exit, and no new review rounds until a final verification. Seven review rounds produced 65 findings at about ten a day without converging, and the review enumerated 266 untracked wedge or stuck cells. Implementation holds after nagare's current checkpoint until the operator decides.
 
 ## Outcomes & Retrospective
 

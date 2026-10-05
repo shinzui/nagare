@@ -1007,7 +1007,7 @@ With the drill v2 results above and the reviewer's mutations, every part of the 
 
 ## F51
 
-**Retirement retains an out-of-band replacement's identity instead of the accepted incarnation** — P2; **Closed**; owners EP-153 / EP-159.
+**Retirement retains an out-of-band replacement's identity instead of the accepted incarnation** — P2; **Verifying (reopened 2026-10-05)**; owners EP-153 / EP-159.
 
 **Native evidence (2026-10-04, candidate `847543896d07`, C2 context on cp3; F49 drill v2, implementer nagare-phase-b, [results](../mp23-implementer-results-2026-10-03/ep159-source-replacement-84754389.json)):** the throwaway's accepted incarnations were StatefulSet `770c18c5…` and PVC `241e2475…`. After the out-of-band replacement, status correctly reported `replaced-incarnation`. The joint `inventory retire` of the database and receipt A's scope then converged. Independent read of the head by nagare-reviewer: `retained` carries the *replacement* UIDs, StatefulSet `b131b5a7-779d-4f19-843e-3a5e78be5306` and PVC `4a6d653c-53fb-4630-99fc-902be522632d`. The `incarnations` entries for the throwaway were dropped.
 
@@ -1038,6 +1038,18 @@ With the drill v2 results above and the reviewer's mutations, every part of the 
 - **Class coverage (ADR 25):** the recovery model's retire scenario with the `Replaced` fault at every observe boundary, invariant I3 (retirement clause). Every retention proof is built by `buildRetentionProofs`, which retirement and scope replacement share.
 - **Why the interpreters missed it before:** no world produced a replaced object until EP-173 M2 added the `Replaced` fault.
 - **Closed** for the stated failure (retirement). The same harm reached through a migration's source, where a rename copies from and retains a replaced source, is a separate code path and is opened as [F62](../mp23-findings.md#f62).
+
+**Reopened (2026-10-05, nagare-84, the same reviewer who closed it earlier that day):**
+- The exhaustive review ([C, N1](../mp23-exhaustive-review-2026-10-05/C-identity.md)) shows that the fix makes admission refuse to retire a member replaced before planning.
+  - The retention proof now names the record (`Plan/Changes.hs:388`).
+  - Admission requires the live object to equal it (`Execute/Admission.hs:180-199`) and refuses with a generic `retention-observation`.
+- That contradicts this finding's own "retirement is not refused" and ADR 22's documented exit, "retire and recreate the database".
+- The recovery model hid it: `test/InventoryRecoveryModelSpec.hs:479-494` counts an admission refusal with no active transaction as `Done`, so the retire scenario passes without retirement running.
+- The caught mutant shows that the guard is pinned, not that the exit works. Data stays safe, but a replaced database scope has no supported exit.
+- **Needed:**
+  - a reviewed rebind or a retention that marks the record replaced ([PROPOSAL D2](../mp23-exhaustive-review-2026-10-05/PROPOSAL.md));
+  - the model must stop counting admission refusals as `Done`;
+  - a regression in which retirement of a replaced member actually completes.
 
 ## F54
 
