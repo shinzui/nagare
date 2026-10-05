@@ -401,6 +401,85 @@ Decisions are recorded in the MasterPlan 23 and 26 Decision Logs and in the F51/
      [the pre-flight checklist](../runbooks/before-a-native-run.md), so every session reads it. This
      retrospective does not edit `CLAUDE.md`.
 
+## 7. Addendum: the evening of 2026-10-04
+
+These facts were reported by nagare-phase-b and taken from its logs and the cluster. Times are local
+(-07:00). "Observed" marks values it read directly.
+
+### 7.1 The F54 native run, between the retrospective and the hold
+
+**Timeline.**
+
+| Time | Event |
+|---|---|
+| 20:25 | Retrospective committed (`f731a84f`). |
+| 20:26 | F54 fix committed (`96d38d67`). |
+| 20:39:45 – 20:51:00 | Native run on `mp23-c3i` with a binary built from `96d38d67`. |
+| 20:51:01 | The hold took effect (`dad4d632`). |
+
+**What the run did:**
+1. **Stop (observed, 20:42:50–20:43:03).** It closed `tx-44577a2c` through the reviewed
+   `stop-incomplete-application` decision on `op-7a4cc6b7`. That is an operator-resolved marker, not
+   convergence, and no provider write was made.
+2. **Corrected review (20:45:54–20:47:36).** Applying it converged as `tx-5160965a…`. This was the
+   last mutating write.
+3. **Read-only replan (20:50:24–20:51:00).** It found zero operations.
+
+**State afterwards (observed):**
+- Knative Service `rvf16`: generation 3, Ready, revision `rvf16-00003`, same UID `442ecbcb`.
+- StatefulSet `308a3ea3` and PVC `6df5e086`: unchanged, and the known row reads back.
+- `application:rvf16`: converged; the head is idle at generation 993.
+
+`mp23-c3i` is no longer wedged. The run confirms that the F54 fix behaves natively as its source
+tests predict.
+
+**How the run measured against the checklist.** It did not follow
+[the pre-flight checklist](../runbooks/before-a-native-run.md), and it would not have passed it:
+- `nix flake check --all-systems` had not been run at that revision.
+- The first suite runs in a clean worktree failed with 18 and 14 `CompileError`s from a missing GHC
+  environment. They passed on rerun (1193/1193 and 461/461).
+- No interpreter model covered the path yet.
+
+No decision was broken; the hold came a minute later. It is still an instance of the pattern in
+§3.2: a native run was the next step after a source fix, before the cheaper gates.
+
+### 7.2 F54's regressions are instance-level
+
+**What was checked.** nagare-phase-b reverted each F54 guard in place, one at a time, and each
+reversion fails a named test in `InventoryLandedUpdateStopSpec` (`d58218d0`). The spec does not
+compile against the pre-fix source (`3135cdde`), because it uses the new `RecoveryLandedUnready`
+API. So "fails on the pre-fix source" was shown by in-place reversion, not by a pre-fix checkout.
+
+**What is covered:**
+- Knative Service update × landed-never-Ready;
+- eight adversarial adapter states;
+- the resume and selected-state rules.
+
+Create × never-ready is covered separately, by the F16 tests.
+
+**What is not covered:**
+- Deployment and StatefulSet updates × never-ready;
+- landed-and-failed;
+- replaced during an update;
+- a stuck-state invariant over all reachable stops.
+
+Under [ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md)
+rule 3, F54 stays Verifying until EP-173's model covers its class. nagare-reviewer has said it will
+verify F54, F51 and F52 against EP-173 M2.
+
+### 7.3 Two runs that went right
+
+- **The `b74b7e49` C2 assembled 16/16 on its first run.** It took about 39 minutes from the start of
+  the chain (17:32:30) to assembly (18:11). C1 alone took 85 seconds: 214 `VerifyResource`, zero
+  provider mutations. The runbook's hard rules and the rehearsed evidence pipeline worked. This is the
+  cost a native run should have once it only confirms.
+- **The F49 receipt-C attempt refused correctly natively** (candidate `84754389`). A backup taken
+  after an out-of-band replacement was refused with `invalid-scheduled-ingest`. Incarnations were
+  unchanged, and none of the 21 other members changed. The cheap F49 regression predicted this, and
+  the native run only confirmed it. That is the role ADR 25 gives native runs.
+  - The run also showed F51 natively: after `db retire`, the retained records carry the replacement's
+    UIDs.
+
 ## Appendix A. Every finding
 
 Columns:
