@@ -21,6 +21,36 @@ if [ -e /dev/kvm ]; then
   chmod 0666 /dev/kvm
 fi
 
+# --- Tailscale (every boot, idempotent, never fatal) ---------------------------
+# Remote builds reach this VM over the operator's tailnet instead of a gcloud
+# IAP TCP tunnel: on 2026-10-05 the IAP websocket of a long nagarectl build
+# dropped and gcloud failed to reconnect ("Unexpected error while
+# reconnecting"), killing the build (EP-174). Tailscale keeps its state in
+# /var/lib/tailscale on the boot disk, so the VM rejoins on every start. Join
+# once, either with a one-time auth key in the instance metadata attribute
+# `tailscale-authkey` (remove it afterwards) or interactively:
+#   sudo tailscale up --hostname=nix-builder-x86
+# Runs before the first-boot sentinel so existing builders get it too. A
+# failure here leaves the IAP path working, so it never aborts the script.
+ensure_tailscale() {
+  if ! command -v tailscale >/dev/null 2>&1; then
+    curl -fsSL https://tailscale.com/install.sh | sh
+  fi
+  systemctl enable --now tailscaled
+  if ! tailscale status >/dev/null 2>&1; then
+    local key
+    key="$(curl -fsS -H 'Metadata-Flavor: Google' \
+      'http://metadata.google.internal/computeMetadata/v1/instance/attributes/tailscale-authkey' 2>/dev/null || true)"
+    if [ -n "$key" ]; then
+      tailscale up --auth-key="$key" --hostname="$(hostname -s)"
+    fi
+  fi
+}
+ensure_tailscale || echo "nix-builder: tailscale setup failed; the IAP path still works" >&2
+# scripts/setup-nix-builder.sh waits for this line on the serial console before
+# it stops the VM after a startup-script change.
+echo "nix-builder: every-boot setup done"
+
 if [ -f /var/lib/nix-builder.provisioned ]; then
   exit 0
 fi

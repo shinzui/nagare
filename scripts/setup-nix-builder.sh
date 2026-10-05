@@ -17,9 +17,11 @@
 #      context-owned SSH ProxyCommand starts it on the next host-image build.
 #
 # Idempotent: re-running this script only creates resources that are
-# missing, and it resizes an existing VM whose machine type differs (stopping
-# it first). Editing the startup template after the VM exists has no effect
-# unless you delete the VM first.
+# missing. For an existing VM it resizes a differing machine type and replaces
+# a differing startup-script metadata value, stopping the VM first so the
+# readiness start below boots it with the new script. The template's
+# first-boot provisioning still runs only once (sentinel file); its every-boot
+# sections (KVM permissions, Tailscale) apply on the next start.
 
 set -euo pipefail
 
@@ -141,15 +143,36 @@ ensure_machine_type() {
     --zone="$ZONE" --machine-type="$MACHINE_TYPE" --quiet
 }
 
+STARTUP_CHANGED=0
+START_UTC=""
+ensure_startup_script() {
+  local current status
+  current="$(gcloud --project="$PROJECT" compute instances describe "$INSTANCE" \
+    --zone="$ZONE" --format=json | jq -r '[.metadata.items[]? | select(.key == "startup-script") | .value][0] // ""')"
+  [ "$current" = "$(cat "$STARTUP")" ] && return 0
+  status="$(gcloud --project="$PROJECT" compute instances describe "$INSTANCE" \
+    --zone="$ZONE" --format='value(status)')"
+  STARTUP_CHANGED=1
+  log "Updating $INSTANCE startup-script metadata from the template"
+  gcloud --project="$PROJECT" compute instances add-metadata "$INSTANCE" \
+    --zone="$ZONE" --metadata-from-file=startup-script="$STARTUP"
+  if [ "$status" = RUNNING ]; then
+    log "Stopping $INSTANCE so its next start runs the new startup script (in-flight remote builds will fail and must be rerun)"
+    gcloud --project="$PROJECT" compute instances stop "$INSTANCE" --zone="$ZONE" --quiet
+  fi
+}
+
 log "VM $INSTANCE ($MACHINE_TYPE, $IMAGE_FAMILY, nested-virt, ${DISK_SIZE} boot disk, ephemeral external IP)"
 if exists gcloud --project="$PROJECT" compute instances describe "$INSTANCE" --zone="$ZONE"; then
-  log "VM already exists; skipping create. Delete it to re-apply the startup script."
+  log "VM already exists; skipping create."
   ensure_boot_disk_size
   ensure_machine_type
+  ensure_startup_script
   vm_status="$(gcloud --project="$PROJECT" compute instances describe "$INSTANCE" \
     --zone="$ZONE" --format='value(status)')"
   if [ "$vm_status" = TERMINATED ]; then
     log "Starting stopped VM for readiness check"
+    START_UTC="$(date -u +%Y-%m-%dT%H:%M:%S)"
     gcloud --project="$PROJECT" compute instances start "$INSTANCE" --zone="$ZONE" --quiet
   elif [ "$vm_status" != RUNNING ]; then
     echo "error: builder VM has unsupported status $vm_status" >&2
@@ -202,6 +225,28 @@ if [ "$PROVISIONED" -ne 1 ]; then
   echo "error: startup script did not finish within 10 minutes" >&2
   echo "inspect with: gcloud --project=$PROJECT compute ssh $INSTANCE --zone=$ZONE --tunnel-through-iap -- sudo journalctl -u google-startup-scripts" >&2
   exit 2
+fi
+
+if [ "$STARTUP_CHANGED" -eq 1 ] && [ -n "$START_UTC" ]; then
+  # sshd answers long before the every-boot sections finish; stopping then
+  # would cut the new startup script short. Wait for its marker, logged after
+  # this start, on the serial console (read-only).
+  log "Waiting up to 10 minutes for the new startup script's every-boot sections"
+  DONE=0
+  DEADLINE=$(( $(date +%s) + 600 ))
+  while [ "$(date +%s)" -lt "$DEADLINE" ]; do
+    if gcloud --project="$PROJECT" compute instances get-serial-port-output "$INSTANCE" \
+      --zone="$ZONE" 2>/dev/null \
+      | awk -v since="$START_UTC" 'index($0, "nix-builder: every-boot setup done") && substr($1, 1, 19) >= since { found = 1 } END { exit !found }'; then
+      DONE=1
+      break
+    fi
+    sleep 10
+  done
+  if [ "$DONE" -ne 1 ]; then
+    echo "error: the new startup script did not report completion within 10 minutes; the VM is left running for inspection" >&2
+    exit 2
+  fi
 fi
 
 log "Stopping VM (idle cost = boot disk only; first build will start it again)"
