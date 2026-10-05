@@ -10,6 +10,12 @@ provenance:
     model: "claude-opus-5-5"
     harness: "claude-code"
     at: 2026-10-04T04:49:45Z
+  revisions:
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-05T03:25:17Z
+      mode: "update"
+      note: "Add M3 native-evidence precondition (gate record, interpreter coverage, class regressions)"
 ---
 
 # Size the release gate to the change
@@ -28,6 +34,7 @@ Under [MasterPlan 23](../masterplans/23-make-managed-resources-first-class-throu
 
 - [ ] M1: A deterministic classifier maps the changes between two revisions to a change class and the required evidence, with tests covering each class. Acceptance: classifier tests pass and its output on real MasterPlan 23 candidate pairs matches a hand-checked expectation.
 - [ ] M2: The release gate (`scripts/assemble-inventory-release-index.py` and the release workflow) enforces the class's requirements and accepts carried-forward evidence only when the proved parts are identical. Acceptance: gate tests for each class, including a refused attempt to carry evidence across a payload change.
+- [ ] M3: Native evidence is accepted only after the interpreters and the local gate. The gate refuses fresh C1/C2/C3 evidence for a candidate unless two records are present for that exact revision: a green gate record from [EP-174](174-gate-every-commit-before-any-native-run.md) and an interpreter-coverage record from [EP-173](173-find-recovery-defects-with-adversarial-provider-interpreters.md) M5 that covers every executor and action the evidence exercises. For every finding opened against the previous candidate, it also requires a named interpreter regression recorded as failing on the pre-fix source. Acceptance: gate tests refuse each missing record and a finding without such a regression, and accept a complete set.
 
 
 ## Surprises & Discoveries
@@ -36,6 +43,10 @@ Under [MasterPlan 23](../masterplans/23-make-managed-resources-first-class-throu
 
 
 ## Decision Log
+
+- Decision: Add M3, the native-evidence precondition from [ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md).
+  Rationale: The 2026-10-04 retrospective found that most natively discovered defects were cheap-layer. Native evidence should only confirm paths the interpreters already cover, and every native finding should leave a class-level interpreter regression behind. The gate is where that becomes enforceable rather than remembered. All gates are local; no hosted CI (operator decision, 2026-10-04).
+  Date: 2026-10-04
 
 - Decision: Bind carried-forward evidence to content digests of what it proves (the CLI source tree, the payload asset digest, the fixture digest), not to the git revision.
   Rationale: The CLI embeds its git revision, so even a docs-only commit changes the binary's reported revision; content digests are the only stable identity for "the same thing was proven".
@@ -88,4 +99,4 @@ The classifier is read-only and deterministic for a pair of revisions. Gate chan
 
 ## Interfaces and Dependencies
 
-Soft dependencies: [EP-168](168-script-the-local-acceptance-run-as-one-command.md) for the evidence layout the gate consumes, and EP-171 for the narrowed payload boundary that makes the harness-only class common. Produces the change-class decision consumed by [EP-172](172-rehearse-candidate-upgrades-of-an-inventory-context-instead-of-rebuilding-it.md).
+Soft dependencies: [EP-168](168-script-the-local-acceptance-run-as-one-command.md) for the evidence layout the gate consumes, and EP-171 for the narrowed payload boundary that makes the harness-only class common. M3 consumes EP-174's gate record (`nagare-harness gate verify`) and EP-173 M5's `interpreter-coverage.json`. Produces the change-class decision consumed by [EP-172](172-rehearse-candidate-upgrades-of-an-inventory-context-instead-of-rebuilding-it.md).

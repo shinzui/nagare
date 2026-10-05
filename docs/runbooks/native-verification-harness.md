@@ -9,6 +9,10 @@ fresh local acceptance run (C2), and fresh cloud context inputs. Operators runni
 The project rules in `CLAUDE.md` apply throughout. Use only the active context's project, stop when a
 guard refuses, and batch cloud mutations into one rehearsed, operator-approved sequence.
 
+Before any mutation on cp3 or a cloud context, complete [Before a native run](before-a-native-run.md).
+A native run confirms that the interpreters match reality. It is never the first execution of a path
+([ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md), proposed).
+
 ## 1. Build the candidate at an exact revision
 
 The CLI embeds its git revision, and release evidence binds that revision. Build from a worktree

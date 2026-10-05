@@ -1,0 +1,79 @@
+# Before a native run (maintainers and agent sessions)
+
+Run this checklist before any mutation on cp3 (the shared local cluster) or on a cloud context, and
+before asking the operator to approve a cloud sequence. It applies to implementers and reviewers alike.
+Every item comes from a defect or a lost run in MasterPlan 23; the
+[2026-10-04 retrospective](../audits/mp23-engineering-retrospective-2026-10-04.md) has the data, and
+[ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md) is the rule
+behind it. A native run confirms that the interpreters match reality. It must never be the first
+execution of a path.
+
+If any item fails, fix it before the native run. Do not record the failure as a known limitation and
+go ahead.
+
+## 1. The path is already covered by an interpreter
+
+- Name every adapter path the run will exercise: create, update, verify, retire, collect, restore,
+  recovery decision.
+- For each, point to the in-memory test that drives it through the adversarial provider states:
+  lost acknowledgement, landed but unready, landed and failed, replaced (new UID at the same address),
+  renamed (address change inside a transaction), foreign field manager, and a transient provider or
+  store failure.
+- Point to the stuck-state invariant test that covers its transaction: every reachable stopped state
+  has a supported reviewed exit, and nothing unreviewed becomes accepted.
+- If no such test exists, write it first. It either passes, in which case the native run confirms it,
+  or it fails, in which case you have found the defect in seconds instead of hours.
+
+## 2. The workload actually runs
+
+A saved review proves only that the change plans. Before applying any fixture application or
+"corrected" configuration to a cluster:
+
+- read the image's entrypoint or source for the environment variables and bindings it requires, and
+  check that the declaration provides them; or
+- run the container locally (`docker run` with the same environment) and see it serve.
+
+The phase-3a correction that wedged `mp23-c3i` ([F54](../audits/mp23-findings.md#f54)) reused the
+scenario-b image, which needs `REDIS_URL`, with a PostgreSQL binding.
+
+## 3. The gates are green at this revision
+
+- The full `nagarectl` and `nagare-dsl` suites pass at the exact revision, run serially.
+- `nix flake check --all-systems` passes at that revision. Before trusting a Linux result, confirm the
+  Linux builder actually built: the check output must list x86_64-linux derivations as built or
+  substituted, not skipped.
+- `just haskell-style-check` and `python3 scripts/check-haskell-architecture.py` pass.
+- A green result from an earlier revision is not a green result for this one.
+
+## 4. Scripts and the evidence pipeline are rehearsed
+
+- Every non-trivial live command is in a script file (bash with `set -euo pipefail`, or a Haskell
+  harness command under [ADR 24](../adr/0024-release-and-harness-tooling-follows-the-production-haskell-standard.md)),
+  not a zsh one-liner. Run it once against scratch data or a dry run first.
+- Never write a file in the same expression that reads it. Check `git diff --numstat` before every
+  commit.
+- Run the evidence consumer (the assembler, the scenario-assertion recorder, the findings tracker)
+  against the planned layout using a scratch copy of real prior output. A cluster step that passes
+  proves nothing about whether its evidence will assemble.
+- Every assertion that a run "had zero X" must read the complete listing, not a sample, and must
+  cover the whole window in which X could occur (for example the middle of a migration).
+
+## 5. The environment facts are known
+
+- The live shell is bash, started from `env -i` plus `nagarectl context env`. The kube server and node
+  are asserted before any `kubectl`.
+- The interactive shell is zsh: it does not word-split unquoted variables and aborts a command on an
+  unmatched glob. GNU coreutils may shadow BSD tools on PATH (`date`, `sed`, `stat`).
+- A foreground tool call times out after 120 seconds. Long reads and waits run in the background with
+  a completion condition.
+- Commit hashes are copied from `git` output, never typed from memory.
+
+## 6. The stop threshold is written down
+
+Before asking for approval, write the bounded sequence and, for each step, the result that means
+"stop and report". Ask once for the whole sequence. Then:
+
+- stop at the first unexpected result, and at any guard refusal;
+- label every recorded value as observed or inferred when you write it;
+- never propose deferring a finding to save time. Only the operator defers, and only with the current
+  deferral ledger in front of them (see the retrospective's deferral section).

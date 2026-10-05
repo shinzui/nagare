@@ -10,6 +10,12 @@ provenance:
     model: "claude-opus-5-5"
     harness: "claude-code"
     at: 2026-10-04T04:49:45Z
+  revisions:
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-05T03:25:17Z
+      mode: "update"
+      note: "On hold: operator rejects GitHub Actions; re-scope or cancel"
 ---
 
 # Run the local acceptance in CI
@@ -32,10 +38,14 @@ After [EP-168](168-script-the-local-acceptance-run-as-one-command.md), the local
 
 ## Surprises & Discoveries
 
-(None yet.)
+- GitHub Actions has been disabled for the repository since 2026-09-22, so this plan's assumption that a workflow can run is false ([retrospective](../audits/mp23-engineering-retrospective-2026-10-04.md)).
 
 
 ## Decision Log
+
+- Decision: This plan must not use GitHub Actions. It is on hold until the operator either re-scopes it to a runner they accept or cancels it.
+  Rationale: Operator decision, 2026-10-04: "GitHub Actions is so slow" and "do not use github action". The per-commit and per-candidate gates are local ([EP-174](174-gate-every-commit-before-any-native-run.md)), and EP-168's one-command run already gives a maintainer the acceptance on their own machine.
+  Date: 2026-10-04
 
 - Decision: Trigger the job for candidates (manual dispatch with a revision, and candidate tags), not on every push.
   Rationale: A full run takes tens of minutes and needs a large runner; most pushes are covered by EP-170's change classes and by `nix flake check`.
