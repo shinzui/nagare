@@ -241,12 +241,21 @@ source, and the finding records why the interpreters missed it.
 - **The process level**: fake `kubectl`/`gcloud` executables, as in the F20 collection world.
 
 **Provider worlds.** EP-173 adds one pure *provider world* per provider family. A world is a small
-state model that implements the operation record faithfully. The Kubernetes world keeps, per object:
-- UID, generation and observed generation, resourceVersion;
-- spec digest, field managers, ownership annotations;
-- readiness: Ready, NotReady or Failed.
+state model placed at the lowest seam that still runs all of Nagare's own decision code.
 
-Its conditional writes check `resourceVersion` and UID exactly as the API server does.
+For Kubernetes, that seam is the existing `Kubectl` effect
+(`src/Nagare/Inventory/KubernetesTransport.hs`, replaced through `withKubectlInterpreter`). The
+F20 collection model already uses it. The adapter-ops record would be the wrong seam: the field-manager
+check (F37), the unready-update precondition (F30) and the readiness wait (F54) all live in the
+runtime beneath it.
+
+The Kubernetes world keeps each object as real Kubernetes JSON:
+- UID, generation and observed generation, `resourceVersion`;
+- annotations and `managedFields`;
+- spec, and status conditions.
+
+It answers only the `kubectl` verbs and flags the runtime issues, and checks write preconditions as
+the API server does. Any other request fails the test.
 
 **Adversary.** An adversary schedules faults at named points:
 

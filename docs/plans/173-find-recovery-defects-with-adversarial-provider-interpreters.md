@@ -92,14 +92,15 @@ behind it is in
   can be added later for a deeper, sampled tier if the bounded space misses something.
   Date: 2026-10-04
 
-- Decision: Put the Kubernetes world at the `KubernetesAdapterOps` seam (observe returns
-  `KubernetesState`, conditional mutate returns `AdapterExecution`), not at the `kubectl` process
-  level.
-  Rationale: Every recovery decision is made above that seam, and an in-process world is
-  milliseconds per run. The runtime code below the seam (`parseObserved`, `readinessForAddress`,
-  `waitForReadiness` in `src/Nagare/Inventory/Adapters/KubernetesRuntime.hs`) is checked separately
-  by M4's fidelity fixtures, using real recorded output. The process-level F20 collection world stays
-  where it is.
+- Decision: Put the Kubernetes world at the `Kubectl` effect, not at `KubernetesAdapterOps`. Supersedes the first version of this decision, which placed it at the adapter-ops seam.
+  Rationale: The decisions behind F30, F37 and F54 live below the ops seam, in `mutate` and `parseObserved` in `src/Nagare/Inventory/Adapters/KubernetesRuntime.hs`:
+  - choosing the request from the action and the "before" state;
+  - `verifyLiveOwnership` (field managers, F37);
+  - rewriting an unready Knative Service's "before" state (F30);
+  - the readiness wait that returns `AdapterEffectAmbiguous` on timeout (F54);
+  - deriving owner and foreign context from annotations.
+
+  An ops-level fake would re-implement that logic and test itself. The runtime already sends every cluster call through the `Kubectl` effect in `src/Nagare/Inventory/KubernetesTransport.hs`, which can be replaced through `withKubectlInterpreter`. The F20 collection model and `InventoryKubernetesFieldTakeoverSpec.hs` already use that seam. So the real adapter, runtime, driver and recovery all run, and only `kubectl` is fake. The runs stay in memory and take milliseconds.
   Date: 2026-10-04
 
 - Decision: Faults are either transient (they clear after one occurrence) or persistent (they hold
@@ -163,6 +164,10 @@ Observation returns a `ResourceObservation`: `ObservedPresent`, `ObservedDrifted
 
 **Provider operations.** Each real adapter is built from a record of provider operations, which is
 the seam this plan uses:
+- **The `kubectl` effect (the seam M1 uses):** every Kubernetes call from the runtime goes through
+  `Eff '[Kubectl]` in `src/Nagare/Inventory/KubernetesTransport.hs`. Its request is
+  `KubectlRequest { context, arguments, input }`. `withKubectlInterpreter` replaces the real process
+  with any handler.
 - **Kubernetes:** `KubernetesAdapterOps` in `src/Nagare/Inventory/Adapters/Kubernetes.hs`, with
   `kubernetesObserve :: ResourceId -> IO KubernetesState` and
   `kubernetesMutateConditional :: KubernetesMutation -> IO AdapterExecution`. `KubernetesState` is
@@ -232,26 +237,37 @@ import `app/` modules, so today no test exercises the production wiring.
 
 ### Milestone 1: the Kubernetes world and the exit invariant
 
-**Scope.** Add `cli/nagarectl/test/Nagare/Test/World/Kubernetes.hs`. It defines a `KubeWorld`, a
-map from provider address to a modelled object, held in an `IORef`. Each object has:
-- a UID and an owner annotation;
-- generation and observed generation;
-- `resourceVersion`;
-- the applied native digest;
-- a set of field managers;
-- a readiness of Ready, NotReady or Failed.
+**Scope.** Add `cli/nagarectl/test/Nagare/Test/World/Kubernetes.hs`. It defines a `KubeWorld`, held
+in an `IORef`: a map from (group, kind, namespace, name) to the object as real Kubernetes JSON.
+Each object carries:
+- `metadata.uid`, `resourceVersion`, `generation`, annotations and `managedFields`;
+- its spec;
+- `status.conditions` and `observedGeneration`.
 
-The module provides `worldKubernetesOps :: IORef KubeWorld -> IORef Adversary -> KubernetesAdapterOps`:
-- **Observe** maps an object to the matching `KubernetesState`.
-- **Conditional mutate** checks the mutation's `mutationBefore` UID and version against the world,
-  exactly as the API server does. It then applies the native digest, bumps generation and
-  `resourceVersion`, and sets readiness from the adversary (Ready by default).
+Seed objects come from real captures retained in `docs/audits/` evidence, not hand-written JSON.
+
+The module provides `worldKubectlInterpreter :: IORef KubeWorld -> IORef Adversary -> KubectlInterpreter`.
+It handles only the verbs and flags `src/Nagare/Inventory/Adapters/KubernetesRuntime.hs` actually
+issues: `get -o json`, `create -f -`, `apply` and `patch` with `--field-manager` and UID or
+`resourceVersion` preconditions, `delete` with preconditions, `wait --for=condition=…` and
+`rollout status`. Its semantics:
+- `create` assigns a UID, sets `resourceVersion` and `generation` to 1, records the field manager,
+  and returns AlreadyExists for an existing object.
+- Writes check their preconditions and report field-manager conflicts as the API server does.
+- After each write, a controller step sets status: Ready with `observedGeneration = generation` by
+  default, unless the adversary says otherwise.
+- `wait` and `rollout status` use virtual time, so a 300-second timeout returns immediately.
+- Any other request fails the test, so a new runtime command cannot be silently accepted. This is the
+  rule `test/Nagare/Test/Effectful/CollectionModel.hs` already follows.
+
+The adapter under test is the real one, built by the runtime's `mkKubernetesRuntimeOps` family over
+a `KubernetesRuntimeConfig` passed through `withKubectlInterpreter`.
 
 **Adversary.** Add `cli/nagarectl/test/Nagare/Test/World/Adversary.hs`. An `Adversary` is a list of
-`(Boundary, Fault)` pairs, where a boundary is the n-th call to an operation. Faults for this
-milestone:
-- `LostAcknowledgement`: apply, then return `AdapterEffectAmbiguous`;
-- `RefusedBeforeEffect`: return `AdapterEffectFailed` with known no effect;
+`(Boundary, Fault)` pairs, where a boundary is the n-th `kubectl` request. Faults for this milestone:
+- `LostAcknowledgement`: apply the write, then return a transport error, which the runtime reports
+  as ambiguous;
+- `RefusedBeforeEffect`: return an error without applying;
 - `LandsUnready` and `LandsFailed`: persistent;
 - `StatusChurn`: bump `resourceVersion` only;
 - `ForeignManager`: persistent, adds a manager on a reviewed field;
@@ -261,7 +277,8 @@ milestone:
 application scope with a PostgreSQL member and a Knative Service member, reusing the scope and
 candidate helpers in `InventoryTransactionSpec.hs`. Extract them to
 `cli/nagarectl/test/Nagare/Test/World/Scenario.hs` if they need to be shared. The registry uses the
-real Kubernetes adapter (`mkKubernetesAdapter` over `worldKubernetesOps`) and a memory store. It
+real Kubernetes adapter over the real runtime, with `worldKubectlInterpreter` in place of `kubectl`,
+and a memory store. It
 enumerates:
 - review sequences: create; create then good update; create, bad update, then corrected update;
   create then retire;
@@ -451,8 +468,9 @@ that in the Decision Log, rather than shrinking the fault set.
 No new library dependency for M1–M3 (`tasty` and `tasty-hunit` are already used).
 
 New test modules:
-- `Nagare.Test.World.Kubernetes` exports `KubeWorld`, `KubeObject`, `Readiness`, `newKubeWorld` and
-  `worldKubernetesOps`.
+- `Nagare.Test.World.Kubernetes` exports `KubeWorld`, `newKubeWorld`, `seedKubeWorld` and
+  `worldKubectlInterpreter`. Its seam is `KubectlInterpreter` from
+  `src/Nagare/Inventory/KubernetesTransport.hs`.
 - `Nagare.Test.World.Adversary` exports `Adversary`, `Boundary`, `Fault`, `Persistence` and
   `nextFault`.
 - `Nagare.Test.World.Store` exports `faultingObjectOps`.
