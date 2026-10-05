@@ -1,0 +1,109 @@
+{
+  "schemaVersion": 1,
+  "kind": "c3-acceptance",
+  "candidate": "847543896d0742667e58dde723f4e9d230dfcddc",
+  "acceptedFor": "b74b7e49bf33cee19a13b58020ab1762d8ae4638",
+  "acceptanceDecision": "operator, 2026-10-04: this run is C3 for b74b7e49 because the only code commit between the two revisions (b74b7e49, F53) changes the check harness and test files, with nothing under cli/*/src, cli/*/app, cluster/, infra/ or nixos/; the independent reviewer ruled closures carry over across that diff",
+  "context": "mp23-c3i",
+  "project": "tan-ng-labs",
+  "names": "*-c3-1008",
+  "fixtureCommit": "1389b156",
+  "bootstrap": "foundation through cluster on the candidate payload; cluster stage 1094 s with no ambiguous stop; replan verify-only (206 VerifyResource)",
+  "platformRoot": {
+    "payloadId": "nagare-0.4.0-847543896d07",
+    "platformVersion": "0.4.0",
+    "revision": "847543896d0742667e58dde723f4e9d230dfcddc",
+    "digest": "9442ead5f5362fd39a23229d5f279b35c32bbd418a1dee26f23e4dddf2e17734"
+  },
+  "assertions": {
+    "count": 17,
+    "names": [
+      "access-grant-revoke",
+      "adoption",
+      "backup-freshness",
+      "clickhouse-backup-restore",
+      "collision-refusal",
+      "convergence-noop-removal",
+      "drift-classification",
+      "google-cdn",
+      "independent-scope-preservation",
+      "interrupted-recovery",
+      "postgresql-backup-restore",
+      "redis-backup-restore",
+      "retained-data",
+      "secret-read-refusal",
+      "shared-history-takeover",
+      "source-unavailable-recovery",
+      "volume-backup-restore"
+    ]
+  },
+  "runner": {
+    "state": "verified",
+    "noOp": true,
+    "observationComplete": true,
+    "missingProviders": []
+  },
+  "inventoryEvidence": {
+    "assembled": true,
+    "payload": {
+      "digest": "sha256-Y6YQ4ftcBLOR+bxFbjvhKSo9wIIlN0RZmoyBOBNEjLE=",
+      "sourceRevision": "847543896d0742667e58dde723f4e9d230dfcddc",
+      "system": "aarch64-darwin",
+      "version": "0.4.0"
+    }
+  },
+  "replacedIncarnation": {
+    "afterBootstrap": 0,
+    "beforeRunner": 0,
+    "midTransaction": {
+      "database-readiness": 0,
+      "cluster-completion": 0
+    }
+  },
+  "b3": {
+    "operator": "candidate 84754389",
+    "cdnTargetAfterDeploy": [
+      [
+        "34.36.179.6"
+      ]
+    ],
+    "originAfterDisable": [
+      [
+        "136.66.48.10"
+      ]
+    ],
+    "retainedAfterRetire": true,
+    "absentAfterCollect": true
+  },
+  "f15F31": {
+    "pullsAfterBootCredentialExpiry": 8,
+    "privatePullFailures": 0,
+    "secretsRewrittenSinceBoot": [
+      "knative-serving/nagare-registry-pull",
+      "nagare-system/nagare-registry-pull",
+      "personal/nagare-registry-pull"
+    ],
+    "bootCredentialExpiresBy": "2026-10-04T16:26:54.974000-07:00"
+  },
+  "f32": {
+    "removed": 3,
+    "sameRequestReplanOperations": 0,
+    "podsAfter": "68 pods, 0 not ready"
+  },
+  "sourceUnavailable": {
+    "selection": {
+      "seedTime": "2026-10-04T23:29:42Z",
+      "rule": "newest verified scheduled backup created after the seed",
+      "candidates": 4,
+      "job": "ac93f66d-72af-46a0-a133-67fa575c9129",
+      "generation": "1791159317945994",
+      "created": "2026-10-05T00:15:17+0000"
+    },
+    "seedRowsPresent": true,
+    "vm": "TERMINATED"
+  },
+  "pending": [
+    "exact cleanup on this context (policy plus retirement of every scope, then exact leaf collections) after the independent runbook execution",
+    "independent phase 3a and 3b"
+  ]
+}

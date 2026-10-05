@@ -443,7 +443,7 @@ Feature children produce code and focused local proof; the native children (EP-1
 ### Finish line (canonical checklist, 2026-10-04)
 
 This list says what remains before MP-23 is complete. It was agreed between sessions nagare-phase-b and nagare-f3. Where a dated snapshot below or a child plan disagrees with it, this list wins.
-- **Candidate: `84754389`** (frozen 2026-10-04 by f3, `ff3f1f48`; includes F38, F45–F50 and the F49 StatefulSet follow-up). The earlier candidates `7d486457` and `7596632c` are checkpoints: C3 found F45–F47, and the EP-159 drill found F49.
+- **Candidate: `b74b7e49`** (frozen 2026-10-04 by f3). It adds only the F53 check-harness fix to `84754389`, which includes F38, F45–F50 and the F49 StatefulSet follow-up. `nix flake check --all-systems` is green at `b74b7e49`. The earlier candidates `7d486457` and `7596632c` are checkpoints: C3 found F45–F47, and the EP-159 drill found F49.
 - Tick a box only with linked evidence, on the frozen candidate unless the box says otherwise. Results on earlier candidates are linked as checkpoints.
 - When a box is ticked here, tick the matching `(MP-23 …)` box in its child plan.
 - Owners: **phase-b** = session nagare-phase-b; **f3** = session nagare-f3; **user** = the operator; **reviewer** = an independent session that did not implement the work.
@@ -451,25 +451,21 @@ This list says what remains before MP-23 is complete. It was agreed between sess
 **Gates on the frozen candidate**
 - [x] **C1** (owner phase-b) on `84754389`'s fresh payload: 214 `VerifyResource`, zero mutations, digests unchanged ([proof](../audits/mp23-implementer-results-2026-10-03/c1-local-gate-84754389.json)). Checkpoints: [`7596632c`](../audits/mp23-implementer-results-2026-10-03/c1-local-gate-7596632c.json), [`7d486457`](../audits/mp23-implementer-results-2026-10-03/c1-local-gate-7d486457-rerun.json).
 - [x] **C2** (EP-155, owner phase-b): a fresh local context on `84754389` finalized 16/16, and `assemble-managed-resource-evidence.sh` accepted the same directory. `platform-root.json` shows the candidate's payload (F48 guard), and zero `replaced-incarnation` findings appeared after C1 and before the runner (the F49 side-effect check). 2026-10-04, [record](../audits/mp23-implementer-results-2026-10-03/c2-acceptance-84754389.json); the directory went to f3 for C5. Checkpoints: [`7596632c`](../audits/mp23-implementer-results-2026-10-03/c2-acceptance-7596632c.json), [`7d486457`](../audits/mp23-implementer-results-2026-10-03/c2-acceptance-7d486457.json).
-- [ ] **C3** (EP-156, owner f3) on a **fresh** GCP context bootstrapped from the new candidate's payload. The user approves the new names. `mp23-c3g` (`*-c3-1005`, `7d486457` payload) is a checkpoint: it proved most of the checks below natively, and B3 on a development CLI after the F45–F47 fixes. Acceptance needs them again on the new candidate.
-  - [ ] the six operational checks:
-    - application change with owner isolation and unchanged replay;
-    - GCS backup and isolated restore for every engine plus a volume, including manual Redis/ClickHouse receipts (EP-160);
-    - interrupted-operation recovery;
-    - clean-root recovery (a second operator root on the same GCS store);
-    - writer refusal and takeover;
-    - exact cleanup.
+- [ ] **C3** (EP-156, owner f3; every check done, only exact cleanup remains): fresh GCP context `mp23-c3i` (`*-c3-1008`), bootstrapped from candidate `84754389`'s own payload. **Operator decision (2026-10-04):** this run is C3 for `b74b7e49`. The only code commit between the two revisions is F53's check-harness fix, with nothing under `cli/*/src`, `cli/*/app`, `cluster/`, `infra/` or `nixos/`, and the reviewer ruled closures carry over across it ([record](../audits/mp23-implementer-results-2026-10-03/c3-acceptance-84754389.json)). Checkpoints: `mp23-c3g` (`7d486457`), [`mp23-c3h`](../audits/mp23-implementer-results-2026-10-03/c3-checkpoint-7596632c.json) (`7596632c`).
+  - [x] all 17 cloud scenario assertions recorded and finalized. They cover the six operational checks: application change with unchanged replay, GCS backup and isolated restore for every engine plus a volume, interrupted-operation recovery, clean-root recovery, writer refusal and takeover, and collision, adoption and drift refusals.
   - [ ] exact cleanup:
     - [x] perimeter-only exact collection, proven on the candidate's own build in disposable `mp23-c3p` (`b5d059d7`);
-    - [ ] on the acceptance C3 context, policy plus retirement of every scope, including the cloud scope.
+    - [ ] on `mp23-c3i`, policy plus retirement of every scope, including the cloud scope. This runs after the independent runbook execution (phase 3a), and its records feed phase 3b (F39, F33).
 
     Full-context VM collection is MasterPlan 25 by operator decision.
-  - [ ] F15: a genuine credential refresh and an expired-credential pull. Observed natively by f3 on 2026-10-04 (an uncached private pull at 13:25Z, about 8 h after boot); its evidence record is pending.
-  - [ ] B3 (EP-158): Google CDN create, disable, retire and collect. Checkpoint: proven on `mp23-c3g` with the F45–F47 fixes (development CLI).
-  - [ ] B6: takeover from a second root with a distinct client identity.
-  - [ ] EP-158 access grant/revoke, with an interrupted acknowledgement, resume, revoke and portal sync.
-  - [ ] the runner runs last, with plan, apply and verify back to back, and the cloud `inventory-evidence.json` assembles.
-- [ ] **C4** (EP-154, owner f3, not started):
+  - [x] F15/F31: 8 private pulls after the boot credential expired, with no failures, and all three owned pull Secrets rewritten since boot.
+  - [x] F32: reviewed image-cache cleanup with every previously Ready pod staying Ready, and a same-request replan of zero operations.
+  - [x] B3 (EP-158) with the candidate CLI itself: the host record goes to the CDN, back to the origin on disable, is retained on retirement, and is collected.
+  - [x] B6: takeover from a second root with a distinct client identity, after a plain resume and an unrelated plan were refused.
+  - [x] EP-158 access grant/revoke: an interrupted acknowledgement resumed, then revoke.
+  - [x] source-unavailable recovery: the newest verified backup after the seed, verified with the VM stopped and restored with its seed rows.
+  - [x] the runner ran last, with plan, apply and verify back to back (verify interrupted, then re-run), and the cloud `inventory-evidence.json` assembled. The F48 guard (`platform-root.json` revision equals the candidate) held, and status showed zero `replaced-incarnation` after bootstrap and before the runner.
+- [ ] **C4** (EP-154, owner f3, in progress on `b74b7e49`: the aarch64-darwin clone-free rehearsal passed with `typed-config`, and `nix flake check --all-systems` is green, 36/36 darwin and 35/35 x86_64-linux; F53 fixed the harness):
   - installed rehearsal without a repo clone on `aarch64-darwin` (workstation) and `x86_64-linux` (an amd64 container under Colima; if that can't run Nix plus the installed CLI, the user decides on the x86_64 builder VM);
   - `nix flake check` at the candidate;
   - this also proves A5's `typed-config` check name.
