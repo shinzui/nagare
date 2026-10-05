@@ -454,7 +454,7 @@ Feature children produce code and focused local proof; the native children (EP-1
 
 This list says what remains before MP-23 is complete. It was agreed between sessions nagare-phase-b and nagare-f3. Where a dated snapshot below or a child plan disagrees with it, this list wins.
 - **Candidate: `b74b7e49`** (frozen 2026-10-04 by f3). It adds only the F53 check-harness fix to `84754389`, which includes F38, F45–F50 and the F49 StatefulSet follow-up. `nix flake check --all-systems` is green at `b74b7e49`. The earlier candidates `7d486457` and `7596632c` are checkpoints: C3 found F45–F47, and the EP-159 drill found F49.
-  - **Superseded in source (2026-10-05).** The F54–F58, F51 and F52 fixes change shipped code, so a new candidate is needed. `b74b7e49`'s gate results then count only where their recorded inputs still match it (Dependency Graph); C1 always reruns. Freezing it waits for EP-173 M2 (operator decision, 2026-10-04); a receipt-ingestion scenario and the in-model rename remain.
+  - **Superseded in source (2026-10-05).** The F51, F52 and F54–F59 fixes change shipped code, so a new candidate is needed. `b74b7e49`'s gate results then count only where their recorded inputs still match it (Dependency Graph); C1 always reruns. Freezing it waits for EP-173 M2 (operator decision, 2026-10-04); a receipt-ingestion scenario and the in-model rename remain.
 - Tick a box only with linked evidence, on the frozen candidate unless the box says otherwise. Results on earlier candidates are linked as checkpoints.
 - When a box is ticked here, tick the matching `(MP-23 …)` box in its child plan.
 - Owners: **phase-b** = session nagare-phase-b; **f3** = session nagare-f3; **user** = the operator; **reviewer** = an independent session that did not implement the work.
@@ -490,7 +490,8 @@ This list says what remains before MP-23 is complete. It was agreed between sess
 - [ ] Close every finding that is not yet Closed, per the [tracker](../audits/mp23-findings.md)'s closure rule:
   - Open: F48
   - Partial: F40
-  - Verifying: F15, F16, F30, F31, F32, F33, F39, F43, F44, F45, F46, F47, F51, F52, F53, F54, F55, F56, F57, F58
+  - Verifying: F15, F16, F30, F31, F32, F33, F39, F43, F44, F45, F46, F47, F51, F52, F53, F54, F55, F56, F57, F58, F59
+  - Deferred by the operator: F60 (the F49 fail-open-recording ledger item)
 
   (Register as of 2026-10-05. The independent reviewer closed F34–F38, F41, F42, F49 and F50 on 2026-10-04.)
 
@@ -508,6 +509,7 @@ This list says what remains before MP-23 is complete. It was agreed between sess
   - EP-159 B1 source replacement, re-scoped to "out-of-band replacement refuses ingestion and isolated restore";
   - EP-160 B2 Redis load interruption and partial ClickHouse effect.
 - [ ] Independent local PostgreSQL isolated restore with known content and the source preserved (EP-160).
+- [ ] Confirm the rename recovery model's relaxed I4 (EP-173 Decision Log, 2026-10-05). A recreated copy Job only compares a non-empty destination; check this for every fault the model saw.
 - [ ] Execute [the operations runbook](../runbooks/inventory-operations.md) end to end on the acceptance C3 context, before its teardown, and record F14–F18 and the cloud operational checks (EP-156; safe-use gate). Required for MP-23 completion (operator decision), in the same reviewer pass as the closures.
 
 **Operator decisions** (all decided 2026-10-04)
@@ -668,6 +670,13 @@ Earlier discoveries (derived controller claims, explicit candidate changes, nati
 ## Decision Log
 
 Decisions still in force, condensed. Full verbatim entries are in [the snapshot](../audits/mp23-archive/plan-history/mp23-before-consolidation-2026-10-02.md).
+
+2026-10-05 (operator, three answers to implementer questions in Claude Code sessions):
+- **F58: fix now.** Session nagare-f3 (`6f744255`), answered 13:40:21Z (asked 06:05Z). Question: "F58 (P2, not a wedge): an app whose first deploy stopped unready can't be retired … Fix now or defer?" Answer: "Fix now in MP-23 (Recommended)". Fixed in `b244b125`.
+- **F59: fix now.** The continuation session (`3eddabae`), answered 16:32:54Z. Question: "a standalone database whose StatefulSet is created but never becomes Ready … no supported command ends the transaction … Fix now or defer?" Answer: "Fix now in MP-23 (Recommended)".
+- **F60: keep as a documented limit.** Same session, same answer time. Question: "With one out-of-band replacement in the seconds between creating a database PVC or StatefulSet and convergence, convergence records the replacement … What should happen?" Answer: "Keep as documented limit (Recommended)".
+  - It is the F49 fail-open-recording item already on the retrospective's deferral ledger.
+  - The question recommended the deferral and did not show the ledger. That departs from ADR 25 §7, which says only the operator proposes a deferral, with the ledger shown. Recorded here so the operator can revisit it.
 
 2026-10-04 (operator, on [the engineering retrospective](../audits/mp23-engineering-retrospective-2026-10-04.md)): The operator made four decisions:
 - **No native runs until the model exists.** The remaining native work waits for [EP-173](../plans/173-find-recovery-defects-with-adversarial-provider-interpreters.md) M1–M2: the Kubernetes application world and the stuck-state invariant model, extended with incarnation, store and transient faults. Until then there is no cp3 or cloud run. That covers phase 3b, the native F54 verification and any new candidate.

@@ -1011,6 +1011,16 @@ refuses if any has reappeared. A durable member that existed and is now absent
 still refuses as `durable-resource-missing` unless its collection is reviewed:
 retirement never silently drops data.
 
+Unready data-service creates (2026-10-05, finding F59, found by the EP-173
+recovery model): the same stop now closes a standalone scope's review whose
+stateless StatefulSet create landed but never became Ready. The adapter reports
+`RecoveryAwaitingReadiness` for an unready created StatefulSet whose owner stamp
+and digest are the reviewed create's. The scope's later creates that never
+started are admitted, as for an application. The stop accepts nothing: the
+database scope stays accepted without convergence, so a corrected review or a
+retirement follows. The database's PVC is a separate durable member and is never
+replanned as a fresh create unless its own create never started.
+
 The same explicit stopped-configuration decision also accepts a newly created,
 unready DomainMapping in an exact typed Standalone site-preview scope. Validate
 the complete original preview member/address/policy contract, require all other

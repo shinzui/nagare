@@ -369,6 +369,22 @@ incompleteApplicationOnlyReview landed published events transaction operationId 
                          )
             )
             reviewed
+      selectedStatefulSet scope =
+        scopeKind (scopeId scope) == Standalone
+          && any
+            ( \bundle ->
+                any
+                  ( \case
+                      Managed member ->
+                        [member ^. #identity] == selected
+                          && case member ^. #address of
+                            Kubernetes _ "apps" kind (Just _) _ -> nameText kind == "statefulset"
+                            _ -> False
+                      _ -> False
+                  )
+                  (declarations bundle)
+            )
+            (scopeBundles scope)
       owns scope resource =
         any
           ( \bundle ->
@@ -390,7 +406,10 @@ incompleteApplicationOnlyReview landed published events transaction operationId 
                                  && all (owns scope) (NE.toList (plannedResources planned))
                        )
                        reviewed
-                       && ( if scopeKind owner == Application
+                       -- F59: a database's later creates (its schedule, signing key and
+                       -- companions) never started when its StatefulSet stalls; like an
+                       -- application's, they had no effect.
+                       && ( if scopeKind owner == Application || selectedStatefulSet scope
                               then all otherSettled reviewed
                               else
                                 all
@@ -415,6 +434,10 @@ incompleteApplicationOnlyReview landed published events transaction operationId 
                     | nameText kind == "domainmapping" -> case previewScopeMembers scope of
                         Right (_, route) -> route == member
                         Left _ -> False
+                  -- F59: a standalone data service's StatefulSet created but never
+                  -- Ready. It is stateless; its data lives on the separately created PVC.
+                  Kubernetes _ "apps" kind (Just _) _
+                    | scopeKind owner == Standalone -> nameText kind == "statefulset"
                   _ -> False
                 _ -> False
           _ -> False

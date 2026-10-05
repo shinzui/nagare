@@ -1,0 +1,12 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Plan/History.hs b/cli/nagarectl/src/Nagare/Inventory/Plan/History.hs
+--- a/cli/nagarectl/src/Nagare/Inventory/Plan/History.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Plan/History.hs
+@@ -409,7 +409,7 @@
+                        -- F59: a database's later creates (its schedule, signing key and
+                        -- companions) never started when its StatefulSet stalls; like an
+                        -- application's, they had no effect.
+-                       && ( if scopeKind owner == Application || selectedStatefulSet scope
++                       && ( if scopeKind owner == Application
+                               then all otherSettled reviewed
+                               else
+                                 all

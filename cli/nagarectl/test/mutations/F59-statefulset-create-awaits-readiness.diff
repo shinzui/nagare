@@ -1,0 +1,12 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs b/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs
+--- a/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs
+@@ -355,7 +355,7 @@
+                         && ( case mutationAddress mutation of
+                                -- F59: a created StatefulSet (a database's) that never
+                                -- became Ready is the same no-data readiness wait.
+-                               Kubernetes _ "apps" kind _ _ -> nameText kind `elem` ["deployment", "statefulset"]
++                               Kubernetes _ "apps" kind _ _ -> nameText kind == "deployment"
+                                Kubernetes _ "serving.knative.dev" kind _ _ -> nameText kind `elem` ["service", "domainmapping"]
+                                _ -> False
+                            ) ->

@@ -353,7 +353,9 @@ mkKubernetesAdapterWithObservations specs ops observeBatch stableObserve readBac
                         && mutationAction mutation == CreateResource
                         && (case mutationBefore mutation of KubernetesAbsent {} -> True; _ -> False)
                         && ( case mutationAddress mutation of
-                               Kubernetes _ "apps" kind _ _ -> nameText kind == "deployment"
+                               -- F59: a created StatefulSet (a database's) that never
+                               -- became Ready is the same no-data readiness wait.
+                               Kubernetes _ "apps" kind _ _ -> nameText kind `elem` ["deployment", "statefulset"]
                                Kubernetes _ "serving.knative.dev" kind _ _ -> nameText kind `elem` ["service", "domainmapping"]
                                _ -> False
                            ) ->

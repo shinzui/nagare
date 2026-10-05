@@ -77,6 +77,8 @@ This is the authoritative list of implementation findings for [MP-23](../masterp
 | [F56](#f56) | P1 | A landed application Service update whose Service is then replaced outside review has no exit | Verifying | EP-153 / EP-173 |
 | [F57](#f57) | P1 | A verification whose target is replaced after it ends ambiguous has no exit | Verifying | EP-153 / EP-173 |
 | [F58](#f58) | P2 | An application whose first deploy stopped unready cannot be retired, because a never-created member has nothing to retain | Verifying | EP-153 / EP-173 |
+| [F59](#f59) | P1 | A standalone database whose StatefulSet is created but never becomes Ready has no exit | Verifying | EP-153 / EP-173 |
+| [F60](#f60) | P2 | One out-of-band replacement between a create and convergence is recorded as the accepted incarnation (F49's fail-open recording, reachable with one fault) | Deferred (operator) | EP-173 |
 
 Closed findings keep their full text, location, implementation updates and verification in [the closed-findings archive](mp23-archive/mp23-findings-closed.md). F01 and F11 retain their [earlier independent closure](mp23-archive/mp23-verification.md). F02, F03, F04, F05, F06, F07, F08 and F20 now have [2026-10-02 independent closure](mp23-independent-verification-2026-10-02.md). F34, F35, F36, F37, F38, F41 and F42 have 2026-10-04 independent closure on candidate `7596632c`, and F49 and F50 on candidate `847543896d07` ([records](mp23-independent-results-2026-10-04/phase1-source-and-regressions-7596632c.md)). Other entries retain their status shown above.
 
@@ -677,4 +679,36 @@ invalid-retirement: retention needs a selected scope replacement or retirement t
   - the recovery model's retire scenario (fast tier): on the pre-fix source it fails with the `invalid-retirement` refusal above (1 violation); with the fix it passes;
   - `test/InventoryApplicationUpdateRecoverySpec.hs`, "a durable member only verified by a stopped update is never replanned or retired as absent (F55, F58)": a durable volume deleted out of band refuses retirement as `durable-resource-missing`. Mutation `test/mutations/F58-absence-proof-holds-no-data.diff` (drop the no-data condition) makes it fail;
   - `test/InventoryApplicationUpdateRecoverySpec.hs`, "retirement drops a confirmed-absent stateless member only while it stays absent (F58)": an absent member that reappears after review is refused at admission, and the same review is admitted once it is absent again. Mutation `test/mutations/F58-admission-absence-recheck.diff` (skip the recheck) makes it fail, with the reappeared member dropped and the transaction converged.
+
+## F59
+
+**A standalone database whose StatefulSet is created but never becomes Ready has no exit** — P1 (a stuck state: every later plan on the context is refused); **Verifying**; owners EP-153 / EP-173.
+
+**Found by the EP-173 recovery model (2026-10-05, claude-opus-5-5) with no native run.** The new scenario "create a database, then ingest a scheduled receipt" reviews a standalone PostgreSQL database, compiled by `compileStandaloneDatabase`. Under `LandsUnready` on its fifth Kubernetes write, the StatefulSet create, the create lands and the pod never becomes Ready. This is what an unschedulable pod, an image pull failure or a crash loop looks like. The transaction then stops ambiguous, and every exit refuses:
+- resume makes no progress;
+- `stop-incomplete-application` answers "adapter did not prove the operator's requested action";
+- `abandon-refused-operation` answers "resolve every uncertain operation before abandoning a refused one".
+
+**Cause (source):** F16's reviewed stop never covered data services.
+- The Kubernetes adapter's recovery (`src/Nagare/Inventory/Adapters/Kubernetes.hs`) answered `RecoveryAwaitingReadiness` for an unready create only of a Deployment, a Knative Service or a DomainMapping. An unready StatefulSet create was unresolved.
+- The stop rule (`incompleteApplicationOnlyReview`, `src/Nagare/Inventory/Plan/History.hs`) admitted on its create path only an application's Knative Service or a preview DomainMapping. In a standalone scope it also required every other operation to be Completed. A database's later creates (its schedule, signing key and companions) are still never-started when its StatefulSet stalls.
+
+**Operator decision (2026-10-05):** fix now in MP-23.
+
+**Implementation update (2026-10-05; claude-opus-5-5):**
+- The adapter answers `RecoveryAwaitingReadiness` for an unready created StatefulSet whose owner stamp and digest are the reviewed create's.
+- The stop admits a standalone scope's stateless StatefulSet create. Never-started companions are admitted for it exactly as for an application. A data fence still refuses, as does any companion with recorded intent.
+- The stop accepts nothing. The scope keeps its accepted revision without convergence, so a corrected review, or a retirement (F58 drops never-created members), can follow.
+- The StatefulSet holds no data. The database's PVC is a separate durable member, and a later review never replans it as a fresh create unless its create never started (F55's filter).
+- **Regression:** the recovery model's fast tier. It fails before the fix with the I1 stop above. Each guard has a recorded mutation (`test/mutations/F59-*.diff`).
+
+## F60
+
+**One out-of-band replacement between a create and convergence is recorded as the accepted incarnation** — P2; **Deferred (operator decision, 2026-10-05)**; owner EP-173.
+
+**Found by the EP-173 recovery model (2026-10-05)** in the same database scenario. Its new I3 receipt clause plans scheduled-receipt ingestion the way `db backup-receipts` does. Under one `Replaced` fault at a Kubernetes observation between the StatefulSet's or PVC's create and the convergence observation, convergence records the replacement as the accepted incarnation. A receipt taken from the replacement then compiles for ingestion, and F49's guard passes because the record names the replacement.
+
+**Ledger:** this is the F49 limit already on the retrospective's deferral ledger: incarnation recording is fail-open, and the record comes from a fresh observation at convergence, not from the execution receipt. It is listed in ADR 22 "Known limits". The model shows a single fault reaches it.
+
+**Operator decision (2026-10-05):** keep it as a documented limit. The fix, binding established records from the create's own completion identity, remains the follow-up work ADR 22 names. The recovery model names it as an explicit tolerance: the I3 receipt clause exempts only a replacement that the head itself records as the accepted incarnation. A receipt from a replacement the head does not record must still refuse, and the `F49-ingestion-ignores-incarnation` mutation proves the model checks that.
 
