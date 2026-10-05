@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Plan/History.hs b/cli/nagarectl/src/Nagare/Inventory/Plan/History.hs
+index 33daa790..94c27f71 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/Plan/History.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Plan/History.hs
+@@ -358,7 +358,7 @@ incompleteApplicationOnlyReview landed published events transaction operationId
+                                            , NE.toList (plannedResources op) == [member ^. #identity]
+                                            ] of
+                                      [member] ->
+-                                       plannedAction op == VerifyResource
++                                       False
+                                          || ( plannedAction op `elem` [CreateResource, UpdateResource]
+                                                 && member ^. #dataPolicy == Stateless
+                                                 && (case member ^. #address of Kubernetes _ "" kind (Just _) _ -> nameText kind == "configmap"; _ -> False)

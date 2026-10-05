@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Execute/Driver.hs b/cli/nagarectl/src/Nagare/Inventory/Execute/Driver.hs
+index 4e0823f8..36a4cdc5 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/Execute/Driver.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Execute/Driver.hs
+@@ -354,7 +354,7 @@ runOperations locked registry transaction reviewed initialEvents operations reco
+       preflight <- adapterPreflight adapter operation prepared
+       case preflight of
+         Left reason
+-          | Map.findWithDefault Pending operationId (operationStates transaction events) /= Pending -> do
++          | False -> do
+               -- F57: a retry the adapter proved safe (the earlier attempt had
+               -- no effect) refused again before any new effect. Journal that
+               -- no-effect refusal so the operator can abandon it.

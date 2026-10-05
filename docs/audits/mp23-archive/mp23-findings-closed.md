@@ -1004,3 +1004,121 @@ The transaction then had no supported exit. `inventory recover … abandon-refus
 - `db backup-receipts f49c-throwaway --backup-id 43925446… --save-plan DIR` exited 1 with `invalid-scheduled-ingest` "scheduled receipt source is not the accepted database incarnation; it was replaced outside Nagare". The save directory was absent before and after, and the head stayed at generation 1520, sequence 1397.
 - The incarnations were unchanged after the attempt. The store is idle (generation 1524, sequence 1399).
 With the drill v2 results above and the reviewer's mutations, every part of the stated failure is corrected natively: status reports the replacement, and receipts from the replaced incarnation do not ingest, list or count toward freshness. **Closed.** The fail-open recording limits are documented in ADR 22. The adjacent defects [F51](../mp23-findings.md#f51) and [F52](../mp23-findings.md#f52) stay Open, deferred by operator decision.
+
+## F51
+
+**Retirement retains an out-of-band replacement's identity instead of the accepted incarnation** — P2; **Closed**; owners EP-153 / EP-159.
+
+**Native evidence (2026-10-04, candidate `847543896d07`, C2 context on cp3; F49 drill v2, implementer nagare-phase-b, [results](../mp23-implementer-results-2026-10-03/ep159-source-replacement-84754389.json)):** the throwaway's accepted incarnations were StatefulSet `770c18c5…` and PVC `241e2475…`. After the out-of-band replacement, status correctly reported `replaced-incarnation`. The joint `inventory retire` of the database and receipt A's scope then converged. Independent read of the head by nagare-reviewer: `retained` carries the *replacement* UIDs, StatefulSet `b131b5a7-779d-4f19-843e-3a5e78be5306` and PVC `4a6d653c-53fb-4630-99fc-902be522632d`. The `incarnations` entries for the throwaway were dropped.
+
+**Cause (source):** `releaseClaimWith` drops incarnation records for retained members, "since `retained` carries their identity". But retirement records the identity it observes at retirement, not the recorded incarnation. A retirement review never compares the two.
+
+**Why it matters:** this is the laundering ADR 22's F49 amendment rules out ("a later review never launders an object that replaced the accepted one outside Nagare"), only through retirement instead of update or verify. Retained history then names an object Nagare never accepted:
+- a later reviewed collection would target the replacement;
+- retained-data operations would treat the replacement PVC, possibly empty, as the retained data.
+
+**Required repair/verification:** retirement of a member whose observed UID differs from its recorded incarnation must refuse, naming the member. Or it must retain the recorded incarnation and mark it absent or replaced, never the replacement's UID. Regression: retiring a scope with a replaced member never puts the replacement UID in `retained`. Native: on a throwaway, after an out-of-band replacement, the retirement refuses or retains the accepted identity.
+
+**Operator decision (2026-10-04, in session nagare-phase-b):** deferred as a known limitation of this release, to be documented in ADR 22 and the release notes and fixed in a follow-up. It does not block MP-23 completion.
+
+**Operator decision (2026-10-04, superseding the deferral above; [retrospective](../mp23-engineering-retrospective-2026-10-04.md) §6):**
+- Un-deferred. Fix it in MP-23. It blocks MP-23 completion.
+- The fix lands with a class-level interpreter regression under [ADR 25](../../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md), [EP-173](../../plans/173-find-recovery-defects-with-adversarial-provider-interpreters.md) M2's incarnation invariant. The regression must fail on the pre-fix source.
+**Implementation update (2026-10-05; claude-opus-5-5):**
+- A retention proof (`buildRetentionProofs` in `src/Nagare/Inventory/Plan/Changes.hs`) now names the member's recorded incarnation when the head has one, and the observed object only when it has none. Retained history therefore never names an object that replaced the accepted one outside review.
+- Retirement is not refused. ADR 22's documented exit for a replaced database is to retire and recreate it, and a refusal would remove that exit.
+- Consumers of retained history already compare a retained UID with the live object:
+  - status reports the replacement as `replaced-incarnation`;
+  - a reviewed collection refuses it;
+  - retained-data operations refuse it.
+- **Regression:** EP-173's recovery model, scenario "create with a durable volume, then retire". I3's retirement clause requires every retained entry to carry the member's last recorded incarnation. On the pre-fix source, the model fails under `Replaced` on the PVC before retirement ("retirement retained …/uploads/pvc under a UID other than its accepted incarnation"). With the fix it passes.
+
+**Independent verification (2026-10-05, nagare-84 as reviewer; master `efa687b3`; observed unless marked inferred).** Mutation runs, each a scratch-worktree build plus the named tests; the diffs are in [`cli/nagarectl/test/mutations/`](../../../cli/nagarectl/test/mutations/README.md):
+- `F51-retention-proof-uses-observed.diff` (the retention proof takes the observed UID again, `Plan/Changes.hs` `buildRetentionProofs`) fails the recovery model's fast tier: "I3: retirement retained application:model-web/uploads/pvc under a UID other than its accepted incarnation", under `Replaced` at observation boundaries in "create with a durable volume, then retire".
+- **Class coverage (ADR 25):** the recovery model's retire scenario with the `Replaced` fault at every observe boundary, invariant I3 (retirement clause). Every retention proof is built by `buildRetentionProofs`, which retirement and scope replacement share.
+- **Why the interpreters missed it before:** no world produced a replaced object until EP-173 M2 added the `Replaced` fault.
+- **Closed** for the stated failure (retirement). The same harm reached through a migration's source, where a rename copies from and retains a replaced source, is a separate code path and is opened as [F62](../mp23-findings.md#f62).
+
+## F54
+
+**A landed application Service update whose new revision never becomes Ready has no reviewed exit, so the store stays wedged** — P1; **Closed**; owners EP-153 / EP-156.
+
+**Native evidence (2026-10-04/05, nagare-reviewer, phase 3a on the acceptance C3 `mp23-c3i`, candidate `847543896d07`, operator-approved bounded sequence):**
+- A throwaway application `rvf16` (scope `application:rvf16`: PostgreSQL `rvf16-pg` plus a web Service with a 64-CPU request) was created with review `22572096…`. Apply stopped ambiguous after 354 s at the never-ready Service create.
+- `stop-incomplete-application` ended it in 11 s. Ownership was retained: Service `442ecbcb…`, StatefulSet `308a3ea3…`, PVC `6df5e086…`. A known row was written.
+- The corrected review `44577a2c…` (100m CPU) was saved: 3 never-started creates, 1 conditional Service update and verifies. Its apply was killed with SIGKILL after 15 s, and `inventory resume` ran 346 s.
+- The conditional update **landed on the original Service UID** (generation 2 observed). But revision `rvf16-00002` crash-loops: the borrowed `scenario-b` image needs `REDIS_URL`, a reviewer fixture error, standing in for any bad application change. The resume stopped `ambiguous … at op-7a4cc6b7364a9ad834f551a9`.
+- `inventory recover … stop-incomplete-application` for that operation refused with `unsupported-recovery: adapter did not prove the operator's requested action`.
+- `tx-44577a2c…` stays active (generation 964), and every other plan on the store is refused. No out-of-band repair was made, per the stop rule.
+
+**Cause (source, reviewer read):** `Plan/History.incompleteApplicationOnlyReview` admits a stop of an `UpdateResource` only when the update was never intended (`neverIntended`). That is F30's never-started branch; F16's branch covers unready creates. Once a Service update has landed, adapter recovery reports `RecoveryAwaitingReadiness`. Resume can only wait again. `abandon-refused-operation` needs a pending or `Failed (KnownNoEffect)` state. No decision can end the transaction while the new revision cannot become Ready. Only an unreviewed edit of the live Service, or the application becoming Ready by itself, can release the store.
+
+**Why it matters:** a bad application change (a crashing image, missing configuration, a failing readiness probe) is the most ordinary failure an operator meets. It blocks the whole context's inventory, including other applications, backups, restores and staged teardown, until someone writes to the cluster outside review. This is the update counterpart of F16.
+
+**Required repair/verification:**
+- Give a landed but unready application Service update a reviewed, bounded exit. For example, extend `stop-incomplete-application` to an intended update whose landed object the adapter proves is exactly the reviewed one (UID, generation, the reviewed spec digest and exclusive ownership) and unready. It must keep the scope at its last converged revision, record the landed incarnation, never claim convergence, and let a new corrected review update the same Service.
+- Regression: an update that lands and never becomes Ready can be stopped, and a corrected review then converges on the same UID with the data preserved.
+- Native: repeat this sequence on a fresh candidate context: create, stop, a bad correction, stop, a good correction that converges with the same Service, StatefulSet and PVC UIDs and the known row.
+
+**Current state of `mp23-c3i`:** the transaction is active and claim-free. Data and ownership are intact: the known row `1|rvf16-d747f5b7-before-correction` was written to `rvf16-pg`. The operator decides how the context continues (see the reviewer's report).
+
+**Implementation update (2026-10-04, nagare-phase-b; operator decision: fix before release):** `stop-incomplete-application` now accepts an intended Service update when the adapter proves the landing exactly.
+- **Adapter:** recovery returns the stop-only decision `RecoveryLandedUnready` for an `UpdateResource` on a Knative Service only when all of these hold:
+  - the observed object has the reviewed before-state's UID and owner;
+  - its digest is the reviewed spec digest;
+  - a guarded live read with managed fields (`confirmLandedUnready`) shows the same UID and resourceVersion;
+  - `generation` equals `status.observedGeneration`;
+  - no writer other than `nagare-inventory` owns a non-status field;
+  - Ready is not True.
+
+  The production adapter receives the live reader. Without it, nothing is proved.
+- **Review check:** `Plan/History.incompleteApplicationOnlyReview` takes a `LandedUpdateProof`. With the proof, the selected update's journal may hold only `IntentRecorded`, `Ambiguous` and the stop marker. Companions must still be Completed, or never-intended ConfigMap creates ordered after the Service. A weaker `RecoveryAwaitingReadiness` for an intended update still refuses.
+- **Resume** still stops ambiguous at a landed update.
+- **The stop** keeps admitted ownership and the prior converged revision. A corrected review then updates the same Service in place.
+- **Regressions:** `test/InventoryLandedUpdateStopSpec.hs`.
+  - The adapter proof refuses eight cases: changed spec, replaced object, unowned, another owner, foreign field owner, unobserved generation, moved between reads, Ready.
+  - A landed update stops with head accepted/converged unchanged; the corrected review plans `UpdateResource` on the same Service plus the never-started ConfigMap create, and converges.
+  - An extra uncertain companion, a missing landing proof, or a weaker readiness decision each refuses.
+- **Mutation proof:** removing each guard fails a named test. The one equivalent mutant is the adapter's `owner == mutationResource` check, which `previousOwner == owner` implies because the reviewed before-state is owned by this resource; it is kept as defence in depth.
+- **Not changed:** the planning-history proof of never-started members. It releases only durable members, and an update stop's companions are stateless.
+- [ADR 22](../../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md) and the [inventory runbook](../../runbooks/inventory-operations.md) record the boundary.
+
+Native proof on `mp23-c3i` awaits the operator's approval of the bounded sequence:
+1. stop `tx-44577a2c…` with the fixed CLI;
+2. apply a corrected rvf16 review (literal `REDIS_URL`) and check Service `442ecbcb…`, StatefulSet `308a3ea3…` and PVC `6df5e086…` plus the known row;
+3. confirm a zero-operation replan.
+
+**Verification, source and interpreter level (2026-10-05, nagare-reviewer, `96d38d67`):** native work is on hold by operator decision (nagare-9's proposal). The diff was read in a private worktree.
+- **Adapter:** `RecoveryLandedUnready` needs all of: the before-UID and owner, the reviewed spec digest, a live read with managed fields at the same UID and resourceVersion, generation equal to observedGeneration, no foreign non-status manager, and Ready not True.
+- **History:** admits an intended update only with that proof, and only in `IntentRecorded` or `Ambiguous`.
+- **Driver:** resume still stops ambiguous.
+- **Tests:** all 1,193 tests pass, including the three `InventoryLandedUpdateStopSpec` cases.
+- **Reviewer mutations:** removing History's landed admission fails 2 tests. Disabling the generation, Ready, ownership, spec-digest or before-UID check each fails the adapter-proof test.
+- **Two mutants survive, as test gaps rather than defects:**
+  - letting History accept any state for the landed update. The recovery-state gate in `Recovery.hs` likely already refuses completed or failed operations, so this is untested defence in depth.
+  - making the driver treat `RecoveryLandedUnready` as "continue" (`pure Nothing`). No regression proves that resume of a landed, unready update stops ambiguous without a second write.
+- **Requested:** a regression for the resume behaviour, and one for a completed update refusing the stop.
+- **Next check:** the native stop and corrected convergence on `mp23-c3i` (`tx-44577a2c…`), once the operator lifts the native hold. EP-173's stuck-state model should also cover this class.
+
+**Reviewer read of the native run (2026-10-05, nagare-reviewer):** nagare-phase-b ran the native F54 sequence on `mp23-c3i` under an operator approval given in its session before the native hold reached it. The CLI was frozen `96d38d67` with the platform root pinned to the `847543896d07` workspace.
+- (a) The stop of `tx-44577a2c…` at `op-7a4cc6b7…` succeeded.
+- (b) The corrected review converged as `tx-5160965a…`.
+- (c) A replan had 0 operations.
+The reviewer's independent read-only check afterwards:
+- Service `442ecbcb-9b03-41af-9543-0e293089585e` at generation 3, observed 3, Ready True, latest ready revision `rvf16-00003`. Managers are only `nagare-inventory` (Apply, Update) and `controller` (status).
+- StatefulSet `308a3ea3-2cd2-4942-98df-a6ecce29ec62` and PVC `6df5e086-0b2b-419c-a633-10ac9f484e48` are unchanged, and `rv_known` returns `1|rvf16-d747f5b7-before-correction`.
+- The store is idle at generation 993.
+So the stated failure is corrected natively, and the store is no longer wedged. **F54 stays Verifying** until both of these exist: the operator's model-first rule (EP-173 M1–M2 stuck-state model, dad4d632), and the two regressions for the surviving mutants, which nagare-phase-b is adding.
+
+**Reviewer re-check of the regression gaps (2026-10-05, `d58218d0`, test-only):** all 1,194 tests pass. Both previously surviving mutants now fail a named regression:
+- the driver's `RecoveryLandedUnready _ -> pure Nothing` fails "resume of a landed unready update stops ambiguous without a second write";
+- History's `landedUpdate = onlyStates (const True)` fails "landed update stop refuses an extra uncertain operation and an unproved landing".
+Every F54 guard is now pinned by a regression. F54 stays Verifying only for the operator's model-first rule (the EP-173 M1–M2 stuck-state model).
+
+**Archived raw evidence (2026-10-05, nagare-84):** the phase-3a sequence that wedged `mp23-c3i` is in [`phase3a-seq-mp23-c3i/`](../mp23-independent-results-2026-10-04/phase3a-seq-mp23-c3i/README.md). nagare-phase-b's native F54 run (driver, step logs, reviews, status before and after) is in [`f54-native-mp23-c3i/`](../mp23-implementer-results-2026-10-03/f54-native-mp23-c3i/README.md).
+
+**Independent verification (2026-10-05, nagare-84 as reviewer; master `efa687b3`; observed unless marked inferred).** Mutation runs, each a scratch-worktree build plus the named tests; the diffs are in [`cli/nagarectl/test/mutations/`](../../../cli/nagarectl/test/mutations/README.md):
+- `F54-landed-unready-recovery.diff` (the adapter no longer answers `RecoveryLandedUnready`) and `F54-stop-admits-landed-update.diff` (the stop admits only never-intended updates) each fail the recovery model with "I1: stopped (ambiguous) with no supported exit" in the bad-update scenarios, with no injected fault needed.
+- **Class coverage:** the three bad-update scenarios plus `LandsUnready` at every write, invariants I1, I2 and I4. This meets the operator's model-first rule (EP-173 M1–M2). The native correction on `mp23-c3i` and `d58218d0`'s regressions confirm it.
+- **Why the interpreters missed it before:** the in-memory driver never modelled "update lands, never becomes Ready".
+- **Closed.** A non-Knative update that lands unready (a Deployment or a database StatefulSet) still answers `RecoveryUnresolved` (`Adapters/Kubernetes.hs`, `landedUpdate` is Knative-only). That is outside this finding's stated scope and is opened as [F63](../mp23-findings.md#f63).

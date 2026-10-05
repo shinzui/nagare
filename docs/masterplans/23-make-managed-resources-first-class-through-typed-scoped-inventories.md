@@ -336,6 +336,11 @@ provenance:
       at: 2026-10-05T14:39:49Z
       mode: "implement"
       note: "Resume after session loss: finish F58 absence proofs, refresh finding register and candidate supersession"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-05T19:59:39Z
+      mode: "update"
+      note: "Independent verification: F51, F54 closed; F59 reopened Partial; F61-F63 opened"
   reviews:
     - model: "claude-fable-5-1"
       harness: "claude-code"
@@ -488,9 +493,10 @@ This list says what remains before MP-23 is complete. It was agreed between sess
 
 **Independent verification** (owner reviewer, arranged by the user; implementer sessions never self-close)
 - [ ] Close every finding that is not yet Closed, per the [tracker](../audits/mp23-findings.md)'s closure rule:
-  - Open: F48
-  - Partial: F40
-  - Verifying: F15, F16, F30, F31, F32, F33, F39, F43, F44, F45, F46, F47, F51, F52, F53, F54, F55, F56, F57, F58, F59
+  - Open: F48, F61, F62, F63 (F61–F63 opened 2026-10-05 by independent verification; model reproductions pending)
+  - Partial: F40, F59 (F59 reopened 2026-10-05: its post-stop exit fails for standalone databases)
+  - Verifying: F15, F16, F30, F31, F32, F33, F39, F43, F44, F45, F46, F47, F52, F53, F55, F56, F57, F58
+  - Closed 2026-10-05 by independent verification: F51, F54
   - Deferred by the operator: F60 (the F49 fail-open-recording ledger item)
 
   (Register as of 2026-10-05. The independent reviewer closed F34–F38, F41, F42, F49 and F50 on 2026-10-04.)

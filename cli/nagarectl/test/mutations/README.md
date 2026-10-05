@@ -24,11 +24,26 @@ git worktree remove --force "$SCRATCH/mut"
 | `F59-statefulset-create-awaits-readiness.diff` | an unready created StatefulSet recovers as awaiting readiness | I1 under `LandsUnready` on the database StatefulSet create (1 violation) |
 | `F59-standalone-statefulset-stop.diff` | the stop admits a standalone scope's StatefulSet create | I1 under `LandsUnready` on the database StatefulSet create (1 violation) |
 | `F59-statefulset-pending-companions.diff` | never-started companions of a stopped StatefulSet create are admitted | I1 under `LandsUnready` on the database StatefulSet create (1 violation) |
+| `F51-retention-proof-uses-observed.diff` | a retention proof names the member's recorded incarnation, not the observed object | I3 retirement clause under `Replaced` in "create with a durable volume, then retire" (independent review, 2026-10-05, at `efa687b3`) |
+| `F54-landed-unready-recovery.diff` | recovery answers `RecoveryLandedUnready` for an exactly landed unready Service update | I1 in the bad-update scenarios, no fault needed (independent review, 2026-10-05) |
+| `F54-stop-admits-landed-update.diff` | the stop admits a proved landed update, not only a never-intended one | I1 in the bad-update scenarios (independent review, 2026-10-05) |
+| `F55a-companion-rule-create-configmap-only.diff` | the stop admits verifies and creates or updates of OrderedAfter stateless ConfigMaps | I1 in the history-follows and durable-volume scenarios (independent review, 2026-10-05) |
+| `F55b-companion-rule-no-verify.diff` | the stop admits never-started verifies | I1 in the durable-volume scenario (independent review, 2026-10-05) |
+| `F55c-replan-any-never-started.diff` | only a never-started create may be replanned as a create | "a durable member only verified by a stopped update is never replanned or retired as absent (F55, F58)"; run with `-p "application update recovery"` (independent review, 2026-10-05) |
+| `F56-target-replaced-recovery.diff` | recovery answers `RecoveryTargetReplaced` for a landed update whose Service was replaced | I1 under `Replaced` (independent review, 2026-10-05) |
+| `F56-stop-accepts-replaced.diff` | the stop accepts `RecoveryTargetReplaced` | I1 under `Replaced` (independent review, 2026-10-05) |
+| `F57a-verify-safe-to-retry.diff` | a verify's recovery is safe to retry | I1 under `Replaced` (independent review, 2026-10-05) |
+| `F57b-journal-no-effect-refusal.diff` | a retry refused by preflight is journalled as a no-effect failure | I1 under `Replaced` (independent review, 2026-10-05) |
 | `F58-absence-proof-holds-no-data.diff` | only a stateless or never-started member may leave history as absent | "a durable member only verified by a stopped update is never replanned or retired as absent (F55, F58)": the deleted volume is retired as absent |
 | `F58-admission-absence-recheck.diff` | admission re-observes absence-proved members | "retirement drops a confirmed-absent stateless member only while it stays absent (F58)": the reappeared member is dropped and the retirement converges |
 
 The two F58 records are caught by focused regressions rather than by the model;
 run them with `-p "application update recovery"`.
+
+One mutant did not fail and is not a record: disabling `migrates action` in
+`Execute/Incarnations.hs` `establishes` (F52's convergence half) passes every F52
+test and the whole model, so nothing yet checks that a rename's new objects are
+recorded at convergence (the tracker's F52 verification).
 
 F50's guard (a transient failed `gcloud` read in the state-bucket ownership check)
 is not reachable from the Kubernetes or store worlds; its record waits for

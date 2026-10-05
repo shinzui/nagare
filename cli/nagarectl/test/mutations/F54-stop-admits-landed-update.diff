@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Plan/History.hs b/cli/nagarectl/src/Nagare/Inventory/Plan/History.hs
+index 33daa790..b0410c32 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/Plan/History.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Plan/History.hs
+@@ -334,7 +334,7 @@ incompleteApplicationOnlyReview landed published events transaction operationId
+       pendingUpdate scope =
+         plannedAction operation == UpdateResource
+           && scopeKind (scopeId scope) == Application
+-          && (neverIntended operationId || (landed == LandedUpdateProved && landedUpdate operationId))
++          && neverIntended operationId
+           && all
+             ( \entry ->
+                 let op = reviewPlannedOperation entry
