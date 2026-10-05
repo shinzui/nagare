@@ -19,6 +19,7 @@ import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KM
 import Data.Aeson.Types (Parser, parseEither)
 import Data.ByteString (ByteString)
+import Data.Foldable (toList)
 import Data.Generics.Labels ()
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
@@ -31,7 +32,7 @@ import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes (KubernetesMutation (..))
 import Nagare.Inventory.Adapters.KubernetesRuntime (completedJobContainerMessageFromPodList)
 import Nagare.Inventory.Digest (contentDigest)
-import Nagare.Inventory.Journal (FailureClass (KnownNoEffect), OperationId)
+import Nagare.Inventory.Journal (FailureClass (KnownNoEffect), OperationId, operationIdText)
 import Nagare.Inventory.KubernetesTransport (KubernetesRuntimeConfig (..), invokeKubectl)
 import Nagare.Inventory.Migration (MigrationInput (..), MigrationTarget (..))
 import Nagare.Inventory.Migration.PostgresRename
@@ -42,6 +43,7 @@ import Nagare.Resource.Inventory (CompositionCandidate, Executor (KubernetesExec
 import Nagare.Resource.Policy (RecoveryClass (Idempotent))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire ()
+import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..))
 
 -- | What a reviewed rename planner knows that execution must not recapture:
@@ -212,7 +214,8 @@ kubernetesMigrationAdapter config planning base =
         fenced <- writerFenced bundle
         source <- sourceOwned bundle
         destination <- destinationOwned bundle
-        pure (fenced >> source >> void destination)
+        unmounted <- destinationUnmounted bundle
+        pure (fenced >> source >> void destination >> unmounted)
       (stageName, _)
         | stageName `elem` [BackUpSource, FenceWriters, RetainSource] -> sourceOwned bundle
         | otherwise -> void <$> destinationOwned bundle
@@ -496,9 +499,34 @@ kubernetesMigrationAdapter config planning base =
         dataDigest <- contentDigest <$> canonicalValue (Object expected)
         proof bundle ["destinationPhysical" .= uid, "dataDigest" .= dataDigest]
 
-    runTransfer bundle mode = do
+    -- F61: nothing but this migration's transfer Jobs may mount the
+    -- destination while it is copied, so an interrupted copy's partial data is
+    -- only ever this migration's.
+    destinationUnmounted bundle = do
       let facts = bundle ^. #scope
-          job = transferJob facts (bundle ^. #operation) mode (addressName (bundle ^. #sourceAddress)) (addressName (bundle ^. #destinationAddress))
+          claim = String (nameText (addressName (bundle ^. #destinationAddress)))
+          operation = toJSON (bundle ^. #operation)
+          items pods = case valueAt ["items"] pods of
+            Just (Array entries) -> toList entries
+            _ -> []
+          mounts pod = case valueAt ["spec", "volumes"] pod of
+            Just (Array volumes) -> any (\volume -> valueAt ["persistentVolumeClaim", "claimName"] volume == Just claim) (toList volumes)
+            _ -> False
+          transferPod pod = valueAt ["metadata", "labels", "nagare.dev/migration-operation"] pod == Just operation
+      result <- invokeKubectl config ["get", "pods", "--namespace", T.unpack (nameText (facts ^. #namespace)), "-o", "json"] ""
+      pure $ case result of
+        Right (ExitSuccess, output, _) -> do
+          pods <- first T.pack (eitherDecodeStrict (TE.encodeUtf8 (T.pack output)))
+          case [fromMaybe "unnamed pod" (textAt ["metadata", "name"] pod) | pod <- items pods, mounts pod, not (transferPod pod)] of
+            [] -> Right ()
+            names -> Left ("the rename destination is mounted by " <> T.intercalate ", " names)
+        _ -> Left "the destination's pods could not be listed"
+
+    runTransfer bundle mode = do
+      transaction <- lookupEnv "NAGARE_INVENTORY_TRANSACTION"
+      let facts = bundle ^. #scope
+          mark = maybe "" T.pack transaction <> " " <> operationIdText (bundle ^. #operation)
+          job = transferJob facts mark (bundle ^. #operation) mode (addressName (bundle ^. #sourceAddress)) (addressName (bundle ^. #destinationAddress))
           name = transferJobName (bundle ^. #operation) mode
           address = Kubernetes (writerCluster bundle) "batch" (unsafeName "job") (Just (facts ^. #namespace)) (unsafeName name)
           timeout = if mode == TransferCopy then 900 else 600

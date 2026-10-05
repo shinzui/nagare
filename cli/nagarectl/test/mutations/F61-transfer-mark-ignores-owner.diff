@@ -6,7 +6,7 @@ diff --git a/cli/nagarectl/src/Nagare/Inventory/Migration/PostgresRename.hs b/cl
      , "source_manifest=$(manifest \"$src\")"
      , "if [ \"$MODE\" = copy ]; then"
 -    , "  if [ -z \"$(cd \"$dst\" && find . -mindepth 1 -maxdepth 1 ! -name lost+found -print)\" ] || { [ -f \"$mark\" ] && [ \"$(cat \"$mark\")\" = \"$TRANSFER_MARK\" ]; }; then"
-+    , "  if [ -z \"$(cd \"$dst\" && find . -mindepth 1 -maxdepth 1 ! -name lost+found -print)\" ]; then"
++    , "  if [ -z \"$(cd \"$dst\" && find . -mindepth 1 -maxdepth 1 ! -name lost+found -print)\" ] || { [ -f \"$mark\" ] && true; }; then"
      , "    ( cd \"$dst\" && find . -mindepth 1 -maxdepth 1 ! -name lost+found ! -name .nagare-transfer-incomplete -exec rm -rf {} + ) || fail 'clearing an incomplete copy failed'"
      , "    printf '%s' \"$TRANSFER_MARK\" > \"$mark\" || fail 'copy failed'"
      , "    cp -a \"$src\"/. \"$dst\"/ || fail 'copy failed'"

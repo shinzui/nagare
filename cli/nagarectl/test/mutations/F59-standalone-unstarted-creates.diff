@@ -1,11 +1,10 @@
 diff --git a/cli/nagarectl/src/Nagare/Inventory/Plan/History.hs b/cli/nagarectl/src/Nagare/Inventory/Plan/History.hs
 --- a/cli/nagarectl/src/Nagare/Inventory/Plan/History.hs
 +++ b/cli/nagarectl/src/Nagare/Inventory/Plan/History.hs
-@@ -505,7 +505,7 @@
+@@ -518,6 +518,7 @@
                  Set.member owner selectedOwners
-                   -- A stopped standalone data service (F59) leaves never-started
-                   -- members too, such as its backup signing key.
--                  && scopeKind owner `elem` [Application, Standalone]
+                   -- A stopped or closed scope of any kind (F59, ADR 26) leaves
+                   -- never-started members, such as a database's signing key.
 +                  && scopeKind owner == Application
                    && Map.lookup owner (headConverged headValue) /= Just revision
              )

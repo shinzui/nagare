@@ -701,6 +701,18 @@ That design is also what this finding's follow-up work needs. The model's F60 to
   - `test/InventoryTransferScriptSpec.hs`, which runs the real script under `bash` on temporary volumes: an empty destination is copied, a marked partial one is redone, an unmarked differing one is refused, and verification refuses a destination that is still marked.
 - **Mutation.** `test/mutations/F61-transfer-redoes-incomplete-copy.diff`.
 
+**Implementation update, reviewer's conditions (2026-10-05; claude-opus-5-5; EP-175 M2):** the
+mark now carries the transaction and operation (`TRANSFER_MARK`, which `runTransfer` sets from the
+active transaction). A redo requires that exact mark. The transfer preflight refuses while any pod
+other than this migration's transfer Jobs mounts the destination claim. The destination's identity
+is still its stamped, reviewed claim name; its recorded UID arrives with EP-176. ADR 26 §4 now
+describes this mark-bound redo.
+- **Tests:** `test/InventoryTransferScriptSpec.hs` adds "a copy refuses a destination another
+  migration's copy left marked". `test/InventoryPostgresRenameSpec.hs` adds "a transfer refuses
+  while another pod mounts the destination (F61)".
+- **Mutations:** `F61-transfer-mark-ignores-owner` and `F61-transfer-ignores-mounts`, plus the
+  regenerated `F61-transfer-redoes-incomplete-copy`.
+
 ## F62
 
 **A reviewed rename copies from, and retains, a source replaced outside review** — P2; **Open**; owner EP-153 / EP-173.

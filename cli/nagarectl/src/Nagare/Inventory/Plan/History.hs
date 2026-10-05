@@ -44,6 +44,7 @@ import Nagare.Inventory.Journal
   , transactionIdText
   , validateJournal
   )
+import Nagare.Inventory.Plan.CloseRecord (CloseRecord (closedDesired, closedNeverStarted), closedRecordDigest, loadCloseRecord)
 import Nagare.Inventory.Plan.Publication (loadPublishedReview)
 import Nagare.Inventory.Plan.Types
   ( InventoryHistory (..)
@@ -120,6 +121,8 @@ import Nagare.Resource.Types
   , ScopeKind (Application, Standalone)
   , mkContentDigest
   , nameText
+  , resourceIdText
+  , scopeIdText
   , scopeKind
   )
 import Nagare.Resource.Wire (decodeScope, encodeCanonicalScope)
@@ -496,16 +499,25 @@ loadUnstartedApplicationCreates store selectedOwners headValue
         Left err -> pure (Left err)
         Right events -> do
           proofs <- traverse (loadProof events) [event | event <- events, stopped event]
-          pure (Set.unions <$> sequence proofs)
+          -- ADR 26: a close records the creates that never started and were
+          -- absent at close; they hold while the scope's accepted revision is
+          -- still the closed review's desired revision.
+          closes <- traverse (loadCloseRecord store) [digest | event <- events, Just digest <- [closedRecordDigest (eventTransaction event) [event]]]
+          let closed =
+                Set.unions
+                  [ Set.filter (\resource -> any (\scope -> ownedBy scope resource && Map.lookup scope (headAccepted headValue) == Map.lookup scope (closedDesired record)) (Set.toList selectedOwners)) (closedNeverStarted record)
+                  | Right record <- closes
+                  ]
+              ownedBy scope resource = (scopeIdText scope <> "/") `T.isPrefixOf` resourceIdText resource
+          pure ((closed <>) . Set.unions <$> sequence proofs)
   where
     incomplete =
       Map.keysSet
         ( Map.filterWithKey
             ( \owner revision ->
                 Set.member owner selectedOwners
-                  -- A stopped standalone data service (F59) leaves never-started
-                  -- members too, such as its backup signing key.
-                  && scopeKind owner `elem` [Application, Standalone]
+                  -- A stopped or closed scope of any kind (F59, ADR 26) leaves
+                  -- never-started members, such as a database's signing key.
                   && Map.lookup owner (headConverged headValue) /= Just revision
             )
             (headAccepted headValue)

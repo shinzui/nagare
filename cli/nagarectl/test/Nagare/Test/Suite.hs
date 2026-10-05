@@ -19,6 +19,7 @@ import InventoryArtifactSpec (inventoryArtifactTests)
 import InventoryAuthSpec (inventoryAuthTests)
 import InventoryCacheSpec (inventoryCacheTests)
 import InventoryCdnSpec (inventoryCdnTests)
+import InventoryCloseSpec (inventoryCloseTests)
 import InventoryCloudCollectionSpec (cloudCollectionTests)
 import InventoryCloudSpec (inventoryCloudTests)
 import InventoryCompanionCollectionSpec (inventoryCompanionCollectionTests)
@@ -203,6 +204,7 @@ main = do
             , inventoryRecoveryModelTests
             , inventoryRenameRecoveryModelTests
             , inventorySettleTests
+            , inventoryCloseTests
             , inventoryTransferScriptTests
             , inventoryRefusedPreflightRecoveryTests
             , inventoryContributionRetirementTests

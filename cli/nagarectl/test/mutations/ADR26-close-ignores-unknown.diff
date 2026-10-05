@@ -1,0 +1,12 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Execute/Close.hs b/cli/nagarectl/src/Nagare/Inventory/Execute/Close.hs
+--- a/cli/nagarectl/src/Nagare/Inventory/Execute/Close.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Execute/Close.hs
+@@ -186,7 +186,7 @@
+         (_, Just why) -> pure (failure "resume-progresses" ("resume can still progress: " <> why <> "; run inventory resume first"))
+         (_, Nothing) -> do
+           classes <- Map.fromList <$> traverse (\entry -> (plannedOperationId (reviewPlannedOperation entry),) <$> classify registry reviewed transaction states entry) entries
+-          case [(operation, reason, resolvesBy) | (operation, ClassUnknown reason resolvesBy) <- Map.toList classes] of
++          case [(operation, reason, resolvesBy) | (operation, ClassUnknown reason resolvesBy) <- Map.toList classes, False] of
+             unknowns@(_ : _) ->
+               pure
+                 ( Left

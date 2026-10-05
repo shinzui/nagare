@@ -34,6 +34,7 @@ module Nagare.Inventory.Command
   , resumeInventoryWithFactory
   , resumeInventoryWithFactoryTakeover
   , recoverInventoryWithFactory
+  , closeInventoryWithFactory
   , prepareRegistryRecoveryWithFactory
   , exportInventory
   , restoreInventory
@@ -615,7 +616,36 @@ recoverInventoryWithFactory registryFor target transactionToken operationToken d
   store <- openTargetStore target
   bundle <- loadPublishedReview store (recoveryReview input) >>= either (dieText . showText) pure
   registry <- registryFor store bundle
-  recordOperatorRecovery store registry input takeOver >>= either (dieText . showText . NE.toList) pure
+  if recoveryAction input `elem` closeAliases
+    then do
+      -- ADR 26: the stop and abandon actions are aliases of close, which
+      -- names the transaction; the operation only has to belong to it.
+      unless
+        (operation `elem` map (plannedOperationId . reviewPlannedOperation) (reviewOperations (reviewBundleDocument bundle)))
+        (dieText "the recovery decision names an operation outside the transaction's review")
+      record <- closeTransaction store registry (CloseInput transaction (recoveryReview input) takeOver) >>= either (dieText . showText . NE.toList) pure
+      TIO.putStr (renderCloseRecord record)
+    else do
+      recordOperatorRecovery store registry input takeOver >>= either (dieText . showText . NE.toList) pure
+      reportRecovery store transaction input
+  where
+    closeAliases = [StopIncompleteApplication, AbandonRefusedOperation, AbandonPartialPrune, AbandonPartialVolumeRestore, AbandonPartialDatabaseRestore]
+
+-- | ADR 26: close a stopped transaction by per-operation proof.
+closeInventoryWithFactory ::
+  (InventoryStore -> ReviewBundle -> IO AdapterRegistry) -> ActiveTarget -> Text -> Text -> Bool -> IO ()
+closeInventoryWithFactory registryFor target transactionToken reviewToken takeOver = do
+  rejectReentry
+  transaction <- either dieText pure (mkTransactionId transactionToken)
+  review <- either dieText pure (mkContentDigest reviewToken)
+  store <- openTargetStore target
+  bundle <- loadPublishedReview store review >>= either (dieText . showText) pure
+  registry <- registryFor store bundle
+  record <- closeTransaction store registry (CloseInput transaction review takeOver) >>= either (dieText . T.intercalate "\n" . map admissionErrorMessage . NE.toList) pure
+  TIO.putStr (renderCloseRecord record)
+
+reportRecovery :: InventoryStore -> TransactionId -> OperatorRecoveryInput -> IO ()
+reportRecovery store transaction input =
   case recoveryAction input of
     StopIncompleteApplication ->
       TIO.putStrLn "Incomplete application review stopped; ownership and data retained; inspect inventory status before saving a corrected review"
@@ -995,6 +1025,7 @@ renderTransactionResult result = case result of
   PausedAtBarrier transaction barriers -> "paused " <> transactionIdText transaction <> " at " <> T.pack (show (NE.length barriers)) <> " review barrier(s)"
   StoppedFailed transaction operation failureClass -> "stopped " <> transactionIdText transaction <> " at " <> operationIdText operation <> ": " <> showText failureClass
   StoppedAmbiguous transaction operation -> "ambiguous " <> transactionIdText transaction <> " at " <> operationIdText operation
+  Closed transaction -> "closed " <> transactionIdText transaction
 
 rejectReentry :: IO ()
 rejectReentry = do

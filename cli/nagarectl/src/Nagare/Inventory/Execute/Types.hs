@@ -129,6 +129,8 @@ data TransactionResult
   | PausedAtBarrier !TransactionId !(NonEmpty ReviewBarrier)
   | StoppedFailed !TransactionId !OperationId !FailureClass
   | StoppedAmbiguous !TransactionId !OperationId
+  | -- | ADR 26: the transaction was closed by per-operation proof.
+    Closed !TransactionId
   deriving stock (Eq, Show, Generic)
 
 transactionFor :: ReviewDocument -> TransactionId

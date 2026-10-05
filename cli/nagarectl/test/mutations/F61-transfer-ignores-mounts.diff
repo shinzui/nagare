@@ -1,0 +1,12 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesMigration.hs b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesMigration.hs
+--- a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesMigration.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesMigration.hs
+@@ -215,7 +215,7 @@
+         source <- sourceOwned bundle
+         destination <- destinationOwned bundle
+         unmounted <- destinationUnmounted bundle
+-        pure (fenced >> source >> void destination >> unmounted)
++        pure (fenced >> source >> void destination >> unmounted >> Right ()) >> pure (fenced >> source >> void destination)
+       (stageName, _)
+         | stageName `elem` [BackUpSource, FenceWriters, RetainSource] -> sourceOwned bundle
+         | otherwise -> void <$> destinationOwned bundle

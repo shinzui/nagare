@@ -35,7 +35,7 @@ git worktree remove --force "$SCRATCH/mut"
 | `F57a-verify-safe-to-retry.diff` | a verify's recovery is safe to retry | I1 under `Replaced` (independent review, 2026-10-05) |
 | `F57b-journal-no-effect-refusal.diff` | a retry refused by preflight is journalled as a no-effect failure | I1 under `Replaced` (independent review, 2026-10-05) |
 | `F58-admission-holds-no-data.diff` | admission accepts an absence proof only for a member that holds no data | "admission refuses an absence proof for a member that holds data (F58)" fails (run with `-p "application update recovery"`) |
-| `F59-standalone-unstarted-creates.diff` | never-started creates are computed for standalone scopes | database retirement after the F59 stop refuses `durable-resource-missing` on the unstarted signing key (2 violations) |
+| `F59-standalone-unstarted-creates.diff` | never-started creates are computed for every scope kind (regenerated at EP-175 M2 for the generalized guard) | database retirement after the F59 stop refuses `durable-resource-missing` on the unstarted signing key (2 violations) |
 | `F61-transfer-redoes-incomplete-copy.diff` | a copy redoes a destination marked incomplete | "a copy redoes a destination an interrupted copy left marked" fails (run with `-p "transfer script"`) |
 | `F63-statefulset-landed-update.diff` | a StatefulSet update can be proved landed and unready | I1 on the database StatefulSet update (3 violations) |
 | `F63-statefulset-readiness-by-replicas.diff` | StatefulSet readiness is judged by replica counts | I1 on the database StatefulSet update (3 violations) |
@@ -45,6 +45,11 @@ git worktree remove --force "$SCRATCH/mut"
 | `F65-create-stop-companions.diff` | the create-path stop admits never-started companions | I1 under `Deleted` when a review recreates the Service with its history update (4 violations) |
 | `ADR26-O1-kubernetes-settle-unknown.diff` | the Kubernetes adapter settles each operation to a proof class | I8: operations settle unknown at stops (fast tier) |
 | `ADR26-O6-verify-executes.diff` | the driver never executes a verification | "the driver never executes a verification (O6)" fails (run with `-p "settlement obligations"`) |
+| `ADR26-close-ignores-unknown.diff` | close refuses while any operation settles unknown | "close refuses while an operation is unproved, naming what would resolve it" fails (`-p "close by per-operation proof"`) |
+| `ADR26-close-keeps-retained-additions.diff` | a reverted scope's retained additions are removed with its revision | "a review in which nothing took effect reverts every changed scope and its retained additions" fails |
+| `ADR26-refused-retry-counts-as-progress.diff` | an operation already refused with no effect is not resume progress | I1 under `ForeignManager` (12 violations) |
+| `F61-transfer-mark-ignores-owner.diff` | only the same transaction and operation's mark may be redone | "a copy refuses a destination another migration's copy left marked" fails (`-p "transfer script"`) |
+| `F61-transfer-ignores-mounts.diff` | the transfer refuses while another pod mounts the destination | "a transfer refuses while another pod mounts the destination (F61)" fails |
 | `F58-absence-proof-holds-no-data.diff` | only a stateless or never-started member may leave history as absent | "a durable member only verified by a stopped update is never replanned or retired as absent (F55, F58)": the deleted volume is retired as absent |
 | `F58-admission-absence-recheck.diff` | admission re-observes absence-proved members | "retirement drops a confirmed-absent stateless member only while it stays absent (F58)": the reappeared member is dropped and the retirement converges |
 

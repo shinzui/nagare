@@ -123,7 +123,7 @@ inventoryPostgresRenameTests =
         assertLeft (parseTransferManifest (message digest other))
         assertLeft (parseTransferManifest "{\"error\":\"destination volume is not empty and differs from the source\"}")
         facts <- expectRight (renameScope oldNative newNative databaseOwner)
-        let job = transferJob facts (checked (mkOperationIdText "op-000000000000000000000001")) TransferCopy (checked (mkName "src")) (checked (mkName "dst"))
+        let job = transferJob facts "tx-test op-000000000000000000000001" (checked (mkOperationIdText "op-000000000000000000000001")) TransferCopy (checked (mkName "src")) (checked (mkName "dst"))
             volumes = jsonPath ["spec", "template", "spec", "volumes"] job
         assertBool
           "source claim is mounted read-only"
@@ -204,6 +204,17 @@ inventoryPostgresRenameTests =
           verifyRenamedWorld final
           length (filter (T.isPrefixOf "job.batch/nagare-migrate-") (final ^. #created))
             @?= 2
+    , testCase "a transfer refuses while another pod mounts the destination (F61)" $
+        withSystemTempDirectory "postgres-rename-mounted" $ \root -> do
+          (store, world, reviewed, executionRegistry') <- plannedRename root
+          let intruder = object ["metadata" .= object ["name" .= ("intruder" :: Text)], "spec" .= object ["volumes" .= [object ["persistentVolumeClaim" .= object ["claimName" .= ("nagare-db-pg-new-data" :: Text)]]]]]
+          modifyIORef' world (#objects %~ Map.insert ("pod", "default", "intruder") intruder)
+          result <- must (applyReviewed store executionRegistry' reviewed)
+          case result of
+            Converged _ -> assertFailure "the rename copied into a destination another pod mounts"
+            _ -> pure ()
+          final <- readIORef world
+          destinationCopies final @?= 0
     , testCase "a changed source incarnation refuses admission before any effect" $
         withSystemTempDirectory "postgres-rename-race" $ \root -> do
           (store, world, reviewed, executionRegistry') <- plannedRename root
@@ -349,6 +360,9 @@ respond arguments body state = case arguments of
     | Just selector <- flag "-l" rest
     , Just job <- T.stripPrefix "batch.kubernetes.io/job-name=" (T.pack selector) ->
         ok state (object ["items" .= [pod | ((kind, _, _), pod) <- Map.toList (state ^. #objects), kind == "pod", jsonPath ["metadata", "labels", "batch.kubernetes.io/job-name"] pod == Just (String job)]])
+  ("get" : "pods" : rest)
+    | Just namespace <- flag "--namespace" rest ->
+        ok state (object ["items" .= [pod | ((kind, podNamespace, _), pod) <- Map.toList (state ^. #objects), kind == "pod", podNamespace == T.pack namespace]])
   ("get" : kind : name : rest) ->
     let key = (T.pack kind, maybe "" T.pack (flag "--namespace" rest), T.pack name)
      in (state, Right (ExitSuccess, maybe "" encodeText (Map.lookup key (state ^. #objects)), ""))
@@ -417,6 +431,12 @@ runJob key@(_, namespace, name) job state =
       mode = case container >>= jsonPath ["env"] >>= firstVolume >>= jsonPath ["value"] of
         Just (String value) -> value
         _ -> ""
+      -- The mark the script writes: this Job's transaction and operation.
+      jobMark = case container >>= jsonPath ["env"] of
+        Just (Array entries) -> fromMaybe "" (listToMaybe [value | entry <- V.toList entries, jsonPath ["name"] entry == Just (String "TRANSFER_MARK"), Just (String value) <- [jsonPath ["value"] entry]])
+        _ -> ""
+      marked = incompleteMark <> jobMark <> ":"
+      redoable content = T.null content || marked `T.isPrefixOf` content
       claims = case jsonPath ["spec", "template", "spec", "volumes"] job of
         Just (Array entries) -> [claim | Just (String claim) <- map (jsonPath ["persistentVolumeClaim", "claimName"]) (V.toList entries)]
         _ -> []
@@ -425,12 +445,12 @@ runJob key@(_, namespace, name) job state =
           | mode == "copy"
           , state ^. #partialCopyOnce
           , T.null (Map.findWithDefault "" destination (state ^. #volumes)) ->
-              (Left ("copy failed" :: Text), Map.insert destination (incompleteMark <> "pgdata:partial") (state ^. #volumes))
+              (Left ("copy failed" :: Text), Map.insert destination (marked <> "pgdata:partial") (state ^. #volumes))
         [source, destination] ->
           let sourceContent = Map.findWithDefault "" source (state ^. #volumes)
               destinationContent = Map.findWithDefault "" destination (state ^. #volumes)
               -- F61: a copy redoes an empty or incompletely copied destination.
-              copied = if mode == "copy" && (T.null destinationContent || incompleteMark `T.isPrefixOf` destinationContent) then sourceContent else destinationContent
+              copied = if mode == "copy" && redoable destinationContent then sourceContent else destinationContent
            in if not (T.null sourceContent) && copied == sourceContent
                 then (Right (digestText (contentDigest (TE.encodeUtf8 sourceContent))), Map.insert destination copied (state ^. #volumes))
                 else (Left ("destination volume is not empty and differs from the source" :: Text), state ^. #volumes)
@@ -455,7 +475,7 @@ runJob key@(_, namespace, name) job state =
       status = either (const (object ["failed" .= (1 :: Int)])) (const (object ["succeeded" .= (1 :: Int)])) outcome
       wrote =
         mode == "copy"
-          && (\content -> T.null content || incompleteMark `T.isPrefixOf` content) (Map.findWithDefault "" (fromMaybe "" (listToMaybe (drop 1 claims))) (state ^. #volumes))
+          && redoable (Map.findWithDefault "" (fromMaybe "" (listToMaybe (drop 1 claims))) (state ^. #volumes))
           && isRight outcome
    in state
         & #partialCopyOnce

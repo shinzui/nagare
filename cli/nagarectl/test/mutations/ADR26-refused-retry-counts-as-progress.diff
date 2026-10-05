@@ -1,0 +1,12 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Execute/Close.hs b/cli/nagarectl/src/Nagare/Inventory/Execute/Close.hs
+--- a/cli/nagarectl/src/Nagare/Inventory/Execute/Close.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Execute/Close.hs
+@@ -229,7 +229,7 @@
+   ExecuteOperation entry
+     -- A retry of an operation already refused with no effect repeats the same
+     -- refused write; a passing preflight is not progress.
+-    | Just (Failed (KnownNoEffect _)) <- Map.lookup (plannedOperationId (reviewPlannedOperation entry)) states -> pure Nothing
++    | False -> pure Nothing
+   ExecuteOperation entry -> withPrepared entry $ \adapter operation prepared -> do
+     checked <- withAdapterEnv transaction operation (adapterPreflight adapter operation prepared)
+     pure (either (const Nothing) (const (Just (operationText operation <> " passes a fresh preflight"))) checked)

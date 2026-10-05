@@ -244,8 +244,10 @@ transferJobName operation mode =
 -- | A one-shot Job on the database image. It mounts the fenced source
 -- read-only and either copies into the empty destination or only compares
 -- the two. Its termination message carries both manifest digests.
-transferJob :: RenameScope -> OperationId -> TransferMode -> Name -> Name -> Value
-transferJob scope operation mode sourceClaim destinationClaim =
+-- | The mark binds an interrupted copy to the transaction and operation that
+-- wrote it (F61); only the same migration may clear and redo it.
+transferJob :: RenameScope -> Text -> OperationId -> TransferMode -> Name -> Name -> Value
+transferJob scope mark operation mode sourceClaim destinationClaim =
   object
     [ "apiVersion" .= ("batch/v1" :: Text)
     , "kind" .= ("Job" :: Text)
@@ -269,7 +271,7 @@ transferJob scope operation mode sourceClaim destinationClaim =
                                  [ "name" .= ("transfer" :: Text)
                                  , "image" .= (scope ^. #image)
                                  , "command" .= (["sh", "-c", transferScript] :: [Text])
-                                 , "env" .= [object ["name" .= ("MODE" :: Text), "value" .= modeText]]
+                                 , "env" .= [object ["name" .= ("MODE" :: Text), "value" .= modeText], object ["name" .= ("TRANSFER_MARK" :: Text), "value" .= mark]]
                                  , "volumeMounts"
                                      .= [ object ["name" .= ("source" :: Text), "mountPath" .= ("/migration/source" :: Text), "readOnly" .= True]
                                         , object ["name" .= ("destination" :: Text), "mountPath" .= ("/migration/destination" :: Text), "readOnly" .= (mode == TransferVerify)]
@@ -295,10 +297,11 @@ transferJob scope operation mode sourceClaim destinationClaim =
 -- non-empty destination unless it already equals the source, so a retry after
 -- a lost acknowledgement proves the earlier copy rather than repeating it.
 --
--- F61: a copy marks the destination incomplete before writing and clears the
--- mark only after the whole copy. A copy that died part way (an evicted pod, a
--- full disk) leaves the mark, so the retry clears that partial data and copies
--- again. A destination with other data and no mark still refuses.
+-- F61: a copy marks the destination incomplete, with its transaction and
+-- operation, before writing, and clears the mark only after the whole copy. A
+-- copy that died part way (an evicted pod, a full disk) leaves the mark, so the
+-- same migration's retry clears that partial data and copies again. A
+-- destination with other data, or a mark from another migration, still refuses.
 transferScript :: Text
 transferScript =
   T.unlines
@@ -316,9 +319,9 @@ transferScript =
     , "[ -n \"$(cd \"$src\" && find . -mindepth 1 -maxdepth 1 ! -name lost+found -print)\" ] || fail 'source volume is empty'"
     , "source_manifest=$(manifest \"$src\")"
     , "if [ \"$MODE\" = copy ]; then"
-    , "  if [ -z \"$(cd \"$dst\" && find . -mindepth 1 -maxdepth 1 ! -name lost+found -print)\" ] || [ -e \"$mark\" ]; then"
+    , "  if [ -z \"$(cd \"$dst\" && find . -mindepth 1 -maxdepth 1 ! -name lost+found -print)\" ] || { [ -f \"$mark\" ] && [ \"$(cat \"$mark\")\" = \"$TRANSFER_MARK\" ]; }; then"
     , "    ( cd \"$dst\" && find . -mindepth 1 -maxdepth 1 ! -name lost+found ! -name .nagare-transfer-incomplete -exec rm -rf {} + ) || fail 'clearing an incomplete copy failed'"
-    , "    : > \"$mark\" || fail 'copy failed'"
+    , "    printf '%s' \"$TRANSFER_MARK\" > \"$mark\" || fail 'copy failed'"
     , "    cp -a \"$src\"/. \"$dst\"/ || fail 'copy failed'"
     , "    rm -f \"$mark\" || fail 'copy failed'"
     , "  elif [ \"$(manifest \"$dst\")\" != \"$source_manifest\" ]; then"

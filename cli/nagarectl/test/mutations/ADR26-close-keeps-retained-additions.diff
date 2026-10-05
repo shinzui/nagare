@@ -1,0 +1,12 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Execute/Close.hs b/cli/nagarectl/src/Nagare/Inventory/Execute/Close.hs
+--- a/cli/nagarectl/src/Nagare/Inventory/Execute/Close.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Execute/Close.hs
+@@ -362,7 +362,7 @@
+         , headActiveTransaction = Nothing
+         , headExecutorClaim = Nothing
+         , headAccepted = Map.foldrWithKey revert (headAccepted headValue) (closedScopes record)
+-        , headRetained = Map.withoutKeys (headRetained headValue) (closedRetainedRemoved record)
++        , headRetained = headRetained headValue
+         }
+     revert scope disposition accepted = case disposition of
+       RevertTo (Just revision) -> Map.insert scope revision accepted

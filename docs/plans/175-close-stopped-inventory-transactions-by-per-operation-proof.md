@@ -67,11 +67,29 @@ which is steps 1 and 4 of MasterPlan 23's release line (b).
     class. `test/InventorySettleSpec.hs` proves O6.
   - **Mutations.** `ADR26-O1-kubernetes-settle-unknown` fails I8, and `ADR26-O6-verify-executes`
     fails the O6 test.
-- [ ] M2: `inventory close`. It includes binding the F61 copy marker to the migration's transaction,
-  operation and own destination, with ADR 26 §4 updated to match. The command classifies every operation, checks that resume is stuck,
-  publishes a close record and releases the head per scope (revert or keep), re-entrantly. The
-  never-started set comes from close records. The recovery model exits only by resume or close, and
-  its fast tier passes.
+- [x] (2026-10-05) M2: `inventory close`.
+  - **Close.** `Nagare.Inventory.Execute.Close.closeTransaction`:
+    - classifies each operation from the journal or its settlement;
+    - refuses while resume can progress (including the case where a refused retry would only
+      repeat), and while any operation is `Unknown`;
+    - publishes a `closes/<digest>.json` record (`Nagare.Inventory.Plan.CloseRecord`) and journals
+      `closed:<digest>`;
+    - writes one re-entrant head: revert to base with the review's retained additions removed, or
+      keep.
+  - **Resume.** It completes a journalled close and returns the new `Closed` result.
+  - **Never-started set.** Planning reads it from close records, for any scope kind.
+  - **Command.** `nagarectl inventory close TRANSACTION --review DIGEST [--take-over]` exists, and
+    the five legacy recovery actions route to it.
+  - **Model.** Its exits are resume and close. An admission refusal is a violation, except a named
+    N1 tolerance (F51 reopened, removed by EP-176 M3) and expected refusals for data deleted outside
+    review. A refused admission is re-run once when a fault fired.
+  - **Proof.**
+    - The fast tier passes (64 s) and the rename model passes.
+    - `test/InventoryCloseSpec.hs` covers three cases: keep and re-entry after a refused release;
+      revert with the retained additions removed; refusal while an operation is unknown.
+  - **F61's mark.** It is bound to the transaction and operation, with the mounted-destination
+    check, and ADR 26 §4 is updated to match.
+  - The old stop path in `loadUnstartedApplicationCreates` stays until M3.
 - [ ] M3: the allowlists are gone. Stop, the four abandons and both terminal releases are deleted or
   routed to close; the H1–H3 hazards and U1/U3 have failing-then-passing regressions; rule-level
   mutation records replace the instance-level ones.

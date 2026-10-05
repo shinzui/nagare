@@ -76,8 +76,18 @@ also had hazards:
    - A corrected review, or a retirement, plans from these records.
    - A durable member outside the set that is found absent still refuses with `durable-resource-missing`.
 
-4. **Migrations** are excluded from `close-transaction` and get forward exits of their own. One
-   example is a reviewed wipe of an unused, partially written rename destination (F61).
+4. **Migrations** are excluded from `close-transaction` and get forward exits of their own. For a
+   rename destination that a copy left partially written (F61), the exit is a mark-bound redo, not a
+   separately reviewed wipe (amended 2026-10-05, EP-175, reviewer condition):
+   - Before copying, the copy writes a mark on the destination that names its transaction and
+     operation, and it removes the mark only after the whole copy.
+   - A retry by the same transaction and operation may clear and redo a destination that carries
+     that exact mark.
+   - The destination must be the migration's own reviewed destination object: its stamped claim
+     name now, and its recorded identity once ADR 27 lands.
+   - No pod other than the migration's transfer Jobs may mount it.
+
+   A destination with any other data, or with another migration's mark, is still refused.
 
 5. **The last resort is attested, not raw.** For a transaction whose operations an adapter cannot
    prove (`Unknown` that observation cannot reduce), the operator may record an attested

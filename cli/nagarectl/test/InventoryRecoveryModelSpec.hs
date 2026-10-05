@@ -183,9 +183,10 @@ data Finished = Finished
   deriving stock (Eq, Show)
 
 -- | An exit move for a stopped transaction.
+-- | An exit move for a stopped transaction (ADR 26: resume, or close).
 data Move
   = Resume
-  | Recover !RecoveryAction !OperationId
+  | Close
   deriving stock (Eq, Show)
 
 -- | Run the scenario's reviews in order under the schedule. After a stopped
@@ -272,6 +273,16 @@ replay scenario schedule taken probe = do
           case (checked, applied) of
             (Left violation, _) -> pure (Replayed (Left (describe scenario schedule image violation [])))
             (Right (), Done) -> go run (next previous step) rest exits
+            (Right (), Refused why)
+              -- Named tolerance, removed by EP-176 M3: since F51, retiring a
+              -- member replaced outside review is refused at admission (N1,
+              -- F51 reopened). ADR 27's replaced retirement is its exit. A
+              -- retained member deleted outside review is refused too: its data
+              -- needs reviewed recovery or collection, as at planning.
+              | any ((`elem` [Replaced, Deleted]) . snd) schedule && "retention-observation" `T.isInfixOf` why -> do
+                  adversary <- readIORef (runAdversary run)
+                  pure (Replayed (Right (counts adversary)))
+              | otherwise -> pure (Replayed (Left (describe scenario schedule image ("admission refused: " <> why) [])))
             (Right (), Stopped transaction why) -> case exits of
               path : more -> do
                 outcomes <- mapM (tryMove run registry reviewed transaction) path
@@ -345,6 +356,8 @@ newRun scenario schedule = do
 
 data Applied
   = Done
+  | -- | Admission refused the review; nothing ran.
+    Refused !Text
   | Stopped !TransactionId !Text
 
 -- | Plan, review and apply one image. A store fault during planning is a
@@ -361,7 +374,7 @@ reviewAndApply run volume image historyImage = do
         modifyIORef' (runBound run) (Map.insert (revisionDigest revision) (boundDigests volume image historyImage))
           >> modifyIORef' (runImages run) (Map.insert (revisionDigest revision) (volume, image, historyImage))
       startTransaction run
-      applied <- try (applyReviewed (runStore run) registry reviewed)
+      applied <- applyRetryingFaults run registry reviewed
       Right . (registry,reviewed,) <$> classify run applied
 
 -- | Retire the application scope, retaining its members, as `inventory
@@ -373,7 +386,7 @@ retireAndApply run volume image historyImage = do
     Left err -> pure (Left err)
     Right (registry, reviewed) -> do
       startTransaction run
-      applied <- try (applyReviewed (runStore run) registry reviewed)
+      applied <- applyRetryingFaults run registry reviewed
       Right . (registry,reviewed,) <$> classify run applied
 
 -- | Retire one scope, retaining its members, as `inventory retire` plans it.
@@ -384,7 +397,7 @@ scopeRetireAndApply run scope volume image historyImage = do
     Left err -> pure (Left err)
     Right (registry, reviewed) -> do
       startTransaction run
-      applied <- try (applyReviewed (runStore run) registry reviewed)
+      applied <- applyRetryingFaults run registry reviewed
       Right . (registry,reviewed,) <$> classify run applied
 
 planRetirement :: Run -> Shape -> Text -> Text -> IO (Either Text (AdapterRegistry, ReviewedPlan))
@@ -403,7 +416,7 @@ databaseAndApply run (scope, native) volume image historyImage = do
       forM_ (Map.lookup databaseScopeId (reviewDesiredRevisions (reviewedDocument reviewed))) $ \revision ->
         modifyIORef' (runBound run) (Map.insert (revisionDigest revision) (Map.map (contentDigest . snd) native))
       startTransaction run
-      applied <- try (applyReviewed (runStore run) registry reviewed)
+      applied <- applyRetryingFaults run registry reviewed
       Right . (registry,reviewed,) <$> classify run applied
 
 -- | I3: plan ingestion of a scheduled receipt from the live source, as `db
@@ -499,6 +512,18 @@ deletedDataRefusal run refusal = do
 startTransaction :: Run -> IO ()
 startTransaction run = modifyIORef' (runWorld run) (\world -> world {writes = Map.empty})
 
+-- | Apply a review. An admission refused while a fault fired is a command an
+-- operator simply re-runs, so it runs once more, as planning does.
+applyRetryingFaults :: Run -> AdapterRegistry -> ReviewedPlan -> IO (Either Interrupted (Either (NonEmpty AdmissionError) TransactionResult))
+applyRetryingFaults run registry reviewed = do
+  before <- length . fired <$> readIORef (runAdversary run)
+  attempt <- try (applyReviewed (runStore run) registry reviewed)
+  after <- length . fired <$> readIORef (runAdversary run)
+  idle <- maybe True (isNothing . headActiveTransaction) <$> (readHead (runInspect run) >>= orFail "read head")
+  case attempt of
+    Right (Left _) | after > before && idle -> try (applyReviewed (runStore run) registry reviewed)
+    _ -> pure attempt
+
 -- | Run a command; if it failed while a store fault fired, run it once more.
 retryingStoreFaults :: Run -> IO (Either Text a) -> IO (Either Text a)
 retryingStoreFaults run command = do
@@ -555,9 +580,15 @@ planWith run registry change decide = do
 classify :: (Show e) => Run -> Either Interrupted (Either e TransactionResult) -> IO Applied
 classify run applied = case applied of
   Left Interrupted -> stoppedFromHead run "executor interrupted"
-  Right (Left err) -> stoppedFromHead run ("driver error: " <> T.pack (show err))
+  Right (Left err) -> do
+    applied' <- stoppedFromHead run ("driver error: " <> T.pack (show err))
+    -- An admission refusal leaves no transaction; it is not a completed step.
+    pure $ case applied' of
+      Done -> Refused (T.pack (show err))
+      stopped -> stopped
   Right (Right result) -> case result of
     Converged _ -> pure Done
+    Closed _ -> pure Done
     StoppedAmbiguous transaction _ -> pure (Stopped transaction "ambiguous")
     StoppedFailed transaction _ _ -> pure (Stopped transaction "failed")
     PausedAtBarrier transaction _ -> pure (Stopped transaction "paused at barrier")
@@ -630,13 +661,12 @@ tryMoveQuiet run registry reviewed transaction move = do
   before <- progressSignature run transaction
   result <- try $ case move of
     Resume -> fmap (const ()) <$> resumeTransaction (runStore run) registry transaction
-    Recover action operation ->
+    Close ->
       fmap (const ())
-        <$> recordOperatorRecovery
+        <$> closeTransaction
           (runStore run)
           registry
-          (OperatorRecoveryInput transaction operation (contentDigest (encodeReviewDocument (reviewedDocument reviewed))) action)
-          False
+          (CloseInput transaction (contentDigest (encodeReviewDocument (reviewedDocument reviewed))) False)
   later <- progressSignature run transaction
   idle <- maybe True (isNothing . headActiveTransaction) <$> (readHead (runInspect run) >>= orFail "read head")
   pure $ case result of
@@ -691,36 +721,9 @@ settlementGaps run registry reviewed transaction = do
       Failed (PartialOrUnknown _) -> True
       _ -> False
 
--- | Resume, then every recovery action for every operation of the stopped
--- transaction that has no completion.
+-- | ADR 26: a stopped transaction's supported exits are resume and close.
 candidateMoves :: Run -> ReviewedPlan -> TransactionId -> IO [Move]
-candidateMoves run reviewed transaction = do
-  current <- readHead (runInspect run) >>= orFail "read head"
-  raw <- maybe (pure []) (\value -> readJournalPrefix (runInspect run) (headSequence value) >>= orFail "read journal") current
-  let events = [event | Right event <- map decodeJournalEvent raw, eventTransaction event == transaction]
-      latest = Map.fromList [(operation, eventState event) | event <- events, Just operation <- [eventOperation event]]
-      reviewedOperations = [plannedOperationId (reviewPlannedOperation entry) | entry <- reviewOperations (reviewedDocument reviewed)]
-      open = [operation | operation <- reviewedOperations, maybe True (not . completed) (Map.lookup operation latest)]
-  pure (Resume : [Recover action operation | operation <- open, action <- recoveryActions])
-  where
-    completed state = case state of
-      Completed _ -> True
-      _ -> False
-
-recoveryActions :: [RecoveryAction]
-recoveryActions =
-  [ AcceptAdapterProof
-  , RetryAfterAdapterProof
-  , ContinueFencedOperation
-  , VerifyFencedEffect
-  , RecoverFencedBackup
-  , ForwardFencedRelease
-  , AbandonPartialPrune
-  , AbandonPartialVolumeRestore
-  , AbandonPartialDatabaseRestore
-  , StopIncompleteApplication
-  , AbandonRefusedOperation
-  ]
+candidateMoves _ _ _ = pure [Resume, Close]
 
 -- * Invariants I2, I4 and I5
 

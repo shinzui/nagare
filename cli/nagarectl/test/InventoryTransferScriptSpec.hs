@@ -28,12 +28,18 @@ inventoryTransferScriptTests =
           code @?= ExitSuccess
           assertBool ("unexpected result: " <> T.unpack message) ("\"source\"" `T.isInfixOf` message)
           contents (root </> "destination") >>= (@?= sourceFiles)
-    , testCase "a copy redoes a destination an interrupted copy left marked" $
-        withVolumes [(".nagare-transfer-incomplete", ""), ("PG_VERSION", "18"), ("stale", "partial")] $ \root -> do
+    , testCase "a copy redoes a destination its own interrupted copy left marked" $
+        withVolumes [(".nagare-transfer-incomplete", ownMark), ("PG_VERSION", "18"), ("stale", "partial")] $ \root -> do
           (code, message) <- transfer root "copy"
           code @?= ExitSuccess
           assertBool ("unexpected result: " <> T.unpack message) ("\"source\"" `T.isInfixOf` message)
           contents (root </> "destination") >>= (@?= sourceFiles)
+    , testCase "a copy refuses a destination another migration's copy left marked" $
+        withVolumes [(".nagare-transfer-incomplete", "tx-other op-other"), ("stale", "partial")] $ \root -> do
+          (code, message) <- transfer root "copy"
+          code @?= ExitFailure 1
+          assertBool ("unexpected refusal: " <> T.unpack message) ("not empty and differs" `T.isInfixOf` message)
+          contents (root </> "destination") >>= (@?= [(".nagare-transfer-incomplete", "tx-other op-other"), ("stale", "partial")])
     , testCase "a copy refuses an unmarked destination that differs from the source" $
         withVolumes [("other", "foreign data")] $ \root -> do
           (code, message) <- transfer root "copy"
@@ -46,6 +52,10 @@ inventoryTransferScriptTests =
           code @?= ExitFailure 1
           assertBool ("unexpected refusal: " <> T.unpack message) ("differs from the source" `T.isInfixOf` message)
     ]
+
+-- | The mark of the migration under test: its transaction and operation.
+ownMark :: String
+ownMark = "tx-test op-test"
 
 sourceFiles :: [(FilePath, String)]
 sourceFiles = [("PG_VERSION", "18"), ("base", "known-row-1")]
@@ -69,7 +79,7 @@ transfer root mode = do
               . T.replace "/dev/termination-log" (T.pack (root </> "termination-log"))
               $ transferScript
           )
-  (code, _, _) <- readCreateProcessWithExitCode ((proc "bash" ["-c", script]) {env = Just (("MODE", mode) : environment)}) ""
+  (code, _, _) <- readCreateProcessWithExitCode ((proc "bash" ["-c", script]) {env = Just (("MODE", mode) : ("TRANSFER_MARK", ownMark) : environment)}) ""
   logged <- doesFileExist (root </> "termination-log")
   message <- if logged then T.pack <$> readFile (root </> "termination-log") else pure ""
   pure (code, message)

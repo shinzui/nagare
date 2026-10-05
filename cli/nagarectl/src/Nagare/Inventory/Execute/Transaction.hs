@@ -24,6 +24,7 @@ import Nagare.Inventory.Execute.Claims
   , releaseClaim
   , releaseClaimWith
   )
+import Nagare.Inventory.Execute.Close (releaseClosedTransaction)
 import Nagare.Inventory.Execute.Driver (runOperations)
 import Nagare.Inventory.Execute.Incarnations (convergedIncarnations)
 import Nagare.Inventory.Execute.Inputs (validateOperationInputs)
@@ -70,6 +71,7 @@ import Nagare.Inventory.Plan
   , reviewedDocument
   , verifyActiveReview
   )
+import Nagare.Inventory.Plan.CloseRecord (closedRecordDigest, loadCloseRecord)
 import Nagare.Inventory.Store
   ( DeletionTombstone
       ( DeletionTombstone
@@ -245,6 +247,14 @@ resumeTransactionWithTakeover store registry transaction takeOver = do
                     else pure (failure "inactive-transaction" "transaction is not active in the store head")
               | isJust (headDataFence headValue) ->
                   pure (failure "active-data-fence" "recover and release the active data fence before resuming its reviewed transaction")
+              -- ADR 26: a journalled close only completes its head release.
+              | Just recordDigest <- closedRecordDigest transaction events -> do
+                  loaded <- loadCloseRecord store recordDigest
+                  case loaded of
+                    Left err -> pure (failure "close-record" err)
+                    Right record -> do
+                      released <- releaseClosedTransaction lock record
+                      pure (if released then Right (Closed transaction) else failure "head-condition" "the closed transaction's head release did not land; run close again")
               | Just operation <- rollbackProvedOperation transaction events -> do
                   claimed <- acquireResumeClaim store transaction observed headValue takeOver
                   case claimed of

@@ -104,6 +104,16 @@ inventoryCmd =
                   (progDesc "Recover one uncertain reviewed operation using adapter and native proof")
               )
             <> command
+              "close"
+              ( info
+                  ( InventoryClose
+                      <$> strArgument (metavar "TRANSACTION")
+                      <*> strOption (long "review" <> metavar "DIGEST")
+                      <*> switch (long "take-over") <**> helper
+                  )
+                  (progDesc "Close a stopped transaction whose every operation is proved; writes nothing to any provider (ADR 26)")
+              )
+            <> command
               "export"
               (info (InventoryExport <$> strOption (long "out" <> metavar "DIRECTORY") <**> helper) (progDesc "Export the complete private inventory store under lock"))
             <> command

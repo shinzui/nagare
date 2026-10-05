@@ -135,31 +135,16 @@ recover store world registry reviewed = do
               if null stale
                 then resumeUpTo (attempts - 1)
                 else pure (Left ("I3: status reports renamed members as replaced after resume: " <> T.pack (show stale)))
+    -- ADR 26: the supported exits are resume and close. Close refuses an
+    -- active migration, whose exits are resume and its forward copy redo.
     decide transaction = do
       open <- openOperations store transaction
-      tried <- forM [(operation, action) | operation <- open, action <- recoveryActions] $ \(operation, action) -> do
-        stillActive <- activeTransaction store
-        case stillActive of
-          Nothing -> pure True
-          Just _ -> do
-            recorded <-
-              try @SomeException
-                ( recordOperatorRecovery
-                    store
-                    registry
-                    (OperatorRecoveryInput transaction operation (contentDigest (encodeReviewDocument (reviewedDocument reviewed))) action)
-                    False
-                )
-            case recorded of
-              Right (Right _) -> do
-                _ <- try @SomeException (resumeTransaction store registry transaction)
-                isNothing <$> activeTransaction store
-              _ -> pure False
+      closed <- try @SomeException (closeTransaction store registry (CloseInput transaction (contentDigest (encodeReviewDocument (reviewedDocument reviewed))) False))
       done <- isNothing <$> activeTransaction store
-      pure $
-        if or tried || done
-          then Right ()
-          else Left ("I1: the rename stopped with no supported exit; open operations " <> T.pack (show (map operationIdText open)))
+      pure $ case closed of
+        _
+          | done -> Right ()
+          | otherwise -> Left ("I1: the rename stopped with no supported exit; open operations " <> T.pack (show (map operationIdText open)))
 
 -- | At an idle head: status reports nothing replaced (I3); a renamed database
 -- has every reviewed effect and copied its data exactly once (I4); an
@@ -207,19 +192,3 @@ openOperations store transaction = do
         Completed _ -> False
         _ -> True
     ]
-
--- | The operator's recovery decisions, as the recovery model tries them.
-recoveryActions :: [RecoveryAction]
-recoveryActions =
-  [ AcceptAdapterProof
-  , RetryAfterAdapterProof
-  , ContinueFencedOperation
-  , VerifyFencedEffect
-  , RecoverFencedBackup
-  , ForwardFencedRelease
-  , AbandonPartialPrune
-  , AbandonPartialVolumeRestore
-  , AbandonPartialDatabaseRestore
-  , StopIncompleteApplication
-  , AbandonRefusedOperation
-  ]

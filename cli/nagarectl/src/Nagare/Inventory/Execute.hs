@@ -17,11 +17,18 @@ module Nagare.Inventory.Execute
   , recordOperatorRecovery
   , prepareBootstrapRegistryRecovery
   , settleReviewedOperation
+  , CloseInput (..)
+  , closeTransaction
+  , CloseRecord (..)
+  , OperationClass (..)
+  , ScopeDisposition (..)
+  , renderCloseRecord
   )
 where
 
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Execute.Admission (admit)
+import Nagare.Inventory.Execute.Close (CloseInput (..), closeTransaction)
 import Nagare.Inventory.Execute.Recovery
   ( prepareBootstrapRegistryRecovery
   , recordOperatorRecovery
@@ -41,4 +48,5 @@ import Nagare.Inventory.Execute.Types
   , TransactionResult (..)
   , decodeOperatorRecoveryInput
   )
+import Nagare.Inventory.Plan.CloseRecord (CloseRecord (..), OperationClass (..), ScopeDisposition (..), renderCloseRecord)
 import Nagare.Inventory.Store (withProcessLock)

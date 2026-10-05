@@ -50,6 +50,7 @@ library
     Nagare.Inventory.Execute.AdapterEnv
     Nagare.Inventory.Execute.Admission
     Nagare.Inventory.Execute.Claims
+    Nagare.Inventory.Execute.Close
     Nagare.Inventory.Execute.Driver
     Nagare.Inventory.Execute.FencedRecovery
     Nagare.Inventory.Execute.Incarnations
@@ -61,6 +62,7 @@ library
     Nagare.Inventory.Execute.Transaction
     Nagare.Inventory.Execute.Types
     Nagare.Inventory.Plan.Changes
+    Nagare.Inventory.Plan.CloseRecord
     Nagare.Inventory.Plan.History
     Nagare.Inventory.Plan.Lifecycle
     Nagare.Inventory.Plan.MigrationObservation
@@ -498,6 +500,7 @@ test-suite nagarectl-test
     InventoryCdnPurgeSpec
     InventoryCdnSpec
     InventoryCleanupSpec
+    InventoryCloseSpec
     InventoryCloudCollectionSpec
     InventoryCloudSpec
     InventoryCloudflareSpec
