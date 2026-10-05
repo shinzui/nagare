@@ -331,6 +331,11 @@ provenance:
       at: 2026-10-05T03:50:52Z
       mode: "update"
       note: "Operator decisions on the retrospective: native work waits for EP-173 M1-M2; F51/F52 un-deferred; ADR 25 accepted"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-05T14:39:49Z
+      mode: "implement"
+      note: "Resume after session loss: finish F58 absence proofs, refresh finding register and candidate supersession"
   reviews:
     - model: "claude-fable-5-1"
       harness: "claude-code"
@@ -449,6 +454,7 @@ Feature children produce code and focused local proof; the native children (EP-1
 
 This list says what remains before MP-23 is complete. It was agreed between sessions nagare-phase-b and nagare-f3. Where a dated snapshot below or a child plan disagrees with it, this list wins.
 - **Candidate: `b74b7e49`** (frozen 2026-10-04 by f3). It adds only the F53 check-harness fix to `84754389`, which includes F38, F45–F50 and the F49 StatefulSet follow-up. `nix flake check --all-systems` is green at `b74b7e49`. The earlier candidates `7d486457` and `7596632c` are checkpoints: C3 found F45–F47, and the EP-159 drill found F49.
+  - **Superseded in source (2026-10-05).** The F54–F58, F51 and F52 fixes change shipped code, so a new candidate is needed. `b74b7e49`'s gate results then count only where their recorded inputs still match it (Dependency Graph); C1 always reruns. Freezing it waits for EP-173 M2 (operator decision, 2026-10-04); a receipt-ingestion scenario and the in-model rename remain.
 - Tick a box only with linked evidence, on the frozen candidate unless the box says otherwise. Results on earlier candidates are linked as checkpoints.
 - When a box is ticked here, tick the matching `(MP-23 …)` box in its child plan.
 - Owners: **phase-b** = session nagare-phase-b; **f3** = session nagare-f3; **user** = the operator; **reviewer** = an independent session that did not implement the work.
@@ -482,9 +488,11 @@ This list says what remains before MP-23 is complete. It was agreed between sess
 
 **Independent verification** (owner reviewer, arranged by the user; implementer sessions never self-close)
 - [ ] Close every finding that is not yet Closed, per the [tracker](../audits/mp23-findings.md)'s closure rule:
-  - Open: F30, F31, F32, F33, F34, F48
+  - Open: F48
   - Partial: F40
-  - Verifying: F15, F16, F35, F36, F37, F38, F39, F41, F42, F43, F44, F45, F46, F47
+  - Verifying: F15, F16, F30, F31, F32, F33, F39, F43, F44, F45, F46, F47, F51, F52, F53, F54, F55, F56, F57, F58
+
+  (Register as of 2026-10-05. The independent reviewer closed F34–F38, F41, F42, F49 and F50 on 2026-10-04.)
 
   Native proof already exists for:
   - F30: the A4 terminal resume, 2026-10-02;
@@ -512,7 +520,8 @@ This list says what remains before MP-23 is complete. It was agreed between sess
 - [x] F48 (P2, evidence names the release manifest's payload without checking the payload the context runs): **accept the procedural guard for this release**; the code fix goes in EP-168.
   - Every acceptance run uses a fresh context from the candidate's own payload.
   - `platform root --json` is recorded before the runner's plan and saved with the evidence, so the reviewer can confirm which payload ran.
-- [x] F51 (retirement retains a replacement's identity) and F52 (an address-changing migration reads as `replaced-incarnation` until it converges), both P2: **deferred as known limitations of this release**, documented in ADR 22 and the release notes, with fixes as follow-up work (operator decision, 2026-10-04).
+- [x] F51 (retirement retains a replacement's identity) and F52 (an address-changing migration reads as `replaced-incarnation` until it converges), both P2: first deferred, then **un-deferred and fixed in MP-23** (operator decision on the retrospective, 2026-10-04; fixed in `15ca45e1`, Verifying).
+- [x] F58 (P2, an application whose first deploy stopped unready cannot be retired), found by the EP-173 model on 2026-10-05: **fix now in MP-23** (operator decision, 2026-10-05). Fixed with absence proofs; Verifying.
 - [x] The independent runbook execution **stays required for MP-23 completion**. It is done in the same reviewer pass as the closures, on the acceptance C3 context before teardown. If reviewer availability becomes the bottleneck, the fallback is to narrow it to the safe-use gate, with the release notes saying the release is not cleared for real workloads until it passes.
 
 **Close-out (Phase D)**

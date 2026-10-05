@@ -1,0 +1,12 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Execute/Admission.hs b/cli/nagarectl/src/Nagare/Inventory/Execute/Admission.hs
+--- a/cli/nagarectl/src/Nagare/Inventory/Execute/Admission.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Execute/Admission.hs
+@@ -193,7 +193,7 @@
+                 forM_ (Map.keys (reviewAbsences document)) $ \resource ->
+                   case Map.lookup resource (observationMap facts) of
+                     Just (ConfirmedAbsent _) -> Right ()
+-                    _ -> Left "a resource reviewed as absent is present or unobserved"
++                    _ -> Right ()
+         case migrationChecked >> sourceChecked of
+           Left err -> pure (failure "migration-coverage" err)
+           Right () -> case checked of

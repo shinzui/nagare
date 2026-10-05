@@ -4,6 +4,7 @@ module Nagare.Inventory.Plan.History
   , incompleteApplicationOnlyReview
   , loadInventoryHistory
   , loadInventoryPlanningHistory
+  , loadUnstartedApplicationCreates
   , seedInventoryHistory
   )
 where
@@ -97,7 +98,7 @@ import Nagare.Resource.Inventory
   , Declaration (Managed)
   , Executor (KubernetesExecutor)
   , ResourceBundle (declarations)
-  , ScopeChange (ReplaceScope)
+  , ScopeChange (ReplaceScope, RetireScope)
   , candidateBase
   , candidateChanges
   , candidateGenerations
@@ -435,7 +436,16 @@ loadInventoryPlanningHistory store candidate = do
       unstarted <- loadUnstartedApplicationCreates store selected (historyHead history)
       pure ((\proof -> history {historyUnstartedCreates = proof}) <$> unstarted)
   where
-    selected = Set.fromList [scopeId declaration | ReplaceScope declaration <- NE.toList (candidateChanges candidate)]
+    -- A retirement may also leave never-started members behind (F58).
+    selected =
+      Set.fromList
+        [ owner
+        | change <- NE.toList (candidateChanges candidate)
+        , owner <- case change of
+            ReplaceScope declaration -> [scopeId declaration]
+            RetireScope scope _ -> [scope]
+            _ -> []
+        ]
 
 loadUnstartedApplicationCreates ::
   InventoryStore ->

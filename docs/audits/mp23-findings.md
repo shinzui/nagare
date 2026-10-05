@@ -76,6 +76,7 @@ This is the authoritative list of implementation findings for [MP-23](../masterp
 | [F55](#f55) | P1 | A landed unready application update still has no exit when its review also updates its release history or verifies a member | Verifying | EP-153 / EP-173 |
 | [F56](#f56) | P1 | A landed application Service update whose Service is then replaced outside review has no exit | Verifying | EP-153 / EP-173 |
 | [F57](#f57) | P1 | A verification whose target is replaced after it ends ambiguous has no exit | Verifying | EP-153 / EP-173 |
+| [F58](#f58) | P2 | An application whose first deploy stopped unready cannot be retired, because a never-created member has nothing to retain | Verifying | EP-153 / EP-173 |
 
 Closed findings keep their full text, location, implementation updates and verification in [the closed-findings archive](mp23-archive/mp23-findings-closed.md). F01 and F11 retain their [earlier independent closure](mp23-archive/mp23-verification.md). F02, F03, F04, F05, F06, F07, F08 and F20 now have [2026-10-02 independent closure](mp23-independent-verification-2026-10-02.md). F34, F35, F36, F37, F38, F41 and F42 have 2026-10-04 independent closure on candidate `7596632c`, and F49 and F50 on candidate `847543896d07` ([records](mp23-independent-results-2026-10-04/phase1-source-and-regressions-7596632c.md)). Other entries retain their status shown above.
 
@@ -651,4 +652,29 @@ A `VerifyResource` never writes, so this operation certainly had no effect, yet 
 - **Regression:** the recovery model's fast tier. With only F56 it still fails I1 for the corrected review in the history-unchanged and durable-volume scenarios. With F57 it passes. `test/InventoryKubernetesSpec.hs` now expects a replaced verification target to recover as a safe retry, never as proved complete, and its preflight still refuses.
 
 **Gates (F56 and F57):** all 1,197 `nagarectl` tests pass.
+
+## F58
+
+**An application whose first deploy stopped unready cannot be retired, because a never-created member has nothing to retain** — P2 (no wedge: the store stays idle, but the application can be deleted only by first shipping a working image); **Verifying**; owners EP-153 / EP-173.
+
+**Found by the EP-173 recovery model (2026-10-05, claude-opus-5-5), in its new retire scenario, with no native run.** In "create with a durable volume, then retire", under `LandsUnready` on the first deploy's Service create, the deploy stops through F16's reviewed stop. Its release-history ConfigMap was admitted but never created. Retiring the scope then refuses at planning:
+
+```text
+invalid-retirement: retention needs a selected scope replacement or retirement that removes an owned present … declaration
+  [application:model-web/history/resource]
+```
+
+**Cause (source):** retirement (`decideRetirement`, `buildRetentionProofs`) requires a retention proof for every member the retiring scope removes, and a retention proof names a present object. A member that is confirmed absent has none, so no lifecycle decision can cover it.
+
+**Operator decision (2026-10-05, in session nagare-f3):** fix now in MP-23.
+
+**Implementation update (2026-10-05; claude-opus-5-5, sessions nagare-f3 and its continuation):**
+- **Absence proofs.** A retirement or scope replacement now records each removed member that is `ConfirmedAbsent` and holds no data as an `AbsenceProof` (owner, accepted revision, absence evidence) instead of a retention proof (`buildAbsenceProofs`, `src/Nagare/Inventory/Plan/Changes.hs`). "Holds no data" means a `Stateless` member, or a durable member whose create never started in a stopped application review (`historyUnstartedCreates`, now also computed for retiring scopes in `loadInventoryPlanningHistory`).
+- **Missing data refuses by name.** A removed durable member that is absent and was not a never-started create refuses as `durable-resource-missing` unless the review approves its collection. Retirement never silently drops data that once existed.
+- **Review and validation.** The review document carries `absences` (optional field, schema version unchanged). `verifyReview` requires each proof to name the accepted owner revision, and refuses a member that is both absent and retained or retention-proved.
+- **Admission.** `retentionCoverage` accepts a removed member with exactly one retention or absence proof, and only for a member that holds no data under accepted history. Admission re-observes absence-proved members with the retained ones and refuses (`retention-observation`) if any is present or unobserved.
+- **Regressions** (each fails without its guard, per ADR 25):
+  - the recovery model's retire scenario (fast tier): on the pre-fix source it fails with the `invalid-retirement` refusal above (1 violation); with the fix it passes;
+  - `test/InventoryApplicationUpdateRecoverySpec.hs`, "a durable member only verified by a stopped update is never replanned or retired as absent (F55, F58)": a durable volume deleted out of band refuses retirement as `durable-resource-missing`. Mutation `test/mutations/F58-absence-proof-holds-no-data.diff` (drop the no-data condition) makes it fail;
+  - `test/InventoryApplicationUpdateRecoverySpec.hs`, "retirement drops a confirmed-absent stateless member only while it stays absent (F58)": an absent member that reappears after review is refused at admission, and the same review is admitted once it is absent again. Mutation `test/mutations/F58-admission-absence-recheck.diff` (skip the recheck) makes it fail, with the reappeared member dropped and the transaction converged.
 

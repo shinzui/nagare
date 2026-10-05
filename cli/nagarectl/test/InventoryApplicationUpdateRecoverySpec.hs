@@ -1,7 +1,9 @@
 module InventoryApplicationUpdateRecoverySpec (inventoryApplicationUpdateRecoveryTests) where
 
 import Control.Monad (forM_)
+import Data.Aeson (toJSON)
 import Data.Either (isLeft)
+import Data.IORef
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
@@ -12,12 +14,14 @@ import Nagare.Inventory.Adapter
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Execute
 import Nagare.Inventory.Journal
+import Nagare.Inventory.Lifecycle (decideRetirement)
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Store
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
 import Nagare.Resource.Reference (Dependency (..))
 import Nagare.Resource.Types
+import Nagare.Resource.Wire (canonicalValue)
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -26,7 +30,8 @@ inventoryApplicationUpdateRecoveryTests =
   testGroup
     "application update recovery"
     [ companionRules
-    , testCase "a durable member only verified by a stopped update is never replanned as a fresh create (F55)" durableVerifyNotRecreated
+    , testCase "a durable member only verified by a stopped update is never replanned or retired as absent (F55, F58)" durableVerifyNotRecreated
+    , testCase "retirement drops a confirmed-absent stateless member only while it stays absent (F58)" absentMemberRecheckedAtAdmission
     ]
 
 companionRules :: TestTree
@@ -198,6 +203,99 @@ durableVerifyNotRecreated = do
     Left errors -> assertBool ("unexpected refusal: " <> show errors) (any ((== "durable-resource-missing") . planErrorCode) (NE.toList errors))
     Right replanned ->
       assertFailure ("a deleted durable member was replanned instead of refused: " <> show (proposalOperations replanned))
+  -- Retiring the scope does not drop it as an absent member either (F58):
+  -- only a stateless member or a never-started create holds no data.
+  let retirement = ok (composeInventory (ok (mkScopeSnapshot fixtureBinding accepted (historyReservations history))) (RetireScope owner RetainResources :| []))
+      retiringFacts =
+        ok
+          ( observationSet
+              [ (declarationId newService, ObservedPresent (ok (mkPhysicalIdentity "original-service")))
+              , (declarationId volume, ConfirmedAbsent (contentDigest "deleted-out-of-band"))
+              ]
+          )
+  retiring <- loadInventoryPlanningHistory store retirement >>= expectRight
+  case decideRetirement retirement retiring retiringFacts >>= \decisions -> planChanges retirement decisions retiring retiringFacts of
+    Left errors ->
+      assertBool
+        ("unexpected refusal: " <> show errors)
+        (any (\err -> planErrorCode err == "durable-resource-missing" && planErrorResources err == [declarationId volume]) (NE.toList errors))
+    Right retired ->
+      assertFailure ("a deleted durable member was retired as absent: " <> show (proposalAbsences retired))
+
+-- | F58: retirement records a confirmed-absent stateless member as absent
+-- rather than retained. Admission re-observes it, and refuses if it has
+-- reappeared since review, so no live object leaves history unretained.
+absentMemberRecheckedAtAdmission :: Assertion
+absentMemberRecheckedAtAdmission = do
+  let owner = ok (mkScopeId Platform "retiring")
+      cluster = mintResourceId owner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
+      kept = member owner cluster "kept"
+      vanished = member owner cluster "vanished"
+      keptUid = ok (mkPhysicalIdentity "kept-uid")
+      scope = ok (mkScopeDeclaration owner [ResourceBundle [kept, vanished] [] [] [] [] []])
+      initial = ok (composeInventory (ok (mkScopeSnapshot fixtureBinding Map.empty Map.empty)) (ReplaceScope scope :| []))
+      facts entries = ok (observationSet entries)
+  world <- newIORef (Map.fromList [(declarationId kept, ConfirmedAbsent (contentDigest "absent")), (declarationId vanished, ConfirmedAbsent (contentDigest "absent"))])
+  let registry = observingRegistry world
+      observeAll = facts . Map.toList <$> readIORef world
+  store <- newMemoryStore
+  _ <- initializeStore store fixtureBinding "absent-retirement" >>= expectRight
+  emptyHistory <- loadInventoryHistory store >>= expectRight
+  created <- observeAll
+  createReview <- readStoreSnapshot store >>= expectRight >>= \snapshot -> prepareReview registry snapshot (ok (planChanges initial noLifecycleDecisions emptyHistory created)) >>= expectRight
+  _ <- publishReview store createReview >>= expectRight
+  createReviewed <- readStoreSnapshot store >>= expectRight >>= \snapshot -> expectRight (verifyReview snapshot createReview)
+  writeIORef world (Map.fromList [(declarationId kept, ObservedPresent keptUid), (declarationId vanished, ObservedPresent (ok (mkPhysicalIdentity "vanished-uid")))])
+  _ <- applyReviewed store registry createReviewed >>= expectRight
+  -- The stateless member is deleted out of band; retirement observes it absent.
+  writeIORef world (Map.fromList [(declarationId kept, ObservedPresent keptUid), (declarationId vanished, ConfirmedAbsent (contentDigest "deleted"))])
+  history <- loadInventoryHistory store >>= expectRight
+  let accepted = Map.map (\(revision, declared) -> (revisionGeneration revision, declared)) (historyAccepted history)
+      retirement = ok (composeInventory (ok (mkScopeSnapshot fixtureBinding accepted Map.empty)) (RetireScope owner RetainResources :| []))
+  planning <- loadInventoryPlanningHistory store retirement >>= expectRight
+  retiring <- observeAll
+  let proposal = ok (decideRetirement retirement planning retiring >>= \decisions -> planChanges retirement decisions planning retiring)
+  bundle <- readStoreSnapshot store >>= expectRight >>= \snapshot -> prepareReview registry snapshot proposal >>= expectRight
+  Map.keys (reviewAbsences (reviewBundleDocument bundle)) @?= [declarationId vanished]
+  Map.keys (reviewRetentions (reviewBundleDocument bundle)) @?= [declarationId kept]
+  _ <- publishReview store bundle >>= expectRight
+  published <- readStoreSnapshot store >>= expectRight
+  reviewed <- expectRight (verifyReview published bundle)
+  -- It reappears after review: admission must refuse, leaving history as it was.
+  modifyIORef' world (Map.insert (declarationId vanished) (ObservedPresent (ok (mkPhysicalIdentity "reappeared-uid"))))
+  applyReviewed store registry reviewed >>= \case
+    Left failures -> assertBool ("unexpected refusal: " <> show failures) ("retention-observation" `elem` map admissionErrorCode (NE.toList failures))
+    Right outcome -> assertFailure ("a reappeared member was dropped as absent: " <> show outcome)
+  unchanged <- readHead store >>= expectRight
+  fmap headAccepted unchanged @?= Just (headAccepted (storeSnapshotHead published))
+  -- Absent again, the same review is admitted: one member retained, one gone.
+  modifyIORef' world (Map.insert (declarationId vanished) (ConfirmedAbsent (contentDigest "deleted")))
+  _ <- applyReviewed store registry reviewed >>= expectRight
+  retired <- loadInventoryHistory store >>= expectRight
+  Map.null (historyAccepted retired) @?= True
+  Map.keys (historyRetained retired) @?= [declarationId kept]
+
+-- | A Kubernetes adapter that reports the observations in the world map and
+-- completes every operation.
+observingRegistry :: IORef (Map.Map ResourceId ResourceObservation) -> AdapterRegistry
+observingRegistry world =
+  ok
+    ( mkAdapterRegistry
+        [ Adapter
+            { adapterExecutor = KubernetesExecutor
+            , adapterIdentity = "absence-observer"
+            , adapterVersion = "1"
+            , adapterObserve = \resources -> do
+                current <- readIORef world
+                pure (observationSet [(resource, fact) | resource <- resources, Just fact <- [Map.lookup resource current]])
+            , adapterPrepare = \operation -> pure (Right (PreparedNative (ok (canonicalValue (toJSON operation))) "absence observer"))
+            , adapterPreflight = \_ _ -> pure (Right ())
+            , adapterExecute = \_ _ -> pure AdapterEffectCompleted
+            , adapterVerify = \operation _ -> pure (Right (contentDigest (TE.encodeUtf8 (operationIdText (plannedOperationId operation)))))
+            , adapterRecover = \_ _ -> pure (RecoveryUnresolved "absence observer does not recover")
+            }
+        ]
+    )
 
 member :: ScopeId -> ResourceId -> Text -> Declaration
 member owner cluster role =

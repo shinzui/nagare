@@ -2,6 +2,7 @@
 module Nagare.Inventory.Plan.Types
   ( historyReservations
   , retainedReservations
+  , AbsenceProof (..)
   , ChangeProposal (..)
   , InventoryHistory (..)
   , LifecycleDecisionKind (..)
@@ -150,6 +151,17 @@ data ChangeProposal = ChangeProposal
   , proposalRetentions :: !(Map ResourceId RetentionProof)
   , proposalCollections :: !(Map ResourceId RetentionProof)
   , proposalMigrations :: !(Map ResourceId MigrationProof)
+  , proposalAbsences :: !(Map ResourceId AbsenceProof)
+  }
+  deriving stock (Eq, Show)
+
+-- | F58: an accepted member a retirement removes without retaining it,
+-- because it is confirmed absent and holds no data (a stateless member, or a
+-- durable member whose create never started).
+data AbsenceProof = AbsenceProof
+  { absenceOwner :: !ScopeId
+  , absenceRevision :: !ScopeRevision
+  , absenceEvidence :: !ContentDigest
   }
   deriving stock (Eq, Show)
 
@@ -198,6 +210,7 @@ data ReviewDocument = ReviewDocument
   , reviewRetentions :: !(Map ResourceId RetentionProof)
   , reviewCollections :: !(Map ResourceId RetentionProof)
   , reviewMigrations :: !(Map ResourceId MigrationProof)
+  , reviewAbsences :: !(Map ResourceId AbsenceProof)
   }
   deriving stock (Eq, Show, Generic)
 
@@ -341,6 +354,21 @@ instance FromJSON RetentionProof where
       (fail "retention proof has an unknown field")
     RetentionProof <$> o .: "owner" <*> o .: "revision" <*> o .: "physical"
 
+instance ToJSON AbsenceProof where
+  toJSON proof =
+    object
+      [ "owner" .= absenceOwner proof
+      , "revision" .= absenceRevision proof
+      , "evidence" .= absenceEvidence proof
+      ]
+
+instance FromJSON AbsenceProof where
+  parseJSON = withObject "AbsenceProof" $ \o -> do
+    unless
+      (all (`elem` ["owner", "revision", "evidence"]) (KM.keys o))
+      (fail "absence proof has an unknown field")
+    AbsenceProof <$> o .: "owner" <*> o .: "revision" <*> o .: "evidence"
+
 instance ToJSON MigrationProof where
   toJSON proof =
     object
@@ -391,6 +419,9 @@ instance ToJSON ReviewDocument where
           <> [ "migrations" .= migrationEntries (reviewMigrations document)
              | not (Map.null (reviewMigrations document))
              ]
+          <> [ "absences" .= [object ["resource" .= resource, "proof" .= proof] | (resource, proof) <- Map.toAscList (reviewAbsences document)]
+             | not (Map.null (reviewAbsences document))
+             ]
       )
     where
       retentionEntries entries =
@@ -404,13 +435,14 @@ instance ToJSON ReviewDocument where
 
 instance FromJSON ReviewDocument where
   parseJSON = withObject "ReviewDocument" $ \o -> do
-    let allowed = ["version", "context", "headGeneration", "headSequence", "baseRevisions", "desiredRevisions", "candidateDigest", "payloadIdentity", "policyVersion", "operations", "barriers", "retentions", "collections", "migrations"]
+    let allowed = ["version", "context", "headGeneration", "headSequence", "baseRevisions", "desiredRevisions", "candidateDigest", "payloadIdentity", "policyVersion", "operations", "barriers", "retentions", "collections", "migrations", "absences"]
     unless (all (`elem` allowed) (KM.keys o)) (fail "review document has an unknown field")
     version <- o .: "version"
     unless (version == (1 :: Int)) (fail "unsupported review schema version")
     retentions <- parseRetentions =<< o .:? "retentions" .!= []
     collections <- parseRetentions =<< o .:? "collections" .!= []
     migrations <- parseMigrations =<< o .:? "migrations" .!= []
+    absences <- parseAbsences =<< o .:? "absences" .!= []
     ReviewDocument version
       <$> o .: "context"
       <*> o .: "headGeneration"
@@ -425,10 +457,15 @@ instance FromJSON ReviewDocument where
       <*> pure retentions
       <*> pure collections
       <*> pure migrations
+      <*> pure absences
     where
       parseRetentions values = do
         entries <- traverse (withObject "retention entry" (\v -> (,) <$> v .: "resource" <*> v .: "proof")) values
         unless (length entries == Map.size (Map.fromList entries)) (fail "duplicate retention proof")
+        pure (Map.fromList entries)
+      parseAbsences values = do
+        entries <- traverse (withObject "absence entry" (\v -> (,) <$> v .: "resource" <*> v .: "proof")) values
+        unless (length entries == Map.size (Map.fromList entries)) (fail "duplicate absence proof")
         pure (Map.fromList entries)
       parseMigrations values = do
         entries <- traverse (withObject "migration entry" (\v -> (,) <$> v .: "resource" <*> v .: "proof")) values

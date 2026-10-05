@@ -998,6 +998,19 @@ convergence. A new corrected review then updates the same Service in place.
 A recorded stop marker stands for the proof that was accepted when it was
 written.
 
+Retiring an absent member (2026-10-05, finding F58, found by the EP-173 recovery
+model): a retention proof names a present object, so a member that never
+existed could not be retired. An application whose first deploy stopped unready
+left its release history admitted but never created, and could be deleted only
+by first shipping a working image. A retirement or scope replacement now records
+a removed, `ConfirmedAbsent` member that holds no data as an *absence proof*
+(owner, accepted revision, absence evidence) instead of retaining it. Holding no
+data means a stateless member, or a durable member whose create never started in
+a stopped application review. Admission re-observes absence-proved members and
+refuses if any has reappeared. A durable member that existed and is now absent
+still refuses as `durable-resource-missing` unless its collection is reviewed:
+retirement never silently drops data.
+
 The same explicit stopped-configuration decision also accepts a newly created,
 unready DomainMapping in an exact typed Standalone site-preview scope. Validate
 the complete original preview member/address/policy contract, require all other

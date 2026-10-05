@@ -3,6 +3,7 @@ module Nagare.Inventory.Plan
   ( InventoryHistory
   , loadInventoryHistory
   , loadInventoryPlanningHistory
+  , loadUnstartedApplicationCreates
   , historyHead
   , seedInventoryHistory
   , historyAccepted
@@ -31,8 +32,10 @@ module Nagare.Inventory.Plan
   , historyDeclarations
   , proposalOperations
   , proposalDesired
+  , proposalAbsences
   , candidateDesiredRevisions
   , RetentionProof (..)
+  , AbsenceProof (..)
   , MigrationProof (..)
   , planChanges
   , ReviewOperation (..)
@@ -71,6 +74,7 @@ import Nagare.Inventory.Plan.History
   , incompleteApplicationOnlyReview
   , loadInventoryHistory
   , loadInventoryPlanningHistory
+  , loadUnstartedApplicationCreates
   , seedInventoryHistory
   )
 import Nagare.Inventory.Plan.Lifecycle
@@ -98,7 +102,8 @@ import Nagare.Inventory.Plan.Publication
   , writeReviewBundle
   )
 import Nagare.Inventory.Plan.Types
-  ( ChangeProposal (..)
+  ( AbsenceProof (..)
+  , ChangeProposal (..)
   , InventoryHistory (..)
   , LifecycleDecisionKind (..)
   , LifecycleDecisions (..)

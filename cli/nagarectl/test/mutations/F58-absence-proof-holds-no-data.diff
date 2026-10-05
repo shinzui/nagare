@@ -1,0 +1,12 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Plan/Changes.hs b/cli/nagarectl/src/Nagare/Inventory/Plan/Changes.hs
+--- a/cli/nagarectl/src/Nagare/Inventory/Plan/Changes.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Plan/Changes.hs
+@@ -334,7 +334,7 @@
+     , Set.notMember resourceId desired
+     , Set.member (resource ^. #owner) (removingScopes candidate)
+     , Just (ConfirmedAbsent evidence) <- [Map.lookup resourceId (observationMap observations)]
+-    , resource ^. #dataPolicy == Stateless || Set.member resourceId (historyUnstartedCreates history)
++    , True
+     , Just (revision, _) <- [Map.lookup (resource ^. #owner) (historyAccepted history)]
+     ]
+   where

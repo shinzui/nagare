@@ -139,8 +139,13 @@ decideRetirement candidate history observations =
     , Set.member (resource ^. #owner) retiring
     , let resourceId = resource ^. #identity
     , Just fact <- [Map.lookup resourceId (observationMap observations)]
+    , -- A confirmed-absent member has nothing to retain; planning either
+    -- drops it (no data) or refuses (missing data) (F58).
+    not (isAbsent fact)
     ]
   where
+    isAbsent (ConfirmedAbsent _) = True
+    isAbsent _ = False
     binding = inventoryBinding (candidateInventory candidate)
     -- Composed history includes contribution targets the retiring scope owns
     -- (for example the access backend map), which its raw bundles do not list.

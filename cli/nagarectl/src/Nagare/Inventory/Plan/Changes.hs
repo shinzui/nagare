@@ -13,6 +13,7 @@ import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (listToMaybe, mapMaybe)
+import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude hiding ((.=), (<.>))
@@ -74,7 +75,8 @@ import Nagare.Inventory.Plan.Observation
   , observationRequirements
   )
 import Nagare.Inventory.Plan.Types
-  ( ChangeProposal (..)
+  ( AbsenceProof (..)
+  , ChangeProposal (..)
   , InventoryHistory (..)
   , LifecycleDecisionKind (..)
   , LifecycleDecisions (..)
@@ -225,6 +227,7 @@ planChanges candidate decisions history observations = do
             :| []
         )
     )
+  let absences = buildAbsenceProofs candidate history observations
   operations <- buildOperations candidate checkedDecisions history observations
   retentions <- buildRetentionProofs candidate checkedDecisions history observations
   collections <- buildCollectionProofs candidate checkedDecisions history observations
@@ -252,6 +255,7 @@ planChanges candidate decisions history observations = do
       , proposalRetentions = retentions
       , proposalCollections = collections
       , proposalMigrations = migrationProofs
+      , proposalAbsences = absences
       }
   where
     baseRevisions = fmap fst (historyAccepted history)
@@ -316,6 +320,40 @@ buildMigrationProofs (LifecycleDecisions _ _ migrations) = Map.map one migration
             (validatedDestinationAbsence migration)
             (validatedContract migration)
 
+-- | F58: members a retirement or scope replacement removes that are confirmed
+-- absent and hold no data leave history without a retention proof. That is a
+-- stateless member, or a durable member whose create never started in a
+-- stopped application review. There is nothing to retain, and a retention
+-- proof would name an object that does not exist.
+buildAbsenceProofs :: CompositionCandidate -> InventoryHistory -> ObservationSet -> Map ResourceId AbsenceProof
+buildAbsenceProofs candidate history observations =
+  Map.fromList
+    [ (resourceId, AbsenceProof (resource ^. #owner) revision evidence)
+    | Managed resource <- historyDeclarations history
+    , let resourceId = resource ^. #identity
+    , Set.notMember resourceId desired
+    , Set.member (resource ^. #owner) (removingScopes candidate)
+    , Just (ConfirmedAbsent evidence) <- [Map.lookup resourceId (observationMap observations)]
+    , resource ^. #dataPolicy == Stateless || Set.member resourceId (historyUnstartedCreates history)
+    , Just (revision, _) <- [Map.lookup (resource ^. #owner) (historyAccepted history)]
+    ]
+  where
+    desired = Set.fromList (map declarationId (inventoryDeclarations (candidateInventory candidate)))
+
+-- | Scopes whose removed members need a lifecycle decision.
+removingScopes :: CompositionCandidate -> Set ScopeId
+removingScopes candidate =
+  Set.fromList
+    [ scope
+    | change <- NE.toList (candidateChanges candidate)
+    , Just scope <-
+        [ case change of
+            RetireScope owner RetainResources -> Just owner
+            ReplaceScope replacement -> Just (scopeId replacement)
+            _ -> Nothing
+        ]
+    ]
+
 buildRetentionProofs :: CompositionCandidate -> LifecycleDecisions -> InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) (Map ResourceId RetentionProof)
 buildRetentionProofs candidate (LifecycleDecisions _ decisions _) history observations = do
   unless
@@ -329,24 +367,15 @@ buildRetentionProofs candidate (LifecycleDecisions _ decisions _) history observ
       | ObservedChild resource _ _ _ _ <- historyDeclarations history
       , Set.notMember resource desired
       ]
-    selectedScopes =
-      Set.fromList
-        [ scope
-        | change <- NE.toList (candidateChanges candidate)
-        , Just scope <-
-            [ case change of
-                RetireScope owner RetainResources -> Just owner
-                ReplaceScope replacement -> Just (scopeId replacement)
-                _ -> Nothing
-            ]
-        ]
+    absent = buildAbsenceProofs candidate history observations
     -- Admission counts removed members over composed history, which includes
     -- contribution targets owned by the scope; prove exactly that set (F40).
     selected =
       [ (resource ^. #identity, resource)
       | Managed resource <- historyDeclarations history
       , Set.notMember (resource ^. #identity) desired
-      , Set.member (resource ^. #owner) selectedScopes
+      , Set.member (resource ^. #owner) (removingScopes candidate)
+      , Map.notMember (resource ^. #identity) absent
       ]
     one (resourceId, resource) = case ( Map.lookup resourceId decisions
                                       , Map.lookup resourceId (observationMap observations)
@@ -727,6 +756,13 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
       (Just _, Just (ObservationUnavailable _)) -> ([PlanError "observation-unavailable" "resource observation is unavailable" [resourceId]], Nothing)
       (Just _, _) -> ([], Just (resourceOperation UpdateResource resource))
       (_, Nothing) -> ([PlanError "observation-coverage" "resource was not observed" [resourceId]], Nothing)
+    absences = buildAbsenceProofs candidate history observations
+    retireError (resource, Managed old)
+      | Map.member resource absences = []
+      | Just (ConfirmedAbsent _) <- Map.lookup resource observed
+      , Durable _ <- old ^. #dataPolicy
+      , not (decisionIs ApproveCollection resource) =
+          [PlanError "durable-resource-missing" "accepted durable resource is absent; recover its data before retiring it" [resource]]
     retireError (resource, _)
       | decisionIs ApproveRetirement resource || decisionIs ApproveCollection resource = []
       | otherwise = [PlanError "retirement-required" "accepted resource is absent from desired inventory without a lifecycle decision" [resource]]

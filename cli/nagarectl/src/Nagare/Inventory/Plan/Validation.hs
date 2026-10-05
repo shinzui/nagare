@@ -32,7 +32,8 @@ import Nagare.Inventory.Adapter
   )
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Plan.Types
-  ( MigrationProof (..)
+  ( AbsenceProof (..)
+  , MigrationProof (..)
   , RetentionProof (..)
   , ReviewBundle (..)
   , ReviewDocument (..)
@@ -90,6 +91,7 @@ verifyReview snapshot bundle =
         <> [ReviewError "stale-head" "review was issued against a different head generation or journal sequence" | reviewHeadGeneration document /= headGeneration headValue || reviewHeadSequence document /= headSequence headValue]
         <> [ReviewError "stale-base" "review base revisions differ from accepted desired state" | reviewBaseRevisions document /= headAccepted headValue]
         <> retentionReviewErrors headValue document
+        <> absenceReviewErrors headValue document
         <> collectionReviewErrors headValue document
         <> migrationReviewErrors headValue document
         <> [ReviewError "scope-member" "review scope member is missing or has a different digest" | not (membersMatch (bundleScopes bundle) (map revisionDigest (Map.elems (reviewDesiredRevisions document))))]
@@ -148,6 +150,19 @@ retentionReviewErrors headValue document =
     <> [ ReviewError "retention-history" "retained resource already exists in the historical catalogue"
        | resource <- Map.keys (reviewRetentions document)
        , Map.member resource (headRetained headValue)
+       ]
+
+-- | F58: a member removed as absent names its accepted owner revision, and is
+-- neither retained nor also given a retention proof.
+absenceReviewErrors :: HeadManifest -> ReviewDocument -> [ReviewError]
+absenceReviewErrors headValue document =
+  [ ReviewError "absence-base" "absence proof does not name the accepted scope revision"
+  | (_, proof) <- Map.toAscList (reviewAbsences document)
+  , Map.lookup (absenceOwner proof) (headAccepted headValue) /= Just (absenceRevision proof)
+  ]
+    <> [ ReviewError "absence-history" "absent resource is retained or also has a retention proof"
+       | resource <- Map.keys (reviewAbsences document)
+       , Map.member resource (headRetained headValue) || Map.member resource (reviewRetentions document)
        ]
 
 collectionReviewErrors :: HeadManifest -> ReviewDocument -> [ReviewError]

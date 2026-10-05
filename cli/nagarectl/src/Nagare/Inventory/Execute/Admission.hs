@@ -25,7 +25,7 @@ import Nagare.Inventory.Adapter
     , RestoreLiveDatabase
     )
   , PlannedOperation (plannedAction, plannedExecutor)
-  , ResourceObservation (ObservedPresent)
+  , ResourceObservation (ConfirmedAbsent, ObservedPresent)
   , lookupAdapter
   , observationMap
   , observeWithRegistry
@@ -52,7 +52,8 @@ import Nagare.Inventory.Journal
   )
 import Nagare.Inventory.Migration.Types (MigrationContract (..), migrationPoliciesCompatible)
 import Nagare.Inventory.Plan
-  ( InventoryHistory (historyAccepted, historyHead)
+  ( AbsenceProof (absenceOwner, absenceRevision)
+  , InventoryHistory (historyAccepted, historyHead)
   , MigrationProof
     ( migrationProofContract
     , migrationProofDestinationAddress
@@ -67,7 +68,8 @@ import Nagare.Inventory.Plan
     , retentionRevision
     )
   , ReviewDocument
-    ( reviewBaseRevisions
+    ( reviewAbsences
+    , reviewBaseRevisions
     , reviewContextBinding
     , reviewDesiredRevisions
     , reviewHeadGeneration
@@ -79,6 +81,7 @@ import Nagare.Inventory.Plan
   , ReviewOperation (reviewPlannedOperation)
   , ReviewedPlan
   , loadInventoryHistory
+  , loadUnstartedApplicationCreates
   , reviewedDocument
   )
 import Nagare.Inventory.Store
@@ -187,6 +190,10 @@ admit locked registry reviewed = do
                         == Just (ObservedPresent (retentionPhysical proof))
                     )
                     (Left "retained physical incarnation changed since review")
+                forM_ (Map.keys (reviewAbsences document)) $ \resource ->
+                  case Map.lookup resource (observationMap facts) of
+                    Just (ConfirmedAbsent _) -> Right ()
+                    _ -> Left "a resource reviewed as absent is present or unobserved"
         case migrationChecked >> sourceChecked of
           Left err -> pure (failure "migration-coverage" err)
           Right () -> case checked of
@@ -267,13 +274,22 @@ deferredScheduledPrune store headValue document = do
 
 -- | No accepted managed declaration may disappear solely because a scope
 -- revision was replaced. A reviewed retention proof is required for every
--- disappeared identity; a transferred identity remains in the desired set.
+-- disappeared identity; a transferred identity remains in the desired set. A
+-- confirmed-absent member that holds no data may instead carry an absence
+-- proof (F58): a stateless member, or a durable member whose create never
+-- started in a stopped application review.
 retentionCoverage :: InventoryStore -> ReviewDocument -> IO (Either Text (Map Executor [ResourceId]))
 retentionCoverage store document = do
   historical <- loadInventoryHistory store
   desired <- traverse loadDesired (Map.elems (reviewDesiredRevisions document))
+  unstartedResult <- case historical of
+    Right loaded
+      | not (Map.null absences) ->
+          loadUnstartedApplicationCreates store (Set.fromList (map absenceOwner (Map.elems absences))) (historyHead loaded)
+    _ -> pure (Right Set.empty)
   pure $ do
     history <- first showText historical
+    unstarted <- first showText unstartedResult
     scopes <- sequence desired
     desiredDeclarations <-
       first
@@ -300,6 +316,12 @@ retentionCoverage store document = do
             , Just (revision, _) <- [Map.lookup (resource ^. #owner) (historyAccepted history)]
             , Set.notMember (resource ^. #identity) desiredIds
             ]
+        holdsNoData =
+          Set.fromList
+            [ resource ^. #identity
+            | Resource.Managed resource <- oldDeclarations
+            , resource ^. #dataPolicy == Stateless || Set.member (resource ^. #identity) unstarted
+            ]
         proofs = reviewRetentions document
     unless
       (null removedChildren)
@@ -317,8 +339,17 @@ retentionCoverage store document = do
       (Set.null (Set.intersection desiredIds (Map.keysSet (headCollected (historyHead history)))))
       (Left "collected logical identity cannot be reused after its deletion tombstone")
     unless
-      (Map.keysSet removed == Map.keysSet proofs)
-      (Left "removed managed resources require exactly one retained-incarnation proof")
+      ( Map.keysSet removed == Map.keysSet proofs `Set.union` Map.keysSet absences
+          && Set.null (Map.keysSet proofs `Set.intersection` Map.keysSet absences)
+      )
+      (Left "removed managed resources require exactly one retained-incarnation or absence proof")
+    forM_ (Map.toAscList absences) $ \(resource, proof) ->
+      unless
+        ( fmap (\(owner, revision, _) -> (owner, revision)) (Map.lookup resource removed)
+            == Just (absenceOwner proof, absenceRevision proof)
+            && Set.member resource holdsNoData
+        )
+        (Left "absence proof names a resource that holds data or differs from accepted ownership history")
     forM_ (Map.toAscList proofs) $ \(resource, proof) ->
       unless
         ( fmap (\(owner, revision, _) -> (owner, revision)) (Map.lookup resource removed)
@@ -331,6 +362,7 @@ retentionCoverage store document = do
           [(executor, [resource]) | (resource, (_, _, executor)) <- Map.toAscList removed]
       )
   where
+    absences = reviewAbsences document
     loadDesired revision = do
       let key = scopeKey (revisionDigest revision)
       loaded <- readObject store key
