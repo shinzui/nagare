@@ -78,7 +78,7 @@ This is the authoritative list of implementation findings for [MP-23](../masterp
 | [F57](#f57) | P1 | A verification whose target is replaced after it ends ambiguous has no exit | Verifying | EP-153 / EP-173 |
 | [F58](#f58) | P2 | An application whose first deploy stopped unready cannot be retired, because a never-created member has nothing to retain | Verifying | EP-153 / EP-173 |
 | [F59](#f59) | P1 | A standalone database whose StatefulSet is created but never becomes Ready has no exit | Partial | EP-153 / EP-173 |
-| [F60](#f60) | P2 | One out-of-band replacement between a create and convergence is recorded as the accepted incarnation (F49's fail-open recording, reachable with one fault) | Open | EP-173 |
+| [F60](#f60) | P2 | One out-of-band replacement between a create and convergence is recorded as the accepted incarnation (F49's fail-open recording, reachable with one fault) | Deferred (operator, estimate over limit) | EP-173 |
 | [F61](#f61) | P1 | A reviewed PostgreSQL rename whose copy Job fails partway has no exit | Open | EP-173 / EP-153 |
 | [F62](#f62) | P2 | A reviewed rename copies from, and retains, a source replaced outside review | Open | EP-153 / EP-173 |
 | [F63](#f63) | P1 | A Deployment or database StatefulSet update that lands but never becomes Ready has no exit | Open | EP-153 / EP-173 |
@@ -639,7 +639,7 @@ invalid-retirement: retention needs a selected scope replacement or retirement t
 
 ## F60
 
-**One out-of-band replacement between a create and convergence is recorded as the accepted incarnation** — P2; **Open** (un-deferred by the operator, 2026-10-05); owner EP-173.
+**One out-of-band replacement between a create and convergence is recorded as the accepted incarnation** — P2; **Deferred** (by the operator's own condition, 2026-10-05; estimate 4–6 hours); owner EP-173.
 
 **Found by the EP-173 recovery model (2026-10-05)** in the same database scenario. Its new I3 receipt clause plans scheduled-receipt ingestion the way `db backup-receipts` does. Under one `Replaced` fault at a Kubernetes observation between the StatefulSet's or PVC's create and the convergence observation, convergence records the replacement as the accepted incarnation. A receipt taken from the replacement then compiles for ingestion, and F49's guard passes because the record names the replacement.
 
@@ -652,6 +652,14 @@ invalid-retirement: retention needs a selected scope replacement or retirement t
 - **Coverage:** remove the recovery model's F60 tolerance from the I3 receipt clause, so a `Replaced` fault between create and convergence must no longer launder the replacement. Add a mutation record that restores observation-based recording.
 - **Time box:** if the implementer estimates the fix at more than about two hours, report the estimate to the operator before going further.
 
+**Implementer estimate (2026-10-05, nagare): 4–6 hours, above the operator's two-hour condition, so not implemented.** No layer captures the UID the API server returns for a reviewed create today, and verification re-observes, so a replacement before verification is already invisible. Binding the record from the create's own identity needs five changes:
+1. `KubernetesRuntime` parses the UID from `kubectl create -o json` and from the apply and replace paths.
+2. `AdapterExecution` carries it, which is a type change across adapters.
+3. The journal records it in the `Completed` event, a schema change that needs compatibility with journals already written.
+4. Verification and recovery compare it, with a reviewed exit for a create whose target was replaced (a sibling of F56).
+5. `Incarnations` binds from the journal and refuses a mismatch at convergence.
+
+That design is also what this finding's follow-up work needs. The model's F60 tolerance stays until it lands. **Status:** deferred under the operator's stated condition ("fix it in MP-23 unless it's going to take hours"). It returns to Open if the operator schedules the work.
 ## F61
 
 **A reviewed PostgreSQL rename whose copy Job fails partway has no exit** — P1; **Open**; owner EP-173 / EP-153.
