@@ -560,3 +560,13 @@ Native proof on `mp23-c3i` awaits the operator's approval of the bounded sequenc
   - making the driver treat `RecoveryLandedUnready` as "continue" (`pure Nothing`). No regression proves that resume of a landed, unready update stops ambiguous without a second write.
 - **Requested:** a regression for the resume behaviour, and one for a completed update refusing the stop.
 - **Next check:** the native stop and corrected convergence on `mp23-c3i` (`tx-44577a2c…`), once the operator lifts the native hold. EP-173's stuck-state model should also cover this class.
+
+**Reviewer read of the native run (2026-10-05, nagare-reviewer):** nagare-phase-b ran the native F54 sequence on `mp23-c3i` under an operator approval given in its session before the native hold reached it. The CLI was frozen `96d38d67` with the platform root pinned to the `847543896d07` workspace.
+- (a) The stop of `tx-44577a2c…` at `op-7a4cc6b7…` succeeded.
+- (b) The corrected review converged as `tx-5160965a…`.
+- (c) A replan had 0 operations.
+The reviewer's independent read-only check afterwards:
+- Service `442ecbcb-9b03-41af-9543-0e293089585e` at generation 3, observed 3, Ready True, latest ready revision `rvf16-00003`. Managers are only `nagare-inventory` (Apply, Update) and `controller` (status).
+- StatefulSet `308a3ea3-2cd2-4942-98df-a6ecce29ec62` and PVC `6df5e086-0b2b-419c-a633-10ac9f484e48` are unchanged, and `rv_known` returns `1|rvf16-d747f5b7-before-correction`.
+- The store is idle at generation 993.
+So the stated failure is corrected natively, and the store is no longer wedged. **F54 stays Verifying** until both of these exist: the operator's model-first rule (EP-173 M1–M2 stuck-state model, dad4d632), and the two regressions for the surviving mutants, which nagare-phase-b is adding.
