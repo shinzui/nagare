@@ -318,6 +318,7 @@ mkAccessAdapter accepted bindings ops =
     , adapterVerify = \operation prepared -> withPlan operation prepared $ \binding plan -> do
         fact <- accessInspect ops binding
         pure (fact >>= completion binding plan)
+    , adapterSettle = Nothing
     , adapterRecover = \operation prepared -> do
         result <- withPlan operation prepared $ \binding plan -> do
           fact <- accessInspect ops binding

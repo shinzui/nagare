@@ -11,6 +11,12 @@ provenance:
     model: "claude-opus-5-5"
     harness: "claude-code"
     at: 2026-10-05T21:51:36Z
+  revisions:
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-05T22:44:53Z
+      mode: "implement"
+      note: "M1: Settlement, adapterSettle, verify never executes, I8 totality"
 ---
 
 # Close stopped inventory transactions by per-operation proof
@@ -51,11 +57,18 @@ which is steps 1 and 4 of MasterPlan 23's release line (b).
 
 ## Progress
 
-- [ ] M1: proof classes and settlement. `Settlement` and a total `adapterSettle` exist for every
-  in-line adapter; the driver never executes a `VerifyResource` operation; a per-adapter totality
-  test shows that every fault in the Kubernetes world classifies as something other than `Unknown`
-  or states a reason.
-- [ ] M2: `inventory close`. The command classifies every operation, checks that resume is stuck,
+- [x] (2026-10-05) M1: proof classes and settlement.
+  - **Settlement.** `Settlement` and `adapterSettle` exist, in `Nagare.Inventory.Adapter`, with
+    `settleOperationWith` and `fencedSettle`. The Kubernetes adapter settles totally through
+    `settleMutation`. Migration, live-restore and maintenance wrappers delegate to it, and settle
+    their own excluded operations as `Unknown`.
+  - **O6.** The driver never executes a `VerifyResource`.
+  - **Proof.** Model invariant I8 passes the fast tier: every stopped operation settles to a proof
+    class. `test/InventorySettleSpec.hs` proves O6.
+  - **Mutations.** `ADR26-O1-kubernetes-settle-unknown` fails I8, and `ADR26-O6-verify-executes`
+    fails the O6 test.
+- [ ] M2: `inventory close`. It includes binding the F61 copy marker to the migration's transaction,
+  operation and own destination, with ADR 26 §4 updated to match. The command classifies every operation, checks that resume is stuck,
   publishes a close record and releases the head per scope (revert or keep), re-entrantly. The
   never-started set comes from close records. The recovery model exits only by resume or close, and
   its fast tier passes.
@@ -84,6 +97,19 @@ which is steps 1 and 4 of MasterPlan 23's release line (b).
   runbooks and saved decision files from before this change still work.
   Date: 2026-10-05
 
+- Decision (reviewer condition, nagare-84, 2026-10-05): the copy marker counts as ADR 26 §4's proof
+  only when the redo clears the destination under all three of these conditions:
+  - the marker was written by this reviewed migration before its copy started, and records that
+    transaction's ID and operation ID;
+  - the destination is the migration's own destination object: by recorded identity once
+    `docs/plans/176-record-physical-identity-at-creation-and-read-it-through-one-checked-accessor.md`
+    lands, and by its reviewed claim name and UID until then;
+  - nothing else mounts it.
+
+  Implementing these is part of M2. In the same change, update ADR 26 §4's wording, which says
+  "reviewed wipe", to describe the marker-bound redo.
+  Date: 2026-10-05
+
 - Decision: F61's forward exit is the copy marker that commit `abe5f17a` already shipped. A copy
   that finds `.nagare-transfer-incomplete` clears and redoes the destination. ADR 26 §4 needs no
   further reviewed wipe for it. Migrations stay excluded from close.
@@ -92,6 +118,22 @@ which is steps 1 and 4 of MasterPlan 23's release line (b).
   operator-reviewed wipe would add a command for a case that now resolves on resume. If the
   exhaustive matrix later shows a partial copy that the marker cannot cover (for example a
   persistent full disk), add a reviewed wipe then, in this plan.
+  Date: 2026-10-05
+
+- Decision: The settle-totality check is invariant I8 of the recovery model, not a separate
+  `InventorySettleTotalitySpec.hs`. At every stop the model settles each operation that has intent
+  and no completion, reading the world in inspection mode so no fault fires. A `SettledUnknown`
+  fails the run unless it resolves by `inventory resume`.
+  Rationale: the model already reaches every stop under every fault, and a separate harness would
+  re-implement its replay.
+  Date: 2026-10-05
+
+- Decision: `adapterSettle` is a `Maybe` field on `Adapter`. `Nothing` derives settlement from
+  `adapterRecover` (`settleOperationWith`). Wrappers around the Kubernetes adapter delegate to the
+  base adapter's settlement, and settle their own excluded operations (migration stages, fenced
+  data operations) as `SettledUnknown`.
+  Rationale: 37 adapters are constructed with record syntax. A defaulted field keeps every
+  out-of-line adapter blocked (`Unknown`) without per-adapter code, as the release line requires.
   Date: 2026-10-05
 
 - Decision: The harness change "an admission refusal is never counted as a successful exit" is made
@@ -406,12 +448,13 @@ cabal build nagarectl-test
 cabal test nagarectl-test --test-options='-p "/fast tier/ || /rename recovery model/ || /settle totality/"'
 ```
 
-Before each commit, from the repository root:
+Before each commit, from the repository root, run `just gate-fast` and `git diff --numstat`. Before
+each push batch, also run `nix flake check` (ADR 25 §5):
 
 ```bash
 just gate-fast
-nix flake check
 git diff --numstat
+nix flake check   # per push batch
 ```
 
 Expected: `gate: fast gate green`, and `nix flake check` exits 0. Record mutation proofs in a scratch

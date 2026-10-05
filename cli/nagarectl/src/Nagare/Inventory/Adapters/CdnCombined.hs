@@ -54,6 +54,7 @@ combineCdnAdapters google googleAdapter cloudflare cloudflareAdapter =
     , adapterVerify = \operation prepared -> case dispatch (NE.toList (plannedResources operation)) of
         Left reason -> pure (Left reason)
         Right provider -> adapterVerify provider operation prepared
+    , adapterSettle = Nothing
     , adapterRecover = \operation prepared -> case dispatch (NE.toList (plannedResources operation)) of
         Left reason -> pure (RecoveryUnresolved reason)
         Right provider -> adapterRecover provider operation prepared

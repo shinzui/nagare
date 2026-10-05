@@ -80,6 +80,15 @@ kubernetesMigrationAdapter config planning base =
     , adapterPreflight = whenMigration (adapterPreflight base) Left preflight
     , adapterExecute = whenMigration (adapterExecute base) (AdapterEffectFailed . KnownNoEffect) execute
     , adapterVerify = whenMigration (adapterVerify base) Left verify
+    , -- ADR 26: migration stages are excluded from close and keep their own
+      -- forward exits; every other operation settles as the base adapter does.
+      adapterSettle =
+        Just
+          ( whenMigration
+              (settleOperationWith base)
+              (\reason -> SettledUnknown reason "the saved migration review")
+              (\_ -> pure (SettledUnknown "a migration stage is excluded from close" "inventory resume, or the migration's forward exit"))
+          )
     , adapterRecover = whenMigration (adapterRecover base) RecoveryUnresolved recover
     }
   where

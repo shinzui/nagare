@@ -27,7 +27,7 @@ import Nagare.Inventory.Adapter
     )
   , AdapterRecovery (recoveryExecute, recoveryValidate)
   , AdapterRegistry
-  , OperationAction (CreateResource)
+  , OperationAction (CreateResource, VerifyResource)
   , PlannedOperation
     ( plannedAction
     , plannedExecutor
@@ -390,11 +390,16 @@ runOperations locked registry transaction reviewed initialEvents operations reco
                           ("data fence acquisition or exclusion is unresolved: " <> reason)
                       pure (Just (StoppedAmbiguous transaction operationId))
                     Right activeFence -> do
+                      -- ADR 26 (O6): a verification is effect-free by
+                      -- construction; only its adapterVerify step runs.
                       result <-
-                        withAdapterEnv
-                          transaction
-                          operation
-                          (adapterExecute adapter operation prepared)
+                        if plannedAction operation == VerifyResource
+                          then pure AdapterEffectCompleted
+                          else
+                            withAdapterEnv
+                              transaction
+                              operation
+                              (adapterExecute adapter operation prepared)
                       case result of
                         AdapterEffectFailed failureClass -> do
                           markUnknown activeFence

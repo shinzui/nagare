@@ -151,6 +151,7 @@ partialScopeRetirementProof = do
                 )
               pure AdapterEffectCompleted
           , adapterVerify = \_ _ -> pure (Right (contentDigest "verified"))
+          , adapterSettle = Nothing
           , adapterRecover = \_ _ -> pure (RecoveryUnresolved "unused")
           }
       registry = known (mkAdapterRegistry [adapter])
@@ -320,6 +321,7 @@ runScenario interruptedAt = do
                     else AdapterEffectCompleted
                 )
           , adapterVerify = \operation _ -> pure (Right (operationProof operation))
+          , adapterSettle = Nothing
           , adapterRecover = \operation _ -> pure (RecoveryProvedComplete (operationProof operation))
           }
       registry =

@@ -292,7 +292,10 @@ replay scenario schedule taken probe = do
                         "; operations: "
                           <> T.intercalate "; " operations
                           <> (if Set.null (deletedOutOfBand world) then "" else "; deleted outside review: " <> T.intercalate "," (map resourceIdText (Set.toList (deletedOutOfBand world))))
-                  AtStop image (why <> context) <$> candidateMoves run reviewed transaction
+                  gaps <- settlementGaps run registry reviewed transaction
+                  case gaps of
+                    gap : _ -> pure (Replayed (Left (describe scenario schedule image ("I8: " <> gap <> context) [])))
+                    [] -> AtStop image (why <> context) <$> candidateMoves run reviewed transaction
                 path -> do
                   outcomes <- mapM (tryMove run registry reviewed transaction) path
                   afterProbe <- checkInvariants run
@@ -658,6 +661,35 @@ progressSignature run transaction = do
     , maybe Map.empty headConverged current
     , latest
     )
+
+-- | I8 (ADR 26, obligation O1): every operation of a stopped transaction that
+-- has intent and no completion settles to a proof class, unless resume can
+-- still progress it. Settlement is read in inspection mode, so it fires no
+-- fault.
+settlementGaps :: Run -> AdapterRegistry -> ReviewedPlan -> TransactionId -> IO [Text]
+settlementGaps run registry reviewed transaction = do
+  current <- readHead (runInspect run) >>= orFail "read head"
+  raw <- maybe (pure []) (\value -> readJournalPrefix (runInspect run) (headSequence value) >>= orFail "read journal") current
+  let events = [event | Right event <- map decodeJournalEvent raw, eventTransaction event == transaction]
+      latest = Map.fromList [(operation, eventState event) | event <- events, Just operation <- [eventOperation event]]
+      unsettled = [operation | (operation, state) <- Map.toList latest, hasIntentOnly state]
+  modifyIORef' (runWorld run) (\world -> world {inspecting = True})
+  settled <- forM unsettled $ \operation -> (operation,) <$> settleReviewedOperation registry reviewed operation
+  modifyIORef' (runWorld run) (\world -> world {inspecting = False})
+  pure
+    [ operationIdText operation <> " settles unknown: " <> reason <> " (resolved by " <> resolvesBy <> ")"
+    | (operation, result) <- settled
+    , (reason, resolvesBy) <- case result of
+        Left err -> [(err, "a readable review")]
+        Right (SettledUnknown reason resolvesBy) | resolvesBy /= "inventory resume" -> [(reason, resolvesBy)]
+        Right _ -> []
+    ]
+  where
+    hasIntentOnly state = case state of
+      IntentRecorded -> True
+      Ambiguous -> True
+      Failed (PartialOrUnknown _) -> True
+      _ -> False
 
 -- | Resume, then every recovery action for every operation of the stopped
 -- transaction that has no completion.

@@ -370,6 +370,7 @@ observingRegistry world =
             , adapterPreflight = \_ _ -> pure (Right ())
             , adapterExecute = \_ _ -> pure AdapterEffectCompleted
             , adapterVerify = \operation _ -> pure (Right (contentDigest (TE.encodeUtf8 (operationIdText (plannedOperationId operation)))))
+            , adapterSettle = Nothing
             , adapterRecover = \_ _ -> pure (RecoveryUnresolved "absence observer does not recover")
             }
         ]

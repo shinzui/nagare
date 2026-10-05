@@ -118,6 +118,7 @@ mkHelmAdapter specs ops =
         Right mutation -> do
           current <- helmObserve ops (helmMutationResource mutation)
           pure (proof mutation current)
+    , adapterSettle = Nothing
     , adapterRecover = \operation prepared -> case decodeMutation operation prepared of
         Left reason -> pure (RecoveryUnresolved reason)
         Right mutation -> do

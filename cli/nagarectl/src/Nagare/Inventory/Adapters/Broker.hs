@@ -149,6 +149,7 @@ mkTopicAdapter accepted specs ops =
                 TopicPresent {} -> Left "topic settings differ from review"
                 TopicUnavailable reason -> Left reason
             )
+    , adapterSettle = Nothing
     , adapterRecover = \operation prepared -> case decodePlan accepted specs operation (preparedNativeBytes prepared) of
         Left reason -> pure (RecoveryUnresolved reason)
         Right plan -> do

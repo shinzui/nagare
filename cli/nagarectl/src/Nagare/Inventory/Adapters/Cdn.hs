@@ -136,6 +136,7 @@ mkDnsAdapter accepted specs ops =
                 DnsUnavailable reason -> Left reason
                 _ -> Left "DNS record does not match the reviewed target after execution"
             )
+    , adapterSettle = Nothing
     , adapterRecover = \operation prepared -> case decodePlan accepted specs operation (preparedNativeBytes prepared) of
         Left reason -> pure (RecoveryUnresolved reason)
         Right plan -> do

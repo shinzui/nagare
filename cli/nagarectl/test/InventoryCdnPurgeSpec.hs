@@ -113,6 +113,7 @@ fixture loseProvider loseStorage = do
           (\_ _ -> assertFailure "purge must use dedicated transport" >> pure AdapterEffectCompleted)
           (\_ _ -> pure (Right (contentDigest "dns")))
           (\_ _ -> pure (RecoveryUnresolved "DNS"))
+          Nothing
   pure (withCdnPurge bindings ops base, withCdnPurge bindings ops base, writes, receipt, current)
 
 owner :: ScopeId

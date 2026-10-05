@@ -92,6 +92,7 @@ mkFoundationAdapter targets ops =
     , adapterPreflight = preflight
     , adapterExecute = executePlan
     , adapterVerify = verifyPlan
+    , adapterSettle = Nothing
     , adapterRecover = recoverPlan
     }
   where

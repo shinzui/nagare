@@ -182,6 +182,7 @@ inventoryTransactionTests =
                 , adapterPreflight = \_ _ -> pure (Right ())
                 , adapterExecute = \_ _ -> pure AdapterEffectCompleted
                 , adapterVerify = \_ _ -> pure (Right (contentDigest "complete"))
+                , adapterSettle = Nothing
                 , adapterRecover = \_ _ ->
                     pure
                       (RecoveryUnresolved "terminal outcome unknown")
@@ -327,28 +328,15 @@ inventoryTransactionTests =
             registry =
               ok
                 ( mkAdapterRegistry
-                    [ Adapter
-                        { adapterExecutor = KubernetesExecutor
-                        , adapterIdentity = "recording"
-                        , adapterVersion = "1"
-                        , adapterObserve = \resources -> do
+                    [ ( ok
+                          ( lookupAdapter
+                              (recordingRegistryWith (\_ _ -> pure (Right ())) (\_ _ -> pure AdapterEffectCompleted) (\operation _ -> pure (RecoveryProvedComplete (proof operation))))
+                              KubernetesExecutor
+                          )
+                      )
+                        { adapterObserve = \resources -> do
                             current <- readIORef observedPhysical
-                            pure
-                              ( observationSet
-                                  [(resource, ObservedPresent current) | resource <- resources]
-                              )
-                        , adapterPrepare = \operation ->
-                            pure
-                              ( Right
-                                  ( PreparedNative
-                                      (ok (canonicalValue (toJSON operation)))
-                                      "recording adapter"
-                                  )
-                              )
-                        , adapterPreflight = \_ _ -> pure (Right ())
-                        , adapterExecute = \_ _ -> pure AdapterEffectCompleted
-                        , adapterVerify = \operation _ -> pure (Right (proof operation))
-                        , adapterRecover = \operation _ -> pure (RecoveryProvedComplete (proof operation))
+                            pure (observationSet [(resource, ObservedPresent current) | resource <- resources])
                         }
                     ]
                 )
@@ -1431,6 +1419,7 @@ inventoryTransactionTests =
                             modifyIORef' effects (<> NE.toList (plannedResources operation))
                             pure AdapterEffectCompleted
                         , adapterVerify = \operation _ -> pure (Right (proof operation))
+                        , adapterSettle = Nothing
                         , adapterRecover = \operation _ -> pure (RecoveryProvedComplete (proof operation))
                         }
                     ]
@@ -3678,6 +3667,7 @@ recordingRegistryWith preflight execution recovery =
         , adapterPreflight = preflight
         , adapterExecute = execution
         , adapterVerify = \operation _ -> pure (Right (proof operation))
+        , adapterSettle = Nothing
         , adapterRecover = recovery
         }
     canonical = either (error . T.unpack) id . canonicalValue . toJSON
@@ -3695,6 +3685,7 @@ observingRegistry executor fact =
             , adapterPreflight = \_ _ -> pure (Left "read-only observer")
             , adapterExecute = \_ _ -> pure (AdapterEffectFailed (KnownNoEffect "read-only observer"))
             , adapterVerify = \_ _ -> pure (Left "read-only observer")
+            , adapterSettle = Nothing
             , adapterRecover = \_ _ -> pure (RecoveryUnresolved "read-only observer")
             }
         ]

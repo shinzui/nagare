@@ -122,6 +122,7 @@ withCdnPurge bindings ops base =
         if isPurge operation
           then verify operation native
           else adapterVerify base operation native
+    , adapterSettle = Nothing
     , adapterRecover = \operation native ->
         if isPurge operation
           then do

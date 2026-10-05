@@ -192,6 +192,7 @@ mkCloudflareAdapter accepted specs ops =
                 CloudflareUnavailable reason -> Left reason
                 _ -> Left "Cloudflare resource does not match the reviewed target and physical identity"
             )
+    , adapterSettle = Nothing
     , adapterRecover = \operation prepared -> case decodePlan accepted specs operation (preparedNativeBytes prepared) of
         Left reason -> pure (RecoveryUnresolved reason)
         Right plan -> case cloudflarePlanAction plan of

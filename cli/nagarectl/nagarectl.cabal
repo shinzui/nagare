@@ -57,6 +57,7 @@ library
     Nagare.Inventory.Execute.Journal
     Nagare.Inventory.Execute.Recovery
     Nagare.Inventory.Execute.RecoveryPolicy
+    Nagare.Inventory.Execute.Settle
     Nagare.Inventory.Execute.Transaction
     Nagare.Inventory.Execute.Types
     Nagare.Inventory.Plan.Changes
@@ -533,6 +534,7 @@ test-suite nagarectl-test
     InventoryRedisRestoreRecoverySpec
     InventoryRefusedPreflightRecoverySpec
     InventoryRenameRecoveryModelSpec
+    InventorySettleSpec
     InventorySpec
     InventoryStatusSpec
     InventoryStoreBackupSpec

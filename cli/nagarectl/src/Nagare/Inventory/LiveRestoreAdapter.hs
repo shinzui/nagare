@@ -53,6 +53,7 @@ liveRestoreRuntime config scopes native base =
       { adapterPreflight = preflight
       , adapterExecute = execute
       , adapterVerify = verify
+      , adapterSettle = Just (fencedSettle RestoreLiveDatabase base)
       , adapterRecover = recover
       }
   , restoreRecovery

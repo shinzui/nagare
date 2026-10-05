@@ -43,6 +43,8 @@ git worktree remove --force "$SCRATCH/mut"
 | `F63-correct-unready-statefulset.diff` | prepare admits a corrective update of an unready StatefulSet | planning refuses the corrected update "required condition is not ready" (2 violations) |
 | `F64-deleted-update-target-retry.diff` | an owned update target deleted outside review is safe to retry | I1 under `Deleted` on an update target (15 violations) |
 | `F65-create-stop-companions.diff` | the create-path stop admits never-started companions | I1 under `Deleted` when a review recreates the Service with its history update (4 violations) |
+| `ADR26-O1-kubernetes-settle-unknown.diff` | the Kubernetes adapter settles each operation to a proof class | I8: operations settle unknown at stops (fast tier) |
+| `ADR26-O6-verify-executes.diff` | the driver never executes a verification | "the driver never executes a verification (O6)" fails (run with `-p "settlement obligations"`) |
 | `F58-absence-proof-holds-no-data.diff` | only a stateless or never-started member may leave history as absent | "a durable member only verified by a stopped update is never replanned or retired as absent (F55, F58)": the deleted volume is retired as absent |
 | `F58-admission-absence-recheck.diff` | admission re-observes absence-proved members | "retirement drops a confirmed-absent stateless member only while it stays absent (F58)": the reappeared member is dropped and the retirement converges |
 

@@ -190,9 +190,19 @@ mkKubernetesAdapterWithObservations specs ops observeBatch stableObserve readBac
     , adapterPreflight = preflight
     , adapterExecute = execute
     , adapterVerify = verify
+    , adapterSettle = Just settle
     , adapterRecover = recover
     }
   where
+    -- ADR 26: what an operation with intent and no completion did, from its
+    -- recovery decision and one fresh observation. It never writes.
+    settle operation prepared = case decodeMutation (kubernetesContext ops) specs operation prepared of
+      Left reason -> pure (SettledUnknown reason "the saved review's native bundle")
+      Right mutation -> do
+        decision <- recover operation prepared
+        current <- kubernetesObserve ops (mutationResource mutation)
+        before <- observeMutation mutation
+        pure (settleMutation mutation before current decision)
     observeMutation mutation =
       if mutationVersion mutation == 2
         then maybe (pure (KubernetesUnknown "version 2 configuration observation is unavailable")) ($ mutationResource mutation) stableObserve
@@ -742,6 +752,49 @@ unstampNative context resource digest stamped = do
       unless (contentDigest raw == digest) (Left "reviewed Kubernetes object does not reconstruct its declared digest")
       pure raw
     _ -> Left "reviewed Kubernetes native object is not an object"
+
+-- | ADR 26's proof classes for one Kubernetes operation (obligations O1–O5):
+-- the reviewed before-state unchanged is no effect; the reviewed digest on the
+-- reviewed (or, for a create, newly stamped) object, not ready, is landed; an
+-- owned target that is gone or carries another UID is gone; a failed object of
+-- this operation is a terminal partial effect. Anything else stays unknown.
+settleMutation :: KubernetesMutation -> KubernetesState -> KubernetesState -> RecoveryDecision -> Settlement
+settleMutation mutation before current decision = case decision of
+  RecoveryProvedComplete _ -> SettledUnknown "the effect is proved complete" "inventory resume"
+  RecoveryLandedUnready physical -> SettledLanded physical
+  RecoveryAwaitingReadiness physical -> SettledLanded physical
+  RecoveryTargetReplaced physical -> SettledTargetGone (Just physical)
+  RecoveryTerminalFailure physical -> SettledTerminalPartial physical
+  _ | Right () <- requireSameBefore mutation before -> SettledNoEffect "the reviewed before-state is unchanged"
+  _ -> case current of
+    KubernetesAbsent _
+      | Just _ <- beforeIdentity -> SettledTargetGone Nothing
+    KubernetesPresent physical _ (Just owner) _
+      | owner == resource, Just prior <- beforeIdentity, prior /= physical -> SettledTargetGone (Just physical)
+    KubernetesNotReady physical _ (Just owner) _
+      | owner == resource, Just prior <- beforeIdentity, prior /= physical -> SettledTargetGone (Just physical)
+    KubernetesNotReady physical _ (Just owner) digest
+      | owner == resource
+      , digest == mutationNativeDigest mutation
+      , maybe True (== physical) beforeIdentity ->
+          SettledLanded physical
+    KubernetesFailed physical _ (Just owner) digest
+      | owner == resource
+      , digest == mutationNativeDigest mutation ->
+          SettledTerminalPartial physical
+    _ -> SettledUnknown (unresolved decision) "a corrected review, or an attested close"
+  where
+    resource = mutationResource mutation
+    -- The owned object the operation was reviewed against, if any.
+    beforeIdentity = case mutationBefore mutation of
+      KubernetesPresent prior _ (Just owner) _ | owner == resource -> Just prior
+      KubernetesNotReady prior _ (Just owner) _ | owner == resource -> Just prior
+      KubernetesFailed prior _ (Just owner) _ | owner == resource -> Just prior
+      _ -> Nothing
+    unresolved = \case
+      RecoveryUnresolved reason -> reason
+      RecoverySafeToRetry -> "a retry is safe but the effect is not proved absent"
+      other -> T.pack (show other)
 
 requireSameBefore :: KubernetesMutation -> KubernetesState -> Either Text ()
 requireSameBefore mutation current =

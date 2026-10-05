@@ -58,6 +58,7 @@ maintenanceAdapter config scopes native base =
     { adapterPreflight = preflight
     , adapterExecute = execute
     , adapterVerify = verify
+    , adapterSettle = Just (fencedSettle OpenMaintenanceSession base)
     , adapterRecover = recover
     }
   where

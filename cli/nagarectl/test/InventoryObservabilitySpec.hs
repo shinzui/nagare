@@ -435,6 +435,7 @@ inventoryObservabilityTests =
                             )
                         else pure AdapterEffectCompleted
                   , adapterVerify = \operation _ -> pure (Right (proof operation))
+                  , adapterSettle = Nothing
                   , adapterRecover = \operation _ -> pure (RecoveryProvedComplete (proof operation))
                   }
               registry =

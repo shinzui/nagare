@@ -97,6 +97,7 @@ observingRegistry executor physical =
             , adapterPreflight = \_ _ -> pure (Right ())
             , adapterExecute = \_ _ -> pure AdapterEffectCompleted
             , adapterVerify = \operation _ -> pure (Right (contentDigest (TE.encodeUtf8 (operationIdText (plannedOperationId operation)))))
+            , adapterSettle = Nothing
             , adapterRecover = \operation _ -> pure (RecoveryProvedComplete (contentDigest (TE.encodeUtf8 (operationIdText (plannedOperationId operation)))))
             }
         ]
@@ -162,6 +163,7 @@ contributionTarget = do
                 , adapterPreflight = \_ _ -> pure (Right ())
                 , adapterExecute = \_ _ -> pure AdapterEffectCompleted
                 , adapterVerify = \operation _ -> pure (Right (proof operation))
+                , adapterSettle = Nothing
                 , adapterRecover = \operation _ -> pure (RecoveryProvedComplete (proof operation))
                 }
             ]

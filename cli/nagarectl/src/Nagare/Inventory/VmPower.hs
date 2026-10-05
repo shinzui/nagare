@@ -209,6 +209,7 @@ withVmPower bindings ops base =
     , adapterPreflight = \op native -> if selected op then inspect op native (const (Right ())) else adapterPreflight base op native
     , adapterExecute = \op native -> if selected op then execute op native else adapterExecute base op native
     , adapterVerify = \op native -> if selected op then verify op native else adapterVerify base op native
+    , adapterSettle = Nothing
     , adapterRecover = \op native ->
         if selected op
           then either RecoveryUnresolved RecoveryProvedComplete <$> verify op native

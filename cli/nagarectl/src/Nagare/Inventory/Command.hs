@@ -959,6 +959,7 @@ manifestAdapterFor history executor =
     , adapterPreflight = \_ _ -> pure (Left "manifest-only reviews are not executable; install the provider adapter delivered by a later inventory plan")
     , adapterExecute = \_ _ -> pure (AdapterEffectFailed (KnownNoEffect "manifest-only adapter cannot execute"))
     , adapterVerify = \_ _ -> pure (Left "manifest-only adapter cannot verify provider state")
+    , adapterSettle = Nothing
     , adapterRecover = \_ _ -> pure (RecoveryUnresolved "manifest-only adapter cannot recover provider state")
     }
   where
@@ -984,6 +985,7 @@ executionBlockedAdapterFor executor =
     , adapterPreflight = \_ _ -> pure (Left "manifest-only reviews are not executable; install the provider adapter delivered by a later inventory plan")
     , adapterExecute = \_ _ -> pure (AdapterEffectFailed (KnownNoEffect "manifest-only adapter cannot execute"))
     , adapterVerify = \_ _ -> pure (Left "manifest-only adapter cannot verify provider state")
+    , adapterSettle = Nothing
     , adapterRecover = \_ _ -> pure (RecoveryUnresolved "manifest-only adapter cannot recover provider state")
     }
 

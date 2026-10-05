@@ -30,6 +30,7 @@ withImagePrune bindings ops base =
     , adapterPreflight = \operation native -> if selected operation then void <$> inspect operation native else adapterPreflight base operation native
     , adapterExecute = \operation native -> if selected operation then execute operation native else adapterExecute base operation native
     , adapterVerify = \operation native -> if selected operation then verify operation native else adapterVerify base operation native
+    , adapterSettle = Nothing
     , adapterRecover = \operation native ->
         if selected operation
           then either RecoveryUnresolved RecoveryProvedComplete <$> verify operation native

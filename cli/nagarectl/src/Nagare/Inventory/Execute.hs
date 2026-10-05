@@ -16,6 +16,7 @@ module Nagare.Inventory.Execute
   , decodeOperatorRecoveryInput
   , recordOperatorRecovery
   , prepareBootstrapRegistryRecovery
+  , settleReviewedOperation
   )
 where
 
@@ -25,6 +26,7 @@ import Nagare.Inventory.Execute.Recovery
   ( prepareBootstrapRegistryRecovery
   , recordOperatorRecovery
   )
+import Nagare.Inventory.Execute.Settle (settleReviewedOperation)
 import Nagare.Inventory.Execute.Transaction
   ( applyReviewed
   , execute

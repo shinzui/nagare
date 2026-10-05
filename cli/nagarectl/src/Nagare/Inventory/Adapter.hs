@@ -15,6 +15,9 @@ module Nagare.Inventory.Adapter
   , PrepareError (..)
   , AdapterExecution (..)
   , RecoveryDecision (..)
+  , Settlement (..)
+  , settleOperationWith
+  , fencedSettle
   , Adapter (..)
   , AdapterFence (..)
   , AdapterRegistry
@@ -172,6 +175,50 @@ data RecoveryDecision
   | RecoveryUnresolved !Text
   deriving stock (Eq, Show, Generic)
 
+-- | ADR 26: what an operation with recorded intent and no completion did,
+-- proved from a fresh provider observation. 'SettledUnknown' blocks a close
+-- and names what would resolve it.
+data Settlement
+  = -- | Every address the operation could write is in its reviewed
+    -- before-state.
+    SettledNoEffect !Text
+  | -- | The exact reviewed effect is on the exact reviewed object, which is
+    -- not ready.
+    SettledLanded !PhysicalIdentity
+  | -- | The conditional write can no longer land: the target was deleted, or
+    -- replaced under another identity (evidence only; never bound).
+    SettledTargetGone !(Maybe PhysicalIdentity)
+  | -- | A run-to-completion object of this review failed terminally.
+    SettledTerminalPartial !PhysicalIdentity
+  | -- | Unproved: the reason, and what would resolve it.
+    SettledUnknown !Text !Text
+  deriving stock (Eq, Show, Generic)
+
+-- | An adapter's settlement, or one derived from its recovery decision when
+-- the adapter has none of its own.
+settleOperationWith :: Adapter -> PlannedOperation -> PreparedNative -> IO Settlement
+settleOperationWith adapter operation prepared = case adapterSettle adapter of
+  Just settle -> settle operation prepared
+  Nothing -> settleFromRecovery <$> adapterRecover adapter operation prepared
+
+-- | A fenced data operation keeps its own recovery phases and is excluded
+-- from close; every other operation settles as the base adapter does.
+fencedSettle :: OperationAction -> Adapter -> PlannedOperation -> PreparedNative -> IO Settlement
+fencedSettle fenced base operation prepared
+  | plannedAction operation == fenced =
+      pure (SettledUnknown "a fenced data operation is excluded from close" "the fenced recovery actions")
+  | otherwise = settleOperationWith base operation prepared
+
+settleFromRecovery :: RecoveryDecision -> Settlement
+settleFromRecovery decision = case decision of
+  RecoveryProvedComplete _ -> SettledUnknown "the effect is proved complete" "inventory resume"
+  RecoverySafeToRetry -> SettledUnknown "a retry is safe but the effect is not proved absent" "inventory resume"
+  RecoveryAwaitingReadiness physical -> SettledLanded physical
+  RecoveryLandedUnready physical -> SettledLanded physical
+  RecoveryTargetReplaced physical -> SettledTargetGone (Just physical)
+  RecoveryTerminalFailure physical -> SettledTerminalPartial physical
+  RecoveryUnresolved reason -> SettledUnknown reason "a provider observation that proves the effect"
+
 data Adapter = Adapter
   { adapterExecutor :: !Executor
   , adapterIdentity :: !Text
@@ -182,6 +229,8 @@ data Adapter = Adapter
   , adapterExecute :: !(PlannedOperation -> PreparedNative -> IO AdapterExecution)
   , adapterVerify :: !(PlannedOperation -> PreparedNative -> IO (Either Text ContentDigest))
   , adapterRecover :: !(PlannedOperation -> PreparedNative -> IO RecoveryDecision)
+  , adapterSettle :: !(Maybe (PlannedOperation -> PreparedNative -> IO Settlement))
+  -- ^ ADR 26 settlement; 'Nothing' derives it from 'adapterRecover'.
   }
 
 -- | Planning may read current provider facts to capture one private fence

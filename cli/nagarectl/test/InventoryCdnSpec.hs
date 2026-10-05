@@ -333,6 +333,7 @@ inventoryCdnTests =
                 , adapterPreflight = \_ _ -> pure (Right ())
                 , adapterExecute = \_ _ -> pure AdapterEffectCompleted
                 , adapterVerify = \_ _ -> pure (Right (contentDigest "dispatch"))
+                , adapterSettle = Nothing
                 , adapterRecover = \_ _ -> pure (RecoveryProvedComplete (contentDigest "dispatch"))
                 }
             combined =
@@ -579,6 +580,7 @@ combinedApplicationProof = do
                 if all (`Set.member` current) (NE.toList (plannedResources operation))
                   then Right (contentDigest "recorded-native")
                   else Left "recording provider did not observe its resource"
+          , adapterSettle = Nothing
           , adapterRecover = \_ _ -> pure (RecoveryUnresolved "recorded provider has no recovery receipt")
           }
       dnsOps =

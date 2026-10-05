@@ -72,6 +72,7 @@ mkCacheAdapter specs ops =
     , adapterPreflight = preflight
     , adapterExecute = execute
     , adapterVerify = verify
+    , adapterSettle = Nothing
     , adapterRecover = recover
     }
   where

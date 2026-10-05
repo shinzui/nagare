@@ -642,6 +642,7 @@ inventoryCloudflareTests =
                 , adapterPreflight = \_ _ -> pure (Right ())
                 , adapterExecute = \_ _ -> pure AdapterEffectCompleted
                 , adapterVerify = \_ _ -> pure (Right (contentDigest "recorded-route"))
+                , adapterSettle = Nothing
                 , adapterRecover = \_ _ -> pure (RecoveryProvedComplete (contentDigest "recorded-route"))
                 }
             registry = ok (mkAdapterRegistry [kubeAdapter, changed])

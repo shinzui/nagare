@@ -1,0 +1,12 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Execute/Driver.hs b/cli/nagarectl/src/Nagare/Inventory/Execute/Driver.hs
+--- a/cli/nagarectl/src/Nagare/Inventory/Execute/Driver.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Execute/Driver.hs
+@@ -393,7 +393,7 @@
+                       -- ADR 26 (O6): a verification is effect-free by
+                       -- construction; only its adapterVerify step runs.
+                       result <-
+-                        if plannedAction operation == VerifyResource
++                        if False && plannedAction operation == VerifyResource
+                           then pure AdapterEffectCompleted
+                           else
+                             withAdapterEnv
