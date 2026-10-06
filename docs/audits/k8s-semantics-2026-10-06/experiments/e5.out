@@ -1,0 +1,16 @@
+== E5 Deployment: bad image update (old pod keeps serving)
+{"gen":3,"og":3,"avail":"True/MinimumReplicasAvailable","prog":"True/NewReplicaSetAvailable","r":1,"upd":1,"ready":1,"av":1,"unav":null,"nagare_deploymentAvailable":true}
+t=0s {"gen":4,"og":4,"avail":"True/MinimumReplicasAvailable","prog":"True/NewReplicaSetCreated","r":1,"upd":null,"ready":1,"av":1,"unav":1,"nagare_deploymentAvailable":true}
+t=1s {"gen":4,"og":4,"avail":"True/MinimumReplicasAvailable","prog":"True/ReplicaSetUpdated","r":2,"upd":1,"ready":1,"av":1,"unav":1,"nagare_deploymentAvailable":true}
+t=37s {"gen":4,"og":4,"avail":"True/MinimumReplicasAvailable","prog":"False/ProgressDeadlineExceeded","r":2,"upd":1,"ready":1,"av":1,"unav":1,"nagare_deploymentAvailable":true}
+rollout status: rc=1 error: deployment "e1" exceeded its progress deadline
+== E5b Deployment: crash-looping image update
+t=0s {"gen":6,"og":6,"avail":"True/MinimumReplicasAvailable","prog":"True/NewReplicaSetCreated","r":1,"upd":null,"ready":1,"av":1,"unav":1,"nagare_deploymentAvailable":true}
+t=1s {"gen":6,"og":6,"avail":"True/MinimumReplicasAvailable","prog":"True/ReplicaSetUpdated","r":2,"upd":1,"ready":1,"av":1,"unav":1,"nagare_deploymentAvailable":true}
+== E6 StatefulSet: crash update
+error: timed out waiting for the condition
+{"gen":3,"og":3,"r":1,"ready":null,"upd":1,"cur":null,"curRev":"45885","updRev":"557c4","nagare_statefulSetReady":false}
+t=0s {"gen":4,"og":4,"r":1,"ready":null,"upd":null,"cur":null,"curRev":"45885","updRev":"7df6c","nagare_statefulSetReady":false}
+== E6b StatefulSet: correcting update while broken
+t=0s {"gen":5,"og":5,"r":1,"ready":null,"upd":null,"cur":null,"curRev":"45885","updRev":"bdc7c","nagare_statefulSetReady":false}
+{"n":"e1-0","rev":"557c4","ready":"False","state":"running"}

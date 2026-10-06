@@ -1,0 +1,9 @@
+== E6e OrderedReady: create unschedulable (Pending) -> correcting update
+t=0s {"gen":1,"og":1,"ready":null,"upd":1,"cur":1,"curRev":"9dc98","updRev":"9dc98","nagare_ready":false}[{"rev":"9dc98","ready":null,"restarts":"r0"}]
+Pending
+t=0s {"gen":2,"og":2,"ready":null,"upd":null,"cur":1,"curRev":"9dc98","updRev":"46586","nagare_ready":false}[{"rev":"9dc98","ready":null,"restarts":"r0"}]
+== E6f OrderedReady: good -> unschedulable update -> correcting update
+t=0s {"gen":2,"og":2,"ready":1,"upd":null,"cur":null,"curRev":"868bf","updRev":"9d647","nagare_ready":false}[{"rev":"868bf","ready":"True","restarts":"r0"}]
+t=1s {"gen":2,"og":2,"ready":null,"upd":null,"cur":null,"curRev":"868bf","updRev":"9d647","nagare_ready":false}[{"rev":"868bf","ready":"False","restarts":"r0"}]
+t=1s {"gen":2,"og":2,"ready":null,"upd":1,"cur":null,"curRev":"868bf","updRev":"9d647","nagare_ready":false}[{"rev":"9d647","ready":null,"restarts":"r0"}]
+t=0s {"gen":3,"og":3,"ready":null,"upd":null,"cur":null,"curRev":"868bf","updRev":"d9d6d","nagare_ready":false}[{"rev":"9d647","ready":null,"restarts":"r0"}]

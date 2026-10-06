@@ -1,5 +1,9 @@
 # Bundle Update Log
 
+## 2026-10-06
+
+* **Add**: Record RES-4, the experiment-validated Kubernetes API semantics of MP-23 release line (b) kinds on k3s 1.34.6 and Knative 1.22, the ADR 26 decision tables they imply, and a gap analysis of the Kubernetes adapter and world model.
+
 ## 2026-09-28
 
 * **Add**: Record RES-3, a first-pass assessment of MasterPlan 23's scope against established infrastructure, Kubernetes, backup, and database tooling after Nagare gained a workplace intranet use. Candidate tools are identified but not yet evaluated.

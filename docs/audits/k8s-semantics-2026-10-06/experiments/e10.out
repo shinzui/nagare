@@ -1,0 +1,12 @@
+t=0s services.serving.knative.dev=2855 cronjob=4674 deploy=3292 resourcequota=4506 sts=4089 networkpolicy=1201 configmap=1004 
+t=30s services.serving.knative.dev=2855 cronjob=4726 deploy=3292 resourcequota=4742 sts=4089 networkpolicy=1201 configmap=1004 
+t=60s services.serving.knative.dev=2855 cronjob=4726 deploy=3292 resourcequota=4844 sts=4089 networkpolicy=1201 configmap=1004 
+t=90s services.serving.knative.dev=2855 cronjob=5012 deploy=3292 resourcequota=5040 sts=4089 networkpolicy=1201 configmap=1004 
+t=120s services.serving.knative.dev=2855 cronjob=5012 deploy=3292 resourcequota=5040 sts=4089 networkpolicy=1201 configmap=1004 
+t=150s services.serving.knative.dev=2855 cronjob=5209 deploy=3292 resourcequota=5263 sts=4089 networkpolicy=1201 configmap=1004 
+t=180s services.serving.knative.dev=2855 cronjob=5209 deploy=3292 resourcequota=5263 sts=4089 networkpolicy=1201 configmap=1004 
+t=210s services.serving.knative.dev=2855 cronjob=5410 deploy=3292 resourcequota=5400 sts=4089 networkpolicy=1201 configmap=1004 
+t=240s services.serving.knative.dev=2855 cronjob=5410 deploy=3292 resourcequota=5400 sts=4089 networkpolicy=1201 configmap=1004 
+{"ready":["ConfigurationsReady=False","Ready=False","RoutesReady=True"]}
+No resources found in exp namespace.
+0

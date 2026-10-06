@@ -1,0 +1,18 @@
+== E6a good -> crash update -> correcting update
+base: {"gen":1,"og":1,"ready":1,"upd":1,"cur":1,"curRev":"bcc74","updRev":"bcc74","nagare_ready":true}[{"rev":"bcc74","ready":"True","restarts":"r0"}]
+t=0s {"gen":2,"og":2,"ready":1,"upd":null,"cur":null,"curRev":"bcc74","updRev":"c984c","nagare_ready":false}[{"rev":"bcc74","ready":"True","restarts":"r0"}]
+t=1s {"gen":2,"og":2,"ready":null,"upd":null,"cur":null,"curRev":"bcc74","updRev":"c984c","nagare_ready":false}[{"rev":"bcc74","ready":"False","restarts":"r0"}]
+t=1s {"gen":2,"og":2,"ready":null,"upd":1,"cur":null,"curRev":"bcc74","updRev":"c984c","nagare_ready":false}[{"rev":"c984c","ready":"False","restarts":"r0"}]
+t=2s {"gen":2,"og":2,"ready":null,"upd":1,"cur":null,"curRev":"bcc74","updRev":"c984c","nagare_ready":false}[{"rev":"c984c","ready":"False","restarts":"r>0"}]
+t=0s {"gen":3,"og":3,"ready":null,"upd":null,"cur":null,"curRev":"bcc74","updRev":"79d59","nagare_ready":false}[{"rev":"c984c","ready":"False","restarts":"r>0"}]
+rollout status: rc=1 Waiting for 1 pods to be ready...
+error: timed out waiting for the condition
+-- delete the stuck pod (what an operator must do)
+t=0s {"gen":3,"og":3,"ready":null,"upd":null,"cur":null,"curRev":"bcc74","updRev":"79d59","nagare_ready":false}[{"rev":"c984c","ready":"False","restarts":"r>0"}]
+t=1s {"gen":3,"og":3,"ready":null,"upd":1,"cur":null,"curRev":"bcc74","updRev":"79d59","nagare_ready":false}[{"rev":"79d59","ready":"False","restarts":"r0"}]
+t=2s {"gen":3,"og":3,"ready":1,"upd":1,"cur":1,"curRev":"79d59","updRev":"79d59","nagare_ready":true}[{"rev":"79d59","ready":"True","restarts":"r0"}]
+== E6c create crashing -> correcting update (F59 shape)
+t=0s {"gen":1,"og":null,"ready":null,"upd":null,"cur":null,"curRev":null,"updRev":null,"nagare_ready":false}[]
+t=1s {"gen":1,"og":1,"ready":null,"upd":1,"cur":1,"curRev":"b54c7","updRev":"b54c7","nagare_ready":false}[{"rev":"b54c7","ready":"False","restarts":"r0"}]
+t=2s {"gen":1,"og":1,"ready":null,"upd":1,"cur":1,"curRev":"b54c7","updRev":"b54c7","nagare_ready":false}[{"rev":"b54c7","ready":"False","restarts":"r>0"}]
+t=0s {"gen":2,"og":2,"ready":null,"upd":null,"cur":1,"curRev":"b54c7","updRev":"cb97c","nagare_ready":false}[{"rev":"b54c7","ready":"False","restarts":"r>0"}]
