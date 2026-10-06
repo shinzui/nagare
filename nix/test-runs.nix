@@ -46,8 +46,10 @@
           mkdir -p "$HELM_CACHE_HOME"
           ${lib.optionalString deep "export NAGARE_RECOVERY_MODEL_DEEP=1"}
           echo "test run ${label}: pattern ${lib.escapeShellArg pattern}, shards ${toString shards}, $(nproc) cores"
+          shard_pids=()
           for spec in ${lib.escapeShellArgs shards}; do
             name="shard-''${spec/\//-of-}"
+            : > "$out/$name.log"
             (
               start=$(date +%s)
               set +e
@@ -56,16 +58,28 @@
               echo "$spec exit=$code seconds=$(( $(date +%s) - start ))" >> "$out/status"
               echo "test run: $spec finished, exit $code"
             ) &
+            shard_pids+=("$!")
           done
-          # Keep the build log alive and show progress: each shard's latest
-          # recovery-model line, once a minute.
-          while [ -n "$(jobs -r)" ]; do
-            sleep 60
+          # Once a minute: each violation's faults and invariant lines found
+          # since the last pass, so a run can be triaged before it ends, then
+          # each shard's latest progress line.
+          declare -A seen
+          report() {
             for log in "$out"/shard-*.log; do
-              [ -e "$log" ] && echo "$(basename "$log" .log): $(grep -a '^recovery-model:' "$log" | tail -n 1)"
+              total=$(wc -l < "$log")
+              [ "$total" -gt "''${seen[$log]:-0}" ] && sed -n "$(( ''${seen[$log]:-0} + 1 )),''${total}p" "$log" \
+                | grep -aE '^recovery-model: violation: .*[|] (faults|violation): ' || true
+              seen[$log]=$total
+              echo "$(basename "$log" .log): $(grep -a '^recovery-model: \[' "$log" | tail -n 1)"
             done
+          }
+          running() { for pid in "''${shard_pids[@]}"; do kill -0 "$pid" 2>/dev/null && return 0; done; return 1; }
+          while running; do
+            sleep 60
+            report
           done
-          wait
+          wait "''${shard_pids[@]}"
+          report
         '';
     in
     {
