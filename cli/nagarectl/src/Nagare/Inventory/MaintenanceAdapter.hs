@@ -21,6 +21,7 @@ import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes
   ( KubernetesAdapterOps (..)
   , KubernetesState (..)
+  , kubernetesObserve
   )
 import Nagare.Inventory.Adapters.KubernetesRuntime
   ( KubernetesRuntimeConfig (..)

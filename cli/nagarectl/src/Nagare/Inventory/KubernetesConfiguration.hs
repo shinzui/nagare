@@ -1,6 +1,7 @@
 -- | Status-independent configuration evidence for versioned Knative updates.
 module Nagare.Inventory.KubernetesConfiguration
   ( configurationDigest
+  , liveStamp
   , confirmInventoryFieldOwnership
   , confirmInventoryFieldOwnershipFor
   , confirmReviewedFieldTakeover
@@ -17,10 +18,23 @@ import Data.Aeson.KeyMap qualified as KM
 import Data.Foldable (toList)
 import Data.Maybe (catMaybes)
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
+
+-- | The spec-digest stamp of an observed object. Nagare writes it in the same
+-- atomic write as the spec it describes (RES-4 U3), so on the same UID it
+-- witnesses which of Nagare's writes is live.
+liveStamp :: Text -> Maybe ContentDigest
+liveStamp output = case eitherDecodeStrict (TE.encodeUtf8 output) of
+  Right (Object root)
+    | Just (Object metadata) <- KM.lookup "metadata" root
+    , Just (Object annotations) <- KM.lookup "annotations" metadata
+    , Just (String stamp) <- KM.lookup "nagare.dev/spec-digest" annotations ->
+        either (const Nothing) Just (mkContentDigest stamp)
+  _ -> Nothing
 
 configurationDigest :: Value -> Either Text ContentDigest
 configurationDigest (Object root) = do

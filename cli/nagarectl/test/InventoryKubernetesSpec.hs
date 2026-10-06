@@ -190,7 +190,7 @@ inventoryKubernetesTests =
         batchReads <- newIORef (0 :: Int)
         let ordinaryOps =
               (ops state mutations)
-                { kubernetesObserve = \_ -> do
+                { kubernetesObserveStamped = unstamped $ \_ -> do
                     modifyIORef' individualReads (+ 1)
                     readIORef state
                 }
@@ -919,7 +919,7 @@ inventoryKubernetesTests =
                 (Map.union backupNative sourceNative)
                 KubernetesAdapterOps
                   { kubernetesContext = ok (mkContextId "test")
-                  , kubernetesObserve = \selected ->
+                  , kubernetesObserveStamped = unstamped $ \selected ->
                       Map.findWithDefault
                         (KubernetesUnknown "unbound")
                         selected
@@ -1063,7 +1063,7 @@ inventoryKubernetesTests =
                 (Map.union restoreNative accepted)
                 KubernetesAdapterOps
                   { kubernetesContext = ok (mkContextId "test")
-                  , kubernetesObserve = \selected ->
+                  , kubernetesObserveStamped = unstamped $ \selected ->
                       Map.findWithDefault
                         (KubernetesUnknown "unbound")
                         selected
@@ -1440,7 +1440,7 @@ inventoryKubernetesTests =
                 (Map.union pruneNative finiteNative)
                 KubernetesAdapterOps
                   { kubernetesContext = ok (mkContextId "test")
-                  , kubernetesObserve = \selected ->
+                  , kubernetesObserveStamped = unstamped $ \selected ->
                       Map.findWithDefault
                         (KubernetesUnknown "unbound")
                         selected
@@ -1610,7 +1610,7 @@ inventoryKubernetesTests =
                 (Map.unions [localPruneNative, localNative, secretNative])
                 KubernetesAdapterOps
                   { kubernetesContext = ok (mkContextId "test")
-                  , kubernetesObserve = \selected ->
+                  , kubernetesObserveStamped = unstamped $ \selected ->
                       Map.findWithDefault
                         (KubernetesUnknown "unbound")
                         selected
@@ -1798,7 +1798,7 @@ inventoryKubernetesTests =
                     (Map.unions [restoreNative, backupNative, databaseNative])
                     KubernetesAdapterOps
                       { kubernetesContext = ok (mkContextId "test")
-                      , kubernetesObserve = \selected ->
+                      , kubernetesObserveStamped = unstamped $ \selected ->
                           Map.findWithDefault
                             (KubernetesUnknown "unbound")
                             selected
@@ -2290,7 +2290,7 @@ inventoryKubernetesTests =
                         (Map.union pruneNative backupNative)
                         KubernetesAdapterOps
                           { kubernetesContext = ok (mkContextId "test")
-                          , kubernetesObserve = \resource ->
+                          , kubernetesObserveStamped = unstamped $ \resource ->
                               Map.findWithDefault
                                 (KubernetesUnknown "unbound")
                                 resource
@@ -2365,7 +2365,7 @@ inventoryKubernetesTests =
         let nativeOps =
               KubernetesAdapterOps
                 { kubernetesContext = ok (mkContextId "test")
-                , kubernetesObserve = \sourceId ->
+                , kubernetesObserveStamped = unstamped $ \sourceId ->
                     Map.findWithDefault
                       (KubernetesUnknown "unbound")
                       sourceId
@@ -4004,7 +4004,7 @@ inventoryKubernetesTests =
                 (Just (ok (mkName "default")))
                 (ok (mkName "unproved"))
             digest = contentDigest "{}"
-            mutation = KubernetesMutation 1 (ok (mkOperationId "op-unproved-update")) digest UpdateResource resource address "{}" digest (KubernetesPresent physical "4" (Just resource) digest) Nothing
+            mutation = KubernetesMutation 1 (ok (mkOperationId "op-unproved-update")) digest UpdateResource resource address "{}" digest (KubernetesPresent physical "4" (Just resource) digest) Nothing Nothing
         assertBool "unproved Job update was admitted" (not (supportedUpdateAddress address))
         result <- kubernetesMutateConditional (mkKubernetesRuntimeOps config Map.empty) mutation
         case result of

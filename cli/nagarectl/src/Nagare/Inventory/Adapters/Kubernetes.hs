@@ -7,6 +7,8 @@ module Nagare.Inventory.Adapters.Kubernetes
   , KubernetesMutation (..)
   , FieldTakeover (..)
   , KubernetesAdapterOps (..)
+  , kubernetesObserve
+  , unstamped
   , mkKubernetesAdapter
   , mkKubernetesAdapterWithBackupReceipt
   , mkKubernetesAdapterWithConfigurationObservation
@@ -57,11 +59,20 @@ import Nagare.Resource.Wire (canonicalValue)
 
 data KubernetesAdapterOps = KubernetesAdapterOps
   { kubernetesContext :: !ContextId
-  , kubernetesObserve :: !(ResourceId -> IO KubernetesState)
+  , kubernetesObserveStamped :: !(ResourceId -> IO (KubernetesState, Maybe ContentDigest))
+  -- ^ The object's state and its spec-digest stamp, from one read (RES-4 U3).
   , -- The implementation must make the write conditional on mutationBefore at
     -- the API server. A local compare followed by unrestricted apply is unsafe.
     kubernetesMutateConditional :: !(KubernetesMutation -> IO AdapterExecution)
   }
+
+-- | The object's state alone.
+kubernetesObserve :: KubernetesAdapterOps -> ResourceId -> IO KubernetesState
+kubernetesObserve ops = fmap fst . kubernetesObserveStamped ops
+
+-- | An observation that reads no stamp.
+unstamped :: (ResourceId -> IO KubernetesState) -> ResourceId -> IO (KubernetesState, Maybe ContentDigest)
+unstamped observe = fmap (,Nothing) . observe
 
 mkKubernetesAdapter :: Map ResourceId (ManagedResource, ByteString) -> KubernetesAdapterOps -> Adapter
 mkKubernetesAdapter specs ops =
@@ -110,7 +121,7 @@ mkKubernetesAdapterWithConfigurationObservation ::
   Map ResourceId (ManagedResource, ByteString) ->
   KubernetesAdapterOps ->
   ([ResourceId] -> IO [KubernetesState]) ->
-  (ResourceId -> IO KubernetesState) ->
+  (ResourceId -> IO (KubernetesState, Maybe ContentDigest)) ->
   (ResourceId -> PhysicalIdentity -> IO (Either Text ByteString)) ->
   (ResourceId -> PhysicalIdentity -> IO (Either Text Bool)) ->
   (ProviderAddress -> IO (Either Text Value)) ->
@@ -126,7 +137,7 @@ mkKubernetesAdapterWithFieldTakeover ::
   Map ResourceId (ManagedResource, ByteString) ->
   KubernetesAdapterOps ->
   ([ResourceId] -> IO [KubernetesState]) ->
-  (ResourceId -> IO KubernetesState) ->
+  (ResourceId -> IO (KubernetesState, Maybe ContentDigest)) ->
   (ResourceId -> PhysicalIdentity -> IO (Either Text ByteString)) ->
   (ResourceId -> PhysicalIdentity -> IO (Either Text Bool)) ->
   (ProviderAddress -> IO (Either Text Value)) ->
@@ -138,7 +149,7 @@ mkKubernetesAdapterWithObservations ::
   Map ResourceId (ManagedResource, ByteString) ->
   KubernetesAdapterOps ->
   ([ResourceId] -> IO [KubernetesState]) ->
-  Maybe (ResourceId -> IO KubernetesState) ->
+  Maybe (ResourceId -> IO (KubernetesState, Maybe ContentDigest)) ->
   (ResourceId -> PhysicalIdentity -> IO (Either Text ByteString)) ->
   (ResourceId -> PhysicalIdentity -> IO (Either Text Bool)) ->
   Maybe (ProviderAddress -> IO (Either Text Value)) ->
@@ -169,7 +180,7 @@ mkKubernetesAdapterWithObservations specs ops observeBatch stableObserve readBac
         pure (settleMutation mutation before current decision)
     observeMutation mutation =
       if mutationVersion mutation == 2
-        then maybe (pure (KubernetesUnknown "version 2 configuration observation is unavailable")) ($ mutationResource mutation) stableObserve
+        then maybe (pure (KubernetesUnknown "version 2 configuration observation is unavailable")) (\stable -> fst <$> stable (mutationResource mutation)) stableObserve
         else kubernetesObserve ops (mutationResource mutation)
     observeAll resources = do
       states <- observeBatch resources
@@ -212,23 +223,25 @@ mkKubernetesAdapterWithObservations specs ops observeBatch stableObserve readBac
           Just reader | plannedAction operation == UpdateResource -> prepareTakeover reader operation resource declaration
           _ -> pure (Right Nothing)
         let versioned = plannedAction operation == UpdateResource && knativeServiceAddress (address declaration) && isJust stableObserve
-        before <- case takeover of
-          Right (Just (_, observed)) -> pure observed
-          _ | versioned -> maybe (kubernetesObserve ops resource) ($ resource) stableObserve
-          _ -> kubernetesObserve ops resource
+        (before, beforeStamp) <- case takeover of
+          Right (Just (_, observed, stamp)) -> pure (observed, stamp)
+          _ | versioned -> maybe (kubernetesObserveStamped ops resource) ($ resource) stableObserve
+          _ -> kubernetesObserveStamped ops resource
         pure $ do
-          reviewedTakeover <- fmap fst <$> takeover
+          reviewedTakeover <- fmap (\(reviewed, _, _) -> reviewed) <$> takeover
           validateBefore operation resource (address declaration) (contentDigest native) before
           initial <- buildMutation (kubernetesContext ops) operation resource declaration native before
-          let mutation = case reviewedTakeover of
-                Just _ -> initial {mutationVersion = 3, mutationTakeover = reviewedTakeover}
-                Nothing -> initial {mutationVersion = if versioned then 2 else 1}
+          -- F67: every update records the stamp its before-state carried.
+          let stamped = if plannedAction operation == UpdateResource then initial {mutationBeforeStamp = beforeStamp} else initial
+              mutation = case reviewedTakeover of
+                Just _ -> stamped {mutationVersion = 3, mutationTakeover = reviewedTakeover}
+                Nothing -> stamped {mutationVersion = if versioned then 2 else 1}
           bytes <- first (PrepareRefused (plannedOperationId operation)) (canonicalValue (toJSON mutation))
           pure (PreparedNative bytes (summary mutation))
     -- The exact object observation and its live managed fields must name the
     -- same UID and resourceVersion; otherwise the object moved between reads.
     prepareTakeover reader operation resource declaration = do
-      observed <- kubernetesObserve ops resource
+      (observed, stamp) <- kubernetesObserveStamped ops resource
       live <- reader (address declaration)
       pure $ first (PrepareRefused (plannedOperationId operation)) $ do
         value <- live
@@ -238,10 +251,10 @@ mkKubernetesAdapterWithObservations specs ops observeBatch stableObserve readBac
           _ | null others -> Right Nothing
           KubernetesPresent physical observedRevision _ _
             | physicalIdentityText physical == uid && observedRevision == revision ->
-                Right (Just (FieldTakeover physical revision others, observed))
+                Right (Just (FieldTakeover physical revision others, observed, stamp))
           KubernetesNotReady physical observedRevision _ _
             | physicalIdentityText physical == uid && observedRevision == revision ->
-                Right (Just (FieldTakeover physical revision others, observed))
+                Right (Just (FieldTakeover physical revision others, observed, stamp))
           _ -> Left "Kubernetes object changed while its field takeover was prepared; replan"
     preflight operation prepared = case decodeMutation (kubernetesContext ops) specs operation prepared of
       Left reason -> pure (Left reason)
@@ -636,6 +649,7 @@ buildMutation context operation resource declaration native before = do
       , mutationNativeDigest = digest
       , mutationBefore = before
       , mutationTakeover = Nothing
+      , mutationBeforeStamp = Nothing
       }
   where
     refusal = PrepareRefused (plannedOperationId operation)

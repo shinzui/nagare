@@ -97,7 +97,7 @@ kubernetesFieldTakeoverTests =
         state <- newIORef drifted
         calls <- newIORef (0 :: Int)
         let runtime = K.ops state calls
-            adapter = mkKubernetesAdapterWithConfigurationObservation bound runtime (traverse (kubernetesObserve runtime)) (kubernetesObserve runtime) noReceipt noScratch (\_ -> pure (Left "no live object reader"))
+            adapter = mkKubernetesAdapterWithConfigurationObservation bound runtime (traverse (kubernetesObserve runtime)) (kubernetesObserveStamped runtime) noReceipt noScratch (\_ -> pure (Left "no live object reader"))
         native <- adapterPrepare adapter K.updateOperation >>= K.expectRight
         mutation <- K.expectRight (eitherDecodeStrict' (preparedNativeBytes native)) :: IO KubernetesMutation
         writeIORef state (KubernetesPresent K.physical "5" (Just K.resource) (mutationNativeDigest mutation))
@@ -170,7 +170,7 @@ drifted = KubernetesPresent K.physical "4" (Just K.resource) (contentDigest "dri
 
 takeoverAdapter :: IORef KubernetesState -> IORef Int -> (ProviderAddress -> IO (Either Text Value)) -> Adapter
 takeoverAdapter state calls reader =
-  mkKubernetesAdapterWithFieldTakeover bound runtime (traverse (kubernetesObserve runtime)) (kubernetesObserve runtime) noReceipt noScratch reader
+  mkKubernetesAdapterWithFieldTakeover bound runtime (traverse (kubernetesObserve runtime)) (kubernetesObserveStamped runtime) noReceipt noScratch reader
   where
     runtime = K.ops state calls
 
@@ -180,7 +180,7 @@ prepared reader = do
   calls <- newIORef (0 :: Int)
   let runtime = K.ops state calls
       adapter = case reader of
-        Nothing -> mkKubernetesAdapterWithConfigurationObservation bound runtime (traverse (kubernetesObserve runtime)) (kubernetesObserve runtime) noReceipt noScratch (\_ -> pure (Left "no live object reader"))
+        Nothing -> mkKubernetesAdapterWithConfigurationObservation bound runtime (traverse (kubernetesObserve runtime)) (kubernetesObserveStamped runtime) noReceipt noScratch (\_ -> pure (Left "no live object reader"))
         Just selected -> takeoverAdapter state calls selected
   native <- adapterPrepare adapter K.updateOperation >>= K.expectRight
   K.expectRight (eitherDecodeStrict' (preparedNativeBytes native))

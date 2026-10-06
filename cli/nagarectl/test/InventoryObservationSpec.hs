@@ -383,7 +383,7 @@ prepare store width = do
                   kubes
                   KubernetesAdapterOps
                     { kubernetesContext = binding ^. #identity
-                    , kubernetesObserve = \_ -> pure (KubernetesAbsent (contentDigest "absent"))
+                    , kubernetesObserveStamped = unstamped $ \_ -> pure (KubernetesAbsent (contentDigest "absent"))
                     , kubernetesMutateConditional = \_ -> assertFailure "fixture mutated Kubernetes" >> error "unreachable"
                     }
               , mkHelmAdapter

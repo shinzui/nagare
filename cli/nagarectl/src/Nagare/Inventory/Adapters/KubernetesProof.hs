@@ -18,6 +18,7 @@ module Nagare.Inventory.Adapters.KubernetesProof
 where
 
 import Data.Aeson
+import Data.Aeson.KeyMap qualified as KM
 import Data.Aeson.Types (Parser)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -54,6 +55,9 @@ data KubernetesMutation = KubernetesMutation
   , mutationNativeDigest :: !ContentDigest
   , mutationBefore :: !KubernetesState
   , mutationTakeover :: !(Maybe FieldTakeover)
+  , mutationBeforeStamp :: !(Maybe ContentDigest)
+  -- ^ An update's before-state stamp, observed at review (F67, RES-4 U3).
+  -- Every update records it, as Nothing when the object carried none.
   }
   deriving stock (Eq, Generic)
 
@@ -267,11 +271,18 @@ instance ToJSON KubernetesMutation where
         ]
           -- Versions 1 and 2 keep their exact earlier bytes.
           <> maybe [] (\takeover -> ["takeover" .= takeover]) (mutationTakeover mutation)
+          <> ["beforeStamp" .= mutationBeforeStamp mutation | mutationAction mutation == UpdateResource]
       )
 
 instance FromJSON KubernetesMutation where
-  parseJSON = withObject "Kubernetes mutation" $ \o ->
-    KubernetesMutation <$> o .: "version" <*> o .: "operation" <*> o .: "inputDigest" <*> o .: "action" <*> o .: "resource" <*> o .: "address" <*> o .: "nativeJson" <*> o .: "nativeDigest" <*> o .: "before" <*> o .:? "takeover"
+  parseJSON = withObject "Kubernetes mutation" $ \o -> do
+    action <- o .: "action"
+    -- An update records its before-state stamp, even when it is null.
+    stamp <-
+      if action == UpdateResource
+        then maybe (fail "a Kubernetes update mutation lacks its before-state stamp") parseJSON (KM.lookup "beforeStamp" o)
+        else pure Nothing
+    KubernetesMutation <$> o .: "version" <*> o .: "operation" <*> o .: "inputDigest" <*> pure action <*> o .: "resource" <*> o .: "address" <*> o .: "nativeJson" <*> o .: "nativeDigest" <*> o .: "before" <*> o .:? "takeover" <*> pure stamp
 
 instance ToJSON FieldTakeover where
   toJSON takeover =

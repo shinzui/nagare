@@ -57,7 +57,7 @@ ops :: IORef KubernetesState -> IORef Int -> KubernetesAdapterOps
 ops state calls =
   KubernetesAdapterOps
     { kubernetesContext = ok (mkContextId "test")
-    , kubernetesObserve = \_ -> readIORef state
+    , kubernetesObserveStamped = unstamped $ \_ -> readIORef state
     , kubernetesMutateConditional = \mutation -> do
         current <- readIORef state
         if current /= mutationBefore mutation

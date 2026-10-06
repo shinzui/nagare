@@ -36,8 +36,8 @@ import Nagare.Dsl.Types
   )
 import Nagare.Inventory.Adapter qualified as InventoryAdapter
 import Nagare.Inventory.Adapters.Kubernetes
-  ( KubernetesAdapterOps (kubernetesObserve)
-  , KubernetesState (KubernetesPresent)
+  ( KubernetesState (KubernetesPresent)
+  , kubernetesObserve
   )
 import Nagare.Inventory.Adapters.KubernetesRuntime
   ( KubernetesRuntimeConfig (KubernetesRuntimeConfig)

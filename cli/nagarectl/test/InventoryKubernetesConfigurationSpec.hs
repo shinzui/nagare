@@ -58,7 +58,7 @@ kubernetesConfigurationTests =
                 bound
                 runtime
                 (traverse (kubernetesObserve runtime))
-                (kubernetesObserve runtime)
+                (kubernetesObserveStamped runtime)
                 (\_ _ -> pure (Left "not a backup"))
                 (\_ _ -> pure (Right False))
                 (\_ -> pure (Left "no live object reader"))
@@ -124,7 +124,7 @@ kubernetesConfigurationTests =
                 bound
                 runtime
                 (traverse (kubernetesObserve runtime))
-                (kubernetesObserve runtime)
+                (kubernetesObserveStamped runtime)
                 (\_ _ -> pure (Left "not a backup"))
                 (\_ _ -> pure (Right False))
                 (\_ -> pure (Left "no live object reader"))

@@ -3545,7 +3545,7 @@ preparedRegistryFixture store = do
           (Map.singleton controllerId (controllerMember, nativeObject))
           ( KubernetesAdapterOps
               (fixtureBinding ^. #identity)
-              (\_ -> pure (KubernetesAbsent (contentDigest "absent")))
+              (unstamped (\_ -> pure (KubernetesAbsent (contentDigest "absent"))))
               (\_ -> pure AdapterEffectCompleted)
           )
       base =

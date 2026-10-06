@@ -19,7 +19,7 @@ import Nagare.Dsl.Database (Database (Database), Engine (Postgres), defaultEngin
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Inventory.Adapter (Adapter (..), AdapterExecution (AdapterEffectCompleted), OperationAction (CreateResource), PlannedOperation (..), ResourceObservation (ConfirmedAbsent), observationSet)
-import Nagare.Inventory.Adapters.Kubernetes (KubernetesAdapterOps (..), KubernetesState (..), mkKubernetesAdapter)
+import Nagare.Inventory.Adapters.Kubernetes (KubernetesAdapterOps (..), KubernetesState (..), mkKubernetesAdapter, unstamped)
 import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), credentialDataMatches, materializeLocalObjectStoreCredentialWith, minioSourceData, mkKubernetesRuntimeOps)
 import Nagare.Inventory.BackendMap (compileContributedBackendMaps, compileContributedShomeiSettings, renderBackendMapNative, renderShomeiSettingsNative)
 import Nagare.Inventory.BackupFreshness (RecoveryPointObjective (..))
@@ -180,7 +180,7 @@ inventoryAuthTests =
             ops =
               KubernetesAdapterOps
                 context
-                (\_ -> pure (KubernetesAbsent (contentDigest "absent")))
+                (unstamped (\_ -> pure (KubernetesAbsent (contentDigest "absent"))))
                 (\_ -> pure AdapterEffectCompleted)
             operation =
               PlannedOperation
@@ -240,7 +240,7 @@ inventoryAuthTests =
             ops =
               KubernetesAdapterOps
                 context
-                (\_ -> pure (KubernetesAbsent (contentDigest "absent")))
+                (unstamped (\_ -> pure (KubernetesAbsent (contentDigest "absent"))))
                 (\_ -> pure AdapterEffectCompleted)
             operation =
               PlannedOperation

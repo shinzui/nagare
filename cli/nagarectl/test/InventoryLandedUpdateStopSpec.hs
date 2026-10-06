@@ -66,7 +66,7 @@ adapterProof = do
           bound
           runtime
           (traverse (kubernetesObserve runtime))
-          (kubernetesObserve runtime)
+          (kubernetesObserveStamped runtime)
           (\_ _ -> pure (Left "not a backup"))
           (\_ _ -> pure (Right False))
           (\_ -> Right <$> readIORef live)

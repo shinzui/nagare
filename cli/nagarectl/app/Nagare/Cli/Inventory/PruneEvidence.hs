@@ -25,8 +25,8 @@ import Nagare.Cluster.GcsJob
   )
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapters.Kubernetes
-  ( KubernetesAdapterOps (kubernetesObserve)
-  , KubernetesState (KubernetesFailed, KubernetesPresent)
+  ( KubernetesState (KubernetesFailed, KubernetesPresent)
+  , kubernetesObserve
   )
 import Nagare.Inventory.Adapters.KubernetesRuntime
   ( KubernetesRuntimeConfig (KubernetesRuntimeConfig)

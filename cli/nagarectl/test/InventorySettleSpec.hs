@@ -68,7 +68,7 @@ inventorySettleTests =
             other = mintResourceId owner (ok (mkLogicalKey "history")) (ok (mkName "resource"))
             address = Kubernetes cluster "" (ok (mkName "configmap")) (Just (ok (mkName "system"))) (ok (mkName "service"))
             digest = contentDigest "reviewed"
-            mutation = KubernetesMutation 1 (ok (mkOperationId "op-created")) digest CreateResource created address "{}" digest (KubernetesAbsent (contentDigest "absent")) Nothing
+            mutation = KubernetesMutation 1 (ok (mkOperationId "op-created")) digest CreateResource created address "{}" digest (KubernetesAbsent (contentDigest "absent")) Nothing Nothing
             -- What recovery answers for a create whose address is now filled.
             settle current = settleMutation mutation current current (RecoveryUnresolved "Kubernetes object changed since review; replan before mutation")
             found = ok (mkPhysicalIdentity "found-uid")
@@ -90,7 +90,7 @@ inventorySettleTests =
             reviewed = ok (mkPhysicalIdentity "reviewed-uid")
             found = ok (mkPhysicalIdentity "found-uid")
             digest = contentDigest "reviewed"
-            mutation = KubernetesMutation 1 (ok (mkOperationId "op-updated")) digest UpdateResource updated address "{}" digest (KubernetesPresent reviewed "4" (Just updated) (contentDigest "before")) Nothing
+            mutation = KubernetesMutation 1 (ok (mkOperationId "op-updated")) digest UpdateResource updated address "{}" digest (KubernetesPresent reviewed "4" (Just updated) (contentDigest "before")) Nothing Nothing
             settle current = settleMutation mutation current current (RecoveryUnresolved "Kubernetes object changed since review; replan before mutation")
             unknown current = case settle current of
               SettledUnknown _ _ -> pure ()

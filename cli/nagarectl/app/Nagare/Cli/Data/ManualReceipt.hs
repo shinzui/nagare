@@ -19,8 +19,8 @@ import Nagare.Cli.Runtime.Target (activeTarget, resolvePlatformWorkspace)
 import Nagare.Cluster.GcsJob (StoreBackend (..))
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapters.Kubernetes
-  ( KubernetesAdapterOps (kubernetesObserve)
-  , KubernetesState (KubernetesPresent)
+  ( KubernetesState (KubernetesPresent)
+  , kubernetesObserve
   )
 import Nagare.Inventory.Adapters.KubernetesRuntime
   ( KubernetesRuntimeConfig (KubernetesRuntimeConfig)

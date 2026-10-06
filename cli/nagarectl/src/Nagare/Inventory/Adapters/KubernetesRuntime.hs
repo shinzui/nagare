@@ -77,7 +77,7 @@ import Nagare.Inventory.Adapters.KubernetesKinds (readinessKinds, supportedUpdat
 import Nagare.Inventory.Adapters.KubernetesReadiness
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect))
-import Nagare.Inventory.KubernetesConfiguration (configurationDigest, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, confirmReviewedFieldTakeover, confirmTakeoverSettled)
+import Nagare.Inventory.KubernetesConfiguration (configurationDigest, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, confirmReviewedFieldTakeover, confirmTakeoverSettled, liveStamp)
 import Nagare.Inventory.KubernetesTransport (KubernetesRuntimeConfig (..), invokeKubectl)
 import Nagare.Inventory.Migration.PostgresRename (migrationFenced, scaledToZero)
 import Nagare.Resource.Inventory (ManagedResource (..))
@@ -112,8 +112,8 @@ observeKubernetesConfiguration ::
   (ResourceId -> IO (Either Text Text)) ->
   Map ResourceId (ManagedResource, ByteString) ->
   ResourceId ->
-  IO KubernetesState
-observeKubernetesConfiguration config cache specs = kubernetesObserve (fst (mkKubernetesRuntimeObservations True config cache specs))
+  IO (KubernetesState, Maybe ContentDigest)
+observeKubernetesConfiguration config cache specs = kubernetesObserveStamped (fst (mkKubernetesRuntimeObservations True config cache specs))
 
 mkKubernetesRuntimeObservations ::
   Bool ->
@@ -124,19 +124,19 @@ mkKubernetesRuntimeObservations ::
 mkKubernetesRuntimeObservations stable config resolveCacheKey specs =
   ( KubernetesAdapterOps
       { kubernetesContext = runtimeContext config
-      , kubernetesObserve = observe
+      , kubernetesObserveStamped = observe
       , kubernetesMutateConditional = mutate
       }
-  , observeKubernetesBatchWithGuard (runtimeGuard config) observeWithoutGuard
+  , observeKubernetesBatchWithGuard (runtimeGuard config) (fmap fst . observeWithoutGuard)
   )
   where
     observe resource = do
       guarded <- runtimeGuard config
       case guarded of
-        Left reason -> pure (KubernetesUnknown ("cluster guard refused: " <> reason))
+        Left reason -> pure (KubernetesUnknown ("cluster guard refused: " <> reason), Nothing)
         Right () -> observeWithoutGuard resource
     observeWithoutGuard resource = case Map.lookup resource specs of
-      Nothing -> pure (KubernetesUnknown "Kubernetes resource has no native binding")
+      Nothing -> pure (KubernetesUnknown "Kubernetes resource has no native binding", Nothing)
       Just (declaration, native) -> case address declaration of
         Kubernetes _ group kind namespace name -> do
           result <-
@@ -149,21 +149,21 @@ mkKubernetesRuntimeObservations stable config resolveCacheKey specs =
               )
               ""
           case result of
-            Left reason -> pure (KubernetesUnknown reason)
+            Left reason -> pure (KubernetesUnknown reason, Nothing)
             -- Before bootstrap installs a CRD, the API server can prove
             -- that no instance of its kind is currently addressable.
             -- Other get failures remain unknown, including authorization
             -- and transport failures.
             Right (ExitFailure _, _, errors)
               | "the server doesn't have a resource type" `T.isInfixOf` T.pack errors ->
-                  pure (KubernetesAbsent (contentDigest (TE.encodeUtf8 (resourceIdText resource <> ":absent"))))
-              | otherwise -> pure (KubernetesUnknown "kubectl get failed")
+                  pure (KubernetesAbsent (contentDigest (TE.encodeUtf8 (resourceIdText resource <> ":absent"))), Nothing)
+              | otherwise -> pure (KubernetesUnknown "kubectl get failed", Nothing)
             Right (ExitSuccess, output, _)
-              | null output -> pure (KubernetesAbsent (contentDigest (TE.encodeUtf8 (resourceIdText resource <> ":absent"))))
+              | null output -> pure (KubernetesAbsent (contentDigest (TE.encodeUtf8 (resourceIdText resource <> ":absent"))), Nothing)
               | otherwise -> case parseObservedWithConfiguration stable config resource native (T.pack output) of
-                  Left reason -> pure (KubernetesUnknown reason)
-                  Right state -> observeCacheClientOutput resolveCacheKey native (T.pack output) state
-        _ -> pure (KubernetesUnknown "bound resource has no Kubernetes address")
+                  Left reason -> pure (KubernetesUnknown reason, Nothing)
+                  Right state -> (,liveStamp (T.pack output)) <$> observeCacheClientOutput resolveCacheKey native (T.pack output) state
+        _ -> pure (KubernetesUnknown "bound resource has no Kubernetes address", Nothing)
     mutate mutation = do
       guarded <- runtimeGuard config
       case guarded of

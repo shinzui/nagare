@@ -96,7 +96,7 @@ worldKubernetesAdapter context specs world adversary =
     specs
     ops
     (traverse (kubernetesObserve ops))
-    (stableObserve specs world adversary)
+    (unstamped (stableObserve specs world adversary))
     (\_ _ -> pure (Left "no backup receipt in the Kubernetes world"))
     (\_ _ -> pure (Right False))
     (liveObject world)
@@ -107,7 +107,7 @@ worldKubernetesOps :: ContextId -> Map.Map ResourceId (ManagedResource, ByteStri
 worldKubernetesOps context specs world adversary =
   KubernetesAdapterOps
     { kubernetesContext = context
-    , kubernetesObserve = observe specs world adversary
+    , kubernetesObserveStamped = unstamped (observe specs world adversary)
     , kubernetesMutateConditional = mutate world adversary
     }
 

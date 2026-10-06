@@ -45,7 +45,7 @@ import Nagare.Dsl.Worker (Worker (..), mkReplicas)
 import Nagare.Env.Generated (mergeGenerated)
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Cdn (DnsAdapterOps (..), DnsObservation (..), dnsSpecsFromDeclarations, mkDnsAdapter)
-import Nagare.Inventory.Adapters.Kubernetes (KubernetesAdapterOps (..), KubernetesMutation (..), KubernetesState (..), mkKubernetesAdapter)
+import Nagare.Inventory.Adapters.Kubernetes (KubernetesAdapterOps (..), KubernetesMutation (..), KubernetesState (..), mkKubernetesAdapter, unstamped)
 import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), mkKubernetesRuntimeOps)
 import Nagare.Inventory.Application (ApplicationScopeInput (..), CloudflareCdnBinding (..), GoogleCdnBinding (..), ReviewedCdnBinding (..), ServiceAction (..), acceptedAccessBinding, acceptedApplicationReleaseLog, acceptedBrokerBindings, acceptedDatabaseBindings, acceptedSecretBindings, acceptedStandaloneReleaseLog, applicationNativeOwned, applicationRetirementScope, applicationVolumeRecoveryBindings, compileApplicationDeployment, compileApplicationScope, compileApplicationService, compileApplicationTasks, compileApplicationWorkers, compileServiceActionScope, compileStandaloneService, compileStandaloneServiceWithBrokers, compileStandaloneServiceWithDependencies, compileStandaloneServiceWithRelease, compileStandaloneServiceWithReleaseAndBuild, compileStandaloneWorker, compileStandaloneWorkerWithDependencies, compileStandaloneWorkerWithDependenciesAndBuild, databaseRecoveryBindings, hostnameClaimOwned, legacyApplicationReleaseImport, nativeWorkloadOwned, recordReviewedStandaloneOverrides, standaloneWorkerVolumeRecoveryBindings, workerRetirementScope)
 import Nagare.Inventory.CollectionPolicy (supportsRetainedCollection)
@@ -515,7 +515,7 @@ commandReview = do
       let operations =
             KubernetesAdapterOps
               { kubernetesContext = context
-              , kubernetesObserve = \identity -> do
+              , kubernetesObserveStamped = unstamped $ \identity -> do
                   states <- readIORef observed
                   pure
                     ( Map.findWithDefault
@@ -1287,7 +1287,7 @@ renderTests =
       let operations =
             KubernetesAdapterOps
               { kubernetesContext = checked (Resource.mkContextId "ep148-stop")
-              , kubernetesObserve = \identity -> do
+              , kubernetesObserveStamped = unstamped $ \identity -> do
                   states <- readIORef observed
                   pure
                     ( Map.findWithDefault
@@ -2834,7 +2834,7 @@ renderTests =
           operations =
             KubernetesAdapterOps
               { kubernetesContext = reviewContext
-              , kubernetesObserve = \resource -> do
+              , kubernetesObserveStamped = unstamped $ \resource -> do
                   states <- readIORef observedStates
                   pure
                     ( Map.findWithDefault

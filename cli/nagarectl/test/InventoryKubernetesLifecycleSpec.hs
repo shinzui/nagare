@@ -143,7 +143,7 @@ nativeSiblingCarryForward = do
                   native
                   KubernetesAdapterOps
                     { kubernetesContext = ok (mkContextId "native-carry-forward")
-                    , kubernetesObserve = \rid -> do
+                    , kubernetesObserveStamped = unstamped $ \rid -> do
                         present <- readIORef states
                         pure (Map.findWithDefault (KubernetesAbsent (absentFor rid)) rid present)
                     , kubernetesMutateConditional = \mutation -> do
@@ -965,7 +965,7 @@ reviewedReleaseCleanup = do
   let runtime =
         KubernetesAdapterOps
           { kubernetesContext = ok (mkContextId "release-cleanup")
-          , kubernetesObserve = \selectedId -> Map.findWithDefault (KubernetesUnknown "missing") selectedId <$> readIORef states
+          , kubernetesObserveStamped = unstamped $ \selectedId -> Map.findWithDefault (KubernetesUnknown "missing") selectedId <$> readIORef states
           , kubernetesMutateConditional = \mutation -> do
               let selectedId = mutationResource mutation
               current <- Map.findWithDefault (KubernetesUnknown "missing") selectedId <$> readIORef states
@@ -1168,7 +1168,7 @@ reviewedManualReceiptCleanup
     let runtime =
           KubernetesAdapterOps
             { kubernetesContext = ok (mkContextId "manual-receipt-cleanup")
-            , kubernetesObserve = \selectedId ->
+            , kubernetesObserveStamped = unstamped $ \selectedId ->
                 Map.findWithDefault
                   (KubernetesUnknown "missing")
                   selectedId
