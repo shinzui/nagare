@@ -247,6 +247,60 @@ off-cluster recovery archive. Export is evidence preservation, not permission to
 replace live shared history with an older copy. See the
 [recovery-material requirement](../user/backups-and-disaster-recovery.md).
 
+## Replaced and unrecorded members
+
+Nagare records each Kubernetes member's *incarnation*: the UID the API server returned for the
+reviewed write that created, adopted or updated it
+([ADR 27](../adr/0027-physical-identity-is-recorded-at-creation-and-read-through-one-checked-accessor.md)).
+`inventory status --json` reports two identity categories:
+- **`replaced-incarnation`.** A different object answers at the member's address, for example
+  after `kubectl replace --force` or a restore from a saved manifest. It may hold none of the
+  accepted data.
+- **`unrecorded`.** No incarnation is recorded, as in a store from before ADR 27, or a member whose
+  create lost its response.
+
+These operations refuse a replaced or unrecorded member, because they move or certify data:
+- backups, snapshots and restores;
+- scheduled-receipt listing and ingestion;
+- data fences, which cover live restore and maintenance;
+- rename sources;
+- collections.
+
+Ordinary updates of stateless members proceed.
+
+There are two reviewed ways forward:
+- **Retire it.** Retiring a replaced member retains its record, names the replacement, and
+  converges. Retained history never names the replacement as the accepted object, so its data
+  needs a separate reviewed recovery.
+- **Rebind it.** When the live object is the one to keep, a rebind records it as the incarnation.
+  It is an adoption input with `"rebind": true` and the live UID:
+
+```json
+{
+  "version": 1,
+  "candidate": "candidate",
+  "binding": { "context": "...", "project": "..." },
+  "resources": [
+    {
+      "resource": "standalone:pg/data/resource",
+      "address": { "...": "the member's address" },
+      "physicalIdentity": "<live UID from inventory status>",
+      "rebind": true
+    }
+  ]
+}
+```
+
+```bash
+nagarectl --context "$CONTEXT" inventory adopt --input "$REBIND_INPUT" --out "$REVIEW"
+nagarectl --context "$CONTEXT" inventory apply "$REVIEW" --yes
+```
+
+Saving the review prints what the rebind records and what it supersedes. The recovery points of a
+superseded incarnation no longer describe the member's object. Admission refuses the rebind if the
+live object changed after review. The member keeps its declaration; a rebind changes only the
+record.
+
 ## Repair configuration drift
 
 `inventory status --json` reports a changed accepted object as

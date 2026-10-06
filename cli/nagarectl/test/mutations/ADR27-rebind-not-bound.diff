@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Execute/Transaction.hs b/cli/nagarectl/src/Nagare/Inventory/Execute/Transaction.hs
+index 43d463ff..fb81cded 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/Execute/Transaction.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Execute/Transaction.hs
+@@ -146,7 +146,7 @@ executeWithJournal locked registry executable knownEvents = do
+                           -- ADR 27: bind from the journal as this run left it.
+                           written <- convergedIncarnations locked registry transaction finalEvents document
+                           -- ADR 27 §3: a reviewed rebind establishes the live object it names.
+-                          let bindings = Map.union (Map.map (Established . rebindLive) (reviewRebinds document)) written
++                          let bindings = Map.union (Map.map (Established . rebindLive) (Map.filter (const False) (reviewRebinds document))) written
+                           converged <- releaseClaimWith locked transaction (Just document) bindings
+                           pure $ if converged then Converged transaction else fallbackResult transaction document
+                 _ -> do

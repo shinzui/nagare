@@ -54,7 +54,7 @@ import Nagare.Inventory.Plan.Types
   , historyDeclarations
   )
 import Nagare.Inventory.Store
-  ( HeadManifest (headCollected, headRetained)
+  ( HeadManifest (headCollected, headIncarnations, headRetained)
   , RetainedIncarnation (retainedPhysical)
   )
 import Nagare.Resource.Inventory
@@ -355,6 +355,16 @@ validateLifecycleDecisions candidate history observations proposals =
                     []
               _ -> issue "invalid-collection" "collection needs a selected retained incarnation of a supported kind, exact present provider identity, stateless deletion policy, and no known consumers"
             ApproveMigration -> issue "unsupported-migration" "migration needs a reviewed data and cutover contract"
+            -- ADR 27 §3: record the live object of an accepted Kubernetes
+            -- member that stays declared, when it is not the recorded one.
+            ApproveRebind -> case (Map.lookup resource desired, Map.lookup resource historical, fact) of
+              (Just (Managed next), Just (Managed old), Just (ObservedPresent live))
+                | next ^. #executor == KubernetesExecutor
+                , old ^. #executor == KubernetesExecutor
+                , next ^. #owner == old ^. #owner
+                , Map.lookup resource (headIncarnations (historyHead history)) /= Just live ->
+                    []
+              _ -> issue "invalid-rebind" "rebind needs an accepted Kubernetes member that stays declared and a live owned object that is not its recorded incarnation"
        in evidence <> shape
     selectedScopes =
       Set.fromList

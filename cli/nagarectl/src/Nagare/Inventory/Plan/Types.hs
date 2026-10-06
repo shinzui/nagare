@@ -11,6 +11,8 @@ module Nagare.Inventory.Plan.Types
   , MigrationProof (..)
   , ObservationRequirements (..)
   , PlanError (..)
+  , RebindProof (..)
+  , renderRebind
   , RetentionProof (..)
   , ReviewBundle (..)
   , ReviewDocument (..)
@@ -97,6 +99,8 @@ import Nagare.Resource.Types
   , ProviderAddress
   , ResourceId
   , ScopeId
+  , physicalIdentityText
+  , resourceIdText
   )
 import Nagare.Resource.Wire (canonicalValue)
 
@@ -117,7 +121,7 @@ data ObservationRequirements = ObservationRequirements
   }
   deriving stock (Eq, Show)
 
-data LifecycleDecisionKind = ApproveAdoption | ApproveTransfer | ApproveRetirement | ApproveMigration | ApproveCollection
+data LifecycleDecisionKind = ApproveAdoption | ApproveTransfer | ApproveRetirement | ApproveMigration | ApproveCollection | ApproveRebind
   deriving stock (Eq, Ord, Show, Generic)
 
 data LifecycleProposal = LifecycleProposal
@@ -152,6 +156,7 @@ data ChangeProposal = ChangeProposal
   , proposalCollections :: !(Map ResourceId RetentionProof)
   , proposalMigrations :: !(Map ResourceId MigrationProof)
   , proposalAbsences :: !(Map ResourceId AbsenceProof)
+  , proposalRebinds :: !(Map ResourceId RebindProof)
   }
   deriving stock (Eq, Show)
 
@@ -214,8 +219,39 @@ data ReviewDocument = ReviewDocument
   , reviewCollections :: !(Map ResourceId RetentionProof)
   , reviewMigrations :: !(Map ResourceId MigrationProof)
   , reviewAbsences :: !(Map ResourceId AbsenceProof)
+  , reviewRebinds :: !(Map ResourceId RebindProof)
   }
   deriving stock (Eq, Show, Generic)
+
+-- | ADR 27 §3: a reviewed rebind records a member's live object as its
+-- accepted incarnation. The recorded identity it supersedes is absent for a
+-- member that was never recorded.
+data RebindProof = RebindProof
+  { rebindRecorded :: !(Maybe PhysicalIdentity)
+  , rebindLive :: !PhysicalIdentity
+  }
+  deriving stock (Eq, Show)
+
+-- | What an operator approves with a rebind: the identities and the data
+-- consequence.
+renderRebind :: ResourceId -> RebindProof -> Text
+renderRebind resource proof =
+  "rebind "
+    <> resourceIdText resource
+    <> ": records "
+    <> physicalIdentityText (rebindLive proof)
+    <> maybe
+      " (no incarnation was recorded)"
+      (\recorded -> " in place of " <> physicalIdentityText recorded <> "; the recovery points of " <> physicalIdentityText recorded <> " no longer describe this object")
+      (rebindRecorded proof)
+
+instance ToJSON RebindProof where
+  toJSON proof = object (("live" .= rebindLive proof) : ["recorded" .= recorded | Just recorded <- [rebindRecorded proof]])
+
+instance FromJSON RebindProof where
+  parseJSON = withObject "RebindProof" $ \o -> do
+    unless (all (`elem` ["live", "recorded"]) (KM.keys o)) (fail "rebind proof has an unknown field")
+    RebindProof <$> o .:? "recorded" <*> o .: "live"
 
 data ReviewBundle = ReviewBundle
   { bundleDocument :: !ReviewDocument
@@ -427,6 +463,9 @@ instance ToJSON ReviewDocument where
           <> [ "absences" .= [object ["resource" .= resource, "proof" .= proof] | (resource, proof) <- Map.toAscList (reviewAbsences document)]
              | not (Map.null (reviewAbsences document))
              ]
+          <> [ "rebinds" .= [object ["resource" .= resource, "proof" .= proof] | (resource, proof) <- Map.toAscList (reviewRebinds document)]
+             | not (Map.null (reviewRebinds document))
+             ]
       )
     where
       retentionEntries entries =
@@ -440,7 +479,7 @@ instance ToJSON ReviewDocument where
 
 instance FromJSON ReviewDocument where
   parseJSON = withObject "ReviewDocument" $ \o -> do
-    let allowed = ["version", "context", "headGeneration", "headSequence", "baseRevisions", "desiredRevisions", "candidateDigest", "payloadIdentity", "policyVersion", "operations", "barriers", "retentions", "collections", "migrations", "absences"]
+    let allowed = ["version", "context", "headGeneration", "headSequence", "baseRevisions", "desiredRevisions", "candidateDigest", "payloadIdentity", "policyVersion", "operations", "barriers", "retentions", "collections", "migrations", "absences", "rebinds"]
     unless (all (`elem` allowed) (KM.keys o)) (fail "review document has an unknown field")
     version <- o .: "version"
     unless (version == (1 :: Int)) (fail "unsupported review schema version")
@@ -448,6 +487,7 @@ instance FromJSON ReviewDocument where
     collections <- parseRetentions =<< o .:? "collections" .!= []
     migrations <- parseMigrations =<< o .:? "migrations" .!= []
     absences <- parseAbsences =<< o .:? "absences" .!= []
+    rebinds <- parseRebinds =<< o .:? "rebinds" .!= []
     ReviewDocument version
       <$> o .: "context"
       <*> o .: "headGeneration"
@@ -463,10 +503,15 @@ instance FromJSON ReviewDocument where
       <*> pure collections
       <*> pure migrations
       <*> pure absences
+      <*> pure rebinds
     where
       parseRetentions values = do
         entries <- traverse (withObject "retention entry" (\v -> (,) <$> v .: "resource" <*> v .: "proof")) values
         unless (length entries == Map.size (Map.fromList entries)) (fail "duplicate retention proof")
+        pure (Map.fromList entries)
+      parseRebinds values = do
+        entries <- traverse (withObject "rebind entry" (\v -> (,) <$> v .: "resource" <*> v .: "proof")) values
+        unless (length entries == Map.size (Map.fromList entries)) (fail "duplicate rebind proof")
         pure (Map.fromList entries)
       parseAbsences values = do
         entries <- traverse (withObject "absence entry" (\v -> (,) <$> v .: "resource" <*> v .: "proof")) values

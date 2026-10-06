@@ -34,6 +34,8 @@ data AdoptionTarget = AdoptionTarget
   , adoptionAddress :: !ProviderAddress
   , adoptionPhysical :: !PhysicalIdentity
   , adoptionPreviousOwner :: !(Maybe ScopeId)
+  , adoptionRebind :: !Bool
+  -- ^ ADR 27 §3: record this accepted member's live object as its incarnation.
   }
   deriving stock (Eq, Show)
 
@@ -61,10 +63,13 @@ decideAdoption candidate history observations input = do
     observations
     [ LifecycleProposal
         resource
-        ( maybe
-            ApproveAdoption
-            (const ApproveTransfer)
-            (adoptionPreviousOwner target)
+        ( if adoptionRebind target
+            then ApproveRebind
+            else
+              maybe
+                ApproveAdoption
+                (const ApproveTransfer)
+                (adoptionPreviousOwner target)
         )
         (lifecycleObservationDigest (adoptionBinding input) resource fact)
     | target <- adoptionTargets input
@@ -99,6 +104,7 @@ decideAdoption candidate history observations input = do
            | target <- adoptionTargets input
            , let observed = Map.lookup (adoptionResource target) (observationMap observations)
                  expected = case adoptionPreviousOwner target of
+                   _ | adoptionRebind target -> Just (ObservedPresent (adoptionPhysical target))
                    Nothing -> Just (ObservedUnowned (adoptionPhysical target))
                    Just prior ->
                      if maybe
@@ -179,13 +185,14 @@ decideCollection candidate history observations =
 instance FromJSON AdoptionTarget where
   parseJSON = withObject "AdoptionTarget" $ \o -> do
     unless
-      (all (`elem` ["resource", "address", "physicalIdentity", "previousOwner"]) (KM.keys o))
+      (all (`elem` ["resource", "address", "physicalIdentity", "previousOwner", "rebind"]) (KM.keys o))
       (fail "unknown adoption target field")
     AdoptionTarget
       <$> o .: "resource"
       <*> o .: "address"
       <*> o .: "physicalIdentity"
       <*> o .:? "previousOwner"
+      <*> o .:? "rebind" .!= False
 
 instance FromJSON AdoptionInput where
   parseJSON = withObject "AdoptionInput" $ \o -> do

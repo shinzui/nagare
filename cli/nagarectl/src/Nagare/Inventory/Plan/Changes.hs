@@ -85,6 +85,7 @@ import Nagare.Inventory.Plan.Types
   , MigrationProof (..)
   , ObservationRequirements (..)
   , PlanError (..)
+  , RebindProof (..)
   , RetentionProof (..)
   , historyComposition
   , historyDeclarations
@@ -234,6 +235,7 @@ planChanges candidate decisions history observations = do
   retentions <- buildRetentionProofs candidate checkedDecisions history observations
   collections <- buildCollectionProofs candidate checkedDecisions history observations
   let migrationProofs = buildMigrationProofs checkedDecisions
+      rebinds = buildRebindProofs checkedDecisions history observations
   let desiredScopes = inventoryScopes (candidateInventory candidate)
       scopeMembers = Map.fromList [(contentDigest bytes, bytes) | declaration <- Map.elems desiredScopes, let bytes = encodeCanonicalScope declaration]
       desiredRevisions = candidateDesiredRevisions candidate
@@ -258,6 +260,7 @@ planChanges candidate decisions history observations = do
       , proposalCollections = collections
       , proposalMigrations = migrationProofs
       , proposalAbsences = absences
+      , proposalRebinds = rebinds
       }
   where
     baseRevisions = fmap fst (historyAccepted history)
@@ -398,6 +401,17 @@ retentionFor :: ScopeId -> ScopeRevision -> Map ResourceId PhysicalIdentity -> R
 retentionFor owner revision recorded resource live = case checkedPhysical recorded resource live of
   IdentityReplaced accepted _ -> RetentionProof owner revision accepted (Just live)
   _ -> RetentionProof owner revision live Nothing
+
+-- | ADR 27 §3: each approved rebind names the identity it supersedes (none
+-- for a member never recorded) and the live object it records.
+buildRebindProofs :: LifecycleDecisions -> InventoryHistory -> ObservationSet -> Map ResourceId RebindProof
+buildRebindProofs (LifecycleDecisions _ decisions _) history observations =
+  Map.fromList
+    [ (resource, RebindProof (Map.lookup resource (headIncarnations (historyHead history))) live)
+    | (resource, decision) <- Map.toList decisions
+    , lifecycleDecision decision == ApproveRebind
+    , Just (ObservedPresent live) <- [Map.lookup resource (observationMap observations)]
+    ]
 
 buildCollectionProofs :: CompositionCandidate -> LifecycleDecisions -> InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) (Map ResourceId RetentionProof)
 buildCollectionProofs candidate (LifecycleDecisions _ decisions _) history observations =

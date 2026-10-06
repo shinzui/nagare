@@ -621,6 +621,10 @@ data DriftCategory
   | -- | A different object than the accepted incarnation answers at the
     -- member's address: a same-name replacement made outside Nagare (F49).
     ReplacedIncarnation
+  | -- | ADR 27: a Kubernetes member whose object has no recorded incarnation.
+    -- It is reported, not refused, except where data is at stake; a
+    -- reviewed rebind records it.
+    UnrecordedIncarnation
   | UnknownObservation
   deriving stock (Eq, Ord, Show)
 
@@ -657,6 +661,9 @@ classifyDriftWith incarnations inventory observations =
     replaced resource uid = case checkedPhysical incarnations (resource ^. #identity) uid of
       IdentityReplaced _ _ -> True
       _ -> False
+    unrecorded resource uid = case checkedPhysical incarnations (resource ^. #identity) uid of
+      IdentityUnrecorded _ -> resource ^. #executor == KubernetesExecutor
+      _ -> False
     classify resource fact =
       let (category, health, physical, digest, reason) = case fact of
             Just (ObservedPresent uid)
@@ -670,6 +677,9 @@ classifyDriftWith incarnations inventory observations =
             Just (ObservedReplacementRequired uid changed)
               | replaced resource uid ->
                   (ReplacedIncarnation, HealthUnknown, Just uid, Just changed, Just "observed object is not the accepted incarnation")
+            Just (ObservedPresent uid)
+              | unrecorded resource uid ->
+                  (UnrecordedIncarnation, HealthUnknown, Just uid, Nothing, Just "no incarnation is recorded; a reviewed rebind records it")
             Just (ObservedPresent uid) -> (Converged, HealthUnknown, Just uid, Nothing, Nothing)
             Just (ObservedDrifted uid changed) ->
               (ConfigurationDrift, HealthUnknown, Just uid, Just changed, Nothing)
@@ -707,6 +717,7 @@ instance ToJSON DriftCategory where
     ConfigurationDrift -> "configuration-drift"
     ImmutableReplacementRequired -> "immutable-replacement-required"
     ReplacedIncarnation -> "replaced-incarnation"
+    UnrecordedIncarnation -> "unrecorded"
     MissingResource -> "missing"
     UnownedResource -> "unowned"
     ForeignOwner -> "foreign-owner"

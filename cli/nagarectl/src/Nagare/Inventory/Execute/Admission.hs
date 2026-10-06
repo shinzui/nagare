@@ -62,6 +62,7 @@ import Nagare.Inventory.Plan
     , migrationProofRevision
     , migrationProofSourceAddress
     )
+  , RebindProof (rebindLive)
   , RetentionProof
     ( retentionOwner
     , retentionPhysical
@@ -78,6 +79,7 @@ import Nagare.Inventory.Plan
     , reviewHeadSequence
     , reviewMigrations
     , reviewOperations
+    , reviewRebinds
     , reviewRetentions
     )
   , ReviewOperation (reviewPlannedOperation)
@@ -184,7 +186,10 @@ admit locked registry reviewed = do
                 , resource <- NE.toList (plannedResources operation)
                 , Map.member resource (reviewCollections document)
                 ]
-            retainedRequests = Map.unionWith (<>) retentionRequests collectionRequests
+            -- ADR 27 §3: a rebind records the reviewed live object, so that
+            -- object must still be the live one.
+            rebindRequests = Map.fromList [(KubernetesExecutor, Map.keys (reviewRebinds document)) | not (Map.null (reviewRebinds document))]
+            retainedRequests = Map.unionsWith (<>) [retentionRequests, collectionRequests, rebindRequests]
         migrationChecked <- migrationCoverage store document
         migrationSourceErrors <- case migrationChecked of
           Left _ -> pure []
@@ -213,6 +218,10 @@ admit locked registry reviewed = do
                         == Just (ObservedPresent (retentionPhysical proof))
                     )
                     (Left "collected physical incarnation changed since review")
+                forM_ (Map.toAscList (reviewRebinds document)) $ \(resource, proof) ->
+                  unless
+                    (Map.lookup resource (observationMap facts) == Just (ObservedPresent (rebindLive proof)))
+                    (Left "the object a rebind records changed since review")
                 forM_ (Map.keys (reviewAbsences document)) $ \resource ->
                   case Map.lookup resource (observationMap facts) of
                     Just (ConfirmedAbsent _) -> Right ()
@@ -220,7 +229,7 @@ admit locked registry reviewed = do
         case migrationChecked >> sourceChecked of
           Left err -> pure (failure "migration-coverage" err)
           Right () -> case checked of
-            Left _ -> pure (failure "retention-observation" "retained physical incarnation could not be reverified")
+            Left reason -> pure (failure "retention-observation" ("a reviewed incarnation could not be reverified: " <> reason))
             Right () -> do
               now <- timestamp
               let client = maybe (headClientIdentity headValue) id (storeClientIdentity store)

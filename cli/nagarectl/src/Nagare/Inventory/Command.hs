@@ -429,6 +429,7 @@ planInventoryCandidateWithDeciderPayload registryFor decide payloadIdentity targ
   (_, bundle, digest) <- prepareInventoryCandidateWithDeciderPayload registryFor decide payloadIdentity target candidate
   _ <- writeReviewBundle output bundle >>= either dieText pure
   TIO.putStrLn (digestText digest)
+  mapM_ (TIO.putStrLn . uncurry renderRebind) (Map.toAscList (reviewRebinds (reviewBundleDocument bundle)))
 
 -- | Apply a standard create/update review in the same invocation. The review
 -- is published first, then reloaded so execution has only immutable evidence.

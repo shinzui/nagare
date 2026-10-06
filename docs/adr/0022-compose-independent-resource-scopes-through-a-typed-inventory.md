@@ -1668,3 +1668,20 @@ data-bearing ones. A verification writes nothing and binds nothing.
 The second limit, "Unrecorded members pass", still holds until EP-176 M2's checked accessor. A
 member with no record (from an older store, a lost write response, or a create completed in a
 closed transaction) is reported `unrecorded` and refused where data is at stake.
+
+## Amendment — 2026-10-05: unrecorded members no longer pass
+
+EP-176 M2 and M3 remove the second "Known limits" item, "Unrecorded members pass".
+- **One accessor.** Every consumer that moves or certifies data reads a member's identity through
+  `Nagare.Inventory.Identity`, which never reads a missing record as a match. That covers
+  backups, snapshots, restores, scheduled receipts, data fences, rename sources, collections, and
+  update and adoption proofs. Each refuses a replaced member, and an unrecorded one where data is
+  at stake.
+- **Status.** Status reports `unrecorded` alongside `replaced-incarnation`.
+- **Exits.** A replaced member has two reviewed exits:
+  - a retirement that retains its record and names the replacement;
+  - a rebind (an adoption input with `"rebind": true`) that records the live object.
+
+The earlier statement that a replaced database's only exit is "retire and recreate" now holds
+through that retirement. The accessor covers the Kubernetes kinds. Non-Kubernetes kinds without
+a provider identity remain documented limits (ADR 27 §4).

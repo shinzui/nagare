@@ -1,5 +1,6 @@
 module InventoryIncarnationSpec (inventoryIncarnationTests) where
 
+import Control.Exception (SomeException, try)
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Lazy qualified as BL
 import Data.Either (isLeft)
@@ -23,6 +24,7 @@ import Nagare.Inventory.DataFence (DataFenceControls (..), WriterReleaseState (.
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Execute hiding (withProcessLock)
 import Nagare.Inventory.Journal (operationIdText)
+import Nagare.Inventory.Lifecycle (AdoptionInput (..), AdoptionTarget (..), decideAdoption)
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Restore (restoreTargetPins)
 import Nagare.Inventory.ScheduledIngest (ScheduledIngestRequest (..), compileScheduledIngestScope)
@@ -53,6 +55,28 @@ inventoryIncarnationTests =
         writeIORef live (uid "uid-replacement")
         converge store registry (ReplaceScope (scopeWith "v2") :| []) (ObservedDrifted (uid "uid-replacement") (contentDigest "v1"))
         incarnations store >>= (@?= Map.singleton durableId (uid "uid-accepted"))
+    , testCase "a reviewed rebind records a replacement, after which it is the accepted incarnation (ADR 27 §3)" $ do
+        store <- newMemoryStore
+        _ <- initializeStore store fixtureBinding "incarnation-test" >>= expectRight
+        live <- newIORef (uid "uid-accepted")
+        let registry = observingRegistry live
+            address = Kubernetes (mintResourceId incarnationOwner (expectOk (mkLogicalKey "cluster")) (expectOk (mkName "cluster"))) "" (expectOk (mkName "persistentvolumeclaim")) (Just (expectOk (mkName "personal"))) (expectOk (mkName "data"))
+            rebind physical candidate history observations = decideAdoption candidate history observations (AdoptionInput "candidate" fixtureBinding [AdoptionTarget durableId address physical Nothing True])
+        converge store registry (ReplaceScope (scopeWith "v1") :| []) (ConfirmedAbsent (contentDigest "absent"))
+        -- A rebind of the recorded object itself is refused.
+        same <- try @SomeException (convergeDeciding store registry (ReplaceScope (scopeWith "v1") :| []) (ObservedPresent (uid "uid-accepted")) (rebind (uid "uid-accepted")))
+        assertBool "a rebind of the recorded object was approved" (either (("invalid-rebind" `T.isInfixOf`) . T.pack . show) (const False) same)
+        -- The member is replaced outside Nagare; the record still names the original.
+        writeIORef live (uid "uid-replacement")
+        -- An object replaced again after the rebind's review is refused at
+        -- admission: the review saw uid-replacement, admission sees uid-third.
+        writeIORef live (uid "uid-third")
+        moved <- try @SomeException (convergeDeciding store registry (ReplaceScope (scopeWith "v1") :| []) (ObservedPresent (uid "uid-replacement")) (rebind (uid "uid-replacement")))
+        assertBool ("a rebind admitted a changed object: " <> show moved) (either (("rebind records changed" `T.isInfixOf`) . T.pack . show) (const False) moved)
+        incarnations store >>= (@?= Map.singleton durableId (uid "uid-accepted"))
+        writeIORef live (uid "uid-replacement")
+        convergeDeciding store registry (ReplaceScope (scopeWith "v1") :| []) (ObservedPresent (uid "uid-replacement")) (rebind (uid "uid-replacement"))
+        incarnations store >>= (@?= Map.singleton durableId (uid "uid-replacement"))
     , testCase "convergence records a StatefulSet, the stateless controller of the data" $ do
         store <- newMemoryStore
         _ <- initializeStore store fixtureBinding "incarnation-test" >>= expectRight
@@ -113,7 +137,7 @@ inventoryIncarnationTests =
         -- N21: a replacement that also needs a reviewed replacement is reported replaced.
         category (ObservedReplacementRequired (uid "uid-replacement") (contentDigest "changed")) @?= [Status.ReplacedIncarnation]
         map Status.findingCategory (Status.classifyDriftWith Map.empty (candidateInventory inventory) (expectOk (observationSet [(durableId, ObservedPresent (uid "uid-replacement"))])))
-          @?= [Status.Converged]
+          @?= [Status.UnrecordedIncarnation]
     , testCase "ingestion refuses a receipt whose source is not the accepted incarnation" $ do
         let refusal = "scheduled receipt source is not the accepted database incarnation"
             attempt recorded = case compileScheduledIngestScope (ingestRequest recorded) databaseScope Map.empty of
@@ -130,7 +154,11 @@ inventoryIncarnationTests =
 
 -- Planning, review and application of one change against the accepted history.
 converge :: InventoryStore -> AdapterRegistry -> NonEmpty ScopeChange -> ResourceObservation -> Assertion
-converge store registry changes fact = do
+converge store registry changes fact = convergeDeciding store registry changes fact (\_ _ _ -> Right noLifecycleDecisions)
+
+-- | 'converge' under lifecycle decisions made from the fresh observation.
+convergeDeciding :: InventoryStore -> AdapterRegistry -> NonEmpty ScopeChange -> ResourceObservation -> (CompositionCandidate -> InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) LifecycleDecisions) -> Assertion
+convergeDeciding store registry changes fact decide = do
   history <- loadInventoryHistory store >>= expectRight
   let snapshot =
         expectOk
@@ -142,7 +170,9 @@ converge store registry changes fact = do
       candidate = expectOk (composeInventory snapshot changes)
       required = Set.toList (requiredResources (observationRequirements candidate history))
       facts = [(resource, if resource `elem` [durableId, statefulId] then fact else ConfirmedAbsent (contentDigest "absent")) | resource <- required]
-      proposal = expectOk (planChanges candidate noLifecycleDecisions history (expectOk (observationSet facts)))
+      observations = expectOk (observationSet facts)
+      decisions = either (error . show) id (decide candidate history observations)
+      proposal = expectOk (planChanges candidate decisions history observations)
   before <- readStoreSnapshot store >>= expectRight
   bundle <- prepareReview registry before proposal >>= expectRight
   _ <- publishReview store bundle >>= expectRight

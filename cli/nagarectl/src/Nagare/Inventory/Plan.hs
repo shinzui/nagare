@@ -32,6 +32,8 @@ module Nagare.Inventory.Plan
   , proposalDesired
   , proposalAbsences
   , candidateDesiredRevisions
+  , RebindProof (..)
+  , renderRebind
   , RetentionProof (..)
   , AbsenceProof (..)
   , MigrationProof (..)
@@ -107,6 +109,7 @@ import Nagare.Inventory.Plan.Types
   , MigrationProof (..)
   , ObservationRequirements (..)
   , PlanError (..)
+  , RebindProof (..)
   , RetentionProof (..)
   , ReviewBundle (..)
   , ReviewDocument (..)
@@ -116,6 +119,7 @@ import Nagare.Inventory.Plan.Types
   , encodeReviewDocument
   , historyDeclarations
   , historyReservations
+  , renderRebind
   , reviewBundleDocument
   , reviewBundleFenceRecord
   , reviewBundleNative

@@ -1,8 +1,8 @@
 diff --git a/cli/nagarectl/src/Nagare/Inventory/Plan/Changes.hs b/cli/nagarectl/src/Nagare/Inventory/Plan/Changes.hs
-index 9e46ff7e..3bcc1654 100644
+index a1e08275..8016e767 100644
 --- a/cli/nagarectl/src/Nagare/Inventory/Plan/Changes.hs
 +++ b/cli/nagarectl/src/Nagare/Inventory/Plan/Changes.hs
-@@ -396,7 +396,7 @@ buildRetentionProofs candidate (LifecycleDecisions _ decisions _) history observ
+@@ -399,7 +399,7 @@ buildRetentionProofs candidate (LifecycleDecisions _ decisions _) history observ
  -- (ADR 27, N1), so a replaced member can still be retired.
  retentionFor :: ScopeId -> ScopeRevision -> Map ResourceId PhysicalIdentity -> ResourceId -> PhysicalIdentity -> RetentionProof
  retentionFor owner revision recorded resource live = case checkedPhysical recorded resource live of
@@ -10,4 +10,4 @@ index 9e46ff7e..3bcc1654 100644
 +  IdentityReplaced _ _ -> RetentionProof owner revision live Nothing
    _ -> RetentionProof owner revision live Nothing
  
- buildCollectionProofs :: CompositionCandidate -> LifecycleDecisions -> InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) (Map ResourceId RetentionProof)
+ -- | ADR 27 §3: each approved rebind names the identity it supersedes (none

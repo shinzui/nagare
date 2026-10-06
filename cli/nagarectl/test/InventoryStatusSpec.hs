@@ -27,7 +27,8 @@ inventoryStatusTests =
     [ testCase "keeps provider absence, foreign ownership, drift, and unreadability distinct" $ do
         let uid = known (mkPhysicalIdentity "uid-1")
             changed = contentDigest "changed"
-            category observation = case classifyDrift inventory (known (observationSet observation)) of
+            recorded = Map.singleton resourceId uid
+            category observation = case classifyDriftWith recorded inventory (known (observationSet observation)) of
               [finding] -> findingCategory finding
               _ -> error "status fixture has no unique managed resource"
         category [(resourceId, ObservedPresent uid)] @?= Converged
@@ -38,7 +39,9 @@ inventoryStatusTests =
         category [(resourceId, ConfirmedAbsent changed)] @?= MissingResource
         category [(resourceId, ObservationUnavailable "unreadable")] @?= UnknownObservation
         category [] @?= UnknownObservation
-        case classifyDrift inventory (known (observationSet [(resourceId, ObservedPresent uid)])) of
+        -- ADR 27: a Kubernetes member with no recorded incarnation is reported as such.
+        map findingCategory (classifyDrift inventory (known (observationSet [(resourceId, ObservedPresent uid)]))) @?= [UnrecordedIncarnation]
+        case classifyDriftWith recorded inventory (known (observationSet [(resourceId, ObservedPresent uid)])) of
           [finding] -> do
             findingHealth finding @?= HealthUnknown
             toJSON finding

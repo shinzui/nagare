@@ -704,12 +704,7 @@ inventoryTransactionTests =
               AdoptionInput
                 "compiled"
                 fixtureBinding
-                [ AdoptionTarget
-                    resourceId
-                    movedAddress
-                    (ok (mkPhysicalIdentity "same-uid"))
-                    (Just oldOwner)
-                ]
+                [AdoptionTarget resourceId movedAddress (ok (mkPhysicalIdentity "same-uid")) (Just oldOwner) False]
         reviewedTransfer <- expectRight (decideAdoption transfer history observations transferInput)
         map
           plannedAction
@@ -819,7 +814,7 @@ inventoryTransactionTests =
               AdoptionInput
                 "compiled"
                 fixtureBinding
-                [AdoptionTarget resourceId (next ^. #address) physical (Just oldOwner)]
+                [AdoptionTarget resourceId (next ^. #address) physical (Just oldOwner) False]
         _ <- expectRight (decideAdoption transfer history observed transferInput)
         case decideAdoption
           transfer
@@ -827,12 +822,7 @@ inventoryTransactionTests =
           observed
           ( transferInput
               { adoptionTargets =
-                  [ AdoptionTarget
-                      resourceId
-                      (next ^. #address)
-                      (ok (mkPhysicalIdentity "other-release-uid"))
-                      (Just oldOwner)
-                  ]
+                  [AdoptionTarget resourceId (next ^. #address) (ok (mkPhysicalIdentity "other-release-uid")) (Just oldOwner) False]
               }
           ) of
           Left failures ->

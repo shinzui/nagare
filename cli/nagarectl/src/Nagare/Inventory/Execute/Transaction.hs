@@ -25,7 +25,7 @@ import Nagare.Inventory.Execute.Claims
   )
 import Nagare.Inventory.Execute.Close (closeRolledBack, releaseClosedTransaction)
 import Nagare.Inventory.Execute.Driver (runOperationsJournal)
-import Nagare.Inventory.Execute.Incarnations (convergedIncarnations)
+import Nagare.Inventory.Execute.Incarnations (IncarnationBinding (Established), convergedIncarnations)
 import Nagare.Inventory.Execute.Inputs (validateOperationInputs)
 import Nagare.Inventory.Execute.Journal
   ( appendEvent
@@ -55,15 +55,17 @@ import Nagare.Inventory.Journal
   , transactionIdText
   )
 import Nagare.Inventory.Plan
-  ( RetentionProof
-      ( retentionOwner
-      , retentionPhysical
-      , retentionRevision
-      )
+  ( RebindProof (rebindLive)
+  , RetentionProof
+    ( retentionOwner
+    , retentionPhysical
+    , retentionRevision
+    )
   , ReviewDocument
     ( reviewBarriers
     , reviewCollections
     , reviewOperations
+    , reviewRebinds
     )
   , ReviewedPlan
   , loadPublishedReview
@@ -142,7 +144,9 @@ executeWithJournal locked registry executable knownEvents = do
                         then pure (fallbackResult transaction document)
                         else do
                           -- ADR 27: bind from the journal as this run left it.
-                          bindings <- convergedIncarnations locked registry transaction finalEvents document
+                          written <- convergedIncarnations locked registry transaction finalEvents document
+                          -- ADR 27 §3: a reviewed rebind establishes the live object it names.
+                          let bindings = Map.union (Map.map (Established . rebindLive) (reviewRebinds document)) written
                           converged <- releaseClaimWith locked transaction (Just document) bindings
                           pure $ if converged then Converged transaction else fallbackResult transaction document
                 _ -> do

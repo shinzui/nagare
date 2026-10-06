@@ -89,6 +89,7 @@ prepareReviewWithPayloadIdentity payloadIdentity registry snapshot proposal = do
               , reviewCollections = proposalCollections proposal
               , reviewAbsences = proposalAbsences proposal
               , reviewMigrations = proposalMigrations proposal
+              , reviewRebinds = proposalRebinds proposal
               }
       pure (Right (ReviewBundle document (proposalScopes proposal) native))
   where

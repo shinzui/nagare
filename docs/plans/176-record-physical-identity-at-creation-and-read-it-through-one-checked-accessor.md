@@ -17,6 +17,11 @@ provenance:
       at: 2026-10-06T01:36:52Z
       mode: "implement"
       note: "EP-176 M1: provider identity journalled and bound at convergence"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-06T04:05:23Z
+      mode: "implement"
+      note: "EP-176 M1-M3: journalled identity, checked accessor, rebind, replaced retirement"
 ---
 
 # Record physical identity at creation and read it through one checked accessor
@@ -105,13 +110,26 @@ step 2 of MasterPlan 23's release line (b).
 - Original M2 text: one checked accessor, used by every consumer C lists for in-line kinds. Each consumer's
   mismatch case has a test that fails without the accessor; F62's rename-source replacement is
   refused in the rename model.
-- [ ] M3 (in progress): the reviewed rebind and replaced retirement.
+- [x] M3 (2026-10-05): the reviewed rebind and replaced retirement.
   - Done (2026-10-05): replaced retirement (N1).
     - `RetentionProof` and `RetainedIncarnation` gain an optional `replacedBy`. Their encodings omit it when absent.
     - Admission verifies the named replacement.
     - The recovery model's N1 tolerance is removed. A replacement made after review is now taken through a fresh review, at most once per step.
     - Mutation record `ADR27-N1-replaced-retirement-unnamed`.
-  - Remaining: the reviewed rebind, and status's explicit `unrecorded` category.
+  - **Rebind.**
+    - An adoption input target with `"rebind": true` becomes an `ApproveRebind` decision. It is
+      valid for an accepted Kubernetes member that stays declared, whose live object is not its
+      recorded incarnation.
+    - The review records each rebind (`reviewRebinds`: the recorded identity if any, and the live
+      identity), and saving it prints the data consequence.
+    - Admission requires the reviewed live object, now with its specific reason rather than a
+      generic one. Convergence establishes it.
+    - Test: "a reviewed rebind records a replacement, after which it is the accepted incarnation".
+      It covers refusal of a rebind of the recorded object, and refusal at admission when the
+      object changed after review.
+  - **Status.** It reports `unrecorded` for a Kubernetes member observed present with no record.
+  - **Mutation records.** Four rebind and status records, and three regenerated older ones.
+  - **Docs.** The runbook gains "Replaced and unrecorded members", and ADR 22 is amended.
 - Original M3 text: the reviewed rebind and replaced retirement. A replaced database scope can be retired (N1)
   or rebound through review; status reports `unrecorded` and `replaced-incarnation` members
   explicitly.
@@ -173,7 +191,34 @@ step 2 of MasterPlan 23's release line (b).
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+Completed 2026-10-05: release line (b) step 2.
+
+- **What changed.**
+  - A Kubernetes member's incarnation is now the identity its own reviewed write returned,
+    journalled on the event that ends the operation. It is no longer a later observation (F60).
+  - Every consumer that moves or certifies data reads identity through one checked accessor and
+    never reads a missing record as a match. That covers ingestion and listing, fences, rename
+    sources and writers, backups, snapshots, restores, the signing Secret, collections, and update
+    and adoption proofs.
+  - A replaced member can be retired (N1) or rebound through review.
+  - The recovery model has no identity tolerances left.
+- **Survived mutants.** Three found missing checks:
+  - the update proof (N9), which the whole suite and model passed without;
+  - two new rule-level records whose first tests were too weak.
+
+  Focused tests now kill each.
+- **What remains.**
+  - **N2 (update or verify of a replaced member).** Planning and prepare proceed onto the
+    replacement, and status reports it. ADR 27's decision "status and planning report it and
+    proceed" keeps this deliberately. It moves or certifies no data, but an update writes the
+    reviewed spec onto the replacement.
+  - **N22.** The prune guard is app code with no harness, so it has no mutation record.
+  - **N10.** Creates completed in a closed transaction stay unrecorded until rebind.
+  - **N15–N20.** Non-Kubernetes identities remain ADR 27 §4 limits.
+  - **Fresh-review exit.** The rename model has no `Replaced` source fault yet, and a replacement
+    after review is resolved by a fresh review.
+- **Release consequence.** Stores written before this plan have no records. Data operations on
+  their members refuse until each member is rebound through review. The runbook section says how.
 
 
 ## Context and Orientation

@@ -221,7 +221,7 @@ inventoryLifecycleTests =
                 combinedCandidate
                 history
                 observed
-                (input {adoptionTargets = [AdoptionTarget anotherId otherAddress anotherPhysical Nothing]})
+                (input {adoptionTargets = [AdoptionTarget anotherId otherAddress anotherPhysical Nothing False]})
             )
         combined <- expectRight (combineDecisions firstDecision secondDecision)
         map
@@ -283,5 +283,5 @@ inventoryLifecycleTests =
             (ReplaceScope declaration :| [])
         )
     physical = ok (mkPhysicalIdentity "uid-1")
-    target = AdoptionTarget resourceId (address resource) physical Nothing
+    target = AdoptionTarget resourceId (address resource) physical Nothing False
     input = AdoptionInput "compiled" binding [target]
