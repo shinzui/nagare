@@ -1,0 +1,29 @@
+created: {"rv":"412","k":"v1","k2":null,"stamp":"d1","managers":["nagare-inventory/Update"]}
+a no-force apply over own create (Update) entry, uid only | rc=1 | error: Apply failed with 2 conflicts: conflicts with "nagare-inventory" using v1: - .data.k 
+   {"rv":"412","k":"v1","k2":null,"stamp":"d1","managers":["nagare-inventory/Update"]}
+b forced apply, uid only | rc=0 | configmap/e13 serverside-applied 
+   {"rv":"413","k":"v2","k2":null,"stamp":"d2","managers":["nagare-inventory/Apply","nagare-inventory/Update"]}
+c no-force apply after Nagare owns by Apply | rc=0 | configmap/e13 serverside-applied 
+   {"rv":"414","k":"v3","k2":null,"stamp":"d3","managers":["nagare-inventory/Apply","nagare-inventory/Update"]}
+-- kubectl-edit changed data.k (a Nagare-managed field)
+d no-force apply after a foreign edit of a managed field | rc=1 | error: Apply failed with 1 conflict: conflict with "kubectl-edit" using v1: .data.k Please review the fields above--they currently have other managers. Here 
+   {"rv":"415","k":"edited","k2":null,"stamp":"d3","managers":["nagare-inventory/Apply","nagare-inventory/Update","kubectl-edit/Update"]}
+-- kubectl-edit set data.k back to Nagare's value v3
+e no-force apply after a foreign same-value write | rc=1 | error: Apply failed with 1 conflict: conflict with "kubectl-edit" using v1: .data.k Please review the fields above--they currently have other managers. Here 
+   {"rv":"416","k":"v3","k2":null,"stamp":"d3","managers":["nagare-inventory/Apply","nagare-inventory/Update","kubectl-edit/Update"]}
+-- fresh object, Nagare owns by Apply; kubectl-edit added unrelated data.k2: {"rv":"420","k":"v1","k2":"theirs","stamp":"d1","managers":["nagare-inventory/Apply","kubectl-edit/Update","nagare-inventory/Update"]}
+f no-force apply, other manager owns an unrelated field | rc=1 | error: Apply failed with 2 conflicts: conflicts with "nagare-inventory" using v1: - .data.k 
+   {"rv":"420","k":"v1","k2":"theirs","stamp":"d1","managers":["nagare-inventory/Apply","kubectl-edit/Update","nagare-inventory/Update"]}
+== Deployment: create, controller status writes, then no-force apply with uid only
+["nagare-inventory/Update/-","k3s/Update/status"]
+g no-force: rc=1 error: Apply failed with 2 conflicts: conflicts with "nagare-inventory" using apps/v1:
+- .metadata.annotations.nagare.dev/spec-digest
+- .spec.template.spec.containers[name="c"].image
+Please review the fields above--they currently 
+h forced:   rc=0 deployment.apps/e13 serverside-applied
+i no-force after Apply ownership, after a rollout (k3s wrote revision annotation): rc=0 deployment.apps/e13 serverside-applied
+["nagare-inventory/Apply/-","nagare-inventory/Update/-","k3s/Update/status"]
+== E13b apply with resourceVersion "0" as create-if-absent
+absent, rv "0": rc=0 configmap/e13b serverside-applied
+{"rv":"523","k":"v1","managers":["nagare-inventory/Apply"]}
+present, rv "0": rc=0 configmap/e13b serverside-applied

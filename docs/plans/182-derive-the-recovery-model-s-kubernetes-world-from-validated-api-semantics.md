@@ -268,7 +268,7 @@ Every in-line row is filled from RES-4 §2. The existing `readiness` field stays
 `semantics = Nothing`, because they are documented limits.
 
 A recorder script, `docs/audits/k8s-semantics-2026-10-06/experiments/record-traces.sh`, replays
-the E1, E3, E4, E5, E6, E7, E11 and E12 steps against a disposable k3d cluster. It emits
+the E1, E3, E4, E5, E6, E7, E11, E12 and E13 steps against a disposable k3d cluster. It emits
 `cli/nagarectl/test/fixtures/kubernetes-semantics/traces.json`, one entry per step:
 
 ```json
@@ -324,6 +324,15 @@ Then two new test modules:
   - `controllerStep`, which advances status per the kind's `readinessModel` and moves
     resourceVersion when status changes;
   - `externalWrite`, for faults.
+
+  It also keeps per-field `managedFields` with RES-4 U10's server-side-apply rules (E13):
+  - `create` records its manager as an Update;
+  - an apply records Apply, and a forced apply moves only the fields whose value it changes;
+  - a no-force apply that changes a field another entry owns is refused with 409 and kubectl's
+    "Apply failed with N conflicts" text;
+  - every foreign write adds its own entry, even at the same value;
+  - status writes use status-subresource entries;
+  - an apply ignores `resourceVersion: "0"`.
 
   Generation and resourceVersion follow `KindSemantics` and the rules above. Quantities are
   canonicalized on write by a function with its own unit tests from E11's pairs. Every write returns

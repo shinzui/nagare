@@ -103,6 +103,7 @@ manifests, kubectl client 1.37.0 [E0].
 | U7 | The API server stores resource quantities in canonical form, for core kinds and also through Knative's webhook: `1024Mi`→`1Gi`, `2048Mi`→`2Gi`, `1000M`→`1G`, `1000m`→`1`, `1.5`→`1500m`, PVC `1024Mi`→`1Gi`. | [E11] |
 | U8 | `metadata.generation` exists only where the kind's strategy sets it, and moves on spec changes only. Exception: a **Deployment** also moves it on a metadata **annotation** change (a label does not move it). A StatefulSet's does not move on annotations. | [E1] |
 | U9 | `kubectl wait --for=condition=…` (client 1.37) refuses a condition whose object reports `observedGeneration < generation`. `kubectl rollout status` uses the full rollout rule for Deployment and StatefulSet. kubectl 1.37 against a 1.32 server never satisfied `wait` on CRDs. That pairing is outside the ±1 skew policy, and the same command works against 1.34. | [E4, E5, E0], [docs k8s-skew] |
+| U10 | Server-side apply tracks a writer per field in `managedFields`. Status writes go to separate status-subresource entries. `kubectl create --field-manager=nagare-inventory` records the manager as *Update*, and a later apply under the same name is a **different** manager. So an apply **without** `--force-conflicts` that changes a create-time field is refused (409, "Apply failed … conflicts with \"nagare-inventory\""), and a forced apply that leaves a value unchanged only shares ownership. A foreign write to a managed field adds its own entry (for example `kubectl-edit/Update`), even when it writes the same value, and a no-force apply then conflicts. `metadata.resourceVersion: "0"` is ignored by apply: it creates when absent and applies when present, so apply has no create-if-absent. | [E13] |
 
 ## 2. Per-kind semantics (release line (b))
 
@@ -261,6 +262,17 @@ Nagare has no deployed users (operator, 2026-10-06), so no compatibility with ea
 2. Generalize version 2's execute guard to every update and retire. Require the reviewed UID, the reviewed stamp and
    unchanged desired fields, then write with the **fresh** rv. That keeps the server-side precondition on the object
    that was just checked, without failing on status churn.
+
+   Refined 2026-10-06 with E13 (U10): a no-force apply cannot carry this guard, because it conflicts with Nagare's
+   own create entry.
+   - **Update:** in the one read with managed fields, require the same UID and owner, the live stamp equal to the
+     recorded `beforeStamp`, and no foreign non-status managed-field entry beyond a reviewed takeover and the
+     allowlisted controller paths. Together these prove that no other writer touched a spec or metadata field since
+     the reviewed before-state. Then apply **with force**, carrying the UID and that read's resourceVersion.
+   - **Retire:** require the same UID, owner and a matching digest, then DELETE with the UID and the fresh
+     resourceVersion.
+   - **On a 409 for a moved resourceVersion,** re-read and re-check, a bounded number of times. Any other refusal is
+     NoEffect (G4).
 
 ### 5.3 StatefulSet corrections (G3)
 
