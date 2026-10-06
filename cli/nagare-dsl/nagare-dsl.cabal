@@ -105,6 +105,7 @@ library
     lens ^>=5.3,
     process,
     text,
+    unix,
     yaml,
 
 -- Tiny demo: prints renderLoadError of each LoadError variant (EP-10 M1.5).
@@ -132,14 +133,20 @@ test-suite nagare-dsl-test
     StaticSpec
     WorkerSpec
 
+  -- The loader tests spawn runghc; the threaded RTS keeps a child that
+  -- outlives its budget from blocking every test thread.
+  ghc-options: -threaded
   build-depends:
     aeson,
     base,
     bytestring,
     containers,
+    directory,
+    filepath,
     generic-lens ^>=2.3,
     lens ^>=5.3,
     nagare-dsl,
+    process,
     tasty >=1.4,
     tasty-golden >=2.3,
     tasty-hunit >=0.10,

@@ -11,6 +11,7 @@ module Nagare.Dsl.Load
   , ConfigTimeout (..)
   , defaultConfigTimeout
   , runConfigWith
+  , runConfigUntil
   , loadDeployment
   , decodeDeployment
   , loadBroker
@@ -59,7 +60,7 @@ import Nagare.Dsl.Load.File
   , loadWorker
   )
 import Nagare.Dsl.Load.Job (decodeJob)
-import Nagare.Dsl.Load.Process (runConfigWith)
+import Nagare.Dsl.Load.Process (runConfigUntil, runConfigWith)
 import Nagare.Dsl.Load.ServerSite (decodeServerSite)
 import Nagare.Dsl.Load.Site (SiteConfig (..))
 import Nagare.Dsl.Load.StaticSite (decodeStaticSite)

@@ -5,7 +5,10 @@
 -- 'decodeDeployment' so it needs no @runghc@ invocation.
 module LoadSpec (loadTests) where
 
+import Control.Concurrent (threadDelay)
 import Data.ByteString.Char8 qualified as BC
+import Data.Foldable (for_)
+import Data.List (isInfixOf)
 import Data.Map qualified as Map
 import Data.Set (Set)
 import Data.Set qualified as Set
@@ -19,8 +22,11 @@ import Nagare.Dsl.Types
   , ScopedEnvVar (..)
   , mkEnvName
   )
+import System.Directory (doesFileExist)
+import System.FilePath ((</>))
 import System.IO (hClose, hPutStr)
-import System.IO.Temp (withSystemTempFile)
+import System.IO.Temp (withSystemTempDirectory, withSystemTempFile)
+import System.Process (readProcessWithExitCode)
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -93,6 +99,24 @@ loadTests =
         case result of
           Left (LoadTimedOut _ 1) -> pure ()
           other -> assertFailure ("expected LoadTimedOut _ 1, got: " <> show other)
+    , -- The budget must hold even for a config that ignores SIGTERM: under
+      -- load the loader's SIGTERM did not stop runghc, and a gate waited 51
+      -- minutes on it (2026-10-06). The budget expires only once the config
+      -- has armed its SIGTERM handler, so the kill is tested under any load.
+      testCase "a config that ignores SIGTERM leaves no process behind its LoadTimedOut" $
+        withSystemTempDirectory "load-timeout" $ \dir -> do
+          let path = dir </> "Config.hs"
+              armed = dir </> "armed"
+          writeFile path (termIgnoringConfig armed)
+          result <- runConfigUntil (awaitFile armed) 1 path
+          survivors <- processesNaming path
+          for_ survivors (\pid -> readProcessWithExitCode "kill" ["-KILL", pid] "")
+          wasArmed <- doesFileExist armed
+          assertBool "the config armed its SIGTERM handler before the budget expired" wasArmed
+          case result of
+            Left (LoadTimedOut _ 1) -> pure ()
+            other -> assertFailure ("expected LoadTimedOut _ 1, got: " <> show other)
+          survivors @?= []
     , testCase "renderLoadError LoadTimedOut names the path and the budget" $ do
         let err = LoadTimedOut "/app/Config.hs" 1
         assertContains "/app/Config.hs" (renderLoadError err)
@@ -165,6 +189,38 @@ sleepingConfig =
     , "main :: IO ()"
     , "main = threadDelay maxBound"
     ]
+
+-- | A config that ignores SIGTERM, then writes the marker and blocks forever.
+termIgnoringConfig :: FilePath -> String
+termIgnoringConfig marker =
+  unlines
+    [ "module Main (main) where"
+    , "import Control.Concurrent (threadDelay)"
+    , "import System.Posix.Signals (Handler (Ignore), installHandler, sigTERM)"
+    , "main :: IO ()"
+    , "main = do"
+    , "  _ <- installHandler sigTERM Ignore Nothing"
+    , "  writeFile " <> show marker <> " \"armed\""
+    , "  threadDelay maxBound"
+    ]
+
+-- | Return once the file exists, or after two minutes.
+awaitFile :: FilePath -> IO ()
+awaitFile path = go (1200 :: Int)
+  where
+    go tries = do
+      present <- doesFileExist path
+      unless (present || tries <= 0) (threadDelay 100_000 >> go (tries - 1))
+
+-- | The PIDs of processes whose command line names the path, after giving a
+-- killed run up to five seconds to exit.
+processesNaming :: FilePath -> IO [String]
+processesNaming path = go (50 :: Int)
+  where
+    go tries = do
+      (_, listing, _) <- readProcessWithExitCode "ps" ["-axo", "pid=,command="] ""
+      let found = [pid | line <- lines listing, path `isInfixOf` line, pid : _ <- [words line]]
+      if null found || tries <= 0 then pure found else threadDelay 100_000 >> go (tries - 1)
 
 assertContains :: Text -> Text -> Assertion
 assertContains needle haystack
