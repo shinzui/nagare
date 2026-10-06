@@ -85,6 +85,7 @@ This is the authoritative list of implementation findings for [MP-23](../masterp
 | [F64](#f64) | P1 | An intended update whose target is deleted outside review, and not recreated, has no exit | Verifying | EP-153 / EP-173 |
 | [F65](#f65) | P1 | The create-path stop refuses a review that recreates a deleted Service alongside its release-history update | Verifying | EP-153 / EP-173 |
 | [F66](#f66) | P1 | A create that finds an object not stamped as its own at its address settles unknown, so only an attested close can end it | Verifying | EP-153 / EP-177 |
+| [F68](#f68) | P1 | An update whose target is deleted and replaced by an object not stamped as its own settles unknown, so only an attested close can end it | Verifying | EP-153 / EP-177 |
 
 Closed findings keep their full text, location, implementation updates and verification in [the closed-findings archive](mp23-archive/mp23-findings-closed.md). F01 and F11 retain their [earlier independent closure](mp23-archive/mp23-verification.md). F02, F03, F04, F05, F06, F07, F08 and F20 now have [2026-10-02 independent closure](mp23-independent-verification-2026-10-02.md). F34, F35, F36, F37, F38, F41 and F42 have 2026-10-04 independent closure on candidate `7596632c`, and F49 and F50 on candidate `847543896d07` ([records](mp23-independent-results-2026-10-04/phase1-source-and-regressions-7596632c.md)). Other entries retain their status shown above.
 
@@ -836,3 +837,21 @@ The class is not `NoEffect`. The absent before-state has changed, and in the `De
 **Mutation.** `test/mutations/F66-create-over-foreign-object-settles-unknown.diff`.
 
 **Rehearsal (observed, 2026-10-06).** Shard 0/52 ("create") was rerun with this fix and the three EP-177 harness fixes. It reported `recovery-model: [1/1] create: done in 722s, 0 violation(s)`, down from 67.
+
+## F68
+
+**An update whose target is deleted and replaced by an object not stamped as its own settles unknown, so only an attested close can end it** — P1; **Verifying**; owners EP-153 / EP-177.
+
+**Found by the EP-177 five-scenario deep reruns on the remote builder (2026-10-06, claude-opus-5-5)**, classified locally (observed). In "create then good update" under `[(Observe 17, Deleted), (Observe 18, ForeignObject)]`, the Knative Service that the v2 update targets is deleted outside review. An object without this member's stamp then appears at its address. Settlement answered `SettledUnknown "Knative Service configuration or ownership changed since review"`, so close refused with `unknown-operation`.
+
+**Why the class is provable.** It is F66's rule for updates. An update is conditional on the reviewed UID and stamps what it writes as this member's. An object at the address with another UID and without this member's stamp therefore proves the update's write is not live there. The write either never landed, or landed on the reviewed object, which is gone. That is ADR 26's `TargetGone` ("the reviewed object was replaced or deleted outside review"). The found UID is evidence only and is never bound (ADR 27 §1).
+
+**Fix.** `settleMutation` (`Adapters/KubernetesProof.hs`) generalises F66's predicate. An object not stamped as this member at the address of a create over an absent before-state, or of an update whose reviewed UID differs from the found one, settles as `SettledTargetGone` with the found UID. Two cases keep their existing classes:
+- an object with another UID that carries this member's stamp stays the F56 replacement path;
+- an object with the reviewed UID is never gone, whatever its stamp now.
+
+**Tests.**
+- "an update whose target is replaced by an object not stamped as its own settles as target gone (F68)", in `InventorySettleSpec`.
+- The schedule above, in the recovery model's "create-scenario fault pairs that had no exit now have one (EP-177, F66)".
+
+**Mutation.** `test/mutations/F68-update-over-foreign-object-settles-unknown.diff`. F66's record is regenerated for the shared predicate.

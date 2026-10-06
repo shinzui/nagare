@@ -70,8 +70,9 @@ data FieldTakeover = FieldTakeover
 -- the reviewed before-state unchanged is no effect; the reviewed digest on the
 -- reviewed (or, for a create, newly stamped) object, not ready, is landed; an
 -- owned target that is gone or carries another UID, or an object not stamped
--- as this member's at a create's address (F66), is gone; a failed object of
--- this operation is a terminal partial effect. Anything else stays unknown.
+-- as this member's at a create's or update's address (F66, F68), is gone; a
+-- failed object of this operation is a terminal partial effect. Anything else
+-- stays unknown.
 settleMutation :: KubernetesMutation -> KubernetesState -> KubernetesState -> RecoveryDecision -> Settlement
 settleMutation mutation before current decision = case decision of
   RecoveryProvedComplete _ -> SettledUnknown "the effect is proved complete" "inventory resume"
@@ -81,11 +82,12 @@ settleMutation mutation before current decision = case decision of
   RecoveryTerminalFailure physical -> SettledTerminalPartial physical
   _ | Right () <- requireSameBefore mutation before -> SettledNoEffect "the reviewed before-state is unchanged"
   _ -> case current of
-    -- F66: a create writes only to an empty address and stamps the object as
-    -- this member's, so another object there proves its write is not live.
-    KubernetesPresent physical _ owner _ | createdOver owner -> SettledTargetGone (Just physical)
-    KubernetesNotReady physical _ owner _ | createdOver owner -> SettledTargetGone (Just physical)
-    KubernetesFailed physical _ owner _ | createdOver owner -> SettledTargetGone (Just physical)
+    -- F66, F68: a create writes only to an empty address and an update only to
+    -- the reviewed UID, and both stamp the object as this member's, so another
+    -- object there not stamped as this member proves the write is not live.
+    KubernetesPresent physical _ owner _ | notLive physical owner -> SettledTargetGone (Just physical)
+    KubernetesNotReady physical _ owner _ | notLive physical owner -> SettledTargetGone (Just physical)
+    KubernetesFailed physical _ owner _ | notLive physical owner -> SettledTargetGone (Just physical)
     KubernetesAbsent _
       | Just _ <- beforeIdentity -> SettledTargetGone Nothing
     KubernetesPresent physical _ (Just owner) _
@@ -104,7 +106,9 @@ settleMutation mutation before current decision = case decision of
     _ -> SettledUnknown (unresolved decision) "a corrected review, or an attested close"
   where
     resource = mutationResource mutation
-    createdOver owner = mutationAction mutation == CreateResource && owner /= Just resource && (case mutationBefore mutation of KubernetesAbsent {} -> True; _ -> False)
+    notLive physical owner = owner /= Just resource && (createdOver || updatedOver physical)
+    createdOver = mutationAction mutation == CreateResource && (case mutationBefore mutation of KubernetesAbsent {} -> True; _ -> False)
+    updatedOver physical = mutationAction mutation == UpdateResource && maybe False (/= physical) beforeIdentity
     -- The owned object the operation was reviewed against, if any.
     beforeIdentity = case mutationBefore mutation of
       KubernetesPresent prior _ (Just owner) _ | owner == resource -> Just prior

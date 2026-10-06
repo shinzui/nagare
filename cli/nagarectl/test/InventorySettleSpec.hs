@@ -81,6 +81,29 @@ inventorySettleTests =
         case settle (KubernetesPresent found "2" (Just created) (contentDigest "edited")) of
           SettledUnknown _ _ -> pure ()
           settled -> assertFailure ("an object stamped as the create's own settled as " <> show settled)
+    , testCase "an update whose target is replaced by an object not stamped as its own settles as target gone (F68)" $ do
+        let owner = ok (mkScopeId Platform "updated")
+            cluster = mintResourceId owner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
+            updated = mintResourceId owner (ok (mkLogicalKey "service")) (ok (mkName "resource"))
+            other = mintResourceId owner (ok (mkLogicalKey "history")) (ok (mkName "resource"))
+            address = Kubernetes cluster "" (ok (mkName "configmap")) (Just (ok (mkName "system"))) (ok (mkName "service"))
+            reviewed = ok (mkPhysicalIdentity "reviewed-uid")
+            found = ok (mkPhysicalIdentity "found-uid")
+            digest = contentDigest "reviewed"
+            mutation = KubernetesMutation 1 (ok (mkOperationId "op-updated")) digest UpdateResource updated address "{}" digest (KubernetesPresent reviewed "4" (Just updated) (contentDigest "before")) Nothing
+            settle current = settleMutation mutation current current (RecoveryUnresolved "Kubernetes object changed since review; replan before mutation")
+            unknown current = case settle current of
+              SettledUnknown _ _ -> pure ()
+              settled -> assertFailure ("settled as " <> show settled <> ": " <> show current)
+        -- The write is conditional on the reviewed UID, so another object
+        -- that is not stamped as this member proves the write is not live.
+        settle (KubernetesPresent found "1" Nothing (contentDigest "foreign")) @?= SettledTargetGone (Just found)
+        settle (KubernetesNotReady found "1" (Just other) digest) @?= SettledTargetGone (Just found)
+        -- Another UID stamped as this member is the F56 replacement path.
+        settle (KubernetesPresent found "1" (Just updated) digest) @?= SettledTargetGone (Just found)
+        -- The reviewed UID, whatever its stamp now, is never gone.
+        unknown (KubernetesPresent reviewed "5" Nothing (contentDigest "edited"))
+        unknown (KubernetesPresent reviewed "5" (Just updated) (contentDigest "edited"))
     ]
 
 member :: ScopeId -> ResourceId -> Text -> Declaration

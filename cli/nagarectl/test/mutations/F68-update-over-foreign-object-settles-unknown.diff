@@ -1,12 +1,12 @@
 diff --git a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs
 --- a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs
 +++ b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs
-@@ -107,7 +107,7 @@
-   where
+@@ -108,7 +108,7 @@
      resource = mutationResource mutation
      notLive physical owner = owner /= Just resource && (createdOver || updatedOver physical)
--    createdOver = mutationAction mutation == CreateResource && (case mutationBefore mutation of KubernetesAbsent {} -> True; _ -> False)
-+    createdOver = False
-     updatedOver physical = mutationAction mutation == UpdateResource && maybe False (/= physical) beforeIdentity
+     createdOver = mutationAction mutation == CreateResource && (case mutationBefore mutation of KubernetesAbsent {} -> True; _ -> False)
+-    updatedOver physical = mutationAction mutation == UpdateResource && maybe False (/= physical) beforeIdentity
++    updatedOver _ = False
      -- The owned object the operation was reviewed against, if any.
      beforeIdentity = case mutationBefore mutation of
+       KubernetesPresent prior _ (Just owner) _ | owner == resource -> Just prior

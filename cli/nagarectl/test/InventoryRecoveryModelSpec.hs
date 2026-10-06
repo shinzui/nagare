@@ -98,6 +98,9 @@ inventoryRecoveryModelTests =
         -- F66: an object not stamped as the create's own is at its address.
         forM_ [[(Boundary ObserveCall 6, ForeignObject), (Boundary StorePutCall 12, PutRefused)], [(Boundary ObserveCall 7, Deleted), (Boundary ObserveCall 8, ForeignObject)], [(Boundary ObserveCall 5, ForeignObject), (Boundary StorePutCall 9, ClaimLost)]] $
           exits >=> assertBool "F66: no close" . any (`elem` [Close, CloseTakeOver]) . concat
+        -- F68: the updated Service deleted, and an unstamped object at its address.
+        runScenario (Scenario "create then good update" [Deploy "v1", Deploy "v2"] [] True plainShape False) [(Boundary ObserveCall 17, Deleted), (Boundary ObserveCall 18, ForeignObject)]
+          >>= either (assertFailure . T.unpack) (assertBool "F68: no close" . any (`elem` [Close, CloseTakeOver]) . concat . finishedExits)
     , testCase "an unexcused planning refusal of a reviewed step is I1: no supported exit (EP-177; F63's open Deployment half)" $ do
         let deployment = [scenario | scenario <- generatedScenarios, label scenario == "kind (\"apps\",\"deployment\"): update"]
         forM_ deployment $ \scenario ->
