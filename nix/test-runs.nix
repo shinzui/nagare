@@ -38,6 +38,8 @@
           cp -r ${nagarePackages.haskellPackages.nagarectl.src} "$TMPDIR/nagarectl"
           chmod -R u+w "$TMPDIR/nagarectl"
           cd "$TMPDIR/nagarectl"
+          # The sandbox has no locale; test names and fixtures carry UTF-8.
+          export LANG=C.UTF-8 LC_ALL=C.UTF-8
           export GHC_ENVIRONMENT=-
           export PATH=${lib.makeBinPath [ nagarePackages.typedConfigRuntime pkgs.kubernetes-helm pkgs.openssl pkgs.jq pkgs.python3 pkgs.perl ]}:$PATH
           export HELM_CACHE_HOME="$TMPDIR/nagare-helm-cache"
