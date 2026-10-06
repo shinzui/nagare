@@ -7,9 +7,16 @@
 -- re-runs a failed command. Every check reads through 'InspectStore', which no
 -- fault reaches and which cannot write. Neither the faulting store nor the
 -- inspection store's constructor is exported, so the compiler enforces this.
+--
+-- EP-179: a snapshot copies the fake store's objects underneath both handles,
+-- the world, the adversary and every invariant reference, so the exit search
+-- can restore a stop instead of replaying the scenario up to it.
 module Nagare.Test.Model.Run
-  ( Run (runWorld, runAdversary, runBound, runImages, runIncarnations, runDatabase, runConverged)
+  ( Run (runObjects, runWorld, runAdversary, runBound, runImages, runIncarnations, runDatabase, runConverged)
+  , RunSnapshot (..)
   , newRun
+  , snapshotRun
+  , restoreRun
   , Failure (..)
   , operatorAction
   , orTrouble
@@ -27,7 +34,6 @@ import Data.IORef
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
-import InventoryObjectOpsSpec (fakeObjectOps)
 import InventoryTransactionSpec (fixtureBinding)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Plan (InventoryHistory, loadInventoryHistory)
@@ -38,6 +44,7 @@ import Nagare.Resource.Types
 import Nagare.Test.Model.Fixtures
 import Nagare.Test.World.Adversary
 import Nagare.Test.World.Kubernetes
+import Nagare.Test.World.ObjectStore (FakeObjects, fakeObjectState)
 import Nagare.Test.World.Store (faultingObjectOps)
 import Test.Tasty.HUnit (assertFailure)
 
@@ -45,6 +52,9 @@ data Run = Run
   { runStore :: !InventoryStore
   -- ^ The store the adversary faults; only 'operatorAction' reaches it.
   , runInspect :: !InspectStore
+  , runObjects :: !(IORef FakeObjects)
+  -- ^ The objects both store handles read and write. The handles keep no
+  -- other state between commands (EP-179 M1).
   , runWorld :: !(IORef KubeWorld)
   , runAdversary :: !(IORef Adversary)
   , runBound :: !(IORef (Map.Map ContentDigest (Map.Map ResourceId ContentDigest)))
@@ -70,7 +80,7 @@ newtype InspectStore = InspectStore InventoryStore
 newRun :: Shape -> [Text] -> [(Boundary, Fault)] -> IO Run
 newRun shape unready schedule = do
   adversary <- newAdversary schedule
-  base <- fakeObjectOps
+  (base, objects) <- fakeObjectState
   store <- newObjectStore (faultingObjectOps adversary base) fixtureBinding "recovery-model" Nothing >>= orFail "open store"
   inspect <- newObjectStore base fixtureBinding "recovery-inspect" Nothing >>= orFail "open inspection store"
   _ <- initializeStore store fixtureBinding "recovery-model" >>= orFail "initialize store"
@@ -81,7 +91,44 @@ newRun shape unready schedule = do
   incarnations <- newIORef Map.empty
   database <- newIORef databaseNative
   converged <- newIORef Map.empty
-  pure (Run store (InspectStore inspect) world adversary bound images incarnations database converged)
+  pure (Run store (InspectStore inspect) objects world adversary bound images incarnations database converged)
+
+-- | Everything a run's later behaviour depends on. The adversary keeps its
+-- counts, so a restored run fires later faults at the same ordinals.
+data RunSnapshot = RunSnapshot
+  { storeObjects :: !FakeObjects
+  , world :: !KubeWorld
+  , adversary :: !Adversary
+  , bound :: !(Map.Map ContentDigest (Map.Map ResourceId ContentDigest))
+  , images :: !(Map.Map ContentDigest (Shape, Text, Text))
+  , incarnations :: !(Map.Map ResourceId PhysicalIdentity)
+  , database :: !(Map.Map ResourceId (ManagedResource, ByteString))
+  , converged :: !(Map.Map ScopeId ScopeRevision)
+  }
+  deriving stock (Eq)
+
+snapshotRun :: Run -> IO RunSnapshot
+snapshotRun run =
+  RunSnapshot
+    <$> readIORef (runObjects run)
+    <*> readIORef (runWorld run)
+    <*> readIORef (runAdversary run)
+    <*> readIORef (runBound run)
+    <*> readIORef (runImages run)
+    <*> readIORef (runIncarnations run)
+    <*> readIORef (runDatabase run)
+    <*> readIORef (runConverged run)
+
+restoreRun :: Run -> RunSnapshot -> IO ()
+restoreRun run (RunSnapshot objects' world' adversary' bound' images' incarnations' database' converged') = do
+  writeIORef (runObjects run) objects'
+  writeIORef (runWorld run) world'
+  writeIORef (runAdversary run) adversary'
+  writeIORef (runBound run) bound'
+  writeIORef (runImages run) images'
+  writeIORef (runIncarnations run) incarnations'
+  writeIORef (runDatabase run) database'
+  writeIORef (runConverged run) converged'
 
 -- | Why an operator's command failed for good.
 data Failure e

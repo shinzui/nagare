@@ -126,6 +126,20 @@ inventoryRecoveryModelTests =
         -- A crash before admission's head write once let the step pass unapplied.
         runScenario (Scenario "create" [Deploy "v1"] [] True plainShape False) [(Boundary StorePutCall 7, CrashBeforeStorePut)]
           >>= either (assertFailure . T.unpack) (\finished -> Map.lookup MutateCall (finishedCalls finished) @?= Just 2)
+    , testCase "a snapshot taken at a stop restores the head, journal, world and adversary (EP-179)" $ do
+        run <- newRun plainShape [] [(Boundary MutateCall 1, Interrupt)]
+        let state = do
+              current <- inspectHead run >>= orFail "read head"
+              journal <- maybe (pure []) (\value -> inspectJournal run (headSequence value) >>= orFail "read journal") current
+              (current,journal,) <$> snapshotRun run
+        reviewAndApply run plainShape "v1" "v1" >>= \case
+          Right (registry, reviewed, Stopped transaction _) -> do
+            atStop@(_, _, snapshot) <- state
+            _ <- tryMove run registry reviewed transaction Resume
+            state >>= assertBool "the resume changed nothing" . (/= atStop)
+            restoreRun run snapshot
+            state >>= assertBool "the restored run differs from the stop" . (== atStop)
+          _ -> assertFailure "an interrupted create did not stop"
     , testCase "deep tier: every ordered pair of faults has an exit (NAGARE_RECOVERY_MODEL_DEEP=1, shard with NAGARE_RECOVERY_MODEL_SHARD=i/n)" $ do
         deepTier <- lookupEnv "NAGARE_RECOVERY_MODEL_DEEP"
         shard <- lookupEnv "NAGARE_RECOVERY_MODEL_SHARD"
@@ -961,3 +975,4 @@ registryFor :: Run -> Shape -> Text -> Text -> IO AdapterRegistry
 registryFor run volume image historyImage = do
   database <- readIORef (runDatabase run)
   pure (ok (mkAdapterRegistry [worldKubernetesAdapter (fixtureBinding ^. #identity) (boundMembers volume image historyImage <> database) (runWorld run) (runAdversary run)]))
+

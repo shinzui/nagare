@@ -26,6 +26,7 @@ import Nagare.Inventory.Store.Discovery
 import Nagare.Inventory.Store.ObjectOps
 import Nagare.Ops.PulumiBackend (GcloudOps (..), bucketOwnershipVerdict, bucketProjectNumberArgs, gcsBucketOfUrl, projectNumberArgs, realGcloudOps)
 import Nagare.Resource.Types
+import Nagare.Test.World.ObjectStore (fakeObjectOps)
 import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
@@ -1051,36 +1052,3 @@ claimObservationRegression mode = do
       >>= maybe (assertFailure "head missing" >> error "unreachable") pure
   headActiveTransaction current @?= Just (transactionIdText transaction)
   isJust (headExecutorClaim current) @?= (mode == "release")
-
-fakeObjectOps :: IO ObjectOps
-fakeObjectOps = do
-  state <- newIORef (0 :: Integer, Map.empty)
-  pure
-    ObjectOps
-      { getObject = \name -> do
-          (_, objects) <- readIORef state
-          pure $ maybe ObjectAbsent (uncurry ObjectFound) (Map.lookup name objects)
-      , getObjects = \(ObjectName prefix) -> do
-          (_, objects) <- readIORef state
-          pure (Right (Map.map snd (Map.filterWithKey (\(ObjectName name) _ -> (prefix <> "/") `T.isPrefixOf` name) objects)))
-      , putObject = \condition name bytes -> atomicModifyIORef' state $ \(lastGeneration, objects) ->
-          let existing = Map.lookup name objects
-              matches = case condition of
-                IfAbsent -> maybe True (const False) existing
-                IfGenerationMatches expected -> maybe False ((== expected) . fst) existing
-           in if matches
-                then
-                  let next = lastGeneration + 1
-                      generation = Generation next
-                   in ((next, Map.insert name (generation, bytes) objects), PutWritten generation)
-                else ((lastGeneration, objects), PutPreconditionFailed)
-      , listObjects = \(ObjectName prefix) -> do
-          (_, objects) <- readIORef state
-          pure
-            ( Right
-                [ name
-                | name@(ObjectName value) <- Map.keys objects
-                , prefix `T.isPrefixOf` value
-                ]
-            )
-      }
