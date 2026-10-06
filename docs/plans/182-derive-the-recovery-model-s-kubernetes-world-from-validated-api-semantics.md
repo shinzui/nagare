@@ -568,6 +568,16 @@ To prove the world now catches a false belief, as a recorded mutation run (a dif
 
 Do the same for G2 with `ControllerLag`.
 
+For F67's stamp proof (EP-180 M3):
+- The world renders real `nagare.dev/spec-digest` stamps on every object it returns, exactly as written.
+- The F67 model schedules pass on the new world. They are the StatefulSet schedules (10,72) and (11,84) and the
+  Deployment schedule (5,44) as EP-180 pins them today, or their locator equivalents after M4's re-pinning.
+- Applying F67's mutation record (`cli/nagarectl/test/mutations/`) makes that model test fail.
+
+`KubernetesAdapterOps` gains `kubernetesObserveStamped` in EP-180 M3. Until this plan's rebuild, the old world's
+`worldKubernetesOps` returns `Nothing` stamps (a one-line interim edit made by EP-180). The new world gets real stamps
+from the production runtime, which provides the field.
+
 Not required here: the deep tier (MP-23 step 3d), and fixing any G-defect (EP-180, EP-181).
 
 
