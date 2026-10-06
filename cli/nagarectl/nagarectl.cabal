@@ -580,6 +580,7 @@ test-suite nagarectl-test
     Nagare.Test.Init
     Nagare.Test.Model.Fixtures
     Nagare.Test.Model.Run
+    Nagare.Test.Model.Search
     Nagare.Test.Operations
     Nagare.Test.Pulumi
     Nagare.Test.Server

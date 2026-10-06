@@ -62,7 +62,18 @@ equivalence report for each reduction, and every mutation record still failing.
 
 ## Surprises & Discoveries
 
-(None yet.)
+- The object-store inventory keeps no state between commands besides two mutex `MVar`s, the
+  backend guard and the process lock (`Nagare.Inventory.Store`, `ObjectBackend`). Both are taken
+  with `withMVar` or `finally` and are released on every exception, `Interrupted` included, and the
+  model opens its stores with no cache path or lock file. So the fake store's object map is the
+  whole store, and restoring it needs no new handle. (M1, 2026-10-06.)
+- The fake object store could not grow in `test/InventoryObjectOpsSpec.hs`, which sits at its size
+  allowance. It moved to `test/Nagare/Test/World/ObjectStore.hs` (`fakeObjectOps`,
+  `fakeObjectState`). The object-ops spec re-exports `fakeObjectOps`, and its allowance dropped
+  from 1086 to 1054. (M1.)
+- An adapter registry closes over its run's world and adversary `IORef`s. A probe that replays
+  into a fresh run must use the registry of that run, not the one from the original stop. The
+  reference strategy carries the replayed run's registry for this reason. (M2.)
 
 
 ## Decision Log
@@ -82,6 +93,23 @@ equivalence report for each reduction, and every mutation record still failing.
   is run, not what is proved, and each must show it.
   Date: 2026-10-06
 
+
+- Decision: The snapshot code and the exit search live in new modules, `Nagare.Test.Model.Run`
+  (the `Run`, its snapshot and restore) and `Nagare.Test.Model.Search` (a depth-first search over
+  any move type, given a probe). The spec keeps the scenario driver and the moves.
+  Rationale: the spec has to stay within its 1000-line cap while another branch
+  (nagare-defects) edits the moves in the same file, and EP-179 must not grow it. A search that
+  is generic over the move type cannot conflict with new move constructors.
+  Date: 2026-10-06
+
+- Decision: Each probe starts from a snapshot of the state its parent path reached, taken before
+  that path's invariant check, rather than restoring the stop and re-applying the whole path.
+  The reference (`ByReplay`) replays the scenario into a fresh run and applies the whole path, as
+  the old search did. Both run the invariant check once, after the path's last move.
+  Rationale: the result is the same state the old probe reached (the invariant check updates
+  `runConverged` and `runIncarnations`, so checking a prefix would change it), and a child probe
+  re-executes no move.
+  Date: 2026-10-06
 
 ## Outcomes & Retrospective
 
