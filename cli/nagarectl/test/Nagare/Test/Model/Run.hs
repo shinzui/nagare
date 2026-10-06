@@ -14,7 +14,9 @@
 module Nagare.Test.Model.Run
   ( Run (runObjects, runWorld, runAdversary, runBound, runImages, runIncarnations, runDatabase, runConverged)
   , RunSnapshot (..)
+  , Checkpoint (..)
   , newRun
+  , resumeRun
   , snapshotRun
   , restoreRun
   , Failure (..)
@@ -30,6 +32,7 @@ where
 
 import Control.Exception (Exception, throwIO, try)
 import Data.ByteString (ByteString)
+import Data.Generics.Labels ()
 import Data.IORef
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
@@ -105,7 +108,28 @@ data RunSnapshot = RunSnapshot
   , database :: !(Map.Map ResourceId (ManagedResource, ByteString))
   , converged :: !(Map.Map ScopeId ScopeRevision)
   }
-  deriving stock (Eq)
+  deriving stock (Eq, Generic)
+
+-- | A run as one of its steps began, from which a run under another schedule
+-- with the same prefix resumes: the state, the step, the image the accepted
+-- application then declares, the exits taken, and how each earlier step began
+-- (most recent first).
+data Checkpoint move = Checkpoint
+  { state :: !RunSnapshot
+  , step :: !Int
+  , image :: !Text
+  , taken :: ![(Int, [move])]
+  , began :: ![(Map.Map Call Int, Text)]
+  }
+  deriving stock (Generic)
+
+-- | A fresh run in a checkpoint's state, under this schedule. The adversary
+-- keeps its counts and the faults that fired, so a fault of the schedule
+-- fires at its boundary only if the checkpoint has not passed it.
+resumeRun :: Shape -> [Text] -> [(Boundary, Fault)] -> RunSnapshot -> IO Run
+resumeRun shape unready schedule' snapshot = do
+  run <- newRun shape unready schedule'
+  run <$ restoreRun run (snapshot & #adversary %~ \adversary' -> adversary' {schedule = schedule'})
 
 snapshotRun :: Run -> IO RunSnapshot
 snapshotRun run =

@@ -57,7 +57,16 @@ equivalence report for each reduction, and every mutation record still failing.
   in this plan. A sampled check against unpruned pairs finds no outcome the pruned set misses.
 - [ ] M5: within budget. `just gate-deep` finishes within an hour with default shards, the
   timings are recorded here, every mutation record whose README row names the recovery model
-  still fails, and `just deep-tier-required` reports whether a change needs the deep tier.
+  still fails, and `just deep-tier-required` reports whether a change needs the deep tier. A
+  killed or interrupted run leaves behind everything it found: each violation is written to the
+  shard's log as `recovery-model: violation: …` lines the moment it is found, and each
+  scenario's summary when that scenario ends.
+
+Status (2026-10-06): M1 and M2 are committed (`6bef54ac`, `406fdbe4`); their acceptance is
+recorded after the rebase onto the defect fixes (create-scenario-fixes), so the equivalence test
+covers the new close-with-take-over move and the retry loop. M4 is implemented with its sampled
+check, together with checkpoint resumption and sharding by placement (see the Decision Log). M3
+waits on an uncontended measurement of M2 and M4 (see Surprises).
 
 
 ## Surprises & Discoveries
@@ -71,6 +80,34 @@ equivalence report for each reduction, and every mutation record still failing.
   allowance. It moved to `test/Nagare/Test/World/ObjectStore.hs` (`fakeObjectOps`,
   `fakeObjectState`). The object-ops spec re-exports `fakeObjectOps`, and its allowance dropped
   from 1086 to 1054. (M1.)
+- Where the fault-free runs spend their boundaries (contended census, 2026-10-06): `create` has 2
+  mutate, 10 observe, 20 store-put and 37 store-get calls, 201 placements; `create then good
+  update` 406; `create, bad update, corrected update (history unchanged)` 576 (4, 30, 56, 118).
+  Store calls are about 68% of placements, because each store put carries five faults. The
+  snapshot search was 1.15–1.4x faster than replay where no step stops fault-free, and 2.0x
+  (singles) and 2.3x (pairs) in the bad-update scenario, whose fault-free run stops once. So the
+  exit search is not the dominant cost; the forward execution is.
+- `ingestReceipt` reads history through the faulting store with `orFail`. A `GetFailedOnce`
+  during ingestion turns into `assertFailure` and aborts the whole shard. The deep run of
+  2026-10-06 lost shard 6 to it after 878 s. The fix (retry through `retryingStoreFaults`) is
+  item 5 of the defect fixes. The new deep tier reports a model assertion inside one run as that
+  run's violation instead of ending the shard.
+- The first interaction rule compared only where each step stopped. Its sampled check failed at
+  once: a `CrashBeforeStorePut` on the claim write of step 0 leaves no stop, but step 0 never
+  applies its review, so a later fault meets a different state. The plan's condition is that the
+  first fault's step "converged with an idle head". The trace now also records the head's
+  accepted and converged revisions and active transaction at every step boundary, and a step
+  counts as affected when either its stop or its end state differs. With that rule the check
+  found no disagreement in a 1/100 rehearsal (113 independent pairs checked).
+- Checkpoint resumption measured 1.19x less CPU on the 1/100 rehearsal (511 s to 431 s), under a
+  load average above 140. That is less than estimated; later steps cost more than earlier ones
+  (the journal grows), so skipping early steps saves less than their count suggests.
+- The deep run of 2026-10-06 (`deep-20261006T140621Z`) was killed at 16:04:20 UTC by this plan's
+  implementer: a `pkill -f "nagarectl-test -p /deep tier/"` meant for a rehearsal matched every
+  shard. The run had printed only violation counts, because `runTier` kept the texts for the
+  final assertion, so the violations of shards 1 and 5 (92–154 per finished scenario) were lost.
+  Hence M5's requirement that each violation is written the moment it is found. Processes are
+  now stopped by their recorded PID only.
 - An adapter registry closes over its run's world and adversary `IORef`s. A probe that replays
   into a fresh run must use the registry of that run, not the one from the original stop. The
   reference strategy carries the replayed run's registry for this reason. (M2.)
@@ -109,6 +146,44 @@ equivalence report for each reduction, and every mutation record still failing.
   Rationale: the result is the same state the old probe reached (the invariant check updates
   `runConverged` and `runIncarnations`, so checking a prefix would change it), and a child probe
   re-executes no move.
+  Date: 2026-10-06
+
+- Decision: The interaction rule (M4) as implemented. A pair of distinct boundaries is headed by
+  its fault in the earlier step of the fault-free run, or by the earlier boundary when both share
+  a step. It runs when both share a step, when the first fault is persistent, when the first
+  fault's run alone violates the model, or when the second boundary falls (in the run of the
+  first fault alone) in the first fault's step, or no later than one step after the last step the
+  first fault made stop differently or end in another head state. It is dropped as `Unreached`
+  when the first fault's run never reaches the second boundary, which makes the pair run exactly
+  as the first fault alone, and as `Independent` otherwise. Every 50th independent pair is run
+  and must end, from the second fault's step on, as the second fault alone at the same place in
+  the fault-free run does. `NAGARE_RECOVERY_MODEL_PAIRS=all` runs every pair.
+  Rationale: the plan's rule, with "converged with an idle head" checked on the head itself. The
+  rule needs only step boundaries, not the order of calls within a step, so no world module
+  changes.
+  Date: 2026-10-06
+
+- Decision: The deep tier runs every placement alone, then each pair it heads. Every run starts
+  from the latest checkpoint whose prefix it shares. A checkpoint is a run's snapshot as a step
+  begins, with the step, the image, the exits taken and the trace so far. A single fault or a
+  same-step pair starts from the fault-free run's checkpoint at its step, and any other pair
+  from its first fault's checkpoint at the second boundary's step. Every 50th pair run from a
+  checkpoint is also run from the start, and the two must agree exactly.
+  Rationale: this is M2's restore-instead-of-replay applied to a run's prefix: it changes what
+  runs, not what is proved, and the comparison checks it continuously.
+  Date: 2026-10-06
+
+- Decision: Shards split placements, not scenarios. Every shard runs every scenario and heads
+  every n-th placement of each, offset by the scenario's index.
+  Rationale: the largest scenario had more than a third of a shard's eight-hour run to itself.
+  Splitting by placement balances the shards without measured weights, which is the
+  rebalancing M5 asks for.
+  Date: 2026-10-06
+
+- Decision: Each violation is written to stderr the moment it is found, every line prefixed
+  `recovery-model: violation: [k/N] <scenario> |`, and each scenario's summary when it ends.
+  Rationale: required by session nagare after the killed run of 2026-10-06 lost every violation
+  text.
   Date: 2026-10-06
 
 ## Outcomes & Retrospective

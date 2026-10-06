@@ -48,8 +48,10 @@ import Nagare.Resource.Reference (Dependency (..))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
 import Nagare.Test.Model.Fixtures
+import Nagare.Test.Model.Pairs
 import Nagare.Test.Model.Run
 import Nagare.Test.Model.Search
+import Nagare.Test.Model.Tier
 import Nagare.Test.World.Adversary
 import Nagare.Test.World.Kinds (KindAction (..), KindRow, KindStatus (InLine), kindFixture, kindTable, kubernetesKind)
 import Nagare.Test.World.Kubernetes
@@ -143,16 +145,15 @@ inventoryRecoveryModelTests =
           _ -> assertFailure "an interrupted create did not stop"
     , testCase "the snapshot search finds what the replay search finds (EP-179; NAGARE_RECOVERY_MODEL_EQUIVALENCE=1)" $ do
         enabled <- lookupEnv "NAGARE_RECOVERY_MODEL_EQUIVALENCE"
-        when (enabled == Just "1") . checkTier True scenarios (\scenario finished -> singleFaults scenario finished <> sampledPairs scenario finished) $ \scenario schedule -> do
+        when (enabled == Just "1") . checkTier True label (`runScenario` []) scenarios (\scenario finished -> singleFaults scenario finished <> sampledPairs scenario finished) $ \scenario schedule -> do
           snapshot <- runScenarioWith FromSnapshot scenario schedule
           replayed <- runScenarioWith ByReplay scenario schedule
           pure ["strategies disagree under " <> T.pack (show schedule) <> ":\n" <> T.pack (show snapshot) <> "\n" <> T.pack (show replayed) | snapshot /= replayed]
-    , testCase "deep tier: every ordered pair of faults has an exit (NAGARE_RECOVERY_MODEL_DEEP=1, shard with NAGARE_RECOVERY_MODEL_SHARD=i/n)" $ do
-        deepTier <- lookupEnv "NAGARE_RECOVERY_MODEL_DEEP"
+    , testCase "deep tier: every ordered pair of faults that can interact has an exit (NAGARE_RECOVERY_MODEL_DEEP=1, shard with NAGARE_RECOVERY_MODEL_SHARD=i/n, every pair with NAGARE_RECOVERY_MODEL_PAIRS=all)" $ do
+        enabled <- lookupEnv "NAGARE_RECOVERY_MODEL_DEEP"
         shard <- lookupEnv "NAGARE_RECOVERY_MODEL_SHARD"
-        when (deepTier == Just "1") $ case shardScenarios shard of
-          Left reason -> assertFailure reason
-          Right selected -> runTier True selected faultPairs
+        pairs <- lookupEnv "NAGARE_RECOVERY_MODEL_PAIRS"
+        when (enabled == Just "1") $ either assertFailure (\selected -> deepTier (pairs /= Just "all") selected label traceScenario scenarios) (parseShard shard)
     ]
 
 -- * Scenarios
@@ -250,7 +251,7 @@ singleFaults scenario finished
       ]
   | otherwise =
       [ [placement]
-      | placement@(Boundary call' _, _) <- placements finished
+      | placement@(Boundary call' _, _) <- placements (finishedCalls finished)
       , call' `notElem` [StorePutCall, StoreGetCall] || label scenario == storeScenario
       ]
 
@@ -260,8 +261,8 @@ storeScenario = "create then good update"
 faultPairs :: Scenario -> Finished -> [Schedule]
 faultPairs _ finished =
   [ [first', second']
-  | first'@(Boundary call1 n, _) <- placements finished
-  , second'@(Boundary call2 m, _) <- placements finished
+  | first'@(Boundary call1 n, _) <- placements (finishedCalls finished)
+  , second'@(Boundary call2 m, _) <- placements (finishedCalls finished)
   , (call1, n) < (call2, m)
   ]
 
@@ -269,59 +270,9 @@ faultPairs _ finished =
 sampledPairs :: Scenario -> Finished -> [Schedule]
 sampledPairs scenario finished = [schedule | (k, schedule) <- zip [0 :: Int ..] (faultPairs scenario finished), k `mod` 97 == 0]
 
-placements :: Finished -> [(Boundary, Fault)]
-placements finished =
-  [ (Boundary (faultCall fault) n, fault)
-  | fault <- [minBound .. maxBound]
-  , n <- [1 .. Map.findWithDefault 0 (faultCall fault) (finishedCalls finished)]
-  ]
-
--- | The deep tier's scenarios for one shard @i/n@ (0-based): every n-th
--- scenario from the i-th, so heavy explicit and light generated scenarios
--- spread across shards. No shard selects them all.
-shardScenarios :: Maybe String -> Either String [Scenario]
-shardScenarios = \case
-  Nothing -> Right scenarios
-  Just spec -> case break (== '/') spec of
-    (index, '/' : count)
-      | [(i, "")] <- reads index
-      , [(n, "")] <- reads count
-      , n > 0
-      , i >= 0
-      , i < n ->
-          Right [scenario | (k, scenario) <- zip [0 :: Int ..] scenarios, k `mod` n == i]
-    _ -> Left ("NAGARE_RECOVERY_MODEL_SHARD must be i/n with 0 <= i < n, not " <> spec)
-
--- | Replay every scenario under every schedule. With progress, each scenario
--- reports its schedule count, a heartbeat every 500 schedules, and its time
--- and violations on stderr, prefixed @recovery-model:@.
+-- | Every scenario under every schedule must pass.
 runTier :: Bool -> [Scenario] -> (Scenario -> Finished -> [Schedule]) -> Assertion
-runTier progress selected schedulesFor = checkTier progress selected schedulesFor (\scenario schedule -> either pure (const []) <$> runScenario scenario schedule)
-
--- | Check every schedule of every selected scenario, collecting what each finds.
-checkTier :: Bool -> [Scenario] -> (Scenario -> Finished -> [Schedule]) -> (Scenario -> Schedule -> IO [Text]) -> Assertion
-checkTier progress selected schedulesFor check = do
-  let total = length selected
-      report line = when progress (hPutStrLn stderr ("recovery-model: " <> line) >> hFlush stderr)
-  violations <- fmap concat . forM (zip [1 :: Int ..] selected) $ \(position, scenario) -> do
-    started <- getMonotonicTime
-    let named = "[" <> show position <> "/" <> show total <> "] " <> T.unpack (label scenario)
-    clean <- runScenario scenario []
-    found <- case clean of
-      Left violation -> pure ["the fault-free scenario violates the model:\n" <> violation]
-      Right finished -> do
-        let schedules = schedulesFor scenario finished
-            count = length schedules
-        report (named <> ": " <> show count <> " schedules")
-        fmap concat . forM (zip [1 :: Int ..] schedules) $ \(done, schedule) -> do
-          when (done `mod` 500 == 0) (report (named <> ": " <> show done <> "/" <> show count))
-          check scenario schedule
-    ended <- getMonotonicTime
-    report (named <> ": done in " <> show (round (ended - started) :: Int) <> "s, " <> show (length found) <> " violation(s)")
-    pure found
-  case violations of
-    [] -> pure ()
-    _ -> assertFailure (T.unpack (T.intercalate "\n\n" (take 400 violations)) <> "\n\n" <> show (length violations) <> " violation(s)")
+runTier progress selected schedulesFor = checkTier progress label (`runScenario` []) selected schedulesFor (\scenario schedule -> either pure (const []) <$> runScenario scenario schedule)
 
 -- | EP-177 6c: the faults whose handling the harness owns (store faults,
 -- crashes, a lost claim, a failed read) at every placement, as those the
@@ -333,7 +284,7 @@ harnessPlacements :: Scenario -> Finished -> ([Schedule], [Schedule])
 harnessPlacements scenario finished =
   partition
     (`notElem` singleFaults scenario finished)
-    [[placement] | placement@(_, fault) <- placements finished, fault `elem` [PutRefused, PutLandedUnacknowledged, GetFailedOnce, CrashBeforeStorePut, CrashAfterStorePut, ClaimLost, Interrupt, TransientReadFailure]]
+    [[placement] | placement@(_, fault) <- placements (finishedCalls finished), fault `elem` [PutRefused, PutLandedUnacknowledged, GetFailedOnce, CrashBeforeStorePut, CrashAfterStorePut, ClaimLost, Interrupt, TransientReadFailure]]
 
 -- | One run, with any exception from the harness itself reported as an
 -- unnamed violation (EP-177 6c).
@@ -374,14 +325,23 @@ data Strategy
 runScenario :: Scenario -> Schedule -> IO (Either Text Finished)
 runScenario = runScenarioWith FromSnapshot
 
+runScenarioWith :: Strategy -> Scenario -> Schedule -> IO (Either Text Finished)
+runScenarioWith strategy scenario schedule = fmap fst . fst <$> traceScenarioWith strategy scenario Nothing schedule
+
+-- | The run's 'Trace' (where its steps began and ended, which stopped) and a
+-- checkpoint at each step it began, from a checkpoint or the start (EP-179).
+traceScenario :: Scenario -> Runner (Checkpoint Move)
+traceScenario scenario resumed schedule = first (fmap snd) <$> traceScenarioWith FromSnapshot scenario resumed schedule
+
 -- | Run the scenario's reviews in order under the schedule. At a stopped
 -- review, search for a supported exit, then continue from the state it
 -- reached. 'Left' explains the first violation.
-runScenarioWith :: Strategy -> Scenario -> Schedule -> IO (Either Text Finished)
-runScenarioWith strategy scenario schedule = do
-  driven <- drive scenario schedule (searchStop strategy scenario schedule) =<< newRun (shape scenario) (unready scenario) schedule
-  pure $ case driven of
-    Ended (Right calls) taken -> liveness (Finished calls taken) taken
+traceScenarioWith :: Strategy -> Scenario -> Maybe (Checkpoint Move) -> Schedule -> IO (Either Text (Finished, Trace), Map.Map Int (Checkpoint Move))
+traceScenarioWith strategy scenario resumed schedule = do
+  run <- maybe (newRun (shape scenario) (unready scenario) schedule) (resumeRun (shape scenario) (unready scenario) schedule . (^. #state)) resumed
+  (driven, saved) <- drive scenario schedule (searchStop strategy scenario schedule) run resumed
+  pure . (,saved) $ case driven of
+    Ended (Right trace) taken -> (,trace) <$> liveness (Finished (trace ^. #totals) (map snd taken)) (map snd taken)
     Ended (Left violation) _ -> Left violation
     Halted {} -> Left "internal: a search halted at a stop"
   where
@@ -391,13 +351,13 @@ runScenarioWith strategy scenario schedule = do
           Left (describe scenario schedule "(all)" ("I7: under persistent status churn a review needed the exits " <> T.pack (show taken)) [])
       | otherwise = Right finished
 
--- | The exits taken so far, one path per stopped review.
-type Taken = [[Move]]
+-- | The exits taken so far, one path per stopped review, with its step.
+type Taken = [(Int, [Move])]
 
 data Driven
-  = -- | The scenario finished (the provider call counts) or violated an
-    -- invariant, after taking these exits.
-    Ended !(Either Text (Map.Map Call Int)) !Taken
+  = -- | The scenario finished or violated an invariant, after taking these
+    -- exits.
+    Ended !(Either Text Trace) !Taken
   | -- | A replay reached the stop it was asked to reach: its run, and the
     -- registry bound to that run's world.
     Halted !Run !AdapterRegistry
@@ -413,28 +373,43 @@ data AtStop
 -- stopped, and the stopped transaction.
 type OnStop = Taken -> Run -> Text -> Text -> AdapterRegistry -> ReviewedPlan -> TransactionId -> IO AtStop
 
--- | Execute the scenario's steps on the run, handing each stop to @onStop@.
-drive :: Scenario -> Schedule -> OnStop -> Run -> IO Driven
-drive scenario schedule onStop start = go start "v1" (steps scenario) []
+-- | Execute the scenario's steps on the run, from the start or from a
+-- checkpoint, handing each stop to @onStop@. Each step leaves a checkpoint.
+drive :: Scenario -> Schedule -> OnStop -> Run -> Maybe (Checkpoint Move) -> IO (Driven, Map.Map Int (Checkpoint Move))
+drive scenario schedule onStop start resumed = do
+  began <- (,) <$> newIORef (maybe [] (^. #began) resumed) <*> newIORef Map.empty
+  driven <- go began start (maybe "v1" (^. #image) resumed) (drop (maybe 0 (^. #step) resumed) (steps scenario)) (maybe [] (^. #taken) resumed)
+  (driven,) <$> readIORef (snd began)
   where
+    headState run = T.pack . show . fmap (fmap (\value -> (headAccepted value, headConverged value, headActiveTransaction value))) <$> inspectHead run
     -- The image the accepted application declares after a step.
     next previous step = case step of
       Deploy image -> image
       _ -> previous
-    ended taken result = pure (Ended result taken)
-    go run _ [] taken = do
+    -- Each step leaves a checkpoint, then records its call counts and head.
+    begin (began, saved) run previous taken = do
+      before <- readIORef began
+      snapshot <- snapshotRun run
+      modifyIORef' saved (Map.insert (length before) (Checkpoint snapshot (length before) previous taken before))
+      (,) . counts <$> readIORef (runAdversary run) <*> headState run >>= modifyIORef' began . (:)
+    ended (began, _) run taken result = do
+      (starts', heads') <- unzip . reverse <$> readIORef began
+      final <- headState run
+      pure (Ended (Trace starts' (heads' <> [final]) (Map.fromList [(k, T.pack (show path)) | (k, path) <- taken]) <$> result) taken)
+    go began run _ [] taken = do
       adversary <- readIORef (runAdversary run)
       consistent <- storeConsistent run
-      ended taken $ case consistent of
+      ended began run taken $ case consistent of
         Left violation -> Left (describe scenario schedule "(end)" violation [])
         Right () -> Right (counts adversary)
-    go run previous (IngestReceipt : rest) taken = do
+    go began run previous (IngestReceipt : rest) taken = do
+      begin began run previous taken
       checked <- ingestReceipt run (null schedule)
       case checked of
-        Left violation -> ended taken (Left (describe scenario schedule (stepText IngestReceipt) violation []))
-        Right () -> go run previous rest taken
-    go run previous (step : rest) taken = attempt False run previous step rest taken
-    attempt replanned run previous step rest taken = do
+        Left violation -> ended began run taken (Left (describe scenario schedule (stepText IngestReceipt) violation []))
+        Right () -> go began run previous rest taken
+    go began run previous (step : rest) taken = begin began run previous taken >> attempt began False run previous step rest taken
+    attempt began replanned run previous step rest taken = do
       let historyImage image' = if historyFollows scenario then image' else "v1"
           image = stepText step
       outcome <- case step of
@@ -454,14 +429,14 @@ drive scenario schedule onStop start = go start "v1" (steps scenario) []
               -- recovered or its collection reviewed. There is no transaction to
               -- wedge, so the scenario ends here.
               adversary <- readIORef (runAdversary run)
-              ended taken (Right (counts adversary))
+              ended began run taken (Right (counts adversary))
           -- ADR 26: a reviewed step refused at planning has no supported exit.
-          | otherwise -> ended taken (Left (describe scenario schedule image ("I1: planning refused (" <> refusal <> ") with no supported exit") []))
+          | otherwise -> ended began run taken (Left (describe scenario schedule image ("I1: planning refused (" <> refusal <> ") with no supported exit") []))
         Right (registry, reviewed, applied) -> do
           checked <- checkInvariants run
           case (checked, applied) of
-            (Left violation, _) -> ended taken (Left (describe scenario schedule image violation []))
-            (Right (), Done) -> go run (next previous step) rest taken
+            (Left violation, _) -> ended began run taken (Left (describe scenario schedule image violation []))
+            (Right (), Done) -> go began run (next previous step) rest taken
             (Right (), Refused why)
               -- A retained member deleted outside review is refused: its data
               -- needs reviewed recovery or collection, as at planning. A
@@ -469,15 +444,17 @@ drive scenario schedule onStop start = go start "v1" (steps scenario) []
               -- A member replaced after its review is refused at admission;
               -- the exit is a fresh review, which names the replacement (N1).
               | not replanned && any ((== Replaced) . snd) schedule && "retention-observation" `T.isInfixOf` why ->
-                  attempt True run previous step rest taken
+                  attempt began True run previous step rest taken
               | any ((== Deleted) . snd) schedule && "retention-observation" `T.isInfixOf` why -> do
                   adversary <- readIORef (runAdversary run)
-                  ended taken (Right (counts adversary))
-              | otherwise -> ended taken (Left (describe scenario schedule image ("admission refused: " <> why) []))
+                  ended began run taken (Right (counts adversary))
+              | otherwise -> ended began run taken (Left (describe scenario schedule image ("admission refused: " <> why) []))
             (Right (), Stopped transaction why) ->
               onStop taken run image why registry reviewed transaction >>= \case
-                Continue reached path -> go reached (next previous step) rest (taken <> [path])
-                Violated violation -> ended taken (Left violation)
+                Continue reached path -> do
+                  stepIndex <- subtract 1 . length <$> readIORef (fst began)
+                  go began reached (next previous step) rest (taken <> [(stepIndex, path)])
+                Violated violation -> ended began run taken (Left violation)
                 Halt reached registry' -> pure (Halted reached registry')
 
 -- | Settle the stop (I8), then search its exits. Each probe starts from a
@@ -519,7 +496,7 @@ searchStop strategy scenario schedule taken run image why registry reviewed tran
           (run <$) <$> (searchExit probe `flip` initial =<< snapshotRun run)
         ByReplay -> do
           let probe _ path _ = do
-                replayed <- newRun (shape scenario) (unready scenario) schedule >>= drive scenario schedule (replayExits taken)
+                replayed <- newRun (shape scenario) (unready scenario) schedule >>= \fresh -> fst <$> drive scenario schedule (replayExits taken) fresh Nothing
                 case replayed of
                   Halted fresh registry' -> do
                     outcomes <- mapM (tryMove fresh registry' reviewed transaction) path
@@ -534,7 +511,7 @@ searchStop strategy scenario schedule taken run image why registry reviewed tran
     -- The reference: take the known exits, and halt at the next stop.
     replayExits known taken' replayed image' _ registry' reviewed' transaction' = case drop (length taken') known of
       [] -> pure (Halt replayed registry')
-      path : _ -> do
+      (_, path) : _ -> do
         outcomes <- mapM (tryMove replayed registry' reviewed' transaction') path
         afterExit <- checkInvariants replayed
         pure $ case (afterExit, reverse outcomes) of
@@ -999,5 +976,6 @@ registryFor :: Run -> Shape -> Text -> Text -> IO AdapterRegistry
 registryFor run volume image historyImage = do
   database <- readIORef (runDatabase run)
   pure (ok (mkAdapterRegistry [worldKubernetesAdapter (fixtureBinding ^. #identity) (boundMembers volume image historyImage <> database) (runWorld run) (runAdversary run)]))
+
 
 
