@@ -179,7 +179,8 @@ MasterPlan 23's release line (b).
     operator would (EP-177)" places `GetFailedOnce` at every store read in that scenario. Before
     the fix it aborted in 3 s with the same error; after it, it passes in 3.4 s. This sweep is
     the accepted proof. The 6/52 shard (260,427 pairs, several hours) was not rerun, and the
-    confirming deep run after plan 179 lands covers the pairs.
+    confirming deep run after plan 179 lands covers the pairs. Item 6 later folded this test into
+    the harness self-test, which runs the same placements.
 - **A fifth harness gap: a crash during admission passed vacuously (2026-10-06, proved before the
   fix).** `CrashBeforeStorePut` on admission's head write (put 7 in "create") leaves the head
   idle. `classify` then read the stop from the head, found no active transaction and called the
@@ -270,6 +271,17 @@ MasterPlan 23's release line (b).
   Rationale: five harness gaps had one cause, a checker that shared the faulting store and decided
   retries per call site. A module boundary lets the compiler enforce the separation, and a
   self-test turns the next harness error into a fast-tier failure, not a lost deep shard.
+  Date: 2026-10-06
+
+
+- Decision (operator, 2026-10-06): a planning refusal of a reviewed step that no rule excuses is
+  reported as "I1: planning refused (…) with no supported exit". The rules that excuse one are a
+  foreign object at a planned address, deleted durable data, retiring a scope that was never
+  accepted, and the one replan after a replacement.
+  Rationale: ADR 26 requires a supported exit from every stopped state, and a scope whose
+  corrective update cannot be planned has none. The self-test found one such refusal, F63's
+  open worker-Deployment half under `LandsUnready`. A test pins it as I1 until F63's Deployment
+  fix lands.
   Date: 2026-10-06
 
 

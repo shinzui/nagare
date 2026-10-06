@@ -94,6 +94,12 @@ inventoryRecoveryModelTests =
         -- F66: an object not stamped as the create's own is at its address.
         forM_ [[(Boundary ObserveCall 6, ForeignObject), (Boundary StorePutCall 12, PutRefused)], [(Boundary ObserveCall 7, Deleted), (Boundary ObserveCall 8, ForeignObject)], [(Boundary ObserveCall 5, ForeignObject), (Boundary StorePutCall 9, ClaimLost)]] $
           exits >=> assertBool "F66: no close" . any (`elem` [Close, CloseTakeOver]) . concat
+    , testCase "an unexcused planning refusal of a reviewed step is I1: no supported exit (EP-177; F63's open Deployment half)" $ do
+        let deployment = [scenario | scenario <- generatedScenarios, label scenario == "kind (\"apps\",\"deployment\"): update"]
+        forM_ deployment $ \scenario ->
+          runScenario scenario [(Boundary MutateCall 3, LandsUnready)]
+            >>= either (assertBool "not named I1" . T.isInfixOf "violation: I1: planning refused (") (const (assertFailure "F63: the Deployment's corrective update now plans; update this test"))
+        length deployment @?= 1
     , testCase "every harness-owned placement the self-test skips, the fast tier runs (EP-177)" $
         forM_ scenarios $ \scenario ->
           runScenario scenario [] >>= either (assertFailure . T.unpack) (\finished -> let (_, skipped) = harnessPlacements scenario finished in assertBool (T.unpack (label scenario)) (all (`elem` singleFaults scenario finished) skipped))
@@ -401,7 +407,8 @@ replay scenario schedule taken probe = do
               -- wedge, so the scenario ends here.
               adversary <- readIORef (runAdversary run)
               pure (Replayed (Right (counts adversary)))
-          | otherwise -> pure (Replayed (Left (describe scenario schedule image ("planning refused: " <> refusal) [])))
+          -- ADR 26: a reviewed step refused at planning has no supported exit.
+          | otherwise -> pure (Replayed (Left (describe scenario schedule image ("I1: planning refused (" <> refusal <> ") with no supported exit") [])))
         Right (registry, reviewed, applied) -> do
           checked <- checkInvariants run
           case (checked, applied) of
