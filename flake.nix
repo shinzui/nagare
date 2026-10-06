@@ -43,6 +43,7 @@
         ./nix/checks/default.nix
         ./nix/hydra-jobs.nix
         ./nix/dev-shells.nix
+        ./nix/test-runs.nix
       ];
       _module.args = { inherit releaseVersion sourceRevision; };
       flake.lib.release = {

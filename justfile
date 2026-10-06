@@ -340,6 +340,31 @@ gate:
 gate-verify rev:
     cabal run --project-dir=cli/nagare-harness -v0 nagare-harness -- gate verify --revision {{rev}}
 
+# Heavy nagarectl test runs go to the remote x86_64-linux builder, not the
+# operator's machine (2026-10-06). Builds nix/test-runs.nix's testRun from the
+# exact commit, so uncommitted changes are never what ran. shards is a
+# space-separated list of NAGARE_RECOVERY_MODEL_SHARD values run in parallel;
+# deep=true sets NAGARE_RECOVERY_MODEL_DEEP. Logs and per-shard exit codes are
+# copied to ${XDG_STATE_HOME:-~/.local/state}/nagare/gates/logs/remote-*/.
+# Run nagarectl tests for a commit on the remote builder.
+[group('test')]
+test-remote rev pattern shards="0/1" deep="false":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    commit=$(git rev-parse --verify '{{rev}}^{commit}')
+    stamp=$(date -u +%Y%m%dT%H%M%SZ)
+    label="${commit:0:8}-$stamp"
+    shard_list=$(for spec in {{shards}}; do printf '"%s" ' "$spec"; done)
+    expr="(builtins.getFlake \"git+file://$(git rev-parse --show-toplevel)?rev=$commit\").legacyPackages.x86_64-linux.testRun { label = \"$label\"; pattern = \"{{pattern}}\"; shards = [ $shard_list]; deep = {{deep}}; }"
+    out=$(nix build --no-link --print-out-paths --print-build-logs --impure --expr "$expr")
+    logs="${XDG_STATE_HOME:-$HOME/.local/state}/nagare/gates/logs/remote-$label"
+    mkdir -p "$logs"
+    cp "$out"/* "$logs"/
+    chmod -R u+w "$logs"
+    echo "test-remote: logs in $logs"
+    cat "$logs/status"
+    ! grep -qv ' exit=0 ' "$logs/status"
+
 # The only way a revision reaches master (2026-10-06): it needs a green full
 # gate record for its exact tree (`just gate` on a clean checkout of it), must
 # descend from origin/master, and master moves by fast-forward only. Run from a
