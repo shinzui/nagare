@@ -1,8 +1,8 @@
-diff --git a/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs b/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs
-index d364c012..41ae2b02 100644
---- a/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs
-+++ b/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs
-@@ -882,7 +882,7 @@ completionProof mutation state
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs
+index 43023f4d..02d2a661 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs
+@@ -202,7 +202,7 @@ completionProof mutation state
    | mutationAction mutation `elem` [UpdateResource, AdoptResource]
    , Just reviewed <- statePhysical (mutationBefore mutation)
    , Just live <- statePhysical state
