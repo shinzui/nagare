@@ -72,6 +72,16 @@ inventoryRecoveryModelTests =
         plain <- writes (Scenario "create" [Deploy "v1"] [] True plainShape False)
         forM_ [scenario | scenario <- generatedScenarios, ": create" `T.isSuffixOf` label scenario] $ \scenario ->
           writes scenario >>= assertEqual (T.unpack (label scenario)) (plain + 1)
+    , testCase "the new faults take effect: a lost claim needs take-over, a failed Job needs close" $ do
+        let exitsUnder scenario fault = do
+              clean <- runScenario scenario [] >>= either (assertFailure . T.unpack) pure
+              let n = Map.findWithDefault 0 (faultCall fault) (finishedCalls clean)
+              runs <- forM [1 .. n] $ \ordinal -> runScenario scenario [(Boundary (faultCall fault) ordinal, fault)]
+              pure (concat [concat (finishedExits finished) | Right finished <- runs])
+            storeRun = head [scenario | scenario <- explicitScenarios, label scenario == storeScenario]
+            jobCreate = head [scenario | scenario <- generatedScenarios, label scenario == "kind (\"batch\",\"job\"): create"]
+        exitsUnder storeRun ClaimLost >>= assertBool "no lost claim needed take-over" . elem TakeOver
+        exitsUnder jobCreate LandsFailed >>= assertBool "no failed Job needed close" . elem Close
     , testCase "deep tier: every ordered pair of faults has an exit (NAGARE_RECOVERY_MODEL_DEEP=1)" $ do
         deepTier <- lookupEnv "NAGARE_RECOVERY_MODEL_DEEP"
         when (deepTier == Just "1") (runTier faultPairs)
@@ -211,6 +221,8 @@ runTier schedulesFor = do
 
 data Finished = Finished
   { finishedCalls :: !(Map.Map Call Int)
+  , finishedExits :: ![[Move]]
+  -- ^ The exit taken at each stopped review.
   }
   deriving stock (Eq, Show)
 
@@ -219,6 +231,9 @@ data Finished = Finished
 data Move
   = Resume
   | Close
+  | -- | Resume with take-over, after establishing the other executor
+    -- stopped: the exit when a claim was lost (EP-177).
+    TakeOver
   deriving stock (Eq, Show)
 
 -- | Run the scenario's reviews in order under the schedule. After a stopped
@@ -237,7 +252,7 @@ runScenario scenario schedule = loop []
       result <- replay scenario schedule taken []
       case result of
         Replayed (Left violation) -> pure (Left violation)
-        Replayed (Right calls) -> pure (liveness (Finished calls) taken)
+        Replayed (Right calls) -> pure (liveness (Finished calls taken) taken)
         AtStop image why moves -> do
           search <- searchExit scenario schedule taken moves
           case search of
@@ -291,9 +306,11 @@ replay scenario schedule taken probe = do
         RetireDatabase -> scopeRetireAndApply run databaseScopeId (shape scenario) previous (historyImage previous)
         _ -> reviewAndApply run (shape scenario) image (historyImage image)
       deletedData <- either (deletedDataRefusal run) (const (pure False)) outcome
+      foreignBlocked <- either (foreignObjectRefusal run) (const (pure False)) outcome
+      absentScope <- either (absentScopeRetirement run) (const (pure False)) outcome
       case outcome of
         Left refusal
-          | any ((== ForeignObject) . snd) schedule || deletedData -> do
+          | foreignBlocked || deletedData || absentScope -> do
               -- An unowned object at a planned address refuses planning, and a
               -- durable member deleted outside review refuses until its data is
               -- recovered or its collection reviewed. There is no transaction to
@@ -535,6 +552,24 @@ deletedDataRefusal run refusal = do
       deleted = Set.map resourceIdText (deletedOutOfBand world)
   pure ("durable-resource-missing" `T.isInfixOf` refusal && not (null named) && all (`Set.member` deleted) named)
 
+-- | EP-177: a planning refusal is excused by a 'ForeignObject' fault only when
+-- it names a resource whose address that fault filled with an unowned object.
+foreignObjectRefusal :: Run -> Text -> IO Bool
+foreignObjectRefusal run refusal = do
+  world <- readIORef (runWorld run)
+  let named = [T.takeWhile (/= '"') chunk | chunk <- drop 1 (T.splitOn "ResourceId \"" refusal)]
+      foreign' = Set.fromList [resourceIdText resource | (resource, KubeObject {owner = Nothing}) <- Map.toList (objects world)]
+  pure (not (null named) && all (`Set.member` foreign') named)
+
+-- | A retirement of a scope that was never accepted (its create was closed
+-- and reverted) is correctly refused; there is nothing to retire.
+absentScopeRetirement :: Run -> Text -> IO Bool
+absentScopeRetirement run refusal = do
+  current <- readHead (runInspect run) >>= orFail "read head"
+  let accepted = maybe Map.empty headAccepted current
+      named = [scope | scope <- [appScope, databaseScopeId], T.pack (show scope) `T.isInfixOf` refusal]
+  pure ("unknown-retirement" `T.isInfixOf` refusal && not (null named) && all (`Map.notMember` accepted) named)
+
 -- | I4 is per transaction: a later review may write the same deterministic
 -- operation again as new reviewed intent.
 startTransaction :: Run -> IO ()
@@ -552,17 +587,20 @@ applyRetryingFaults run registry reviewed = do
     Right (Left _) | after > before && idle -> try (applyReviewed (runStore run) registry reviewed)
     _ -> pure attempt
 
--- | Run a command; if it failed while a store fault fired, run it once more.
+-- | Run a command; if it failed while a store fault fired, or the process
+-- died at a store write (EP-177), run it once more, as an operator would.
 retryingStoreFaults :: Run -> IO (Either Text a) -> IO (Either Text a)
 retryingStoreFaults run command = do
   before <- length . fired <$> readIORef (runAdversary run)
-  first' <- try command
+  first' <- try (try command)
   after <- length . fired <$> readIORef (runAdversary run)
   case first' of
-    Right (Right value) -> pure (Right value)
+    Right (Right (Right value)) -> pure (Right value)
     failed
       | after > before -> either (\(StoreTrouble err) -> Left err) id <$> try command
-      | otherwise -> pure (either (\(StoreTrouble err) -> Left err) id failed)
+      | otherwise -> pure $ case failed of
+          Left Interrupted -> Left "interrupted"
+          Right inner -> either (\(StoreTrouble err) -> Left err) id inner
 
 newtype StoreTrouble = StoreTrouble Text
   deriving stock (Show)
@@ -689,6 +727,7 @@ tryMoveQuiet run registry reviewed transaction move = do
   before <- progressSignature run transaction
   result <- try $ case move of
     Resume -> fmap (const ()) <$> resumeTransaction (runStore run) registry transaction
+    TakeOver -> fmap (const ()) <$> resumeTransactionWithTakeover (runStore run) registry transaction True
     Close ->
       fmap (const ())
         <$> closeTransaction
@@ -751,7 +790,7 @@ settlementGaps run registry reviewed transaction = do
 
 -- | ADR 26: a stopped transaction's supported exits are resume and close.
 candidateMoves :: Run -> ReviewedPlan -> TransactionId -> IO [Move]
-candidateMoves _ _ _ = pure [Resume, Close]
+candidateMoves _ _ _ = pure [Resume, Close, TakeOver]
 
 -- * Invariants I2, I4 and I5
 

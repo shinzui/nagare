@@ -78,6 +78,7 @@ git worktree remove --force "$SCRATCH/mut"
 | `ADR25-kind-row-deleted.diff` | every Kubernetes kind the adapter admits has a kind-table row | "every Kubernetes kind an adapter admits or a release-line compiler emits has a row" fails (`-p "/kind totality/"`; EP-177 M1) |
 | `ADR25-kind-row-claims-update.diff` | a row's action and readiness claims agree with the adapter | "each in-line row's actions and readiness agree with the adapter" fails (EP-177 M1) |
 | `ADR25-adapter-kind-without-row.diff` | a kind added to the adapter's update list without a row cannot ship | the kind-row totality test fails (EP-177 M1) |
+| `ADR25-model-no-takeover-exit.diff` | the model's exits include a take-over resume, the supported exit after a lost executor claim | the fast tier reports 14 I1 violations under `ClaimLost`, and the fault-liveness test fails (EP-177 M3) |
 | `F61-transfer-mark-ignores-owner.diff` | only the same transaction and operation's mark may be redone | "a copy refuses a destination another migration's copy left marked" fails (`-p "transfer script"`) |
 | `F61-transfer-ignores-mounts.diff` | the transfer refuses while another pod mounts the destination | "a transfer refuses while another pod mounts the destination (F61)" fails |
 | `F58-absence-proof-holds-no-data.diff` | only a stateless or never-started member may leave history as absent | "a durable member only verified by a stopped update is never replanned or retired as absent (F55, F58)": the deleted volume is retired as absent |

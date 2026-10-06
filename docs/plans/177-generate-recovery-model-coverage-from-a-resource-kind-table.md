@@ -85,7 +85,24 @@ MasterPlan 23's release line (b).
 - Original M2 text: the generated product. The scenario × applicable-fault × invariant product is generated
   from the table and replaces the hand-written scenario list. The fast tier runs a sampled product
   in the ordinary suite, and the deep tier runs the full product under `just gate-deep`.
-- [ ] M3: the faults and harness fixes. The model gains:
+- [ ] M3 (code in 2026-10-05; acceptance waits for `just gate-deep`): the faults and harness fixes.
+  - **New faults.** `CrashBeforeStorePut`, `CrashAfterStorePut` and `ClaimLost`. `ClaimLost` lands
+    another client's claim at the generation a head write expects, so the write conflicts.
+  - **Exit move.** `TakeOver`, a resume with take-over: the supported exit after a lost claim.
+  - **Harness.** A crash while planning is retried once, as an operator re-runs the command.
+  - **Liveness.** `LandsFailed` is live through the generated Job scenarios. A test proves the new
+    faults take effect: some lost claim needs take-over, and some failed Job needs close.
+  - **`ForeignObject` exemption.** It is scoped to refusals that name a resource the fault filled.
+    That exposed four refusals the blanket exemption had hidden, all of one expected kind:
+    retiring a scope whose create was closed and reverted, which was never accepted. That refusal
+    is now declared expected, and only when the named scope really is not accepted.
+  - **Mutation record.** `ADR25-model-no-takeover-exit`.
+  - **Deferred.**
+    - `ReplacementRequired`: the model has no reviewed replacement or migration exit, so the fault
+      would only produce expected refusals.
+    - A dedicated corrected-review exit move: corrected reviews are explored by the explicit
+      bad-then-corrected scenarios, and by the fresh-review replan that EP-176 M3 added.
+- Original M3 text: the faults and harness fixes. The model gains:
   - the `CrashAtStore` and `ClaimLost` faults;
   - a live `LandsFailed` through Job fixtures;
   - a `ForeignObject` exemption scoped to the faulted step;

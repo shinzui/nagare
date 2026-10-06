@@ -71,6 +71,13 @@ data Fault
     PutLandedUnacknowledged
   | -- | One store read fails.
     GetFailedOnce
+  | -- | EP-177: the executor dies at a store write, before it lands.
+    CrashBeforeStorePut
+  | -- | EP-177: the executor dies at a store write, after it lands.
+    CrashAfterStorePut
+  | -- | EP-177: another client takes the executor claim just before this
+    -- head write, as a second operator's take-over would.
+    ClaimLost
   deriving stock (Eq, Ord, Show, Enum, Bounded)
 
 -- | The provider operation whose boundaries a fault is scheduled at.
@@ -83,6 +90,9 @@ faultCall fault = case fault of
   Deleted -> ObserveCall
   PutRefused -> StorePutCall
   PutLandedUnacknowledged -> StorePutCall
+  CrashBeforeStorePut -> StorePutCall
+  CrashAfterStorePut -> StorePutCall
+  ClaimLost -> StorePutCall
   GetFailedOnce -> StoreGetCall
   _ -> MutateCall
 
