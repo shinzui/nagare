@@ -356,6 +356,11 @@ provenance:
       at: 2026-10-06T00:40:39Z
       mode: "implement"
       note: "Release line (b) step 1 done (EP-175 M3)"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-06T22:02:14Z
+      mode: "update"
+      note: "Operator redirect: RES-4 first-principles plan; EP-180-182 added; fidelity freeze"
   reviews:
     - model: "claude-fable-5-1"
       harness: "claude-code"
@@ -431,6 +436,10 @@ Rejected alternatives: isolated platform/application inventories without shared 
 | 175 | Close stopped inventory transactions by per-operation proof (ADR 26; line (b) steps 1 and 4) | docs/plans/175-close-stopped-inventory-transactions-by-per-operation-proof.md | None | None | Complete |
 | 176 | Record physical identity at creation and read it through one checked accessor (ADR 27; step 2) | docs/plans/176-record-physical-identity-at-creation-and-read-it-through-one-checked-accessor.md | EP-175 M2 | None | Complete |
 | 177 | Generate recovery model coverage from a resource kind table (ADR 25 amendment; step 3) | docs/plans/177-generate-recovery-model-coverage-from-a-resource-kind-table.md | EP-175, EP-176 (M2–M3 only) | None | In Progress |
+| 179 | Bring the recovery model deep tier within an hour (ADR 25 amendment) | docs/plans/179-bring-the-recovery-model-deep-tier-within-an-hour.md | EP-177 M3 | None | In Progress |
+| 180 | Derive the Kubernetes adapter's proof rules from validated API semantics (RES-4 G1, G2, G4–G7, F67 stamp proof; step 3a) | docs/plans/180-derive-the-kubernetes-adapter-s-proof-rules-from-validated-api-semantics.md | EP-177 M3 | EP-182 | In Progress |
+| 181 | Replace a stuck StatefulSet pod through a reviewed operation (RES-4 G3; step 3b) | docs/plans/181-replace-a-stuck-statefulset-pod-through-a-reviewed-operation.md | EP-180 (settlement rules) | EP-182 | Not Started |
+| 182 | Derive the recovery model's Kubernetes world from validated API semantics (RES-4 G11; step 3c) | docs/plans/182-derive-the-recovery-model-s-kubernetes-world-from-validated-api-semantics.md | EP-179 | EP-180 | Not Started |
 
 Hard dependencies must be Complete before starting the dependent child; soft dependencies supply real-adapter coverage but allow fixture-backed work to proceed. EP-157's gate code is already implemented; its final assembly additionally needs every other active child's accepted outcome (see Dependency Graph). File slugs for EP-159 and EP-160 predate their current titles and are kept so existing links stay valid.
 
@@ -492,6 +501,12 @@ The operator approved all six decisions of [the exhaustive review's proposal](..
 - [x] 1. ([EP-175](../plans/175-close-stopped-inventory-transactions-by-per-operation-proof.md)) ADR 26: `adapterSettle` for every adapter in the line; `close-transaction` replacing the stop and abandon allowlists; scope-local, re-enterable abort; F61's forward wipe exit; verify never executes. Covers F16, F35–F37, F54–F59, F61, F63–F65, and A's in-line cells and E's U1 and U3. Done through EP-175 M3 (2026-10-05): settlement, close and its aliases are in, and the allowlists and both old terminal releases are deleted. The findings' statuses await the verifier (see the tracker's exit-change note).
 - [x] 2. ([EP-176](../plans/176-record-physical-identity-at-creation-and-read-it-through-one-checked-accessor.md)) ADR 27: create-identity recorded in the journal, binding from it at convergence, one checked identity accessor for every consumer in C, and a reviewed rebind. Covers F51 (reopened, N1), F52's convergence half, F60, F62 and C's N2–N13.
 - [ ] 3. ([EP-177](../plans/177-generate-recovery-model-coverage-from-a-resource-kind-table.md)) ADR 25 amendment: the kind table and generated product for every kind in the line, the totality test, and the harness fixes (no refusal counted as done, `LandsFailed` effective, no `ForeignObject` exemption, the corrected-review exit explored); deletion, crash-at-store and claim-loss faults.
+  - **Redirect (operator decision, 2026-10-06): first principles before the deep tier.** Step 3 is no longer closed by repeated deep-tier runs. The adapter's proof rules and the model's world are derived from Kubernetes semantics validated against a real API server ([RES-4](../research/kubernetes-api-semantics-for-inventory-proofs.md)), and the deep tier only confirms. The must-fix list is fixed at RES-4 §4's eight items:
+    - [ ] 3a. ([EP-180](../plans/180-derive-the-kubernetes-adapter-s-proof-rules-from-validated-api-semantics.md)) G1 Deployment readiness (rollout-status rule; F70), G2 Knative stale Ready (F69), the F67 spec-digest stamp proof (not configuration digest v4), G4 4xx refusals as no effect, G6 one conditional-write discipline for updates and retires, G5 terminating objects, G7 canonical quantities; plus F68 and F63's worker half.
+    - [ ] 3b. ([EP-181](../plans/181-replace-a-stuck-statefulset-pod-through-a-reviewed-operation.md)) G3: a reviewed, precondition-guarded stuck-pod replacement, so a StatefulSet correction actually rolls.
+    - [ ] 3c. ([EP-182](../plans/182-derive-the-recovery-model-s-kubernetes-world-from-validated-api-semantics.md)) G11: the world renders realistic objects classified by the production parser, from RES-4's per-kind table, with a conformance test against the recorded traces and "every scheduled fault took effect".
+    - [ ] 3d. ([EP-179](../plans/179-bring-the-recovery-model-deep-tier-within-an-hour.md)) the confirming deep tier, under an hour, after 3a–3c, with no new defect class.
+  - **Fidelity freeze after 3c.** No further world-fidelity work inside MP-23 unless it exposes a P0 for a line (b) kind, and then only with the operator's approval. RES-4's ledger items (G8, G10, G12, G13) go to the deferral ledger.
 - [x] 4. (EP-175 M4) ADR 26 §5: the attested close-and-accept-nothing exit; E's U2 (CDN purge, VM power) routed to it.
 - [ ] 5. One final verification against this line, then a new candidate (the revision is reported by the shipped wrapper while compile-time stamping is off, [EP-178](../plans/178-make-the-flake-check-build-each-haskell-package-once.md)), with a green `just gate` record and `gate verify`, then C1–C5 (including the phase 3b teardown of `mp23-c3i`) under the finish line below.
 
@@ -722,6 +737,12 @@ Earlier discoveries (derived controller claims, explicit candidate changes, nati
 
 
 Decisions still in force, condensed. Full verbatim entries are in [the snapshot](../audits/mp23-archive/plan-history/mp23-before-consolidation-2026-10-02.md).
+
+2026-10-06 (operator, session nagare, `3eddabae`): **first principles, not brute force.** After the deep tier kept surfacing one Kubernetes-semantics defect per run (F63, F66–F69), the operator asked why there was no technical analysis with quick validation. A separate session (nagare-first-principle) validated the API semantics of every line (b) kind with 16 experiments against k3s 1.34.6 and Knative 1.22 ([RES-4](../research/kubernetes-api-semantics-for-inventory-proofs.md), evidence in `docs/audits/k8s-semantics-2026-10-06/`). The operator approved its recommendations ("yes, let's do that"):
+- MP-23's must-fix list for step 3 is RES-4 §4's eight items (G1–G7, G11), as children EP-180, EP-181 and EP-182; the deep tier (EP-179) confirms only after them.
+- F67 uses the spec-digest stamp proof; the configuration-digest mutation version 4 is not landed.
+- A world-fidelity freeze after EP-182; RES-4's ledger items are deferred.
+- Heavy runs go to the remote builder (`just test-remote`), and master moves only through `just land` with a green full-gate record (operator decisions, same day).
 
 2026-10-05 (operator, three answers to implementer questions in Claude Code sessions):
 - **F58: fix now.** Session nagare-f3 (`6f744255`), answered 13:40:21Z (asked 06:05Z). Question: "F58 (P2, not a wedge): an app whose first deploy stopped unready can't be retired … Fix now or defer?" Answer: "Fix now in MP-23 (Recommended)". Fixed in `b244b125`.
