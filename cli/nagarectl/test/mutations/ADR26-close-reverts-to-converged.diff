@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Execute/Close.hs b/cli/nagarectl/src/Nagare/Inventory/Execute/Close.hs
+index 9088a250..b160c260 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/Execute/Close.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Execute/Close.hs
+@@ -413,7 +413,7 @@ releaseClosedTransaction locked record = attempt (3 :: Int)
+         { headGeneration = headGeneration headValue + 1
+         , headActiveTransaction = Nothing
+         , headExecutorClaim = Nothing
+-        , headAccepted = Map.foldrWithKey revert (headAccepted headValue) (closedScopes record)
++        , headAccepted = Map.foldrWithKey (\scope disposition accepted -> case disposition of KeepDesired -> accepted; _ -> maybe (Map.delete scope accepted) (\converged -> Map.insert scope converged accepted) (Map.lookup scope (headConverged headValue))) (headAccepted headValue) (closedScopes record)
+         , headRetained = Map.withoutKeys (headRetained headValue) (closedRetainedRemoved record)
+         }
+     revert scope disposition accepted = case disposition of

@@ -1,8 +1,6 @@
 -- | History responsibilities; internal implementation behind Nagare.Inventory.Plan.
 module Nagare.Inventory.Plan.History
-  ( LandedUpdateProof (..)
-  , incompleteApplicationOnlyReview
-  , loadInventoryHistory
+  ( loadInventoryHistory
   , loadInventoryPlanningHistory
   , loadUnstartedApplicationCreates
   , seedInventoryHistory
@@ -279,183 +277,6 @@ loadInventoryHistory store = do
             (Map.lookup resourceId (reviewMigrations document))
         pure (resourceId, proof)
 
--- | Whether adapter recovery settled the selected intended application
--- update's outcome: it landed exactly as reviewed and is not Ready (F54), or
--- its reviewed target was replaced outside review so it can no longer land
--- (F56). Without that proof only a never-started update may be stopped.
-data LandedUpdateProof
-  = LandedUpdateUnproved
-  | LandedUpdateProved
-  deriving stock (Eq, Show)
-
-incompleteApplicationOnlyReview ::
-  LandedUpdateProof ->
-  ReviewBundle ->
-  [JournalEvent] ->
-  TransactionId ->
-  OperationId ->
-  PlannedOperation ->
-  Bool
-incompleteApplicationOnlyReview landed published events transaction operationId operation =
-  let document = reviewBundleDocument published
-      reviewed = reviewOperations document
-      changed =
-        Map.keys
-          ( Map.differenceWith
-              (\desired base -> if desired == base then Nothing else Just desired)
-              (reviewDesiredRevisions document)
-              (reviewBaseRevisions document)
-          )
-      scopes =
-        mapMaybe
-          (either (const Nothing) Just . decodeScope)
-          (Map.elems (reviewBundleScopes published))
-      selected = NE.toList (plannedResources operation)
-      previous = operationStates transaction events
-      otherSettled entry =
-        plannedOperationId (reviewPlannedOperation entry) == operationId
-          || case Map.lookup (plannedOperationId (reviewPlannedOperation entry)) previous of
-            Nothing -> True
-            Just Pending -> True
-            Just (Completed _) -> True
-            _ -> False
-      neverIntended = onlyStates (const False)
-      -- A landed update was intended and its readiness wait ended ambiguous;
-      -- a completed or failed update is not a landed unready one.
-      landedUpdate = onlyStates (`elem` [IntentRecorded, Ambiguous])
-      onlyStates allowed selectedOp =
-        all
-          ( \event ->
-              eventTransaction event /= transaction
-                || eventOperation event /= Just selectedOp
-                || case eventState event of
-                  Pending -> True
-                  OperatorResolved marker -> selectedOp == operationId && "stopped-incomplete-application:" `T.isPrefixOf` marker
-                  state -> allowed state
-          )
-          events
-      pendingUpdate scope =
-        plannedAction operation == UpdateResource
-          -- F63: a standalone data service's StatefulSet update, as F54's.
-          && (scopeKind (scopeId scope) == Application || selectedStatefulSet scope)
-          && (neverIntended operationId || (landed == LandedUpdateProved && landedUpdate operationId))
-          && all
-            ( \entry ->
-                let op = reviewPlannedOperation entry
-                 in plannedExecutor op == KubernetesExecutor
-                      && isNothing (reviewFenceDigest entry)
-                      && all (owns scope) (NE.toList (plannedResources op))
-                      && ( if plannedOperationId op == operationId
-                             then True
-                             else case Map.findWithDefault Pending (plannedOperationId op) previous of
-                               Completed _ -> True
-                               Pending -> neverStartedCompanion scope op
-                               _ -> False
-                         )
-            )
-            reviewed
-      -- F55: a companion that never started had no effect. A verify of any
-      -- member is admitted (a corrected review verifies unchanged members,
-      -- durable ones included); a create or an update only of a stateless
-      -- ConfigMap ordered after the stopped operation (an application update
-      -- rewrites its release history).
-      neverStartedCompanion scope op =
-        neverIntended (plannedOperationId op)
-          && case [ member
-                  | bundle <- scopeBundles scope
-                  , Managed member <- declarations bundle
-                  , NE.toList (plannedResources op) == [member ^. #identity]
-                  ] of
-            [member] ->
-              plannedAction op == VerifyResource
-                || ( plannedAction op `elem` [CreateResource, UpdateResource]
-                       && member ^. #dataPolicy == Stateless
-                       && (case member ^. #address of Kubernetes _ "" kind (Just _) _ -> nameText kind == "configmap"; _ -> False)
-                       && any (\resource -> OrderedAfter resource `elem` (member ^. #dependencies)) selected
-                   )
-            _ -> False
-      selectedStatefulSet scope =
-        scopeKind (scopeId scope) == Standalone
-          && any
-            ( \bundle ->
-                any
-                  ( \case
-                      Managed member ->
-                        [member ^. #identity] == selected
-                          && case member ^. #address of
-                            Kubernetes _ "apps" kind (Just _) _ -> nameText kind == "statefulset"
-                            _ -> False
-                      _ -> False
-                  )
-                  (declarations bundle)
-            )
-            (scopeBundles scope)
-      owns scope resource =
-        any
-          ( \bundle ->
-              any
-                ((== resource) . declarationId)
-                (declarations bundle)
-          )
-          (scopeBundles scope)
-   in case changed of
-        [owner] | scopeKind owner `elem` [Application, Standalone] -> case [scope | scope <- scopes, scopeId scope == owner] of
-          [scope] ->
-            ( pendingUpdate scope
-                || ( all
-                       ( \entry ->
-                           let planned = reviewPlannedOperation entry
-                            in ( plannedAction planned == CreateResource
-                                   -- F65: a review that recreates a Service deleted outside
-                                   -- review also rewrites its release history; a never-started
-                                   -- companion had no effect.
-                                   || ( plannedOperationId planned /= operationId
-                                          && Map.findWithDefault Pending (plannedOperationId planned) previous == Pending
-                                          && neverStartedCompanion scope planned
-                                      )
-                               )
-                                 && plannedExecutor planned == KubernetesExecutor
-                                 && isNothing (reviewFenceDigest entry)
-                                 && all (owns scope) (NE.toList (plannedResources planned))
-                       )
-                       reviewed
-                       -- F59: a database's later creates (its schedule, signing key and
-                       -- companions) never started when its StatefulSet stalls; like an
-                       -- application's, they had no effect.
-                       && ( if scopeKind owner == Application || selectedStatefulSet scope
-                              then all otherSettled reviewed
-                              else
-                                all
-                                  ( \entry ->
-                                      let op = plannedOperationId (reviewPlannedOperation entry)
-                                       in op == operationId || case Map.lookup op previous of
-                                            Just (Completed _) -> True
-                                            _ -> False
-                                  )
-                                  reviewed
-                          )
-                   )
-            )
-              && case [ member
-                      | bundle <- scopeBundles scope
-                      , Managed member <- declarations bundle
-                      , [member ^. #identity] == selected
-                      ] of
-                [member] | member ^. #dataPolicy == Stateless -> case member ^. #address of
-                  Kubernetes _ "serving.knative.dev" kind (Just _) _
-                    | scopeKind owner == Application -> nameText kind == "service"
-                    | nameText kind == "domainmapping" -> case previewScopeMembers scope of
-                        Right (_, route) -> route == member
-                        Left _ -> False
-                  -- F59: a standalone data service's StatefulSet created but never
-                  -- Ready. It is stateless; its data lives on the separately created PVC.
-                  Kubernetes _ "apps" kind (Just _) _
-                    | scopeKind owner == Standalone -> nameText kind == "statefulset"
-                  _ -> False
-                _ -> False
-          _ -> False
-        _ -> False
-
 -- Only an idle, unconverged application needs this exceptional history proof.
 -- Fetch one committed journal prefix, not a remote read per event. Neither an
 -- absent provider object nor a nonconverged revision alone proves no data was
@@ -498,98 +319,31 @@ loadUnstartedApplicationCreates store selectedOwners headValue
         >>= first (StoreInvalidObject "journal") . validateJournal of
         Left err -> pure (Left err)
         Right events -> do
-          proofs <- traverse (loadProof events) [event | event <- events, stopped event]
           -- ADR 26: a close records the creates that never started and were
           -- absent at close; they hold while the scope's accepted revision is
-          -- still the closed review's desired revision.
-          closes <- traverse (loadCloseRecord store) [digest | event <- events, Just digest <- [closedRecordDigest (eventTransaction event) [event]]]
+          -- still the closed review's desired revision. A closed transaction
+          -- is final, so any later event naming it voids the proof.
+          let final event = not (any (\later -> eventTransaction later == eventTransaction event && eventSequence later > eventSequence event) events)
+          closes <- traverse (loadCloseRecord store) [digest | event <- events, final event, Just digest <- [closedRecordDigest (eventTransaction event) [event]]]
           let closed =
                 Set.unions
                   [ Set.filter (\resource -> any (\scope -> ownedBy scope resource && Map.lookup scope (headAccepted headValue) == Map.lookup scope (closedDesired record)) (Set.toList selectedOwners)) (closedNeverStarted record)
                   | Right record <- closes
                   ]
               ownedBy scope resource = (scopeIdText scope <> "/") `T.isPrefixOf` resourceIdText resource
-          pure ((closed <>) . Set.unions <$> sequence proofs)
+          pure (Right closed)
   where
     incomplete =
       Map.keysSet
         ( Map.filterWithKey
             ( \owner revision ->
                 Set.member owner selectedOwners
-                  -- A stopped or closed scope of any kind (F59, ADR 26) leaves
+                  -- A closed scope of any kind (F59, ADR 26) leaves
                   -- never-started members, such as a database's signing key.
                   && Map.lookup owner (headConverged headValue) /= Just revision
             )
             (headAccepted headValue)
         )
-    stopped event = case eventState event of
-      OperatorResolved marker -> case T.stripPrefix "stopped-incomplete-application:" marker of
-        Just token -> either (const False) (const True) (mkContentDigest token)
-        Nothing -> False
-      _ -> False
-    loadProof events stop = case ( eventOperation stop
-                                 , T.stripPrefix "tx-" (transactionIdText (eventTransaction stop)) >>= either (const Nothing) Just . mkContentDigest
-                                 ) of
-      (Just selected, Just digest) -> do
-        published <- loadPublishedReview store digest
-        pure $ do
-          bundle <- published
-          let document = reviewBundleDocument bundle
-              prefix = takeWhile ((<= eventSequence stop) . eventSequence) events
-              transaction = eventTransaction stop
-              changed =
-                Map.keysSet
-                  ( Map.differenceWith
-                      (\desired base -> if desired == base then Nothing else Just desired)
-                      (reviewDesiredRevisions document)
-                      (reviewBaseRevisions document)
-                  )
-              currentRevision =
-                all
-                  ( \owner ->
-                      Map.lookup owner (reviewDesiredRevisions document) == Map.lookup owner (headAccepted headValue)
-                  )
-                  (Set.toList changed)
-              selectedOperations =
-                [ reviewPlannedOperation entry
-                | entry <- reviewOperations document
-                , plannedOperationId (reviewPlannedOperation entry) == selected
-                ]
-              validStop = case selectedOperations of
-                -- This proof only releases never-started durable members of an
-                -- unready create's review. A landed update stop (F54) adds
-                -- nothing here.
-                [operation] -> incompleteApplicationOnlyReview LandedUpdateUnproved bundle prefix transaction selected operation
-                _ -> False
-              neverStarted operation =
-                all
-                  ( \event ->
-                      eventTransaction event /= transaction
-                        || eventOperation event /= Just (plannedOperationId operation)
-                        || eventState event == Pending
-                  )
-                  events
-          pure $
-            if reviewContextBinding document == headBinding headValue
-              && changed `Set.isSubsetOf` incomplete
-              && not (Set.null changed)
-              && currentRevision
-              && validStop
-              && null (reviewBarriers document)
-              then
-                Set.fromList
-                  [ resource
-                  | entry <- reviewOperations document
-                  , let operation = reviewPlannedOperation entry
-                  , -- Only a never-started create may be replanned as a create. A
-                  -- never-started verify or update of a durable member that is
-                  -- later found absent was deleted out of band (F55).
-                  plannedAction operation == CreateResource
-                  , neverStarted operation
-                  , resource <- NE.toList (plannedResources operation)
-                  ]
-              else Set.empty
-      _ -> pure (Left (StoreInvalidObject "journal" "application stop has no canonical review transaction or operation"))
 
 -- | Seed only unchanged base scopes when opening a new store. A changed or
 -- retired scope cannot be reconstructed safely from a candidate's desired view.

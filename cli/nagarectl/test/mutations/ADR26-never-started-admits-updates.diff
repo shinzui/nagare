@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Execute/Close.hs b/cli/nagarectl/src/Nagare/Inventory/Execute/Close.hs
+index 9088a250..1e6d79cc 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/Execute/Close.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Execute/Close.hs
+@@ -328,7 +328,7 @@ neverStartedAbsent registry entries classes = do
+       [ operation
+       | entry <- entries
+       , let operation = reviewPlannedOperation entry
+-      , plannedAction operation == CreateResource
++      , plannedAction operation /= VerifyResource
+       , Map.lookup (plannedOperationId operation) classes `elem` [Just ClassNeverStarted, Just ClassRefused]
+       ]
+     observe operation = case lookupAdapter registry (plannedExecutor operation) of

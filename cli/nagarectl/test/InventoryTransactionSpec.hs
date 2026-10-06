@@ -4,7 +4,7 @@ import Control.Concurrent (threadDelay)
 import Control.Monad (forM_)
 import Data.Aeson (eitherDecode, encode, object, toJSON, (.=))
 import Data.ByteString qualified as BS
-import Data.Either (isLeft)
+import Data.Either (isLeft, isRight)
 import Data.Generics.Labels ()
 import Data.IORef
 import Data.List.NonEmpty (NonEmpty (..))
@@ -2231,7 +2231,7 @@ inventoryTransactionTests =
         recordOperatorRecovery store registry input False >>= expectRight
         resumeTransaction store registry transaction >>= expectRight >>= (@?= Converged transaction)
         readIORef attempts >>= (@?= 2)
-    , testCase "stopping incomplete application retains admitted ownership without convergence or effects" $ do
+    , testCase "closing a landed application keeps admitted ownership without convergence or effects" $ do
         store <- newMemoryStore
         effects <- newIORef (0 :: Int)
         let effect _ _ = modifyIORef' effects (+ 1) >> pure (AdapterEffectAmbiguous "capacity exhausted")
@@ -2252,18 +2252,18 @@ inventoryTransactionTests =
         readIORef effects >>= (@?= 1)
         events <- readJournalPrefix store (headSequence after) >>= expectRight
         let decoded = map (ok . decodeJournalEvent) events
-        assertBool "stop claimed workload completion" (not (any (\event -> eventOperation event == Just selected && case eventState event of Completed _ -> True; _ -> False) decoded))
+        assertBool "close claimed workload completion" (not (any (\event -> eventOperation event == Just selected && case eventState event of Completed _ -> True; _ -> False) decoded))
         assertBool
-          "stop selection missing"
+          "close record missing"
           ( any
               ( \event -> case eventState event of
-                  OperatorResolved marker -> "stopped-incomplete-application:" `T.isPrefixOf` marker
+                  OperatorResolved marker -> "closed:" `T.isPrefixOf` marker
                   _ -> False
               )
               decoded
           )
-        -- Recreate the boundary after the immutable stop event but before its
-        -- head CAS. Settlement must use this same decision without provider IO.
+        -- Recreate the boundary after the immutable close event but before its
+        -- head CAS. Re-entry must release from the same record without provider IO.
         _ <-
           replaceHeadIfGenerationMatches
             store
@@ -2280,7 +2280,7 @@ inventoryTransactionTests =
             noProbe
             decision {recoveryAction = AcceptAdapterProof}
             False
-        assertBool "ordinary proof bypassed stop intent" (isLeft bypass)
+        assertBool "ordinary proof bypassed the journalled close" (isLeft bypass)
         recordOperatorRecovery store noProbe decision False >>= expectRight
         settled <- readHead store >>= expectRight >>= maybe (assertFailure "head missing" >> undefined) pure
         headAccepted settled @?= headAccepted before
@@ -2288,9 +2288,9 @@ inventoryTransactionTests =
         headActiveTransaction settled @?= Nothing
         headSequence settled @?= headSequence after
         resumed <- resumeTransaction store registry transaction
-        assertBool "stopped original transaction resumed" (case resumed of Right (Converged _) -> False; _ -> True)
+        assertBool "closed original transaction resumed" (case resumed of Right (Converged _) -> False; _ -> True)
         readIORef effects >>= (@?= 1)
-    , testCase "incomplete application stop refuses foreign scope, durable workload and uncertain provider" $ do
+    , testCase "close refuses an unproved or resumable operation, whatever the scope kind or data policy" $ do
         let durable =
               Durable
                 ( RecoveryIntent
@@ -2298,13 +2298,13 @@ inventoryTransactionTests =
                     (mkSecretRef (ok (mkName "password")) (ok (mkName "v1")) :| [])
                 )
         forM_
-          [ (Platform, Stateless, RecoveryAwaitingReadiness (ok (mkPhysicalIdentity "uid")))
-          , (Application, durable, RecoveryAwaitingReadiness (ok (mkPhysicalIdentity "uid")))
-          , (Application, Stateless, RecoveryUnresolved "changed UID or digest")
-          , (Application, Stateless, RecoverySafeToRetry)
-          , (Application, Stateless, RecoveryTerminalFailure (ok (mkPhysicalIdentity "failed-job")))
+          [ (Platform, Stateless, RecoveryAwaitingReadiness (ok (mkPhysicalIdentity "uid")), True)
+          , (Application, durable, RecoveryAwaitingReadiness (ok (mkPhysicalIdentity "uid")), True)
+          , (Application, Stateless, RecoveryTerminalFailure (ok (mkPhysicalIdentity "failed-job")), True)
+          , (Application, Stateless, RecoveryUnresolved "changed UID or digest", False)
+          , (Application, Stateless, RecoverySafeToRetry, False)
           ]
-          $ \(kind, policy, recovery) -> do
+          $ \(kind, policy, recovery, closes) -> do
             store <- newMemoryStore
             effects <- newIORef (0 :: Int)
             (reviewed, registry) <-
@@ -2316,10 +2316,10 @@ inventoryTransactionTests =
                 (\_ _ -> pure recovery)
             stopped <- applyReviewed store registry reviewed >>= expectRight
             (tx, op) <- case stopped of StoppedAmbiguous tx op -> pure (tx, op); other -> assertFailure (show other) >> undefined
-            refused <- recordOperatorRecovery store registry (OperatorRecoveryInput tx op (reviewDigestFor reviewed) StopIncompleteApplication) False
-            assertBool "unsafe stop accepted" (isLeft refused)
+            closed <- recordOperatorRecovery store registry (OperatorRecoveryInput tx op (reviewDigestFor reviewed) StopIncompleteApplication) False
+            assertBool ("close outcome for " <> show recovery) (isRight closed == closes)
             after <- readHead store >>= expectRight >>= maybe (assertFailure "missing head" >> undefined) pure
-            headActiveTransaction after @?= Just (transactionIdText tx)
+            headActiveTransaction after @?= if closes then Nothing else Just (transactionIdText tx)
             readIORef effects >>= (@?= 1)
     , testCase "corrected stopped application creates only its never-started durable member" $ do
         store <- newMemoryStore
@@ -2334,12 +2334,9 @@ inventoryTransactionTests =
           applyReviewed store registry reviewed >>= expectRight >>= \case
             StoppedAmbiguous tx op -> pure (tx, op)
             other -> assertFailure (show other) >> undefined
-        recordOperatorRecovery
-          store
-          registry
-          (OperatorRecoveryInput tx selected (reviewDigestFor reviewed) StopIncompleteApplication)
-          False
-          >>= expectRight
+        -- Close confirms the never-started create absent; that is what admits it later.
+        let absent = ok (mkAdapterRegistry [(ok (lookupAdapter registry KubernetesExecutor)) {adapterObserve = \resources -> pure (observationSet [(resource, ConfirmedAbsent (contentDigest "absent")) | resource <- resources])}])
+        recordOperatorRecovery store absent (OperatorRecoveryInput tx selected (reviewDigestFor reviewed) StopIncompleteApplication) False >>= expectRight
         baseHistory <- loadInventoryHistory store >>= expectRight
         let accepted = historyAccepted baseHistory
             (owner, (_, scope)) = single (Map.toList accepted)
@@ -2579,7 +2576,7 @@ inventoryTransactionTests =
           [(17, 1), (29, 2), (43, 3), (71, 4)]
           (uncurry runFixedSeedDriverModel)
         modelAssertStoppedScopePreserved
-    , testCase "terminal isolated abandonment refuses an unrelated review" $ do
+    , testCase "a terminal failure closes under any legacy abandon alias, once" $ do
         store <- newMemoryStore
         let failed = ok (mkPhysicalIdentity "failed-job")
             executeOnce _ _ = pure (AdapterEffectAmbiguous "job failed")
@@ -2590,15 +2587,12 @@ inventoryTransactionTests =
           StoppedAmbiguous value selected -> pure (value, selected)
           other -> assertFailure (show other) >> undefined
         let digest = contentDigest (encodeReviewDocument (reviewedDocument reviewed))
-        forM_ [AbandonPartialVolumeRestore, AbandonPartialDatabaseRestore] $ \action -> do
-          let decision = OperatorRecoveryInput transaction operation digest action
-          refused <- recordOperatorRecovery store registry decision False
-          assertBool "terminal result alone authorized an unrelated abandonment" (isLeft refused)
-        readHead store
-          >>= expectRight
-          >>= maybe
-            (assertFailure "head missing")
-            (\headValue -> headActiveTransaction headValue @?= Just (transactionIdText transaction))
+        forM_ [AbandonPartialVolumeRestore, AbandonPartialDatabaseRestore] $ \action ->
+          recordOperatorRecovery store registry (OperatorRecoveryInput transaction operation digest action) False >>= expectRight
+        headValue <- readHead store >>= expectRight >>= maybe (assertFailure "head missing" >> undefined) pure
+        headActiveTransaction headValue @?= Nothing
+        events <- readJournalPrefix store (headSequence headValue) >>= expectRight
+        length [() | Right event <- map decodeJournalEvent events, OperatorResolved marker <- [eventState event], "closed:" `T.isPrefixOf` marker] @?= 1
     , testCase "operator recovery decision DTO is strict" $ do
         let good =
               "{\"version\":1,\"transaction\":\"tx-abc\",\"operation\":\"op-def\",\"review\":\""

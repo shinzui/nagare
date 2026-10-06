@@ -5,10 +5,8 @@ module Nagare.Inventory.Execute.Claims
   ( acquireResumeClaim
   , executorStillClaimed
   , observeCurrentHead
-  , releaseAbortedClaim
   , releaseClaim
   , releaseClaimWith
-  , releaseStoppedApplicationClaim
   )
 where
 
@@ -163,63 +161,3 @@ convergedSelectedScopes previous document =
         desired
         base
     retired = Map.keysSet base `Set.difference` Map.keysSet desired
-
--- Stopping an incomplete application is neither rollback nor convergence.
--- Keep its admitted ownership (including created retained data) and the prior
--- converged vector. A subsequent review observes these same owned resources.
-releaseStoppedApplicationClaim :: LockedStore s -> TransactionId -> IO Bool
-releaseStoppedApplicationClaim locked transaction = do
-  let store = lockedStore locked
-  current <- observeCurrentHead store
-  case current of
-    Right (observed, Just headValue)
-      | headActiveTransaction headValue == Just (transactionIdText transaction)
-      , isNothing (headDataFence headValue)
-      , maybe
-          True
-          ( \client ->
-              maybe
-                False
-                ((== client) . claimClientIdentity)
-                (headExecutorClaim headValue)
-          )
-          (storeClientIdentity store) ->
-          isRight
-            <$> replaceObservedHead
-              observed
-              headValue
-                { headGeneration = headGeneration headValue + 1
-                , headExecutorClaim = Nothing
-                , headActiveTransaction = Nothing
-                }
-    _ -> pure False
-
--- | A proved rollback abandons the reviewed candidate. The accepted map was
--- advanced at admission, so restore the prior converged map as well as
--- clearing the claim. Callers require a review with no other mutating work.
-releaseAbortedClaim :: LockedStore s -> TransactionId -> IO Bool
-releaseAbortedClaim locked transaction = do
-  let store = lockedStore locked
-  headResult <- observeCurrentHead store
-  case headResult of
-    Right (observed, Just headValue)
-      | headActiveTransaction headValue == Just (transactionIdText transaction)
-      , isNothing (headDataFence headValue)
-      , maybe
-          True
-          ( \client ->
-              maybe
-                False
-                ((== client) . claimClientIdentity)
-                (headExecutorClaim headValue)
-          )
-          (storeClientIdentity store) -> do
-          let replacement =
-                headValue
-                  { headGeneration = headGeneration headValue + 1
-                  , headExecutorClaim = Nothing
-                  , headActiveTransaction = Nothing
-                  , headAccepted = headConverged headValue
-                  }
-          isRight <$> replaceObservedHead observed replacement
-    _ -> pure False

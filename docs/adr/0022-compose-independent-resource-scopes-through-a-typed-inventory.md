@@ -1625,3 +1625,31 @@ Fixed after review (2026-10-05):
 - **Retirement retains the recorded incarnation** (F51). A retention proof names the recorded UID, so retained history never names an object that replaced the accepted one outside review. Status, collection and retained-data operations compare it with the live object and refuse a replacement.
 - **Migrations rebind records** (F52). While a transaction is active, status skips the records of members its reviewed migration moves; those records describe the previous address. At convergence, a migration destination is bound as the member's new object, after the old record is dropped. Rebinding to a deliberately replaced object needs a reviewed operation and is not part of MP-23. Until one exists, retire and recreate the database.
 
+
+## Amendment — 2026-10-05: stopped transactions end by close
+
+[ADR 26](0026-stopped-transactions-close-by-per-operation-proof.md) replaces the exits recorded in
+the 2026-09-30 and 2026-10-02 recovery paragraphs above. The `stop-incomplete-application` decision
+and the four abandon decisions (`abandon-refused-operation`, `abandon-partial-prune`,
+`abandon-partial-volume-restore` and `abandon-partial-database-restore`) were per-kind allowlists.
+Each admitted one recovery shape: an Application scope, a Knative Service or standalone
+StatefulSet, or a restore-only review. EP-175 deleted them. One rule now ends any stopped
+transaction. `nagarectl inventory close` classifies every operation by proof. It refuses while
+an operation is unknown or resume can still progress. Otherwise it reverts each changed scope in
+which nothing took effect to the review's base, and keeps every other changed scope at its desired
+revision. It never converges a scope or binds an incarnation. The five decision names are now
+aliases of close.
+
+Three statements above no longer hold:
+- **A stop is limited to Application scopes.** Close applies to every scope kind. Fenced data
+  operations and migrations keep their own phases.
+- **Ordinary adapter proof cannot bypass a pending stop selection.** A journalled close is final:
+  `inventory recover` refuses every other decision for the transaction, and resume only completes
+  its head release.
+- **An abandon restores the last converged revision.** That reset dropped completed effects from
+  ownership (hazard H2) and reverted past an earlier stop's correction (H1). A fenced backup
+  rollback now ends through the same close record and head write.
+
+Never-started creates are read only from close records. Stores holding a pre-close
+`stopped-incomplete-application` marker were native test candidates; on such a store those
+creates fail closed as `durable-resource-missing`.

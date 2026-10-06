@@ -351,6 +351,11 @@ provenance:
       at: 2026-10-05T21:55:41Z
       mode: "update"
       note: "Add EP-175/176/177 for release line (b) steps 1-4"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-06T00:40:39Z
+      mode: "implement"
+      note: "Release line (b) step 1 done (EP-175 M3)"
   reviews:
     - model: "claude-fable-5-1"
       harness: "claude-code"
@@ -484,7 +489,7 @@ The operator approved all six decisions of [the exhaustive review's proposal](..
 - E's U4–U7 (local cache publication, unlocked plan seeding, export/restore consistency, takeover liveness) unless they fall out of the work below.
 
 **Work, in order.** nagare (implementer) owns steps 1–4. The final verification is by a reviewer that did not implement the work.
-- [ ] 1. ([EP-175](../plans/175-close-stopped-inventory-transactions-by-per-operation-proof.md)) ADR 26: `adapterSettle` for every adapter in the line; `close-transaction` replacing the stop and abandon allowlists; scope-local, re-enterable abort; F61's forward wipe exit; verify never executes. Covers F16, F35–F37, F54–F59, F61, F63–F65, and A's in-line cells and E's U1 and U3.
+- [x] 1. ([EP-175](../plans/175-close-stopped-inventory-transactions-by-per-operation-proof.md)) ADR 26: `adapterSettle` for every adapter in the line; `close-transaction` replacing the stop and abandon allowlists; scope-local, re-enterable abort; F61's forward wipe exit; verify never executes. Covers F16, F35–F37, F54–F59, F61, F63–F65, and A's in-line cells and E's U1 and U3. Done through EP-175 M3 (2026-10-05): settlement, close and its aliases are in, and the allowlists and both old terminal releases are deleted. The findings' statuses await the verifier (see the tracker's exit-change note).
 - [ ] 2. ([EP-176](../plans/176-record-physical-identity-at-creation-and-read-it-through-one-checked-accessor.md)) ADR 27: create-identity recorded in the journal, binding from it at convergence, one checked identity accessor for every consumer in C, and a reviewed rebind. Covers F51 (reopened, N1), F52's convergence half, F60, F62 and C's N2–N13.
 - [ ] 3. ([EP-177](../plans/177-generate-recovery-model-coverage-from-a-resource-kind-table.md)) ADR 25 amendment: the kind table and generated product for every kind in the line, the totality test, and the harness fixes (no refusal counted as done, `LandsFailed` effective, no `ForeignObject` exemption, the corrected-review exit explored); deletion, crash-at-store and claim-loss faults.
 - [ ] 4. (EP-175 M4) ADR 26 §5: the attested close-and-accept-nothing exit; E's U2 (CDN purge, VM power) routed to it.

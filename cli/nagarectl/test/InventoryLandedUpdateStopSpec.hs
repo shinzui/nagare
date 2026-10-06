@@ -39,7 +39,7 @@ inventoryLandedUpdateStopTests =
     "landed unready application update (F54)"
     [ testCase "adapter proves a landed Knative update only when exact, observed, exclusive and unready" adapterProof
     , testCase "landed update stops with ownership retained and a corrected review updates the same Service" stopThenCorrect
-    , testCase "landed update stop refuses an extra uncertain operation and an unproved landing" extraUncertainRefuses
+    , testCase "a landed update with only readiness pending closes, keeping the scope (ADR 26)" pendingReadinessCloses
     , testCase "resume of a landed unready update stops ambiguous without a second write" resumeStopsAmbiguous
     ]
 
@@ -222,37 +222,25 @@ stopThenCorrect = do
   converged <- loadInventoryHistory (stopped ^. #store) >>= expectRight
   Map.lookup appScope (historyConverged converged) @?= fmap fst (Map.lookup appScope (historyAccepted converged))
 
-extraUncertainRefuses :: Assertion
-extraUncertainRefuses = do
-  stopped <- landedUpdate (RecoveryLandedUnready serviceUid)
-  events <- journal (stopped ^. #store)
-  let operations = map reviewPlannedOperation (reviewOperations (reviewBundleDocument (stopped ^. #bundle)))
-  (update, companion) <-
-    case ( [operation | operation <- operations, plannedOperationId operation == stopped ^. #selected]
-         , [plannedOperationId operation | operation <- operations, NE.toList (plannedResources operation) == [historyId]]
-         ) of
-      ([selectedUpdate], [historyOperation]) -> pure (selectedUpdate, historyOperation)
-      other -> assertFailure ("unexpected review operations: " <> show other) >> undefined
-  let check landed journalEvents = incompleteApplicationOnlyReview landed (stopped ^. #bundle) journalEvents (stopped ^. #transaction) (stopped ^. #selected) update
-      uncertain = (last events) {eventOperation = Just companion, eventState = IntentRecorded}
-  assertBool "landed update was not stoppable" (check LandedUpdateProved events)
-  assertBool "an unproved landing was stoppable" (not (check LandedUpdateUnproved events))
-  assertBool "an extra uncertain operation was stoppable" (not (check LandedUpdateProved (events <> [uncertain])))
-  -- A completed or failed update did not land unready.
-  forM_ [Completed (contentDigest "completed"), Failed (KnownNoEffect "refused")] $ \state ->
-    assertBool
-      ("a selected update in state " <> show state <> " was stoppable")
-      (not (check LandedUpdateProved (events <> [(last events) {eventState = state}])))
-  -- A weaker readiness decision for the intended update refuses at recovery.
+-- | ADR 26: the stop decision is a close. An intended update whose adapter
+-- reports only that readiness is pending settles as landed, so the close keeps
+-- the scope's admitted revision without converging it. An operation that
+-- cannot be settled blocks the close (InventoryCloseSpec).
+pendingReadinessCloses :: Assertion
+pendingReadinessCloses = do
   weak <- landedUpdate (RecoveryAwaitingReadiness serviceUid)
-  refused <-
+  before <- readHead (weak ^. #store) >>= expectRight >>= maybe (assertFailure "head missing" >> undefined) pure
+  closed <-
     recordOperatorRecovery
       (weak ^. #store)
       (recordingRegistryWith (\_ _ -> pure (Right ())) (\_ _ -> pure AdapterEffectCompleted) (\_ _ -> pure (RecoveryAwaitingReadiness serviceUid)))
       (OperatorRecoveryInput (weak ^. #transaction) (weak ^. #selected) (stopReviewDigest (weak ^. #reviewed)) StopIncompleteApplication)
       False
-  assertBool "an unproved landed update was stopped" (isLeft refused)
-  readHead (weak ^. #store) >>= expectRight >>= maybe (assertFailure "head missing") (\value -> headActiveTransaction value @?= Just (transactionIdText (weak ^. #transaction)))
+  void (expectRight closed)
+  after <- readHead (weak ^. #store) >>= expectRight >>= maybe (assertFailure "head missing" >> undefined) pure
+  headActiveTransaction after @?= Nothing
+  headAccepted after @?= headAccepted before
+  headConverged after @?= headConverged before
 
 resumeStopsAmbiguous :: Assertion
 resumeStopsAmbiguous = do

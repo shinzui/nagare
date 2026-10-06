@@ -1,7 +1,9 @@
 -- | A Redis isolated restore whose scratch StatefulSet never becomes Ready
 -- (its pinned download or load failed) must not wedge the store: the adapter
--- proves the pod failure, and the restore-only review can be abandoned without
--- claiming convergence.
+-- proves the pod failure. Since ADR 26 the legacy abandon decision is a close:
+-- the failure is a terminal partial effect and earlier creates completed, so
+-- the scope is kept (unconverged, its scratch objects still owned) whatever
+-- else the review holds; no review-shape predicate decides it (F36).
 module InventoryRedisRestoreRecoverySpec (inventoryRedisRestoreRecoveryTests) where
 
 import Data.Aeson (Value, object, (.=))
@@ -39,8 +41,8 @@ inventoryRedisRestoreRecoveryTests =
         restoreScratchFailureFromPodList uid (pods [pod "22222222-2222-2222-2222-222222222222" (initStatus 1 1)]) @?= Right False
         restoreScratchFailureFromPodList uid (pods []) @?= Right False
         assertBool "a malformed list was accepted" (isLeft (restoreScratchFailureFromPodList uid (object [])))
-    , testCase "a failed scratch StatefulSet abandons only an exact Redis restore review" (scenario False)
-    , testCase "a review with an extra member is not a Redis restore-only review" (scenario True)
+    , testCase "a failed scratch StatefulSet closes a Redis restore review, keeping its objects owned" (scenario False)
+    , testCase "a review with an extra member closes the same way" (scenario True)
     ]
 
 scenario :: Bool -> IO ()
@@ -112,15 +114,10 @@ scenario extraMember = do
       False
   after <- readHead store >>= expectRight >>= maybe (assertFailure "head missing" >> undefined) pure
   headConverged after @?= headConverged before
-  if extraMember
-    then do
-      assertBool "abandonment accepted for a review that is not Redis restore-only" (isLeft recovered)
-      headActiveTransaction after @?= Just (transactionIdText transaction)
-    else do
-      void (expectRight recovered)
-      headActiveTransaction after @?= Nothing
-      headAccepted after @?= headConverged before
-      void (loadInventoryPlanningHistory store candidate >>= expectRight)
+  void (expectRight recovered)
+  headActiveTransaction after @?= Nothing
+  headAccepted after @?= headAccepted before
+  void (loadInventoryPlanningHistory store candidate >>= expectRight)
 
 scratchMember :: ScopeId -> ResourceId -> Text -> [Dependency] -> Declaration
 scratchMember owner cluster role dependencies =

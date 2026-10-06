@@ -43,10 +43,9 @@ import Nagare.Inventory.Execute.AdapterEnv (withAdapterEnv)
 import Nagare.Inventory.Execute.Claims
   ( acquireResumeClaim
   , observeCurrentHead
-  , releaseAbortedClaim
   , releaseClaim
-  , releaseStoppedApplicationClaim
   )
+import Nagare.Inventory.Execute.Close (CloseInput (..), closeRolledBack, closeTransaction)
 import Nagare.Inventory.Execute.Driver (runOperations)
 import Nagare.Inventory.Execute.FencedRecovery (recoverFenced)
 import Nagare.Inventory.Execute.Inputs
@@ -59,15 +58,10 @@ import Nagare.Inventory.Execute.Journal
   , rollbackProof
   )
 import Nagare.Inventory.Execute.RecoveryPolicy
-  ( applicationStopMarker
-  , databaseRestoreOnlyReview
-  , fencedAction
+  ( fencedAction
   , recoverableState
-  , redisRestoreOnlyReview
   , sameReviewedFence
-  , scheduledPruneOnlyReview
   , transactionDigest
-  , volumeRestoreOnlyReview
   )
 import Nagare.Inventory.Execute.Types
   ( AdmissionError (..)
@@ -100,8 +94,7 @@ import Nagare.Inventory.Journal
   )
 import Nagare.Inventory.OperationStep (bootstrapRecoveryMarker)
 import Nagare.Inventory.Plan
-  ( LandedUpdateProof (LandedUpdateProved, LandedUpdateUnproved)
-  , ReviewDocument (reviewOperations)
+  ( ReviewDocument (reviewOperations)
   , ReviewOperation
     ( reviewAdapterIdentity
     , reviewAdapterVersion
@@ -109,11 +102,12 @@ import Nagare.Inventory.Plan
     , reviewPlannedOperation
     )
   , ReviewedPlan
-  , incompleteApplicationOnlyReview
   , loadPublishedReview
+  , reviewBundleDocument
   , reviewedDocument
   , verifyActiveReview
   )
+import Nagare.Inventory.Plan.CloseRecord (closedRecordDigest)
 import Nagare.Inventory.Store
   ( DataFenceRecord
   , HeadManifest
@@ -233,11 +227,8 @@ prepareBootstrapRegistryRecovery store registry transaction operationId = do
                     _ -> pure (Left "registry recovery requires the exact original created Deployment awaiting readiness")
     _ -> pure (Left "registry recovery requires an idle active transaction with no fence or migration")
 
--- | The adapter journalled this operation as failed before any effect.
-knownNoEffect :: Maybe OperationState -> Bool
-knownNoEffect state = case state of
-  Just (Failed (KnownNoEffect _)) -> True
-  _ -> False
+closeAliases :: [RecoveryAction]
+closeAliases = [StopIncompleteApplication, AbandonRefusedOperation, AbandonPartialPrune, AbandonPartialVolumeRestore, AbandonPartialDatabaseRestore]
 
 -- | The decision file selects an action; the adapter must independently prove
 -- that action from the current provider state under the writer lock. An
@@ -248,11 +239,22 @@ recordOperatorRecovery ::
   OperatorRecoveryInput ->
   Bool ->
   IO (Either (NonEmpty AdmissionError) ())
-recordOperatorRecovery store registry input takeOver = do
-  locked <- withProcessLock store $ \lock -> recoverLocked lock
-  pure $ case locked of
-    Left err -> failure "process-lock" (showText err)
-    Right result -> result
+recordOperatorRecovery store registry input takeOver
+  -- ADR 26: the stop and abandon decisions are aliases of close, which names
+  -- the transaction; the operation only has to belong to its review.
+  | recoveryAction input `elem` closeAliases = do
+      published <- loadPublishedReview store (recoveryReview input)
+      case published of
+        Left err -> pure (failure "review" (showText err))
+        Right bundle
+          | recoveryOperation input `notElem` map (plannedOperationId . reviewPlannedOperation) (reviewOperations (reviewBundleDocument bundle)) ->
+              pure (failure "recovery-operation" "the decision names an operation outside the transaction's review")
+          | otherwise -> fmap (const ()) <$> closeTransaction store registry (CloseInput (recoveryTransaction input) (recoveryReview input) takeOver)
+  | otherwise = do
+      locked <- withProcessLock store $ \lock -> recoverLocked lock
+      pure $ case locked of
+        Left err -> failure "process-lock" (showText err)
+        Right result -> result
   where
     transaction = recoveryTransaction input
     operationId = recoveryOperation input
@@ -270,6 +272,9 @@ recordOperatorRecovery store registry input takeOver = do
         (Right (observed, Just headValue), Right events)
           | headActiveTransaction headValue /= Just (transactionIdText transaction) ->
               pure (failure "inactive-transaction" "operator recovery requires the active transaction")
+          -- A closed transaction is final: only close itself completes its release.
+          | isJust (closedRecordDigest transaction events) ->
+              pure (failure "closed-transaction" "the transaction is closed; run inventory close again to release it")
           | isJust (headDataFence headValue)
               && not (fencedAction (recoveryAction input)) ->
               pure (failure "active-data-fence" "recover and release the data fence before recording adapter recovery")
@@ -282,33 +287,12 @@ recordOperatorRecovery store registry input takeOver = do
               pure (failure "data-fence" "reviewed transaction has no active data fence")
           | Just (recoveryReview input) /= transactionDigest transaction ->
               pure (failure "recovery-review" "decision file review digest differs from transaction")
-          | not (recoverableState (Map.lookup operationId (operationStates transaction events)))
-          , not
-              ( recoveryAction input `elem` [StopIncompleteApplication, AbandonRefusedOperation]
-                  && Map.findWithDefault Pending operationId (operationStates transaction events) == Pending
-              )
-          , not
-              ( recoveryAction input == AbandonRefusedOperation
-                  && knownNoEffect (Map.lookup operationId (operationStates transaction events))
-              ) ->
+          | not (recoverableState (Map.lookup operationId (operationStates transaction events))) ->
               pure (failure "recovery-state" "operation has no uncertain effect to resolve")
-          | recoveryAction input == AbandonRefusedOperation
-          , Map.findWithDefault Pending operationId (operationStates transaction events) /= Pending
-          , not (knownNoEffect (Map.lookup operationId (operationStates transaction events))) ->
-              pure (failure "recovery-state" "only an operation with no recorded intent or a journalled no-effect refusal can be abandoned")
-          | recoveryAction input == AbandonRefusedOperation
-          , any
-              (\(other, state) -> other /= operationId && recoverableState (Just state))
-              (Map.toList (operationStates transaction events)) ->
-              pure (failure "recovery-prerequisite" "resolve every uncertain operation before abandoning a refused one")
           | Just (OperatorResolved marker) <- Map.lookup operationId (operationStates transaction events)
           , Just (native, Nothing) <- bootstrapRecoveryMarker marker
           , recoveryAction input /= RecoverBootstrapRegistry native ->
               pure (failure "recovery-prerequisite" "resolve the exact saved host recovery intent before accepting workload completion")
-          | Just (OperatorResolved marker) <- Map.lookup operationId (operationStates transaction events)
-          , isJust (applicationStopMarker marker)
-          , recoveryAction input /= StopIncompleteApplication ->
-              pure (failure "recovery-prerequisite" "settle the saved application stop before accepting workload completion")
           | otherwise -> do
               claimed <- acquireResumeClaim store transaction observed headValue takeOver
               case claimed of
@@ -316,29 +300,18 @@ recordOperatorRecovery store registry input takeOver = do
                 Right () -> do
                   result <- inspectRecovery lock events (headDataFence headValue)
                   released <-
-                    if isRight result && recoveryAction input == StopIncompleteApplication
-                      then releaseStoppedApplicationClaim lock transaction
-                      else
-                        if isRight result
-                          && isNothing (headDataFence headValue)
-                          && ( recoveryAction input
-                                 `elem` [ AbandonPartialPrune
-                                        , AbandonPartialVolumeRestore
-                                        , AbandonPartialDatabaseRestore
-                                        , AbandonRefusedOperation
-                                        ]
-                                 || ( recoveryAction input == RecoverFencedBackup
-                                        && isJust (rollbackProof transaction operationId events)
-                                    )
-                             )
-                          then releaseAbortedClaim lock transaction
-                          else do
-                            current <- readHead store
-                            case current of
-                              Right (Just value)
-                                | isNothing (headActiveTransaction value) ->
-                                    pure True
-                              _ -> releaseClaim lock transaction Nothing
+                    if isRight result
+                      && isNothing (headDataFence headValue)
+                      && recoveryAction input == RecoverFencedBackup
+                      && isJust (rollbackProof transaction operationId events)
+                      then isRight <$> closeRolledBack lock transaction
+                      else do
+                        current <- readHead store
+                        case current of
+                          Right (Just value)
+                            | isNothing (headActiveTransaction value) ->
+                                pure True
+                          _ -> releaseClaim lock transaction Nothing
                   pure $ if released then result else failure "executor-claim" "could not release operator recovery claim"
     inspectRecovery ::
       forall s.
@@ -447,129 +420,14 @@ recordOperatorRecovery store registry input takeOver = do
                                 "data-fence-capability"
                                 "active data fence differs from the private reviewed member"
                             )
-                    Right selection
-                      | recoveryAction input == AbandonRefusedOperation ->
-                          if isJust selection
-                            then pure (failure "data-fence-capability" "a fenced operation cannot be abandoned after a refused preflight")
-                            else
-                              abandonRefused
-                                lock
-                                (Map.lookup operationId (operationStates transaction events))
-                                (reviewPlannedOperation reviewOperation)
-                                adapter
-                                prepared
                     Right selection -> do
                       let operation = reviewPlannedOperation reviewOperation
-                      let previous = Map.lookup operationId (operationStates transaction events)
-                          savedStop = case previous of
-                            Just (OperatorResolved marker) -> applicationStopMarker marker
-                            _ -> Nothing
-                          stopDigest physical =
-                            contentDigest (preparedNativeBytes prepared <> TE.encodeUtf8 (physicalIdentityText physical))
-                      decision <-
-                        if recoveryAction input == StopIncompleteApplication && isJust savedStop
-                          then pure (RecoveryUnresolved "saved stop needs only claim settlement")
-                          else
-                            withAdapterEnv
-                              transaction
-                              operation
-                              (adapterRecover adapter operation prepared)
+                      decision <- withAdapterEnv transaction operation (adapterRecover adapter operation prepared)
                       case (recoveryAction input, decision) of
-                        (StopIncompleteApplication, _)
-                          | isNothing selection
-                          , Just (landed, stopProof) <- case (savedStop, decision) of
-                              -- A saved marker records a proof accepted earlier.
-                              (Just proof, _) -> Just (LandedUpdateProved, proof)
-                              (Nothing, RecoveryAwaitingReadiness physical) -> Just (LandedUpdateUnproved, stopDigest physical)
-                              (Nothing, RecoveryLandedUnready physical) -> Just (LandedUpdateProved, stopDigest physical)
-                              -- F56: the reviewed target is gone, so the update's
-                              -- outcome is settled; the stop records the live
-                              -- replacement's UID and accepts nothing.
-                              (Nothing, RecoveryTargetReplaced physical) -> Just (LandedUpdateProved, stopDigest physical)
-                              _ -> Nothing
-                          , incompleteApplicationOnlyReview landed published events transaction operationId operation -> do
-                              appended <- case savedStop of
-                                Just _ -> pure (Right ())
-                                Nothing ->
-                                  (() <$)
-                                    <$> appendEvent
-                                      lock
-                                      transaction
-                                      (Just operationId)
-                                      (OperatorResolved ("stopped-incomplete-application:" <> digestText stopProof))
-                                      "application review stopped without convergence; accepted ownership and data retained for a new review"
-                              pure (first (\err -> AdmissionError "journal" (showText err) :| []) appended)
                         (RecoverBootstrapRegistry native, RecoveryAwaitingReadiness _)
                           | isNothing selection -> runBootstrapThroughDriver lock events reviewed native
                         (RecoverBootstrapRegistry native, RecoveryProvedComplete _)
                           | isNothing selection -> runBootstrapThroughDriver lock events reviewed native
-                        (AbandonPartialPrune, RecoveryTerminalFailure physical)
-                          | scheduledPruneOnlyReview published operation -> do
-                              appended <-
-                                appendEvent
-                                  lock
-                                  transaction
-                                  (Just operationId)
-                                  (OperatorResolved "abandoned-terminal-scheduled-prune")
-                                  ( "terminal scheduled prune Job "
-                                      <> physicalIdentityText physical
-                                      <> " abandoned; exact provider members require separate recovery"
-                                  )
-                              pure
-                                ( first
-                                    ( \err ->
-                                        AdmissionError
-                                          "journal"
-                                          (showText err)
-                                          :| []
-                                    )
-                                    (() <$ appended)
-                                )
-                        (AbandonPartialVolumeRestore, RecoveryTerminalFailure physical)
-                          | volumeRestoreOnlyReview published operation -> do
-                              appended <-
-                                appendEvent
-                                  lock
-                                  transaction
-                                  (Just operationId)
-                                  (OperatorResolved "abandoned-terminal-volume-restore")
-                                  ( "terminal volume restore Job "
-                                      <> physicalIdentityText physical
-                                      <> " abandoned; unaccepted scratch PVC requires separate reviewed recovery"
-                                  )
-                              pure
-                                ( first
-                                    ( \err ->
-                                        AdmissionError
-                                          "journal"
-                                          (showText err)
-                                          :| []
-                                    )
-                                    (() <$ appended)
-                                )
-                        (AbandonPartialDatabaseRestore, RecoveryTerminalFailure physical)
-                          | databaseRestoreOnlyReview published operation
-                              || redisRestoreOnlyReview published operation -> do
-                              appended <-
-                                appendEvent
-                                  lock
-                                  transaction
-                                  (Just operationId)
-                                  (OperatorResolved "abandoned-terminal-database-restore")
-                                  ( "terminal database restore Job "
-                                      <> physicalIdentityText physical
-                                      <> " abandoned; unaccepted scratch database requires separate reviewed recovery"
-                                  )
-                              pure
-                                ( first
-                                    ( \err ->
-                                        AdmissionError
-                                          "journal"
-                                          (showText err)
-                                          :| []
-                                    )
-                                    (() <$ appended)
-                                )
                         (AcceptAdapterProof, RecoveryProvedComplete proof) -> do
                           appended <-
                             appendEvent
@@ -590,40 +448,6 @@ recordOperatorRecovery store registry input takeOver = do
                                   "operator selected adapter-proved safe retry"
                               pure (first (\err -> AdmissionError "journal" (showText err) :| []) (() <$ appended))
                         _ -> pure (failure "unsupported-recovery" "adapter did not prove the operator's requested action")
-    -- F35: an operation whose preflight refused after admission never recorded
-    -- intent, so it cannot have taken effect. Re-run the same preflight under
-    -- the lock; only a current refusal ends the transaction. Completed earlier
-    -- effects keep their journal identities and stay unaccepted.
-    -- An operation with no recorded intent needs a fresh preflight refusal.
-    -- One the adapter already journalled as failed with no effect needs no
-    -- fresh refusal: execute can keep refusing while preflight passes, and the
-    -- journal is the proof that no effect occurred.
-    abandonRefused ::
-      forall s.
-      LockedStore s ->
-      Maybe OperationState ->
-      PlannedOperation ->
-      Adapter ->
-      PreparedNative ->
-      IO (Either (NonEmpty AdmissionError) ())
-    abandonRefused lock state operation adapter prepared
-      | Just (Failed (KnownNoEffect reason)) <- state =
-          abandonWith ("operation abandoned after its journalled no-effect refusal (" <> reason <> ")")
-      | otherwise = do
-          preflight <- withAdapterEnv transaction operation (adapterPreflight adapter operation prepared)
-          case preflight of
-            Right () -> pure (failure "recovery-state" "operation preflight passes now; resume the transaction instead")
-            Left reason -> abandonWith ("operation abandoned after a fresh preflight refusal (" <> reason <> ")")
-      where
-        abandonWith detail = do
-          appended <-
-            appendEvent
-              lock
-              transaction
-              (Just operationId)
-              (OperatorResolved "abandoned-refused-operation")
-              (detail <> "; completed earlier effects remain unaccepted until a separate reviewed recovery")
-          pure (first (\err -> AdmissionError "journal" (showText err) :| []) (() <$ appended))
     runBootstrapThroughDriver ::
       forall s.
       LockedStore s ->

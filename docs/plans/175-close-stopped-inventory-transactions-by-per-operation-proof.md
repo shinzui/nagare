@@ -17,6 +17,11 @@ provenance:
       at: 2026-10-05T22:44:53Z
       mode: "implement"
       note: "M1: Settlement, adapterSettle, verify never executes, I8 totality"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-06T00:40:39Z
+      mode: "implement"
+      note: "EP-175 M3: allowlists deleted, fenced rollback closes, rule-level mutation records"
 ---
 
 # Close stopped inventory transactions by per-operation proof
@@ -90,9 +95,38 @@ which is steps 1 and 4 of MasterPlan 23's release line (b).
   - **F61's mark.** It is bound to the transaction and operation, with the mounted-destination
     check, and ADR 26 §4 is updated to match.
   - The old stop path in `loadUnstartedApplicationCreates` stays until M3.
-- [ ] M3: the allowlists are gone. Stop, the four abandons and both terminal releases are deleted or
-  routed to close; the H1–H3 hazards and U1/U3 have failing-then-passing regressions; rule-level
-  mutation records replace the instance-level ones.
+- [x] M3 (2026-10-05): the allowlists are gone.
+  - **Deleted:**
+    - `incompleteApplicationOnlyReview` and `LandedUpdateProof`;
+    - the legacy stop-proof reader in `loadUnstartedApplicationCreates`;
+    - the four `*OnlyReview` predicates and `applicationStopMarker`;
+    - the stop, abandon-refused and abandon-partial branches of `Execute/Recovery.hs`;
+    - `releaseStoppedApplicationClaim` and `releaseAbortedClaim`.
+
+    The library shrank by about 550 lines.
+  - **Routing.** The five legacy actions reach close before the writer lock. The fenced backup
+    rollback (three sites in `Execute/FencedRecovery.hs` and the resume rollback path) ends through
+    `closeRolledBack`. That function writes the same close record and head, with classes taken
+    from the journal alone.
+  - **A closed transaction is final.** `inventory recover` refuses every other decision for it. A
+    close record's never-started set is void once any later event names its transaction.
+  - **Hazard regressions.** Each failed on the pre-routing code and passes now:
+    - H1: "abandoning a refused correction after a stop reverts to the correction's base";
+    - H2: "closing a refused update keeps a created member owned and admits no update as never-started (H2)";
+    - U1: "an abandon whose head release was refused is completed by repeating it".
+
+    H3/U3 is "a review in which nothing took effect reverts every changed scope and its retained
+    additions". Its mutation record reintroduces the hazard.
+  - **Rewritten tests.** The five focused specs and four `InventoryTransactionSpec` cases now
+    assert close. A Platform scope, a durable workload and a terminal Job now close, since close
+    has no per-kind rule. An unresolved or safe-to-retry operation still refuses.
+  - **Mutation records.** Twelve instance records are retired; the README keeps their rows and
+    names the rule-level record that replaces each one. There are four new rule-level records:
+    revert to converged, never-started admits updates, never-started skips absence, and close
+    rebinds incarnations. With the existing unknown-blocks and retained-additions records, these
+    cover the six rules. `F59-standalone-unstarted-creates` was regenerated after a comment change.
+  - **Docs.** The runbook gains "Close a stopped transaction". ADR 22 is amended, and the tracker
+    has an exit-change note plus implementation updates on F35, F36, F37 and F51.
 - [ ] M4: attested close and U2. `close --attest` closes a transaction whose operations an adapter
   cannot prove, accepting nothing. A CDN purge and a VM power operation that cannot be resolved end
   through it.
@@ -100,7 +134,13 @@ which is steps 1 and 4 of MasterPlan 23's release line (b).
 
 ## Surprises & Discoveries
 
-(None yet.)
+- A close record's never-started set ignored a later intent recorded against the same operation.
+  The legacy stop reader re-read journal states and so caught it. The rewritten "corrected stopped
+  application creates only its never-started durable member" test exposed the gap. Fixed in M3: a
+  close record holds only while no later event names its transaction.
+- After a journalled close, a re-activated head let an ordinary `accept-adapter-proof` decision
+  reach the adapter's recover probe. The old stop had a dedicated guard against that. M3 replaces
+  it with one rule: a closed transaction accepts only close.
 
 
 ## Decision Log
@@ -159,6 +199,32 @@ which is steps 1 and 4 of MasterPlan 23's release line (b).
   Rationale: M2's acceptance is the fast tier exiting only by resume or close. While the model still
   maps a refused retirement to `Done`, that acceptance would be vacuous for retirement scenarios. Plan
   177 still owns every other harness fix.
+  Date: 2026-10-05
+
+
+- Decision: Stores whose journals hold a pre-close `stopped-incomplete-application` marker get no
+  reader for it. Their never-started creates fail closed as `durable-resource-missing`.
+  Rationale: the marker was used only on retired native test candidates (`mp23-c3i`), and MP-23
+  step 5 runs on a new candidate. Keeping the reader would keep `incompleteApplicationOnlyReview`,
+  the allowlist this milestone deletes.
+  Date: 2026-10-05
+
+- Decision: The fenced backup rollback ends through `closeRolledBack` in `Execute/Close.hs`, not
+  through a `releaseClosedClaim`. It classes every operation from the journal alone, and refuses
+  if any operation needs an adapter.
+  Rationale: a fenced rollback's review has no other mutating work, and the fenced adapters settle
+  their operations as unknown. The general close would therefore refuse what the old release
+  allowed. Sharing `commitClose` keeps one record format and one head write, and fixes the same
+  revert-to-converged hazard (H1) on this path.
+  Date: 2026-10-05
+
+- Decision: `RecoveryLandedUnready` and `RecoveryTargetReplaced` stay as `RecoveryDecision`
+  constructors for now. Folding them into `Settlement` moves to
+  `docs/plans/176-record-physical-identity-at-creation-and-read-it-through-one-checked-accessor.md`.
+  Rationale: they no longer authorize anything outside close. The driver stops on them, and the
+  Kubernetes settle maps them to landed and target-gone. Removing them needs the Kubernetes settle
+  to re-derive landedness from the live object. EP-176's checked identity accessor rewrites that
+  same code.
   Date: 2026-10-05
 
 

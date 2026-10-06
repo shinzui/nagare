@@ -43,7 +43,7 @@ inventoryApplicationUpdateRecoveryTests =
     ]
 
 companionRules :: TestTree
-companionRules = testCase "pending application update stop preserves authority and rejects intended or wrong-kind companions" $
+companionRules = testCase "a pending application update closes: kept when it landed, reverted when nothing took effect" $
   forM_ [(False, False), (True, False), (False, True)] $ \(intended, wrongKind) -> do
     store <- newMemoryStore
     let owner = ok (mkScopeId Application "web")
@@ -107,17 +107,16 @@ companionRules = testCase "pending application update stop preserves authority a
         (OperatorRecoveryInput transaction selected (reviewDigestFor reviewed) StopIncompleteApplication)
         False
     after <- readHead store >>= expectRight >>= maybe (assertFailure "head missing" >> undefined) pure
-    headAccepted after @?= headAccepted before
+    -- ADR 26: the stop is a close, whatever the companions' kinds. An intended
+    -- update the adapter reports as pending readiness landed, so the scope is
+    -- kept; a never-intended one took no effect, so the scope reverts to the
+    -- review's base. Nothing converges either way.
+    void (expectRight stopped)
     headConverged after @?= headConverged before
-    if intended || wrongKind
-      then do
-        assertBool "unsafe stop accepted" (isLeft stopped)
-        headActiveTransaction after @?= Just (transactionIdText transaction)
-      else do
-        void (expectRight stopped)
-        headActiveTransaction after @?= Nothing
-        headExecutorClaim after @?= Nothing
-        void (loadInventoryPlanningHistory store candidate >>= expectRight)
+    headActiveTransaction after @?= Nothing
+    headExecutorClaim after @?= Nothing
+    headAccepted after @?= (if intended then headAccepted before else Map.union (reviewBaseRevisions (reviewedDocument reviewed)) (headAccepted before))
+    void (loadInventoryPlanningHistory store candidate >>= expectRight)
 
 -- | F55: a never-intended update stopped as F30's never-started stop (the
 -- adapter reports readiness pending after status-only churn) may now carry a
@@ -154,10 +153,12 @@ durableVerifyNotRecreated = do
       dummy = ok (mkScopeDeclaration (ok (mkScopeId Standalone "dummy")) [])
       seed = ok (composeInventory base (ReplaceScope dummy :| []))
       volumeUid = ok (mkPhysicalIdentity "uploads-pvc")
+      -- Each update lands but never proves readiness, so its close keeps the
+      -- scope accepted without converging it (ADR 26).
       registry =
         recordingRegistryWith
-          (\operation _ -> pure (if plannedAction operation == UpdateResource then Left "status-only revision drift" else Right ()))
-          (\_ _ -> pure (AdapterEffectAmbiguous "unexpected effect"))
+          (\_ _ -> pure (Right ()))
+          (\operation _ -> pure (if plannedAction operation == UpdateResource then AdapterEffectAmbiguous "readiness wait timed out" else AdapterEffectCompleted))
           (\_ _ -> pure (RecoveryAwaitingReadiness (ok (mkPhysicalIdentity "original-service"))))
   _ <- initializeStore store fixtureBinding "durable-verify-stop" >>= expectRight
   _ <- seedInventoryHistory store seed >>= expectRight
@@ -168,8 +169,8 @@ durableVerifyNotRecreated = do
               , (declarationId volume, ObservedPresent volumeUid)
               ]
           )
-      -- Review an update of the Service, refused at preflight so it is never
-      -- intended, and stop it as F30's never-started stop.
+      -- Review an update of the Service that lands without readiness, and
+      -- close it.
       stopUpdate serviceMember = do
         history <- loadInventoryHistory store >>= expectRight
         let accepted = Map.map (\(revision, declared) -> (revisionGeneration revision, declared)) (historyAccepted history)

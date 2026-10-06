@@ -14,6 +14,7 @@
 module Nagare.Inventory.Execute.Close
   ( CloseInput (..)
   , closeTransaction
+  , closeRolledBack
   , releaseClosedTransaction
   )
 where
@@ -70,6 +71,7 @@ import Nagare.Inventory.Plan
   , ReviewOperation (reviewAdapterIdentity, reviewAdapterVersion, reviewPlannedOperation)
   , ReviewedPlan
   , loadPublishedReview
+  , reviewBundleDocument
   , reviewedDocument
   , verifyActiveReview
   )
@@ -198,17 +200,61 @@ closeTransaction store registry input = do
                 )
             [] -> do
               absent <- neverStartedAbsent registry entries classes
-              let record = closeRecordFor transaction (closeReview input) document classes absent
-              published <- publishCloseRecord store record
-              case published of
-                Left err -> pure (failure "close-record" err)
-                Right recordDigest -> do
-                  appended <- appendEvent lock transaction Nothing (OperatorResolved (closedMarker <> digestText recordDigest)) "transaction closed by per-operation proof"
-                  case appended of
-                    Left err -> pure (failure "journal" (showText err))
-                    Right _ -> do
-                      released <- releaseClosedTransaction lock record
-                      pure (if released then Right record else failure "head-condition" "the close was journalled but its head release did not land; run close again")
+              commitClose lock (closeRecordFor transaction (closeReview input) document classes absent)
+
+-- | Publish the record, journal it and write the head. The journal event is
+-- the commit point: a repeat only redoes the head write.
+commitClose :: LockedStore s -> CloseRecord -> IO (Either (NonEmpty AdmissionError) CloseRecord)
+commitClose lock record = do
+  published <- publishCloseRecord (lockedStore lock) record
+  case published of
+    Left err -> pure (failure "close-record" err)
+    Right recordDigest -> do
+      appended <- appendEvent lock (closedTransaction record) Nothing (OperatorResolved (closedMarker <> digestText recordDigest)) "transaction closed by per-operation proof"
+      case appended of
+        Left err -> pure (failure "journal" (showText err))
+        Right _ -> do
+          released <- releaseClosedTransaction lock record
+          pure (if released then Right record else failure "head-condition" "the close was journalled but its head release did not land; run close again")
+
+-- | A proved fenced rollback ends its transaction through the same record and
+-- head write as close. Its review has no other mutating work, so every class
+-- comes from the journal; any operation the journal cannot class refuses.
+-- The caller holds the claim and has released the fence.
+closeRolledBack :: LockedStore s -> TransactionId -> IO (Either (NonEmpty AdmissionError) CloseRecord)
+closeRolledBack lock transaction = case reviewDigestOf transaction of
+  Nothing -> pure (failure "close-review" "the transaction names no review digest")
+  Just review -> do
+    let store = lockedStore lock
+    headResult <- observeCurrentHead store
+    published <- loadPublishedReview store review
+    case (headResult, published) of
+      (Left err, _) -> pure (failure "store" (showText err))
+      (Right (_, Nothing), _) -> pure (failure "store" "inventory store is not initialized")
+      (_, Left err) -> pure (failure "review" (showText err))
+      (Right (_, Just headValue), Right bundle) -> do
+        eventsResult <- readJournalAtHead store headValue
+        case eventsResult of
+          Left err -> pure (failure "journal" (showText err))
+          Right events
+            | Just recordDigest <- closedRecordDigest transaction events ->
+                loadCloseRecord store recordDigest >>= \case
+                  Left err -> pure (failure "close-record" err)
+                  Right record -> do
+                    released <- releaseClosedTransaction lock record
+                    pure (if released then Right record else failure "head-condition" "the closed transaction's head release did not land; run close again")
+            | otherwise -> do
+                let document = reviewBundleDocument bundle
+                    states = operationStates transaction events
+                    classes =
+                      Map.fromList
+                        [ (plannedOperationId operation, fromMaybe (ClassUnknown "a fenced rollback classes only from its journal" "inventory close") (journalClass states operation))
+                        | entry <- reviewOperations document
+                        , let operation = reviewPlannedOperation entry
+                        ]
+                case [operation | (operation, ClassUnknown _ _) <- Map.toList classes] of
+                  [] -> commitClose lock (closeRecordFor transaction review document classes Set.empty)
+                  unknowns -> pure (failure "unknown-operation" ("a fenced rollback left unproved operations: " <> T.pack (show unknowns)))
 
 reviewDigestOf :: TransactionId -> Maybe ContentDigest
 reviewDigestOf transaction = either (const Nothing) Just (mkContentDigest (T.drop 3 (transactionIdText transaction)))
@@ -243,28 +289,34 @@ resumeProgress registry reviewed transaction entries states = case nextOperation
 
 -- | ADR 26 §1: first match wins. Journal classes need no adapter call.
 classify :: AdapterRegistry -> ReviewedPlan -> TransactionId -> Map OperationId OperationState -> ReviewOperation -> IO OperationClass
-classify registry reviewed transaction states entry = case Map.lookup (plannedOperationId operation) states of
-  Just (Completed _) -> pure ClassCompleted
-  Nothing -> pure ClassNeverStarted
-  Just Pending -> pure ClassNeverStarted
-  Just (Failed (KnownNoEffect _)) -> pure ClassRefused
-  Just (OperatorResolved marker)
-    | "fenced-recovery-proved" `T.isPrefixOf` marker -> pure ClassReverted
-  _
-    | plannedAction operation == VerifyResource -> pure (ClassNoEffect "a verification writes nothing")
-    | otherwise -> case (lookupAdapter registry (plannedExecutor operation), preparedFor reviewed entry) of
-        (Left reason, _) -> pure (ClassUnknown reason "an installed adapter")
-        (_, Left reason) -> pure (ClassUnknown reason "the saved review's native bundle")
-        (Right adapter, Right prepared) -> do
-          settled <- withAdapterEnv transaction operation (settleOperationWith adapter operation prepared)
-          pure $ case settled of
-            SettledNoEffect evidence -> ClassNoEffect evidence
-            SettledLanded physical -> ClassLanded physical
-            SettledTargetGone physical -> ClassTargetGone physical
-            SettledTerminalPartial physical -> ClassTerminalPartial physical
-            SettledUnknown reason resolvesBy -> ClassUnknown reason resolvesBy
+classify registry reviewed transaction states entry = case journalClass states operation of
+  Just cls -> pure cls
+  Nothing -> case (lookupAdapter registry (plannedExecutor operation), preparedFor reviewed entry) of
+    (Left reason, _) -> pure (ClassUnknown reason "an installed adapter")
+    (_, Left reason) -> pure (ClassUnknown reason "the saved review's native bundle")
+    (Right adapter, Right prepared) -> do
+      settled <- withAdapterEnv transaction operation (settleOperationWith adapter operation prepared)
+      pure $ case settled of
+        SettledNoEffect evidence -> ClassNoEffect evidence
+        SettledLanded physical -> ClassLanded physical
+        SettledTargetGone physical -> ClassTargetGone physical
+        SettledTerminalPartial physical -> ClassTerminalPartial physical
+        SettledUnknown reason resolvesBy -> ClassUnknown reason resolvesBy
   where
     operation = reviewPlannedOperation entry
+
+-- | The classes the journal alone proves.
+journalClass :: Map OperationId OperationState -> PlannedOperation -> Maybe OperationClass
+journalClass states operation = case Map.lookup (plannedOperationId operation) states of
+  Just (Completed _) -> Just ClassCompleted
+  Nothing -> Just ClassNeverStarted
+  Just Pending -> Just ClassNeverStarted
+  Just (Failed (KnownNoEffect _)) -> Just ClassRefused
+  Just (OperatorResolved marker)
+    | "fenced-recovery-proved" `T.isPrefixOf` marker -> Just ClassReverted
+  _
+    | plannedAction operation == VerifyResource -> Just (ClassNoEffect "a verification writes nothing")
+    | otherwise -> Nothing
 
 -- | Creates that never started or were refused, confirmed absent now (O8).
 neverStartedAbsent :: AdapterRegistry -> [ReviewOperation] -> Map OperationId OperationClass -> IO (Set ResourceId)

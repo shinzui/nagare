@@ -10,8 +10,6 @@ module Nagare.Inventory.Plan
   , historyConverged
   , historyRetained
   , historyReservations
-  , incompleteApplicationOnlyReview
-  , LandedUpdateProof (..)
   , ObservationRequirements
   , observationRequirements
   , requiredResources
@@ -70,9 +68,7 @@ import Nagare.Inventory.Plan.Changes
   , planChanges
   )
 import Nagare.Inventory.Plan.History
-  ( LandedUpdateProof (..)
-  , incompleteApplicationOnlyReview
-  , loadInventoryHistory
+  ( loadInventoryHistory
   , loadInventoryPlanningHistory
   , loadUnstartedApplicationCreates
   , seedInventoryHistory

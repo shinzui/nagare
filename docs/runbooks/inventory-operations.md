@@ -133,75 +133,75 @@ nagarectl --context "$CONTEXT" inventory store status --json
 nagarectl --context "$CONTEXT" inventory resume "$TRANSACTION" --yes
 ```
 
-For an exact created Application Service that remains unready, or a typed preview
-DomainMapping whose companion creates have all completed, the
-`stop-incomplete-application` decision stops the original transaction without
-claiming convergence or discarding admitted ownership. The adapter must prove the
-object still matches its original owned native digest. Review the corrected
-configuration afterward; retain the existing preview PVC and route. This decision
-refuses arbitrary standalone resources, uncertain companion effects and incomplete
-preview contracts.
+## Close a stopped transaction
 
-The same decision can stop a never-started Application Service update after a
-preflight refusal, or an intended update that landed but never became Ready (F54).
-All companions must be completed, or have no mutation intent. A companion with no
-intent may verify any owned member, or create or update an owned stateless
-ConfigMap explicitly ordered after that Service (F55). The stop preserves accepted ownership and prior convergence; publish a
-new correction review afterward. New Service update reviews ignore readiness-only
-observation changes while retaining UID, configuration, field ownership and a
-fresh conditional resourceVersion. Existing saved reviews keep their original
-strict comparison semantics.
+When resume stops and cannot make progress, close the transaction
+([ADR 26](../adr/0026-stopped-transactions-close-by-per-operation-proof.md)). The review is the
+saved review's SHA-256, as in `review.sha256`:
 
-An intended Service update can land but never become Ready, for example when the
-new revision crash-loops. `inventory resume` then stops ambiguous at that
-update; waiting does not help. The same `stop-incomplete-application` decision
-ends that transaction once the adapter proves four things: the live Service is
-the reviewed object (same UID, the reviewed spec, controller generation
-observed), Nagare alone owns its non-status fields, and it is not Ready.
+```bash
+nagarectl --context "$CONTEXT" inventory close "$TRANSACTION" --review "$REVIEW_SHA256"
+nagarectl --context "$CONTEXT" inventory store status --json
+```
 
-After the stop, fix the configuration and publish a new review. That review
-updates the same Service in place. The decision refuses in these cases:
-- the Service was edited outside review, or another writer owns its fields;
-- any other operation in the transaction is uncertain.
+Close classifies every operation of the review from its journal or from the adapter's fresh
+settlement:
+- completed, never started, refused with no effect, reverted, or no effect;
+- landed, target gone, or terminal partial;
+- unknown.
 
-In those cases, investigate rather than editing the Service by hand.
+It refuses, and changes nothing, in these cases:
+- Any operation is unknown. The error names each one and what would resolve it. Investigate;
+  never edit an object by hand to make close pass.
+- Resume could still progress: a pending operation passes a fresh preflight, or the adapter
+  proves an uncertain one complete or safe to retry. Run `inventory resume` first.
+- A data fence or a migration is active. Those keep their own recovery phases.
 
-If the Service was deleted and recreated outside review after the update landed
-(for example with `kubectl replace --force`), the reviewed object is gone and
-the update can no longer land. The same decision then ends the transaction
-(finding F56). It accepts nothing, and the stop records the replacement's UID.
-The next review plans from the live replacement.
+Otherwise close publishes one record and writes one head. The transaction ends, nothing is
+converged, and no incarnation is bound. Scopes the review did not change are untouched. Each
+changed scope gets one of two dispositions:
+- **Reverted.** Nothing in it took effect, so its accepted revision returns to the review's base
+  and the review's own retained additions are removed.
+- **Kept.** Something in it completed, landed or partially ran. It keeps the review's desired
+  revision; its objects stay owned and unconverged, and the next review plans from them.
 
-A verification can also stop ambiguous, for example when its target is replaced
-just after it runs. Resume it: a verification writes nothing, so it is retried,
-and a retry refused at preflight is journalled as a no-effect refusal. Then use
-`abandon-refused-operation` on it as described below (finding F57).
+The record also lists the creates that never started and were confirmed absent at close. A later
+review of the same accepted scope may create them.
 
-When `inventory apply` or `resume` stops with `KnownNoEffect "adapter preflight
-refused"`, a later operation found its target changed after admission. The usual
-cause is an object that appeared at an address the review creates. If the
-conflicting object is legitimately someone else's, do not delete it to make
-progress. Use `abandon-refused-operation` on the stopped operation instead. The
-adapter reruns the same preflight under the lock, and only a refusal at that
-moment ends the transaction; if the preflight passes again, resume instead. Every
-other operation must have a settled outcome first. Effects that completed before
-the refusal keep their identities in the journal but are not accepted, so the
-scope returns to its last converged revision and its partial objects remain
-unresolved until a separate reviewed recovery. Save a new review, for example
-with a fresh restore ID, rather than replaying the old one (finding F35).
+Typical stops:
+- **Unready Service.** A created or updated Service that never becomes Ready (F16, F54), for
+  example a crash-looping revision. It landed, so close keeps the scope. Fix the configuration and
+  publish a new review; it updates the same Service in place.
+- **Replaced Service.** The Service was deleted and recreated outside review after the update
+  landed (F56). The target is gone and close keeps the scope; the next review plans from the
+  replacement.
+- **Refused preflight.** An object appeared at an address the review creates (F35), or another
+  field manager owns some of the object's fields (F37). The operation is refused with no effect.
+  If the conflicting object is legitimately someone else's, do not delete it to make progress.
+- **Refused verification.** A verification stopped ambiguous because its target was replaced
+  just after it ran (F57). Resume retries it, since a verification writes nothing; a refused retry
+  is journalled with no effect, and close then accepts it.
+- **Terminal Job.** A scratch restore or scheduled prune Job ended terminally. It is terminal
+  partial and close keeps the scope. The partial scratch database or PVC remains for a separate
+  reviewed recovery; the live source is not restored automatically.
 
-The same decision ends an operation whose execution stopped with `KnownNoEffect`
-after its intent was recorded, for example a Kubernetes update refused because
-another field manager owns some of the object's fields. The adapter already
-journalled that no effect occurred, so no fresh preflight refusal is required;
-the preflight may pass while execution keeps refusing. The other conditions still
-apply: no active data fence, and no other operation in an uncertain state
-(finding F37).
+Close is idempotent. If its head write did not land, run the same command again; it only
+completes the release. A closed transaction is final: resume reports it closed, and `inventory
+recover` refuses any other decision for it. Add `--take-over` only after establishing that the
+original executor stopped.
+
+Version-1 decision files naming `stop-incomplete-application`, `abandon-refused-operation`,
+`abandon-partial-prune`, `abandon-partial-volume-restore` or `abandon-partial-database-restore`
+are aliases of close. Their operation must belong to the transaction's review.
+
+Before ADR 26 these exits behaved differently: an abandon returned the scope to its last
+converged revision and dropped completed effects from ownership. Close keeps a scope in which
+anything took effect, and reverts to the review's base rather than to the converged revision.
+
+## Other recovery decisions
 
 If recovery also needs takeover, add `--take-over` after establishing that the
-original executor stopped. Supported terminal scratch-restore abandonment leaves
-the partial scratch database/PVC available for a separate reviewed recovery; it
-does not restore the live source automatically. For an existing bootstrap private
+original executor stopped. For an existing bootstrap private
 image credential failure, `inventory registry-recovery-plan "$TRANSACTION"
 --operation "$OPERATION" --out "$PRIVATE_DECISION"` prepares its bounded proof.
 Apply that exact decision through `inventory recover`; do not patch a Secret,
@@ -227,8 +227,7 @@ restores the reviewed bytes.
 An edit made with `kubectl edit`, `kubectl patch` or another tool leaves that
 tool as the field manager of what it changed. The update then stops with
 `KnownNoEffect "Kubernetes object has fields managed by another writer: …"`
-before any write. Close the stopped transaction with `abandon-refused-operation`
-(see above), then decide whether Nagare should take those fields back. To take
+before any write. Close the stopped transaction with `inventory close` (see above), then decide whether Nagare should take those fields back. To take
 them back, save the repair with the explicit opt-in:
 
 ```bash

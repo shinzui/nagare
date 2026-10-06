@@ -1,8 +1,9 @@
 -- | F35: an admitted transaction stopped by a later operation's refused
 -- preflight gets a reviewed exit that does not require deleting the object
--- that caused the refusal. An operation the adapter journalled as failed with
--- no effect at execute time is abandoned on that journal proof, even while its
--- preflight passes.
+-- that caused the refusal. Since ADR 26 the legacy abandon decision is a close:
+-- the refused operation never started or was journalled as failed with no
+-- effect, an earlier operation completed, so the scope is kept (H2). Close is
+-- refused while resume can still progress or an operation is unproved.
 module InventoryRefusedPreflightRecoverySpec (inventoryRefusedPreflightRecoveryTests) where
 
 import Data.Either (isLeft)
@@ -11,6 +12,7 @@ import Data.List (find)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
+import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import InventoryTransactionSpec (fixtureBinding, recordingRegistryWith)
 import Nagare.Dsl.Prelude
@@ -106,17 +108,21 @@ scenario variant = do
   after <- readHead store >>= expectRight >>= maybe (assertFailure "head missing" >> undefined) pure
   headConverged after @?= headConverged before
   case variant of
-    _ | variant `elem` [ForeignStillPresent, ExecuteRefusal] -> do
+    _ | variant `elem` [ForeignStillPresent, ExecuteRefusal, CompletedOperation] -> do
       void (expectRight recovered)
-      -- Like other abandonments, the never-converged review loses acceptance.
-      headAccepted after @?= headConverged before
+      -- The first operation completed, so the scope keeps the review's
+      -- desired revision and its created object stays owned.
+      headAccepted after @?= headAccepted before
       headActiveTransaction after @?= Nothing
       headExecutorClaim after @?= Nothing
       raw <- readJournalPrefix store (headSequence after) >>= expectRight
       events <- either (assertFailure . show) pure (traverse decodeJournalEvent raw)
       let states = operationStates transaction events
       Map.lookup firstOperation states @?= Just (Completed (proofFor firstOperation))
-      Map.lookup secondOperation states @?= Just (OperatorResolved "abandoned-refused-operation")
+      assertBool "the refused operation took effect" (Map.lookup secondOperation states `elem` [Nothing, Just (Failed (KnownNoEffect "fields managed by another writer"))])
+      assertBool
+        "the transaction has no close event"
+        (any (\event -> eventTransaction event == transaction && isNothing (eventOperation event) && closedMarker (eventState event)) events)
       -- The store accepts a new review again without removing the object.
       void (loadInventoryPlanningHistory store candidate >>= expectRight)
     ForeignRemoved -> do
@@ -161,3 +167,8 @@ ok = either (error . show) id
 
 reviewDigestFor :: ReviewedPlan -> ContentDigest
 reviewDigestFor = contentDigest . encodeReviewDocument . reviewedDocument
+
+closedMarker :: OperationState -> Bool
+closedMarker = \case
+  OperatorResolved marker -> "closed:" `T.isPrefixOf` marker
+  _ -> False

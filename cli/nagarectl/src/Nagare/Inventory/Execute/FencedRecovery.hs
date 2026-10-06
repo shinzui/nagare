@@ -6,6 +6,7 @@ module Nagare.Inventory.Execute.FencedRecovery
   )
 where
 
+import Data.Either (isRight)
 import Data.List.NonEmpty (NonEmpty (..))
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter
@@ -45,7 +46,7 @@ import Nagare.Inventory.DataFence
   , verifyDataChange
   )
 import Nagare.Inventory.Execute.AdapterEnv (withAdapterEnv)
-import Nagare.Inventory.Execute.Claims (releaseAbortedClaim)
+import Nagare.Inventory.Execute.Close (closeRolledBack)
 import Nagare.Inventory.Execute.Journal
   ( appendEvent
   , rollbackProof
@@ -228,7 +229,7 @@ recoverFenced registry input lock adapter operation prepared active controls cap
                                   case recovered of
                                     Left reason -> pure (failure "data-fence" reason)
                                     Right () | fencePhase active == FenceReleasing -> do
-                                      closed <- releaseAbortedClaim lock transaction
+                                      closed <- isRight <$> closeRolledBack lock transaction
                                       pure $
                                         if closed
                                           then Right ()
@@ -241,7 +242,7 @@ recoverFenced registry input lock adapter operation prepared active controls cap
                                       case released of
                                         Left reason -> pure (failure "data-fence" reason)
                                         Right () -> do
-                                          closed <- releaseAbortedClaim lock transaction
+                                          closed <- isRight <$> closeRolledBack lock transaction
                                           pure $
                                             if closed
                                               then Right ()
@@ -287,7 +288,7 @@ recoverFenced registry input lock adapter operation prepared active controls cap
                       case recovered of
                         Left reason -> pure (failure "data-fence" reason)
                         Right () -> do
-                          closed <- releaseAbortedClaim lock transaction
+                          closed <- isRight <$> closeRolledBack lock transaction
                           pure $
                             if closed
                               then Right ()

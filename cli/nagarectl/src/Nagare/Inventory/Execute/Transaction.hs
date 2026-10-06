@@ -20,11 +20,10 @@ import Nagare.Inventory.Execute.Admission (admit)
 import Nagare.Inventory.Execute.Claims
   ( acquireResumeClaim
   , observeCurrentHead
-  , releaseAbortedClaim
   , releaseClaim
   , releaseClaimWith
   )
-import Nagare.Inventory.Execute.Close (releaseClosedTransaction)
+import Nagare.Inventory.Execute.Close (closeRolledBack, releaseClosedTransaction)
 import Nagare.Inventory.Execute.Driver (runOperations)
 import Nagare.Inventory.Execute.Incarnations (convergedIncarnations)
 import Nagare.Inventory.Execute.Inputs (validateOperationInputs)
@@ -260,7 +259,7 @@ resumeTransactionWithTakeover store registry transaction takeOver = do
                   case claimed of
                     Left err -> pure (Left err)
                     Right () -> do
-                      closed <- releaseAbortedClaim lock transaction
+                      closed <- isRight <$> closeRolledBack lock transaction
                       pure $
                         if closed
                           then

@@ -800,6 +800,8 @@ The stated failure is corrected. **Closed.**
 - the foreign PVC kept UID `0fa935b8` and resourceVersion 41629, and a new review saved immediately.
 **Closed.** The admission-time absence check remains unimplemented, as the implementer recorded.
 
+**Implementation update (2026-10-05, EP-175 M3; claude-opus-5-5):** [ADR 26](../../adr/0026-stopped-transactions-close-by-per-operation-proof.md) and EP-175 M3 replaced this exit with `nagarectl inventory close`. `abandon-refused-operation` is now an alias of close, and its guards are deleted (mutation records F35 and F37 are retired). Behaviour change: a refused operation classes as refused with no effect. If nothing else in its scope took effect, the scope reverts to the review's base, not to the last converged revision. A scope in which an earlier operation completed is kept at its desired revision, so the completed objects stay owned (hazard H2). The other conditions still hold through close's rule: resume must be unable to progress, and nothing may be unknown. Regressions: `InventoryRefusedPreflightRecoverySpec` and "closing a refused update keeps a created member owned and admits no update as never-started (H2) " in `InventoryCloseSpec`. Status is the verifier's to set.
+
 ## F36
 
 **A failed Redis scratch restore cannot be abandoned and wedges the store** — P1; **Closed**; owner EP-160.
@@ -813,6 +815,8 @@ The stated failure is corrected. **Closed.**
 **Acceptance C2 on `14071e58` (2026-10-03, nagare-phase-b):** Reproduced natively on the frozen candidate: the pinned-version deletion again ended in `abandon-partial-database-restore` with the store idle ([record](../mp23-implementer-results-2026-10-03/c2-acceptance-14071e58.json)).
 
 **Verification (2026-10-04, nagare-reviewer, candidate `7596632c`):** Source read (`6d7951c9`). The owner-UID mutation fails the pod-list regression ([phase-1 record](../mp23-independent-results-2026-10-04/phase1-source-and-regressions-7596632c.md)). C2 native evidence: pinned version `f86d4522` removed, the apply stopped ambiguous with a download 404, and `abandon-partial-database-restore` closed it. Independent live read: the journal of `tx-99394208…` holds seq 1333 Ambiguous and seq 1334 OperatorResolved for StatefulSet `88ee069d`; the scratch objects remain unaccepted; the head is idle ([C2 evidence review](../mp23-independent-results-2026-10-04/c2-evidence-review-7596632c.json)). **Closed.**
+
+**Implementation update (2026-10-05, EP-175 M3; claude-opus-5-5):** [ADR 26](../../adr/0026-stopped-transactions-close-by-per-operation-proof.md) and EP-175 M3 replaced this exit with `nagarectl inventory close`. `abandon-partial-database-restore` is an alias of close. A failed scratch StatefulSet settles as terminal partial, and close keeps the restore scope at its desired revision with the scratch objects owned. Previously the scope reverted to its converged revision and the scratch objects were left unaccepted. The scheduled-prune and volume-restore abandons changed the same way. Regression: `InventoryRedisRestoreRecoverySpec`. Status is the verifier's to set.
 
 ## F37
 
@@ -835,6 +839,8 @@ The transaction then had no supported exit. `inventory recover … abandon-refus
 **Acceptance C2 on `14071e58` (2026-10-03, nagare-phase-b):** Reproduced natively on the frozen candidate: the strict replan refused `kubectl-patch`, `abandon-refused-operation` closed it, and the `--take-over-fields` replan restored max-scale 3 under the same UID with `nagare-inventory` as the sole manager ([record](../mp23-implementer-results-2026-10-03/c2-acceptance-14071e58.json)).
 
 **Verification (2026-10-04, nagare-reviewer, candidate `7596632c`):** Source read (`d9aed800`, `1df735a6`). The refusals precede any write, and the takeover's forced apply carries UID and resourceVersion preconditions. Without `d9aed800`, the ExecuteRefusal variant fails with the native `recovery-state` wedge. The settled, binding and identity mutations of `1df735a6` fail 1/7, 2/7 and 1/7 ([phase-1 record](../mp23-independent-results-2026-10-04/phase1-source-and-regressions-7596632c.md)). C2 native evidence: the strict replan stopped on `kubectl-patch` and was closed with `abandon-refused-operation`, and the takeover converged. Independent live read: ksvc `scenario-b` keeps UID `2ae59e2c`, max-scale is 3, and the managers are only `nagare-inventory` and the controller status ([C2 evidence review](../mp23-independent-results-2026-10-04/c2-evidence-review-7596632c.json)). **Closed.** The planning-time refusal and `inventory plan` opt-in remain unimplemented, as recorded.
+
+**Implementation update (2026-10-05, EP-175 M3; claude-opus-5-5):** The stopped drift update now ends with `inventory close` ([ADR 26](../../adr/0026-stopped-transactions-close-by-per-operation-proof.md) and EP-175 M3 replaced this exit with `nagarectl inventory close`); the runbook's drift section says so. The field-ownership takeover is unchanged.
 
 ## F38
 
@@ -1050,6 +1056,8 @@ With the drill v2 results above and the reviewer's mutations, every part of the 
   - a reviewed rebind or a retention that marks the record replaced ([PROPOSAL D2](../mp23-exhaustive-review-2026-10-05/PROPOSAL.md));
   - the model must stop counting admission refusals as `Done`;
   - a regression in which retirement of a replaced member actually completes.
+
+**Implementation note (2026-10-05, EP-175 M3; claude-opus-5-5):** The recovery model's harness no longer counts an admission refusal as `Done`. It carries one named tolerance for this finding, N1 (`InventoryRecoveryModelSpec.hs`, the retire scenario under `Replaced`). EP-176 M3 removes that tolerance when ADR 27's reviewed rebind lands; until then this finding stays reopened.
 
 ## F54
 

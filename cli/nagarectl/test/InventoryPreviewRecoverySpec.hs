@@ -23,7 +23,10 @@ import Test.Tasty.HUnit
 
 inventoryPreviewRecoveryTests :: TestTree
 inventoryPreviewRecoveryTests =
-  testCase "exact incomplete preview route stops only after every sibling create completed" $
+  -- ADR 26: the legacy stop decision is a close. A landed route and a
+  -- completed Service keep the scope accepted (unconverged), whatever the
+  -- review's shape; a pending sibling simply never started.
+  testCase "an incomplete preview route closes, keeping its admitted ownership" $
     forM_ [(False, False), (True, False), (False, True)] $ \(malformed, pendingSibling) -> do
       store <- newMemoryStore
       (reviewed, registry) <- preparedPreviewStopFixture store malformed pendingSibling
@@ -41,14 +44,9 @@ inventoryPreviewRecoveryTests =
       after <- readHead store >>= expectRight >>= maybe (assertFailure "head missing" >> undefined) pure
       headAccepted after @?= headAccepted before
       headConverged after @?= headConverged before
-      if malformed || pendingSibling
-        then do
-          assertBool "incomplete or foreign preview contract accepted" (isLeft stopped)
-          headActiveTransaction after @?= Just (transactionIdText transaction)
-        else do
-          void (expectRight stopped)
-          headActiveTransaction after @?= Nothing
-          headExecutorClaim after @?= Nothing
+      void (expectRight stopped)
+      headActiveTransaction after @?= Nothing
+      headExecutorClaim after @?= Nothing
 
 -- A route can fail after its Service and retained volume were created. The
 -- stopped proof must retain that original admitted ownership without inventing
