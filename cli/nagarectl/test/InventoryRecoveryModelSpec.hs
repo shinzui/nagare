@@ -6,7 +6,7 @@
 module InventoryRecoveryModelSpec (inventoryRecoveryModelTests) where
 
 import Control.Exception (SomeException, throwIO, try)
-import Control.Monad (foldM, forM, forM_, (>=>))
+import Control.Monad (foldM, forM, forM_)
 import Data.Aeson (Value, object, (.=))
 import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
@@ -89,18 +89,18 @@ inventoryRecoveryModelTests =
         exitsUnder storeRun ClaimLost >>= assertBool "no lost claim needed take-over" . elem TakeOver
         exitsUnder jobCreate LandsFailed >>= assertBool "no failed Job needed close" . elem Close
     , testCase "create-scenario fault pairs that had no exit now have one (EP-177, F66)" $ do
-        let exits schedule = runScenario (Scenario "create" [Deploy "v1"] [] True plainShape False) schedule >>= either (assertFailure . T.unpack) (pure . finishedExits)
-        -- Store faults on both attempts of admission: re-run until it lands.
-        exits [(Boundary StoreGetCall 20, GetFailedOnce), (Boundary StoreGetCall 21, GetFailedOnce)] >>= (@?= [])
-        exits [(Boundary MutateCall 1, LandsUnready), (Boundary StorePutCall 13, ClaimLost)] >>= (@?= [[CloseTakeOver]])
+        let create = Scenario "create" [Deploy "v1"] [] True plainShape False
+        -- Store faults on both attempts of admission: re-run until it lands (no stop).
+        pinned create [(Boundary StoreGetCall 20, GetFailedOnce), (Boundary StoreGetCall 21, GetFailedOnce)] []
+        pinned create [(Boundary MutateCall 1, LandsUnready), (Boundary StorePutCall 13, ClaimLost)] [[CloseTakeOver]]
         -- The landed Service deleted outside Nagare: resume recreates it.
-        exits [(Boundary MutateCall 1, LandsUnready), (Boundary ObserveCall 7, Deleted)] >>= (@?= [[Resume, Close]])
+        pinned create [(Boundary MutateCall 1, LandsUnready), (Boundary ObserveCall 7, Deleted)] [[Resume, Close]]
         -- F66: an object not stamped as the create's own is at its address.
-        forM_ [[(Boundary ObserveCall 6, ForeignObject), (Boundary StorePutCall 12, PutRefused)], [(Boundary ObserveCall 7, Deleted), (Boundary ObserveCall 8, ForeignObject)], [(Boundary ObserveCall 5, ForeignObject), (Boundary StorePutCall 9, ClaimLost)]] $
-          exits >=> assertBool "F66: no close" . any (`elem` [Close, CloseTakeOver]) . concat
+        pinned create [(Boundary ObserveCall 6, ForeignObject), (Boundary StorePutCall 12, PutRefused)] [[Close]]
+        pinned create [(Boundary ObserveCall 7, Deleted), (Boundary ObserveCall 8, ForeignObject)] [[Resume, Close]]
+        pinned create [(Boundary ObserveCall 5, ForeignObject), (Boundary StorePutCall 9, ClaimLost)] [[TakeOver, Close]]
         -- F68: the updated Service deleted, and an unstamped object at its address.
-        runScenario (Scenario "create then good update" [Deploy "v1", Deploy "v2"] [] True plainShape False) [(Boundary ObserveCall 17, Deleted), (Boundary ObserveCall 18, ForeignObject)]
-          >>= either (assertFailure . T.unpack) (assertBool "F68: no close" . any (`elem` [Close, CloseTakeOver]) . concat . finishedExits)
+        pinned (Scenario "create then good update" [Deploy "v1", Deploy "v2"] [] True plainShape False) [(Boundary ObserveCall 17, Deleted), (Boundary ObserveCall 18, ForeignObject)] [[Resume, Close]]
     , testCase "an unexcused planning refusal of a reviewed step is I1: no supported exit (EP-177; F63's open Deployment half)" $ do
         let deployment = [scenario | scenario <- generatedScenarios, label scenario == "kind (\"apps\",\"deployment\"): update"]
         forM_ deployment $ \scenario ->
@@ -108,13 +108,11 @@ inventoryRecoveryModelTests =
             >>= either (assertBool "not named I1" . T.isInfixOf "violation: I1: planning refused (") (const (assertFailure "F63: the Deployment's corrective update now plans; update this test"))
         length deployment @?= 1
     , testCase "a move that a new fault stopped without progress is re-run; one that no fault stopped is not (EP-177)" $ do
-        let service = [scenario | scenario <- generatedScenarios, label scenario == "kind (\"serving.knative.dev\",\"service\"): create"]
-            exits scenario schedule = runScenario scenario schedule >>= either (assertFailure . T.unpack) (pure . finishedExits)
-        length service @?= 1
+        service <- scenarioNamed "kind (\"serving.knative.dev\",\"service\"): create"
         -- Resume stops again when its store write is refused; re-run, it completes.
-        forM_ service $ \scenario -> exits scenario [(Boundary MutateCall 1, LostAcknowledgement), (Boundary StorePutCall 18, PutRefused)] >>= (@?= [[Resume]])
+        pinned service [(Boundary MutateCall 1, LostAcknowledgement), (Boundary StorePutCall 18, PutRefused)] [[Resume]]
         -- No fault fires during the resume of a landed, unready create: it stays a dead end.
-        exits (Scenario "create" [Deploy "v1"] [] True plainShape False) [(Boundary MutateCall 1, LandsUnready)] >>= (@?= [[Close]])
+        pinned (Scenario "create" [Deploy "v1"] [] True plainShape False) [(Boundary MutateCall 1, LandsUnready)] [[Close]]
     , testCase "every harness-owned placement the self-test skips, the fast tier runs (EP-177)" $
         forM_ scenarios $ \scenario ->
           runScenario scenario [] >>= either (assertFailure . T.unpack) (\finished -> let (_, skipped) = harnessPlacements scenario finished in assertBool (T.unpack (label scenario)) (all (`elem` singleFaults scenario finished) skipped))
@@ -130,8 +128,10 @@ inventoryRecoveryModelTests =
         hPutStrLn stderr ("recovery-model self-test: " <> show (length outcomes) <> " runs in " <> show (round (ended - started) :: Int) <> "s, " <> show (length violations) <> " named violation(s)")
         mapM_ (hPutStrLn stderr . T.unpack) (take 5 violations)
         assertBool (T.unpack (T.unlines (filter (not . named) violations))) (all named violations)
-        -- A crash before admission's head write once let the step pass unapplied.
-        runScenario (Scenario "create" [Deploy "v1"] [] True plainShape False) [(Boundary StorePutCall 7, CrashBeforeStorePut)]
+        -- A crash before admission's head write once let the step pass unapplied;
+        -- re-run, the create writes both members (no stop).
+        pinned (Scenario "create" [Deploy "v1"] [] True plainShape False) [(Boundary StorePutCall 7, CrashBeforeStorePut)] []
+          >> runScenario (Scenario "create" [Deploy "v1"] [] True plainShape False) [(Boundary StorePutCall 7, CrashBeforeStorePut)]
           >>= either (assertFailure . T.unpack) (\finished -> Map.lookup MutateCall (finishedCalls finished) @?= Just 2)
     , testCase "a snapshot taken at a stop restores the head, journal, world and adversary (EP-179)" $ do
         run <- newRun plainShape [] [(Boundary MutateCall 1, Interrupt)]
@@ -211,6 +211,23 @@ equivalenceSample scenario finished = every 25 (singleFaults scenario finished) 
 -- | Every scenario under every schedule must pass.
 runTier :: Bool -> [Scenario] -> (Scenario -> Finished -> [Schedule]) -> Assertion
 runTier progress selected schedulesFor = checkTier progress label (`runScenario` []) selected schedulesFor (\scenario schedule -> either pure (const []) <$> runScenario scenario schedule)
+
+-- | A pinned regression: every scheduled fault's boundary is reached, and the
+-- run exits along exactly the expected paths ([] marks a pin whose faults are
+-- absorbed without a stop). A schedule whose ordinals drift then fails, rather
+-- than passing vacuously. A reached boundary does not prove the fault took
+-- effect; the mutation records check that.
+pinned :: Scenario -> Schedule -> [[Move]] -> Assertion
+pinned scenario schedule expected = do
+  finished <- runScenario scenario schedule >>= either (assertFailure . T.unpack) pure
+  forM_ schedule $ \(Boundary call' n, fault) ->
+    assertBool (show fault <> " at " <> show call' <> " " <> show n <> " did not fire") (Map.findWithDefault 0 call' (finishedCalls finished) >= n)
+  assertEqual (T.unpack (label scenario) <> " under " <> show schedule <> ": exits") expected (finishedExits finished)
+
+scenarioNamed :: Text -> IO Scenario
+scenarioNamed name = case [scenario | scenario <- scenarios, label scenario == name] of
+  [scenario] -> pure scenario
+  found -> assertFailure ("expected one scenario named " <> T.unpack name <> ", found " <> show (length found)) >> pure (error "unreachable")
 
 -- | EP-177 6c: the faults whose handling the harness owns (store faults,
 -- crashes, a lost claim, a failed read) at every placement, as those the
