@@ -4,6 +4,11 @@
 # so push from a clean tree. `just gate` (the full gate) refuses dirty trees.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
+# A clean HEAD with a green full-gate record (`just land`) needs no second gate.
+if [ -z "$(git status --porcelain)" ] && just gate-verify HEAD >/dev/null 2>&1; then
+  echo "pre-push: HEAD has a green full-gate record"
+  exit 0
+fi
 if ! just gate-fast; then
   echo "pre-push: the fast gate is red; push refused (logs under \${XDG_STATE_HOME:-~/.local/state}/nagare/gates/logs)" >&2
   exit 1

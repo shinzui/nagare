@@ -340,6 +340,24 @@ gate:
 gate-verify rev:
     cabal run --project-dir=cli/nagare-harness -v0 nagare-harness -- gate verify --revision {{rev}}
 
+# The only way a revision reaches master (2026-10-06): it needs a green full
+# gate record for its exact tree (`just gate` on a clean checkout of it), must
+# descend from origin/master, and master moves by fast-forward only. Run from a
+# clean master checkout. The push hook accepts the same record.
+# Fast-forward master to a gate-verified revision and push it.
+[group('test')]
+land rev:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    target=$(git rev-parse --verify '{{rev}}^{commit}')
+    just gate-verify "$target"
+    [ "$(git rev-parse --abbrev-ref HEAD)" = master ] || { echo "land: run from a master checkout" >&2; exit 1; }
+    [ -z "$(git status --porcelain)" ] || { echo "land: the checkout is dirty" >&2; exit 1; }
+    git fetch origin master
+    git merge-base --is-ancestor origin/master "$target" || { echo "land: $target does not descend from origin/master; rebase it and gate it again" >&2; exit 1; }
+    git merge --ff-only "$target"
+    git push origin master
+
 # EP-174: build and run every fixture application with only its declared
 # bindings (fixtures/inventory-release/local/fixture-smoke.json), plus the
 # scenario-b-on-PostgreSQL negative. Refuses a Docker daemon hosting k3d.
