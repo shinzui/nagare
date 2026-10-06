@@ -243,6 +243,17 @@ MasterPlan 23's release line (b).
   - The remaining 3–25 printed violations per shard are classified after a rerun with the fix.
 
 
+- **World fidelity: status churn only on kinds with status (2026-10-06, operator ruling).** Class
+  B of the rerun triage was an I8 on the release-history ConfigMap. The world's `StatusChurn` had
+  bumped its resourceVersion, but a ConfigMap has no status subresource. In production its
+  resourceVersion moves only when someone writes it, and its configuration then changes too. The
+  world now churns only kinds with a status subresource (its `hasReadiness` kinds).
+  - A local pair sweep (`StatusChurn` at every write × `PutRefused` at every store write) checked
+    the effect. "create then good update" went from 1 B-class I8 (the ConfigMap) to 0.
+  - The real cases remain. The database StatefulSet update has 2, at (10, 72) and (11, 84). The
+    generated Deployment update has 1, at (5, 44). F67 fixes them.
+
+
 ## Decision Log
 
 - Decision: Generate rows only for the kinds in MasterPlan 23's release line (b). Every other

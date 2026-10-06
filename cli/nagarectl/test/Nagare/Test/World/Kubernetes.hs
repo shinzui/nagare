@@ -213,7 +213,9 @@ absenceOf resource = contentDigest (TE.encodeUtf8 ("absent:" <> resourceIdText r
 mutate :: IORef KubeWorld -> IORef Adversary -> KubernetesMutation -> IO AdapterExecution
 mutate world adversary mutation = do
   fault <- nextFault adversary MutateCall
-  when (fault == Just StatusChurn) $
+  -- Only a controller writes status, so only a kind with a status subresource
+  -- churns its resourceVersion; a ConfigMap's moves only when someone writes it.
+  when (fault == Just StatusChurn && hasReadiness (mutationAddress mutation)) $
     modifyIORef' world $
       \state -> state {objects = Map.adjust (\o -> o {resourceVersion = resourceVersion o + 1}) resource (objects state)}
   -- Another writer takes a reviewed field; the object stays that way.
