@@ -221,6 +221,28 @@ MasterPlan 23's release line (b).
     Deployment update.
 
 
+- **A regression in item 6, found by the five-scenario reruns (2026-10-06).** The reruns ran on the
+  remote builder at `9b9e9d40`, which carries the same test code as `9ac3a484`. They reported
+  429, 429, 713, 715 and 813 violations, against 92, 92, 144, 152 and 154 at `a4d84543`. Of the
+  400 violation texts each shard printed, 375–397 were one class:
+  - Resume was refused as "no progress", while close refused with "resume can still progress:
+    the adapter proves … complete".
+  - A typical schedule is `LostAcknowledgement` on the first write, plus a second fault that hits
+    the resume itself, such as a refused store write or a failed read.
+  - The cause: the old `tryMove` re-ran a move once whenever a fault had fired during it. Item 6's
+    `operatorAction` re-runs only a `Left` or a crash, so a resume that a fault stopped again in
+    the same state was never re-run. This needs a pair of faults, so neither the fast tier nor
+    the self-test could see it.
+  - The fix: an attempt that returns without progress while the head is still active counts as a
+    failed attempt. `operatorAction` re-runs it only if a new fault fired, so a resume that no
+    fault stopped stays a dead end.
+  - The test "a move that a new fault stopped without progress is re-run; one that no fault
+    stopped is not" pins both sides. The logged pair now exits with `[Resume]`, and `LandsUnready`
+    alone still exits with `[Close]`. The mutation record is
+    `ADR25-model-move-without-progress-not-rerun`.
+  - The remaining 3–25 printed violations per shard are classified after a rerun with the fix.
+
+
 ## Decision Log
 
 - Decision: Generate rows only for the kinds in MasterPlan 23's release line (b). Every other

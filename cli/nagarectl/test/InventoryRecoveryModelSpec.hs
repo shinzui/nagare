@@ -100,6 +100,14 @@ inventoryRecoveryModelTests =
           runScenario scenario [(Boundary MutateCall 3, LandsUnready)]
             >>= either (assertBool "not named I1" . T.isInfixOf "violation: I1: planning refused (") (const (assertFailure "F63: the Deployment's corrective update now plans; update this test"))
         length deployment @?= 1
+    , testCase "a move that a new fault stopped without progress is re-run; one that no fault stopped is not (EP-177)" $ do
+        let service = [scenario | scenario <- generatedScenarios, label scenario == "kind (\"serving.knative.dev\",\"service\"): create"]
+            exits scenario schedule = runScenario scenario schedule >>= either (assertFailure . T.unpack) (pure . finishedExits)
+        length service @?= 1
+        -- Resume stops again when its store write is refused; re-run, it completes.
+        forM_ service $ \scenario -> exits scenario [(Boundary MutateCall 1, LostAcknowledgement), (Boundary StorePutCall 18, PutRefused)] >>= (@?= [[Resume]])
+        -- No fault fires during the resume of a landed, unready create: it stays a dead end.
+        exits (Scenario "create" [Deploy "v1"] [] True plainShape False) [(Boundary MutateCall 1, LandsUnready)] >>= (@?= [[Close]])
     , testCase "every harness-owned placement the self-test skips, the fast tier runs (EP-177)" $
         forM_ scenarios $ \scenario ->
           runScenario scenario [] >>= either (assertFailure . T.unpack) (\finished -> let (_, skipped) = harnessPlacements scenario finished in assertBool (T.unpack (label scenario)) (all (`elem` singleFaults scenario finished) skipped))
@@ -765,27 +773,37 @@ data MoveOutcome
 
 -- | Moves are tried in place: refused moves leave the head unchanged, so trying
 -- the next one from the same state is sound. A progressing move is kept. A
--- move is an operator's command, re-run while new faults fire.
+-- move is an operator's command, re-run while new faults fire; an attempt that
+-- returns without progress has failed, so a fault that stopped it again (a
+-- refused store write, a failed read) is re-run, and one no fault stopped is a
+-- dead end.
 tryMove :: Run -> AdapterRegistry -> ReviewedPlan -> TransactionId -> Move -> IO MoveOutcome
 tryMove run registry reviewed transaction move = do
   modifyIORef' (runWorld run) (\world -> world {quiet = True})
   before <- progressSignature run transaction
-  result <- operatorAction run $ \store -> case move of
-    Resume -> fmap (const ()) <$> resumeTransaction store registry transaction
-    TakeOver -> fmap (const ()) <$> resumeTransactionWithTakeover store registry transaction True
-    Close -> close store False
-    CloseTakeOver -> close store True
+  result <- operatorAction run $ \store -> do
+    started <- progressSignature run transaction
+    moved <-
+      first (T.pack . show) <$> case move of
+        Resume -> fmap (const ()) <$> resumeTransaction store registry transaction
+        TakeOver -> fmap (const ()) <$> resumeTransactionWithTakeover store registry transaction True
+        Close -> close store False
+        CloseTakeOver -> close store True
+    ended <- progressSignature run transaction
+    active <- not <$> headIdle run
+    pure (if moved == Right () && active && ended == started then Left noProgress else moved)
   later <- progressSignature run transaction
   idle <- headIdle run
   modifyIORef' (runWorld run) (\world -> world {quiet = False})
   pure $ case result of
     Left CommandCrashed -> MoveRefused "interrupted"
     _ | idle -> MoveIdle
-    Right () | later /= before -> MoveProgressed
-    Left (CommandRefused err) -> MoveRefused (T.pack (show err))
+    _ | later /= before, either (== CommandRefused noProgress) (const True) result -> MoveProgressed
+    Left (CommandRefused err) -> MoveRefused err
     Left (CommandTrouble err) -> MoveRefused err
-    Right () -> MoveRefused "no progress: the transaction's state is unchanged"
+    Right () -> MoveRefused noProgress
   where
+    noProgress = "no progress: the transaction's state is unchanged"
     review = contentDigest (encodeReviewDocument (reviewedDocument reviewed))
     close store takeOver = fmap (const ()) <$> closeTransaction store registry (CloseInput transaction review takeOver Nothing)
 
