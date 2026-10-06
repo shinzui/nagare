@@ -1,0 +1,12 @@
+diff --git a/cli/nagarectl/test/Nagare/Test/Model/Run.hs b/cli/nagarectl/test/Nagare/Test/Model/Run.hs
+--- a/cli/nagarectl/test/Nagare/Test/Model/Run.hs
++++ b/cli/nagarectl/test/Nagare/Test/Model/Run.hs
+@@ -106,7 +106,7 @@
+   after <- length . fired <$> readIORef (runAdversary run)
+   case attempt of
+     Right (Right (Right value)) -> pure (Right value)
+-    _ | after > before -> operatorAction run command
++    _ | after > before -> first CommandRefused <$> command (runStore run)
+     Left Interrupted -> pure (Left CommandCrashed)
+     Right (Left (StoreTrouble err)) -> pure (Left (CommandTrouble err))
+     Right (Right (Left err)) -> pure (Left (CommandRefused err))

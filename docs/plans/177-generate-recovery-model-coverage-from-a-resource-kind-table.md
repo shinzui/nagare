@@ -180,6 +180,44 @@ MasterPlan 23's release line (b).
     the fix it aborted in 3 s with the same error; after it, it passes in 3.4 s. This sweep is
     the accepted proof. The 6/52 shard (260,427 pairs, several hours) was not rerun, and the
     confirming deep run after plan 179 lands covers the pairs.
+- **A fifth harness gap: a crash during admission passed vacuously (2026-10-06, proved before the
+  fix).** `CrashBeforeStorePut` on admission's head write (put 7 in "create") leaves the head
+  idle. `classify` then read the stop from the head, found no active transaction and called the
+  step `Done`. The run ended with no violation, no exit and 0 provider writes: the create never
+  ran. Every other crash placement in that scenario writes both members. Apply now re-runs a
+  crash only when the head generation is unchanged. A crash after the final head write is a
+  transaction that finished, and is not re-run; the first cut tested "head idle", and the fast
+  tier caught that with two `stale-head` refusals. The self-test pins the case: the create writes
+  both members under that crash.
+- **Root cause of all five gaps, and the structural fix (item 6, at the operator's request).**
+  - **Root cause.** The checker and the code under test shared the faulting store. The retry
+    policy was decided per call site: planning looped, apply retried once, moves retried once,
+    and ingestion and the checks did not retry. And the harness was never self-tested, so a
+    harness error surfaced only as a lost deep shard or as a vacuous pass.
+  - **The checker's reads.** A new module, `Nagare.Test.Model.Run`, holds the `Run`. It does not
+    export the faulting store (`runStore`), or the constructor of the read-only `InspectStore`,
+    which the checks read through `inspectHead`, `inspectJournal`, `inspectHistory` and
+    `inspectIncarnations`. A check that reads the faulting store no longer compiles.
+  - **One retry policy.** Every operator command (planning, apply, each exit move, ingestion)
+    runs through one `operatorAction`, which re-runs it while new faults fire. What counts as a
+    failure is the command's own `Left`.
+  - **The self-test.** The fast tier gains "harness self-test: every harness-owned fault in every
+    scenario ends in a result or a named violation". It places every store fault, crash, lost
+    claim and failed read alone, at every placement, in all 52 scenarios. It skips the placements
+    the fast tier's own `singleFaults` already runs, and a test checks that every skipped
+    placement is one the fast tier runs. It requires no harness exception, and every violation
+    must name an invariant. Provider faults are placed at every boundary alone by the deep tier
+    (plan 179 M4), which is why the fast tier places them only at the last boundary of their call.
+  - **Timing, with the replay-based exit search, for comparison after plan 179's snapshot search
+    (both on a loaded machine).**
+    - Before the dedup: 15,289 runs, 466 s wall and 270 s of CPU (59% of a core).
+    - After the dedup: 14,534 runs, 419 s wall and 241 s of CPU (57% of a core).
+    - The operator's budget is 300 s.
+  - **Mutation records.** `ADR25-model-check-reads-faulting-store` no longer compiles.
+    `ADR25-model-operator-reruns-once` fails the create-scenario regression test.
+  - **What it found.** The full single-fault sweep (all faults, 21,555 runs) found one
+    unexcused planning refusal: F63's open worker-Deployment half, under `LandsUnready` on the
+    Deployment update.
 
 
 ## Decision Log
@@ -223,6 +261,15 @@ MasterPlan 23's release line (b).
   defines `TargetGone` as replaced outside review, and ADR 27 §1 names the same class for a live
   object that differs from the record. So the scope keeps its desired revision, and close binds
   nothing.
+  Date: 2026-10-06
+
+
+- Decision (operator, 2026-10-06): the model's checks read a separate, read-only store type, and
+  every operator command goes through one retry policy, `operatorAction`. The fast tier
+  self-tests the harness on the faults it owns.
+  Rationale: five harness gaps had one cause, a checker that shared the faulting store and decided
+  retries per call site. A module boundary lets the compiler enforce the separation, and a
+  self-test turns the next harness error into a fast-tier failure, not a lost deep shard.
   Date: 2026-10-06
 
 

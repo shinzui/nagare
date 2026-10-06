@@ -1,0 +1,12 @@
+diff --git a/cli/nagarectl/test/InventoryRecoveryModelSpec.hs b/cli/nagarectl/test/InventoryRecoveryModelSpec.hs
+--- a/cli/nagarectl/test/InventoryRecoveryModelSpec.hs
++++ b/cli/nagarectl/test/InventoryRecoveryModelSpec.hs
+@@ -839,7 +839,7 @@
+ 
+ checkInvariants :: Run -> IO (Either Text ())
+ checkInvariants run = do
+-  current <- inspectHead run >>= orFail "read head"
++  current <- readHead (runStore run) >>= orFail "read head"
+   world <- readIORef (runWorld run)
+   bound <- readIORef (runBound run)
+   previous <- readIORef (runConverged run)
