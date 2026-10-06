@@ -150,3 +150,35 @@ cells, all on Kubernetes ([D](../audits/mp23-exhaustive-review-2026-10-05/D-mode
   - Findings outside the line become documented limits on the ledger.
   - Open-ended review rounds are not run while the model-plus-gate loop is the discovery mechanism.
 
+
+## Amendment (2026-10-06): the deep tier is change-scoped and bounded
+
+Decided by the operator on 2026-10-06, after the first full deep-tier run of the generated
+product. That run has about 1.4 million ordered fault pairs, so a single process needs about 35
+hours and eight shards need 7–9 hours.
+
+- **Every commit and every release run the fast tier.** `just gate-fast` replays every single
+  fault at every boundary, with every mutation record; this is the release gate. A release does
+  not run the deep tier.
+- **The deep tier gates changes to recovery-related code.** A change needs a passing `just
+  gate-deep` before it is accepted when it touches any of these paths, all under
+  `cli/nagarectl/`:
+  - `src/Nagare/Inventory/Execute/` and `src/Nagare/Inventory/Execute.hs` (admission, driver,
+    recovery, close, claims, journal, transactions, fenced recovery);
+  - `src/Nagare/Inventory/Journal.hs`, `src/Nagare/Inventory/OperationStep.hs`, and the store
+    (`src/Nagare/Inventory/Store.hs`, `src/Nagare/Inventory/Store/`);
+  - `src/Nagare/Inventory/Plan/CloseRecord.hs` and `src/Nagare/Inventory/Identity.hs`;
+  - an adapter's recovery or settlement: `src/Nagare/Inventory/Adapter.hs`,
+    `src/Nagare/Inventory/Adapters/`, `src/Nagare/Inventory/Collection/`, and the data-fence,
+    live-restore and maintenance adapters;
+  - the model itself: `test/InventoryRecoveryModelSpec.hs`, `test/Nagare/Test/World/`,
+    `test/Nagare/Test/Model/`.
+
+  A release built on such a change carries the deep-tier result of that change; it does not
+  repeat it.
+- **The deep tier has a time budget.** It must finish within one hour on the operator's
+  workstation with its default shards. Taking hours is acceptable only for something
+  extraordinary, and the reason must be recorded in the change's plan.
+  [Plan 179](../plans/179-bring-the-recovery-model-deep-tier-within-an-hour.md)
+  brings the tier within budget without weakening what it proves. Until it lands, the tier is
+  over budget, and a change that needs it records its run time.

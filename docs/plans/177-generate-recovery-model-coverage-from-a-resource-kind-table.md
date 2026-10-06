@@ -11,6 +11,12 @@ provenance:
     model: "claude-opus-5-5"
     harness: "claude-code"
     at: 2026-10-05T21:51:36Z
+  revisions:
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-06T14:20:53Z
+      mode: "update"
+      note: "Deep tier made change-scoped and bounded (operator, 2026-10-06)"
 ---
 
 # Generate recovery model coverage from a resource kind table
@@ -124,7 +130,7 @@ MasterPlan 23's release line (b).
     each printing `recovery-model:` progress lines.
   - Even sharded, the largest scenario bounds the wall time at about seven hours.
   - The replay-based exit search is the main cost. Searching from a snapshot is planned in
-    `docs/plans/179-search-recovery-model-exits-from-a-snapshot-instead-of-a-replay.md`.
+    `docs/plans/179-bring-the-recovery-model-deep-tier-within-an-hour.md`.
 - **A bug the first deep run found.** Two store faults could crash both planning attempts, and the
   `Interrupted` escaped the harness. Planning is now retried until no new fault fires.
 
@@ -145,6 +151,15 @@ MasterPlan 23's release line (b).
   generated product would grow it much more. Exhaustive placement belongs to the deep tier, which
   today no gate runs.
   Date: 2026-10-05
+
+
+- Decision (operator, 2026-10-06): the deep tier gates changes to recovery-related code, not
+  releases, and must finish within an hour (ADR 25 amendment of 2026-10-06). This plan's own
+  acceptance run is the one exception, run once at 7–9 hours on eight shards.
+  Rationale: the generated product made exhaustive pairs about 35 process-hours. A release that does
+  not touch recovery code learns nothing from repeating them, and an hours-long gate would not be
+  run. Plan 179 brings the tier within budget.
+  Date: 2026-10-06
 
 
 ## Outcomes & Retrospective
@@ -327,5 +342,7 @@ This plan depends on
 which provides each kind's identity. Start M1 at any time; M2 and M3 need both plans accepted.
 
 It provides `Nagare.Test.World.Kinds` (the kind table), the totality test and the `just gate-deep`
-recipe. MasterPlan 23's step 5 verification replays the generated product and every mutation record
-on the final candidate.
+recipe. MasterPlan 23's step 5 verification replays the fast tier, which includes the generated product
+with one placement per fault, and every mutation record on the final candidate. Under the ADR 25
+amendment of 2026-10-06, it runs the deep tier only if recovery-related code changed after the
+deep tier's last passing run.
