@@ -301,12 +301,29 @@ haskell-style-check:
 gate-fast:
     cabal run --project-dir=cli/nagare-harness -v0 nagare-harness -- gate --fast
 
-# EP-177 (ADR 25): the recovery model's deep tier, every fault placement and
-# every ordered pair of faults over the explicit and generated scenarios. It
-# runs for a long time; run it before accepting model or kind-table changes.
+# EP-177 (ADR 25): the recovery model's deep tier, every ordered pair of faults
+# over the explicit and generated scenarios, run as parallel shards of the
+# scenario list. Each shard logs `recovery-model:` progress lines; watch with
+# the grep command it prints. Run it before accepting model or kind-table work.
 [group('test')]
-gate-deep:
-    NAGARE_RECOVERY_MODEL_DEEP=1 cabal test nagarectl-test --project-dir=cli/nagarectl --test-options='-p "/recovery model/"'
+gate-deep shards="8":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cabal build nagarectl-test --project-dir=cli/nagarectl -v0
+    bin=$(cabal list-bin nagarectl-test --project-dir=cli/nagarectl)
+    logs="${XDG_STATE_HOME:-$HOME/.local/state}/nagare/gates/logs/deep-$(date -u +%Y%m%dT%H%M%SZ)"
+    mkdir -p "$logs"
+    echo "deep tier: {{shards}} shards; progress: grep -h '^recovery-model:' $logs/shard-*.log"
+    pids=()
+    for i in $(seq 0 $(( {{shards}} - 1 ))); do
+      (cd cli/nagarectl && NAGARE_RECOVERY_MODEL_DEEP=1 NAGARE_RECOVERY_MODEL_SHARD="$i/{{shards}}" "$bin" -p '/deep tier/' > "$logs/shard-$i.log" 2>&1) &
+      pids+=("$!")
+    done
+    status=0
+    for i in "${!pids[@]}"; do
+      if wait "${pids[$i]}"; then echo "shard $i/{{shards}}: passed"; else echo "shard $i/{{shards}}: FAILED, see $logs/shard-$i.log"; status=1; fi
+    done
+    exit "$status"
 
 # EP-174: the full gate for a candidate: clean tree, fast gate, a salted probe
 # build on every remote system, `nix flake check --all-systems`, a dry-run

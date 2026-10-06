@@ -17,6 +17,7 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (isJust)
 import Data.Set qualified as Set
 import Data.Text qualified as T
+import GHC.Clock (getMonotonicTime)
 import InventoryObjectOpsSpec (fakeObjectOps)
 import InventoryTransactionSpec (fixtureBinding)
 import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
@@ -52,6 +53,7 @@ import Nagare.Test.World.Kinds (KindAction (..), KindRow, KindStatus (InLine), k
 import Nagare.Test.World.Kubernetes
 import Nagare.Test.World.Store (faultingObjectOps)
 import System.Environment (lookupEnv)
+import System.IO (hFlush, hPutStrLn, stderr)
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -66,7 +68,7 @@ inventoryRecoveryModelTests =
             <> show (length generatedScenarios)
             <> " generated from the kind table (one placement per fault)"
         )
-        (runTier singleFaults)
+        (runTier False scenarios singleFaults)
     , testCase "every generated create writes its kind's member" $ do
         let writes scenario = runScenario scenario [] >>= either (assertFailure . T.unpack) (pure . Map.findWithDefault 0 MutateCall . finishedCalls)
         plain <- writes (Scenario "create" [Deploy "v1"] [] True plainShape False)
@@ -82,9 +84,12 @@ inventoryRecoveryModelTests =
             jobCreate = head [scenario | scenario <- generatedScenarios, label scenario == "kind (\"batch\",\"job\"): create"]
         exitsUnder storeRun ClaimLost >>= assertBool "no lost claim needed take-over" . elem TakeOver
         exitsUnder jobCreate LandsFailed >>= assertBool "no failed Job needed close" . elem Close
-    , testCase "deep tier: every ordered pair of faults has an exit (NAGARE_RECOVERY_MODEL_DEEP=1)" $ do
+    , testCase "deep tier: every ordered pair of faults has an exit (NAGARE_RECOVERY_MODEL_DEEP=1, shard with NAGARE_RECOVERY_MODEL_SHARD=i/n)" $ do
         deepTier <- lookupEnv "NAGARE_RECOVERY_MODEL_DEEP"
-        when (deepTier == Just "1") (runTier faultPairs)
+        shard <- lookupEnv "NAGARE_RECOVERY_MODEL_SHARD"
+        when (deepTier == Just "1") $ case shardScenarios shard of
+          Left reason -> assertFailure reason
+          Right selected -> runTier True selected faultPairs
     ]
 
 -- * Scenarios
@@ -204,15 +209,45 @@ placements finished =
   , n <- [1 .. Map.findWithDefault 0 (faultCall fault) (finishedCalls finished)]
   ]
 
-runTier :: (Scenario -> Finished -> [Schedule]) -> Assertion
-runTier schedulesFor = do
-  violations <- fmap concat . forM scenarios $ \scenario -> do
+-- | The deep tier's scenarios for one shard @i/n@ (0-based): every n-th
+-- scenario from the i-th, so heavy explicit and light generated scenarios
+-- spread across shards. No shard selects them all.
+shardScenarios :: Maybe String -> Either String [Scenario]
+shardScenarios = \case
+  Nothing -> Right scenarios
+  Just spec -> case break (== '/') spec of
+    (index, '/' : count)
+      | [(i, "")] <- reads index
+      , [(n, "")] <- reads count
+      , n > 0
+      , i >= 0
+      , i < n ->
+          Right [scenario | (k, scenario) <- zip [0 :: Int ..] scenarios, k `mod` n == i]
+    _ -> Left ("NAGARE_RECOVERY_MODEL_SHARD must be i/n with 0 <= i < n, not " <> spec)
+
+-- | Replay every scenario under every schedule. With progress, each scenario
+-- reports its schedule count, a heartbeat every 500 schedules, and its time
+-- and violations on stderr, prefixed @recovery-model:@.
+runTier :: Bool -> [Scenario] -> (Scenario -> Finished -> [Schedule]) -> Assertion
+runTier progress selected schedulesFor = do
+  let total = length selected
+      report line = when progress (hPutStrLn stderr ("recovery-model: " <> line) >> hFlush stderr)
+  violations <- fmap concat . forM (zip [1 :: Int ..] selected) $ \(position, scenario) -> do
+    started <- getMonotonicTime
+    let named = "[" <> show position <> "/" <> show total <> "] " <> T.unpack (label scenario)
     clean <- runScenario scenario []
-    case clean of
+    found <- case clean of
       Left violation -> pure ["the fault-free scenario violates the model:\n" <> violation]
-      Right finished ->
-        fmap concat . forM (schedulesFor scenario finished) $ \schedule ->
+      Right finished -> do
+        let schedules = schedulesFor scenario finished
+            count = length schedules
+        report (named <> ": " <> show count <> " schedules")
+        fmap concat . forM (zip [1 :: Int ..] schedules) $ \(done, schedule) -> do
+          when (done `mod` 500 == 0) (report (named <> ": " <> show done <> "/" <> show count))
           either (\violation -> [violation]) (const []) <$> runScenario scenario schedule
+    ended <- getMonotonicTime
+    report (named <> ": done in " <> show (round (ended - started) :: Int) <> "s, " <> show (length found) <> " violation(s)")
+    pure found
   case violations of
     [] -> pure ()
     _ -> assertFailure (T.unpack (T.intercalate "\n\n" (take 400 violations)) <> "\n\n" <> show (length violations) <> " violation(s)")
@@ -587,20 +622,19 @@ applyRetryingFaults run registry reviewed = do
     Right (Left _) | after > before && idle -> try (applyReviewed (runStore run) registry reviewed)
     _ -> pure attempt
 
--- | Run a command; if it failed while a store fault fired, or the process
--- died at a store write (EP-177), run it once more, as an operator would.
+-- | Run a command; while it fails with a store fault firing, or the process
+-- dies at a store write (EP-177), run it again, as an operator would. The
+-- schedule is finite, so this ends.
 retryingStoreFaults :: Run -> IO (Either Text a) -> IO (Either Text a)
 retryingStoreFaults run command = do
   before <- length . fired <$> readIORef (runAdversary run)
-  first' <- try (try command)
+  attempt <- try (try command)
   after <- length . fired <$> readIORef (runAdversary run)
-  case first' of
+  case attempt of
     Right (Right (Right value)) -> pure (Right value)
-    failed
-      | after > before -> either (\(StoreTrouble err) -> Left err) id <$> try command
-      | otherwise -> pure $ case failed of
-          Left Interrupted -> Left "interrupted"
-          Right inner -> either (\(StoreTrouble err) -> Left err) id inner
+    _ | after > before -> retryingStoreFaults run command
+    Left Interrupted -> pure (Left "interrupted")
+    Right inner -> pure (either (\(StoreTrouble err) -> Left err) id inner)
 
 newtype StoreTrouble = StoreTrouble Text
   deriving stock (Show)

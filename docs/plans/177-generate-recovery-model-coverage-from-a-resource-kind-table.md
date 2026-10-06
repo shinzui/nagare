@@ -114,7 +114,19 @@ MasterPlan 23's release line (b).
 
 ## Surprises & Discoveries
 
-(None yet.)
+- **Size of the deep tier.** With the generated product it is far larger than planned.
+  - The explicit scenarios alone have about 1.4 million ordered fault pairs, with up to 351,711
+    for one scenario.
+  - One process runs about 600–850 pairs a minute.
+  - Run as one process, the tier did not finish in more than eight hours.
+- **What changed.**
+  - `just gate-deep` now runs parallel shards of the scenario list (`shards=8` by default),
+    each printing `recovery-model:` progress lines.
+  - Even sharded, the largest scenario bounds the wall time at about seven hours.
+  - The replay-based exit search is the main cost. Searching from a snapshot is planned in
+    `docs/plans/179-search-recovery-model-exits-from-a-snapshot-instead-of-a-replay.md`.
+- **A bug the first deep run found.** Two store faults could crash both planning attempts, and the
+  `Interrupted` escaped the harness. Planning is now retried until no new fault fires.
 
 
 ## Decision Log
