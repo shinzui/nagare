@@ -428,7 +428,7 @@ Rejected alternatives: isolated platform/application inventories without shared 
 | 159 | Complete scheduled receipts and explicit retention limits | docs/plans/159-complete-scheduled-backup-receipts-and-exact-retention-pruning.md | EP-146, EP-147, EP-149, EP-151 | None | In Progress |
 | 160 | Complete verified isolated database and volume restore | docs/plans/160-complete-fenced-live-data-restore-across-supported-engines-and-volumes.md | EP-146, EP-147, EP-149, EP-151 | EP-159 | In Progress |
 | 161 | Interactive maintenance deferred; delivered recovery history retained | docs/plans/161-provide-scoped-interactive-maintenance-with-durable-recovery.md | None | None | Cancelled |
-| 175 | Close stopped inventory transactions by per-operation proof (ADR 26; line (b) steps 1 and 4) | docs/plans/175-close-stopped-inventory-transactions-by-per-operation-proof.md | None | None | In Progress |
+| 175 | Close stopped inventory transactions by per-operation proof (ADR 26; line (b) steps 1 and 4) | docs/plans/175-close-stopped-inventory-transactions-by-per-operation-proof.md | None | None | Complete |
 | 176 | Record physical identity at creation and read it through one checked accessor (ADR 27; step 2) | docs/plans/176-record-physical-identity-at-creation-and-read-it-through-one-checked-accessor.md | EP-175 M2 | None | Not Started |
 | 177 | Generate recovery model coverage from a resource kind table (ADR 25 amendment; step 3) | docs/plans/177-generate-recovery-model-coverage-from-a-resource-kind-table.md | EP-175, EP-176 (M2–M3 only) | None | Not Started |
 
@@ -492,7 +492,7 @@ The operator approved all six decisions of [the exhaustive review's proposal](..
 - [x] 1. ([EP-175](../plans/175-close-stopped-inventory-transactions-by-per-operation-proof.md)) ADR 26: `adapterSettle` for every adapter in the line; `close-transaction` replacing the stop and abandon allowlists; scope-local, re-enterable abort; F61's forward wipe exit; verify never executes. Covers F16, F35–F37, F54–F59, F61, F63–F65, and A's in-line cells and E's U1 and U3. Done through EP-175 M3 (2026-10-05): settlement, close and its aliases are in, and the allowlists and both old terminal releases are deleted. The findings' statuses await the verifier (see the tracker's exit-change note).
 - [ ] 2. ([EP-176](../plans/176-record-physical-identity-at-creation-and-read-it-through-one-checked-accessor.md)) ADR 27: create-identity recorded in the journal, binding from it at convergence, one checked identity accessor for every consumer in C, and a reviewed rebind. Covers F51 (reopened, N1), F52's convergence half, F60, F62 and C's N2–N13.
 - [ ] 3. ([EP-177](../plans/177-generate-recovery-model-coverage-from-a-resource-kind-table.md)) ADR 25 amendment: the kind table and generated product for every kind in the line, the totality test, and the harness fixes (no refusal counted as done, `LandsFailed` effective, no `ForeignObject` exemption, the corrected-review exit explored); deletion, crash-at-store and claim-loss faults.
-- [ ] 4. (EP-175 M4) ADR 26 §5: the attested close-and-accept-nothing exit; E's U2 (CDN purge, VM power) routed to it.
+- [x] 4. (EP-175 M4) ADR 26 §5: the attested close-and-accept-nothing exit; E's U2 (CDN purge, VM power) routed to it.
 - [ ] 5. One final verification against this line, then a new candidate (the revision is reported by the shipped wrapper while compile-time stamping is off, [EP-178](../plans/178-make-the-flake-check-build-each-haskell-package-once.md)), with a green `just gate` record and `gate verify`, then C1–C5 (including the phase 3b teardown of `mp23-c3i`) under the finish line below.
 
 ### Finish line (canonical checklist, 2026-10-04)
@@ -688,6 +688,8 @@ None is required by the supported release contract. Retained members stay visibl
 
 
 ## Surprises & Discoveries
+
+2026-10-05 (EP-175 complete): Close's safety rests entirely on each adapter's settlement. A scope reverts when every operation in it classes as no effect, so an adapter that settles a real effect as no-effect would drop ownership of live objects. Adapter wrappers must delegate settlement for the operations they do not own; the CDN purge and VM power wrappers did not until M4. For EP-177 this means the kind table should state and test each kind's settlement, not only its recovery. For EP-176: `RecoveryLandedUnready` and `RecoveryTargetReplaced` remain `RecoveryDecision` constructors that the Kubernetes settle maps. Fold them into `Settlement` there, when the checked identity accessor rewrites that code.
 
 2026-10-03 (B5): Migration bundles keep the base Kubernetes adapter identity. Review readers that decode Kubernetes members therefore have to branch on `MigrateResource`. Two did not: execution's spec reconstruction refused the review before admission, and observation publication left the accepted members without evidence, so `inventory status` failed context-wide until `inventory store materialize-native` ran. Both are fixed. Any future reader of review members (EP-157 evidence projection included) must follow the same rule (ADR 22 amendment).
 

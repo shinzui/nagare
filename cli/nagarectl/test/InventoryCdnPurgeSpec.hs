@@ -7,6 +7,7 @@ import Data.IORef
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
+import Data.Text qualified as T
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.CdnPurge
@@ -38,6 +39,9 @@ inventoryCdnPurgeTests =
         assertBool "ambiguous write" (case result of AdapterEffectAmbiguous _ -> True; _ -> False)
         recovered <- adapterRecover fresh operation native
         assertBool "unknown request cannot be reissued" (case recovered of RecoveryUnresolved _ -> True; _ -> False)
+        -- E's U2: close cannot prove it, so the attested close is the exit.
+        settled <- settleOperationWith fresh operation native
+        assertBool "names the attested close" (case settled of SettledUnknown _ resolvesBy -> "--attest" `T.isInfixOf` resolvesBy; _ -> False)
         readIORef writes >>= (@?= 1)
     , testCase "persisted receipt recovers lost storage acknowledgement" $ do
         (adapter, fresh, writes, _, _) <- fixture False True

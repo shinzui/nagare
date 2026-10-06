@@ -139,7 +139,7 @@ recover store world registry reviewed = do
     -- active migration, whose exits are resume and its forward copy redo.
     decide transaction = do
       open <- openOperations store transaction
-      closed <- try @SomeException (closeTransaction store registry (CloseInput transaction (contentDigest (encodeReviewDocument (reviewedDocument reviewed))) False))
+      closed <- try @SomeException (closeTransaction store registry (CloseInput transaction (contentDigest (encodeReviewDocument (reviewedDocument reviewed))) False Nothing))
       done <- isNothing <$> activeTransaction store
       pure $ case closed of
         _

@@ -76,7 +76,8 @@ import Nagare.Inventory.Plan
   , verifyActiveReview
   )
 import Nagare.Inventory.Plan.CloseRecord
-  ( CloseRecord (..)
+  ( Attestation
+  , CloseRecord (..)
   , OperationClass (..)
   , ScopeDisposition (..)
   , closedMarker
@@ -115,12 +116,14 @@ data CloseInput = CloseInput
   { closeTarget :: !TransactionId
   , closeReview :: !ContentDigest
   , closeTakeOver :: !Bool
+  , closeAttestation :: !(Maybe Attestation)
   }
   deriving stock (Eq, Show)
 
 -- | Close the active transaction when every operation is proved and resume
 -- cannot progress. A repeated close, after its event was journalled, only
--- completes the head release.
+-- completes the head release. With an attestation, close is admissible when
+-- unknown operations are all that block it, and it accepts nothing (§5).
 closeTransaction :: InventoryStore -> AdapterRegistry -> CloseInput -> IO (Either (NonEmpty AdmissionError) CloseRecord)
 closeTransaction store registry input = do
   locked <- withProcessLock store closeLocked
@@ -189,15 +192,21 @@ closeTransaction store registry input = do
         (_, Nothing) -> do
           classes <- Map.fromList <$> traverse (\entry -> (plannedOperationId (reviewPlannedOperation entry),) <$> classify registry reviewed transaction states entry) entries
           case [(operation, reason, resolvesBy) | (operation, ClassUnknown reason resolvesBy) <- Map.toList classes] of
-            unknowns@(_ : _) ->
-              pure
-                ( Left
-                    ( NE.fromList
-                        [ AdmissionError "unknown-operation" (T.pack (show operation) <> " is not proved: " <> reason <> " (resolved by " <> resolvesBy <> ")")
-                        | (operation, reason, resolvesBy) <- unknowns
-                        ]
+            unknowns@(_ : _)
+              | Just attestation <- closeAttestation input ->
+                  commitClose lock (attestedRecord attestation (closeRecordFor transaction (closeReview input) document classes Set.empty))
+              | otherwise ->
+                  pure
+                    ( Left
+                        ( NE.fromList
+                            [ AdmissionError "unknown-operation" (T.pack (show operation) <> " is not proved: " <> reason <> " (resolved by " <> resolvesBy <> ")")
+                            | (operation, reason, resolvesBy) <- unknowns
+                            ]
+                        )
                     )
-                )
+            []
+              | isJust (closeAttestation input) ->
+                  pure (failure "attestation-unneeded" "every operation is proved; close without --attest so the proof decides each scope")
             [] -> do
               absent <- neverStartedAbsent registry entries classes
               commitClose lock (closeRecordFor transaction (closeReview input) document classes absent)
@@ -355,6 +364,7 @@ closeRecordFor transaction review document classes absent =
           , any reverted [Map.lookup scope dispositions | scope <- changed, ownedBy scope resource]
           ]
     , closedNeverStarted = absent
+    , closedAttestation = Nothing
     }
   where
     base = reviewBaseRevisions document
@@ -381,6 +391,18 @@ closeRecordFor transaction review document classes absent =
     reverted = \case
       Just (RevertTo _) -> True
       _ -> False
+
+-- | An attested close accepts nothing: every changed scope keeps the
+-- admitted desired revision, no retained entry is removed and no create is
+-- recorded as never-started, so the next plan re-observes every member.
+attestedRecord :: Attestation -> CloseRecord -> CloseRecord
+attestedRecord attestation record =
+  record
+    { closedScopes = Map.map (const KeepDesired) (closedScopes record)
+    , closedRetainedRemoved = Set.empty
+    , closedNeverStarted = Set.empty
+    , closedAttestation = Just attestation
+    }
 
 -- | The single head write of a close: clear the transaction and claim, revert
 -- reverted scopes to the review's base and remove their retained additions.

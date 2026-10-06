@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/VmPower.hs b/cli/nagarectl/src/Nagare/Inventory/VmPower.hs
+index 3228638f..1e359c4c 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/VmPower.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/VmPower.hs
+@@ -213,7 +213,7 @@ withVmPower bindings ops base =
+       -- that proves nothing about the submit, so it settles unknown and ends
+       -- only by an attested close. Other operations settle as the base's.
+       adapterSettle = Just $ \op native ->
+-        if selected op
++        if False && selected op
+           then
+             either
+               (\why -> SettledUnknown why "an attested close (inventory close --attest) after checking the VM's power state")

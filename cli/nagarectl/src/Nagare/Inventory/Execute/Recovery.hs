@@ -249,7 +249,7 @@ recordOperatorRecovery store registry input takeOver
         Right bundle
           | recoveryOperation input `notElem` map (plannedOperationId . reviewPlannedOperation) (reviewOperations (reviewBundleDocument bundle)) ->
               pure (failure "recovery-operation" "the decision names an operation outside the transaction's review")
-          | otherwise -> fmap (const ()) <$> closeTransaction store registry (CloseInput (recoveryTransaction input) (recoveryReview input) takeOver)
+          | otherwise -> fmap (const ()) <$> closeTransaction store registry (CloseInput (recoveryTransaction input) (recoveryReview input) takeOver Nothing)
   | otherwise = do
       locked <- withProcessLock store $ \lock -> recoverLocked lock
       pure $ case locked of

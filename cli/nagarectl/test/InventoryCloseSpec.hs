@@ -4,6 +4,7 @@
 -- head release fails is completed by running close again.
 module InventoryCloseSpec (inventoryCloseTests) where
 
+import Data.Either (isLeft)
 import Data.IORef
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
@@ -40,7 +41,13 @@ inventoryCloseTests =
         _ <- landedClose [(Boundary StorePutCall n, PutRefused) | n <- [writes .. writes + 3]]
         pure ()
     , testCase "a review in which nothing took effect reverts every changed scope and its retained additions" revertedClose
-    , testCase "close refuses while an operation is unproved, naming what would resolve it" unknownBlocks
+    , testCase "close refuses while an operation is unproved, naming what would resolve it; an attested close then accepts nothing" unknownBlocks
+    , testCase "an attestation file is strict" $ do
+        let decode = decodeAttestation . TE.encodeUtf8
+        decode "{\"version\":1,\"operator\":\"op\",\"reason\":\"why\",\"evidence\":[{\"note\":\"log\"}]}" @?= Right (Attestation "op" "why" [AttestedEvidence "log" Nothing])
+        assertBool "unknown field" (isLeft (decode "{\"version\":1,\"operator\":\"op\",\"reason\":\"why\",\"evidence\":[],\"accept\":true}"))
+        assertBool "empty operator" (isLeft (decode "{\"version\":1,\"operator\":\" \",\"reason\":\"why\",\"evidence\":[]}"))
+        assertBool "version" (isLeft (decode "{\"version\":2,\"operator\":\"op\",\"reason\":\"why\",\"evidence\":[]}"))
     , testCase "closing a refused update keeps a created member owned and admits no update as never-started (H2)" keepsCompletedEffects
     , testCase "abandoning a refused correction after a stop reverts to the correction's base (H1)" revertsToReviewBase
     , testCase "an abandon whose head release was refused is completed by repeating it (U1)" $ do
@@ -83,7 +90,7 @@ landedClose releaseFaults = do
   stopped <- readHead store >>= expectRight >>= maybe (assertFailure "head missing" >> pure (error "unreachable")) pure
   let incarnations = Map.singleton (declarationId (service "v1")) landed
   _ <- replaceHeadIfGenerationMatches store (Just (headGeneration stopped)) stopped {headGeneration = headGeneration stopped + 1, headIncarnations = incarnations} >>= expectRight
-  let input = CloseInput transaction (reviewedDigest reviewed) False
+  let input = CloseInput transaction (reviewedDigest reviewed) False Nothing
   modifyIORef' adversary (\value -> value {storeArmed = True})
   closed <- closeTransaction store registry input
   writes <- maybe 0 id . Map.lookup StorePutCall . counts <$> readIORef adversary
@@ -147,7 +154,7 @@ revertedClose = do
     Right other -> assertFailure ("the refused update did not stop: " <> show other) >> pure (error "unreachable")
   admitted <- readHead store >>= expectRight >>= maybe (assertFailure "head missing" >> pure (error "unreachable")) pure
   assertBool "admission retained the worker" (Map.member (declarationId worker) (headRetained admitted))
-  record <- closeTransaction store registry (CloseInput transaction (reviewedDigest reviewed) False) >>= either (\errors -> assertFailure ("close refused: " <> show (NE.toList errors)) >> pure (error "unreachable")) pure
+  record <- closeTransaction store registry (CloseInput transaction (reviewedDigest reviewed) False Nothing) >>= either (\errors -> assertFailure ("close refused: " <> show (NE.toList errors)) >> pure (error "unreachable")) pure
   Map.elems (closedScopes record) @?= [RevertTo (Map.lookup jobs (headAccepted before)), RevertTo (Map.lookup web (headAccepted before))]
   after <- readHead store >>= expectRight >>= maybe (assertFailure "head missing" >> pure (error "unreachable")) pure
   headActiveTransaction after @?= Nothing
@@ -175,11 +182,26 @@ unknownBlocks = do
     applyReviewed store registry reviewed >>= expectRight >>= \case
       StoppedAmbiguous tx _ -> pure tx
       other -> assertFailure ("the update did not stop: " <> show other) >> pure (error "unreachable")
-  closeTransaction store registry (CloseInput transaction (reviewedDigest reviewed) False) >>= \case
+  closeTransaction store registry (CloseInput transaction (reviewedDigest reviewed) False Nothing) >>= \case
     Left errors -> assertBool ("unexpected refusal: " <> show (NE.toList errors)) (any ((== "unknown-operation") . admissionErrorCode) (NE.toList errors))
     Right record -> assertFailure ("an unproved operation was closed: " <> show record)
-  after <- readHead store >>= expectRight
-  (after >>= headActiveTransaction) @?= Just (transactionIdText transaction)
+  stuck <- readHead store >>= expectRight >>= maybe (assertFailure "head missing" >> pure (error "unreachable")) pure
+  headActiveTransaction stuck @?= Just (transactionIdText transaction)
+  -- §5 (E's U2): the operator attests, and the close accepts nothing.
+  let attestation = Attestation "operator@example.test" "the provider's change log shows no write" [AttestedEvidence "provider audit log export" Nothing]
+      attested = CloseInput transaction (reviewedDigest reviewed) False (Just attestation)
+  record <- closeTransaction store registry attested >>= either (\errors -> assertFailure ("attested close refused: " <> show (NE.toList errors)) >> pure (error "unreachable")) pure
+  closedAttestation record @?= Just attestation
+  Map.elems (closedScopes record) @?= [KeepDesired]
+  closedNeverStarted record @?= mempty
+  closed <- readHead store >>= expectRight >>= maybe (assertFailure "head missing" >> pure (error "unreachable")) pure
+  headActiveTransaction closed @?= Nothing
+  headAccepted closed @?= headAccepted stuck
+  headConverged closed @?= headConverged stuck
+  headRetained closed @?= headRetained stuck
+  headIncarnations closed @?= headIncarnations stuck
+  -- Repeating it only completes the release.
+  closeTransaction store registry attested >>= either (\errors -> assertFailure ("repeated close refused: " <> show (NE.toList errors))) (@?= record)
 
 -- | H2: a review creates one member and then has its dependent update refused
 -- before any effect. The legacy abandon reset the scope to its converged
@@ -200,10 +222,15 @@ keepsCompletedEffects = do
   _ <- converge store registry owner [settings "v1"] [(declarationId (settings "v1"), ConfirmedAbsent (contentDigest "absent"))]
   reviewed <- reviewFor store registry owner [dependent "v2", created] [(declarationId (settings "v1"), ObservedPresent (ok (mkPhysicalIdentity "settings-uid"))), (declarationId created, ConfirmedAbsent (contentDigest "absent"))]
   transaction <- stoppedTransaction store registry reviewed
+  -- Every operation is proved, so an attestation has nothing to decide.
+  let unneeded = Attestation "operator@example.test" "unneeded" []
+  closeTransaction store registry (CloseInput transaction (reviewedDigest reviewed) False (Just unneeded)) >>= \case
+    Left errors -> map admissionErrorCode (NE.toList errors) @?= ["attestation-unneeded"]
+    Right record -> assertFailure ("an attestation overrode the proof: " <> show record)
   -- Every target reads absent at close, yet the refused update is no
   -- never-started create, so nothing may be replanned as one.
   let absent = ok (mkAdapterRegistry [(ok (lookupAdapter registry KubernetesExecutor)) {adapterObserve = \resources -> pure (observationSet [(resource, ConfirmedAbsent (contentDigest "absent")) | resource <- resources])}])
-  record <- closeTransaction store absent (CloseInput transaction (reviewedDigest reviewed) False) >>= either (\errors -> assertFailure ("close refused: " <> show (NE.toList errors)) >> pure (error "unreachable")) pure
+  record <- closeTransaction store absent (CloseInput transaction (reviewedDigest reviewed) False Nothing) >>= either (\errors -> assertFailure ("close refused: " <> show (NE.toList errors)) >> pure (error "unreachable")) pure
   closedNeverStarted record @?= mempty
   after <- readHead store >>= expectRight >>= maybe (assertFailure "head missing" >> pure (error "unreachable")) pure
   headActiveTransaction after @?= Nothing
@@ -233,7 +260,7 @@ revertsToReviewBase = do
           (\_ _ -> pure (RecoveryLandedUnready landed))
   stopped <- reviewFor store landing owner [settings "v2"] [(declarationId (settings "v1"), ObservedPresent landed)]
   stoppedTx <- stoppedTransaction store landing stopped
-  _ <- closeTransaction store landing (CloseInput stoppedTx (reviewedDigest stopped) False) >>= either (\errors -> assertFailure ("close refused: " <> show (NE.toList errors)) >> pure (error "unreachable")) pure
+  _ <- closeTransaction store landing (CloseInput stoppedTx (reviewedDigest stopped) False Nothing) >>= either (\errors -> assertFailure ("close refused: " <> show (NE.toList errors)) >> pure (error "unreachable")) pure
   afterStop <- readHead store >>= expectRight >>= maybe (assertFailure "head missing" >> pure (error "unreachable")) pure
   -- The correction's update is refused before any effect, then abandoned.
   correction <- reviewFor store first' owner [settings "v3"] [(declarationId (settings "v1"), ObservedPresent landed)]

@@ -122,7 +122,17 @@ withCdnPurge bindings ops base =
         if isPurge operation
           then verify operation native
           else adapterVerify base operation native
-    , adapterSettle = Nothing
+    , -- E's U2: a purge whose acceptance receipt is missing cannot be
+      -- observed after the fact, so it settles unknown and ends only by an
+      -- attested close. Every other operation settles as the base adapter's.
+      adapterSettle = Just $ \operation native ->
+        if isPurge operation
+          then
+            either
+              (\why -> SettledUnknown why "an attested close (inventory close --attest); provider acceptance of a purge cannot be observed later")
+              (const (SettledUnknown "the purge is proved accepted" "inventory resume"))
+              <$> verify operation native
+          else settleOperationWith base operation native
     , adapterRecover = \operation native ->
         if isPurge operation
           then do

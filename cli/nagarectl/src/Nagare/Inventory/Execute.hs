@@ -19,9 +19,12 @@ module Nagare.Inventory.Execute
   , settleReviewedOperation
   , CloseInput (..)
   , closeTransaction
+  , Attestation (..)
+  , AttestedEvidence (..)
   , CloseRecord (..)
   , OperationClass (..)
   , ScopeDisposition (..)
+  , decodeAttestation
   , renderCloseRecord
   )
 where
@@ -48,5 +51,5 @@ import Nagare.Inventory.Execute.Types
   , TransactionResult (..)
   , decodeOperatorRecoveryInput
   )
-import Nagare.Inventory.Plan.CloseRecord (CloseRecord (..), OperationClass (..), ScopeDisposition (..), renderCloseRecord)
+import Nagare.Inventory.Plan.CloseRecord (Attestation (..), AttestedEvidence (..), CloseRecord (..), OperationClass (..), ScopeDisposition (..), decodeAttestation, renderCloseRecord)
 import Nagare.Inventory.Store (withProcessLock)

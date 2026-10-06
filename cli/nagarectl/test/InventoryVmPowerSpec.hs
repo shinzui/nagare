@@ -7,6 +7,7 @@ import Data.Generics.Labels ()
 import Data.IORef
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
+import Data.Text qualified as T
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Command (executionBlockedAdapterFor)
@@ -64,6 +65,10 @@ inventoryVmPowerTests =
         writeIORef current (VmPowerObservation "98765" "STOPPING")
         adapterRecover adapter operation native >>= \case
           RecoveryUnresolved _ -> pure ()
+          value -> assertFailure (show value)
+        -- E's U2: close cannot prove it, so the attested close is the exit.
+        settleOperationWith adapter operation native >>= \case
+          SettledUnknown _ resolvesBy -> assertBool "names the attested close" ("--attest" `T.isInfixOf` resolvesBy)
           value -> assertFailure (show value)
         readIORef writes >>= (@?= 0)
     , testCase "retained completion survives opposite transition and fresh planning" $ do

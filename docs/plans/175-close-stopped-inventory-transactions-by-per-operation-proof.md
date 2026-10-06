@@ -127,9 +127,25 @@ which is steps 1 and 4 of MasterPlan 23's release line (b).
     cover the six rules. `F59-standalone-unstarted-creates` was regenerated after a comment change.
   - **Docs.** The runbook gains "Close a stopped transaction". ADR 22 is amended, and the tracker
     has an exit-change note plus implementation updates on F35, F36, F37 and F51.
-- [ ] M4: attested close and U2. `close --attest` closes a transaction whose operations an adapter
-  cannot prove, accepting nothing. A CDN purge and a VM power operation that cannot be resolved end
-  through it.
+- [x] M4 (2026-10-05): attested close and U2.
+  - **Command.** `inventory close --attest FILE` reads a strict version-1 attestation: operator,
+    reason, and evidence notes with optional digests. The record keeps it under `attestation`,
+    omitted when absent so unattested record bytes are unchanged.
+  - **Rule.** An attested close is admissible only when unknown operations are the sole blocker.
+    It keeps every changed scope at its desired revision, removes no retained entry and records no
+    never-started create. With every operation proved it refuses (`attestation-unneeded`).
+  - **U2.** The CDN purge and VM power wrappers settle their own one-shot operations as unknown,
+    naming the attested close. Every other operation settles as the wrapped adapter's.
+    Previously the wrappers' `Nothing` bypassed the base adapter's own settlement.
+  - **Tests.**
+    - "close refuses while an operation is unproved, …; an attested close then accepts nothing":
+      head unchanged except the release, and a repeat is idempotent;
+    - "an attestation file is strict";
+    - the H2 test refuses an unneeded attestation;
+    - the CDN purge and VM power specs assert the attested resolution.
+  - **Mutation records.** `ADR26-attest-overrides-proof` and `ADR26-U2-cdn-purge-settles-by-recovery`
+    and `ADR26-U2-vm-power-settles-by-recovery`, each failing a named test.
+  - The runbook documents the attested close.
 
 
 ## Surprises & Discoveries
@@ -218,6 +234,13 @@ which is steps 1 and 4 of MasterPlan 23's release line (b).
   revert-to-converged hazard (H1) on this path.
   Date: 2026-10-05
 
+- Decision: An attested close keeps every changed scope at its desired revision rather than reverting
+  any of them, even a scope whose operations all classed as no effect.
+  Rationale: ADR 26 §5 says the attested exit accepts nothing and binds nothing. Keeping the admitted
+  revision leaves every member owned and unconverged, so the next plan observes the truth. A revert
+  would drop ownership on the strength of an attestation about a different operation.
+  Date: 2026-10-05
+
 - Decision: `RecoveryLandedUnready` and `RecoveryTargetReplaced` stay as `RecoveryDecision`
   constructors for now. Folding them into `Settlement` moves to
   `docs/plans/176-record-physical-identity-at-creation-and-read-it-through-one-checked-accessor.md`.
@@ -230,7 +253,29 @@ which is steps 1 and 4 of MasterPlan 23's release line (b).
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+Completed 2026-10-05; release line (b) steps 1 and 4 are implemented.
+
+- **One exit.** Every stopped transaction now has one exit. Close by proof keeps or reverts each
+  changed scope. Attested close accepts nothing. Five decision names survive only as aliases of
+  close.
+- **Deletions.** The per-kind allowlists, two head writers that reset to the converged revision,
+  and twelve instance mutation records are gone. Eleven rule-level records cover the rules that
+  replaced them.
+- **Hazards.** H1, H2, H3/U3 and U1 each have a regression, and E's U2 has an exit.
+- **What worked.**
+  - Writing the close as one pure record plus one head write made re-entry trivial. It also let
+    the fenced rollback share the same commit (`commitClose`), which fixed H1 on that path too.
+  - The surviving mutants were the most useful signal. Three of the four new rule-level records
+    survived the existing suite, and each exposed an assertion the close tests lacked: absence
+    observation, incarnations, never-started updates.
+- **What to watch.**
+  - Close's correctness rests on each adapter's settlement. An adapter that settles a real effect
+    as no-effect would revert a scope with live objects. EP-177's kind table must check settlement
+    per kind, not per scenario.
+  - `RecoveryLandedUnready` and `RecoveryTargetReplaced` move to EP-176.
+  - The attested U2 path is proven at two levels: adapter settlement, and close with an
+    unprovable operation. It is not proven through a reviewed CDN or VM transaction end to end.
+    The step 5 native run should exercise one.
 
 
 ## Context and Orientation

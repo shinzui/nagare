@@ -209,7 +209,17 @@ withVmPower bindings ops base =
     , adapterPreflight = \op native -> if selected op then inspect op native (const (Right ())) else adapterPreflight base op native
     , adapterExecute = \op native -> if selected op then execute op native else adapterExecute base op native
     , adapterVerify = \op native -> if selected op then verify op native else adapterVerify base op native
-    , adapterSettle = Nothing
+    , -- E's U2: a lost or refused power submit leaves the VM in a state
+      -- that proves nothing about the submit, so it settles unknown and ends
+      -- only by an attested close. Other operations settle as the base's.
+      adapterSettle = Just $ \op native ->
+        if selected op
+          then
+            either
+              (\why -> SettledUnknown why "an attested close (inventory close --attest) after checking the VM's power state")
+              (const (SettledUnknown "the power change is proved" "inventory resume"))
+              <$> verify op native
+          else settleOperationWith base op native
     , adapterRecover = \op native ->
         if selected op
           then either RecoveryUnresolved RecoveryProvedComplete <$> verify op native

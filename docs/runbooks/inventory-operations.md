@@ -185,6 +185,38 @@ Typical stops:
   partial and close keeps the scope. The partial scratch database or PVC remains for a separate
   reviewed recovery; the live source is not restored automatically.
 
+### Attested close: when no adapter can prove an operation
+
+Some one-shot operations cannot be observed after the fact. Examples are a CDN purge whose
+acceptance receipt was lost, or a VM power change whose submit was lost or refused (E's U2). Close
+refuses them as unknown, and the refusal names `inventory close --attest` as the resolution. Check
+the provider yourself (its audit log, the VM's power state), then record what you found:
+
+```json
+{
+  "version": 1,
+  "operator": "you@example.com",
+  "reason": "Cloudflare audit log shows purge request 4f2a accepted at 10:42",
+  "evidence": [{ "note": "audit log export", "digest": "<sha256 of the export, optional>" }]
+}
+```
+
+```bash
+nagarectl --context "$CONTEXT" inventory close "$TRANSACTION" --review "$REVIEW_SHA256" \
+  --attest "$PRIVATE_ATTESTATION"
+```
+
+An attested close is admissible only when unknown operations are the sole reason close refused.
+Resume must still be stuck, and no fence or migration may be active. If every operation is proved,
+it refuses (`attestation-unneeded`), because the proof decides each scope. It accepts nothing:
+- every changed scope keeps the admitted desired revision;
+- converged revisions, incarnations and retained entries are unchanged;
+- no create is recorded as never-started.
+
+So the next plan re-observes every member and binds nothing from this transaction. The close record
+keeps the attestation. The file is strict: unknown fields, an empty operator or reason, and any
+version other than 1 are refused. Never edit the store by hand instead.
+
 Close is idempotent. If its head write did not land, run the same command again; it only
 completes the release. A closed transaction is final: resume reports it closed, and `inventory
 recover` refuses any other decision for it. Add `--take-over` only after establishing that the

@@ -2,12 +2,15 @@
 -- dispositions of a closed transaction; internal implementation behind
 -- Nagare.Inventory.Plan and Nagare.Inventory.Execute.
 module Nagare.Inventory.Plan.CloseRecord
-  ( CloseRecord (..)
+  ( Attestation (..)
+  , AttestedEvidence (..)
+  , CloseRecord (..)
   , OperationClass (..)
   , ScopeDisposition (..)
   , closedMarker
   , closedRecordDigest
   , closeRecordKey
+  , decodeAttestation
   , loadCloseRecord
   , publishCloseRecord
   , renderCloseRecord
@@ -15,8 +18,10 @@ module Nagare.Inventory.Plan.CloseRecord
 where
 
 import Data.Aeson
-import Data.Aeson.Types (Parser)
+import Data.Aeson.KeyMap qualified as KeyMap
+import Data.Aeson.Types (Parser, parseEither)
 import Data.ByteString (ByteString)
+import Data.Generics.Labels ()
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set (Set)
@@ -68,8 +73,67 @@ data CloseRecord = CloseRecord
   , closedNeverStarted :: !(Set ResourceId)
   -- ^ Creates that never started (or were refused) and were observed absent
   -- at close; valid while the scope's accepted revision is 'closedDesired'.
+  , closedAttestation :: !(Maybe Attestation)
+  -- ^ ADR 26 §5: present only on a close that accepted nothing because some
+  -- operations could not be proved.
   }
   deriving stock (Eq, Show)
+
+-- | ADR 26 §5: who closed a transaction whose operations no adapter can
+-- prove, why, and what they looked at. It replaces a hand edit of the store.
+data Attestation = Attestation
+  { operator :: !Text
+  , reason :: !Text
+  , evidence :: ![AttestedEvidence]
+  }
+  deriving stock (Eq, Generic, Show)
+
+data AttestedEvidence = AttestedEvidence
+  { note :: !Text
+  , digest :: !(Maybe ContentDigest)
+  }
+  deriving stock (Eq, Generic, Show)
+
+-- | The operator's version-1 attestation file. Unknown fields, an empty
+-- operator and an empty reason are refused.
+decodeAttestation :: ByteString -> Either Text Attestation
+decodeAttestation bytes = first T.pack (eitherDecodeStrict' bytes >>= parseEither parseFile)
+  where
+    parseFile = withObject "attestation" $ \o -> do
+      exactKeys o ["version", "operator", "reason", "evidence"]
+      version <- o .: "version"
+      unless (version == (1 :: Int)) (fail "unsupported attestation version")
+      attestation <- parseJSON (Object (KeyMap.delete "version" o))
+      when (T.null (T.strip (attestation ^. #operator))) (fail "the attestation names no operator")
+      when (T.null (T.strip (attestation ^. #reason))) (fail "the attestation gives no reason")
+      pure attestation
+
+exactKeys :: Object -> [Key] -> Parser ()
+exactKeys o allowed =
+  case filter (`notElem` allowed) (KeyMap.keys o) of
+    [] -> pure ()
+    extra -> fail ("unknown fields: " <> show extra)
+
+instance ToJSON Attestation where
+  toJSON attestation =
+    object
+      [ "operator" .= (attestation ^. #operator)
+      , "reason" .= (attestation ^. #reason)
+      , "evidence" .= (attestation ^. #evidence)
+      ]
+
+instance FromJSON Attestation where
+  parseJSON = withObject "Attestation" $ \o -> do
+    exactKeys o ["operator", "reason", "evidence"]
+    Attestation <$> o .: "operator" <*> o .: "reason" <*> o .: "evidence"
+
+instance ToJSON AttestedEvidence where
+  toJSON item = object (("note" .= (item ^. #note)) : ["digest" .= value | Just value <- [item ^. #digest]])
+
+instance FromJSON AttestedEvidence where
+  parseJSON = withObject "AttestedEvidence" $ \o -> do
+    exactKeys o ["note", "digest"]
+    AttestedEvidence <$> o .: "note" <*> o .:? "digest"
 
 closedMarker :: Text
 closedMarker = "closed:"
@@ -112,7 +176,7 @@ contentDigestOf = contentDigest
 
 instance ToJSON CloseRecord where
   toJSON record =
-    object
+    object $
       [ "version" .= (1 :: Int)
       , "transaction" .= closedTransaction record
       , "review" .= closedReview record
@@ -122,6 +186,7 @@ instance ToJSON CloseRecord where
       , "retainedRemoved" .= Set.toAscList (closedRetainedRemoved record)
       , "neverStarted" .= Set.toAscList (closedNeverStarted record)
       ]
+        <> ["attestation" .= attestation | Just attestation <- [closedAttestation record]]
 
 instance FromJSON CloseRecord where
   parseJSON = withObject "CloseRecord" $ \o -> do
@@ -138,6 +203,7 @@ instance FromJSON CloseRecord where
       <*> pure (Map.fromList desired)
       <*> (Set.fromList <$> o .: "retainedRemoved")
       <*> (Set.fromList <$> o .: "neverStarted")
+      <*> o .:? "attestation"
 
 instance ToJSON OperationClass where
   toJSON cls = case cls of
@@ -184,6 +250,9 @@ renderCloseRecord :: CloseRecord -> Text
 renderCloseRecord record =
   T.unlines $
     ["closed " <> transactionIdText (closedTransaction record) <> "; nothing was written to any provider"]
+      <> [ "  attested by " <> attestation ^. #operator <> ": " <> attestation ^. #reason <> "; nothing was accepted, and the next plan re-observes every member"
+         | Just attestation <- [closedAttestation record]
+         ]
       <> ["  " <> operationIdText operation <> ": " <> renderClass cls | (operation, cls) <- Map.toAscList (closedClasses record)]
       <> ["  scope " <> scopeIdText scope <> ": " <> renderDisposition disposition | (scope, disposition) <- Map.toAscList (closedScopes record)]
       <> ["  never started, absent at close: " <> T.intercalate ", " (map resourceIdText (Set.toAscList (closedNeverStarted record))) | not (Set.null (closedNeverStarted record))]

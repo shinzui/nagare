@@ -326,10 +326,10 @@ runInventoryRecover mctx transaction operation decisionFile takeOver = do
   target <- activeTarget mctx
   Inventory.recoverInventoryWithFactory (inventoryExecutionRegistry mctx) target transaction operation decisionFile takeOver
 
-runInventoryClose :: Maybe String -> Text -> Text -> Bool -> IO ()
-runInventoryClose mctx transaction review takeOver = do
+runInventoryClose :: Maybe String -> Text -> Text -> Maybe FilePath -> Bool -> IO ()
+runInventoryClose mctx transaction review attest takeOver = do
   target <- activeTarget mctx
-  Inventory.closeInventoryWithFactory (inventoryExecutionRegistry mctx) target transaction review takeOver
+  Inventory.closeInventoryWithFactory (inventoryExecutionRegistry mctx) target transaction review attest takeOver
 
 runInventoryRegistryRecoveryPlan :: Maybe String -> String -> String -> FilePath -> IO ()
 runInventoryRegistryRecoveryPlan mctx transaction operation output = do

@@ -623,7 +623,7 @@ recoverInventoryWithFactory registryFor target transactionToken operationToken d
       unless
         (operation `elem` map (plannedOperationId . reviewPlannedOperation) (reviewOperations (reviewBundleDocument bundle)))
         (dieText "the recovery decision names an operation outside the transaction's review")
-      record <- closeTransaction store registry (CloseInput transaction (recoveryReview input) takeOver) >>= either (dieText . showText . NE.toList) pure
+      record <- closeTransaction store registry (CloseInput transaction (recoveryReview input) takeOver Nothing) >>= either (dieText . showText . NE.toList) pure
       TIO.putStr (renderCloseRecord record)
     else do
       recordOperatorRecovery store registry input takeOver >>= either (dieText . showText . NE.toList) pure
@@ -633,38 +633,31 @@ recoverInventoryWithFactory registryFor target transactionToken operationToken d
 
 -- | ADR 26: close a stopped transaction by per-operation proof.
 closeInventoryWithFactory ::
-  (InventoryStore -> ReviewBundle -> IO AdapterRegistry) -> ActiveTarget -> Text -> Text -> Bool -> IO ()
-closeInventoryWithFactory registryFor target transactionToken reviewToken takeOver = do
+  (InventoryStore -> ReviewBundle -> IO AdapterRegistry) -> ActiveTarget -> Text -> Text -> Maybe FilePath -> Bool -> IO ()
+closeInventoryWithFactory registryFor target transactionToken reviewToken attestFile takeOver = do
   rejectReentry
   transaction <- either dieText pure (mkTransactionId transactionToken)
   review <- either dieText pure (mkContentDigest reviewToken)
+  attestation <- forM attestFile $ \file -> do
+    bytes <- try (BS.readFile file) :: IO (Either IOException ByteString)
+    either (dieText . showText) (either (dieText . ("attestation: " <>)) pure . decodeAttestation) bytes
   store <- openTargetStore target
   bundle <- loadPublishedReview store review >>= either (dieText . showText) pure
   registry <- registryFor store bundle
-  record <- closeTransaction store registry (CloseInput transaction review takeOver) >>= either (dieText . T.intercalate "\n" . map admissionErrorMessage . NE.toList) pure
+  record <- closeTransaction store registry (CloseInput transaction review takeOver attestation) >>= either (dieText . T.intercalate "\n" . map admissionErrorMessage . NE.toList) pure
   TIO.putStr (renderCloseRecord record)
 
 reportRecovery :: InventoryStore -> TransactionId -> OperatorRecoveryInput -> IO ()
 reportRecovery store transaction input =
   case recoveryAction input of
-    StopIncompleteApplication ->
-      TIO.putStrLn "Incomplete application review stopped; ownership and data retained; inspect inventory status before saving a corrected review"
-    AbandonPartialPrune ->
-      TIO.putStrLn "Terminal scheduled prune review abandoned; exact provider members remain unresolved until a separate reviewed recovery"
-    AbandonPartialVolumeRestore ->
-      TIO.putStrLn "Terminal volume restore review abandoned; unaccepted scratch PVC remains unresolved until a separate reviewed recovery; use a fresh restore ID"
-    AbandonPartialDatabaseRestore ->
-      TIO.putStrLn "Terminal database restore review abandoned; unaccepted scratch database remains unresolved until a separate reviewed recovery; use a fresh restore ID"
-    AbandonRefusedOperation ->
-      TIO.putStrLn "Refused operation abandoned and its review ended without convergence; completed earlier effects remain unaccepted; inspect inventory status before saving a new review"
     RecoverFencedBackup ->
-      TIO.putStrLn "Reviewed recovery backup proved and original restore review abandoned; inspect inventory status before saving a new review"
+      TIO.putStrLn "Reviewed recovery backup proved and the original restore review closed; inspect inventory status before saving a new review"
     ForwardFencedRelease -> do
       current <- readHead store >>= either (dieText . showText) pure
       case current of
         Just headValue
           | headActiveTransaction headValue /= Just (transactionIdText transaction) ->
-              TIO.putStrLn "Reviewed recovery backup released and original restore review abandoned; inspect inventory status before saving a new review"
+              TIO.putStrLn "Reviewed recovery backup released and the original restore review closed; inspect inventory status before saving a new review"
         _ -> TIO.putStrLn "Reviewed writer release recovered; inspect inventory status, then resume the transaction"
     _ -> TIO.putStrLn "Reviewed recovery action completed; inspect inventory status, then resume the transaction"
 

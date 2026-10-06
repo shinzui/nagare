@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/CdnPurge.hs b/cli/nagarectl/src/Nagare/Inventory/CdnPurge.hs
+index d35449a1..5c751b05 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/CdnPurge.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/CdnPurge.hs
+@@ -126,7 +126,7 @@ withCdnPurge bindings ops base =
+       -- observed after the fact, so it settles unknown and ends only by an
+       -- attested close. Every other operation settles as the base adapter's.
+       adapterSettle = Just $ \operation native ->
+-        if isPurge operation
++        if False && isPurge operation
+           then
+             either
+               (\why -> SettledUnknown why "an attested close (inventory close --attest); provider acceptance of a purge cannot be observed later")

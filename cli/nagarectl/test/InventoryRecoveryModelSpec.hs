@@ -666,7 +666,7 @@ tryMoveQuiet run registry reviewed transaction move = do
         <$> closeTransaction
           (runStore run)
           registry
-          (CloseInput transaction (contentDigest (encodeReviewDocument (reviewedDocument reviewed))) False)
+          (CloseInput transaction (contentDigest (encodeReviewDocument (reviewedDocument reviewed))) False Nothing)
   later <- progressSignature run transaction
   idle <- maybe True (isNothing . headActiveTransaction) <$> (readHead (runInspect run) >>= orFail "read head")
   pure $ case result of

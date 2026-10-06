@@ -109,6 +109,7 @@ inventoryCmd =
                   ( InventoryClose
                       <$> strArgument (metavar "TRANSACTION")
                       <*> strOption (long "review" <> metavar "DIGEST")
+                      <*> optional (strOption (long "attest" <> metavar "FILE" <> help "Operator attestation for operations no adapter can prove; the close then accepts nothing"))
                       <*> switch (long "take-over") <**> helper
                   )
                   (progDesc "Close a stopped transaction whose every operation is proved; writes nothing to any provider (ADR 26)")

@@ -179,7 +179,7 @@ dispatch (mctx, cmd0) = case cmd0 of
   InventoryResume transaction yes takeOver -> runInventoryResume mctx (T.pack transaction) yes takeOver
   InventoryRecover transaction operation decisionFile takeOver ->
     runInventoryRecover mctx (T.pack transaction) (T.pack operation) decisionFile takeOver
-  InventoryClose transaction review takeOver -> runInventoryClose mctx (T.pack transaction) (T.pack review) takeOver
+  InventoryClose transaction review attest takeOver -> runInventoryClose mctx (T.pack transaction) (T.pack review) attest takeOver
   InventoryRegistryRecoveryPlan transaction operation output ->
     runInventoryRegistryRecoveryPlan mctx transaction operation output
   InventoryExport output -> runInventoryExport mctx output

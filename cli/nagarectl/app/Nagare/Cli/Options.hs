@@ -345,7 +345,7 @@ data Command
   | InventoryApply FilePath Bool
   | InventoryResume String Bool Bool
   | InventoryRecover String String FilePath Bool
-  | InventoryClose String String Bool
+  | InventoryClose String String (Maybe FilePath) Bool
   | InventoryRegistryRecoveryPlan String String FilePath
   | InventoryExport FilePath
   | InventoryRestore FilePath Bool
