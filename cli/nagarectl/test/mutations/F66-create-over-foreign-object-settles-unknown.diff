@@ -1,0 +1,12 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs b/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs
+--- a/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs
+@@ -792,7 +792,7 @@
+     _ -> SettledUnknown (unresolved decision) "a corrected review, or an attested close"
+   where
+     resource = mutationResource mutation
+-    createdOver owner = mutationAction mutation == CreateResource && owner /= Just resource && (case mutationBefore mutation of KubernetesAbsent {} -> True; _ -> False)
++    createdOver _ = False
+     -- The owned object the operation was reviewed against, if any.
+     beforeIdentity = case mutationBefore mutation of
+       KubernetesPresent prior _ (Just owner) _ | owner == resource -> Just prior

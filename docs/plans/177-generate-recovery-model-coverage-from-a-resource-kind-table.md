@@ -17,6 +17,11 @@ provenance:
       at: 2026-10-06T14:20:53Z
       mode: "update"
       note: "Deep tier made change-scoped and bounded (operator, 2026-10-06)"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-06T15:23:30Z
+      mode: "implement"
+      note: "Create-scenario deep rerun: three harness gaps fixed, F66 recorded and fixed"
 ---
 
 # Generate recovery model coverage from a resource kind table
@@ -108,6 +113,14 @@ MasterPlan 23's release line (b).
       would only produce expected refusals.
     - A dedicated corrected-review exit move: corrected reviews are explored by the explicit
       bad-then-corrected scenarios, and by the fresh-review replan that EP-176 M3 added.
+- [x] M3 follow-up (2026-10-06, branch `create-scenario-fixes`): the deep tier's "create"
+  scenario, rerun alone as deep shard 0/52 at `a4d84543`, had 67 violations. Each has a cause:
+  - 25 were a harness gap: admission was retried only once (see Surprises).
+  - 3 were a harness gap: there was no close with take-over (see Surprises).
+  - 3 were a harness gap: progress ignored the world (see Surprises).
+  - 36 (20 I1 and 16 I8) were one product defect, F66 in `docs/audits/mp23-findings.md`.
+  After all four fixes, the same rerun reports `recovery-model: [1/1] create: done in 722s, 0
+  violation(s)` (19,758 schedules, observed). A regression test pins one schedule of each cause: "create-scenario fault pairs that had no exit now have one (EP-177, F66)".
 - Original M3 text: the faults and harness fixes. The model gains:
   - the `CrashAtStore` and `ClaimLost` faults;
   - a live `LandsFailed` through Job fixtures;
@@ -133,6 +146,25 @@ MasterPlan 23's release line (b).
     `docs/plans/179-bring-the-recovery-model-deep-tier-within-an-hour.md`.
 - **A bug the first deep run found.** Two store faults could crash both planning attempts, and the
   `Interrupted` escaped the harness. Planning is now retried until no new fault fires.
+- **Three harness gaps in the "create" deep rerun (2026-10-06, shard 0/52 at `a4d84543`).** Each
+  was confirmed by its own schedule before the fix. The search is unchanged: a found exit still
+  has to reach an idle head through the product's own commands.
+  - **Admission was retried only once (25 violations).** When store faults hit both admission
+    attempts, the review was refused with `StoreIoError` (`retention-coverage`, `store`,
+    `head-condition` or `deferred-operation`). `applyRetryingFaults` now re-runs admission while
+    new faults fire and the head stays idle, as `retryingStoreFaults` already does for planning.
+  - **There was no close with take-over (3 violations).** A landed, unready create whose claim
+    was lost cannot resume or close without take-over (`executor-claim`). Take-over resume then
+    stops in the same state, so the search pruned it as "no progress". The product's exit is
+    `inventory close --take-over`, and the model now has it as the `CloseTakeOver` move.
+  - **Progress ignored the world (3 violations).** A landed, unready create whose Service is then
+    deleted outside Nagare is proved safe to retry, so close says "run inventory resume first".
+    Resume recreates the Service, which again lands unready in the same journal state, so the
+    search pruned it. `progressSignature` now also compares each live object's UID, content and
+    readiness, but not its resourceVersion, which status churn moves. The exit found is exactly
+    `[Resume, Close]`, so the product is consistent: resume progresses exactly as close says. A
+    fault firing during a move can also count as progress. That only extends the search; it
+    cannot create an exit.
 
 
 ## Decision Log
@@ -159,6 +191,23 @@ MasterPlan 23's release line (b).
   Rationale: the generated product made exhaustive pairs about 35 process-hours. A release that does
   not touch recovery code learns nothing from repeating them, and an hours-long gate would not be
   run. Plan 179 brings the tier within budget.
+  Date: 2026-10-06
+
+
+- Decision: The model's exit moves include close with take-over (`CloseTakeOver`), and its progress
+  check includes the world's live objects (identity, content, readiness).
+  Rationale: both are the operator's real exits: `inventory close --take-over`, and a resume
+  that recreates a deleted object. Without them the search pruned real exits and reported I1.
+  Neither move writes to the world directly, and an exit must still reach an idle head.
+  Date: 2026-10-06
+
+- Decision: A Kubernetes create that finds an object not stamped as its member at its address
+  settles as `TargetGone`, not `NoEffect` (F66).
+  Rationale: `NoEffect` means an unchanged before-state, but the absent before-state changed. In
+  the `Deleted`-then-`ForeignObject` schedules the create did land, then was replaced. ADR 26
+  defines `TargetGone` as replaced outside review, and ADR 27 §1 names the same class for a live
+  object that differs from the record. So the scope keeps its desired revision, and close binds
+  nothing.
   Date: 2026-10-06
 
 

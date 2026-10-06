@@ -6,7 +6,7 @@
 module InventoryRecoveryModelSpec (inventoryRecoveryModelTests) where
 
 import Control.Exception (Exception, throwIO, try)
-import Control.Monad (foldM, forM, forM_)
+import Control.Monad (foldM, forM, forM_, (>=>))
 import Data.Aeson (Value, object, (.=))
 import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
@@ -84,6 +84,16 @@ inventoryRecoveryModelTests =
             jobCreate = head [scenario | scenario <- generatedScenarios, label scenario == "kind (\"batch\",\"job\"): create"]
         exitsUnder storeRun ClaimLost >>= assertBool "no lost claim needed take-over" . elem TakeOver
         exitsUnder jobCreate LandsFailed >>= assertBool "no failed Job needed close" . elem Close
+    , testCase "create-scenario fault pairs that had no exit now have one (EP-177, F66)" $ do
+        let exits schedule = runScenario (Scenario "create" [Deploy "v1"] [] True plainShape False) schedule >>= either (assertFailure . T.unpack) (pure . finishedExits)
+        -- Store faults on both attempts of admission: re-run until it lands.
+        exits [(Boundary StoreGetCall 20, GetFailedOnce), (Boundary StoreGetCall 21, GetFailedOnce)] >>= (@?= [])
+        exits [(Boundary MutateCall 1, LandsUnready), (Boundary StorePutCall 13, ClaimLost)] >>= (@?= [[CloseTakeOver]])
+        -- The landed Service deleted outside Nagare: resume recreates it.
+        exits [(Boundary MutateCall 1, LandsUnready), (Boundary ObserveCall 7, Deleted)] >>= (@?= [[Resume, Close]])
+        -- F66: an object not stamped as the create's own is at its address.
+        forM_ [[(Boundary ObserveCall 6, ForeignObject), (Boundary StorePutCall 12, PutRefused)], [(Boundary ObserveCall 7, Deleted), (Boundary ObserveCall 8, ForeignObject)], [(Boundary ObserveCall 5, ForeignObject), (Boundary StorePutCall 9, ClaimLost)]] $
+          exits >=> assertBool "F66: no close" . any (`elem` [Close, CloseTakeOver]) . concat
     , testCase "deep tier: every ordered pair of faults has an exit (NAGARE_RECOVERY_MODEL_DEEP=1, shard with NAGARE_RECOVERY_MODEL_SHARD=i/n)" $ do
         deepTier <- lookupEnv "NAGARE_RECOVERY_MODEL_DEEP"
         shard <- lookupEnv "NAGARE_RECOVERY_MODEL_SHARD"
@@ -269,6 +279,8 @@ data Move
   | -- | Resume with take-over, after establishing the other executor
     -- stopped: the exit when a claim was lost (EP-177).
     TakeOver
+  | -- | Close with take-over, after establishing the other executor stopped.
+    CloseTakeOver
   deriving stock (Eq, Show)
 
 -- | Run the scenario's reviews in order under the schedule. After a stopped
@@ -611,7 +623,8 @@ startTransaction :: Run -> IO ()
 startTransaction run = modifyIORef' (runWorld run) (\world -> world {writes = Map.empty})
 
 -- | Apply a review. An admission refused while a fault fired is a command an
--- operator simply re-runs, so it runs once more, as planning does.
+-- operator simply re-runs, so it runs again while new faults fire, as
+-- planning does. The schedule is finite, so this ends.
 applyRetryingFaults :: Run -> AdapterRegistry -> ReviewedPlan -> IO (Either Interrupted (Either (NonEmpty AdmissionError) TransactionResult))
 applyRetryingFaults run registry reviewed = do
   before <- length . fired <$> readIORef (runAdversary run)
@@ -619,7 +632,7 @@ applyRetryingFaults run registry reviewed = do
   after <- length . fired <$> readIORef (runAdversary run)
   idle <- maybe True (isNothing . headActiveTransaction) <$> (readHead (runInspect run) >>= orFail "read head")
   case attempt of
-    Right (Left _) | after > before && idle -> try (applyReviewed (runStore run) registry reviewed)
+    Right (Left _) | after > before && idle -> applyRetryingFaults run registry reviewed
     _ -> pure attempt
 
 -- | Run a command; while it fails with a store fault firing, or the process
@@ -762,12 +775,8 @@ tryMoveQuiet run registry reviewed transaction move = do
   result <- try $ case move of
     Resume -> fmap (const ()) <$> resumeTransaction (runStore run) registry transaction
     TakeOver -> fmap (const ()) <$> resumeTransactionWithTakeover (runStore run) registry transaction True
-    Close ->
-      fmap (const ())
-        <$> closeTransaction
-          (runStore run)
-          registry
-          (CloseInput transaction (contentDigest (encodeReviewDocument (reviewedDocument reviewed))) False Nothing)
+    Close -> close False
+    CloseTakeOver -> close True
   later <- progressSignature run transaction
   idle <- maybe True (isNothing . headActiveTransaction) <$> (readHead (runInspect run) >>= orFail "read head")
   pure $ case result of
@@ -776,13 +785,18 @@ tryMoveQuiet run registry reviewed transaction move = do
     Right (Right ()) | later /= before -> MoveProgressed
     Right (Left err) -> MoveRefused (T.pack (show err))
     Right (Right ()) -> MoveRefused "no progress: the transaction's state is unchanged"
+  where
+    review = contentDigest (encodeReviewDocument (reviewedDocument reviewed))
+    close takeOver = fmap (const ()) <$> closeTransaction (runStore run) registry (CloseInput transaction review takeOver Nothing)
 
 -- | What counts as progress: the active transaction, the accepted and converged
--- revisions, and each operation's latest state. A resume that stops again at
--- the same operation in the same state only appends journal events.
-progressSignature :: Run -> TransactionId -> IO (Maybe Text, Map.Map ScopeId ScopeRevision, Map.Map ScopeId ScopeRevision, Map.Map OperationId Text)
+-- revisions, each operation's latest state, and each live object's identity,
+-- content and readiness (a resume that recreates a deleted object stops again
+-- in the same state). A resume that changes none only appends journal events.
+progressSignature :: Run -> TransactionId -> IO (Maybe Text, Map.Map ScopeId ScopeRevision, Map.Map ScopeId ScopeRevision, Map.Map OperationId Text, Map.Map ResourceId (PhysicalIdentity, ContentDigest, Readiness))
 progressSignature run transaction = do
   current <- readHead (runInspect run) >>= orFail "read head"
+  world <- readIORef (runWorld run)
   raw <- maybe (pure []) (\value -> readJournalPrefix (runInspect run) (headSequence value) >>= orFail "read journal") current
   let events = [event | Right event <- map decodeJournalEvent raw, eventTransaction event == transaction]
       latest = Map.fromList [(operation, T.pack (takeWhile (/= ' ') (show (eventState event)))) | event <- events, Just operation <- [eventOperation event]]
@@ -791,6 +805,7 @@ progressSignature run transaction = do
     , maybe Map.empty headAccepted current
     , maybe Map.empty headConverged current
     , latest
+    , Map.map (\object' -> (uid object', nativeDigest object', readiness object')) (objects world)
     )
 
 -- | I8 (ADR 26, obligation O1): every operation of a stopped transaction that
@@ -822,9 +837,10 @@ settlementGaps run registry reviewed transaction = do
       Failed (PartialOrUnknown _) -> True
       _ -> False
 
--- | ADR 26: a stopped transaction's supported exits are resume and close.
+-- | ADR 26: a stopped transaction's supported exits are resume and close,
+-- each with take-over after a lost claim.
 candidateMoves :: Run -> ReviewedPlan -> TransactionId -> IO [Move]
-candidateMoves _ _ _ = pure [Resume, Close, TakeOver]
+candidateMoves _ _ _ = pure [Resume, Close, TakeOver, CloseTakeOver]
 
 -- * Invariants I2, I4 and I5
 

@@ -1,5 +1,6 @@
 -- | ADR 26 obligations checked directly: the driver never executes a
--- verification (O6).
+-- verification (O6), and the Kubernetes proof classes a model run found
+-- unproved (F66).
 module InventorySettleSpec (inventorySettleTests) where
 
 import Data.IORef
@@ -9,8 +10,10 @@ import Data.Text.Encoding qualified as TE
 import InventoryTransactionSpec (fixtureBinding, recordingRegistryWith)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter
+import Nagare.Inventory.Adapters.Kubernetes (KubernetesMutation (..), KubernetesState (..), settleMutation)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Execute
+import Nagare.Inventory.Journal (mkOperationId)
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Store
 import Nagare.Resource.Inventory
@@ -58,6 +61,26 @@ inventorySettleTests =
         actions <- review [resource, changing] [(declarationId member', ObservedPresent (ok (mkPhysicalIdentity "uid"))) | member' <- [resource, changing]]
         assertBool ("the review does not verify: " <> show actions) (not (null actions) && all (== VerifyResource) actions)
         readIORef executed >>= (@?= [])
+    , testCase "a create that finds an object not stamped as its own settles as target gone (F66)" $ do
+        let owner = ok (mkScopeId Platform "created")
+            cluster = mintResourceId owner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
+            created = mintResourceId owner (ok (mkLogicalKey "service")) (ok (mkName "resource"))
+            other = mintResourceId owner (ok (mkLogicalKey "history")) (ok (mkName "resource"))
+            address = Kubernetes cluster "" (ok (mkName "configmap")) (Just (ok (mkName "system"))) (ok (mkName "service"))
+            digest = contentDigest "reviewed"
+            mutation = KubernetesMutation 1 (ok (mkOperationId "op-created")) digest CreateResource created address "{}" digest (KubernetesAbsent (contentDigest "absent")) Nothing
+            -- What recovery answers for a create whose address is now filled.
+            settle current = settleMutation mutation current current (RecoveryUnresolved "Kubernetes object changed since review; replan before mutation")
+            found = ok (mkPhysicalIdentity "found-uid")
+        -- A create is conditional on an empty address and stamps what it
+        -- writes as its own, so an unstamped object, or one stamped for
+        -- another member, proves the create's write is not live there.
+        settle (KubernetesPresent found "1" Nothing (contentDigest "foreign")) @?= SettledTargetGone (Just found)
+        settle (KubernetesNotReady found "1" (Just other) digest) @?= SettledTargetGone (Just found)
+        -- An object with the create's own stamp may be its write, edited.
+        case settle (KubernetesPresent found "2" (Just created) (contentDigest "edited")) of
+          SettledUnknown _ _ -> pure ()
+          settled -> assertFailure ("an object stamped as the create's own settled as " <> show settled)
     ]
 
 member :: ScopeId -> ResourceId -> Text -> Declaration

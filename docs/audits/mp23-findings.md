@@ -84,6 +84,7 @@ This is the authoritative list of implementation findings for [MP-23](../masterp
 | [F63](#f63) | P1 | A Deployment or database StatefulSet update that lands but never becomes Ready has no exit | Open | EP-153 / EP-173 |
 | [F64](#f64) | P1 | An intended update whose target is deleted outside review, and not recreated, has no exit | Verifying | EP-153 / EP-173 |
 | [F65](#f65) | P1 | The create-path stop refuses a review that recreates a deleted Service alongside its release-history update | Verifying | EP-153 / EP-173 |
+| [F66](#f66) | P1 | A create that finds an object not stamped as its own at its address settles unknown, so only an attested close can end it | Verifying | EP-153 / EP-177 |
 
 Closed findings keep their full text, location, implementation updates and verification in [the closed-findings archive](mp23-archive/mp23-findings-closed.md). F01 and F11 retain their [earlier independent closure](mp23-archive/mp23-verification.md). F02, F03, F04, F05, F06, F07, F08 and F20 now have [2026-10-02 independent closure](mp23-independent-verification-2026-10-02.md). F34, F35, F36, F37, F38, F41 and F42 have 2026-10-04 independent closure on candidate `7596632c`, and F49 and F50 on candidate `847543896d07` ([records](mp23-independent-results-2026-10-04/phase1-source-and-regressions-7596632c.md)). Other entries retain their status shown above.
 
@@ -801,3 +802,37 @@ A dedicated stop-only decision for Services and StatefulSets was written first. 
 
 **Mutation.** `test/mutations/F65-create-stop-companions.diff`.
 
+
+## F66
+
+**A create that finds an object not stamped as its own at its address settles unknown, so only an attested close can end it** — P1; **Verifying**; owners EP-153 / EP-177.
+
+**Found by the EP-177 recovery model's deep tier (2026-10-06, claude-opus-5-5).** The "create" scenario was rerun alone as deep shard 0/52 at `a4d84543` (log `deep-create-shard0of52-a4d84543.log`, observed). There, a `ForeignObject` fault puts an unowned object at a create's address. A second fault then stops the transaction:
+- a store fault (`PutRefused`, `PutLandedUnacknowledged` or `GetFailedOnce`);
+- a crash at a store write (`CrashBeforeStorePut` or `CrashAfterStorePut`);
+- or `ClaimLost`.
+
+`Deleted` followed by `ForeignObject` reaches the same state after the create has landed. The Kubernetes adapter settled the create as `SettledUnknown "Kubernetes object changed since review; replan before mutation"`, so close refused with `unknown-operation`. The only exit left was the attested close, which ADR 26 §5 reserves for outcomes an adapter cannot prove. This one cause accounted for 36 of the scenario's 67 violations: 16 I8 and 20 I1. The other 31 were harness gaps, recorded in EP-177's Surprises.
+
+**Why the class is provable.**
+- Nagare creates a Kubernetes object only on an empty address (`kubectl create`).
+- Every object a review writes carries the reserved `nagare.dev/context-id` and `nagare.dev/resource-id` stamp of its member.
+- So an object at the address without this member's stamp (unstamped, or stamped for another member) proves the create's write is not live there. Either the write never landed, or it landed and was replaced outside review.
+
+The class is not `NoEffect`. The absent before-state has changed, and in the `Deleted`-then-`ForeignObject` schedules the create had landed. It is ADR 26's `TargetGone` ("replaced … outside review"), the class ADR 27 §1 also gives a live object that differs from the record. The found UID is evidence only and is never bound.
+
+**Whether the foreign object should block close (checked against ADR 26 §2 and ADR 27 §1–3; inferred).** It should not:
+- Close writes nothing, binds no incarnation and converges nothing.
+- `TargetGone` is not a no-effect class, so the scope keeps its desired revision rather than reverting.
+- The next plan observes the unowned object at a planned address and refuses, as it already does for a `ForeignObject` fault before any transaction. That refusal is where the operator resolves the foreign object.
+- ADR 27's rebind does not apply, because it records a replacement that carries the member's own stamp.
+
+**Fix.** `settleMutation` (`Adapters/Kubernetes.hs`) now handles a create whose reviewed before-state was absent. If its address holds an object not stamped as this member, the create settles as `SettledTargetGone` with that object's UID. An object with this member's own stamp but other content stays `Unknown`, because it may be the create's own write edited out of band.
+
+**Tests.**
+- "a create that finds an object not stamped as its own settles as target gone (F66)", in `InventorySettleSpec`.
+- The recovery model's "create-scenario fault pairs that had no exit now have one (EP-177, F66)", which closes three of the logged schedules, one of them after `ClaimLost`.
+
+**Mutation.** `test/mutations/F66-create-over-foreign-object-settles-unknown.diff`.
+
+**Rehearsal (observed, 2026-10-06).** Shard 0/52 ("create") was rerun with this fix and the three EP-177 harness fixes. It reported `recovery-model: [1/1] create: done in 722s, 0 violation(s)`, down from 67.

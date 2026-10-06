@@ -1,12 +1,11 @@
 diff --git a/cli/nagarectl/test/InventoryRecoveryModelSpec.hs b/cli/nagarectl/test/InventoryRecoveryModelSpec.hs
-index ddc8f403..eb3b97f6 100644
 --- a/cli/nagarectl/test/InventoryRecoveryModelSpec.hs
 +++ b/cli/nagarectl/test/InventoryRecoveryModelSpec.hs
-@@ -790,7 +790,7 @@ settlementGaps run registry reviewed transaction = do
- 
- -- | ADR 26: a stopped transaction's supported exits are resume and close.
+@@ -840,7 +840,7 @@
+ -- | ADR 26: a stopped transaction's supported exits are resume and close,
+ -- each with take-over after a lost claim.
  candidateMoves :: Run -> ReviewedPlan -> TransactionId -> IO [Move]
--candidateMoves _ _ _ = pure [Resume, Close, TakeOver]
+-candidateMoves _ _ _ = pure [Resume, Close, TakeOver, CloseTakeOver]
 +candidateMoves _ _ _ = pure [Resume, Close]
  
  -- * Invariants I2, I4 and I5
