@@ -10,6 +10,12 @@ provenance:
     model: "claude-opus-5-5"
     harness: "claude-code"
     at: 2026-10-06T14:07:13Z
+  revisions:
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-06T19:15:39Z
+      mode: "implement"
+      note: "Implemented M1, M2, M4 and the M5 recipe, pause injection and remote gate-deep; M3 not adopted on its sampled check"
 ---
 
 # Bring the recovery model deep tier within an hour
@@ -46,8 +52,10 @@ equivalence report for each reduction, and every mutation record still failing.
 
 ## Progress
 
-- [ ] M1: snapshot and restore of a model run. A test restores a snapshot taken at a stop and
-  finds the head, journal, world and adversary equal to the snapshot.
+- [x] M1: snapshot and restore of a model run. A test restores a snapshot taken at a stop and
+  finds the head, journal, world and adversary equal to the snapshot. (2026-10-06: passes in the
+  full suite on the remote builder at `31a8a82c`; `EP179-restore-skips-adversary.diff` makes it
+  fail.)
 - [ ] M2: the exit search restores the stop snapshot for each probe. An equivalence test finds
   identical outcomes for every fast-tier schedule under both strategies, and the replay search
   then stays as the reference of a sampled fast-tier check (Decision Log, 2026-10-06).
@@ -63,13 +71,15 @@ equivalence report for each reduction, and every mutation record still failing.
   shard's log as `recovery-model: violation: …` lines the moment it is found, and each
   scenario's summary when that scenario ends.
 
-Status (2026-10-06): M1 and M2 are committed (`6bef54ac`, `406fdbe4`); their acceptance is
-recorded after the rebase onto the defect fixes (create-scenario-fixes), so the equivalence test
-covers the new close-with-take-over move and the retry loop. M4 is implemented with its sampled
-check, together with checkpoint resumption and sharding by placement (see the Decision Log). M3
-is not adopted: its sampled check failed (see the Decision Log). M2 and M4 alone measured about
-twice the budget on one 1/8 shard, about half of it in the store's retry pauses; the pause is now
-injectable (see the Decision Log), and M5's measurement follows the rebase onto master.
+Status (2026-10-06): branch `ep179-rebased`, on land-through-gate `c9bf8d35`, which is on the
+defect fixes `9ac3a484`. Commits: M1 `8a66e467`, M2 `2ae4f461`, M4 `e42a7ed2`, the
+`deep-tier-required` recipe `16ad5d3c`, the retry pause and the kept replay check `5f122f7d`,
+`gate-deep` on the remote builder `95d04c80`, the mutation proofs `31a8a82c`. On the remote builder
+at `31a8a82c` the whole nagarectl suite passes (1,233 tests in 409 s), with the snapshot-versus-
+replay check costing 33.9 s of the fast tier. The three records EP-179 touches fail as their
+README rows say. M2's exhaustive equivalence run (every fast-tier schedule of all 52 scenarios
+and every 500th fault pair, both strategies) and M5's 16-shard timing on an idle builder follow.
+M3 is not adopted: its sampled check failed (see the Decision Log).
 
 
 ## Surprises & Discoveries
