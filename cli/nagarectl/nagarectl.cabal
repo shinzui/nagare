@@ -153,6 +153,7 @@ library
     Nagare.Inventory.Adapters.KubernetesKinds
     Nagare.Inventory.Adapters.KubernetesMigration
     Nagare.Inventory.Adapters.KubernetesProof
+    Nagare.Inventory.Adapters.KubernetesReadiness
     Nagare.Inventory.Adapters.KubernetesRuntime
     Nagare.Inventory.Adapters.Pulumi
     Nagare.Inventory.Adapters.PulumiRuntime
