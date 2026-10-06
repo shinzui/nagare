@@ -301,6 +301,13 @@ haskell-style-check:
 gate-fast:
     cabal run --project-dir=cli/nagare-harness -v0 nagare-harness -- gate --fast
 
+# EP-177 (ADR 25): the recovery model's deep tier, every fault placement and
+# every ordered pair of faults over the explicit and generated scenarios. It
+# runs for a long time; run it before accepting model or kind-table changes.
+[group('test')]
+gate-deep:
+    NAGARE_RECOVERY_MODEL_DEEP=1 cabal test nagarectl-test --project-dir=cli/nagarectl --test-options='-p "/recovery model/"'
+
 # EP-174: the full gate for a candidate: clean tree, fast gate, a salted probe
 # build on every remote system, `nix flake check --all-systems`, a dry-run
 # proof that every check of every supported system is realised, and a record

@@ -69,7 +69,20 @@ MasterPlan 23's release line (b).
   - **Mutation records.** Deleting a row, a wrong claim, and an adapter kind added without a row
     each fail a named test.
   - **Not yet.** The plan's per-row fixture is deferred to M2, where generation needs it.
-- [ ] M2: the generated product. The scenario × applicable-fault × invariant product is generated
+- [ ] M2 (code in 2026-10-05; acceptance waits for `just gate-deep`): the generated product.
+  - **Scenarios.** Each in-line row with a fixture yields scenarios: create, update (where the
+    row admits it) and retire, with one member of the kind added to the application scope. That
+    gives 43 generated scenarios beside the 9 explicit ones.
+  - **Fixtures.** `kindFixture` gives each kind a minimal manifest, and the totality test requires
+    one for every in-line row.
+  - **Placement.** The fast tier places each provider fault once, at the last boundary of its
+    call, which falls in the step under test. Every boundary and ordered pair is left to the deep
+    tier (`just gate-deep`, registered in the command audit).
+  - **Reach.** A test checks that every generated create writes its kind's member: one more
+    provider write than the plain create.
+  - **Results.** The fast tier passes. The model's scopes moved to `Nagare.Test.Model.Fixtures`,
+    because the spec outgrew its size bound.
+- Original M2 text: the generated product. The scenario × applicable-fault × invariant product is generated
   from the table and replaces the hand-written scenario list. The fast tier runs a sampled product
   in the ordinary suite, and the deep tier runs the full product under `just gate-deep`.
 - [ ] M3: the faults and harness fixes. The model gains:

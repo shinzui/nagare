@@ -6,7 +6,7 @@ module InventoryKindTotalitySpec (inventoryKindTotalityTests) where
 import Data.Generics.Labels ()
 import Data.List (nub, sort)
 import Data.List.NonEmpty (NonEmpty (..))
-import Data.Maybe (isJust, mapMaybe)
+import Data.Maybe (isJust, isNothing, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
@@ -42,6 +42,8 @@ inventoryKindTotalityTests =
     , testCase "the adapter's kind lists agree with its own predicates" $ do
         [selected | selected <- collectionKinds, not (isJust (uncurry collectionPathPrefix selected))] @?= []
         [selected | selected <- readinessKinds, not (supportsReadiness (address selected))] @?= []
+    , testCase "every in-line row has a fixture for the generated model" $
+        [kubernetesKind row | row <- kindTable, row ^. #status == InLine, isNothing (kindFixture row)] @?= []
     , testCase "kind rows are unique" $
         let keys = [(row ^. #executor, row ^. #kind) | row <- kindTable]
          in length keys @?= length (nub keys)

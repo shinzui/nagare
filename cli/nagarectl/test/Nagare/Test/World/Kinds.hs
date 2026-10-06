@@ -10,11 +10,13 @@ module Nagare.Test.World.Kinds
   , KindStatus (..)
   , KindRow (..)
   , kindTable
+  , kindFixture
   , kubernetesKind
   )
 where
 
-import Nagare.Dsl.Prelude
+import Data.Aeson (Value, object, (.=))
+import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Resource.Inventory (Executor (..))
 
 data KindAction
@@ -139,4 +141,44 @@ kindTable =
       , ("batch", "cronjob")
       , ("batch", "job")
       , ("serving.knative.dev", "service")
+      ]
+
+-- | A minimal manifest of a row's Kubernetes kind for the generated model
+-- scenarios. The release annotation changes with each review, so a second
+-- review is an update of the same object.
+kindFixture :: KindRow -> Maybe (Text -> Value)
+kindFixture row = case kubernetesKind row of
+  Nothing -> Nothing
+  Just (group, lowered) -> do
+    (version, kindName, namespaced) <- lookup (group, lowered) manifests
+    pure $ \release ->
+      object $
+        [ "apiVersion" .= (if group == "" then version else group <> "/" <> version)
+        , "kind" .= kindName
+        , "metadata"
+            .= object
+              ( ["name" .= ("model-extra" :: Text), "annotations" .= object ["model.nagare.dev/release" .= release]]
+                  <> ["namespace" .= ("personal" :: Text) | namespaced]
+              )
+        ]
+          <> ["spec" .= object ["replicas" .= (1 :: Int)] | (group, lowered) == ("apps", "statefulset")]
+  where
+    manifests :: [((Text, Text), (Text, Text, Bool))]
+    manifests =
+      [ (("serving.knative.dev", "service"), ("v1", "Service", True))
+      , (("serving.knative.dev", "domainmapping"), ("v1beta1", "DomainMapping", True))
+      , (("apps", "deployment"), ("v1", "Deployment", True))
+      , (("apps", "statefulset"), ("v1", "StatefulSet", True))
+      , (("batch", "cronjob"), ("v1", "CronJob", True))
+      , (("batch", "job"), ("v1", "Job", True))
+      , (("", "configmap"), ("v1", "ConfigMap", True))
+      , (("", "service"), ("v1", "Service", True))
+      , (("", "secret"), ("v1", "Secret", True))
+      , (("", "persistentvolumeclaim"), ("v1", "PersistentVolumeClaim", True))
+      , (("", "serviceaccount"), ("v1", "ServiceAccount", True))
+      , (("", "namespace"), ("v1", "Namespace", False))
+      , (("", "resourcequota"), ("v1", "ResourceQuota", True))
+      , (("networking.k8s.io", "networkpolicy"), ("v1", "NetworkPolicy", True))
+      , (("rbac.authorization.k8s.io", "role"), ("v1", "Role", True))
+      , (("rbac.authorization.k8s.io", "rolebinding"), ("v1", "RoleBinding", True))
       ]

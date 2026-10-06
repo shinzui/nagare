@@ -578,6 +578,7 @@ test-suite nagarectl-test
     Nagare.Test.Image
     Nagare.Test.Infrastructure
     Nagare.Test.Init
+    Nagare.Test.Model.Fixtures
     Nagare.Test.Operations
     Nagare.Test.Pulumi
     Nagare.Test.Server

@@ -14,6 +14,7 @@ import Data.IORef
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
+import Data.Maybe (isJust)
 import Data.Set qualified as Set
 import Data.Text qualified as T
 import InventoryObjectOpsSpec (fakeObjectOps)
@@ -45,7 +46,9 @@ import Nagare.Resource.Policy
 import Nagare.Resource.Reference (Dependency (..))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
+import Nagare.Test.Model.Fixtures
 import Nagare.Test.World.Adversary
+import Nagare.Test.World.Kinds (KindAction (..), KindRow, KindStatus (InLine), kindFixture, kindTable, kubernetesKind)
 import Nagare.Test.World.Kubernetes
 import Nagare.Test.World.Store (faultingObjectOps)
 import System.Environment (lookupEnv)
@@ -56,7 +59,19 @@ inventoryRecoveryModelTests :: TestTree
 inventoryRecoveryModelTests =
   testGroup
     "recovery model"
-    [ testCase "fast tier: every single fault at every boundary has an exit" (runTier singleFaults)
+    [ testCase
+        ( "fast tier: every fault has an exit across "
+            <> show (length explicitScenarios)
+            <> " explicit scenarios (every boundary) and "
+            <> show (length generatedScenarios)
+            <> " generated from the kind table (one placement per fault)"
+        )
+        (runTier singleFaults)
+    , testCase "every generated create writes its kind's member" $ do
+        let writes scenario = runScenario scenario [] >>= either (assertFailure . T.unpack) (pure . Map.findWithDefault 0 MutateCall . finishedCalls)
+        plain <- writes (Scenario "create" [Deploy "v1"] [] True plainShape False)
+        forM_ [scenario | scenario <- generatedScenarios, ": create" `T.isSuffixOf` label scenario] $ \scenario ->
+          writes scenario >>= assertEqual (T.unpack (label scenario)) (plain + 1)
     , testCase "deep tier: every ordered pair of faults has an exit (NAGARE_RECOVERY_MODEL_DEEP=1)" $ do
         deepTier <- lookupEnv "NAGARE_RECOVERY_MODEL_DEEP"
         when (deepTier == Just "1") (runTier faultPairs)
@@ -77,35 +92,42 @@ data Scenario = Scenario
   -- application's release history does, or stays as first created.
   , shape :: !Shape
   -- ^ The application's other members: a durable volume, a worker.
+  , sampled :: !Bool
+  -- ^ Generated from the kind table: the fast tier places each fault once.
   }
   deriving stock (Eq, Show)
 
 scenarios :: [Scenario]
-scenarios =
-  [ Scenario "create" [Deploy "v1"] [] True plainShape
-  , Scenario "create then good update" [Deploy "v1", Deploy "v2"] [] True plainShape
-  , Scenario "create, bad update, corrected update (history unchanged)" [Deploy "v1", Deploy "bad", Deploy "v3"] ["bad"] False plainShape
-  , Scenario "create, bad update, corrected update (history follows the release)" [Deploy "v1", Deploy "bad", Deploy "v3"] ["bad"] True plainShape
-  , Scenario "create, bad update, corrected update (with a durable volume)" [Deploy "v1", Deploy "bad", Deploy "v3"] ["bad"] True volumeShape
-  , Scenario "create with a durable volume, then retire" [Deploy "v1", Retire] [] True volumeShape
-  , Scenario "create a database, then ingest a scheduled receipt" [CreateDatabase, IngestReceipt] [] True plainShape
-  , Scenario "create a database, then retire it" [CreateDatabase, RetireDatabase] [] True plainShape
-  , Scenario "create a database, update its resources, then update it again" [CreateDatabase, UpdateDatabase, CreateDatabase] [] True plainShape
+scenarios = explicitScenarios <> generatedScenarios
+
+-- | EP-177 (ADR 25): one scenario per in-line kind and action, each adding a
+-- member of that kind to the application scope.
+generatedScenarios :: [Scenario]
+generatedScenarios =
+  [ Scenario ("kind " <> T.pack (show selected) <> ": " <> action) steps' [] True plainShape {shapeExtra = Just row} True
+  | row <- kindTable
+  , row ^. #status == InLine
+  , Just selected <- [kubernetesKind row]
+  , isJust (kindFixture row)
+  , (action, steps') <-
+      [("create", [Deploy "v1"])]
+        <> [("update", [Deploy "v1", Deploy "v2"]) | KindUpdate `elem` row ^. #actions]
+        <> [("retire", [Deploy "v1", Retire]) | KindRetire `elem` row ^. #actions]
   ]
 
--- | The application's members besides its Service and release history.
-data Shape = Shape
-  { shapeVolume :: !Bool
-  , shapeWorker :: !Bool
-  -- ^ A worker Deployment whose image follows the release; in a worker
-  -- scenario only the worker's revision of an unready image fails readiness.
-  }
-  deriving stock (Eq, Show)
-
-plainShape, volumeShape, workerShape :: Shape
-plainShape = Shape False False
-volumeShape = Shape True False
-workerShape = Shape False True
+explicitScenarios :: [Scenario]
+explicitScenarios =
+  map ($ False) $
+    [ Scenario "create" [Deploy "v1"] [] True plainShape
+    , Scenario "create then good update" [Deploy "v1", Deploy "v2"] [] True plainShape
+    , Scenario "create, bad update, corrected update (history unchanged)" [Deploy "v1", Deploy "bad", Deploy "v3"] ["bad"] False plainShape
+    , Scenario "create, bad update, corrected update (history follows the release)" [Deploy "v1", Deploy "bad", Deploy "v3"] ["bad"] True plainShape
+    , Scenario "create, bad update, corrected update (with a durable volume)" [Deploy "v1", Deploy "bad", Deploy "v3"] ["bad"] True volumeShape
+    , Scenario "create with a durable volume, then retire" [Deploy "v1", Retire] [] True volumeShape
+    , Scenario "create a database, then ingest a scheduled receipt" [CreateDatabase, IngestReceipt] [] True plainShape
+    , Scenario "create a database, then retire it" [CreateDatabase, RetireDatabase] [] True plainShape
+    , Scenario "create a database, update its resources, then update it again" [CreateDatabase, UpdateDatabase, CreateDatabase] [] True plainShape
+    ]
 
 data Step
   = -- | Review and apply the application at this image.
@@ -138,11 +160,21 @@ type Schedule = [(Boundary, Fault)]
 -- Store faults do not depend on the application's shape, so the fast tier
 -- sweeps them on one representative scenario; the deep tier sweeps them all.
 singleFaults :: Scenario -> Finished -> [Schedule]
-singleFaults scenario finished =
-  [ [placement]
-  | placement@(Boundary call' _, _) <- placements finished
-  , call' `notElem` [StorePutCall, StoreGetCall] || label scenario == storeScenario
-  ]
+singleFaults scenario finished
+  -- A generated scenario places each provider fault once, at the last
+  -- boundary of its call: the step under test.
+  | sampled scenario =
+      [ [(Boundary (faultCall fault) n, fault)]
+      | fault <- [minBound .. maxBound]
+      , faultCall fault `notElem` [StorePutCall, StoreGetCall]
+      , let n = Map.findWithDefault 0 (faultCall fault) (finishedCalls finished)
+      , n > 0
+      ]
+  | otherwise =
+      [ [placement]
+      | placement@(Boundary call' _, _) <- placements finished
+      , call' `notElem` [StorePutCall, StoreGetCall] || label scenario == storeScenario
+      ]
 
 storeScenario :: Text
 storeScenario = "create then good update"
@@ -817,154 +849,11 @@ describe scenario schedule image violation tried =
       <> ["exits tried:" | not (null tried)]
       <> map ("  " <>) (take 40 tried)
 
--- * The application scope and its registry
-
-appScope :: ScopeId
-appScope = ok (mkScopeId Application "model-web")
-
-appCluster :: ResourceId
-appCluster = mintResourceId appScope (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
-
-serviceId, historyId :: ResourceId
-serviceId = mintResourceId appScope (ok (mkLogicalKey "service")) (ok (mkName "resource"))
-historyId = mintResourceId appScope (ok (mkLogicalKey "history")) (ok (mkName "resource"))
-
-serviceValue :: Text -> Value
-serviceValue image =
-  object
-    [ "apiVersion" .= ("serving.knative.dev/v1" :: Text)
-    , "kind" .= ("Service" :: Text)
-    , "metadata" .= object ["name" .= ("web" :: Text), "namespace" .= ("personal" :: Text)]
-    , "spec" .= object ["template" .= object ["spec" .= object ["containers" .= [object ["image" .= ("registry.example/web:" <> image)]]]]]
-    ]
-
-historyValue :: Text -> Value
-historyValue image =
-  object
-    [ "apiVersion" .= ("v1" :: Text)
-    , "kind" .= ("ConfigMap" :: Text)
-    , "metadata" .= object ["name" .= ("web-history" :: Text), "namespace" .= ("personal" :: Text)]
-    , "data" .= object ["current" .= image]
-    ]
-
-bindMember :: ResourceId -> Value -> (ManagedResource, ByteString)
-bindMember = bindMemberWith Stateless
-
-bindMemberWith :: DataPolicy -> ResourceId -> Value -> (ManagedResource, ByteString)
-bindMemberWith policy resource value =
-  let bytes = ok (canonicalValue value)
-   in ok (bindKubernetesObject (KubernetesInput resource appScope appCluster value (contentDigest bytes) Retain policy Private (SourceLocation "model" (resourceIdText resource))))
-
-volumePolicy :: DataPolicy
-volumePolicy = Durable (RecoveryIntent (ok (mkName "uploads")) (mkSecretRef (ok (mkName "uploads-key")) (ok (mkName "v1")) :| []))
-
-volumeId :: ResourceId
-volumeId = mintResourceId appScope (ok (mkLogicalKey "uploads")) (ok (mkName "pvc"))
-
-volumeValue :: Value
-volumeValue =
-  object
-    [ "apiVersion" .= ("v1" :: Text)
-    , "kind" .= ("PersistentVolumeClaim" :: Text)
-    , "metadata" .= object ["name" .= ("web-uploads" :: Text), "namespace" .= ("personal" :: Text)]
-    , "spec" .= object ["accessModes" .= ["ReadWriteOnce" :: Text], "resources" .= object ["requests" .= object ["storage" .= ("1Gi" :: Text)]]]
-    ]
-
-boundMembers :: Shape -> Text -> Text -> Map.Map ResourceId (ManagedResource, ByteString)
-boundMembers volume image historyImage =
-  Map.fromList $
-    [ (serviceId, bindMember serviceId (serviceValue image))
-    , (historyId, first (\history -> history {dependencies = [OrderedAfter serviceId]}) (bindMember historyId (historyValue historyImage)))
-    ]
-      <> [(volumeId, bindMemberWith volumePolicy volumeId volumeValue) | shapeVolume volume]
-      <> [(workerId, bindMember workerId (workerValue image)) | shapeWorker volume]
-
-boundDigests :: Shape -> Text -> Text -> Map.Map ResourceId ContentDigest
-boundDigests volume image historyImage = Map.map (contentDigest . snd) (boundMembers volume image historyImage)
-
-workerId :: ResourceId
-workerId = mintResourceId appScope (ok (mkLogicalKey "worker")) (ok (mkName "deployment"))
-
-workerValue :: Text -> Value
-workerValue image =
-  object
-    [ "apiVersion" .= ("apps/v1" :: Text)
-    , "kind" .= ("Deployment" :: Text)
-    , "metadata" .= object ["name" .= ("web-worker" :: Text), "namespace" .= ("personal" :: Text)]
-    , "spec" .= object ["replicas" .= (1 :: Int), "template" .= object ["spec" .= object ["containers" .= [object ["image" .= ("registry.example/worker:" <> image)]]]]]
-    ]
-
-workerDigest :: Text -> ContentDigest
-workerDigest image = contentDigest (snd (bindMember workerId (workerValue image)))
-
-serviceDigest :: Text -> ContentDigest
-serviceDigest image = contentDigest (snd (bindMember serviceId (serviceValue image)))
-
-scopeFor :: Shape -> Text -> Text -> ScopeDeclaration
-scopeFor volume image historyImage = ok (mkScopeDeclaration appScope [ResourceBundle (map (Managed . fst) (Map.elems (boundMembers volume image historyImage))) [] [] [] [] []])
-
 -- | As production builds it for one review: the reviewed members' specs.
 registryFor :: Run -> Shape -> Text -> Text -> IO AdapterRegistry
 registryFor run volume image historyImage = do
   database <- readIORef (runDatabase run)
   pure (ok (mkAdapterRegistry [worldKubernetesAdapter (fixtureBinding ^. #identity) (boundMembers volume image historyImage <> database) (runWorld run) (runAdversary run)]))
 
--- * The standalone database scope
-
-databaseScopeId :: ScopeId
-databaseScopeId = ok (mkScopeId Standalone "database-pg")
-
-databaseBackend :: StoreBackend
-databaseBackend = GcsBackend "project" "bucket"
-
-databaseScope :: ScopeDeclaration
-databaseNative :: Map.Map ResourceId (ManagedResource, ByteString)
-(databaseScope, databaseNative) = compiledDatabase Nothing
-
--- | The same database with CPU requests: only its StatefulSet changes.
-resizedDatabase :: (ScopeDeclaration, Map.Map ResourceId (ManagedResource, ByteString))
-resizedDatabase = compiledDatabase (Just (Dsl.Resources (Just (ok (Dsl.mkQuantity "500m"))) Nothing Nothing Nothing))
-
-compiledDatabase :: Maybe Dsl.Resources -> (ScopeDeclaration, Map.Map ResourceId (ManagedResource, ByteString))
-compiledDatabase resources =
-  ok
-    ( compileStandaloneDatabase
-        (DatabaseDirectInput database databaseScopeId appCluster Nothing recovery (SourceLocation "model" "pg"))
-        (DatabaseBackupTarget databaseBackend HourlyRecoveryPoint)
-    )
-  where
-    database =
-      Database
-        (ok (mkDatabaseName "pg"))
-        Nothing
-        Postgres
-        (defaultEngineVersion Postgres)
-        (ok (Dsl.mkNamespace "personal"))
-        (ok (Dsl.mkQuantity "1Gi"))
-        resources
-        Dsl.Retain
-    recovery = RecoveryIntent (ok (mkName "backup")) (mkSecretRef (ok (mkName "nagare-db-pg")) (ok (mkName "v1")) :| [])
-
--- | The database member at one Kubernetes kind and name.
-databaseMember :: Text -> Text -> ResourceId
-databaseMember kind name =
-  case [ member ^. #identity
-       | (member, _) <- Map.elems databaseNative
-       , Kubernetes _ _ nativeKind _ nativeName <- [member ^. #address]
-       , nameText nativeKind == kind
-       , nameText nativeName == name
-       ] of
-    [resource] -> resource
-    found -> error ("database fixture lacks one " <> T.unpack kind <> " " <> T.unpack name <> ": " <> show found)
-
-statefulId, pvcId, cronId, signingId :: ResourceId
-statefulId = databaseMember "statefulset" "pg"
-pvcId = databaseMember "persistentvolumeclaim" (dbPvcName "pg")
-cronId = databaseMember "cronjob" "nagare-dbbackup-pg"
-signingId = databaseMember "secret" "nagare-dbbackup-pg-signing"
-
 orFail :: (Show e) => String -> Either e a -> IO a
 orFail context = either (\err -> assertFailure (context <> ": " <> show err) >> pure (error "unreachable")) pure
-
-ok :: (Show e) => Either e a -> a
-ok = either (error . show) id
