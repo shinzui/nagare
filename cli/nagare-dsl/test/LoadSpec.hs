@@ -6,9 +6,8 @@
 module LoadSpec (loadTests) where
 
 import Control.Concurrent (threadDelay)
+import Control.Exception (IOException, try)
 import Data.ByteString.Char8 qualified as BC
-import Data.Foldable (for_)
-import Data.List (isInfixOf)
 import Data.Map qualified as Map
 import Data.Set (Set)
 import Data.Set qualified as Set
@@ -26,7 +25,8 @@ import System.Directory (doesFileExist)
 import System.FilePath ((</>))
 import System.IO (hClose, hPutStr)
 import System.IO.Temp (withSystemTempDirectory, withSystemTempFile)
-import System.Process (readProcessWithExitCode)
+import System.Posix.Signals (nullSignal, sigKILL, signalProcess)
+import System.Posix.Types (ProcessID)
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -109,14 +109,15 @@ loadTests =
               armed = dir </> "armed"
           writeFile path (termIgnoringConfig armed)
           result <- runConfigUntil (awaitFile armed) 1 path
-          survivors <- processesNaming path
-          for_ survivors (\pid -> readProcessWithExitCode "kill" ["-KILL", pid] "")
           wasArmed <- doesFileExist armed
           assertBool "the config armed its SIGTERM handler before the budget expired" wasArmed
+          pid <- read <$> readFile armed
+          survived <- stillRunning pid
+          when survived (signalProcess sigKILL pid)
           case result of
             Left (LoadTimedOut _ 1) -> pure ()
             other -> assertFailure ("expected LoadTimedOut _ 1, got: " <> show other)
-          survivors @?= []
+          assertBool "the config's process outlived its LoadTimedOut" (not survived)
     , testCase "renderLoadError LoadTimedOut names the path and the budget" $ do
         let err = LoadTimedOut "/app/Config.hs" 1
         assertContains "/app/Config.hs" (renderLoadError err)
@@ -190,17 +191,19 @@ sleepingConfig =
     , "main = threadDelay maxBound"
     ]
 
--- | A config that ignores SIGTERM, then writes the marker and blocks forever.
+-- | A config that ignores SIGTERM, then writes its process ID to the marker
+-- and blocks forever.
 termIgnoringConfig :: FilePath -> String
 termIgnoringConfig marker =
   unlines
     [ "module Main (main) where"
     , "import Control.Concurrent (threadDelay)"
+    , "import System.Posix.Process (getProcessID)"
     , "import System.Posix.Signals (Handler (Ignore), installHandler, sigTERM)"
     , "main :: IO ()"
     , "main = do"
     , "  _ <- installHandler sigTERM Ignore Nothing"
-    , "  writeFile " <> show marker <> " \"armed\""
+    , "  getProcessID >>= writeFile " <> show marker <> " . show"
     , "  threadDelay maxBound"
     ]
 
@@ -212,15 +215,15 @@ awaitFile path = go (1200 :: Int)
       present <- doesFileExist path
       unless (present || tries <= 0) (threadDelay 100_000 >> go (tries - 1))
 
--- | The PIDs of processes whose command line names the path, after giving a
--- killed run up to five seconds to exit.
-processesNaming :: FilePath -> IO [String]
-processesNaming path = go (50 :: Int)
+-- | Whether the process still exists after giving a killed run up to five
+-- seconds to exit and be reaped. Signal 0 checks existence without the @ps@
+-- binary, which the Nix build sandbox lacks.
+stillRunning :: ProcessID -> IO Bool
+stillRunning pid = go (50 :: Int)
   where
     go tries = do
-      (_, listing, _) <- readProcessWithExitCode "ps" ["-axo", "pid=,command="] ""
-      let found = [pid | line <- lines listing, path `isInfixOf` line, pid : _ <- [words line]]
-      if null found || tries <= 0 then pure found else threadDelay 100_000 >> go (tries - 1)
+      exists <- either (const False) (const True) <$> try @IOException (signalProcess nullSignal pid)
+      if not exists || tries <= 0 then pure exists else threadDelay 100_000 >> go (tries - 1)
 
 assertContains :: Text -> Text -> Assertion
 assertContains needle haystack
