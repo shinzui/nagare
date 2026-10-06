@@ -165,6 +165,21 @@ MasterPlan 23's release line (b).
     `[Resume, Close]`, so the product is consistent: resume progresses exactly as close says. A
     fault firing during a move can also count as progress. That only extends the search; it
     cannot create an exit.
+- **A fourth harness gap aborted a whole deep shard (2026-10-06, found by session nagare).** Shard 6
+  of the run that started at 14:06 UTC failed after 878 s, at about schedule 12,500 of 260,427 in
+  "create a database, then ingest a scheduled receipt", with `load history: StoreIoError
+  "injected: store read failed"`. `ingestReceipt` read the faulting store through `orFail`, so one
+  injected read failure became an `assertFailure` that ended the shard. The shard's other five
+  scenarios never ran.
+  - The native-evidence read in the same function turned a failed read into `Map.empty`. That
+    silently passed the I3 ingestion clause under a fault.
+  - Both reads now run through `retryingStoreFaults`, as an operator re-runs the command after a
+    failed read. Fault-free behaviour is unchanged.
+  - The regression test "a store read that fails during receipt ingestion is re-run, as an
+    operator would (EP-177)" places `GetFailedOnce` at every store read in that scenario. Before
+    the fix it aborted in 3 s with the same error; after it, it passes in 3.4 s. This sweep is
+    the accepted proof. The 6/52 shard (260,427 pairs, several hours) was not rerun, and the
+    confirming deep run after plan 179 lands covers the pairs.
 
 
 ## Decision Log

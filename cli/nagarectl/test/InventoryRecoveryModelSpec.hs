@@ -94,6 +94,10 @@ inventoryRecoveryModelTests =
         -- F66: an object not stamped as the create's own is at its address.
         forM_ [[(Boundary ObserveCall 6, ForeignObject), (Boundary StorePutCall 12, PutRefused)], [(Boundary ObserveCall 7, Deleted), (Boundary ObserveCall 8, ForeignObject)], [(Boundary ObserveCall 5, ForeignObject), (Boundary StorePutCall 9, ClaimLost)]] $
           exits >=> assertBool "F66: no close" . any (`elem` [Close, CloseTakeOver]) . concat
+    , testCase "a store read that fails during receipt ingestion is re-run, as an operator would (EP-177)" $ do
+        let ingest = Scenario "create a database, then ingest a scheduled receipt" [CreateDatabase, IngestReceipt] [] True plainShape False
+        reads <- runScenario ingest [] >>= either (assertFailure . T.unpack) (pure . Map.findWithDefault 0 StoreGetCall . finishedCalls)
+        forM_ [1 .. reads] $ \n -> runScenario ingest [(Boundary StoreGetCall n, GetFailedOnce)] >>= either (assertFailure . T.unpack) (const (pure ()))
     , testCase "deep tier: every ordered pair of faults has an exit (NAGARE_RECOVERY_MODEL_DEEP=1, shard with NAGARE_RECOVERY_MODEL_SHARD=i/n)" $ do
         deepTier <- lookupEnv "NAGARE_RECOVERY_MODEL_DEEP"
         shard <- lookupEnv "NAGARE_RECOVERY_MODEL_SHARD"
@@ -521,17 +525,24 @@ databaseAndApply run (scope, native) volume image historyImage = do
 -- | I3: plan ingestion of a scheduled receipt from the live source, as `db
 -- backup-receipts` plans it. A receipt whose source StatefulSet or PVC was
 -- created outside review never compiles for ingestion. In a fault-free run the
--- receipt must compile, so the clause is never vacuous.
+-- receipt must compile, so the clause is never vacuous. A failed store read is
+-- re-run, as an operator re-runs the command.
 ingestReceipt :: Run -> Bool -> IO (Either Text ())
 ingestReceipt run clean = do
-  history <- loadInventoryHistory (runStore run) >>= orFail "load history"
-  case Map.lookup databaseScopeId (historyAccepted history) of
-    Nothing -> pure (refusedWhen "the database is not accepted")
-    Just (revision, accepted) -> do
-      let acceptedInventory = ok (composeSnapshot (ok (mkScopeSnapshot fixtureBinding (Map.map (\(revision', declared) -> (revisionGeneration revision', declared)) (historyAccepted history)) (historyReservations history))))
-      -- As the command does: the accepted members' native bytes come from the
-      -- store's review evidence, not from the compiler.
-      native <- either (const Map.empty) fst <$> Status.loadAcceptedNativeSelected (Set.fromList [statefulId, pvcId, cronId, signingId]) (runStore run) history acceptedInventory
+  loaded <- retryingStoreFaults run $ do
+    history <- loadInventoryHistory (runStore run) >>= orTrouble "load history"
+    case Map.lookup databaseScopeId (historyAccepted history) of
+      Nothing -> pure (Right Nothing)
+      Just (revision, accepted) -> do
+        let acceptedInventory = ok (composeSnapshot (ok (mkScopeSnapshot fixtureBinding (Map.map (\(revision', declared) -> (revisionGeneration revision', declared)) (historyAccepted history)) (historyReservations history))))
+        -- As the command does: the accepted members' native bytes come from
+        -- the store's review evidence, not from the compiler.
+        native <- Status.loadAcceptedNativeSelected (Set.fromList [statefulId, pvcId, cronId, signingId]) (runStore run) history acceptedInventory >>= orTrouble "load accepted native"
+        pure (Right (Just (history, revision, accepted, fst native)))
+  case loaded of
+    Left refusal -> pure (refusedWhen refusal)
+    Right Nothing -> pure (refusedWhen "the database is not accepted")
+    Right (Just (history, revision, accepted, native)) -> do
       registry <- registryFor run plainShape "v1" "v1"
       observed <- observeWithRegistry registry (Map.singleton KubernetesExecutor [statefulId, pvcId, cronId, signingId])
       world <- readIORef (runWorld run)
