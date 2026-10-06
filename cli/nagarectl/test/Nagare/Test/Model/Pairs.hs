@@ -146,14 +146,14 @@ deepScenario (shard, shards) offset prune every report note run (clean, cleanSav
   foldM (\tally (position, first') -> heads first' tally <* progress position tally) (Tally [] Map.empty 0 0 0) (zip [1 :: Int ..] headed)
   where
     stepIn trace (boundary, _) = stepOf trace boundary
-    at step' = step' >>= (`Map.lookup` cleanSaved)
+    checkpointAt step' = step' >>= (`Map.lookup` cleanSaved)
     -- A violation is noted the moment it is found, so an interrupted shard
     -- leaves behind everything it found.
     violated tally violation = (tally & #violations %~ (<> [violation])) <$ note violation
     found tally = either (violated tally) (const (pure tally))
     heads first'@(b1, f1) tally = do
       let s1 = stepIn clean first'
-      (alone, saved) <- run (at s1) [first']
+      (alone, saved) <- run (checkpointAt s1) [first']
       let judged =
             [ (second', why)
             | second'@(b2, _) <- placements
@@ -168,7 +168,7 @@ deepScenario (shard, shards) offset prune every report note run (clean, cleanSav
           -- The checkpoint a pair starts from.
           resume (b2, _) why = case alone of
             Right trace | why /= SameStep, Just cp <- stepOf trace b2 >>= (`Map.lookup` saved) -> Just cp
-            _ -> at s1
+            _ -> checkpointAt s1
       counted <- found (tally & #singles %~ (+ 1)) alone
       foldM (pair first' alone resume) counted judged
     pair first' alone resume tally (second', why) = do
@@ -191,8 +191,8 @@ deepScenario (shard, shards) offset prune every report note run (clean, cleanSav
     -- does alone, from the second fault's step on.
     check first' trace resume tally second'@(b2, f2) = case (stepOf trace b2, correspondingSingle clean trace b2) of
       (Just s2, Just single) -> do
-        (both, _) <- run (resume second' Independent) [first', second']
-        (alone, _) <- run (at (Just s2)) [(single, f2)]
-        let disagreement = "M4: the independent pair " <> T.pack (show [first', second']) <> " ends unlike " <> T.pack (show (single, f2)) <> " alone:\n" <> T.pack (show both) <> "\n" <> T.pack (show alone)
-        (if sameOutcome s2 both alone then pure else (`violated` disagreement)) (tally & #checked %~ (+ 1))
+        (paired, _) <- run (resume second' Independent) [first', second']
+        (alone, _) <- run (checkpointAt (Just s2)) [(single, f2)]
+        let disagreement = "M4: the independent pair " <> T.pack (show [first', second']) <> " ends unlike " <> T.pack (show (single, f2)) <> " alone:\n" <> T.pack (show paired) <> "\n" <> T.pack (show alone)
+        (if sameOutcome s2 paired alone then pure else (`violated` disagreement)) (tally & #checked %~ (+ 1))
       _ -> pure tally

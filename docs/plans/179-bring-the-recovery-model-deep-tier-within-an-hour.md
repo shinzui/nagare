@@ -51,8 +51,9 @@ equivalence report for each reduction, and every mutation record still failing.
 - [ ] M2: the exit search restores the stop snapshot for each probe. An equivalence test finds
   identical outcomes for every fast-tier schedule under both strategies, and the replay search is
   then deleted.
-- [ ] M3: placement classes. The deep tier pairs class representatives, not raw boundaries. A
-  sampled check finds that every member of a sampled class gives its representative's outcome.
+- [x] M3: placement classes — not adopted (2026-10-06). The sampled check rejected the classes:
+  31 members of "create then good update" did not give their representative's outcome. See the
+  Decision Log.
 - [ ] M4: interaction pruning. Pairs whose faults cannot interact are dropped, under a rule stated
   in this plan. A sampled check against unpruned pairs finds no outcome the pruned set misses.
 - [ ] M5: within budget. `just gate-deep` finishes within an hour with default shards, the
@@ -66,7 +67,7 @@ Status (2026-10-06): M1 and M2 are committed (`6bef54ac`, `406fdbe4`); their acc
 recorded after the rebase onto the defect fixes (create-scenario-fixes), so the equivalence test
 covers the new close-with-take-over move and the retry loop. M4 is implemented with its sampled
 check, together with checkpoint resumption and sharding by placement (see the Decision Log). M3
-waits on an uncontended measurement of M2 and M4 (see Surprises).
+is not adopted: its sampled check failed (see the Decision Log).
 
 
 ## Surprises & Discoveries
@@ -108,6 +109,15 @@ waits on an uncontended measurement of M2 and M4 (see Surprises).
   final assertion, so the violations of shards 1 and 5 (92–154 per finished scenario) were lost.
   Hence M5's requirement that each violation is written the moment it is found. Processes are
   now stopped by their recorded PID only.
+- Placement classes keyed by what a placement does alone — its fault, its step, and the exits
+  and head states of its single run — compress placements about 6.5x (2,894 placements into 436
+  classes over the first six explicit scenarios, about 40x fewer pairs). The sampled check
+  rejected them at once: in "create then good update", 31 members, each paired with one of three
+  fixed partners, did not give their representative's outcome. For example `ForeignObject` at
+  observation 6 and at observation 5 do the same alone, but with `GetFailedOnce` at store read 21
+  one stops with `[Resume,Close]` and the other with `[Close]`. The cause is that a second fault
+  is placed by absolute call ordinal: members that do the same alone shift the later calls
+  differently (a retry, a re-observation), so the same partner ordinal names a different moment.
 - An adapter registry closes over its run's world and adversary `IORef`s. A probe that replays
   into a fresh run must use the registry of that run, not the one from the original stop. The
   reference strategy carries the replayed run's registry for this reason. (M2.)
@@ -146,6 +156,16 @@ waits on an uncontended measurement of M2 and M4 (see Surprises).
   Rationale: the result is the same state the old probe reached (the invariant check updates
   `runConverged` and `runIncarnations`, so checking a prefix would change it), and a child probe
   re-executes no move.
+  Date: 2026-10-06
+
+- Decision: M3 (placement classes) is not adopted.
+  Rationale: the plan's rule is no reduction without evidence, and the evidence rejected the
+  classes (see Surprises: 31 mismatches in "create then good update", because partner faults
+  are placed by absolute ordinal). Classes that survive the check would have to be found by
+  probing every member with partners, which costs about as many runs as the pairs it saves,
+  since every shard needs every class. Classes labelled by call target would need the world
+  modules to record targets and meet the same cause. The operator's requirement is the
+  one-hour budget, not three reductions.
   Date: 2026-10-06
 
 - Decision: The interaction rule (M4) as implemented. A pair of distinct boundaries is headed by

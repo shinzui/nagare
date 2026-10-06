@@ -301,10 +301,12 @@ haskell-style-check:
 gate-fast:
     cabal run --project-dir=cli/nagare-harness -v0 nagare-harness -- gate --fast
 
-# EP-177 (ADR 25): the recovery model's deep tier, every ordered pair of faults
-# over the explicit and generated scenarios, run as parallel shards of the
-# scenario list. Each shard logs `recovery-model:` progress lines; watch with
-# the grep command it prints. Run it before accepting model or kind-table work.
+# EP-177/EP-179 (ADR 25): the recovery model's deep tier over the explicit and
+# generated scenarios: every placement alone, then every pair of placements
+# whose faults can interact, run as parallel shards of the placements.
+# Each shard logs `recovery-model:` progress lines and each violation, as it is
+# found, as `recovery-model: violation:` lines; watch with the grep command it
+# prints. `just deep-tier-required` says whether a change needs it.
 [group('test')]
 gate-deep shards="8":
     #!/usr/bin/env bash
@@ -313,7 +315,7 @@ gate-deep shards="8":
     bin=$(cabal list-bin nagarectl-test --project-dir=cli/nagarectl)
     logs="${XDG_STATE_HOME:-$HOME/.local/state}/nagare/gates/logs/deep-$(date -u +%Y%m%dT%H%M%SZ)"
     mkdir -p "$logs"
-    echo "deep tier: {{shards}} shards; progress: grep -h '^recovery-model:' $logs/shard-*.log"
+    echo "deep tier: {{shards}} shards; progress: grep -h '^recovery-model:' $logs/shard-*.log; violations: grep -h '^recovery-model: violation:' $logs/shard-*.log"
     pids=()
     for i in $(seq 0 $(( {{shards}} - 1 ))); do
       (cd cli/nagarectl && NAGARE_RECOVERY_MODEL_DEEP=1 NAGARE_RECOVERY_MODEL_SHARD="$i/{{shards}}" "$bin" -p '/deep tier/' > "$logs/shard-$i.log" 2>&1) &
@@ -324,6 +326,38 @@ gate-deep shards="8":
       if wait "${pids[$i]}"; then echo "shard $i/{{shards}}: passed"; else echo "shard $i/{{shards}}: FAILED, see $logs/shard-$i.log"; status=1; fi
     done
     exit "$status"
+
+# EP-179 (ADR 25 amendment of 2026-10-06): list the recovery-related files
+# changed since `base` (committed, uncommitted or untracked), and exit non-zero
+# when there are any: such a change needs a passing `just gate-deep`.
+# Report whether changes since a base need the recovery model's deep tier.
+[group('test')]
+deep-tier-required base="origin/master":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    inventory=cli/nagarectl/src/Nagare/Inventory
+    paths=(
+      "$inventory/Execute.hs" "$inventory/Execute/"
+      "$inventory/Journal.hs" "$inventory/OperationStep.hs" "$inventory/Store.hs" "$inventory/Store/"
+      "$inventory/Plan/CloseRecord.hs" "$inventory/Identity.hs"
+      "$inventory/Adapter.hs" "$inventory/Adapters/" "$inventory/Collection/"
+      "$inventory/DataFence.hs" "$inventory/DataFence/"
+      "$inventory/LiveRestoreAdapter.hs" "$inventory/LiveRestoreFence.hs"
+      "$inventory/MaintenanceAdapter.hs" "$inventory/MaintenanceFence.hs"
+      cli/nagarectl/test/InventoryRecoveryModelSpec.hs cli/nagarectl/test/Nagare/Test/World/ cli/nagarectl/test/Nagare/Test/Model/
+    )
+    # Accept both `just deep-tier-required <ref>` and `base=<ref>`.
+    base="{{base}}"
+    base="${base#base=}"
+    since=$(git merge-base "$base" HEAD)
+    changed=$( { git diff --name-only "$since" -- "${paths[@]}"; git ls-files --others --exclude-standard -- "${paths[@]}"; } | sort -u)
+    if [ -z "$changed" ]; then
+      echo "deep tier not required: no recovery-related file changed since $base ($since)"
+      exit 0
+    fi
+    echo "deep tier required: recovery-related files changed since $base ($since):"
+    printf '  %s\n' $changed
+    exit 1
 
 # EP-174: the full gate for a candidate: clean tree, fast gate, a salted probe
 # build on every remote system, `nix flake check --all-systems`, a dry-run
