@@ -87,6 +87,7 @@ This is the authoritative list of implementation findings for [MP-23](../masterp
 | [F66](#f66) | P1 | A create that finds an object not stamped as its own at its address settles unknown, so only an attested close can end it | Verifying | EP-153 / EP-177 |
 | [F69](#f69) | P1 | A Knative Service or DomainMapping reads ready from its previous generation's Ready=True before the controller has seen the new spec | Verifying | EP-153 / EP-180 |
 | [F70](#f70) | P1 | A worker Deployment whose update never becomes available reads as ready, so a broken rollout is recorded as complete | Verifying | EP-153 / EP-180 |
+| [F67](#f67) | P1 | An update refused after a status write, whose refusal's journal event is lost, settles unknown | Verifying | EP-153 / EP-180 |
 | [F68](#f68) | P1 | An update whose target is deleted and replaced by an object not stamped as its own settles unknown, so only an attested close can end it | Verifying | EP-153 / EP-177 |
 
 Closed findings keep their full text, location, implementation updates and verification in [the closed-findings archive](mp23-archive/mp23-findings-closed.md). F01 and F11 retain their [earlier independent closure](mp23-archive/mp23-verification.md). F02, F03, F04, F05, F06, F07, F08 and F20 now have [2026-10-02 independent closure](mp23-independent-verification-2026-10-02.md). F34, F35, F36, F37, F38, F41 and F42 have 2026-10-04 independent closure on candidate `7596632c`, and F49 and F50 on candidate `847543896d07` ([records](mp23-independent-results-2026-10-04/phase1-source-and-regressions-7596632c.md)). Other entries retain their status shown above.
@@ -846,6 +847,39 @@ The class is not `NoEffect`. The absent before-state has changed, and in the `De
 **Mutation.** `test/mutations/F66-create-over-foreign-object-settles-unknown.diff`.
 
 **Rehearsal (observed, 2026-10-06).** Shard 0/52 ("create") was rerun with this fix and the three EP-177 harness fixes. It reported `recovery-model: [1/1] create: done in 722s, 0 violation(s)`, down from 67.
+
+## F67
+
+**An update refused after a status write, whose refusal's journal event is lost, settles unknown** — P1; **Verifying**; owners EP-153 / EP-180.
+
+**Found by the EP-177 five-scenario deep reruns (2026-10-06, claude-opus-5-5; observed).**
+- **How it happens.** A controller's status write moves an object's resourceVersion just before Nagare's update (`StatusChurn`). The update is conditional on the reviewed resourceVersion, so it is refused with no effect. A store fault then loses that refusal's journal event.
+- **What it led to.** Recovery compared the before-state exactly, resourceVersion included, so settlement was `Unknown` and only the attested close remained.
+- **Where it was seen.** The database StatefulSet update, at `(Mutate 10, StatusChurn) + (StorePut 72, PutRefused)` and `(11, 84)`, and the generated Deployment update at `(5, 44)`, both in release line (b). These ordinals are from when the world churned status only on kinds with a status subresource (EP-177).
+
+**First design, dropped.** A configuration-digest mutation version 4 recorded the stable configuration at review. It was replaced before landing by RES-4 §5.1's stamp proof.
+- It needed an extra observation at prepare, which shifted the model's ordinals and made a pin vacuous.
+- It could not settle reviews made before it.
+- It became Unknown on any controller metadata write.
+
+**Fix (EP-180 M3).**
+- Nagare writes its `nagare.dev/spec-digest` stamp in the same atomic write as the spec it describes (RES-4 U3). On the reviewed UID, the stamp therefore says which of Nagare's writes is live, whatever status or controller metadata did meanwhile.
+- Every observation now returns the stamp from the same read (`kubernetesObserveStamped`).
+- Prepare records `beforeStamp`, the stamp the before-state carried, as a required field of every update mutation.
+- After the exact before-state row, `settleMutation` (`Adapters/KubernetesProof.hs`) classes an update observed on the reviewed UID, with this member's ownership:
+  - a live stamp equal to `beforeStamp` → `NoEffect`;
+  - a live stamp equal to the reviewed digest → `Landed`;
+  - anything else falls to the existing rows (F68's target gone, landed by digest, unknown).
+- A drift repair, whose before stamp already was the reviewed digest, proves nothing by stamp, and the fields-match rows decide.
+- A stamp rolled back to the before digest after Nagare's write reads as `NoEffect`. ADR 26's no effect is "a proved, unchanged before-state", which holds now. Close then reverts the scope only if nothing else in it took effect, to a base that matches what is live.
+
+**Compatibility.** None, by operator ruling: Nagare is not yet used anywhere. An update mutation without `beforeStamp` does not decode, and disposable stores are rebuilt.
+
+**Tests.** "an update settles by the stamp on the reviewed object, whatever its resourceVersion (F67)", in `InventorySettleSpec`. It covers the before stamp, the reviewed stamp, another stamp, no stamp, a rollback, a drift repair, an unstamped replacement, and an update without `beforeStamp` failing to decode. It failed before the row was added.
+
+**Model.** The world reads no stamps until EP-182 renders realistic objects. The three model schedules above become EP-182's acceptance test.
+
+**Mutation.** `test/mutations/F67-settle-ignores-stamp.diff` disables the stamp row, and the test fails.
 
 ## F68
 

@@ -3,6 +3,8 @@
 -- unproved (F66).
 module InventorySettleSpec (inventorySettleTests) where
 
+import Data.Aeson (Value (Object), decode, encode, toJSON)
+import Data.Aeson.KeyMap qualified as KM
 import Data.IORef
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
@@ -70,7 +72,7 @@ inventorySettleTests =
             digest = contentDigest "reviewed"
             mutation = KubernetesMutation 1 (ok (mkOperationId "op-created")) digest CreateResource created address "{}" digest (KubernetesAbsent (contentDigest "absent")) Nothing Nothing
             -- What recovery answers for a create whose address is now filled.
-            settle current = settleMutation mutation current current (RecoveryUnresolved "Kubernetes object changed since review; replan before mutation")
+            settle current = settleMutation mutation current current Nothing (RecoveryUnresolved "Kubernetes object changed since review; replan before mutation")
             found = ok (mkPhysicalIdentity "found-uid")
         -- A create is conditional on an empty address and stamps what it
         -- writes as its own, so an unstamped object, or one stamped for
@@ -81,6 +83,36 @@ inventorySettleTests =
         case settle (KubernetesPresent found "2" (Just created) (contentDigest "edited")) of
           SettledUnknown _ _ -> pure ()
           settled -> assertFailure ("an object stamped as the create's own settled as " <> show settled)
+    , testCase "an update settles by the stamp on the reviewed object, whatever its resourceVersion (F67)" $ do
+        let owner = ok (mkScopeId Platform "updated")
+            cluster = mintResourceId owner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
+            updated = mintResourceId owner (ok (mkLogicalKey "workload")) (ok (mkName "resource"))
+            address = Kubernetes cluster "apps" (ok (mkName "statefulset")) (Just (ok (mkName "system"))) (ok (mkName "workload"))
+            reviewed = ok (mkPhysicalIdentity "reviewed-uid")
+            stampBefore = contentDigest "before"
+            stampNew = contentDigest "reviewed"
+            update stamp = KubernetesMutation 1 (ok (mkOperationId "op-updated")) stampNew UpdateResource updated address "{}" stampNew (KubernetesPresent reviewed "4" (Just updated) (contentDigest "whole-object-before")) Nothing (Just stamp)
+            -- A status write moved resourceVersion, and with it the whole-object digest.
+            churned = KubernetesNotReady reviewed "5" (Just updated) (contentDigest "whole-object-after")
+            settle mutation current stamp = settleMutation mutation current current stamp (RecoveryUnresolved "Kubernetes object changed since review; replan before mutation")
+            unknown mutation current stamp = case settle mutation current stamp of
+              SettledUnknown _ _ -> pure ()
+              settled -> assertFailure ("settled as " <> show settled <> " under stamp " <> show stamp)
+        -- RES-4 U3: the stamp is written with the spec, so it says which write is live.
+        settle (update stampBefore) churned (Just stampBefore) @?= SettledNoEffect "the reviewed object still carries its before-state stamp"
+        settle (update stampBefore) churned (Just stampNew) @?= SettledLanded reviewed
+        unknown (update stampBefore) churned (Just (contentDigest "another"))
+        unknown (update stampBefore) churned Nothing
+        -- A stamp rolled back to the before digest is the before-state now (ADR 26 §1).
+        settle (update stampBefore) (KubernetesPresent reviewed "7" (Just updated) (contentDigest "whole-object-after")) (Just stampBefore) @?= SettledNoEffect "the reviewed object still carries its before-state stamp"
+        -- A drift repair (before stamp already the reviewed one) proves nothing by stamp.
+        unknown (update stampNew) churned (Just stampNew)
+        -- Another, unstamped object is still target gone (F68).
+        settle (update stampBefore) (KubernetesPresent (ok (mkPhysicalIdentity "other-uid")) "1" Nothing (contentDigest "x")) Nothing @?= SettledTargetGone (Just (ok (mkPhysicalIdentity "other-uid")))
+        -- An update must record its before stamp.
+        case toJSON (update stampBefore) of
+          Object root -> assertBool "an update without its before stamp decoded" (isNothing (decode (encode (Object (KM.delete "beforeStamp" root))) :: Maybe KubernetesMutation))
+          other -> assertFailure (show other)
     , testCase "an update whose target is replaced by an object not stamped as its own settles as target gone (F68)" $ do
         let owner = ok (mkScopeId Platform "updated")
             cluster = mintResourceId owner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
@@ -91,7 +123,7 @@ inventorySettleTests =
             found = ok (mkPhysicalIdentity "found-uid")
             digest = contentDigest "reviewed"
             mutation = KubernetesMutation 1 (ok (mkOperationId "op-updated")) digest UpdateResource updated address "{}" digest (KubernetesPresent reviewed "4" (Just updated) (contentDigest "before")) Nothing Nothing
-            settle current = settleMutation mutation current current (RecoveryUnresolved "Kubernetes object changed since review; replan before mutation")
+            settle current = settleMutation mutation current current Nothing (RecoveryUnresolved "Kubernetes object changed since review; replan before mutation")
             unknown current = case settle current of
               SettledUnknown _ _ -> pure ()
               settled -> assertFailure ("settled as " <> show settled <> ": " <> show current)

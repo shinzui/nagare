@@ -1,0 +1,12 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs
+--- a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs
+@@ -124,7 +124,7 @@
+   where
+     resource = mutationResource mutation
+     stampProves =
+-      mutationAction mutation == UpdateResource
++      False && mutationAction mutation == UpdateResource
+         && isJust (mutationBeforeStamp mutation)
+         && mutationBeforeStamp mutation /= Just (mutationNativeDigest mutation)
+         && isJust beforeIdentity

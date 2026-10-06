@@ -58,7 +58,13 @@ MasterPlan, not by this plan.
   `observedGeneration == generation`.
   - Evidence: the unit test failed first and passes now. Record `F69-knative-ready-ignores-generation` fails it.
   - A DomainMapping fixture lacked generation fields and was completed. The model test waits for EP-182.
-- [ ] M3 (F67): the spec-digest stamp proof replaces the dropped configuration-digest version 4.
+- [x] M3 (F67), 2026-10-06: the spec-digest stamp proof replaces the dropped configuration-digest version 4.
+  - Every observation returns the stamp from its existing read.
+  - Prepare records the required `beforeStamp`.
+  - Settlement classes an update on its reviewed UID by its stamp.
+  - The pure settle test failed first and now passes. Record `F67-settle-ignores-stamp` fails it.
+  - The world reads no stamps (two lines, agreed with EP-182), so the three F67 model schedules are handed to EP-182 as
+    its acceptance test.
 - [ ] M4 (G4): definitive 4xx refusals map to no effect.
 - [ ] M5 (G6): one conditional-write discipline for updates and retires.
 - [ ] M6 (G5): terminating objects are classified, not read as present.

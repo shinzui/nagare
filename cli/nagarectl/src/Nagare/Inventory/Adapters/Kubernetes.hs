@@ -175,9 +175,9 @@ mkKubernetesAdapterWithObservations specs ops observeBatch stableObserve readBac
       Left reason -> pure (SettledUnknown reason "the saved review's native bundle")
       Right mutation -> do
         decision <- recover operation prepared
-        current <- kubernetesObserve ops (mutationResource mutation)
+        (current, stamp) <- kubernetesObserveStamped ops (mutationResource mutation)
         before <- observeMutation mutation
-        pure (settleMutation mutation before current decision)
+        pure (settleMutation mutation before current stamp decision)
     observeMutation mutation =
       if mutationVersion mutation == 2
         then maybe (pure (KubernetesUnknown "version 2 configuration observation is unavailable")) (\stable -> fst <$> stable (mutationResource mutation)) stableObserve

@@ -3,10 +3,10 @@ diff --git a/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs b/cli/nag
 +++ b/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs
 @@ -177,7 +177,7 @@
          decision <- recover operation prepared
-         current <- kubernetesObserve ops (mutationResource mutation)
+         (current, stamp) <- kubernetesObserveStamped ops (mutationResource mutation)
          before <- observeMutation mutation
--        pure (settleMutation mutation before current decision)
-+        pure (SettledUnknown (T.pack (show (settleMutation mutation before current decision))) "mutant: never proved")
+-        pure (settleMutation mutation before current stamp decision)
++        pure (SettledUnknown (T.pack (show (settleMutation mutation before current stamp decision))) "mutant: never proved")
      observeMutation mutation =
        if mutationVersion mutation == 2
          then maybe (pure (KubernetesUnknown "version 2 configuration observation is unavailable")) (\stable -> fst <$> stable (mutationResource mutation)) stableObserve

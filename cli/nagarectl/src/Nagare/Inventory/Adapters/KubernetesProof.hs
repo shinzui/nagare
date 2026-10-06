@@ -78,14 +78,26 @@ data FieldTakeover = FieldTakeover
 -- as this member's at a create's or update's address (F66, F68), is gone; a
 -- failed object of this operation is a terminal partial effect. Anything else
 -- stays unknown.
-settleMutation :: KubernetesMutation -> KubernetesState -> KubernetesState -> RecoveryDecision -> Settlement
-settleMutation mutation before current decision = case decision of
+settleMutation :: KubernetesMutation -> KubernetesState -> KubernetesState -> Maybe ContentDigest -> RecoveryDecision -> Settlement
+settleMutation mutation before current stamp decision = case decision of
   RecoveryProvedComplete _ -> SettledUnknown "the effect is proved complete" "inventory resume"
   RecoveryLandedUnready physical -> SettledLanded physical
   RecoveryAwaitingReadiness physical -> SettledLanded physical
   RecoveryTargetReplaced physical -> SettledTargetGone (Just physical)
   RecoveryTerminalFailure physical -> SettledTerminalPartial physical
   _ | Right () <- requireSameBefore mutation before -> SettledNoEffect "the reviewed before-state is unchanged"
+  -- F67, RES-4 U3: an update writes its stamp in the same atomic write as its
+  -- spec, so on the reviewed UID the stamp says which write is live, whatever
+  -- status or controller metadata did meanwhile. A drift repair, whose before
+  -- stamp already was the reviewed digest, is decided by the rows below.
+  _
+    | stampProves
+    , stamp == mutationBeforeStamp mutation ->
+        SettledNoEffect "the reviewed object still carries its before-state stamp"
+    | stampProves
+    , stamp == Just (mutationNativeDigest mutation)
+    , Just physical <- beforeIdentity ->
+        SettledLanded physical
   _ -> case current of
     -- F66, F68: a create writes only to an empty address and an update only to
     -- the reviewed UID, and both stamp the object as this member's, so another
@@ -111,6 +123,17 @@ settleMutation mutation before current decision = case decision of
     _ -> SettledUnknown (unresolved decision) "a corrected review, or an attested close"
   where
     resource = mutationResource mutation
+    stampProves =
+      mutationAction mutation == UpdateResource
+        && isJust (mutationBeforeStamp mutation)
+        && mutationBeforeStamp mutation /= Just (mutationNativeDigest mutation)
+        && isJust beforeIdentity
+        && onReviewed == beforeIdentity
+    onReviewed = case current of
+      KubernetesPresent uid _ (Just owner) _ | owner == resource -> Just uid
+      KubernetesNotReady uid _ (Just owner) _ | owner == resource -> Just uid
+      KubernetesFailed uid _ (Just owner) _ | owner == resource -> Just uid
+      _ -> Nothing
     notLive physical owner = owner /= Just resource && (createdOver || updatedOver physical)
     createdOver = mutationAction mutation == CreateResource && (case mutationBefore mutation of KubernetesAbsent {} -> True; _ -> False)
     updatedOver physical = mutationAction mutation == UpdateResource && maybe False (/= physical) beforeIdentity
