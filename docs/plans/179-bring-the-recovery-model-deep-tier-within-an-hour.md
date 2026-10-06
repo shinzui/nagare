@@ -56,20 +56,32 @@ equivalence report for each reduction, and every mutation record still failing.
   finds the head, journal, world and adversary equal to the snapshot. (2026-10-06: passes in the
   full suite on the remote builder at `31a8a82c`; `EP179-restore-skips-adversary.diff` makes it
   fail.)
-- [ ] M2: the exit search restores the stop snapshot for each probe. An equivalence test finds
+- [x] M2: the exit search restores the stop snapshot for each probe. An equivalence test finds
   identical outcomes for every fast-tier schedule under both strategies, and the replay search
   then stays as the reference of a sampled fast-tier check (Decision Log, 2026-10-06).
+  (2026-10-06, remote builder: every fast-tier schedule of all 52 scenarios and every 500th fault
+  pair, 13,177 schedules, gave identical results under both strategies, in 592 s.)
 - [x] M3: placement classes — not adopted (2026-10-06). The sampled check rejected the classes:
   31 members of "create then good update" did not give their representative's outcome. See the
   Decision Log.
-- [ ] M4: interaction pruning. Pairs whose faults cannot interact are dropped, under a rule stated
+- [x] M4: interaction pruning. Pairs whose faults cannot interact are dropped, under a rule stated
   in this plan. A sampled check against unpruned pairs finds no outcome the pruned set misses.
+  (2026-10-06, the full 16-shard deep tier at `e78d5969`: of 5,151,686 pairs considered, 756,466
+  were dropped as independent and 832 as unreached, about 15%. The check ran 14,866 independent
+  pairs against their second fault alone, and 87,468 checkpoint-resumed pairs against the same
+  pair from the start. None disagreed.)
 - [ ] M5: within budget. `just gate-deep` finishes within an hour with default shards, the
   timings are recorded here, every mutation record whose README row names the recovery model
   still fails, and `just deep-tier-required` reports whether a change needs the deep tier. A
   killed or interrupted run leaves behind everything it found: each violation is written to the
   shard's log as `recovery-model: violation: …` lines the moment it is found, and each
   scenario's summary when that scenario ends.
+
+M5 is not met (2026-10-06): 1 h 53 m before the defect fixes' tryMove fix, about 2.5–3 hours
+projected after it (see Surprises). It is re-measured after EP-182 replaces the world. Then the
+levers go to the operator: fewer pairs in the 43 generated scenarios, given evidence that they
+repeat the explicit scenarios' pairs (46% of the first run's time), or a larger builder. This
+plan stays In Progress.
 
 Status (2026-10-06): branch `ep179-rebased`, on land-through-gate `c9bf8d35`, which is on the
 defect fixes `9ac3a484`. Commits: M1 `8a66e467`, M2 `2ae4f461`, M4 `e42a7ed2`, the
@@ -143,6 +155,25 @@ M3 is not adopted: its sampled check failed (see the Decision Log).
   500 and 750 ms before retrying a refused head write, and the model refuses head writes
   constantly. Time per phase in that run, wall clock with the pauses: apply 350 s, planning
   223 s, exit moves 121 s, invariant checks 62 s, settlement 5 s, checkpoints and resumes 1 s.
+- M5's first measurement, `just gate-deep e78d5969` with 16 shards on the remote builder (16
+  cores by `nproc`; the builder was otherwise idle, by session nagare's confirmation), ran from
+  19:50:11 to 21:43:01 UTC on 2026-10-06: 1 h 53 m. The shards took 6,582–6,732 s, within 2.3% of
+  each other. All exited 1 on 40,908 violations, most of them the I1 over-reporting of the
+  defect fixes' item 6, which `0c1afa7f` corrects and which this commit predates; each such
+  violation is an exhaustive, failed exit search, so the time is overstated by an unknown
+  amount. Average per shard: the 9 explicit scenarios 3,609 s (database ingest 578, retire 882,
+  update twice 1,349; the bad-update scenarios 159, 183 and 324), the 43 generated kind
+  scenarios 3,045 s (an update about 153, a retire about 56, a create about 30). The budget is
+  not met at this commit: about 1.9 times the hour.
+- M5's second measurement, `just gate-deep 88866f75`, after the defect fixes' `0c1afa7f`, built the
+  test binary from 21:45:20 to 21:48:41 UTC (3 m 21 s), then ran. It was stopped at 22:30 UTC by
+  session nagare's decision, 41 minutes into the run: the shards were on scenarios 7 and 8 of 52,
+  which the first run had reached by 26 minutes. Projected end to end: about 2.5–3 hours. The
+  likely cause, not yet proved: `0c1afa7f` re-runs an exit move that a new fault stopped without
+  progress, so each stop does more work, and fewer runs end early on a violation. The run was
+  stopped because MasterPlan 23 was redirected (RES-4): the deep tier confirms only after
+  EP-180–182, and EP-182 replaces the Kubernetes world, so timings and violations against
+  today's world are obsolete.
 - An adapter registry closes over its run's world and adversary `IORef`s. A probe that replays
   into a fresh run must use the registry of that run, not the one from the original stop. The
   reference strategy carries the replayed run's registry for this reason. (M2.)
@@ -262,7 +293,36 @@ M3 is not adopted: its sampled check failed (see the Decision Log).
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+2026-10-06, at landing with the defect fixes, land-through-gate and the MP-23 redirect. M5 is open.
+
+Achieved:
+- The exit search restores snapshots instead of replaying: 1.15–2.3x faster where scenarios stop.
+  The replay search stays as a sampled fast-tier reference (33.9 s on the builder). Breaking
+  restore fails only that check, not the fast tier.
+- The deep tier runs every placement alone, then only the pairs whose faults can interact. Runs
+  resume from per-step checkpoints, and shards split placements. Its 16 shards finished within
+  2.3% of each other, and every sampled check of the pruning and the resumption agreed.
+- The store's retry pause no longer stalls the model. It was half the wall time on the
+  workstation.
+- `just deep-tier-required` names the recovery-related files a change touches, and `just
+  gate-deep` runs on the remote builder.
+
+Not achieved:
+- The one-hour budget: 1 h 53 m before the defect fixes' tryMove fix, and about 2.5–3 hours
+  projected after it.
+- Placement classes (M3), which their sampled check rejected.
+
+Lessons:
+- Measure where the time goes before reducing what is proved. The largest single cost was
+  sleeping, found from the ratio of CPU time to wall time, not from the plan's three reductions.
+- Faults placed by absolute call ordinal limit any reduction that merges placements. A first
+  fault that shifts later calls changes what every later ordinal names. A world whose faults
+  name a target and a moment (EP-182) would remove that limit.
+- The sampled checks earned their place. They rejected the first interaction rule and the
+  placement classes within minutes.
+- An operational failure. A pattern-based `pkill` killed a teammate's deep run two hours in, and the
+  pre-EP-179 tier printed only violation counts, so that run lost everything it had found. Stop
+  processes by recorded PID only, and write findings as they are found.
 
 
 ## Context and Orientation
