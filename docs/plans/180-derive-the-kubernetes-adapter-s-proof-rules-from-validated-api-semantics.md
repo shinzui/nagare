@@ -78,6 +78,20 @@ MasterPlan, not by this plan.
   to EP-182. Model-level tests for M1 and M2 therefore wait for EP-182; this plan pins them with unit tests.
   Date: 2026-10-06
 
+- Decision: `D_before` is the stamp observed at prepare, recorded as `beforeStamp` (RES-4 author's recommendation (b)),
+  not the base revision's declared digest and not "any stamp other than `D_new`".
+  Rationale: ADR 26's no effect is "a proved, unchanged before-state", and only an observation records one. The base
+  digest is an expectation that can diverge after an earlier close kept a revision over an older stamp. "Any other
+  stamp" would claim landed for a drift repair that never wrote, and would read an external stamp edit as no effect.
+  The stamp comes from the read prepare already makes, so there is no extra GET and no shift in the model's ordinals.
+  Date: 2026-10-06
+
+- Decision (operator, 2026-10-06): no compatibility for earlier versions anywhere in this plan. Nagare is not yet used
+  anywhere, and this is its first reliable version. `beforeStamp` is required, earlier reviews need not decode, and
+  disposable stores are rebuilt rather than migrated. Where this plan touches compatibility code that exists only for
+  earlier reviews, such as a mutation-version branch, it removes that code and says so in the commit.
+  Date: 2026-10-06
+
 
 ## Outcomes & Retrospective
 
@@ -154,19 +168,22 @@ rollout replaces stuck pods, unlike a StatefulSet (RES-4 §2, G3). Record F70.
 DomainMapping. `certificateReady` has the same shape, but cert-manager is outside release line (b); note it in F69
 as a documented limit. Unit test and record now; the model test comes with EP-182's `ControllerLag`.
 
-**M3: stamp proof (F67).** Settlement reads the live object's stamp on the reviewed UID through the live-object reader
-the F54 path already uses (`landedReader`). If the stamp is `D_new`, the operation is landed, or completed when
-ready. If it is `D_before`, it had no effect. The proof covers create, update and adopt, and reviews of any version.
-A same-digest drift repair (`D_before == D_new`) uses the canonicalized fields-match rule of RES-4 §3.
+**M3: stamp proof (F67).** `KubernetesAdapterOps` gains a stamped observation, `kubernetesObserveStamped ::
+ResourceId -> IO (KubernetesState, Maybe Stamp)`, with `kubernetesObserve = fmap fst` of it. Prepare reads through it
+once, with no extra GET, and records the observed stamp as `beforeStamp`, a **required** field of every update
+mutation. Settle reads the current stamp the same way. Settlement for an update, in order:
+1. whole-state equality (resourceVersion unchanged) is no effect, as today;
+2. if `beforeStamp ≠ D_new`, a live stamp equal to `beforeStamp` on the same UID is no effect, and `D_new` on the same
+   UID is landed, or completed when ready;
+3. if `beforeStamp == D_new` (a drift repair), the stamp proves nothing either way. Desired fields that now match after
+   canonical comparison (M7) are landed or completed; anything else stays unknown, because the write may have landed and
+   then drifted again identically;
+4. any other or missing stamp falls to the existing target-gone (F68) and unknown rules.
 
-First step, before any code: establish where `D_before` comes from. Today's mutation does not record the
-before-object's stamp, and the observed before-state digest is a whole-object digest. Candidates:
-- the base revision's declared spec digest for the member;
-- the before-object's stamp read at prepare and carried in the existing mutation encoding, without a new version.
-
-Choose with session nagare, and record the choice in the Decision Log. The failing tests are the three F67 model
-schedules kept from EP-177: the database StatefulSet update at `(Mutate 10, StatusChurn) + (StorePut 72, PutRefused)`
-and `(11, 84)`, and the generated Deployment update at `(5, 44)`. Re-check their ordinals with `pinned`.
+The failing tests are the three F67 model schedules kept from EP-177: the database StatefulSet update at
+`(Mutate 10, StatusChurn) + (StorePut 72, PutRefused)` and `(11, 84)`, and the generated Deployment update at `(5, 44)`.
+Re-check their ordinals with `pinned`. Pure tests pin the repair case, the stamp rollback and a missing field, which
+fails to decode.
 
 **M4: definitive refusals (G4).** In the runtime's conditional-write fallback, map kubectl's server answers `Conflict`,
 `Invalid`, `AlreadyExists`, `NotFound`, `Forbidden`, `BadRequest` and `Operation cannot be fulfilled` to
@@ -222,8 +239,8 @@ just mutation-check HEAD
 - M2: Knative Service and DomainMapping objects with `Ready=True` and `observedGeneration` one behind read not ready.
   Record: `F69-knative-ready-ignores-generation`.
 - M3: the three F67 schedules exit with `[[Close]]`, and a pure settlement table covers `D_new`, `D_before`, other and
-  unstamped. Records: `F67-settle-ignores-stamp` (fails the pure and the model test); F66 and F68 are regenerated if
-  their context moves.
+  unstamped, plus the repair case and a missing `beforeStamp`, which fails to decode. Records: `F67-settle-ignores-stamp`
+  (fails the pure and the model test); F66 and F68 are regenerated if their context moves.
 - M4–M7: each has a unit test that fails first, and a record.
 - Whole plan: `just gate-fast` green per commit, `just mutation-check` green on the landing batch, and the fast tier,
   self-test and pins unchanged or stricter.
