@@ -121,7 +121,10 @@ inventoryIncarnationTests =
               Right _ -> False
         assertBool "a replaced StatefulSet must refuse" (attempt (Map.singleton (databaseMember "statefulset") (uid "uid-accepted-sts")))
         assertBool "a replaced PVC must refuse" (attempt (Map.singleton (databaseMember "pvc") (uid "uid-accepted-pvc")))
-        assertBool "the accepted incarnation must not be refused for its identity" (not (attempt (Map.fromList [(databaseMember "statefulset", uid "uid-live-sts"), (databaseMember "pvc", uid "uid-live-pvc")])))
+        let live = Map.fromList [(databaseMember "statefulset", uid "uid-live-sts"), (databaseMember "pvc", uid "uid-live-pvc"), (databaseMember "signing", uid "uid-signing")]
+        assertBool "the accepted incarnation must not be refused for its identity" (not (attempt live))
+        -- N5: the HMAC key must come from the accepted signing Secret.
+        assertBool "a replaced signing Secret must refuse" (attempt (Map.insert (databaseMember "signing") (uid "uid-accepted-signing") live))
         assertBool "an unrecorded source is refused, never read as a match (ADR 27)" (attempt Map.empty)
     ]
 

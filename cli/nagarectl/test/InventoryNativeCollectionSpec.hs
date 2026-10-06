@@ -211,7 +211,8 @@ nativeRecovery = withSystemTempDirectory "nagare-native-collection" $ \root -> d
   clearCalls root
   result <- must (applyReviewed store (selected root Cascade) reviewed)
   assertUnresolved result
-  budget root 3 3 1 1
+  -- One more GET: admission reverifies the collected root's incarnation (ADR 27, N8).
+  budget root 3 4 1 1
   let transaction = transactionOf result
   clearCalls root
   freshProcess root bundle transaction "pending"

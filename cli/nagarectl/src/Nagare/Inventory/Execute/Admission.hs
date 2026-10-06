@@ -22,8 +22,9 @@ import Nagare.Inventory.Adapter
     ( MigrateResource
     , OpenMaintenanceSession
     , RestoreLiveDatabase
+    , RetireResource
     )
-  , PlannedOperation (plannedAction, plannedExecutor)
+  , PlannedOperation (plannedAction, plannedExecutor, plannedResources)
   , ResourceObservation (ConfirmedAbsent, ObservedPresent)
   , lookupAdapter
   , observationMap
@@ -69,6 +70,7 @@ import Nagare.Inventory.Plan
   , ReviewDocument
     ( reviewAbsences
     , reviewBaseRevisions
+    , reviewCollections
     , reviewContextBinding
     , reviewDesiredRevisions
     , reviewHeadGeneration
@@ -168,7 +170,20 @@ admit locked registry reviewed = do
   where
     continueAdmission store document transaction observed headValue coverage = case coverage of
       Left err -> pure (failure "retention-coverage" err)
-      Right retainedRequests -> do
+      Right retentionRequests -> do
+        -- ADR 27 (N8): a collection deletes only the retained incarnation its
+        -- proof names, so it is reverified like a retention.
+        let collectionRequests =
+              Map.fromListWith
+                (<>)
+                [ (plannedExecutor operation, [resource])
+                | entry <- reviewOperations document
+                , let operation = reviewPlannedOperation entry
+                , plannedAction operation == RetireResource
+                , resource <- NE.toList (plannedResources operation)
+                , Map.member resource (reviewCollections document)
+                ]
+            retainedRequests = Map.unionWith (<>) retentionRequests collectionRequests
         migrationChecked <- migrationCoverage store document
         migrationSourceErrors <- case migrationChecked of
           Left _ -> pure []
@@ -189,6 +204,12 @@ admit locked registry reviewed = do
                         == Just (ObservedPresent (retentionPhysical proof))
                     )
                     (Left "retained physical incarnation changed since review")
+                forM_ (Map.toAscList (reviewCollections document)) $ \(resource, proof) ->
+                  unless
+                    ( Map.lookup resource (observationMap facts)
+                        == Just (ObservedPresent (retentionPhysical proof))
+                    )
+                    (Left "collected physical incarnation changed since review")
                 forM_ (Map.keys (reviewAbsences document)) $ \resource ->
                   case Map.lookup resource (observationMap facts) of
                     Just (ConfirmedAbsent _) -> Right ()

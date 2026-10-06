@@ -262,6 +262,8 @@ resolveScheduledSource mctx database namespaceName bucketArg = do
       acceptedSource what member uid = either (reportFail . ("scheduled receipt source is not the accepted database incarnation: " <>)) pure (requireAccepted what (checkedPhysical incarnations (member ^. #identity) uid))
   _ <- acceptedSource "the StatefulSet" stateful statefulUid
   _ <- acceptedSource "the PersistentVolumeClaim" pvc pvcUid
+  -- N5: the HMAC key that authenticates the receipts is the accepted Secret's.
+  _ <- acceptedSource "the signing Secret" signing signingUid
   (_, cronBytes) <-
     maybe
       (reportFail "accepted CronJob lacks native bytes")

@@ -169,6 +169,8 @@ compileScheduledIngestScope request accepted native = do
   let acceptedSource what member uid = first (\reason -> invalid ("scheduled receipt source is not the accepted database incarnation: " <> reason)) (requireAccepted what (checkedPhysical (ingestAcceptedIncarnations request) (member ^. #identity) uid))
   _ <- acceptedSource "the StatefulSet" stateful (ingestStatefulUid request)
   _ <- acceptedSource "the PersistentVolumeClaim" pvc (ingestPvcUid request)
+  -- N5: the HMAC key that authenticates the receipt is the accepted Secret's.
+  _ <- acceptedSource "the signing Secret" signing (ingestSigningUid request)
   cronBytes <- acceptedBytes cron
   _ <- acceptedBytes stateful
   _ <- acceptedBytes pvc

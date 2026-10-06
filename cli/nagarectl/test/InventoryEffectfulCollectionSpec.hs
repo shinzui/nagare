@@ -14,7 +14,7 @@ import Nagare.Inventory.Adapters.Kubernetes (mkKubernetesAdapter)
 import Nagare.Inventory.Adapters.KubernetesRuntime (mkKubernetesRuntimeOps)
 import Nagare.Inventory.Collection.Adapter (controllerCollectionAdapter, controllerCollectionIdentity)
 import Nagare.Inventory.Digest (contentDigest)
-import Nagare.Inventory.Execute (TransactionResult (..), applyReviewed, resumeTransaction)
+import Nagare.Inventory.Execute (AdmissionError (..), TransactionResult (..), applyReviewed, resumeTransaction)
 import Nagare.Inventory.Journal (TransactionId, mkTransactionId, transactionIdText)
 import Nagare.Inventory.KubernetesTransport
 import Nagare.Inventory.Lifecycle (decideCollection, decideRetirement)
@@ -44,6 +44,7 @@ inventoryEffectfulCollectionTests =
     , testCase "failure before DELETE safely retries once" (recoverCollection BeforeDelete)
     , testCase "successful wait cannot conceal a still-present parent" (recoverCollection LyingWait)
     , testCase "replacement parent after interruption stays untouched" replacement
+    , testCase "a parent replaced after review is refused at admission (ADR 27, N8)" admittedReplacement
     , testCase "UID race is rejected at the conditional write" (writeRace RaceUid)
     , testCase "resourceVersion race is rejected at the conditional write" (writeRace RaceVersion)
     , testCase "pending invariant rejects the old immediate-deletion model" counterfactual
@@ -191,6 +192,16 @@ replacement = withSystemTempDirectory "nagare-effectful-replacement" $ \root -> 
   deleteBodies afterWorld @?= deleteBodies before
   length (filter (elem "--raw") (requests afterWorld)) @?= 1
   Map.member parentId . headCollected <$> requireHead store >>= (@?= False)
+
+admittedReplacement :: IO ()
+admittedReplacement = withSystemTempDirectory "nagare-effectful-admitted-replacement" $ \root -> do
+  (store, _, reviewed) <- preparedCollection root
+  replaceParent root "replacement-uid" "12"
+  before <- readCollectionWorld root
+  admitted <- applyReviewed store (registry root Normal collectionNative) reviewed
+  assertBool ("a replaced parent was admitted: " <> show admitted) (either (any ((== "retention-observation") . admissionErrorCode)) (const False) admitted)
+  afterWorld <- readCollectionWorld root
+  deleteBodies afterWorld @?= deleteBodies before
 
 writeRace :: CollectionFault -> IO ()
 writeRace fault = withSystemTempDirectory "nagare-effectful-delete-race" $ \root -> do
