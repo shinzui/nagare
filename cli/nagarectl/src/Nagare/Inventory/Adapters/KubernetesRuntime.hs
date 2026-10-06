@@ -7,6 +7,7 @@
 -- transport failure is ambiguous until a new observation proves its outcome.
 module Nagare.Inventory.Adapters.KubernetesRuntime
   ( KubernetesRuntimeConfig (..)
+  , identified
   , mkKubernetesRuntimeOps
   , mkKubernetesRuntimeOpsWithCacheKey
   , mkKubernetesRuntimeOpsAndBatchWithCacheKey
@@ -228,18 +229,31 @@ mkKubernetesRuntimeObservations stable config resolveCacheKey specs =
           case request of
             Left reason -> pure (AdapterEffectFailed (KnownNoEffect reason))
             Right (arguments, body) -> do
-              result <- invoke config arguments (T.unpack body)
+              -- ADR 27: a write returns the object it wrote; its UID is the
+              -- identity the journal records, whatever happens afterwards.
+              let writes = mutationAction mutation /= RetireResource
+              result <- invoke config (arguments <> (if writes then ["-o", "json"] else [])) (T.unpack body)
               case result of
                 Right (ExitSuccess, _, _)
-                  | mutationAction mutation == RetireResource ->
+                  | not writes ->
                       waitForCollection config (mutationAddress mutation)
+                Right (ExitSuccess, output, _)
                   | Just takeover <- mutationTakeover mutation -> do
                       live <- readLiveManagedObject config (mutationAddress mutation)
-                      case live >>= confirmTakeoverSettled (Just (mutationAddress mutation)) (takeoverPhysical takeover) of
+                      identified output <$> case live >>= confirmTakeoverSettled (Just (mutationAddress mutation)) (takeoverPhysical takeover) of
                         Left reason -> pure (AdapterEffectAmbiguous reason)
                         Right () -> waitForReadiness config (mutationAddress mutation)
-                  | otherwise -> waitForReadiness config (mutationAddress mutation)
+                  | otherwise -> identified output <$> waitForReadiness config (mutationAddress mutation)
                 _ -> pure (AdapterEffectAmbiguous "Kubernetes write did not return success; reobserve before retry")
+
+-- | Attach the UID of the object a write returned. Output that names no UID
+-- leaves the effect unidentified, so the member stays unrecorded.
+identified :: String -> AdapterExecution -> AdapterExecution
+identified output outcome = maybe outcome (`AdapterEffectIdentified` outcome) returned
+  where
+    returned = either (const Nothing) Just $ do
+      value <- first (T.pack . show) (eitherDecodeStrict (TE.encodeUtf8 (T.pack output)) :: Either String Value)
+      metadataOf value >>= fieldText "uid" >>= mkPhysicalIdentity
 
 -- | A review observes one explicit Kubernetes context. Validate the ambient
 -- context and server node before and after the read-only scan; discard every

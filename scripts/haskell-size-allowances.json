@@ -12,6 +12,6 @@
   "cli/nagarectl/test/InventoryApplicationSpec.hs": 1057,
   "cli/nagarectl/test/InventoryKubernetesLifecycleSpec.hs": 1281,
   "cli/nagarectl/test/InventoryKubernetesSpec.hs": 6031,
-  "cli/nagarectl/test/InventoryObjectOpsSpec.hs": 1096,
-  "cli/nagarectl/test/InventoryTransactionSpec.hs": 3751
+  "cli/nagarectl/test/InventoryObjectOpsSpec.hs": 1087,
+  "cli/nagarectl/test/InventoryTransactionSpec.hs": 3742
 }

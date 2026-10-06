@@ -3,6 +3,7 @@
 -- | Journal responsibilities; internal implementation behind Nagare.Inventory.Execute.
 module Nagare.Inventory.Execute.Journal
   ( appendEvent
+  , appendEventWith
   , readJournal
   , readJournalAtHead
   , rollbackProof
@@ -59,15 +60,20 @@ import Nagare.Inventory.Store
   , replaceObservedHead
   , storeClientIdentity
   )
-import Nagare.Resource.Types (ContentDigest, mkContentDigest)
+import Nagare.Resource.Types (ContentDigest, PhysicalIdentity, mkContentDigest)
 import System.IO (stderr)
 
 -- | Append one event and commit it by advancing the head. A failure reports
 -- the store's own error on stderr, so an operator can tell a refused
 -- precondition from a transport failure (F38).
 appendEvent :: LockedStore s -> TransactionId -> Maybe OperationId -> OperationState -> Text -> IO (Either StoreError JournalEvent)
-appendEvent locked transaction operation state detail = do
-  result <- appendEventAt orphanBudget locked transaction operation state detail
+appendEvent = appendEventWith Nothing
+
+-- | 'appendEvent', recording the identity the provider returned for the
+-- object the operation wrote (ADR 27).
+appendEventWith :: Maybe PhysicalIdentity -> LockedStore s -> TransactionId -> Maybe OperationId -> OperationState -> Text -> IO (Either StoreError JournalEvent)
+appendEventWith physical locked transaction operation state detail = do
+  result <- appendEventAt orphanBudget physical locked transaction operation state detail
   case result of
     Left err ->
       TIO.hPutStrLn stderr $
@@ -81,8 +87,8 @@ appendEvent locked transaction operation state detail = do
   where
     orphanBudget = 2 :: Int
 
-appendEventAt :: Int -> LockedStore s -> TransactionId -> Maybe OperationId -> OperationState -> Text -> IO (Either StoreError JournalEvent)
-appendEventAt orphanBudget locked transaction operation state detail = do
+appendEventAt :: Int -> Maybe PhysicalIdentity -> LockedStore s -> TransactionId -> Maybe OperationId -> OperationState -> Text -> IO (Either StoreError JournalEvent)
+appendEventAt orphanBudget physical locked transaction operation state detail = do
   let store = lockedStore locked
   headResult <- observeHead store
   case headResult of
@@ -106,7 +112,7 @@ appendEventAt orphanBudget locked transaction operation state detail = do
             Left err -> pure (Left err)
             Right prior -> do
               now <- timestamp
-              let event = JournalEvent 1 (headSequence headValue) prior transaction operation state now detail
+              let event = JournalEvent 1 (headSequence headValue) prior transaction operation state now detail physical
                   key = journalKey (headSequence headValue)
               published <- appendAtObservedHead store headValue (encodeJournalEvent event)
               case published of
@@ -131,7 +137,7 @@ appendEventAt orphanBudget locked transaction operation state detail = do
                               Right _
                                 | sameEventMeaning old event || sameCompletion old event -> pure (Right old)
                                 | orphanBudget > 0 ->
-                                    appendEventAt (orphanBudget - 1) locked transaction operation state detail
+                                    appendEventAt (orphanBudget - 1) physical locked transaction operation state detail
                                 | otherwise -> pure (Left (StoreObjectConflict key))
                 Left err -> pure (Left err)
     Right _ -> pure (Left (StoreConditionFailed "inventory store is not initialized"))

@@ -1,19 +1,19 @@
 diff --git a/cli/nagarectl/src/Nagare/Inventory/Execute/Journal.hs b/cli/nagarectl/src/Nagare/Inventory/Execute/Journal.hs
-index 4271b143..a9e49e16 100644
+index aeb1b400..f8783476 100644
 --- a/cli/nagarectl/src/Nagare/Inventory/Execute/Journal.hs
 +++ b/cli/nagarectl/src/Nagare/Inventory/Execute/Journal.hs
-@@ -130,9 +130,7 @@ appendEventAt orphanBudget locked transaction operation state detail = do
+@@ -135,9 +135,7 @@ appendEventAt orphanBudget physical locked transaction operation state detail =
                              case committed of
                                Left err -> pure (Left err)
                                Right _
 -                                | sameEventMeaning old event || sameCompletion old event -> pure (Right old)
 -                                | orphanBudget > 0 ->
--                                    appendEventAt (orphanBudget - 1) locked transaction operation state detail
+-                                    appendEventAt (orphanBudget - 1) physical locked transaction operation state detail
 +                                | sameEventMeaning old event -> pure (Right old)
                                  | otherwise -> pure (Left (StoreObjectConflict key))
                  Left err -> pure (Left err)
      Right _ -> pure (Left (StoreConditionFailed "inventory store is not initialized"))
-@@ -170,15 +168,7 @@ commitHead store observed headValue event retries = do
+@@ -175,15 +173,7 @@ commitHead store observed headValue event retries = do
    replaced <- replaceObservedHead observed replacement
    case replaced of
      Right () -> pure (Right event)

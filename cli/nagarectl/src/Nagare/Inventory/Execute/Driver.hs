@@ -3,10 +3,12 @@
 -- | Driver responsibilities; internal implementation behind Nagare.Inventory.Execute.
 module Nagare.Inventory.Execute.Driver
   ( runOperations
+  , runOperationsJournal
   )
 where
 
 import Data.Generics.Labels ()
+import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.List (find, sortOn)
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
@@ -27,6 +29,7 @@ import Nagare.Inventory.Adapter
     )
   , AdapterRecovery (recoveryExecute, recoveryValidate)
   , AdapterRegistry
+  , EffectOutcome (..)
   , OperationAction (CreateResource, VerifyResource)
   , PlannedOperation
     ( plannedAction
@@ -43,6 +46,7 @@ import Nagare.Inventory.Adapter
     , RecoveryTerminalFailure
     , RecoveryUnresolved
     )
+  , effectIdentity
   , lookupAdapter
   , lookupAdapterRecovery
   )
@@ -60,7 +64,7 @@ import Nagare.Inventory.Execute.Inputs
   ( preparedFor
   , selectedFence
   )
-import Nagare.Inventory.Execute.Journal (appendEvent)
+import Nagare.Inventory.Execute.Journal (appendEvent, appendEventWith)
 import Nagare.Inventory.Execute.Types
   ( RecoveryAction (..)
   , TransactionResult (..)
@@ -132,9 +136,39 @@ runOperations ::
   [ReviewOperation] ->
   Maybe (OperationId, RecoveryAction) ->
   IO (Maybe TransactionResult)
-runOperations locked registry transaction reviewed initialEvents operations recoveryDecision = go initialEvents
+runOperations locked registry transaction reviewed initialEvents operations recoveryDecision =
+  fst <$> runOperationsJournal locked registry transaction reviewed initialEvents operations recoveryDecision
+
+-- | 'runOperations', also returning the journal as the run left it, so
+-- convergence can bind identities without reading the journal again.
+runOperationsJournal ::
+  LockedStore s ->
+  AdapterRegistry ->
+  TransactionId ->
+  ReviewedPlan ->
+  [JournalEvent] ->
+  [ReviewOperation] ->
+  Maybe (OperationId, RecoveryAction) ->
+  IO (Maybe TransactionResult, [JournalEvent])
+runOperationsJournal locked registry transaction reviewed initialEvents operations recoveryDecision = do
+  latest <- newIORef initialEvents
+  result <- runOperationsWith latest locked registry transaction reviewed initialEvents operations recoveryDecision
+  (result,) <$> readIORef latest
+
+runOperationsWith ::
+  IORef [JournalEvent] ->
+  LockedStore s ->
+  AdapterRegistry ->
+  TransactionId ->
+  ReviewedPlan ->
+  [JournalEvent] ->
+  [ReviewOperation] ->
+  Maybe (OperationId, RecoveryAction) ->
+  IO (Maybe TransactionResult)
+runOperationsWith latest locked registry transaction reviewed initialEvents operations recoveryDecision = go initialEvents
   where
-    go events = case recoveryDecision of
+    go events = writeIORef latest events >> step events
+    step events = case recoveryDecision of
       Just (selected, _) -> case find ((== selected) . operationId) operations of
         Just operation -> recoverOrStop events operation
         Nothing -> pure (Just (StoppedAmbiguous transaction selected))
@@ -400,15 +434,19 @@ runOperations locked registry transaction reviewed initialEvents operations reco
                               transaction
                               operation
                               (adapterExecute adapter operation prepared)
-                      case result of
-                        AdapterEffectFailed failureClass -> do
+                      -- ADR 27: every event that ends this operation keeps the
+                      -- identity the provider returned for its write.
+                      let (physical, outcome) = effectIdentity result
+                      case outcome of
+                        OutcomeFailed failureClass -> do
                           markUnknown activeFence
                           let state = case (activeFence, failureClass) of
                                 (Just _, _) -> Ambiguous
                                 (_, KnownNoEffect _) -> Failed failureClass
                                 _ -> Ambiguous
                           appended <-
-                            appendEvent
+                            appendEventWith
+                              physical
                               locked
                               transaction
                               (Just operationId)
@@ -418,17 +456,18 @@ runOperations locked registry transaction reviewed initialEvents operations reco
                             (Nothing, KnownNoEffect _, Right _) ->
                               StoppedFailed transaction operationId failureClass
                             _ -> StoppedAmbiguous transaction operationId
-                        AdapterEffectAmbiguous reason -> do
+                        OutcomeAmbiguous reason -> do
                           markUnknown activeFence
                           _ <-
-                            appendEvent
+                            appendEventWith
+                              physical
                               locked
                               transaction
                               (Just operationId)
                               Ambiguous
                               ("adapter result was ambiguous: " <> reason)
                           pure (Just (StoppedAmbiguous transaction operationId))
-                        AdapterEffectCompleted -> do
+                        OutcomeCompleted -> do
                           verification <-
                             withAdapterEnv
                               transaction
@@ -438,7 +477,8 @@ runOperations locked registry transaction reviewed initialEvents operations reco
                             Left _ -> do
                               markUnknown activeFence
                               _ <-
-                                appendEvent
+                                appendEventWith
+                                  physical
                                   locked
                                   transaction
                                   (Just operationId)
@@ -450,7 +490,8 @@ runOperations locked registry transaction reviewed initialEvents operations reco
                               case fenceVerified of
                                 Left _ -> do
                                   _ <-
-                                    appendEvent
+                                    appendEventWith
+                                      physical
                                       locked
                                       transaction
                                       (Just operationId)
@@ -459,7 +500,8 @@ runOperations locked registry transaction reviewed initialEvents operations reco
                                   pure (Just (StoppedAmbiguous transaction operationId))
                                 Right () -> do
                                   appended <-
-                                    appendEvent
+                                    appendEventWith
+                                      physical
                                       locked
                                       transaction
                                       (Just operationId)

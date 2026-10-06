@@ -14,6 +14,8 @@ module Nagare.Inventory.Adapter
   , ReviewBarrier (..)
   , PrepareError (..)
   , AdapterExecution (..)
+  , EffectOutcome (..)
+  , effectIdentity
   , RecoveryDecision (..)
   , Settlement (..)
   , settleOperationWith
@@ -154,7 +156,26 @@ data AdapterExecution
   = AdapterEffectCompleted
   | AdapterEffectFailed !FailureClass
   | AdapterEffectAmbiguous !Text
+  | -- | ADR 27: the provider returned the identity of the object this effect
+    -- wrote, and the effect then ended as the inner result. A readiness wait
+    -- that times out still knows which object it created.
+    AdapterEffectIdentified !PhysicalIdentity !AdapterExecution
   deriving stock (Eq, Show, Generic)
+
+-- | An effect's outcome with its provider-returned identity taken off.
+data EffectOutcome
+  = OutcomeCompleted
+  | OutcomeFailed !FailureClass
+  | OutcomeAmbiguous !Text
+  deriving stock (Eq, Show)
+
+-- | The provider-returned identity, if any (the outermost), and the outcome.
+effectIdentity :: AdapterExecution -> (Maybe PhysicalIdentity, EffectOutcome)
+effectIdentity = \case
+  AdapterEffectCompleted -> (Nothing, OutcomeCompleted)
+  AdapterEffectFailed failureClass -> (Nothing, OutcomeFailed failureClass)
+  AdapterEffectAmbiguous reason -> (Nothing, OutcomeAmbiguous reason)
+  AdapterEffectIdentified physical inner -> (Just physical, snd (effectIdentity inner))
 
 data RecoveryDecision
   = RecoveryProvedComplete !ContentDigest

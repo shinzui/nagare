@@ -27,9 +27,11 @@ import Nagare.Inventory.Adapter
     , fenceVerifyRecoveryBackup
     )
   , AdapterRegistry
+  , EffectOutcome (..)
   , PlannedOperation (plannedExecutor)
   , PreparedNative
   , RecoveryDecision (RecoveryProvedComplete)
+  , effectIdentity
   , lookupAdapterFenceByCapability
   )
 import Nagare.Inventory.DataFence
@@ -350,8 +352,10 @@ recoverFenced registry input lock adapter operation prepared active controls cap
               transaction
               operation
               (adapterExecute adapter operation prepared)
-          case effect of
-            AdapterEffectCompleted -> do
+          -- A fenced data operation writes data, not members; its identity
+          -- is the fence's, so the provider's answer is not recorded here.
+          case snd (effectIdentity effect) of
+            OutcomeCompleted -> do
               verified <-
                 withAdapterEnv
                   transaction
@@ -362,7 +366,7 @@ recoverFenced registry input lock adapter operation prepared active controls cap
                   _ <- markDataFenceUnresolved lock token
                   pure (failure "adapter-recovery" reason)
                 Right proof -> finishFenced lock token controls proof
-            AdapterEffectAmbiguous reason -> do
+            OutcomeAmbiguous reason -> do
               _ <- markDataFenceUnresolved lock token
               _ <-
                 appendEvent
@@ -376,7 +380,7 @@ recoverFenced registry input lock adapter operation prepared active controls cap
                     "adapter-recovery"
                     "fenced data effect is not proved complete"
                 )
-            AdapterEffectFailed failureClass -> do
+            OutcomeFailed failureClass -> do
               _ <- markDataFenceUnresolved lock token
               _ <-
                 appendEvent

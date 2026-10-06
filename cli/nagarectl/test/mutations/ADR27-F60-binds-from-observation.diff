@@ -1,0 +1,22 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Execute/Incarnations.hs b/cli/nagarectl/src/Nagare/Inventory/Execute/Incarnations.hs
+index 8bdfba29..2e47e6bd 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/Execute/Incarnations.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Execute/Incarnations.hs
+@@ -49,7 +49,7 @@ data IncarnationBinding
+ convergedIncarnations :: LockedStore s -> AdapterRegistry -> TransactionId -> [JournalEvent] -> ReviewDocument -> IO (Map ResourceId IncarnationBinding)
+ convergedIncarnations locked registry transaction events document = do
+   migrated <- migrationDestinations locked registry document
+-  pure (Map.union written migrated)
++  pure (Map.union migrated written)
+   where
+     -- The latest identity each operation's events carry.
+     returned =
+@@ -92,7 +92,7 @@ migrationDestinations locked registry document = do
+         | reviewOperation <- reviewOperations document
+         , let planned = reviewPlannedOperation reviewOperation
+         , plannedExecutor planned == KubernetesExecutor
+-        , migrates (plannedAction planned)
++        , migrates (plannedAction planned) || plannedAction planned == CreateResource
+         , resource <- NE.toList (plannedResources planned)
+         , Set.member resource durable
+         ]

@@ -11,6 +11,12 @@ provenance:
     model: "claude-opus-5-5"
     harness: "claude-code"
     at: 2026-10-05T21:51:36Z
+  revisions:
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-06T01:36:52Z
+      mode: "implement"
+      note: "EP-176 M1: provider identity journalled and bound at convergence"
 ---
 
 # Record physical identity at creation and read it through one checked accessor
@@ -57,11 +63,30 @@ step 2 of MasterPlan 23's release line (b).
 
 ## Progress
 
-- [ ] M1: identity at the source. `AdapterExecution` carries the provider's identity. The Kubernetes
-  runtime returns it from `create`, `apply`, `replace`, `copySecret` and adoption patches; the
-  journal's `Completed` event stores it, and old journals still decode. Convergence binds from the
-  journal. A live object that differs at convergence settles `TargetGone`. The model's F60 tolerance
-  is removed and the scenario passes.
+- [x] M1 (2026-10-05): identity at the source.
+  - **Result type.** `AdapterExecution` gains `AdapterEffectIdentified physical inner`: the
+    provider returned this object, then the effect ended as `inner`. `effectIdentity` splits it
+    into the identity and a flat `EffectOutcome`.
+  - **Kubernetes runtime.** Every non-delete write (create, adoption patch, apply, Service patch)
+    runs with `-o json`, and `identified` attaches the returned `metadata.uid`. The migration's
+    `copySecret` does the same (N11).
+  - **Journal.** `JournalEvent` gains an optional `physical`, omitted when absent so old events
+    keep their bytes and digests. The driver records it on whichever event ends the operation
+    (`appendEventWith`), so a readiness timeout still records the object it created.
+  - **Convergence.** It binds from the journal through `runOperationsJournal`, which hands back the
+    run's final events with no second journal read:
+    - create, adopt and a migration's own write are established;
+    - update is proved (bound only when nothing is recorded);
+    - verify binds nothing;
+    - a migration destination with no returned identity keeps F52's convergence observation.
+  - **Tests.** The model's F60 tolerance is removed and the fast tier passes. New tests:
+    - "convergence binds the object the create returned, not one that replaced it before
+      convergence (F60)";
+    - "a Kubernetes write's returned object names the identity the journal records".
+  - **Fakes.** The rename spec's kubectl fake now returns the created object, as real `-o json`
+    does, and the effectful model accepts the flag.
+  - **Mutation records.** `ADR27-F60-binds-from-observation`, `ADR27-driver-drops-returned-identity`
+    and `ADR27-runtime-ignores-returned-uid`.
 - [ ] M2: one checked accessor, used by every consumer C lists for in-line kinds. Each consumer's
   mismatch case has a test that fails without the accessor; F62's rename-source replacement is
   refused in the rename model.
@@ -91,6 +116,36 @@ step 2 of MasterPlan 23's release line (b).
   collection deletes. Status and planning report it and proceed.
   Rationale: ADR 27 §2 forbids treating "no record" as matching. Refusing only where data is at stake
   keeps ordinary updates of stateless members working.
+  Date: 2026-10-05
+
+
+- Decision: The identity is a wrapper constructor, not a field on `AdapterEffectCompleted`.
+  Rationale: 256 constructions in 70 files build `AdapterEffectCompleted`, almost all in fakes. A
+  wrapper leaves them unchanged and lets the identity accompany an ambiguous outcome too. The two
+  consumers that match on outcomes use the total `EffectOutcome`.
+  Date: 2026-10-05
+
+- Decision: The identity is an optional event-level field (`physical`) rather than a change to
+  `Completed`'s payload, and it is recorded on whichever event ends the operation.
+  Rationale: a readiness wait that times out after a successful create journals `Ambiguous`, and
+  that operation's later `Completed` comes from recovery, which has no response to read. Recording
+  on the ending event keeps the provider's answer in both cases. Matching on `Completed _` stays
+  unchanged everywhere.
+  Date: 2026-10-05
+
+- Decision (correction): The plan's claim that an older binary "ignores the new optional fields"
+  is wrong. The journal decoder refuses unknown fields. No released reader predates the inventory
+  store (ADR 22), so nothing is lost; newer journals are not readable by binaries built before
+  this plan.
+  Date: 2026-10-05
+
+- Decision: A verification binds nothing, and members are recorded at every Kubernetes create,
+  not only for durable members and StatefulSets.
+  Rationale: a verification writes nothing, so its only source would be a later observation, the
+  path ADR 27 removes. A member that was never recorded stays `unrecorded` until M3's rebind. N10
+  (a create completed in a closed transaction) is therefore still unrecorded at the next
+  convergence. M2's accessor handles it as `unrecorded`; reading earlier transactions' completions
+  is not done.
   Date: 2026-10-05
 
 

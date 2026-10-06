@@ -1,7 +1,7 @@
--- | Accepted incarnations of durable members (F49). The physical identity of a
--- durable Kubernetes member is recorded when the review that created, adopted,
--- updated or verified it converges, so that status and receipt ingestion can
--- tell a same-name replacement made outside Nagare from the accepted object.
+-- | Accepted incarnations (F49, ADR 27). A Kubernetes member's record is the
+-- identity the API server returned for the review's own write, read from the
+-- journal; it is never taken from a later observation, so a replacement made
+-- between a write and convergence is not laundered into the record (F60).
 module Nagare.Inventory.Execute.Incarnations
   ( IncarnationBinding (..)
   , bindIncarnations
@@ -18,6 +18,7 @@ import Data.Text qualified as T
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Digest (contentDigest)
+import Nagare.Inventory.Journal (JournalEvent (eventOperation, eventPhysical, eventTransaction), TransactionId)
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Store
   ( LockedStore
@@ -35,17 +36,47 @@ import Nagare.Resource.Wire (decodeScope)
 data IncarnationBinding
   = -- | Nagare created or adopted this object, so it is the accepted incarnation.
     Established !PhysicalIdentity
-  | -- | Nagare updated or verified this object; bind it only if nothing is recorded.
+  | -- | Nagare updated this object; bind it only if nothing is recorded.
     Proved !PhysicalIdentity
   deriving stock (Eq, Show)
 
--- | Observe the data-bearing Kubernetes members a converging review touched:
--- durable members (a database's PVC and credential) and StatefulSets, the
--- controllers that own that data. An unavailable observation records nothing;
--- it never blocks convergence, so a later update or verification may be the
--- first to bind that member.
-convergedIncarnations :: LockedStore s -> AdapterRegistry -> ReviewDocument -> IO (Map ResourceId IncarnationBinding)
-convergedIncarnations locked registry document = do
+-- | Bind every Kubernetes member a converging review created, adopted or
+-- updated to the identity its write returned. A verification writes nothing
+-- and binds nothing, and a write whose response was lost leaves its member
+-- unrecorded. A reviewed migration's destination (F52) is its new object:
+-- bound from its write when the write returned one, otherwise from a
+-- convergence observation, since a transfer Job writes data, not the object.
+convergedIncarnations :: LockedStore s -> AdapterRegistry -> TransactionId -> [JournalEvent] -> ReviewDocument -> IO (Map ResourceId IncarnationBinding)
+convergedIncarnations locked registry transaction events document = do
+  migrated <- migrationDestinations locked registry document
+  pure (Map.union written migrated)
+  where
+    -- The latest identity each operation's events carry.
+    returned =
+      Map.fromList
+        [ (operation, physical)
+        | event <- events
+        , eventTransaction event == transaction
+        , Just operation <- [eventOperation event]
+        , Just physical <- [eventPhysical event]
+        ]
+    written =
+      Map.fromList
+        [ (resource, if plannedAction planned == UpdateResource then Proved physical else Established physical)
+        | reviewOperation <- reviewOperations document
+        , let planned = reviewPlannedOperation reviewOperation
+        , plannedExecutor planned == KubernetesExecutor
+        , plannedAction planned `elem` [CreateResource, AdoptResource, UpdateResource] || migrates (plannedAction planned)
+        , [resource] <- [NE.toList (plannedResources planned)]
+        , Just physical <- [Map.lookup (plannedOperationId planned) returned]
+        ]
+
+migrates :: OperationAction -> Bool
+migrates (MigrateResource _) = True
+migrates _ = False
+
+migrationDestinations :: LockedStore s -> AdapterRegistry -> ReviewDocument -> IO (Map ResourceId IncarnationBinding)
+migrationDestinations locked registry document = do
   scopes <- traverse loadScope (Map.elems (reviewDesiredRevisions document))
   let durable =
         Set.fromList
@@ -57,28 +88,26 @@ convergedIncarnations locked registry document = do
           , isDurable (member ^. #dataPolicy) || isStatefulSet (member ^. #address)
           ]
       touched =
-        Map.fromListWith
-          max
-          [ (resource, establishes (plannedAction planned))
-          | reviewOperation <- reviewOperations document
-          , let planned = reviewPlannedOperation reviewOperation
-          , plannedExecutor planned == KubernetesExecutor
-          , plannedAction planned `elem` [CreateResource, AdoptResource, UpdateResource, VerifyResource] || migrates (plannedAction planned)
-          , resource <- NE.toList (plannedResources planned)
-          , Set.member resource durable
-          ]
+        [ resource
+        | reviewOperation <- reviewOperations document
+        , let planned = reviewPlannedOperation reviewOperation
+        , plannedExecutor planned == KubernetesExecutor
+        , migrates (plannedAction planned)
+        , resource <- NE.toList (plannedResources planned)
+        , Set.member resource durable
+        ]
   case lookupAdapter registry KubernetesExecutor of
     Left _ -> pure Map.empty
     Right adapter
-      | Map.null touched -> pure Map.empty
+      | null touched -> pure Map.empty
       | otherwise -> do
-          observed <- adapterObserve adapter (Map.keys touched)
+          observed <- adapterObserve adapter touched
           pure $ case observed of
             Left _ -> Map.empty
             Right facts ->
               Map.fromList
-                [ (resource, if established then Established physical else Proved physical)
-                | (resource, established) <- Map.toList touched
+                [ (resource, Established physical)
+                | resource <- touched
                 , Just physical <- [present =<< Map.lookup resource (observationMap facts)]
                 ]
   where
@@ -90,10 +119,6 @@ convergedIncarnations locked registry document = do
         if contentDigest bytes /= revisionDigest revision
           then Left "desired scope digest mismatch"
           else first showText (decodeScope bytes)
-    -- A reviewed migration's destination is the member's new object (F52).
-    establishes action = action `elem` [CreateResource, AdoptResource] || migrates action
-    migrates (MigrateResource _) = True
-    migrates _ = False
     isDurable (Durable _) = True
     isDurable _ = False
     isStatefulSet (Kubernetes _ "apps" kind _ _) = nameText kind == "statefulset"

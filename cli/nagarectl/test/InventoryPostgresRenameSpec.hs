@@ -374,7 +374,7 @@ respond arguments body state = case arguments of
               lost = (state ^. #loseJobAck) && fst3 key == "job.batch"
            in if lost
                 then (next & #loseJobAck .~ False, Right (ExitFailure 1, "", "lost acknowledgement"))
-                else (next, Right (ExitSuccess, "", ""))
+                else (next, Right (ExitSuccess, maybe "" encodeText (Map.lookup key (next ^. #objects)), ""))
     _ -> (state, Right (ExitFailure 1, "", "create refused"))
   ("patch" : kind : name : rest)
     | Just patch <- flag "-p" rest

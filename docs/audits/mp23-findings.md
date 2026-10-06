@@ -675,6 +675,15 @@ That design is also what this finding's follow-up work needs. The model's F60 to
 
 **Operator decision (2026-10-05): "approve all six, go with release line b".** The exhaustive review's D2 schedules this fix as ADR 27, together with the checked identity accessor and a reviewed rebind. It is step 2 of MP-23's release-line plan.
 
+**Implementation update (2026-10-05, EP-176 M1; claude-opus-5-5):**
+- **Fix.** Every Kubernetes write now runs with `-o json`, and the UID the API server returns is journalled on the event that ends the operation (`JournalEvent.physical`). Convergence binds that identity (`Execute/Incarnations.hs`) instead of observing members afterwards. A replacement made between the create and convergence therefore stays a replacement: status reports it as `replaced-incarnation`, and ingestion refuses its receipts.
+- **Coverage.** The recovery model's F60 tolerance in the I3 receipt clause is removed, and the fast tier passes with it gone. Focused regression: "convergence binds the object the create returned, not one that replaced it before convergence (F60)" in `InventoryIncarnationSpec`.
+- **Mutation records.**
+  - `ADR27-F60-binds-from-observation` (observation-based binding restored) fails that test, and the fast tier reports 4 violations.
+  - `ADR27-driver-drops-returned-identity` fails as well.
+  - `ADR27-runtime-ignores-returned-uid` fails as well.
+- **Remaining.** A create whose write response was lost has no returned identity, so its member is `unrecorded`. EP-176 M2's checked accessor refuses such a member where data is at stake. Status is the verifier's to set.
+
 ## F61
 
 **A reviewed PostgreSQL rename whose copy Job fails partway has no exit** — P1; **Open**; owner EP-173 / EP-153.

@@ -81,6 +81,10 @@ data JournalEvent = JournalEvent
   , eventState :: !OperationState
   , eventTimestamp :: !Text
   , eventDetail :: !Text
+  , eventPhysical :: !(Maybe PhysicalIdentity)
+  -- ^ ADR 27: the identity the provider returned for the object this
+  -- operation wrote, when it returned one. Omitted from the encoding when
+  -- absent, so events written before this field keep their bytes and digests.
   }
   deriving stock (Eq, Show, Generic)
 
@@ -104,7 +108,7 @@ instance FromJSON OperationState where parseJSON = genericParseJSON defaultOptio
 
 instance ToJSON JournalEvent where
   toJSON event =
-    object
+    object $
       [ "version" .= eventSchemaVersion event
       , "sequence" .= eventSequence event
       , "previousDigest" .= eventPreviousDigest event
@@ -114,10 +118,11 @@ instance ToJSON JournalEvent where
       , "timestamp" .= eventTimestamp event
       , "detail" .= eventDetail event
       ]
+        <> ["physical" .= physical | Just physical <- [eventPhysical event]]
 
 instance FromJSON JournalEvent where
   parseJSON = withObject "JournalEvent" $ \objectValue -> do
-    let allowed = ["version", "sequence", "previousDigest", "transaction", "operation", "state", "timestamp", "detail"]
+    let allowed = ["version", "sequence", "previousDigest", "transaction", "operation", "state", "timestamp", "detail", "physical"]
     unless (all (`elem` allowed) (KM.keys objectValue)) (fail "journal event has an unknown field")
     event <-
       JournalEvent
@@ -129,6 +134,7 @@ instance FromJSON JournalEvent where
         <*> objectValue .: "state"
         <*> objectValue .: "timestamp"
         <*> objectValue .: "detail"
+        <*> objectValue .:? "physical"
     unless (eventSchemaVersion event == 1) (fail "unsupported journal schema version")
     unless (eventSequence event >= 0) (fail "journal sequence must not be negative")
     pure event

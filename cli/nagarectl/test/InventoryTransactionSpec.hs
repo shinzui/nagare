@@ -2432,16 +2432,7 @@ inventoryTransactionTests =
                 | entry <- reviewOperations (reviewedDocument reviewed)
                 , NE.toList (plannedResources (reviewPlannedOperation entry)) == uncreated
                 ]
-            intent =
-              JournalEvent
-                1
-                (headSequence stoppedHead)
-                (Just previous)
-                tx
-                (Just (plannedOperationId unstartedOperation))
-                IntentRecorded
-                "test"
-                "uncertain late effect"
+            intent = JournalEvent 1 (headSequence stoppedHead) (Just previous) tx (Just (plannedOperationId unstartedOperation)) IntentRecorded "test" "uncertain late effect" Nothing
         _ <- appendAtSequence store (headSequence stoppedHead) (encodeJournalEvent intent) >>= expectRight
         _ <-
           replaceHeadIfGenerationMatches
@@ -2896,8 +2887,8 @@ inventoryTransactionTests =
     , testCase "journal validation rejects a missing or reordered event" $ do
         let transaction = ok (mkTransactionId ("tx-" <> T.replicate 64 "a"))
             operation = ok (mkOperationId "op-one")
-            firstEvent = JournalEvent 1 0 Nothing transaction (Just operation) IntentRecorded "2026-09-22T00:00:00Z" "intent"
-            secondEvent = JournalEvent 1 1 (Just (journalEventDigest firstEvent)) transaction (Just operation) (Completed (proofOperation operation)) "2026-09-22T00:00:01Z" "done"
+            firstEvent = JournalEvent 1 0 Nothing transaction (Just operation) IntentRecorded "2026-09-22T00:00:00Z" "intent" Nothing
+            secondEvent = JournalEvent 1 1 (Just (journalEventDigest firstEvent)) transaction (Just operation) (Completed (proofOperation operation)) "2026-09-22T00:00:01Z" "done" Nothing
         validateJournal [firstEvent, secondEvent] @?= Right [firstEvent, secondEvent]
         assertBool "missing event refused" (isLeft (validateJournal [secondEvent]))
     ]

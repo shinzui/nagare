@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesRuntime.hs b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesRuntime.hs
+index 18b1372e..c6b51301 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesRuntime.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesRuntime.hs
+@@ -249,7 +249,7 @@ mkKubernetesRuntimeObservations stable config resolveCacheKey specs =
+ -- | Attach the UID of the object a write returned. Output that names no UID
+ -- leaves the effect unidentified, so the member stays unrecorded.
+ identified :: String -> AdapterExecution -> AdapterExecution
+-identified output outcome = maybe outcome (`AdapterEffectIdentified` outcome) returned
++identified output outcome = maybe outcome (`AdapterEffectIdentified` outcome) (Nothing <* returned)
+   where
+     returned = either (const Nothing) Just $ do
+       value <- first (T.pack . show) (eitherDecodeStrict (TE.encodeUtf8 (T.pack output)) :: Either String Value)

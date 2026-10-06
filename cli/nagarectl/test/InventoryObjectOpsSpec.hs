@@ -264,16 +264,7 @@ inventoryObjectOpsTests =
         mapM_
           ( \sequenceNumber -> do
               prior <- readIORef previous
-              let event =
-                    JournalEvent
-                      1
-                      sequenceNumber
-                      prior
-                      transaction
-                      Nothing
-                      Pending
-                      "2026-09-29T00:00:00Z"
-                      "status batch regression"
+              let event = JournalEvent 1 sequenceNumber prior transaction Nothing Pending "2026-09-29T00:00:00Z" "status batch regression" Nothing
               _ <-
                 appendAtSequence store sequenceNumber (encodeJournalEvent event)
                   >>= either (assertFailure . show) pure

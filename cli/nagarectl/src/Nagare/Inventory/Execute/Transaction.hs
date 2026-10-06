@@ -24,7 +24,7 @@ import Nagare.Inventory.Execute.Claims
   , releaseClaimWith
   )
 import Nagare.Inventory.Execute.Close (closeRolledBack, releaseClosedTransaction)
-import Nagare.Inventory.Execute.Driver (runOperations)
+import Nagare.Inventory.Execute.Driver (runOperationsJournal)
 import Nagare.Inventory.Execute.Incarnations (convergedIncarnations)
 import Nagare.Inventory.Execute.Inputs (validateOperationInputs)
 import Nagare.Inventory.Execute.Journal
@@ -126,7 +126,7 @@ executeWithJournal locked registry executable knownEvents = do
       case eventsResult of
         Left _ -> ambiguousFallback transaction document
         Right events -> do
-          outcome <- runOperations locked registry transaction reviewed events (reviewOperations document) Nothing
+          (outcome, finalEvents) <- runOperationsJournal locked registry transaction reviewed events (reviewOperations document) Nothing
           case outcome of
             Just result -> releaseClaim locked transaction Nothing >> pure result
             Nothing -> do
@@ -141,7 +141,8 @@ executeWithJournal locked registry executable knownEvents = do
                       if not finalized
                         then pure (fallbackResult transaction document)
                         else do
-                          bindings <- convergedIncarnations locked registry document
+                          -- ADR 27: bind from the journal as this run left it.
+                          bindings <- convergedIncarnations locked registry transaction finalEvents document
                           converged <- releaseClaimWith locked transaction (Just document) bindings
                           pure $ if converged then Converged transaction else fallbackResult transaction document
                 _ -> do

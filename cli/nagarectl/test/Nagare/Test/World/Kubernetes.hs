@@ -241,11 +241,14 @@ mutate world adversary mutation = do
                   \state -> state {failedDigests = Set.insert (mutationNativeDigest mutation) (failedDigests state)}
               landed <- atomicModifyIORef' world apply
               when (fault == Just Interrupt) (throwIO Interrupted)
+              -- Like the API server, a write returns the object it wrote
+              -- (ADR 27), unless the response itself was lost.
               pure $ case (fault, landed) of
                 (Just LostAcknowledgement, _) -> AdapterEffectAmbiguous "Kubernetes write acknowledgement was lost"
-                (_, Just NotReady) -> AdapterEffectAmbiguous "Kubernetes object did not prove readiness; reobserve before retry"
-                (_, Just FailedReadiness) -> AdapterEffectAmbiguous "Kubernetes object did not prove readiness; reobserve before retry"
-                _ -> AdapterEffectCompleted
+                (_, Just (NotReady, written)) -> AdapterEffectIdentified written (AdapterEffectAmbiguous "Kubernetes object did not prove readiness; reobserve before retry")
+                (_, Just (FailedReadiness, written)) -> AdapterEffectIdentified written (AdapterEffectAmbiguous "Kubernetes object did not prove readiness; reobserve before retry")
+                (_, Just (_, written)) -> AdapterEffectIdentified written AdapterEffectCompleted
+                (_, Nothing) -> AdapterEffectCompleted
   where
     resource = mutationResource mutation
     preconditionHolds state = case (mutationBefore mutation, Map.lookup resource (objects state)) of
@@ -290,7 +293,7 @@ mutate world adversary mutation = do
                   , readiness = readinessFor
                   }
             next = state {objects = Map.insert resource written (objects state), nextUid = nextUid state + 1}
-         in (counted next, Just readinessFor)
+         in (counted next, Just (readinessFor, uid written))
     counted state =
       state
         { writes = Map.insertWith (+) (mutationOperation mutation) 1 (writes state)

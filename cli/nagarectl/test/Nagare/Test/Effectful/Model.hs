@@ -129,7 +129,7 @@ modelRequest root fault request = do
       | kind `elem` ["job.batch", "statefulset.apps", "persistentvolumeclaim"] -> do
           let key = T.pack (takeWhile (/= '.') kind <> "/" <> name)
           pure (maybe (Right (ExitSuccess, "", "")) success (Map.lookup key (objects world)))
-    ["create", "--field-manager=nagare-inventory", "-f", "-"] -> do
+    ["create", "--field-manager=nagare-inventory", "-f", "-", "-o", "json"] -> do
       let native = checked (eitherDecodeStrict (TE.encodeUtf8 (T.pack (request ^. #input))))
           metadata = field "metadata" native
           key = "job/" <> textField "name" metadata

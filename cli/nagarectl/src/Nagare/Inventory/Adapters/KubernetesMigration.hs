@@ -30,7 +30,7 @@ import Data.Text.Encoding qualified as TE
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes (KubernetesMutation (..))
-import Nagare.Inventory.Adapters.KubernetesRuntime (completedJobContainerMessageFromPodList)
+import Nagare.Inventory.Adapters.KubernetesRuntime (completedJobContainerMessageFromPodList, identified)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect), OperationId, operationIdText)
 import Nagare.Inventory.KubernetesTransport (KubernetesRuntimeConfig (..), invokeKubectl)
@@ -479,8 +479,9 @@ kubernetesMigrationAdapter config planning base =
       case built of
         Left reason -> pure (AdapterEffectFailed (KnownNoEffect reason))
         Right bytes -> do
-          created <- kubectlWrite ["create", "--field-manager=nagare-inventory", "-f", "-"] (T.unpack (TE.decodeUtf8 bytes))
-          pure (either AdapterEffectAmbiguous (const AdapterEffectCompleted) created)
+          -- ADR 27 (N11): the copy's create returns the object it created.
+          created <- kubectlCreate ["create", "--field-manager=nagare-inventory", "-f", "-", "-o", "json"] (T.unpack (TE.decodeUtf8 bytes))
+          pure (either AdapterEffectAmbiguous (`identified` AdapterEffectCompleted) created)
 
     expectedData bundle value = case valueAt ["data"] value of
       Just (Object fields)
@@ -593,6 +594,16 @@ kubernetesMigrationAdapter config planning base =
           result <- invokeKubectl config arguments body
           pure $ case result of
             Right (ExitSuccess, _, _) -> Right ()
+            _ -> Left "Kubernetes write did not return success; reobserve before retry"
+
+    kubectlCreate arguments body = do
+      guarded <- runtimeGuard config
+      case guarded of
+        Left reason -> pure (Left ("cluster guard refused before Kubernetes write: " <> reason))
+        Right () -> do
+          result <- invokeKubectl config arguments body
+          pure $ case result of
+            Right (ExitSuccess, output, _) -> Right output
             _ -> Left "Kubernetes write did not return success; reobserve before retry"
 
     patchArguments address patch = case address of

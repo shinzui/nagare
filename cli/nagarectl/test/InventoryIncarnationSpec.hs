@@ -15,6 +15,7 @@ import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.Dsl.Database.Render (dbPvcName)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter
+import Nagare.Inventory.Adapters.KubernetesRuntime (identified)
 import Nagare.Inventory.BackupReceipt (ScheduledBackupReceipt (..))
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Execute hiding (withProcessLock)
@@ -55,6 +56,19 @@ inventoryIncarnationTests =
         converge store (observingRegistry live) (ReplaceScope statefulScope :| []) (ConfirmedAbsent (contentDigest "absent"))
         recorded <- incarnations store
         Map.lookup statefulId recorded @?= Just (uid "uid-statefulset")
+    , testCase "convergence binds the object the create returned, not one that replaced it before convergence (F60)" $ do
+        store <- newMemoryStore
+        _ <- initializeStore store fixtureBinding "incarnation-test" >>= expectRight
+        live <- newIORef (uid "uid-created")
+        -- The object is replaced outside Nagare after the create returned and
+        -- before convergence observes anything.
+        let replacing = (incarnationAdapter live) {adapterVerify = \operation native -> writeIORef live (uid "uid-replacement") >> adapterVerify (incarnationAdapter live) operation native}
+        converge store (expectOk (mkAdapterRegistry [replacing])) (ReplaceScope (scopeWith "v1") :| []) (ConfirmedAbsent (contentDigest "absent"))
+        incarnations store >>= (@?= Map.singleton durableId (uid "uid-created"))
+    , testCase "a Kubernetes write's returned object names the identity the journal records" $ do
+        identified "{\"metadata\":{\"uid\":\"uid-returned\"}}" AdapterEffectCompleted @?= AdapterEffectIdentified (uid "uid-returned") AdapterEffectCompleted
+        identified "{\"metadata\":{\"uid\":\"uid-returned\"}}" (AdapterEffectAmbiguous "readiness") @?= AdapterEffectIdentified (uid "uid-returned") (AdapterEffectAmbiguous "readiness")
+        identified "" AdapterEffectCompleted @?= AdapterEffectCompleted
     , testCase "status reports a member whose object is not the accepted incarnation as replaced" $ do
         let inventory = expectOk (composeInventory (expectOk (mkScopeSnapshot fixtureBinding Map.empty Map.empty)) (ReplaceScope (scopeWith "v1") :| []))
             recorded = Map.singleton durableId (uid "uid-accepted")
@@ -103,27 +117,27 @@ converge store registry changes fact = do
 incarnations :: InventoryStore -> IO (Map ResourceId PhysicalIdentity)
 incarnations store = readHead store >>= expectRight >>= maybe (assertFailure "no head" >> pure Map.empty) (pure . headIncarnations)
 
--- A Kubernetes adapter whose observation reports the current live object.
+-- A Kubernetes adapter whose observation reports the current live object,
+-- and whose writes return it, as the API server does (ADR 27).
 observingRegistry :: IORef PhysicalIdentity -> AdapterRegistry
-observingRegistry live =
-  expectOk
-    ( mkAdapterRegistry
-        [ Adapter
-            { adapterExecutor = KubernetesExecutor
-            , adapterIdentity = "incarnation"
-            , adapterVersion = "1"
-            , adapterObserve = \resources -> do
-                current <- readIORef live
-                pure (observationSet [(resource, ObservedPresent current) | resource <- resources])
-            , adapterPrepare = \operation -> pure (Right (PreparedNative (BL.toStrict (Aeson.encode (operationIdText (plannedOperationId operation)))) "incarnation adapter"))
-            , adapterPreflight = \_ _ -> pure (Right ())
-            , adapterExecute = \_ _ -> pure AdapterEffectCompleted
-            , adapterVerify = \operation _ -> pure (Right (contentDigest (TE.encodeUtf8 (operationIdText (plannedOperationId operation)))))
-            , adapterSettle = Nothing
-            , adapterRecover = \_ _ -> pure RecoverySafeToRetry
-            }
-        ]
-    )
+observingRegistry live = expectOk (mkAdapterRegistry [incarnationAdapter live])
+
+incarnationAdapter :: IORef PhysicalIdentity -> Adapter
+incarnationAdapter live =
+  Adapter
+    { adapterExecutor = KubernetesExecutor
+    , adapterIdentity = "incarnation"
+    , adapterVersion = "1"
+    , adapterObserve = \resources -> do
+        current <- readIORef live
+        pure (observationSet [(resource, ObservedPresent current) | resource <- resources])
+    , adapterPrepare = \operation -> pure (Right (PreparedNative (BL.toStrict (Aeson.encode (operationIdText (plannedOperationId operation)))) "incarnation adapter"))
+    , adapterPreflight = \_ _ -> pure (Right ())
+    , adapterExecute = \_ _ -> (`AdapterEffectIdentified` AdapterEffectCompleted) <$> readIORef live
+    , adapterVerify = \operation _ -> pure (Right (contentDigest (TE.encodeUtf8 (operationIdText (plannedOperationId operation)))))
+    , adapterSettle = Nothing
+    , adapterRecover = \_ _ -> pure RecoverySafeToRetry
+    }
 
 incarnationOwner :: ScopeId
 incarnationOwner = expectOk (mkScopeId Standalone "incarnation-db")

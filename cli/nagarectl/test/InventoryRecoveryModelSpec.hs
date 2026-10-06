@@ -471,16 +471,9 @@ ingestReceipt run clean = do
                   , ingestAcceptedIncarnations = recorded
                   }
               recorded = headIncarnations (historyHead history)
-              -- F60 tolerance (ADR 22 "Known limits", fail-open recording): a
-              -- replacement made between Nagare's create and the convergence
-              -- observation is recorded as the accepted incarnation. Only a
-              -- replacement the head does not record must refuse.
-              replaced =
-                [ physical
-                | (resource, physical) <- [(statefulId, statefulUid), (pvcId, pvcUid)]
-                , Set.member physical (replacedUids world)
-                , Map.lookup resource recorded /= Just physical
-                ]
+              -- ADR 27 (F60): the record is the identity the provider returned
+              -- for Nagare's own write, so every replacement must refuse.
+              replaced = [physical | physical <- [statefulUid, pvcUid], Set.member physical (replacedUids world)]
               compiled =
                 maybe (Left "the accepted CronJob lacks native evidence") Right (Map.lookup cronId native)
                   >>= \(_, cronBytes) ->

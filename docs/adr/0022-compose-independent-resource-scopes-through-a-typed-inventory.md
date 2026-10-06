@@ -1653,3 +1653,18 @@ Three statements above no longer hold:
 Never-started creates are read only from close records. Stores holding a pre-close
 `stopped-incomplete-application` marker were native test candidates; on such a store those
 creates fail closed as `durable-resource-missing`.
+
+## Amendment — 2026-10-05: incarnations are recorded from the provider's answer
+
+[ADR 27](0027-physical-identity-is-recorded-at-creation-and-read-through-one-checked-accessor.md)
+and EP-176 M1 remove the first of the "Known limits" above, "Recording is fail-open". A Kubernetes
+write runs with `-o json`, and the UID it returns is journalled on the event that ends the
+operation. This applies to creates, adoptions, updates and a rename's credential copy. Convergence
+binds that identity: creates and adoptions establish it, and updates bind only a missing record.
+It is no longer bound from a fresh observation, so a replacement made between Nagare's write and
+convergence stays a replacement (F60). Every Kubernetes member Nagare writes is recorded, not only
+data-bearing ones. A verification writes nothing and binds nothing.
+
+The second limit, "Unrecorded members pass", still holds until EP-176 M2's checked accessor. A
+member with no record (from an older store, a lost write response, or a create completed in a
+closed transaction) is reported `unrecorded` and refused where data is at stake.
