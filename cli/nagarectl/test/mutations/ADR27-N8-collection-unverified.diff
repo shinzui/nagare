@@ -1,8 +1,8 @@
 diff --git a/cli/nagarectl/src/Nagare/Inventory/Execute/Admission.hs b/cli/nagarectl/src/Nagare/Inventory/Execute/Admission.hs
-index 9e00b2ff..abf57d6d 100644
+index 8cd5e2de..58611d9b 100644
 --- a/cli/nagarectl/src/Nagare/Inventory/Execute/Admission.hs
 +++ b/cli/nagarectl/src/Nagare/Inventory/Execute/Admission.hs
-@@ -183,7 +183,7 @@ admit locked registry reviewed = do
+@@ -184,7 +184,7 @@ admit locked registry reviewed = do
                  , resource <- NE.toList (plannedResources operation)
                  , Map.member resource (reviewCollections document)
                  ]
@@ -11,8 +11,8 @@ index 9e00b2ff..abf57d6d 100644
          migrationChecked <- migrationCoverage store document
          migrationSourceErrors <- case migrationChecked of
            Left _ -> pure []
-@@ -204,7 +204,7 @@ admit locked registry reviewed = do
-                         == Just (ObservedPresent (retentionPhysical proof))
+@@ -207,7 +207,7 @@ admit locked registry reviewed = do
+                         == Just (ObservedPresent (fromMaybe (retentionPhysical proof) (retentionReplacedBy proof)))
                      )
                      (Left "retained physical incarnation changed since review")
 -                forM_ (Map.toAscList (reviewCollections document)) $ \(resource, proof) ->

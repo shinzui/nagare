@@ -169,6 +169,9 @@ data RetentionProof = RetentionProof
   { retentionOwner :: !ScopeId
   , retentionRevision :: !ScopeRevision
   , retentionPhysical :: !PhysicalIdentity
+  , retentionReplacedBy :: !(Maybe PhysicalIdentity)
+  -- ^ ADR 27 (N1): the live object that replaced the recorded incarnation
+  -- outside review. Retirement retains the record and names the replacement.
   }
   deriving stock (Eq, Show)
 
@@ -342,17 +345,19 @@ instance FromJSON ReviewOperation where
 instance ToJSON RetentionProof where
   toJSON proof =
     object
-      [ "owner" .= retentionOwner proof
-      , "revision" .= retentionRevision proof
-      , "physical" .= retentionPhysical proof
-      ]
+      ( [ "owner" .= retentionOwner proof
+        , "revision" .= retentionRevision proof
+        , "physical" .= retentionPhysical proof
+        ]
+          <> ["replacedBy" .= replacement | Just replacement <- [retentionReplacedBy proof]]
+      )
 
 instance FromJSON RetentionProof where
   parseJSON = withObject "RetentionProof" $ \o -> do
     unless
-      (all (`elem` ["owner", "revision", "physical"]) (KM.keys o))
+      (all (`elem` ["owner", "revision", "physical", "replacedBy"]) (KM.keys o))
       (fail "retention proof has an unknown field")
-    RetentionProof <$> o .: "owner" <*> o .: "revision" <*> o .: "physical"
+    RetentionProof <$> o .: "owner" <*> o .: "revision" <*> o .: "physical" <*> o .:? "replacedBy"
 
 instance ToJSON AbsenceProof where
   toJSON proof =

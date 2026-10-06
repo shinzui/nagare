@@ -105,7 +105,14 @@ step 2 of MasterPlan 23's release line (b).
 - Original M2 text: one checked accessor, used by every consumer C lists for in-line kinds. Each consumer's
   mismatch case has a test that fails without the accessor; F62's rename-source replacement is
   refused in the rename model.
-- [ ] M3: the reviewed rebind and replaced retirement. A replaced database scope can be retired (N1)
+- [ ] M3 (in progress): the reviewed rebind and replaced retirement.
+  - Done (2026-10-05): replaced retirement (N1).
+    - `RetentionProof` and `RetainedIncarnation` gain an optional `replacedBy`. Their encodings omit it when absent.
+    - Admission verifies the named replacement.
+    - The recovery model's N1 tolerance is removed. A replacement made after review is now taken through a fresh review, at most once per step.
+    - Mutation record `ADR27-N1-replaced-retirement-unnamed`.
+  - Remaining: the reviewed rebind, and status's explicit `unrecorded` category.
+- Original M3 text: the reviewed rebind and replaced retirement. A replaced database scope can be retired (N1)
   or rebound through review; status reports `unrecorded` and `replaced-incarnation` members
   explicitly.
 

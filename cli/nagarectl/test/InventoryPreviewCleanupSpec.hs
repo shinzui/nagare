@@ -68,7 +68,7 @@ inventoryPreviewCleanupTests =
         let originalScope = snd (snapshotScopes (snapshot [service, previewRoute, volume]) Map.! fixtureOwner)
             revision = ScopeRevision generation (contentDigest (encodeCanonicalScope originalScope))
             originals = Map.singleton (fixtureOwner, revision) originalScope
-            retained member = (RetainedIncarnation fixtureOwner revision uid "fixture" Nothing, member)
+            retained member = (RetainedIncarnation fixtureOwner revision uid "fixture" Nothing Nothing, member)
             history = original {historyRetained = Map.fromList [(member ^. #identity, retained member) | member <- [service, previewRoute, volume]]}
         eligiblePreviewCollections "personal" history inventory originals @?= Right [previewRoute ^. #identity]
         let withoutRoute = history {historyRetained = Map.delete (previewRoute ^. #identity) (historyRetained history)}
@@ -79,7 +79,7 @@ inventoryPreviewCleanupTests =
         assertBool "missing original" (isLeft (eligiblePreviewCollections "personal" history inventory Map.empty))
         let unrelated = snd (snapshotScopes (snapshot [alien]) Map.! fixtureOwner)
             unrelatedRevision = ScopeRevision generation (contentDigest (encodeCanonicalScope unrelated))
-            unrelatedHistory = original {historyRetained = Map.singleton (alien ^. #identity) (RetainedIncarnation fixtureOwner unrelatedRevision uid "fixture" Nothing, alien)}
+            unrelatedHistory = original {historyRetained = Map.singleton (alien ^. #identity) (RetainedIncarnation fixtureOwner unrelatedRevision uid "fixture" Nothing Nothing, alien)}
         assertBool
           "prefix-only owner is not preview authority"
           (isLeft (eligiblePreviewCollections "personal" unrelatedHistory inventory (Map.singleton (fixtureOwner, unrelatedRevision) unrelated)))

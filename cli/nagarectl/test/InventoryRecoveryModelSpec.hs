@@ -248,7 +248,8 @@ replay scenario schedule taken probe = do
       case checked of
         Left violation -> pure (Replayed (Left (describe scenario schedule (stepText IngestReceipt) violation [])))
         Right () -> go run previous rest exits
-    go run previous (step : rest) exits = do
+    go run previous (step : rest) exits = attempt False run previous step rest exits
+    attempt replanned run previous step rest exits = do
       let historyImage image' = if historyFollows scenario then image' else "v1"
           image = stepText step
       outcome <- case step of
@@ -274,12 +275,14 @@ replay scenario schedule taken probe = do
             (Left violation, _) -> pure (Replayed (Left (describe scenario schedule image violation [])))
             (Right (), Done) -> go run (next previous step) rest exits
             (Right (), Refused why)
-              -- Named tolerance, removed by EP-176 M3: since F51, retiring a
-              -- member replaced outside review is refused at admission (N1,
-              -- F51 reopened). ADR 27's replaced retirement is its exit. A
-              -- retained member deleted outside review is refused too: its data
-              -- needs reviewed recovery or collection, as at planning.
-              | any ((`elem` [Replaced, Deleted]) . snd) schedule && "retention-observation" `T.isInfixOf` why -> do
+              -- A retained member deleted outside review is refused: its data
+              -- needs reviewed recovery or collection, as at planning. A
+              -- replaced member retires with its record retained (ADR 27, N1).
+              -- A member replaced after its review is refused at admission;
+              -- the exit is a fresh review, which names the replacement (N1).
+              | not replanned && any ((== Replaced) . snd) schedule && "retention-observation" `T.isInfixOf` why ->
+                  attempt True run previous step rest exits
+              | any ((== Deleted) . snd) schedule && "retention-observation" `T.isInfixOf` why -> do
                   adversary <- readIORef (runAdversary run)
                   pure (Replayed (Right (counts adversary)))
               | otherwise -> pure (Replayed (Left (describe scenario schedule image ("admission refused: " <> why) [])))

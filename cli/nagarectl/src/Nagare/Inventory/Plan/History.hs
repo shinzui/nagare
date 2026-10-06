@@ -247,6 +247,7 @@ loadInventoryHistory store = do
               (tombstonePhysical tombstone)
               (tombstoneAt tombstone)
               Nothing
+              Nothing
           digest = tombstoneReview tombstone
           key = reviewKey digest
       declaration <- loadRetained inventoryStore (resourceId, historical)

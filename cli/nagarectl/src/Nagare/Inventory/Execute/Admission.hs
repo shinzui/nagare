@@ -65,6 +65,7 @@ import Nagare.Inventory.Plan
   , RetentionProof
     ( retentionOwner
     , retentionPhysical
+    , retentionReplacedBy
     , retentionRevision
     )
   , ReviewDocument
@@ -198,10 +199,12 @@ admit locked registry reviewed = do
               observed <- observeWithRegistry registry retainedRequests
               pure $ do
                 facts <- observed
+                -- N1: a replaced member is retired with its record retained;
+                -- the reviewed replacement is what must still be live.
                 forM_ (Map.toAscList (reviewRetentions document)) $ \(resource, proof) ->
                   unless
                     ( Map.lookup resource (observationMap facts)
-                        == Just (ObservedPresent (retentionPhysical proof))
+                        == Just (ObservedPresent (fromMaybe (retentionPhysical proof) (retentionReplacedBy proof)))
                     )
                     (Left "retained physical incarnation changed since review")
                 forM_ (Map.toAscList (reviewCollections document)) $ \(resource, proof) ->
@@ -231,6 +234,7 @@ admit locked registry reviewed = do
                             (retentionPhysical proof)
                             now
                             Nothing
+                            (retentionReplacedBy proof)
                       )
                       (reviewRetentions document)
                   migrated =
@@ -242,6 +246,7 @@ admit locked registry reviewed = do
                             (migrationProofPhysical proof)
                             now
                             (Just (reviewDocumentDigest document))
+                            Nothing
                       )
                       (reviewMigrations document)
                   activated =

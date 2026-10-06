@@ -1059,6 +1059,13 @@ With the drill v2 results above and the reviewer's mutations, every part of the 
 
 **Implementation note (2026-10-05, EP-175 M3; claude-opus-5-5):** The recovery model's harness no longer counts an admission refusal as `Done`. It carries one named tolerance for this finding, N1 (`InventoryRecoveryModelSpec.hs`, the retire scenario under `Replaced`). EP-176 M3 removes that tolerance when ADR 27's reviewed rebind lands; until then this finding stays reopened.
 
+**Implementation update (2026-10-05, EP-176 M3; claude-opus-5-5):** N1 is fixed.
+- **Retirement.** Retiring a member that was replaced outside review keeps the record in the retention proof and names the live replacement (`retentionReplacedBy`). Admission verifies that the reviewed replacement is still live, and the retained incarnation keeps the record with `replacedBy` beside it. Retained history never names the replacement as the accepted object, and the retirement no longer has to be refused.
+- **Recovery model.** The N1 tolerance is removed. A replacement made after review is still refused at admission; the model takes that exit with a fresh review, which then names the replacement and retires.
+- **Mutation record.** `ADR27-N1-replaced-retirement-unnamed` (the proof stops naming the replacement) fails the fast tier with 36 violations.
+
+Status is the verifier's to set.
+
 ## F54
 
 **A landed application Service update whose new revision never becomes Ready has no reviewed exit, so the store stays wedged** — P1; **Closed**; owners EP-153 / EP-156.

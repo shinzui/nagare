@@ -386,16 +386,18 @@ buildRetentionProofs candidate (LifecycleDecisions _ decisions _) history observ
       (Just decision, Just (ObservedPresent physical), Just (revision, _))
         | lifecycleDecision decision == ApproveRetirement ->
             -- F51: retain the accepted incarnation. An object that replaced it
-            -- outside review never enters retained history.
-            Right (resourceId, RetentionProof (resource ^. #owner) revision (retainedIdentity (headIncarnations (historyHead history)) resourceId physical))
+            -- outside review never enters retained history; N1: the proof
+            -- names it, so admission verifies the replacement still stands.
+            Right (resourceId, retentionFor (resource ^. #owner) revision (headIncarnations (historyHead history)) resourceId physical)
       _ -> Left (PlanError "retention-proof" "retired resource lacks a reviewed present incarnation" [resourceId] :| [])
 
--- | The identity a retention proof names (F51): the recorded incarnation when
--- the live object replaced it, otherwise the live object.
-retainedIdentity :: Map ResourceId PhysicalIdentity -> ResourceId -> PhysicalIdentity -> PhysicalIdentity
-retainedIdentity recorded resource live = case checkedPhysical recorded resource live of
-  IdentityReplaced accepted _ -> accepted
-  _ -> live
+-- | A retention proof names the recorded incarnation (F51). When the live
+-- object replaced it outside review, the proof also names the replacement
+-- (ADR 27, N1), so a replaced member can still be retired.
+retentionFor :: ScopeId -> ScopeRevision -> Map ResourceId PhysicalIdentity -> ResourceId -> PhysicalIdentity -> RetentionProof
+retentionFor owner revision recorded resource live = case checkedPhysical recorded resource live of
+  IdentityReplaced accepted _ -> RetentionProof owner revision accepted (Just live)
+  _ -> RetentionProof owner revision live Nothing
 
 buildCollectionProofs :: CompositionCandidate -> LifecycleDecisions -> InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) (Map ResourceId RetentionProof)
 buildCollectionProofs candidate (LifecycleDecisions _ decisions _) history observations =
@@ -415,6 +417,7 @@ buildCollectionProofs candidate (LifecycleDecisions _ decisions _) history obser
                   (retainedOwner incarnation)
                   (retainedRevision incarnation)
                   physical
+                  Nothing
               )
       _ -> Left (PlanError "collection-proof" "collection lacks an exact retained incarnation proof" [resource] :| [])
 

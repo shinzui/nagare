@@ -1,5 +1,5 @@
 diff --git a/cli/nagarectl/src/Nagare/Inventory/Plan/Changes.hs b/cli/nagarectl/src/Nagare/Inventory/Plan/Changes.hs
-index 9e46ff7e..3bcc1654 100644
+index 9e46ff7e..9ef0cf23 100644
 --- a/cli/nagarectl/src/Nagare/Inventory/Plan/Changes.hs
 +++ b/cli/nagarectl/src/Nagare/Inventory/Plan/Changes.hs
 @@ -396,7 +396,7 @@ buildRetentionProofs candidate (LifecycleDecisions _ decisions _) history observ
@@ -7,7 +7,7 @@ index 9e46ff7e..3bcc1654 100644
  retentionFor :: ScopeId -> ScopeRevision -> Map ResourceId PhysicalIdentity -> ResourceId -> PhysicalIdentity -> RetentionProof
  retentionFor owner revision recorded resource live = case checkedPhysical recorded resource live of
 -  IdentityReplaced accepted _ -> RetentionProof owner revision accepted (Just live)
-+  IdentityReplaced _ _ -> RetentionProof owner revision live Nothing
++  IdentityReplaced accepted _ -> RetentionProof owner revision accepted Nothing
    _ -> RetentionProof owner revision live Nothing
  
  buildCollectionProofs :: CompositionCandidate -> LifecycleDecisions -> InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) (Map ResourceId RetentionProof)
