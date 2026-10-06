@@ -95,7 +95,8 @@ step 2 of MasterPlan 23's release line (b).
     - mutation records for each, plus regenerated F49 and F51 records.
     - the rename source (F62) and writer (A52), with focused tests and mutation records.
     - manual database backup (N3) and volume snapshot (N4) sources, checked where the backup scope is compiled; the requests carry the recorded incarnations.
-  - Remaining: restore targets (N6, N12), the signing Secret (N5), collection DELETE (N8), adopt and update verification (N9), maintenance UIDs (N13) and the prune check (N22).
+    - restore targets, scratch and live (N6), through `restoreTargetPins`; a manual backup restores only against the incarnation it was taken from (N12).
+  - Remaining: the signing Secret (N5), collection DELETE (N8), adopt and update verification (N9), maintenance UIDs (N13) and the prune check (N22).
 - Original M2 text: one checked accessor, used by every consumer C lists for in-line kinds. Each consumer's
   mismatch case has a test that fails without the accessor; F62's rename-source replacement is
   refused in the rename model.

@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Restore.hs b/cli/nagarectl/src/Nagare/Inventory/Restore.hs
+index c5bcf6fd..23ad7513 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/Restore.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Restore.hs
+@@ -75,7 +75,7 @@ restoreTargetPins :: Map ResourceId PhysicalIdentity -> ObservationSet -> Resour
+ restoreTargetPins recorded observed stateful pvc = (,) <$> pin "the restore target StatefulSet" stateful <*> pin "the restore target PVC" pvc
+   where
+     pin what resource = case Map.lookup resource (observationMap observed) of
+-      Just (ObservedPresent uid) -> requireAccepted what (checkedPhysical recorded resource uid)
++      Just (ObservedPresent uid) -> const (Right uid) (requireAccepted what (checkedPhysical recorded resource uid))
+       _ -> Left "restore target StatefulSet or PVC is absent, drifted, or not ready"
+ 
+ -- | Reuse the immutable source-revision check for this Job's accepted target.

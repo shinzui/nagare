@@ -6,6 +6,7 @@ module Nagare.Inventory.Restore
   , manualRestoreJobTargetPins
   , manualRestoreTargetProof
   , compileManualRestoreScope
+  , restoreTargetPins
   , VolumeRestoreRequest (..)
   , volumeRestoreJobSourcePins
   , compileVolumeRestoreScope
@@ -16,7 +17,7 @@ import Data.Aeson (Value (..), eitherDecodeStrict, object, (.=))
 import Data.Aeson.Key qualified as K
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
-import Data.Foldable (traverse_)
+import Data.Foldable (forM_, traverse_)
 import Data.Generics.Labels ()
 import Data.List (sort, sortOn)
 import Data.List.NonEmpty (NonEmpty (..))
@@ -35,8 +36,10 @@ import Nagare.Dsl.Database (Engine (..), dbSecretName, engineImage, parseEngine)
 import Nagare.Dsl.Database.Render (dbPvcName)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Types (mkServiceName)
-import Nagare.Inventory.Backup (BackupSourceProof (..), manualBackupJobReceiptExpectation, parseBackupReceipt, parseManualBackupReceipt)
+import Nagare.Inventory.Adapter (ObservationSet, ResourceObservation (ObservedPresent), observationMap)
+import Nagare.Inventory.Backup (BackupSourceProof (..), manualBackupJobReceiptExpectation, manualBackupSourceProof, parseBackupReceipt, parseManualBackupReceipt)
 import Nagare.Inventory.Digest (contentDigest)
+import Nagare.Inventory.Identity (checkedPhysical, requireAccepted)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.ManualReceipt (manualReceiptRecord)
 import Nagare.Inventory.RestoreNative (acceptedValue, sameCluster)
@@ -65,6 +68,15 @@ data ManualRestoreRequest = ManualRestoreRequest
   , restoreSource :: !SourceLocation
   }
   deriving stock (Eq, Show)
+
+-- | ADR 27 (N6): the StatefulSet and PVC a restore pins as its target, scratch
+-- or live, are the recorded incarnations, never whatever object is live.
+restoreTargetPins :: Map ResourceId PhysicalIdentity -> ObservationSet -> ResourceId -> ResourceId -> Either T.Text (PhysicalIdentity, PhysicalIdentity)
+restoreTargetPins recorded observed stateful pvc = (,) <$> pin "the restore target StatefulSet" stateful <*> pin "the restore target PVC" pvc
+  where
+    pin what resource = case Map.lookup resource (observationMap observed) of
+      Just (ObservedPresent uid) -> requireAccepted what (checkedPhysical recorded resource uid)
+      _ -> Left "restore target StatefulSet or PVC is absent, drifted, or not ready"
 
 -- | Reuse the immutable source-revision check for this Job's accepted target.
 manualRestoreTargetProof :: ScopeDeclaration -> Either T.Text (Maybe BackupSourceProof)
@@ -146,6 +158,9 @@ compileManualRestoreScope request accepted native = do
       exactlyOne label members = case members of
         [member] -> Right member
         _ -> Left (invalid ("restore has no unique " <> label))
+      sourcePinsTarget proof =
+        sourceStatefulPhysical proof == restoreTargetStatefulUid request
+          && sourcePvcPhysical proof == restoreTargetPvcUid request
       required key =
         maybe
           (Left (invalid ("backup scope lacks " <> key)))
@@ -295,6 +310,13 @@ compileManualRestoreScope request accepted native = do
               )
               (Left (invalid "backup receipt targets another database, namespace, engine, or ID"))
           _ -> Left (invalid "backup receipt lacks metadata")
+        -- ADR 27 (N12): a manual backup restores only against the incarnation
+        -- it was taken from, as a scheduled one does.
+        sourceProof <- first invalid (manualBackupSourceProof backup)
+        forM_ sourceProof $ \proof ->
+          unless
+            (sourcePinsTarget proof)
+            (Left (invalid "the backup was taken from another incarnation of the target database"))
         (selectedObjectVersion, selectedReceiptVersion) <- case backupJob of
           Just _ -> Right (Nothing, Nothing)
           Nothing -> do

@@ -2,6 +2,7 @@ module InventoryIncarnationSpec (inventoryIncarnationTests) where
 
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Lazy qualified as BL
+import Data.Either (isLeft)
 import Data.Generics.Labels ()
 import Data.IORef
 import Data.List.NonEmpty (NonEmpty (..))
@@ -23,6 +24,7 @@ import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Execute hiding (withProcessLock)
 import Nagare.Inventory.Journal (operationIdText)
 import Nagare.Inventory.Plan
+import Nagare.Inventory.Restore (restoreTargetPins)
 import Nagare.Inventory.ScheduledIngest (ScheduledIngestRequest (..), compileScheduledIngestScope)
 import Nagare.Inventory.ScheduledReceipt (ScheduledReceiptEvidence (..))
 import Nagare.Inventory.Status qualified as Status
@@ -93,6 +95,14 @@ inventoryIncarnationTests =
         assertBool "a replaced PVC was backed up" (attempt (Map.insert (databaseMember "pvc") (uid "uid-accepted-pvc") live))
         assertBool "an unrecorded source was backed up" (attempt Map.empty)
         assertBool "the recorded source was refused for its identity" (not (attempt live))
+    , testCase "a restore pins only the recorded incarnation of its target (ADR 27, N6)" $ do
+        let stateful = databaseMember "statefulset"
+            pvc = databaseMember "pvc"
+            observed = expectOk (observationSet [(stateful, ObservedPresent (uid "uid-live-sts")), (pvc, ObservedPresent (uid "uid-live-pvc"))])
+            recorded = Map.fromList [(stateful, uid "uid-live-sts"), (pvc, uid "uid-live-pvc")]
+        restoreTargetPins recorded observed stateful pvc @?= Right (uid "uid-live-sts", uid "uid-live-pvc")
+        assertBool "a replaced target was pinned" (isLeft (restoreTargetPins (Map.insert pvc (uid "uid-accepted-pvc") recorded) observed stateful pvc))
+        assertBool "an unrecorded target was pinned" (isLeft (restoreTargetPins Map.empty observed stateful pvc))
     , testCase "status reports a member whose object is not the accepted incarnation as replaced" $ do
         let inventory = expectOk (composeInventory (expectOk (mkScopeSnapshot fixtureBinding Map.empty Map.empty)) (ReplaceScope (scopeWith "v1") :| []))
             recorded = Map.singleton durableId (uid "uid-accepted")

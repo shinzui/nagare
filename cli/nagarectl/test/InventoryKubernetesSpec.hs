@@ -1722,10 +1722,7 @@ inventoryKubernetesTests =
                 , restoreNamespaceName = "default"
                 , restoreId = "rdbone"
                 , restoreBackupScope = backupScope
-                , restoreBackupRevision =
-                    ScopeRevision
-                      (ok (mkScopeGeneration 1))
-                      (contentDigest "accepted-backup")
+                , restoreBackupRevision = ScopeRevision (ok (mkScopeGeneration 1)) (contentDigest "accepted-backup")
                 , restoreReceiptBytes = receiptBytes
                 , restoreTargetRevision = sourceRevision backupRequest
                 , restoreTargetStatefulUid = sourceStatefulUid backupRequest
@@ -1742,6 +1739,8 @@ inventoryKubernetesTests =
                 )
             restoreObjects = [bytes | (_, bytes) <- Map.elems restoreNative]
         Map.size restoreNative @?= 4
+        -- ADR 27 (N12): a backup restores only against the incarnation it was taken from.
+        assertBool "a restore targeted another incarnation" (either (any (\err -> "another incarnation" `T.isInfixOf` (err ^. #message))) (const False) (compileManualRestoreScope restoreRequest {restoreTargetStatefulUid = ok (mkPhysicalIdentity "replacement-uid")} databaseScope (Map.union backupNative databaseNative)))
         let restoreIds =
               [ member ^. #identity
               | bundle <- scopeBundles restoreScope

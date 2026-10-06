@@ -101,6 +101,7 @@ import Nagare.Inventory.Restore
       , restoreTargetStatefulUid
       )
   , compileManualRestoreScope
+  , restoreTargetPins
   )
 import Nagare.Inventory.ScheduledGcs (withScheduledObjectStore)
 import Nagare.Inventory.ScheduledReceipt (verifyAcceptedScheduledReceipt)
@@ -341,11 +342,8 @@ runReviewedDbRestorePlan
         (\_ -> pure (Left "restore target observation does not use a cache key"))
         (Map.restrictKeys selectedNative (Set.fromList sourceIds))
     observed <- InventoryAdapter.adapterObserve sourceAdapter sourceIds >>= either dieT pure
-    let physical resource = case Map.lookup resource (InventoryAdapter.observationMap observed) of
-          Just (InventoryAdapter.ObservedPresent uid) -> pure uid
-          _ -> dieT "restore target StatefulSet or PVC is absent, drifted, or not ready"
-    statefulUid <- physical (stateful ^. #identity)
-    pvcUid <- physical (pvc ^. #identity)
+    (statefulUid, pvcUid) <-
+      either dieT pure (restoreTargetPins (InventoryStore.headIncarnations (InventoryPlan.historyHead history)) observed (stateful ^. #identity) (pvc ^. #identity))
     context <-
       either
         dieT
