@@ -141,7 +141,8 @@ injectable (see the Decision Log), and M5's measurement follows the rebase onto 
 ## Decision Log
 
 - Decision: The budget is one hour wall-clock on the operator's workstation with `just gate-deep`'s
-  default shards, measured end to end, including the build.
+  default shards, measured end to end, including the build. (Amended 2026-10-06: the machine is
+  the remote builder; see below.)
   Rationale: the operator's ruling is that the deep tier need not take 15 minutes but cannot take
   hours. One hour is the stated ceiling, and it allows the tier to gate recovery-code changes on
   the same day.
@@ -219,6 +220,13 @@ injectable (see the Decision Log), and M5's measurement follows the rebase onto 
   `recovery-model: violation: [k/N] <scenario> |`, and each scenario's summary when it ends.
   Rationale: required by session nagare after the killed run of 2026-10-06 lost every violation
   text.
+  Date: 2026-10-06
+
+- Decision: The deep tier runs on the remote x86_64-linux builder (16 cores), not on the
+  operator's workstation. `just gate-deep [rev] [shards]` calls `just test-remote` for a committed
+  revision with 16 shards by default, and the one-hour budget is measured there.
+  Rationale: operator decision of 2026-10-06, relayed by session nagare: heavy runs go to the
+  builder, which is the machine the budget is defined on.
   Date: 2026-10-06
 
 - Decision: The replay search is not deleted after the equivalence check passes, as M2 first

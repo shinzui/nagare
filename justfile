@@ -303,29 +303,18 @@ gate-fast:
 
 # EP-177/EP-179 (ADR 25): the recovery model's deep tier over the explicit and
 # generated scenarios: every placement alone, then every pair of placements
-# whose faults can interact, run as parallel shards of the placements.
-# Each shard logs `recovery-model:` progress lines and each violation, as it is
-# found, as `recovery-model: violation:` lines; watch with the grep command it
-# prints. `just deep-tier-required` says whether a change needs it.
+# whose faults can interact, run as parallel shards of the placements on the
+# remote builder (`just test-remote`), for a committed revision. Each shard's
+# log has `recovery-model:` progress lines and each violation, as it is found,
+# as `recovery-model: violation:` lines. Its budget is one hour with the
+# default 16 shards. `just deep-tier-required` says whether a change needs it.
+# Run the recovery model's deep tier for a commit on the remote builder.
 [group('test')]
-gate-deep shards="8":
+gate-deep rev="HEAD" shards="16":
     #!/usr/bin/env bash
     set -euo pipefail
-    cabal build nagarectl-test --project-dir=cli/nagarectl -v0
-    bin=$(cabal list-bin nagarectl-test --project-dir=cli/nagarectl)
-    logs="${XDG_STATE_HOME:-$HOME/.local/state}/nagare/gates/logs/deep-$(date -u +%Y%m%dT%H%M%SZ)"
-    mkdir -p "$logs"
-    echo "deep tier: {{shards}} shards; progress: grep -h '^recovery-model:' $logs/shard-*.log; violations: grep -h '^recovery-model: violation:' $logs/shard-*.log"
-    pids=()
-    for i in $(seq 0 $(( {{shards}} - 1 ))); do
-      (cd cli/nagarectl && NAGARE_RECOVERY_MODEL_DEEP=1 NAGARE_RECOVERY_MODEL_SHARD="$i/{{shards}}" "$bin" -p '/deep tier/' > "$logs/shard-$i.log" 2>&1) &
-      pids+=("$!")
-    done
-    status=0
-    for i in "${!pids[@]}"; do
-      if wait "${pids[$i]}"; then echo "shard $i/{{shards}}: passed"; else echo "shard $i/{{shards}}: FAILED, see $logs/shard-$i.log"; status=1; fi
-    done
-    exit "$status"
+    specs=$(for i in $(seq 0 $(( {{shards}} - 1 ))); do printf '%s/%s ' "$i" "{{shards}}"; done)
+    just test-remote '{{rev}}' '/deep tier/' "$specs" true
 
 # EP-179 (ADR 25 amendment of 2026-10-06): list the recovery-related files
 # changed since `base` (committed, uncommitted or untracked), and exit non-zero
