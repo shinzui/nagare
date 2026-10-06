@@ -3748,10 +3748,12 @@ inventoryKubernetesTests =
                       [ "name" .= ("protected.example.test" :: Text)
                       , "uid" .= physical
                       , "resourceVersion" .= ("5" :: Text)
+                      , "generation" .= (1 :: Int)
                       ]
                 , "status"
                     .= object
-                      [ "conditions"
+                      [ "observedGeneration" .= (1 :: Int)
+                      , "conditions"
                           .= [ object
                                  [ "type" .= ("Ready" :: Text)
                                  , "status" .= (state :: Text)

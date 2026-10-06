@@ -2,9 +2,11 @@
 -- semantics of RES-4 (docs/research/kubernetes-api-semantics-for-inventory-proofs.md §2).
 module InventoryKubernetesReadinessSpec (inventoryKubernetesReadinessTests) where
 
+import Control.Monad (forM_)
 import Data.Aeson (Value, object, (.=))
+import Data.Text qualified as T
 import Nagare.Dsl.Prelude hiding ((.=))
-import Nagare.Inventory.Adapters.KubernetesRuntime (deploymentAvailable)
+import Nagare.Inventory.Adapters.KubernetesRuntime (deploymentAvailable, knativeReady)
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -28,6 +30,13 @@ inventoryKubernetesReadinessTests =
         assertBool "a Deployment one generation behind read ready" (not (deploymentAvailable behind))
         let scaled = deployment 2 2 3 [("Available", "True"), ("Progressing", "True")] (3, 3, 2)
         assertBool "a Deployment with an unavailable updated replica read ready" (not (deploymentAvailable scaled))
+    , testCase "a Knative Service or DomainMapping is ready only at the observed generation (F69)" $
+        -- RES-4 §2 (E4): after a spec write the controller keeps the previous
+        -- generation's Ready=True until it observes the new spec.
+        forM_ [("serving.knative.dev/v1", "Service"), ("serving.knative.dev/v1beta1", "DomainMapping")] $ \(api, kind) -> do
+          assertBool (T.unpack kind <> " one generation behind read ready") (not (knativeReady (knative api kind 3 2 "True")))
+          assertBool (T.unpack kind <> " at its generation read not ready") (knativeReady (knative api kind 3 3 "True"))
+          assertBool (T.unpack kind <> " not Ready read ready") (not (knativeReady (knative api kind 3 3 "False")))
     ]
 
 -- | A Deployment at a generation, observed at a generation, with a requested
@@ -48,4 +57,15 @@ deployment generation observed replicas conditions (total, updated, available) =
           , "availableReplicas" .= available
           , "conditions" .= [object ["type" .= kind, "status" .= state] | (kind, state) <- conditions]
           ]
+    ]
+
+-- | A Knative object at a generation, observed at a generation, with its
+-- Ready condition.
+knative :: Text -> Text -> Int -> Int -> Text -> Value
+knative api kind generation observed ready =
+  object
+    [ "apiVersion" .= api
+    , "kind" .= kind
+    , "metadata" .= object ["generation" .= generation]
+    , "status" .= object ["observedGeneration" .= observed, "conditions" .= [object ["type" .= ("Ready" :: Text), "status" .= ready]]]
     ]

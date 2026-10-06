@@ -54,7 +54,10 @@ MasterPlan, not by this plan.
   - Records `F70-deployment-ready-ignores-rollout` and `F63-deployment-correction-refused` each fail their test.
   - The readiness predicates moved to `Adapters/KubernetesReadiness.hs`, and the runtime's allowance dropped from 1403
     to 1311.
-- [ ] M2 (G2, F69): Knative Service and DomainMapping readiness require `observedGeneration == generation`.
+- [x] M2 (G2, F69), 2026-10-06: Knative Service and DomainMapping readiness require
+  `observedGeneration == generation`.
+  - Evidence: the unit test failed first and passes now. Record `F69-knative-ready-ignores-generation` fails it.
+  - A DomainMapping fixture lacked generation fields and was completed. The model test waits for EP-182.
 - [ ] M3 (F67): the spec-digest stamp proof replaces the dropped configuration-digest version 4.
 - [ ] M4 (G4): definitive 4xx refusals map to no effect.
 - [ ] M5 (G6): one conditional-write discipline for updates and retires.

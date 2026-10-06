@@ -1,0 +1,12 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesReadiness.hs b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesReadiness.hs
+--- a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesReadiness.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesReadiness.hs
+@@ -55,7 +55,7 @@
+ -- only once its controller has observed this generation and reports
+ -- Ready=True. Until then, a Ready=True belongs to the previous generation.
+ knativeReady :: Value -> Bool
+-knativeReady value = generationObserved value && hasCondition "Ready" value
++knativeReady value = hasCondition "Ready" value
+ 
+ generationObserved :: Value -> Bool
+ generationObserved (Object root) = case (KM.lookup "metadata" root, KM.lookup "status" root) of

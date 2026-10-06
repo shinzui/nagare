@@ -85,6 +85,7 @@ This is the authoritative list of implementation findings for [MP-23](../masterp
 | [F64](#f64) | P1 | An intended update whose target is deleted outside review, and not recreated, has no exit | Verifying | EP-153 / EP-173 |
 | [F65](#f65) | P1 | The create-path stop refuses a review that recreates a deleted Service alongside its release-history update | Verifying | EP-153 / EP-173 |
 | [F66](#f66) | P1 | A create that finds an object not stamped as its own at its address settles unknown, so only an attested close can end it | Verifying | EP-153 / EP-177 |
+| [F69](#f69) | P1 | A Knative Service or DomainMapping reads ready from its previous generation's Ready=True before the controller has seen the new spec | Verifying | EP-153 / EP-180 |
 | [F70](#f70) | P1 | A worker Deployment whose update never becomes available reads as ready, so a broken rollout is recorded as complete | Verifying | EP-153 / EP-180 |
 | [F68](#f68) | P1 | An update whose target is deleted and replaced by an object not stamped as its own settles unknown, so only an attested close can end it | Verifying | EP-153 / EP-177 |
 
@@ -863,6 +864,24 @@ The class is not `NoEffect`. The absent before-state has changed, and in the `De
 - The schedule above, in the recovery model's "create-scenario fault pairs that had no exit now have one (EP-177, F66)".
 
 **Mutation.** `test/mutations/F68-update-over-foreign-object-settles-unknown.diff`. F66's record is regenerated for the shared predicate.
+
+## F69
+
+**A Knative Service or DomainMapping reads ready from its previous generation's Ready=True before the controller has seen the new spec** — P1; **Verifying**; owners EP-153 / EP-180.
+
+**Found by review of the readiness predicates (2026-10-06, claude-opus-5-5; inferred), and validated by RES-4 experiment E4 on k3s 1.34 with Knative 1.22 (observed).** After a spec write, Knative keeps the previous generation's `Ready=True` until its controller observes the new spec (`observedGeneration < generation`). It then reports `Ready=Unknown` at the new generation before it becomes `True`.
+
+`knativeReady` (`Adapters/KubernetesReadiness.hs`, previously `Adapters/KubernetesRuntime.hs`) checked only the `Ready` condition. So right after an update, the old revision's readiness satisfied the readiness wait, and a bad image could be recorded as converged. It is used for both the Knative Service and the DomainMapping. This is a wrong success, but in a narrow window: an interrupt or verify within seconds of the write, or a lagging controller.
+
+**Fix.** Ready requires `status.observedGeneration == metadata.generation` as well as `Ready=True` (RES-4 §2, U9). That is the same generation discipline `deploymentAvailable` and `statefulSetReady` already apply.
+
+**Tests.** "a Knative Service or DomainMapping is ready only at the observed generation (F69)", in `InventoryKubernetesReadinessSpec`. The DomainMapping-conflict fixture in `InventoryKubernetesSpec` lacked both generation fields, which every real object carries, and was completed.
+
+**Model.** The model test comes with EP-182's `ControllerLag` fault, once the world's readiness runs through the production parser.
+
+**Documented limit.** `certificateReady` (cert-manager's `Certificate` and `ClusterIssuer`) has the same shape. cert-manager is a platform kind outside release line (b), so it is left as is.
+
+**Mutation.** `test/mutations/F69-knative-ready-ignores-generation.diff` drops the generation check, and the test fails.
 
 ## F70
 

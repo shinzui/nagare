@@ -51,8 +51,19 @@ crdEstablished = hasCondition "Established"
 certificateReady :: Value -> Bool
 certificateReady = hasCondition "Ready"
 
+-- | F69, RES-4 §2 (E4) and U9: a Knative Service or DomainMapping is ready
+-- only once its controller has observed this generation and reports
+-- Ready=True. Until then, a Ready=True belongs to the previous generation.
 knativeReady :: Value -> Bool
-knativeReady = hasCondition "Ready"
+knativeReady value = generationObserved value && hasCondition "Ready" value
+
+generationObserved :: Value -> Bool
+generationObserved (Object root) = case (KM.lookup "metadata" root, KM.lookup "status" root) of
+  (Just (Object metadata), Just (Object status)) -> case (KM.lookup "generation" metadata, KM.lookup "observedGeneration" status) of
+    (Just (Number generation), Just (Number observed)) -> generation == observed
+    _ -> False
+  _ -> False
+generationObserved _ = False
 
 hasCondition :: Text -> Value -> Bool
 hasCondition conditionType (Object root) = case KM.lookup "status" root of
