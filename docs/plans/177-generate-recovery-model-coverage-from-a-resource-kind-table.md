@@ -55,9 +55,20 @@ MasterPlan 23's release line (b).
 
 ## Progress
 
-- [ ] M1: the kind table and totality test. `test/Nagare/Test/World/Kinds.hs` has a row for every
-  in-line kind, plus a documented-limit row for each out-of-line executor. The totality test fails
-  when a row is removed.
+- [x] M1 (2026-10-05): the kind table and totality test.
+  - **Table.** `test/Nagare/Test/World/Kinds.hs` has 16 in-line Kubernetes rows covering the
+    application, database and backup kinds. Three platform-bootstrap Kubernetes kinds (CRD,
+    cert-manager Certificate and ClusterIssuer) and every other executor get documented-limit rows
+    that name the attested close as their exit.
+  - **Universe.** The adapter's update, collection and readiness allowlists are now exported lists
+    (`supportedUpdateKinds` and `readinessKinds` in the new `Adapters/KubernetesKinds.hs`,
+    `collectionKinds` in `Adapters/KubernetesCollection.hs`), with the predicates reading them. Together with the kinds a standalone PostgreSQL and Redis database compile to, they form
+    the universe the totality test requires rows for.
+  - **Cross-checks.** Each in-line row's update, collect and readiness claims are checked against
+    the adapter. A test checks that the lists agree with the adapter's own predicates.
+  - **Mutation records.** Deleting a row, a wrong claim, and an adapter kind added without a row
+    each fail a named test.
+  - **Not yet.** The plan's per-row fixture is deferred to M2, where generation needs it.
 - [ ] M2: the generated product. The scenario × applicable-fault × invariant product is generated
   from the table and replaces the hand-written scenario list. The fast tier runs a sampled product
   in the ordinary suite, and the deep tier runs the full product under `just gate-deep`.

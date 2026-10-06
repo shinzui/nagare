@@ -1,0 +1,12 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesKinds.hs b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesKinds.hs
+index 54da62ee..7b21e1c4 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesKinds.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesKinds.hs
+@@ -23,6 +23,7 @@ supportedUpdateKinds =
+   , ("serving.knative.dev", "service")
+   , ("batch", "cronjob")
+   , ("networking.k8s.io", "networkpolicy")
++  , ("", "limitrange")
+   ]
+ 
+ -- | The (API group, kind) pairs whose readiness the adapter waits for; a Job

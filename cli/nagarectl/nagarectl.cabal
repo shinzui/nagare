@@ -150,6 +150,7 @@ library
     Nagare.Inventory.Adapters.HostRuntime
     Nagare.Inventory.Adapters.Kubernetes
     Nagare.Inventory.Adapters.KubernetesCollection
+    Nagare.Inventory.Adapters.KubernetesKinds
     Nagare.Inventory.Adapters.KubernetesMigration
     Nagare.Inventory.Adapters.KubernetesRuntime
     Nagare.Inventory.Adapters.Pulumi
@@ -518,6 +519,7 @@ test-suite nagarectl-test
     InventoryIncarnationSpec
     InventoryIntegrationSpec
     InventoryJournalHeadAdvanceSpec
+    InventoryKindTotalitySpec
     InventoryKubernetesConfigurationSpec
     InventoryKubernetesFieldTakeoverSpec
     InventoryKubernetesLifecycleSpec
@@ -599,6 +601,7 @@ test-suite nagarectl-test
     Nagare.Test.Version
     Nagare.Test.Webhook
     Nagare.Test.World.Adversary
+    Nagare.Test.World.Kinds
     Nagare.Test.World.Kubernetes
     Nagare.Test.World.Store
     PlatformCutoverSpec

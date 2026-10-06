@@ -34,6 +34,7 @@ import InventoryHostSpec (inventoryHostTests)
 import InventoryIncarnationSpec (inventoryIncarnationTests)
 import InventoryIntegrationSpec (inventoryIntegrationTests)
 import InventoryJournalHeadAdvanceSpec (inventoryJournalHeadAdvanceTests)
+import InventoryKindTotalitySpec (inventoryKindTotalityTests)
 import InventoryKubernetesConfigurationSpec (kubernetesConfigurationTests)
 import InventoryKubernetesFieldTakeoverSpec (kubernetesFieldTakeoverTests)
 import InventoryKubernetesSpec (inventoryKubernetesTests)
@@ -197,7 +198,7 @@ main = do
             , inventoryGogolTests
             , inventoryObjectOpsTests
             , inventoryJournalHeadAdvanceTests
-            , inventoryIncarnationTests
+            , inventoryKindTotalityTests
             , inventoryTests
             , inventoryApplicationUpdateRecoveryTests
             , inventoryLandedUpdateStopTests

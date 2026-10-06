@@ -3,6 +3,8 @@
 -- each admitted kind's controller children.
 module Nagare.Inventory.Adapters.KubernetesCollection
   ( collectionDeleteRequest
+  , collectionKinds
+  , collectionPathPrefix
   )
 where
 
@@ -50,6 +52,21 @@ collectionPropagation :: Text -> Text -> Text
 collectionPropagation "batch" "job" = "Background"
 collectionPropagation "apps" "statefulset" = "Background"
 collectionPropagation _ _ = "Orphan"
+
+-- | The (API group, kind) pairs a reviewed collection can delete. The
+-- recovery model's kind table (ADR 25) is checked against this list.
+collectionKinds :: [(Text, Text)]
+collectionKinds =
+  [ (group, kind)
+  | (group, kinds) <-
+      [ ("", ["configmap", "service", "persistentvolumeclaim", "serviceaccount"])
+      , ("apps", ["statefulset"])
+      , ("rbac.authorization.k8s.io", ["role", "rolebinding"])
+      , ("batch", ["cronjob", "job"])
+      , ("serving.knative.dev", ["service"])
+      ]
+  , kind <- kinds
+  ]
 
 collectionPathPrefix :: Text -> Text -> Maybe String
 collectionPathPrefix "" kind

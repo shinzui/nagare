@@ -34,6 +34,9 @@ module Nagare.Inventory.Adapters.KubernetesRuntime
   , materializeLocalObjectStoreCredentialWith
   , minioSourceData
   , supportedUpdateAddress
+  , supportedUpdateKinds
+  , readinessKinds
+  , supportsReadiness
   , credentialDataMatches
   , generatedCredentialTemplate
   , databaseCredentialKind
@@ -70,6 +73,7 @@ import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter (AdapterExecution (..), OperationAction (..))
 import Nagare.Inventory.Adapters.Kubernetes
 import Nagare.Inventory.Adapters.KubernetesCollection (collectionDeleteRequest)
+import Nagare.Inventory.Adapters.KubernetesKinds (readinessKinds, supportedUpdateKinds)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect))
 import Nagare.Inventory.KubernetesConfiguration (configurationDigest, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, confirmReviewedFieldTakeover, confirmTakeoverSettled)
@@ -297,20 +301,7 @@ waitForCollection config address = case address of
 -- UID/resourceVersion handling, and its normal update form. New kinds require
 -- their own update proof before they can enter this list.
 supportedUpdateAddress :: ProviderAddress -> Bool
-supportedUpdateAddress (Kubernetes _ group kind _ _) =
-  (group, nameText kind)
-    `elem` [ ("", "namespace")
-           , ("", "configmap")
-           , ("", "service")
-           , ("", "secret")
-           , ("", "persistentvolumeclaim")
-           , ("", "resourcequota")
-           , ("apps", "deployment")
-           , ("apps", "statefulset")
-           , ("serving.knative.dev", "service")
-           , ("batch", "cronjob")
-           , ("networking.k8s.io", "networkpolicy")
-           ]
+supportedUpdateAddress (Kubernetes _ group kind _ _) = (group, nameText kind) `elem` supportedUpdateKinds
 supportedUpdateAddress _ = False
 
 waitForReadiness :: KubernetesRuntimeConfig -> ProviderAddress -> IO AdapterExecution
