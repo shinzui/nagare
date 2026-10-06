@@ -219,7 +219,7 @@ F67 decision in §5.1. G1 and G2 are already in flight. Ledger: G8, G10, G12, G1
 
 ### 5.1 F67: stamp proof, not configuration digest v4
 
-Both proposals are sound for NoEffect. They differ in completeness, compatibility and cost:
+Both proposals are sound for NoEffect. They differ in completeness and cost:
 
 | Criterion | Stamp proof (S on the reviewed UID) | v4 configuration digest |
 | --- | --- | --- |
@@ -228,14 +228,30 @@ Both proposals are sound for NoEffect. They differ in completeness, compatibilit
 | External writer edits the spec | still NoEffect or Landed, correctly: Nagare's stamp says which write is live | Unknown |
 | External writer edits the stamp | trusted. A false Landed needs the private `D_new`; a false NoEffect needs a deliberate rollback of the stamp alone. That is the same trust ADR 27 already places in stamps, bound to the UID. | Unknown (conservative) |
 | Deployment generation moves on the stamp change | irrelevant: S is read directly | irrelevant: generation moves only with a write |
-| Old journals (versions 1–3) | settles them: it needs only the reviewed UID and `mutationNativeDigest`, both already recorded | no help: only new version-4 reviews |
+| Where the before-state comes from | the stamp observed at prepare, in the same GET, recorded as `beforeStamp` (see the 2026-10-06 refinement below) | a recorded configuration digest |
 | Drift repair (`D_before == D_new`) | cannot tell; use the canonicalized fields-match rule of §3 | covered |
-| New observation at prepare | none. The stamp is in the existing GET and is read at settle through the live-object reader the F54 path already uses, in inspection mode in the model. | one extra `get --show-managed-fields` per update; shifts the model's ObserveCall ordinals (it silently made the F68 pin vacuous) |
-| New mutation version | none | version 4, kept forever |
+| New observation at prepare | none: prepare and settle read the stamp from the observation they already make. | one extra `get --show-managed-fields` per update; shifts the model's ObserveCall ordinals (it silently made the F68 pin vacuous) |
+| Mutation format | one required field, `beforeStamp` | a new version, 4 |
 
 **Recommendation:** adopt the stamp proof for create, update and adopt settlement, with the fields-match rule for
 same-digest repairs. Do not land v4. Keep `configurationDigest` only where it already serves (version-2 Knative
 execution).
+
+**Refinement (2026-10-06, adopted for EP-180).** `D_before` is the stamp **observed** at prepare, not the base
+revision's declared digest (an expectation that prepare never checks) and not "any stamp other than `D_new`" (which
+mislabels a drift repair as Landed). Each mutation records it as the required field `beforeStamp`, read through a
+stamped variant of the existing observation, so prepare and settle make no extra request. For an update, the order is:
+
+1. Whole-state equality first: an unchanged resourceVersion means NoEffect.
+2. With `beforeStamp ≠ D_new`:
+   - the same UID still stamped `beforeStamp` → NoEffect;
+   - stamped `D_new` → Landed, or Completed by readiness;
+   - another stamp, or none → the TargetGone and Unknown rules of §3.
+3. With `beforeStamp == D_new` (drift repair):
+   - desired fields matching after canonical quantity comparison → Landed or Completed;
+   - otherwise → Unknown, never NoEffect.
+
+Nagare has no deployed users (operator, 2026-10-06), so no compatibility with earlier reviews or journals is kept.
 
 ### 5.2 One conditional-write discipline for execution (G4, G6)
 

@@ -17,6 +17,11 @@ provenance:
       at: 2026-10-06T22:09:33Z
       mode: "update"
       note: "Filled the skeleton: fake API server behind the kubectl interpreter, M1-M5, predicted before/after table"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-06T22:38:00Z
+      mode: "update"
+      note: "No compatibility with the old world, old pins or earlier journals (operator)"
 ---
 
 # Derive the recovery model's Kubernetes world from validated API semantics
@@ -113,6 +118,14 @@ How to see it working:
   into a library function, as a pure move, so the CLI and the world use one function.
   Rationale: the test suite cannot import the executable's modules, and a hand copy in the test tree
   would drift from production.
+  Date: 2026-10-06
+
+- Decision: no compatibility with today's world, its pinned schedules, or earlier reviews and journals
+  (operator, 2026-10-06: Nagare has no deployed users, and this is its first reliable version).
+  Rationale: the new world replaces the old one outright. Existing pinned regressions may be rewritten or deleted
+  freely, as long as each finding they guard (F63–F69 and the EP-177/EP-179 pins) stays guarded by a pin on the new
+  world. The before/after classification in M4 stays: it is the audit that no behaviour change goes unexplained, not
+  a compatibility promise.
   Date: 2026-10-06
 
 
@@ -331,8 +344,8 @@ Then two new test modules:
   time). `rollout status` applies the rollout rule. An argv outside this grammar is a harness error
   (`assertFailure` naming the argv), never a provider answer.
 
-`worldKubernetesAdapter` in `Nagare/Test/World/Kubernetes.hs` gets a new implementation (the old one
-stays alongside until M4). It builds `withKubectlInterpreter (runKubectlWith (worldKubectl world
+`worldKubernetesAdapter` in `Nagare/Test/World/Kubernetes.hs` gets a new implementation. The old one
+stays only as scaffolding until M4, so M2 and M3 can be tested before the model switches; nothing depends on it. It builds `withKubectlInterpreter (runKubectlWith (worldKubectl world
 adversary))` over a `KubernetesRuntimeConfig` whose guard always passes, and calls
 `kubernetesApplicationAdapter False` with it. It wraps only the ops' `kubernetesMutateConditional`,
 to record which reviewed operation is in flight so I4 can attribute writes. Because the
@@ -410,7 +423,9 @@ The model uses the new `worldKubernetesAdapter`; the old world code is deleted. 
 already copies `KubeWorld` wholesale; it stays pure data with no `IORef` inside, so EP-179's
 snapshot test keeps passing.
 
-Pinned regressions stop naming raw ordinals. The world logs every request with its boundary. A
+Pinned regressions stop naming raw ordinals. They are rewritten for the new world, with no attempt to keep
+their old schedules: each finding a pin guards today must still be guarded, and a pin whose finding the new world
+makes unreachable is deleted, with the reason recorded in Surprises & Discoveries. The world logs every request with its boundary. A
 helper, `boundaryOf :: Scenario -> (LoggedRequest -> Bool) -> Int -> IO Boundary`, finds the n-th
 matching request in the fault-free run, for example "the first `get` of the Knative Service after
 its first write". A second helper, `pinned :: Scenario -> Schedule -> IO Finished`, fails unless
