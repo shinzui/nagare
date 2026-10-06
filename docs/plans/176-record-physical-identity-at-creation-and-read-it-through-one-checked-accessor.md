@@ -94,7 +94,8 @@ step 2 of MasterPlan 23's release line (b).
     - data-fence acquisition (N7). Targets must be the recorded incarnation, and captured writers must not replace a recorded one. This covers live restore and maintenance.
     - mutation records for each, plus regenerated F49 and F51 records.
     - the rename source (F62) and writer (A52), with focused tests and mutation records.
-  - Remaining: backups (N3, N4), restore targets (N6, N12), the signing Secret (N5), collection DELETE (N8), adopt and update verification (N9), maintenance UIDs (N13) and the prune check (N22).
+    - manual database backup (N3) and volume snapshot (N4) sources, checked where the backup scope is compiled; the requests carry the recorded incarnations.
+  - Remaining: restore targets (N6, N12), the signing Secret (N5), collection DELETE (N8), adopt and update verification (N9), maintenance UIDs (N13) and the prune check (N22).
 - Original M2 text: one checked accessor, used by every consumer C lists for in-line kinds. Each consumer's
   mismatch case has a test that fails without the accessor; F62's rename-source replacement is
   refused in the rename model.

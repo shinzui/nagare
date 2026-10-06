@@ -44,6 +44,7 @@ import Nagare.Inventory.Backup
       , databaseName
       , expiresAt
       , namespaceName
+      , sourceIncarnations
       , sourcePvcUid
       , sourceRevision
       , sourceStatefulUid
@@ -71,6 +72,7 @@ import Nagare.Inventory.Prune
   , compileManualPruneScope
   )
 import Nagare.Inventory.Status qualified as InventoryStatus
+import Nagare.Inventory.Store qualified as InventoryStore
 import Nagare.Resource.Inventory qualified as ResourceInventory
 import Nagare.Resource.Reference qualified as ResourceReference
 import Nagare.Resource.Types qualified as Resource
@@ -181,6 +183,7 @@ runReviewedDbBackupPlan mctx database namespaceName bucketArg backupId expiryArg
           , sourcePvcUid = pvcUid
           , storageBackend = backend
           , backupSource = Resource.SourceLocation ("db backup/" <> database) backupId
+          , sourceIncarnations = InventoryStore.headIncarnations (InventoryPlan.historyHead history)
           }
   (backupScope, backupNative) <-
     either

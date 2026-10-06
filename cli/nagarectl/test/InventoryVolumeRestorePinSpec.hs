@@ -49,7 +49,12 @@ inventoryVolumeRestorePinTests :: TestTree
 inventoryVolumeRestorePinTests =
   testGroup
     "inventory volume restore pins"
-    [ testCase "planning pins the current archive and receipt versions" $ do
+    [ testCase "a snapshot refuses a source PVC that is not the recorded incarnation (ADR 27, N4)" $ do
+        let refused recorded = either (any (\err -> "snapshot source PVC" `T.isInfixOf` (err ^. #message))) (const False) (compileVolumeSnapshotScope snapshotRequest {volumeSourceIncarnations = recorded} sourceScope sourceNative)
+        assertBool "a replaced PVC was snapshotted" (refused (Map.singleton pvcId (ok (mkPhysicalIdentity "accepted-pvc-uid"))))
+        assertBool "an unrecorded PVC was snapshotted" (refused Map.empty)
+        assertBool "the recorded PVC was refused" (not (refused (volumeSourceIncarnations snapshotRequest)))
+    , testCase "planning pins the current archive and receipt versions" $ do
         store <- newIORef (Map.fromList [(objectUrl, [("a1", archive)]), (receiptUrl, [("r1", receipt)])])
         verifyVolumeBackupObjects (reader store) objectUrl receiptUrl receipt >>= \case
           Right verified -> do
@@ -229,24 +234,23 @@ sourceNative :: Map ResourceId (ManagedResource, ByteString)
 
 backupScope :: ScopeDeclaration
 backupNative :: Map ResourceId (ManagedResource, ByteString)
-(backupScope, backupNative) =
-  ok
-    ( compileVolumeSnapshotScope
-        VolumeSnapshotRequest
-          { volumeApp = "notes"
-          , volumeName = "data"
-          , volumeNamespace = "default"
-          , volumeBackupId = "run-001"
-          , volumeExpiresAt = Nothing
-          , volumeSourceRevision = ScopeRevision (ok (mkScopeGeneration 2)) (contentDigest "accepted-volume")
-          , volumeSourcePvcUid = ok (mkPhysicalIdentity "pvc-uid")
-          , volumeStorageBackend = GcsBackend "project" "bucket"
-          , volumeStoreCredential = Nothing
-          , volumeBackupSource = SourceLocation "storage snapshot" "run-001"
-          }
-        sourceScope
-        sourceNative
-    )
+(backupScope, backupNative) = ok (compileVolumeSnapshotScope snapshotRequest sourceScope sourceNative)
+
+snapshotRequest :: VolumeSnapshotRequest
+snapshotRequest =
+  VolumeSnapshotRequest
+    { volumeApp = "notes"
+    , volumeName = "data"
+    , volumeNamespace = "default"
+    , volumeBackupId = "run-001"
+    , volumeExpiresAt = Nothing
+    , volumeSourceRevision = ScopeRevision (ok (mkScopeGeneration 2)) (contentDigest "accepted-volume")
+    , volumeSourcePvcUid = ok (mkPhysicalIdentity "pvc-uid")
+    , volumeStorageBackend = GcsBackend "project" "bucket"
+    , volumeStoreCredential = Nothing
+    , volumeBackupSource = SourceLocation "storage snapshot" "run-001"
+    , volumeSourceIncarnations = Map.singleton pvcId (ok (mkPhysicalIdentity "pvc-uid"))
+    }
 
 receiptMetadata :: Text
 receiptMetadata = case [value | (_, bytes) <- Map.elems backupNative, value <- metadataValues (ok (eitherDecodeStrict bytes))] of

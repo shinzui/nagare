@@ -1,0 +1,12 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Backup.hs b/cli/nagarectl/src/Nagare/Inventory/Backup.hs
+index 115f9db2..0c1564c8 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/Backup.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Backup.hs
+@@ -562,7 +562,6 @@ compileVolumeSnapshotScope request accepted native = do
+     _ -> Left (invalid "volume snapshot requires one accepted source PVC")
+   -- ADR 27 (N4): a snapshot certifies its source PVC, so the pinned PVC must
+   -- be the recorded incarnation.
+-  _ <- first invalid (requireAccepted "the snapshot source PVC" (checkedPhysical (volumeSourceIncarnations request) (pvc ^. #identity) (volumeSourcePvcUid request)))
+   _ <- acceptedValue invalid native pvc
+   cluster <- case pvc ^. #address of
+     Kubernetes clusterId _ _ _ _ -> Right clusterId

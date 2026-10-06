@@ -25,7 +25,7 @@ import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.Dsl.Database (Database (Database), Engine (Postgres), defaultEngineVersion, mkDatabaseName)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Types qualified as Dsl
-import Nagare.Inventory.Backup (ManualBackupRequest (..), compileManualBackupScope)
+import Nagare.Inventory.Backup (ManualBackupRequest (..), compileManualBackupScope, manualBackupSourceIds)
 import Nagare.Inventory.BackupFreshness (RecoveryPointObjective (..))
 import Nagare.Inventory.DataService (compileStandaloneDatabase)
 import Nagare.Inventory.Database (DatabaseBackupTarget (DatabaseBackupTarget))
@@ -152,6 +152,7 @@ restoreFixture =
         (checked (mkPhysicalIdentity "pvc-uid"))
         backend
         (SourceLocation "fixture" "backup")
+        (maybe Map.empty (\(stateful, pvc) -> Map.fromList [(stateful, checked (mkPhysicalIdentity "stateful-uid")), (pvc, checked (mkPhysicalIdentity "pvc-uid"))]) (manualBackupSourceIds "pg-main" "default" databaseScope))
     (backup, backupNative) = checked (compileManualBackupScope backupRequest databaseScope databaseNative)
     metadataValues (Object fields) =
       [ value

@@ -53,6 +53,7 @@ import Nagare.Inventory.Backup
       , volumeExpiresAt
       , volumeName
       , volumeNamespace
+      , volumeSourceIncarnations
       , volumeSourcePvcUid
       , volumeSourceRevision
       , volumeStorageBackend
@@ -85,6 +86,7 @@ import Nagare.Inventory.Restore
   )
 import Nagare.Inventory.ScheduledGcs (withScheduledObjectStore)
 import Nagare.Inventory.Status qualified as InventoryStatus
+import Nagare.Inventory.Store qualified as InventoryStore
 import Nagare.Inventory.VolumePrune
   ( VolumePruneRequest
       ( VolumePruneRequest
@@ -302,6 +304,7 @@ runReviewedVolumeSnapshotPlan mctx dep volume backend snapshotId expiryArg outpu
               Resource.SourceLocation
                 ("storage snapshot/" <> appName <> "/" <> volume)
                 snapshotId
+          , volumeSourceIncarnations = InventoryStore.headIncarnations (InventoryPlan.historyHead history)
           }
   (backupScope, backupNative) <-
     either

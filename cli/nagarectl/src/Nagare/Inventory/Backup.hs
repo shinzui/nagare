@@ -17,6 +17,7 @@ module Nagare.Inventory.Backup
   , parseScheduledBackupReceipt
   , scheduledReceiptExpectationFromCronJob
   , compileManualBackupScope
+  , manualBackupSourceIds
   , VolumeSnapshotRequest (..)
   , volumeSnapshotJobSourcePins
   , compileVolumeSnapshotScope
@@ -64,6 +65,7 @@ import Nagare.Inventory.BackupReceipt
   , scheduledReceiptExpectationFromCronJob
   )
 import Nagare.Inventory.Digest (contentDigest)
+import Nagare.Inventory.Identity (checkedPhysical, requireAccepted)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.Store (ScopeRevision (..))
 import Nagare.Resource.Inventory
@@ -85,6 +87,8 @@ data ManualBackupRequest = ManualBackupRequest
   , sourcePvcUid :: !PhysicalIdentity
   , storageBackend :: !StoreBackend
   , backupSource :: !SourceLocation
+  , sourceIncarnations :: !(Map ResourceId PhysicalIdentity)
+  -- ^ ADR 27 (N3): the recorded incarnations the pinned source must match.
   }
   deriving stock (Eq, Show)
 
@@ -174,6 +178,22 @@ volumeSnapshotJobSourcePins bytes = do
           pure (Just ((resource, uid) : credential))
     _ -> Right Nothing
 
+-- | The StatefulSet and PVC a manual backup of the named database reads.
+manualBackupSourceIds :: T.Text -> T.Text -> ScopeDeclaration -> Maybe (ResourceId, ResourceId)
+manualBackupSourceIds database ns accepted = case (named "apps" "statefulset" database, named "" "persistentvolumeclaim" (dbPvcName database)) of
+  ([stateful], [pvc]) -> Just (stateful, pvc)
+  _ -> Nothing
+  where
+    named group kind name =
+      [ member ^. #identity
+      | bundle <- scopeBundles accepted
+      , Managed member <- declarations bundle
+      , case member ^. #address of
+          Kubernetes _ api resourceKind (Just namespace) nativeName ->
+            api == group && nameText resourceKind == kind && nameText namespace == ns && nameText nativeName == name
+          _ -> False
+      ]
+
 compileManualBackupScope ::
   ManualBackupRequest ->
   ScopeDeclaration ->
@@ -217,6 +237,10 @@ compileManualBackupScope request accepted native = do
     (Left (invalid "backup ID must contain at most 20 characters"))
   stateful <- exactlyOne "StatefulSet" (select "apps" "statefulset" database)
   pvc <- exactlyOne "PVC" (select "" "persistentvolumeclaim" (dbPvcName database))
+  -- ADR 27 (N3): a backup certifies its source, so the pinned source must be
+  -- the recorded incarnation: never a replacement, never unrecorded.
+  _ <- first invalid (requireAccepted "the backup source StatefulSet" (checkedPhysical (sourceIncarnations request) (stateful ^. #identity) (sourceStatefulUid request)))
+  _ <- first invalid (requireAccepted "the backup source PVC" (checkedPhysical (sourceIncarnations request) (pvc ^. #identity) (sourcePvcUid request)))
   credential <- exactlyOne "credential" (select "" "secret" (dbSecretName database))
   statefulValue <- acceptedValue invalid native stateful
   _ <- acceptedValue invalid native pvc
@@ -490,6 +514,8 @@ data VolumeSnapshotRequest = VolumeSnapshotRequest
   , volumeStorageBackend :: !StoreBackend
   , volumeStoreCredential :: !(Maybe (ManagedResource, PhysicalIdentity))
   , volumeBackupSource :: !SourceLocation
+  , volumeSourceIncarnations :: !(Map ResourceId PhysicalIdentity)
+  -- ^ ADR 27 (N4): the recorded incarnations the pinned source PVC must match.
   }
   deriving stock (Eq, Show)
 
@@ -534,6 +560,9 @@ compileVolumeSnapshotScope request accepted native = do
               ] of
     [single] -> Right single
     _ -> Left (invalid "volume snapshot requires one accepted source PVC")
+  -- ADR 27 (N4): a snapshot certifies its source PVC, so the pinned PVC must
+  -- be the recorded incarnation.
+  _ <- first invalid (requireAccepted "the snapshot source PVC" (checkedPhysical (volumeSourceIncarnations request) (pvc ^. #identity) (volumeSourcePvcUid request)))
   _ <- acceptedValue invalid native pvc
   cluster <- case pvc ^. #address of
     Kubernetes clusterId _ _ _ _ -> Right clusterId

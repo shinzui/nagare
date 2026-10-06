@@ -16,6 +16,7 @@ import Nagare.Dsl.Database.Render (dbPvcName)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.KubernetesRuntime (identified)
+import Nagare.Inventory.Backup (ManualBackupRequest (..), compileManualBackupScope)
 import Nagare.Inventory.BackupReceipt (ScheduledBackupReceipt (..))
 import Nagare.Inventory.DataFence (DataFenceControls (..), WriterReleaseState (..), acquireDataFence)
 import Nagare.Inventory.Digest (contentDigest)
@@ -83,6 +84,15 @@ inventoryIncarnationTests =
         fenced physical >>= assertBool "the recorded target was refused"
         fenced Map.empty >>= assertBool "an unrecorded target was fenced" . not
         fenced (Map.singleton target (uid "uid-replacement")) >>= assertBool "a replaced target was fenced" . not
+    , testCase "a manual backup refuses a source that is not the recorded incarnation (ADR 27, N3)" $ do
+        let attempt recorded = case compileManualBackupScope (ManualBackupRequest "pg" "personal" "run-1" Nothing (ScopeRevision (expectOk (mkScopeGeneration 1)) (contentDigest "source")) (uid "uid-live-sts") (uid "uid-live-pvc") (GcsBackend "project" "bucket") (SourceLocation "test" "backup") recorded) databaseScope Map.empty of
+              Left errors -> any (\err -> "backup source" `T.isInfixOf` (err ^. #message)) errors
+              Right _ -> False
+            live = Map.fromList [(databaseMember "statefulset", uid "uid-live-sts"), (databaseMember "pvc", uid "uid-live-pvc")]
+        assertBool "a replaced StatefulSet was backed up" (attempt (Map.insert (databaseMember "statefulset") (uid "uid-accepted-sts") live))
+        assertBool "a replaced PVC was backed up" (attempt (Map.insert (databaseMember "pvc") (uid "uid-accepted-pvc") live))
+        assertBool "an unrecorded source was backed up" (attempt Map.empty)
+        assertBool "the recorded source was refused for its identity" (not (attempt live))
     , testCase "status reports a member whose object is not the accepted incarnation as replaced" $ do
         let inventory = expectOk (composeInventory (expectOk (mkScopeSnapshot fixtureBinding Map.empty Map.empty)) (ReplaceScope (scopeWith "v1") :| []))
             recorded = Map.singleton durableId (uid "uid-accepted")

@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Backup.hs b/cli/nagarectl/src/Nagare/Inventory/Backup.hs
+index 115f9db2..f47b2df1 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/Backup.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Backup.hs
+@@ -239,8 +239,6 @@ compileManualBackupScope request accepted native = do
+   pvc <- exactlyOne "PVC" (select "" "persistentvolumeclaim" (dbPvcName database))
+   -- ADR 27 (N3): a backup certifies its source, so the pinned source must be
+   -- the recorded incarnation: never a replacement, never unrecorded.
+-  _ <- first invalid (requireAccepted "the backup source StatefulSet" (checkedPhysical (sourceIncarnations request) (stateful ^. #identity) (sourceStatefulUid request)))
+-  _ <- first invalid (requireAccepted "the backup source PVC" (checkedPhysical (sourceIncarnations request) (pvc ^. #identity) (sourcePvcUid request)))
+   credential <- exactlyOne "credential" (select "" "secret" (dbSecretName database))
+   statefulValue <- acceptedValue invalid native stateful
+   _ <- acceptedValue invalid native pvc

@@ -34,7 +34,7 @@ import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes
 import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), backupReceiptFromPodList, cacheClientDataMatches, certificateReady, collectionDeleteRequest, completedJobContainerMessageFromPodList, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, crdEstablished, credentialDataMatches, deploymentAvailable, deploymentSelectorReplacement, desiredFieldsMatch, generatedCredentialTemplate, jobCompleted, knativeReady, materializeCacheKey, materializeCredential, mkKubernetesRuntimeOps, observeCacheClientOutput, observeKubernetesBatchWithGuard, parseObserved, readinessForAddress, statefulSetImmutableReplacement, statefulSetReady, supportedUpdateAddress, withoutCacheClientData)
-import Nagare.Inventory.Backup (BackupReceiptExpectation (..), BackupSourceProof (..), ManualBackupRequest (..), VolumeSnapshotRequest (..), compileManualBackupScope, compileVolumeSnapshotScope, manualBackupJobReceiptExpectation, manualBackupJobSourcePins, manualBackupSourceProof, parseBackupReceipt, parseManualBackupReceipt, volumeSnapshotJobSourcePins)
+import Nagare.Inventory.Backup (BackupReceiptExpectation (..), BackupSourceProof (..), ManualBackupRequest (..), VolumeSnapshotRequest (..), compileManualBackupScope, compileVolumeSnapshotScope, manualBackupJobReceiptExpectation, manualBackupJobSourcePins, manualBackupSourceIds, manualBackupSourceProof, parseBackupReceipt, parseManualBackupReceipt, volumeSnapshotJobSourcePins)
 import Nagare.Inventory.BackupFreshness (RecoveryPointObjective (..))
 import Nagare.Inventory.CollectionPolicy (requiresControllerCollection, supportsRetainedCollection)
 import Nagare.Inventory.Components.Foundation (compileContributedNamespaces)
@@ -863,6 +863,7 @@ inventoryKubernetesTests =
                 , volumeStorageBackend = GcsBackend "project" "bucket"
                 , volumeStoreCredential = Nothing
                 , volumeBackupSource = SourceLocation "storage snapshot" "run-001"
+                , volumeSourceIncarnations = Map.singleton pvcId (ok (mkPhysicalIdentity "pvc-uid"))
                 }
             (backupScope, backupNative) =
               ok
@@ -1674,14 +1675,12 @@ inventoryKubernetesTests =
                 , namespaceName = "default"
                 , backupId = "run-001"
                 , expiresAt = Nothing
-                , sourceRevision =
-                    ScopeRevision
-                      (ok (mkScopeGeneration 1))
-                      (contentDigest "accepted-redis")
+                , sourceRevision = ScopeRevision (ok (mkScopeGeneration 1)) (contentDigest "accepted-redis")
                 , sourceStatefulUid = ok (mkPhysicalIdentity "redis-stateful-uid")
                 , sourcePvcUid = ok (mkPhysicalIdentity "redis-pvc-uid")
                 , storageBackend = backend
                 , backupSource = SourceLocation "db backup" "run-001"
+                , sourceIncarnations = maybe Map.empty (\(stateful, pvc) -> Map.fromList [(stateful, ok (mkPhysicalIdentity "redis-stateful-uid")), (pvc, ok (mkPhysicalIdentity "redis-pvc-uid"))]) (manualBackupSourceIds "redis-main" "default" databaseScope)
                 }
             (backupScope, backupNative) =
               ok
@@ -1887,6 +1886,7 @@ inventoryKubernetesTests =
                 , sourcePvcUid = ok (mkPhysicalIdentity "pvc-uid")
                 , storageBackend = backend
                 , backupSource = SourceLocation "db backup" "run-001"
+                , sourceIncarnations = maybe Map.empty (\(stateful, pvc) -> Map.fromList [(stateful, ok (mkPhysicalIdentity "stateful-uid")), (pvc, ok (mkPhysicalIdentity "pvc-uid"))]) (manualBackupSourceIds "pg-main" "default" databaseScope)
                 }
             (backupScope, backupNative) = ok (compileManualBackupScope request databaseScope databaseNative)
             (job, bytes) = case Map.elems backupNative of
