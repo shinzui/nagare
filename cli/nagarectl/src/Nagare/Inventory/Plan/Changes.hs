@@ -54,6 +54,7 @@ import Nagare.Inventory.Adapter
   )
 import Nagare.Inventory.CloudCollection (cloudCollectionPolicyOnly)
 import Nagare.Inventory.Digest (contentDigest)
+import Nagare.Inventory.Identity (IdentityCheck (..), checkedPhysical)
 import Nagare.Inventory.Journal (mkOperationId, operationIdText)
 import Nagare.Inventory.Migration.Types
   ( ValidatedMigration
@@ -160,7 +161,8 @@ import Nagare.Resource.Reference
   , refSignature
   )
 import Nagare.Resource.Types
-  ( ProviderAddress (Kubernetes)
+  ( PhysicalIdentity
+  , ProviderAddress (Kubernetes)
   , ResourceId
   , ScopeId
   , SourceLocation (SourceLocation)
@@ -385,8 +387,15 @@ buildRetentionProofs candidate (LifecycleDecisions _ decisions _) history observ
         | lifecycleDecision decision == ApproveRetirement ->
             -- F51: retain the accepted incarnation. An object that replaced it
             -- outside review never enters retained history.
-            Right (resourceId, RetentionProof (resource ^. #owner) revision (Map.findWithDefault physical resourceId (headIncarnations (historyHead history))))
+            Right (resourceId, RetentionProof (resource ^. #owner) revision (retainedIdentity (headIncarnations (historyHead history)) resourceId physical))
       _ -> Left (PlanError "retention-proof" "retired resource lacks a reviewed present incarnation" [resourceId] :| [])
+
+-- | The identity a retention proof names (F51): the recorded incarnation when
+-- the live object replaced it, otherwise the live object.
+retainedIdentity :: Map ResourceId PhysicalIdentity -> ResourceId -> PhysicalIdentity -> PhysicalIdentity
+retainedIdentity recorded resource live = case checkedPhysical recorded resource live of
+  IdentityReplaced accepted _ -> accepted
+  _ -> live
 
 buildCollectionProofs :: CompositionCandidate -> LifecycleDecisions -> InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) (Map ResourceId RetentionProof)
 buildCollectionProofs candidate (LifecycleDecisions _ decisions _) history observations =

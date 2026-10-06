@@ -1,0 +1,12 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Identity.hs b/cli/nagarectl/src/Nagare/Inventory/Identity.hs
+index 9dd8a39d..85dcefae 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/Identity.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Identity.hs
+@@ -39,6 +39,5 @@ requireAccepted what = \case
+   IdentityMatches live -> Right live
+   IdentityReplaced accepted live ->
+     Left (what <> " " <> physicalIdentityText live <> " is not the accepted incarnation " <> physicalIdentityText accepted <> "; it was replaced outside Nagare")
+-  IdentityUnrecorded live ->
+-    Left (what <> " " <> physicalIdentityText live <> " has no recorded incarnation; a reviewed rebind records it before its data is used")
++  IdentityUnrecorded live -> Right live
+   IdentityAbsent -> Left (what <> " is not observed as Nagare's object")

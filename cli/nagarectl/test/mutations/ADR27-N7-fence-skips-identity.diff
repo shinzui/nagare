@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/DataFence.hs b/cli/nagarectl/src/Nagare/Inventory/DataFence.hs
+index a37ac07c..5abc8937 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/DataFence.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/DataFence.hs
+@@ -87,7 +87,7 @@ acquireDataFence locked controls requested = do
+     Right headValue
+       | not (validRequest (lockedStore locked) headValue requested) ->
+           pure (Left "data fence request differs from the accepted context, lacks exact identities or saved writers, or another operation is active")
+-      | Left reason <- fenceIdentities headValue requested -> pure (Left reason)
++      | False, Left reason <- fenceIdentities headValue requested -> pure (Left reason)
+       | otherwise -> do
+           validated <- validateFenceInputs controls requested
+           case validated of

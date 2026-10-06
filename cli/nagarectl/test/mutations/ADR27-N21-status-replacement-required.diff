@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Status.hs b/cli/nagarectl/src/Nagare/Inventory/Status.hs
+index d267cf8b..c483f046 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/Status.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Status.hs
+@@ -668,7 +668,7 @@ classifyDriftWith incarnations inventory observations =
+             -- N21: a replacement that also needs a reviewed replacement is
+             -- first of all not the accepted incarnation.
+             Just (ObservedReplacementRequired uid changed)
+-              | replaced resource uid ->
++              | False && replaced resource uid ->
+                   (ReplacedIncarnation, HealthUnknown, Just uid, Just changed, Just "observed object is not the accepted incarnation")
+             Just (ObservedPresent uid) -> (Converged, HealthUnknown, Just uid, Nothing, Nothing)
+             Just (ObservedDrifted uid changed) ->

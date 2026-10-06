@@ -58,6 +58,7 @@ import Nagare.Inventory.BackupFreshness
   )
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.DataService (acceptedFoundationNamespace)
+import Nagare.Inventory.Identity (checkedPhysical, requireAccepted)
 import Nagare.Inventory.Plan qualified as InventoryPlan
 import Nagare.Inventory.ScheduledGcs (withScheduledObjectStore)
 import Nagare.Inventory.ScheduledIngest
@@ -256,11 +257,11 @@ resolveScheduledSource mctx database namespaceName bucketArg = do
   signingUid <- physical (signing ^. #identity)
   -- Pending uploads of an object that replaced the accepted incarnation
   -- outside Nagare must not count as recovery points (F49).
+  -- ADR 27: an unrecorded source is refused too, never read as a match.
   let incarnations = InventoryStore.headIncarnations (InventoryPlan.historyHead history)
-      acceptedIncarnation member uid = maybe True (== uid) (Map.lookup (member ^. #identity) incarnations)
-  unless
-    (acceptedIncarnation stateful statefulUid && acceptedIncarnation pvc pvcUid)
-    (reportFail "scheduled receipt source is not the accepted database incarnation; it was replaced outside Nagare")
+      acceptedSource what member uid = either (reportFail . ("scheduled receipt source is not the accepted database incarnation: " <>)) pure (requireAccepted what (checkedPhysical incarnations (member ^. #identity) uid))
+  _ <- acceptedSource "the StatefulSet" stateful statefulUid
+  _ <- acceptedSource "the PersistentVolumeClaim" pvc pvcUid
   (_, cronBytes) <-
     maybe
       (reportFail "accepted CronJob lacks native bytes")

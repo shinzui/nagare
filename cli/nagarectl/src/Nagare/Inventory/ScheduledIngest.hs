@@ -31,6 +31,7 @@ import Nagare.Dsl.Database.Render (dbPvcName)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Backup (ScheduledBackupReceipt (..), ScheduledReceiptExpectation (..), scheduledReceiptExpectationFromCronJob)
 import Nagare.Inventory.Digest (contentDigest)
+import Nagare.Inventory.Identity (checkedPhysical, requireAccepted)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.ScheduledReceipt (ScheduledReceiptEvidence (..))
 import Nagare.Inventory.Store (ScopeRevision (..))
@@ -164,10 +165,10 @@ compileScheduledIngestScope request accepted native = do
   signing <- unique "Secret" (scheduleName <> "-signing")
   -- A receipt from an object that replaced the accepted incarnation outside
   -- Nagare must not become a recovery point (F49).
-  let acceptedIncarnation member uid = maybe True (== uid) (Map.lookup (member ^. #identity) (ingestAcceptedIncarnations request))
-  unless
-    (acceptedIncarnation stateful (ingestStatefulUid request) && acceptedIncarnation pvc (ingestPvcUid request))
-    (Left (invalid "scheduled receipt source is not the accepted database incarnation; it was replaced outside Nagare"))
+  -- ADR 27: an unrecorded source is refused too, never read as a match.
+  let acceptedSource what member uid = first (\reason -> invalid ("scheduled receipt source is not the accepted database incarnation: " <> reason)) (requireAccepted what (checkedPhysical (ingestAcceptedIncarnations request) (member ^. #identity) uid))
+  _ <- acceptedSource "the StatefulSet" stateful (ingestStatefulUid request)
+  _ <- acceptedSource "the PersistentVolumeClaim" pvc (ingestPvcUid request)
   cronBytes <- acceptedBytes cron
   _ <- acceptedBytes stateful
   _ <- acceptedBytes pvc

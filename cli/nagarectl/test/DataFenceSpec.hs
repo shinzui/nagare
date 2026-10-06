@@ -19,7 +19,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import InventoryTransactionSpec
   ( fixtureBinding
-  , preparedFixtureWithRegistry
+  , preparedFixtureRecording
   , recordingRegistryWith
   )
 import Nagare.Dsl.Database (Engine (..))
@@ -2833,7 +2833,7 @@ dataFenceTests =
     , testCase "reservation survives a new process and blocks planning until verified release" $
         withSystemTempDirectory "nagare-data-fence" $ \root -> do
           store <- openFilesystemStore root >>= right
-          _ <- initializeStore store binding "operator-a" >>= right
+          _ <- initializeFenced store binding "operator-a"
           let scope = known (mkScopeDeclaration fenceOwner [])
               snapshot = known (mkScopeSnapshot binding Map.empty Map.empty)
               candidate = known (composeInventory snapshot (ReplaceScope scope :| []))
@@ -2910,7 +2910,7 @@ dataFenceTests =
     , testCase "unfinished acquisition resumes after process loss and native drain" $
         withSystemTempDirectory "nagare-acquiring-fence" $ \root -> do
           store <- openFilesystemStore root >>= right
-          _ <- initializeStore store binding "operator-a" >>= right
+          _ <- initializeFenced store binding "operator-a"
           stopped <- newIORef False
           drained <- newIORef False
           stopEffects <- newIORef (0 :: Int)
@@ -2982,7 +2982,7 @@ dataFenceTests =
           fmap fencePhase (headDataFence final) @?= Just FenceExcluded
     , testCase "lost writer exclusion after a data effect remains unresolved" $ do
         store <- newMemoryStore
-        _ <- initializeStore store binding "operator-a" >>= right
+        _ <- initializeFenced store binding "operator-a"
         excluded <- newIORef True
         verifications <- newIORef (0 :: Int)
         released <- newIORef False
@@ -3057,7 +3057,7 @@ dataFenceTests =
         headDataFence final @?= Nothing
     , testCase "lost release acknowledgement is observed without replaying writer restoration" $ do
         store <- newMemoryStore
-        _ <- initializeStore store binding "operator-a" >>= right
+        _ <- initializeFenced store binding "operator-a"
         released <- newIORef False
         restored <- newIORef (0 :: Int)
         let original = fixtureControls released restored (pure (Right physical))
@@ -3098,7 +3098,7 @@ dataFenceTests =
     , testCase "release resumes after interruption before any writer control" $
         withSystemTempDirectory "nagare-fence-release" $ \root -> do
           store <- openFilesystemStore root >>= right
-          _ <- initializeStore store binding "operator-a" >>= right
+          _ <- initializeFenced store binding "operator-a"
           released <- newIORef False
           restored <- newIORef (0 :: Int)
           let original = fixtureControls released restored (pure (Right physical))
@@ -3145,7 +3145,7 @@ dataFenceTests =
           headDataFence final @?= Nothing
     , testCase "partial writer release is not replayed" $ do
         store <- newMemoryStore
-        _ <- initializeStore store binding "operator-a" >>= right
+        _ <- initializeFenced store binding "operator-a"
         released <- newIORef False
         restored <- newIORef (0 :: Int)
         let original = fixtureControls released restored (pure (Right physical))
@@ -3187,7 +3187,7 @@ dataFenceTests =
         fmap fencePhase (headDataFence active) @?= Just FenceReleasing
     , testCase "explicit forward recovery completes a partial writer release" $ do
         store <- newMemoryStore
-        _ <- initializeStore store binding "operator-a" >>= right
+        _ <- initializeFenced store binding "operator-a"
         phase <- newIORef (0 :: Int)
         forwardEffects <- newIORef (0 :: Int)
         released <- newIORef False
@@ -3262,7 +3262,7 @@ dataFenceTests =
         headDataFence final @?= Nothing
     , testCase "changed target identity leaves a durable unresolved fence" $ do
         store <- newMemoryStore
-        _ <- initializeStore store binding "operator-a" >>= right
+        _ <- initializeFenced store binding "operator-a"
         released <- newIORef False
         restored <- newIORef (0 :: Int)
         let changed = Map.insert target (known (mkPhysicalIdentity "replacement-uid")) physical
@@ -3277,15 +3277,15 @@ dataFenceTests =
         fmap fencePhase (headDataFence active) @?= Just FenceAcquiring
     , testCase "reviewed transaction may own only its matching fence" $ do
         store <- newMemoryStore
-        initial <- initializeStore store binding "operator-a" >>= right
+        initial <- initializeFenced store binding "operator-a"
         let transaction = "tx-reviewed-restore"
             active =
               initial
-                { headGeneration = 1
+                { headGeneration = headGeneration initial + 1
                 , headActiveTransaction = Just transaction
                 , headExecutorClaim = Just (ExecutorClaim transaction "operator-a" 1 "time")
                 }
-        _ <- replaceHeadIfGenerationMatches store (Just 0) active >>= right
+        _ <- replaceHeadIfGenerationMatches store (Just (headGeneration initial)) active >>= right
         released <- newIORef False
         restored <- newIORef (0 :: Int)
         let controls = fixtureControls released restored (pure (Right physical))
@@ -3305,9 +3305,9 @@ dataFenceTests =
         _ <-
           replaceHeadIfGenerationMatches
             store
-            (Just 1)
+            (Just (headGeneration active))
             active
-              { headGeneration = 2
+              { headGeneration = headGeneration active + 1
               , headExecutorClaim =
                   Just (ExecutorClaim transaction "operator-b" 2 "time")
               }
@@ -3328,8 +3328,8 @@ dataFenceTests =
         _ <-
           replaceHeadIfGenerationMatches
             store
-            (Just 2)
-            active {headGeneration = 3}
+            (Just (headGeneration active + 1))
+            active {headGeneration = headGeneration active + 2}
             >>= right
         _ <-
           withProcessLock
@@ -3347,7 +3347,7 @@ dataFenceTests =
         fmap fenceTransaction (headDataFence fenced) @?= Just (Just transaction)
     , testCase "reviewed transaction cannot journal convergence while fenced" $ do
         store <- newMemoryStore
-        _ <- initializeStore store binding "operator-a" >>= right
+        _ <- initializeFenced store binding "operator-a"
         let scope = known (mkScopeDeclaration fenceOwner [])
             snapshot = known (mkScopeSnapshot binding Map.empty Map.empty)
             candidate = known (composeInventory snapshot (ReplaceScope scope :| []))
@@ -4839,7 +4839,7 @@ dataFenceTests =
                 )
             effect _ _ = recordStep "effect" >> pure AdapterEffectCompleted
             recovery _ _ = pure RecoverySafeToRetry
-        (reviewed, _) <- preparedFixtureWithRegistry store effect recovery customize
+        (reviewed, _) <- preparedFixtureRecording physical store effect recovery customize
         readIORef captures >>= (@?= 1)
         assertBool
           "review must bind the fence capability"
@@ -4989,12 +4989,7 @@ dataFenceTests =
                   , fenceRestoreRecoveryBackup = Nothing
                   , fenceVerifyRecoveryBackup = Nothing
                   }
-        (reviewed, registry) <-
-          preparedFixtureWithRegistry
-            store
-            effect
-            recovery
-            customize
+        (reviewed, registry) <- preparedFixtureRecording physical store effect recovery customize
         assertBool
           "review selected the wrong capability"
           ( any
@@ -5034,7 +5029,7 @@ dataFenceTests =
                       , fenceVerifyRecoveryBackup = Nothing
                       }
                 )
-        (reviewed, _) <- preparedFixtureWithRegistry store effect recovery customize
+        (reviewed, _) <- preparedFixtureRecording physical store effect recovery customize
         let plain = recordingRegistryWith (\_ _ -> pure (Right ())) effect recovery
         refused <- applyReviewed store plain reviewed
         case refused of
@@ -5136,7 +5131,7 @@ dataFenceTests =
                       , fenceVerifyRecoveryBackup = Nothing
                       }
                 )
-        (reviewed, registry) <- preparedFixtureWithRegistry store effect recovery customize
+        (reviewed, registry) <- preparedFixtureRecording physical store effect recovery customize
         outcome <- applyReviewed store registry reviewed >>= right
         (transaction, operation) <- case outcome of
           StoppedAmbiguous value selected -> pure (value, selected)
@@ -5207,7 +5202,7 @@ dataFenceTests =
                       , fenceVerifyRecoveryBackup = Nothing
                       }
                 )
-        (reviewed, registry) <- preparedFixtureWithRegistry store effect recovery customize
+        (reviewed, registry) <- preparedFixtureRecording physical store effect recovery customize
         outcome <- applyReviewed store registry reviewed >>= right
         (transaction, selectedOperation) <- case outcome of
           StoppedAmbiguous value selected -> pure (value, selected)
@@ -5309,7 +5304,7 @@ dataFenceTests =
                       , fenceVerifyRecoveryBackup = Nothing
                       }
                 )
-        (reviewed, registry) <- preparedFixtureWithRegistry store effect recovery customize
+        (reviewed, registry) <- preparedFixtureRecording physical store effect recovery customize
         applied <- applyReviewed store registry reviewed >>= right
         (transaction, operation) <- case applied of
           StoppedAmbiguous value selected -> pure (value, selected)
@@ -5391,12 +5386,7 @@ dataFenceTests =
                       , fenceVerifyRecoveryBackup = Just verifyBackup
                       }
                 )
-        (reviewed, registry) <-
-          preparedFixtureWithRegistry
-            store
-            effect
-            recovery
-            customize
+        (reviewed, registry) <- preparedFixtureRecording physical store effect recovery customize
         applied <- applyReviewed store registry reviewed >>= right
         (transaction, operation) <- case applied of
           StoppedAmbiguous value selected -> pure (value, selected)
@@ -5499,12 +5489,7 @@ dataFenceTests =
                             )
                       }
                 )
-        (reviewed, registry) <-
-          preparedFixtureWithRegistry
-            store
-            effect
-            recovery
-            customize
+        (reviewed, registry) <- preparedFixtureRecording physical store effect recovery customize
         applied <- applyReviewed store registry reviewed >>= right
         (transaction, operation) <- case applied of
           StoppedAmbiguous value selected -> pure (value, selected)
@@ -5597,6 +5582,16 @@ request =
     Nothing
     FenceAcquiring
     ""
+
+-- | A store whose fenced members are their recorded incarnations, as after
+-- the review that created them converged (ADR 27). Same generation, so a
+-- test's later conditional head writes start from the returned generation.
+initializeFenced :: InventoryStore -> ContextBinding -> Text -> IO HeadManifest
+initializeFenced store context name = do
+  initial <- initializeStore store context name >>= right
+  let recorded = initial {headGeneration = headGeneration initial + 1, headIncarnations = physical}
+  _ <- replaceHeadIfGenerationMatches store (Just (headGeneration initial)) recorded >>= right
+  pure recorded
 
 physical :: Map.Map ResourceId PhysicalIdentity
 physical =

@@ -212,6 +212,7 @@ library
     Nagare.Inventory.Foundation
     Nagare.Inventory.HelmReview
     Nagare.Inventory.Host
+    Nagare.Inventory.Identity
     Nagare.Inventory.ImageBuild
     Nagare.Inventory.ImagePrune
     Nagare.Inventory.ImagePruneAdapter

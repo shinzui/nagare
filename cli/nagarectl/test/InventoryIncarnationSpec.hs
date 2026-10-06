@@ -17,6 +17,7 @@ import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.KubernetesRuntime (identified)
 import Nagare.Inventory.BackupReceipt (ScheduledBackupReceipt (..))
+import Nagare.Inventory.DataFence (DataFenceControls (..), WriterReleaseState (..), acquireDataFence)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Execute hiding (withProcessLock)
 import Nagare.Inventory.Journal (operationIdText)
@@ -69,6 +70,19 @@ inventoryIncarnationTests =
         identified "{\"metadata\":{\"uid\":\"uid-returned\"}}" AdapterEffectCompleted @?= AdapterEffectIdentified (uid "uid-returned") AdapterEffectCompleted
         identified "{\"metadata\":{\"uid\":\"uid-returned\"}}" (AdapterEffectAmbiguous "readiness") @?= AdapterEffectIdentified (uid "uid-returned") (AdapterEffectAmbiguous "readiness")
         identified "" AdapterEffectCompleted @?= AdapterEffectCompleted
+    , testCase "a data fence binds only the recorded incarnation of its target (ADR 27, N7)" $ do
+        let target = mintResourceId incarnationOwner (expectOk (mkLogicalKey "data")) (expectOk (mkName "pvc"))
+            physical = Map.singleton target (uid "uid-accepted")
+            fenced recorded = do
+              store <- newMemoryStore
+              initial <- initializeStore store fixtureBinding "fence" >>= expectRight
+              _ <- replaceHeadIfGenerationMatches store (Just (headGeneration initial)) initial {headGeneration = headGeneration initial + 1, headIncarnations = recorded} >>= expectRight
+              let request = DataFenceRecord fixtureBinding "session" Nothing (headAccepted initial) physical (Set.singleton target) Set.empty "gs://fixture/recovery" (contentDigest "recovery") Map.empty Nothing FenceAcquiring ""
+                  controls = DataFenceControls (\_ -> pure (Right ())) (\_ -> pure (Right ())) (\_ -> pure (Right physical)) (\_ -> pure (Right True)) (\_ -> pure (Right True)) (\_ -> pure (Right ())) (\_ -> pure (Right WritersFullyReleased)) Nothing
+              either (const False) (const True) <$> (withProcessLock store (\locked -> acquireDataFence locked controls request) >>= expectRight)
+        fenced physical >>= assertBool "the recorded target was refused"
+        fenced Map.empty >>= assertBool "an unrecorded target was fenced" . not
+        fenced (Map.singleton target (uid "uid-replacement")) >>= assertBool "a replaced target was fenced" . not
     , testCase "status reports a member whose object is not the accepted incarnation as replaced" $ do
         let inventory = expectOk (composeInventory (expectOk (mkScopeSnapshot fixtureBinding Map.empty Map.empty)) (ReplaceScope (scopeWith "v1") :| []))
             recorded = Map.singleton durableId (uid "uid-accepted")
@@ -76,6 +90,8 @@ inventoryIncarnationTests =
         category (ObservedPresent (uid "uid-accepted")) @?= [Status.Converged]
         category (ObservedPresent (uid "uid-replacement")) @?= [Status.ReplacedIncarnation]
         category (ObservedDrifted (uid "uid-replacement") (contentDigest "changed")) @?= [Status.ReplacedIncarnation]
+        -- N21: a replacement that also needs a reviewed replacement is reported replaced.
+        category (ObservedReplacementRequired (uid "uid-replacement") (contentDigest "changed")) @?= [Status.ReplacedIncarnation]
         map Status.findingCategory (Status.classifyDriftWith Map.empty (candidateInventory inventory) (expectOk (observationSet [(durableId, ObservedPresent (uid "uid-replacement"))])))
           @?= [Status.Converged]
     , testCase "ingestion refuses a receipt whose source is not the accepted incarnation" $ do
@@ -86,7 +102,7 @@ inventoryIncarnationTests =
         assertBool "a replaced StatefulSet must refuse" (attempt (Map.singleton (databaseMember "statefulset") (uid "uid-accepted-sts")))
         assertBool "a replaced PVC must refuse" (attempt (Map.singleton (databaseMember "pvc") (uid "uid-accepted-pvc")))
         assertBool "the accepted incarnation must not be refused for its identity" (not (attempt (Map.fromList [(databaseMember "statefulset", uid "uid-live-sts"), (databaseMember "pvc", uid "uid-live-pvc")])))
-        assertBool "a store without a recorded incarnation keeps the earlier behaviour" (not (attempt Map.empty))
+        assertBool "an unrecorded source is refused, never read as a match (ADR 27)" (attempt Map.empty)
     ]
 
 -- Planning, review and application of one change against the accepted history.

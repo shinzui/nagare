@@ -42,6 +42,7 @@ import Nagare.Inventory.BackendMap (compileContributedBackendMaps, compileContri
 import Nagare.Inventory.CollectionPolicy (supportsRetainedCollection)
 import Nagare.Inventory.Components.Foundation (compileContributedNamespaces)
 import Nagare.Inventory.HelmReview (helmSpecsFromReview)
+import Nagare.Inventory.Identity (IdentityCheck (..), checkedPhysical)
 import Nagare.Inventory.Journal
 import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
 import Nagare.Inventory.ObservationNative
@@ -653,13 +654,20 @@ classifyDriftWith incarnations inventory observations =
   ]
   where
     observed = observationMap observations
-    replaced resource uid = maybe False (/= uid) (Map.lookup (resource ^. #identity) incarnations)
+    replaced resource uid = case checkedPhysical incarnations (resource ^. #identity) uid of
+      IdentityReplaced _ _ -> True
+      _ -> False
     classify resource fact =
       let (category, health, physical, digest, reason) = case fact of
             Just (ObservedPresent uid)
               | replaced resource uid ->
                   (ReplacedIncarnation, HealthUnknown, Just uid, Nothing, Just "observed object is not the accepted incarnation")
             Just (ObservedDrifted uid changed)
+              | replaced resource uid ->
+                  (ReplacedIncarnation, HealthUnknown, Just uid, Just changed, Just "observed object is not the accepted incarnation")
+            -- N21: a replacement that also needs a reviewed replacement is
+            -- first of all not the accepted incarnation.
+            Just (ObservedReplacementRequired uid changed)
               | replaced resource uid ->
                   (ReplacedIncarnation, HealthUnknown, Just uid, Just changed, Just "observed object is not the accepted incarnation")
             Just (ObservedPresent uid) -> (Converged, HealthUnknown, Just uid, Nothing, Nothing)

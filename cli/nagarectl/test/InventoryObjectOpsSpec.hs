@@ -482,10 +482,7 @@ inventoryObjectOpsTests =
             firstStore
             (\_ _ -> modifyIORef' effects (+ 1) >> pure AdapterEffectCompleted)
             (\_ _ -> pure RecoverySafeToRetry)
-        current <-
-          readHead firstStore
-            >>= either (assertFailure . show) pure
-            >>= maybe (assertFailure "head missing" >> error "unreachable") pure
+        current <- readHead firstStore >>= either (assertFailure . show) pure >>= maybe (assertFailure "head missing" >> error "unreachable") pure
         let known = either (error . T.unpack) id
             owner = known (mkScopeId Standalone "fence-object")
             target = mintResourceId owner (known (mkLogicalKey "target")) (known (mkName "pvc"))
@@ -521,6 +518,8 @@ inventoryObjectOpsTests =
                 , observeWritersReleased = \_ -> pure (Right WritersFullyReleased)
                 , forwardRecoverPartlyReleased = Nothing
                 }
+        -- ADR 27: the fenced members are recorded incarnations.
+        _ <- replaceHeadIfGenerationMatches firstStore (Just (headGeneration current)) current {headGeneration = headGeneration current + 1, headIncarnations = physical} >>= either (assertFailure . show) pure
         acquired <- withProcessLock firstStore (\lock -> acquireDataFence lock controls request)
         case acquired of
           Right (Right _) -> pure ()

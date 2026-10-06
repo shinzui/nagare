@@ -20,6 +20,7 @@ module Nagare.Inventory.DataFence
   )
 where
 
+import Control.Monad (forM_)
 import Data.Aeson (toJSON)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -29,8 +30,9 @@ import Data.Text qualified as T
 import Data.Time (defaultTimeLocale, formatTime, getCurrentTime)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Digest (contentDigest)
+import Nagare.Inventory.Identity (IdentityCheck (..), checkedPhysical, requireAccepted)
 import Nagare.Inventory.Store
-import Nagare.Resource.Types (ContentDigest, PhysicalIdentity, ResourceId)
+import Nagare.Resource.Types (ContentDigest, PhysicalIdentity, ResourceId, resourceIdText)
 import Nagare.Resource.Wire (canonicalValue)
 
 -- | A provider may resume writer release only when its observed state proves
@@ -85,6 +87,7 @@ acquireDataFence locked controls requested = do
     Right headValue
       | not (validRequest (lockedStore locked) headValue requested) ->
           pure (Left "data fence request differs from the accepted context, lacks exact identities or saved writers, or another operation is active")
+      | Left reason <- fenceIdentities headValue requested -> pure (Left reason)
       | otherwise -> do
           validated <- validateFenceInputs controls requested
           case validated of
@@ -467,6 +470,21 @@ validRequest store headValue requested =
     && Set.union (fenceTargets requested) (fenceAffected requested)
       `Set.isSubsetOf` Map.keysSet (fencePhysical requested)
     && Map.keysSet (fenceSavedWriters requested) == fenceAffected requested
+
+-- | ADR 27 (N7): a fence binds accepted incarnations, so every fenced path
+-- (live restore, maintenance) inherits the check. A target holds the data
+-- and must be the recorded incarnation; a captured writer must not have
+-- replaced a recorded one.
+fenceIdentities :: HeadManifest -> DataFenceRecord -> Either Text ()
+fenceIdentities headValue requested = do
+  forM_ (Set.toList (fenceTargets requested)) $ \resource ->
+    requireAccepted ("the fence target " <> resourceIdText resource) (identity resource)
+  forM_ (Set.toList (fenceAffected requested `Set.difference` fenceTargets requested)) $ \resource ->
+    case identity resource of
+      IdentityReplaced _ _ -> () <$ requireAccepted ("the fenced writer " <> resourceIdText resource) (identity resource)
+      _ -> Right ()
+  where
+    identity resource = maybe IdentityAbsent (checkedPhysical (headIncarnations headValue) resource) (Map.lookup resource (fencePhysical requested))
 
 tokenText :: FenceToken -> Text
 tokenText (FenceToken session) = session
