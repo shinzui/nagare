@@ -37,6 +37,7 @@ import InventoryJournalHeadAdvanceSpec (inventoryJournalHeadAdvanceTests)
 import InventoryKindTotalitySpec (inventoryKindTotalityTests)
 import InventoryKubernetesConfigurationSpec (kubernetesConfigurationTests)
 import InventoryKubernetesFieldTakeoverSpec (kubernetesFieldTakeoverTests)
+import InventoryKubernetesReadinessSpec (inventoryKubernetesReadinessTests)
 import InventoryKubernetesSpec (inventoryKubernetesTests)
 import InventoryLandedUpdateStopSpec (inventoryLandedUpdateStopTests)
 import InventoryLifecycleSpec (inventoryLifecycleTests)
@@ -205,6 +206,7 @@ main = do
             , inventoryRecoveryModelTests
             , inventoryRenameRecoveryModelTests
             , inventorySettleTests
+            , inventoryKubernetesReadinessTests
             , inventoryCloseTests
             , inventoryTransferScriptTests
             , inventoryRefusedPreflightRecoveryTests

@@ -1,0 +1,12 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs b/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs
+--- a/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs
+@@ -529,7 +529,7 @@
+     -- correcting a Deployment, whose rollout replaces stuck pods (RES-4 §2).
+     (UpdateResource, KubernetesNotReady _ revision (Just owner) _)
+       | owner == resource && not (T.null revision)
+-      , statefulSetAddress target || deploymentAddress target ->
++      , statefulSetAddress target ->
+           Right ()
+     (VerifyResource, KubernetesPresent _ revision (Just owner) digest)
+       | owner == resource && not (T.null revision) && digest == desiredDigest -> Right ()

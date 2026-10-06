@@ -101,12 +101,11 @@ inventoryRecoveryModelTests =
         pinned create [(Boundary ObserveCall 5, ForeignObject), (Boundary StorePutCall 9, ClaimLost)] [[TakeOver, Close]]
         -- F68: the updated Service deleted, and an unstamped object at its address.
         pinned (Scenario "create then good update" [Deploy "v1", Deploy "v2"] [] True plainShape False) [(Boundary ObserveCall 17, Deleted), (Boundary ObserveCall 18, ForeignObject)] [[Resume, Close]]
-    , testCase "an unexcused planning refusal of a reviewed step is I1: no supported exit (EP-177; F63's open Deployment half)" $ do
-        let deployment = [scenario | scenario <- generatedScenarios, label scenario == "kind (\"apps\",\"deployment\"): update"]
-        forM_ deployment $ \scenario ->
-          runScenario scenario [(Boundary MutateCall 3, LandsUnready)]
-            >>= either (assertBool "not named I1" . T.isInfixOf "violation: I1: planning refused (") (const (assertFailure "F63: the Deployment's corrective update now plans; update this test"))
-        length deployment @?= 1
+    , testCase "a corrective update of an unready Deployment plans and closes (EP-180, F63's worker half)" $ do
+        -- The Deployment's create lands unready; a Deployment rollout replaces
+        -- stuck pods, so the corrected review is planned and applied (RES-4 §2).
+        deployment <- scenarioNamed "kind (\"apps\",\"deployment\"): update"
+        pinned deployment [(Boundary MutateCall 3, LandsUnready)] [[Close]]
     , testCase "a move that a new fault stopped without progress is re-run; one that no fault stopped is not (EP-177)" $ do
         service <- scenarioNamed "kind (\"serving.knative.dev\",\"service\"): create"
         -- Resume stops again when its store write is refused; re-run, it completes.

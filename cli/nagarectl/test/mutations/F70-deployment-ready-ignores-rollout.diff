@@ -1,0 +1,12 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesReadiness.hs b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesReadiness.hs
+--- a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesReadiness.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesReadiness.hs
+@@ -82,7 +82,7 @@
+   let requested = fromMaybe 1 (number (KM.lookup "spec" root >>= \case Object spec -> KM.lookup "replicas" spec; _ -> Nothing))
+       count key = fromMaybe 0 (number (KM.lookup key status))
+       updated = count "updatedReplicas"
+-  pure (observed == generation && updated == requested && count "replicas" == updated && count "availableReplicas" == updated)
++  pure (observed == generation)
+   where
+     number = \case
+       Just (Number n) -> Just n

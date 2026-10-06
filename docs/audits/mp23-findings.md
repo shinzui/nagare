@@ -85,6 +85,7 @@ This is the authoritative list of implementation findings for [MP-23](../masterp
 | [F64](#f64) | P1 | An intended update whose target is deleted outside review, and not recreated, has no exit | Verifying | EP-153 / EP-173 |
 | [F65](#f65) | P1 | The create-path stop refuses a review that recreates a deleted Service alongside its release-history update | Verifying | EP-153 / EP-173 |
 | [F66](#f66) | P1 | A create that finds an object not stamped as its own at its address settles unknown, so only an attested close can end it | Verifying | EP-153 / EP-177 |
+| [F70](#f70) | P1 | A worker Deployment whose update never becomes available reads as ready, so a broken rollout is recorded as complete | Verifying | EP-153 / EP-180 |
 | [F68](#f68) | P1 | An update whose target is deleted and replaced by an object not stamped as its own settles unknown, so only an attested close can end it | Verifying | EP-153 / EP-177 |
 
 Closed findings keep their full text, location, implementation updates and verification in [the closed-findings archive](mp23-archive/mp23-findings-closed.md). F01 and F11 retain their [earlier independent closure](mp23-archive/mp23-verification.md). F02, F03, F04, F05, F06, F07, F08 and F20 now have [2026-10-02 independent closure](mp23-independent-verification-2026-10-02.md). F34, F35, F36, F37, F38, F41 and F42 have 2026-10-04 independent closure on candidate `7596632c`, and F49 and F50 on candidate `847543896d07` ([records](mp23-independent-results-2026-10-04/phase1-source-and-regressions-7596632c.md)). Other entries retain their status shown above.
@@ -774,6 +775,13 @@ describes this mark-bound redo.
   - prepare lets a corrective review update an owned, unready StatefulSet.
 - **Mutations.** `test/mutations/F63-*.diff`, four records.
 - **Worker Deployments are not fixed.** The fix was written and is held, uncommitted, in [`mp23-held-work/`](mp23-held-work/README.md). The fault-free worker scenario fails I1 on HEAD (observed). With the held patch the fault sweep still shows nine worker wedges.
+- **Worker Deployments, fixed (2026-10-06, EP-180 M1; observed).** The held patch predates ADR 26 and was not used.
+  - What failed: the generated scenario `kind ("apps","deployment"): update` under `(MutateCall 3, LandsUnready)`. The Deployment's create landed unready and was closed. The corrected review was then refused at planning ("required condition is not ready"), reported as "I1: planning refused".
+  - The fix: `validateBefore` (`Adapters/Kubernetes.hs`) admits an update of an owned, unready Deployment, as it does for a StatefulSet. A Deployment rollout replaces stuck pods (RES-4 §2), so a correction takes effect.
+  - The pinned test "a corrective update of an unready Deployment plans and closes" now exits `[[Close]]`.
+  - Mutation: `test/mutations/F63-deployment-correction-refused.diff`.
+  - A landed-unready proof for Deployments in `recover` was not added. Close already classes the exactly landed, unready update as `Landed` through settlement.
+  - The StatefulSet half needs RES-4's G3 (EP-181): a StatefulSet correction does not replace a stuck pod.
 - **World fidelity, for review (inferred):** the world now restricts persistent status churn to Knative Services. A settled StatefulSet's status changes only when its pods change. Without this restriction, the StatefulSet update gave 75 I7 violations (each needing `abandon-refused-operation`).
 
 ## F64
@@ -855,3 +863,19 @@ The class is not `NoEffect`. The absent before-state has changed, and in the `De
 - The schedule above, in the recovery model's "create-scenario fault pairs that had no exit now have one (EP-177, F66)".
 
 **Mutation.** `test/mutations/F68-update-over-foreign-object-settles-unknown.diff`. F66's record is regenerated for the shared predicate.
+
+## F70
+
+**A worker Deployment whose update never becomes available reads as ready, so a broken rollout is recorded as complete** — P1; **Verifying**; owners EP-153 / EP-180.
+
+**Found by the RES-4 validation of Kubernetes semantics (2026-10-06, nagare-first-principle, experiment E5 on k3s 1.34; observed).** During a bad-image or crash-looping update of a one-replica Deployment, the old ReplicaSet keeps `Available=True`, because maxUnavailable rounds to 0. The controller has also observed the new generation. That stays true after `Progressing=False/ProgressDeadlineExceeded`.
+
+`deploymentAvailable` (`Adapters/KubernetesReadiness.hs`, previously `Adapters/KubernetesRuntime.hs`) treated `Available=True ∧ observedGeneration == generation` as ready. So such a Deployment observed as `KubernetesPresent`. `recover` then returned `RecoveryProvedComplete` for the broken update, and plans saw the member converged. This is a wrong success: a broken state recorded as converged.
+
+**Fix.** Readiness is the rule `kubectl rollout status` applies (RES-4 §2, U9): `observedGeneration == generation ∧ updatedReplicas == spec.replicas ∧ status.replicas == updatedReplicas ∧ availableReplicas == updatedReplicas`, with `spec.replicas` defaulting to 1. `ProgressDeadlineExceeded` is not terminal, so the Deployment stays not ready, and the update is landed.
+
+**Tests.** "a Deployment is ready only when its rollout is complete, as kubectl rollout status judges it (F70)", in the new `InventoryKubernetesReadinessSpec`. It covers mid-rollout, past the progress deadline, rolled out, one generation behind, and an unavailable updated replica. The earlier assertions in `InventoryKubernetesSpec` that read `Available=True` as ready moved there and were corrected.
+
+**Model.** The recovery model's world decides readiness from its own state, not through this predicate, so it cannot see F70. EP-182 routes the world's readiness through the production parser.
+
+**Mutation.** `test/mutations/F70-deployment-ready-ignores-rollout.diff` reduces the rule to the observed generation, and the test fails.

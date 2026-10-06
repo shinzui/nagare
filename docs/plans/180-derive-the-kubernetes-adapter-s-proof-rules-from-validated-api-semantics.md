@@ -47,8 +47,13 @@ MasterPlan, not by this plan.
 
 ## Progress
 
-- [ ] M1 (G1, F70, F63's worker half): Deployment readiness is the `kubectl rollout status` rule, and an unready
-  Deployment can be corrected by a reviewed update.
+- [x] M1 (G1, F70, F63's worker half), 2026-10-06: Deployment readiness is the `kubectl rollout status` rule, and an
+  unready Deployment can be corrected by a reviewed update.
+  - Evidence: both tests failed first (a mid-rollout Deployment read ready; the correction was refused at planning) and
+    now pass, the correction exiting `[[Close]]`.
+  - Records `F70-deployment-ready-ignores-rollout` and `F63-deployment-correction-refused` each fail their test.
+  - The readiness predicates moved to `Adapters/KubernetesReadiness.hs`, and the runtime's allowance dropped from 1403
+    to 1311.
 - [ ] M2 (G2, F69): Knative Service and DomainMapping readiness require `observedGeneration == generation`.
 - [ ] M3 (F67): the spec-digest stamp proof replaces the dropped configuration-digest version 4.
 - [ ] M4 (G4): definitive 4xx refusals map to no effect.
@@ -60,7 +65,9 @@ MasterPlan, not by this plan.
 
 ## Surprises & Discoveries
 
-(None yet.)
+- M1 needed no Deployment branch in `confirmLandedUnready`. `recover`'s landed-update path does not cover
+  Deployments, so the branch would be dead code, and settlement already classes an exactly landed, unready update as
+  landed through its generic arm. The Plan of Work's mention of it is superseded.
 
 
 ## Decision Log

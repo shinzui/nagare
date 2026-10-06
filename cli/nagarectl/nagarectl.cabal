@@ -525,6 +525,7 @@ test-suite nagarectl-test
     InventoryKubernetesConfigurationSpec
     InventoryKubernetesFieldTakeoverSpec
     InventoryKubernetesLifecycleSpec
+    InventoryKubernetesReadinessSpec
     InventoryKubernetesSpec
     InventoryLandedUpdateStopSpec
     InventoryLifecycleSpec

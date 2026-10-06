@@ -525,10 +525,11 @@ validateBefore operation resource target desiredDigest state =
       , nameText kind == "service" ->
           Right ()
     -- F63: correcting a StatefulSet that never became Ready (a bad resource
-    -- change, an unschedulable pod) is an update of the unready object.
+    -- change, an unschedulable pod) is an update of the unready object. So is
+    -- correcting a Deployment, whose rollout replaces stuck pods (RES-4 §2).
     (UpdateResource, KubernetesNotReady _ revision (Just owner) _)
       | owner == resource && not (T.null revision)
-      , statefulSetAddress target ->
+      , statefulSetAddress target || deploymentAddress target ->
           Right ()
     (VerifyResource, KubernetesPresent _ revision (Just owner) digest)
       | owner == resource && not (T.null revision) && digest == desiredDigest -> Right ()

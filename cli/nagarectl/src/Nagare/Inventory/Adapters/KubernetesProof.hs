@@ -12,6 +12,7 @@ module Nagare.Inventory.Adapters.KubernetesProof
   , statePhysical
   , knativeServiceAddress
   , statefulSetAddress
+  , deploymentAddress
   , orTakeover
   )
 where
@@ -168,6 +169,10 @@ knativeServiceAddress _ = False
 statefulSetAddress :: ProviderAddress -> Bool
 statefulSetAddress (Kubernetes _ "apps" kind (Just _) _) = nameText kind == "statefulset"
 statefulSetAddress _ = False
+
+deploymentAddress :: ProviderAddress -> Bool
+deploymentAddress (Kubernetes _ "apps" kind (Just _) _) = nameText kind == "deployment"
+deploymentAddress _ = False
 
 completionProof :: KubernetesMutation -> KubernetesState -> Either Text ContentDigest
 completionProof mutation state

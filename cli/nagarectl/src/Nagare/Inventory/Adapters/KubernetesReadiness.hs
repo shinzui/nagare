@@ -67,15 +67,26 @@ hasCondition conditionType (Object root) = case KM.lookup "status" root of
     completed _ = False
 hasCondition _ _ = False
 
+-- | F70, RES-4 §2 (E5) and U9: a Deployment is ready when its rollout is
+-- complete, as `kubectl rollout status` judges it. The controller has observed
+-- this generation, every requested replica is updated, no old replica remains,
+-- and every updated replica is available. Available=True is not readiness:
+-- during a bad-image update of one replica the old ReplicaSet keeps it, and
+-- ProgressDeadlineExceeded is not terminal.
 deploymentAvailable :: Value -> Bool
-deploymentAvailable value@(Object root) =
-  hasCondition "Available" value
-    && case (KM.lookup "status" root, KM.lookup "metadata" root) of
-      (Just (Object status), Just (Object metadata)) ->
-        case (KM.lookup "observedGeneration" status, KM.lookup "generation" metadata) of
-          (Just observed, Just desired) -> observed == desired
-          _ -> False
-      _ -> False
+deploymentAvailable (Object root) = fromMaybe False $ do
+  Object metadata <- KM.lookup "metadata" root
+  Object status <- KM.lookup "status" root
+  generation <- number (KM.lookup "generation" metadata)
+  observed <- number (KM.lookup "observedGeneration" status)
+  let requested = fromMaybe 1 (number (KM.lookup "spec" root >>= \case Object spec -> KM.lookup "replicas" spec; _ -> Nothing))
+      count key = fromMaybe 0 (number (KM.lookup key status))
+      updated = count "updatedReplicas"
+  pure (observed == generation && updated == requested && count "replicas" == updated && count "availableReplicas" == updated)
+  where
+    number = \case
+      Just (Number n) -> Just n
+      _ -> Nothing
 deploymentAvailable _ = False
 
 -- StatefulSets do not expose the Deployment Available condition. A matching

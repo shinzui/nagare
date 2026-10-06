@@ -33,7 +33,7 @@ import Nagare.Dsl.Task.Render (renderTask)
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes
-import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), backupReceiptFromPodList, cacheClientDataMatches, certificateReady, collectionDeleteRequest, completedJobContainerMessageFromPodList, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, crdEstablished, credentialDataMatches, deploymentAvailable, deploymentSelectorReplacement, desiredFieldsMatch, generatedCredentialTemplate, jobCompleted, knativeReady, materializeCacheKey, materializeCredential, mkKubernetesRuntimeOps, observeCacheClientOutput, observeKubernetesBatchWithGuard, parseObserved, readinessForAddress, statefulSetImmutableReplacement, statefulSetReady, supportedUpdateAddress, withoutCacheClientData)
+import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), backupReceiptFromPodList, cacheClientDataMatches, certificateReady, collectionDeleteRequest, completedJobContainerMessageFromPodList, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, crdEstablished, credentialDataMatches, deploymentSelectorReplacement, desiredFieldsMatch, generatedCredentialTemplate, jobCompleted, knativeReady, materializeCacheKey, materializeCredential, mkKubernetesRuntimeOps, observeCacheClientOutput, observeKubernetesBatchWithGuard, parseObserved, readinessForAddress, statefulSetImmutableReplacement, statefulSetReady, supportedUpdateAddress, withoutCacheClientData)
 import Nagare.Inventory.Backup (BackupReceiptExpectation (..), BackupSourceProof (..), ManualBackupRequest (..), VolumeSnapshotRequest (..), compileManualBackupScope, compileVolumeSnapshotScope, manualBackupJobReceiptExpectation, manualBackupJobSourcePins, manualBackupSourceIds, manualBackupSourceProof, parseBackupReceipt, parseManualBackupReceipt, volumeSnapshotJobSourcePins)
 import Nagare.Inventory.BackupFreshness (RecoveryPointObjective (..))
 import Nagare.Inventory.CollectionPolicy (requiresControllerCollection, supportsRetainedCollection)
@@ -3680,18 +3680,9 @@ inventoryKubernetesTests =
         assertBool "running Job proved complete" (not (jobCompleted (job [condition "Complete" "False"])))
         assertBool "failed Job proved complete" (not (jobCompleted (job [condition "Failed" "True"])))
         assertBool "completed Job was not recognized" (jobCompleted (job [condition "Complete" "True"]))
-    , testCase "CRD and Deployment verification requires current controller readiness" $ do
+    , testCase "CRD, certificate and Knative verification requires current controller readiness" $ do
         let condition kind state = object ["type" .= (kind :: Text), "status" .= (state :: Text)]
             crd state = object ["status" .= object ["conditions" .= [condition "Established" state]]]
-            deployment observedGeneration =
-              object
-                [ "metadata" .= object ["generation" .= (3 :: Int)]
-                , "status"
-                    .= object
-                      [ "observedGeneration" .= (observedGeneration :: Int)
-                      , "conditions" .= [condition "Available" "True"]
-                      ]
-                ]
         assertBool "unestablished CRD was accepted" (not (crdEstablished (crd "False")))
         assertBool "established CRD was rejected" (crdEstablished (crd "True"))
         assertBool
@@ -3713,8 +3704,6 @@ inventoryKubernetesTests =
                   (object ["status" .= object ["conditions" .= [condition "Ready" "False"]]])
               )
           )
-        assertBool "stale Deployment availability was accepted" (not (deploymentAvailable (deployment 2)))
-        assertBool "current Deployment availability was rejected" (deploymentAvailable (deployment 3))
     , testCase "health probe selects only Kubernetes kinds with explicit readiness contracts" $ do
         let address group kind =
               Kubernetes
