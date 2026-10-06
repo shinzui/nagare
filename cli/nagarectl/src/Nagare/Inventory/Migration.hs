@@ -30,6 +30,7 @@ import Data.Maybe (isNothing, mapMaybe)
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
+import Nagare.Inventory.Identity (IdentityCheck (..), checkedPhysical, requireAccepted)
 import Nagare.Inventory.Migration.Types
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Store (HeadManifest (..), ScopeRevision)
@@ -143,6 +144,19 @@ validateMigrationInput candidate history observations input = do
         <> [ issue "duplicate-migration" "resource appears more than once in the migration proposal" resource
            | resource <- duplicateIds (map migrationResource (migrationTargets input))
            ]
+        -- ADR 27 (F62): a migration copies from, and retains, its source.
+        -- A durable source must be the recorded incarnation; no source may
+        -- be a replacement of a recorded one.
+        <> [ issue "migration-source-incarnation" reason (migrationResource target)
+           | target <- migrationTargets input
+           , Just (_, source) <- [Map.lookup (migrationResource target) accepted]
+           , let check = checkedPhysical (headIncarnations (historyHead history)) (migrationResource target) (migrationSourcePhysical target)
+           , Left reason <- [sourceIdentity source check]
+           ]
+    sourceIdentity source check = case (source ^. #dataPolicy, check) of
+      (Durable _, _) -> () <$ requireAccepted "the migration source" check
+      (_, IdentityReplaced _ _) -> () <$ requireAccepted "the migration source" check
+      _ -> Right ()
     duplicateIds values =
       Map.keys
         ( Map.filter

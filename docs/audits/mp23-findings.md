@@ -738,6 +738,16 @@ describes this mark-bound redo.
 - refusing a migration whose source is not the recorded incarnation;
 - a mutation record.
 
+**Implementation update (2026-10-05, EP-176 M2; claude-opus-5-5):**
+- **Source.** The migration validator (`Migration.hs`, `validateMigrationInput`) now reads each source through the checked accessor. A durable source must be its recorded incarnation, and no source may be a replacement of a recorded one. Otherwise planning refuses with `migration-source-incarnation`.
+- **Writer (A52).** The writer StatefulSet that prepare reads and fences is checked against its record too. This closes the window between the planner's observation and prepare's re-read.
+- **Regressions.**
+  - "a rename refuses a source replaced outside Nagare, at planning (F62)";
+  - "a rename refuses a writer replaced between planning's reads (ADR 27, A52)";
+  - mutation records `ADR27-F62-migration-source-unchecked` and `ADR27-A52-writer-unchecked`, each failing its test.
+- **Fixtures.** The rename fixtures now record the old members' incarnations by default, as a converged create does.
+- **Not done.** The rename recovery model has no `Replaced` fault on the source yet, so the refusal is pinned by the focused test only. Status is the verifier's to set.
+
 ## F63
 
 **A Deployment or database StatefulSet update that lands but never becomes Ready has no exit** — P1; **Open**; owner EP-153 / EP-173.

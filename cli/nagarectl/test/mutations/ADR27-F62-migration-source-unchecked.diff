@@ -1,0 +1,12 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Migration.hs b/cli/nagarectl/src/Nagare/Inventory/Migration.hs
+index 3c82ab52..59b3fde4 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/Migration.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Migration.hs
+@@ -152,6 +152,7 @@ validateMigrationInput candidate history observations input = do
+            , Just (_, source) <- [Map.lookup (migrationResource target) accepted]
+            , let check = checkedPhysical (headIncarnations (historyHead history)) (migrationResource target) (migrationSourcePhysical target)
+            , Left reason <- [sourceIdentity source check]
++           , False
+            ]
+     sourceIdentity source check = case (source ^. #dataPolicy, check) of
+       (Durable _, _) -> () <$ requireAccepted "the migration source" check

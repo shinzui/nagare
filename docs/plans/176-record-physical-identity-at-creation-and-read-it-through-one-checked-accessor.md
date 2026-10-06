@@ -93,7 +93,8 @@ step 2 of MasterPlan 23's release line (b).
     - the four existing readers. Status also catches N21's replaced object that requires replacement. Retention proofs read through it. Receipt listing and ingestion now refuse an unrecorded source, not only a replaced one.
     - data-fence acquisition (N7). Targets must be the recorded incarnation, and captured writers must not replace a recorded one. This covers live restore and maintenance.
     - mutation records for each, plus regenerated F49 and F51 records.
-  - Remaining: the rename source and writer (F62/A52), backups (N3, N4), restore targets (N6, N12), the signing Secret (N5), collection DELETE (N8), adopt and update verification (N9), maintenance UIDs (N13) and the prune check (N22).
+    - the rename source (F62) and writer (A52), with focused tests and mutation records.
+  - Remaining: backups (N3, N4), restore targets (N6, N12), the signing Secret (N5), collection DELETE (N8), adopt and update verification (N9), maintenance UIDs (N13) and the prune check (N22).
 - Original M2 text: one checked accessor, used by every consumer C lists for in-line kinds. Each consumer's
   mismatch case has a test that fails without the accessor; F62's rename-source replacement is
   refused in the rename model.

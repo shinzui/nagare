@@ -32,6 +32,7 @@ import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes (KubernetesMutation (..))
 import Nagare.Inventory.Adapters.KubernetesRuntime (completedJobContainerMessageFromPodList, identified)
 import Nagare.Inventory.Digest (contentDigest)
+import Nagare.Inventory.Identity (IdentityCheck (..), checkedPhysical, requireAccepted)
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect), OperationId, operationIdText)
 import Nagare.Inventory.KubernetesTransport (KubernetesRuntimeConfig (..), invokeKubectl)
 import Nagare.Inventory.Migration (MigrationInput (..), MigrationTarget (..))
@@ -51,6 +52,8 @@ import System.Exit (ExitCode (..))
 data MigrationPlanning = MigrationPlanning
   { sources :: !(Map ResourceId (ScopeRevision, ManagedResource, ByteString))
   , destinations :: !(Map ResourceId (ManagedResource, ByteString))
+  , incarnations :: !(Map ResourceId PhysicalIdentity)
+  -- ^ ADR 27: the recorded incarnations the planner checks the writer against.
   }
   deriving stock (Generic)
 
@@ -140,6 +143,11 @@ kubernetesMigrationAdapter config planning base =
                 pure $ do
                   (physical, _) <- observedSource
                   (writerUid, _) <- observedWriter
+                  -- ADR 27 (A52): the writer the rename fences is the accepted
+                  -- StatefulSet, never a replacement of it.
+                  case checkedPhysical (context ^. #incarnations) (facts ^. #writer) writerUid of
+                    replaced@(IdentityReplaced _ _) -> () <$ requireAccepted "the rename writer" replaced
+                    _ -> Right ()
                   destinationState <- observedDestination
                   unless (isNothing destinationState) (Left "rename destination address is already occupied")
                   let absence = contentDigest (TE.encodeUtf8 (resourceIdText resourceId <> ":absent"))

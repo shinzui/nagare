@@ -27,6 +27,7 @@ import Nagare.Inventory.Database (DatabaseBackupTarget (DatabaseBackupTarget))
 import Nagare.Inventory.KubernetesTransport (KubernetesRuntimeConfig (..))
 import Nagare.Inventory.MigrationPlanning qualified as Inventory
 import Nagare.Inventory.Plan qualified as InventoryPlan
+import Nagare.Inventory.Store qualified as InventoryStore
 import Nagare.Resource.Database (DatabaseDirectInput (..))
 import Nagare.Resource.Inventory qualified as ResourceInventory
 import Nagare.Resource.Policy (RecoveryIntent (..), mkSecretRef)
@@ -114,12 +115,12 @@ runDbRenamePlan mctx eng oldName newName scopeKey params backupName keyVersion o
           pure
           ( InventoryAdapter.wrapRegisteredAdapter
               ResourceInventory.KubernetesExecutor
-              (kubernetesMigrationAdapter runtime (Just (MigrationPlanning sources native)))
+              (kubernetesMigrationAdapter runtime (Just (MigrationPlanning sources native (InventoryStore.headIncarnations (InventoryPlan.historyHead history)))))
               registry
           )
   let proposalFor history facts = do
         sources <- sourcesFor candidate history
-        pure (renameProposal candidate (MigrationPlanning sources native) owner facts)
+        pure (renameProposal candidate (MigrationPlanning sources native (InventoryStore.headIncarnations (InventoryPlan.historyHead history))) owner facts)
   Inventory.planInventoryMigrationCandidateWith
     (inventoryMigrationSourceRegistry active workspace)
     destinationRegistry

@@ -17,6 +17,8 @@ module InventoryPostgresRenameSpec
   )
 where
 
+import Control.Exception (SomeException, try)
+import Control.Monad (forM)
 import Data.Aeson (Value (..), eitherDecodeStrict, object, toJSON, (.=))
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KM
@@ -170,6 +172,24 @@ inventoryPostgresRenameTests =
           case observed of
             Right native -> Map.map snd (observationKubernetes native) @?= Map.map snd newNative
             Left reason -> assertFailure ("renamed members lack observation evidence: " <> T.unpack reason)
+    , testCase "a rename refuses a source replaced outside Nagare, at planning (F62)" $
+        withSystemTempDirectory "postgres-rename-replaced" $ \root -> do
+          probe <- newIORef Nothing
+          let replacedSources headValue = headValue {headIncarnations = Map.fromList [(identity, checked (mkPhysicalIdentity ("replaced-" <> uidFor identity))) | identity <- Map.keys oldNative]}
+          planned <- try @SomeException (plannedRenameWith replacedSources probe root)
+          case planned of
+            Left err -> assertBool (show err) ("migration-source-incarnation" `T.isInfixOf` T.pack (show err))
+            Right _ -> assertFailure "a rename planned from a replaced source"
+    , testCase "a rename refuses a writer replaced between planning's reads (ADR 27, A52)" $ do
+        -- The k-th and later reads of the writer StatefulSet return a replacement;
+        -- some k leaves the planner's checks on the accepted object and only
+        -- prepare's writer read on the replacement.
+        outcomes <- forM [1 .. 6 :: Int] $ \k -> withSystemTempDirectory "postgres-rename-writer" $ \root -> do
+          reads <- newIORef (0 :: Int)
+          probe <- newIORef Nothing
+          planned <- try @SomeException (plannedRenameThrough recordOldIncarnations (swapWriterAfter k reads) probe root)
+          pure (either (T.pack . show) (const "planned") planned)
+        assertBool (show outcomes) (any ("the rename writer" `T.isInfixOf`) outcomes)
     , testCase "status never reports a renamed member as replaced, at any step (F52)" $
         withSystemTempDirectory "postgres-rename-status" $ \root -> do
           probe <- newIORef Nothing
@@ -564,7 +584,7 @@ stamped identity native uid =
 plannedRename :: FilePath -> IO (InventoryStore, IORef World, ReviewedPlan, AdapterRegistry)
 plannedRename root = do
   probe <- newIORef Nothing
-  plannedRenameWith id probe root
+  plannedRenameWith recordOldIncarnations probe root
 
 plannedRenameWith :: (HeadManifest -> HeadManifest) -> IORef (Maybe (IO ())) -> FilePath -> IO (InventoryStore, IORef World, ReviewedPlan, AdapterRegistry)
 plannedRenameWith seed = plannedRenameThrough seed id
@@ -600,7 +620,7 @@ plannedRenameThrough seed transport probe root = do
           [ (declaration ^. #identity, declaration)
           | Managed declaration <- checked (composedDeclarations (fmap snd (historyAccepted history)))
           ]
-      planning = MigrationPlanning (Map.mapWithKey (\identity (_, bytes) -> (revision, acceptedDeclarations Map.! identity, bytes)) oldNative) newNative
+      planning = MigrationPlanning (Map.mapWithKey (\identity (_, bytes) -> (revision, acceptedDeclarations Map.! identity, bytes)) oldNative) newNative (headIncarnations (historyHead history))
       runtime = probedThrough world transport probe
       sourceRegistry = checked (mkAdapterRegistry [mkKubernetesAdapter oldNative (mkKubernetesRuntimeOps runtime oldNative)])
       destinationRegistry = checked (mkAdapterRegistry [kubernetesMigrationAdapter runtime (Just planning) (mkKubernetesAdapter newNative (mkKubernetesRuntimeOps runtime newNative))])
@@ -684,6 +704,19 @@ jsonText :: [Text] -> Value -> Maybe Text
 jsonText path value = case jsonPath path value of
   Just (String text) -> Just text
   _ -> Nothing
+
+-- | A transport whose k-th and later reads of the old writer StatefulSet
+-- return an object with another UID, as after an out-of-band replacement.
+swapWriterAfter :: Int -> IORef Int -> Transport
+swapWriterAfter k reads next request = do
+  result <- next request
+  case request ^. #arguments of
+    ("get" : "statefulset.apps" : "pg-old" : _) -> do
+      n <- atomicModifyIORef' reads (\count -> (count + 1, count + 1))
+      pure (if n < k then result else fmap (\(code, out, err) -> (code, swapped out, err)) result)
+    _ -> pure result
+  where
+    swapped out = either (const out) (encodeText . setPath ["metadata", "uid"] (String "replacement-uid")) (eitherDecodeStrict (TE.encodeUtf8 (T.pack out)))
 
 setPath :: [Text] -> Value -> Value -> Value
 setPath [] replacement _ = replacement
