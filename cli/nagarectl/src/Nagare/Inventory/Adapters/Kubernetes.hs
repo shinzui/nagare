@@ -877,6 +877,13 @@ completionProof mutation state
       KubernetesNotReady {} -> Left "Kubernetes object remains present but is not ready"
       KubernetesFailed {} -> Left "Kubernetes Job has a terminal failure"
       _ -> Left "collected Kubernetes object remains present or was replaced"
+  -- ADR 27 (N9): an update or adoption writes the reviewed object in place,
+  -- so only that object proves it; a same-stamp replacement does not.
+  | mutationAction mutation `elem` [UpdateResource, AdoptResource]
+  , Just reviewed <- statePhysical (mutationBefore mutation)
+  , Just live <- statePhysical state
+  , live /= reviewed =
+      Left "Kubernetes object was replaced; it is not the reviewed object the operation wrote"
   | otherwise = case state of
       KubernetesPresent physical _ (Just owner) digest
         | owner == mutationResource mutation && digest == mutationNativeDigest mutation ->
@@ -885,6 +892,15 @@ completionProof mutation state
       KubernetesNotReady {} -> Left "Kubernetes object remains present but is not ready"
       KubernetesFailed {} -> Left "Kubernetes Job has a terminal failure"
       _ -> Left "Kubernetes object is absent, foreign, or differs from the reviewed native object"
+
+-- | The identity of an observed object, when one is present.
+statePhysical :: KubernetesState -> Maybe PhysicalIdentity
+statePhysical = \case
+  KubernetesPresent physical _ _ _ -> Just physical
+  KubernetesNotReady physical _ _ _ -> Just physical
+  KubernetesFailed physical _ _ _ -> Just physical
+  KubernetesReplacementRequired physical _ _ _ -> Just physical
+  _ -> Nothing
 
 summary :: KubernetesMutation -> Text
 summary mutation =

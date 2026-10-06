@@ -87,7 +87,7 @@ step 2 of MasterPlan 23's release line (b).
     does, and the effectful model accepts the flag.
   - **Mutation records.** `ADR27-F60-binds-from-observation`, `ADR27-driver-drops-returned-identity`
     and `ADR27-runtime-ignores-returned-uid`.
-- [ ] M2 (in progress): one checked accessor, used by every consumer C lists for in-line kinds.
+- [x] M2 (2026-10-05): one checked accessor, used by every consumer C lists for in-line kinds.
   - Done (2026-10-05):
     - `Nagare.Inventory.Identity` (`checkedPhysical`, `requireAccepted`);
     - the four existing readers. Status also catches N21's replaced object that requires replacement. Retention proofs read through it. Receipt listing and ingestion now refuse an unrecorded source, not only a replaced one.
@@ -98,7 +98,10 @@ step 2 of MasterPlan 23's release line (b).
     - restore targets, scratch and live (N6), through `restoreTargetPins`; a manual backup restores only against the incarnation it was taken from (N12).
     - the signing Secret (N5), in ingestion and receipt listing; live restore reads the ingested scope's checked signing UID.
     - collection (N8): admission reverifies each collection proof's retained incarnation, as it does retentions, before any DELETE. The native collection budget gains that one GET.
-  - Remaining: adopt and update verification (N9), maintenance UIDs (N13) and the prune check (N22).
+    - adopt and update verification and recovery (N9): `completionProof` accepts only the object the operation wrote. A survived mutant showed that no existing test covered this; a focused test now does.
+    - maintenance UIDs (N13): covered by N7. `MaintenanceFence` requires the request's StatefulSet and PVC UIDs to equal the fence's, and the fence's targets must be their recorded incarnations.
+    - the prune in-flight check (N22): a scheduled prune refuses when the live producer CronJob replaced the recorded one, since its Jobs would be invisible. This is app code (`PruneEvidence.hs`) that no test harness reaches, so it has no mutation record; ADR 25's rule is not met for this guard.
+  - Not done: the rename recovery model has no `Replaced` fault on the source yet; F62 is pinned by focused tests.
 - Original M2 text: one checked accessor, used by every consumer C lists for in-line kinds. Each consumer's
   mismatch case has a test that fails without the accessor; F62's rename-source replacement is
   refused in the rename model.

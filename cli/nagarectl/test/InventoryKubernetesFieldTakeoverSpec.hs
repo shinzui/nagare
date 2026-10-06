@@ -9,7 +9,7 @@ import Data.Aeson
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy qualified as BL
-import Data.Either (isLeft)
+import Data.Either (isLeft, isRight)
 import Data.Foldable (traverse_)
 import Data.Generics.Labels ()
 import Data.IORef
@@ -93,6 +93,17 @@ kubernetesFieldTakeoverTests =
         calls <- newIORef (0 :: Int)
         let adapter = takeoverAdapter state calls (\_ -> pure (Right (live "kubernetes-uid-1" "5" [own, patch "t1"])))
         adapterPrepare adapter K.updateOperation >>= assertBool "moved object prepared" . isLeft
+    , testCase "an update is proved only on the object it wrote, not a same-stamp replacement (ADR 27, N9)" $ do
+        state <- newIORef drifted
+        calls <- newIORef (0 :: Int)
+        let runtime = K.ops state calls
+            adapter = mkKubernetesAdapterWithConfigurationObservation bound runtime (traverse (kubernetesObserve runtime)) (kubernetesObserve runtime) noReceipt noScratch (\_ -> pure (Left "no live object reader"))
+        native <- adapterPrepare adapter K.updateOperation >>= K.expectRight
+        mutation <- K.expectRight (eitherDecodeStrict' (preparedNativeBytes native)) :: IO KubernetesMutation
+        writeIORef state (KubernetesPresent K.physical "5" (Just K.resource) (mutationNativeDigest mutation))
+        adapterVerify adapter K.updateOperation native >>= assertBool "the written object was not proved" . isRight
+        writeIORef state (KubernetesPresent (ok (mkPhysicalIdentity "replacement-uid")) "1" (Just K.resource) (mutationNativeDigest mutation))
+        adapterVerify adapter K.updateOperation native >>= assertBool "a same-stamp replacement proved the update" . isLeft
     , testCase "only an exactly bound version-3 update may carry a takeover" $ do
         state <- newIORef drifted
         calls <- newIORef (0 :: Int)

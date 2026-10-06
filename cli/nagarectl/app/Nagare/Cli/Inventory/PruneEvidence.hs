@@ -34,6 +34,7 @@ import Nagare.Inventory.Adapters.KubernetesRuntime
   )
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Digest qualified as InventoryDigest
+import Nagare.Inventory.Identity (IdentityCheck (..), checkedPhysical)
 import Nagare.Inventory.KubernetesReview
   ( kubernetesSpecsFromReview
   )
@@ -176,6 +177,11 @@ verifyReviewedScheduledPruneProvider mctx scopes selectedJobs = do
               && digest == InventoryDigest.contentDigest bytes ->
               pure uid
         _ -> dieT "scheduled prune CronJob is absent or drifted"
+      -- ADR 27 (N22): the in-flight check finds Jobs by their CronJob's UID,
+      -- so a replaced CronJob would hide the accepted one's running Jobs.
+      case checkedPhysical (InventoryStore.headIncarnations (InventoryPlan.historyHead history)) (cron ^. #identity) cronUid of
+        IdentityReplaced _ _ -> dieT "scheduled prune CronJob was replaced outside Nagare; the accepted producer's Jobs cannot be checked"
+        _ -> pure ()
       inFlight <- scheduledProducerInFlight contextName namespaceName cronUid
       when inFlight (dieT "scheduled prune producer Job is still in flight")
       objectAddress <- required "scheduled.prune.object"
