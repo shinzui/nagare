@@ -1,8 +1,7 @@
 diff --git a/cli/nagarectl/src/Nagare/Inventory/Execute/Journal.hs b/cli/nagarectl/src/Nagare/Inventory/Execute/Journal.hs
-index aeb1b400..f8783476 100644
 --- a/cli/nagarectl/src/Nagare/Inventory/Execute/Journal.hs
 +++ b/cli/nagarectl/src/Nagare/Inventory/Execute/Journal.hs
-@@ -135,9 +135,7 @@ appendEventAt orphanBudget physical locked transaction operation state detail =
+@@ -137,9 +137,7 @@
                              case committed of
                                Left err -> pure (Left err)
                                Right _
@@ -13,7 +12,7 @@ index aeb1b400..f8783476 100644
                                  | otherwise -> pure (Left (StoreObjectConflict key))
                  Left err -> pure (Left err)
      Right _ -> pure (Left (StoreConditionFailed "inventory store is not initialized"))
-@@ -175,15 +173,7 @@ commitHead store observed headValue event retries = do
+@@ -177,15 +175,7 @@
    replaced <- replaceObservedHead observed replacement
    case replaced of
      Right () -> pure (Right event)
@@ -23,10 +22,10 @@ index aeb1b400..f8783476 100644
 -        Right now
 -          | observedHeadManifest now == Just replacement -> pure (Right event)
 -          | observedHeadManifest now == Just headValue && retries > 0 -> do
--              threadDelay (250000 * (4 - retries))
+-              retryPause store retries
 -              commitHead store now headValue event (retries - 1)
 -        _ -> pure (Left err)
 +    Left err -> pure (Left err)
  
- previousDigest :: InventoryStore -> Integer -> IO (Either StoreError (Maybe ContentDigest))
- previousDigest _ 0 = pure (Right Nothing)
+ -- | Wait before retrying a refused head write, longer each time: 250, 500,
+ -- then 750 ms with three retries left, then two, then one. A store whose

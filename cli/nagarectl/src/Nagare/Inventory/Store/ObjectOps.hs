@@ -20,6 +20,7 @@ module Nagare.Inventory.Store.ObjectOps
   )
 where
 
+import Control.Concurrent (threadDelay)
 import Control.Exception (IOException, try)
 import Data.Aeson ((.:))
 import Data.Aeson qualified as Aeson
@@ -67,6 +68,10 @@ data ObjectOps = ObjectOps
   , getObjects :: !(ObjectName -> IO (Either Text (Map ObjectName ByteString)))
   , putObject :: !(PutCondition -> ObjectName -> ByteString -> IO PutOutcome)
   , listObjects :: !(ObjectName -> IO (Either Text [ObjectName]))
+  , pauseBeforeRetry :: !(Int -> IO ())
+  -- ^ Wait this many microseconds before retrying a refused head write:
+  -- 'threadDelay' for a real bucket. The recovery model's in-memory store
+  -- does not wait (EP-179).
   }
 
 -- | Construct a URL only from an already validated prefix and an inventory
@@ -258,6 +263,7 @@ gcloudObjectOps prefix = do
       , listObjects = \(ObjectName requested) -> do
           result <- listNames
           pure (fmap (filter (\(ObjectName name) -> requested `T.isPrefixOf` name)) result)
+      , pauseBeforeRetry = threadDelay
       }
   where
     parsePrefix url = case T.stripPrefix "gs://" (T.dropWhileEnd (== '/') url) of

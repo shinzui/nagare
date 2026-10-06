@@ -49,8 +49,8 @@ equivalence report for each reduction, and every mutation record still failing.
 - [ ] M1: snapshot and restore of a model run. A test restores a snapshot taken at a stop and
   finds the head, journal, world and adversary equal to the snapshot.
 - [ ] M2: the exit search restores the stop snapshot for each probe. An equivalence test finds
-  identical outcomes for every fast-tier schedule under both strategies, and the replay search is
-  then deleted.
+  identical outcomes for every fast-tier schedule under both strategies, and the replay search
+  then stays as the reference of a sampled fast-tier check (Decision Log, 2026-10-06).
 - [x] M3: placement classes — not adopted (2026-10-06). The sampled check rejected the classes:
   31 members of "create then good update" did not give their representative's outcome. See the
   Decision Log.
@@ -67,7 +67,9 @@ Status (2026-10-06): M1 and M2 are committed (`6bef54ac`, `406fdbe4`); their acc
 recorded after the rebase onto the defect fixes (create-scenario-fixes), so the equivalence test
 covers the new close-with-take-over move and the retry loop. M4 is implemented with its sampled
 check, together with checkpoint resumption and sharding by placement (see the Decision Log). M3
-is not adopted: its sampled check failed (see the Decision Log).
+is not adopted: its sampled check failed (see the Decision Log). M2 and M4 alone measured about
+twice the budget on one 1/8 shard, about half of it in the store's retry pauses; the pause is now
+injectable (see the Decision Log), and M5's measurement follows the rebase onto master.
 
 
 ## Surprises & Discoveries
@@ -118,6 +120,19 @@ is not adopted: its sampled check failed (see the Decision Log).
   one stops with `[Resume,Close]` and the other with `[Close]`. The cause is that a second fault
   is placed by absolute call ordinal: members that do the same alone shift the later calls
   differently (a retry, a re-observation), so the same partner ordinal names a different moment.
+- A 1/8 shard of M2 and M4 without classes, run alone at load 8–15 on 2026-10-06 from 16:24
+  UTC: `create` 69 s, `create then good update` 118 s, the three bad-update scenarios 315, 284
+  and 497 s, `create with a durable volume, then retire` 110 s, `create a database, then ingest
+  a scheduled receipt` 1,081 s, `create a database, then retire it` 1,033 s; `create a database,
+  update its resources, then update it again` reached 25 of 130 heads in 528 s. Then the process
+  received SIGTERM at about 17:40 UTC, 4,586 s in. The signal is unexplained: neither session
+  nagare nor nagare-defects sent it. Projected, the shard needs 6,000–7,000 s: twice the budget.
+- The same run used 2,193 s of CPU in 4,586 s, 48%. An instrumented 1/100 run agreed (254 s of
+  CPU in 813 s), and `+RTS -A64m` changed nothing. The idle time is the store's retry pauses:
+  `commitHead` (`Execute/Journal.hs`) and close's head release (`Execute/Close.hs`) wait 250,
+  500 and 750 ms before retrying a refused head write, and the model refuses head writes
+  constantly. Time per phase in that run, wall clock with the pauses: apply 350 s, planning
+  223 s, exit moves 121 s, invariant checks 62 s, settlement 5 s, checkpoints and resumes 1 s.
 - An adapter registry closes over its run's world and adversary `IORef`s. A probe that replays
   into a fresh run must use the registry of that run, not the one from the original stop. The
   reference strategy carries the replayed run's registry for this reason. (M2.)
@@ -206,6 +221,27 @@ is not adopted: its sampled check failed (see the Decision Log).
   text.
   Date: 2026-10-06
 
+- Decision: The replay search is not deleted after the equivalence check passes, as M2 first
+  said. It stays as the reference, and the fast tier checks the snapshot search against it on
+  every 25th single fault and every 5,000th fault pair of the explicit scenarios. A mutation
+  record (`EP179-restore-skips-adversary.diff`) must fail that check. The spec stays within its
+  size by moving the scenario definitions to `Nagare.Test.Model.Scenarios`.
+  Rationale: session nagare's ruling. The check is the only guard that snapshot and restore
+  stay faithful as the model changes, and deleting it would be the sloppy-test pattern the
+  operator called out.
+  Date: 2026-10-06
+
+- Decision: The store's retry pause is injectable, and only the recovery model's stores
+  replace it. `ObjectOps` gains `pauseBeforeRetry` (`threadDelay` in `gcloudObjectOps`, Gogol
+  and the shared test fake), `Store` gains `storeRetryPause`, and `retryPause` in
+  `Execute/Journal.hs` keeps the 250/500/750 ms schedule for both retry loops. The model's
+  `newRun` sets a pause that counts calls (`runPauses`) and does not wait. A test pins the
+  production schedule, and a model test with a mutation record (`headRetries` 3 to 2) shows
+  that the model still exercises the retry count.
+  Rationale: about half of the deep tier's wall time was sleeping. Session nagare assigned this
+  production change to EP-179, on the conditions above.
+  Date: 2026-10-06
+
 ## Outcomes & Retrospective
 
 (To be filled during and after implementation.)
@@ -289,7 +325,8 @@ the head, journal, world and adversary equal to the snapshot.
 `searchExit` takes the snapshot at the stop, and each probe restores it and applies its moves.
 Keep `replay` as the reference behind a flag. Add an equivalence test that runs every fast-tier
 schedule under both strategies and requires identical results: the same violation text, or the
-same exit path. Then delete the replay probing.
+same exit path. The replay search then stays as the reference for a sampled fast-tier check (see
+the Decision Log).
 
 ### Milestone 3: placement classes
 
@@ -373,7 +410,8 @@ pair set can be removed once their checks have passed in one deep-tier run.
 
 ## Interfaces and Dependencies
 
-No production module changes. Touched:
+Production changes: the injectable retry pause (`Store/ObjectOps.hs`, `Store/Gogol.hs`,
+`Store.hs`, `Execute/Journal.hs`, `Execute/Close.hs`). Test modules touched:
 - `test/InventoryRecoveryModelSpec.hs`;
 - `test/InventoryObjectOpsSpec.hs` (`fakeObjectState`);
 - `test/Nagare/Test/World/Kubernetes.hs` and `Adversary.hs`, if snapshots need accessors;

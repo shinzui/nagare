@@ -1,0 +1,12 @@
+diff --git a/cli/nagarectl/test/Nagare/Test/Model/Run.hs b/cli/nagarectl/test/Nagare/Test/Model/Run.hs
+--- a/cli/nagarectl/test/Nagare/Test/Model/Run.hs
++++ b/cli/nagarectl/test/Nagare/Test/Model/Run.hs
+@@ -153,7 +153,7 @@
+ restoreRun run (RunSnapshot objects' world' adversary' bound' images' incarnations' database' converged') = do
+   writeIORef (runObjects run) objects'
+   writeIORef (runWorld run) world'
+-  writeIORef (runAdversary run) adversary'
++  pure ()
+   writeIORef (runBound run) bound'
+   writeIORef (runImages run) images'
+   writeIORef (runIncarnations run) incarnations'

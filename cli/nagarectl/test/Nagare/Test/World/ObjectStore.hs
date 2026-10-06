@@ -8,6 +8,7 @@ module Nagare.Test.World.ObjectStore
   )
 where
 
+import Control.Concurrent (threadDelay)
 import Data.ByteString (ByteString)
 import Data.IORef
 import Data.Map.Strict qualified as Map
@@ -53,4 +54,5 @@ fakeObjectState = do
                 , prefix `T.isPrefixOf` value
                 ]
             )
+      , pauseBeforeRetry = threadDelay
       }

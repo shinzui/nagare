@@ -5,6 +5,7 @@ module Nagare.Inventory.Execute.Journal
   ( appendEvent
   , appendEventWith
   , readJournal
+  , retryPause
   , readJournalAtHead
   , rollbackProof
   , rollbackProvedOperation
@@ -59,6 +60,7 @@ import Nagare.Inventory.Store
   , readObject
   , replaceObservedHead
   , storeClientIdentity
+  , storeRetryPause
   )
 import Nagare.Resource.Types (ContentDigest, PhysicalIdentity, mkContentDigest)
 import System.IO (stderr)
@@ -181,9 +183,15 @@ commitHead store observed headValue event retries = do
         Right now
           | observedHeadManifest now == Just replacement -> pure (Right event)
           | observedHeadManifest now == Just headValue && retries > 0 -> do
-              threadDelay (250000 * (4 - retries))
+              retryPause store retries
               commitHead store now headValue event (retries - 1)
         _ -> pure (Left err)
+
+-- | Wait before retrying a refused head write, longer each time: 250, 500,
+-- then 750 ms with three retries left, then two, then one. A store whose
+-- backend sets its own pause (the recovery model's) waits that way instead.
+retryPause :: InventoryStore -> Int -> IO ()
+retryPause store retries = fromMaybe threadDelay (storeRetryPause store) (250000 * (4 - retries))
 
 previousDigest :: InventoryStore -> Integer -> IO (Either StoreError (Maybe ContentDigest))
 previousDigest _ 0 = pure (Right Nothing)

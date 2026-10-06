@@ -1,0 +1,12 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Execute/Journal.hs b/cli/nagarectl/src/Nagare/Inventory/Execute/Journal.hs
+--- a/cli/nagarectl/src/Nagare/Inventory/Execute/Journal.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Execute/Journal.hs
+@@ -144,7 +144,7 @@
+                 Left err -> pure (Left err)
+     Right _ -> pure (Left (StoreConditionFailed "inventory store is not initialized"))
+   where
+-    headRetries = 3 :: Int
++    headRetries = 2 :: Int
+     orphanOfThisChain old new =
+       eventSequence old == eventSequence new
+         && eventPreviousDigest old == eventPreviousDigest new

@@ -23,23 +23,26 @@ inventoryJournalHeadAdvanceTests =
   testGroup
     "journal head advance (F38)"
     [ testCase "a refused head write after a published completion is retried and converges" $ do
-        (applied, effects, events) <- runWithHeadFailures Refused 1 Nothing
+        (applied, effects, events, _) <- runWithHeadFailures Refused 1 Nothing
         assertConverged applied
         effects @?= 1
         assertOneCompletionPerOperation events
     , testCase "a head write whose acknowledgement was lost is read back and converges" $ do
-        (applied, effects, events) <- runWithHeadFailures LandedButUnknown 1 Nothing
+        (applied, effects, events, _) <- runWithHeadFailures LandedButUnknown 1 Nothing
         assertConverged applied
         effects @?= 1
         assertOneCompletionPerOperation events
     , testCase "a persistent head failure stops, and resume adopts the orphan despite a different recovery proof" $ do
         let recoveryProof = contentDigest "independent recovery proof"
-        (resumed, effects, events) <- runWithHeadFailures Refused 4 (Just recoveryProof)
+        (resumed, effects, events, _) <- runWithHeadFailures Refused 4 (Just recoveryProof)
         assertConverged resumed
         effects @?= 1
         assertOneCompletionPerOperation events
         let completions = [digest | event <- events, Completed digest <- [eventState event]]
         assertBool "the orphan's original receipt is kept, not the recovery proof" (recoveryProof `notElem` completions)
+    , testCase "a refused head write is retried three times, after 250, 500 and 750 ms (EP-179)" $ do
+        (_, _, _, pauses) <- runWithHeadFailures Refused 4 (Just (contentDigest "proof"))
+        pauses @?= [250000, 500000, 750000]
     ]
 
 data HeadFailure = Refused | LandedButUnknown
@@ -47,9 +50,10 @@ data HeadFailure = Refused | LandedButUnknown
 -- | Execute the fixture review on a fake object store whose head writes fail
 -- right after a completion event is published. With a recovery proof, the
 -- first apply must stop and a resume with that proof must finish the job.
-runWithHeadFailures :: HeadFailure -> Int -> Maybe ContentDigest -> IO (Either String TransactionResult, Int, [JournalEvent])
+runWithHeadFailures :: HeadFailure -> Int -> Maybe ContentDigest -> IO (Either String TransactionResult, Int, [JournalEvent], [Int])
 runWithHeadFailures mode failures recoveryProof = do
   base <- fakeObjectOps
+  pauses <- newIORef []
   pending <- newIORef False
   remaining <- newIORef failures
   let ops =
@@ -71,6 +75,8 @@ runWithHeadFailures mode failures recoveryProof = do
                       | key == "head.json" -> writeIORef pending False
                     _ -> pure ()
                   pure result
+          , -- The store records the pauses it is asked for instead of waiting.
+            pauseBeforeRetry = \micros -> modifyIORef' pauses (<> [micros])
           }
   store <- newObjectStore ops fixtureBinding "client-a" Nothing >>= either (assertFailure . show) pure
   effects <- newIORef (0 :: Int)
@@ -90,7 +96,7 @@ runWithHeadFailures mode failures recoveryProof = do
   journal <- getObjects base (ObjectName "journal") >>= either (assertFailure . show) pure
   events <- traverse (either (assertFailure . T.unpack) pure . decodeJournalEvent) (Map.elems journal)
   count <- readIORef effects
-  pure (result, count, events)
+  (result,count,events,) <$> readIORef pauses
 
 assertConverged :: Either String TransactionResult -> Assertion
 assertConverged result = case result of

@@ -18,6 +18,7 @@ module Nagare.Inventory.Store.Gogol
   )
 where
 
+import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (mapConcurrently)
 import Control.Concurrent.MVar (modifyMVar, newMVar)
 import Control.Exception (Handler (..), IOException, catches)
@@ -330,6 +331,7 @@ objectOpsWithEnvironmentPolicy boundedAbsence environment project url = do
       , listObjects = \key -> case validateKey True key of
           Left reason -> pure (Left reason)
           Right () -> fmap Map.keys <$> listing key
+      , pauseBeforeRetry = threadDelay
       }
 
 conditionNumber :: PutCondition -> Either Text Int64

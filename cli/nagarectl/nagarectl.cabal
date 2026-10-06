@@ -581,6 +581,7 @@ test-suite nagarectl-test
     Nagare.Test.Model.Fixtures
     Nagare.Test.Model.Pairs
     Nagare.Test.Model.Run
+    Nagare.Test.Model.Scenarios
     Nagare.Test.Model.Search
     Nagare.Test.Model.Tier
     Nagare.Test.Operations

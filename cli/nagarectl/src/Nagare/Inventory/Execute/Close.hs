@@ -19,7 +19,6 @@ module Nagare.Inventory.Execute.Close
   )
 where
 
-import Control.Concurrent (threadDelay)
 import Data.Aeson
 import Data.Aeson.Types (Parser)
 import Data.ByteString (ByteString)
@@ -49,7 +48,7 @@ import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Execute.AdapterEnv (withAdapterEnv)
 import Nagare.Inventory.Execute.Claims (acquireResumeClaim, observeCurrentHead)
 import Nagare.Inventory.Execute.Inputs (preparedFor)
-import Nagare.Inventory.Execute.Journal (appendEvent, readJournalAtHead)
+import Nagare.Inventory.Execute.Journal (appendEvent, readJournalAtHead, retryPause)
 import Nagare.Inventory.Execute.Types
   ( AdmissionError (..)
   , failure
@@ -427,7 +426,7 @@ releaseClosedTransaction locked record = attempt (3 :: Int)
                   case reread of
                     Right now
                       | fmap headActiveTransaction (observedHeadManifest now) == Just Nothing -> pure True
-                      | retries > 0 -> threadDelay (250000 * (4 - retries)) >> attempt (retries - 1)
+                      | retries > 0 -> retryPause store retries >> attempt (retries - 1)
                     _ -> pure False
         _ -> pure False
     released headValue =

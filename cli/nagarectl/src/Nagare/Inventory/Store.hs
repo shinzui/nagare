@@ -23,6 +23,7 @@ module Nagare.Inventory.Store
   , openObjectStoreReadOnly
   , openObjectStoreReadOnlyWithLock
   , storeClientIdentity
+  , storeRetryPause
   , inventoryStoreRoot
   , initializeStore
   , readHead
@@ -568,14 +569,10 @@ openObjectStoreReadOnly :: ObjectOps -> ContextBinding -> Text -> Maybe FilePath
 openObjectStoreReadOnly ops binding client cache = openObjectStore False ops binding client cache Nothing
 
 openObjectStoreReadOnlyWithLock :: ObjectOps -> ContextBinding -> Text -> Maybe FilePath -> FilePath -> IO (Either StoreError InventoryStore)
-openObjectStoreReadOnlyWithLock ops binding client cache lockPath =
-  openObjectStore False ops binding client cache (Just lockPath)
+openObjectStoreReadOnlyWithLock ops binding client cache lockPath = openObjectStore False ops binding client cache (Just lockPath)
 
 openObjectStore :: Bool -> ObjectOps -> ContextBinding -> Text -> Maybe FilePath -> Maybe FilePath -> IO (Either StoreError InventoryStore)
-openObjectStore mayInitialize ops binding client cache lockPath = case canonicalValue
-  ( object
-      ["version" .= (1 :: Int), "binding" .= binding]
-  ) of
+openObjectStore mayInitialize ops binding client cache lockPath = case canonicalValue (object ["version" .= (1 :: Int), "binding" .= binding]) of
   Left reason -> pure (Left (StoreInvalidObject "format.json" reason))
   Right expected -> do
     observed <- getObject ops (ObjectName "format.json")
@@ -604,6 +601,10 @@ openObjectStore mayInitialize ops binding client cache lockPath = case canonical
 storeClientIdentity :: InventoryStore -> Maybe Text
 storeClientIdentity (InventoryStore (ObjectBackend _ client _ _ _ _)) = Just client
 storeClientIdentity _ = Nothing
+
+storeRetryPause :: InventoryStore -> Maybe (Int -> IO ())
+storeRetryPause (InventoryStore (ObjectBackend ops _ _ _ _ _)) = Just (pauseBeforeRetry ops)
+storeRetryPause _ = Nothing
 
 inventoryStoreRoot :: InventoryStore -> Maybe FilePath
 inventoryStoreRoot (InventoryStore (FilesystemBackend root _)) = Just root
@@ -770,8 +771,7 @@ observeHead store = do
     pure (ObservedHead store current generation)
 
 replaceObservedHead :: ObservedHead -> HeadManifest -> IO (Either StoreError ())
-replaceObservedHead observed@(ObservedHead store _ _) replacement =
-  withBackendGuard store (replaceObservedHeadUnlocked observed replacement)
+replaceObservedHead observed@(ObservedHead store _ _) replacement = withBackendGuard store (replaceObservedHeadUnlocked observed replacement)
 
 replaceHeadIfGenerationMatches :: InventoryStore -> Maybe Integer -> HeadManifest -> IO (Either StoreError ())
 replaceHeadIfGenerationMatches store expected replacement = withBackendGuard store $ do

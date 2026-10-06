@@ -12,7 +12,7 @@
 -- the world, the adversary and every invariant reference, so the exit search
 -- can restore a stop instead of replaying the scenario up to it.
 module Nagare.Test.Model.Run
-  ( Run (runObjects, runWorld, runAdversary, runBound, runImages, runIncarnations, runDatabase, runConverged)
+  ( Run (runObjects, runWorld, runAdversary, runBound, runImages, runIncarnations, runDatabase, runConverged, runPauses)
   , RunSnapshot (..)
   , Checkpoint (..)
   , newRun
@@ -42,6 +42,7 @@ import Nagare.Dsl.Prelude
 import Nagare.Inventory.Plan (InventoryHistory, loadInventoryHistory)
 import Nagare.Inventory.Status qualified as Status
 import Nagare.Inventory.Store
+import Nagare.Inventory.Store.ObjectOps (ObjectOps (..))
 import Nagare.Resource.Inventory (ManagedResource)
 import Nagare.Resource.Types
 import Nagare.Test.Model.Fixtures
@@ -73,6 +74,9 @@ data Run = Run
   , runConverged :: !(IORef (Map.Map ScopeId ScopeRevision))
   -- ^ The converged revisions last checked; I2 checks a revision when the
   -- head first reports it converged.
+  , runPauses :: !(IORef Int)
+  -- ^ How often the store paused to retry a refused head write. It does not
+  -- wait, and nothing in the run reads this; a test does (EP-179).
   }
 
 -- | A clean, read-only view of the objects the run's commands wrote.
@@ -83,7 +87,9 @@ newtype InspectStore = InspectStore InventoryStore
 newRun :: Shape -> [Text] -> [(Boundary, Fault)] -> IO Run
 newRun shape unready schedule = do
   adversary <- newAdversary schedule
-  (base, objects) <- fakeObjectState
+  -- The model's stores retry refused head writes without waiting (EP-179).
+  pauses <- newIORef 0
+  (base, objects) <- first (\ops -> ops {pauseBeforeRetry = \_ -> modifyIORef' pauses (+ 1)}) <$> fakeObjectState
   store <- newObjectStore (faultingObjectOps adversary base) fixtureBinding "recovery-model" Nothing >>= orFail "open store"
   inspect <- newObjectStore base fixtureBinding "recovery-inspect" Nothing >>= orFail "open inspection store"
   _ <- initializeStore store fixtureBinding "recovery-model" >>= orFail "initialize store"
@@ -94,7 +100,7 @@ newRun shape unready schedule = do
   incarnations <- newIORef Map.empty
   database <- newIORef databaseNative
   converged <- newIORef Map.empty
-  pure (Run store (InspectStore inspect) objects world adversary bound images incarnations database converged)
+  pure (Run store (InspectStore inspect) objects world adversary bound images incarnations database converged pauses)
 
 -- | Everything a run's later behaviour depends on. The adversary keeps its
 -- counts, so a restored run fires later faults at the same ordinals.

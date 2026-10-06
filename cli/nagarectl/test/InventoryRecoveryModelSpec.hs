@@ -50,6 +50,7 @@ import Nagare.Resource.Wire (canonicalValue)
 import Nagare.Test.Model.Fixtures
 import Nagare.Test.Model.Pairs
 import Nagare.Test.Model.Run
+import Nagare.Test.Model.Scenarios
 import Nagare.Test.Model.Search
 import Nagare.Test.Model.Tier
 import Nagare.Test.World.Adversary
@@ -143,95 +144,26 @@ inventoryRecoveryModelTests =
             restoreRun run snapshot
             state >>= assertBool "the restored run differs from the stop" . (== atStop)
           _ -> assertFailure "an interrupted create did not stop"
-    , testCase "the snapshot search finds what the replay search finds (EP-179; NAGARE_RECOVERY_MODEL_EQUIVALENCE=1)" $ do
-        enabled <- lookupEnv "NAGARE_RECOVERY_MODEL_EQUIVALENCE"
-        when (enabled == Just "1") . checkTier True label (`runScenario` []) scenarios (\scenario finished -> singleFaults scenario finished <> sampledPairs scenario finished) $ \scenario schedule -> do
+    , testCase "the snapshot search finds what the replay search finds, on every 25th single fault and every 5000th fault pair of the explicit scenarios (EP-179)" $
+        checkTier False label (`runScenario` []) explicitScenarios equivalenceSample $ \scenario schedule -> do
           snapshot <- runScenarioWith FromSnapshot scenario schedule
           replayed <- runScenarioWith ByReplay scenario schedule
           pure ["strategies disagree under " <> T.pack (show schedule) <> ":\n" <> T.pack (show snapshot) <> "\n" <> T.pack (show replayed) | snapshot /= replayed]
+    , testCase "the model retries a refused head write three times, without waiting (EP-179)" $ do
+        let scenario = Scenario "create" [Deploy "v1"] [] True plainShape False
+            refused n = [(Boundary StorePutCall k, PutRefused) | k <- [n .. n + 2]]
+        puts <- either (assertFailure . T.unpack) (pure . Map.findWithDefault 0 StorePutCall . finishedCalls) =<< runScenario scenario []
+        paused <- forM [1 .. puts - 2] $ \n -> do
+          run <- newRun plainShape [] (refused n)
+          _ <- drive scenario (refused n) (searchStop FromSnapshot scenario (refused n)) run Nothing
+          readIORef (runPauses run)
+        maximum paused @?= 3
     , testCase "deep tier: every ordered pair of faults that can interact has an exit (NAGARE_RECOVERY_MODEL_DEEP=1, shard with NAGARE_RECOVERY_MODEL_SHARD=i/n, every pair with NAGARE_RECOVERY_MODEL_PAIRS=all)" $ do
         enabled <- lookupEnv "NAGARE_RECOVERY_MODEL_DEEP"
         shard <- lookupEnv "NAGARE_RECOVERY_MODEL_SHARD"
         pairs <- lookupEnv "NAGARE_RECOVERY_MODEL_PAIRS"
         when (enabled == Just "1") $ either assertFailure (\selected -> deepTier (pairs /= Just "all") selected label traceScenario scenarios) (parseShard shard)
     ]
-
--- * Scenarios
-
--- | A sequence of reviews: deploys of one application scope, each naming the
--- image of its Knative Service and release-history ConfigMap, its retirement,
--- and a standalone database with a scheduled receipt ingestion.
-data Scenario = Scenario
-  { label :: !Text
-  , steps :: ![Step]
-  , unready :: ![Text]
-  -- ^ Images whose revision never becomes Ready (a bad update).
-  , historyFollows :: !Bool
-  -- ^ Whether the release-history ConfigMap records each image, as an
-  -- application's release history does, or stays as first created.
-  , shape :: !Shape
-  -- ^ The application's other members: a durable volume, a worker.
-  , sampled :: !Bool
-  -- ^ Generated from the kind table: the fast tier places each fault once.
-  }
-  deriving stock (Eq, Show)
-
-scenarios :: [Scenario]
-scenarios = explicitScenarios <> generatedScenarios
-
--- | EP-177 (ADR 25): one scenario per in-line kind and action, each adding a
--- member of that kind to the application scope.
-generatedScenarios :: [Scenario]
-generatedScenarios =
-  [ Scenario ("kind " <> T.pack (show selected) <> ": " <> action) steps' [] True plainShape {shapeExtra = Just row} True
-  | row <- kindTable
-  , row ^. #status == InLine
-  , Just selected <- [kubernetesKind row]
-  , isJust (kindFixture row)
-  , (action, steps') <-
-      [("create", [Deploy "v1"])]
-        <> [("update", [Deploy "v1", Deploy "v2"]) | KindUpdate `elem` row ^. #actions]
-        <> [("retire", [Deploy "v1", Retire]) | KindRetire `elem` row ^. #actions]
-  ]
-
-explicitScenarios :: [Scenario]
-explicitScenarios =
-  map ($ False) $
-    [ Scenario "create" [Deploy "v1"] [] True plainShape
-    , Scenario "create then good update" [Deploy "v1", Deploy "v2"] [] True plainShape
-    , Scenario "create, bad update, corrected update (history unchanged)" [Deploy "v1", Deploy "bad", Deploy "v3"] ["bad"] False plainShape
-    , Scenario "create, bad update, corrected update (history follows the release)" [Deploy "v1", Deploy "bad", Deploy "v3"] ["bad"] True plainShape
-    , Scenario "create, bad update, corrected update (with a durable volume)" [Deploy "v1", Deploy "bad", Deploy "v3"] ["bad"] True volumeShape
-    , Scenario "create with a durable volume, then retire" [Deploy "v1", Retire] [] True volumeShape
-    , Scenario "create a database, then ingest a scheduled receipt" [CreateDatabase, IngestReceipt] [] True plainShape
-    , Scenario "create a database, then retire it" [CreateDatabase, RetireDatabase] [] True plainShape
-    , Scenario "create a database, update its resources, then update it again" [CreateDatabase, UpdateDatabase, CreateDatabase] [] True plainShape
-    ]
-
-data Step
-  = -- | Review and apply the application at this image.
-    Deploy !Text
-  | -- | Retire the application scope, retaining its members.
-    Retire
-  | -- | Review and apply the standalone PostgreSQL database.
-    CreateDatabase
-  | -- | Plan ingestion of a scheduled receipt as `db backup-receipts` does.
-    IngestReceipt
-  | -- | Retire the database scope, retaining its members.
-    RetireDatabase
-  | -- | Review and apply the database with new resource requests, which
-    -- rewrites its StatefulSet.
-    UpdateDatabase
-  deriving stock (Eq, Show)
-
-stepText :: Step -> Text
-stepText step = case step of
-  Deploy image -> image
-  Retire -> "retire"
-  CreateDatabase -> "create database"
-  IngestReceipt -> "ingest receipt"
-  RetireDatabase -> "retire database"
-  UpdateDatabase -> "update database"
 
 type Schedule = [(Boundary, Fault)]
 
@@ -266,9 +198,12 @@ faultPairs _ finished =
   , (call1, n) < (call2, m)
   ]
 
--- | Every 97th pair: stops with several exits, which single faults rarely reach.
-sampledPairs :: Scenario -> Finished -> [Schedule]
-sampledPairs scenario finished = [schedule | (k, schedule) <- zip [0 :: Int ..] (faultPairs scenario finished), k `mod` 97 == 0]
+-- | EP-179: where the snapshot search is checked against replay. Pairs stop
+-- with several exits, which single faults rarely reach.
+equivalenceSample :: Scenario -> Finished -> [Schedule]
+equivalenceSample scenario finished = every 25 (singleFaults scenario finished) <> every 5000 (faultPairs scenario finished)
+  where
+    every n schedules = [schedule | (k, schedule) <- zip [0 :: Int ..] schedules, k `mod` n == 0]
 
 -- | Every scenario under every schedule must pass.
 runTier :: Bool -> [Scenario] -> (Scenario -> Finished -> [Schedule]) -> Assertion
@@ -976,6 +911,3 @@ registryFor :: Run -> Shape -> Text -> Text -> IO AdapterRegistry
 registryFor run volume image historyImage = do
   database <- readIORef (runDatabase run)
   pure (ok (mkAdapterRegistry [worldKubernetesAdapter (fixtureBinding ^. #identity) (boundMembers volume image historyImage <> database) (runWorld run) (runAdversary run)]))
-
-
-
