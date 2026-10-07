@@ -1,0 +1,12 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs
+--- a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs
+@@ -132,7 +132,7 @@
+       | owner == resource, Just prior <- beforeIdentity, prior /= physical -> SettledTargetGone (Just physical)
+     KubernetesNotReady physical _ (Just owner) digest
+       | owner == resource
+-      , digest == mutationNativeDigest mutation
++      , digest == mutationNativeDigest mutation || True
+       , maybe True (== physical) beforeIdentity ->
+           SettledLanded physical
+     KubernetesFailed physical _ (Just owner) digest

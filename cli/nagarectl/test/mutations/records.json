@@ -574,5 +574,17 @@
     "suite": "nagarectl",
     "pattern": "/churn precedes observations/",
     "expect": "test-fails"
+  },
+  {
+    "record": "M9-verify-guard-compares-resource-version",
+    "suite": "nagarectl",
+    "pattern": "/is proved complete; one whose target changed stops/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "M9-unready-update-landed-without-digest",
+    "suite": "nagarectl",
+    "pattern": "/an unready update is landed only with the reviewed digest/",
+    "expect": "test-fails"
   }
 ]

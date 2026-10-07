@@ -1,0 +1,12 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs
+--- a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs
+@@ -175,7 +175,7 @@
+           ( KubernetesPresent expectedPhysical _ (Just expectedOwner) expectedDigest
+             , KubernetesPresent physical _ (Just owner) digest
+             )
+-              | expectedPhysical == physical && expectedOwner == owner
++              | expectedPhysical == physical && expectedOwner == owner && current == mutationBefore mutation
+               , owner == mutationResource mutation
+               , expectedDigest == digest && digest == mutationNativeDigest mutation ->
+                   Right ()

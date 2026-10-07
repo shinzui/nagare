@@ -104,11 +104,14 @@ adapterProof = do
       adapterRecover adapter K.updateOperation reviewed >>= \case
         RecoveryAwaitingReadiness physical | physical == K.physical -> pure ()
         other -> assertFailure (label <> " was not awaiting readiness: " <> show other)
-  -- F56: a replaced object is never a proved landing, but its reviewed target
-  -- is gone, so only the reviewed stop may end the update.
+  -- A replaced object is never a proved landing; its reviewed target is gone,
+  -- which close by proof settles (M9 deleted F56's TargetReplaced answer).
   writeIORef state (KubernetesNotReady replacement "6" (Just K.resource) (contentDigest bytes))
   writeIORef live (liveService (physicalIdentityText replacement) "6" 2 2 "False" [inventoryEntry])
-  adapterRecover adapter K.updateOperation reviewed >>= (@?= RecoveryTargetReplaced replacement)
+  adapterRecover adapter K.updateOperation reviewed >>= \case
+    RecoveryUnresolved _ -> pure ()
+    other -> assertFailure ("a replaced target was answered " <> show other)
+  traverse (\settle -> settle K.updateOperation reviewed) (adapterSettle adapter) >>= (@?= Just (SettledTargetGone (Just replacement)))
   readIORef calls >>= (@?= 0)
 
 -- | The live object a reader returns: Nagare owns the spec, the controller

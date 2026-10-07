@@ -314,21 +314,8 @@ mkKubernetesAdapterWithObservations specs ops observeBatch readBackupReceipt scr
               pure $ case requireWriteTarget mutation before liveStamp of
                 Right () -> RecoverySafeToRetry
                 Left reason -> case current of
-                  -- F57: a verification writes nothing, so retrying it is
-                  -- always safe; its preflight then refuses a changed target
-                  -- with no effect.
-                  _ | mutationAction mutation == VerifyResource -> RecoverySafeToRetry
                   KubernetesNotReady physical _ _ _
                     | Right () <- landed -> RecoveryLandedUnready physical
-                  KubernetesNotReady physical _ (Just owner) _
-                    | replacedUpdateTarget mutation physical owner -> RecoveryTargetReplaced physical
-                  KubernetesPresent physical _ (Just owner) _
-                    | replacedUpdateTarget mutation physical owner -> RecoveryTargetReplaced physical
-                  KubernetesAbsent _
-                    -- F64: an owned update target deleted outside review. Its
-                    -- preflight refuses the absent object before any effect, so
-                    -- the retry journals a no-effect refusal to abandon.
-                    | ownedUpdateBefore mutation -> RecoverySafeToRetry
                   KubernetesNotReady physical _ (Just owner) digest
                     | createdScratchStatefulSet mutation owner digest
                     , scratchFailure == Right True ->
@@ -339,9 +326,10 @@ mkKubernetesAdapterWithObservations specs ops observeBatch readBackupReceipt scr
                         && mutationAction mutation == CreateResource
                         && (case mutationBefore mutation of KubernetesAbsent {} -> True; _ -> False)
                         && ( case mutationAddress mutation of
-                               -- F59: a created StatefulSet (a database's) that never
-                               -- became Ready is the same no-data readiness wait.
-                               Kubernetes _ "apps" kind _ _ -> nameText kind `elem` ["deployment", "statefulset"]
+                               -- Only a created Deployment's wait lets resume go on
+                               -- (Driver's continueReadiness); a created StatefulSet
+                               -- that is not yet Ready settles as landed (M9).
+                               Kubernetes _ "apps" kind _ _ -> nameText kind == "deployment"
                                Kubernetes _ "serving.knative.dev" kind _ _ -> nameText kind `elem` ["service", "domainmapping"]
                                _ -> False
                            ) ->
@@ -380,23 +368,6 @@ mkKubernetesAdapterWithObservations specs ops observeBatch readBackupReceipt scr
         && case mutationBefore mutation of
           KubernetesPresent prior _ (Just previousOwner) _ -> prior == physical && previousOwner == owner
           KubernetesNotReady prior _ (Just previousOwner) _ -> prior == physical && previousOwner == owner
-          _ -> False
-    -- F56: an intended Knative Service update whose reviewed object was
-    -- deleted and recreated outside review. The replacement carries the
-    -- member's ownership stamp but another UID.
-    replacedUpdateTarget mutation physical owner =
-      mutationAction mutation == UpdateResource
-        && knativeServiceAddress (mutationAddress mutation)
-        && owner == mutationResource mutation
-        && case mutationBefore mutation of
-          KubernetesPresent prior _ (Just previousOwner) _ -> prior /= physical && previousOwner == owner
-          KubernetesNotReady prior _ (Just previousOwner) _ -> prior /= physical && previousOwner == owner
-          _ -> False
-    ownedUpdateBefore mutation =
-      mutationAction mutation == UpdateResource
-        && case mutationBefore mutation of
-          KubernetesPresent _ _ (Just previousOwner) _ -> previousOwner == mutationResource mutation
-          KubernetesNotReady _ _ (Just previousOwner) _ -> previousOwner == mutationResource mutation
           _ -> False
     createdScratchStatefulSet mutation owner digest =
       owner == mutationResource mutation

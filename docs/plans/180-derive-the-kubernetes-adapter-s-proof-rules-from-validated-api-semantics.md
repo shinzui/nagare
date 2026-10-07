@@ -152,7 +152,20 @@ MasterPlan, not by this plan.
     - Each of W workers compiles the revision once, then per record patches, rebuilds, runs the pattern and reverts.
     - `mutations sweep` classifies `results.tsv`.
 - [ ] M9 (session nagare, 2026-10-06, from nagare-deep-tier-fixes' attribution): no adapter recovery guard stays
-  untested. Seven guards stopped being observed when ADR 26's close by proof landed (`1f6c1a13`, `5bb33741`), and their
+  untested.
+  - 2026-10-07: reading the driver (`Execute/Driver.hs` 205–227) and settlement showed that only one answer among
+    the seven changes behaviour: a created Deployment's AwaitingReadiness, which lets `continueReadiness` go on. The
+    adapter test "only exact created Deployments, Knative Services and routes can await readiness" already pins it.
+    The rulings were revised with session nagare to delete what nothing can observe:
+    - F57a is deleted. A verification's guard is its UID, owner and digest, so a status write never reaches the
+      arm, and a re-run fails the same guard.
+    - F56, F64 and F59's StatefulSet half are deleted.
+    - F54's adapter arm and its readers will be deleted after EP-182 lands. The RecoveryLandedUnready constructor and
+      its driver and settlement arms stay for EP-181.
+  - `InventoryKubernetesRecoverySpec` pins what settlement concludes for each deleted case (TargetGone, Landed), the
+    resourceVersion-insensitive verify, and item 6's negatives. The digest-only Landed row is sound by RES-4 U3.
+    Records `M9-verify-guard-compares-resource-version` and `M9-unready-update-landed-without-digest` each fail their
+    test. Seven guards stopped being observed when ADR 26's close by proof landed (`1f6c1a13`, `5bb33741`), and their
   records now pass. Each pin gets a failing-first test and a fresh record. Each deletion gets a test that the remaining
   close by proof still exits.
   - Pin F57a: a stopped verify is safe to retry, and resume re-runs it to completion.
