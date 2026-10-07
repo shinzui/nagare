@@ -288,24 +288,6 @@
     "expect": "test-fails"
   },
   {
-    "record": "F54-landed-unready-recovery",
-    "suite": "nagarectl",
-    "pattern": "/fast tier/",
-    "expect": "test-fails"
-  },
-  {
-    "record": "F56-target-replaced-recovery",
-    "suite": "nagarectl",
-    "pattern": "/fast tier/",
-    "expect": "test-fails"
-  },
-  {
-    "record": "F57a-verify-safe-to-retry",
-    "suite": "nagarectl",
-    "pattern": "/fast tier/",
-    "expect": "test-fails"
-  },
-  {
     "record": "F57b-journal-no-effect-refusal",
     "suite": "nagarectl",
     "pattern": "/fast tier/",
@@ -331,12 +313,6 @@
   },
   {
     "record": "F59-standalone-unstarted-creates",
-    "suite": "nagarectl",
-    "pattern": "/fast tier/",
-    "expect": "test-fails"
-  },
-  {
-    "record": "F59-statefulset-create-awaits-readiness",
     "suite": "nagarectl",
     "pattern": "/fast tier/",
     "expect": "test-fails"
@@ -369,24 +345,6 @@
     "record": "F63-deployment-correction-refused",
     "suite": "nagarectl",
     "pattern": "/a corrective update of an unready Deployment plans and closes/",
-    "expect": "test-fails"
-  },
-  {
-    "record": "F63-statefulset-landed-update",
-    "suite": "nagarectl",
-    "pattern": "/fast tier/",
-    "expect": "test-fails"
-  },
-  {
-    "record": "F63-statefulset-readiness-by-replicas",
-    "suite": "nagarectl",
-    "pattern": "/fast tier/",
-    "expect": "test-fails"
-  },
-  {
-    "record": "F64-deleted-update-target-retry",
-    "suite": "nagarectl",
-    "pattern": "/fast tier/",
     "expect": "test-fails"
   },
   {
