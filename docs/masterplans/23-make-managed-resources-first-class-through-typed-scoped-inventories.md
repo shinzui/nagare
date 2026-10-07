@@ -361,6 +361,11 @@ provenance:
       at: 2026-10-06T22:02:14Z
       mode: "update"
       note: "Operator redirect: RES-4 first-principles plan; EP-180-182 added; fidelity freeze"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-07T16:45:07Z
+      mode: "update"
+      note: "Operator: ship v1 with the single-fault guarantee; deep tier becomes monitoring"
   reviews:
     - model: "claude-fable-5-1"
       harness: "claude-code"
@@ -508,7 +513,7 @@ The operator approved all six decisions of [the exhaustive review's proposal](..
     - [ ] 3a. ([EP-180](../plans/180-derive-the-kubernetes-adapter-s-proof-rules-from-validated-api-semantics.md)) G1 Deployment readiness (rollout-status rule; F70), G2 Knative stale Ready (F69), the F67 spec-digest stamp proof (not configuration digest v4), G4 4xx refusals as no effect, G6 one conditional-write discipline for updates and retires, G5 terminating objects, G7 canonical quantities; plus F68 and F63's worker half. G1–G7 and F66–F76 landed `c3755ad7` (2026-10-07); M9 (untested recovery guards, F30 narrowing) and the harness replan after ForeignObject remain.
     - [ ] 3b. ([EP-181](../plans/181-replace-a-stuck-statefulset-pod-through-a-reviewed-operation.md)) G3: a reviewed, precondition-guarded stuck-pod replacement, so a StatefulSet correction actually rolls.
     - [x] 3c. ([EP-182](../plans/182-derive-the-recovery-model-s-kubernetes-world-from-validated-api-semantics.md)) G11: the world renders realistic objects classified by the production parser, from RES-4's per-kind table, with a conformance test against the recorded traces and "every scheduled fault took effect". Landed `356e7f18` (2026-10-07): the world is a fake API server behind the production kubectl interpreter, conformant with 298 recorded real-cluster steps; deep-tier acceptance is pending 3d.
-    - [ ] 3d. ([EP-179](../plans/179-bring-the-recovery-model-deep-tier-within-an-hour.md)) the confirming deep tier, under an hour, after 3a–3c, with no new defect class.
+    - [ ] 3d. ([EP-179](../plans/179-bring-the-recovery-model-deep-tier-within-an-hour.md)) the confirming deep tier, under an hour, after 3a–3c, with no new defect class. **Redefined (operator, 2026-10-07): for v1 the deep tier is monitoring, not a gate.** Its 3d run at `341b01bc` found one product defect, F79, fixed in the 3d batch, plus harness classes B1, B2 and B6–B8, all fixed, and the ledgered F77 and F78.
   - **Fidelity freeze after 3c.** No further world-fidelity work inside MP-23 unless it exposes a P0 for a line (b) kind, and then only with the operator's approval. RES-4's ledger items (G8, G10, G12, G13) go to the deferral ledger.
 - [x] 4. (EP-175 M4) ADR 26 §5: the attested close-and-accept-nothing exit; E's U2 (CDN purge, VM power) routed to it.
 - [ ] 5. One final verification against this line, then a new candidate (the revision is reported by the shipped wrapper while compile-time stamping is off, [EP-178](../plans/178-make-the-flake-check-build-each-haskell-package-once.md)), with a green `just gate` record and `gate verify`, then C1–C5 (including the phase 3b teardown of `mp23-c3i`) under the finish line below.
@@ -740,6 +745,12 @@ Earlier discoveries (derived controller claims, explicit candidate changes, nati
 
 
 Decisions still in force, condensed. Full verbatim entries are in [the snapshot](../audits/mp23-archive/plan-history/mp23-before-consolidation-2026-10-02.md).
+
+2026-10-07 (operator, session nagare, `3eddabae`): **ship v1 with the guarantee already proved, and widen it per release.** Every deep-tier run kept widening the problem and the estimate. The operator: "i would like to use nagare during my lifetime. A good plan figures out how to do that and improve it over time safely."
+- v1's guarantee (release line (b)): every in-line kind has a proved, supported exit under any single fault. That's the fast tier and harness self-test over every scenario on the validated world (EP-182). Every other stopped state has ADR 26 §5's attested close, and the documented limits F77 and F78 have runbooks.
+- Release gates: a green `just gate` on the exact candidate, `just mutation-sweep` with zero survivors, and the fast tier on the validated world.
+- The deep tier (fault pairs) is monitoring for v1, not a release gate. It runs per release on the builder; its classes are triaged and either fixed or ledgered, and its findings feed the next release. Step 3d is redefined accordingly. The builder resize approved earlier the same day is not needed.
+- Each later MasterPlan widens the guarantee under the same gates: fault pairs within a time budget, reviewed exits for F77 and F78, and anything else on the deferral ledger.
 
 2026-10-06 (operator, session nagare, `3eddabae`): **first principles, not brute force.** After the deep tier kept surfacing one Kubernetes-semantics defect per run (F63, F66–F69), the operator asked why there was no technical analysis with quick validation. A separate session (nagare-first-principle) validated the API semantics of every line (b) kind with 16 experiments against k3s 1.34.6 and Knative 1.22 ([RES-4](../research/kubernetes-api-semantics-for-inventory-proofs.md), evidence in `docs/audits/k8s-semantics-2026-10-06/`). The operator approved its recommendations ("yes, let's do that"):
 - MP-23's must-fix list for step 3 is RES-4 §4's eight items (G1–G7, G11), as children EP-180, EP-181 and EP-182; the deep tier (EP-179) confirms only after them.

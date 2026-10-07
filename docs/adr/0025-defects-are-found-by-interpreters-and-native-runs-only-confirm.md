@@ -216,3 +216,12 @@ model and were found only by analysis.
   - A deferred defect's owner is the deferral ledger, with the operator's decision date.
 - **A world change is classified.** A change to the world's fidelity records, for every fast-tier
   outcome it changes, the cause: a validated rule, a ledger entry, or a harness defect it fixed.
+
+## Amendment (2026-10-07): for v1 the deep tier is monitoring, not a release gate
+
+The operator decided (MP-23 Decision Log, 2026-10-07) to ship Nagare's first reliable version with the guarantee already proved, and to widen it per release.
+- **Release gates:** a green `just gate` record for the exact candidate, a zero-survivor mutation sweep, and the fast tier, including the harness self-test, on the validated world.
+- **The deep tier** (every interacting fault pair) runs per release on the builder as monitoring. Each class it reports is triaged into a fix or a ledger entry before the next release.
+- **What this amends:** the 2026-10-06 amendment's "a passing `just gate-deep` before acceptance" for recovery-related changes. A recovery-related change needs a deep run and a triage record, not a passing run.
+- **Widening the guarantee** to fault pairs, within the one-hour budget, is a later MasterPlan's goal, under the same gates.
+
