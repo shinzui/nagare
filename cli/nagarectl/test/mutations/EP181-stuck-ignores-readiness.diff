@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesStuckPod.hs b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesStuckPod.hs
+index 8e5ae525..9a4708b4 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesStuckPod.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesStuckPod.hs
+@@ -244,7 +244,7 @@ stuckPod statefulSet podList = first T.pack (parseEither parse ())
+       owners <- fromMaybe [] <$> metadata .:? "ownerReferences"
+       controlled <- or <$> traverse (controlledBy setUid) owners
+       ready <- podReady root
+-      if not controlled || podTerminating root || ready
++      if not controlled || podTerminating root
+         then pure Nothing
+         else do
+           labels <- fromMaybe mempty <$> metadata .:? "labels" :: Parser (Map Text Text)

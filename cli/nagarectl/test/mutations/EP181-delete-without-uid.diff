@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesStuckPod.hs b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesStuckPod.hs
+index 8e5ae525..ee39d566 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesStuckPod.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesStuckPod.hs
+@@ -358,7 +358,7 @@ podDeleteRequest reviewed revision = do
+       ( object
+           [ "apiVersion" .= ("meta.k8s.io/v1" :: Text)
+           , "kind" .= ("DeleteOptions" :: Text)
+-          , "preconditions" .= object ["uid" .= physicalIdentityText (reviewed ^. #podUid), "resourceVersion" .= revision]
++          , "preconditions" .= object ["resourceVersion" .= revision]
+           ]
+       )
+   pure

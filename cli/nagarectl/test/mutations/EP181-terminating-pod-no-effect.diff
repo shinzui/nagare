@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesStuckPod.hs b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesStuckPod.hs
+index 8e5ae525..35e4beaa 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesStuckPod.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesStuckPod.hs
+@@ -380,7 +380,7 @@ recoverReplacement replacement = \case
+       | uid' /= replacement ^. #stuck . #statefulSetUid -> RecoveryTargetReplaced uid'
+       | otherwise -> case observed ^. #observedPod of
+           ReviewedPodLive -> RecoverySafeToRetry
+-          ReviewedPodTerminating -> RecoveryLandedUnready uid'
++          ReviewedPodTerminating -> RecoverySafeToRetry
+           ReviewedPodGone
+             | ready -> either RecoveryUnresolved RecoveryProvedComplete (replacementProof replacement)
+             | otherwise -> RecoveryLandedUnready uid'

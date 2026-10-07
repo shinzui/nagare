@@ -54,8 +54,11 @@ inventoryStuckPodTests =
         fmap (^. #statefulSetUid) found @?= Just (uidOf "sts-uid")
     , testCase "observation: the same pod, once Ready, is not stuck" $
         stuckPod (statefulSet 3 (Just 3) (Just "pg-d9d6d")) (pods [pgPod "pg-0" "pg-9d647" True]) @?= Right Nothing
-    , testCase "observation: nothing is stuck while the controller has not observed the latest spec" $
+    , testCase "observation: nothing is stuck while the controller has not observed the latest spec" $ do
         stuckPod (statefulSet 3 (Just 2) (Just "pg-9d647")) (pods [pgPod "pg-0" "pg-9d647" False]) @?= Right Nothing
+        -- A pod stuck behind an earlier correction, under a newer spec the
+        -- controller has not yet observed: wait for the controller.
+        stuckPod (statefulSet 4 (Just 3) (Just "pg-d9d6d")) (pods [pgPod "pg-0" "pg-9d647" False]) @?= Right Nothing
     , testCase "observation: a broken create (E6e: the pod is at the update revision) is not stuck" $
         stuckPod (statefulSet 1 (Just 1) (Just "pg-9dc98")) (pods [pgPod "pg-0" "pg-9dc98" False]) @?= Right Nothing
     , testCase "observation: a pod being deleted is not stuck" $
@@ -186,7 +189,7 @@ inventoryStuckPodTests =
         (outcome, asked) <- runtimeReplace (Left "wrong cluster") (const (Right (ExitSuccess, "", "")))
         (outcome, asked) @?= (AdapterEffectFailed (KnownNoEffect "cluster guard refused the pod replacement: wrong cluster"), [])
     , testCase "settle and recover: every row of the class table" $ do
-        let observed set' pod' = Right (ReplacementObservation set' pod')
+        let observed setRead pod' = Right (ReplacementObservation setRead pod')
             proof = ok (replacementProof replacementFixture)
             classify observation = (recoverReplacement replacementFixture observation, settleReplacement replacementFixture observation)
         -- A delete answered 409, 422 or 404 is journalled as a refusal (see
@@ -475,12 +478,12 @@ replacementFixture = PodReplacement 1 (plannedOperationId replaceOperation) (pla
 -- | Observe 'replacementFixture' through the runtime, over a kubectl that
 -- answers with this StatefulSet and pod (or none); the requests it was asked.
 runtimeObserve :: Maybe Value -> Maybe Value -> IO (Either Text ReplacementObservation, [[String]])
-runtimeObserve set' pod' = do
+runtimeObserve setRead pod' = do
   asked <- newIORef []
   let answer request = do
         modifyIORef' asked (<> [request ^. #arguments])
         pure $ case request ^. #arguments of
-          "get" : "statefulset.apps" : _ -> Right (ExitSuccess, maybe "" (BLC.unpack . encode) set', "")
+          "get" : "statefulset.apps" : _ -> Right (ExitSuccess, maybe "" (BLC.unpack . encode) setRead, "")
           "get" : "pod" : _ -> Right (ExitSuccess, maybe "" (BLC.unpack . encode) pod', "")
           other -> Left ("unexpected kubectl call " <> T.pack (show other))
       config = withKubectlInterpreter (runKubectlWith answer) (KubernetesRuntimeConfig (fixtureBinding ^. #identity) "stuck-pod" (pure (Right ())))

@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs b/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs
+index 9d6980bd..7d8e229b 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs
+@@ -303,7 +303,7 @@ mkKubernetesAdapterWithObservations specs ops pods observeBatch readBackupReceip
+       | plannedAction operation == ReplaceStuckPod =
+           podReplacementGuard operation prepared >>= \case
+             Left reason -> pure (AdapterEffectFailed (KnownNoEffect reason))
+-            Right (replacement, revision) -> replaceStuckPod pods replacement revision
++            Right (replacement, _) -> replaceStuckPod pods replacement (replacement ^. #stuck . #podResourceVersion)
+     execute operation prepared = case decodeMutation (kubernetesContext ops) specs operation prepared of
+       Left reason -> pure (AdapterEffectFailed (KnownNoEffect reason))
+       Right mutation -> do

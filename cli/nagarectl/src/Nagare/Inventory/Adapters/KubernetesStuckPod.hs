@@ -140,9 +140,9 @@ runtimePodOps config specs = KubernetesPodOps reader replace observe
         (Right (), Kubernetes _ _ _ (Just namespace') name') -> do
           let ns = T.unpack (nameText namespace')
               reviewed = replacement ^. #stuck
-          set' <- readJson ["get", "statefulset.apps", T.unpack (nameText name'), "--namespace", ns, "-o", "json", "--ignore-not-found"]
+          setRead <- readJson ["get", "statefulset.apps", T.unpack (nameText name'), "--namespace", ns, "-o", "json", "--ignore-not-found"]
           pod' <- readJson ["get", "pod", T.unpack (reviewed ^. #pod), "--namespace", ns, "-o", "json", "--ignore-not-found"]
-          pure (ReplacementObservation <$> (set' >>= traverse (setState reviewed)) <*> (pod' >>= maybe (Right ReviewedPodGone) (podState reviewed)))
+          pure (ReplacementObservation <$> (setRead >>= traverse (setState reviewed)) <*> (pod' >>= maybe (Right ReviewedPodGone) (podState reviewed)))
         (Right (), _) -> pure (Left "the pod replacement's StatefulSet address has no namespace")
     setState reviewed value = first T.pack . flip parseEither value . withObject "StatefulSet" $ \root -> do
       uid' <- root .: "metadata" >>= (.: "uid") >>= either (fail . T.unpack) pure . mkPhysicalIdentity
@@ -314,7 +314,7 @@ podReplacementSummary replacement =
   "replace-stuck-pod  statefulset "
     <> reviewed ^. #namespace
     <> "/"
-    <> set'
+    <> setName
     <> "  pod "
     <> reviewed ^. #pod
     <> " (uid "
@@ -325,11 +325,11 @@ podReplacementSummary replacement =
     <> short (reviewed ^. #updateRevision)
   where
     reviewed = replacement ^. #stuck
-    set' = case replacement ^. #target of
+    setName = case replacement ^. #target of
       Kubernetes _ _ _ _ name' -> nameText name'
       _ -> "?"
     -- A revision is named <statefulset>-<hash>.
-    short revision = fromMaybe revision (T.stripPrefix (set' <> "-") revision)
+    short revision = fromMaybe revision (T.stripPrefix (setName <> "-") revision)
 
 -- | The fresh read's guard before the delete (RES-4 §5.3): the stuck pod is
 -- still the reviewed pod, under the reviewed StatefulSet, blocking the
