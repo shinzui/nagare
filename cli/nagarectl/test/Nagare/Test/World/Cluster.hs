@@ -121,10 +121,13 @@ clusterAnswer cluster request = do
     Just call' | not quietReads -> nextFaultAt (adversary cluster) call'
     _ -> pure Nothing
   modifyIORef' (world cluster) (#requests %~ ((fst <$> placement, logged) :))
-  -- A write reaches a lagging controller: it observes again.
+  -- A write reaches a lagging controller: it observes again, after the write.
+  -- The API server answers the write against the stored object alone, and
+  -- the controller's catch-up is its own later status write (RES-4 U16), so
+  -- the object only thaws here and catches up when the write lands.
   for_ written $ \k ->
     when (maybe True ((/= ControllerLag) . snd) placement) $
-      modifyServer cluster (\s -> if Set.member k (frozen s) then controllerStep k (s & #frozen %~ Set.delete k) else s)
+      modifyServer cluster (#frozen %~ Set.delete k)
   for_ placement (before key)
   -- Churn precedes observations only (RES-4 E10); a status write between
   -- every read and the write after it is not a controller's behaviour.

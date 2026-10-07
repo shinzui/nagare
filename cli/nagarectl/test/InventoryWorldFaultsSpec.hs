@@ -145,6 +145,18 @@ inventoryWorldFaultsTests =
         _ <- clusterAnswer cluster (apply (service "v3"))
         caught <- get False serviceKey <$> readServer cluster
         (generationOf caught, observedOf caught) @?= (Just 3, Just 3)
+    , testCase "world rule: a write to a lagging object lands at the resourceVersion just read, and the catch-up follows it (RES-4 U16)" $ do
+        -- The API server answers a write against the stored object alone; the
+        -- controller it wakes writes status afterwards (E4, E5). So a write
+        -- carrying the resourceVersion its client just observed is not
+        -- refused by the catch-up it causes.
+        (cluster, _) <- once [service "v1"] MutateCall ControllerLag (apply (service "v2"))
+        observed <- (>>= textOf . field "resourceVersion" . field "metadata") . get False serviceKey <$> readServer cluster
+        assertBool "observed a resourceVersion" (isJust observed)
+        result <- clusterAnswer cluster (apply (stamp observed (service "v3")))
+        exitOf result @?= Just ExitSuccess
+        caught <- get False serviceKey <$> readServer cluster
+        (generationOf caught, observedOf caught) @?= (Just 3, Just 3)
     , testCase "fault acts: ControllerLag on a create (the new object has no status until the next write)" $ do
         (cluster, _) <- once [] MutateCall ControllerLag (createRequest (service "v1"))
         modifyServer cluster settleControllers

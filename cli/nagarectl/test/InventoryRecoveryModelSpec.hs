@@ -142,6 +142,13 @@ inventoryRecoveryModelTests =
         pinned create [(Boundary ObserveCall 5, ForeignObject), (Boundary StorePutCall 9, ClaimLost)] [[TakeOver, Close]]
         -- F68: the updated Service deleted, and an unstamped object at its address.
         pinned (Scenario "create then good update" [Deploy "v1", Deploy "v2"] [] True plainShape False) [(Boundary ObserveCall 17, Deleted), (Boundary ObserveCall 18, ForeignObject)] [[Resume, Close]]
+    , testCase "a lagged create, then a faulted update: the update lands and acts, and the review closes (3d B1, RES-4 U16)" $ do
+        -- The deep tier's first bucket: the lagged controller's catch-up used
+        -- to run before the update landed, so the update was refused, its
+        -- retry landed the faulted spec unrecorded, and I9 failed.
+        let update = Scenario "create then good update" [Deploy "v1", Deploy "v2"] [] True plainShape False
+        pinned update [(Boundary MutateCall 1, ControllerLag), (Boundary MutateCall 2, LandsUnready)] [[Close], [Close]]
+        pinned update [(Boundary MutateCall 1, ControllerLag), (Boundary MutateCall 2, LandsFailed)] [[Close], [Close]]
     , testCase "a corrective update of an unready Deployment plans and closes (EP-180, F63's worker half)" $ do
         -- The Deployment's create lands unready; a Deployment rollout replaces
         -- stuck pods, so the corrected review is planned and applied (RES-4 §2).
