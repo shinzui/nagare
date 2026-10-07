@@ -44,6 +44,11 @@ research record [RES-4](../research/kubernetes-api-semantics-for-inventory-proof
 the real API semantics with 16 experiments on k3s 1.34.6 and Knative 1.22 and found seven more
 (G1–G7).
 
+The world also skips the runtime transport entirely, so a transport defect is invisible to the model. F72, found in
+EP-180 M5a, is the proof. The production runtime refused every update whose reviewed precondition was NotReady
+("unsupported action or precondition"), except for Knative Services. F63's corrective update of an unready
+StatefulSet, and EP-180 M1's of a Deployment, therefore could never run in production, yet the model passed.
+
 After this plan, the world behaves the way the experiments showed the real API server and kubectl
 behave, and the adapter's **production** code interprets it. Concretely:
 
@@ -576,6 +581,10 @@ To prove the world now catches a false belief, as a recorded mutation run (a dif
 - before that fix lands, the G1 ledger entry is the proof, and removing it makes the tier fail.
 
 Do the same for G2 with `ControllerLag`.
+
+F72 is a named case. With the world behind the production kubectl interpreter, applying F72's mutation record
+(`cli/nagarectl/test/mutations/F72-unready-update-unsupported.diff`, which restores the Knative-only branch) must make a
+model test fail. That test is the corrective update of an unready StatefulSet or Deployment.
 
 For F67's stamp proof (EP-180 M3):
 - The world renders real `nagare.dev/spec-digest` stamps on every object it returns, exactly as written.
