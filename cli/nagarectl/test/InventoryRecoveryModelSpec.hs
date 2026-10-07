@@ -105,6 +105,26 @@ inventoryRecoveryModelTests =
         -- (c) A dependent that was created and later deleted out of band
         -- started, so it is not excused.
         faultedTemplateRecurs [(Boundary MutateCall 5, LandsUnready)] outcomes' (Map.fromList [(statefulId, faulted), (cronId, contentDigest "backup")]) (Map.fromList [(cronId, [statefulId])]) Set.empty @?= False
+    , testCase "I8 settles a verify with intent as no effect, by ADR 26 §6; any other unknown is a gap (3d B7)" $ do
+        settlementGap . Right <$> i8Settlement VerifyResource @?= Just Nothing
+        i8Settlement UpdateResource @?= Nothing
+        i8Settlement CreateResource @?= Nothing
+        settlementGap (Right (SettledUnknown "changed" "a corrected review, or an attested close")) @?= Just ("changed", "a corrected review, or an attested close")
+        settlementGap (Left "unreadable") @?= Just ("unreadable", "a readable review")
+        settlementGap (Right (SettledUnknown "proved complete" "inventory resume")) @?= Nothing
+    , testCase "a not-Ready verify refusal on a member live at its poisoned template is excused, per member (3d B6)" $ do
+        let poisoned = contentDigest "poisoned-template"
+            member = "standalone:database-pg/pg/statefulset"
+            refusal members = "PrepareRefused (OperationId \"op-1\") \"Kubernetes object is present but its required condition is not ready\" :| [] refused members " <> members
+            lands = [(Boundary MutateCall 5, LandsUnready)]
+            outcomes' = Map.singleton (digestText poisoned) Unready
+            live = Map.fromList [(statefulId, poisoned), (pvcId, contentDigest "other")]
+        refusedTemplateExcused (refusal member) lands outcomes' live @?= True
+        -- Not excused: another template, another member, no acted Lands*, or another refusal.
+        refusedTemplateExcused (refusal member) lands outcomes' (Map.insert statefulId (contentDigest "corrected") live) @?= False
+        refusedTemplateExcused (refusal (member <> ",standalone:database-pg/pg/pvc")) lands outcomes' live @?= False
+        refusedTemplateExcused (refusal member) [(Boundary MutateCall 5, ControllerLag)] outcomes' live @?= False
+        refusedTemplateExcused ("PrepareRefused (OperationId \"op-1\") \"update requires a present object\" refused members " <> member) lands outcomes' live @?= False
     , testCase "the known-defect ledger is two-sided: unlisted violations and changed counts fail (EP-182)" $ do
         let found scenario' fault' line = T.unlines ["scenario: " <> scenario', "faults: [(Boundary {call = ObserveCall, ordinal = 3}," <> T.pack (show fault') <> ")]", "review: v1", "violation: " <> line]
             entry = KnownViolation "G0" "EP-0" "s" Deleted "I1: planning refused" 1
@@ -474,8 +494,10 @@ drive scenario schedule onStop start resumed = do
           | excused || absentScope -> do
               -- An unowned object at a planned address refuses planning, and a
               -- durable member deleted outside review refuses until its data is
-              -- recovered or its collection reviewed. There is no transaction to
-              -- wedge, so the scenario ends here.
+              -- recovered or its collection reviewed. A review that re-applies a
+              -- poisoned template refuses its verify at prepare until the spec is
+              -- corrected. There is no transaction to wedge, so the scenario
+              -- ends here.
               adversary <- readIORef (runAdversary run)
               ended began run taken (Right (counts adversary))
           -- ADR 26: a reviewed step refused at planning has no supported exit.
@@ -648,7 +670,6 @@ restartAndApply run volume image historyImage = do
             members = Set.fromList [member ^. #identity | bundle <- scopeBundles accepted, Managed member <- declarations bundle]
         native <- fst <$> (Status.loadAcceptedNativeSelected members store history acceptedInventory >>= orTrouble "load accepted native")
         stuck <- readPodBlock (runtimePodOps (clusterConfig (fixtureBinding ^. #identity) (Cluster (runWorld run) (runAdversary run))) native) statefulId
-        debugServer <- (^. #server) <$> readIORef (runWorld run)
         pure $ case stuck of
           Left reason -> Left ("could not read the StatefulSet's pods: " <> reason)
           Right observed -> first (T.pack . show) (compileStatefulSetRestart observed DatabaseObjects "pg" "personal" "model-restart" accepted native)
@@ -748,26 +769,20 @@ ingestReceipt run clean = do
 -- excuse of its own: a durable member the world deleted outside review
 -- (`durable-resource-missing`), or an address a 'ForeignObject' fault filled
 -- with an unowned object. Excuses compose per error and resource, so one
--- refusal may name one of each.
+-- refusal may name one of each. B6: a prepare refusal is excused when each
+-- refused member is live at a template an acted Lands* fault poisoned
+-- ('refusedTemplateExcused'); a refusal is either planning or prepare errors,
+-- never both.
 excusedRefusal :: Run -> Text -> IO Bool
 excusedRefusal run refusal = do
   world <- readIORef (runWorld run)
+  adversary <- readIORef (runAdversary run)
   pure $
     refusalExcused
       (Set.map resourceIdText (deletedOutOfBand world))
       (Set.fromList [resourceIdText resource | (resource, KubeObject {owner = Nothing}) <- Map.toList (objects world)])
       refusal
-
-refusalExcused :: Set.Set Text -> Set.Set Text -> Text -> Bool
-refusalExcused deleted foreign' refusal = not (null errors) && all covered errors
-  where
-    errors =
-      [ (T.takeWhile (/= '"') (snd (T.breakOnEnd "planErrorCode = \"" chunk)), named (snd (T.breakOn "planErrorResources =" chunk)))
-      | chunk <- drop 1 (T.splitOn "PlanError {" refusal)
-      ]
-    named text = [T.takeWhile (/= '"') resource | resource <- drop 1 (T.splitOn "ResourceId \"" text)]
-    covered (code, resources) = not (null resources) && all (excused code) resources
-    excused code resource = (code == "durable-resource-missing" && Set.member resource deleted) || Set.member resource foreign'
+      || refusedTemplateExcused refusal (acted adversary) (world ^. #server . #outcomes) (Map.map nativeDigest (objects world))
 
 -- | A retirement of a scope that was never accepted (its create was closed
 -- and reverted) is correctly refused; there is nothing to retire.
@@ -842,7 +857,11 @@ planWith store registry change decide = do
           before <- readStoreSnapshot store >>= orTrouble "read snapshot"
           prepared <- prepareReview registry before proposal
           case prepared of
-            Left err -> pure (Left (T.pack (show err)))
+            -- The members of each refused operation, so an excuse can judge
+            -- the refusal per member.
+            Left err ->
+              let members = [resource | PrepareRefused refused _ <- NE.toList err, operation <- proposalOperations proposal, plannedOperationId operation == refused, resource <- NE.toList (plannedResources operation)]
+               in pure (Left (T.pack (show err) <> " refused members " <> T.intercalate "," (map resourceIdText members)))
             Right bundle -> do
               _ <- publishReview store bundle >>= orTrouble "publish review"
               published <- readStoreSnapshot store >>= orTrouble "read snapshot"
@@ -941,17 +960,15 @@ settlementGaps run registry reviewed transaction = do
   raw <- maybe (pure []) (\value -> inspectJournal run (headSequence value) >>= orFail "read journal") current
   let events = [event | Right event <- map decodeJournalEvent raw, eventTransaction event == transaction]
       latest = Map.fromList [(operation, eventState event) | event <- events, Just operation <- [eventOperation event]]
+      actions = Map.fromList [(plannedOperationId planned, plannedAction planned) | entry <- reviewOperations (reviewedDocument reviewed), let planned = reviewPlannedOperation entry]
       unsettled = [operation | (operation, state) <- Map.toList latest, hasIntentOnly state]
   modifyIORef' (runWorld run) (\world -> world {inspecting = True})
-  settled <- forM unsettled $ \operation -> (operation,) <$> settleReviewedOperation registry reviewed operation
+  settled <- forM unsettled $ \operation -> (operation,) <$> maybe (settleReviewedOperation registry reviewed operation) (pure . Right) (i8Settlement =<< Map.lookup operation actions)
   modifyIORef' (runWorld run) (\world -> world {inspecting = False})
   pure
     [ operationIdText operation <> " settles unknown: " <> reason <> " (resolved by " <> resolvesBy <> ")"
     | (operation, result) <- settled
-    , (reason, resolvesBy) <- case result of
-        Left err -> [(err, "a readable review")]
-        Right (SettledUnknown reason resolvesBy) | resolvesBy /= "inventory resume" -> [(reason, resolvesBy)]
-        Right _ -> []
+    , Just (reason, resolvesBy) <- [settlementGap result]
     ]
   where
     hasIntentOnly state = case state of

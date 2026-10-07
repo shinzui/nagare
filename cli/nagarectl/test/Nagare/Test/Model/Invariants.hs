@@ -5,6 +5,10 @@ module Nagare.Test.Model.Invariants
   ( storeConsistent
   , correctionConverges
   , faultedTemplateRecurs
+  , refusedTemplateExcused
+  , refusalExcused
+  , i8Settlement
+  , settlementGap
   , checkInvariants
   )
 where
@@ -200,3 +204,50 @@ convergedStaleIncarnations run = do
           , Just object' <- [Map.lookup (Status.findingResource finding) (objects world)]
           , uid object' /= recorded
           ]
+
+-- | 3d B6: I1's prepare-refusal path gets 'faultedTemplateRecurs' per
+-- member. The refusal is a prepare refusal for a member that is not Ready,
+-- it names its refused members, and every one of them is live at a template
+-- an acted Lands* fault poisoned.
+refusedTemplateExcused :: Text -> [(Boundary, Fault)] -> Map.Map Text Outcome -> Map.Map ResourceId ContentDigest -> Bool
+refusedTemplateExcused refusal acted' outcomes' live =
+  "PrepareRefused" `T.isInfixOf` refusal
+    && "required condition is not ready" `T.isInfixOf` refusal
+    && not (null named)
+    && Map.size refused == length named
+    && faultedTemplateRecurs acted' outcomes' refused Map.empty Set.empty
+  where
+    named = case T.breakOn " refused members " refusal of
+      (_, rest) | T.null rest -> []
+      (_, rest) -> filter (not . T.null) (T.splitOn "," (T.strip (T.drop (T.length " refused members ") rest)))
+    refused = Map.fromList [(resource, digest) | name <- named, Right resource <- [mkResourceId name], Just digest <- [Map.lookup resource live]]
+
+-- | B2's pure judgement, per PlanError and resource (see 'excusedRefusal' in
+-- the recovery model).
+refusalExcused :: Set.Set Text -> Set.Set Text -> Text -> Bool
+refusalExcused deleted foreign' refusal = not (null errors) && all covered errors
+  where
+    errors =
+      [ (T.takeWhile (/= '"') (snd (T.breakOnEnd "planErrorCode = \"" chunk)), named (snd (T.breakOn "planErrorResources =" chunk)))
+      | chunk <- drop 1 (T.splitOn "PlanError {" refusal)
+      ]
+    named text = [T.takeWhile (/= '"') resource | resource <- drop 1 (T.splitOn "ResourceId \"" text)]
+    covered (code, resources) = not (null resources) && all (excused code) resources
+    excused code resource = (code == "durable-resource-missing" && Set.member resource deleted) || Set.member resource foreign'
+
+-- | I8's settlement of an operation with intent and no completion, when it
+-- needs no adapter. ADR 26 §6: verify is effect-free by construction (the
+-- driver never executes it), so a verify settles no effect whatever the
+-- adapter would observe now, as close classes it. Every other action asks the
+-- adapter.
+i8Settlement :: OperationAction -> Maybe Settlement
+i8Settlement action
+  | action == VerifyResource = Just (SettledNoEffect "a verify never executes (ADR 26 §6)")
+  | otherwise = Nothing
+
+-- | I8's verdict on one settlement: unknown is a gap, unless resume resolves it.
+settlementGap :: Either Text Settlement -> Maybe (Text, Text)
+settlementGap result = case result of
+  Left err -> Just (err, "a readable review")
+  Right (SettledUnknown reason resolvesBy) | resolvesBy /= "inventory resume" -> Just (reason, resolvesBy)
+  Right _ -> Nothing
