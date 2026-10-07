@@ -89,6 +89,7 @@ This is the authoritative list of implementation findings for [MP-23](../masterp
 | [F70](#f70) | P1 | A worker Deployment whose update never becomes available reads as ready, so a broken rollout is recorded as complete | Verifying | EP-153 / EP-180 |
 | [F67](#f67) | P1 | An update refused after a status write, whose refusal's journal event is lost, settles unknown | Verifying | EP-153 / EP-180 |
 | [F71](#f71) | P2 | A Kubernetes write the API server definitively refused (409, 422, 404 and the other 4xx) is reported ambiguous | Verifying | EP-153 / EP-180 |
+| [F72](#f72) | P1 | The Kubernetes transport refuses a corrective update of an unready StatefulSet or Deployment as an unsupported precondition | Verifying | EP-153 / EP-180 |
 | [F68](#f68) | P1 | An update whose target is deleted and replaced by an object not stamped as its own settles unknown, so only an attested close can end it | Verifying | EP-153 / EP-177 |
 
 Closed findings keep their full text, location, implementation updates and verification in [the closed-findings archive](mp23-archive/mp23-findings-closed.md). F01 and F11 retain their [earlier independent closure](mp23-archive/mp23-verification.md). F02, F03, F04, F05, F06, F07, F08 and F20 now have [2026-10-02 independent closure](mp23-independent-verification-2026-10-02.md). F34, F35, F36, F37, F38, F41 and F42 have 2026-10-04 independent closure on candidate `7596632c`, and F49 and F50 on candidate `847543896d07` ([records](mp23-independent-results-2026-10-04/phase1-source-and-regressions-7596632c.md)). Other entries retain their status shown above.
@@ -950,3 +951,19 @@ The class is not `NoEffect`. The absent before-state has changed, and in the `De
 - "an update the API server refuses with a 4xx is a known no effect; a lost connection stays ambiguous (G4)", in `InventoryKubernetesFieldTakeoverSpec`, through the fake kubectl interpreter. The wiring existed before this test, so its failing side is shown by the wiring record below.
 
 **Mutations.** `test/mutations/G4-kubectl-refusal-ignored.diff` makes the classifier answer nothing, and both tests fail. `test/mutations/G4-runtime-refusal-ambiguous.diff` drops the runtime branch, and the wiring test fails.
+
+## F72
+
+**The Kubernetes transport refuses a corrective update of an unready StatefulSet or Deployment as an unsupported precondition** — P1; **Verifying**; owners EP-153 / EP-180.
+
+**Found while building EP-180 M5 (2026-10-06, claude-opus-5-5); proved by a transport test through the fake kubectl interpreter (observed).**
+- **The gap.** A corrective update of an unready object carries a `KubernetesNotReady` precondition. F63 admits one for StatefulSets, and EP-180 M1 for Deployments. The runtime's write path accepted only `KubernetesPresent` for an update, converting `NotReady` only for a Knative Service. So in production the correction was refused before reaching the API server, with "Kubernetes transport received an unsupported action or precondition".
+- **Why the model missed it.** The recovery model's world implements its own writes rather than running the runtime's transport, so it passed F63's correction scenarios.
+
+**Fix.** An update with a `NotReady` precondition is written like any other. G6's guard is its UID, its before-state stamp and its field owners, read live, so readiness has no part in the precondition. The transport still waits for readiness after the write.
+
+**Tests.** "a corrective update of an unready object reaches the API server (F63, M1)", in `InventoryKubernetesFieldTakeoverSpec`. It failed with exactly that refusal.
+
+**Mutation.** `test/mutations/F72-unready-update-unsupported.diff`.
+
+**Model.** EP-182's world runs behind the production kubectl interpreter, so the model will exercise this path.

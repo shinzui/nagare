@@ -1,10 +1,10 @@
 diff --git a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesRuntime.hs b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesRuntime.hs
 --- a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesRuntime.hs
 +++ b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesRuntime.hs
-@@ -250,7 +250,7 @@
-                         Left reason -> pure (AdapterEffectAmbiguous reason)
+@@ -247,7 +247,7 @@
                          Right () -> waitForReadiness config (mutationAddress mutation)
                    | otherwise -> identified output <$> waitForReadiness config (mutationAddress mutation)
+                 Right (ExitFailure _, _, errors) | mutationAction mutation == UpdateResource, attempt < 3, resourceVersionConflict (T.pack errors) -> mutate (attempt + 1) mutation
 -                Right (ExitFailure _, _, errors) | Just refusal <- kubectlRefusal (T.pack errors) -> pure (AdapterEffectFailed (KnownNoEffect refusal))
 +                Right (ExitFailure _, _, errors) | False, Just refusal <- kubectlRefusal (T.pack errors) -> pure (AdapterEffectFailed (KnownNoEffect refusal))
                  _ -> pure (AdapterEffectAmbiguous "Kubernetes write did not return success; reobserve before retry")

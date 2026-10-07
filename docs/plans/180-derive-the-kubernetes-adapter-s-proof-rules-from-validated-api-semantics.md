@@ -72,6 +72,17 @@ MasterPlan, not by this plan.
   - `readinessForAddress` moved to `Adapters/KubernetesReadiness.hs`, and the runtime allowance dropped to 1303.
   - Done before M5, because M5's bounded rv-409 re-read relies on every other 409 or 422 being no effect.
 - [ ] M5 (G6): one conditional-write discipline for updates and retires.
+  - M5a, 2026-10-06, done for updates.
+    - Adapter: `requireWriteTarget` guards an update by (UID, owner, stamp) when its before stamp differs from the
+      reviewed digest, and the write carries the fresh observation.
+    - Runtime: `confirmUpdateTarget` adds the stamp, field-owner and takeover-revision checks on the managed-fields
+      read, and applies with that read's resourceVersion, re-read up to three attempts on "the object has been
+      modified" before G4 decides.
+    - Tests failed first. Records `G6-write-guard-compares-whole-state`, `G6-runtime-guard-ignores-stamp` and
+      `G6-no-revision-retry` each fail their test.
+    - F72 was found and fixed: the transport refused an unready correction. Record `F72-unready-update-unsupported`.
+    - Retires keep the exact guard until M6 (G5): see Surprises.
+  - M5b: fold the Knative-only version 2 into this discipline.
 - [ ] M6 (G5): terminating objects are classified, not read as present.
 - [ ] M7 (G7): resource quantities compare canonically.
 - [ ] M8: `just mutation-check` proves every mutation record on the remote builder.
@@ -79,6 +90,16 @@ MasterPlan, not by this plan.
 
 ## Surprises & Discoveries
 
+- M5a's first cut regressed twice, and the gate caught both before commit.
+  - The stamp guard accepted a missing stamp (`Nothing == Nothing`, as in the world, which reads no stamps). A landed
+    update was then retried, so the fast tier's I4 reported a second write, and a landed Knative update was answered
+    as safe to retry. A drift repair would do the same in production, because its stamp does not change when the write
+    lands. The guard now applies only when the before stamp exists and differs from the reviewed digest; otherwise the
+    exact before-state guards, as before.
+  - Guarding a retire by (UID, owner, digest) re-deleted an object whose DELETE had been accepted and was held by a
+    finalizer: its digest is unchanged, and only its moved resourceVersion told it apart. Five effectful-collection
+    tests caught it. A retire needs the terminating state RES-4 §3 classifies ("same UID, deletion timestamp set,
+    landed"), which is G5. Retires therefore keep the exact guard until M6.
 - M1 needed no Deployment branch in `confirmLandedUnready`. `recover`'s landed-update path does not cover
   Deployments, so the branch would be dead code, and settlement already classes an exactly landed, unready update as
   landed through its generic arm. The Plan of Work's mention of it is superseded.
@@ -126,6 +147,14 @@ MasterPlan, not by this plan.
   its writer per field. So "only nagare-inventory owns non-status fields" with the before stamp proves no other writer
   touched the spec or metadata, and status churn never conflicts. Options rejected: recording a configuration digest
   (the dropped v4) and keeping v1's exact guard (G6's friction).
+  Date: 2026-10-06
+
+
+- Decision (2026-10-06, session nagare): once M6 makes terminating objects observable, a retire's G6 change carries
+  the fresh resourceVersion without a re-read loop.
+  Rationale: a retire's window shrinks from "since review" to milliseconds. Against RES-4's measured steady-state
+  churn (about 30 s between status writes for CronJob and ResourceQuota, E10), a 409 is rare, and it is a no-effect
+  refusal (G4) that the next plan retries. Re-verifying the digest on a re-read would need a re-parse.
   Date: 2026-10-06
 
 

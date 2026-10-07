@@ -8,6 +8,7 @@ module Nagare.Inventory.Adapters.KubernetesProof
   , FieldTakeover (..)
   , settleMutation
   , requireSameBefore
+  , requireWriteTarget
   , completionProof
   , statePhysical
   , knativeServiceAddress
@@ -15,6 +16,7 @@ module Nagare.Inventory.Adapters.KubernetesProof
   , deploymentAddress
   , orTakeover
   , kubectlRefusal
+  , resourceVersionConflict
   )
 where
 
@@ -331,6 +333,37 @@ kubectlRefusal errors = listToMaybe [line | line <- map T.strip (T.lines errors)
     refusals =
       ["Error from server (" <> code <> ")" | code <- ["Conflict", "Invalid", "AlreadyExists", "NotFound", "Forbidden", "BadRequest"]]
         <> ["error: Operation cannot be fulfilled", "error: Apply failed with"]
+
+-- | G6, RES-4 U10: the guard before an update writes. It needs the reviewed
+-- UID, this member's ownership and the before-state stamp, not the
+-- resourceVersion: the write carries the fresh one, and the runtime repeats
+-- the guard on its managed-fields read. Other actions keep the exact
+-- before-state. A retire keeps it until a terminating object is observable
+-- (G5): only the moved resourceVersion tells an accepted, finalizer-held
+-- delete from a live object, and a retire must not delete it twice.
+requireWriteTarget :: KubernetesMutation -> KubernetesState -> Maybe ContentDigest -> Either Text ()
+requireWriteTarget mutation current stamp = case mutationAction mutation of
+  -- Only a before stamp other than the reviewed digest can tell the reviewed
+  -- write from the before-state (F67); without one, and for a drift repair or
+  -- a Knative version-2 update, the exact before-state guards the write.
+  UpdateResource
+    | mutationVersion mutation == 2 || maybe True (== mutationNativeDigest mutation) (mutationBeforeStamp mutation) -> requireSameBefore mutation current
+    | not sameObject -> Left "Kubernetes object changed since review; replan before mutation"
+    | stamp /= mutationBeforeStamp mutation -> Left "Kubernetes object's stamp changed since review; replan before mutation"
+    | otherwise -> Right ()
+  _ -> requireSameBefore mutation current
+  where
+    owned state = case state of
+      KubernetesPresent uid _ (Just owner) _ | owner == mutationResource mutation -> Just uid
+      KubernetesNotReady uid _ (Just owner) _ | owner == mutationResource mutation -> Just uid
+      _ -> Nothing
+    sameObject = isJust (owned (mutationBefore mutation)) && owned current == owned (mutationBefore mutation)
+
+-- | G6, RES-4 U10: a write refused because the object moved after the read
+-- that guarded it (its resourceVersion precondition failed). The write step
+-- re-reads and retries it; only then does the refusal stand.
+resourceVersionConflict :: Text -> Bool
+resourceVersionConflict = T.isInfixOf "the object has been modified"
 
 -- | Only a version-3 update carries a takeover, bound to its own exact
 -- precondition; no other version may carry one.

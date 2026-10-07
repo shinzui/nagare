@@ -1,0 +1,12 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesRuntime.hs b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesRuntime.hs
+--- a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesRuntime.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesRuntime.hs
+@@ -184,7 +184,7 @@
+           -- any other; the guard is its UID, stamp and field owners, read live,
+           -- and the transport still waits for readiness after the write.
+           let updateBefore = case (mutationAction mutation, mutationBefore mutation) of
+-                (UpdateResource, KubernetesNotReady uid revision owner digest) -> KubernetesPresent uid revision owner digest
++                (UpdateResource, KubernetesNotReady uid revision owner digest) | False -> KubernetesPresent uid revision owner digest
+                 _ -> mutationBefore mutation
+           request <- case (mutationAction mutation, updateBefore) of
+             (CreateResource, KubernetesAbsent _) ->

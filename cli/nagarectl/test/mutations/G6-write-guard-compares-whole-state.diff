@@ -1,0 +1,12 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs
+--- a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs
+@@ -342,7 +342,7 @@
+ -- (G5): only the moved resourceVersion tells an accepted, finalizer-held
+ -- delete from a live object, and a retire must not delete it twice.
+ requireWriteTarget :: KubernetesMutation -> KubernetesState -> Maybe ContentDigest -> Either Text ()
+-requireWriteTarget mutation current stamp = case mutationAction mutation of
++requireWriteTarget mutation current stamp = case VerifyResource of
+   -- Only a before stamp other than the reviewed digest can tell the reviewed
+   -- write from the before-state (F67); without one, and for a drift repair or
+   -- a Knative version-2 update, the exact before-state guards the write.

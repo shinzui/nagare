@@ -20,6 +20,7 @@ import Data.Text.Encoding qualified as TE
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes
+import Nagare.Inventory.Adapters.KubernetesProof (requireWriteTarget)
 import Nagare.Inventory.Adapters.KubernetesRuntime (mkKubernetesRuntimeOps)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect))
@@ -76,7 +77,7 @@ kubernetesFieldTakeoverTests =
         writeIORef state (KubernetesPresent (ok (mkPhysicalIdentity "replacement")) "4" (Just K.resource) (contentDigest "drifted"))
         adapterPreflight adapter K.updateOperation native >>= assertBool "replaced object accepted" . isLeft
         (replaced, replacedApplies) <- transport mutation (live "replacement" "4" [own, patch "t1"]) Nothing
-        assertKnownNoEffect "changed after the reviewed observation" replaced
+        assertKnownNoEffect "replaced after the reviewed observation" replaced
         (moved, movedApplies) <- transport mutation (live "kubernetes-uid-1" "5" [own, patch "t1"]) Nothing
         assertKnownNoEffect "changed after the reviewed observation" moved
         (replacedApplies, movedApplies) @?= (0, 0)
@@ -124,6 +125,53 @@ kubernetesFieldTakeoverTests =
         case lost of
           AdapterEffectAmbiguous _ -> pure ()
           other -> assertFailure ("a lost connection was classed " <> show other)
+    , testCase "an update guarded by UID, stamp and field owners writes with the fresh resourceVersion (G6)" $ do
+        mutation <- stampedUpdate
+        -- RES-4 U10: a status write moved resourceVersion; the guard does not compare it.
+        (churned, churnedBodies) <- scriptedTransport mutation (stampedLive "5" stampBefore [own, status]) [Nothing]
+        churned @?= AdapterEffectIdentified K.physical AdapterEffectCompleted
+        map bodyRevision churnedBodies @?= [Just "5"]
+        -- A foreign writer of a non-status field, even of the same value (E13 d, e).
+        (foreign', foreignBodies) <- scriptedTransport mutation (stampedLive "5" stampBefore [own, edit, status]) [Nothing]
+        assertKnownNoEffect "another writer" foreign'
+        foreignBodies @?= []
+        -- The stamp moved: another write of Nagare's is live, not the reviewed before-state.
+        (moved, movedBodies) <- scriptedTransport mutation (stampedLive "5" (contentDigest "another") [own, status]) [Nothing]
+        assertKnownNoEffect "stamp" moved
+        movedBodies @?= []
+    , testCase "a write the object outran is re-read and retried at most three times before the refusal stands (G6, G4)" $ do
+        mutation <- stampedUpdate
+        let modified = Just "Error from server (Conflict): Operation cannot be fulfilled on configmaps \"settings\": the object has been modified; please apply your changes to the latest version and try again"
+        (recovered, recoveredBodies) <- scriptedTransport mutation (stampedLive "5" stampBefore [own, status]) [modified, modified, Nothing]
+        recovered @?= AdapterEffectIdentified K.physical AdapterEffectCompleted
+        length recoveredBodies @?= 3
+        (refused, refusedBodies) <- scriptedTransport mutation (stampedLive "5" stampBefore [own, status]) [modified, modified, modified, Nothing]
+        assertKnownNoEffect "the object has been modified" refused
+        length refusedBodies @?= 3
+    , testCase "the adapter guards an update by UID, owner and stamp, not by resourceVersion (G6)" $ do
+        let reviewed = contentDigest (snd (bound Map.! K.resource))
+        -- An update: a status write moved resourceVersion and the whole-object digest.
+        (update, updateWrites, updateState) <- stampedAdapter (KubernetesPresent K.physical "4" (Just K.resource) (contentDigest "before"), Just stampBefore)
+        updateNative <- adapterPrepare update K.updateOperation >>= K.expectRight
+        writeIORef updateState (KubernetesNotReady K.physical "5" (Just K.resource) (contentDigest "churned"), Just stampBefore)
+        adapterPreflight update K.updateOperation updateNative >>= (@?= Right ())
+        _ <- adapterExecute update K.updateOperation updateNative
+        readIORef updateWrites >>= (@?= [KubernetesNotReady K.physical "5" (Just K.resource) (contentDigest "churned")])
+        -- Another stamp is another write of Nagare's: refused before any write.
+        writeIORef updateState (KubernetesNotReady K.physical "6" (Just K.resource) (contentDigest "churned"), Just (contentDigest "another"))
+        adapterPreflight update K.updateOperation updateNative >>= assertBool "a changed stamp passed preflight" . isLeft
+        adapterExecute update K.updateOperation updateNative >>= assertKnownNoEffect "stamp"
+        length <$> readIORef updateWrites >>= (@?= 1)
+        -- A retire keeps its exact before-state until G5 observes a terminating object.
+        mutation <- stampedUpdate
+        let retire = mutation {mutationAction = RetireResource, mutationBefore = KubernetesPresent K.physical "4" (Just K.resource) reviewed, mutationBeforeStamp = Nothing}
+        assertBool "a moved retire target was accepted" (isLeft (requireWriteTarget retire (KubernetesPresent K.physical "5" (Just K.resource) reviewed) Nothing))
+    , testCase "a corrective update of an unready object reaches the API server (F63, M1)" $ do
+        -- The fresh precondition of a correction is the unready object itself.
+        mutation <- (\update -> update {mutationBefore = KubernetesNotReady K.physical "5" (Just K.resource) (contentDigest "unready")}) <$> stampedUpdate
+        (corrected, bodies) <- scriptedTransport mutation (stampedLive "5" stampBefore [own, status]) [Nothing]
+        corrected @?= AdapterEffectIdentified K.physical AdapterEffectCompleted
+        map bodyRevision bodies @?= [Just "5"]
     ]
 
 -- | The live object as kubectl returns it with managed fields.
@@ -222,6 +270,65 @@ refusingTransport mutation errors = do
         other -> assertFailure ("unmodelled kubectl request: " <> show other) >> pure (Left "unmodelled")
       config = withKubectlInterpreter (runKubectlWith handle) (KubernetesRuntimeConfig (ok (mkContextId "test")) "test" (pure (Right ())))
   kubernetesMutateConditional (mkKubernetesRuntimeOps config bound) mutation
+
+stampBefore :: ContentDigest
+stampBefore = contentDigest "before"
+
+-- | A prepared update that recorded its before-state stamp.
+stampedUpdate :: IO KubernetesMutation
+stampedUpdate = (\mutation -> mutation {mutationBeforeStamp = Just stampBefore}) <$> prepared Nothing
+
+status :: Value
+status = object ["manager" .= ("k3s" :: Text), "operation" .= ("Update" :: Text), "subresource" .= ("status" :: Text), "fieldsV1" .= object ["f:status" .= object []]]
+
+-- | The live object at a resourceVersion, carrying a spec-digest stamp.
+stampedLive :: Text -> ContentDigest -> [Value] -> Value
+stampedLive revision stamp entries = case live "kubernetes-uid-1" revision entries of
+  Object root
+    | Just (Object metadata) <- KM.lookup "metadata" root ->
+        Object (KM.insert "metadata" (Object (KM.insert "annotations" (object ["nagare.dev/spec-digest" .= digestText stamp]) metadata)) root)
+  other -> other
+
+-- | The transport against a modelled API server whose successive applies
+-- fail with the given error output (Nothing succeeds), returning the apply
+-- bodies it was sent.
+scriptedTransport :: KubernetesMutation -> Value -> [Maybe String] -> IO (AdapterExecution, [Text])
+scriptedTransport mutation object' answers = do
+  remaining <- newIORef answers
+  bodies <- newIORef []
+  let handle request = case request ^. #arguments of
+        "get" : _ -> pure (Right (ExitSuccess, T.unpack (TE.decodeUtf8 (BL.toStrict (encode object'))), ""))
+        "apply" : _ -> do
+          modifyIORef' bodies (<> [T.pack (request ^. #input)])
+          next <- atomicModifyIORef' remaining (\case [] -> ([], Nothing); answer : rest -> (rest, answer))
+          pure (Right (maybe (ExitSuccess, T.unpack (TE.decodeUtf8 (BL.toStrict (encode object'))), "") (ExitFailure 1,"",) next))
+        other -> assertFailure ("unmodelled kubectl request: " <> show other) >> pure (Left "unmodelled")
+      config = withKubectlInterpreter (runKubectlWith handle) (KubernetesRuntimeConfig (ok (mkContextId "test")) "test" (pure (Right ())))
+  result <- kubernetesMutateConditional (mkKubernetesRuntimeOps config bound) mutation
+  (result,) <$> readIORef bodies
+
+-- | The resourceVersion an apply body carried as its precondition.
+bodyRevision :: Text -> Maybe Text
+bodyRevision body = case eitherDecodeStrict' (TE.encodeUtf8 body) of
+  Right (Object root)
+    | Just (Object metadata) <- KM.lookup "metadata" root
+    , Just (String revision) <- KM.lookup "resourceVersion" metadata ->
+        Just revision
+  _ -> Nothing
+
+-- | An adapter over a stamped observation the test controls, whose transport
+-- records the precondition each write was given.
+stampedAdapter :: (KubernetesState, Maybe ContentDigest) -> IO (Adapter, IORef [KubernetesState], IORef (KubernetesState, Maybe ContentDigest))
+stampedAdapter initial = do
+  state <- newIORef initial
+  writes <- newIORef []
+  let ops =
+        KubernetesAdapterOps
+          { kubernetesContext = ok (mkContextId "test")
+          , kubernetesObserveStamped = \_ -> readIORef state
+          , kubernetesMutateConditional = \mutation -> modifyIORef' writes (<> [mutationBefore mutation]) >> pure AdapterEffectCompleted
+          }
+  pure (mkKubernetesAdapter bound ops, writes, state)
 
 assertKnownNoEffect :: Text -> AdapterExecution -> Assertion
 assertKnownNoEffect expected result = case result of

@@ -75,11 +75,11 @@ import Nagare.Inventory.Adapters.Kubernetes
 import Nagare.Inventory.Adapters.KubernetesCollection (collectionDeleteRequest)
 import Nagare.Inventory.Adapters.KubernetesFields (desiredFieldsMatch)
 import Nagare.Inventory.Adapters.KubernetesKinds (readinessKinds, supportedUpdateKinds)
-import Nagare.Inventory.Adapters.KubernetesProof (kubectlRefusal)
+import Nagare.Inventory.Adapters.KubernetesProof (kubectlRefusal, resourceVersionConflict)
 import Nagare.Inventory.Adapters.KubernetesReadiness
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect))
-import Nagare.Inventory.KubernetesConfiguration (configurationDigest, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, confirmReviewedFieldTakeover, confirmTakeoverSettled, liveStamp)
+import Nagare.Inventory.KubernetesConfiguration (configurationDigest, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, confirmReviewedFieldTakeover, confirmTakeoverSettled, confirmUpdateTarget, liveStamp)
 import Nagare.Inventory.KubernetesTransport (KubernetesRuntimeConfig (..), invokeKubectl)
 import Nagare.Inventory.Migration.PostgresRename (migrationFenced, scaledToZero)
 import Nagare.Resource.Inventory (ManagedResource (..))
@@ -127,7 +127,7 @@ mkKubernetesRuntimeObservations stable config resolveCacheKey specs =
   ( KubernetesAdapterOps
       { kubernetesContext = runtimeContext config
       , kubernetesObserveStamped = observe
-      , kubernetesMutateConditional = mutate
+      , kubernetesMutateConditional = mutate (1 :: Int)
       }
   , observeKubernetesBatchWithGuard (runtimeGuard config) (fmap fst . observeWithoutGuard)
   )
@@ -166,7 +166,7 @@ mkKubernetesRuntimeObservations stable config resolveCacheKey specs =
                   Left reason -> pure (KubernetesUnknown reason, Nothing)
                   Right state -> (,liveStamp (T.pack output)) <$> observeCacheClientOutput resolveCacheKey native (T.pack output) state
         _ -> pure (KubernetesUnknown "bound resource has no Kubernetes address", Nothing)
-    mutate mutation = do
+    mutate attempt mutation = do
       guarded <- runtimeGuard config
       case guarded of
         Left reason -> pure (AdapterEffectAmbiguous ("cluster guard refused before Kubernetes write: " <> reason))
@@ -180,16 +180,11 @@ mkKubernetesRuntimeObservations stable config resolveCacheKey specs =
               else case materialized of
                 Left reason -> pure (Left reason)
                 Right native -> materializeCacheKey resolveCacheKey native
-          -- Preserve the reviewed unready precondition in the adapter. The
-          -- transport uses the same UID/version conditional update form; it
-          -- still waits for actual readiness after the corrected write.
-          let updateBefore = case (mutationAction mutation, mutationAddress mutation, mutationBefore mutation) of
-                ( UpdateResource
-                  , Kubernetes _ "serving.knative.dev" kind (Just _) _
-                  , KubernetesNotReady uid revision owner digest
-                  )
-                    | nameText kind == "service" ->
-                        KubernetesPresent uid revision owner digest
+          -- F72: an update of an unready object (a correction) is written like
+          -- any other; the guard is its UID, stamp and field owners, read live,
+          -- and the transport still waits for readiness after the write.
+          let updateBefore = case (mutationAction mutation, mutationBefore mutation) of
+                (UpdateResource, KubernetesNotReady uid revision owner digest) -> KubernetesPresent uid revision owner digest
                 _ -> mutationBefore mutation
           request <- case (mutationAction mutation, updateBefore) of
             (CreateResource, KubernetesAbsent _) ->
@@ -215,13 +210,13 @@ mkKubernetesRuntimeObservations stable config resolveCacheKey specs =
                 Left reason -> pure (Left reason)
                 Right True -> pure (Left "generated credential updates require a dedicated data-preserving operation")
                 Right False -> do
-                  ownership <- verifyLiveOwnership config (mutationAddress mutation) uid revision (maybe [] takeoverManagers (mutationTakeover mutation))
+                  ownership <- verifyLiveOwnership config (mutationAddress mutation) uid (mutationBeforeStamp mutation) (mutationTakeover mutation)
                   pure $ do
-                    observed <- ownership
+                    (observed, fresh) <- ownership
                     native <- resolved
                     case mutationAddress mutation of
                       Kubernetes _ "" kind namespace name | nameText kind == "service" ->
-                        case servicePortPatch uid revision native observed of
+                        case servicePortPatch uid fresh native observed of
                           Left reason -> Left reason
                           Right (Just patch) ->
                             Right
@@ -230,8 +225,8 @@ mkKubernetesRuntimeObservations stable config resolveCacheKey specs =
                                   <> ["--type=json", "--field-manager=nagare-inventory", "-p", T.unpack patch]
                               , ""
                               )
-                          Right Nothing -> applyRequest uid revision native
-                      _ -> applyRequest uid revision native
+                          Right Nothing -> applyRequest uid fresh native
+                      _ -> applyRequest uid fresh native
             _ -> pure (Left "Kubernetes transport received an unsupported action or precondition")
           case request of
             Left reason -> pure (AdapterEffectFailed (KnownNoEffect reason))
@@ -251,6 +246,7 @@ mkKubernetesRuntimeObservations stable config resolveCacheKey specs =
                         Left reason -> pure (AdapterEffectAmbiguous reason)
                         Right () -> waitForReadiness config (mutationAddress mutation)
                   | otherwise -> identified output <$> waitForReadiness config (mutationAddress mutation)
+                Right (ExitFailure _, _, errors) | mutationAction mutation == UpdateResource, attempt < 3, resourceVersionConflict (T.pack errors) -> mutate (attempt + 1) mutation
                 Right (ExitFailure _, _, errors) | Just refusal <- kubectlRefusal (T.pack errors) -> pure (AdapterEffectFailed (KnownNoEffect refusal))
                 _ -> pure (AdapterEffectAmbiguous "Kubernetes write did not return success; reobserve before retry")
 
@@ -1159,12 +1155,11 @@ servicePortPatch uid revision native observed = do
       Just (Object value) -> Right value
       _ -> Left "Service inventory annotations are missing"
 
--- | An empty reviewed list is the strict check; a version-3 mutation passes
--- the exact foreign entries its review recorded.
-verifyLiveOwnership :: KubernetesRuntimeConfig -> ProviderAddress -> PhysicalIdentity -> Text -> [Value] -> IO (Either Text Value)
-verifyLiveOwnership config target uid revision reviewed = do
+-- | A version-3 mutation allows the exact foreign entries its review recorded.
+verifyLiveOwnership :: KubernetesRuntimeConfig -> ProviderAddress -> PhysicalIdentity -> Maybe ContentDigest -> Maybe FieldTakeover -> IO (Either Text (Value, Text))
+verifyLiveOwnership config target uid stamp takeover = do
   live <- readLiveManagedObject config target
-  pure (live >>= \observed -> observed <$ confirmReviewedFieldTakeover (Just target) reviewed uid revision observed)
+  pure (live >>= \observed -> (observed,) <$> confirmUpdateTarget (Just target) (maybe [] takeoverManagers takeover) uid stamp (takeoverResourceVersion <$> takeover) observed)
 
 readLiveManagedObject :: KubernetesRuntimeConfig -> ProviderAddress -> IO (Either Text Value)
 readLiveManagedObject config target = case target of

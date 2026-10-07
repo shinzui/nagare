@@ -2,6 +2,8 @@
 module Nagare.Inventory.KubernetesConfiguration
   ( configurationDigest
   , liveStamp
+  , stampOf
+  , confirmUpdateTarget
   , confirmInventoryFieldOwnership
   , confirmInventoryFieldOwnershipFor
   , confirmReviewedFieldTakeover
@@ -28,13 +30,32 @@ import Nagare.Resource.Wire (canonicalValue)
 -- atomic write as the spec it describes (RES-4 U3), so on the same UID it
 -- witnesses which of Nagare's writes is live.
 liveStamp :: Text -> Maybe ContentDigest
-liveStamp output = case eitherDecodeStrict (TE.encodeUtf8 output) of
-  Right (Object root)
+liveStamp output = either (const Nothing) stampOf (eitherDecodeStrict (TE.encodeUtf8 output))
+
+stampOf :: Value -> Maybe ContentDigest
+stampOf = \case
+  Object root
     | Just (Object metadata) <- KM.lookup "metadata" root
     , Just (Object annotations) <- KM.lookup "annotations" metadata
     , Just (String stamp) <- KM.lookup "nagare.dev/spec-digest" annotations ->
         either (const Nothing) Just (mkContentDigest stamp)
   _ -> Nothing
+
+-- | G6, RES-4 U10 (E13): an update's target is as reviewed when it is the
+-- reviewed UID, still carries the before-state stamp, and no other writer owns
+-- a non-status field (beyond a reviewed takeover). Every API write records its
+-- writer per field, and status writes go to status-subresource entries, so
+-- this is immune to status churn and catches a same-value foreign write. The
+-- result is the live resourceVersion, the write's precondition. A reviewed
+-- takeover (F37) forces another writer's fields, so it stays bound to the
+-- exact reviewed resourceVersion.
+confirmUpdateTarget :: Maybe ProviderAddress -> [Value] -> PhysicalIdentity -> Maybe ContentDigest -> Maybe Text -> Value -> Either Text Text
+confirmUpdateTarget target reviewed uid stamp takeoverRevision observed = do
+  (actualUid, actualRevision) <- liveIdentity observed
+  unless (actualUid == physicalIdentityText uid) (Left "Kubernetes object was replaced after the reviewed observation")
+  unless (maybe True (== actualRevision) takeoverRevision) (Left "Kubernetes object changed after the reviewed observation")
+  unless (stampOf observed == stamp) (Left "Kubernetes object's stamp changed after the reviewed observation")
+  actualRevision <$ confirmReviewedFieldTakeover target reviewed uid actualRevision observed
 
 configurationDigest :: Value -> Either Text ContentDigest
 configurationDigest (Object root) = do

@@ -176,12 +176,12 @@ mkKubernetesAdapterWithObservations specs ops observeBatch stableObserve readBac
       Right mutation -> do
         decision <- recover operation prepared
         (current, stamp) <- kubernetesObserveStamped ops (mutationResource mutation)
-        before <- observeMutation mutation
+        (before, _) <- observeMutation mutation
         pure (settleMutation mutation before current stamp decision)
     observeMutation mutation =
       if mutationVersion mutation == 2
-        then maybe (pure (KubernetesUnknown "version 2 configuration observation is unavailable")) (\stable -> fst <$> stable (mutationResource mutation)) stableObserve
-        else kubernetesObserve ops (mutationResource mutation)
+        then maybe (pure (KubernetesUnknown "version 2 configuration observation is unavailable", Nothing)) ($ mutationResource mutation) stableObserve
+        else kubernetesObserveStamped ops (mutationResource mutation)
     observeAll resources = do
       states <- observeBatch resources
       pure (observationSet (zipWith toObservation resources states))
@@ -259,18 +259,18 @@ mkKubernetesAdapterWithObservations specs ops observeBatch stableObserve readBac
     preflight operation prepared = case decodeMutation (kubernetesContext ops) specs operation prepared of
       Left reason -> pure (Left reason)
       Right mutation -> do
-        current <- observeMutation mutation
+        (current, stamp) <- observeMutation mutation
         sourceGuard <- verifyBackupSources mutation
         pure $ do
           if mutationAction mutation == RunDeclaredOperation && current == mutationBefore mutation
             then Right ()
-            else requireSameBefore mutation current
+            else requireWriteTarget mutation current stamp
           sourceGuard
     execute operation prepared = case decodeMutation (kubernetesContext ops) specs operation prepared of
       Left reason -> pure (AdapterEffectFailed (KnownNoEffect reason))
       Right mutation -> do
-        current <- observeMutation mutation
-        case requireSameBefore mutation current of
+        (current, stamp) <- observeMutation mutation
+        case requireWriteTarget mutation current stamp of
           Left reason -> pure (AdapterEffectFailed (KnownNoEffect reason))
           Right () -> do
             sourceGuard <- verifyBackupSources mutation
@@ -279,7 +279,8 @@ mkKubernetesAdapterWithObservations specs ops observeBatch stableObserve readBac
               Right () ->
                 if mutationAction mutation `elem` [RunDeclaredOperation, VerifyResource]
                   then pure AdapterEffectCompleted
-                  else kubernetesMutateConditional ops (if mutationVersion mutation == 2 then mutation {mutationBefore = current} else mutation)
+                  -- G6: the write carries the fresh observation as its precondition.
+                  else kubernetesMutateConditional ops (if mutationAction mutation == UpdateResource then mutation {mutationBefore = current} else mutation)
     verify operation prepared = case decodeMutation (kubernetesContext ops) specs operation prepared of
       Left reason -> pure (Left reason)
       Right mutation -> do
@@ -300,7 +301,7 @@ mkKubernetesAdapterWithObservations specs ops observeBatch stableObserve readBac
               either RecoveryUnresolved RecoveryProvedComplete
                 <$> verifiedProof mutation current
             Left _ -> do
-              before <- observeMutation mutation
+              (before, liveStamp) <- observeMutation mutation
               -- A created restore scratch StatefulSet whose pod has a failed,
               -- restarted container never becomes Ready on its own (for example
               -- its pinned download or load failed); prove that failure so the
@@ -317,7 +318,7 @@ mkKubernetesAdapterWithObservations specs ops observeBatch stableObserve readBac
                   | landedUpdate mutation physical owner digest ->
                       (>>= confirmLandedUnready (Just (mutationAddress mutation)) physical revision) <$> reader (mutationAddress mutation)
                 _ -> pure (Left "not a landed Knative Service or StatefulSet update")
-              pure $ case requireSameBefore mutation before of
+              pure $ case requireWriteTarget mutation before liveStamp of
                 Right () -> RecoverySafeToRetry
                 Left reason -> case current of
                   -- F57: a verification writes nothing, so retrying it is

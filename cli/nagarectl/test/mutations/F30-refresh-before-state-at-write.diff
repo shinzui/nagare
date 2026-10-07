@@ -1,12 +1,11 @@
 diff --git a/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs b/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs
-index f111b9cf..f6e31eae 100644
 --- a/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs
 +++ b/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs
-@@ -292,7 +292,7 @@ mkKubernetesAdapterWithObservations specs ops observeBatch stableObserve readBac
-               Right () ->
+@@ -280,7 +280,7 @@
                  if mutationAction mutation `elem` [RunDeclaredOperation, VerifyResource]
                    then pure AdapterEffectCompleted
--                  else kubernetesMutateConditional ops (if mutationVersion mutation == 2 then mutation {mutationBefore = current} else mutation)
+                   -- G6: the write carries the fresh observation as its precondition.
+-                  else kubernetesMutateConditional ops (if mutationAction mutation == UpdateResource then mutation {mutationBefore = current} else mutation)
 +                  else kubernetesMutateConditional ops mutation
      verify operation prepared = case decodeMutation (kubernetesContext ops) specs operation prepared of
        Left reason -> pure (Left reason)
