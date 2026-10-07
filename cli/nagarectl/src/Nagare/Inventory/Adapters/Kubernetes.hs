@@ -35,7 +35,7 @@ import Data.Text.Encoding qualified as TE
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.KubernetesProof
-import Nagare.Inventory.Adapters.KubernetesStuckPod (KubernetesPodOps (..), decodePodReplacement, isStatefulSet, noPodOps, preparePodReplacement, stillStuck)
+import Nagare.Inventory.Adapters.KubernetesStuckPod (KubernetesPodOps (..), decodePodReplacement, isStatefulSet, noPodOps, preparePodReplacement, recoverReplacement, settleReplacement, stillStuck)
 import Nagare.Inventory.BackendMap (renderBackendMapNative, renderShomeiSettingsNative)
 import Nagare.Inventory.Backup
   ( BackupReceiptExpectation (..)
@@ -171,7 +171,9 @@ mkKubernetesAdapterWithObservations specs ops pods observeBatch readBackupReceip
     -- ADR 26: what an operation with intent and no completion did, from its
     -- recovery decision and one fresh observation. It never writes.
     settle operation prepared
-      | plannedAction operation == ReplaceStuckPod = pure (SettledUnknown "replace-stuck-pod settlement lands in EP-181 M4" "inventory resume")
+      | plannedAction operation == ReplaceStuckPod = case decodeReplacement operation prepared of
+          Left reason -> pure (SettledUnknown reason "the saved review's native bundle")
+          Right replacement -> settleReplacement replacement <$> observeReplacement pods replacement
     settle operation prepared = case decodeMutation (kubernetesContext ops) specs operation prepared of
       Left reason -> pure (SettledUnknown reason "the saved review's native bundle")
       Right mutation -> do
@@ -180,9 +182,11 @@ mkKubernetesAdapterWithObservations specs ops pods observeBatch readBackupReceip
         (before, _) <- observeMutation mutation
         pure (settleMutation mutation before current stamp decision)
     observeMutation mutation = kubernetesObserveStamped ops (mutationResource mutation)
-    -- EP-181 M4 settles and recovers the replacement; until then neither
-    -- claims anything.
-    podReplacementPending operation prepared = either id (const "replace-stuck-pod settlement is not implemented yet (EP-181 M4)") (decodeReplacement operation prepared)
+    -- EP-181: recovery, and verification of a completed replacement, class
+    -- one fresh observation by the plan's table.
+    replacementRecovery operation prepared = case decodeReplacement operation prepared of
+      Left reason -> pure (RecoveryUnresolved reason)
+      Right replacement -> recoverReplacement replacement <$> observeReplacement pods replacement
     decodeReplacement operation prepared = do
       (resource, declaration, _) <- singleSpec specs operation
       decodePodReplacement operation resource (address declaration) prepared
@@ -315,7 +319,10 @@ mkKubernetesAdapterWithObservations specs ops pods observeBatch readBackupReceip
                   -- from the runtime's own guarded live read (RES-4 U10).
                   else kubernetesMutateConditional ops (if mutationAction mutation == RetireResource then mutation {mutationBefore = current} else mutation)
     verify operation prepared
-      | plannedAction operation == ReplaceStuckPod = pure (Left (podReplacementPending operation prepared))
+      | plannedAction operation == ReplaceStuckPod =
+          replacementRecovery operation prepared <&> \case
+            RecoveryProvedComplete proof -> Right proof
+            other -> Left ("the pod replacement is not proved complete: " <> T.pack (show other))
     verify operation prepared = case decodeMutation (kubernetesContext ops) specs operation prepared of
       Left reason -> pure (Left reason)
       Right mutation -> do
@@ -325,7 +332,7 @@ mkKubernetesAdapterWithObservations specs ops pods observeBatch readBackupReceip
           Left reason -> pure (Left reason)
           Right () -> verifiedProof mutation current
     recover operation prepared
-      | plannedAction operation == ReplaceStuckPod = pure (RecoveryUnresolved (podReplacementPending operation prepared))
+      | plannedAction operation == ReplaceStuckPod = replacementRecovery operation prepared
     recover operation prepared = case decodeMutation (kubernetesContext ops) specs operation prepared of
       Left reason -> pure (RecoveryUnresolved reason)
       Right mutation -> do

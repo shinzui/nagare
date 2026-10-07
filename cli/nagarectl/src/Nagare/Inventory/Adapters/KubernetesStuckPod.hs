@@ -10,6 +10,8 @@
 module Nagare.Inventory.Adapters.KubernetesStuckPod
   ( StuckPod (..)
   , PodReplacement (..)
+  , ReplacementObservation (..)
+  , ReviewedPod (..)
   , KubernetesPodOps (..)
   , noPodOps
   , runtimePodOps
@@ -17,6 +19,9 @@ module Nagare.Inventory.Adapters.KubernetesStuckPod
   , podTerminating
   , stillStuck
   , podDeleteRequest
+  , recoverReplacement
+  , settleReplacement
+  , replacementProof
   , isStatefulSet
   , preparePodReplacement
   , decodePodReplacement
@@ -37,9 +42,10 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Nagare.Dsl.Prelude hiding ((.=))
-import Nagare.Inventory.Adapter (AdapterExecution (..), OperationAction (ReplaceStuckPod), PlannedOperation (..), PrepareError (..), PreparedNative (..))
+import Nagare.Inventory.Adapter (AdapterExecution (..), OperationAction (ReplaceStuckPod), PlannedOperation (..), PrepareError (..), PreparedNative (..), RecoveryDecision (..), Settlement (..))
 import Nagare.Inventory.Adapters.KubernetesProof (kubectlRefusal)
 import Nagare.Inventory.Adapters.KubernetesReadiness (statefulSetReady)
+import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect), OperationId)
 import Nagare.Inventory.KubernetesTransport (KubernetesRuntimeConfig (..), invokeKubectl)
 import Nagare.Resource.Canonical (canonicalValue)
@@ -87,7 +93,29 @@ data KubernetesPodOps = KubernetesPodOps
   , replaceStuckPod :: !(PodReplacement -> Text -> IO AdapterExecution)
   -- ^ Delete the reviewed pod, conditional on its UID and this fresh
   -- resourceVersion, then wait for the StatefulSet's rollout.
+  , observeReplacement :: !(PodReplacement -> IO (Either Text ReplacementObservation))
+  -- ^ What recovery and settlement see of a replacement.
   }
+
+-- | A fresh observation of a replacement's StatefulSet and reviewed pod.
+data ReplacementObservation = ReplacementObservation
+  { observedSet :: !(Maybe (PhysicalIdentity, Bool))
+  -- ^ The StatefulSet's UID, and whether it is Ready at the reviewed update
+  -- revision; 'Nothing' when it is gone.
+  , observedPod :: !ReviewedPod
+  }
+  deriving stock (Eq, Show, Generic)
+
+-- | The reviewed pod, found by name and judged by UID.
+data ReviewedPod
+  = -- | The reviewed UID, with no deletion timestamp: it was never deleted
+    -- (RES-4 U6).
+    ReviewedPodLive
+  | -- | The reviewed UID, being deleted: the DELETE was accepted.
+    ReviewedPodTerminating
+  | -- | No pod by that name, or one with another UID: the reviewed pod is gone.
+    ReviewedPodGone
+  deriving stock (Eq, Show, Generic)
 
 -- | No pod access: nothing is ever stuck, and no pod is ever replaced. For
 -- adapters and tests that do not model pods.
@@ -96,14 +124,37 @@ noPodOps =
   KubernetesPodOps
     { readStuckPod = \_ -> pure (Right Nothing)
     , replaceStuckPod = \_ _ -> pure (AdapterEffectFailed (KnownNoEffect "this adapter has no pod access"))
+    , observeReplacement = \_ -> pure (Left "this adapter has no pod access")
     }
 
 -- | Read a member StatefulSet's stuck pod through kubectl. Pods are listed
 -- only when the StatefulSet reads not ready, so a healthy StatefulSet costs
 -- one read.
 runtimePodOps :: KubernetesRuntimeConfig -> Map ResourceId (ManagedResource, ByteString) -> KubernetesPodOps
-runtimePodOps config specs = KubernetesPodOps reader replace
+runtimePodOps config specs = KubernetesPodOps reader replace observe
   where
+    observe replacement = do
+      guarded <- runtimeGuard config
+      case (guarded, replacement ^. #target) of
+        (Left reason, _) -> pure (Left ("cluster guard refused the pod replacement read: " <> reason))
+        (Right (), Kubernetes _ _ _ (Just namespace') name') -> do
+          let ns = T.unpack (nameText namespace')
+              reviewed = replacement ^. #stuck
+          set' <- readJson ["get", "statefulset.apps", T.unpack (nameText name'), "--namespace", ns, "-o", "json", "--ignore-not-found"]
+          pod' <- readJson ["get", "pod", T.unpack (reviewed ^. #pod), "--namespace", ns, "-o", "json", "--ignore-not-found"]
+          pure (ReplacementObservation <$> (set' >>= traverse (setState reviewed)) <*> (pod' >>= maybe (Right ReviewedPodGone) (podState reviewed)))
+        (Right (), _) -> pure (Left "the pod replacement's StatefulSet address has no namespace")
+    setState reviewed value = first T.pack . flip parseEither value . withObject "StatefulSet" $ \root -> do
+      uid' <- root .: "metadata" >>= (.: "uid") >>= either (fail . T.unpack) pure . mkPhysicalIdentity
+      status <- fromMaybe mempty <$> root .:? "status"
+      revision <- status .:? "updateRevision"
+      pure (uid', statefulSetReady value && revision == Just (reviewed ^. #updateRevision))
+    podState reviewed value = first T.pack . flip parseEither value . withObject "Pod" $ \root -> do
+      uid' <- root .: "metadata" >>= (.: "uid")
+      pure $
+        if uid' /= physicalIdentityText (reviewed ^. #podUid)
+          then ReviewedPodGone
+          else if podTerminating root then ReviewedPodTerminating else ReviewedPodLive
     -- RES-4 §5.3: the server enforces the reviewed UID and the fresh
     -- resourceVersion. Every 4xx left the pod as it was (G4); only a missing
     -- answer or a 5xx can hide a delete.
@@ -314,3 +365,49 @@ podDeleteRequest reviewed revision = do
     ( ["delete", "--raw", "/api/v1/namespaces/" <> T.unpack (reviewed ^. #namespace) <> "/pods/" <> T.unpack (reviewed ^. #pod), "-f", "-"]
     , TE.decodeUtf8 bytes
     )
+
+-- | EP-181's class table: what a replacement did, from one fresh
+-- observation. A pod DELETE removes the pod or marks it deleted (RES-4 U6),
+-- so the reviewed pod live with no deletion timestamp was never deleted. The
+-- replacement is complete only once the StatefulSet is Ready at the reviewed
+-- update revision; a new pod that is not Ready is landed.
+recoverReplacement :: PodReplacement -> Either Text ReplacementObservation -> RecoveryDecision
+recoverReplacement replacement = \case
+  Left reason -> RecoveryUnresolved reason
+  Right observed -> case observed ^. #observedSet of
+    Nothing -> RecoveryUnresolved "the reviewed StatefulSet is gone"
+    Just (uid', ready)
+      | uid' /= replacement ^. #stuck . #statefulSetUid -> RecoveryTargetReplaced uid'
+      | otherwise -> case observed ^. #observedPod of
+          ReviewedPodLive -> RecoverySafeToRetry
+          ReviewedPodTerminating -> RecoveryLandedUnready uid'
+          ReviewedPodGone
+            | ready -> either RecoveryUnresolved RecoveryProvedComplete (replacementProof replacement)
+            | otherwise -> RecoveryLandedUnready uid'
+
+-- | ADR 26's settlement of a replacement, by the same table: a gone
+-- StatefulSet is target gone, and a reviewed pod never deleted is no effect.
+settleReplacement :: PodReplacement -> Either Text ReplacementObservation -> Settlement
+settleReplacement replacement observed = case recoverReplacement replacement observed of
+  _ | Right found <- observed, Nothing <- found ^. #observedSet -> SettledTargetGone Nothing
+  RecoverySafeToRetry -> SettledNoEffect "the reviewed pod is live and was never deleted"
+  RecoveryLandedUnready uid' -> SettledLanded uid'
+  RecoveryTargetReplaced uid' -> SettledTargetGone (Just uid')
+  RecoveryProvedComplete _ -> SettledUnknown "the effect is proved complete" "inventory resume"
+  RecoveryUnresolved reason -> SettledUnknown reason "a provider observation that proves the effect"
+  other -> SettledUnknown ("unexpected replacement recovery " <> T.pack (show other)) "a provider observation that proves the effect"
+
+-- | The completion proof: the reviewed pod is gone and its StatefulSet is
+-- Ready at the reviewed update revision.
+replacementProof :: PodReplacement -> Either Text ContentDigest
+replacementProof replacement =
+  contentDigest
+    <$> canonicalValue
+      ( object
+          [ "replacedPod" .= physicalIdentityText (reviewed ^. #podUid)
+          , "statefulSet" .= physicalIdentityText (reviewed ^. #statefulSetUid)
+          , "readyAt" .= (reviewed ^. #updateRevision)
+          ]
+      )
+  where
+    reviewed = replacement ^. #stuck

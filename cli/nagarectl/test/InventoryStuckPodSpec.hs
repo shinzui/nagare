@@ -3,7 +3,8 @@
 -- (docs/audits/k8s-semantics-2026-10-06/experiments/e6e.out).
 module InventoryStuckPodSpec (inventoryStuckPodTests) where
 
-import Data.Aeson (Value, eitherDecodeStrict', encode, object, (.=))
+import Data.Aeson (Value (..), eitherDecodeStrict', encode, object, (.=))
+import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy.Char8 qualified as BLC
 import Data.Either (isLeft)
@@ -184,6 +185,62 @@ inventoryStuckPodTests =
     , testCase "runtime: a refusing cluster guard deletes nothing" $ do
         (outcome, asked) <- runtimeReplace (Left "wrong cluster") (const (Right (ExitSuccess, "", "")))
         (outcome, asked) @?= (AdapterEffectFailed (KnownNoEffect "cluster guard refused the pod replacement: wrong cluster"), [])
+    , testCase "settle and recover: every row of the class table" $ do
+        let observed set' pod' = Right (ReplacementObservation set' pod')
+            proof = ok (replacementProof replacementFixture)
+            classify observation = (recoverReplacement replacementFixture observation, settleReplacement replacementFixture observation)
+        -- A delete answered 409, 422 or 404 is journalled as a refusal (see
+        -- "runtime: a 409 refusal had no effect"); close classes it no effect.
+        classify (observed (Just (planUid, False)) ReviewedPodLive) @?= (RecoverySafeToRetry, SettledNoEffect "the reviewed pod is live and was never deleted")
+        classify (observed (Just (planUid, False)) ReviewedPodTerminating) @?= (RecoveryLandedUnready planUid, SettledLanded planUid)
+        classify (observed (Just (planUid, True)) ReviewedPodGone) @?= (RecoveryProvedComplete proof, SettledUnknown "the effect is proved complete" "inventory resume")
+        classify (observed (Just (planUid, False)) ReviewedPodGone) @?= (RecoveryLandedUnready planUid, SettledLanded planUid)
+        classify (observed (Just (uidOf "sts-uid-2", True)) ReviewedPodGone) @?= (RecoveryTargetReplaced (uidOf "sts-uid-2"), SettledTargetGone (Just (uidOf "sts-uid-2")))
+        classify (observed Nothing ReviewedPodGone) @?= (RecoveryUnresolved "the reviewed StatefulSet is gone", SettledTargetGone Nothing)
+        classify (Left "forbidden") @?= (RecoveryUnresolved "forbidden", SettledUnknown "forbidden" "a provider observation that proves the effect")
+    , testCase "settle and recover: a Ready StatefulSet with the reviewed pod still live is no effect, never complete" $
+        recoverReplacement replacementFixture (Right (ReplacementObservation (Just (planUid, True)) ReviewedPodLive)) @?= RecoverySafeToRetry
+    , testCase "runtime: the replacement is observed by the StatefulSet's UID and readiness at the reviewed revision, and the pod by name and UID" $ do
+        let ready = statefulSet 3 (Just 3) (Just "pg-d9d6d") & atStatus .~ object ["observedGeneration" .= (3 :: Int), "replicas" .= (1 :: Int), "readyReplicas" .= (1 :: Int), "updatedReplicas" .= (1 :: Int), "updateRevision" .= ("pg-d9d6d" :: Text)]
+            readyElsewhere = statefulSet 3 (Just 3) (Just "pg-0aaaa") & atStatus .~ object ["observedGeneration" .= (3 :: Int), "replicas" .= (1 :: Int), "readyReplicas" .= (1 :: Int), "updatedReplicas" .= (1 :: Int), "updateRevision" .= ("pg-0aaaa" :: Text)]
+        (live, asked) <- runtimeObserve (Just (statefulSet 3 (Just 3) (Just "pg-d9d6d"))) (Just (pgPod "pg-0" "pg-9d647" False))
+        live @?= Right (ReplacementObservation (Just (uidOf "sts-uid", False)) ReviewedPodLive)
+        map (take 3) asked @?= [["get", "statefulset.apps", "pg"], ["get", "pod", "pg-0"]]
+        runtimeObserve (Just ready) (Just (terminating (pgPod "pg-0" "pg-9d647" False))) >>= (@?= Right (ReplacementObservation (Just (uidOf "sts-uid", True)) ReviewedPodTerminating)) . fst
+        runtimeObserve (Just ready) (Just (podWith "sts-uid" "pg-0" (Just "pg-d9d6d") True False & atUid .~ "uid-pg-0-new")) >>= (@?= Right (ReplacementObservation (Just (uidOf "sts-uid", True)) ReviewedPodGone)) . fst
+        runtimeObserve (Just readyElsewhere) Nothing >>= (@?= Right (ReplacementObservation (Just (uidOf "sts-uid", False)) ReviewedPodGone)) . fst
+        runtimeObserve Nothing Nothing >>= (@?= Right (ReplacementObservation Nothing ReviewedPodGone)) . fst
+    , testCase "verify: a completed replacement is proved by the same table" $ do
+        let verifyAfter observation = do
+              current <- newIORef (Right (Just reviewedPod))
+              calls <- newIORef 0
+              state <- newIORef (notReady statefulDigest)
+              let ops = K.ops state calls
+                  podOps = noPodOps {readStuckPod = \_ -> readIORef current, observeReplacement = \_ -> pure observation}
+                  adapter = mkKubernetesAdapterWithObservations databaseNative ops podOps (traverse (kubernetesObserve ops)) noReceipt noScratch Nothing Nothing
+              prepared <- adapterPrepare adapter replaceOperation >>= expectRight
+              adapterVerify adapter replaceOperation prepared
+        verifyAfter (Right (ReplacementObservation (Just (uidOf "sts-uid", True)) ReviewedPodGone)) >>= (@?= replacementProof replacementFixture)
+        verifyAfter (Right (ReplacementObservation (Just (uidOf "sts-uid", False)) ReviewedPodGone)) >>= assertBool "a replacement whose StatefulSet is not Ready verified" . isLeft
+    , testCase "apply: a replacement whose StatefulSet becomes Ready converges" $ do
+        (_, _, _, applied) <- applyReplacement AdapterEffectCompleted (ReplacementObservation (Just (planUid, True)) ReviewedPodGone)
+        case applied of
+          Converged _ -> pure ()
+          other -> assertFailure ("the replacement did not converge: " <> show other)
+    , testCase "close: a landed replacement keeps the scope's desired revision" $ do
+        (store, registry, reviewed, applied) <-
+          applyReplacement
+            (AdapterEffectAmbiguous "the StatefulSet did not prove readiness after its stuck pod was deleted; reobserve before retry")
+            (ReplacementObservation (Just (planUid, False)) ReviewedPodGone)
+        transaction <- case applied of
+          StoppedAmbiguous tx _ -> pure tx
+          other -> assertFailure ("the replacement did not stop: " <> show other) >> pure (error "unreachable")
+        record <- closeTransaction store registry (CloseInput transaction (contentDigest (encodeReviewDocument (reviewedDocument reviewed))) False Nothing) >>= expectRight
+        Map.elems (closedClasses record) @?= [ClassLanded planUid]
+        Map.elems (closedScopes record) @?= [KeepDesired]
+        after <- readHead store >>= expectRight >>= maybe (assertFailure "head missing" >> pure (error "unreachable")) pure
+        headActiveTransaction after @?= Nothing
+        Map.lookup planOwner (headAccepted after) @?= Map.lookup planOwner (reviewDesiredRevisions (reviewedDocument reviewed))
     , testCase "prepare: a member that is not a StatefulSet refuses" $ do
         calls <- newIORef 0
         state <- newIORef (KubernetesNotReady K.physical "1" (Just K.resource) (contentDigest K.nativeBytes))
@@ -360,7 +417,7 @@ executeAfter fresh = do
   state <- newIORef (notReady statefulDigest)
   let ops = K.ops state calls
       podOps =
-        KubernetesPodOps
+        noPodOps
           { readStuckPod = \_ -> readIORef current
           , replaceStuckPod = \replacement revision -> modifyIORef' replaced (<> [(replacement ^. #stuck, revision)]) >> pure AdapterEffectCompleted
           }
@@ -384,6 +441,66 @@ runtimeReplace guard' respond = do
       replacement = PodReplacement 1 (plannedOperationId replaceOperation) (plannedInputDigest replaceOperation) statefulId target reviewedPod
   outcome <- replaceStuckPod (runtimePodOps config databaseNative) replacement "rv-fresh"
   (outcome,) <$> readIORef asked
+
+-- | Plan, review and apply the planning member's stuck-pod replacement,
+-- whose delete answers @executed@ and whose fresh observation is @observed@.
+applyReplacement :: AdapterExecution -> ReplacementObservation -> IO (InventoryStore, AdapterRegistry, ReviewedPlan, TransactionResult)
+applyReplacement executed observed = do
+  let (declared, _) = pgBound
+  (store, candidate, history) <- acceptedStore declared declared
+  calls <- newIORef 0
+  state <- newIORef (KubernetesNotReady planUid "7" (Just planId) (contentDigest (snd pgBound)))
+  let ops = K.ops state calls
+      specs = Map.singleton planId pgBound
+      podOps =
+        noPodOps
+          { readStuckPod = \_ -> pure (Right (Just (reviewedPod & #statefulSetUid .~ planUid)))
+          , replaceStuckPod = \_ _ -> pure executed
+          , observeReplacement = \_ -> pure (Right observed)
+          }
+      registry = ok (mkAdapterRegistry [mkKubernetesAdapterWithObservations specs ops podOps (traverse (kubernetesObserve ops)) noReceipt noScratch Nothing Nothing])
+  observations <- observeWithRegistry registry (requirementsByExecutor (observationRequirements candidate history)) >>= expectRight
+  snapshot <- readStoreSnapshot store >>= expectRight
+  bundle <- prepareReview registry snapshot (ok (planChanges candidate noLifecycleDecisions history observations)) >>= expectRight
+  _ <- publishReview store bundle >>= expectRight
+  published <- readStoreSnapshot store >>= expectRight
+  reviewed <- expectRight (verifyReview published bundle)
+  applied <- applyReviewed store registry reviewed >>= expectRight
+  pure (store, registry, reviewed, applied)
+
+-- | The replacement of 'reviewedPod' on the planning member.
+replacementFixture :: PodReplacement
+replacementFixture = PodReplacement 1 (plannedOperationId replaceOperation) (plannedInputDigest replaceOperation) planId (fst pgBound ^. #address) (reviewedPod & #statefulSetUid .~ planUid)
+
+-- | Observe 'replacementFixture' through the runtime, over a kubectl that
+-- answers with this StatefulSet and pod (or none); the requests it was asked.
+runtimeObserve :: Maybe Value -> Maybe Value -> IO (Either Text ReplacementObservation, [[String]])
+runtimeObserve set' pod' = do
+  asked <- newIORef []
+  let answer request = do
+        modifyIORef' asked (<> [request ^. #arguments])
+        pure $ case request ^. #arguments of
+          "get" : "statefulset.apps" : _ -> Right (ExitSuccess, maybe "" (BLC.unpack . encode) set', "")
+          "get" : "pod" : _ -> Right (ExitSuccess, maybe "" (BLC.unpack . encode) pod', "")
+          other -> Left ("unexpected kubectl call " <> T.pack (show other))
+      config = withKubectlInterpreter (runKubectlWith answer) (KubernetesRuntimeConfig (fixtureBinding ^. #identity) "stuck-pod" (pure (Right ())))
+  observed <- observeReplacement (runtimePodOps config (Map.singleton planId pgBound)) replacementFixture
+  (observed,) <$> readIORef asked
+
+-- | A Kubernetes object's status.
+atStatus :: Traversal' Value Value
+atStatus f = \case
+  Object root -> Object <$> KM.alterF (fmap Just . f . fromMaybe Null) "status" root
+  other -> pure other
+
+-- | A Kubernetes object's metadata.uid.
+atUid :: Traversal' Value Text
+atUid f = \case
+  Object root
+    | Just (Object metadata) <- KM.lookup "metadata" root
+    , Just (String uid') <- KM.lookup "uid" metadata ->
+        (\new -> Object (KM.insert "metadata" (Object (KM.insert "uid" (String new) metadata)) root)) <$> f uid'
+  other -> pure other
 
 -- | Observe the database over one StatefulSet state, recording pod reads.
 observeDatabase :: KubernetesState -> IO (Either Text (Maybe StuckPod)) -> IO (Either Text ObservationSet, [ResourceId])

@@ -26,6 +26,7 @@ import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Helm
 import Nagare.Inventory.Adapters.Kubernetes
+import Nagare.Inventory.Adapters.KubernetesStuckPod (PodReplacement)
 import Nagare.Inventory.BackendMap
 import Nagare.Inventory.Components.Foundation (compileContributedNamespaces)
 import Nagare.Inventory.Digest (contentDigest)
@@ -79,6 +80,20 @@ observationBytesFromMutation context identity version operation bytes
         )
         (Left "observation migration bundle differs from reviewed operation")
       Just <$> unstampNative context resource digest native
+  -- EP-181: a stuck-pod replacement writes no member object, so it has no
+  -- observation member; its bytes must still be the replacement this
+  -- operation reviewed.
+  | ReplaceStuckPod <- plannedAction operation
+  , identity == "kubernetes-conditional-object" && version == "1" = do
+      replacement <- first T.pack (eitherDecodeStrict' bytes) :: Either Text PodReplacement
+      unless
+        ( replacement ^. #version == 1
+            && replacement ^. #operation == plannedOperationId operation
+            && replacement ^. #inputDigest == plannedInputDigest operation
+            && [replacement ^. #member] == NE.toList (plannedResources operation)
+        )
+        (Left "observation pod replacement differs from reviewed operation")
+      pure Nothing
   | identity == "kubernetes-conditional-object" && version == "1" = do
       mutation <- first T.pack (eitherDecodeStrict' bytes)
       unless
