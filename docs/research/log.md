@@ -1,5 +1,9 @@
 # Bundle Update Log
 
+## 2026-10-07
+
+* **Update**: RES-4 rule U6 records experiment E16: a PVC held by `pvc-protection` cannot be mounted by a new pod, goes as soon as its pod is deleted, and keeps its data only if its volume was set to `Retain` first (F77's runbook).
+
 ## 2026-10-06
 
 * **Update**: RES-4 adds rules U11–U14 (deletion moves generation and stops reconciliation; ownership of admission versus defaulting; DomainMapping and PVC finalizers; kubectl message formats), found while making EP-182's fake API server reproduce the recorded traces.

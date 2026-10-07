@@ -162,3 +162,24 @@ ConfigMap, Orphan, uid+rv preconditions: response {"dt":"...","fin":["orphan"]};
 StatefulSet, Background, uid+rv preconditions: response {"dt":null,"fin":null}; sts gone after 94 ms; pods left: 1 (deleted afterwards by the garbage collector)
 Namespace delete: {"phase":"Terminating","dt":"...","fin":["kubernetes"]}, then gone
 ```
+
+## E16
+
+A StatefulSet with one replica mounts the PVC `db-data` by name, as Nagare's databases do. A marker is written into the volume with `kubectl exec`, so a fresh volume reads as absent. The PVC is then deleted with `--wait=false`. Full output is in `experiments/e16.out`; the steps, abridged:
+
+```text
+both variants
+  running                     pvc Bound, finalizers [pvc-protection]; pv Bound, reclaim Delete; marker written-…
+  claim deleted, 10 s later   pvc deleting=true, still Bound; pod Running and Ready; marker still readable
+  backup by exec              `kubectl exec db-0 -- tar -C /data -cf - .` streams the volume (2560 bytes, ./marker)
+  second pod on the claim     Pending: 0/1 nodes are available: persistentvolumeclaim "db-data" is being deleted
+variant delete
+  pod deleted, 10 s later     pvc gone; pv gone; the controller's new db-0 Pending: persistentvolumeclaim "db-data" not found
+  claim recreated             new pvc and new pv; db-0 Running; marker absent (the data is lost)
+variant retain (pv patched to persistentVolumeReclaimPolicy Retain before the pod is deleted)
+  pod deleted, 10 s later     pvc gone; pv Released, reclaim Retain, claimRef still names the old pvc
+  claim recreated             claimRef removed from the pv; pvc recreated with spec.volumeName = that pv;
+                              pvc Bound to the old pv; db-0 Running; marker written-… (the original data)
+```
+
+What this means for F77: while the pod runs, the data is safe and can be read only through that pod. Anything that ends the pod (deleting it, a node restart, an eviction, a rollout) releases the claim at once, and a `Delete` volume takes the data with it. Patching the volume to `Retain` first turns that into a recoverable state.
