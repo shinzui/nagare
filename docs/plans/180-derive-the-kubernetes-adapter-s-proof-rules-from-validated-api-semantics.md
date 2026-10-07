@@ -17,6 +17,11 @@ provenance:
       at: 2026-10-06T22:28:21Z
       mode: "update"
       note: "Plan written: RES-4 G1, G2, F67 stamp, G4-G7 and mutation-check milestones"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-07T13:21:38Z
+      mode: "implement"
+      note: "M5b-M9 and D implemented; Outcomes and Retrospective written"
 ---
 
 # Derive the Kubernetes adapter's proof rules from validated API semantics
@@ -132,7 +137,7 @@ MasterPlan, not by this plan.
     and kept text such as `1500e0`.
   - Four records each fail their test. `G7-no-milli-rounding` first survived (a coincidence of `numerator`), and the
     case `1500u` -> `2m` now kills it.
-- [ ] M8: `just mutation-check` proves every mutation record on the remote builder.
+- [x] M8, 2026-10-07: every mutation record is checked mechanically and proved by a full sweep.
   - 2026-10-06, done, the static half and runner (a):
     - `records.json` names every live record's suite, pattern and expectation (88 records).
     - The harness has `mutations check` (applies and has an entry; the third fast-gate step) and `mutations patterns`
@@ -151,8 +156,8 @@ MasterPlan, not by this plan.
     - The build is at -O0, so a mutation inside a body changes no other interface.
     - Each of W workers compiles the revision once, then per record patches, rebuilds, runs the pattern and reverts.
     - `mutations sweep` classifies `results.tsv`.
-- [ ] M9 (session nagare, 2026-10-06, from nagare-deep-tier-fixes' attribution): no adapter recovery guard stays
-  untested.
+- [x] M9, 2026-10-07 (session nagare, 2026-10-06, from nagare-deep-tier-fixes' attribution): no adapter recovery
+  guard stays untested. Landed at `aaa96eaf`: a full sweep killed all 98 records with 0 survivors.
   - 2026-10-07: reading the driver (`Execute/Driver.hs` 205–227) and settlement showed that only one answer among
     the seven changes behaviour: a created Deployment's AwaitingReadiness, which lets `continueReadiness` go on. The
     adapter test "only exact created Deployments, Knative Services and routes can await readiness" already pins it.
@@ -285,7 +290,42 @@ MasterPlan, not by this plan.
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+**Outcome (2026-10-07).** The Kubernetes adapter's proof rules now follow RES-4's validated API semantics, and every
+rule is held by a test that a mutation record proves. Three batches landed on master: `c3755ad7`, `aaa96eaf`, and EP-182
+in between.
+
+- **Gaps closed.**
+  - G1 (F70) and G2 (F69): readiness is generation-aware.
+  - F67: an update settles by the spec-digest stamp on its reviewed object.
+  - G4 (F71): a 4xx answer is no effect.
+  - G6: an update or retire is guarded by its UID, owner and stamp or digest, and writes with a fresh resourceVersion.
+    Mutation version 2 is deleted.
+  - G5 (F74): a terminating object is never a live member.
+  - G7 (F75): resource quantities compare in the server's canonical form, taken from E15's trace.
+- **Defects found on the way and fixed.** F72 (unready corrections refused by the transport), F73 (a false Landed
+  hidden by version 2) and F76 (a test group dropped from the suite, leaving twelve records vacuous).
+- **Recovery answers deleted.** M9 deleted five answers that nothing could observe (F54, F56, F57a, F64, and F59's
+  StatefulSet half). It pinned what settlement concludes in each case, and the one answer that changes behaviour, a
+  created Deployment's AwaitingReadiness, stays.
+- **Mutation tooling.** `records.json` names each record's suite, pattern and expectation. The fast gate checks that
+  every record applies and that every pattern selects a test. `just mutation-sweep` proves all 98 records in about
+  20 minutes: one -O0 cabal build per worker, then an incremental rebuild per record.
+
+**Retrospective.**
+- **Evidence beat derivation every time it was tried.**
+  - E15 corrected two rules taken from apimachinery's source (milli rounding, and text the parser keeps as written).
+  - Reading the driver showed that three of M9's "pin" rulings (F54, F59 and F57a) could not be pinned, because
+    nothing observes them; they became deletions.
+  - EP-182's validated world showed F30's update refresh redundant.
+- **A mutation record is only as good as the test it names.** Whole-suite or model patterns let records go vacuous
+  silently. Twelve did when a test group left the suite (F76), and seven did when close by proof made their guards
+  unobservable. The sweep turns that into a gate result: the first sweep after M9 caught F57b at once.
+- **The runner's own failures were all environmental.** No solver re-plan for test suites offline, a missing test
+  dependency, a shared cabal store, and a shell-function worker that died silently. Testing the worker script locally
+  against stubs, before spending builder time, found the last of them in seconds.
+- **Static checks first.** Running them before the suites (`fastSteps`) saved two six-minute gate runs a day.
+- **What would have helped.** A per-record test pattern from the start, rather than prose. Records written against
+  the model's fast tier were cheap to make but hid the coupling that made them vacuous.
 
 
 ## Context and Orientation
