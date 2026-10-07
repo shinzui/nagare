@@ -6,6 +6,7 @@
 -- leaves behind everything it found, and fail with every violation found.
 module Nagare.Test.Model.Tier
   ( checkTier
+  , checkTierWith
   , deepTier
   , parseShard
   , placements
@@ -36,7 +37,12 @@ placements calls =
 -- collecting what each check finds. With progress, each scenario reports its
 -- schedule count, a heartbeat every 500 schedules, and its time and findings.
 checkTier :: Bool -> (s -> Text) -> (s -> IO (Either Text a)) -> [s] -> (s -> a -> [schedule]) -> (s -> schedule -> IO [Text]) -> Assertion
-checkTier progress label clean selected schedulesFor check = do
+checkTier = checkTierWith id
+
+-- | 'checkTier', with the violations found passed through a filter before
+-- the tier fails on what remains (EP-182: the two-sided known-defect ledger).
+checkTierWith :: ([Text] -> [Text]) -> Bool -> (s -> Text) -> (s -> IO (Either Text a)) -> [s] -> (s -> a -> [schedule]) -> (s -> schedule -> IO [Text]) -> Assertion
+checkTierWith judge progress label clean selected schedulesFor check = do
   violations <- fmap concat . forM (zip [1 :: Int ..] selected) $ \(position, scenario) -> do
     let report line = when progress (announce (length selected) position (label scenario) line)
         note violation = when progress (announceViolation (length selected) position (label scenario) violation)
@@ -54,7 +60,7 @@ checkTier progress label clean selected schedulesFor check = do
     ended <- getMonotonicTime
     report ("done in " <> T.pack (show (round (ended - started) :: Int)) <> "s, " <> T.pack (show (length found)) <> " violation(s)")
     pure found
-  failOn violations
+  failOn (judge violations)
 
 -- | Shard @shard@ of the deep tier (M4) over every scenario: each placement it
 -- heads alone, then each pair it heads that can interact, with every 50th

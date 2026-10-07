@@ -48,6 +48,7 @@ import Nagare.Resource.Reference (Dependency (..))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
 import Nagare.Test.Model.Fixtures
+import Nagare.Test.Model.KnownDefects (KnownViolation (..), judgeViolations, knownViolations)
 import Nagare.Test.Model.Pairs
 import Nagare.Test.Model.Run
 import Nagare.Test.Model.Scenarios
@@ -73,6 +74,15 @@ inventoryRecoveryModelTests =
             <> " generated from the kind table (one placement per fault)"
         )
         (runTier False scenarios singleFaults)
+    , testCase "the known-defect ledger is two-sided: unlisted violations and changed counts fail (EP-182)" $ do
+        let found scenario' fault' line = T.unlines ["scenario: " <> scenario', "faults: [(Boundary {call = ObserveCall, ordinal = 3}," <> T.pack (show fault') <> ")]", "review: v1", "violation: " <> line]
+            entry = KnownViolation "G0" "EP-0" "s" Deleted "I1: planning refused" 1
+            listed = found "s" Deleted "I1: planning refused (x)"
+            other = found "s" Deleted "I2: scope reported converged"
+        judgeViolations [entry] [listed] @?= []
+        judgeViolations [entry] [listed, other] @?= [other]
+        assertBool "a fixed entry is reported" (any ("fixed or changed" `T.isInfixOf`) (judgeViolations [entry] []))
+        assertBool "an extra occurrence is reported" (any ("fixed or changed" `T.isInfixOf`) (judgeViolations [entry] [listed, listed]))
     , testCase "every generated create writes its kind's member" $ do
         let writes scenario = runScenario scenario [] >>= either (assertFailure . T.unpack) (pure . Map.findWithDefault 0 MutateCall . finishedCalls)
         plain <- writes (Scenario "create" [Deploy "v1"] [] True plainShape False)
@@ -209,7 +219,7 @@ equivalenceSample scenario finished = every 25 (singleFaults scenario finished) 
 
 -- | Every scenario under every schedule must pass.
 runTier :: Bool -> [Scenario] -> (Scenario -> Finished -> [Schedule]) -> Assertion
-runTier progress selected schedulesFor = checkTier progress label (`runScenario` []) selected schedulesFor (\scenario schedule -> either pure (const []) <$> runScenario scenario schedule)
+runTier progress selected schedulesFor = checkTierWith (judgeViolations knownViolations) progress label (`runScenario` []) selected schedulesFor (\scenario schedule -> either pure (const []) <$> runScenario scenario schedule)
 
 -- | A pinned regression: every scheduled fault fired and acted (EP-182: it
 -- changed the world or the answer its caller got), and the run exits along

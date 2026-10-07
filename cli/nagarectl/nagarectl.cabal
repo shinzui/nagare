@@ -589,6 +589,7 @@ test-suite nagarectl-test
     Nagare.Test.Infrastructure
     Nagare.Test.Init
     Nagare.Test.Model.Fixtures
+    Nagare.Test.Model.KnownDefects
     Nagare.Test.Model.Pairs
     Nagare.Test.Model.Run
     Nagare.Test.Model.Scenarios
