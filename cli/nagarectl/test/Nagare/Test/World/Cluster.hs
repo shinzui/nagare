@@ -51,7 +51,7 @@ import Nagare.Resource.Inventory (ManagedResource)
 import Nagare.Resource.Types (ContextId, PhysicalIdentity, ResourceId, mkPhysicalIdentity, mkResourceId)
 import Nagare.Test.World.Adversary
 import Nagare.Test.World.ApiServer
-import Nagare.Test.World.Kinds (KindSemantics (..), ReadinessModel (..))
+import Nagare.Test.World.Kinds (KindSemantics (..), ReadinessModel (..), kindFixture, kindTable, kubernetesKind)
 import Nagare.Test.World.Kubectl
 import System.Exit (ExitCode (..))
 
@@ -331,13 +331,18 @@ stamped live = isJust (specDigestOf live)
 
 -- | An unowned object at the address, as an operator's `kubectl create`
 -- would leave it.
+-- | The object another writer leaves at an address: a whole object of the
+-- address's kind (a real API server refuses one missing required fields),
+-- from the kind table's fixture, with none of our stamps.
 foreignObject :: ObjectKey -> Value
-foreignObject key =
-  object
-    [ "apiVersion" .= apiVersionOf key
-    , "kind" .= (key ^. #kind)
-    , "metadata" .= object (["name" .= (key ^. #name)] <> ["namespace" .= ns | Just ns <- [key ^. #namespace]])
-    ]
+foreignObject key = case [fixture "foreign" | row <- kindTable, kubernetesKind row == Just (key ^. #group, key ^. #kind), Just fixture <- [kindFixture row]] of
+  Object root : _ -> Object (KM.insert "metadata" (object (["name" .= (key ^. #name)] <> ["namespace" .= ns | Just ns <- [key ^. #namespace]])) root)
+  _ ->
+    object
+      [ "apiVersion" .= apiVersionOf key
+      , "kind" .= (key ^. #kind)
+      , "metadata" .= object (["name" .= (key ^. #name)] <> ["namespace" .= ns | Just ns <- [key ^. #namespace]])
+      ]
 
 -- | The object as a client would submit it again.
 withoutServerFields :: Value -> Maybe Value

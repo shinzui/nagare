@@ -119,6 +119,21 @@ inventoryWorldFaultsTests =
         stdoutOf result >>= assertBool "the observation finds an object" . not . T.null
         stampOf cluster historyKey >>= (@?= Nothing)
         assertActed cluster ForeignObject
+    , testCase "fault acts: ForeignObject creates a valid unowned object of the address's kind (3d B8)" $ do
+        -- A real API server refuses a StatefulSet without its selector and
+        -- template, so the object another writer leaves at an address is a
+        -- whole one: it has them, and no stamp of ours.
+        (cluster, _) <- once [] ObserveCall ForeignObject (get' statefulKey)
+        planted <- live cluster statefulKey
+        assertBool "a selector and a template" (maybe False (\v -> field "selector" (field "spec" v) /= Null && field "template" (field "spec" v) /= Null) planted)
+        stampOf cluster statefulKey >>= (@?= Nothing)
+        assertActed cluster ForeignObject
+    , testCase "world rule: the API server refuses an object missing a required field (422)" $ do
+        cluster <- seeded [] []
+        result <- clusterAnswer cluster (createRequest (named "apps/v1" "StatefulSet" "db" []))
+        exitOf result @?= Just (ExitFailure 1)
+        stderrOf result >>= assertBool "an Invalid refusal" . ("is invalid" `T.isInfixOf`)
+        live cluster statefulKey >>= (@?= Nothing)
     , testCase "fault does not act: ForeignObject on an occupied address" $ do
         (cluster, _) <- once [history "v1"] ObserveCall ForeignObject (get' historyKey)
         stampOf cluster historyKey >>= assertBool "Nagare's object is untouched" . isJust
@@ -264,7 +279,9 @@ labelled = \case
   other -> other
 
 statefulSet :: Text -> Value
-statefulSet v = named "apps/v1" "StatefulSet" "db" [("spec", object ["replicas" .= (1 :: Int), "serviceName" .= ("db" :: Text), "template" .= object ["metadata" .= object ["annotations" .= object ["v" .= v]], "spec" .= object ["containers" .= [object ["image" .= ("postgres:18" :: Text)]]]]])]
+statefulSet v = named "apps/v1" "StatefulSet" "db" [("spec", object ["replicas" .= (1 :: Int), "serviceName" .= ("db" :: Text), "selector" .= object ["matchLabels" .= labels], "template" .= object ["metadata" .= object ["labels" .= labels, "annotations" .= object ["v" .= v]], "spec" .= object ["containers" .= [object ["image" .= ("postgres:18" :: Text)]]]]])]
+  where
+    labels = object ["app" .= ("db" :: Text)]
 
 historyKey, serviceKey, quotaKey, volumeKey, jobKey, deploymentKey, statefulKey :: ObjectKey
 historyKey = ObjectKey "" "configmap" (Just "personal") "web-history"

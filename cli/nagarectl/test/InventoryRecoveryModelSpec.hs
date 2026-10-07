@@ -169,6 +169,11 @@ inventoryRecoveryModelTests =
         let update = Scenario "create then good update" [Deploy "v1", Deploy "v2"] [] True plainShape False
         pinned update [(Boundary MutateCall 1, ControllerLag), (Boundary MutateCall 2, LandsUnready)] [[Close], [Close]]
         pinned update [(Boundary MutateCall 1, ControllerLag), (Boundary MutateCall 2, LandsFailed)] [[Close], [Close]]
+    , testCase "an unowned StatefulSet at a deleted database's address passes the restart's pod read (3d B8)" $ do
+        -- The deep tier's B8: the world planted a StatefulSet with no spec,
+        -- which no API server stores, and the restart's pod read failed on it.
+        restart <- scenarioNamed "create a database, update its resources, update it again, then restart it"
+        pinned restart [(Boundary ObserveCall 56, Deleted), (Boundary ObserveCall 68, ForeignObject)] [[Close], [Close]]
     , testCase "a corrective update of an unready Deployment plans and closes (EP-180, F63's worker half)" $ do
         -- The Deployment's create lands unready; a Deployment rollout replaces
         -- stuck pods, so the corrected review is planned and applied (RES-4 §2).

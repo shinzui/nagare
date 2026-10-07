@@ -196,6 +196,7 @@ create managerName submitted server = do
   when (Map.member key (objects server)) $
     Left (ApiRefusal 409 "AlreadyExists" (plural key <> " \"" <> key ^. #name <> "\" already exists"))
   let written = canonicalize (contentOf submitted)
+  requireFields key written
   pure (insertNew key written (FieldsEntry managerName Update Nothing (leafSet written)) server)
 
 -- | Server-side apply, with the request's UID and resourceVersion as
@@ -223,7 +224,9 @@ applyServerSide managerName force submitted server = do
                 <> ", and no existing object was found"
           )
       -- An apply's resourceVersion does not stop it creating (U5).
-      Nothing -> pure (insertNew key written (FieldsEntry managerName Apply Nothing applied) server)
+      Nothing -> do
+        requireFields key written
+        pure (insertNew key written (FieldsEntry managerName Apply Nothing applied) server)
     Just stored -> do
       for_ wantUid $ \expected ->
         unless (expected == stored ^. #uid) $
@@ -792,6 +795,23 @@ withTemplateOutcome server content' = #memory %~ Map.insert "templateOutcome" (S
 -- or, for an unstamped object, its content without metadata.
 outcomeKey :: Value -> Text
 outcomeKey value = fromMaybe ("content:" <> tshow (Object (KM.delete "metadata" (objectOf value)))) (specDigestOf value)
+
+-- | A new object must carry the fields its kind requires, or the API server
+-- refuses it (422): a workload's selector and pod template, a CronJob's
+-- schedule and Job template, a PVC's access modes and requested storage.
+requireFields :: ObjectKey -> Value -> Either ApiRefusal ()
+requireFields key value = case [path | path <- required, leafAt path value == Null] of
+  [] -> Right ()
+  missing ->
+    Left (invalid ("The " <> kindName key <> " \"" <> key ^. #name <> "\" is invalid: " <> T.intercalate ", " [T.intercalate "." path <> ": Required value" | path <- missing]))
+  where
+    required = case (key ^. #group, key ^. #kind) of
+      ("apps", "statefulset") -> [["spec", "selector"], ["spec", "template"]]
+      ("apps", "deployment") -> [["spec", "selector"], ["spec", "template"]]
+      ("batch", "job") -> [["spec", "template"]]
+      ("batch", "cronjob") -> [["spec", "schedule"], ["spec", "jobTemplate"]]
+      ("", "persistentvolumeclaim") -> [["spec", "accessModes"], ["spec", "resources", "requests", "storage"]]
+      _ -> []
 
 -- | Fields the API server refuses to change (422), as validated: a PVC's spec
 -- while unbound (E1), a Job's template (E8), a StatefulSet's identity fields
