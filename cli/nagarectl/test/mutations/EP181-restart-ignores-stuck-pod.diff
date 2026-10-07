@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/DataService.hs b/cli/nagarectl/src/Nagare/Inventory/DataService.hs
+index 3b653b7b..0c26cf78 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/DataService.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/DataService.hs
+@@ -196,7 +196,7 @@ compileStatefulSetRestart ::
+   Either
+     (NonEmpty InventoryError)
+     (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString), Maybe T.Text)
+-compileStatefulSetRestart stuck dataKind name namespaceName stamp accepted native = case stuck of
++compileStatefulSetRestart stuck dataKind name namespaceName stamp accepted native = case (Nothing :: Maybe StuckPod) of
+   Just pod' ->
+     Right
+       ( accepted
