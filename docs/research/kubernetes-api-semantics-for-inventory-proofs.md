@@ -87,6 +87,8 @@ adapter, so fault injection finds only defects that contradict the adapter's *co
 F67, F68 and F69 all follow from basic API semantics. This record states those semantics once, validated against a
 real server. It derives the ADR 26 classes from them and checks the code against the result.
 
+U11–U14 come from EP-182's machine-readable traces (`cli/nagarectl/test/fixtures/kubernetes-semantics/traces.json`, recorded by `record-traces.sh`), checked by the fake API server's conformance test.
+
 Environment: k3s `v1.34.6-k3s1` (the local-mode pin), Knative Serving 1.22.0 and Kourier 1.22.0 from the vendored
 manifests, kubectl client 1.37.0 [E0].
 
@@ -104,6 +106,10 @@ manifests, kubectl client 1.37.0 [E0].
 | U8 | `metadata.generation` exists only where the kind's strategy sets it, and moves on spec changes only. Exception: a **Deployment** also moves it on a metadata **annotation** change (a label does not move it). A StatefulSet's does not move on annotations. | [E1] |
 | U9 | `kubectl wait --for=condition=…` (client 1.37) refuses a condition whose object reports `observedGeneration < generation`. `kubectl rollout status` uses the full rollout rule for Deployment and StatefulSet. kubectl 1.37 against a 1.32 server never satisfied `wait` on CRDs. That pairing is outside the ±1 skew policy, and the same command works against 1.34. | [E4, E5, E0], [docs k8s-skew] |
 | U10 | Server-side apply tracks a writer per field in `managedFields`. Status writes go to separate status-subresource entries. `kubectl create --field-manager=nagare-inventory` records the manager as *Update*, and a later apply under the same name is a **different** manager. So an apply **without** `--force-conflicts` that changes a create-time field is refused (409, "Apply failed … conflicts with \"nagare-inventory\""), and a forced apply that leaves a value unchanged only shares ownership. A foreign write that changes a managed field takes it into its own entry (for example `kubectl-edit/Update`), and a no-force apply then conflicts. That holds even when the foreign write restores Nagare's earlier value. A write that changes nothing was not tested. `metadata.resourceVersion: "0"` is ignored by apply: it creates when absent and applies when present, so apply has no create-if-absent. | [E13] |
+| U11 | A DELETE that a finalizer holds also moves `metadata.generation` (where the kind has one) along with setting `deletionTimestamp`, and controllers stop reconciling an object being deleted. A Knative Service held by an `Orphan` delete therefore shows `observedGeneration` behind `generation` while it is Terminating. | [traces E7] |
+| U12 | Who owns a server-set field depends on what set it. A mutating admission plugin's change (a PVC's default StorageClass) is owned by the request's manager for Apply and Update alike. Defaulting (a Namespace's `kubernetes.io/metadata.name` label) is owned only by an Update-style create, whose ownership is the diff from an empty object. So a repeated identical apply of a PVC that omits its StorageClass moves resourceVersion once, as the applier releases that field, and `kubectl create` of a Namespace leaves a `kubectl-create` entry. | [traces E1, E12] |
+| U13 | A DomainMapping carries Knative's `domainmappings.serving.knative.dev` finalizer from creation, as a non-status field of the `controller` manager; its DELETE completes once the controller finalizes, normally at once. `kubernetes.io/pvc-protection` is removed asynchronously, so even an unused PVC is briefly Terminating after DELETE. | [traces E1, E14] |
+| U14 | kubectl's `wait` timeout names the bare plural (`services/e4`), and an apply with several conflicts lists their paths on lines after the first, while one with a single conflict keeps it on the first line. | [traces E4, E13] |
 
 ## 2. Per-kind semantics (release line (b))
 
