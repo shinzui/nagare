@@ -55,6 +55,8 @@ module Nagare.Test.World.ApiServer
   , canonicalQuantity
   , specDigestOf
   , outcomeKey
+  , effectiveOutcome
+  , templateOf
   , conditionMet
   , rolloutComplete
   , statusManager
@@ -664,6 +666,7 @@ insertNew key written0 entry0 server =
           , memory = Map.empty
           , pods = []
           }
+          & withTemplateOutcome server written
       server' = controllerStep key (server & #objects %~ Map.insert key stored & #nextUid %~ (+ 1) & #nextResourceVersion %~ (+ 1))
    in (server', maybe Null (render False) (Map.lookup key (objects server')))
 
@@ -692,7 +695,8 @@ replaceContent key stored content' managed' server
       let generation' = case (stored ^. #generation, (^. #generationRule) <$> semanticsFor key) of
             (Just g, Just rule) | generationMoves rule (stored ^. #content) content' -> Just (g + 1)
             (current, _) -> current
-          stored' = stored & #content .~ content' & #managed .~ managed' & #generation .~ generation' & #resourceVersion .~ nextResourceVersion server
+          rolled = if templateOf content' /= templateOf (stored ^. #content) then withTemplateOutcome server content' else id
+          stored' = rolled stored & #content .~ content' & #managed .~ managed' & #generation .~ generation' & #resourceVersion .~ nextResourceVersion server
           server' = controllerStep key (server & #objects %~ Map.insert key stored' & #nextResourceVersion %~ (+ 1))
        in (server', maybe Null (render False) (Map.lookup key (objects server')))
 
@@ -737,7 +741,30 @@ hasGeneration :: ObjectKey -> Bool
 hasGeneration key = maybe False ((/= NoGeneration) . (^. #generationRule)) (semanticsFor key)
 
 outcomeOf :: ApiServer -> Stored -> Outcome
-outcomeOf server stored = fromMaybe Good (Map.lookup (outcomeKey (stored ^. #content)) (outcomes server))
+outcomeOf = effectiveOutcome
+
+-- | The outcome of the pod template the object runs: decided when a write
+-- created the object or changed its template, by that write's stamp. A
+-- write that leaves the template alone (an annotation, a label) rolls out
+-- nothing, so it keeps the previous outcome.
+effectiveOutcome :: ApiServer -> Stored -> Outcome
+effectiveOutcome server stored = case Map.lookup "templateOutcome" (stored ^. #memory) of
+  Just (String "Unready") -> Unready
+  Just (String "Failed") -> Failed
+  Just _ -> Good
+  Nothing -> lookupOutcome server (stored ^. #content)
+
+lookupOutcome :: ApiServer -> Value -> Outcome
+lookupOutcome server content' = fromMaybe Good (Map.lookup (outcomeKey content') (outcomes server))
+
+-- | What a controller rolls out: a workload's pod template, or else its spec.
+templateOf :: Value -> Value
+templateOf content' = case leafAt ["spec", "template"] content' of
+  Null -> leafAt ["spec"] content'
+  template -> template
+
+withTemplateOutcome :: ApiServer -> Value -> Stored -> Stored
+withTemplateOutcome server content' = #memory %~ Map.insert "templateOutcome" (String (tshow (lookupOutcome server content')))
 
 -- | What 'outcomes' is keyed by: the object's @nagare.dev/spec-digest@ stamp,
 -- or, for an unstamped object, its content without metadata.

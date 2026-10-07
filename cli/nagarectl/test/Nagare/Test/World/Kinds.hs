@@ -262,28 +262,30 @@ kindFixture row = case kubernetesKind row of
                   <> ["namespace" .= ("personal" :: Text) | namespaced]
               )
         ]
-          <> body
+          <> body release
   where
-    container = object ["name" .= ("c" :: Text), "image" .= ("registry.example/extra:1" :: Text)]
+    -- A workload's release is its image, as a deploy's is, so a second
+    -- review rolls out a new revision.
+    container release = object ["name" .= ("c" :: Text), "image" .= ("registry.example/extra:" <> release)]
     labels = object ["app" .= ("model-extra" :: Text)]
-    podTemplate = object ["metadata" .= object ["labels" .= labels], "spec" .= object ["containers" .= [container]]]
-    jobTemplate = object ["spec" .= object ["restartPolicy" .= ("Never" :: Text), "containers" .= [container]]]
-    manifests :: [((Text, Text), (Text, Text, Bool, [(Key, Value)]))]
+    podTemplate release = object ["metadata" .= object ["labels" .= labels], "spec" .= object ["containers" .= [container release]]]
+    jobTemplate release = object ["spec" .= object ["restartPolicy" .= ("Never" :: Text), "containers" .= [container release]]]
+    manifests :: [((Text, Text), (Text, Text, Bool, Text -> [(Key, Value)]))]
     manifests =
-      [ (("serving.knative.dev", "service"), ("v1", "Service", True, ["spec" .= object ["template" .= object ["spec" .= object ["containers" .= [object ["image" .= ("registry.example/extra:1" :: Text)]]]]]]))
-      , (("serving.knative.dev", "domainmapping"), ("v1beta1", "DomainMapping", True, ["spec" .= object ["ref" .= object ["name" .= ("web" :: Text), "kind" .= ("Service" :: Text), "apiVersion" .= ("serving.knative.dev/v1" :: Text)]]]))
-      , (("apps", "deployment"), ("v1", "Deployment", True, ["spec" .= object ["replicas" .= (1 :: Int), "selector" .= object ["matchLabels" .= labels], "template" .= podTemplate]]))
-      , (("apps", "statefulset"), ("v1", "StatefulSet", True, ["spec" .= object ["replicas" .= (1 :: Int), "serviceName" .= ("model-extra" :: Text), "selector" .= object ["matchLabels" .= labels], "template" .= podTemplate]]))
-      , (("batch", "cronjob"), ("v1", "CronJob", True, ["spec" .= object ["schedule" .= ("0 0 1 1 *" :: Text), "jobTemplate" .= object ["spec" .= object ["template" .= jobTemplate]]]]))
-      , (("batch", "job"), ("v1", "Job", True, ["spec" .= object ["template" .= jobTemplate]]))
-      , (("", "configmap"), ("v1", "ConfigMap", True, ["data" .= object ["k" .= ("v" :: Text)]]))
-      , (("", "service"), ("v1", "Service", True, ["spec" .= object ["selector" .= labels, "ports" .= [object ["port" .= (80 :: Int), "targetPort" .= (8080 :: Int)]]]]))
-      , (("", "secret"), ("v1", "Secret", True, []))
-      , (("", "persistentvolumeclaim"), ("v1", "PersistentVolumeClaim", True, ["spec" .= object ["accessModes" .= ["ReadWriteOnce" :: Text], "resources" .= object ["requests" .= object ["storage" .= ("1Gi" :: Text)]]]]))
-      , (("", "serviceaccount"), ("v1", "ServiceAccount", True, []))
-      , (("", "namespace"), ("v1", "Namespace", False, []))
-      , (("", "resourcequota"), ("v1", "ResourceQuota", True, ["spec" .= object ["hard" .= object ["pods" .= ("10" :: Text)]]]))
-      , (("networking.k8s.io", "networkpolicy"), ("v1", "NetworkPolicy", True, ["spec" .= object ["podSelector" .= object [], "policyTypes" .= ["Ingress" :: Text]]]))
-      , (("rbac.authorization.k8s.io", "role"), ("v1", "Role", True, ["rules" .= [object ["apiGroups" .= ["" :: Text], "resources" .= ["configmaps" :: Text], "verbs" .= ["get" :: Text]]]]))
-      , (("rbac.authorization.k8s.io", "rolebinding"), ("v1", "RoleBinding", True, ["roleRef" .= object ["apiGroup" .= ("rbac.authorization.k8s.io" :: Text), "kind" .= ("Role" :: Text), "name" .= ("model-extra" :: Text)], "subjects" .= [object ["kind" .= ("ServiceAccount" :: Text), "name" .= ("default" :: Text), "namespace" .= ("personal" :: Text)]]]))
+      [ (("serving.knative.dev", "service"), ("v1", "Service", True, \release -> ["spec" .= object ["template" .= object ["spec" .= object ["containers" .= [object ["image" .= ("registry.example/extra:" <> release)]]]]]]))
+      , (("serving.knative.dev", "domainmapping"), ("v1beta1", "DomainMapping", True, const ["spec" .= object ["ref" .= object ["name" .= ("web" :: Text), "kind" .= ("Service" :: Text), "apiVersion" .= ("serving.knative.dev/v1" :: Text)]]]))
+      , (("apps", "deployment"), ("v1", "Deployment", True, \release -> ["spec" .= object ["replicas" .= (1 :: Int), "selector" .= object ["matchLabels" .= labels], "template" .= podTemplate release]]))
+      , (("apps", "statefulset"), ("v1", "StatefulSet", True, \release -> ["spec" .= object ["replicas" .= (1 :: Int), "serviceName" .= ("model-extra" :: Text), "selector" .= object ["matchLabels" .= labels], "template" .= podTemplate release]]))
+      , (("batch", "cronjob"), ("v1", "CronJob", True, \release -> ["spec" .= object ["schedule" .= ("0 0 1 1 *" :: Text), "jobTemplate" .= object ["spec" .= object ["template" .= jobTemplate release]]]]))
+      , (("batch", "job"), ("v1", "Job", True, \release -> ["spec" .= object ["template" .= jobTemplate release]]))
+      , (("", "configmap"), ("v1", "ConfigMap", True, const ["data" .= object ["k" .= ("v" :: Text)]]))
+      , (("", "service"), ("v1", "Service", True, const ["spec" .= object ["selector" .= labels, "ports" .= [object ["port" .= (80 :: Int), "targetPort" .= (8080 :: Int)]]]]))
+      , (("", "secret"), ("v1", "Secret", True, const []))
+      , (("", "persistentvolumeclaim"), ("v1", "PersistentVolumeClaim", True, const ["spec" .= object ["accessModes" .= ["ReadWriteOnce" :: Text], "resources" .= object ["requests" .= object ["storage" .= ("1Gi" :: Text)]]]]))
+      , (("", "serviceaccount"), ("v1", "ServiceAccount", True, const []))
+      , (("", "namespace"), ("v1", "Namespace", False, const []))
+      , (("", "resourcequota"), ("v1", "ResourceQuota", True, const ["spec" .= object ["hard" .= object ["pods" .= ("10" :: Text)]]]))
+      , (("networking.k8s.io", "networkpolicy"), ("v1", "NetworkPolicy", True, const ["spec" .= object ["podSelector" .= object [], "policyTypes" .= ["Ingress" :: Text]]]))
+      , (("rbac.authorization.k8s.io", "role"), ("v1", "Role", True, const ["rules" .= [object ["apiGroups" .= ["" :: Text], "resources" .= ["configmaps" :: Text], "verbs" .= ["get" :: Text]]]]))
+      , (("rbac.authorization.k8s.io", "rolebinding"), ("v1", "RoleBinding", True, const ["roleRef" .= object ["apiGroup" .= ("rbac.authorization.k8s.io" :: Text), "kind" .= ("Role" :: Text), "name" .= ("model-extra" :: Text)], "subjects" .= [object ["kind" .= ("ServiceAccount" :: Text), "name" .= ("default" :: Text), "namespace" .= ("personal" :: Text)]]]))
       ]

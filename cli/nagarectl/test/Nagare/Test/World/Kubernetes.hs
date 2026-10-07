@@ -99,9 +99,11 @@ objects state =
           Just StatefulSetRollout ->
             let replicas = maybe 1 round (numberAt ["spec", "replicas"] (stored ^. #content)) :: Int
                 running = [pod | pod <- stored ^. #pods, pod ^. #ready]
-             in if length running >= replicas && outcomeFor stored == Good then Ready else NotReady
+                updateRevision = textAt' ["updateRevision"] (stored ^. #status)
+                current = [pod | pod <- running, Just (pod ^. #revision) == updateRevision]
+             in if length current >= replicas then Ready else NotReady
           _ -> Ready
-    outcomeFor stored = fromMaybe Good (Map.lookup (outcomeKey (stored ^. #content)) (server' ^. #outcomes))
+    outcomeFor = effectiveOutcome server'
     fromOutcome = \case
       Good -> Ready
       _ -> NotReady

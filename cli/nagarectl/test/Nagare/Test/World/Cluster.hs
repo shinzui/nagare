@@ -149,7 +149,9 @@ clusterAnswer cluster request = do
             Just placed@(_, fault)
               | fault `elem` [LandsUnready, LandsFailed]
               , code == ExitSuccess
-              , maybe False (landsWith fault) key ->
+              , Just k <- key
+              , landsWith fault k
+              , rolledOut k previous current ->
                   noteActed (adversary cluster) placed >> answered code stdout stderr
             _ -> answered code stdout stderr
   where
@@ -230,6 +232,13 @@ clusterAnswer cluster request = do
     -- The written spec's outcome, by the stamp the request carries.
     registerOutcome outcome = for_ (requestBody request) $ \body ->
       modifyServer cluster (#outcomes %~ Map.insert (outcomeKey body) outcome)
+
+    -- The write created the object or changed what its controller rolls
+    -- out; a write that changes neither cannot land a bad revision.
+    rolledOut k previous current = case (Map.lookup k (previous ^. #objects), Map.lookup k (current ^. #objects)) of
+      (Nothing, Just _) -> True
+      (Just before', Just after') -> templateOf (before' ^. #content) /= templateOf (after' ^. #content)
+      _ -> False
 
     landsWith fault k = case (^. #readinessModel) <$> semanticsFor k of
       Just JobTerminal -> True
