@@ -76,10 +76,13 @@ How to see it working:
   - `observedGeneration == generation`;
   - the pod's revision differs from `updateRevision`;
   - the pod is not Ready.
-- [ ] M2: the operation is planned and prepared. A plan over a stuck member contains one
-  `ReplaceStuckPod` operation, with the pod's identity in its reviewed bytes. No other plan
-  contains it.
-- [ ] M3: the operation executes under the conditional-write discipline.
+- [ ] M2: the operation is planned and prepared, and status names it. A plan over a stuck member
+  contains one `ReplaceStuckPod` operation, proposed automatically from the observation, with the
+  pod's identity in its reviewed bytes. No other plan contains it. `inventory status` reports the
+  member as a stuck rollout and names the operation the next plan proposes.
+- [ ] M3: the operation executes under the conditional-write discipline. It starts only once
+  EP-180 M6 is on master: its constructor `KubernetesTerminating` (decided by nagare-defects,
+  2026-10-06) is how the pod's terminating state is read.
   - It re-reads the StatefulSet and the pod.
   - It refuses before any write unless the reviewed pod is still the stuck one.
   - It deletes the pod with its UID and its fresh resourceVersion as preconditions.
@@ -90,6 +93,8 @@ How to see it working:
   - The kind table and its totality test know the operation.
   - With EP-182's world, the recovery model's corrected-database scenario reaches Ready through
     it.
+  - `doctor` names a stuck database rollout and the fix: plan, review the proposed replacement,
+    apply.
   - The user documentation says what the operator sees.
   - Every mutation record added here fails its named test.
 
@@ -101,8 +106,10 @@ How to see it working:
 
 ## Decision Log
 
-- Decision: the replacement is planned in the review **after** the correction, not in the same
-  review as the correcting update.
+- Decision (confirmed by session nagare for the operator, 2026-10-06): the replacement is planned
+  in the review **after** the correction, not in the same review as the correcting update. The
+  next plan proposes it automatically from the observation, and `inventory status` and `doctor`
+  name it, so the operator is never left to find the stuck pod.
   Rationale: a StatefulSet update waits for readiness
   (`kubectl rollout status --timeout=300s`). When the pod is stuck, that wait stops the
   transaction as landed and not ready before any dependent operation could run. The same review
@@ -112,8 +119,8 @@ How to see it working:
   cost is one close and one more review.
   Date: 2026-10-06
 
-- Decision: a replaced pod classes as completed only when the StatefulSet is then Ready, and as
-  landed otherwise.
+- Decision (refinement of RES-4 §5.3, confirmed by session nagare, 2026-10-06): a replaced pod
+  classes as completed only when the StatefulSet is then Ready, and as landed otherwise.
   Rationale: RES-4 §5.3 lists "new pod UID → Completed", but RES-4's own create and update tables
   class an effect as completed only by readiness, and as landed before it. ADR 26's adapter
   settlement has no completed class: completion is proved by recovery (`RecoveryProvedComplete`)
@@ -125,6 +132,11 @@ How to see it working:
   Rationale: Nagare renders `replicas: 1`. Ordered pod management recreates pods one ordinal at a
   time anyway, and a later review plans again if another pod is stuck. One pod per operation
   keeps one write per operation, like every other operation.
+  Date: 2026-10-06
+
+- Decision (nagare-defects for EP-180 M6, 2026-10-06): a terminating object is the
+  `KubernetesState` constructor `KubernetesTerminating`, not a field, so that every consumer
+  decides "not a live member" explicitly. This plan classifies pods through the same parser.
   Date: 2026-10-06
 
 - Decision (operator, 2026-10-06): no backward compatibility. The new operation action and
@@ -311,7 +323,14 @@ and the list of pods, and returns the lowest-ordinal pod that satisfies all of t
   going.
 
 `StuckPod` records the pod's name, namespace, UID, resourceVersion and revision, plus the
-StatefulSet's UID and `updateRevision`. A missing `updateRevision`, a malformed label or a
+StatefulSet's UID and `updateRevision`. Classify each pod's lifecycle through EP-180 M6's shared
+runtime parser, `parseObserved` in `KubernetesRuntime.hs`. It returns the constructor
+`KubernetesTerminating !PhysicalIdentity !Text !(Maybe ResourceId) !ContentDigest` (UID,
+resourceVersion, owner, digest; defined in `src/Nagare/Inventory/Adapters/KubernetesProof.hs`)
+whenever `metadata.deletionTimestamp` is set, before readiness is considered. A pod being deleted
+is therefore never stuck, and M4's "same UID being deleted → landed" row holds by construction.
+If M1 starts before M6 is on master, read `deletionTimestamp` through one small function,
+`podTerminating :: Value -> Bool`, and replace it with the shared parser when M6 lands. A missing `updateRevision`, a malformed label or a
 non-integer generation is an error, never "not stuck".
 
 The runtime reads pods only when they matter: when the observed object is a member StatefulSet
@@ -365,8 +384,14 @@ In the Kubernetes adapter:
 - The review's public summary names the namespace, the StatefulSet, the pod, its UID prefix, its
   revision and the target revision, as in the Purpose example.
 
+Status: `classifyDriftWith` (`src/Nagare/Inventory/Status.hs` 654) classes each member from the
+same `ObservationSet`. Add a `DriftCategory`, `StuckRollout`, for `ObservedStuckReplica`. Its
+reason names the pod and its revision and says "the next `inventory plan` proposes
+replace-stuck-pod". The compiler finds this match once the constructor exists.
+
 Acceptance:
 
+- a status test: a stuck member reports `StuckRollout` with that reason;
 - planner tests in `test/InventoryStuckPodSpec.hs`: a stuck member plans exactly one
   `ReplaceStuckPod`; a member that is not stuck plans none; a member that is drifted and stuck
   plans only the update;
@@ -458,6 +483,12 @@ Acceptance:
   the corrected revision. The correction's step takes the exit `[[Close]]`, and the
   replacement's step takes none. EP-182's prediction P6 then no longer reports a violation for
   this case.
+- Doctor: `nagarectl doctor` (`src/Nagare/Ops/Doctor.hs`) grades the probes that
+  `src/Nagare/Ops/Status.hs` gathers. Add a probe per database StatefulSet that reports a stuck
+  rollout, and a remediation for it in the knowledge base (`remediationForAt`): why ("its pod at
+  an older revision is not Ready, and Kubernetes will not roll it"), and the fix
+  (`nagarectl inventory plan`, review the proposed replace-stuck-pod, then `inventory apply`). A
+  unit test grades a stuck probe into that check, as the existing remediation tests do.
 - User documentation: the database page under `docs/user/` explains:
   - what `inventory plan` shows for a stuck database;
   - why the operation is safe: the PVC is a separate member, and the pod was not Ready;
@@ -526,7 +557,12 @@ Dependencies:
   - M3: the stamp proof and `beforeStamp`.
   - M4: `kubectlRefusal`, so that 4xx answers are no effect.
   - M5: the conditional-write discipline.
-  - M6: terminating objects are classified.
+  - M6: terminating objects are classified, as the constructor `KubernetesTerminating` (UID,
+    resourceVersion, owner, digest) in `Adapters/KubernetesProof.hs`. Its rules: a create or
+    update whose object is terminating is target gone; a retire whose reviewed UID is terminating
+    is landed; `requireWriteTarget` refuses a terminating target; `completionProof` never
+    completes on one. M5b (folding version 2 into the write discipline) is on `create-batch-2` at
+    `8b6f522e`.
 - Soft: EP-182 M3 (the fake server's stuck StatefulSet and pod DELETE), for M5's model scenario.
 
 New or changed interfaces:
