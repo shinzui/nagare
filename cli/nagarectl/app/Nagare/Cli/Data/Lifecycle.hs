@@ -34,6 +34,7 @@ import Nagare.Inventory.Adapters.KubernetesStuckPod (KubernetesPodOps (..), runt
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.DataService
   ( NativeDataKind
+  , RestartDecision (..)
   , compileStatefulSetRestart
   , dataCommandNativeOwned
   , standaloneRetirementScope
@@ -103,13 +104,16 @@ runDataRestart mctx kind name namespaceName dryRun output preview = do
         [member] -> do
           context <- either dieT pure (Resource.mkContextId (contextNameText (active ^. #contextName)))
           let config = KubernetesRuntimeConfig context (contextNameText (active ^. #contextName)) (fmap (fmap (const ())) (guardKubernetesContext active))
-          readStuckPod (runtimePodOps config acceptedNative) member >>= either (dieT . ("could not read the StatefulSet's pods: " <>)) pure
+          readPodBlock (runtimePodOps config acceptedNative) member >>= either (dieT . ("could not read the StatefulSet's pods: " <>)) pure
         _ -> dieT "reviewed data restart requires one accepted StatefulSet"
       stamp <- currentTimestamp
       (revised, native, note) <-
         either
           (dieT . T.pack . show)
-          pure
+          ( \case
+              RestartReview revised' native' note' -> pure (revised', native', note')
+              RestartNotPlanned reason -> dieT ("db restart: " <> reason)
+          )
           (compileStatefulSetRestart stuck kind name namespaceName stamp scope acceptedNative)
       traverse_ (TIO.putStrLn . ("db restart: " <>)) note
       candidate <-

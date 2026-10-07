@@ -294,8 +294,10 @@ renders (ordered pod management, rolling updates), the controller does not
 replace a pod that is not Ready. A corrected review lands on the StatefulSet,
 but the pod keeps running the broken revision.
 
-`nagarectl inventory status` reports such a database as `stuck-rollout`, and
-`nagarectl doctor` fails a `stuck rollout <namespace>/<name>` check. To fix it:
+The Kubernetes controller logs nothing while it is blocked, so these are your
+only signals: `nagarectl inventory status` reports such a database as
+`stuck-rollout`, and `nagarectl doctor` fails a `stuck rollout
+<namespace>/<name>` check. To fix it:
 
 ```bash
 nagarectl db restart pg-main --save-plan ./pg-main-unstick
@@ -303,8 +305,9 @@ nagarectl inventory apply ./pg-main-unstick --yes
 ```
 
 On a stuck StatefulSet, `db restart` observes the stuck pod and submits the
-accepted scope unchanged instead of stamping a new restart token, which could
-never roll. It prints why:
+accepted scope unchanged instead of stamping a new restart token. A token
+changes the pod template, and no template change ever replaces a pod that is
+not Ready. It prints why:
 
 ```text
 db restart: rollout stuck on pod pg-0 at revision pg-9d647; proposing replace-stuck-pod instead of a restart token
@@ -334,6 +337,25 @@ too), the transaction stops as landed and not ready. Close it with
 `nagarectl inventory close TRANSACTION --review DIGEST` (the replacement is
 proved landed, so the close keeps the scope), correct the template again, and
 repeat.
+
+If the pod is not Ready while already at the current template (the template
+itself never becomes Ready), `db restart` plans nothing and exits with:
+
+```text
+db restart: pod pg-main-0 at revision 9d647: the pod's current template doesn't become ready; correct the database spec, then run db restart to replace the stuck pod
+```
+
+Replacing that pod would only start the same broken template again, and a
+restart token would leave it stuck. Correct the database's spec first. The
+correction lands but cannot roll, so it leaves the pod stuck at the old
+revision, and a `db restart` then replaces it.
+
+While the database's template never becomes Ready, every review of it stops at
+its StatefulSet. Members planned after the StatefulSet, such as the backup
+account and its role binding, are not created until the template is
+corrected. `inventory status` reports them missing. They appear in the first
+review after the correction lands Ready. This is a documented limit
+([F78](../audits/mp23-findings.md#f78)).
 
 Any later plan of the unchanged database proposes the same replacement while
 the pod stays stuck. A plan that changes the database (a corrected template, or

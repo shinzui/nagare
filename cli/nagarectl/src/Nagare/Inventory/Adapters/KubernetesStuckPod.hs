@@ -11,11 +11,13 @@ module Nagare.Inventory.Adapters.KubernetesStuckPod
   ( StuckPod (..)
   , PodReplacement (..)
   , ReplacementObservation (..)
+  , PodBlock (..)
   , ReviewedPod (..)
   , KubernetesPodOps (..)
   , noPodOps
   , runtimePodOps
   , stuckPod
+  , podBlock
   , podTerminating
   , stillStuck
   , podDeleteRequest
@@ -91,6 +93,10 @@ data PodReplacement = PodReplacement
 data KubernetesPodOps = KubernetesPodOps
   { readStuckPod :: !(ResourceId -> IO (Either Text (Maybe StuckPod)))
   -- ^ The member StatefulSet's stuck pod, if it has one.
+  , readPodBlock :: !(ResourceId -> IO (Either Text (Maybe PodBlock)))
+  -- ^ What keeps the member StatefulSet's pod from running its template, if
+  -- anything: a stuck pod, or a pod whose current template never becomes
+  -- Ready.
   , replaceStuckPod :: !(PodReplacement -> Text -> IO AdapterExecution)
   -- ^ Delete the reviewed pod, conditional on its UID and this fresh
   -- resourceVersion, then wait for the StatefulSet's rollout.
@@ -124,6 +130,7 @@ noPodOps :: KubernetesPodOps
 noPodOps =
   KubernetesPodOps
     { readStuckPod = \_ -> pure (Right Nothing)
+    , readPodBlock = \_ -> pure (Right Nothing)
     , replaceStuckPod = \_ _ -> pure (AdapterEffectFailed (KnownNoEffect "this adapter has no pod access"))
     , observeReplacement = \_ -> pure (Left "this adapter has no pod access")
     }
@@ -132,8 +139,11 @@ noPodOps =
 -- only when the StatefulSet reads not ready, so a healthy StatefulSet costs
 -- one read.
 runtimePodOps :: KubernetesRuntimeConfig -> Map ResourceId (ManagedResource, ByteString) -> KubernetesPodOps
-runtimePodOps config specs = KubernetesPodOps reader replace observe
+runtimePodOps config specs = KubernetesPodOps (fmap (fmap (>>= asStuck)) . reader) reader replace observe
   where
+    asStuck = \case
+      PodStuck pod' -> Just pod'
+      PodBrokenAtRevision {} -> Nothing
     observe replacement = do
       guarded <- runtimeGuard config
       case (guarded, replacement ^. #target) of
@@ -201,7 +211,7 @@ runtimePodOps config specs = KubernetesPodOps reader replace observe
                           pure $ case pods of
                             Left reason -> Left reason
                             Right Nothing -> Left "the StatefulSet's pod list is empty output"
-                            Right (Just listed) -> stuckPod statefulSet listed
+                            Right (Just listed) -> podBlock statefulSet listed
       Just _ -> pure (Right Nothing)
       Nothing -> pure (Left "the StatefulSet lacks its bound native object")
     readJson arguments = do
@@ -217,12 +227,31 @@ runtimePodOps config specs = KubernetesPodOps reader replace observe
       when (Map.null labels) (fail "the StatefulSet's selector has no matchLabels")
       pure (T.unpack (T.intercalate "," [key <> "=" <> value | (key, value) <- Map.toList labels]))
 
+-- | What keeps a StatefulSet's pod from running its template (RES-4 E6,
+-- E17): with the controller at the latest spec, a pod it controls that is
+-- not Ready and not being deleted. At a revision other than
+-- @status.updateRevision@ the pod is stuck, and replacing it lets the rollout
+-- proceed. At the update revision, the current template itself never becomes
+-- Ready: RES-4 U15 (experiment E17, k3s 1.34.6) showed that no template change, a restart
+-- annotation or a fix, replaces such a pod; it only moves @updateRevision@,
+-- leaving the pod stuck at an old revision.
+data PodBlock
+  = PodStuck !StuckPod
+  | -- | The pod's name and its revision, the update revision.
+    PodBrokenAtRevision !Text !Text
+  deriving stock (Eq, Show, Generic)
+
 -- | The lowest-ordinal pod of the StatefulSet that blocks its rollout, given
 -- the StatefulSet and a pod list (@kubectl get pods -o json@). A StatefulSet
 -- without @status.updateRevision@ once its controller has observed it, or a
 -- pod it controls without a revision label, is an error, never "not stuck".
 stuckPod :: Value -> Value -> Either Text (Maybe StuckPod)
-stuckPod statefulSet podList = first T.pack (parseEither parse ())
+stuckPod statefulSet podList = (>>= \case PodStuck pod' -> Just pod'; PodBrokenAtRevision {} -> Nothing) <$> podBlock statefulSet podList
+
+-- | The lowest-ordinal stuck pod, or else the lowest-ordinal pod not Ready at
+-- the update revision.
+podBlock :: Value -> Value -> Either Text (Maybe PodBlock)
+podBlock statefulSet podList = first T.pack (parseEither parse ())
   where
     parse () = do
       (setUid, generation, observed, status) <- withObject "StatefulSet" statefulSetFields statefulSet
@@ -231,8 +260,13 @@ stuckPod statefulSet podList = first T.pack (parseEither parse ())
         else do
           target <- status .: "updateRevision"
           items <- withObject "PodList" (.: "items") podList
-          candidates <- traverse (withObject "Pod" (candidate setUid target)) items
-          pure (listToMaybe (sortOn ordinal (catMaybes candidates)))
+          candidates <- catMaybes <$> traverse (withObject "Pod" (candidate setUid target)) items
+          let stuck = sortOn (ordinal . fst) [(name', pod') | (name', Right pod') <- candidates]
+              broken = sortOn (ordinal . fst) [(name', revision) | (name', Left revision) <- candidates]
+          pure $ case (stuck, broken) of
+            ((_, pod') : _, _) -> Just (PodStuck pod')
+            ([], (name', revision) : _) -> Just (PodBrokenAtRevision name' revision)
+            ([], []) -> Nothing
     statefulSetFields root = do
       metadata <- root .: "metadata"
       setUid <- metadata .: "uid" >>= physical
@@ -250,14 +284,14 @@ stuckPod statefulSet podList = first T.pack (parseEither parse ())
         else do
           labels <- fromMaybe mempty <$> metadata .:? "labels" :: Parser (Map Text Text)
           revision <- maybe (fail "a pod the StatefulSet controls has no controller-revision-hash label") pure (Map.lookup "controller-revision-hash" labels)
+          name' <- metadata .: "name"
           if revision == target
-            then pure Nothing
+            then pure (Just (name', Left revision))
             else do
-              name' <- metadata .: "name"
               namespace' <- metadata .: "namespace"
               uid' <- metadata .: "uid" >>= physical
               version <- metadata .: "resourceVersion"
-              pure (Just (StuckPod name' namespace' uid' version revision setUid target))
+              pure (Just (name', Right (StuckPod name' namespace' uid' version revision setUid target)))
     controlledBy setUid owner = flip (withObject "ownerReference") owner $ \reference -> do
       controller <- fromMaybe False <$> reference .:? "controller"
       ownerUid <- reference .: "uid"
@@ -269,7 +303,7 @@ stuckPod statefulSet podList = first T.pack (parseEither parse ())
       pure ((("Ready" :: Text), ("True" :: Text)) `elem` readiness)
     physical text = either (fail . T.unpack) pure (mkPhysicalIdentity text)
     -- A StatefulSet names its pods <name>-<ordinal>.
-    ordinal stuck = fromMaybe (maxBound :: Int) (readMaybe (T.unpack (T.takeWhileEnd (/= '-') (stuck ^. #pod))))
+    ordinal name' = fromMaybe (maxBound :: Int) (readMaybe (T.unpack (T.takeWhileEnd (/= '-') name')))
 
 -- | A pod being deleted is already going, so it is never stuck. The rule is
 -- EP-180 M6's for members (@parseObserved@ classes an object as

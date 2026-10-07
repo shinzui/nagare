@@ -11,6 +11,7 @@ module Nagare.Inventory.DataService
   , databaseNativeOwned
   , brokerNativeOwned
   , brokerTopicChangeRequiresReview
+  , RestartDecision (..)
   , compileStatefulSetRestart
   , compileStatefulSetRestartScope
   , compileBackupPruneRemovalScope
@@ -36,7 +37,7 @@ import Nagare.Dsl.Database (Database (..), dbSecretName, parseEngine)
 import Nagare.Dsl.Database.Render (dbConfigMapName, dbPvcName)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types (databaseNameText, namespaceText)
-import Nagare.Inventory.Adapters.KubernetesStuckPod (StuckPod)
+import Nagare.Inventory.Adapters.KubernetesStuckPod (PodBlock (..))
 import Nagare.Inventory.BackupFreshness (RecoveryPointObjective)
 import Nagare.Inventory.Database (DatabaseBackupTarget (DatabaseBackupTarget), compileDatabaseForBackend)
 import Nagare.Inventory.Digest (contentDigest)
@@ -179,31 +180,41 @@ compileBackupPruneRemovalScope name namespaceName (DatabaseBackupTarget backend 
     descend (Object fields) key = maybe (Left ()) Right (KM.lookup key fields)
     descend _ _ = Left ()
 
--- | EP-181: a restart makes the pod run the current template. On a
--- StatefulSet whose rollout is observed stuck behind a pod, only replacing
--- that pod can, so the accepted scope is submitted unchanged and the plan
--- proposes replace-stuck-pod: another restart token would be an update that
--- can never roll. Otherwise the restart stamps a new token. The note says
--- which, for the plan output.
+-- | EP-181: a restart makes the pod run the current template. A token can
+-- never roll a pod that is not Ready: RES-4 U15 (experiment E17, k3s 1.34.6) showed that a
+-- template change, a restart annotation or a fix, only moves updateRevision
+-- and leaves such a pod stuck. So when the StatefulSet's pod is observed not
+-- Ready, the accepted scope is submitted unchanged:
+--
+-- * a pod stuck at an old revision: the plan proposes replace-stuck-pod;
+-- * a pod not Ready at the update revision: its template never becomes
+--   Ready, so nothing is planned, and the restart says to correct the spec
+--   first.
+--
+-- Otherwise the restart stamps a new token. The note says which, for the plan
+-- output.
+data RestartDecision
+  = -- | Review this scope with these native bytes; the note says why.
+    RestartReview !ScopeDeclaration !(Map ResourceId (ManagedResource, ByteString)) !(Maybe T.Text)
+  | -- | Plan nothing; the reason tells the operator what to do instead.
+    RestartNotPlanned !T.Text
+  deriving stock (Eq, Show)
+
 compileStatefulSetRestart ::
-  Maybe StuckPod ->
+  Maybe PodBlock ->
   NativeDataKind ->
   T.Text ->
   T.Text ->
   T.Text ->
   ScopeDeclaration ->
   Map ResourceId (ManagedResource, ByteString) ->
-  Either
-    (NonEmpty InventoryError)
-    (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString), Maybe T.Text)
-compileStatefulSetRestart stuck dataKind name namespaceName stamp accepted native = case stuck of
-  Just pod' ->
-    Right
-      ( accepted
-      , native
-      , Just ("rollout stuck on pod " <> pod' ^. #pod <> " at revision " <> pod' ^. #podRevision <> "; proposing replace-stuck-pod instead of a restart token")
-      )
-  Nothing -> (\(revised, changed) -> (revised, changed, Nothing)) <$> compileStatefulSetRestartScope dataKind name namespaceName stamp accepted native
+  Either (NonEmpty InventoryError) RestartDecision
+compileStatefulSetRestart blocked dataKind name namespaceName stamp accepted native = case blocked of
+  Just (PodStuck pod') ->
+    Right (RestartReview accepted native (Just ("rollout stuck on pod " <> pod' ^. #pod <> " at revision " <> pod' ^. #podRevision <> "; proposing replace-stuck-pod instead of a restart token")))
+  Just (PodBrokenAtRevision pod' revision) ->
+    Right (RestartNotPlanned ("pod " <> pod' <> " at revision " <> revision <> ": the pod's current template doesn't become ready; correct the database spec, then run db restart to replace the stuck pod"))
+  Nothing -> (\(revised, changed) -> RestartReview revised changed Nothing) <$> compileStatefulSetRestartScope dataKind name namespaceName stamp accepted native
 
 -- | Restart one accepted data workload by changing only its pod template.
 -- The scope's other declarations and private bytes remain those of the

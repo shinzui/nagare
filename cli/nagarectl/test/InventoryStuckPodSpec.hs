@@ -33,7 +33,7 @@ import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes (KubernetesState (..), kubernetesObserve, mkKubernetesAdapterWithObservations)
 import Nagare.Inventory.Adapters.KubernetesRuntime (mkKubernetesRuntimeOpsAndBatchWithCacheKey)
 import Nagare.Inventory.Adapters.KubernetesStuckPod
-import Nagare.Inventory.DataService (NativeDataKind (DatabaseObjects), compileStatefulSetRestart)
+import Nagare.Inventory.DataService (NativeDataKind (DatabaseObjects), RestartDecision (..), compileStatefulSetRestart)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Execute
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect))
@@ -270,13 +270,24 @@ inventoryStuckPodTests =
         parseStuckRollouts (encoded (pods [stamped & atStatus .~ object ["observedGeneration" .= (3 :: Int)]])) (encoded (pods []))
           @?= Just [Probe "stuck rollout personal/pg" StatusUnknown "Error in $: key \"updateRevision\" not found"]
     , testCase "db restart: a stuck StatefulSet submits its accepted scope unchanged, and the plan replaces the stuck pod" $ do
-        (revised, native, note) <- expectRight (compileStatefulSetRestart (Just reviewedPod) DatabaseObjects "pg" "personal" "2026-10-06T00:00:00Z" databaseScope databaseNative)
+        decision <- expectRight (compileStatefulSetRestart (Just (PodStuck reviewedPod)) DatabaseObjects "pg" "personal" "2026-10-06T00:00:00Z" databaseScope databaseNative)
+        (revised, native, note) <- case decision of
+          RestartReview revised' native' note' -> pure (revised', native', note')
+          other -> assertFailure ("a stuck restart did not review: " <> show other) >> pure (error "unreachable")
         (revised, native) @?= (databaseScope, databaseNative)
         note @?= Just "rollout stuck on pod pg-0 at revision pg-9d647; proposing replace-stuck-pod instead of a restart token"
         planned <- planDatabase revised (Map.singleton statefulId "pg-0 at revision pg-9d647 is not Ready and blocks the rollout to pg-d9d6d")
         map (\operation -> (plannedAction operation, plannedResources operation)) planned @?= [(ReplaceStuckPod, statefulId :| [])]
+    , testCase "db restart: a pod not Ready at the update revision plans nothing and says to correct the spec (E17)" $ do
+        compileStatefulSetRestart (Just (PodBrokenAtRevision "pg-0" "pg-9dc98")) DatabaseObjects "pg" "personal" "2026-10-06T00:00:00Z" databaseScope databaseNative
+          @?= Right (RestartNotPlanned "pod pg-0 at revision pg-9dc98: the pod's current template doesn't become ready; correct the database spec, then run db restart to replace the stuck pod")
+    , testCase "observation: a pod not Ready at the update revision is a broken template, not stuck (E6e, E17)" $
+        podBlock (statefulSet 1 (Just 1) (Just "pg-9dc98")) (pods [pgPod "pg-0" "pg-9dc98" False]) @?= Right (Just (PodBrokenAtRevision "pg-0" "pg-9dc98"))
     , testCase "db restart: a StatefulSet that is not stuck stamps a new restart token, as before" $ do
-        (revised, _, note) <- expectRight (compileStatefulSetRestart Nothing DatabaseObjects "pg" "personal" "2026-10-06T00:00:00Z" databaseScope databaseNative)
+        decision <- expectRight (compileStatefulSetRestart Nothing DatabaseObjects "pg" "personal" "2026-10-06T00:00:00Z" databaseScope databaseNative)
+        (revised, note) <- case decision of
+          RestartReview revised' _ note' -> pure (revised', note')
+          other -> assertFailure ("a restart did not review: " <> show other) >> pure (error "unreachable")
         note @?= Nothing
         assertBool "the restart did not change the scope" (revised /= databaseScope)
         planned <- planDatabase revised Map.empty
