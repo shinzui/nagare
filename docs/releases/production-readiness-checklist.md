@@ -31,8 +31,9 @@ drill log. Nothing is ticked on an estimate.
       `aaa96eaf`).
 - [x] A recovery model on a world derived from validated semantics (EP-182, `356e7f18`).
 - [x] Stuck StatefulSet rollouts have a reviewed exit (EP-181, `341b01bc`).
-- [ ] The step-3d fix batch lands: F79 (close never drops an unconfirmed absence) and the harness
-      fixes B1, B2 and B6–B8 (branch `deep3d-batch`).
+- [x] The step-3d fix batch lands: F79 (close never drops an unconfirmed absence) and the harness
+      fixes B1, B2 and B6–B8 (`8824f469`, through `just land`: green `just gate` record, mutation
+      sweep 117 of 117 killed).
 - [ ] Step 5: an independent verification by a session that implemented none of the work.
 - [ ] Step 5: a new candidate with a green `just gate` and `just gate-verify`.
 - [ ] Step 5: a local rehearsal (C2) on the candidate.
@@ -80,4 +81,5 @@ drill log. Nothing is ticked on an estimate.
 - [x] Heavy runs go to the remote builder (`just test-remote`, `just mutation-sweep`).
 - [x] A mutation sweep proves every recorded guard is observed by a test.
 - [x] The deep tier runs per release as monitoring; its classes are triaged.
-- [ ] The builder probe runs first in the full gate (branch `gate-probe-first`, in `deep3d-batch`).
+- [x] The builder probe runs first in the full gate (landed in the step-3d batch, `8824f469`; its
+      gate record lists `builder-probe-x86_64-linux` as the first step).
