@@ -17,6 +17,11 @@ provenance:
       at: 2026-10-07T02:18:32Z
       mode: "update"
       note: "Filled the skeleton: five milestones from RES-4 §5.3 on EP-180's rules; next-review planning and readiness-gated completion recorded as decisions"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-07T03:12:27Z
+      mode: "implement"
+      note: "M1 and M2 implemented; side-channel, pod-ops input, terminating rule, read scope and G15 deferral recorded"
 ---
 
 # Replace a stuck StatefulSet pod through a reviewed operation
@@ -71,15 +76,32 @@ How to see it working:
 
 ## Progress
 
-- [ ] M1: a stuck rollout is observed. For a member StatefulSet only, the runtime reports the
+- [x] M1: a stuck rollout is observed. For a member StatefulSet only, the runtime reports the
   pod that blocks its rollout. A test over recorded API objects finds it exactly when:
   - `observedGeneration == generation`;
   - the pod's revision differs from `updateRevision`;
   - the pod is not Ready.
-- [ ] M2: the operation is planned and prepared, and status names it. A plan over a stuck member
+
+  Done 2026-10-06 (39d0d3eb on `ep181-stuck-pod`, base c82b58a0). It adds
+  `Nagare.Inventory.Adapters.KubernetesStuckPod`, with `stuckPod` and `runtimePodOps`. The
+  `stuck pod` group's observation and runtime tests cover E6e and E6f, a terminating pod, another
+  owner, the lowest ordinal, a missing `updateRevision` or revision label as an error, and a
+  refusing guard.
+- [x] M2: the operation is planned and prepared, and status names it. A plan over a stuck member
   contains one `ReplaceStuckPod` operation, proposed automatically from the observation, with the
   pod's identity in its reviewed bytes. No other plan contains it. `inventory status` reports the
   member as a stuck rollout and names the operation the next plan proposes.
+
+  Done 2026-10-06 (5debf9ad and 56481cf5). Tests in the `stuck pod` group:
+  - planner: one replacement, none, update only when drifted, and update only when corrected;
+  - status: `StuckRollout` with its reason;
+  - adapter observe: the stuck pod; no pod read when Ready or drifted; unavailable on a failed pod
+    read;
+  - prepare: the bytes decode, stale refusal, refusal for a non-StatefulSet;
+  - an end-to-end test over a stubbed kubectl, through the production adapter,
+    `observeWithRegistry`, `planChanges`, `prepareReview` and status's `statusFacts`.
+
+  `just gate-fast` is green. Execute, settle and recover refuse with no effect until M3 and M4.
 - [ ] M3: the operation executes under the conditional-write discipline. It starts only once
   EP-180 M6 is on master: its constructor `KubernetesTerminating` (decided by nagare-defects,
   2026-10-06) is how the pod's terminating state is read.
@@ -141,6 +163,52 @@ How to see it working:
 
 - Decision (operator, 2026-10-06): no backward compatibility. The new operation action and
   observation are added outright; earlier reviews and journals need not decode.
+  Date: 2026-10-06
+
+
+- Decision (implementation, accepted by session nagare, 2026-10-06): a stuck rollout is a side
+  channel of `ObservationSet` (`observationStuck`, `withStuckRollouts`), not a new
+  `ResourceObservation` constructor `ObservedStuckReplica`. The member itself stays
+  `ObservedPresent`.
+  Rationale:
+  - many consumers match `ObservedPresent` directly (planning proofs, incarnation checks, status
+    health, retention and collection). A new constructor would make each of them decide again
+    what a stuck but present member is, and a missed one would mis-class a live member.
+  - a consumer that drops the side channel only fails to propose the replacement, which is the
+    behavior before this plan.
+
+  Every rebuild of the set keeps the channel: `observeWithRegistry`, the CLI planning wrapper,
+  the reviewed-access adapter, and status through `Status.statusFacts`. Nagare required, as a
+  condition, an end-to-end test that a stuck pod read by the production observe path reaches the
+  plan and status; `stuck pod`'s end-to-end test is that test.
+  Date: 2026-10-06
+
+- Decision (implementation, accepted by session nagare, 2026-10-06): pod access is a separate
+  `KubernetesPodOps` input to `mkKubernetesAdapterWithObservations`, not a field of
+  `KubernetesAdapterOps`.
+  - Production builds its adapter through that constructor, now exported, with `runtimePodOps`.
+  - Every other constructor installs `noPodOps`, under which nothing is ever stuck.
+  Rationale: a new field would change about fifteen adapter-ops constructions in the tests and
+  EP-182's `test/Nagare/Test/World/Kubernetes.hs`. EP-182 wires its world's pods when it models
+  stuck StatefulSets (M5).
+  Date: 2026-10-06
+
+- Decision (implementation, 2026-10-06): pods are classed as terminating by EP-180 M6's rule,
+  applied in `podTerminating`: a `metadata.deletionTimestamp` that is present and not null. It is
+  not applied through `parseObserved`, which classes stamped members against a desired object;
+  pods carry no Nagare stamp. A terminating pod is never stuck: it is already going.
+  Date: 2026-10-06
+
+- Decision (implementation, 2026-10-06): the observation reads pods only for a member
+  StatefulSet observed as `ObservedPresent` and `KubernetesNotReady`. A Ready or drifted member
+  costs no pod read, and a drifted member plans its update first (see the first decision). A
+  failed pod read makes the member's observation unavailable, never "not stuck", so planning
+  waits instead of proposing nothing.
+  Date: 2026-10-06
+
+- Decision (implementation, 2026-10-06): RES-4 G15 (a `currentRevision` term in the stuck
+  condition) is deferred. It would change the readiness the recovery model's current world
+  reports. It is reconsidered with EP-182's world in M5.
   Date: 2026-10-06
 
 
