@@ -313,8 +313,9 @@ delete preconditions propagation key server = do
             -- The controller finalizes at once unless it is lagging.
             if Set.member key (frozen server) then hold (fromMaybe "" (listToMaybe (controllerFinalizers key))) else Right (server & #objects %~ Map.delete key)
       OrphanBlocked | propagation == Orphan -> hold "orphan"
-      -- The protection controller releases an unused claim asynchronously.
-      HeldWhileInUse -> hold "kubernetes.io/pvc-protection"
+      -- Held while a pod mounts the claim; an unused claim's protection
+      -- finalizer goes at once (in a real cluster within the second).
+      HeldWhileInUse | claimInUse server key -> hold "kubernetes.io/pvc-protection"
       HeldUntilEmpty -> hold "kubernetes"
       _ -> Right (server & #objects %~ Map.delete key)
 
@@ -358,13 +359,34 @@ mountClaim key server = case Map.lookup key (objects server) of
           Just updated -> persistStatus "k3s" key updated (object ["phase" .= ("Bound" :: Text)]) server'
           Nothing -> server'
 
+-- | Whether a pod mounts the claim: one marked mounted ('mountClaim'), or one
+-- a workload in its namespace runs with the claim in its pod template (a
+-- StatefulSet with pods, a Deployment with replicas, a Knative Service).
+claimInUse :: ApiServer -> ObjectKey -> Bool
+claimInUse server key =
+  Set.member key (inUse server)
+    || or
+      [ String (key ^. #name) `elem` [leafAt ["persistentVolumeClaim", "claimName"] volume | volume <- arrayValues (leafAt templateVolumes (stored ^. #content))]
+      | (workload, stored) <- Map.toList (objects server)
+      , workload ^. #namespace == key ^. #namespace
+      , not (stored ^. #deleting)
+      , running workload stored
+      ]
+  where
+    templateVolumes = ["spec", "template", "spec", "volumes"]
+    running workload stored = case (workload ^. #group, workload ^. #kind) of
+      ("apps", "statefulset") -> not (null (stored ^. #pods))
+      ("apps", "deployment") -> maybe True (> 0) (numberField "replicas" (leafAt ["spec"] (stored ^. #content)))
+      ("serving.knative.dev", "service") -> True
+      _ -> False
+
 -- | The pod that mounted a PersistentVolumeClaim is gone; a delete it held
 -- completes.
 releaseConsumer :: ObjectKey -> ApiServer -> ApiServer
 releaseConsumer key server =
   let released = server & #inUse %~ Set.delete key
    in case Map.lookup key (objects released) of
-        Just stored | stored ^. #deleting -> released & #objects %~ Map.delete key
+        Just stored | stored ^. #deleting && not (claimInUse released key) -> released & #objects %~ Map.delete key
         _ -> released
 
 -- * Reads
@@ -451,7 +473,7 @@ controllerStep key server = case (Map.lookup key (objects server), semanticsFor 
         StatefulSetRollout -> statefulSetStep server key stored
         JobTerminal -> persistStatus (statusManager key) key stored (jobStatus server stored) server
         NoReadinessModel
-          | semantics' ^. #deletionRule == HeldWhileInUse && stored ^. #deleting && not (Set.member key (inUse server)) ->
+          | semantics' ^. #deletionRule == HeldWhileInUse && stored ^. #deleting && not (claimInUse server key) ->
               server & #objects %~ Map.delete key
           | semantics' ^. #deletionRule == HeldUntilEmpty && stored ^. #deleting ->
               -- The namespace controller deletes the contents, then the namespace.

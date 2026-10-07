@@ -20,7 +20,7 @@ module Nagare.Test.World.Kinds
   )
 where
 
-import Data.Aeson (Value, object, (.=))
+import Data.Aeson (Key, Value, object, (.=))
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Resource.Inventory (Executor (..))
 
@@ -242,14 +242,16 @@ validatedSemantics =
   where
     plain statusSubresource = KindSemantics NoGeneration False statusSubresource NoReadinessModel NoChurn Immediate
 
--- | A minimal manifest of a row's Kubernetes kind for the generated model
--- scenarios. The release annotation changes with each review, so a second
--- review is an update of the same object.
+-- | A minimal valid manifest of a row's Kubernetes kind for the generated
+-- model scenarios: what the API server accepts, so the production runtime's
+-- per-kind write paths run as they would (EP-182). The release annotation
+-- changes with each review, so a second review is an update of the same
+-- object.
 kindFixture :: KindRow -> Maybe (Text -> Value)
 kindFixture row = case kubernetesKind row of
   Nothing -> Nothing
   Just (group, lowered) -> do
-    (version, kindName, namespaced) <- lookup (group, lowered) manifests
+    (version, kindName, namespaced, body) <- lookup (group, lowered) manifests
     pure $ \release ->
       object $
         [ "apiVersion" .= (if group == "" then version else group <> "/" <> version)
@@ -260,24 +262,28 @@ kindFixture row = case kubernetesKind row of
                   <> ["namespace" .= ("personal" :: Text) | namespaced]
               )
         ]
-          <> ["spec" .= object ["replicas" .= (1 :: Int)] | (group, lowered) == ("apps", "statefulset")]
+          <> body
   where
-    manifests :: [((Text, Text), (Text, Text, Bool))]
+    container = object ["name" .= ("c" :: Text), "image" .= ("registry.example/extra:1" :: Text)]
+    labels = object ["app" .= ("model-extra" :: Text)]
+    podTemplate = object ["metadata" .= object ["labels" .= labels], "spec" .= object ["containers" .= [container]]]
+    jobTemplate = object ["spec" .= object ["restartPolicy" .= ("Never" :: Text), "containers" .= [container]]]
+    manifests :: [((Text, Text), (Text, Text, Bool, [(Key, Value)]))]
     manifests =
-      [ (("serving.knative.dev", "service"), ("v1", "Service", True))
-      , (("serving.knative.dev", "domainmapping"), ("v1beta1", "DomainMapping", True))
-      , (("apps", "deployment"), ("v1", "Deployment", True))
-      , (("apps", "statefulset"), ("v1", "StatefulSet", True))
-      , (("batch", "cronjob"), ("v1", "CronJob", True))
-      , (("batch", "job"), ("v1", "Job", True))
-      , (("", "configmap"), ("v1", "ConfigMap", True))
-      , (("", "service"), ("v1", "Service", True))
-      , (("", "secret"), ("v1", "Secret", True))
-      , (("", "persistentvolumeclaim"), ("v1", "PersistentVolumeClaim", True))
-      , (("", "serviceaccount"), ("v1", "ServiceAccount", True))
-      , (("", "namespace"), ("v1", "Namespace", False))
-      , (("", "resourcequota"), ("v1", "ResourceQuota", True))
-      , (("networking.k8s.io", "networkpolicy"), ("v1", "NetworkPolicy", True))
-      , (("rbac.authorization.k8s.io", "role"), ("v1", "Role", True))
-      , (("rbac.authorization.k8s.io", "rolebinding"), ("v1", "RoleBinding", True))
+      [ (("serving.knative.dev", "service"), ("v1", "Service", True, ["spec" .= object ["template" .= object ["spec" .= object ["containers" .= [object ["image" .= ("registry.example/extra:1" :: Text)]]]]]]))
+      , (("serving.knative.dev", "domainmapping"), ("v1beta1", "DomainMapping", True, ["spec" .= object ["ref" .= object ["name" .= ("web" :: Text), "kind" .= ("Service" :: Text), "apiVersion" .= ("serving.knative.dev/v1" :: Text)]]]))
+      , (("apps", "deployment"), ("v1", "Deployment", True, ["spec" .= object ["replicas" .= (1 :: Int), "selector" .= object ["matchLabels" .= labels], "template" .= podTemplate]]))
+      , (("apps", "statefulset"), ("v1", "StatefulSet", True, ["spec" .= object ["replicas" .= (1 :: Int), "serviceName" .= ("model-extra" :: Text), "selector" .= object ["matchLabels" .= labels], "template" .= podTemplate]]))
+      , (("batch", "cronjob"), ("v1", "CronJob", True, ["spec" .= object ["schedule" .= ("0 0 1 1 *" :: Text), "jobTemplate" .= object ["spec" .= object ["template" .= jobTemplate]]]]))
+      , (("batch", "job"), ("v1", "Job", True, ["spec" .= object ["template" .= jobTemplate]]))
+      , (("", "configmap"), ("v1", "ConfigMap", True, ["data" .= object ["k" .= ("v" :: Text)]]))
+      , (("", "service"), ("v1", "Service", True, ["spec" .= object ["selector" .= labels, "ports" .= [object ["port" .= (80 :: Int), "targetPort" .= (8080 :: Int)]]]]))
+      , (("", "secret"), ("v1", "Secret", True, []))
+      , (("", "persistentvolumeclaim"), ("v1", "PersistentVolumeClaim", True, ["spec" .= object ["accessModes" .= ["ReadWriteOnce" :: Text], "resources" .= object ["requests" .= object ["storage" .= ("1Gi" :: Text)]]]]))
+      , (("", "serviceaccount"), ("v1", "ServiceAccount", True, []))
+      , (("", "namespace"), ("v1", "Namespace", False, []))
+      , (("", "resourcequota"), ("v1", "ResourceQuota", True, ["spec" .= object ["hard" .= object ["pods" .= ("10" :: Text)]]]))
+      , (("networking.k8s.io", "networkpolicy"), ("v1", "NetworkPolicy", True, ["spec" .= object ["podSelector" .= object [], "policyTypes" .= ["Ingress" :: Text]]]))
+      , (("rbac.authorization.k8s.io", "role"), ("v1", "Role", True, ["rules" .= [object ["apiGroups" .= ["" :: Text], "resources" .= ["configmaps" :: Text], "verbs" .= ["get" :: Text]]]]))
+      , (("rbac.authorization.k8s.io", "rolebinding"), ("v1", "RoleBinding", True, ["roleRef" .= object ["apiGroup" .= ("rbac.authorization.k8s.io" :: Text), "kind" .= ("Role" :: Text), "name" .= ("model-extra" :: Text)], "subjects" .= [object ["kind" .= ("ServiceAccount" :: Text), "name" .= ("default" :: Text), "namespace" .= ("personal" :: Text)]]]))
       ]

@@ -258,8 +258,12 @@ replayStep state step
           -- timed wait is gone in the world, whose controllers do not take
           -- time; only that outcome depends on controller speed.
           timedNamespace = verb == "wait" && field "seconds" (action step) /= Null && key ^. #kind == "namespace"
+          -- An unused claim's protection finalizer goes asynchronously in a
+          -- real cluster; the world releases it at the DELETE. Right after
+          -- the DELETE, the real claim may still show as Terminating.
+          releasingClaim = verb == "delete" && key ^. #kind == "persistentvolumeclaim" && field "present" worldSeen == Bool False && field "deletionTimestamp" realSeen == Bool True
        in refusalMismatch
-            <> (if timedNamespace then [] else presence)
+            <> (if timedNamespace || releasingClaim then [] else presence)
             <> ( if experiment step == "E11"
                    then compared ["resources"]
                    else
