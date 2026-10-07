@@ -27,6 +27,7 @@ terminal; their verbatim result lines are in [results.md](results.md).
 | E9/E12 | `e9.sh` | DomainMapping readiness; how long objects linger after DELETE |
 | E10 | `e10.sh` | Steady-state status churn per kind over 3 minutes (`e10.out`) |
 | E14 | `record-deletions.sh` | DELETE of every E1 kind with Nagare's collection propagation (Background for kinds Nagare never collects): which kinds linger |
+| E15 | `e15.sh` | How the server stores quantities whose canonical form is not obvious (rounding to milli, exponent and binary families) through a ResourceQuota and a PVC; the output is also the fixture `cli/nagarectl/test/fixtures/kubernetes-semantics/quantities.jsonl` (`e15.out`; bare k3s v1.34.6) |
 | E13 | `e13.sh` | Server-side apply field ownership with Nagare's manager names: no-force apply after `kubectl create`, foreign edits, including one that restores Nagare's earlier value (a real change of the live value; the recorder's step label "foreign same-value write" in the 2026-10-06 traces means this); `resourceVersion: "0"` (`e13.out`; bare k3s v1.34.6, no Knative) |
 
 ## Machine-readable traces (EP-182)

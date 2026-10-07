@@ -14,7 +14,7 @@
 -- cluster and is never compared, except while a controller is frozen.
 module InventoryWorldConformanceSpec (inventoryWorldConformanceTests) where
 
-import Data.Aeson (Value (..), eitherDecodeFileStrict', eitherDecodeStrict, encode)
+import Data.Aeson (Value (..), decodeStrict, eitherDecodeFileStrict', eitherDecodeStrict, encode)
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
@@ -23,6 +23,7 @@ import Data.Foldable (toList)
 import Data.Generics.Labels ()
 import Data.IORef (modifyIORef', readIORef)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (mapMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -55,22 +56,15 @@ inventoryWorldConformanceTests =
         steps <- loadSteps
         let found = replay steps
         assertBool (T.unpack (T.unlines (take 40 found) <> summary found)) (null found)
-    , testCase "quantities are canonicalized as the API server stores them" $
-        [ (raw, canonicalQuantity raw)
-        | (raw, expected) <-
-            [ ("1024Mi", "1Gi")
-            , ("2048Mi", "2Gi")
-            , ("1536Mi", "1536Mi")
-            , ("0.5Gi", "512Mi")
-            , ("1000M", "1G")
-            , ("1000m", "1")
-            , ("1.5", "1500m")
-            , ("250m", "250m")
-            , ("10Gi", "10Gi")
-            , ("64", "64")
-            ]
-        , canonicalQuantity raw /= Just expected
-        ]
+    , testCase "quantities are canonicalized as the API server stores them (RES-4 E11, E15)" $ do
+        recorded <- mapMaybe (decodeStrict . TE.encodeUtf8) . T.lines . T.pack <$> readFile "test/fixtures/kubernetes-semantics/quantities.jsonl"
+        assertBool "the quantity trace is empty" (not (null recorded))
+        [ (sent, stored, canonicalQuantity sent)
+          | row <- recorded
+          , let sent = text (field "sent" row)
+                stored = text (field "memory" row)
+          , canonicalQuantity sent /= Just stored
+          ]
           @?= []
     , testCase "the production runtime reads the fake server: Present, not Present while its controller lags (F69), then NotReady" $ do
         cluster <- newCluster emptyServer =<< newAdversary []

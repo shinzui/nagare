@@ -819,46 +819,70 @@ canonicalize = go []
       _ : parent : _ -> parent `elem` ["requests", "limits", "hard"]
       _ -> False
 
--- | Kubernetes' canonical form: binary suffixes stay binary and decimal stay
--- decimal; the value is written with the largest suffix that keeps an
--- integer mantissa (@1024Mi@ is @1Gi@, @1000m@ is @1@, @1.5@ is @1500m@).
+-- | Kubernetes' canonical form, as RES-4 E11 and E15 recorded it. The suffix
+-- family is kept (binary, decimal SI, or decimal exponent), the value is
+-- rounded up to milli precision, and the largest suffix of the family that
+-- leaves an integer mantissa is used (@1024Mi@ is @1Gi@, @1000m@ is @1@, @1.5@
+-- is @1500m@, @0.1m@ is @1m@, @1500e0@ stays @1500e0@). A binary value that is
+-- not a whole number falls back to decimal SI (@1.1Ki@ is @1126400m@).
 canonicalQuantity :: Text -> Maybe Text
 canonicalQuantity raw = do
-  let (digits, suffix) = T.span (\c -> c `elem` ['0' .. '9'] || c == '.') raw
-  amount <- decimalRational digits
-  (binary, scale) <- lookup suffix suffixes
-  let value = amount * scale
+  let (number, rest) = T.span (\c -> c `elem` ['0' .. '9'] || c == '.') raw
+  amount <- decimalRational number
+  (family, scale) <- case T.uncons rest of
+    -- An exponent only when a signed integer follows: @1Ei@ is a suffix.
+    Just (e, exponent') | e `elem` ['e', 'E'], Just power <- signedInt exponent' -> Just (Exponent, 10 ^^ power)
+    _ -> lookup rest suffixes
+  let value = roundUpToMilli (amount * scale)
   pure $
     if value == 0
       then "0"
-      else
-        if binary && denominator value == 1
-          then pick [(s, f) | (s, (True, f)) <- reverse suffixes] value
-          else pick [(s, f) | (s, (False, f)) <- reverse suffixes, s /= ""] value `orPlain` value
+      else case family of
+        Exponent -> exponentForm value
+        Binary | denominator value == 1 -> largest [(s, f) | (s, (Binary, f)) <- suffixes] value `orPlain` value
+        _ -> largest [(s, f) | (s, (Decimal, f)) <- suffixes] value `orPlain` value
   where
-    suffixes :: [(Text, (Bool, Rational))]
+    suffixes :: [(Text, (Family, Rational))]
     suffixes =
-      [ ("", (False, 1))
-      , ("m", (False, 1 % 1000))
-      , ("k", (False, 1000))
-      , ("M", (False, 10 ^ (6 :: Int)))
-      , ("G", (False, 10 ^ (9 :: Int)))
-      , ("T", (False, 10 ^ (12 :: Int)))
-      , ("Ki", (True, 1024))
-      , ("Mi", (True, 1024 ^ (2 :: Int)))
-      , ("Gi", (True, 1024 ^ (3 :: Int)))
-      , ("Ti", (True, 1024 ^ (4 :: Int)))
+      [ ("n", (Decimal, 1 % (10 ^ (9 :: Int))))
+      , ("u", (Decimal, 1 % (10 ^ (6 :: Int))))
+      , ("m", (Decimal, 1 % 1000))
+      , ("", (Decimal, 1))
+      , ("k", (Decimal, 1000))
+      , ("M", (Decimal, 10 ^ (6 :: Int)))
+      , ("G", (Decimal, 10 ^ (9 :: Int)))
+      , ("T", (Decimal, 10 ^ (12 :: Int)))
+      , ("P", (Decimal, 10 ^ (15 :: Int)))
+      , ("E", (Decimal, 10 ^ (18 :: Int)))
+      , ("Ki", (Binary, 1024))
+      , ("Mi", (Binary, 1024 ^ (2 :: Int)))
+      , ("Gi", (Binary, 1024 ^ (3 :: Int)))
+      , ("Ti", (Binary, 1024 ^ (4 :: Int)))
+      , ("Pi", (Binary, 1024 ^ (5 :: Int)))
+      , ("Ei", (Binary, 1024 ^ (6 :: Int)))
       ]
-    pick candidates value = case [(s, value / f) | (s, f) <- candidates, denominator (value / f) == 1] of
-      (s, m) : _ -> tshow (numerator m) <> s
-      [] -> tshow (numerator value)
-    orPlain picked value
-      | denominator value == 1 && value < 1000 = tshow (numerator value)
-      | otherwise = picked
+    roundUpToMilli value = fromInteger (ceiling (value * 1000)) / 1000
+    largest candidates value = listToMaybe [tshow (numerator (value / f)) <> s | (s, f) <- reverse candidates, denominator (value / f) == 1]
+    orPlain picked value = fromMaybe (tshow (numerator (value * 1000)) <> "m") picked
+    exponentForm value =
+      let exponents = [k | k <- [18, 15 .. -3 :: Int], denominator (value / (10 ^^ k)) == 1]
+       in case exponents of
+            k : _ -> tshow (numerator (value / (10 ^^ k))) <> "e" <> tshow k
+            [] -> tshow (numerator (value * 1000)) <> "e-3"
+    signedInt text' = case T.uncons text' of
+      Just ('-', digits) -> negate <$> unsigned digits
+      Just ('+', digits) -> unsigned digits
+      _ -> unsigned text'
+    unsigned digits
+      | not (T.null digits) && T.all (`elem` ['0' .. '9']) digits = Just (read (T.unpack digits) :: Int)
+      | otherwise = Nothing
     decimalRational text' = case T.splitOn "." text' of
       [whole] | not (T.null whole) -> Just (fromInteger (read (T.unpack whole)))
       [whole, fraction] | not (T.null fraction) -> Just (fromInteger (read (T.unpack (if T.null whole then "0" else whole))) + fromInteger (read (T.unpack fraction)) % (10 ^ T.length fraction))
       _ -> Nothing
+
+data Family = Binary | Decimal | Exponent
+  deriving stock (Eq)
 
 -- * Refusals
 
