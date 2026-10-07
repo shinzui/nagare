@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/ObservationNative.hs b/cli/nagarectl/src/Nagare/Inventory/ObservationNative.hs
+index 449c5301..1c6e7235 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/ObservationNative.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/ObservationNative.hs
+@@ -58,7 +58,7 @@ observationBytesFromMutation context identity version operation bytes
+   -- reach publication with a format this extraction does not read (EP-181).
+   | identity == "kubernetes-conditional-object" && version == "1" = case plannedAction operation of
+       MigrateResource _ -> renameMember
+-      ReplaceStuckPod -> replacementMember
++      ReplaceStuckPod -> mutationMember
+       CreateResource -> mutationMember
+       UpdateResource -> mutationMember
+       VerifyResource -> mutationMember

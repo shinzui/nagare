@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/test/Nagare/Test/World/Kinds.hs b/cli/nagarectl/test/Nagare/Test/World/Kinds.hs
+index 88ce0e99..2cd265e7 100644
+--- a/cli/nagarectl/test/Nagare/Test/World/Kinds.hs
++++ b/cli/nagarectl/test/Nagare/Test/World/Kinds.hs
+@@ -82,7 +82,7 @@ kindTable =
+   [ inLine ("serving.knative.dev", "service") updatable CanBeUnready
+   , inLine ("serving.knative.dev", "domainmapping") fixed CanBeUnready
+   , inLine ("apps", "deployment") updatable CanBeUnready
+-  , inLine ("apps", "statefulset") (KindReplaceStuckPod : migratable updatable) CanBeUnready
++  , inLine ("apps", "statefulset") (migratable updatable) CanBeUnready
+   , inLine ("batch", "cronjob") (migratable updatable) NoReadiness
+   , inLine ("batch", "job") fixed CanFail
+   , inLine ("", "configmap") updatable NoReadiness
