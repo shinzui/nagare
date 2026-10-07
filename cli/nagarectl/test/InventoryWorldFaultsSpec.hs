@@ -87,6 +87,15 @@ inventoryWorldFaultsTests =
         second' <- versionAfter cluster (get' quotaKey)
         assertBool "resourceVersion moved between observations" (first' /= second')
         assertActed cluster ChurnAlways
+    , testCase "world rule: churn precedes observations, never a write (RES-4 E10)" $ do
+        -- A write carrying the resourceVersion just observed lands, however
+        -- persistently the object churns.
+        cluster <- seeded [quota] [(Boundary ObserveCall 1, ChurnAlways)]
+        observed <- (>>= textOf) <$> versionAfter cluster (get' quotaKey)
+        assertBool "observed a resourceVersion" (isJust observed)
+        let raised = named "v1" "ResourceQuota" "web-quota" [("spec", object ["hard" .= object ["pods" .= ("20" :: Text)]])]
+        result <- clusterAnswer cluster (apply (stamp observed raised))
+        exitOf result @?= Just ExitSuccess
     , testCase "fault does not act: ChurnAlways on a Knative Service, which does not churn at steady state (RES-4 E10)" $ do
         cluster <- seeded [service "v1"] [(Boundary ObserveCall 1, ChurnAlways)]
         first' <- versionAfter cluster (get' serviceKey)
@@ -145,6 +154,15 @@ inventoryWorldFaultsTests =
     , testCase "fault does not act: ControllerLag on a kind without a controller" $ do
         (cluster, _) <- once [] MutateCall ControllerLag (createRequest (history "v1"))
         assertNotActed cluster ControllerLag
+    , testCase "world rule: a write that leaves the pod template unchanged keeps its rollout's outcome" $ do
+        -- Only a template change rolls out; a metadata-only update of a broken
+        -- Deployment leaves it broken, whatever its new stamp says.
+        cluster <- seeded [] []
+        modifyServer cluster (#outcomes %~ Map.insert (digestOf deployment) Unready)
+        _ <- clusterAnswer cluster (createRequest deployment)
+        _ <- clusterAnswer cluster (apply (labelled deployment))
+        modifyServer cluster settleControllers
+        conditionsOf cluster deploymentKey >>= assertBool "still Available=False" . elem ("Available", "False")
     , testCase "world rule: a StatefulSet correction stays stuck until its unready pod is deleted (RES-4 E6)" $ do
         cluster <- seeded [statefulSet "good"] []
         modifyServer cluster (#outcomes %~ Map.insert (digestOf (statefulSet "broken")) Unready)
@@ -211,6 +229,15 @@ deployment =
     [("spec", object ["replicas" .= (1 :: Int), "selector" .= object ["matchLabels" .= labels], "template" .= object ["metadata" .= object ["labels" .= labels], "spec" .= object ["containers" .= [object ["name" .= ("worker" :: Text), "image" .= ("registry.example/worker:v1" :: Text)]]]]])]
   where
     labels = object ["app" .= ("worker" :: Text)]
+
+-- | The object with a label of its own (a stamp replaces annotations); its
+-- pod template is unchanged.
+labelled :: Value -> Value
+labelled = \case
+  Object root
+    | Just (Object metadata) <- KM.lookup "metadata" root ->
+        Object (KM.insert "metadata" (Object (KM.insert "labels" (object ["note" .= ("labelled" :: Text)]) metadata)) root)
+  other -> other
 
 statefulSet :: Text -> Value
 statefulSet v = named "apps/v1" "StatefulSet" "db" [("spec", object ["replicas" .= (1 :: Int), "serviceName" .= ("db" :: Text), "template" .= object ["metadata" .= object ["annotations" .= object ["v" .= v]], "spec" .= object ["containers" .= [object ["image" .= ("postgres:18" :: Text)]]]]])]

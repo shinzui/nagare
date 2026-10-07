@@ -123,7 +123,9 @@ clusterAnswer cluster request = do
     when (maybe True ((/= ControllerLag) . snd) placement) $
       modifyServer cluster (\s -> if Set.member k (frozen s) then controllerStep k (s & #frozen %~ Set.delete k) else s)
   for_ placement (before key)
-  unless (quietReads || state0 ^. #quiet) (for_ key churnBeforeObserving)
+  -- Churn precedes observations only (RES-4 E10); a status write between
+  -- every read and the write after it is not a controller's behaviour.
+  unless (quietReads || state0 ^. #quiet || call /= Just ObserveCall) (for_ key churnBeforeObserving)
   case placement of
     Just placed@(_, TransientReadFailure) -> do
       noteActed (adversary cluster) placed
@@ -256,7 +258,7 @@ clusterAnswer cluster request = do
     -- observation from then on (RES-4 E10).
     churnBeforeObserving k =
       (^. #churning) <$> readIORef (world cluster) >>= \case
-        Just placed | callOf "get" (Just k) == Just ObserveCall -> do
+        Just placed -> do
           s <- readServer cluster
           let s' = churnOnce k s
           when (s' /= s) $ do
