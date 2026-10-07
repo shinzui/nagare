@@ -632,6 +632,7 @@ test-suite nagarectl-test
     Nagare.Test.World.ObjectStore
     Nagare.Test.World.Quantity
     Nagare.Test.World.Store
+    Nagare.Test.World.Validation
     PlatformCutoverSpec
     PlatformSpec
 

@@ -79,6 +79,7 @@ import Data.Vector qualified as V
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Test.World.Kinds
 import Nagare.Test.World.Quantity (canonicalize)
+import Nagare.Test.World.Validation (immutableViolation, missingRequired)
 
 -- | An object's address: API group, lower-case kind, namespace and name.
 data ObjectKey = ObjectKey
@@ -256,7 +257,7 @@ applyServerSide managerName force submitted server = do
             , not (self entry)
             ]
           managed' = normalizeEntries (others <> [FieldsEntry managerName Apply Nothing applied])
-      for_ (immutableViolation key current content') (Left . invalid)
+      for_ (immutableViolation (key ^. #kind) current content') (Left . invalid)
       pure (replaceContent key stored (withDefaults key content') managed' server)
 
 -- | A JSON patch, as @kubectl patch --type=json@ sends it: @test@ operations
@@ -273,7 +274,7 @@ patchJson managerName key operations server = do
     _ -> Right ()
   let writes' = [(pointer path, fromMaybe Null (field "value" operation')) | operation' <- operations, Just verb <- [textAt ["op"] operation'], verb `elem` ["add", "replace"], Just path <- [textAt ["path"] operation']]
       content' = canonicalize (foldl' (\value (path, new) -> setLeaf path new value) (stored ^. #content) writes')
-  for_ (immutableViolation key (stored ^. #content) content') (Left . invalid)
+  for_ (immutableViolation (key ^. #kind) (stored ^. #content) content') (Left . invalid)
   pure (updateBy managerName key stored content' server)
 
 -- | A merge patch through an Update operation, as @kubectl patch
@@ -283,7 +284,7 @@ patchUpdate :: Text -> ObjectKey -> Value -> ApiServer -> Either ApiRefusal (Api
 patchUpdate managerName key patch server = do
   stored <- maybe (Left (notFound key)) Right (Map.lookup key (objects server))
   let content' = canonicalize (mergePatch (stored ^. #content) patch)
-  for_ (immutableViolation key (stored ^. #content) content') (Left . invalid)
+  for_ (immutableViolation (key ^. #kind) (stored ^. #content) content') (Left . invalid)
   pure (updateBy managerName key stored content' server)
 
 -- | A write to the status subresource. It moves resourceVersion when it
@@ -796,40 +797,11 @@ withTemplateOutcome server content' = #memory %~ Map.insert "templateOutcome" (S
 outcomeKey :: Value -> Text
 outcomeKey value = fromMaybe ("content:" <> tshow (Object (KM.delete "metadata" (objectOf value)))) (specDigestOf value)
 
--- | A new object must carry the fields its kind requires, or the API server
--- refuses it (422): a workload's selector and pod template, a CronJob's
--- schedule and Job template, a PVC's access modes and requested storage.
+-- | A new object missing a field its kind requires is refused (422).
 requireFields :: ObjectKey -> Value -> Either ApiRefusal ()
-requireFields key value = case [path | path <- required, leafAt path value == Null] of
+requireFields key value = case missingRequired (key ^. #group, key ^. #kind) value of
   [] -> Right ()
-  missing ->
-    Left (invalid ("The " <> kindName key <> " \"" <> key ^. #name <> "\" is invalid: " <> T.intercalate ", " [T.intercalate "." path <> ": Required value" | path <- missing]))
-  where
-    required = case (key ^. #group, key ^. #kind) of
-      ("apps", "statefulset") -> [["spec", "selector"], ["spec", "template"]]
-      ("apps", "deployment") -> [["spec", "selector"], ["spec", "template"]]
-      ("batch", "job") -> [["spec", "template"]]
-      ("batch", "cronjob") -> [["spec", "schedule"], ["spec", "jobTemplate"]]
-      ("", "persistentvolumeclaim") -> [["spec", "accessModes"], ["spec", "resources", "requests", "storage"]]
-      _ -> []
-
--- | Fields the API server refuses to change (422), as validated: a PVC's spec
--- while unbound (E1), a Job's template (E8), a StatefulSet's identity fields
--- and a Deployment's selector.
-immutableViolation :: ObjectKey -> Value -> Value -> Maybe Text
-immutableViolation key before after = case key ^. #kind of
-  "persistentvolumeclaim"
-    | changed ["spec"] -> Just "spec: Forbidden: spec is immutable after creation except resources.requests and volumeAttributesClassName for bound claims"
-  "job"
-    | changed ["spec", "template"] -> Just "spec.template: Invalid value: field is immutable"
-  "statefulset"
-    | any (changed . (\f -> ["spec", f])) ["selector", "serviceName", "volumeClaimTemplates", "podManagementPolicy"] ->
-        Just "spec: Forbidden: updates to statefulset spec for fields other than 'replicas', 'ordinals', 'template', 'updateStrategy', 'persistentVolumeClaimRetentionPolicy' and 'minReadySeconds' are forbidden"
-  "deployment"
-    | changed ["spec", "selector"] -> Just "spec.selector: Invalid value: field is immutable"
-  _ -> Nothing
-  where
-    changed path = leafAt path before /= Null && leafAt path before /= leafAt path after
+  missing -> Left (invalid ("The " <> kindName key <> " \"" <> key ^. #name <> "\" is invalid: " <> T.intercalate ", " [T.intercalate "." path <> ": Required value" | path <- missing]))
 
 -- | The @nagare.dev/spec-digest@ stamp a reviewed write carries.
 specDigestOf :: Value -> Maybe Text
