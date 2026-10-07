@@ -104,7 +104,7 @@
   {
     "record": "ADR26-never-started-skips-absence",
     "suite": "nagarectl",
-    "pattern": "/a landed update is kept, and a refused head release is completed by closing again/",
+    "pattern": "/close refuses, retryably, while a never-started create's absence cannot be confirmed/",
     "expect": "test-fails"
   },
   {

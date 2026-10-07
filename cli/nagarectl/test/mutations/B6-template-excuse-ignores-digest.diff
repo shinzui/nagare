@@ -1,12 +1,12 @@
 diff --git a/cli/nagarectl/test/Nagare/Test/Model/Invariants.hs b/cli/nagarectl/test/Nagare/Test/Model/Invariants.hs
 --- a/cli/nagarectl/test/Nagare/Test/Model/Invariants.hs
 +++ b/cli/nagarectl/test/Nagare/Test/Model/Invariants.hs
-@@ -215,7 +215,7 @@ refusedTemplateExcused refusal acted' outcomes' live =
+@@ -216,7 +216,7 @@ refusedTemplateExcused refusal acted' outcomes' live =
      && "required condition is not ready" `T.isInfixOf` refusal
      && not (null named)
      && Map.size refused == length named
 -    && faultedTemplateRecurs acted' outcomes' refused Map.empty Set.empty
 +    && any ((`elem` [LandsUnready, LandsFailed]) . snd) acted'
    where
-     named = case T.breakOn " refused members " refusal of
+     named = case T.breakOn " refused verifies " refusal of
        (_, rest) | T.null rest -> []
