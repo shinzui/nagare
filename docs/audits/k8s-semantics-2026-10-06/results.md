@@ -183,3 +183,22 @@ variant retain (pv patched to persistentVolumeReclaimPolicy Retain before the po
 ```
 
 What this means for F77: while the pod runs, the data is safe and can be read only through that pod. Anything that ends the pod (deleting it, a node restart, an eviction, a rollout) releases the claim at once, and a `Delete` volume takes the data with it. Patching the volume to `Retain` first turns that into a recoverable state.
+
+## E17
+
+Two StatefulSets with the defaults Nagare renders (OrderedReady, RollingUpdate, one replica) run `sh -c "echo crashing; exit 1"`, so pod-0 crash-loops on the only template there is (`currentRevision == updateRevision`). Case `restart` then gets `kubectl rollout restart` (the `kubectl.kubernetes.io/restartedAt` pod-template annotation). Case `fix` gets its command replaced by `sleep 100000`. Each is observed for 90 s, then pod-0 is deleted. Full output is in `experiments/e17.out` (the second of two identical runs); abridged:
+
+```text
+both cases, before the change    pod-0 at the only revision, Ready=False, 2 restarts (CrashLoopBackOff)
+restart, 10 s to 90 s after      generation 2, observedGeneration 2, updateRevision restart-ccb546988 (new)
+                                 pod-0 same UID f270bf31, revision restart-655586b954 (old), Ready=False,
+                                 restarts 2 -> 4 on the old template; updatedReplicas 0
+fix, 10 s to 90 s after          generation 2, observedGeneration 2, updateRevision fix-6c7c8bf675 (new)
+                                 pod-0 same UID a585f12d, revision fix-59f8455946 (old), Ready=False,
+                                 restarts 2 -> 4 on the old template; updatedReplicas 0
+pod-0 deleted, 10 s later        restart: new pod 94eafd69 at restart-ccb546988, crash-looping again
+                                 fix: new pod aa54d45e at fix-6c7c8bf675, Ready=True; currentRevision == updateRevision
+controller-manager log           no lines name either StatefulSet
+```
+
+What this means for EP-181: whether the stuck pod is at the current revision or an old one (E6) makes no difference. A template change itself moves `updateRevision`, which leaves the unready pod at an old revision. OrderedReady then waits for that pod to become Ready before replacing it. So a restart token written into the template restarts nothing, and a correction does not roll, until the pod is deleted.
