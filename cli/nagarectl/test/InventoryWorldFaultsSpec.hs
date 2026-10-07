@@ -165,8 +165,10 @@ inventoryWorldFaultsTests =
         stale <- get False serviceKey <$> readServer cluster
         (generationOf stale, observedOf stale, readyOf' stale) @?= (Just 2, Just 1, Just "True")
         assertActed cluster ControllerLag
-        -- Observing does not wake the controller; only the next write does.
+        -- Observing does not wake the controller; only the next write does,
+        -- so the controllers settling after a read still skip the object.
         _ <- clusterAnswer cluster (get' serviceKey)
+        modifyServer cluster settleControllers
         observed <- get False serviceKey <$> readServer cluster
         (generationOf observed, observedOf observed) @?= (Just 2, Just 1)
         _ <- clusterAnswer cluster (apply (service "v3"))
