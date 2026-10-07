@@ -580,5 +580,11 @@
     "suite": "nagarectl",
     "pattern": "/an unready update is landed only with the reviewed digest/",
     "expect": "test-fails"
+  },
+  {
+    "record": "D-foreign-object-not-replanned",
+    "suite": "nagarectl",
+    "pattern": "/the exit is one fresh review (EP-180 D)/",
+    "expect": "test-fails"
   }
 ]

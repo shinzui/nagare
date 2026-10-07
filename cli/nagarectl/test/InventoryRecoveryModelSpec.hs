@@ -123,6 +123,12 @@ inventoryRecoveryModelTests =
         forM_ ["kind (\"\",\"resourcequota\"): update", "kind (\"batch\",\"cronjob\"): update"] $ \name -> do
           scenario <- scenarioNamed name
           pinned scenario [(Boundary ObserveCall 1, ChurnAlways)] []
+    , testCase "an object that appears where a review saw absence refuses admission; the exit is one fresh review (EP-180 D)" $ do
+        -- An unowned object at an address a review saw empty: admission
+        -- re-verifies the absence and refuses (retention-observation), and a
+        -- fresh review observes the object, as with a replacement (N1).
+        scenario <- scenarioNamed "create with a durable volume, then retire"
+        pinned scenario [(Boundary MutateCall 2, LandsUnready), (Boundary ObserveCall 24, ForeignObject)] [[Close]]
     , testCase "a move that a new fault stopped without progress is re-run; one that no fault stopped is not (EP-177)" $ do
         service <- scenarioNamed "kind (\"serving.knative.dev\",\"service\"): create"
         -- Resume stops again when its store write is refused; re-run, it completes.
@@ -416,9 +422,10 @@ drive scenario schedule onStop start resumed = do
               -- A retained member deleted outside review is refused: its data
               -- needs reviewed recovery or collection, as at planning. A
               -- replaced member retires with its record retained (ADR 27, N1).
-              -- A member replaced after its review is refused at admission;
-              -- the exit is a fresh review, which names the replacement (N1).
-              | not replanned && any ((== Replaced) . snd) schedule && "retention-observation" `T.isInfixOf` why ->
+              -- A member replaced after its review, or an unowned object at an
+              -- address the review saw empty, is refused at admission; the exit
+              -- is one fresh review, which observes it (N1).
+              | not replanned && any ((`elem` [Replaced, ForeignObject]) . snd) schedule && "retention-observation" `T.isInfixOf` why ->
                   attempt began True run previous step rest taken
               | any ((== Deleted) . snd) schedule && "retention-observation" `T.isInfixOf` why -> do
                   adversary <- readIORef (runAdversary run)

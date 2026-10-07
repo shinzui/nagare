@@ -1,0 +1,12 @@
+diff --git a/cli/nagarectl/test/InventoryRecoveryModelSpec.hs b/cli/nagarectl/test/InventoryRecoveryModelSpec.hs
+--- a/cli/nagarectl/test/InventoryRecoveryModelSpec.hs
++++ b/cli/nagarectl/test/InventoryRecoveryModelSpec.hs
+@@ -425,7 +425,7 @@
+               -- A member replaced after its review, or an unowned object at an
+               -- address the review saw empty, is refused at admission; the exit
+               -- is one fresh review, which observes it (N1).
+-              | not replanned && any ((`elem` [Replaced, ForeignObject]) . snd) schedule && "retention-observation" `T.isInfixOf` why ->
++              | not replanned && any ((`elem` [Replaced]) . snd) schedule && "retention-observation" `T.isInfixOf` why ->
+                   attempt began True run previous step rest taken
+               | any ((== Deleted) . snd) schedule && "retention-observation" `T.isInfixOf` why -> do
+                   adversary <- readIORef (runAdversary run)

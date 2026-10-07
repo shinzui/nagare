@@ -172,7 +172,11 @@ MasterPlan, not by this plan.
     - The non-takeover constructor is now `mkKubernetesAdapterWithRecoveryProbes`.
     - RecoveryLandedUnready and its driver and settlement arms stay for EP-181.
     - F30's refresh at execute now covers retires only (`0ed073ee`). An update's apply takes its resourceVersion from
-      the runtime's own guarded read, and EP-182's world showed the update half equivalent (`290af91c`). Seven guards stopped being observed when ADR 26's close by proof landed (`1f6c1a13`, `5bb33741`), and their
+      the runtime's own guarded read, and EP-182's world showed the update half equivalent (`290af91c`).
+    - D: the recovery model's drive now replans once when admission refuses (`retention-observation`) an unowned
+      object that appeared where the review saw absence, as it already did for a replaced member (N1). On EP-182's
+      world, "create with a durable volume, then retire" under `(Mutate 2, LandsUnready)` and
+      `(Observe 24, ForeignObject)` reached the refusal. Test and record `D-foreign-object-not-replanned`. Seven guards stopped being observed when ADR 26's close by proof landed (`1f6c1a13`, `5bb33741`), and their
   records now pass. Each pin gets a failing-first test and a fresh record. Each deletion gets a test that the remaining
   close by proof still exits.
   - Pin F57a: a stopped verify is safe to retry, and resume re-runs it to completion.
