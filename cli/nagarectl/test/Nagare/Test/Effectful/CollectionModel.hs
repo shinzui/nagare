@@ -164,21 +164,25 @@ collectionRequest root fault request = do
         _ -> fail ("unmodeled get: " <> show args)
     ["delete", "--raw", "/apis/serving.knative.dev/v1/namespaces/personal/services/web", "-f", "-"] -> do
       let body = checked (eitherDecodeStrict (TE.encodeUtf8 (T.pack (request ^. #input))))
+          -- G6: the delete carries the reviewed UID and the resourceVersion of
+          -- Nagare's fresh observation; the server compares both with the live
+          -- object.
+          sentVersion = field "resourceVersion" (field "preconditions" body)
           expected =
             object
               [ "apiVersion" .= ("meta.k8s.io/v1" :: Text)
               , "kind" .= ("DeleteOptions" :: Text)
-              , "preconditions" .= object ["uid" .= ("web-uid" :: Text), "resourceVersion" .= ("10" :: Text)]
+              , "preconditions" .= object ["uid" .= ("web-uid" :: Text), "resourceVersion" .= sentVersion]
               , "propagationPolicy" .= (if fault `elem` [Cascade, CascadeLostAck] then "Background" else "Orphan" :: Text)
               ]
-      unless (body == expected) (fail "delete exceeded exact reviewed parent authority or changed preconditions")
+      unless (body == expected && sentVersion /= Null) (fail "delete exceeded exact reviewed parent authority or changed preconditions")
       when (fault `elem` [RaceUid, RaceVersion]) $
         replaceParent root (if fault == RaceUid then "replacement-uid" else "web-uid") "11"
       raced <- readCollectionWorld root
       let parent = Map.lookup parentKey (resources raced)
           agrees value =
             field "uid" (field "metadata" value) == String "web-uid"
-              && field "resourceVersion" (field "metadata" value) == String "10"
+              && field "resourceVersion" (field "metadata" value) == sentVersion
       if fault == BeforeDelete
         then pure (Left "failure before sending delete")
         else

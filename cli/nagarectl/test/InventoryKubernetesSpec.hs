@@ -4635,10 +4635,10 @@ inventoryKubernetesTests =
                 }
             adapter = mkKubernetesAdapter bound nativeOps
         prepared <- adapterPrepare adapter collectionOperation >>= expectRight
-        writeIORef state (KubernetesNotReady physical "5" (Just resource) (contentDigest bytes))
+        writeIORef state (KubernetesNotReady physical "5" (Just resource) (contentDigest "edited"))
         stale <- adapterPreflight adapter collectionOperation prepared
-        assertBool "changed unready route version was accepted" (isLeft stale)
-        writeIORef state before
+        assertBool "changed unready route was accepted" (isLeft stale)
+        writeIORef state (KubernetesNotReady physical "5" (Just resource) (contentDigest bytes))
         adapterPreflight adapter collectionOperation prepared >>= expectRight
         adapterExecute adapter collectionOperation prepared >>= (@?= AdapterEffectCompleted)
         _ <- adapterVerify adapter collectionOperation prepared >>= expectRight

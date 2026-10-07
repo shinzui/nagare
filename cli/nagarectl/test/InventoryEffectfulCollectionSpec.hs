@@ -46,7 +46,7 @@ inventoryEffectfulCollectionTests =
     , testCase "replacement parent after interruption stays untouched" replacement
     , testCase "a parent replaced after review is refused at admission (ADR 27, N8)" admittedReplacement
     , testCase "UID race is rejected at the conditional write" (writeRace RaceUid)
-    , testCase "resourceVersion race is rejected at the conditional write" (writeRace RaceVersion)
+    , testCase "a resourceVersion race is refused at the conditional write, and resume deletes with the fresh resourceVersion (G6)" versionRace
     , testCase "pending invariant rejects the old immediate-deletion model" counterfactual
     ]
 
@@ -215,6 +215,21 @@ writeRace fault = withSystemTempDirectory "nagare-effectful-delete-race" $ \root
   resources afterWorld @?= resources before
   deleteBodies afterWorld @?= []
   length (filter (elem "--raw") (requests afterWorld)) @?= 1
+
+-- | G6 (RES-4 U10): a write that moved only resourceVersion leaves the
+-- reviewed object as it was. The raced delete is refused by its precondition;
+-- resume re-reads the object and deletes it with the fresh resourceVersion,
+-- once, and the accepted delete is then pending.
+versionRace :: IO ()
+versionRace = withSystemTempDirectory "nagare-effectful-version-race" $ \root -> do
+  (store, bundle, reviewed) <- preparedCollection root
+  result <- must (applyReviewed store (registry root RaceVersion collectionNative) reviewed)
+  assertUnresolved result
+  readCollectionWorld root >>= (@?= []) . deleteBodies
+  freshProcess root bundle (transactionOf result) "pending"
+  afterWorld <- readCollectionWorld root
+  map (\body -> field "resourceVersion" (field "preconditions" body)) (deleteBodies afterWorld) @?= [String "11"]
+  length (filter (elem "--raw") (requests afterWorld)) @?= 2
 
 counterfactual :: IO ()
 counterfactual = withSystemTempDirectory "nagare-effectful-counterfactual" $ \root -> do

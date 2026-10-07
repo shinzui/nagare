@@ -272,8 +272,8 @@ mkKubernetesAdapterWithObservations specs ops observeBatch readBackupReceipt scr
               Right () ->
                 if mutationAction mutation `elem` [RunDeclaredOperation, VerifyResource]
                   then pure AdapterEffectCompleted
-                  -- G6: the write carries the fresh observation as its precondition.
-                  else kubernetesMutateConditional ops (if mutationAction mutation == UpdateResource then mutation {mutationBefore = current} else mutation)
+                  -- G6: an update or retire carries the fresh observation as its precondition.
+                  else kubernetesMutateConditional ops (if mutationAction mutation `elem` [UpdateResource, RetireResource] then mutation {mutationBefore = current} else mutation)
     verify operation prepared = case decodeMutation (kubernetesContext ops) specs operation prepared of
       Left reason -> pure (Left reason)
       Right mutation -> do

@@ -71,7 +71,7 @@ MasterPlan, not by this plan.
   - The unit test failed first. The runtime wiring test is proved by its record.
   - `readinessForAddress` moved to `Adapters/KubernetesReadiness.hs`, and the runtime allowance dropped to 1303.
   - Done before M5, because M5's bounded rv-409 re-read relies on every other 409 or 422 being no effect.
-- [ ] M5 (G6): one conditional-write discipline for updates and retires.
+- [x] M5 (G6): one conditional-write discipline for updates and retires.
   - M5a, 2026-10-06, done for updates.
     - Adapter: `requireWriteTarget` guards an update by (UID, owner, stamp) when its before stamp differs from the
       reviewed digest, and the write carries the fresh observation.
@@ -94,6 +94,20 @@ MasterPlan, not by this plan.
     - The landed-update stop spec's four landed-digest cases now await readiness instead of being refused, because the
       reviewed digest on the reviewed UID is this write live (U3).
     - F30's tracker entry records the removal. F73 was found first and fixed in its own commit.
+  - Retires, 2026-10-06, after M6: `requireWriteTarget` guards a retire by (UID, owner, digest == reviewed), and the
+    delete carries the fresh resourceVersion. A finalizer-held delete is now `KubernetesTerminating`, never an owned
+    live object, so a retire is never repeated.
+    - Two tests encoded the replaced exact-resourceVersion semantics and now pin the new rule. The unready-route
+      collection test is refused by a changed digest, not by a moved resourceVersion. The effectful collection's
+      resourceVersion race still conflicts at the raced delete, but resume now deletes once with resourceVersion 11.
+      Its model checks the delete's authority (the reviewed UID, the propagation policy) and compares the
+      preconditions with the live object, as the server does.
+    - The five effectful-collection tests that caught the first cut's double delete pass.
+    - Records `G6-retire-exact-guard`, `G6-retire-stale-precondition` and `G5-retire-deletes-terminating` fail their
+      tests.
+    - Session nagare asked for a pin that an object Nagare created (`nagare-inventory`/Update) and then applied
+      (`nagare-inventory`/Apply) is Nagare's under both entries (E13). Test and record `E13-create-manager-foreign`.
+    - The fast gate now runs its static checks first (`fastSteps`), so a style failure stops it in seconds.
     - The recovery model's world now reports a stamp (pre-approved by nagare). Without one, every Knative update fell
       back to the exact guard, and 16 fast-tier schedules (`create then good update` under `ChurnAlways`) needed a
       close (I7). With it, all 13 model tests pass. This is an interim world-side stamp in `World/Kubernetes.hs`

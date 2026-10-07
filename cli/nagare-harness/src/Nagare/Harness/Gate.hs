@@ -1,6 +1,6 @@
 -- | The local gate (EP-174). The fast gate runs on every push through
--- @.githooks/pre-push@: both Haskell suites, the style check and the
--- architecture check, serially, stopping at the first failure.
+-- @.githooks/pre-push@: the style check, the architecture check and both
+-- Haskell suites, serially, stopping at the first failure.
 module Nagare.Harness.Gate
   ( GateRun (..)
   , fastSteps
@@ -42,23 +42,26 @@ data GateRun = GateRun
   }
   deriving stock (Eq, Show, Generic)
 
--- | The fast gate, in order. The config-loader tests compile fixture configs
+-- | The fast gate, in order. The static checks take seconds, so they run
+-- first: a style or architecture failure stops the gate before minutes of
+-- builds and tests. @haskell-style-check@ is fourmolu, cabal-gild and the
+-- style rules. The architecture step is the flake's @managed-command-audit@
+-- check: the CLI and Haskell architecture checks and their tests, and the
+-- managed-command audit (every just recipe and mutating command registered,
+-- catalogue current). The config-loader tests compile fixture configs
 -- against the @.ghc.environment.*@ file cabal writes, which two things can
 -- leave missing in a fresh checkout: @--project-dir@ from the root writes it
 -- into the root, and @cabal test@ writes it only after the tests have run. So
 -- each suite is built, then tested, from its package directory. The suites run
 -- serially because those tests also fail during a concurrent cabal rebuild.
--- The last step is the flake's @managed-command-audit@ check: the CLI and
--- Haskell architecture checks and their tests, and the managed-command audit
--- (every just recipe and mutating command registered, catalogue current).
 fastSteps :: [Step]
 fastSteps =
-  [ Step "nagarectl-build" "cli/nagarectl" "cabal" ["build", "nagarectl-test"]
+  [ Step "haskell-style-check" "." "just" ["haskell-style-check"]
+  , Step "architecture-and-command-audit" "." "bash" ["scripts/test-managed-command-audit.sh"]
+  , Step "nagarectl-build" "cli/nagarectl" "cabal" ["build", "nagarectl-test"]
   , Step "nagarectl-test" "cli/nagarectl" "cabal" ["test", "nagarectl-test"]
   , Step "nagare-dsl-build" "cli/nagare-dsl" "cabal" ["build", "nagare-dsl-test"]
   , Step "nagare-dsl-test" "cli/nagare-dsl" "cabal" ["test", "nagare-dsl-test"]
-  , Step "haskell-style-check" "." "just" ["haskell-style-check"]
-  , Step "architecture-and-command-audit" "." "bash" ["scripts/test-managed-command-audit.sh"]
   ]
 
 repositoryRoot :: IO FilePath

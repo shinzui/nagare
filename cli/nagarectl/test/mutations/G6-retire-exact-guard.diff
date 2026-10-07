@@ -1,0 +1,12 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs
+--- a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs
+@@ -364,7 +364,7 @@
+     | stamp /= mutationBeforeStamp mutation -> Left "Kubernetes object's stamp changed since review; replan before mutation"
+     | otherwise -> Right ()
+   RetireResource
+-    | sameObject && digestOf current == digestOf (mutationBefore mutation) -> Right ()
++    | current == mutationBefore mutation -> Right ()
+     | otherwise -> Left "Kubernetes object changed since review; replan before mutation"
+   _ -> requireSameBefore mutation current
+   where

@@ -1,0 +1,12 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/KubernetesConfiguration.hs b/cli/nagarectl/src/Nagare/Inventory/KubernetesConfiguration.hs
+--- a/cli/nagarectl/src/Nagare/Inventory/KubernetesConfiguration.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/KubernetesConfiguration.hs
+@@ -165,7 +165,7 @@
+         Just (Object fields) -> Right fields
+         _ -> Left "Kubernetes managed-field entry is malformed"
+       pure $
+-        if manager == "nagare-inventory" || statusOnly fieldSet || expectedControllerFields target manager fieldSet
++        if (manager == "nagare-inventory" && KM.lookup "operation" entry == Just (String "Apply")) || statusOnly fieldSet || expectedControllerFields target manager fieldSet
+           then Nothing
+           else Just value
+     classify _ = Left "Kubernetes managed-field entry is malformed"

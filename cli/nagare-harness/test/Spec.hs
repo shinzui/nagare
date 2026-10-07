@@ -47,9 +47,9 @@ tests =
               results <- runSteps (const (pure ())) dir dir [Step "missing" "." "nagare-harness-no-such-program" []]
               map (^. #exit) results @?= [127]
         ]
-    , testCase "the fast gate runs both suites before the static checks" $
+    , testCase "the fast gate runs the static checks, which take seconds, before both suites" $
         map (^. #name) fastSteps
-          @?= ["nagarectl-build", "nagarectl-test", "nagare-dsl-build", "nagare-dsl-test", "haskell-style-check", "architecture-and-command-audit"]
+          @?= ["haskell-style-check", "architecture-and-command-audit", "nagarectl-build", "nagarectl-test", "nagare-dsl-build", "nagare-dsl-test"]
     , testGroup
         "dry-run realisation"
         [ testCase "nothing to build or fetch leaves nothing remaining" $

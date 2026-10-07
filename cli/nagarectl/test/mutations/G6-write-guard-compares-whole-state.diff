@@ -1,9 +1,9 @@
 diff --git a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs
 --- a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs
 +++ b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs
-@@ -337,7 +337,7 @@
- -- (G5): only the moved resourceVersion tells an accepted, finalizer-held
- -- delete from a live object, and a retire must not delete it twice.
+@@ -354,7 +354,7 @@
+ -- RES-4 U6), never an owned live object, so it is not deleted twice. Other
+ -- actions keep the exact before-state.
  requireWriteTarget :: KubernetesMutation -> KubernetesState -> Maybe ContentDigest -> Either Text ()
 -requireWriteTarget mutation current stamp = case mutationAction mutation of
 +requireWriteTarget mutation current stamp = case VerifyResource of

@@ -1,0 +1,11 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs
+--- a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs
+@@ -371,6 +371,7 @@
+     owned state = case state of
+       KubernetesPresent uid _ (Just owner) _ | owner == mutationResource mutation -> Just uid
+       KubernetesNotReady uid _ (Just owner) _ | owner == mutationResource mutation -> Just uid
++      KubernetesTerminating uid _ (Just owner) _ | owner == mutationResource mutation -> Just uid
+       _ -> Nothing
+     sameObject = isJust (owned (mutationBefore mutation)) && owned current == owned (mutationBefore mutation)
+     digestOf state = case state of

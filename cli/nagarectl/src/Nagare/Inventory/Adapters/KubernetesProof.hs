@@ -348,10 +348,11 @@ stampDistinguishes mutation =
 -- | G6, RES-4 U10: the guard before an update writes. It needs the reviewed
 -- UID, this member's ownership and the before-state stamp, not the
 -- resourceVersion: the write carries the fresh one, and the runtime repeats
--- the guard on its managed-fields read. Other actions keep the exact
--- before-state. A retire keeps it until a terminating object is observable
--- (G5): only the moved resourceVersion tells an accepted, finalizer-held
--- delete from a live object, and a retire must not delete it twice.
+-- the guard on its managed-fields read. A retire needs the reviewed UID, this
+-- member's ownership and the reviewed digest, and deletes with the fresh
+-- resourceVersion: an accepted, finalizer-held DELETE is terminating (G5,
+-- RES-4 U6), never an owned live object, so it is not deleted twice. Other
+-- actions keep the exact before-state.
 requireWriteTarget :: KubernetesMutation -> KubernetesState -> Maybe ContentDigest -> Either Text ()
 requireWriteTarget mutation current stamp = case mutationAction mutation of
   -- Only a before stamp other than the reviewed digest can tell the reviewed
@@ -362,6 +363,9 @@ requireWriteTarget mutation current stamp = case mutationAction mutation of
     | not sameObject -> Left "Kubernetes object changed since review; replan before mutation"
     | stamp /= mutationBeforeStamp mutation -> Left "Kubernetes object's stamp changed since review; replan before mutation"
     | otherwise -> Right ()
+  RetireResource
+    | sameObject && digestOf current == digestOf (mutationBefore mutation) -> Right ()
+    | otherwise -> Left "Kubernetes object changed since review; replan before mutation"
   _ -> requireSameBefore mutation current
   where
     owned state = case state of
@@ -369,6 +373,10 @@ requireWriteTarget mutation current stamp = case mutationAction mutation of
       KubernetesNotReady uid _ (Just owner) _ | owner == mutationResource mutation -> Just uid
       _ -> Nothing
     sameObject = isJust (owned (mutationBefore mutation)) && owned current == owned (mutationBefore mutation)
+    digestOf state = case state of
+      KubernetesPresent _ _ _ digest -> Just digest
+      KubernetesNotReady _ _ _ digest -> Just digest
+      _ -> Nothing
 
 -- | G6, RES-4 U10: a write refused because the object moved after the read
 -- that guarded it (its resourceVersion precondition failed). The write step

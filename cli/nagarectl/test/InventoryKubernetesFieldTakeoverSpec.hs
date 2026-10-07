@@ -30,6 +30,7 @@ import Nagare.Inventory.KubernetesTransport
 import Nagare.Inventory.ObservationNative (observationBytesFromMutation)
 import Nagare.Resource.Inventory (ManagedResource)
 import Nagare.Resource.Kubernetes
+import Nagare.Resource.Policy (LifecyclePolicy (DeleteWhenUnreferenced))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
 import Nagare.Test.Support.Kubernetes qualified as K
@@ -149,7 +150,6 @@ kubernetesFieldTakeoverTests =
         assertKnownNoEffect "the object has been modified" refused
         length refusedBodies @?= 3
     , testCase "the adapter guards an update by UID, owner and stamp, not by resourceVersion (G6)" $ do
-        let reviewed = contentDigest (snd (bound Map.! K.resource))
         -- An update: a status write moved resourceVersion and the whole-object digest.
         (update, updateWrites, updateState) <- stampedAdapter (KubernetesPresent K.physical "4" (Just K.resource) (contentDigest "before"), Just stampBefore)
         updateNative <- adapterPrepare update K.updateOperation >>= K.expectRight
@@ -163,12 +163,35 @@ kubernetesFieldTakeoverTests =
         adapterExecute update K.updateOperation updateNative >>= assertKnownNoEffect "stamp"
         length <$> readIORef updateWrites >>= (@?= 1)
         -- A drift repair's before stamp already is the reviewed digest: the exact before-state guards it.
-        repair <- (\update -> update {mutationBeforeStamp = Just (mutationNativeDigest update)}) <$> stampedUpdate
+        repair <- (\pending -> pending {mutationBeforeStamp = Just (mutationNativeDigest pending)}) <$> stampedUpdate
         assertBool "a drift repair passed on its stamp" (isLeft (requireWriteTarget repair (KubernetesPresent K.physical "5" (Just K.resource) (contentDigest "drifted")) (Just (mutationNativeDigest repair))))
-        -- A retire keeps its exact before-state until G5 observes a terminating object.
+    , testCase "a retire is guarded by UID, owner and digest, deletes with the fresh resourceVersion, and never deletes twice (G6, G5)" $ do
+        let reviewed = contentDigest (snd (bound Map.! K.resource))
+            retireOperation = K.operation RetireResource
+        (retire, writes, state) <- stampedAdapterFor deletable (KubernetesPresent K.physical "4" (Just K.resource) reviewed, Nothing)
+        native <- adapterPrepare retire retireOperation >>= K.expectRight
+        -- A controller write moved resourceVersion; the object is as reviewed.
+        writeIORef state (KubernetesPresent K.physical "5" (Just K.resource) reviewed, Nothing)
+        adapterPreflight retire retireOperation native >>= (@?= Right ())
+        _ <- adapterExecute retire retireOperation native
+        readIORef writes >>= (@?= [KubernetesPresent K.physical "5" (Just K.resource) reviewed])
+        -- RES-4 U6: a DELETE that finalizers hold leaves the object terminating
+        -- with its UID; the retire's effect landed and is not repeated.
+        writeIORef state (KubernetesTerminating K.physical "6" (Just K.resource) reviewed, Nothing)
+        adapterExecute retire retireOperation native >>= assertKnownNoEffect "changed since review"
+        -- Another object, or the reviewed one changed, is not the retire's target.
+        writeIORef state (KubernetesPresent (ok (mkPhysicalIdentity "replacement")) "1" (Just K.resource) reviewed, Nothing)
+        adapterExecute retire retireOperation native >>= assertKnownNoEffect "changed since review"
+        writeIORef state (KubernetesPresent K.physical "7" (Just K.resource) (contentDigest "edited"), Nothing)
+        adapterExecute retire retireOperation native >>= assertKnownNoEffect "changed since review"
+        length <$> readIORef writes >>= (@?= 1)
+    , testCase "an object Nagare created and then updated is Nagare's under both its managed-field entries (E13)" $ do
+        -- kubectl create records nagare-inventory as an Update manager; later
+        -- applies record it as Apply. Both are Nagare's own.
         mutation <- stampedUpdate
-        let retire = mutation {mutationAction = RetireResource, mutationBefore = KubernetesPresent K.physical "4" (Just K.resource) reviewed, mutationBeforeStamp = Nothing}
-        assertBool "a moved retire target was accepted" (isLeft (requireWriteTarget retire (KubernetesPresent K.physical "5" (Just K.resource) reviewed) Nothing))
+        (updated, bodies) <- scriptedTransport mutation (stampedLive "5" stampBefore [created, own, status]) [Nothing]
+        updated @?= AdapterEffectIdentified K.physical AdapterEffectCompleted
+        length bodies @?= 1
     , testCase "a corrective update of an unready object reaches the API server (F63, M1)" $ do
         -- The fresh precondition of a correction is the unready object itself.
         mutation <- (\update -> update {mutationBefore = KubernetesNotReady K.physical "5" (Just K.resource) (contentDigest "unready")}) <$> stampedUpdate
@@ -187,8 +210,9 @@ live uid revision entries =
     , "data" .= object ["mode" .= ("edited" :: Text)]
     ]
 
-own, edit :: Value
+own, created, edit :: Value
 own = entry "nagare-inventory" "Apply" "t0" modeField
+created = entry "nagare-inventory" "Update" "t0" modeField
 edit = entry "kubectl-edit" "Update" "t4" modeField
 
 patch :: Text -> Value
@@ -223,6 +247,10 @@ bytes = ok (canonicalValue desired)
 
 bound :: Map.Map ResourceId (ManagedResource, ByteString)
 bound = Map.singleton K.resource (ok (bindKubernetesObject (K.input {inputObject = desired, objectDigest = contentDigest bytes})))
+
+-- | The same object, bound for collection when it is no longer declared.
+deletable :: Map.Map ResourceId (ManagedResource, ByteString)
+deletable = Map.singleton K.resource (ok (bindKubernetesObject (K.input {inputObject = desired, objectDigest = contentDigest bytes, lifecyclePolicy = DeleteWhenUnreferenced})))
 
 drifted :: KubernetesState
 drifted = KubernetesPresent K.physical "4" (Just K.resource) (contentDigest "drifted")
@@ -322,7 +350,10 @@ bodyRevision body = case eitherDecodeStrict' (TE.encodeUtf8 body) of
 -- | An adapter over a stamped observation the test controls, whose transport
 -- records the precondition each write was given.
 stampedAdapter :: (KubernetesState, Maybe ContentDigest) -> IO (Adapter, IORef [KubernetesState], IORef (KubernetesState, Maybe ContentDigest))
-stampedAdapter initial = do
+stampedAdapter = stampedAdapterFor bound
+
+stampedAdapterFor :: Map.Map ResourceId (ManagedResource, ByteString) -> (KubernetesState, Maybe ContentDigest) -> IO (Adapter, IORef [KubernetesState], IORef (KubernetesState, Maybe ContentDigest))
+stampedAdapterFor specs initial = do
   state <- newIORef initial
   writes <- newIORef []
   let ops =
@@ -331,7 +362,7 @@ stampedAdapter initial = do
           , kubernetesObserveStamped = \_ -> readIORef state
           , kubernetesMutateConditional = \mutation -> modifyIORef' writes (<> [mutationBefore mutation]) >> pure AdapterEffectCompleted
           }
-  pure (mkKubernetesAdapter bound ops, writes, state)
+  pure (mkKubernetesAdapter specs ops, writes, state)
 
 assertKnownNoEffect :: Text -> AdapterExecution -> Assertion
 assertKnownNoEffect expected result = case result of
