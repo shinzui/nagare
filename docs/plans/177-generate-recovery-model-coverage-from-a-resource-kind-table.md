@@ -22,6 +22,11 @@ provenance:
       at: 2026-10-06T15:23:30Z
       mode: "implement"
       note: "Create-scenario deep rerun: three harness gaps fixed, F66 recorded and fixed"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-07T16:59:18Z
+      mode: "update"
+      note: "MP-23 3d partial deep-tier monitoring record (stopped at 9/52 by operator direction)"
 ---
 
 # Generate recovery model coverage from a resource kind table
@@ -320,7 +325,17 @@ MasterPlan 23's release line (b).
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+2026-10-07, MP-23 step 3d: a partial monitoring record. The run was **stopped at scenario 9/52 after about 2 h by operator direction**. It was `just gate-deep 341b01bc`: 16 shards, 14:49:17Z to 16:48:41Z, with no other builder jobs. For v1 the deep tier is monitoring, not a gate (the 2026-10-07 amendment to [ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md)).
+
+The run reached only the first nine scenarios, the explicit ones. **None of the 43 scenarios this plan generates from the kind table ran.** So this record says nothing yet about the generated coverage's pairs. The fast tier, which runs every generated scenario under each single fault, stays green on the 3d batch.
+
+In the explicit scenarios, the run found 4,944 distinct violating schedules in nine classes, each either fixed in the 3d batch or recorded in the ledger:
+- F78: 2,238 (ledger).
+- F77: 2,614, plus B5's 8 composed with it (ledger).
+- F79, a product defect in close: 13 (fixed).
+- Harness classes B1 (8), B2 (32), B6 (8), B7 (2) and B8 (21), all fixed.
+
+The class table, per-shard seconds and pair counts are in [EP-179's Outcomes](179-bring-the-recovery-model-deep-tier-within-an-hour.md#outcomes--retrospective). The next per-release deep run is the first to cover the generated scenarios' pairs.
 
 
 ## Context and Orientation

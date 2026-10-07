@@ -16,6 +16,11 @@ provenance:
       at: 2026-10-06T19:15:39Z
       mode: "implement"
       note: "Implemented M1, M2, M4 and the M5 recipe, pause injection and remote gate-deep; M3 not adopted on its sampled check"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-07T16:59:18Z
+      mode: "update"
+      note: "MP-23 3d partial deep-tier monitoring record (stopped at 9/52 by operator direction)"
 ---
 
 # Bring the recovery model deep tier within an hour
@@ -323,6 +328,51 @@ Lessons:
 - An operational failure. A pattern-based `pkill` killed a teammate's deep run two hours in, and the
   pre-EP-179 tier printed only violation counts, so that run lost everything it had found. Stop
   processes by recorded PID only, and write findings as they are found.
+
+2026-10-07, MP-23 step 3d: a partial monitoring record. The run was **stopped at scenario 9/52
+after about 2 h by operator direction**.
+
+The run:
+- Command: `just gate-deep 341b01bc`.
+- Shards: 16, on the remote builder (n2-standard-16, "16 cores" in the test run's header).
+- Started 14:49:17Z and stopped 16:48:41Z, so the wall time was 1 h 59 m.
+- No other builder jobs ran during it (coordinator-confirmed).
+- Why it stopped: by the 2026-10-07 amendment to [ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md) (MP-23 Decision Log), the deep tier is per-release monitoring for v1, not a gate. The run had found no unclassified shape, and it was contending for the builder that the release batch needed.
+
+Scenarios 1–8 finished on every shard. The per-shard seconds below are the fastest and slowest shard for each scenario. Pair counts are summed over the shards. Independent pairs are the ones M4 pruned, so they were not run.
+
+| Scenario | Per-shard s (min–max) | SameStep | PersistentFirst | Interacting | Independent |
+| --- | --- | --- | --- | --- | --- |
+| 1 create | 16–22 | 20,147 | 0 | 0 | 0 |
+| 2 create then good update | 98–130 | 43,207 | 10,416 | 17,820 | 15,800 |
+| 3 bad update, corrected (history unchanged) | 226–334 | 56,762 | 28,716 | 25,077 | 62,107 |
+| 4 bad update, corrected (history follows) | 276–373 | 65,442 | 32,848 | 27,918 | 72,639 |
+| 5 bad update, corrected (durable volume) | 489–639 | 96,649 | 51,528 | 37,470 | 104,400 |
+| 6 durable volume, then retire | 61–106 | 40,454 | 5,976 | 10,803 | 6,031 |
+| 7 database, then ingest a receipt | 1,015–1,244 | 248,534 | 5,616 | 10,155 | 2,611 |
+| 8 database, then retire it | 1,571–1,789 | 258,152 | 30,888 | 50,475 | 19,723 |
+
+The slowest shards' times for scenarios 1–8 sum to 4,637 s. At the stop, every shard was in scenario 9 ("create a database, update its resources, update it again, then restart it"). Fourteen shards had finished 25 of their 78–79 heads (the model's first-fault placements), and shards 2 and 3 had finished 50. The shards had spent 1,785–2,778 s in that scenario so far.
+
+**The first input to the next MasterPlan's pair budget: SameStep pairs dominate the database scenarios.** They are 248,534 of the 264,305 pairs run in scenario 7 (94%) and 258,152 of 339,515 in scenario 8 (76%). Those two scenarios alone took 2,600–3,000 s of each shard's time. A shard-0 sample shows the same: 16,464 of 17,660 pairs in scenario 7, and 15,352 of 21,358 in scenario 8. Ways to cut the cost:
+- Prune pairs in which either fault does not act in its own single-fault run. Such a pair can only repeat the other fault's outcome.
+- Budget SameStep pairs per step.
+
+The run found 4,944 distinct violating schedules, in nine classes. Each class was triaged under the M4 rule, and each is either fixed in the step-3d batch or recorded in the ledger:
+
+| Class | Schedules | What it is | Kind | Disposition |
+| --- | --- | --- | --- | --- |
+| F78 | 2,238 | independent members starve behind a StatefulSet whose own template never becomes Ready | ledger | [F78](../audits/mp23-findings.md#f78), deferred to the next MasterPlan |
+| F77 | 2,614 | a database volume claim deleted outside review stays Terminating, and reviews refuse | ledger | [F77](../audits/mp23-findings.md#f77), deferred, with a runbook |
+| B5 | 8 | F77 composed with an already-excused foreign-object refusal | ledger | counted as F77 |
+| B4 | 13 | **product defect F79**: close dropped a never-started member whose absence read failed, leaving a scope no review could exit | (d) new finding | fixed: close refuses, retryably, until absence is confirmed ([F79](../audits/mp23-findings.md#f79)) |
+| B1 | 8 | the world ran a lagging controller's catch-up before answering the write that woke it, and recorded a Lands* fault as acted only on its own request | (c) harness | fixed in the world (RES-4 U16): the catch-up follows the write, and a Lands* fault acts when any write of its spec lands |
+| B2 | 32 | the model's refusal excuses did not compose (a deleted durable member and a foreign object in one refusal) | (c) harness | fixed: excuses compose per PlanError and resource |
+| B6 | 8 | re-reviewing a template that a Lands* fault poisoned plans a verify that prepare refuses, and I1 lacked I9's per-member faulted-template excuse | (c) harness | fixed: a prepare refusal is excused only when each refused member is live at a poisoned template |
+| B7 | 2 | I8 asked the adapter to settle a verify, and ADR 26 §6 says a verify never executes | (c) harness | fixed: I8 settles a verify as no effect, and both schedules then end at F77 |
+| B8 | 21 | the world's ForeignObject planted a StatefulSet with no spec, which no API server stores | (c) harness | fixed: planted objects are whole, and the fake server refuses missing required fields with 422 |
+
+Only one class, F79, was a product defect. The five harness classes and F79 have mutation records that fail without their fixes. Under the new rule, the next per-release deep run is the place to see whether the fixed classes stay gone and whether scenarios 9–52 hold new ones.
 
 
 ## Context and Orientation
