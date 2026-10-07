@@ -5,7 +5,7 @@
 * **Update**: RES-4 adds rule U16 from the E4 and E5 traces: a controller's reaction to a write is its own, later write, so the catch-up a write causes never refuses that write (the 3d deep run's B1).
 * **Update**: RES-4 adds rule U15 (experiment E17): under OrderedReady, a crash-looping pod at the current revision blocks a template-only restart annotation and a crash fix alike, and only a pod DELETE rolls it (EP-181's `db restart` design).
 * **Update**: RES-4 rule U6 records experiment E16: a PVC held by `pvc-protection` cannot be mounted by a new pod, goes as soon as its pod is deleted, and keeps its data only if its volume was set to `Retain` first (F77's runbook).
-
+* **Update**: RES-5 explicitly compares gVisor and microVM benefits, limitations, host requirements, and qualification evidence. Remove the gVisor-first recommendation and leave backend and deployment selection open; sizing remains an unmeasured hypothesis.
 * **Add**: Record RES-5, the source-based assessment of Agent Substrate v0.3.0 on Nagare for Shikigami: a proposed larger agent host, Kubernetes and host adaptation, source/workspace storage, authorization and lifecycle ownership, recovery, and qualification gates. Static manifest rendering passed; live deployment and measured sizing remain unperformed.
 
 ## 2026-10-06

@@ -4,7 +4,7 @@ title: Agent Substrate on Nagare as an execution platform for Shikigami
 description: Assess the host, Kubernetes, storage, security, lifecycle, and application integration needed to run Agent Substrate on Nagare and provide governed resumable workspaces for Shikigami.
 generated:
   by: process:openai-codex
-  at: "2026-10-07T04:46:35Z"
+  at: "2026-10-07T04:54:40Z"
 researchId: RES-5
 status: complete
 scope: >-
@@ -103,24 +103,41 @@ reviews:
       Kustomize render, strict record validation, and local-link/source audits.
       No independent review or live runtime qualification is
       claimed. Sizing and proposed interfaces are explicitly hypotheses.
+  - kind: model
+    reviewer: process:openai-codex
+    reviewed_at: "2026-10-07T04:54:40Z"
+    document_timestamp: "2026-10-07T04:54:40Z"
+    scope: content-and-metadata
+    outcome: commented
+    provider: openai
+    model: gpt-6
+    effort: unspecified
+    context: >-
+      Author self-review of the neutral gVisor/microVM comparison against the
+      pinned release architecture, sandbox-class API, and prior host research.
+      Backend preferences removed from feasibility, deployment alternatives,
+      and qualification gates. Profile/log validation and link/source audits
+      repeated; no independent review, benchmarks, or live qualification claimed.
 ---
 
 # Agent Substrate on Nagare as an execution platform for Shikigami
 
 Canonical record: `mori://shinzui/nagare/okf/research/concepts/RES-5`.
 
-## Conclusion and proposed direction
+## Feasibility and open choices
 
 **Nagare is a plausible host for Agent Substrate, and the combination could become a strong
 execution platform for Shikigami's coding and tool workloads.** Supporting it requires a platform
 extension, a Shikigami execution adapter, and operational qualification. Increasing the minimum
 machine size is useful and acceptable for this research, but does not close the integration gaps.
 
-Recommend an opt-in **agent host profile starting at 8 vCPUs and 32 GiB RAM**, with gVisor as the
-first backend. Use an Intel N2 machine if microVM support is a near-term objective; E2 remains a
-candidate for gVisor-only deployments. Treat this as an initial qualification target, not an
-experimentally established minimum. For substantial concurrent Haskell builds, qualify a
-16-vCPU/64-GiB profile and retain a hard concurrency ceiling.
+An opt-in **agent host profile starting at 8 vCPUs and 32 GiB RAM** is a sizing hypothesis to
+qualify, not an experimentally established minimum. A 16-vCPU/64-GiB profile provides another
+measurement scenario for substantial concurrent Haskell builds, with a hard concurrency ceiling.
+**gVisor is not a requirement: Substrate supports both gVisor and microVM backends. This record
+does not select either backend or a machine family.** E2 is a candidate for gVisor; microVMs
+require a nested-virtualization-capable family, with Intel N2 one candidate on GCP. The comparison
+below records the benefits, costs, and missing evidence for each. [^substrate-architecture] [^gce-nested]
 
 The useful product boundary is:
 
@@ -251,16 +268,38 @@ are not a production credential design. [^substrate-host] [^substrate-install]
 
 ### gVisor versus microVM
 
-| Backend | Advantage for this adoption | Additional requirement |
-| --- | --- | --- |
-| gVisor | First qualification path; no KVM prerequisite | Prove actual agent binaries, syscall behavior, compiler/build tools, checkpoint/restore, and networking |
-| microVM | Guest-kernel execution may suit broader coding environments; supports multiple durable directories | Intel-compatible nested virtualization, `/dev/kvm`, tun device, device plugin, guest assets, userfaultfd/demand-paging qualification |
+Both are released Substrate sandbox classes. gVisor is the upstream default, which describes the
+default configuration rather than a requirement or a preference for Nagare. gVisor runs the
+process tree under `runsc`; microVM runs a Kata guest on Cloud Hypervisor.
+[^substrate-architecture] [^substrate-api]
 
-Compute Engine explicitly excludes E2 from nested virtualization. MicroVM support therefore requires
-a machine-family change, not only a larger E2 instance. Propose `n2-standard-8` and an explicit
-Pulumi `enableNestedVirtualization` setting, followed by NixOS/KVM checks. Nagare's current instance
-component has no nested-virtualization setting. Qualify NixOS on the supported machine family;
-Google's KVM support alone is not evidence for the entire custom guest stack. [^gce-nested] [^nagare-infra]
+| Backend | Pros for Nagare and Shikigami | Cons and limitations |
+| --- | --- | --- |
+| **gVisor** | No KVM prerequisite, so host selection does not depend on nested virtualization and E2 remains an option. Native process-tree checkpoint/restore supplies the resumable workspace capability. Avoids the guest-kernel, hypervisor, and virtio-fs asset set required by the microVM backend. | The actual agent CLI, compiler, build tools, filesystem operations, and networking must work with gVisor's syscall implementation. The released architecture notes a required `runsc` checkpoint flag for networking resumption. Templates allow only one `DurableDir`. Runtime and snapshot compatibility still require pinned assets and upgrade qualification. |
+| **microVM (Kata + Cloud Hypervisor)** | A guest Linux kernel offers a different compatibility path for coding tools; whether it suits the selected tools better remains untested. Templates support several `DurableDir` volumes. Guest-memory snapshots and demand-paged restore support resumable execution; writable rootfs and durable directories are host-backed and included in the appropriate snapshot scopes. | Requires a KVM-capable host, supported nested virtualization on GCP, device access/advertisement, and a machine-family change from E2. Adds guest kernel, hypervisor, and virtio-fs assets to package, pin, and maintain. KVM, `userfaultfd`, guest networking, and snapshot restore need NixOS/k3s qualification. Guest resources and nested virtualization introduce capacity and performance questions that have not been measured here. |
+
+These are source-based architectural tradeoffs, not benchmark results. Neither lower memory use,
+faster builds, faster restore, lower total cost, nor stronger isolation has been established for
+the real Shikigami workload. [^substrate-architecture] [^substrate-api] [^gce-nested]
+
+| Comparison dimension | Evidence needed for gVisor | Evidence needed for microVM |
+| --- | --- | --- |
+| Tool compatibility | Run the selected Linux CLI and complete repository edit/build/test workflows under `runsc`; exercise subprocesses, filesystem behavior, and networking | Run the same image, repository, and workflow in the Kata guest; exercise guest/host filesystem sharing and networking |
+| Capacity and cost | Measure CPU, host memory, snapshot peaks, storage growth, build time, and cold/warm restore on a compatible host | Measure the same quantities, including guest/runtime resources and nested-virtualization effects; distinguish backend effects from machine-family differences |
+| Isolation | Test actor access to host mounts, supervisor credentials, devices, and other actors; assess the `runsc` and host-facing runtime boundary | Perform the same negative tests and assess the guest kernel, hypervisor, virtio-fs, device, and host-facing runtime boundaries |
+| Operations | Rehearse runtime upgrades, checkpoint compatibility, failure recovery, and the single-durable-directory workspace layout | Rehearse guest/runtime asset upgrades, checkpoint compatibility, failure recovery, KVM device placement, and multi-directory workspace layouts |
+
+Snapshots are **not portable between sandbox classes**. Changing backend is therefore a migration
+and requalification concern; this record does not assume that a suspended process can resume on
+the other backend. Both choices also retain the shared authorization, storage consistency,
+egress, lifecycle reconciliation, and recovery requirements described below. [^substrate-api]
+
+Compute Engine explicitly excludes E2 from nested virtualization. A microVM deployment therefore
+needs a machine-family change, not only a larger E2 instance. `n2-standard-8` is one sizing
+candidate; this path would need an explicit Pulumi `enableNestedVirtualization` setting and
+NixOS/KVM checks. Nagare's current instance component has no such setting. Google's KVM support
+alone is not evidence for the entire custom guest stack. A gVisor deployment has no equivalent KVM
+prerequisite, but still needs the common host/runtime adaptations above. [^gce-nested] [^nagare-infra]
 
 Released worker pods explicitly set `privileged: false`, but run as root with capabilities including
 `SYS_ADMIN`, `NET_ADMIN`, and `SYS_PTRACE`, and unconfined AppArmor/seccomp profiles. These are
@@ -274,7 +313,7 @@ device, Kubernetes admin token, or supervisor credential. [^substrate-worker-sec
 The accepted product direction is to raise the minimum for this agent profile. Existing small-PaaS
 defaults should not be represented as adequate for simultaneous platform control planes and builds.
 
-**Proposed starting profiles, unmeasured:**
+**Candidate starting profiles, unmeasured and independent of the backend decision:**
 
 | Profile | Host | Initial workload envelope | Disk starting point |
 | --- | --- | --- | --- |
@@ -493,18 +532,20 @@ last external checkpoint. Reverting a crashed actor can recover the previous che
 not preserve uncheckpointed work or undo external effects. State the accepted RPO and recreate the
 host from immutable configuration. A larger single node remains a single failure domain.
 
-## Alternatives and adoption decision
+## Deployment alternatives and unresolved criteria
 
-| Approach | Best fit | Tradeoff |
+| Approach | Potential benefit | Cost or limitation |
 | --- | --- | --- |
 | Ordinary Nagare workers/Jobs | Stateless or short bounded agent runs | Simplest execution model; no process-memory hibernation or Substrate actor multiplexing |
-| Substrate installed on Nagare, gVisor first | Repeated coding sessions and tool workspaces with long idle periods | Requires host adaptation and lifecycle/recovery integration, but preserves Nagare's single-node model |
-| Substrate on Nagare with microVMs | Workloads requiring a guest kernel or failing gVisor compatibility | Machine-family/KVM change, more assets and qualification |
+| Substrate on Nagare with gVisor | Resumable coding sessions without a KVM prerequisite; preserves the single-node model | Tool/syscall compatibility, host adaptation, lifecycle/recovery integration, and one-durable-directory limit |
+| Substrate on Nagare with microVMs | Resumable guest-kernel coding sessions and several durable directories; preserves the single-node model | Machine-family/KVM change, additional runtime assets, host adaptation, lifecycle/recovery integration, and guest-stack qualification |
 | Separate upstream-oriented cluster | Larger fleet, hardware separation or stronger availability requirements | Greater operational footprint; Nagare/Shikigami still need the execution adapter |
 
-Recommend the second approach for the first proof, while choosing N2 hardware if avoiding a later
-microVM host replacement is worth the cost. Do not require microVMs before demonstrating the real
-Shikigami workload. Conversely, do not declare gVisor adequate merely because a counter demo works.
+No deployment approach or sandbox backend is selected by this assessment. The choice remains open
+until there is evidence for the actual Shikigami tools, workspace layout, host cost, isolation
+requirements, suspend/restore behavior, and operating burden. A counter demonstration establishes
+neither coding-workload suitability nor the relative merits of the two backends. Increasing the
+minimum machine size makes more configurations possible; it does not settle their tradeoffs.
 
 ## Qualification work needed before support can be claimed
 
@@ -519,9 +560,9 @@ changes or a schedule estimate.
 | Q4: Storage recovery | Dedicated store credentials, checkpoint/GC policy, coordinated database/bucket backup, isolated rebuild and restore | Nagare |
 | Q5: Governed run | Real Shikigami addressed run, canonical fixture repository, authorization allow/deny, isolated editing/validation, one bounded terminal result | Shikigami |
 | Q6: Failure/replay | Lost create acknowledgement, duplicate delivery, adapter restart, cancellation during validation, stale epoch, revocation after resume; no duplicate commit or sink effect | Shikigami/integration |
-| Q7: Capacity | 8/32 profile measured with selected CLI and build workload; peak snapshot memory/disk, latency and hard concurrency admission | Nagare |
+| Q7: Capacity | Candidate 8/32 profile measured with the same CLI, image, repository, and build workload for each backend under evaluation; peak snapshot memory/disk, latency, cost and hard concurrency admission | Nagare |
 | Q8: Operations | Drain/upgrade interruption, maintenance window, previous checkpoint recovery after node loss, orphan cleanup and documented restore RPO/RTO | Nagare/integration |
-| Q9: Optional microVM | Supported N2/NixOS/KVM path; actual tools, guest snapshot restore, devices and resource ceilings | Nagare |
+| Q9: Backend qualification | gVisor: actual tools/syscalls, `runsc` checkpoint networking and single-directory layout. MicroVM: supported machine-family/NixOS/KVM path, guest tools, snapshot restore, devices and resource ceilings. Record results for each evaluated backend without assuming a preference | Nagare/integration |
 
 First proof: use one trusted fixture actor with no production credentials, one approved repository,
 a digest-pinned tool image/corpus, one durable workspace, and one active run. Verify an edit and
@@ -529,11 +570,11 @@ validation result across a completed Full suspend/restore. Then inject lost ackn
 worker failure before broadening capabilities or concurrency. Measure the meaningful full workflow,
 including authorization, image/corpus preparation, warm and cold restore, validation, and delivery.
 
-The decision becomes favorable if the selected agent/toolchain works under the sandbox, controlled
-resume/retention materially improves repeated sessions, and recovery stays comprehensible on one
-node. Prefer ordinary worker/Job execution if these workloads are mostly short-lived, cannot pause
-safely, or snapshot/cold-cache overhead dominates. This is the evidence needed to decide whether
-Nagare becomes the preferred platform for Shikigami rather than merely an environment that can boot it.
+The resulting evidence should quantify the value of resume/retention for repeated sessions, the
+cost of snapshots and cold caches, the behavior of workloads that cannot pause safely, and the
+operating burden of recovery on one node. Record these results alongside ordinary worker/Job
+execution so a future decision can compare the options. This research leaves both Substrate
+adoption and the gVisor/microVM choice unresolved.
 
 ## Evidence register and reproduction
 
