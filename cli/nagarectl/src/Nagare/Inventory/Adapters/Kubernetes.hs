@@ -35,7 +35,7 @@ import Data.Text.Encoding qualified as TE
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.KubernetesProof
-import Nagare.Inventory.Adapters.KubernetesStuckPod (KubernetesPodOps (..), decodePodReplacement, isStatefulSet, noPodOps, preparePodReplacement)
+import Nagare.Inventory.Adapters.KubernetesStuckPod (KubernetesPodOps (..), decodePodReplacement, isStatefulSet, noPodOps, preparePodReplacement, stillStuck)
 import Nagare.Inventory.BackendMap (renderBackendMapNative, renderShomeiSettingsNative)
 import Nagare.Inventory.Backup
   ( BackupReceiptExpectation (..)
@@ -180,10 +180,17 @@ mkKubernetesAdapterWithObservations specs ops pods observeBatch readBackupReceip
         (before, _) <- observeMutation mutation
         pure (settleMutation mutation before current stamp decision)
     observeMutation mutation = kubernetesObserveStamped ops (mutationResource mutation)
-    -- EP-181 M3 executes the replacement; until then it refuses with no effect.
-    podReplacementPending operation prepared = either id (const "replace-stuck-pod execution is not implemented yet (EP-181 M3)") $ do
+    -- EP-181 M4 settles and recovers the replacement; until then neither
+    -- claims anything.
+    podReplacementPending operation prepared = either id (const "replace-stuck-pod settlement is not implemented yet (EP-181 M4)") (decodeReplacement operation prepared)
+    decodeReplacement operation prepared = do
       (resource, declaration, _) <- singleSpec specs operation
       decodePodReplacement operation resource (address declaration) prepared
+    -- RES-4 §5.3: re-read the stuck pod, and write nothing unless it is still
+    -- the reviewed one. The fresh resourceVersion is the delete's precondition.
+    podReplacementGuard operation prepared = case decodeReplacement operation prepared of
+      Left reason -> pure (Left reason)
+      Right replacement -> fmap (replacement,) . stillStuck replacement <$> readStuckPod pods (replacement ^. #member)
     observeAll resources = do
       states <- observeBatch resources
       let observed = zipWith toObservation resources states
@@ -274,7 +281,7 @@ mkKubernetesAdapterWithObservations specs ops pods observeBatch readBackupReceip
                 Right (Just (FieldTakeover physical revision others, observed, stamp))
           _ -> Left "Kubernetes object changed while its field takeover was prepared; replan"
     preflight operation prepared
-      | plannedAction operation == ReplaceStuckPod = pure (Left (podReplacementPending operation prepared))
+      | plannedAction operation == ReplaceStuckPod = void <$> podReplacementGuard operation prepared
     preflight operation prepared = case decodeMutation (kubernetesContext ops) specs operation prepared of
       Left reason -> pure (Left reason)
       Right mutation -> do
@@ -286,7 +293,10 @@ mkKubernetesAdapterWithObservations specs ops pods observeBatch readBackupReceip
             else requireWriteTarget mutation current stamp
           sourceGuard
     execute operation prepared
-      | plannedAction operation == ReplaceStuckPod = pure (AdapterEffectFailed (KnownNoEffect (podReplacementPending operation prepared)))
+      | plannedAction operation == ReplaceStuckPod =
+          podReplacementGuard operation prepared >>= \case
+            Left reason -> pure (AdapterEffectFailed (KnownNoEffect reason))
+            Right (replacement, revision) -> replaceStuckPod pods replacement revision
     execute operation prepared = case decodeMutation (kubernetesContext ops) specs operation prepared of
       Left reason -> pure (AdapterEffectFailed (KnownNoEffect reason))
       Right mutation -> do

@@ -15,6 +15,8 @@ module Nagare.Inventory.Adapters.KubernetesStuckPod
   , runtimePodOps
   , stuckPod
   , podTerminating
+  , stillStuck
+  , podDeleteRequest
   , isStatefulSet
   , preparePodReplacement
   , decodePodReplacement
@@ -22,7 +24,7 @@ module Nagare.Inventory.Adapters.KubernetesStuckPod
   )
 where
 
-import Data.Aeson (FromJSON, ToJSON, Value (..), eitherDecodeStrict', toJSON)
+import Data.Aeson (FromJSON, ToJSON, Value (..), eitherDecodeStrict', object, toJSON, (.=))
 import Data.Aeson.KeyMap qualified as KM
 import Data.Aeson.Types (Object, Parser, parseEither, withObject, (.:), (.:?))
 import Data.ByteString (ByteString)
@@ -34,15 +36,16 @@ import Data.Maybe (catMaybes, listToMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
-import Nagare.Dsl.Prelude
-import Nagare.Inventory.Adapter (OperationAction (ReplaceStuckPod), PlannedOperation (..), PrepareError (..), PreparedNative (..))
+import Nagare.Dsl.Prelude hiding ((.=))
+import Nagare.Inventory.Adapter (AdapterExecution (..), OperationAction (ReplaceStuckPod), PlannedOperation (..), PrepareError (..), PreparedNative (..))
+import Nagare.Inventory.Adapters.KubernetesProof (kubectlRefusal)
 import Nagare.Inventory.Adapters.KubernetesReadiness (statefulSetReady)
-import Nagare.Inventory.Journal (OperationId)
+import Nagare.Inventory.Journal (FailureClass (KnownNoEffect), OperationId)
 import Nagare.Inventory.KubernetesTransport (KubernetesRuntimeConfig (..), invokeKubectl)
 import Nagare.Resource.Canonical (canonicalValue)
 import Nagare.Resource.Inventory (ManagedResource (..))
 import Nagare.Resource.Types
-import System.Exit (ExitCode (ExitSuccess))
+import System.Exit (ExitCode (..))
 import Text.Read (readMaybe)
 
 -- | A pod that blocks its StatefulSet's rollout, and the StatefulSet it
@@ -78,22 +81,53 @@ data PodReplacement = PodReplacement
 
 -- | The Kubernetes reads and writes that act on a member's pods rather than
 -- on the member itself.
-newtype KubernetesPodOps = KubernetesPodOps
-  { readStuckPod :: ResourceId -> IO (Either Text (Maybe StuckPod))
+data KubernetesPodOps = KubernetesPodOps
+  { readStuckPod :: !(ResourceId -> IO (Either Text (Maybe StuckPod)))
   -- ^ The member StatefulSet's stuck pod, if it has one.
+  , replaceStuckPod :: !(PodReplacement -> Text -> IO AdapterExecution)
+  -- ^ Delete the reviewed pod, conditional on its UID and this fresh
+  -- resourceVersion, then wait for the StatefulSet's rollout.
   }
 
--- | No pod access: nothing is ever stuck. For adapters and tests that do not
--- model pods.
+-- | No pod access: nothing is ever stuck, and no pod is ever replaced. For
+-- adapters and tests that do not model pods.
 noPodOps :: KubernetesPodOps
-noPodOps = KubernetesPodOps (\_ -> pure (Right Nothing))
+noPodOps =
+  KubernetesPodOps
+    { readStuckPod = \_ -> pure (Right Nothing)
+    , replaceStuckPod = \_ _ -> pure (AdapterEffectFailed (KnownNoEffect "this adapter has no pod access"))
+    }
 
 -- | Read a member StatefulSet's stuck pod through kubectl. Pods are listed
 -- only when the StatefulSet reads not ready, so a healthy StatefulSet costs
 -- one read.
 runtimePodOps :: KubernetesRuntimeConfig -> Map ResourceId (ManagedResource, ByteString) -> KubernetesPodOps
-runtimePodOps config specs = KubernetesPodOps reader
+runtimePodOps config specs = KubernetesPodOps reader replace
   where
+    -- RES-4 §5.3: the server enforces the reviewed UID and the fresh
+    -- resourceVersion. Every 4xx left the pod as it was (G4); only a missing
+    -- answer or a 5xx can hide a delete.
+    replace replacement revision = do
+      guarded <- runtimeGuard config
+      case (guarded, podDeleteRequest (replacement ^. #stuck) revision) of
+        (Left reason, _) -> pure (AdapterEffectFailed (KnownNoEffect ("cluster guard refused the pod replacement: " <> reason)))
+        (_, Left reason) -> pure (AdapterEffectFailed (KnownNoEffect reason))
+        (Right (), Right (arguments, body)) -> do
+          result <- invokeKubectl config arguments (T.unpack body)
+          case result of
+            Right (ExitSuccess, _, _) -> waitForRollout (replacement ^. #target)
+            Right (ExitFailure _, _, errors)
+              | Just refusal <- kubectlRefusal (T.pack errors) -> pure (AdapterEffectFailed (KnownNoEffect refusal))
+            _ -> pure (AdapterEffectAmbiguous "the stuck pod's DELETE did not return success; reobserve before retry")
+    -- The replacement is complete only once the StatefulSet is Ready on its
+    -- update revision; a new pod that is not Ready is a landed effect.
+    waitForRollout = \case
+      Kubernetes _ _ _ (Just namespace') name' -> do
+        result <- invokeKubectl config ["rollout", "status", "statefulset/" <> T.unpack (nameText name'), "--namespace", T.unpack (nameText namespace'), "--timeout=300s"] ""
+        pure $ case result of
+          Right (ExitSuccess, _, _) -> AdapterEffectCompleted
+          _ -> AdapterEffectAmbiguous "the StatefulSet did not prove readiness after its stuck pod was deleted; reobserve before retry"
+      _ -> pure (AdapterEffectAmbiguous "the pod replacement's StatefulSet address has no namespace")
     reader resource = case address . fst <$> Map.lookup resource specs of
       Just (Kubernetes _ "apps" kind (Just namespace') name')
         | nameText kind == "statefulset" -> do
@@ -245,3 +279,38 @@ podReplacementSummary replacement =
       _ -> "?"
     -- A revision is named <statefulset>-<hash>.
     short revision = fromMaybe revision (T.stripPrefix (set' <> "-") revision)
+
+-- | The fresh read's guard before the delete (RES-4 §5.3): the stuck pod is
+-- still the reviewed pod, under the reviewed StatefulSet, blocking the
+-- reviewed revision. It answers the pod's fresh resourceVersion, which the
+-- delete carries. A pod that became Ready, was replaced or is being deleted
+-- no longer meets the reviewed condition, and nothing is written.
+stillStuck :: PodReplacement -> Either Text (Maybe StuckPod) -> Either Text Text
+stillStuck replacement = \case
+  Left reason -> Left ("the StatefulSet's pods could not be re-read: " <> reason)
+  Right Nothing -> Left "the reviewed pod no longer blocks the rollout; replan"
+  Right (Just current)
+    | current ^. #statefulSetUid /= reviewed ^. #statefulSetUid -> Left "the StatefulSet was replaced since review; replan"
+    | current ^. #podUid /= reviewed ^. #podUid -> Left "another pod blocks the rollout since review; replan"
+    | current ^. #updateRevision /= reviewed ^. #updateRevision -> Left "the StatefulSet's update revision moved since review; replan"
+    | otherwise -> Right (current ^. #podResourceVersion)
+  where
+    reviewed = replacement ^. #stuck
+
+-- | The conditional pod DELETE: the reviewed pod's UID and a fresh
+-- resourceVersion as preconditions, and the default grace period and
+-- propagation, so the StatefulSet controller recreates the pod.
+podDeleteRequest :: StuckPod -> Text -> Either Text ([String], Text)
+podDeleteRequest reviewed revision = do
+  bytes <-
+    canonicalValue
+      ( object
+          [ "apiVersion" .= ("meta.k8s.io/v1" :: Text)
+          , "kind" .= ("DeleteOptions" :: Text)
+          , "preconditions" .= object ["uid" .= physicalIdentityText (reviewed ^. #podUid), "resourceVersion" .= revision]
+          ]
+      )
+  pure
+    ( ["delete", "--raw", "/api/v1/namespaces/" <> T.unpack (reviewed ^. #namespace) <> "/pods/" <> T.unpack (reviewed ^. #pod), "-f", "-"]
+    , TE.decodeUtf8 bytes
+    )

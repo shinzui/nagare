@@ -6,6 +6,7 @@ module InventoryStuckPodSpec (inventoryStuckPodTests) where
 import Data.Aeson (Value, eitherDecodeStrict', encode, object, (.=))
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy.Char8 qualified as BLC
+import Data.Either (isLeft)
 import Data.Generics.Labels ()
 import Data.IORef
 import Data.List.NonEmpty (NonEmpty (..))
@@ -22,6 +23,7 @@ import Nagare.Inventory.Adapters.KubernetesRuntime (mkKubernetesRuntimeOpsAndBat
 import Nagare.Inventory.Adapters.KubernetesStuckPod
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Execute
+import Nagare.Inventory.Journal (FailureClass (KnownNoEffect))
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.KubernetesTransport (KubectlRequest (..), KubernetesRuntimeConfig (..), runKubectlWith, withKubectlInterpreter)
 import Nagare.Inventory.Plan
@@ -144,10 +146,48 @@ inventoryStuckPodTests =
         case prepared of
           Left (PrepareRefused _ reason) -> assertBool (T.unpack reason) ("stale" `T.isInfixOf` reason)
           other -> assertFailure ("prepared a member that is not stuck: " <> show other)
+    , testCase "execute: a pod still stuck as reviewed is deleted once, at its fresh resourceVersion" $ do
+        (outcome, replaced, checked) <- executeAfter (Right (Just (reviewedPod & #podResourceVersion .~ "rv-fresh")))
+        (outcome, replaced, checked) @?= (AdapterEffectCompleted, [(reviewedPod, "rv-fresh")], Right ())
+    , testCase "execute: a pod Ready by then is not deleted, with no effect" $ do
+        (outcome, replaced, checked) <- executeAfter (Right Nothing)
+        (outcome, replaced) @?= (AdapterEffectFailed (KnownNoEffect "the reviewed pod no longer blocks the rollout; replan"), [])
+        assertBool "preflight passed a pod that is no longer stuck" (isLeft checked)
+    , testCase "execute: a pod replaced by then is not deleted" $ do
+        (outcome, replaced, _) <- executeAfter (Right (Just (reviewedPod & #podUid .~ uidOf "uid-pg-0-new")))
+        (outcome, replaced) @?= (AdapterEffectFailed (KnownNoEffect "another pod blocks the rollout since review; replan"), [])
+    , testCase "execute: a StatefulSet whose update revision moved, or that was replaced, is not touched" $ do
+        (moved, movedReplaced, _) <- executeAfter (Right (Just (reviewedPod & #updateRevision .~ "pg-0aaaa")))
+        (other, otherReplaced, _) <- executeAfter (Right (Just (reviewedPod & #statefulSetUid .~ uidOf "sts-uid-2")))
+        (moved, other) @?= (AdapterEffectFailed (KnownNoEffect "the StatefulSet's update revision moved since review; replan"), AdapterEffectFailed (KnownNoEffect "the StatefulSet was replaced since review; replan"))
+        (movedReplaced, otherReplaced) @?= ([], [])
+    , testCase "execute: a failed re-read writes nothing" $ do
+        (outcome, replaced, _) <- executeAfter (Left "forbidden")
+        (outcome, replaced) @?= (AdapterEffectFailed (KnownNoEffect "the StatefulSet's pods could not be re-read: forbidden"), [])
+    , testCase "runtime: the delete carries the reviewed UID and the fresh resourceVersion, then waits for the rollout" $ do
+        (outcome, asked) <- runtimeReplace (Right ()) (const (Right (ExitSuccess, "", "")))
+        outcome @?= AdapterEffectCompleted
+        asked
+          @?= [ (["delete", "--raw", "/api/v1/namespaces/personal/pods/pg-0", "-f", "-"], "{\"apiVersion\":\"meta.k8s.io/v1\",\"kind\":\"DeleteOptions\",\"preconditions\":{\"resourceVersion\":\"rv-fresh\",\"uid\":\"uid-pg-0\"}}")
+              , (["rollout", "status", "statefulset/pg", "--namespace", "personal", "--timeout=300s"], "")
+              ]
+    , testCase "runtime: a 409 refusal had no effect and waits for nothing" $ do
+        (outcome, asked) <- runtimeReplace (Right ()) (const (Right (ExitFailure 1, "", "Error from server (Conflict): Operation cannot be fulfilled on Pod \"pg-0\": the ResourceVersion in the precondition (rv-fresh) does not match the ResourceVersion in record (rv-later)\n")))
+        outcome @?= AdapterEffectFailed (KnownNoEffect "Error from server (Conflict): Operation cannot be fulfilled on Pod \"pg-0\": the ResourceVersion in the precondition (rv-fresh) does not match the ResourceVersion in record (rv-later)")
+        length asked @?= 1
+    , testCase "runtime: a timed-out delete is ambiguous" $ do
+        (outcome, _) <- runtimeReplace (Right ()) (const (Left "kubectl timed out"))
+        outcome @?= AdapterEffectAmbiguous "the stuck pod's DELETE did not return success; reobserve before retry"
+    , testCase "runtime: a rollout that does not become Ready after the delete is ambiguous" $ do
+        (outcome, _) <- runtimeReplace (Right ()) (\arguments -> if take 1 arguments == ["rollout"] then Right (ExitFailure 1, "", "timed out waiting for the condition") else Right (ExitSuccess, "", ""))
+        outcome @?= AdapterEffectAmbiguous "the StatefulSet did not prove readiness after its stuck pod was deleted; reobserve before retry"
+    , testCase "runtime: a refusing cluster guard deletes nothing" $ do
+        (outcome, asked) <- runtimeReplace (Left "wrong cluster") (const (Right (ExitSuccess, "", "")))
+        (outcome, asked) @?= (AdapterEffectFailed (KnownNoEffect "cluster guard refused the pod replacement: wrong cluster"), [])
     , testCase "prepare: a member that is not a StatefulSet refuses" $ do
         calls <- newIORef 0
         state <- newIORef (KubernetesNotReady K.physical "1" (Just K.resource) (contentDigest K.nativeBytes))
-        let adapter = mkKubernetesAdapterWithObservations K.specs (K.ops state calls) (KubernetesPodOps (\_ -> pure (Right (Just reviewedPod)))) (traverse (kubernetesObserve (K.ops state calls))) noReceipt noScratch Nothing Nothing
+        let adapter = mkKubernetesAdapterWithObservations K.specs (K.ops state calls) (noPodOps {readStuckPod = \_ -> pure (Right (Just reviewedPod))}) (traverse (kubernetesObserve (K.ops state calls))) noReceipt noScratch Nothing Nothing
         prepared <- adapterPrepare adapter (K.operation ReplaceStuckPod)
         case prepared of
           Left (PrepareRefused _ reason) -> reason @?= "a stuck pod is replaced only for an apps/StatefulSet"
@@ -308,7 +348,42 @@ databaseAdapter answer = do
   calls <- newIORef 0
   current <- newIORef (notReady statefulDigest)
   let ops = K.ops current calls
-  pure (mkKubernetesAdapterWithObservations databaseNative ops (KubernetesPodOps (\_ -> answer)) (traverse (kubernetesObserve ops)) noReceipt noScratch Nothing Nothing)
+  pure (mkKubernetesAdapterWithObservations databaseNative ops (noPodOps {readStuckPod = \_ -> answer}) (traverse (kubernetesObserve ops)) noReceipt noScratch Nothing Nothing)
+
+-- | Prepare the replacement of 'reviewedPod', then preflight and execute it
+-- once the fresh read answers @fresh@. Replacements are recorded, not run.
+executeAfter :: Either Text (Maybe StuckPod) -> IO (AdapterExecution, [(StuckPod, Text)], Either Text ())
+executeAfter fresh = do
+  current <- newIORef (Right (Just reviewedPod))
+  replaced <- newIORef []
+  calls <- newIORef 0
+  state <- newIORef (notReady statefulDigest)
+  let ops = K.ops state calls
+      podOps =
+        KubernetesPodOps
+          { readStuckPod = \_ -> readIORef current
+          , replaceStuckPod = \replacement revision -> modifyIORef' replaced (<> [(replacement ^. #stuck, revision)]) >> pure AdapterEffectCompleted
+          }
+      adapter = mkKubernetesAdapterWithObservations databaseNative ops podOps (traverse (kubernetesObserve ops)) noReceipt noScratch Nothing Nothing
+  prepared <- adapterPrepare adapter replaceOperation >>= expectRight
+  writeIORef current fresh
+  checked <- adapterPreflight adapter replaceOperation prepared
+  outcome <- adapterExecute adapter replaceOperation prepared
+  (outcome,,checked) <$> readIORef replaced
+
+-- | Replace 'reviewedPod' at resourceVersion @rv-fresh@ through the runtime,
+-- over a kubectl that answers with @respond@; the requests and their input.
+runtimeReplace :: Either Text () -> ([String] -> Either Text (ExitCode, String, String)) -> IO (AdapterExecution, [([String], String)])
+runtimeReplace guard' respond = do
+  asked <- newIORef []
+  let answer request = do
+        modifyIORef' asked (<> [(request ^. #arguments, request ^. #input)])
+        pure (respond (request ^. #arguments))
+      config = withKubectlInterpreter (runKubectlWith answer) (KubernetesRuntimeConfig (fixtureBinding ^. #identity) "stuck-pod" (pure guard'))
+      target = maybe (error "the database has no StatefulSet") ((^. #address) . fst) (Map.lookup statefulId databaseNative)
+      replacement = PodReplacement 1 (plannedOperationId replaceOperation) (plannedInputDigest replaceOperation) statefulId target reviewedPod
+  outcome <- replaceStuckPod (runtimePodOps config databaseNative) replacement "rv-fresh"
+  (outcome,) <$> readIORef asked
 
 -- | Observe the database over one StatefulSet state, recording pod reads.
 observeDatabase :: KubernetesState -> IO (Either Text (Maybe StuckPod)) -> IO (Either Text ObservationSet, [ResourceId])
@@ -317,7 +392,7 @@ observeDatabase state answer = do
   calls <- newIORef 0
   current <- newIORef state
   let ops = K.ops current calls
-      podOps = KubernetesPodOps (\resource -> modifyIORef' podReads (<> [resource]) >> answer)
+      podOps = noPodOps {readStuckPod = \resource -> modifyIORef' podReads (<> [resource]) >> answer}
       adapter = mkKubernetesAdapterWithObservations databaseNative ops podOps (traverse (kubernetesObserve ops)) noReceipt noScratch Nothing Nothing
   observed <- adapterObserve adapter (Map.keys databaseNative)
   (observed,) <$> readIORef podReads
