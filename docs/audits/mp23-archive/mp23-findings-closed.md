@@ -1013,7 +1013,7 @@ With the drill v2 results above and the reviewer's mutations, every part of the 
 
 ## F51
 
-**Retirement retains an out-of-band replacement's identity instead of the accepted incarnation** — P2; **Verifying (reopened 2026-10-05)**; owners EP-153 / EP-159.
+**Retirement retains an out-of-band replacement's identity instead of the accepted incarnation** — P2; **Closed**; owners EP-153 / EP-159.
 
 **Native evidence (2026-10-04, candidate `847543896d07`, C2 context on cp3; F49 drill v2, implementer nagare-phase-b, [results](../mp23-implementer-results-2026-10-03/ep159-source-replacement-84754389.json)):** the throwaway's accepted incarnations were StatefulSet `770c18c5…` and PVC `241e2475…`. After the out-of-band replacement, status correctly reported `replaced-incarnation`. The joint `inventory retire` of the database and receipt A's scope then converged. Independent read of the head by nagare-reviewer: `retained` carries the *replacement* UIDs, StatefulSet `b131b5a7-779d-4f19-843e-3a5e78be5306` and PVC `4a6d653c-53fb-4630-99fc-902be522632d`. The `incarnations` entries for the throwaway were dropped.
 
@@ -1065,6 +1065,8 @@ With the drill v2 results above and the reviewer's mutations, every part of the 
 - **Mutation record.** `ADR27-N1-replaced-retirement-unnamed` (the proof stops naming the replacement) fails the fast tier with 36 violations.
 
 Status is the verifier's to set.
+
+**Independent verification (2026-10-07, nagare-verify; candidate `96c1da11`, code identical to `8824f469`; observed).** Closed on source (ADR 25). Test: "a reviewed rebind records a replacement, after which it is the accepted incarnation (ADR 27 §3)". Killed: `F51-retention-proof-uses-observed`, `ADR27-N1-replaced-retirement-unnamed`, `ADR27-rebind-not-bound`, `ADR27-rebind-of-recorded-object`, `ADR27-rebind-unverified-at-admission`. The fast tier injects `Replaced`. ADR 25's interpreter-first rule supersedes the earlier request for a native throwaway drill. The candidate's full gate is green ([record](../mp23-independent-results-2026-10-07/gate-96c1da11.json)), and the mutation sweep at `8824f469` killed all 117 records ([results](../mp23-independent-results-2026-10-07/mutation-sweep-8824f469.tsv)). Tests named here pass in that gate run ([lines](../mp23-independent-results-2026-10-07/test-evidence-96c1da11.txt)). Summary: [2026-10-07 verification record](../mp23-independent-results-2026-10-07/README.md).
 
 ## F54
 
@@ -1149,3 +1151,595 @@ Every F54 guard is now pinned by a regression. F54 stays Verifying only for the 
 - **Class coverage:** the three bad-update scenarios plus `LandsUnready` at every write, invariants I1, I2 and I4. This meets the operator's model-first rule (EP-173 M1–M2). The native correction on `mp23-c3i` and `d58218d0`'s regressions confirm it.
 - **Why the interpreters missed it before:** the in-memory driver never modelled "update lands, never becomes Ready".
 - **Closed.** A non-Knative update that lands unready (a Deployment or a database StatefulSet) still answers `RecoveryUnresolved` (`Adapters/Kubernetes.hs`, `landedUpdate` is Knative-only). That is outside this finding's stated scope and is opened as [F63](../mp23-findings.md#f63).
+
+## F53
+
+**`nix flake check` fails at the candidate: sandbox-only test failures and stale check assertions** — P1 (the C4 gate requires a green flake check); **Closed**; owner EP-154.
+
+**Implementer evidence (2026-10-04, claude-opus-5-5, C4 on candidate `84754389`):** The aarch64-darwin clone-free rehearsal passed, `typed-config` included. `nix flake check` failed 5 of 46 aarch64-darwin checks, and `--all-systems` failed 2 more on x86_64-linux. Every failure was in the check harness, not in shipped behavior:
+- `nagarectl-build-test`, darwin: 8 of 1,190 tests failed only in the sandbox, because `jq`, `python3` and `shasum` were missing from the test PATH. All 1,190 pass outside it.
+- `upload-images-builder-confinement`: `shasum` was missing.
+- `managed-command-audit`: the CLI architecture test and the command-audit fixture copy the read-only sandbox sources and then edit them (`PermissionError`).
+- `gcp-bootstrap-rehearsal`: stale assertions. The host-image dry run no longer names `scripts/upload-images.sh` (reviewed image publication, `c352cfec`), and the bootstrap and TLS recipes run `scripts/run-reviewed-bootstrap.sh`.
+- `cluster-bootstrap-defaults`: a stale path. The ACME URLs moved into `Nagare/Target/Acme.hs` in the F43 split (`0c6ad875`), and a test helper (`test/Nagare/Test/Init.hs`) also names them.
+- x86_64-linux `nagarectl-build-test` (7 tests) and `host-transport-recovery`: scripts generated at test time used `#!/usr/bin/env …` or `/bin/bash` and `/bin/cat`, and a Linux build sandbox has neither. This included the payload's Helm capture plugin read from the source tree.
+
+Nothing had run the flake check for many commits, so earlier candidates carried most of these failures.
+
+**Operator decision (2026-10-04):** fix now, with a new candidate. `84754389` becomes non-final, and its runs (C1, C2 and the `mp23-c3i` C3) become checkpoints.
+
+**Implementation update (2026-10-04; claude-opus-5-5):**
+- The sandbox gets `jq`, `python3` and `perl` (for `shasum`) for the CLI tests, and `perl` for the upload-images test.
+- Both fixture copies are made writable.
+- The stale assertions are updated to the reviewed recipes.
+- The ACME check names `Target/Acme.hs` and allows `test/Nagare/Test/Init.hs`.
+- The CLI tests read a source copy whose `cluster/` scripts are shebang-patched (`sourceForTests`).
+- The fake Pulumi scripts use `#!/bin/sh`; the registry SSH fixture finds `cat` and `bash` on PATH; the image-prune fake `k3s` uses the running interpreter.
+- No file under `cli/*/src`, `cli/*/app`, `cluster/`, `infra/` or `nixos/` changed.
+- **Gates:** `nix flake check --all-systems` passes with 36/36 aarch64-darwin and 35/35 x86_64-linux checks. All 1,190 tests, the style gate, both architecture checks and the command audit pass locally.
+
+**Independent verdict, pending reviewer write-up (2026-10-05; transcribed by nagare-84 from nagare-reviewer's session at 00:54:21Z):** "I counted the new all-systems log myself: aarch64-darwin 36 passed and 0 failed, x86_64-linux 35 passed and 0 failed, with no build errors. The Linux checks ran through `ssh://builder@nix-gcp-builder`. So F53's `nix flake check` fix holds on both systems at `b74b7e49`." The reviewer noted that the log does not print its revision, so it relied on nagare-f3's statement that the run used the clean candidate worktree. This came after the reviewer had rejected an earlier "35/35 x86_64-linux" claim taken from the shared tree, in which every Linux check had failed because the builder refused connections. The status stays Verifying until the reviewer writes its own closure. [EP-174](../../plans/174-gate-every-commit-before-any-native-run.md)'s full gate now makes that claim checkable: a salted builder probe plus a revision-bound record.
+
+**Independent verification (2026-10-07, nagare-verify; candidate `96c1da11`, code identical to `8824f469`; observed).** Closed. The candidate's `nix flake check --all-systems` realised every check, 37/37 aarch64-darwin and 36/36 x86_64-linux, with 0 failures. The candidate's full gate is green ([record](../mp23-independent-results-2026-10-07/gate-96c1da11.json)), and the mutation sweep at `8824f469` killed all 117 records ([results](../mp23-independent-results-2026-10-07/mutation-sweep-8824f469.tsv)). Tests named here pass in that gate run ([lines](../mp23-independent-results-2026-10-07/test-evidence-96c1da11.txt)). Summary: [2026-10-07 verification record](../mp23-independent-results-2026-10-07/README.md).
+
+## F55
+
+**A landed unready application update still has no exit when its review also updates its release history or verifies a member** — P1; **Closed**; owners EP-153 / EP-173.
+
+**Found by the EP-173 recovery model (2026-10-05, claude-opus-5-5) on the F54-repaired source (`96d38d67`), in under a second, with no native run.** The model runs real planning, the driver, the recovery policy and the Kubernetes adapter over an in-memory API server with an adversary (`cli/nagarectl/test/InventoryRecoveryModelSpec.hs`). Its scenario "create, bad update, corrected update (history follows the release)" fails invariant I1, a stopped transaction with no supported exit, even with no injected fault:
+- The adapter proves the landing (`RecoveryLandedUnready`).
+- `stop-incomplete-application` is still refused ("adapter did not prove the operator's requested action"), and resume and every other recovery action are refused too.
+
+**Cause (source):** `incompleteApplicationOnlyReview` (`src/Nagare/Inventory/Plan/History.hs`) admitted a never-started companion only as a `CreateResource` of a stateless ConfigMap. The rule came from the F30 never-started path, and F54 reused it. Three real reviews break it:
+- An ordinary application update rewrites its release-history ConfigMap on every deploy (an `UpdateResource` ordered after the Service; `addRelease` in `Application/Release.hs`).
+- A corrected review after a stop verifies unchanged members (a `VerifyResource`), so a second unready landing also wedged.
+- An independent durable member's verify can still be pending when the Service lands. The F54 native run on `mp23-c3i` escaped all three only because its release history had never been created.
+
+**Implementation update (2026-10-05; claude-opus-5-5, reviewed in outline by nagare-phase-b):**
+- A never-intended companion may verify any member of the scope, durable ones included. It may create or update only a stateless ConfigMap explicitly ordered after the stopped Service. A companion with no recorded intent had no effect.
+- The never-started-member set that lets a later plan recreate a `ConfirmedAbsent` durable member (`loadUnstartedApplicationCreates`) is restricted to `CreateResource` operations. A durable member that a stopped review only verified or updated, and that is later absent, stays a `durable-resource-missing` refusal; it is never replanned as a fresh create. The hazard is reachable, so the filter is a required part of the fix (nagare-phase-b's review). A legacy (version 1) or takeover (version 3) Service update can be refused at preflight and never intended. After status-only churn the adapter reports `RecoveryAwaitingReadiness`, so F30's never-started stop accepts it. F55 lets that review carry a never-started durable verify. Without the filter, a later plan would replan the deleted volume as a fresh, empty create.
+- The F30 refusals stay: an intended companion, and a never-started create of another kind (a Secret).
+- **Regression:** the recovery model's fast tier covers five scenarios, including history-follows and an independent durable volume, under every single fault at every Kubernetes write boundary. It fails on the old rule: one fault-free violation, plus the good update and corrected update under `LandsUnready`. It passes with the fix. Refusing durable verifies again makes the durable-volume scenario fail twice, so that admission is needed.
+- **Hazard regression:** `test/InventoryApplicationUpdateRecoverySpec.hs`, "a durable member only verified by a stopped update is never replanned as a fresh create (F55)". Two never-intended updates are stopped; the second review verifies the durable volume, which stays pending. The volume is then deleted out of band. Without the filter, planning returns `CreateResource` for the volume and the test fails. With the filter it refuses `durable-resource-missing`.
+- The existing F30 companion test still passes unchanged.
+- **Gates:** all 1,196 `nagarectl` tests, the style gate and the architecture check pass. ADR 22 and `docs/runbooks/inventory-operations.md` state the new companion rule.
+
+**Independent verification (2026-10-05, nagare-84 as reviewer; master `efa687b3`; observed unless marked inferred).** Mutation runs, each a scratch-worktree build plus the named tests; the diffs are in [`cli/nagarectl/test/mutations/`](../../../cli/nagarectl/test/mutations/README.md):
+- `F55a-companion-rule-create-configmap-only.diff` (the original create-only ConfigMap rule) and `F55b-companion-rule-no-verify.diff` (verifies not admitted) each fail the recovery model with I1 in the history-follows and durable-volume scenarios. `F55c-replan-any-never-started.diff` (any never-started operation may be replanned as a create) fails "a durable member only verified by a stopped update is never replanned or retired as absent (F55, F58)".
+- **Class gap (inferred from source):** real application scopes also carry task CronJobs, DomainMappings and broker triggers. A never-started update of one of these that the digest order puts after the Service is refused by the companion rule (`Plan/History.hs`), and the transaction wedges again. The model's scenarios contain only the Service, the history ConfigMap and a PVC.
+- **Stays Verifying.** Needed: a model scenario whose release also changes a task CronJob and a DomainMapping (or a written proof that such companions always run before the Service), under `LandsUnready`.
+
+**Independent verification (2026-10-07, nagare-verify; candidate `96c1da11`, code identical to `8824f469`; observed).** Closed on source. Test: "a durable member only verified by a stopped update is never replanned or retired as absent (F55, F58)". Killed: `ADR26-close-reverts-to-converged`, `ADR26-close-ignores-unknown`, `ADR26-never-started-admits-updates`. ADR 26 deleted the companion rule this finding named, so its CronJob gap is moot. The candidate's full gate is green ([record](../mp23-independent-results-2026-10-07/gate-96c1da11.json)), and the mutation sweep at `8824f469` killed all 117 records ([results](../mp23-independent-results-2026-10-07/mutation-sweep-8824f469.tsv)). Tests named here pass in that gate run ([lines](../mp23-independent-results-2026-10-07/test-evidence-96c1da11.txt)). Summary: [2026-10-07 verification record](../mp23-independent-results-2026-10-07/README.md).
+
+## F56
+
+**A landed application Service update whose Service is then replaced outside review has no exit** — P1; **Closed**; owners EP-153 / EP-173.
+
+**Found by the EP-173 recovery model (2026-10-05, claude-opus-5-5) when M2 added the `Replaced` fault, with no native run.** In every bad-update scenario, the reviewed write lands on the Service. The Service is then deleted and recreated outside review (an operator's `kubectl replace --force`) before Nagare observes readiness. The transaction stops ambiguous, and every exit is refused (invariant I1, six violations):
+- Resume makes no progress.
+- `stop-incomplete-application` needs F54's landed proof, which requires the reviewed UID, so the adapter cannot prove it.
+- `abandon-refused-operation` needs a no-effect refusal, and this operation's intent was recorded.
+
+`docs/runbooks/inventory-operations.md` documented this refusal ("the Service was edited or replaced outside review … investigate"), but no supported command ends the transaction afterwards.
+
+**Implementation update (2026-10-05; claude-opus-5-5):**
+- The Kubernetes adapter's recovery returns a new decision, `RecoveryTargetReplaced`, for an intended Knative Service update when the live object carries the member's ownership stamp but a different UID than the reviewed before-state. The conditional write was keyed on the old UID, so it can no longer land. Nothing proves that the replacement holds the write.
+- Resume still stops ambiguous on it. Only `stop-incomplete-application` accepts it, under F55's companion rules for a settled intended update. The stop marker records the replacement's UID, and the stop accepts nothing: the scope keeps its last accepted revision. A new review then plans from the live replacement, as it would if the replacement had happened while the scope was idle.
+- A Knative Service is stateless and has no incarnation record, so stopping launders no identity. Data-bearing members keep F49's rules.
+- An edited Service, one with a foreign field manager, is still refused.
+- **Regression:** the recovery model's fast tier. Without the fix it fails I1 under `Replaced` at the observation after the bad Service write in all three bad-update scenarios. With the fix it passes. `test/InventoryLandedUpdateStopSpec.hs` now expects `RecoveryTargetReplaced` for a replaced object, and still expects every other case to be refused.
+
+**Independent verification (2026-10-05, nagare-84 as reviewer; master `efa687b3`; observed unless marked inferred).** Mutation runs, each a scratch-worktree build plus the named tests; the diffs are in [`cli/nagarectl/test/mutations/`](../../../cli/nagarectl/test/mutations/README.md):
+- `F56-target-replaced-recovery.diff` (no `RecoveryTargetReplaced`) and `F56-stop-accepts-replaced.diff` (the stop does not accept it) each fail the recovery model with I1 under `Replaced`.
+- **Class gap (inferred from source):** an out-of-band deletion without recreation (`KubernetesAbsent`) also makes the conditional write impossible, but it falls to `RecoveryUnresolved` (`Adapters/Kubernetes.hs`). The worlds have no deletion fault.
+- **Stays Verifying.** Needed: a `Deleted` world fault, and either a fix or a new finding for what it shows.
+
+**Independent verification (2026-10-07, nagare-verify; candidate `96c1da11`, code identical to `8824f469`; observed).** Closed on source. Test: "an update whose target was replaced settles as target gone (F56's deleted answer)". Killed: `ADR26-O1-kubernetes-settle-unknown`, `ADR27-N9-update-proof-accepts-replacement`. The candidate's full gate is green ([record](../mp23-independent-results-2026-10-07/gate-96c1da11.json)), and the mutation sweep at `8824f469` killed all 117 records ([results](../mp23-independent-results-2026-10-07/mutation-sweep-8824f469.tsv)). Tests named here pass in that gate run ([lines](../mp23-independent-results-2026-10-07/test-evidence-96c1da11.txt)). Summary: [2026-10-07 verification record](../mp23-independent-results-2026-10-07/README.md).
+
+## F57
+
+**A verification whose target is replaced after it ends ambiguous has no exit** — P1; **Closed**; owners EP-153 / EP-173.
+
+**Found by the EP-173 recovery model (2026-10-05, claude-opus-5-5) with the `Replaced` fault.** A corrected review verifies an unchanged member, such as the release-history ConfigMap. The member is replaced between the verification's execution and its completion read, so the verification ends ambiguous (two violations). From then on:
+- Recovery reports `RecoveryUnresolved`, because the before-state's UID changed.
+- Resume makes no progress.
+- `abandon-refused-operation` refuses an operation whose intent was recorded unless its refusal was journalled.
+
+A `VerifyResource` never writes, so this operation certainly had no effect, yet no command can end it.
+
+**Implementation update (2026-10-05; claude-opus-5-5):**
+- The Kubernetes adapter's recovery of a `VerifyResource` whose proof fails returns `RecoverySafeToRetry`, because a verification writes nothing.
+- When the driver retries an operation that already had recorded intent (a retry the adapter proved safe) and the retry's preflight refuses, the driver now journals `Failed (KnownNoEffect "adapter preflight refused: …")` instead of returning without an event. The adapter has already proved the earlier attempt had no effect, and the refusal comes before any new effect, so the record is accurate. `abandon-refused-operation` then ends the transaction under F37's rule. A first attempt at a never-intended operation is unchanged: it journals nothing, and F35's fresh-preflight rule applies.
+- **Regression:** the recovery model's fast tier. With only F56 it still fails I1 for the corrected review in the history-unchanged and durable-volume scenarios. With F57 it passes. `test/InventoryKubernetesSpec.hs` now expects a replaced verification target to recover as a safe retry, never as proved complete, and its preflight still refuses.
+
+**Gates (F56 and F57):** all 1,197 `nagarectl` tests pass.
+
+**Independent verification (2026-10-05, nagare-84 as reviewer; master `efa687b3`; observed unless marked inferred).** Mutation runs, each a scratch-worktree build plus the named tests; the diffs are in [`cli/nagarectl/test/mutations/`](../../../cli/nagarectl/test/mutations/README.md):
+- `F57a-verify-safe-to-retry.diff` (a verify's recovery is no longer safe-to-retry) and `F57b-journal-no-effect-refusal.diff` (a refused retry is not journalled as a no-effect failure) each fail the recovery model with I1 under `Replaced`.
+- **Class gap (inferred from source):** every executor's verify writes nothing, yet Broker, CDN, Cloudflare and Foundation recovery return `RecoveryUnresolved` on a mismatch, which is the same wedge. The fix is Kubernetes-only, and those executors have no world until EP-173 M4.
+- **Stays Verifying.** Needed: a generic fix keyed on `VerifyResource` (in recovery or the driver) with a generic-adapter regression. The other route is for the operator to scope the other executors to EP-173 M4 explicitly; that is a deferral and needs the ledger.
+
+**Independent verification (2026-10-07, nagare-verify; candidate `96c1da11`, code identical to `8824f469`; observed).** Closed on source for Kubernetes. Tests: "a retry the adapter proved safe that preflight then refuses is journalled as failed with no effect (F57)" and "the driver never executes a verification (O6)". Killed: `F57b-journal-no-effect-refusal`, `ADR26-O6-verify-executes`, `M9-verify-guard-compares-resource-version`, `B7-i8-asks-adapter-for-verify`. Non-Kubernetes verifies are a documented limit of release line (b). The candidate's full gate is green ([record](../mp23-independent-results-2026-10-07/gate-96c1da11.json)), and the mutation sweep at `8824f469` killed all 117 records ([results](../mp23-independent-results-2026-10-07/mutation-sweep-8824f469.tsv)). Tests named here pass in that gate run ([lines](../mp23-independent-results-2026-10-07/test-evidence-96c1da11.txt)). Summary: [2026-10-07 verification record](../mp23-independent-results-2026-10-07/README.md).
+
+## F58
+
+**An application whose first deploy stopped unready cannot be retired, because a never-created member has nothing to retain** — P2 (no wedge: the store stays idle, but the application can be deleted only by first shipping a working image); **Closed**; owners EP-153 / EP-173.
+
+**Found by the EP-173 recovery model (2026-10-05, claude-opus-5-5), in its new retire scenario, with no native run.** In "create with a durable volume, then retire", under `LandsUnready` on the first deploy's Service create, the deploy stops through F16's reviewed stop. Its release-history ConfigMap was admitted but never created. Retiring the scope then refuses at planning:
+
+```text
+invalid-retirement: retention needs a selected scope replacement or retirement that removes an owned present … declaration
+  [application:model-web/history/resource]
+```
+
+**Cause (source):** retirement (`decideRetirement`, `buildRetentionProofs`) requires a retention proof for every member the retiring scope removes, and a retention proof names a present object. A member that is confirmed absent has none, so no lifecycle decision can cover it.
+
+**Operator decision (2026-10-05, in session nagare-f3):** fix now in MP-23.
+
+**Implementation update (2026-10-05; claude-opus-5-5, sessions nagare-f3 and its continuation):**
+- **Absence proofs.** A retirement or scope replacement now records each removed member that is `ConfirmedAbsent` and holds no data as an `AbsenceProof` (owner, accepted revision, absence evidence) instead of a retention proof (`buildAbsenceProofs`, `src/Nagare/Inventory/Plan/Changes.hs`). "Holds no data" means a `Stateless` member, or a durable member whose create never started in a stopped application review (`historyUnstartedCreates`, now also computed for retiring scopes in `loadInventoryPlanningHistory`).
+- **Missing data refuses by name.** A removed durable member that is absent and was not a never-started create refuses as `durable-resource-missing` unless the review approves its collection. Retirement never silently drops data that once existed.
+- **Review and validation.** The review document carries `absences` (optional field, schema version unchanged). `verifyReview` requires each proof to name the accepted owner revision, and refuses a member that is both absent and retained or retention-proved.
+- **Admission.** `retentionCoverage` accepts a removed member with exactly one retention or absence proof, and only for a member that holds no data under accepted history. Admission re-observes absence-proved members with the retained ones and refuses (`retention-observation`) if any is present or unobserved.
+- **Regressions** (each fails without its guard, per ADR 25):
+  - the recovery model's retire scenario (fast tier): on the pre-fix source it fails with the `invalid-retirement` refusal above (1 violation); with the fix it passes;
+  - `test/InventoryApplicationUpdateRecoverySpec.hs`, "a durable member only verified by a stopped update is never replanned or retired as absent (F55, F58)": a durable volume deleted out of band refuses retirement as `durable-resource-missing`. Mutation `test/mutations/F58-absence-proof-holds-no-data.diff` (drop the no-data condition) makes it fail;
+  - `test/InventoryApplicationUpdateRecoverySpec.hs`, "retirement drops a confirmed-absent stateless member only while it stays absent (F58)": an absent member that reappears after review is refused at admission, and the same review is admitted once it is absent again. Mutation `test/mutations/F58-admission-absence-recheck.diff` (skip the recheck) makes it fail, with the reappeared member dropped and the transaction converged.
+
+**Independent verification (2026-10-05, nagare-84 as reviewer; master `efa687b3`; observed unless marked inferred).** Mutation runs, each a scratch-worktree build plus the named tests; the diffs are in [`cli/nagarectl/test/mutations/`](../../../cli/nagarectl/test/mutations/README.md):
+- `F58-absence-proof-holds-no-data.diff` and `F58-admission-absence-recheck.diff` (existing records) each fail their focused regressions in "application update recovery".
+- **Data safety (source review):** only `ConfirmedAbsent` members that are stateless or whose create never started (every journal event `Pending`) get an absence proof. Lost-acknowledgement creates cannot qualify, proofs are bound to the accepted revision, and nothing in retirement deletes an absent member.
+- **Gap:** admission's own `holdsNoData` check (`Execute/Admission.hs`) has no regression; the recorded mutation reverts only the planning side.
+- **Stays Verifying.** Needed: a regression in which a review carries an absence proof for a durable volume and admission refuses it, plus a mutation of the admission check that makes it fail.
+
+**Implementation update, admission regression (2026-10-05; claude-opus-5-5; item 9 of nagare-84's review):** `test/InventoryApplicationUpdateRecoverySpec.hs`, "admission refuses an absence proof for a member that holds data (F58)". A saved retirement review is edited on disk, as an operator could edit it: the durable volume's retention proof becomes an absence proof, and the bundle is reloaded through `loadReviewBundle`, published and verified. With the volume absent, admission must refuse with `retention-coverage`, and accepted history must keep the scope. Mutation `test/mutations/F58-admission-holds-no-data.diff` (drop the no-data condition in `retentionCoverage`) makes it fail (see the README row).
+
+**Independent verification (2026-10-07, nagare-verify; candidate `96c1da11`, code identical to `8824f469`; observed).** Closed on source. Three F58 tests pass. Killed: `F58-absence-proof-holds-no-data`, `F58-admission-absence-recheck`, `F58-admission-holds-no-data`. This fills the admission gap named under "Stays Verifying". The candidate's full gate is green ([record](../mp23-independent-results-2026-10-07/gate-96c1da11.json)), and the mutation sweep at `8824f469` killed all 117 records ([results](../mp23-independent-results-2026-10-07/mutation-sweep-8824f469.tsv)). Tests named here pass in that gate run ([lines](../mp23-independent-results-2026-10-07/test-evidence-96c1da11.txt)). Summary: [2026-10-07 verification record](../mp23-independent-results-2026-10-07/README.md).
+
+## F59
+
+**A standalone database whose StatefulSet is created but never becomes Ready has no exit** — P1 (a stuck state: every later plan on the context is refused); **Closed**; owners EP-153 / EP-173.
+
+**Found by the EP-173 recovery model (2026-10-05, claude-opus-5-5) with no native run.** The new scenario "create a database, then ingest a scheduled receipt" reviews a standalone PostgreSQL database, compiled by `compileStandaloneDatabase`. Under `LandsUnready` on its fifth Kubernetes write, the StatefulSet create, the create lands and the pod never becomes Ready. This is what an unschedulable pod, an image pull failure or a crash loop looks like. The transaction then stops ambiguous, and every exit refuses:
+- resume makes no progress;
+- `stop-incomplete-application` answers "adapter did not prove the operator's requested action";
+- `abandon-refused-operation` answers "resolve every uncertain operation before abandoning a refused one".
+
+**Cause (source):** F16's reviewed stop never covered data services.
+- The Kubernetes adapter's recovery (`src/Nagare/Inventory/Adapters/Kubernetes.hs`) answered `RecoveryAwaitingReadiness` for an unready create only of a Deployment, a Knative Service or a DomainMapping. An unready StatefulSet create was unresolved.
+- The stop rule (`incompleteApplicationOnlyReview`, `src/Nagare/Inventory/Plan/History.hs`) admitted on its create path only an application's Knative Service or a preview DomainMapping. In a standalone scope it also required every other operation to be Completed. A database's later creates (its schedule, signing key and companions) are still never-started when its StatefulSet stalls.
+
+**Operator decision (2026-10-05):** fix now in MP-23.
+
+**Implementation update (2026-10-05; claude-opus-5-5):**
+- The adapter answers `RecoveryAwaitingReadiness` for an unready created StatefulSet whose owner stamp and digest are the reviewed create's.
+- The stop admits a standalone scope's stateless StatefulSet create. Never-started companions are admitted for it exactly as for an application. A data fence still refuses, as does any companion with recorded intent.
+- The stop accepts nothing. The scope keeps its accepted revision without convergence, so a corrected review, or a retirement (F58 drops never-created members), can follow.
+- The StatefulSet holds no data. The database's PVC is a separate durable member, and a later review never replans it as a fresh create unless its create never started (F55's filter).
+- **Regression:** the recovery model's fast tier. It fails before the fix with the I1 stop above. Each guard has a recorded mutation (`test/mutations/F59-*.diff`).
+
+**Independent verification (2026-10-05, nagare-84 as reviewer; master `efa687b3`; observed unless marked inferred).** Mutation runs, each a scratch-worktree build plus the named tests; the diffs are in [`cli/nagarectl/test/mutations/`](../../../cli/nagarectl/test/mutations/README.md):
+- `F59-statefulset-create-awaits-readiness.diff`, `F59-standalone-statefulset-stop.diff` and `F59-statefulset-pending-companions.diff` (existing records) each fail the recovery model with one I1 violation under `LandsUnready` on the database StatefulSet create. The stop itself is sound: the StatefulSet mounts the separately created, retained PVC by claim name, and the stop accepts nothing.
+- **Gap A (inferred from source, model reproduction requested):** `loadUnstartedApplicationCreates` (`Plan/History.hs`) computes never-started creates only for `Application` scopes. After a database stop with `backup-signing-key` still `Pending`, both a corrected review and retirement refuse with `durable-resource-missing`. The operation order follows the operation-ID digest, so this depends on the database name. The store stays idle but the database scope cannot move, so the follow-up exit the fix promises is broken for those names.
+- **Gap B (inferred):** a broker StatefulSet with topics under `LandsUnready` has no exit, because the create path requires every operation to use `KubernetesExecutor` and topics use `BrokerExecutor`.
+- **Reopened as Partial.** Needed: a post-stop corrected-review or retire step in the database scenario, on a fixture whose signing-key create is unstarted at the stall (it should fail on HEAD); a broker scenario under `LandsUnready`; and fixes for both.
+
+**Implementation update, gap A (2026-10-05; claude-opus-5-5):**
+- **Reproduced on HEAD `ab3d5bdc` (observed).** The recovery model's new scenario "create a database, then retire it" runs under `LandsUnready` on the StatefulSet create, followed by the F59 stop. Retirement then refuses at planning with `durable-resource-missing` on `standalone:database-pg/pg/backup-signing-key`, the never-started create.
+- **Fix.** `loadUnstartedApplicationCreates` (`Plan/History.hs`) also computes never-started creates for standalone scopes, so a stopped database's unstarted members retire as F58 absences.
+- **Mutation.** `test/mutations/F59-standalone-unstarted-creates.diff`.
+- **Not started:** gap B (brokers) is held by the operator's instruction of 2026-10-05.
+
+**Independent verification (2026-10-07, nagare-verify; candidate `96c1da11`, code identical to `8824f469`; observed).** Closed for gap A on source. Test: "a created StatefulSet that is not yet ready settles as landed (F59's deleted answer)". Killed: `F59-standalone-unstarted-creates`. Gap B, the broker, is a documented limit of release line (b) ("F59's broker gap"). The candidate's full gate is green ([record](../mp23-independent-results-2026-10-07/gate-96c1da11.json)), and the mutation sweep at `8824f469` killed all 117 records ([results](../mp23-independent-results-2026-10-07/mutation-sweep-8824f469.tsv)). Tests named here pass in that gate run ([lines](../mp23-independent-results-2026-10-07/test-evidence-96c1da11.txt)). Summary: [2026-10-07 verification record](../mp23-independent-results-2026-10-07/README.md).
+
+## F60
+
+**One out-of-band replacement between a create and convergence is recorded as the accepted incarnation** — P2; **Closed**, operator decision 2026-10-05); owner EP-173.
+
+**Found by the EP-173 recovery model (2026-10-05)** in the same database scenario. Its new I3 receipt clause plans scheduled-receipt ingestion the way `db backup-receipts` does. Under one `Replaced` fault at a Kubernetes observation between the StatefulSet's or PVC's create and the convergence observation, convergence records the replacement as the accepted incarnation. A receipt taken from the replacement then compiles for ingestion, and F49's guard passes because the record names the replacement.
+
+**Ledger:** this is the F49 limit already on the retrospective's deferral ledger: incarnation recording is fail-open, and the record comes from a fresh observation at convergence, not from the execution receipt. It is listed in ADR 22 "Known limits". The model shows a single fault reaches it.
+
+**Operator decision (2026-10-05):** keep it as a documented limit. The fix, binding established records from the create's own completion identity, remains the follow-up work ADR 22 names. The recovery model names it as an explicit tolerance: the I3 receipt clause exempts only a replacement that the head itself records as the accepted incarnation. A receipt from a replacement the head does not record must still refuse, and the `F49-ingestion-ignores-incarnation` mutation proves the model checks that.
+
+**Operator decision, superseding the deferral (2026-10-05, in session nagare-84):** "ok fix it in MP-23 unless it's going to take hours". The earlier deferral was recommended without the deferral ledger that ADR 25 decision 7 requires. With the ledger shown, the operator un-deferred it.
+- **Fix:** bind each established incarnation from the create's own completion identity, the UID the API server returned for the reviewed create. Refuse convergence, or stop with a reviewed exit, when the live object observed at convergence differs. Do not record a fresh observation.
+- **Coverage:** remove the recovery model's F60 tolerance from the I3 receipt clause, so a `Replaced` fault between create and convergence must no longer launder the replacement. Add a mutation record that restores observation-based recording.
+- **Time box:** if the implementer estimates the fix at more than about two hours, report the estimate to the operator before going further.
+
+**Implementer estimate (2026-10-05, nagare): 4–6 hours, above the operator's two-hour condition, so not implemented.** No layer captures the UID the API server returns for a reviewed create today, and verification re-observes, so a replacement before verification is already invisible. Binding the record from the create's own identity needs five changes:
+1. `KubernetesRuntime` parses the UID from `kubectl create -o json` and from the apply and replace paths.
+2. `AdapterExecution` carries it, which is a type change across adapters.
+3. The journal records it in the `Completed` event, a schema change that needs compatibility with journals already written.
+4. Verification and recovery compare it, with a reviewed exit for a create whose target was replaced (a sibling of F56).
+5. `Incarnations` binds from the journal and refuses a mismatch at convergence.
+
+That design is also what this finding's follow-up work needs. The model's F60 tolerance stays until it lands. **Status:** deferred under the operator's stated condition ("fix it in MP-23 unless it's going to take hours"). It returns to Open if the operator schedules the work.
+
+**Operator decision (2026-10-05): "approve all six, go with release line b".** The exhaustive review's D2 schedules this fix as ADR 27, together with the checked identity accessor and a reviewed rebind. It is step 2 of MP-23's release-line plan.
+
+**Implementation update (2026-10-05, EP-176 M1; claude-opus-5-5):**
+- **Fix.** Every Kubernetes write now runs with `-o json`, and the UID the API server returns is journalled on the event that ends the operation (`JournalEvent.physical`). Convergence binds that identity (`Execute/Incarnations.hs`) instead of observing members afterwards. A replacement made between the create and convergence therefore stays a replacement: status reports it as `replaced-incarnation`, and ingestion refuses its receipts.
+- **Coverage.** The recovery model's F60 tolerance in the I3 receipt clause is removed, and the fast tier passes with it gone. Focused regression: "convergence binds the object the create returned, not one that replaced it before convergence (F60)" in `InventoryIncarnationSpec`.
+- **Mutation records.**
+  - `ADR27-F60-binds-from-observation` (observation-based binding restored) fails that test, and the fast tier reports 4 violations.
+  - `ADR27-driver-drops-returned-identity` fails as well.
+  - `ADR27-runtime-ignores-returned-uid` fails as well.
+- **Remaining.** A create whose write response was lost has no returned identity, so its member is `unrecorded`. EP-176 M2's checked accessor refuses such a member where data is at stake. Status is the verifier's to set.
+
+**Independent verification (2026-10-07, nagare-verify; candidate `96c1da11`, code identical to `8824f469`; observed).** Closed on source. Test: "convergence binds the object the create returned, not one that replaced it before convergence (F60)". Killed: `ADR27-F60-binds-from-observation`, `ADR27-driver-drops-returned-identity`, `ADR27-runtime-ignores-returned-uid`. The candidate's full gate is green ([record](../mp23-independent-results-2026-10-07/gate-96c1da11.json)), and the mutation sweep at `8824f469` killed all 117 records ([results](../mp23-independent-results-2026-10-07/mutation-sweep-8824f469.tsv)). Tests named here pass in that gate run ([lines](../mp23-independent-results-2026-10-07/test-evidence-96c1da11.txt)). Summary: [2026-10-07 verification record](../mp23-independent-results-2026-10-07/README.md).
+
+## F61
+
+**A reviewed PostgreSQL rename whose copy Job fails partway has no exit** — P1; **Closed**; owner EP-173 / EP-153.
+
+**Found by independent review (2026-10-05, nagare-84; inferred from source, model reproduction requested).**
+- The rename recovery model's `runJob` is atomic: a fault either copies everything or writes nothing. A real copy Job that dies mid-copy (full disk, eviction, a lost node; `backoffLimit: 0`) leaves the destination non-empty and different from the source.
+- Every retry then fails "destination volume is not empty and differs from the source" (`Migration/PostgresRename.hs`, the transfer script).
+- Recovery for the transfer is unconditionally `RecoverySafeToRetry` (`Adapters/KubernetesMigration.hs`), and no reviewed action clears the destination volume.
+- Data is safe: the source is fenced and mounted read-only, and verification can never pass. But the transaction has no exit.
+- nagare's I4 relaxation (EP-173 Decision Log) is sound for the three faults modelled so far, refused, lost acknowledgement and interrupted, and not beyond them.
+
+**Required:**
+- a `PartialCopy` fault in the rename world (a strict prefix written, then a failed Job, with and without a termination message), which should fail I1 on HEAD;
+- a reviewed exit for a partially written destination, for example abandoning the partial transfer after proving the destination volume has no other users, then recreating or wiping it before a retry;
+- a mutation record.
+
+**Implementation update (2026-10-05; claude-opus-5-5).** The fix was completed before the operator's hold. It is committed separately, so it can be reverted on its own if the structural proposal replaces it.
+- **Reproduced on HEAD `ab3d5bdc` (observed).** The rename recovery model has a new `PartialCopy` fault: the first copy into an empty destination writes partial data and fails. The model reports "I1: the rename stopped with no supported exit; open operations [op-44817955d08dd1e54c34d829]".
+- **Fix.** The transfer script (`Migration/PostgresRename.hs`) marks the destination `.nagare-transfer-incomplete` before copying and removes the mark only after the whole copy succeeds. A copy that finds the mark clears the partial data and copies again. A non-empty destination without the mark still refuses.
+- **Why the clearing is safe (inferred from the review's stage order):**
+  - the destination is created by this transaction after planning proved it absent;
+  - only Nagare's copy writes the mark;
+  - the new writer is ordered after the transfer stage.
+- **Regressions:**
+  - the rename recovery model, with `PartialCopy` and the world modelling the mark;
+  - `test/InventoryTransferScriptSpec.hs`, which runs the real script under `bash` on temporary volumes: an empty destination is copied, a marked partial one is redone, an unmarked differing one is refused, and verification refuses a destination that is still marked.
+- **Mutation.** `test/mutations/F61-transfer-redoes-incomplete-copy.diff`.
+
+**Implementation update, reviewer's conditions (2026-10-05; claude-opus-5-5; EP-175 M2):** the
+mark now carries the transaction and operation (`TRANSFER_MARK`, which `runTransfer` sets from the
+active transaction). A redo requires that exact mark. The transfer preflight refuses while any pod
+other than this migration's transfer Jobs mounts the destination claim. The destination's identity
+is still its stamped, reviewed claim name; its recorded UID arrives with EP-176. ADR 26 §4 now
+describes this mark-bound redo.
+- **Tests:** `test/InventoryTransferScriptSpec.hs` adds "a copy refuses a destination another
+  migration's copy left marked". `test/InventoryPostgresRenameSpec.hs` adds "a transfer refuses
+  while another pod mounts the destination (F61)".
+- **Mutations:** `F61-transfer-mark-ignores-owner` and `F61-transfer-ignores-mounts`, plus the
+  regenerated `F61-transfer-redoes-incomplete-copy`.
+
+**Independent verification (2026-10-07, nagare-verify; candidate `96c1da11`, code identical to `8824f469`; observed).** Closed on source. The rename transfer tests pass, including "a transfer refuses while another pod mounts the destination (F61)". Killed: `F61-transfer-ignores-mounts`, `F61-transfer-mark-ignores-owner`, `F61-transfer-redoes-incomplete-copy`. MP-23's separate item, confirming the relaxed I4, stays open. The candidate's full gate is green ([record](../mp23-independent-results-2026-10-07/gate-96c1da11.json)), and the mutation sweep at `8824f469` killed all 117 records ([results](../mp23-independent-results-2026-10-07/mutation-sweep-8824f469.tsv)). Tests named here pass in that gate run ([lines](../mp23-independent-results-2026-10-07/test-evidence-96c1da11.txt)). Summary: [2026-10-07 verification record](../mp23-independent-results-2026-10-07/README.md).
+
+## F63
+
+**A Deployment or database StatefulSet update that lands but never becomes Ready has no exit** — P1; **Closed**; owner EP-153 / EP-173.
+
+**Found by independent review of F54 (2026-10-05, nagare-84; inferred from source, model reproduction requested).**
+- F54's landed-update stop is Knative-only: `landedUpdate` and `confirmLandedUnready` in `Adapters/Kubernetes.hs` and `KubernetesConfiguration.hs`.
+- An `UpdateResource` on a worker Deployment or a database StatefulSet that lands unready answers `RecoveryUnresolved`. That is the same wedge F54 fixed for Services.
+- The model has no update scenario for those kinds.
+
+**Required:**
+- a "worker update lands unready" scenario and a "database update lands unready" scenario under `LandsUnready`, which should fail I1 on HEAD;
+- a reviewed exit for each;
+- mutation records.
+
+**Implementation update, database StatefulSets (2026-10-05; claude-opus-5-5):**
+- **Reproduced on HEAD `ab3d5bdc` (observed).** The model's new scenario "create a database, update its resources, then update it again" fails two ways:
+  - I1 under `LandsUnready` on the StatefulSet update, and on its corrected update;
+  - after an F59 stop, the corrected update is refused at prepare: "Kubernetes object is present but its required condition is not ready".
+- **Fix:**
+  - the adapter proves a landed, unready StatefulSet update with `confirmLandedUnready`, judging readiness by `readyReplicas` against `spec.replicas`;
+  - the stop admits that update in a standalone scope;
+  - prepare lets a corrective review update an owned, unready StatefulSet.
+- **Mutations.** `test/mutations/F63-*.diff`, four records.
+- **Worker Deployments are not fixed.** The fix was written and is held, uncommitted, in [`mp23-held-work/`](../mp23-held-work/README.md). The fault-free worker scenario fails I1 on HEAD (observed). With the held patch the fault sweep still shows nine worker wedges.
+- **Worker Deployments, fixed (2026-10-06, EP-180 M1; observed).** The held patch predates ADR 26 and was not used.
+  - What failed: the generated scenario `kind ("apps","deployment"): update` under `(MutateCall 3, LandsUnready)`. The Deployment's create landed unready and was closed. The corrected review was then refused at planning ("required condition is not ready"), reported as "I1: planning refused".
+  - The fix: `validateBefore` (`Adapters/Kubernetes.hs`) admits an update of an owned, unready Deployment, as it does for a StatefulSet. A Deployment rollout replaces stuck pods (RES-4 §2), so a correction takes effect.
+  - The pinned test "a corrective update of an unready Deployment plans and closes" now exits `[[Close]]`.
+  - Mutation: `test/mutations/F63-deployment-correction-refused.diff`.
+  - A landed-unready proof for Deployments in `recover` was not added. Close already classes the exactly landed, unready update as `Landed` through settlement.
+  - The StatefulSet half needs RES-4's G3 (EP-181): a StatefulSet correction does not replace a stuck pod.
+- **World fidelity, for review (inferred):** the world now restricts persistent status churn to Knative Services. A settled StatefulSet's status changes only when its pods change. Without this restriction, the StatefulSet update gave 75 I7 violations (each needing `abandon-refused-operation`).
+
+**Independent verification (2026-10-07, nagare-verify; candidate `96c1da11`, code identical to `8824f469`; observed).** Closed on source. Tests: "a corrective update of an unready object reaches the API server (F63, M1)" and "a corrective update of an unready Deployment plans and closes (EP-180, F63's worker half)". Killed: `F63-correct-unready-statefulset`, `F63-deployment-correction-refused`, `F72-unready-update-unsupported`, `EP181-model-correction-never-replaced`. EP-181 delivered the StatefulSet half's G3. The candidate's full gate is green ([record](../mp23-independent-results-2026-10-07/gate-96c1da11.json)), and the mutation sweep at `8824f469` killed all 117 records ([results](../mp23-independent-results-2026-10-07/mutation-sweep-8824f469.tsv)). Tests named here pass in that gate run ([lines](../mp23-independent-results-2026-10-07/test-evidence-96c1da11.txt)). Summary: [2026-10-07 verification record](../mp23-independent-results-2026-10-07/README.md).
+
+## F64
+
+**An intended update whose target is deleted outside review, and not recreated, has no exit** — P1; **Closed**; owners EP-153 / EP-173.
+
+**Found by the EP-173 recovery model (2026-10-05, claude-opus-5-5)**, with a new world fault `Deleted`: an owned object deleted out of band at an observation boundary, never recreated. This is item 5 of nagare-84's review. Reproduced on HEAD `ab3d5bdc` (observed): I1 in "create then good update", in the bad-update scenarios and in the database update scenario. The target was the release-history ConfigMap, the Service or the database StatefulSet. Recovery reported `RecoveryUnresolved`, and every exit refused.
+
+**Fix.** An intended update whose owned target is gone answers `RecoverySafeToRetry` (`Adapters/Kubernetes.hs`). The retry's preflight refuses the absent object before any effect, the driver journals the no-effect refusal (F57), and `abandon-refused-operation` ends the transaction. A corrected review then recreates the stateless member.
+
+A dedicated stop-only decision for Services and StatefulSets was written first. Its mutation survived, because the retry-then-abandon exit already covers those kinds. So it was removed to keep one rule.
+
+**Mutation.** `test/mutations/F64-deleted-update-target-retry.diff`.
+
+**Model changes made alongside, for review (each a relaxation; observed reasons):**
+- **I4** counts writes per transaction, and the deleted object's write no longer counts. A later review reuses deterministic operation IDs, and rewriting an object deleted out of band is not a repeated effect.
+- **I2** skips members deleted out of band after verification.
+- **A planning refusal** of `durable-resource-missing` that names only members deleted out of band ends the scenario as expected. Data loss needs reviewed recovery or collection.
+
+**Independent verification (2026-10-07, nagare-verify; candidate `96c1da11`, code identical to `8824f469`; observed).** Closed on source. Test: "an owned update target deleted outside review settles as target gone (F64's deleted answer)". The fast tier passes with the `Deleted` fault at every placement. The old record is retired, and no rule-level record names F64. The candidate's full gate is green ([record](../mp23-independent-results-2026-10-07/gate-96c1da11.json)), and the mutation sweep at `8824f469` killed all 117 records ([results](../mp23-independent-results-2026-10-07/mutation-sweep-8824f469.tsv)). Tests named here pass in that gate run ([lines](../mp23-independent-results-2026-10-07/test-evidence-96c1da11.txt)). Summary: [2026-10-07 verification record](../mp23-independent-results-2026-10-07/README.md).
+
+## F65
+
+**The create-path stop refuses a review that recreates a deleted Service alongside its release-history update** — P1; **Closed**; owners EP-153 / EP-173.
+
+**Found by the EP-173 recovery model (2026-10-05, claude-opus-5-5)** under `Deleted`, observed on the F64-repaired tree. The Service is deleted out of band, so the next review plans `CreateResource` for it and `UpdateResource` for its release history. If the new revision is unready, F16's create-path stop refuses, because that path required every operation to be a create. The result is I1 in the bad-update scenarios.
+
+**Fix.** F55's never-started-companion rule (`neverStartedCompanion`, `Plan/History.hs`) is shared by the update path and the create path. A never-started verify, or a never-started create or update of a stateless ConfigMap ordered after the stopped Service, is admitted on both paths.
+
+**Mutation.** `test/mutations/F65-create-stop-companions.diff`.
+
+**Independent verification (2026-10-07, nagare-verify; candidate `96c1da11`, code identical to `8824f469`; observed).** Closed on source, weakly. ADR 26 deleted the companion rule. The case is covered only by the fast tier and the `ADR26-close-*` records, because the focused test EP-175 promised does not exist. That is proposed for the deferral ledger. The candidate's full gate is green ([record](../mp23-independent-results-2026-10-07/gate-96c1da11.json)), and the mutation sweep at `8824f469` killed all 117 records ([results](../mp23-independent-results-2026-10-07/mutation-sweep-8824f469.tsv)). Tests named here pass in that gate run ([lines](../mp23-independent-results-2026-10-07/test-evidence-96c1da11.txt)). Summary: [2026-10-07 verification record](../mp23-independent-results-2026-10-07/README.md).
+
+## F66
+
+**A create that finds an object not stamped as its own at its address settles unknown, so only an attested close can end it** — P1; **Closed**; owners EP-153 / EP-177.
+
+**Found by the EP-177 recovery model's deep tier (2026-10-06, claude-opus-5-5).** The "create" scenario was rerun alone as deep shard 0/52 at `a4d84543` (log `deep-create-shard0of52-a4d84543.log`, observed). There, a `ForeignObject` fault puts an unowned object at a create's address. A second fault then stops the transaction:
+- a store fault (`PutRefused`, `PutLandedUnacknowledged` or `GetFailedOnce`);
+- a crash at a store write (`CrashBeforeStorePut` or `CrashAfterStorePut`);
+- or `ClaimLost`.
+
+`Deleted` followed by `ForeignObject` reaches the same state after the create has landed. The Kubernetes adapter settled the create as `SettledUnknown "Kubernetes object changed since review; replan before mutation"`, so close refused with `unknown-operation`. The only exit left was the attested close, which ADR 26 §5 reserves for outcomes an adapter cannot prove. This one cause accounted for 36 of the scenario's 67 violations: 16 I8 and 20 I1. The other 31 were harness gaps, recorded in EP-177's Surprises.
+
+**Why the class is provable.**
+- Nagare creates a Kubernetes object only on an empty address (`kubectl create`).
+- Every object a review writes carries the reserved `nagare.dev/context-id` and `nagare.dev/resource-id` stamp of its member.
+- So an object at the address without this member's stamp (unstamped, or stamped for another member) proves the create's write is not live there. Either the write never landed, or it landed and was replaced outside review.
+
+The class is not `NoEffect`. The absent before-state has changed, and in the `Deleted`-then-`ForeignObject` schedules the create had landed. It is ADR 26's `TargetGone` ("replaced … outside review"), the class ADR 27 §1 also gives a live object that differs from the record. The found UID is evidence only and is never bound.
+
+**Whether the foreign object should block close (checked against ADR 26 §2 and ADR 27 §1–3; inferred).** It should not:
+- Close writes nothing, binds no incarnation and converges nothing.
+- `TargetGone` is not a no-effect class, so the scope keeps its desired revision rather than reverting.
+- The next plan observes the unowned object at a planned address and refuses, as it already does for a `ForeignObject` fault before any transaction. That refusal is where the operator resolves the foreign object.
+- ADR 27's rebind does not apply, because it records a replacement that carries the member's own stamp.
+
+**Fix.** `settleMutation` (`Adapters/Kubernetes.hs`) now handles a create whose reviewed before-state was absent. If its address holds an object not stamped as this member, the create settles as `SettledTargetGone` with that object's UID. An object with this member's own stamp but other content stays `Unknown`, because it may be the create's own write edited out of band.
+
+**Tests.**
+- "a create that finds an object not stamped as its own settles as target gone (F66)", in `InventorySettleSpec`.
+- The recovery model's "create-scenario fault pairs that had no exit now have one (EP-177, F66)", which closes three of the logged schedules, one of them after `ClaimLost`.
+
+**Mutation.** `test/mutations/F66-create-over-foreign-object-settles-unknown.diff`.
+
+**Rehearsal (observed, 2026-10-06).** Shard 0/52 ("create") was rerun with this fix and the three EP-177 harness fixes. It reported `recovery-model: [1/1] create: done in 722s, 0 violation(s)`, down from 67.
+
+**Independent verification (2026-10-07, nagare-verify; candidate `96c1da11`, code identical to `8824f469`; observed).** Closed on source. Test: "a create that finds an object not stamped as its own settles as target gone (F66)". Killed: `F66-create-over-foreign-object-settles-unknown`. The candidate's full gate is green ([record](../mp23-independent-results-2026-10-07/gate-96c1da11.json)), and the mutation sweep at `8824f469` killed all 117 records ([results](../mp23-independent-results-2026-10-07/mutation-sweep-8824f469.tsv)). Tests named here pass in that gate run ([lines](../mp23-independent-results-2026-10-07/test-evidence-96c1da11.txt)). Summary: [2026-10-07 verification record](../mp23-independent-results-2026-10-07/README.md).
+
+## F67
+
+**An update refused after a status write, whose refusal's journal event is lost, settles unknown** — P1; **Closed**; owners EP-153 / EP-180.
+
+**Found by the EP-177 five-scenario deep reruns (2026-10-06, claude-opus-5-5; observed).**
+- **How it happens.** A controller's status write moves an object's resourceVersion just before Nagare's update (`StatusChurn`). The update is conditional on the reviewed resourceVersion, so it is refused with no effect. A store fault then loses that refusal's journal event.
+- **What it led to.** Recovery compared the before-state exactly, resourceVersion included, so settlement was `Unknown` and only the attested close remained.
+- **Where it was seen.** The database StatefulSet update, at `(Mutate 10, StatusChurn) + (StorePut 72, PutRefused)` and `(11, 84)`, and the generated Deployment update at `(5, 44)`, both in release line (b). These ordinals are from when the world churned status only on kinds with a status subresource (EP-177).
+
+**First design, dropped.** A configuration-digest mutation version 4 recorded the stable configuration at review. It was replaced before landing by RES-4 §5.1's stamp proof.
+- It needed an extra observation at prepare, which shifted the model's ordinals and made a pin vacuous.
+- It could not settle reviews made before it.
+- It became Unknown on any controller metadata write.
+
+**Fix (EP-180 M3).**
+- Nagare writes its `nagare.dev/spec-digest` stamp in the same atomic write as the spec it describes (RES-4 U3). On the reviewed UID, the stamp therefore says which of Nagare's writes is live, whatever status or controller metadata did meanwhile.
+- Every observation now returns the stamp from the same read (`kubernetesObserveStamped`).
+- Prepare records `beforeStamp`, the stamp the before-state carried, as a required field of every update mutation.
+- After the exact before-state row, `settleMutation` (`Adapters/KubernetesProof.hs`) classes an update observed on the reviewed UID, with this member's ownership:
+  - a live stamp equal to `beforeStamp` → `NoEffect`;
+  - a live stamp equal to the reviewed digest → `Landed`;
+  - anything else falls to the existing rows (F68's target gone, landed by digest, unknown).
+- A drift repair, whose before stamp already was the reviewed digest, proves nothing by stamp, and the fields-match rows decide.
+- A stamp rolled back to the before digest after Nagare's write reads as `NoEffect`. ADR 26's no effect is "a proved, unchanged before-state", which holds now. Close then reverts the scope only if nothing else in it took effect, to a base that matches what is live.
+
+**Compatibility.** None, by operator ruling: Nagare is not yet used anywhere. An update mutation without `beforeStamp` does not decode, and disposable stores are rebuilt.
+
+**Tests.** "an update settles by the stamp on the reviewed object, whatever its resourceVersion (F67)", in `InventorySettleSpec`. It covers the before stamp, the reviewed stamp, another stamp, no stamp, a rollback, a drift repair, an unstamped replacement, and an update without `beforeStamp` failing to decode. It failed before the row was added.
+
+**Model.** The world reads no stamps until EP-182 renders realistic objects. The three model schedules above become EP-182's acceptance test.
+
+**Mutation.** `test/mutations/F67-settle-ignores-stamp.diff` disables the stamp row, and the test fails.
+
+**Independent verification (2026-10-07, nagare-verify; candidate `96c1da11`, code identical to `8824f469`; observed).** Closed on source. Killed: `F67-settle-ignores-stamp`, `G6-repair-proves-by-stamp`. The candidate's full gate is green ([record](../mp23-independent-results-2026-10-07/gate-96c1da11.json)), and the mutation sweep at `8824f469` killed all 117 records ([results](../mp23-independent-results-2026-10-07/mutation-sweep-8824f469.tsv)). Tests named here pass in that gate run ([lines](../mp23-independent-results-2026-10-07/test-evidence-96c1da11.txt)). Summary: [2026-10-07 verification record](../mp23-independent-results-2026-10-07/README.md).
+
+## F68
+
+**An update whose target is deleted and replaced by an object not stamped as its own settles unknown, so only an attested close can end it** — P1; **Closed**; owners EP-153 / EP-177.
+
+**Found by the EP-177 five-scenario deep reruns on the remote builder (2026-10-06, claude-opus-5-5)**, classified locally (observed). In "create then good update" under `[(Observe 17, Deleted), (Observe 18, ForeignObject)]`, the Knative Service that the v2 update targets is deleted outside review. An object without this member's stamp then appears at its address. Settlement answered `SettledUnknown "Knative Service configuration or ownership changed since review"`, so close refused with `unknown-operation`.
+
+**Why the class is provable.** It is F66's rule for updates. An update is conditional on the reviewed UID and stamps what it writes as this member's. An object at the address with another UID and without this member's stamp therefore proves the update's write is not live there. The write either never landed, or landed on the reviewed object, which is gone. That is ADR 26's `TargetGone` ("the reviewed object was replaced or deleted outside review"). The found UID is evidence only and is never bound (ADR 27 §1).
+
+**Fix.** `settleMutation` (`Adapters/KubernetesProof.hs`) generalises F66's predicate. An object not stamped as this member at the address of a create over an absent before-state, or of an update whose reviewed UID differs from the found one, settles as `SettledTargetGone` with the found UID. Two cases keep their existing classes:
+- an object with another UID that carries this member's stamp stays the F56 replacement path;
+- an object with the reviewed UID is never gone, whatever its stamp now.
+
+**Tests.**
+- "an update whose target is replaced by an object not stamped as its own settles as target gone (F68)", in `InventorySettleSpec`.
+- The schedule above, in the recovery model's "create-scenario fault pairs that had no exit now have one (EP-177, F66)".
+
+**Mutation.** `test/mutations/F68-update-over-foreign-object-settles-unknown.diff`. F66's record is regenerated for the shared predicate.
+
+**Independent verification (2026-10-07, nagare-verify; candidate `96c1da11`, code identical to `8824f469`; observed).** Closed on source. Test: "an update whose target is replaced by an object not stamped as its own settles as target gone (F68)". Killed: `F68-update-over-foreign-object-settles-unknown`. The candidate's full gate is green ([record](../mp23-independent-results-2026-10-07/gate-96c1da11.json)), and the mutation sweep at `8824f469` killed all 117 records ([results](../mp23-independent-results-2026-10-07/mutation-sweep-8824f469.tsv)). Tests named here pass in that gate run ([lines](../mp23-independent-results-2026-10-07/test-evidence-96c1da11.txt)). Summary: [2026-10-07 verification record](../mp23-independent-results-2026-10-07/README.md).
+
+## F69
+
+**A Knative Service or DomainMapping reads ready from its previous generation's Ready=True before the controller has seen the new spec** — P1; **Closed**; owners EP-153 / EP-180.
+
+**Found by review of the readiness predicates (2026-10-06, claude-opus-5-5; inferred), and validated by RES-4 experiment E4 on k3s 1.34 with Knative 1.22 (observed).** After a spec write, Knative keeps the previous generation's `Ready=True` until its controller observes the new spec (`observedGeneration < generation`). It then reports `Ready=Unknown` at the new generation before it becomes `True`.
+
+`knativeReady` (`Adapters/KubernetesReadiness.hs`, previously `Adapters/KubernetesRuntime.hs`) checked only the `Ready` condition. So right after an update, the old revision's readiness satisfied the readiness wait, and a bad image could be recorded as converged. It is used for both the Knative Service and the DomainMapping. This is a wrong success, but in a narrow window: an interrupt or verify within seconds of the write, or a lagging controller.
+
+**Fix.** Ready requires `status.observedGeneration == metadata.generation` as well as `Ready=True` (RES-4 §2, U9). That is the same generation discipline `deploymentAvailable` and `statefulSetReady` already apply.
+
+**Tests.** "a Knative Service or DomainMapping is ready only at the observed generation (F69)", in `InventoryKubernetesReadinessSpec`. The DomainMapping-conflict fixture in `InventoryKubernetesSpec` lacked both generation fields, which every real object carries, and was completed.
+
+**Model.** The model test comes with EP-182's `ControllerLag` fault, once the world's readiness runs through the production parser.
+
+**Documented limit.** `certificateReady` (cert-manager's `Certificate` and `ClusterIssuer`) has the same shape. cert-manager is a platform kind outside release line (b), so it is left as is.
+
+**Mutation.** `test/mutations/F69-knative-ready-ignores-generation.diff` drops the generation check, and the test fails.
+
+**Independent verification (2026-10-07, nagare-verify; candidate `96c1da11`, code identical to `8824f469`; observed).** Closed on source. Test: "a Knative Service or DomainMapping is ready only at the observed generation (F69)". Killed: `F69-knative-ready-ignores-generation`. The candidate's full gate is green ([record](../mp23-independent-results-2026-10-07/gate-96c1da11.json)), and the mutation sweep at `8824f469` killed all 117 records ([results](../mp23-independent-results-2026-10-07/mutation-sweep-8824f469.tsv)). Tests named here pass in that gate run ([lines](../mp23-independent-results-2026-10-07/test-evidence-96c1da11.txt)). Summary: [2026-10-07 verification record](../mp23-independent-results-2026-10-07/README.md).
+
+## F70
+
+**A worker Deployment whose update never becomes available reads as ready, so a broken rollout is recorded as complete** — P1; **Closed**; owners EP-153 / EP-180.
+
+**Found by the RES-4 validation of Kubernetes semantics (2026-10-06, nagare-first-principle, experiment E5 on k3s 1.34; observed).** During a bad-image or crash-looping update of a one-replica Deployment, the old ReplicaSet keeps `Available=True`, because maxUnavailable rounds to 0. The controller has also observed the new generation. That stays true after `Progressing=False/ProgressDeadlineExceeded`.
+
+`deploymentAvailable` (`Adapters/KubernetesReadiness.hs`, previously `Adapters/KubernetesRuntime.hs`) treated `Available=True ∧ observedGeneration == generation` as ready. So such a Deployment observed as `KubernetesPresent`. `recover` then returned `RecoveryProvedComplete` for the broken update, and plans saw the member converged. This is a wrong success: a broken state recorded as converged.
+
+**Fix.** Readiness is the rule `kubectl rollout status` applies (RES-4 §2, U9): `observedGeneration == generation ∧ updatedReplicas == spec.replicas ∧ status.replicas == updatedReplicas ∧ availableReplicas == updatedReplicas`, with `spec.replicas` defaulting to 1. `ProgressDeadlineExceeded` is not terminal, so the Deployment stays not ready, and the update is landed.
+
+**Tests.** "a Deployment is ready only when its rollout is complete, as kubectl rollout status judges it (F70)", in the new `InventoryKubernetesReadinessSpec`. It covers mid-rollout, past the progress deadline, rolled out, one generation behind, and an unavailable updated replica. The earlier assertions in `InventoryKubernetesSpec` that read `Available=True` as ready moved there and were corrected.
+
+**Model.** The recovery model's world decides readiness from its own state, not through this predicate, so it cannot see F70. EP-182 routes the world's readiness through the production parser.
+
+**Mutation.** `test/mutations/F70-deployment-ready-ignores-rollout.diff` reduces the rule to the observed generation, and the test fails.
+
+**Independent verification (2026-10-07, nagare-verify; candidate `96c1da11`, code identical to `8824f469`; observed).** Closed on source. Test: "a Deployment is ready only when its rollout is complete, as kubectl rollout status judges it (F70)". Killed: `F70-deployment-ready-ignores-rollout`. The candidate's full gate is green ([record](../mp23-independent-results-2026-10-07/gate-96c1da11.json)), and the mutation sweep at `8824f469` killed all 117 records ([results](../mp23-independent-results-2026-10-07/mutation-sweep-8824f469.tsv)). Tests named here pass in that gate run ([lines](../mp23-independent-results-2026-10-07/test-evidence-96c1da11.txt)). Summary: [2026-10-07 verification record](../mp23-independent-results-2026-10-07/README.md).
+
+## F71
+
+**A Kubernetes write the API server definitively refused (409, 422, 404 and the other 4xx) is reported ambiguous** — P2; **Closed**; owners EP-153 / EP-180.
+
+**Found by RES-4's gap analysis (G4; 2026-10-06, nagare-first-principle; experiments E1, E3, E8 and E13 on k3s 1.34; observed).**
+- **What happened.** The Kubernetes runtime mapped every non-zero `kubectl` exit to `AdapterEffectAmbiguous`, including the API server's definitive refusals. RES-4 U4: every 4xx refusal left the object unchanged.
+- **The consequence.** A refused write needed a re-observation and a settlement it did not need, and with G6's status churn it could end Unknown.
+- **The model never saw it.** The world returns `KnownNoEffect` for the same refusals, so the model never exercised the real path.
+
+**Fix.** `kubectlRefusal` (`Adapters/KubernetesProof.hs`) maps the server's definitive answers to `KnownNoEffect`. Those answers are `Error from server (Conflict|Invalid|AlreadyExists|NotFound|Forbidden|BadRequest)`, `error: Operation cannot be fulfilled`, and a server-side-apply field conflict (`error: Apply failed with`, a 409; E13). Transport failures, timeouts and 5xx (`InternalError`, `ServiceUnavailable`, `Timeout`) stay ambiguous, because only they can hide a committed write. The runtime's failed-write branch applies it.
+
+**Tests.**
+- "a write the API server refused with a 4xx answer had no effect; only a missing answer is ambiguous (G4)", in `InventorySettleSpec`. It failed first against a stub.
+- "an update the API server refuses with a 4xx is a known no effect; a lost connection stays ambiguous (G4)", in `InventoryKubernetesFieldTakeoverSpec`, through the fake kubectl interpreter. The wiring existed before this test, so its failing side is shown by the wiring record below.
+
+**Mutations.** `test/mutations/G4-kubectl-refusal-ignored.diff` makes the classifier answer nothing, and both tests fail. `test/mutations/G4-runtime-refusal-ambiguous.diff` drops the runtime branch, and the wiring test fails.
+
+**Independent verification (2026-10-07, nagare-verify; candidate `96c1da11`, code identical to `8824f469`; observed).** Closed on source. Test: "a write the API server refused with a 4xx answer had no effect; only a missing answer is ambiguous (G4)". Killed: `G4-kubectl-refusal-ignored`, `G4-runtime-refusal-ambiguous`. The candidate's full gate is green ([record](../mp23-independent-results-2026-10-07/gate-96c1da11.json)), and the mutation sweep at `8824f469` killed all 117 records ([results](../mp23-independent-results-2026-10-07/mutation-sweep-8824f469.tsv)). Tests named here pass in that gate run ([lines](../mp23-independent-results-2026-10-07/test-evidence-96c1da11.txt)). Summary: [2026-10-07 verification record](../mp23-independent-results-2026-10-07/README.md).
+
+## F72
+
+**The Kubernetes transport refuses a corrective update of an unready StatefulSet or Deployment as an unsupported precondition** — P1; **Closed**; owners EP-153 / EP-180.
+
+**Found while building EP-180 M5 (2026-10-06, claude-opus-5-5); proved by a transport test through the fake kubectl interpreter (observed).**
+- **The gap.** A corrective update of an unready object carries a `KubernetesNotReady` precondition. F63 admits one for StatefulSets, and EP-180 M1 for Deployments. The runtime's write path accepted only `KubernetesPresent` for an update, converting `NotReady` only for a Knative Service. So in production the correction was refused before reaching the API server, with "Kubernetes transport received an unsupported action or precondition".
+- **Why the model missed it.** The recovery model's world implements its own writes rather than running the runtime's transport, so it passed F63's correction scenarios.
+
+**Fix.** An update with a `NotReady` precondition is written like any other. G6's guard is its UID, its before-state stamp and its field owners, read live, so readiness has no part in the precondition. The transport still waits for readiness after the write.
+
+**Tests.** "a corrective update of an unready object reaches the API server (F63, M1)", in `InventoryKubernetesFieldTakeoverSpec`. It failed with exactly that refusal.
+
+**Mutation.** `test/mutations/F72-unready-update-unsupported.diff`.
+
+**Model.** EP-182's world runs behind the production kubectl interpreter, so the model will exercise this path.
+
+**Independent verification (2026-10-07, nagare-verify; candidate `96c1da11`, code identical to `8824f469`; observed).** Closed on source. Killed: `F72-unready-update-unsupported`. The candidate's full gate is green ([record](../mp23-independent-results-2026-10-07/gate-96c1da11.json)), and the mutation sweep at `8824f469` killed all 117 records ([results](../mp23-independent-results-2026-10-07/mutation-sweep-8824f469.tsv)). Tests named here pass in that gate run ([lines](../mp23-independent-results-2026-10-07/test-evidence-96c1da11.txt)). Summary: [2026-10-07 verification record](../mp23-independent-results-2026-10-07/README.md).
+
+## F73
+
+**A Knative Service update that another write left unready is awaited as ours and settles as Landed** — P1; **Closed**; owners EP-180.
+
+**Found before EP-180 M5b (2026-10-06, claude-opus-5-5); proved by an adapter test on the version-1 adapter (observed).**
+- **The gap.** Recovery of a version-1 or version-3 update to a Knative Service returned `RecoveryAwaitingReadiness` for any owned, unready object on the reviewed UID, whatever its digest. Settle maps that decision to `SettledLanded`. So if another write of this member's left the object unready, this update was claimed landed when its write was not live.
+- **Exposure.** Production Knative updates were version 2, which the arm excludes, so only a reviewed field takeover (version 3) reached it. M5b deletes version 2 and makes every Knative update version 1, so it would have become the default path. Version 2 was hiding this defect.
+
+**Fix.** The arm also requires the reviewed digest. RES-4 U3: the stamp is written in the same atomic write as the spec, and the adapter reports the reviewed digest only while the stamp and the desired fields both match. That holds exactly while this update is live, through any status churn.
+
+**Tests.** "a Knative Service update awaits readiness only while its own write is live (F73)", in `InventoryKnativeServiceUpdateSpec` (named `InventoryKubernetesConfigurationSpec` until M5b). It failed with `RecoveryAwaitingReadiness`.
+
+**Mutation.** `test/mutations/F73-awaiting-readiness-ignores-digest.diff`.
+
+**Model.** The recovery model's world observed Knative updates through the stable version-2 observation, so it never reached this arm. After M5b it does.
+
+**Independent verification (2026-10-07, nagare-verify; candidate `96c1da11`, code identical to `8824f469`; observed).** Closed on source. Its named test passes. Killed: `F73-awaiting-readiness-ignores-digest`. The candidate's full gate is green ([record](../mp23-independent-results-2026-10-07/gate-96c1da11.json)), and the mutation sweep at `8824f469` killed all 117 records ([results](../mp23-independent-results-2026-10-07/mutation-sweep-8824f469.tsv)). Tests named here pass in that gate run ([lines](../mp23-independent-results-2026-10-07/test-evidence-96c1da11.txt)). Summary: [2026-10-07 verification record](../mp23-independent-results-2026-10-07/README.md).
+
+## F74
+
+**A Kubernetes object being deleted is read as present** — P1; **Closed**; owners EP-180.
+
+**Found by RES-4's gap analysis (G5; 2026-10-06, nagare-first-principle; experiments E7 and E12); fixed in EP-180 M6 (claude-opus-5-5).**
+- **The gap.** A DELETE that finalizers hold (RES-4 U6) leaves the object in place with its UID, a new resourceVersion and a deletion timestamp. Examples are a PVC mounted by a pod, an Orphan-deleted Knative Service and a Namespace. The runtime parser ignored the timestamp, so the object was Present.
+- **Consequences.**
+  - Verify and convergence could accept a member that is being deleted (wrong success).
+  - A retire whose DELETE was accepted settled Unknown instead of Landed.
+  - A create or update whose target was being deleted outside review could be settled by its stamp, as if it were the live target.
+
+**Fix.**
+- The parser classifies a set `metadata.deletionTimestamp` as the new state `KubernetesTerminating uid resourceVersion owner digest`. It is a constructor, so every consumer must decide what it means; EP-181 uses it for pods.
+- Planning observes the object as unavailable ("being deleted"), so a plan waits until it is gone.
+- Settlement follows RES-4 §3. A create or update whose object is terminating is TargetGone, whatever its stamp says. A retire whose reviewed object is terminating is Landed.
+- The write guard and completion proof never accept a terminating object.
+- Every consumer outside the adapter matches only Present, so a terminating object falls to their existing refusals.
+
+**Tests.** `InventoryKubernetesTerminatingSpec` ("terminating Kubernetes objects (G5)").
+
+**Mutation.** `test/mutations/G5-parser-ignores-deletion.diff`, `G5-settle-ignores-terminating.diff`, `G5-planning-reads-terminating-present.diff`.
+
+**Model.** The recovery model's world has no finalizers. EP-182's world renders deletion timestamps and finalizers, and the production parser classifies them.
+
+**Independent verification (2026-10-07, nagare-verify; candidate `96c1da11`, code identical to `8824f469`; observed).** Closed on source. The `InventoryKubernetesTerminatingSpec` tests pass. Killed: `G5-parser-ignores-deletion`, `G5-settle-ignores-terminating`, `G5-planning-reads-terminating-present`, `G5-retire-deletes-terminating`. The candidate's full gate is green ([record](../mp23-independent-results-2026-10-07/gate-96c1da11.json)), and the mutation sweep at `8824f469` killed all 117 records ([results](../mp23-independent-results-2026-10-07/mutation-sweep-8824f469.tsv)). Tests named here pass in that gate run ([lines](../mp23-independent-results-2026-10-07/test-evidence-96c1da11.txt)). Summary: [2026-10-07 verification record](../mp23-independent-results-2026-10-07/README.md).
+
+## F75
+
+**A non-canonical resource quantity drifts forever** — P1; **Closed**; owners EP-180.
+
+**Found by RES-4's gap analysis (G7; 2026-10-06, nagare-first-principle; experiments E11 and E15); fixed in EP-180 M7 (claude-opus-5-5).**
+- **The gap.** The API server stores a resource list's quantities in canonical form: `1024Mi` becomes `1Gi`, `1000m` becomes `1`, `1.5` becomes `1500m`. `desiredFieldsMatch` normalised CPU only, and `mkQuantity` kept the text the user wrote. A declared `1024Mi` of memory or storage therefore never matched what the server stored. The update never verified, and the landed proof could not match: a wedge on every deploy.
+- **Evidence corrected the source reading.** Rules taken from apimachinery's source alone got two of E15's rows wrong. On admission a resource list is rounded up to milli (`0.1m` is stored as `1m`), and text the parser keeps as written stays (`1500e0`).
+
+**Fix.**
+- `Nagare.Dsl.Quantity.canonicalQuantity` (nagare-dsl) holds the rule in one place. It cites `k8s.io/apimachinery` v0.32.3 `pkg/api/resource` (`ParseQuantity`'s kept text, `RoundUp`, `CanonicalizeBytes`) and E15's recorded output (`docs/audits/k8s-semantics-2026-10-06/experiments/e15.out`).
+- `mkQuantity` emits the canonical form.
+- `desiredFieldsMatch` compares every `resources.{limits,requests}.*` and `spec.hard.*` value in it, replacing the CPU-only millicore rule. Every other string keeps exact equality.
+
+**Tests.** `QuantitySpec` (nagare-dsl): every E11 and E15 row, plus rules E15 did not record. `InventoryKubernetesFieldsSpec`: container memory and CPU, PVC storage and ResourceQuota hard limits match across spellings; a different quantity and ConfigMap data do not.
+
+**Mutation.** `G7-resource-quantities-compare-exactly`, `G7-dsl-emits-spelling-as-written`, `G7-no-milli-rounding`, `G7-written-text-not-kept`.
+
+**Independent verification (2026-10-07, nagare-verify; candidate `96c1da11`, code identical to `8824f469`; observed).** Closed on source. The `QuantitySpec` tests (`nagare-dsl`, 466 passed) and the field tests pass. Killed: `G7-resource-quantities-compare-exactly`, `G7-dsl-emits-spelling-as-written`, `G7-no-milli-rounding`, `G7-written-text-not-kept`. The candidate's full gate is green ([record](../mp23-independent-results-2026-10-07/gate-96c1da11.json)), and the mutation sweep at `8824f469` killed all 117 records ([results](../mp23-independent-results-2026-10-07/mutation-sweep-8824f469.tsv)). Tests named here pass in that gate run ([lines](../mp23-independent-results-2026-10-07/test-evidence-96c1da11.txt)). Summary: [2026-10-07 verification record](../mp23-independent-results-2026-10-07/README.md).
+
+## F76
+
+**The accepted-incarnation tests stopped running, and twelve mutation records passed vacuously** — P1; **Closed**; owners EP-180 (M8) / EP-177.
+
+**Found while building EP-180 M8's record manifest (2026-10-06, claude-opus-5-5); proved by `--list-tests` (observed).**
+- **The defect.** nagare's EP-177 M1 commit (`cb076214`, "a kind table with a totality test against the adapter", 2026-10-05) replaced the line `, inventoryIncarnationTests` in `test/Nagare/Test/Suite.hs`'s test list with `, inventoryKindTotalityTests`, where it should have added the new line beside it. The import stayed, and an unused import is only a warning, so the "accepted incarnations (F49)" group stopped running and nothing noticed.
+- **Impact.** Ten tests were dark for about a day: F49, F60, ADR 27 N3, N6, N7 and N21, the §3 rebind, the returned identity and the ingestion source. Twelve mutation records name them (ADR27-F60, -N3, -N5, -N6, -N7, -N21, -accessor-reads-unrecorded-as-match, -driver-drops-returned-identity, -runtime-ignores-returned-uid and the three rebind records), so those records passed vacuously.
+- **Found by.** `records.json`'s pattern for each of the twelve selected no test.
+
+**Fix.**
+- The list entry is restored. All ten tests pass, so nothing regressed while they were dark.
+- Every suite's top-level list (`nagarectl`'s `Suite.hs`, and `nagare-dsl`'s and `nagare-harness`'s `Spec.hs`) is compiled with `-Werror=unused-imports`. A group that is imported but missing from the list no longer compiles.
+- The fast gate's `mutation-patterns` step fails when any record's pattern selects no test of its built suite.
+
+**Tests.** The ten restored tests. `mutations patterns` reports a pattern that selects nothing, and `mutations check` reports a record missing from the manifest; both were tried against a corrupted manifest.
+
+**Independent verification (2026-10-07, nagare-verify; candidate `96c1da11`, code identical to `8824f469`; observed).** Closed. The incarnation group runs in the candidate's suite, and the gate's `mutation-patterns` step passes, so every record selects a test. The candidate's full gate is green ([record](../mp23-independent-results-2026-10-07/gate-96c1da11.json)), and the mutation sweep at `8824f469` killed all 117 records ([results](../mp23-independent-results-2026-10-07/mutation-sweep-8824f469.tsv)). Tests named here pass in that gate run ([lines](../mp23-independent-results-2026-10-07/test-evidence-96c1da11.txt)). Summary: [2026-10-07 verification record](../mp23-independent-results-2026-10-07/README.md).
+
+## F79
+
+**Close drops a never-started member whose absence it cannot read, leaving it accepted with no exit** — P1; **Closed**; owners MP-23 (step 3d).
+
+**Found by the step-3d deep run (session nagare, `341b01bc`); reproduced by a recovery-model pin and a close unit test (observed).**
+- **The defect.** `neverStartedAbsent` in `Execute/Close.hs` admitted a never-started or refused create to the never-started set only when observed `ConfirmedAbsent`. A failed read, a missing adapter or `ObservationUnavailable` silently dropped the member, and close finalised anyway.
+- **Consequence.** The member (here the database's `backup-signing-key`) stayed accepted with no object. Every later keep or retire review refused `durable-resource-missing`, and a redeploy refused too, because the planner recreates only never-started-set members (R19). A closed transaction is final, so there was no exit.
+- **Schedule.** "create a database, then retire it", with `LandsFailed` or `LandsUnready` at write 5 and `TransientReadFailure` at observation 41: I1.
+
+**Fix (ADR 26: missing access is an error, not evidence).** Close refuses with `absence-unconfirmed`, naming each member and the reason its absence could not be read. The transaction stays open, so the operator closes again once the read succeeds; the member is never dropped. A definite observation of a present object still keeps the member out of the set, as before.
+
+**Tests.**
+- "close refuses, retryably, while a never-started create's absence cannot be confirmed (F79)": an unavailable observation and a failed read each refuse, and a confirmed read closes with both creates never-started.
+- "close refuses while a never-started member's absence cannot be read, and closing again ends it (F79)": the model pin; both schedules exit `[[Close]]`.
+- The landed-close test had expected the silent drop. Its close now confirms absence, and the member is never-started.
+
+**Mutation.** `test/mutations/F79-close-drops-unconfirmed-absence.diff` reproduces the original I1.
+
+**Independent verification (2026-10-07, nagare-verify; candidate `96c1da11`, code identical to `8824f469`; observed).** Closed on source. Tests: "close refuses, retryably, while a never-started create's absence cannot be confirmed (F79)" and the model pin "close refuses while a never-started member's absence cannot be read, and closing again ends it (F79)". Killed: `F79-close-drops-unconfirmed-absence`, `ADR26-never-started-skips-absence`. The candidate's full gate is green ([record](../mp23-independent-results-2026-10-07/gate-96c1da11.json)), and the mutation sweep at `8824f469` killed all 117 records ([results](../mp23-independent-results-2026-10-07/mutation-sweep-8824f469.tsv)). Tests named here pass in that gate run ([lines](../mp23-independent-results-2026-10-07/test-evidence-96c1da11.txt)). Summary: [2026-10-07 verification record](../mp23-independent-results-2026-10-07/README.md).

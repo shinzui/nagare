@@ -1,0 +1,84 @@
+# Passing test lines cited by the 2026-10-07 verification, from the 96c1da11 gate run
+# source: $XDG_STATE_HOME/nagare/gates/logs/20261007T183710.953748Z/{nagarectl,nagare-dsl}-test.log
+## nagarectl-test (summary: All 1362 tests passed (413.34s))
+127: CDN catalog entries are admitted only with the image-enabled VM (F43): OK
+135: an unchanged targeted Pulumi resource prepares from its same step (F39): OK (0.22s)
+220: a parent replaced after review is refused at admission (ADR 27, N8): OK (0.03s)
+222: a resourceVersion race is refused at the conditional write, and resume deletes with the fresh resourceVersion (G6): OK (0.07s)
+231: Knative Service updates (G6)
+234: a Knative Service update awaits readiness only while its own write is live (F73): OK
+235: terminating Kubernetes objects (G5)
+240: Kubernetes field matching (G7)
+244: a verification whose target moved only in resourceVersion is proved complete; one whose target changed stops (F57a's deleted answer): OK
+245: an update whose target was replaced settles as target gone (F56's deleted answer): OK
+246: an owned update target deleted outside review settles as target gone (F64's deleted answer): OK
+247: a created StatefulSet that is not yet ready settles as landed (F59's deleted answer): OK
+256: an update is proved only on the object it wrote, not a same-stamp replacement (ADR 27, N9): OK
+258: an update the API server refuses with a 4xx is a known no effect; a lost connection stays ambiguous (G4): OK
+259: an update guarded by UID, stamp and field owners writes with the fresh resourceVersion (G6): OK
+260: a write the object outran is re-read and retried at most three times before the refusal stands (G6, G4): OK
+261: the adapter guards an update by UID, owner and stamp, not by resourceVersion (G6): OK
+262: a retire is guarded by UID, owner and digest, deletes with the fresh resourceVersion, and never deletes twice (G6, G5): OK
+264: a corrective update of an unready object reaches the API server (F63, M1): OK
+357: DNS binding matches producers by role after canonical dependency sorting (F45): OK
+402: a rename refuses a source replaced outside Nagare, at planning (F62): OK (0.01s)
+403: a rename refuses a writer replaced between planning's reads (ADR 27, A52): OK (0.16s)
+404: status never reports a renamed member as replaced, at any step (F52): OK (11.43s)
+406: a transfer refuses while another pod mounts the destination (F61): OK (0.15s)
+409: a snapshot refuses a source PVC that is not the recorded incarnation (ADR 27, N4): OK
+425: inventory status must register an observer for every executor (F44): OK
+512: a refused head write is retried three times, after 250, 500 and 750 ms (EP-179): nagarectl: inventory journal append for tx-58cc2eadba11f8e8e14acadcc869a6452ccdf230c4807f5d363bb6db2553e685 at op-d988c93e96dd81a1e71f7809 failed: StoreIoError "injected head write failure"
+515: convergence records a created durable member and never rebinds it to a later object: OK
+516: a reviewed rebind records a replacement, after which it is the accepted incarnation (ADR 27 §3): OK
+518: convergence binds the object the create returned, not one that replaced it before convergence (F60): OK
+520: a data fence binds only the recorded incarnation of its target (ADR 27, N7): OK
+521: a manual backup refuses a source that is not the recorded incarnation (ADR 27, N3): OK
+522: a restore pins only the recorded incarnation of its target (ADR 27, N6): OK
+539: the production runtime reads the fake server: Present, not Present while its controller lags (F69), then NotReady: OK
+595: a durable member only verified by a stopped update is never replanned or retired as absent (F55, F58): OK
+596: retirement drops a confirmed-absent stateless member only while it stays absent (F58): OK
+597: admission refuses an absence proof for a member that holds data (F58): OK
+598: landed unready application update (F54)
+600: a landed update with only readiness pending closes, keeping the scope (ADR 26): OK
+602: recovery model
+603: fast tier: every fault has an exit across 9 explicit scenarios (every boundary) and 43 generated from the kind table (one placement per fault): nagarectl: inventory journal append for tx-793802e33445d57baac240571ce21f51297aae7414748ccab166788fdec8beaf failed: StoreIoError "injected: store write refused before landing"
+663: I9's template excuse: the final revision declaring the faulted template is excused (EP-181): OK
+664: I9's template excuse: a different final template is not excused, which is G3 (EP-181): OK
+667: the known-defect ledger is two-sided: unlisted violations and changed counts fail (EP-182): OK
+682: create-scenario fault pairs that had no exit now have one (EP-177, F66): nagarectl: inventory journal append for tx-793802e33445d57baac240571ce21f51297aae7414748ccab166788fdec8beaf at op-b77a2e860cac734870f29c02 failed: StoreConditionFailed "inventory head generation changed"
+688: a corrective update of an unready Deployment plans and closes (EP-180, F63's worker half): OK (0.01s)
+689: an update of a kind whose status churns converges through the fresh-resourceVersion guard (G6, EP-180 M9): OK (0.02s)
+690: an object that appears where a review saw absence refuses admission; the exit is one fresh review (EP-180 D): OK
+691: close refuses while a never-started member's absence cannot be read, and closing again ends it (F79): OK (0.07s)
+693: a move that a new fault stopped without progress is re-run; one that no fault stopped is not (EP-177): nagarectl: inventory journal append for tx-9b13e16332b144e53ddd5b63d27ca959e05394f12c885fef982641cc6403e973 at op-4c04c5c047eb635bb3d3389c failed: StoreIoError "injected: store write refused before landing"
+695: every harness-owned placement the self-test skips, the fast tier runs (EP-177): OK (0.51s)
+696: harness self-test: every harness-owned fault in every scenario ends in a result or a named violation (EP-177): nagarectl: inventory journal append for tx-793802e33445d57baac240571ce21f51297aae7414748ccab166788fdec8beaf failed: StoreIoError "injected: store write refused before landing"
+3678:recovery-model self-test: 14680 runs in 189s, 0 named violation(s)
+3680: a snapshot taken at a stop restores the head, journal, world and adversary (EP-179): OK
+3681: the snapshot search finds what the replay search finds, on every 25th single fault and every 5000th fault pair of the explicit scenarios (EP-179): nagarectl: inventory journal append for tx-793802e33445d57baac240571ce21f51297aae7414748ccab166788fdec8beaf at op-b77a2e860cac734870f29c02 failed: StoreIoError "injected: store read failed"
+4160: the model retries a refused head write three times, without waiting (EP-179): nagarectl: inventory journal append for tx-793802e33445d57baac240571ce21f51297aae7414748ccab166788fdec8beaf failed: StoreIoError "injected: store write refused before landing"
+4168: rename recovery model
+4169: every single fault at every rename write has an exit and keeps the data (F52): OK (20.08s)
+4170: settlement obligations (ADR 26)
+4171: the driver never executes a verification (O6): OK
+4172: a create that finds an object not stamped as its own settles as target gone (F66): OK
+4173: an update settles by the stamp on the reviewed object, whatever its resourceVersion (F67): OK
+4174: a write the API server refused with a 4xx answer had no effect; only a missing answer is ambiguous (G4): OK
+4175: an update whose target is replaced by an object not stamped as its own settles as target gone (F68): OK
+4228: a Deployment is ready only when its rollout is complete, as kubectl rollout status judges it (F70): OK
+4229: a Knative Service or DomainMapping is ready only at the observed generation (F69): OK
+4230: close by per-operation proof (ADR 26)
+4237: close refuses, retryably, while a never-started create's absence cannot be confirmed (F79): OK
+4239: rename transfer script (F61)
+4251: a retry the adapter proved safe that preflight then refuses is journalled as failed with no effect (F57): OK
+4252: scope retirement of composed and host members (F40)
+4253: scope retirement retains its composed contribution target and reloads it (F40): OK
+4254: scope retirement retains a host system as history (F40): OK
+4569: remediationFor: stuck rollout FAIL -> db restart proposes the replacement (EP-181): OK
+4800: offline escrow verification accepts only a loopback store and a private credential file (F41): OK
+4801: offline credentials are read only from a private regular file (F41): OK
+4928: Google CDN is cloud-only, round-trips, and seeds the apex-preserving keys (F43): OK
+## nagare-dsl-test (summary: All 466 tests passed (2.84s))
+553: Nagare.Dsl.Quantity (G7)
+556: malformed quantities have no canonical form: OK
+558: mkQuantity

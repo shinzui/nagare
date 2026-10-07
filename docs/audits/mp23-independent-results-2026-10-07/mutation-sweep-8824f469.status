@@ -1,0 +1,8 @@
+worker 1: base built in 245s
+worker 3: base built in 245s
+worker 2: base built in 245s
+worker 0: base built in 245s
+worker 1: done after 117 records read
+worker 0: done after 117 records read
+worker 2: done after 117 records read
+worker 3: done after 117 records read
