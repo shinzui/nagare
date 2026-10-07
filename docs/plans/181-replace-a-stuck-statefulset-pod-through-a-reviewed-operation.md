@@ -82,7 +82,7 @@ How to see it working:
   - the pod's revision differs from `updateRevision`;
   - the pod is not Ready.
 
-  Done 2026-10-06 (39d0d3eb on `ep181-stuck-pod`, base c82b58a0). It adds
+  Done 2026-10-06 (ee961352 on `ep181-stuck-pod`, rebased onto c3755ad7). It adds
   `Nagare.Inventory.Adapters.KubernetesStuckPod`, with `stuckPod` and `runtimePodOps`. The
   `stuck pod` group's observation and runtime tests cover E6e and E6f, a terminating pod, another
   owner, the lowest ordinal, a missing `updateRevision` or revision label as an error, and a
@@ -92,7 +92,7 @@ How to see it working:
   pod's identity in its reviewed bytes. No other plan contains it. `inventory status` reports the
   member as a stuck rollout and names the operation the next plan proposes.
 
-  Done 2026-10-06 (5debf9ad and 56481cf5). Tests in the `stuck pod` group:
+  Done 2026-10-06 (df4b987a and e6926f60). Tests in the `stuck pod` group:
   - planner: one replacement, none, update only when drifted, and update only when corrected;
   - status: `StuckRollout` with its reason;
   - adapter observe: the stuck pod; no pod read when Ready or drifted; unavailable on a failed pod
@@ -110,7 +110,7 @@ How to see it working:
   - It deletes the pod with its UID and its fresh resourceVersion as preconditions.
   - It waits for the rollout.
 
-  Done 2026-10-06 (451f6f3e). Execute and preflight re-read through `readStuckPod` and refuse,
+  Done 2026-10-06 (27f78869). Execute and preflight re-read through `readStuckPod` and refuse,
   with no effect and before any write, when:
   - the pod is Ready by then, or has been replaced;
   - the update revision has moved, or the StatefulSet has been replaced;
@@ -123,7 +123,7 @@ How to see it working:
 - [x] M4: the operation settles and recovers by proof. A table test covers every row of this
   plan's class table, and the driver and close treat the operation like any other.
 
-  Done 2026-10-06 (e9f50059 and a45e5d00).
+  Done 2026-10-06 (c76353bc and 76c524a6).
   - The `stuck pod` group's class-table test covers every row; the journalled-refusal row is the
     M3 409 test.
   - Apply converges a replacement whose StatefulSet becomes Ready, and close keeps a landed one
@@ -137,6 +137,31 @@ How to see it working:
     apply.
   - The user documentation says what the operator sees.
   - Every mutation record added here fails its named test.
+
+  In progress (handoff, 2026-10-06). Done on `ep181-stuck-pod`:
+  - f7532f50: the kind row and its totality check, plus the action publication totality test
+    (see the Decision Log);
+  - 9132b57a: the `db restart` branch, the doctor probe and remediation, and the user docs;
+  - ff277c3e and a02f022b: mutation records;
+  - 27f64f22: the ten `EP181-*` records in `test/mutations/records.json`, and seven older records
+    whose context this plan's changes moved, regenerated.
+
+  Remaining:
+  - the recovery-model scenario and invariant I9, once EP-182 is on master. I9 is specified in
+    the Decision Log;
+  - `just mutation-sweep` at the landing commit.
+
+  I9's classification before the fix, with I9 applied to EP-182's world at c37bc231 (a scratch
+  run, not committed), found 19 new fast-tier violations:
+  - 4 are G3, all in "create a database, update its resources, then update it again": a
+    LandsUnready or LandsFailed write before the correcting step, at MutateCall 5 or 10. A failed
+    pod blocks the rollout as an unready one does, and `stuckPod` classes it as stuck too.
+  - 15 were faults inside the final step that excuse (a) did not excuse, because EP-182's world
+    under-records them in `acted`:
+    - LandsFailed on kinds other than a Job (`landsWith` in `test/Nagare/Test/World/Cluster.hs`);
+    - ControllerLag on a create.
+    nagare-first-principle fixes both in EP-182 (session nagare, 2026-10-06). After EP-182, only
+    the G3 schedules may remain before this plan's fix, and none after it.
 
 
 ## Surprises & Discoveries
@@ -239,6 +264,68 @@ How to see it working:
 - Decision (implementation, 2026-10-06): RES-4 G15 (a `currentRevision` term in the stuck
   condition) is deferred. It would change the readiness the recovery model's current world
   reports. It is reconsidered with EP-182's world in M5.
+  Date: 2026-10-06
+
+
+- Decision (session nagare, 2026-10-06): on a StatefulSet whose rollout is stuck, `db restart`
+  submits the accepted scope unchanged, so the plan proposes `replace-stuck-pod`. Otherwise it
+  stamps a restart token, as before.
+  - The choice is made from the observation (`runtimePodOps`, the pure `stuckPod`), not from a
+    flag. A failed read refuses the restart.
+  - The plan output says why: "db restart: rollout stuck on pod X at revision R; proposing
+    replace-stuck-pod instead of a restart token".
+  - The decision is the pure `DataService.compileStatefulSetRestart`.
+  Rationale: `db restart` means "make the pod run the current template", and on a stuck
+  StatefulSet only replacing the pod can do that. Another restart token is an update that can
+  never roll, a defect of its own. Before this, no operator command re-planned an accepted
+  database unchanged:
+  - `inventory plan` needs a compiled candidate;
+  - re-running `db create` drops an accepted restart override;
+  - re-running `db restart` plans another update.
+  The alternatives were rejected: a new `db replan` command adds a command not yet needed, and
+  documenting only the `db create` re-run leaves the post-restart wedge.
+  Date: 2026-10-06
+
+- Decision (session nagare, 2026-10-06): the M4 publication defect becomes a mechanism, not a
+  lesson.
+  - `observationBytesFromMutation` names every action's envelope in an exhaustive case, with no
+    default, so a new action fails to compile where its bytes are read.
+  - "action publication totality" (`test/InventoryActionPublicationSpec.hs`) checks its action
+    list against the generic constructors of `OperationAction`. It publishes a review prepared
+    by the real Kubernetes adapter for each action and loads it back intact, with a stub
+    reviewed data fence for maintenance and live restore.
+  - The rename review covers every `MigrationStage`, also checked against its constructors.
+  Date: 2026-10-06
+
+- Decision (implementation, 2026-10-06): the doctor probe lists StatefulSets and pods once
+  (`kubectl get … -A`). It classes only StatefulSets stamped with `nagare.dev/resource-id`, with
+  the same pure `stuckPod` that planning uses. It reports one FAIL "stuck rollout ns/name" per
+  stuck member, an UNKNOWN for a StatefulSet it cannot class, and one OK line otherwise. The
+  plan had one probe per database StatefulSet; this enumerates them from the cluster, which is
+  the same coverage without reading inventory history.
+  Date: 2026-10-06
+
+- Decision (implementation, 2026-10-06): `stuckPodReplacementKinds` in `KubernetesKinds.hs` is the
+  single source of truth: `isStatefulSet` reads it, and the kind totality test compares the
+  StatefulSet row's `KindReplaceStuckPod` claim with it.
+  Date: 2026-10-06
+
+- Decision (session nagare, forwarding nagare-first-principle, 2026-10-06): M5's model scenario
+  adds invariant I9, "a correction converges". If a run takes every step of its scenario, and its
+  final step reviews a spec the scenario does not mark unready, the run must end with that
+  step's scope converged at its accepted revision. Every member that revision bound must be live
+  at its reviewed digest and Ready.
+  - Hook: `drive`'s end-of-steps arm, beside `storeConsistent` (not `checkInvariants`; mid-run
+    non-convergence is legitimate).
+  - A close that keeps the scope does not satisfy I9: that is G3 itself.
+  - Excuses are faults that acted (`Adversary.acted`):
+    - (a) one placed during the final step, where its boundary ordinal is greater than that
+      call's count at the final step's start;
+    - (b) ForeignManager, ForeignObject, Replaced, Deleted, ChurnAlways.
+  - LandsUnready, LandsFailed, ControllerLag, and store and crash faults are not excuses.
+    Excusing LandsUnready would excuse G3.
+  Acceptance: the corrected-database scenario fails I9 without `ReplaceStuckPod` and passes with
+  it, and a mutation record proves it. The operation's planner rule is disabled in that record.
   Date: 2026-10-06
 
 
