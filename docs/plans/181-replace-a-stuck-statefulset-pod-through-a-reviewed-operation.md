@@ -102,15 +102,33 @@ How to see it working:
     `observeWithRegistry`, `planChanges`, `prepareReview` and status's `statusFacts`.
 
   `just gate-fast` is green. Execute, settle and recover refuse with no effect until M3 and M4.
-- [ ] M3: the operation executes under the conditional-write discipline. It starts only once
+- [x] M3: the operation executes under the conditional-write discipline. It starts only once
   EP-180 M6 is on master: its constructor `KubernetesTerminating` (decided by nagare-defects,
   2026-10-06) is how the pod's terminating state is read.
   - It re-reads the StatefulSet and the pod.
   - It refuses before any write unless the reviewed pod is still the stuck one.
   - It deletes the pod with its UID and its fresh resourceVersion as preconditions.
   - It waits for the rollout.
-- [ ] M4: the operation settles and recovers by proof. A table test covers every row of this
+
+  Done 2026-10-06 (451f6f3e). Execute and preflight re-read through `readStuckPod` and refuse,
+  with no effect and before any write, when:
+  - the pod is Ready by then, or has been replaced;
+  - the update revision has moved, or the StatefulSet has been replaced;
+  - the re-read fails.
+
+  Runtime tests pin the request: `delete --raw /api/v1/namespaces/personal/pods/pg-0 -f -` with
+  the UID and fresh-resourceVersion preconditions and no propagation, followed by `rollout status`.
+  They also cover how answers are mapped: a 409 is no effect, a timeout is ambiguous, a rollout
+  that never becomes Ready is ambiguous, and a refusing guard deletes nothing.
+- [x] M4: the operation settles and recovers by proof. A table test covers every row of this
   plan's class table, and the driver and close treat the operation like any other.
+
+  Done 2026-10-06 (e9f50059 and a45e5d00).
+  - The `stuck pod` group's class-table test covers every row; the journalled-refusal row is the
+    M3 409 test.
+  - Apply converges a replacement whose StatefulSet becomes Ready, and close keeps a landed one
+    at the desired revision.
+  - The seven `EP181-*` mutation records each fail their named test (`test/mutations/README.md`).
 - [ ] M5: end to end.
   - The kind table and its totality test know the operation.
   - With EP-182's world, the recovery model's corrected-database scenario reaches Ready through
@@ -123,7 +141,19 @@ How to see it working:
 
 ## Surprises & Discoveries
 
-(None yet.)
+- The close test found that publishing any review with a replacement failed.
+  `publishObservationMembers` (`src/Nagare/Inventory/ObservationNative.hs`) decoded every
+  `kubernetes-conditional-object` envelope as a `KubernetesMutation`, and a `PodReplacement` has
+  no `action` key. A replacement writes no member object, so it now yields no observation member,
+  once its bytes prove to be this operation's replacement. The unit tests above the store missed
+  this. Every new action needs a test that publishes and loads a review containing it.
+  Date: 2026-10-06
+
+- The first observed-generation mutant survived. Its only test had the pod at the stale update
+  revision, which the revision condition already rejects. The test now has a pod stuck behind an
+  earlier correction under a newer spec the controller has not observed, which only that
+  condition rejects.
+  Date: 2026-10-06
 
 
 ## Decision Log
