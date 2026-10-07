@@ -93,8 +93,9 @@ How to see it working:
   - Three mutations of the fake server each fail it with a named step: a Deployment that loses
     Available during a broken update (E5), no apply conflicts (E13), no lagging controller (E4).
   - The smoke test (runtime → fake kubectl → fake server → production parser) passes.
-  - Remaining: the `src/` composition move, timed after EP-180 M5b; `Cluster.clusterAdapter` composes
-    the production functions directly until then.
+  - The branch is rebased onto EP-180 M6 (`fee4d8bc`). The composition moved to
+    `Nagare.Inventory.Adapters.KubernetesApplication.kubernetesApplicationAdapter`, which the CLI and
+    `Cluster.clusterAdapter` both call.
 - [ ] M3: faults are re-expressed on the fake server, with `acted` accounting, `ControllerLag`,
   table-driven churn, finalizer-held Terminating, and the stuck StatefulSet rollout. Each fault has
   a test that it acts. Nearly done, 2026-10-06:
@@ -104,8 +105,8 @@ How to see it working:
     Service) and ForeignObject (at an occupied address) do not act where they change nothing; and the stuck
     StatefulSet clears only by a pod DELETE.
   - Dropping ForeignObject's acted record, or making ChurnAlways churn nothing, fails the matching test.
-  - Remaining: the parser-side test "a lagging controller's stale Ready is not accepted". It asserts EP-180's F69
-    fix, so it is written after rebasing onto EP-180.
+  - Done on the EP-180 base: the smoke test now asserts that the production parser does not read a lagging
+    controller's stale `Ready=True` as Present. Removing EP-180's observedGeneration check makes it fail.
 - [ ] M4: the recovery model runs on the new world. The old world is deleted, pinned regressions
   are re-pinned by locator and require their faults to act, and the known-defect ledger is two-sided.
   The before/after classification of every fast-tier change is recorded below with nothing unexplained.
@@ -140,6 +141,10 @@ How to see it working:
   recorder now records each action exactly as sent and records setup as steps. A replay maps real UIDs and
   resourceVersions to its own through the observations at the same steps, so the recorder also observes an
   object right before every DELETE whose preconditions it reads.
+- The F69 mutation check first passed when it should have failed. `Cluster.writtenKey` fell back to a request's
+  target for every verb, so a plain `get` counted as a write and woke the lagging controller before the parser
+  read the stale state. It now covers only write verbs, and the ControllerLag fault test pins that an observation
+  leaves the controller frozen.
 - kubectl 1.37 warns on every run that it is three minor versions from the 1.34 server (RES-4 G12). The recorded
   answers match RES-4's, so the skew did not change any observed behaviour.
 - Every RES-4 claim reproduced in the second, independent recording: the stale `Ready=True` (E4),

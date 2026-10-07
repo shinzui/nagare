@@ -35,14 +35,9 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter (Adapter)
-import Nagare.Inventory.Adapters.Kubernetes (KubernetesAdapterOps, KubernetesState, mkKubernetesAdapterWithConfigurationObservation)
-import Nagare.Inventory.Adapters.KubernetesRuntime
-  ( mkKubernetesRuntimeOpsAndBatchWithCacheKey
-  , observeKubernetesConfiguration
-  , readBackupReceiptFromCompletedPod
-  , readLiveManagedObject
-  )
-import Nagare.Inventory.Adapters.RestoreScratch (restoreScratchPodFailed)
+import Nagare.Inventory.Adapters.Kubernetes (KubernetesAdapterOps, KubernetesState)
+import Nagare.Inventory.Adapters.KubernetesApplication (kubernetesApplicationAdapter)
+import Nagare.Inventory.Adapters.KubernetesRuntime (mkKubernetesRuntimeOpsAndBatchWithCacheKey)
 import Nagare.Inventory.KubernetesTransport (KubectlRequest (..), KubectlResult, KubernetesRuntimeConfig (..), runKubectlWith, withKubectlInterpreter)
 import Nagare.Resource.Inventory (ManagedResource)
 import Nagare.Resource.Types (ContextId, ResourceId)
@@ -191,11 +186,14 @@ callOf verb key = case verb of
   _ | verb `elem` ["create", "apply", "patch", "delete"] -> Just MutateCall
   _ -> Nothing
 
--- | The object a create or apply writes, from its body.
+-- | The object a write request writes: a create or apply's from its body, a
+-- patch or delete's from its arguments. Any other request writes nothing.
 writtenKey :: KubectlRequest -> Maybe ObjectKey
 writtenKey request = case request ^. #arguments of
-  verb : _ | verb `elem` ["create", "apply"] -> keyOf =<< requestBody request
-  _ -> logRequest request ^. #target
+  verb : _
+    | verb `elem` ["create", "apply"] -> keyOf =<< requestBody request
+    | verb `elem` ["patch", "delete"] -> logRequest request ^. #target
+  _ -> Nothing
 
 requestBody :: KubectlRequest -> Maybe Value
 requestBody request = either (const Nothing) Just (eitherDecodeStrict (TE.encodeUtf8 (T.pack (request ^. #input))))
@@ -248,20 +246,10 @@ clusterConfig context cluster =
 clusterOps :: ContextId -> Cluster -> Map.Map ResourceId (ManagedResource, ByteString) -> (KubernetesAdapterOps, [ResourceId] -> IO [KubernetesState])
 clusterOps context cluster = mkKubernetesRuntimeOpsAndBatchWithCacheKey (clusterConfig context cluster) noCache
 
--- | The application-scope adapter, composed as the CLI composes it
--- (@inventoryKubernetesAdapterWith False@), over the fake cluster.
+-- | The application-scope adapter production runs (without takeover), over
+-- the fake cluster: the CLI and the model share 'kubernetesApplicationAdapter'.
 clusterAdapter :: ContextId -> Cluster -> Map.Map ResourceId (ManagedResource, ByteString) -> Adapter
-clusterAdapter context cluster specs =
-  let config = clusterConfig context cluster
-      (ops, batch) = mkKubernetesRuntimeOpsAndBatchWithCacheKey config noCache specs
-   in mkKubernetesAdapterWithConfigurationObservation
-        specs
-        ops
-        batch
-        (observeKubernetesConfiguration config noCache specs)
-        (readBackupReceiptFromCompletedPod config specs)
-        (restoreScratchPodFailed config specs)
-        (readLiveManagedObject config)
+clusterAdapter context cluster = kubernetesApplicationAdapter False (clusterConfig context cluster) noCache
 
 noCache :: ResourceId -> IO (Either Text Text)
 noCache _ = pure (Left "the world has no cache client")

@@ -124,6 +124,10 @@ inventoryWorldFaultsTests =
         stale <- get False serviceKey <$> readIORef (server cluster)
         (generationOf stale, observedOf stale, readyOf' stale) @?= (Just 2, Just 1, Just "True")
         assertActed cluster ControllerLag
+        -- Observing does not wake the controller; only the next write does.
+        _ <- clusterAnswer cluster (get' serviceKey)
+        observed <- get False serviceKey <$> readIORef (server cluster)
+        (generationOf observed, observedOf observed) @?= (Just 2, Just 1)
         _ <- clusterAnswer cluster (apply (service "v3"))
         caught <- get False serviceKey <$> readIORef (server cluster)
         (generationOf caught, observedOf caught) @?= (Just 3, Just 3)

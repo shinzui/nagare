@@ -149,6 +149,7 @@ library
     Nagare.Inventory.Adapters.Host
     Nagare.Inventory.Adapters.HostRuntime
     Nagare.Inventory.Adapters.Kubernetes
+    Nagare.Inventory.Adapters.KubernetesApplication
     Nagare.Inventory.Adapters.KubernetesCollection
     Nagare.Inventory.Adapters.KubernetesFields
     Nagare.Inventory.Adapters.KubernetesKinds

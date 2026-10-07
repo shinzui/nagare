@@ -30,7 +30,7 @@ import Data.Text.Encoding qualified as TE
 import Data.Vector qualified as V
 import InventoryTransactionSpec (fixtureBinding)
 import Nagare.Dsl.Prelude
-import Nagare.Inventory.Adapters.Kubernetes (KubernetesAdapterOps (..), KubernetesState (..))
+import Nagare.Inventory.Adapters.Kubernetes (KubernetesState (..), kubernetesObserve)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.KubernetesTransport (KubectlRequest (..))
 import Nagare.Resource.Types (ResourceId, contextIdText, digestText, resourceIdText)
@@ -72,7 +72,7 @@ inventoryWorldConformanceTests =
         , canonicalQuantity raw /= Just expected
         ]
           @?= []
-    , testCase "the production runtime reads the fake server: Present, then stale while its controller lags, then NotReady" $ do
+    , testCase "the production runtime reads the fake server: Present, not Present while its controller lags (F69), then NotReady" $ do
         cluster <- newCluster emptyServer =<< newAdversary []
         let context = fixtureBinding ^. #identity
             key = ObjectKey "serving.knative.dev" "service" (Just "personal") "web"
@@ -93,6 +93,10 @@ inventoryWorldConformanceTests =
         (field "generation" . field "metadata" <$> stale, field "observedGeneration" . field "status" <$> stale, conditionMet "Ready" <$> stale)
           @?= (Just (Number 2), Just (Number 1), Just False)
         assertBool "the stale object still reports Ready=True" (maybe False (\o -> any (\c -> field "type" c == String "Ready" && field "status" c == String "True") (arrayOf (field "conditions" (field "status" o)))) stale)
+        -- F69 (EP-180): the production parser does not accept the stale Ready.
+        observeAt "bad" >>= \case
+          KubernetesPresent {} -> assertFailure "a lagging controller's stale Ready=True was read as Present (F69)"
+          _ -> pure ()
         modifyIORef' (Cluster.server cluster) (\server' -> settleControllers (server' & #frozen %~ Set.delete key))
         observeAt "bad" >>= \case
           KubernetesNotReady _ _ (Just owner) digest -> (owner, digest) @?= (serviceId, serviceDigest "bad")
