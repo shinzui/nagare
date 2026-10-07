@@ -145,6 +145,52 @@
         sys.stdout.write("".join(out))
       '';
 
+      # One sweep worker: its own copy of the tree and cabal directory, the
+      # base build, then every width-th record of records.tsv. Each record's
+      # outcome is a results line and its progress a status line.
+      sweepWorker = pkgs.writeShellScript "mutation-sweep-worker" ''
+        set -o pipefail
+        w=$1 width=$2 jobs=$3
+        tree="$TMPDIR/tree-$w"
+        export CABAL_DIR="$TMPDIR/cabal-$w"
+        mkdir -p "$CABAL_DIR"
+        : > "$CABAL_DIR/config"
+        cp -R "$TMPDIR/pristine" "$tree"
+        cd "$tree/cli/nagarectl" || exit 1
+        cabalArgs=(--offline --enable-tests -w ${sweepGhc}/bin/ghc -O0 --project-file=cabal.project.sweep)
+        started=$(date +%s)
+        if ! cabal build "''${cabalArgs[@]}" -j"$jobs" nagarectl-test nagare-dsl-test < /dev/null > "$out/logs/base-$w.log" 2>&1; then
+          echo "worker $w: base build failed" | tee -a "$out/status"
+          exit 0
+        fi
+        echo "worker $w: base built in $(( $(date +%s) - started ))s" | tee -a "$out/status"
+        n=0
+        while IFS=$'\t' read -r record suite pattern; do
+          n=$(( n + 1 ))
+          [ $(( (n - 1) % width )) -eq "$w" ] || continue
+          diff="$tree/cli/nagarectl/test/mutations/$record.diff"
+          log="$out/logs/$record.log"
+          began=$(date +%s)
+          if ! patch -p1 -d "$tree" < "$diff" > "$log" 2>&1; then
+            printf '%s\tstale\t\t0\n' "$record" >> "$out/results-$w.tsv"
+            echo "worker $w: $record stale"
+            continue
+          fi
+          if cabal build "''${cabalArgs[@]}" -j"$jobs" nagarectl-test nagare-dsl-test < /dev/null >> "$log" 2>&1; then
+            binary=$(cabal list-bin "''${cabalArgs[@]}" "$suite-test" < /dev/null 2>> "$log")
+            (cd "$tree/cli/$suite" && timeout 1800 "$binary" -p "$pattern" < /dev/null) >> "$log" 2>&1
+            code=$?
+            printf '%s\tbuilt\t%s\t%s\n' "$record" "$code" "$(( $(date +%s) - began ))" >> "$out/results-$w.tsv"
+            echo "worker $w: $record built, test exit $code, $(( $(date +%s) - began ))s"
+          else
+            printf '%s\tbuild-failed\t\t%s\n' "$record" "$(( $(date +%s) - began ))" >> "$out/results-$w.tsv"
+            echo "worker $w: $record build failed, $(( $(date +%s) - began ))s"
+          fi
+          patch -R -p1 -d "$tree" < "$diff" >> "$log" 2>&1
+        done < "$TMPDIR/records.tsv"
+        echo "worker $w: done after $n records read" | tee -a "$out/status"
+      '';
+
       mutationSweep =
         { label
         , width ? 4
@@ -152,7 +198,7 @@
         pkgs.runCommand "mutation-sweep-${label}" { nativeBuildInputs = [ sweepGhc pkgs.cabal-install pkgs.jq pkgs.python3 pkgs.coreutils ]; } ''
           set -uo pipefail
           mkdir -p "$out/logs"
-          export HOME="$TMPDIR/home"
+          export HOME="$TMPDIR/home" out TMPDIR
           mkdir -p "$HOME"
           export LANG=C.UTF-8 LC_ALL=C.UTF-8 GHC_ENVIRONMENT=-
           # The loader tests' runghc must be typedConfigRuntime's, as in the
@@ -162,52 +208,17 @@
           mkdir -p "$HELM_CACHE_HOME"
           python3 ${sweepProject} ${self}/cli/nagarectl/cabal.project > "$TMPDIR/cabal.project.sweep" || exit 1
           jq -r '.[] | [.record, .suite, .pattern] | @tsv' ${self}/cli/nagarectl/test/mutations/records.json > "$TMPDIR/records.tsv"
+          # One prepared tree that each worker copies.
+          cp -R ${self} "$TMPDIR/pristine"
+          chmod -R u+w "$TMPDIR/pristine"
+          patchShebangs "$TMPDIR/pristine/cluster" > /dev/null
+          cp "$TMPDIR/cabal.project.sweep" "$TMPDIR/pristine/cli/nagarectl/cabal.project.sweep"
           width=${toString width}
           jobs=$(( $(nproc) / width )); [ "$jobs" -ge 1 ] || jobs=1
           echo "mutation sweep ${label}: $(wc -l < "$TMPDIR/records.tsv") records, $width workers, -j$jobs each, $(nproc) cores"
-          worker() {
-            local w=$1 tree="$TMPDIR/tree-$1" n=0 record suite pattern
-            trap 'echo "worker $w: exited with status $? after $n records" >> "$out/status"' EXIT
-            # Concurrent cabal runs must not share a cabal directory.
-            export CABAL_DIR="$TMPDIR/cabal-$w"
-            mkdir -p "$CABAL_DIR"
-            : > "$CABAL_DIR/config"
-            cp -R ${self} "$tree"
-            chmod -R u+w "$tree"
-            patchShebangs "$tree/cluster" > /dev/null
-            cp "$TMPDIR/cabal.project.sweep" "$tree/cli/nagarectl/cabal.project.sweep"
-            cd "$tree/cli/nagarectl"
-            build() { cabal build < /dev/null --offline --enable-tests -w ${sweepGhc}/bin/ghc -O0 -j"$jobs" --project-file=cabal.project.sweep nagarectl-test nagare-dsl-test; }
-            local start=$(date +%s)
-            if ! build > "$out/logs/base-$w.log" 2>&1; then
-              echo "worker $w: base build failed" | tee -a "$out/status"
-              return
-            fi
-            echo "worker $w: base built in $(( $(date +%s) - start ))s" | tee -a "$out/status"
-            while IFS=$'\t' read -r record suite pattern; do
-              n=$(( n + 1 ))
-              [ $(( (n - 1) % width )) -eq "$w" ] || continue
-              local diff="$tree/cli/nagarectl/test/mutations/$record.diff" log="$out/logs/$record.log" began=$(date +%s)
-              if ! patch -p1 -d "$tree" < "$diff" > "$log" 2>&1; then
-                printf '%s\tstale\t\t0\n' "$record" >> "$out/results-$w.tsv"
-                continue
-              fi
-              if build >> "$log" 2>&1; then
-                local binary dir
-                binary=$(cabal list-bin < /dev/null --offline --enable-tests -w ${sweepGhc}/bin/ghc -O0 --project-file=cabal.project.sweep "$suite-test" 2>> "$log")
-                dir="$tree/cli/$suite"
-                (cd "$dir" && timeout 1800 "$binary" -p "$pattern" < /dev/null) >> "$log" 2>&1
-                printf '%s\tbuilt\t%s\t%s\n' "$record" "$?" "$(( $(date +%s) - began ))" >> "$out/results-$w.tsv"
-              else
-                printf '%s\tbuild-failed\t\t%s\n' "$record" "$(( $(date +%s) - began ))" >> "$out/results-$w.tsv"
-              fi
-              patch -R -p1 -d "$tree" < "$diff" >> "$log" 2>&1
-            done < "$TMPDIR/records.tsv"
-            echo "worker $w: done" | tee -a "$out/status"
-          }
           pids=()
           for w in $(seq 0 $(( width - 1 ))); do
-            worker "$w" &
+            bash ${sweepWorker} "$w" "$width" "$jobs" &
             pids+=("$!")
           done
           wait "''${pids[@]}"
