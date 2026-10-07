@@ -97,6 +97,7 @@ This is the authoritative list of implementation findings for [MP-23](../masterp
 | [F76](mp23-archive/mp23-findings-closed.md#f76) | P1 | The accepted-incarnation tests stopped running, and twelve mutation records passed vacuously | Closed | EP-180 / EP-177 |
 | [F79](mp23-archive/mp23-findings-closed.md#f79) | P1 | Close drops a never-started member whose absence it cannot read, leaving it accepted with no exit | Closed | MP-23 (step 3d) |
 | [F80](#f80) | P1 | The reviewed rebind cannot be issued for application or standalone-database members, so an unrecorded database never has its backups accepted again | Open | nagare-fix (MP-23 step 5) |
+| [F82](#f82) | P1 | The no-data-loss drill (checklist section 2) has no documented procedure: the guide places full restore after total cluster loss outside this release | Open (scope decided; rebuild-in-place deferred) | nagare-fix (MP-23 step 5); rebuild-in-place: next MasterPlan |
 | [F77](#f77) | P1 | A database volume claim deleted outside review while its pod runs stays Terminating, and every review of the database refuses until it goes | Deferred | deferral ledger (operator, 2026-10-07); next MasterPlan |
 | [F78](#f78) | P2 | While a StatefulSet's own template never becomes Ready, every transaction stops at it, and independent members planned after it are never created until the template is corrected | Deferred | operator, 2026-10-07; next MasterPlan |
 
@@ -589,6 +590,36 @@ After convergence, the creates re-established the records and status reported `c
   - Proposed deferral (for the operator, not done): an adapter recovery that proves a lost create by its reviewed stamp could record the observed identity, so a lost response needs no rebind.
 
 **Verification.** Pending the fix and a C2 on the new candidate.
+
+## F82
+
+**The no-data-loss drill (checklist section 2) has no documented procedure: the guide places full restore after total cluster loss outside this release** — P1 (it blocks section 2, before real company data); **Open**; owner session nagare-fix (MP-23 step 5).
+
+**Found by the independent verification (2026-10-07, nagare-verify; observed in the docs at `a7958867`).**
+- `docs/user/backups-and-disaster-recovery.md` says "A full restore after total cluster loss remains outside this release's accepted evidence".
+- The same guide's "disaster-recovery runbook (target)" is the pre-inventory `nagare-01` flow (`pulumi up`, `just cluster-bootstrap`).
+- The checklist's drill needs a documented procedure: real data in an application and a database; destroy the cluster; restore from the off-cluster backups; verify the content; record the time.
+
+**Operator decision (2026-10-07, asked by nagare-verify):** scope A now, scope B to the next MasterPlan.
+- **A, this release.** A documented, timed drill that restores from the off-cluster backups into disposable engines and verifies the content. It is built from what already exists:
+  - the C2 and C3 source-unavailable drills (`phase3-su.sh`, `su-drill.sh`);
+  - `db escrow-signing-key`;
+  - `db verify-escrowed-backup` with `--escrow` and the object store only (F41);
+  - an exact archive restored into a disposable PostgreSQL, with the rows compared.
+
+  The operator rejected a multi-day plan, so A is a docs rewrite of the DR procedure plus the cloud drill run by the verifier. It adds no new command.
+
+  Volumes are outside the recovery objective by decision D2 (2026-10-03). Recovering data needs the escrowed key, the age key and the backup bucket, all kept in the private operator repository (ADR 13); generated service passwords are not needed to restore a dump into a new engine.
+- **B, deferred to the next MasterPlan: a reviewed rebuild of the same context with restore into it ("usable service").** It needs:
+  - an exit for an accepted durable member that is absent (`durable-resource-missing` refuses even `platform bootstrap` on a rebuilt cluster);
+  - restore authority across incarnations (ADR 27 N12);
+  - restore and ingestion without live producer Jobs;
+  - credential re-supply at create;
+  - promotion of a scratch restore to live (EP-160's deferred `--into-live`).
+
+  Until then, "usable service after total loss" is a documented limit.
+
+**Verification.** Pending the procedure docs and the section-2 drill on the C3 cloud context.
 
 ## F77
 
