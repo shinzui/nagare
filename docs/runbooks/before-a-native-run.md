@@ -52,11 +52,12 @@ scenario-b image, which needs `REDIS_URL`, with a PostgreSQL binding.
   and refuses the push when it is red. The fast gate first runs `just haskell-style-check` and
   `scripts/test-managed-command-audit.sh` (the architecture checks and the managed-command audit), which take seconds,
   then builds and runs the `nagarectl` and `nagare-dsl` suites serially, each from its package directory. Its logs go under
-  `${XDG_STATE_HOME:-~/.local/state}/nagare/gates/logs/`. The hook tests the working tree, so push
-  from a clean tree.
-- Every candidate: on a clean checkout of the exact revision, run `just gate`. It runs the fast gate,
-  builds a salted probe derivation on every remote system (so a stopped Linux builder fails here
-  instead of hiding behind cached outputs), runs `nix flake check --all-systems`, then dry-runs every
+  `${XDG_STATE_HOME:-~/.local/state}/nagare/gates/logs/`. A push whose commits all have green
+  full-gate records is accepted without it (`just land`); otherwise push from a clean tree.
+- Every candidate: on a clean checkout of the exact revision, run `just gate`. It first builds a
+  salted probe derivation on every remote system (so a stopped Linux builder fails at once instead
+  of after the fast steps; the builder idles off after about nine minutes), then runs the fast gate,
+  runs `nix flake check --all-systems`, then dry-runs every
   check of every supported system and requires nothing left to build or fetch. It writes
   `${XDG_STATE_HOME:-~/.local/state}/nagare/gates/<commit>.json`.
 - Before any native step: `just gate-verify <rev>` must print `green`. It refuses a missing, red or
