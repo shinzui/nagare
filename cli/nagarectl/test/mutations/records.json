@@ -484,5 +484,89 @@
     "suite": "nagare-dsl",
     "pattern": "/as RES-4 E11 and experiment E15 recorded it/",
     "expect": "test-fails"
+  },
+  {
+    "record": "G11-table-deployment-generation-spec-only",
+    "suite": "nagarectl",
+    "pattern": "/the table agrees with the recorded traces/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "G11-table-resourcequota-no-churn",
+    "suite": "nagarectl",
+    "pattern": "/the table agrees with the recorded traces/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "G11-deployment-loses-available",
+    "suite": "nagarectl",
+    "pattern": "/the fake API server reproduces the recorded traces/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "G11-no-apply-conflicts",
+    "suite": "nagarectl",
+    "pattern": "/the fake API server reproduces the recorded traces/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "G11-controller-never-lags",
+    "suite": "nagarectl",
+    "pattern": "/the fake API server reproduces the recorded traces/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "G11-statefulset-replaces-unready-pod",
+    "suite": "nagarectl",
+    "pattern": "/a StatefulSet correction stays stuck until its unready pod is deleted/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "G11-claim-never-held",
+    "suite": "nagarectl",
+    "pattern": "/fault acts: Deleted/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "G11-outcome-per-write",
+    "suite": "nagarectl",
+    "pattern": "/one placement per fault/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "G11-get-wakes-lagging-controller",
+    "suite": "nagarectl",
+    "pattern": "/fault acts: ControllerLag/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "G11-foreign-object-not-acted",
+    "suite": "nagarectl",
+    "pattern": "/fault acts: ForeignObject/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "G11-churn-always-churns-nothing",
+    "suite": "nagarectl",
+    "pattern": "/fault acts: ChurnAlways/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "G11-ledger-ignores-counts",
+    "suite": "nagarectl",
+    "pattern": "/the known-defect ledger is two-sided/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "G11-lands-failed-acted-only-on-jobs",
+    "suite": "nagarectl",
+    "pattern": "/fault acts: LandsFailed on a Deployment create/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "G11-controller-lag-never-acted",
+    "suite": "nagarectl",
+    "pattern": "/fault acts: ControllerLag on a create/",
+    "expect": "test-fails"
   }
 ]

@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/test/Nagare/Test/World/Cluster.hs b/cli/nagarectl/test/Nagare/Test/World/Cluster.hs
+index c2d1558d..35effcc1 100644
+--- a/cli/nagarectl/test/Nagare/Test/World/Cluster.hs
++++ b/cli/nagarectl/test/Nagare/Test/World/Cluster.hs
+@@ -301,7 +301,7 @@ writtenKey request = case request ^. #arguments of
+   verb : _
+     | verb `elem` ["create", "apply"] -> keyOf =<< requestBody request
+     | verb `elem` ["patch", "delete"] -> logRequest request ^. #target
+-  _ -> Nothing
++  _ -> logRequest request ^. #target
+ 
+ requestBody :: KubectlRequest -> Maybe Value
+ requestBody request = either (const Nothing) Just (eitherDecodeStrict (TE.encodeUtf8 (T.pack (request ^. #input))))

@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/test/Nagare/Test/World/Cluster.hs b/cli/nagarectl/test/Nagare/Test/World/Cluster.hs
+index c2d1558d..6e4c3855 100644
+--- a/cli/nagarectl/test/Nagare/Test/World/Cluster.hs
++++ b/cli/nagarectl/test/Nagare/Test/World/Cluster.hs
+@@ -252,7 +252,7 @@ clusterAnswer cluster request = do
+       (^. #churning) <$> readIORef (world cluster) >>= \case
+         Just placed | callOf "get" (Just k) == Just ObserveCall -> do
+           s <- readServer cluster
+-          let s' = churnOnce k s
++          let s' = s
+           when (s' /= s) $ do
+             modifyServer cluster (const s')
+             already <- elem placed . acted <$> readIORef (adversary cluster)

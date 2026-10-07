@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/test/Nagare/Test/World/ApiServer.hs b/cli/nagarectl/test/Nagare/Test/World/ApiServer.hs
+index 1a971da8..85e9c95d 100644
+--- a/cli/nagarectl/test/Nagare/Test/World/ApiServer.hs
++++ b/cli/nagarectl/test/Nagare/Test/World/ApiServer.hs
+@@ -536,7 +536,7 @@ deploymentStep server key stored =
+       status'
+         | replicas == 0 = counters 0 0 0 0 0 "True" "MinimumReplicasAvailable" "True" "NewReplicaSetAvailable"
+         | good = counters replicas replicas replicas replicas 0 "True" "MinimumReplicasAvailable" "True" "NewReplicaSetAvailable"
+-        | oldAvailable = counters (replicas + 1) 1 replicas replicas 1 "True" "MinimumReplicasAvailable" "False" "ProgressDeadlineExceeded"
++        | oldAvailable = counters (replicas + 1) 1 replicas replicas 1 "False" "MinimumReplicasUnavailable" "False" "ProgressDeadlineExceeded"
+         | otherwise = counters replicas replicas 0 0 replicas "False" "MinimumReplicasUnavailable" "False" "ProgressDeadlineExceeded"
+       counters total updated readyCount available unavailable availableStatus availableReason progressStatus progressReason =
+         object

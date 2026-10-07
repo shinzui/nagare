@@ -1,0 +1,12 @@
+diff --git a/cli/nagarectl/test/Nagare/Test/World/ApiServer.hs b/cli/nagarectl/test/Nagare/Test/World/ApiServer.hs
+index 1a971da8..ed42abf4 100644
+--- a/cli/nagarectl/test/Nagare/Test/World/ApiServer.hs
++++ b/cli/nagarectl/test/Nagare/Test/World/ApiServer.hs
+@@ -463,7 +463,6 @@ settleControllers server = foldr controllerStep server (Map.keys (objects server
+ controllerStep :: ObjectKey -> ApiServer -> ApiServer
+ controllerStep key server = case (Map.lookup key (objects server), semanticsFor key) of
+   (Just stored, Just semantics')
+-    | Set.member key (frozen server) -> server
+     -- A controller stops reconciling an object being deleted; only the
+     -- finalizers below still act (RES-4 E7: observedGeneration stays behind
+     -- the generation the deletion moved).

@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/test/Nagare/Test/World/Kinds.hs b/cli/nagarectl/test/Nagare/Test/World/Kinds.hs
+index c9034aef..4c1c9e65 100644
+--- a/cli/nagarectl/test/Nagare/Test/World/Kinds.hs
++++ b/cli/nagarectl/test/Nagare/Test/World/Kinds.hs
+@@ -224,7 +224,7 @@ validatedSemantics :: [((Text, Text), KindSemantics)]
+ validatedSemantics =
+   [ (("serving.knative.dev", "service"), KindSemantics SpecOnly True True KnativeConditions NoChurn OrphanBlocked)
+   , (("serving.knative.dev", "domainmapping"), KindSemantics SpecOnly True True KnativeConditions NoChurn Immediate)
+-  , (("apps", "deployment"), KindSemantics SpecAndAnnotations True True DeploymentRollout NoChurn Immediate)
++  , (("apps", "deployment"), KindSemantics SpecOnly True True DeploymentRollout NoChurn Immediate)
+   , (("apps", "statefulset"), KindSemantics SpecOnly True True StatefulSetRollout NoChurn Immediate)
+   , (("batch", "cronjob"), KindSemantics SpecOnly False True NoReadinessModel ScheduleTicks Immediate)
+   , (("batch", "job"), KindSemantics SpecOnly False True JobTerminal NoChurn Immediate)

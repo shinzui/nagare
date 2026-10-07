@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/test/Nagare/Test/World/Cluster.hs b/cli/nagarectl/test/Nagare/Test/World/Cluster.hs
+index c2d1558d..0fb9409b 100644
+--- a/cli/nagarectl/test/Nagare/Test/World/Cluster.hs
++++ b/cli/nagarectl/test/Nagare/Test/World/Cluster.hs
+@@ -178,7 +178,7 @@ clusterAnswer cluster request = do
+       (ForeignObject, Just k) -> do
+         s <- readServer cluster
+         when (isNothing (get False k s)) $ case create "kubectl-create" (foreignObject k) s of
+-          Right (s', _) -> modifyServer cluster (const s') >> note placed
++          Right (s', _) -> modifyServer cluster (const s')
+           Left _ -> pure ()
+       (Replaced, Just k) -> do
+         s <- readServer cluster

@@ -1,0 +1,12 @@
+diff --git a/cli/nagarectl/test/Nagare/Test/World/Cluster.hs b/cli/nagarectl/test/Nagare/Test/World/Cluster.hs
+index 755a2cec..2a9e26d0 100644
+--- a/cli/nagarectl/test/Nagare/Test/World/Cluster.hs
++++ b/cli/nagarectl/test/Nagare/Test/World/Cluster.hs
+@@ -151,6 +151,7 @@ clusterAnswer cluster request = do
+               , code == ExitSuccess
+               , Just k <- key
+               , hasReadiness k
++              , fault == LandsUnready || ((^. #readinessModel) <$> semanticsFor k) == Just JobTerminal
+               , rolledOut k previous current ->
+                   noteActed (adversary cluster) placed >> answered code stdout stderr
+             -- A lag acts when the controller would have changed the object

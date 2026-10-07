@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/test/Nagare/Test/World/ApiServer.hs b/cli/nagarectl/test/Nagare/Test/World/ApiServer.hs
+index 1a971da8..94d032d2 100644
+--- a/cli/nagarectl/test/Nagare/Test/World/ApiServer.hs
++++ b/cli/nagarectl/test/Nagare/Test/World/ApiServer.hs
+@@ -240,7 +240,7 @@ applyServerSide managerName force submitted server = do
+             , isNothing (entry ^. #subresource)
+             , path <- Set.toList (Set.intersection changed (entry ^. #fields))
+             ]
+-      unless (force || null conflicts) $ Left (applyConflict key conflicts)
++      unless True $ Left (applyConflict key conflicts)
+       let previouslyApplied = maybe Set.empty (^. #fields) (find self (stored ^. #managed))
+           dropped = Set.filter (\path -> lastSegment path /= "." && not (ownedByOther path)) (previouslyApplied `Set.difference` applied)
+           ownedByOther path = any (\entry -> not (self entry) && Set.member path (entry ^. #fields)) (stored ^. #managed)

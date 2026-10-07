@@ -1,0 +1,14 @@
+diff --git a/cli/nagarectl/test/Nagare/Test/World/Cluster.hs b/cli/nagarectl/test/Nagare/Test/World/Cluster.hs
+index 755a2cec..a3e61587 100644
+--- a/cli/nagarectl/test/Nagare/Test/World/Cluster.hs
++++ b/cli/nagarectl/test/Nagare/Test/World/Cluster.hs
+@@ -160,7 +160,8 @@ clusterAnswer cluster request = do
+               | code == ExitSuccess
+               , Just k <- key
+               , let thawed = current & #frozen %~ Set.delete k
+-              , controllerStep k thawed /= thawed ->
++              , controllerStep k thawed /= thawed
++              , False ->
+                   noteActed (adversary cluster) placed >> answered code stdout stderr
+             _ -> answered code stdout stderr
+   where

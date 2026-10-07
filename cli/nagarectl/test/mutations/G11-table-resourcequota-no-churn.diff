@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/test/Nagare/Test/World/Kinds.hs b/cli/nagarectl/test/Nagare/Test/World/Kinds.hs
+index c9034aef..836741c9 100644
+--- a/cli/nagarectl/test/Nagare/Test/World/Kinds.hs
++++ b/cli/nagarectl/test/Nagare/Test/World/Kinds.hs
+@@ -234,7 +234,7 @@ validatedSemantics =
+   , (("", "persistentvolumeclaim"), (plain True) {deletionRule = HeldWhileInUse})
+   , (("", "serviceaccount"), plain False)
+   , (("", "namespace"), (plain True) {deletionRule = HeldUntilEmpty})
+-  , (("", "resourcequota"), (plain True) {churnSource = PodChanges})
++  , (("", "resourcequota"), (plain True) {churnSource = NoChurn})
+   , (("networking.k8s.io", "networkpolicy"), (plain False) {generationRule = SpecOnly})
+   , (("rbac.authorization.k8s.io", "role"), plain False)
+   , (("rbac.authorization.k8s.io", "rolebinding"), plain False)

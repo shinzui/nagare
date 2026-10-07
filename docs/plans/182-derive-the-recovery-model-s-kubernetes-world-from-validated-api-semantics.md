@@ -182,6 +182,16 @@ How to see it working:
 - G3 (P6) is invisible, not absent. A database StatefulSet that lands unready closes, and the corrected review lands
   and stays stuck. No invariant flags a correction that never takes effect: the model has no "a corrected review
   converges" liveness invariant. Raised with the coordinator as a scope question; EP-181 owns the G3 fix.
+- `acted` was not exact for two faults, found when nagare-deep-tier-fixes ran the proposed I9 invariant on
+  `c37bc231`; 15 violations looked new because of it:
+  - LandsFailed was recorded only on a Job, though every controller with a readiness model treats a failed spec as
+    not ready.
+  - ControllerLag was recorded only when the object already had status, so a lagged create went unrecorded.
+
+  Fixed in M3's code: a lag now acts exactly when the controller would have changed the object after the write.
+  Two failing-first `world faults` tests cover the fix, and two mutation records pin it.
+- EP-182's mutation proofs are now records (`G11-*` in `cli/nagarectl/test/mutations/`, 14 of them), swept with
+  the others.
 - The fast gate's architecture check bounds a module at 1000 lines. `ApiServer.hs` reached 1043 with E15's quantity
   rules, which now live in `Nagare/Test/World/Quantity.hs`.
 - Every RES-4 claim reproduced in the second, independent recording: the stale `Ready=True` (E4),

@@ -127,6 +127,20 @@ A new record needs its row here and its entry in `records.json`.
 | `F61-transfer-ignores-mounts.diff` | the transfer refuses while another pod mounts the destination | "a transfer refuses while another pod mounts the destination (F61)" fails |
 | `F58-absence-proof-holds-no-data.diff` | only a stateless or never-started member may leave history as absent | "a durable member only verified by a stopped update is never replanned or retired as absent (F55, F58)": the deleted volume is retired as absent |
 | `F58-admission-absence-recheck.diff` | admission re-observes absence-proved members | "retirement drops a confirmed-absent stateless member only while it stays absent (F58)": the reappeared member is dropped and the retirement converges |
+| `G11-table-deployment-generation-spec-only.diff` | the kind table states that a Deployment's generation moves on spec and annotation changes (RES-4 U8) | "the table agrees with the recorded traces" fails: the traces say SpecAndAnnotations (EP-182, 2026-10-07) |
+| `G11-table-resourcequota-no-churn.diff` | the kind table states that a ResourceQuota's status churns with pod changes (RES-4 E10) | "the table agrees with the recorded traces" fails: the traces say PodChanges (EP-182, 2026-10-07) |
+| `G11-deployment-loses-available.diff` | the fake server keeps a Deployment Available during a broken update (RES-4 E5, G1) | "the fake API server reproduces the recorded traces" fails at the E5 step (EP-182, 2026-10-07) |
+| `G11-no-apply-conflicts.diff` | the fake server refuses an unforced apply that takes another manager's field (RES-4 U10, E13) | "the fake API server reproduces the recorded traces" fails at the E13 conflict step (EP-182, 2026-10-07) |
+| `G11-controller-never-lags.diff` | a frozen controller does not reconcile (RES-4 E4, G2) | "the fake API server reproduces the recorded traces" fails at the E4 step (EP-182, 2026-10-07) |
+| `G11-statefulset-replaces-unready-pod.diff` | OrderedReady replaces a pod at another revision only when it is Ready (RES-4 E6, G3) | the world rule test fails: the correction rolls without a pod DELETE (EP-182, 2026-10-07) |
+| `G11-claim-never-held.diff` | a PVC a running workload mounts is held by pvc-protection (RES-4 U6, E7, E16; F77) | "fault acts: Deleted" fails: the PVC is gone at once, not Terminating (EP-182, 2026-10-07) |
+| `G11-outcome-per-write.diff` | a written spec's outcome is decided only when its pod template changes | the fast tier fails: an annotation-only update of an unready revision is decided again (EP-182, 2026-10-07) |
+| `G11-get-wakes-lagging-controller.diff` | only a write, never a read, reaches a lagging controller | "fault acts: ControllerLag" fails: an observation wakes the controller (the F69 check could then pass vacuously) (EP-182, 2026-10-07) |
+| `G11-foreign-object-not-acted.diff` | ForeignObject records that it acted | "fault acts: ForeignObject" fails (EP-182, 2026-10-07) |
+| `G11-churn-always-churns-nothing.diff` | ChurnAlways makes the churn source write status before each observation | "fault acts: ChurnAlways" fails: nothing churns and the fault never acts (EP-182, 2026-10-07) |
+| `G11-ledger-ignores-counts.diff` | the known-defect ledger fails an entry whose count changed | "the known-defect ledger is two-sided" fails: a fixed or extra occurrence is not reported (EP-182, 2026-10-07) |
+| `G11-lands-failed-acted-only-on-jobs.diff` | LandsFailed records that it acted on every kind with a readiness model, not only a Job | "fault acts: LandsFailed on a Deployment create" fails: the rollout fails unrecorded (EP-182, 2026-10-07) |
+| `G11-controller-lag-never-acted.diff` | ControllerLag records that it acted when the controller would have changed the object, including a new object's first status | "fault acts: ControllerLag on a create" fails (EP-182, 2026-10-07) |
 
 The two F58 records are caught by focused regressions rather than by the model;
 run them with `-p "application update recovery"`.

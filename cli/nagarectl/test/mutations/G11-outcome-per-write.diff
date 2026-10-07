@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/test/Nagare/Test/World/ApiServer.hs b/cli/nagarectl/test/Nagare/Test/World/ApiServer.hs
+index 1a971da8..219b04df 100644
+--- a/cli/nagarectl/test/Nagare/Test/World/ApiServer.hs
++++ b/cli/nagarectl/test/Nagare/Test/World/ApiServer.hs
+@@ -694,7 +694,7 @@ replaceContent key stored content' managed' server
+       let generation' = case (stored ^. #generation, (^. #generationRule) <$> semanticsFor key) of
+             (Just g, Just rule) | generationMoves rule (stored ^. #content) content' -> Just (g + 1)
+             (current, _) -> current
+-          rolled = if templateOf content' /= templateOf (stored ^. #content) then withTemplateOutcome server content' else id
++          rolled = withTemplateOutcome server content'
+           stored' = rolled stored & #content .~ content' & #managed .~ managed' & #generation .~ generation' & #resourceVersion .~ nextResourceVersion server
+           server' = controllerStep key (server & #objects %~ Map.insert key stored' & #nextResourceVersion %~ (+ 1))
+        in (server', maybe Null (render False) (Map.lookup key (objects server')))

@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/test/Nagare/Test/World/ApiServer.hs b/cli/nagarectl/test/Nagare/Test/World/ApiServer.hs
+index 1a971da8..6bebb85d 100644
+--- a/cli/nagarectl/test/Nagare/Test/World/ApiServer.hs
++++ b/cli/nagarectl/test/Nagare/Test/World/ApiServer.hs
+@@ -566,7 +566,7 @@ statefulSetStep server key stored =
+         current : _
+           | blocked -> (podsSoFar <> [current], True, n)
+           | current ^. #revision == updateRevision -> (podsSoFar <> [current], not (current ^. #ready) && not parallel, n)
+-          | current ^. #ready || parallel -> let pod = fresh n in (podsSoFar <> [pod], not (pod ^. #ready) && not parallel, n + 1)
++          | True -> let pod = fresh n in (podsSoFar <> [pod], not (pod ^. #ready) && not parallel, n + 1)
+           | otherwise -> (podsSoFar <> [current], True, n)
+         []
+           | blocked -> (podsSoFar, True, n)

@@ -1,0 +1,15 @@
+diff --git a/cli/nagarectl/test/Nagare/Test/World/ApiServer.hs b/cli/nagarectl/test/Nagare/Test/World/ApiServer.hs
+index 1a971da8..5cd75f19 100644
+--- a/cli/nagarectl/test/Nagare/Test/World/ApiServer.hs
++++ b/cli/nagarectl/test/Nagare/Test/World/ApiServer.hs
+@@ -365,8 +365,8 @@ mountClaim key server = case Map.lookup key (objects server) of
+ -- StatefulSet with pods, a Deployment with replicas, a Knative Service).
+ claimInUse :: ApiServer -> ObjectKey -> Bool
+ claimInUse server key =
+-  Set.member key (inUse server)
+-    || or
++  False
++    && or
+       [ String (key ^. #name) `elem` [leafAt ["persistentVolumeClaim", "claimName"] volume | volume <- arrayValues (leafAt templateVolumes (stored ^. #content))]
+       | (workload, stored) <- Map.toList (objects server)
+       , workload ^. #namespace == key ^. #namespace
