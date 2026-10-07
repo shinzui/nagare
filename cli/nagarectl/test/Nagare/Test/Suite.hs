@@ -61,6 +61,7 @@ import InventoryRedisRestoreRecoverySpec
 import InventoryRefusedPreflightRecoverySpec
 import InventoryRenameRecoveryModelSpec (inventoryRenameRecoveryModelTests)
 import InventorySettleSpec (inventorySettleTests)
+import InventoryStuckPodSpec (inventoryStuckPodTests)
 import InventorySpec (inventoryTests)
 import InventoryStatusSpec (inventoryStatusTests)
 import InventoryTransactionSpec
@@ -221,6 +222,7 @@ main = do
             , inventoryRecoveryModelTests
             , inventoryRenameRecoveryModelTests
             , inventorySettleTests
+            , inventoryStuckPodTests
             , inventoryKubernetesReadinessTests
             , inventoryCloseTests
             , inventoryTransferScriptTests

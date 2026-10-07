@@ -157,6 +157,7 @@ library
     Nagare.Inventory.Adapters.KubernetesProof
     Nagare.Inventory.Adapters.KubernetesReadiness
     Nagare.Inventory.Adapters.KubernetesRuntime
+    Nagare.Inventory.Adapters.KubernetesStuckPod
     Nagare.Inventory.Adapters.Pulumi
     Nagare.Inventory.Adapters.PulumiRuntime
     Nagare.Inventory.Adapters.RestoreScratch
@@ -553,6 +554,7 @@ test-suite nagarectl-test
     InventorySpec
     InventoryStatusSpec
     InventoryStoreBackupSpec
+    InventoryStuckPodSpec
     InventoryTransactionSpec
     InventoryTransferScriptSpec
     InventoryUpstreamSpec
