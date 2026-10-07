@@ -152,9 +152,8 @@
         pkgs.runCommand "mutation-sweep-${label}" { nativeBuildInputs = [ sweepGhc pkgs.cabal-install pkgs.jq pkgs.python3 pkgs.coreutils ]; } ''
           set -uo pipefail
           mkdir -p "$out/logs"
-          export HOME="$TMPDIR/home" CABAL_DIR="$TMPDIR/cabal"
-          mkdir -p "$HOME" "$CABAL_DIR"
-          : > "$CABAL_DIR/config"
+          export HOME="$TMPDIR/home"
+          mkdir -p "$HOME"
           export LANG=C.UTF-8 LC_ALL=C.UTF-8 GHC_ENVIRONMENT=-
           # The loader tests' runghc must be typedConfigRuntime's, as in the
           # shipped test run; the build names sweepGhc explicitly.
@@ -168,12 +167,17 @@
           echo "mutation sweep ${label}: $(wc -l < "$TMPDIR/records.tsv") records, $width workers, -j$jobs each, $(nproc) cores"
           worker() {
             local w=$1 tree="$TMPDIR/tree-$1" n=0 record suite pattern
+            trap 'echo "worker $w: exited with status $? after $n records" >> "$out/status"' EXIT
+            # Concurrent cabal runs must not share a cabal directory.
+            export CABAL_DIR="$TMPDIR/cabal-$w"
+            mkdir -p "$CABAL_DIR"
+            : > "$CABAL_DIR/config"
             cp -R ${self} "$tree"
             chmod -R u+w "$tree"
             patchShebangs "$tree/cluster" > /dev/null
             cp "$TMPDIR/cabal.project.sweep" "$tree/cli/nagarectl/cabal.project.sweep"
             cd "$tree/cli/nagarectl"
-            build() { cabal build --offline --enable-tests -w ${sweepGhc}/bin/ghc -O0 -j"$jobs" --project-file=cabal.project.sweep nagarectl-test nagare-dsl-test; }
+            build() { cabal build < /dev/null --offline --enable-tests -w ${sweepGhc}/bin/ghc -O0 -j"$jobs" --project-file=cabal.project.sweep nagarectl-test nagare-dsl-test; }
             local start=$(date +%s)
             if ! build > "$out/logs/base-$w.log" 2>&1; then
               echo "worker $w: base build failed" | tee -a "$out/status"
@@ -190,9 +194,9 @@
               fi
               if build >> "$log" 2>&1; then
                 local binary dir
-                binary=$(cabal list-bin --offline --enable-tests -w ${sweepGhc}/bin/ghc -O0 --project-file=cabal.project.sweep "$suite-test" 2>> "$log")
+                binary=$(cabal list-bin < /dev/null --offline --enable-tests -w ${sweepGhc}/bin/ghc -O0 --project-file=cabal.project.sweep "$suite-test" 2>> "$log")
                 dir="$tree/cli/$suite"
-                (cd "$dir" && timeout 1800 "$binary" -p "$pattern") >> "$log" 2>&1
+                (cd "$dir" && timeout 1800 "$binary" -p "$pattern" < /dev/null) >> "$log" 2>&1
                 printf '%s\tbuilt\t%s\t%s\n' "$record" "$?" "$(( $(date +%s) - began ))" >> "$out/results-$w.tsv"
               else
                 printf '%s\tbuild-failed\t\t%s\n' "$record" "$(( $(date +%s) - began ))" >> "$out/results-$w.tsv"
