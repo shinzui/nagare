@@ -3,16 +3,19 @@
 -- unproved (F66).
 module InventorySettleSpec (inventorySettleTests) where
 
+import Control.Monad (forM_)
 import Data.Aeson (Value (Object), decode, encode, toJSON)
 import Data.Aeson.KeyMap qualified as KM
 import Data.IORef
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
+import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import InventoryTransactionSpec (fixtureBinding, recordingRegistryWith)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes (KubernetesMutation (..), KubernetesState (..), settleMutation)
+import Nagare.Inventory.Adapters.KubernetesProof (kubectlRefusal)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Execute
 import Nagare.Inventory.Journal (mkOperationId)
@@ -113,6 +116,27 @@ inventorySettleTests =
         case toJSON (update stampBefore) of
           Object root -> assertBool "an update without its before stamp decoded" (isNothing (decode (encode (Object (KM.delete "beforeStamp" root))) :: Maybe KubernetesMutation))
           other -> assertFailure (show other)
+    , testCase "a write the API server refused with a 4xx answer had no effect; only a missing answer is ambiguous (G4)" $ do
+        -- RES-4 U4 (E1, E3, E8, E13): every 4xx refusal left the object unchanged.
+        forM_
+          [ "Error from server (Conflict): Operation cannot be fulfilled on configmaps \"x\": the object has been modified"
+          , "Error from server (Invalid): ConfigMap \"x\" is invalid: metadata.uid: field is immutable"
+          , "Error from server (AlreadyExists): configmaps \"x\" already exists"
+          , "Error from server (NotFound): configmaps \"x\" not found"
+          , "Error from server (Forbidden): configmaps \"x\" is forbidden"
+          , "Error from server (BadRequest): the server rejected our request"
+          , "error: Operation cannot be fulfilled on deployments.apps \"x\": the object has been modified"
+          , "error: Apply failed with 2 conflicts: conflicts with \"kubectl-edit\" using v1: .data.k"
+          ]
+          $ \answer -> assertBool (T.unpack answer) (isJust (kubectlRefusal ("Warning: noise\n" <> answer <> "\n")))
+        -- Transport failures, timeouts and 5xx can hide a committed write.
+        forM_
+          [ "Unable to connect to the server: dial tcp 10.0.0.1:6443: i/o timeout"
+          , "Error from server (InternalError): an error on the server has prevented the request from succeeding"
+          , "Error from server (ServiceUnavailable): the server is currently unable to handle the request"
+          , "Error from server (Timeout): the server was unable to return a response in the time allotted"
+          ]
+          $ \answer -> kubectlRefusal answer @?= Nothing
     , testCase "an update whose target is replaced by an object not stamped as its own settles as target gone (F68)" $ do
         let owner = ok (mkScopeId Platform "updated")
             cluster = mintResourceId owner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))

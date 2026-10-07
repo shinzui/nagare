@@ -14,12 +14,14 @@ module Nagare.Inventory.Adapters.KubernetesProof
   , statefulSetAddress
   , deploymentAddress
   , orTakeover
+  , kubectlRefusal
   )
 where
 
 import Data.Aeson
 import Data.Aeson.KeyMap qualified as KM
 import Data.Aeson.Types (Parser)
+import Data.Maybe (listToMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude hiding ((.=))
@@ -318,6 +320,17 @@ instance ToJSON FieldTakeover where
 instance FromJSON FieldTakeover where
   parseJSON = withObject "Kubernetes field takeover" $ \o ->
     FieldTakeover <$> o .: "physical" <*> o .: "resourceVersion" <*> o .: "managers"
+
+-- | G4, RES-4 U4 (E1, E3, E8, E13): every 4xx answer from the API server left
+-- the object unchanged, so a write kubectl reports refused that way had no
+-- effect. A server-side apply field conflict is a 409. Only a missing answer
+-- (transport failure, timeout) or a 5xx can hide a committed write.
+kubectlRefusal :: Text -> Maybe Text
+kubectlRefusal errors = listToMaybe [line | line <- map T.strip (T.lines errors), any (`T.isPrefixOf` line) refusals]
+  where
+    refusals =
+      ["Error from server (" <> code <> ")" | code <- ["Conflict", "Invalid", "AlreadyExists", "NotFound", "Forbidden", "BadRequest"]]
+        <> ["error: Operation cannot be fulfilled", "error: Apply failed with"]
 
 -- | Only a version-3 update carries a takeover, bound to its own exact
 -- precondition; no other version may carry one.

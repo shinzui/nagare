@@ -4,6 +4,7 @@
 -- "Nagare.Inventory.Adapters.KubernetesRuntime", which re-exports it.
 module Nagare.Inventory.Adapters.KubernetesReadiness
   ( observedReady
+  , readinessForAddress
   , jobCompleted
   , jobFailed
   , crdEstablished
@@ -19,6 +20,7 @@ import Data.Aeson
 import Data.Aeson.KeyMap qualified as KM
 import Data.Text (Text)
 import Nagare.Dsl.Prelude hiding ((.=))
+import Nagare.Resource.Types
 
 -- A failed controller condition is a health finding, not a failed read of
 -- the object's configuration or ownership. Execution still refuses to verify
@@ -134,3 +136,13 @@ statefulSetReady (Object root) = case (KM.lookup "metadata" root, KM.lookup "spe
           _ -> False
   _ -> False
 statefulSetReady _ = False
+
+readinessForAddress :: ProviderAddress -> Value -> Maybe Bool
+readinessForAddress address value = case address of
+  Kubernetes _ "batch" kind _ _ | nameText kind == "job" -> Just (jobCompleted value)
+  Kubernetes _ "apiextensions.k8s.io" kind _ _ | nameText kind == "customresourcedefinition" -> Just (crdEstablished value)
+  Kubernetes _ "cert-manager.io" kind _ _ | nameText kind `elem` ["certificate", "clusterissuer"] -> Just (certificateReady value)
+  Kubernetes _ "serving.knative.dev" kind _ _ | nameText kind `elem` ["service", "domainmapping"] -> Just (knativeReady value)
+  Kubernetes _ "apps" kind _ _ | nameText kind == "deployment" -> Just (deploymentAvailable value)
+  Kubernetes _ "apps" kind _ _ | nameText kind == "statefulset" -> Just (statefulSetReady value)
+  _ -> Nothing

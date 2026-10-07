@@ -74,6 +74,7 @@ import Nagare.Inventory.Adapter (AdapterExecution (..), OperationAction (..))
 import Nagare.Inventory.Adapters.Kubernetes
 import Nagare.Inventory.Adapters.KubernetesCollection (collectionDeleteRequest)
 import Nagare.Inventory.Adapters.KubernetesKinds (readinessKinds, supportedUpdateKinds)
+import Nagare.Inventory.Adapters.KubernetesProof (kubectlRefusal)
 import Nagare.Inventory.Adapters.KubernetesReadiness
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect))
@@ -249,6 +250,7 @@ mkKubernetesRuntimeObservations stable config resolveCacheKey specs =
                         Left reason -> pure (AdapterEffectAmbiguous reason)
                         Right () -> waitForReadiness config (mutationAddress mutation)
                   | otherwise -> identified output <$> waitForReadiness config (mutationAddress mutation)
+                Right (ExitFailure _, _, errors) | Just refusal <- kubectlRefusal (T.pack errors) -> pure (AdapterEffectFailed (KnownNoEffect refusal))
                 _ -> pure (AdapterEffectAmbiguous "Kubernetes write did not return success; reobserve before retry")
 
 -- | Attach the UID of the object a write returned. Output that names no UID
@@ -389,16 +391,6 @@ observeKubernetesHealth config address physical = case address of
                   else Nothing
               _ -> Nothing
   _ -> pure Nothing
-
-readinessForAddress :: ProviderAddress -> Value -> Maybe Bool
-readinessForAddress address value = case address of
-  Kubernetes _ "batch" kind _ _ | nameText kind == "job" -> Just (jobCompleted value)
-  Kubernetes _ "apiextensions.k8s.io" kind _ _ | nameText kind == "customresourcedefinition" -> Just (crdEstablished value)
-  Kubernetes _ "cert-manager.io" kind _ _ | nameText kind `elem` ["certificate", "clusterissuer"] -> Just (certificateReady value)
-  Kubernetes _ "serving.knative.dev" kind _ _ | nameText kind `elem` ["service", "domainmapping"] -> Just (knativeReady value)
-  Kubernetes _ "apps" kind _ _ | nameText kind == "deployment" -> Just (deploymentAvailable value)
-  Kubernetes _ "apps" kind _ _ | nameText kind == "statefulset" -> Just (statefulSetReady value)
-  _ -> Nothing
 
 supportsReadiness :: ProviderAddress -> Bool
 supportsReadiness address = maybe False (const True) (readinessForAddress address Null)

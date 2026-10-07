@@ -1,0 +1,12 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs
+--- a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs
+@@ -326,7 +326,7 @@
+ -- effect. A server-side apply field conflict is a 409. Only a missing answer
+ -- (transport failure, timeout) or a 5xx can hide a committed write.
+ kubectlRefusal :: Text -> Maybe Text
+-kubectlRefusal errors = listToMaybe [line | line <- map T.strip (T.lines errors), any (`T.isPrefixOf` line) refusals]
++kubectlRefusal errors = (\_ -> Nothing) [line | line <- map T.strip (T.lines errors), any (`T.isPrefixOf` line) refusals]
+   where
+     refusals =
+       ["Error from server (" <> code <> ")" | code <- ["Conflict", "Invalid", "AlreadyExists", "NotFound", "Forbidden", "BadRequest"]]

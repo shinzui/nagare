@@ -116,6 +116,14 @@ kubernetesFieldTakeoverTests =
         adapterPreflight adapter K.updateOperation (tampered mutation {mutationVersion = 1}) >>= assertBool "version 1 takeover accepted" . isLeft
         adapterPreflight adapter K.updateOperation (tampered mutation {mutationTakeover = Just unbound}) >>= assertBool "unbound takeover accepted" . isLeft
         adapterPreflight adapter K.updateOperation (tampered mutation {mutationTakeover = Nothing}) >>= assertBool "version 3 without takeover accepted" . isLeft
+    , testCase "an update the API server refuses with a 4xx is a known no effect; a lost connection stays ambiguous (G4)" $ do
+        mutation <- prepared Nothing
+        refusingTransport mutation "Error from server (Conflict): Operation cannot be fulfilled on configmaps \"settings\": the object has been modified"
+          >>= assertKnownNoEffect "Error from server (Conflict)"
+        lost <- refusingTransport mutation "Unable to connect to the server: dial tcp 10.0.0.1:6443: i/o timeout"
+        case lost of
+          AdapterEffectAmbiguous _ -> pure ()
+          other -> assertFailure ("a lost connection was classed " <> show other)
     ]
 
 -- | The live object as kubectl returns it with managed fields.
@@ -203,6 +211,17 @@ transport mutation initial afterApply = do
       config = withKubectlInterpreter (runKubectlWith handle) (KubernetesRuntimeConfig (ok (mkContextId "test")) "test" (pure (Right ())))
   result <- kubernetesMutateConditional (mkKubernetesRuntimeOps config bound) mutation
   (result,) <$> readIORef applies
+
+-- | The transport against a writable object, whose apply fails with the given
+-- kubectl error output.
+refusingTransport :: KubernetesMutation -> String -> IO AdapterExecution
+refusingTransport mutation errors = do
+  let handle request = case request ^. #arguments of
+        "get" : _ -> pure (Right (ExitSuccess, T.unpack (TE.decodeUtf8 (BL.toStrict (encode (live "kubernetes-uid-1" "4" [own])))), ""))
+        "apply" : _ -> pure (Right (ExitFailure 1, "", errors))
+        other -> assertFailure ("unmodelled kubectl request: " <> show other) >> pure (Left "unmodelled")
+      config = withKubectlInterpreter (runKubectlWith handle) (KubernetesRuntimeConfig (ok (mkContextId "test")) "test" (pure (Right ())))
+  kubernetesMutateConditional (mkKubernetesRuntimeOps config bound) mutation
 
 assertKnownNoEffect :: Text -> AdapterExecution -> Assertion
 assertKnownNoEffect expected result = case result of

@@ -65,7 +65,12 @@ MasterPlan, not by this plan.
   - The pure settle test failed first and now passes. Record `F67-settle-ignores-stamp` fails it.
   - The world reads no stamps (two lines, agreed with EP-182), so the three F67 model schedules are handed to EP-182 as
     its acceptance test.
-- [ ] M4 (G4): definitive 4xx refusals map to no effect.
+- [x] M4 (G4, F71), 2026-10-06: definitive 4xx refusals map to no effect.
+  - `kubectlRefusal` covers the server's 4xx answers and E13's apply field conflict. Transport failures and 5xx stay
+    ambiguous.
+  - The unit test failed first. The runtime wiring test is proved by its record.
+  - `readinessForAddress` moved to `Adapters/KubernetesReadiness.hs`, and the runtime allowance dropped to 1303.
+  - Done before M5, because M5's bounded rv-409 re-read relies on every other 409 or 422 being no effect.
 - [ ] M5 (G6): one conditional-write discipline for updates and retires.
 - [ ] M6 (G5): terminating objects are classified, not read as present.
 - [ ] M7 (G7): resource quantities compare canonically.
@@ -106,6 +111,21 @@ MasterPlan, not by this plan.
   anywhere, and this is its first reliable version. `beforeStamp` is required, earlier reviews need not decode, and
   disposable stores are rebuilt rather than migrated. Where this plan touches compatibility code that exists only for
   earlier reviews, such as a mutation-version branch, it removes that code and says so in the commit.
+  Date: 2026-10-06
+
+
+- Decision: M5 (G6) follows RES-4 §5.2.2 and rule U10, which the RES-4 author validated in experiment E13.
+  - The apply stays forced.
+  - Execute and preflight compare (UID, owner, live stamp == `beforeStamp`), not whole-state equality.
+  - The runtime's existing managed-fields read requires no foreign non-status entry, except a reviewed takeover and
+    the allowlisted controller paths, with no resourceVersion equality.
+  - The forced apply carries `metadata.uid` and that read's fresh resourceVersion. A 409 for "the object has been
+    modified" is re-read a bounded number of times.
+  - A retire guards on (UID, owner, digest == reviewed), then deletes with the fresh resourceVersion.
+  Rationale (E13): a no-force apply conflicts with Nagare's own create-time Update entry, and every API write records
+  its writer per field. So "only nagare-inventory owns non-status fields" with the before stamp proves no other writer
+  touched the spec or metadata, and status churn never conflicts. Options rejected: recording a configuration digest
+  (the dropped v4) and keeping v1's exact guard (G6's friction).
   Date: 2026-10-06
 
 

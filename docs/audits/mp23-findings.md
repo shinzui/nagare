@@ -88,6 +88,7 @@ This is the authoritative list of implementation findings for [MP-23](../masterp
 | [F69](#f69) | P1 | A Knative Service or DomainMapping reads ready from its previous generation's Ready=True before the controller has seen the new spec | Verifying | EP-153 / EP-180 |
 | [F70](#f70) | P1 | A worker Deployment whose update never becomes available reads as ready, so a broken rollout is recorded as complete | Verifying | EP-153 / EP-180 |
 | [F67](#f67) | P1 | An update refused after a status write, whose refusal's journal event is lost, settles unknown | Verifying | EP-153 / EP-180 |
+| [F71](#f71) | P2 | A Kubernetes write the API server definitively refused (409, 422, 404 and the other 4xx) is reported ambiguous | Verifying | EP-153 / EP-180 |
 | [F68](#f68) | P1 | An update whose target is deleted and replaced by an object not stamped as its own settles unknown, so only an attested close can end it | Verifying | EP-153 / EP-177 |
 
 Closed findings keep their full text, location, implementation updates and verification in [the closed-findings archive](mp23-archive/mp23-findings-closed.md). F01 and F11 retain their [earlier independent closure](mp23-archive/mp23-verification.md). F02, F03, F04, F05, F06, F07, F08 and F20 now have [2026-10-02 independent closure](mp23-independent-verification-2026-10-02.md). F34, F35, F36, F37, F38, F41 and F42 have 2026-10-04 independent closure on candidate `7596632c`, and F49 and F50 on candidate `847543896d07` ([records](mp23-independent-results-2026-10-04/phase1-source-and-regressions-7596632c.md)). Other entries retain their status shown above.
@@ -932,3 +933,20 @@ The class is not `NoEffect`. The absent before-state has changed, and in the `De
 **Model.** The recovery model's world decides readiness from its own state, not through this predicate, so it cannot see F70. EP-182 routes the world's readiness through the production parser.
 
 **Mutation.** `test/mutations/F70-deployment-ready-ignores-rollout.diff` reduces the rule to the observed generation, and the test fails.
+
+## F71
+
+**A Kubernetes write the API server definitively refused (409, 422, 404 and the other 4xx) is reported ambiguous** — P2; **Verifying**; owners EP-153 / EP-180.
+
+**Found by RES-4's gap analysis (G4; 2026-10-06, nagare-first-principle; experiments E1, E3, E8 and E13 on k3s 1.34; observed).**
+- **What happened.** The Kubernetes runtime mapped every non-zero `kubectl` exit to `AdapterEffectAmbiguous`, including the API server's definitive refusals. RES-4 U4: every 4xx refusal left the object unchanged.
+- **The consequence.** A refused write needed a re-observation and a settlement it did not need, and with G6's status churn it could end Unknown.
+- **The model never saw it.** The world returns `KnownNoEffect` for the same refusals, so the model never exercised the real path.
+
+**Fix.** `kubectlRefusal` (`Adapters/KubernetesProof.hs`) maps the server's definitive answers to `KnownNoEffect`. Those answers are `Error from server (Conflict|Invalid|AlreadyExists|NotFound|Forbidden|BadRequest)`, `error: Operation cannot be fulfilled`, and a server-side-apply field conflict (`error: Apply failed with`, a 409; E13). Transport failures, timeouts and 5xx (`InternalError`, `ServiceUnavailable`, `Timeout`) stay ambiguous, because only they can hide a committed write. The runtime's failed-write branch applies it.
+
+**Tests.**
+- "a write the API server refused with a 4xx answer had no effect; only a missing answer is ambiguous (G4)", in `InventorySettleSpec`. It failed first against a stub.
+- "an update the API server refuses with a 4xx is a known no effect; a lost connection stays ambiguous (G4)", in `InventoryKubernetesFieldTakeoverSpec`, through the fake kubectl interpreter. The wiring existed before this test, so its failing side is shown by the wiring record below.
+
+**Mutations.** `test/mutations/G4-kubectl-refusal-ignored.diff` makes the classifier answer nothing, and both tests fail. `test/mutations/G4-runtime-refusal-ambiguous.diff` drops the runtime branch, and the wiring test fails.
