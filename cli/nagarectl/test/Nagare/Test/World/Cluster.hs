@@ -82,11 +82,15 @@ data KubeWorld = KubeWorld
   , reviewedOperations :: !(Map.Map OperationId [ResourceId])
   -- ^ EP-181: the members each applied review's operations act on, so the
   -- model can tell from the journal's intents which members ever started.
+  , poisoned :: !(Map.Map Text (Boundary, Fault))
+  -- ^ The specs a 'LandsUnready' or 'LandsFailed' fault made bad, by outcome
+  -- key: the fault acts when a write of that spec lands and rolls out,
+  -- whether the faulted write or a retry of it.
   }
   deriving stock (Eq, Show, Generic)
 
 newWorld :: ApiServer -> KubeWorld
-newWorld initial = KubeWorld initial Nothing False False Nothing Map.empty Map.empty Set.empty Set.empty [] Map.empty Map.empty
+newWorld initial = KubeWorld initial Nothing False False Nothing Map.empty Map.empty Set.empty Set.empty [] Map.empty Map.empty Map.empty
 
 data Cluster = Cluster
   { world :: !(IORef KubeWorld)
@@ -147,6 +151,13 @@ clusterAnswer cluster request = do
         Unsupported argv -> throwIO (UnsupportedRequest ("world: kubectl request outside the runtime's grammar: " <> argv))
         Answered code stdout stderr -> do
           for_ written (countWrite previous current)
+          -- A bad spec acts once a write of it lands and rolls out, whoever
+          -- wrote it; a refused write of it has changed nothing.
+          bad <- (^. #poisoned) <$> readIORef (world cluster)
+          for_ (requestBody request) $ \body -> for_ (Map.lookup (outcomeKey body) bad) $ \placed ->
+            when (code == ExitSuccess && maybe False (\k -> hasReadiness k && rolledOut k previous current) key) $ do
+              already <- elem placed . acted <$> readIORef (adversary cluster)
+              unless already (noteActed (adversary cluster) placed)
           case placement of
             Just placed@(_, LostAcknowledgement) -> do
               noteActed (adversary cluster) placed
@@ -154,13 +165,6 @@ clusterAnswer cluster request = do
             Just placed@(_, Interrupt) | current /= previous -> do
               noteActed (adversary cluster) placed
               throwIO Interrupted
-            Just placed@(_, fault)
-              | fault `elem` [LandsUnready, LandsFailed]
-              , code == ExitSuccess
-              , Just k <- key
-              , hasReadiness k
-              , rolledOut k previous current ->
-                  noteActed (adversary cluster) placed >> answered code stdout stderr
             -- A lag acts when the controller would have changed the object
             -- after this write: a new generation to observe, or a new object's
             -- first status.
@@ -237,14 +241,15 @@ clusterAnswer cluster request = do
         case get False k s >>= editable of
           Just patch | Right (s', _) <- patchUpdate "kubectl-edit" k patch s -> modifyServer cluster (const s') >> note placed
           _ -> pure ()
-      (LandsUnready, Just _) -> registerOutcome Unready
-      (LandsFailed, Just _) -> registerOutcome Failed
+      (LandsUnready, Just _) -> registerOutcome placed Unready
+      (LandsFailed, Just _) -> registerOutcome placed Failed
       (ControllerLag, Just k) -> modifyServer cluster (#frozen %~ Set.insert k)
       _ -> pure ()
 
     -- The written spec's outcome, by the stamp the request carries.
-    registerOutcome outcome = for_ (requestBody request) $ \body ->
+    registerOutcome placed outcome = for_ (requestBody request) $ \body -> do
       modifyServer cluster (#outcomes %~ Map.insert (outcomeKey body) outcome)
+      modifyIORef' (world cluster) (#poisoned %~ Map.insert (outcomeKey body) placed)
 
     -- The write created the object or changed what its controller rolls
     -- out; a write that changes neither cannot land a bad revision.

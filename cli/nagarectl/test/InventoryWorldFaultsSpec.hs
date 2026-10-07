@@ -46,6 +46,18 @@ inventoryWorldFaultsTests =
         exitOf result @?= Just ExitSuccess
         readyOf cluster serviceKey >>= (@?= Just "False")
         assertActed cluster LandsUnready
+    , testCase "fault acts: LandsUnready when a write of its spec lands, not when its own write is refused" $ do
+        -- The spec is bad whoever writes it: the faulted write, refused here
+        -- for a stale resourceVersion, has changed nothing, and the retry
+        -- that lands the same spec is where the fault acts.
+        cluster <- seeded [service "v1"] [(Boundary MutateCall 1, LandsUnready)]
+        refused <- clusterAnswer cluster (apply (stamp (Just "999") (service "v2")))
+        exitOf refused @?= Just (ExitFailure 1)
+        assertNotActed cluster LandsUnready
+        landed <- clusterAnswer cluster (apply (service "v2"))
+        exitOf landed @?= Just ExitSuccess
+        readyOf cluster serviceKey >>= (@?= Just "False")
+        assertActed cluster LandsUnready
     , testCase "fault does not act: LandsUnready on a kind without readiness" $ do
         (cluster, _) <- once [history "v1"] MutateCall LandsUnready (apply (history "v2"))
         assertNotActed cluster LandsUnready
