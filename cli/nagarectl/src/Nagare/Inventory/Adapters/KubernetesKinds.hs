@@ -4,6 +4,7 @@
 module Nagare.Inventory.Adapters.KubernetesKinds
   ( readinessKinds
   , supportedUpdateKinds
+  , stuckPodReplacementKinds
   )
 where
 
@@ -24,6 +25,11 @@ supportedUpdateKinds =
   , ("batch", "cronjob")
   , ("networking.k8s.io", "networkpolicy")
   ]
+
+-- | The (API group, kind) pairs whose stuck pod the adapter replaces through
+-- a reviewed operation (EP-181, RES-4 G3).
+stuckPodReplacementKinds :: [(Text, Text)]
+stuckPodReplacementKinds = [("apps", "statefulset")]
 
 -- | The (API group, kind) pairs whose readiness the adapter waits for; a Job
 -- can also fail terminally.

@@ -498,6 +498,7 @@ test-suite nagarectl-test
     DomainBindingSpec
     HostSpec
     InventoryAccessSpec
+    InventoryActionPublicationSpec
     InventoryApplicationSpec
     InventoryApplicationUpdateRecoverySpec
     InventoryArtifactSpec

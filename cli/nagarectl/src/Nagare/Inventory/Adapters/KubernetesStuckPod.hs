@@ -43,6 +43,7 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter (AdapterExecution (..), OperationAction (ReplaceStuckPod), PlannedOperation (..), PrepareError (..), PreparedNative (..), RecoveryDecision (..), Settlement (..))
+import Nagare.Inventory.Adapters.KubernetesKinds (stuckPodReplacementKinds)
 import Nagare.Inventory.Adapters.KubernetesProof (kubectlRefusal)
 import Nagare.Inventory.Adapters.KubernetesReadiness (statefulSetReady)
 import Nagare.Inventory.Digest (contentDigest)
@@ -279,11 +280,11 @@ podTerminating root = case KM.lookup "metadata" root of
   Just (Object metadata) -> KM.lookup "deletionTimestamp" metadata `notElem` [Nothing, Just Null]
   _ -> False
 
--- | An @apps/StatefulSet@ address, the only kind whose pods this module
--- replaces.
+-- | A namespaced address of a kind whose stuck pod this module replaces
+-- ('stuckPodReplacementKinds': an @apps/StatefulSet@).
 isStatefulSet :: ProviderAddress -> Bool
 isStatefulSet = \case
-  Kubernetes _ "apps" kind (Just _) _ -> nameText kind == "statefulset"
+  Kubernetes _ group kind (Just _) _ -> (group, nameText kind) `elem` stuckPodReplacementKinds
   _ -> False
 
 -- | Review the member's stuck pod. A member whose rollout is no longer stuck

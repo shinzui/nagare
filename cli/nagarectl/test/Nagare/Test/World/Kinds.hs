@@ -32,6 +32,8 @@ data KindAction
   | KindCollect
   | KindAdopt
   | KindMigrate
+  | -- | EP-181: the reviewed replacement of a pod that blocks the rollout.
+    KindReplaceStuckPod
   deriving stock (Eq, Ord, Show, Enum, Bounded)
 
 data KindReadiness
@@ -152,7 +154,7 @@ kindTable =
   [ inLine ("serving.knative.dev", "service") updatable CanBeUnready
   , inLine ("serving.knative.dev", "domainmapping") fixed CanBeUnready
   , inLine ("apps", "deployment") updatable CanBeUnready
-  , inLine ("apps", "statefulset") (migratable updatable) CanBeUnready
+  , inLine ("apps", "statefulset") (KindReplaceStuckPod : migratable updatable) CanBeUnready
   , inLine ("batch", "cronjob") (migratable updatable) NoReadiness
   , inLine ("batch", "job") fixed CanFail
   , inLine ("", "configmap") updatable NoReadiness

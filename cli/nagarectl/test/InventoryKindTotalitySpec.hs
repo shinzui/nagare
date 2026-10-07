@@ -14,6 +14,7 @@ import Nagare.Dsl.Database (Database (Database), Engine (Postgres, Redis), defau
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Inventory.Adapters.KubernetesCollection (collectionKinds, collectionPathPrefix)
+import Nagare.Inventory.Adapters.KubernetesKinds (stuckPodReplacementKinds)
 import Nagare.Inventory.Adapters.KubernetesRuntime (readinessKinds, supportedUpdateKinds, supportsReadiness)
 import Nagare.Inventory.BackupFreshness (RecoveryPointObjective (HourlyRecoveryPoint))
 import Nagare.Inventory.DataService (compileStandaloneDatabase)
@@ -52,7 +53,7 @@ inventoryKindTotalityTests =
     missing :: (Show a) => [a] -> [Text]
     missing = map (T.pack . show)
     rowKinds = mapMaybe kubernetesKind kindTable
-    universe = sort (nub (supportedUpdateKinds <> readinessKinds <> collectionKinds <> compiledKinds))
+    universe = sort (nub (supportedUpdateKinds <> readinessKinds <> collectionKinds <> stuckPodReplacementKinds <> compiledKinds))
     disagreements row = case kubernetesKind row of
       Nothing -> []
       Just selected ->
@@ -61,6 +62,9 @@ inventoryKindTotalityTests =
         ]
           <> [ (selected, "collect claim differs from the adapter's collection list")
              | (KindCollect `elem` row ^. #actions) /= isJust (uncurry collectionPathPrefix selected)
+             ]
+          <> [ (selected, "stuck-pod replacement claim differs from the adapter's replacement list")
+             | (KindReplaceStuckPod `elem` row ^. #actions) /= (selected `elem` stuckPodReplacementKinds)
              ]
           <> [ (selected, "readiness differs from the adapter's readiness wait")
              | (row ^. #readiness /= NoReadiness) /= supportsReadiness (address selected)

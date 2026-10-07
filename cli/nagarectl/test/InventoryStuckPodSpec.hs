@@ -1,7 +1,17 @@
 -- | EP-181 (RES-4 G3): the pod that blocks a member StatefulSet's rollout.
 -- The fixtures follow RES-4's experiments E6e and E6f
 -- (docs/audits/k8s-semantics-2026-10-06/experiments/e6e.out).
-module InventoryStuckPodSpec (inventoryStuckPodTests) where
+module InventoryStuckPodSpec
+  ( inventoryStuckPodTests
+  , acceptedStore
+  , pgBound
+  , planId
+  , planOwner
+  , planCluster
+  , planUid
+  , reviewedPod
+  )
+where
 
 import Data.Aeson (Value (..), eitherDecodeStrict', encode, object, (.=))
 import Data.Aeson.KeyMap qualified as KM

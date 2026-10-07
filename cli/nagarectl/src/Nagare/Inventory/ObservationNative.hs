@@ -54,11 +54,38 @@ observationBytesFromMutation ::
   ByteString ->
   Either Text (Maybe ByteString)
 observationBytesFromMutation context identity version operation bytes
-  -- A reviewed migration stage carries a rename bundle. Its observation
-  -- member is the destination object the stage creates, bound to the same
-  -- operation, resource and stage digest.
-  | MigrateResource _ <- plannedAction operation
-  , identity == "kubernetes-conditional-object" && version == "1" = do
+  -- Each action names its envelope, with no default, so a new action cannot
+  -- reach publication with a format this extraction does not read (EP-181).
+  | identity == "kubernetes-conditional-object" && version == "1" = case plannedAction operation of
+      MigrateResource _ -> renameMember
+      ReplaceStuckPod -> replacementMember
+      CreateResource -> mutationMember
+      UpdateResource -> mutationMember
+      VerifyResource -> mutationMember
+      AdoptResource -> mutationMember
+      RetireResource -> mutationMember
+      RunDeclaredOperation -> mutationMember
+      OpenMaintenanceSession -> mutationMember
+      RestoreLiveDatabase -> mutationMember
+  | identity == "helm-reviewed-render" && version == "1" = do
+      mutation <- first T.pack (eitherDecodeStrict' bytes)
+      let contract = TE.encodeUtf8 (helmMutationContract mutation)
+      unless
+        ( helmMutationVersion mutation == 1
+            && helmMutationOperation mutation == plannedOperationId operation
+            && [helmMutationResource mutation] == NE.toList (plannedResources operation)
+            && helmMutationAction mutation == plannedAction operation
+            && helmMutationInputDigest mutation == plannedInputDigest operation
+            && helmMutationContractDigest mutation == contentDigest contract
+        )
+        (Left "observation Helm envelope differs from reviewed operation")
+      pure (Just contract)
+  | otherwise = Right Nothing
+  where
+    -- A reviewed migration stage carries a rename bundle. Its observation
+    -- member is the destination object the stage creates, bound to the same
+    -- operation, resource and stage digest.
+    renameMember = do
       value <- first T.pack (eitherDecodeStrict' bytes)
       let field key = case value of
             Object root -> KM.lookup key root
@@ -80,11 +107,10 @@ observationBytesFromMutation context identity version operation bytes
         )
         (Left "observation migration bundle differs from reviewed operation")
       Just <$> unstampNative context resource digest native
-  -- EP-181: a stuck-pod replacement writes no member object, so it has no
-  -- observation member; its bytes must still be the replacement this
-  -- operation reviewed.
-  | ReplaceStuckPod <- plannedAction operation
-  , identity == "kubernetes-conditional-object" && version == "1" = do
+    -- A stuck-pod replacement writes no member object, so it has no
+    -- observation member; its bytes must still be the replacement this
+    -- operation reviewed.
+    replacementMember = do
       replacement <- first T.pack (eitherDecodeStrict' bytes) :: Either Text PodReplacement
       unless
         ( replacement ^. #version == 1
@@ -94,7 +120,7 @@ observationBytesFromMutation context identity version operation bytes
         )
         (Left "observation pod replacement differs from reviewed operation")
       pure Nothing
-  | identity == "kubernetes-conditional-object" && version == "1" = do
+    mutationMember = do
       mutation <- first T.pack (eitherDecodeStrict' bytes)
       unless
         ( ( mutationVersion mutation == 1
@@ -113,20 +139,6 @@ observationBytesFromMutation context identity version operation bytes
           (mutationResource mutation)
           (mutationNativeDigest mutation)
           (mutationNativeJson mutation)
-  | identity == "helm-reviewed-render" && version == "1" = do
-      mutation <- first T.pack (eitherDecodeStrict' bytes)
-      let contract = TE.encodeUtf8 (helmMutationContract mutation)
-      unless
-        ( helmMutationVersion mutation == 1
-            && helmMutationOperation mutation == plannedOperationId operation
-            && [helmMutationResource mutation] == NE.toList (plannedResources operation)
-            && helmMutationAction mutation == plannedAction operation
-            && helmMutationInputDigest mutation == plannedInputDigest operation
-            && helmMutationContractDigest mutation == contentDigest contract
-        )
-        (Left "observation Helm envelope differs from reviewed operation")
-      pure (Just contract)
-  | otherwise = Right Nothing
 
 -- | Only supplied declarations are read. No listing, review scan, head read,
 -- provider call, or packaged source lookup occurs here, including on a miss.
