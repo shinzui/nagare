@@ -252,12 +252,6 @@
     "expect": "test-fails"
   },
   {
-    "record": "F30-refresh-before-state-at-write",
-    "suite": "nagarectl",
-    "pattern": "/fast tier/",
-    "expect": "test-fails"
-  },
-  {
     "record": "F38-journal-head-retry-and-orphan-adoption",
     "suite": "nagarectl",
     "pattern": "/fast tier/",

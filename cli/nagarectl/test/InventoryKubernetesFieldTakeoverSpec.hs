@@ -156,7 +156,8 @@ kubernetesFieldTakeoverTests =
         writeIORef updateState (KubernetesNotReady K.physical "5" (Just K.resource) (contentDigest "churned"), Just stampBefore)
         adapterPreflight update K.updateOperation updateNative >>= (@?= Right ())
         _ <- adapterExecute update K.updateOperation updateNative
-        readIORef updateWrites >>= (@?= [KubernetesNotReady K.physical "5" (Just K.resource) (contentDigest "churned")])
+        -- The transport takes the write's resourceVersion from its own live read.
+        readIORef updateWrites >>= (@?= [KubernetesPresent K.physical "4" (Just K.resource) (contentDigest "before")])
         -- Another stamp is another write of Nagare's: refused before any write.
         writeIORef updateState (KubernetesNotReady K.physical "6" (Just K.resource) (contentDigest "churned"), Just (contentDigest "another"))
         adapterPreflight update K.updateOperation updateNative >>= assertBool "a changed stamp passed preflight" . isLeft

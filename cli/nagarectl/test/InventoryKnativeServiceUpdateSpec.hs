@@ -56,23 +56,24 @@ knativeServiceUpdateTests =
           RecoveryProvedComplete _ -> pure ()
           other -> assertFailure (show other)
         readIORef calls >>= (@?= 1)
-    , testCase "a status race refuses the conditional write, and only the unchanged stamp can retry" $ do
+    , testCase "a status write racing the update does not refuse it; another write of this member's does" $ do
+        -- RES-4 U10: the transport guards the write with its own live read of
+        -- the UID, stamp and field owners, and writes with that read's
+        -- resourceVersion, so a status write in between changes nothing.
         (adapter, state, calls, race) <- knativeAdapter (before "4" "old-configuration", Just stampBefore)
         writeIORef race True
         reviewed <- adapterPrepare adapter K.updateOperation >>= K.expectRight
+        adapterExecute adapter K.updateOperation reviewed >>= (@?= AdapterEffectCompleted)
+        readIORef calls >>= (@?= 1)
+        -- Another write of this member's is live (F73): refused, and not ours
+        -- to retry or await.
+        writeIORef state (before "6" "another-review", Just (contentDigest "another-review"))
         adapterExecute adapter K.updateOperation reviewed >>= \case
           AdapterEffectFailed (KnownNoEffect _) -> pure ()
           other -> assertFailure (show other)
-        readIORef calls >>= (@?= 0)
-        adapterRecover adapter K.updateOperation reviewed >>= (@?= RecoverySafeToRetry)
-        -- Another write of this member's is live (F73): not ours to retry or await.
-        writeIORef state (before "6" "another-review", Just (contentDigest "another-review"))
         adapterRecover adapter K.updateOperation reviewed >>= \case
           RecoveryUnresolved _ -> pure ()
           other -> assertFailure (show other)
-        writeIORef race False
-        writeIORef state (before "7" "old-configuration", Just stampBefore)
-        adapterExecute adapter K.updateOperation reviewed >>= (@?= AdapterEffectCompleted)
         readIORef calls >>= (@?= 1)
     , testCase "a Knative Service update awaits readiness only while its own write is live (F73)" $ do
         -- RES-4 U3: the reviewed digest is observed only while the stamp and
@@ -118,10 +119,11 @@ knativeBound :: Map.Map ResourceId (ManagedResource, ByteString)
 knativeBound = Map.singleton K.resource (K.ok (bindKubernetesObject (K.input {inputObject = knativeValue, objectDigest = contentDigest knativeBytes})))
 
 -- | The adapter over a stamped observation the test controls. Its write is
--- conditional on the exact precondition it is given, as the API server's
--- resourceVersion precondition is, and lands the reviewed digest and stamp.
--- While the race flag is set, a status write moves the object to
--- resourceVersion 5, keeping its stamp, just before each write.
+-- guarded as the runtime's is: by the reviewed UID, this member's ownership
+-- and the before-state stamp, read live, never by resourceVersion. It lands
+-- the reviewed digest and stamp. While the race flag is set, a status write
+-- moves the object to resourceVersion 5, keeping its stamp, just before each
+-- write.
 knativeAdapter :: (KubernetesState, Maybe ContentDigest) -> IO (Adapter, IORef (KubernetesState, Maybe ContentDigest), IORef Int, IORef Bool)
 knativeAdapter initial = do
   state <- newIORef initial
@@ -134,8 +136,8 @@ knativeAdapter initial = do
           , kubernetesMutateConditional = \mutation -> do
               racing <- readIORef race
               when racing (modifyIORef' state (\(_, stamp) -> (before "5" "old-configuration", stamp)))
-              (current, _) <- readIORef state
-              if current /= mutationBefore mutation
+              (current, stamp) <- readIORef state
+              if identity current /= identity (mutationBefore mutation) || stamp /= mutationBeforeStamp mutation
                 then pure (AdapterEffectFailed (KnownNoEffect "conditional write conflict"))
                 else do
                   modifyIORef' calls (+ 1)
@@ -147,3 +149,7 @@ knativeAdapter initial = do
   where
     noReceipt _ _ = pure (Left "not a backup")
     noScratch _ _ = pure (Right False)
+    identity = \case
+      KubernetesPresent uid _ owner _ -> Just (uid, owner)
+      KubernetesNotReady uid _ owner _ -> Just (uid, owner)
+      _ -> Nothing

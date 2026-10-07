@@ -116,6 +116,13 @@ inventoryRecoveryModelTests =
         -- stuck pods, so the corrected review is planned and applied (RES-4 §2).
         deployment <- scenarioNamed "kind (\"apps\",\"deployment\"): update"
         pinned deployment [(Boundary MutateCall 3, LandsUnready)] [[Close]]
+    , testCase "an update of a kind whose status churns converges through the fresh-resourceVersion guard (G6, EP-180 M9)" $
+        -- RES-4 U10: the write carries the resourceVersion of the live read
+        -- that guards it, so persistent churn never stops an update (F30's
+        -- refresh at execute is retired for updates).
+        forM_ ["kind (\"\",\"resourcequota\"): update", "kind (\"batch\",\"cronjob\"): update"] $ \name -> do
+          scenario <- scenarioNamed name
+          pinned scenario [(Boundary ObserveCall 1, ChurnAlways)] []
     , testCase "a move that a new fault stopped without progress is re-run; one that no fault stopped is not (EP-177)" $ do
         service <- scenarioNamed "kind (\"serving.knative.dev\",\"service\"): create"
         -- Resume stops again when its store write is refused; re-run, it completes.

@@ -186,7 +186,7 @@ mkKubernetesRuntimeOpsAndBatchWithCacheKey config resolveCacheKey specs =
             (UpdateResource, KubernetesPresent _ _ _ _)
               | not (supportedUpdateAddress (mutationAddress mutation)) ->
                   pure (Left "Kubernetes update kind lacks a proved conditional mutation policy")
-            (UpdateResource, KubernetesPresent uid revision _ _) -> do
+            (UpdateResource, KubernetesPresent uid _ _ _) -> do
               case generatedCredentialTemplate (mutationNativeJson mutation) of
                 Left reason -> pure (Left reason)
                 Right True -> pure (Left "generated credential updates require a dedicated data-preserving operation")
