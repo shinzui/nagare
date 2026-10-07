@@ -278,6 +278,14 @@ How to see it working:
 
 ## Outcomes & Retrospective
 
+**One mutation record survives at landing: `F30-refresh-before-state-at-write` (EP-180's), retired by EP-180 M9.**
+- Once the world churns only before observations, the mutant changes no outcome. Its guard, the refresh of
+  `mutationBefore` to the execute-time observation, is redundant since G6: the apply's resourceVersion comes
+  from `verifyLiveOwnership`'s fresh read.
+- Its earlier kills rested on the old world's churn before writes (Surprises & Discoveries).
+- Under the no-tech-debt rule the coordinator decided (2026-10-07) that EP-180 M9 deletes the refresh and
+  retires the record. EP-182 lands with exactly this one survivor.
+
 **Deep-tier acceptance: pending MP-23 step 3d (a recorded departure from ADR 25).**
 - ADR 25's 2026-10-06 amendment requires a passing `just gate-deep` before accepting a change to the
   recovery model or to adapters. This plan touches the model and the world (`test/Nagare/Test/World/`,
