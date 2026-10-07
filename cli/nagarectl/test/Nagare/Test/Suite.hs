@@ -39,6 +39,7 @@ import InventoryKnativeServiceUpdateSpec (knativeServiceUpdateTests)
 import InventoryKubernetesFieldTakeoverSpec (kubernetesFieldTakeoverTests)
 import InventoryKubernetesReadinessSpec (inventoryKubernetesReadinessTests)
 import InventoryKubernetesSpec (inventoryKubernetesTests)
+import InventoryKubernetesTerminatingSpec (inventoryKubernetesTerminatingTests)
 import InventoryLandedUpdateStopSpec (inventoryLandedUpdateStopTests)
 import InventoryLifecycleSpec (inventoryLifecycleTests)
 import InventoryMaintenanceSpec (inventoryMaintenanceTests)
@@ -184,6 +185,7 @@ main = do
             , inventoryEffectfulCollectionTests
             , inventoryEffectfulTests
             , knativeServiceUpdateTests
+            , inventoryKubernetesTerminatingTests
             , kubernetesFieldTakeoverTests
             , inventoryKubernetesTests
             , inventoryApplicationTests

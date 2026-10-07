@@ -1,0 +1,12 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs b/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs
+--- a/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs
+@@ -208,7 +208,7 @@
+             | otherwise -> ObservedReplacementRequired physical digest
+           -- G5, RES-4 U6: an object whose DELETE finalizers hold is no live
+           -- member; planning waits until it is gone.
+-          KubernetesTerminating {} -> ObservationUnavailable "Kubernetes object is being deleted (its deletion timestamp is set); replan once it is gone"
++          KubernetesTerminating physical _ _ _ -> ObservedPresent physical
+           KubernetesUnknown reason -> ObservationUnavailable reason
+       )
+     prepare operation = case singleSpec specs operation of

@@ -1,0 +1,12 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs
+--- a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs
+@@ -99,7 +99,7 @@
+   -- DELETE is landed; an object a create or update finds being deleted
+   -- outside review is gone, whatever its stamp says.
+   _
+-    | KubernetesTerminating physical _ _ _ <- current ->
++    | False, KubernetesTerminating physical _ _ _ <- current ->
+         case mutationAction mutation of
+           RetireResource | beforeIdentity == Just physical -> SettledLanded physical
+           action | action `elem` [CreateResource, UpdateResource] -> SettledTargetGone (Just physical)

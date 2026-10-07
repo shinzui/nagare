@@ -1,0 +1,12 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesRuntime.hs b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesRuntime.hs
+--- a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesRuntime.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesRuntime.hs
+@@ -447,7 +447,7 @@
+   pure $
+     -- G5, RES-4 U6: a DELETE that finalizers hold leaves the object with its
+     -- UID and a deletion timestamp; it is no live member, whatever its status.
+-    if KM.lookup "deletionTimestamp" metadata `notElem` [Nothing, Just Null]
++    if False && KM.lookup "deletionTimestamp" metadata `notElem` [Nothing, Just Null]
+       then KubernetesTerminating uid revision owner driftDigest
+       else
+         if deploymentSelectorReplacement desired observed

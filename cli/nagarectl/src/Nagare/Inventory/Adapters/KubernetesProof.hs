@@ -43,6 +43,9 @@ data KubernetesState
   | KubernetesNotReady !PhysicalIdentity !Text !(Maybe ResourceId) !ContentDigest
   | KubernetesFailed !PhysicalIdentity !Text !(Maybe ResourceId) !ContentDigest
   | KubernetesReplacementRequired !PhysicalIdentity !Text !(Maybe ResourceId) !ContentDigest
+  | -- | G5, RES-4 U6: the API server accepted a DELETE that finalizers hold;
+    -- the object keeps its UID and has a deletion timestamp.
+    KubernetesTerminating !PhysicalIdentity !Text !(Maybe ResourceId) !ContentDigest
   | KubernetesUnknown !Text
   deriving stock (Eq, Show, Generic)
 
@@ -80,7 +83,8 @@ data FieldTakeover = FieldTakeover
 -- the reviewed before-state unchanged is no effect; the reviewed digest on the
 -- reviewed (or, for a create, newly stamped) object, not ready, is landed; an
 -- owned target that is gone or carries another UID, or an object not stamped
--- as this member's at a create's or update's address (F66, F68), is gone; a
+-- as this member's at a create's or update's address (F66, F68), is gone, and
+-- so is one being deleted (G5), whose deletion is a retire's landed effect; a
 -- failed object of this operation is a terminal partial effect. Anything else
 -- stays unknown.
 settleMutation :: KubernetesMutation -> KubernetesState -> KubernetesState -> Maybe ContentDigest -> RecoveryDecision -> Settlement
@@ -90,6 +94,16 @@ settleMutation mutation before current stamp decision = case decision of
   RecoveryAwaitingReadiness physical -> SettledLanded physical
   RecoveryTargetReplaced physical -> SettledTargetGone (Just physical)
   RecoveryTerminalFailure physical -> SettledTerminalPartial physical
+  -- G5, RES-4 §3 and U6: a DELETE that finalizers hold leaves the object with
+  -- its UID and a deletion timestamp. On the reviewed object a retire's own
+  -- DELETE is landed; an object a create or update finds being deleted
+  -- outside review is gone, whatever its stamp says.
+  _
+    | KubernetesTerminating physical _ _ _ <- current ->
+        case mutationAction mutation of
+          RetireResource | beforeIdentity == Just physical -> SettledLanded physical
+          action | action `elem` [CreateResource, UpdateResource] -> SettledTargetGone (Just physical)
+          _ -> SettledUnknown (unresolved decision) "a corrected review, or an attested close"
   _ | Right () <- requireSameBefore mutation before -> SettledNoEffect "the reviewed before-state is unchanged"
   -- F67, RES-4 U3: an update writes its stamp in the same atomic write as its
   -- spec, so on the reviewed UID the stamp says which write is live, whatever
@@ -256,6 +270,7 @@ instance ToJSON KubernetesState where
     KubernetesNotReady physical revision owner digest -> object ["kind" .= ("not-ready" :: Text), "physical" .= physical, "resourceVersion" .= revision, "owner" .= owner, "digest" .= digest]
     KubernetesFailed physical revision owner digest -> object ["kind" .= ("failed" :: Text), "physical" .= physical, "resourceVersion" .= revision, "owner" .= owner, "digest" .= digest]
     KubernetesReplacementRequired physical revision owner digest -> object ["kind" .= ("replacement-required" :: Text), "physical" .= physical, "resourceVersion" .= revision, "owner" .= owner, "digest" .= digest]
+    KubernetesTerminating physical revision owner digest -> object ["kind" .= ("terminating" :: Text), "physical" .= physical, "resourceVersion" .= revision, "owner" .= owner, "digest" .= digest]
     KubernetesUnknown reason -> object ["kind" .= ("unknown" :: Text), "reason" .= reason]
 
 instance FromJSON KubernetesState where
@@ -267,6 +282,7 @@ instance FromJSON KubernetesState where
       "not-ready" -> KubernetesNotReady <$> o .: "physical" <*> o .: "resourceVersion" <*> o .: "owner" <*> o .: "digest"
       "failed" -> KubernetesFailed <$> o .: "physical" <*> o .: "resourceVersion" <*> o .: "owner" <*> o .: "digest"
       "replacement-required" -> KubernetesReplacementRequired <$> o .: "physical" <*> o .: "resourceVersion" <*> o .: "owner" <*> o .: "digest"
+      "terminating" -> KubernetesTerminating <$> o .: "physical" <*> o .: "resourceVersion" <*> o .: "owner" <*> o .: "digest"
       "unknown" -> KubernetesUnknown <$> o .: "reason"
       _ -> fail "unknown Kubernetes state"
 

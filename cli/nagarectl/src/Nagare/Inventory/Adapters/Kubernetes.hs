@@ -206,6 +206,9 @@ mkKubernetesAdapterWithObservations specs ops observeBatch readBackupReceipt scr
             | owner == Nothing -> ObservedUnowned physical
             | owner /= Just resource -> ObservedForeign physical
             | otherwise -> ObservedReplacementRequired physical digest
+          -- G5, RES-4 U6: an object whose DELETE finalizers hold is no live
+          -- member; planning waits until it is gone.
+          KubernetesTerminating {} -> ObservationUnavailable "Kubernetes object is being deleted (its deletion timestamp is set); replan once it is gone"
           KubernetesUnknown reason -> ObservationUnavailable reason
       )
     prepare operation = case singleSpec specs operation of

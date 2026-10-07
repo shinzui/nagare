@@ -986,3 +986,27 @@ The class is not `NoEffect`. The absent before-state has changed, and in the `De
 
 **Model.** The recovery model's world observed Knative updates through the stable version-2 observation, so it never reached this arm. After M5b it does.
 
+## F74
+
+**A Kubernetes object being deleted is read as present** — P1; **Verifying**; owners EP-180.
+
+**Found by RES-4's gap analysis (G5; 2026-10-06, nagare-first-principle; experiments E7 and E12); fixed in EP-180 M6 (claude-opus-5-5).**
+- **The gap.** A DELETE that finalizers hold (RES-4 U6) leaves the object in place with its UID, a new resourceVersion and a deletion timestamp. Examples are a PVC mounted by a pod, an Orphan-deleted Knative Service and a Namespace. The runtime parser ignored the timestamp, so the object was Present.
+- **Consequences.**
+  - Verify and convergence could accept a member that is being deleted (wrong success).
+  - A retire whose DELETE was accepted settled Unknown instead of Landed.
+  - A create or update whose target was being deleted outside review could be settled by its stamp, as if it were the live target.
+
+**Fix.**
+- The parser classifies a set `metadata.deletionTimestamp` as the new state `KubernetesTerminating uid resourceVersion owner digest`. It is a constructor, so every consumer must decide what it means; EP-181 uses it for pods.
+- Planning observes the object as unavailable ("being deleted"), so a plan waits until it is gone.
+- Settlement follows RES-4 §3. A create or update whose object is terminating is TargetGone, whatever its stamp says. A retire whose reviewed object is terminating is Landed.
+- The write guard and completion proof never accept a terminating object.
+- Every consumer outside the adapter matches only Present, so a terminating object falls to their existing refusals.
+
+**Tests.** `InventoryKubernetesTerminatingSpec` ("terminating Kubernetes objects (G5)").
+
+**Mutation.** `test/mutations/G5-parser-ignores-deletion.diff`, `G5-settle-ignores-terminating.diff`, `G5-planning-reads-terminating-present.diff`.
+
+**Model.** The recovery model's world has no finalizers. EP-182's world renders deletion timestamps and finalizers, and the production parser classifies them.
+

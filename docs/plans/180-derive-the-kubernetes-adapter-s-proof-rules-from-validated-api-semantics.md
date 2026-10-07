@@ -102,7 +102,14 @@ MasterPlan, not by this plan.
     - Records `ADR26-O1-kubernetes-settle-unknown`, `G6-runtime-guard-ignores-stamp`,
       `G6-write-guard-compares-whole-state` and `F73-awaiting-readiness-ignores-digest` were regenerated for the moved
       context, and each still fails its tests.
-- [ ] M6 (G5): terminating objects are classified, not read as present.
+- [x] M6 (G5), 2026-10-06: terminating objects are classified, not read as present (F74).
+  - `parseObserved` maps a set deletion timestamp to `KubernetesTerminating`, and planning reports it as unavailable.
+  - Settlement makes it TargetGone for a create or update, ahead of the stamp rows, and Landed for a retire on the
+    reviewed UID.
+  - Tests failed first: the parser test and the settlement test. Three records each fail their test.
+  - Consumers outside the adapter match only Present, so they refuse a terminating object.
+  - M5b's window is closed: requireWriteTarget refuses an update of a terminating target, because it is not an owned
+    live object.
 - [ ] M7 (G7): resource quantities compare canonically.
 - [ ] M8: `just mutation-check` proves every mutation record on the remote builder.
 - [ ] M9 (session nagare, 2026-10-06, from nagare-deep-tier-fixes' attribution): no adapter recovery guard stays
@@ -193,6 +200,12 @@ MasterPlan, not by this plan.
   terminating object, and version 1 has no such check until M6 (G5). Until then, an update of a terminating Knative
   Service passes the stamp guard on this branch. The window exists only on this branch: the batch lands whole after
   M6, which refuses an update whose target is terminating, alongside a retire's Landed.
+
+- Decision (2026-10-06, M6, with session nagare; shared with EP-181 for pods): a terminating object is the
+  constructor `KubernetesTerminating uid resourceVersion owner digest`, not a field. Terminating is orthogonal to
+  readiness, but nearly every consumer must treat it as "not a live member", so a forgotten case is a compile error
+  rather than a missed field check. It keeps the resourceVersion, which a retire's fresh-resourceVersion guard needs,
+  and the owner and digest, which settlement needs.
 
 - Decision (2026-10-06, session nagare): once M6 makes terminating objects observable, a retire's G6 change carries
   the fresh resourceVersion without a re-read loop.

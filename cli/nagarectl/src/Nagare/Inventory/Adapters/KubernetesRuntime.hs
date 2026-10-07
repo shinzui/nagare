@@ -445,16 +445,21 @@ parseObserved config resource native response = do
     (stampedContext /= Nothing && stampedContext /= Just (contextIdText (runtimeContext config)))
     (Left "Kubernetes object belongs to a different inventory context")
   pure $
-    if deploymentSelectorReplacement desired observed
-      || statefulSetImmutableReplacement desired observed
-      then KubernetesReplacementRequired uid revision owner driftDigest
+    -- G5, RES-4 U6: a DELETE that finalizers hold leaves the object with its
+    -- UID and a deletion timestamp; it is no live member, whatever its status.
+    if KM.lookup "deletionTimestamp" metadata `notElem` [Nothing, Just Null]
+      then KubernetesTerminating uid revision owner driftDigest
       else
-        if jobFailed observed
-          then KubernetesFailed uid revision owner driftDigest
+        if deploymentSelectorReplacement desired observed
+          || statefulSetImmutableReplacement desired observed
+          then KubernetesReplacementRequired uid revision owner driftDigest
           else
-            if fenced || not (observedReady observed)
-              then KubernetesNotReady uid revision owner driftDigest
-              else KubernetesPresent uid revision owner driftDigest
+            if jobFailed observed
+              then KubernetesFailed uid revision owner driftDigest
+              else
+                if fenced || not (observedReady observed)
+                  then KubernetesNotReady uid revision owner driftDigest
+                  else KubernetesPresent uid revision owner driftDigest
 
 -- A Deployment's selector is immutable at the API server. Only classify a
 -- change when both sides state it explicitly; an incomplete projection must
