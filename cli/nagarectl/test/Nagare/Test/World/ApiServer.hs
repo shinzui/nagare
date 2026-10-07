@@ -49,6 +49,7 @@ module Nagare.Test.World.ApiServer
   , mountClaim
   , get
   , getPod
+  , listPods
   , controllerStep
   , settleControllers
   , churnOnce
@@ -399,19 +400,41 @@ get withManagedFields key server = render withManagedFields <$> Map.lookup key (
 
 getPod :: Maybe Text -> Text -> ApiServer -> Maybe Value
 getPod podNamespace podName server =
-  listToMaybe
-    [ object
-        [ "apiVersion" .= ("v1" :: Text)
-        , "kind" .= ("Pod" :: Text)
-        , "metadata" .= object ["name" .= podName, "namespace" .= podNamespace, "uid" .= (pod ^. #uid), "resourceVersion" .= tshow (pod ^. #resourceVersion), "labels" .= object ["controller-revision-hash" .= (pod ^. #revision)]]
-        , "status" .= object ["phase" .= ("Running" :: Text), "conditions" .= [object ["type" .= ("Ready" :: Text), "status" .= boolText (pod ^. #ready)]]]
-        ]
-    | (key, stored) <- Map.toList (objects server)
-    , key ^. #kind == "statefulset"
-    , key ^. #namespace == podNamespace
-    , (ordinal, pod) <- zip [0 :: Int ..] (stored ^. #pods)
-    , podName == key ^. #name <> "-" <> tshow ordinal
-    ]
+  listToMaybe [rendered | rendered <- listPods podNamespace server, pathValue ["metadata", "name"] rendered == Just (String podName)]
+
+-- | EP-181: the pods of every StatefulSet in a namespace, as the API server
+-- serves them. Each is controlled by its StatefulSet (an owner reference with
+-- @controller: true@) and carries the template's labels and its
+-- @controller-revision-hash@.
+listPods :: Maybe Text -> ApiServer -> [Value]
+listPods podNamespace server =
+  [ object
+      [ "apiVersion" .= ("v1" :: Text)
+      , "kind" .= ("Pod" :: Text)
+      , "metadata"
+          .= object
+            [ "name" .= (key ^. #name <> "-" <> tshow ordinal)
+            , "namespace" .= podNamespace
+            , "uid" .= (pod ^. #uid)
+            , "resourceVersion" .= tshow (pod ^. #resourceVersion)
+            , "labels" .= Object (KM.insert "controller-revision-hash" (String (pod ^. #revision)) (templateLabels stored))
+            , "ownerReferences" .= [object ["apiVersion" .= ("apps/v1" :: Text), "kind" .= ("StatefulSet" :: Text), "name" .= (key ^. #name), "uid" .= (stored ^. #uid), "controller" .= True]]
+            ]
+      , "status" .= object ["phase" .= ("Running" :: Text), "conditions" .= [object ["type" .= ("Ready" :: Text), "status" .= boolText (pod ^. #ready)]]]
+      ]
+  | (key, stored) <- Map.toList (objects server)
+  , key ^. #kind == "statefulset"
+  , key ^. #namespace == podNamespace
+  , (ordinal, pod) <- zip [0 :: Int ..] (stored ^. #pods)
+  ]
+  where
+    templateLabels stored = case pathValue ["spec", "template", "metadata", "labels"] (stored ^. #content) of
+      Just (Object labels) -> labels
+      _ -> KM.empty
+
+-- | The value at a path of object keys.
+pathValue :: [Text] -> Value -> Maybe Value
+pathValue path value = foldl (\found step -> found >>= \case Object fields -> KM.lookup (Key.fromText step) fields; _ -> Nothing) (Just value) path
 
 render :: Bool -> Stored -> Value
 render withManagedFields stored =

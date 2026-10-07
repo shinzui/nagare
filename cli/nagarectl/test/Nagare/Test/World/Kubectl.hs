@@ -53,7 +53,13 @@ logRequest request =
 
 kubectlResponse :: KubectlRequest -> ApiServer -> (ApiServer, Response)
 kubectlResponse request server = case args of
-  "get" : "pods" : rest -> (server, ok (podList (flag "--namespace" rest <|> flag "-n" rest) server))
+  "get" : "pods" : rest -> (server, ok (podList (flag "--namespace" rest <|> flag "-n" rest) (flag "-l" rest) server))
+  -- EP-181: one pod by name, as the stuck-pod settlement reads it.
+  "get" : "pod" : name : rest -> case getPod (flag "--namespace" rest <|> flag "-n" rest) name server of
+    Just rendered -> (server, ok (encodeText rendered))
+    Nothing
+      | "--ignore-not-found" `elem` rest -> (server, ok "")
+      | otherwise -> (server, refused ("Error from server (NotFound): pods \"" <> name <> "\" not found"))
   "get" : token : name : rest -> case resourceToken token of
     Nothing -> unsupported
     Just (group', kind') ->
@@ -191,11 +197,21 @@ splitSlash text' = case T.breakOn "/" text' of
   (token, rest) | not (T.null rest) -> Just (token, T.drop 1 rest)
   _ -> Nothing
 
--- | The pods a label selector finds. The world models no Job or
--- restore-scratch pods, so the backup-receipt reader finds no receipt and the
--- scratch probe no failed pod, as the model's earlier stubs answered.
-podList :: Maybe Text -> ApiServer -> Text
-podList _ _ = encodeText (object ["apiVersion" .= ("v1" :: Text), "kind" .= ("List" :: Text), "items" .= ([] :: [Value])])
+-- | The pods a label selector finds: the world's StatefulSet pods (EP-181)
+-- whose labels hold every @key=value@ of the selector. The world models no
+-- Job or restore-scratch pods, so the backup-receipt reader finds no receipt
+-- and the scratch probe no failed pod, as the model's earlier stubs answered.
+podList :: Maybe Text -> Maybe Text -> ApiServer -> Text
+podList podNamespace selector server =
+  encodeText (object ["apiVersion" .= ("v1" :: Text), "kind" .= ("List" :: Text), "items" .= filter selected (listPods podNamespace server)])
+  where
+    required = [(k, T.drop 1 v) | term <- maybe [] (T.splitOn ",") selector, let (k, v) = T.breakOn "=" term, not (T.null v)]
+    selected pod = case pod of
+      Object root
+        | Just (Object metadata) <- KM.lookup "metadata" root
+        , Just (Object labels) <- KM.lookup "labels" metadata ->
+            all (\(k, v) -> KM.lookup (Key.fromText k) labels == Just (String v)) required
+      _ -> null required
 
 progressDeadlineExceeded :: Value -> Bool
 progressDeadlineExceeded rendered = any (\c -> textOf "reason" c == Just "ProgressDeadlineExceeded") (arrayOf (field' "conditions" (field' "status" rendered)))
