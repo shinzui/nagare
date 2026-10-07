@@ -56,7 +56,7 @@ Short names used below:
 | F66–F75 | **Closed (source)** | Each has its named test and killed records: `F66-…`, `F67-settle-ignores-stamp`, `G6-repair-proves-by-stamp`, `F68-…`, `F69-…`, `F70-…`, both `G4-…`, `F72-…`, `F73-…`, the four `G5-…` and the four `G7-…` |
 | F76 | **Closed** | The incarnation group runs. `mutations patterns` passes in the gate, so every record selects at least one test |
 | F79 | **Closed (source)** | Tests "close refuses, retryably, while a never-started create's absence cannot be confirmed (F79)" and the model pin. Killed: `F79-close-drops-unconfirmed-absence`, `ADR26-never-started-skips-absence` |
-| F52 | **Verifying: gap sent to nagare-fix** | The status half is proven. The convergence half has a surviving mutant (`Execute/Incarnations.hs` `establishes`, with `migrates action` disabled; see the mutation README). The operator un-deferred F52 on 2026-10-04 and made it block MP-23 completion. It needs a regression plus a record, and C2's interrupted rename shows no `replaced-incarnation` |
+| F52 | **Verifying: product defect, reproduced natively in the C2 checkpoint (below); fix with nagare-fix** | The status half is proven. The convergence half has a surviving mutant (`Execute/Incarnations.hs` `establishes`, with `migrates action` disabled; see the mutation README). The operator un-deferred F52 on 2026-10-04 and made it block MP-23 completion. It needs a regression plus a record, and C2's interrupted rename shows no `replaced-incarnation` |
 | F62 | **Verifying: gap sent to nagare-fix** | The refusal is pinned: test "a rename refuses a source replaced outside Nagare, at planning (F62)"; killed `ADR27-F62-migration-source-unchecked`, `ADR27-A52-writer-unchecked`. Its required `Replaced`-on-source fault in the rename recovery model is not done, so "migrate under every fault" is unproved for this fault |
 | F16, F30 | **Verifying: native confirmation pending (C2 or C3)** | Source: ADR 26 close, the G6 guard (`G6-write-guard-compares-whole-state`, `G6-retire-stale-precondition` killed), and the fast tier. F30's A4 native records were never archived, so the closing evidence will be this candidate's native run |
 | F15, F31, F32, F33, F39, F43, F44, F45, F46, F47 | **Verifying: C3 on this candidate** | Every earlier native pass was on `84754389`. The candidate changes 310 files under `cli/`, so the carry-over ruling (which covered only a check-harness change) does not apply. F33 and F39 need the staged teardown |
@@ -74,6 +74,36 @@ Short names used below:
    - the tracker register lacked rows for F73–F76 and F79 (added in this pass);
    - MP-23's step boxes 3, 3a, 3b and 3d and its plan-registry rows for EP-180, EP-181 and EP-182 lag the checklist;
    - its finding snapshot is dated 2026-10-05.
+
+## C2 checkpoint on `96c1da11` (2026-10-07, stopped at restores)
+
+A fresh local context ran the archived C2 drivers, repointed at this candidate, its pinned
+worktree and a new operator root.
+
+- **Phase 1:** bootstrap stages 1–3 converged. Stage 3 went ambiguous once, as documented, and one
+  resume converged it.
+- **C1:** 214 operations, all `VerifyResource`; zero provider mutations; accepted digests unchanged.
+- **After C1:** zero `replaced-incarnation`.
+- **Phases 2 and 2b:** passed. These cover the databases, broker, images and secret; deploy A and B,
+  each killed mid-apply and resumed; drift repair with `--take-over-fields`; the collision refusal;
+  and the PostgreSQL rename, killed at its copy Job and resumed.
+- **Restores:** stopped at its first step. `db backup scenario-pg` refused because the database's
+  StatefulSet was `unrecorded`.
+
+What the stop showed:
+- **[F52](../mp23-findings.md#f52), reproduced natively.** Every renamed member is `unrecorded`,
+  although its `MigrateResource` completion recorded the live UID.
+- **[F80](../mp23-findings.md#f80), new P1.** The documented rebind cannot be issued for application or
+  database members.
+
+Both went to session nagare-fix as product defects, so `96c1da11` is not the final candidate.
+Evidence: [`c2-checkpoint-96c1da11/`](c2-checkpoint-96c1da11/).
+
+Pipeline rehearsals done before the run (before-a-native-run §4):
+- the candidate's assembler and finalizer accepted scratch copies of the real `b74b7e49` C2 output
+  (16 assertions);
+- the same tools accepted the real `84754389` C3 output (17 assertions), reproducing its recorded run
+  digest.
 
 ## Next checks
 

@@ -1,0 +1,27 @@
+{
+ "transaction": "tx-7c4658c558ca328e20ead0f97a949c26cf74dabf88a8bc727b183c91602901b7",
+ "interruption": "SIGKILL at 19:56:24Z while the scenario-pg StatefulSet was not ready",
+ "statefulsetCreateEvents": [
+  {
+   "sequence": 988,
+   "timestamp": "2026-10-07T19:56:23Z",
+   "operation": "op-5ecd371dc219efabdb672562",
+   "detail": "operation intent recorded",
+   "state": {
+    "tag": "IntentRecorded"
+   },
+   "physical": null
+  },
+  {
+   "sequence": 989,
+   "timestamp": "2026-10-07T19:56:51Z",
+   "operation": "op-5ecd371dc219efabdb672562",
+   "detail": "adapter recovery proved completion",
+   "state": {
+    "contents": "a8d519a10bac978c10291c0aa4e0241cc0e18a53250920749d83ae0db58bbef1",
+    "tag": "Completed"
+   },
+   "physical": null
+  }
+ ]
+}

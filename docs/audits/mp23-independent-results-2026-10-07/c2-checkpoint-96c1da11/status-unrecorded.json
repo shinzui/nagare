@@ -1,0 +1,201 @@
+{
+ "candidate": "96c1da1193f3768baa85f7cc0f67537ff6463bf6",
+ "observedBy": "nagare-verify",
+ "statusActiveTransaction": null,
+ "categoryCounts": {
+  "converged": 269,
+  "unrecorded": 10
+ },
+ "unrecorded": [
+  {
+   "resource": "application:scenario-a/scenario-pg/statefulset",
+   "physical": "716f7737-8fbe-43e2-9188-34cf223ccd2b",
+   "reason": "no incarnation is recorded; a reviewed rebind records it",
+   "owner": {
+    "kind": "Application",
+    "name": "scenario-a"
+   },
+   "address": {
+    "contents": [
+     "platform:cluster/cluster/cluster",
+     "apps",
+     "statefulset",
+     "personal",
+     "scenario-pg"
+    ],
+    "tag": "Kubernetes"
+   }
+  },
+  {
+   "resource": "standalone:database-scenario-rename-src/scenario-rename-src/backup",
+   "physical": "31c77ed8-7ea3-4812-8683-62fbcb1f1396",
+   "reason": "no incarnation is recorded; a reviewed rebind records it",
+   "owner": {
+    "kind": "Standalone",
+    "name": "database-scenario-rename-src"
+   },
+   "address": {
+    "contents": [
+     "platform:cluster/cluster/cluster",
+     "batch",
+     "cronjob",
+     "personal",
+     "nagare-dbbackup-scenario-renamed"
+    ],
+    "tag": "Kubernetes"
+   }
+  },
+  {
+   "resource": "standalone:database-scenario-rename-src/scenario-rename-src/backup-account",
+   "physical": "ead7665d-c3dc-47fd-b28b-69c69503579d",
+   "reason": "no incarnation is recorded; a reviewed rebind records it",
+   "owner": {
+    "kind": "Standalone",
+    "name": "database-scenario-rename-src"
+   },
+   "address": {
+    "contents": [
+     "platform:cluster/cluster/cluster",
+     "",
+     "serviceaccount",
+     "personal",
+     "nagare-dbbackup-scenario-renamed"
+    ],
+    "tag": "Kubernetes"
+   }
+  },
+  {
+   "resource": "standalone:database-scenario-rename-src/scenario-rename-src/backup-read-binding",
+   "physical": "25f957cb-7e2c-4e5f-a0be-396187c786b9",
+   "reason": "no incarnation is recorded; a reviewed rebind records it",
+   "owner": {
+    "kind": "Standalone",
+    "name": "database-scenario-rename-src"
+   },
+   "address": {
+    "contents": [
+     "platform:cluster/cluster/cluster",
+     "rbac.authorization.k8s.io",
+     "rolebinding",
+     "personal",
+     "nagare-dbbackup-scenario-renamed"
+    ],
+    "tag": "Kubernetes"
+   }
+  },
+  {
+   "resource": "standalone:database-scenario-rename-src/scenario-rename-src/backup-read-role",
+   "physical": "5c1a7bcb-515e-41b3-99e3-1b014032ad46",
+   "reason": "no incarnation is recorded; a reviewed rebind records it",
+   "owner": {
+    "kind": "Standalone",
+    "name": "database-scenario-rename-src"
+   },
+   "address": {
+    "contents": [
+     "platform:cluster/cluster/cluster",
+     "rbac.authorization.k8s.io",
+     "role",
+     "personal",
+     "nagare-dbbackup-scenario-renamed"
+    ],
+    "tag": "Kubernetes"
+   }
+  },
+  {
+   "resource": "standalone:database-scenario-rename-src/scenario-rename-src/backup-signing-key",
+   "physical": "1edc9390-7c2b-4c35-a68e-97df7e8ead92",
+   "reason": "no incarnation is recorded; a reviewed rebind records it",
+   "owner": {
+    "kind": "Standalone",
+    "name": "database-scenario-rename-src"
+   },
+   "address": {
+    "contents": [
+     "platform:cluster/cluster/cluster",
+     "",
+     "secret",
+     "personal",
+     "nagare-dbbackup-scenario-renamed-signing"
+    ],
+    "tag": "Kubernetes"
+   }
+  },
+  {
+   "resource": "standalone:database-scenario-rename-src/scenario-rename-src/credential",
+   "physical": "e3c9c5aa-0369-43f9-bb15-ad712f9ccb09",
+   "reason": "no incarnation is recorded; a reviewed rebind records it",
+   "owner": {
+    "kind": "Standalone",
+    "name": "database-scenario-rename-src"
+   },
+   "address": {
+    "contents": [
+     "platform:cluster/cluster/cluster",
+     "",
+     "secret",
+     "personal",
+     "nagare-db-scenario-renamed"
+    ],
+    "tag": "Kubernetes"
+   }
+  },
+  {
+   "resource": "standalone:database-scenario-rename-src/scenario-rename-src/pvc",
+   "physical": "d3153aa4-e942-4858-a18b-74aca79de196",
+   "reason": "no incarnation is recorded; a reviewed rebind records it",
+   "owner": {
+    "kind": "Standalone",
+    "name": "database-scenario-rename-src"
+   },
+   "address": {
+    "contents": [
+     "platform:cluster/cluster/cluster",
+     "",
+     "persistentvolumeclaim",
+     "personal",
+     "nagare-db-scenario-renamed-data"
+    ],
+    "tag": "Kubernetes"
+   }
+  },
+  {
+   "resource": "standalone:database-scenario-rename-src/scenario-rename-src/service",
+   "physical": "2195399e-dafb-4a0b-b6d2-d19acfbaf356",
+   "reason": "no incarnation is recorded; a reviewed rebind records it",
+   "owner": {
+    "kind": "Standalone",
+    "name": "database-scenario-rename-src"
+   },
+   "address": {
+    "contents": [
+     "platform:cluster/cluster/cluster",
+     "",
+     "service",
+     "personal",
+     "scenario-renamed"
+    ],
+    "tag": "Kubernetes"
+   }
+  },
+  {
+   "resource": "standalone:database-scenario-rename-src/scenario-rename-src/statefulset",
+   "physical": "83b1f962-6915-4b11-a809-3530a1ee1c26",
+   "reason": "no incarnation is recorded; a reviewed rebind records it",
+   "owner": {
+    "kind": "Standalone",
+    "name": "database-scenario-rename-src"
+   },
+   "address": {
+    "contents": [
+     "platform:cluster/cluster/cluster",
+     "apps",
+     "statefulset",
+     "personal",
+     "scenario-renamed"
+    ],
+    "tag": "Kubernetes"
+   }
+  }
+ ]
+}

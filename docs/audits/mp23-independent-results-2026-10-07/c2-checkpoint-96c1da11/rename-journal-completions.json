@@ -1,0 +1,734 @@
+{
+ "transaction": "tx-d8da746d66cc2d91a33e188a333b4cbdd2b29ad052d715d8f8ca094428a353b3",
+ "interruption": "SIGKILL when the copy Job nagare-migrate-443524817b7e-copy appeared (20:00:08Z), then inventory resume converged",
+ "completedEvents": [
+  {
+   "sequence": 1081,
+   "operation": "op-2082048647a4cd8e5192c1a0",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/service"
+   ],
+   "physical": "2195399e-dafb-4a0b-b6d2-d19acfbaf356",
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1083,
+   "operation": "op-0e5999b9acafa5bd8ac3c0c5",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/service"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1085,
+   "operation": "op-2f4c7bca5102164cbee37218",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/service"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1087,
+   "operation": "op-5688db98fc0a5dc6455a557e",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/backup-read-role"
+   ],
+   "physical": "5c1a7bcb-515e-41b3-99e3-1b014032ad46",
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1089,
+   "operation": "op-1bc48ca7b1e1ed8a1288686e",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/backup-read-role"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1091,
+   "operation": "op-58b371dceca123d51347e154",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/service"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1093,
+   "operation": "op-23afc4e10797c79edeff9aa5",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/service"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1095,
+   "operation": "op-35a0f5b97688382777a7c281",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/service"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1097,
+   "operation": "op-49dcb1e2173c288d72abcb4e",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/service"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1099,
+   "operation": "op-6317a998680003a48cddd029",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/service"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1101,
+   "operation": "op-96d51615daf1a0b4f47f4b9b",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/pvc"
+   ],
+   "physical": "d3153aa4-e942-4858-a18b-74aca79de196",
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1103,
+   "operation": "op-9a63fb7fcfe5e22c2664eb16",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/backup-signing-key"
+   ],
+   "physical": "1edc9390-7c2b-4c35-a68e-97df7e8ead92",
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1105,
+   "operation": "op-a57867085ec02d62a48a88cc",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/backup-read-role"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1107,
+   "operation": "op-bfe47d3dd8534cfd6ab03a23",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/pvc"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1109,
+   "operation": "op-0040687a4d968719746afe85",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/pvc"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1112,
+   "operation": "op-006a15e89732443524817b7e",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/pvc"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1114,
+   "operation": "op-a970940e738e630452f92b54",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/pvc"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1116,
+   "operation": "op-35d851c9c0146947be3ce935",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/pvc"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1118,
+   "operation": "op-75648cc8c07a332a568db218",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/pvc"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1120,
+   "operation": "op-10508618bf2c1e329f8ddc00",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/pvc"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1122,
+   "operation": "op-c47fba515c43589d40bc0682",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/backup-account"
+   ],
+   "physical": "ead7665d-c3dc-47fd-b28b-69c69503579d",
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1124,
+   "operation": "op-6ccbd3dabc0b5eda8a436817",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/backup-account"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1126,
+   "operation": "op-8c52eacaa86399ca7d9f61a5",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/backup-account"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1128,
+   "operation": "op-35d4d6b29077f0874939ed3e",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/backup-account"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1130,
+   "operation": "op-07e570edb8c2ca0af3fb0ae0",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/backup-account"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1132,
+   "operation": "op-7ab7261a489bfc122d69cd4f",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/backup-account"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1134,
+   "operation": "op-94b616821583f7c0c17c9fbe",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/backup-account"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1136,
+   "operation": "op-1a3a4db07099c319b90a9064",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/backup-account"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1138,
+   "operation": "op-e907a2c7f3c017ec50888699",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/backup-signing-key"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1140,
+   "operation": "op-95ac260f4c8363a847e0f3fd",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/backup-signing-key"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1142,
+   "operation": "op-ca51f02c5f61fd4c839ae73b",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/backup-signing-key"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1144,
+   "operation": "op-79ff17465633cd757cac2609",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/backup-signing-key"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1146,
+   "operation": "op-807ed05645807cf849650747",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/backup-signing-key"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1148,
+   "operation": "op-7c70d986d2a7bed84a3c31d7",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/backup-signing-key"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1150,
+   "operation": "op-4d10236e581e062623406d80",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/backup-signing-key"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1152,
+   "operation": "op-ebbe3cbb8b30401d881466aa",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/credential"
+   ],
+   "physical": "e3c9c5aa-0369-43f9-bb15-ad712f9ccb09",
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1154,
+   "operation": "op-3c7aaa8ecc0de8d9213fb3ed",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/credential"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1156,
+   "operation": "op-057f95f73de14e6378ca06f5",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/credential"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1158,
+   "operation": "op-132257391b1cbd58cb6c4ee5",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/credential"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1160,
+   "operation": "op-3aea344d84a430e948a6fb32",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/credential"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1162,
+   "operation": "op-972c841c246a24c02b4e4ca7",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/credential"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1164,
+   "operation": "op-ec31d8a55822cb4d4b469555",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/backup-read-role"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1166,
+   "operation": "op-ad61856b750c5ffcda26fe57",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/backup-read-role"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1168,
+   "operation": "op-3f6aee9c9488389937186bf8",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/backup-read-role"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1170,
+   "operation": "op-5b6c1de3f096cdfe8f070ac4",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/backup-read-role"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1172,
+   "operation": "op-e073566890de24f5da87441d",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/backup-read-role"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1174,
+   "operation": "op-eac986af0d8ca9faf6df44e7",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/backup-read-binding"
+   ],
+   "physical": "25f957cb-7e2c-4e5f-a0be-396187c786b9",
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1176,
+   "operation": "op-37ebef578f1954739c560f9b",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/backup-read-binding"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1178,
+   "operation": "op-d94cf77eeb26532689292241",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/backup-read-binding"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1180,
+   "operation": "op-84999cbd05790a23655c20c7",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/backup-read-binding"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1182,
+   "operation": "op-7fa73dab26ca4772baaf7716",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/backup-read-binding"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1184,
+   "operation": "op-f70b44f61b50416fa7761d6b",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/statefulset"
+   ],
+   "physical": "83b1f962-6915-4b11-a809-3530a1ee1c26",
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1186,
+   "operation": "op-b86fa947a3f58de242c65769",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/statefulset"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1188,
+   "operation": "op-7fa0d97c127e7aa75625b947",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/statefulset"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1190,
+   "operation": "op-24fc00a68ed95656f874ca00",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/statefulset"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1192,
+   "operation": "op-3c217bc1917193c68a405fa9",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/statefulset"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1194,
+   "operation": "op-1dccd1f02b5794e9207ba4f5",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/backup"
+   ],
+   "physical": "31c77ed8-7ea3-4812-8683-62fbcb1f1396",
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1196,
+   "operation": "op-a2edcd5e1e48b34d2ff39c79",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/backup"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1198,
+   "operation": "op-a64b60ead878158034c6c5bb",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/backup"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1200,
+   "operation": "op-e9d5bde7a86ef013c6f60efa",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/statefulset"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1202,
+   "operation": "op-05f4b228c30e3fcd6c00ba24",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/statefulset"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1204,
+   "operation": "op-d4b44c7487eb3738ad5524c3",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/statefulset"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1206,
+   "operation": "op-f0a30d4968a15482b32de1b0",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/backup"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1208,
+   "operation": "op-be5a9f8ce36ee6eba2d5d5ec",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/backup"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1210,
+   "operation": "op-4f31c10af9328e499d478fb8",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/backup"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1212,
+   "operation": "op-efd69fbb1d869ae919092525",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/backup"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1214,
+   "operation": "op-e1d5d3ae59201dbee39fd221",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/backup"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1216,
+   "operation": "op-f839cfd7c43a44770b3df8a0",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/credential"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1218,
+   "operation": "op-c94734dc3da3ef1d29d2c48d",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/credential"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1220,
+   "operation": "op-f91f8704879ef6d105bb8377",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/backup-read-binding"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1222,
+   "operation": "op-859fb9a3abeda3fc6053b227",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/backup-read-binding"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1224,
+   "operation": "op-f74cd2d2e7c2c38b4a2199ac",
+   "action": "MigrateResource",
+   "resources": [
+    "standalone:database-scenario-rename-src/scenario-rename-src/backup-read-binding"
+   ],
+   "physical": null,
+   "detail": "operation completion verified"
+  },
+  {
+   "sequence": 1225,
+   "operation": null,
+   "action": "?",
+   "resources": [],
+   "physical": null,
+   "detail": "transaction converged"
+  }
+ ]
+}
