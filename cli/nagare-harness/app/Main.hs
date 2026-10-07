@@ -76,7 +76,7 @@ gateParser =
         )
     )
     <|> flag' GateFast (long "fast" <> help "Both Haskell suites, style and architecture checks")
-    <|> flag' GateFull (long "full" <> help "Clean tree, fast gate, builder probe, nix flake check --all-systems, realisation proof, record")
+    <|> flag' GateFull (long "full" <> help "Clean tree, builder probe, fast gate, nix flake check --all-systems, realisation proof, record")
 
 main :: IO ()
 main = do

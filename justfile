@@ -378,8 +378,9 @@ deep-tier-required base="origin/master":
     printf '  %s\n' $changed
     exit 1
 
-# EP-174: the full gate for a candidate: clean tree, fast gate, a salted probe
-# build on every remote system, `nix flake check --all-systems`, a dry-run
+# EP-174: the full gate for a candidate: clean tree, a salted probe build on
+# every remote system (first, since the builder idles off), the fast gate,
+# `nix flake check --all-systems`, a dry-run
 # proof that every check of every supported system is realised, and a record
 # at ${XDG_STATE_HOME:-~/.local/state}/nagare/gates/<commit>.json.
 # Run the full local gate and write the revision's gate record.

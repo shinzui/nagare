@@ -190,8 +190,8 @@ realise workdir system = do
   where
     lastLines = T.unlines . reverse . take 5 . reverse . T.lines
 
--- | The full gate: clean tree, fast gate, builder probe for every remote
--- system, @nix flake check --all-systems@, a realisation proof per system, and
+-- | The full gate: clean tree, builder probe for every remote system, fast
+-- gate, @nix flake check --all-systems@, a realisation proof per system, and
 -- a record. Returns the record (green or red) when one was written.
 runFullGate :: GateRun -> IO (Either Text GateRecord)
 runFullGate run = do
@@ -209,20 +209,28 @@ runFullGate run = do
         Right systems -> do
           let remoteSystems = filter (/= localSystem) systems
           salt <- T.pack . show <$> uniformM @Word globalStdGen
-          fast <- runSteps reportResult workdir (run ^. #logDir) fastSteps
-          let fastGreen = length fast == length fastSteps && all stepSucceeded fast
-          probes <-
-            if fastGreen
-              then runSteps reportResult workdir (run ^. #logDir) [probeStep system salt | system <- remoteSystems]
-              else pure []
-          let probesGreen = fastGreen && length probes == length remoteSystems && all stepSucceeded probes
-          when (fastGreen && not probesGreen) $
-            putStrLn ("gate: builder unreachable for " <> T.unpack (T.intercalate ", " remoteSystems) <> " (the builder probe failed)")
-          flake <-
+          -- The builder probe runs first: the builder's idle watchdog stops
+          -- its VM after about nine idle minutes, and a gate that probed only
+          -- after the fast steps found it gone (2026-10-07).
+          probes <- runSteps reportResult workdir (run ^. #logDir) [probeStep system salt | system <- remoteSystems]
+          let probesGreen = length probes == length remoteSystems && all stepSucceeded probes
+          unless probesGreen $
+            putStrLn
+              ( "gate: builder unreachable for "
+                  <> T.unpack (T.intercalate ", " remoteSystems)
+                  <> "; nothing else ran. Its idle watchdog stops the VM after about nine idle minutes"
+                  <> " (scripts/setup-nix-builder.sh): start it, then rerun the gate."
+              )
+          fast <-
             if probesGreen
+              then runSteps reportResult workdir (run ^. #logDir) fastSteps
+              else pure []
+          let fastGreen = probesGreen && length fast == length fastSteps && all stepSucceeded fast
+          flake <-
+            if fastGreen
               then runSteps reportResult workdir (run ^. #logDir) [flakeCheckStep]
               else pure []
-          let flakeGreen = probesGreen && all stepSucceeded flake && not (null flake)
+          let flakeGreen = fastGreen && all stepSucceeded flake && not (null flake)
           realisations <-
             if flakeGreen
               then forM systems $ \system -> do
@@ -259,7 +267,7 @@ runFullGate run = do
                   , commit = commitId
                   , tree = treeId
                   , clean = True
-                  , steps = fast <> probes <> flake
+                  , steps = probes <> fast <> flake
                   , systems = systemMap
                   , builderProbe =
                       BuilderProbe
