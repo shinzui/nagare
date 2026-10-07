@@ -234,6 +234,12 @@
     "expect": "test-fails"
   },
   {
+    "record": "D-foreign-object-not-replanned",
+    "suite": "nagarectl",
+    "pattern": "/the exit is one fresh review (EP-180 D)/",
+    "expect": "test-fails"
+  },
+  {
     "record": "E13-create-manager-foreign",
     "suite": "nagarectl",
     "pattern": "/under both its managed-field entries (E13)/",
@@ -249,6 +255,66 @@
     "record": "EP179-restore-skips-adversary",
     "suite": "nagarectl",
     "pattern": "/a snapshot taken at a stop restores the head, journal, world and adversary/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "EP181-complete-without-readiness",
+    "suite": "nagarectl",
+    "pattern": "/every row of the class table/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "EP181-delete-at-reviewed-version",
+    "suite": "nagarectl",
+    "pattern": "/a pod still stuck as reviewed is deleted once, at its fresh resourceVersion/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "EP181-delete-without-uid",
+    "suite": "nagarectl",
+    "pattern": "/the delete carries the reviewed UID and the fresh resourceVersion/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "EP181-kind-row-without-replacement",
+    "suite": "nagarectl",
+    "pattern": "/kind totality/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "EP181-publication-reads-replacement-as-mutation",
+    "suite": "nagarectl",
+    "pattern": "/a review with each Kubernetes action publishes and loads back intact/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "EP181-restart-ignores-stuck-pod",
+    "suite": "nagarectl",
+    "pattern": "/a stuck StatefulSet submits its accepted scope unchanged/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "EP181-stuck-ignores-observed-generation",
+    "suite": "nagarectl",
+    "pattern": "/nothing is stuck while the controller has not observed the latest spec/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "EP181-stuck-ignores-pod-revision",
+    "suite": "nagarectl",
+    "pattern": "/a broken create/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "EP181-stuck-ignores-readiness",
+    "suite": "nagarectl",
+    "pattern": "/the same pod, once Ready, is not stuck/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "EP181-terminating-pod-no-effect",
+    "suite": "nagarectl",
+    "pattern": "/every row of the class table/",
     "expect": "test-fails"
   },
   {
@@ -384,6 +450,96 @@
     "expect": "test-fails"
   },
   {
+    "record": "G11-churn-always-churns-nothing",
+    "suite": "nagarectl",
+    "pattern": "/fault acts: ChurnAlways/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "G11-churn-before-writes",
+    "suite": "nagarectl",
+    "pattern": "/churn precedes observations/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "G11-claim-never-held",
+    "suite": "nagarectl",
+    "pattern": "/fault acts: Deleted/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "G11-controller-lag-never-acted",
+    "suite": "nagarectl",
+    "pattern": "/fault acts: ControllerLag on a create/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "G11-controller-never-lags",
+    "suite": "nagarectl",
+    "pattern": "/the fake API server reproduces the recorded traces/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "G11-deployment-loses-available",
+    "suite": "nagarectl",
+    "pattern": "/the fake API server reproduces the recorded traces/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "G11-foreign-object-not-acted",
+    "suite": "nagarectl",
+    "pattern": "/fault acts: ForeignObject/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "G11-get-wakes-lagging-controller",
+    "suite": "nagarectl",
+    "pattern": "/fault acts: ControllerLag/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "G11-lands-failed-acted-only-on-jobs",
+    "suite": "nagarectl",
+    "pattern": "/fault acts: LandsFailed on a Deployment create/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "G11-ledger-ignores-counts",
+    "suite": "nagarectl",
+    "pattern": "/the known-defect ledger is two-sided/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "G11-no-apply-conflicts",
+    "suite": "nagarectl",
+    "pattern": "/the fake API server reproduces the recorded traces/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "G11-outcome-per-write",
+    "suite": "nagarectl",
+    "pattern": "/keeps its rollout/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "G11-statefulset-replaces-unready-pod",
+    "suite": "nagarectl",
+    "pattern": "/a StatefulSet correction stays stuck until its unready pod is deleted/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "G11-table-deployment-generation-spec-only",
+    "suite": "nagarectl",
+    "pattern": "/the table agrees with the recorded traces/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "G11-table-resourcequota-no-churn",
+    "suite": "nagarectl",
+    "pattern": "/the table agrees with the recorded traces/",
+    "expect": "test-fails"
+  },
+  {
     "record": "G4-kubectl-refusal-ignored",
     "suite": "nagarectl",
     "pattern": "/(G4)/",
@@ -480,111 +636,15 @@
     "expect": "test-fails"
   },
   {
-    "record": "G11-table-deployment-generation-spec-only",
-    "suite": "nagarectl",
-    "pattern": "/the table agrees with the recorded traces/",
-    "expect": "test-fails"
-  },
-  {
-    "record": "G11-table-resourcequota-no-churn",
-    "suite": "nagarectl",
-    "pattern": "/the table agrees with the recorded traces/",
-    "expect": "test-fails"
-  },
-  {
-    "record": "G11-deployment-loses-available",
-    "suite": "nagarectl",
-    "pattern": "/the fake API server reproduces the recorded traces/",
-    "expect": "test-fails"
-  },
-  {
-    "record": "G11-no-apply-conflicts",
-    "suite": "nagarectl",
-    "pattern": "/the fake API server reproduces the recorded traces/",
-    "expect": "test-fails"
-  },
-  {
-    "record": "G11-controller-never-lags",
-    "suite": "nagarectl",
-    "pattern": "/the fake API server reproduces the recorded traces/",
-    "expect": "test-fails"
-  },
-  {
-    "record": "G11-statefulset-replaces-unready-pod",
-    "suite": "nagarectl",
-    "pattern": "/a StatefulSet correction stays stuck until its unready pod is deleted/",
-    "expect": "test-fails"
-  },
-  {
-    "record": "G11-claim-never-held",
-    "suite": "nagarectl",
-    "pattern": "/fault acts: Deleted/",
-    "expect": "test-fails"
-  },
-  {
-    "record": "G11-outcome-per-write",
-    "suite": "nagarectl",
-    "pattern": "/keeps its rollout/",
-    "expect": "test-fails"
-  },
-  {
-    "record": "G11-get-wakes-lagging-controller",
-    "suite": "nagarectl",
-    "pattern": "/fault acts: ControllerLag/",
-    "expect": "test-fails"
-  },
-  {
-    "record": "G11-foreign-object-not-acted",
-    "suite": "nagarectl",
-    "pattern": "/fault acts: ForeignObject/",
-    "expect": "test-fails"
-  },
-  {
-    "record": "G11-churn-always-churns-nothing",
-    "suite": "nagarectl",
-    "pattern": "/fault acts: ChurnAlways/",
-    "expect": "test-fails"
-  },
-  {
-    "record": "G11-ledger-ignores-counts",
-    "suite": "nagarectl",
-    "pattern": "/the known-defect ledger is two-sided/",
-    "expect": "test-fails"
-  },
-  {
-    "record": "G11-lands-failed-acted-only-on-jobs",
-    "suite": "nagarectl",
-    "pattern": "/fault acts: LandsFailed on a Deployment create/",
-    "expect": "test-fails"
-  },
-  {
-    "record": "G11-controller-lag-never-acted",
-    "suite": "nagarectl",
-    "pattern": "/fault acts: ControllerLag on a create/",
-    "expect": "test-fails"
-  },
-  {
-    "record": "G11-churn-before-writes",
-    "suite": "nagarectl",
-    "pattern": "/churn precedes observations/",
-    "expect": "test-fails"
-  },
-  {
-    "record": "M9-verify-guard-compares-resource-version",
-    "suite": "nagarectl",
-    "pattern": "/is proved complete; one whose target changed stops/",
-    "expect": "test-fails"
-  },
-  {
     "record": "M9-unready-update-landed-without-digest",
     "suite": "nagarectl",
     "pattern": "/an unready update is landed only with the reviewed digest/",
     "expect": "test-fails"
   },
   {
-    "record": "D-foreign-object-not-replanned",
+    "record": "M9-verify-guard-compares-resource-version",
     "suite": "nagarectl",
-    "pattern": "/the exit is one fresh review (EP-180 D)/",
+    "pattern": "/is proved complete; one whose target changed stops/",
     "expect": "test-fails"
   }
 ]

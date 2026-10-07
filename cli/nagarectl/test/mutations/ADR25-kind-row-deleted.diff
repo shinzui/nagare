@@ -1,12 +1,12 @@
 diff --git a/cli/nagarectl/test/Nagare/Test/World/Kinds.hs b/cli/nagarectl/test/Nagare/Test/World/Kinds.hs
-index bf662370..6ed4c01e 100644
+index 88ce0e99..951f779c 100644
 --- a/cli/nagarectl/test/Nagare/Test/World/Kinds.hs
 +++ b/cli/nagarectl/test/Nagare/Test/World/Kinds.hs
-@@ -77,7 +77,6 @@ kindTable =
+@@ -80,7 +80,6 @@ kindTable =
    -- Application scopes: Knative Service, worker Deployment, CronJob tasks,
    -- DomainMapping, release history, volumes; databases and their backups.
    [ inLine ("serving.knative.dev", "service") updatable CanBeUnready
 -  , inLine ("serving.knative.dev", "domainmapping") fixed CanBeUnready
    , inLine ("apps", "deployment") updatable CanBeUnready
-   , inLine ("apps", "statefulset") (migratable updatable) CanBeUnready
+   , inLine ("apps", "statefulset") (KindReplaceStuckPod : migratable updatable) CanBeUnready
    , inLine ("batch", "cronjob") (migratable updatable) NoReadiness

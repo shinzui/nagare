@@ -1,11 +1,11 @@
 diff --git a/cli/nagarectl/src/Nagare/Inventory/Status.hs b/cli/nagarectl/src/Nagare/Inventory/Status.hs
-index 3d226576..7b1dca84 100644
+index 306dc0f1..9d8474d5 100644
 --- a/cli/nagarectl/src/Nagare/Inventory/Status.hs
 +++ b/cli/nagarectl/src/Nagare/Inventory/Status.hs
-@@ -658,7 +658,7 @@ classifyDriftWith incarnations inventory observations =
-   ]
+@@ -675,7 +675,7 @@ classifyDriftWith incarnations inventory observations =
    where
      observed = observationMap observations
+     stuck = observationStuck observations
 -    replaced resource uid = case checkedPhysical incarnations (resource ^. #identity) uid of
 +    replaced resource uid = False && case checkedPhysical incarnations (resource ^. #identity) uid of
        IdentityReplaced _ _ -> True
