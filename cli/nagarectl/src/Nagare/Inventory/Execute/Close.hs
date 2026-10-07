@@ -38,7 +38,7 @@ import Nagare.Inventory.Adapter
   , OperationAction (CreateResource, VerifyResource)
   , PlannedOperation (plannedAction, plannedExecutor, plannedOperationId, plannedResources)
   , RecoveryDecision (RecoveryProvedComplete, RecoverySafeToRetry)
-  , ResourceObservation (ConfirmedAbsent)
+  , ResourceObservation (ConfirmedAbsent, ObservationUnavailable)
   , Settlement (..)
   , lookupAdapter
   , observationMap
@@ -206,9 +206,10 @@ closeTransaction store registry input = do
             []
               | isJust (closeAttestation input) ->
                   pure (failure "attestation-unneeded" "every operation is proved; close without --attest so the proof decides each scope")
-            [] -> do
-              absent <- neverStartedAbsent registry entries classes
-              commitClose lock (closeRecordFor transaction (closeReview input) document classes absent)
+            [] ->
+              neverStartedAbsent registry entries classes >>= \case
+                Left unconfirmed -> pure (Left unconfirmed)
+                Right absent -> commitClose lock (closeRecordFor transaction (closeReview input) document classes absent)
 
 -- | Publish the record, journal it and write the head. The journal event is
 -- the commit point: a repeat only redoes the head write.
@@ -327,10 +328,23 @@ journalClass states operation = case Map.lookup (plannedOperationId operation) s
     | otherwise -> Nothing
 
 -- | Creates that never started or were refused, confirmed absent now (O8).
-neverStartedAbsent :: AdapterRegistry -> [ReviewOperation] -> Map OperationId OperationClass -> IO (Set ResourceId)
+-- F79, ADR 26: missing access is an error, not evidence. A target whose
+-- absence cannot be read (no adapter, a failed read, an unavailable
+-- observation) refuses close with its reason, so the operator closes again
+-- once it can be read; it is never silently left out of the set. A definite
+-- observation of a present object is not absence, and the member stays.
+neverStartedAbsent :: AdapterRegistry -> [ReviewOperation] -> Map OperationId OperationClass -> IO (Either (NonEmpty AdmissionError) (Set ResourceId))
 neverStartedAbsent registry entries classes = do
   observed <- traverse observe candidates
-  pure (Set.fromList (concat observed))
+  pure $ case concatMap fst observed of
+    [] -> Right (Set.fromList (concatMap snd observed))
+    unconfirmed@(_ : _) ->
+      Left
+        ( NE.fromList
+            [ AdmissionError "absence-unconfirmed" (resourceIdText resource <> " never started, but its absence cannot be confirmed: " <> reason <> "; close again once it can be read")
+            | (resource, reason) <- unconfirmed
+            ]
+        )
   where
     candidates =
       [ operation
@@ -339,14 +353,22 @@ neverStartedAbsent registry entries classes = do
       , plannedAction operation == CreateResource
       , Map.lookup (plannedOperationId operation) classes `elem` [Just ClassNeverStarted, Just ClassRefused]
       ]
-    observe operation = case lookupAdapter registry (plannedExecutor operation) of
-      Left _ -> pure []
-      Right adapter -> do
-        let resources = NE.toList (plannedResources operation)
-        facts <- adapterObserve adapter resources
-        pure $ case facts of
-          Left _ -> []
-          Right set -> [resource | resource <- resources, Just (ConfirmedAbsent _) <- [Map.lookup resource (observationMap set)]]
+    observe operation = do
+      let resources = NE.toList (plannedResources operation)
+      case lookupAdapter registry (plannedExecutor operation) of
+        Left reason -> pure ([(resource, "no adapter: " <> showText reason) | resource <- resources], [])
+        Right adapter -> do
+          facts <- adapterObserve adapter resources
+          pure $ case facts of
+            Left reason -> ([(resource, reason) | resource <- resources], [])
+            Right observations ->
+              ( [(resource, reason) | resource <- resources, reason <- unreadable (Map.lookup resource (observationMap observations))]
+              , [resource | resource <- resources, Just (ConfirmedAbsent _) <- [Map.lookup resource (observationMap observations)]]
+              )
+    unreadable = \case
+      Nothing -> ["the adapter returned no observation"]
+      Just (ObservationUnavailable reason) -> [reason]
+      Just _ -> []
 
 closeRecordFor :: TransactionId -> ContentDigest -> ReviewDocument -> Map OperationId OperationClass -> Set ResourceId -> CloseRecord
 closeRecordFor transaction review document classes absent =

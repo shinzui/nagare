@@ -160,6 +160,30 @@ inventoryRecoveryModelTests =
         -- fresh review observes the object, as with a replacement (N1).
         scenario <- scenarioNamed "create with a durable volume, then retire"
         pinned scenario [(Boundary MutateCall 2, LandsUnready), (Boundary ObserveCall 24, ForeignObject)] [[Close]]
+    , testCase "close refuses while a never-started member's absence cannot be read, and closing again ends it (F79)" $ do
+        -- The database's signing key never starts; its absence read fails
+        -- once. Close must refuse rather than drop the member, which would
+        -- leave it accepted with no object and no exit.
+        scenario <- scenarioNamed "create a database, then retire it"
+        forM_ [LandsFailed, LandsUnready] $ \fault ->
+          pinned scenario [(Boundary MutateCall 5, fault), (Boundary ObserveCall 41, TransientReadFailure)] [[Close]]
+    , testCase "a planning refusal is excused when each named resource has its own excuse (B2)" $ do
+        let refusal errors = T.pack (show (errors :: NonEmpty PlanError))
+            missing names = PlanError "durable-resource-missing" "accepted durable resource is absent" (map resourceOf names)
+            excused = refusalExcused (Set.fromList [idOf "d"]) (Set.fromList [idOf "f"])
+            idOf name = "application:web/" <> name <> "/resource"
+            resourceOf name = either (error . show) id (mkResourceId (idOf name))
+        -- One error naming a deleted and a foreign-filled member, or one each.
+        excused (refusal (missing ["d", "f"] :| [])) @?= True
+        excused (refusal (missing ["d"] :| [PlanError "foreign-object" "unowned" [resourceOf "f"]])) @?= True
+        -- A member neither deleted nor foreign-filled, a deletion excusing
+        -- another code, or an error naming nothing is not excused.
+        excused (refusal (missing ["d", "x"] :| [])) @?= False
+        excused (refusal (PlanError "foreign-object" "unowned" [resourceOf "d"] :| [])) @?= False
+        excused (refusal (missing ["d"] :| [PlanError "invalid" "no resources" []])) @?= False
+        scenario <- scenarioNamed "create, bad update, corrected update (with a durable volume)"
+        finished <- runScenario scenario [(Boundary ObserveCall 16, Deleted), (Boundary ObserveCall 10, ForeignObject)]
+        either (assertFailure . T.unpack) (const (pure ())) finished
     , testCase "a move that a new fault stopped without progress is re-run; one that no fault stopped is not (EP-177)" $ do
         service <- scenarioNamed "kind (\"serving.knative.dev\",\"service\"): create"
         -- Resume stops again when its store write is refused; re-run, it completes.
@@ -435,13 +459,12 @@ drive scenario schedule onStop start resumed = do
         RestartDatabase -> restartAndApply run (shape scenario) previous (historyImage previous)
         RetireDatabase -> scopeRetireAndApply run databaseScopeId (shape scenario) previous (historyImage previous)
         _ -> reviewAndApply run (shape scenario) image (historyImage image)
-      deletedData <- either (deletedDataRefusal run) (const (pure False)) outcome
-      foreignBlocked <- either (foreignObjectRefusal run) (const (pure False)) outcome
+      excused <- either (excusedRefusal run) (const (pure False)) outcome
       absentScope <- either (absentScopeRetirement run) (const (pure False)) outcome
       case outcome of
         Left refusal
           | refusal == restartNotPlanned -> go began run (next previous step) rest taken
-          | foreignBlocked || deletedData || absentScope -> do
+          | excused || absentScope -> do
               -- An unowned object at a planned address refuses planning, and a
               -- durable member deleted outside review refuses until its data is
               -- recovered or its collection reviewed. There is no transaction to
@@ -713,23 +736,31 @@ ingestReceipt run clean = do
       | clean = Left ("I3: fault-free ingestion could not be planned: " <> why)
       | otherwise = Right ()
 
--- | Planning refuses `durable-resource-missing` naming only members the world
--- deleted outside review: the expected refusal, not a wedge.
-deletedDataRefusal :: Run -> Text -> IO Bool
-deletedDataRefusal run refusal = do
+-- | B2: a planning refusal is the expected answer to a fault, not a wedge,
+-- when every error names at least one resource and each named resource has an
+-- excuse of its own: a durable member the world deleted outside review
+-- (`durable-resource-missing`), or an address a 'ForeignObject' fault filled
+-- with an unowned object. Excuses compose per error and resource, so one
+-- refusal may name one of each.
+excusedRefusal :: Run -> Text -> IO Bool
+excusedRefusal run refusal = do
   world <- readIORef (runWorld run)
-  let named = [T.takeWhile (/= '"') chunk | chunk <- drop 1 (T.splitOn "ResourceId \"" refusal)]
-      deleted = Set.map resourceIdText (deletedOutOfBand world)
-  pure ("durable-resource-missing" `T.isInfixOf` refusal && not (null named) && all (`Set.member` deleted) named)
+  pure $
+    refusalExcused
+      (Set.map resourceIdText (deletedOutOfBand world))
+      (Set.fromList [resourceIdText resource | (resource, KubeObject {owner = Nothing}) <- Map.toList (objects world)])
+      refusal
 
--- | EP-177: a planning refusal is excused by a 'ForeignObject' fault only when
--- it names a resource whose address that fault filled with an unowned object.
-foreignObjectRefusal :: Run -> Text -> IO Bool
-foreignObjectRefusal run refusal = do
-  world <- readIORef (runWorld run)
-  let named = [T.takeWhile (/= '"') chunk | chunk <- drop 1 (T.splitOn "ResourceId \"" refusal)]
-      foreign' = Set.fromList [resourceIdText resource | (resource, KubeObject {owner = Nothing}) <- Map.toList (objects world)]
-  pure (not (null named) && all (`Set.member` foreign') named)
+refusalExcused :: Set.Set Text -> Set.Set Text -> Text -> Bool
+refusalExcused deleted foreign' refusal = not (null errors) && all covered errors
+  where
+    errors =
+      [ (T.takeWhile (/= '"') (snd (T.breakOnEnd "planErrorCode = \"" chunk)), named (snd (T.breakOn "planErrorResources =" chunk)))
+      | chunk <- drop 1 (T.splitOn "PlanError {" refusal)
+      ]
+    named text = [T.takeWhile (/= '"') resource | resource <- drop 1 (T.splitOn "ResourceId \"" text)]
+    covered (code, resources) = not (null resources) && all (excused code) resources
+    excused code resource = (code == "durable-resource-missing" && Set.member resource deleted) || Set.member resource foreign'
 
 -- | A retirement of a scope that was never accepted (its create was closed
 -- and reverted) is correctly refused; there is nothing to retire.

@@ -652,5 +652,17 @@
     "suite": "nagarectl",
     "pattern": "/fast tier: every fault has an exit/",
     "expect": "test-fails"
+  },
+  {
+    "record": "F79-close-drops-unconfirmed-absence",
+    "suite": "nagarectl",
+    "pattern": "/(F79)/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "B2-excuses-do-not-compose",
+    "suite": "nagarectl",
+    "pattern": "/when each named resource has its own excuse (B2)/",
+    "expect": "test-fails"
   }
 ]

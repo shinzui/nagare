@@ -1,13 +1,12 @@
 diff --git a/cli/nagarectl/src/Nagare/Inventory/Execute/Close.hs b/cli/nagarectl/src/Nagare/Inventory/Execute/Close.hs
-index f25dbda9..a7f7ca9c 100644
 --- a/cli/nagarectl/src/Nagare/Inventory/Execute/Close.hs
 +++ b/cli/nagarectl/src/Nagare/Inventory/Execute/Close.hs
-@@ -205,7 +205,7 @@ closeTransaction store registry input = do
+@@ -204,7 +204,7 @@
                          )
                      )
              []
 -              | isJust (closeAttestation input) ->
 +              | False && isJust (closeAttestation input) ->
                    pure (failure "attestation-unneeded" "every operation is proved; close without --attest so the proof decides each scope")
-             [] -> do
-               absent <- neverStartedAbsent registry entries classes
+             [] ->
+               neverStartedAbsent registry entries classes >>= \case

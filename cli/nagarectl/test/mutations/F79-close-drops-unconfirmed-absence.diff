@@ -1,0 +1,12 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Execute/Close.hs b/cli/nagarectl/src/Nagare/Inventory/Execute/Close.hs
+--- a/cli/nagarectl/src/Nagare/Inventory/Execute/Close.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Execute/Close.hs
+@@ -336,7 +336,7 @@
+ neverStartedAbsent :: AdapterRegistry -> [ReviewOperation] -> Map OperationId OperationClass -> IO (Either (NonEmpty AdmissionError) (Set ResourceId))
+ neverStartedAbsent registry entries classes = do
+   observed <- traverse observe candidates
+-  pure $ case concatMap fst observed of
++  pure $ case filter (const False) (concatMap fst observed) of
+     [] -> Right (Set.fromList (concatMap snd observed))
+     unconfirmed@(_ : _) ->
+       Left

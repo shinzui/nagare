@@ -4,11 +4,13 @@
 -- head release fails is completed by running close again.
 module InventoryCloseSpec (inventoryCloseTests) where
 
+import Control.Monad (forM_)
 import Data.Either (isLeft)
 import Data.IORef
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import Data.Text.Encoding qualified as TE
 import InventoryObjectOpsSpec (fakeObjectOps)
 import InventoryTransactionSpec (fixtureBinding, recordingRegistryWith)
@@ -50,6 +52,7 @@ inventoryCloseTests =
         assertBool "version" (isLeft (decode "{\"version\":2,\"operator\":\"op\",\"reason\":\"why\",\"evidence\":[]}"))
     , testCase "closing a refused update keeps a created member owned and admits no update as never-started (H2)" keepsCompletedEffects
     , testCase "abandoning a refused correction after a stop reverts to the correction's base (H1)" revertsToReviewBase
+    , testCase "close refuses, retryably, while a never-started create's absence cannot be confirmed (F79)" unconfirmedAbsence
     , testCase "an abandon whose head release was refused is completed by repeating it (U1)" $ do
         writes <- abandonWithRefusedRelease []
         _ <- abandonWithRefusedRelease [(Boundary StorePutCall n, PutRefused) | n <- [writes .. writes + 3]]
@@ -68,8 +71,8 @@ landedClose releaseFaults = do
   let owner = ok (mkScopeId Application "web")
       cluster = mintResourceId owner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
       service digest = member owner cluster "service" digest
-      -- Ordered after the update, so it never starts; this registry cannot
-      -- confirm its absence, so close must not admit it as never-started.
+      -- Ordered after the update, so it never starts; close confirms its
+      -- absence before admitting it as never-started (F79).
       extra = case member owner cluster "extra" "e1" of
         Managed value -> Managed (value {dependencies = [OrderedAfter (declarationId (service "v1"))]})
         other -> other
@@ -91,8 +94,9 @@ landedClose releaseFaults = do
   let incarnations = Map.singleton (declarationId (service "v1")) landed
   _ <- replaceHeadIfGenerationMatches store (Just (headGeneration stopped)) stopped {headGeneration = headGeneration stopped + 1, headIncarnations = incarnations} >>= expectRight
   let input = CloseInput transaction (reviewedDigest reviewed) False Nothing
+      confirming = ok (mkAdapterRegistry [(ok (lookupAdapter registry KubernetesExecutor)) {adapterObserve = \resources -> pure (observationSet [(resource, ConfirmedAbsent (contentDigest "absent")) | resource <- resources])}])
   modifyIORef' adversary (\value -> value {storeArmed = True})
-  closed <- closeTransaction store registry input
+  closed <- closeTransaction store confirming input
   writes <- maybe 0 id . Map.lookup StorePutCall . counts <$> readIORef adversary
   record <- case (releaseFaults, closed) of
     ([], Right record) -> pure record
@@ -100,9 +104,9 @@ landedClose releaseFaults = do
     (_, Right _) -> assertFailure "the close succeeded although its head release was refused" >> pure (error "unreachable")
     (_, Left _) -> do
       -- The close was journalled; closing again only completes the release.
-      closeTransaction store registry input >>= either (\errors -> assertFailure ("the repeated close was refused: " <> show (NE.toList errors)) >> pure (error "unreachable")) pure
+      closeTransaction store confirming input >>= either (\errors -> assertFailure ("the repeated close was refused: " <> show (NE.toList errors)) >> pure (error "unreachable")) pure
   assertBool "classes" (all (`elem` Map.elems (closedClasses record)) [ClassLanded landed, ClassNeverStarted] && Map.size (closedClasses record) == 2)
-  closedNeverStarted record @?= mempty
+  closedNeverStarted record @?= Set.singleton (declarationId extra)
   Map.elems (closedScopes record) @?= [KeepDesired]
   after <- readHead store >>= expectRight >>= maybe (assertFailure "head missing" >> pure (error "unreachable")) pure
   headActiveTransaction after @?= Nothing
@@ -235,6 +239,47 @@ keepsCompletedEffects = do
   after <- readHead store >>= expectRight >>= maybe (assertFailure "head missing" >> pure (error "unreachable")) pure
   headActiveTransaction after @?= Nothing
   Map.lookup owner (headAccepted after) @?= Map.lookup owner (reviewDesiredRevisions (reviewedDocument reviewed))
+
+-- | F79, ADR 26 (missing access is an error, not evidence): a never-started
+-- create is admitted to the never-started set only when its absence is
+-- confirmed. An unreadable target refuses close with a named reason and
+-- leaves the transaction open to close again; it never drops the member.
+unconfirmedAbsence :: Assertion
+unconfirmedAbsence = do
+  store <- newMemoryStore
+  _ <- initializeStore store fixtureBinding "f79-test" >>= expectRight
+  let owner = ok (mkScopeId Application "web")
+      cluster = mintResourceId owner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
+      first' = member owner cluster "first" "f1"
+      second = case member owner cluster "second" "s1" of
+        Managed value -> Managed (value {dependencies = [OrderedAfter (declarationId first')]})
+        other -> other
+      refusingCreates =
+        recordingRegistryWith
+          (\operation _ -> pure (if plannedAction operation == CreateResource then Left "refused before any effect" else Right ()))
+          (\_ _ -> pure AdapterEffectCompleted)
+          (\_ _ -> pure RecoverySafeToRetry)
+      observing facts = ok (mkAdapterRegistry [(ok (lookupAdapter refusingCreates KubernetesExecutor)) {adapterObserve = facts}])
+      absentFact = ConfirmedAbsent (contentDigest "absent")
+  reviewed <- reviewFor store refusingCreates owner [first', second] [(declarationId first', absentFact), (declarationId second, absentFact)]
+  transaction <- stoppedTransaction store refusingCreates reviewed
+  let input = CloseInput transaction (reviewedDigest reviewed) False Nothing
+  forM_
+    [ \resources -> pure (observationSet [(resource, ObservationUnavailable "injected: read timed out") | resource <- resources])
+    , \_ -> pure (Left "injected: cluster unreachable")
+    ]
+    $ \unreadable -> do
+      closeTransaction store (observing unreadable) input >>= \case
+        -- One named refusal for each member whose absence is unread.
+        Left errors -> map admissionErrorCode (NE.toList errors) @?= ["absence-unconfirmed", "absence-unconfirmed"]
+        Right record -> assertFailure ("close dropped an unconfirmed member: " <> show (closedNeverStarted record))
+      open <- readHead store >>= expectRight >>= maybe (assertFailure "head missing" >> pure (error "unreachable")) pure
+      headActiveTransaction open @?= Just (transactionIdText transaction)
+  -- Once every target reads definitely, close admits only what is absent:
+  -- an object present at a never-started create's address keeps it out.
+  let readable resources = pure (observationSet [(resource, if resource == declarationId second then ObservedForeign (ok (mkPhysicalIdentity "foreign-uid")) else absentFact) | resource <- resources])
+  record <- closeTransaction store (observing readable) input >>= either (\errors -> assertFailure ("close refused: " <> show (NE.toList errors)) >> pure (error "unreachable")) pure
+  closedNeverStarted record @?= Set.singleton (declarationId first')
 
 -- | H1: a stop leaves a scope accepted at its first review's desired
 -- revision; a correction's update is then refused. The legacy abandon reset

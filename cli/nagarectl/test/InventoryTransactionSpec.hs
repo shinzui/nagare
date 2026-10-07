@@ -3636,7 +3636,10 @@ recordingRegistryWith preflight execution recovery =
         { adapterExecutor = executor
         , adapterIdentity = "recording"
         , adapterVersion = "1"
-        , adapterObserve = \_ -> pure (Left "tests inject observations")
+        , -- The recording adapter writes nothing, so nothing it is asked
+          -- about exists: close confirms a never-started member absent (F79).
+          -- Planning injects its own observations.
+          adapterObserve = \resources -> pure (observationSet [(resource, ConfirmedAbsent (contentDigest "recording-absent")) | resource <- resources])
         , adapterPrepare = \operation -> pure (Right (PreparedNative (canonical operation) "recording adapter"))
         , adapterPreflight = preflight
         , adapterExecute = execution

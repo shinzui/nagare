@@ -1115,3 +1115,22 @@ E16 verified steps 1, 2, 4 and 6 (and a file-level backup through the pod) on k3
 **Operator view.** `inventory status` reports the missing members. The managed-databases guide says they appear in the first review after the database's template is corrected and lands Ready.
 
 **For the next MasterPlan.** Let a transaction continue the operations that do not depend on a stopped one, so a broken workload no longer starves independent members.
+
+## F79
+
+**Close drops a never-started member whose absence it cannot read, leaving it accepted with no exit** — P1; **Verifying**; owners MP-23 (step 3d).
+
+**Found by the step-3d deep run (session nagare, `341b01bc`); reproduced by a recovery-model pin and a close unit test (observed).**
+- **The defect.** `neverStartedAbsent` in `Execute/Close.hs` admitted a never-started or refused create to the never-started set only when observed `ConfirmedAbsent`. A failed read, a missing adapter or `ObservationUnavailable` silently dropped the member, and close finalised anyway.
+- **Consequence.** The member (here the database's `backup-signing-key`) stayed accepted with no object. Every later keep or retire review refused `durable-resource-missing`, and a redeploy refused too, because the planner recreates only never-started-set members (R19). A closed transaction is final, so there was no exit.
+- **Schedule.** "create a database, then retire it", with `LandsFailed` or `LandsUnready` at write 5 and `TransientReadFailure` at observation 41: I1.
+
+**Fix (ADR 26: missing access is an error, not evidence).** Close refuses with `absence-unconfirmed`, naming each member and the reason its absence could not be read. The transaction stays open, so the operator closes again once the read succeeds; the member is never dropped. A definite observation of a present object still keeps the member out of the set, as before.
+
+**Tests.**
+- "close refuses, retryably, while a never-started create's absence cannot be confirmed (F79)": an unavailable observation and a failed read each refuse, and a confirmed read closes with both creates never-started.
+- "close refuses while a never-started member's absence cannot be read, and closing again ends it (F79)": the model pin; both schedules exit `[[Close]]`.
+- The landed-close test had expected the silent drop. Its close now confirms absence, and the member is never-started.
+
+**Mutation.** `test/mutations/F79-close-drops-unconfirmed-absence.diff` reproduces the original I1.
+

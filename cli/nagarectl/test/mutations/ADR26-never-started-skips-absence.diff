@@ -1,15 +1,12 @@
 diff --git a/cli/nagarectl/src/Nagare/Inventory/Execute/Close.hs b/cli/nagarectl/src/Nagare/Inventory/Execute/Close.hs
-index 9088a250..f216aff3 100644
 --- a/cli/nagarectl/src/Nagare/Inventory/Execute/Close.hs
 +++ b/cli/nagarectl/src/Nagare/Inventory/Execute/Close.hs
-@@ -337,8 +337,8 @@ neverStartedAbsent registry entries classes = do
-         let resources = NE.toList (plannedResources operation)
-         facts <- adapterObserve adapter resources
-         pure $ case facts of
--          Left _ -> []
--          Right set -> [resource | resource <- resources, Just (ConfirmedAbsent _) <- [Map.lookup resource (observationMap set)]]
-+          Left _ -> resources
-+          Right _ -> resources
- 
- closeRecordFor :: TransactionId -> ContentDigest -> ReviewDocument -> Map OperationId OperationClass -> Set ResourceId -> CloseRecord
- closeRecordFor transaction review document classes absent =
+@@ -363,7 +363,7 @@
+             Left reason -> ([(resource, reason) | resource <- resources], [])
+             Right observations ->
+               ( [(resource, reason) | resource <- resources, reason <- unreadable (Map.lookup resource (observationMap observations))]
+-              , [resource | resource <- resources, Just (ConfirmedAbsent _) <- [Map.lookup resource (observationMap observations)]]
++              , resources
+               )
+     unreadable = \case
+       Nothing -> ["the adapter returned no observation"]
