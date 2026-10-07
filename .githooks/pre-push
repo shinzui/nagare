@@ -1,12 +1,23 @@
 #!/usr/bin/env bash
 # EP-174: refuse a push unless the fast local gate is green. Installed with
-# `just install-hooks`; it checks the working tree, not the pushed commits,
-# so push from a clean tree. `just gate` (the full gate) refuses dirty trees.
+# `just install-hooks`. A push whose commits all have green full-gate records
+# is accepted as is; otherwise the fast gate runs on the working tree, so push
+# from a clean tree. `just gate` (the full gate) refuses dirty trees.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
-# A clean HEAD with a green full-gate record (`just land`) needs no second gate.
-if [ -z "$(git status --porcelain)" ] && just gate-verify HEAD >/dev/null 2>&1; then
-  echo "pre-push: HEAD has a green full-gate record"
+# Commits pushed with a green full-gate record (`just land`) need no second
+# gate. Git passes "<local ref> <local sha> <remote ref> <remote sha>" lines on
+# stdin; the record is checked for each pushed commit, not for the working
+# tree, so `just land` can push a gated commit from any checkout.
+all_recorded=yes
+pushed=0
+while read -r _ local_sha _ _; do
+  [ "$local_sha" = 0000000000000000000000000000000000000000 ] && continue
+  pushed=$((pushed + 1))
+  just gate-verify "$local_sha" >/dev/null 2>&1 || all_recorded=no
+done
+if [ "$pushed" -gt 0 ] && [ "$all_recorded" = yes ]; then
+  echo "pre-push: every pushed commit has a green full-gate record"
   exit 0
 fi
 if ! just gate-fast; then
