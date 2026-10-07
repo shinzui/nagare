@@ -294,6 +294,11 @@ doctorTests =
   , testCase "remediationFor: recovery point FAIL -> receipt ingestion" $
       cmdOf (Probe "recovery point" StatusFail "personal/notes: unhealthy; age=4000s; one-hour objective breached")
         `containsT` "nagarectl db backup-receipts"
+  , testCase "remediationFor: stuck rollout FAIL -> db restart proposes the replacement (EP-181)" $ do
+      let probe' = Probe "stuck rollout personal/pg" StatusFail "pg-0 at revision 9d647 is not Ready and blocks the rollout to d9d6d"
+      cmdOf probe' `containsT` "run nagarectl db restart NAME"
+      cmdOf probe' `containsT` "review the proposed replace-stuck-pod, then apply it"
+      fmap (^. #reason) (remediationFor tnbProfile probe') @?= Just "Its pod at an older revision is not Ready, and Kubernetes will not roll it, so the StatefulSet never runs its reviewed template (pg-0 at revision 9d647 is not Ready and blocks the rollout to d9d6d)."
   , testCase "remediationFor: VM FAIL -> gcloud start" $
       cmdOf (Probe "VM" StatusFail "TERMINATED")
         `containsT` "gcloud compute instances start nagare-01 --zone=us-west1-a"

@@ -16,6 +16,7 @@ where
 import Data.Aeson (Value (..), eitherDecodeStrict', encode, object, (.=))
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
+import Data.ByteString.Lazy qualified as BL
 import Data.ByteString.Lazy.Char8 qualified as BLC
 import Data.Either (isLeft)
 import Data.Generics.Labels ()
@@ -32,6 +33,7 @@ import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes (KubernetesState (..), kubernetesObserve, mkKubernetesAdapterWithObservations)
 import Nagare.Inventory.Adapters.KubernetesRuntime (mkKubernetesRuntimeOpsAndBatchWithCacheKey)
 import Nagare.Inventory.Adapters.KubernetesStuckPod
+import Nagare.Inventory.DataService (NativeDataKind (DatabaseObjects), compileStatefulSetRestart)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Execute
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect))
@@ -40,12 +42,14 @@ import Nagare.Inventory.KubernetesTransport (KubectlRequest (..), KubernetesRunt
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Status qualified as Status
 import Nagare.Inventory.Store
+import Nagare.Ops.Probe (Probe (..), ProbeStatus (..))
+import Nagare.Ops.StuckRollout (parseStuckRollouts)
 import Nagare.Resource.Canonical (canonicalValue)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes (KubernetesInput (..))
 import Nagare.Resource.Policy
 import Nagare.Resource.Types
-import Nagare.Test.Model.Fixtures (databaseNative, ok, statefulId)
+import Nagare.Test.Model.Fixtures (databaseNative, databaseScope, ok, statefulId)
 import Nagare.Test.Support.Kubernetes qualified as K
 import System.Exit (ExitCode (..))
 import Test.Tasty
@@ -254,6 +258,29 @@ inventoryStuckPodTests =
         after <- readHead store >>= expectRight >>= maybe (assertFailure "head missing" >> pure (error "unreachable")) pure
         headActiveTransaction after @?= Nothing
         Map.lookup planOwner (headAccepted after) @?= Map.lookup planOwner (reviewDesiredRevisions (reviewedDocument reviewed))
+    , testCase "doctor: a stamped StatefulSet whose rollout is stuck fails its probe; an unstamped or Ready one does not" $ do
+        let stamped = statefulSet 3 (Just 3) (Just "pg-d9d6d") & atAnnotations .~ object ["nagare.dev/resource-id" .= resourceIdText statefulId]
+            encoded = BL.toStrict . encode
+        parseStuckRollouts (encoded (pods [stamped])) (encoded (pods [pgPod "pg-0" "pg-9d647" False]))
+          @?= Just [Probe "stuck rollout personal/pg" StatusFail "pg-0 at revision 9d647 is not Ready and blocks the rollout to d9d6d"]
+        parseStuckRollouts (encoded (pods [statefulSet 3 (Just 3) (Just "pg-d9d6d")])) (encoded (pods [pgPod "pg-0" "pg-9d647" False]))
+          @?= Just [Probe "stuck rollouts" StatusOk "none"]
+        parseStuckRollouts (encoded (pods [stamped])) (encoded (pods [pgPod "pg-0" "pg-9d647" True]))
+          @?= Just [Probe "stuck rollouts" StatusOk "none"]
+        parseStuckRollouts (encoded (pods [stamped & atStatus .~ object ["observedGeneration" .= (3 :: Int)]])) (encoded (pods []))
+          @?= Just [Probe "stuck rollout personal/pg" StatusUnknown "Error in $: key \"updateRevision\" not found"]
+    , testCase "db restart: a stuck StatefulSet submits its accepted scope unchanged, and the plan replaces the stuck pod" $ do
+        (revised, native, note) <- expectRight (compileStatefulSetRestart (Just reviewedPod) DatabaseObjects "pg" "personal" "2026-10-06T00:00:00Z" databaseScope databaseNative)
+        (revised, native) @?= (databaseScope, databaseNative)
+        note @?= Just "rollout stuck on pod pg-0 at revision pg-9d647; proposing replace-stuck-pod instead of a restart token"
+        planned <- planDatabase revised (Map.singleton statefulId "pg-0 at revision pg-9d647 is not Ready and blocks the rollout to pg-d9d6d")
+        map (\operation -> (plannedAction operation, plannedResources operation)) planned @?= [(ReplaceStuckPod, statefulId :| [])]
+    , testCase "db restart: a StatefulSet that is not stuck stamps a new restart token, as before" $ do
+        (revised, _, note) <- expectRight (compileStatefulSetRestart Nothing DatabaseObjects "pg" "personal" "2026-10-06T00:00:00Z" databaseScope databaseNative)
+        note @?= Nothing
+        assertBool "the restart did not change the scope" (revised /= databaseScope)
+        planned <- planDatabase revised Map.empty
+        map (\operation -> (plannedAction operation, plannedResources operation)) planned @?= [(UpdateResource, statefulId :| [])]
     , testCase "prepare: a member that is not a StatefulSet refuses" $ do
         calls <- newIORef 0
         state <- newIORef (KubernetesNotReady K.physical "1" (Just K.resource) (contentDigest K.nativeBytes))
@@ -309,22 +336,37 @@ planAccepted accepted desired fact stuck = do
   (_, candidate, history) <- acceptedStore accepted desired
   pure (proposalOperations (ok (planChanges candidate noLifecycleDecisions history (withStuckRollouts stuck (ok (observationSet [(planId, fact)]))))))
 
+-- | Accept and apply the database fixture's scope, then plan @desired@
+-- against every member observed unchanged, with these stuck rollouts.
+planDatabase :: ScopeDeclaration -> Map ResourceId Text -> IO [PlannedOperation]
+planDatabase desired stuck = do
+  (_, candidate, history) <- acceptedScopes databaseScope desired
+  let required = requirementsByExecutor (observationRequirements candidate history)
+      facts = [(resource, ObservedPresent (uidOf ("uid-" <> resourceIdText resource))) | resources <- Map.elems required, resource <- resources]
+  pure (proposalOperations (ok (planChanges candidate noLifecycleDecisions history (withStuckRollouts stuck (ok (observationSet facts))))))
+
 -- | A store that accepted and applied @accepted@, with the candidate and
 -- planning history for @desired@.
 acceptedStore :: ManagedResource -> ManagedResource -> IO (InventoryStore, CompositionCandidate, InventoryHistory)
-acceptedStore accepted desired = do
+acceptedStore accepted desired = acceptedScopes (planScope accepted) (planScope desired)
+
+-- | A store that accepted and applied @accepted@, with the candidate and
+-- planning history for @desired@.
+acceptedScopes :: ScopeDeclaration -> ScopeDeclaration -> IO (InventoryStore, CompositionCandidate, InventoryHistory)
+acceptedScopes accepted desired = do
   store <- newMemoryStore
   _ <- initializeStore store fixtureBinding "stuck-pod-plan" >>= expectRight
   let registry = recordingRegistryWith (\_ _ -> pure (Right ())) (\_ _ -> pure AdapterEffectCompleted) (\_ _ -> pure RecoverySafeToRetry)
-      candidateFor member' = do
+      candidateFor scope' = do
         history <- loadInventoryHistory store >>= expectRight
         let base = Map.map (\(revision, declared) -> (revisionGeneration revision, declared)) (historyAccepted history)
-            candidate = ok (composeInventory (ok (mkScopeSnapshot fixtureBinding base Map.empty)) (ReplaceScope (planScope member') :| []))
+            candidate = ok (composeInventory (ok (mkScopeSnapshot fixtureBinding base Map.empty)) (ReplaceScope scope' :| []))
         planning <- loadInventoryPlanningHistory store candidate >>= expectRight
         pure (candidate, planning)
   (initial, empty') <- candidateFor accepted
   snapshot <- readStoreSnapshot store >>= expectRight
-  bundle <- prepareReview registry snapshot (ok (planChanges initial noLifecycleDecisions empty' (ok (observationSet [(planId, ConfirmedAbsent (contentDigest "absent"))])))) >>= expectRight
+  let absent = [(resource, ConfirmedAbsent (contentDigest "absent")) | resources <- Map.elems (requirementsByExecutor (observationRequirements initial empty')), resource <- resources]
+  bundle <- prepareReview registry snapshot (ok (planChanges initial noLifecycleDecisions empty' (ok (observationSet absent)))) >>= expectRight
   _ <- publishReview store bundle >>= expectRight
   published <- readStoreSnapshot store >>= expectRight
   reviewed <- expectRight (verifyReview published bundle)
@@ -504,6 +546,14 @@ runtimeObserve setRead pod' = do
 atStatus :: Traversal' Value Value
 atStatus f = \case
   Object root -> Object <$> KM.alterF (fmap Just . f . fromMaybe Null) "status" root
+  other -> pure other
+
+-- | A Kubernetes object's metadata.annotations.
+atAnnotations :: Traversal' Value Value
+atAnnotations f = \case
+  Object root
+    | Just (Object metadata) <- KM.lookup "metadata" root ->
+        (\new -> Object (KM.insert "metadata" (Object (KM.insert "annotations" new metadata)) root)) <$> f (fromMaybe Null (KM.lookup "annotations" metadata))
   other -> pure other
 
 -- | A Kubernetes object's metadata.uid.

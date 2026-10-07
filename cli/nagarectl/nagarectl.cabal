@@ -284,6 +284,7 @@ library
     Nagare.Ops.Pulumi
     Nagare.Ops.PulumiBackend
     Nagare.Ops.Status
+    Nagare.Ops.StuckRollout
     Nagare.Platform.Cutover
     Nagare.Platform.Deployment
     Nagare.Platform.Paths

@@ -33,6 +33,7 @@ import Data.Generics.Labels ()
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude
 import Nagare.Ops.Probe (Probe (..), ProbeStatus (..))
+import Nagare.Ops.StuckRollout (isStuckRollout)
 import Nagare.Target (TargetProfile (..))
 import System.FilePath ((</>))
 
@@ -108,6 +109,7 @@ why tp name detail
   | name == "platform version" = detail
   | name == "host age key" = "The host age key is missing or invalid, so sops-nix cannot activate runtime secrets."
   | isDisk name = "Disk is filling up."
+  | isStuckRollout name = "Its pod at an older revision is not Ready, and Kubernetes will not roll it, so the StatefulSet never runs its reviewed template (" <> detail <> ")."
   | isRecoveryPoint name = "The managed database's one-hour recovery-point objective is at risk or breached; only accepted, verified receipts count."
   | isBackup name = "No recent backup object found."
   | otherwise = detail
@@ -165,6 +167,9 @@ commandAt root pulumiDir iapSsh tp name
         <> tp ^. #registryHost
         <> "; "
         <> "verify the nagare-node service account holds roles/artifactregistry.writer"
+  | isStuckRollout name =
+      "run nagarectl db restart NAME (the database's name), review the proposed replace-stuck-pod, then apply it; see "
+        <> asset "docs/user/managed-databases.md"
   | isDisk name =
       "inspect: SSH_USER=deploy SSH_KEY=~/.ssh/id_ed25519 "
         <> T.pack iapSsh

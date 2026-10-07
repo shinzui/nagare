@@ -284,6 +284,62 @@ that review retains the StatefulSet, Service, Secret, ConfigMap, and PVC in
 inventory for separate conditional collection. `--yes` no longer deletes them
 through this command.
 
+### A database whose pod is stuck
+
+A database runs as a StatefulSet with one replica. If a review gives it a
+template that cannot start, for example a bad image, too much memory, or an
+unschedulable node selector, its pod `<name>-0` stays not Ready. Kubernetes
+then refuses to roll that pod for any later template: under the defaults Nagare
+renders (ordered pod management, rolling updates), the controller does not
+replace a pod that is not Ready. A corrected review lands on the StatefulSet,
+but the pod keeps running the broken revision.
+
+`nagarectl inventory status` reports such a database as `stuck-rollout`, and
+`nagarectl doctor` fails a `stuck rollout <namespace>/<name>` check. To fix it:
+
+```bash
+nagarectl db restart pg-main --save-plan ./pg-main-unstick
+nagarectl inventory apply ./pg-main-unstick --yes
+```
+
+On a stuck StatefulSet, `db restart` observes the stuck pod and submits the
+accepted scope unchanged instead of stamping a new restart token, which could
+never roll. It prints why:
+
+```text
+db restart: rollout stuck on pod pg-0 at revision pg-9d647; proposing replace-stuck-pod instead of a restart token
+```
+
+The review then contains one operation, `replace-stuck-pod`, that names the
+pod, its UID, its revision, and the revision it blocks:
+
+```text
+replace-stuck-pod  statefulset personal/pg-main  pod pg-main-0 (uid 3f2a9c1e…, revision 9d647, not Ready) blocks rollout to revision d9d6d
+```
+
+The operation is safe for the data:
+
+- The PVC that holds the data is a separate inventory member, and deleting
+  the pod does not touch it. The StatefulSet controller recreates the pod on
+  the same claim.
+- The pod was not Ready, so it was not serving.
+- The delete is conditional. Just before deleting, `inventory apply` reads the
+  pod again and writes nothing unless it is still the reviewed pod, still
+  blocking the reviewed revision. The API server then refuses the delete
+  unless the pod still has the reviewed UID and the resourceVersion just read.
+
+The operation completes once the StatefulSet is Ready on the corrected
+revision. If the new pod does not become Ready either (the correction is wrong
+too), the transaction stops as landed and not ready. Close it with
+`nagarectl inventory close TRANSACTION --review DIGEST` (the replacement is
+proved landed, so the close keeps the scope), correct the template again, and
+repeat.
+
+Any later plan of the unchanged database proposes the same replacement while
+the pod stays stuck. A plan that changes the database (a corrected template, or
+a `db restart` of a StatefulSet that is not stuck) carries only that update. If
+the update itself is left stuck, the next review replaces the pod.
+
 
 ## Connecting an app to a database
 

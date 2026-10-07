@@ -31,6 +31,8 @@ module Nagare.Ops.Probe
     -- * Tool wrappers (Integration Point IP4)
   , captureTool
   , runMaybe
+  , lookupPath
+  , textAt
 
     -- * Pure parsers (unit-tested)
   , parseNodeReady

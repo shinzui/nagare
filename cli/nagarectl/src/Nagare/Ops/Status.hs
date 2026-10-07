@@ -41,6 +41,7 @@ import Nagare.Dsl.Prelude
 import Nagare.Host.AgeKey (RemoteAgeKeyStatus (..), parseRemoteAgeKeyStatus)
 import Nagare.Ops.Probe
 import Nagare.Ops.Pulumi (stackOutput)
+import Nagare.Ops.StuckRollout (probeStuckRollouts)
 import Nagare.Target (TargetProfile (..), registryPrefix)
 
 -- | The inventory knobs derived from a resolved 'TargetProfile' (EP-62): the zone
@@ -87,8 +88,10 @@ gatherInventory tp o = do
         ]
           <> map (probeBackup bucket) (backupPrefixes [])
       )
+  -- EP-181: a database StatefulSet whose rollout is stuck behind a pod.
+  stuck <- probeStuckRollouts
   host <- probeHost o
-  pure (core <> host)
+  pure (core <> stuck <> host)
 
 -- ---------------------------------------------------------------------------
 -- Individual probes
