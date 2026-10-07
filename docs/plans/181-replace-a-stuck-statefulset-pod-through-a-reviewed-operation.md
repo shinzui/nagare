@@ -129,7 +129,7 @@ How to see it working:
   - Apply converges a replacement whose StatefulSet becomes Ready, and close keeps a landed one
     at the desired revision.
   - The seven `EP181-*` mutation records each fail their named test (`test/mutations/README.md`).
-- [ ] M5: end to end.
+- [x] M5: end to end.
   - The kind table and its totality test know the operation.
   - With EP-182's world, the recovery model's corrected-database scenario reaches Ready through
     it.
@@ -138,31 +138,29 @@ How to see it working:
   - The user documentation says what the operator sees.
   - Every mutation record added here fails its named test.
 
-  In progress (handoff, 2026-10-06). Done on `ep181-stuck-pod`:
-  - f7532f50: the kind row and its totality check, plus the action publication totality test
-    (see the Decision Log);
-  - 9132b57a: the `db restart` branch, the doctor probe and remediation, and the user docs;
-  - ff277c3e and a02f022b: mutation records;
-  - 27f64f22: the ten `EP181-*` records in `test/mutations/records.json`, and seven older records
-    whose context this plan's changes moved, regenerated.
+  Done 2026-10-07, on `ep181-land` (rebased onto aaa96eaf):
+  - kind row and totality: 5c6e8363;
+  - action publication totality: 5c6e8363 and 04001275;
+  - `db restart` and the doctor probe: e2361e58 and db901cd3 (RES-4 U15);
+  - the world's pods: a1838ae2;
+  - I9 and the restart scenario: ec906376 and 2213591b;
+  - records: 58e8b6cc, 04001275, 300d1e7d, 02eb39a1 and 2213591b.
 
-  Remaining:
-  - the recovery-model scenario and invariant I9, once EP-182 is on master. I9 is specified in
-    the Decision Log;
-  - `just mutation-sweep` at the landing commit.
+  Acceptance:
+  - the kind totality and action publication tests pass;
+  - `just mutation-sweep 2cc6078a` reports "109 killed, 0 not";
+  - `just gate-fast` is green, with the mutation-records and mutation-patterns steps;
+  - the fast tier is clean with I9.
 
-  I9's classification before the fix, with I9 applied to EP-182's world at c37bc231 (a scratch
-  run, not committed), found 19 new fast-tier violations:
-  - 4 are G3, all in "create a database, update its resources, then update it again": a
-    LandsUnready or LandsFailed write before the correcting step, at MutateCall 5 or 10. A failed
-    pod blocks the rollout as an unready one does, and `stuckPod` classes it as stuck too.
-  - 15 were faults inside the final step that excuse (a) did not excuse, because EP-182's world
-    under-records them in `acted`:
-    - LandsFailed on kinds other than a Job (`landsWith` in `test/Nagare/Test/World/Cluster.hs`);
-    - ControllerLag on a create.
-    nagare-first-principle fixes both in EP-182 (session nagare, 2026-10-06). After EP-182, only
-    the G3 schedules may remain before this plan's fix, and none after it.
-
+  I9's classification, before and after:
+  - On master (356e7f18 with I9), the fast tier found 4 violations, all in the database scenario,
+    after nagare-first-principle fixed EP-182's `acted` bookkeeping for LandsFailed and
+    ControllerLag. Earlier, on c37bc231, 15 more had come from that bookkeeping.
+  - The true G3, a LandsUnready or LandsFailed update write (MutateCall 10), now converges: the
+    restart step observes the stuck pod and the plan replaces it.
+  - A fault on the correction's own write (MutateCall 11) is excused by the faulted-template rule.
+  - A fault on the create (MutateCall 5) is F78, a documented limit listed in the ledger.
+  - EP181-model-correction-never-replaced proves that the scenario fails without the replacement.
 
 ## Surprises & Discoveries
 
@@ -388,7 +386,37 @@ How to see it working:
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+Outcome (2026-10-07): a database whose rollout is stuck behind a pod that is not Ready now has a
+reviewed exit, and the recovery model proves it.
+- `inventory status` reports `stuck-rollout`, and `doctor` fails a `stuck rollout ns/name` check.
+- The next plan of the unchanged database, which `db restart` makes, proposes `replace-stuck-pod`.
+- The operation deletes exactly the reviewed pod, under its UID and fresh resourceVersion, and
+  settles by the plan's class table.
+- A pod whose current template never becomes Ready is not replaced. `db restart` says to correct
+  the spec first (RES-4 U15).
+- I9, "a correction converges", now guards the model against G3 recurring unseen.
+
+What went well:
+- The pure classifiers (`podBlock`, `recoverReplacement`, `settleReplacement`) made each class
+  testable without a cluster.
+- The two-sided known-defect ledger turned F78 into an owned, counted limit rather than a silent
+  excuse.
+
+What to keep:
+- A store-level test of every new action. The close test found a publication defect that no unit
+  test above the store could; the action publication totality test now makes that mechanical.
+- Classify every new invariant violation before excusing it. I9's first run looked like 19 defects:
+  15 were harness bookkeeping, and the rest were G3 or F78.
+- Validate a Kubernetes claim before designing on it. E17 settled restart's behaviour in minutes.
+
+What was costly:
+- Three rebases across two landings. Each conflicted in the test suite's module list, and the last
+  one left 13 commits whose test suite does not build alone (see the Decision Log).
+- A stray `git stash` in a shell loop. The stash list is shared by every worktree.
+
+Durable context for ADRs:
+- ADR 25's model now checks I9 at the end of a run, with per-member excuses (see the Decision Log).
+- RES-4 U15 is the rule that a template change never replaces a pod that is not Ready.
 
 
 ## Context and Orientation
