@@ -664,5 +664,11 @@
     "suite": "nagarectl",
     "pattern": "/when each named resource has its own excuse (B2)/",
     "expect": "test-fails"
+  },
+  {
+    "record": "G11-lag-catch-up-before-write",
+    "suite": "nagarectl",
+    "pattern": "/the catch-up follows it/",
+    "expect": "test-fails"
   }
 ]
