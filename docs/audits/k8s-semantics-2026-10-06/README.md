@@ -26,4 +26,15 @@ terminal; their verbatim result lines are in [results.md](results.md).
 | E7/E8/E11 | `e7.sh` | Deletion with Nagare's propagation policies; Job failure and immutability; quantity canonicalization |
 | E9/E12 | `e9.sh` | DomainMapping readiness; how long objects linger after DELETE |
 | E10 | `e10.sh` | Steady-state status churn per kind over 3 minutes (`e10.out`) |
+| E14 | `record-deletions.sh` | DELETE of every E1 kind with Nagare's collection propagation (Background for kinds Nagare never collects): which kinds linger |
 | E13 | `e13.sh` | Server-side apply field ownership with Nagare's manager names: no-force apply after `kubectl create`, foreign edits, same-value writes; `resourceVersion: "0"` (`e13.out`; bare k3s v1.34.6, no Knative) |
+
+## Machine-readable traces (EP-182)
+
+[`experiments/record-traces.sh`](experiments/record-traces.sh) replays E0, E1 (all 16 in-line kinds, including
+DomainMapping), E3, E4, E5, E6 (crash and Pending, OrderedReady and Parallel), E7, E10, E11, E12, E13 and E14
+(through [`record-deletions.sh`](experiments/record-deletions.sh)), and prints one JSON document. Each step holds
+its action as data and an abstracted observation. The document is checked in as
+[`cli/nagarectl/test/fixtures/kubernetes-semantics/traces.json`](../../../cli/nagarectl/test/fixtures/kubernetes-semantics/traces.json).
+The recovery model's kind table is tested against it (`kind semantics`), and so is its fake API server (EP-182 M2).
+Re-run it on any k3s or Knative version change.

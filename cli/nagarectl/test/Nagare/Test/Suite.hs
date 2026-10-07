@@ -36,6 +36,7 @@ import InventoryHostSpec (inventoryHostTests)
 import InventoryIncarnationSpec (inventoryIncarnationTests)
 import InventoryIntegrationSpec (inventoryIntegrationTests)
 import InventoryJournalHeadAdvanceSpec (inventoryJournalHeadAdvanceTests)
+import InventoryKindSemanticsSpec (inventoryKindSemanticsTests)
 import InventoryKindTotalitySpec (inventoryKindTotalityTests)
 import InventoryKnativeServiceUpdateSpec (knativeServiceUpdateTests)
 import InventoryKubernetesFieldTakeoverSpec (kubernetesFieldTakeoverTests)
@@ -207,6 +208,7 @@ main = do
             , inventoryJournalHeadAdvanceTests
             , inventoryIncarnationTests
             , inventoryKindTotalityTests
+            , inventoryKindSemanticsTests
             , inventoryTests
             , inventoryApplicationUpdateRecoveryTests
             , inventoryLandedUpdateStopTests

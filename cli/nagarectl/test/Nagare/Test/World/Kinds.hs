@@ -9,6 +9,11 @@ module Nagare.Test.World.Kinds
   , KindIdentity (..)
   , KindStatus (..)
   , KindRow (..)
+  , KindSemantics (..)
+  , GenerationRule (..)
+  , ReadinessModel (..)
+  , ChurnSource (..)
+  , DeletionRule (..)
   , kindTable
   , kindFixture
   , kubernetesKind
@@ -64,8 +69,75 @@ data KindRow = KindRow
   , atomicity :: !KindAtomicity
   , identity :: !KindIdentity
   , status :: !KindStatus
+  , semantics :: !(Maybe KindSemantics)
+  -- ^ EP-182: how the API server treats this kind, as RES-4 validated it
+  -- against a real cluster; 'Nothing' for a documented limit.
   }
   deriving stock (Eq, Generic, Show)
+
+-- | EP-182: a kind's validated API semantics (RES-4 §2). The kind-semantics
+-- test checks every in-line row against the recorded traces in
+-- @test/fixtures/kubernetes-semantics/traces.json@, and the recovery model's
+-- world behaves as these say.
+data KindSemantics = KindSemantics
+  { generationRule :: !GenerationRule
+  , tracksObservedGeneration :: !Bool
+  -- ^ Whether the controller reports @status.observedGeneration@.
+  , hasStatusSubresource :: !Bool
+  , readinessModel :: !ReadinessModel
+  , churnSource :: !ChurnSource
+  -- ^ What moves the object's resourceVersion when nobody writes it.
+  , deletionRule :: !DeletionRule
+  }
+  deriving stock (Eq, Generic, Show)
+
+-- | When @metadata.generation@ moves.
+data GenerationRule
+  = -- | The kind has no generation.
+    NoGeneration
+  | -- | On spec writes only.
+    SpecOnly
+  | -- | On spec writes and on metadata annotation writes (a Deployment).
+    SpecAndAnnotations
+  deriving stock (Eq, Show)
+
+-- | How the kind reports readiness.
+data ReadinessModel
+  = NoReadinessModel
+  | -- | @Ready@ at @observedGeneration == generation@; a stale @Ready=True@
+    -- survives a spec write until the controller observes it.
+    KnativeConditions
+  | -- | The rollout rule; @Available@ stays True from the old ReplicaSet
+    -- during a broken update.
+    DeploymentRollout
+  | -- | The rollout rule over replica counters; a pod that is not Ready
+    -- blocks every later template change (OrderedReady).
+    StatefulSetRollout
+  | -- | @Complete@, or terminally @Failed@ after @FailureTarget@.
+    JobTerminal
+  deriving stock (Eq, Show)
+
+-- | What writes the object's status, and so moves its resourceVersion, at
+-- steady state.
+data ChurnSource
+  = NoChurn
+  | -- | Every schedule tick of an unsuspended schedule.
+    ScheduleTicks
+  | -- | Every pod created or deleted in the namespace.
+    PodChanges
+  deriving stock (Eq, Show)
+
+-- | What a DELETE leaves behind.
+data DeletionRule
+  = -- | Gone at once (an @Orphan@ delete holds its finalizer only briefly).
+    Immediate
+  | -- | Terminating while a pod uses it (@kubernetes.io/pvc-protection@).
+    HeldWhileInUse
+  | -- | An @Orphan@ delete never completes; a @Background@ one does.
+    OrphanBlocked
+  | -- | Terminating until its contents are gone (a Namespace).
+    HeldUntilEmpty
+  deriving stock (Eq, Show)
 
 -- | The Kubernetes (group, kind) of a row, when it has one.
 kubernetesKind :: KindRow -> Maybe (Text, Text)
@@ -106,6 +178,7 @@ kindTable =
            , atomicity = Atomic
            , identity = NameOnly
            , status = DocumentedLimit "no world in release line (b); an unprovable operation ends by attested close (ADR 26 §5)"
+           , semantics = Nothing
            }
        | other <- [minBound .. maxBound]
        , other /= KubernetesExecutor
@@ -125,10 +198,12 @@ kindTable =
         , atomicity = Atomic
         , identity = ProviderUid
         , status = InLine
+        , semantics = lookup selected validatedSemantics
         }
     platform selected ready =
       (inLine selected fixed ready)
         { status = DocumentedLimit "platform bootstrap kind outside release line (b); an unprovable operation ends by attested close (ADR 26 §5)"
+        , semantics = Nothing
         }
     collectable =
       [ ("", "configmap")
@@ -142,6 +217,30 @@ kindTable =
       , ("batch", "job")
       , ("serving.knative.dev", "service")
       ]
+
+-- | RES-4 §2, per in-line kind: generation rule, observedGeneration, status
+-- subresource, readiness model, steady-state churn and deletion.
+validatedSemantics :: [((Text, Text), KindSemantics)]
+validatedSemantics =
+  [ (("serving.knative.dev", "service"), KindSemantics SpecOnly True True KnativeConditions NoChurn OrphanBlocked)
+  , (("serving.knative.dev", "domainmapping"), KindSemantics SpecOnly True True KnativeConditions NoChurn Immediate)
+  , (("apps", "deployment"), KindSemantics SpecAndAnnotations True True DeploymentRollout NoChurn Immediate)
+  , (("apps", "statefulset"), KindSemantics SpecOnly True True StatefulSetRollout NoChurn Immediate)
+  , (("batch", "cronjob"), KindSemantics SpecOnly False True NoReadinessModel ScheduleTicks Immediate)
+  , (("batch", "job"), KindSemantics SpecOnly False True JobTerminal NoChurn Immediate)
+  , (("", "configmap"), plain False)
+  , (("", "service"), plain True)
+  , (("", "secret"), plain False)
+  , (("", "persistentvolumeclaim"), (plain True) {deletionRule = HeldWhileInUse})
+  , (("", "serviceaccount"), plain False)
+  , (("", "namespace"), (plain True) {deletionRule = HeldUntilEmpty})
+  , (("", "resourcequota"), (plain True) {churnSource = PodChanges})
+  , (("networking.k8s.io", "networkpolicy"), (plain False) {generationRule = SpecOnly})
+  , (("rbac.authorization.k8s.io", "role"), plain False)
+  , (("rbac.authorization.k8s.io", "rolebinding"), plain False)
+  ]
+  where
+    plain statusSubresource = KindSemantics NoGeneration False statusSubresource NoReadinessModel NoChurn Immediate
 
 -- | A minimal manifest of a row's Kubernetes kind for the generated model
 -- scenarios. The release annotation changes with each review, so a second

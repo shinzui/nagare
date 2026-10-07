@@ -76,9 +76,14 @@ How to see it working:
 
 ## Progress
 
-- [ ] M1: the validated semantics are data. `KindRow` carries RES-4 §2's columns, and a checked-in
+- [x] M1: the validated semantics are data. `KindRow` carries RES-4 §2's columns, and a checked-in
   trace file, recorded from a real cluster by a checked-in script, agrees with them under
-  `-p '/kind semantics/'`.
+  `-p '/kind semantics/'`. Done 2026-10-06:
+  - `traces.json` holds 255 steps (k3s v1.34.6+k3s1, kubectl v1.37.0, Knative 1.22.0).
+  - The three `kind semantics` tests pass.
+  - Changing Deployment's `generationRule` to `SpecOnly` and dropping ResourceQuota's `PodChanges` fails with
+    `("apps","deployment") generationRule: the table says SpecOnly, the traces say SpecAndAnnotations` and
+    `("","resourcequota") churnSource: the table says NoChurn, the traces say PodChanges`.
 - [ ] M2: a fake API server behind the production kubectl interpreter, with the adapter composed
   exactly as the CLI composes it, passes `-p '/world conformance/'` against the traces. The recovery
   model is not yet switched.
@@ -94,7 +99,18 @@ How to see it working:
 
 ## Surprises & Discoveries
 
-(None yet.)
+- Deletion needed its own experiment, E14 (`record-deletions.sh`). The RES-4 runs traced deletion for only five kinds,
+  and an allowlist of eleven untraced deletion rules would have defeated M1's purpose. E14 deletes every E1 object
+  with Nagare's collection propagation. Every kind is gone within 5 s except a Namespace, which stays Terminating
+  even when empty. Its `HeldUntilEmpty` rule is derived from E12 instead.
+- A full recording takes about 20 minutes on a 2-CPU, 4 GiB Colima VM, not 10. Most of it is E1's 8-second settles
+  across 16 kinds and E10's churn window, which overlaps the later experiments.
+- kubectl 1.37 warns on every run that it is three minor versions from the 1.34 server (RES-4 G12). The recorded
+  answers match RES-4's, so the skew did not change any observed behaviour.
+- Every RES-4 claim reproduced in the second, independent recording: the stale `Ready=True` (E4),
+  `Available=True` past the progress deadline (E5), OrderedReady corrections stuck for both a crash loop and a
+  Pending pod until the pod is deleted, with Parallel rolling (E6), the 409/422/404 classes (E3), the SSA
+  ownership conflicts (E13), and churn only from ResourceQuota and a running CronJob (E10).
 
 
 ## Decision Log
