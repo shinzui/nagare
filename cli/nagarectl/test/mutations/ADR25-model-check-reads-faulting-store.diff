@@ -1,7 +1,8 @@
-diff --git a/cli/nagarectl/test/InventoryRecoveryModelSpec.hs b/cli/nagarectl/test/InventoryRecoveryModelSpec.hs
---- a/cli/nagarectl/test/InventoryRecoveryModelSpec.hs
-+++ b/cli/nagarectl/test/InventoryRecoveryModelSpec.hs
-@@ -839,7 +839,7 @@
+diff --git a/cli/nagarectl/test/Nagare/Test/Model/Invariants.hs b/cli/nagarectl/test/Nagare/Test/Model/Invariants.hs
+index 195276d4..bc9acded 100644
+--- a/cli/nagarectl/test/Nagare/Test/Model/Invariants.hs
++++ b/cli/nagarectl/test/Nagare/Test/Model/Invariants.hs
+@@ -136,7 +136,7 @@ faultedTemplateRecurs acted' outcomes' failing orderedAfter neverStarted =
  
  checkInvariants :: Run -> IO (Either Text ())
  checkInvariants run = do

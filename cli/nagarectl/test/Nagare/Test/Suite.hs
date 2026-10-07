@@ -15,6 +15,7 @@ import DataFenceSpec (dataFenceTests)
 import DomainBindingSpec (domainBindingTests)
 import HostSpec (hostTests)
 import InventoryAccessSpec (inventoryAccessTests)
+import InventoryActionPublicationSpec (inventoryActionPublicationTests)
 import InventoryApplicationSpec (inventoryApplicationTests)
 import InventoryApplicationUpdateRecoverySpec
 import InventoryArtifactSpec (inventoryArtifactTests)
@@ -61,9 +62,9 @@ import InventoryRedisRestoreRecoverySpec
 import InventoryRefusedPreflightRecoverySpec
 import InventoryRenameRecoveryModelSpec (inventoryRenameRecoveryModelTests)
 import InventorySettleSpec (inventorySettleTests)
-import InventoryStuckPodSpec (inventoryStuckPodTests)
 import InventorySpec (inventoryTests)
 import InventoryStatusSpec (inventoryStatusTests)
+import InventoryStuckPodSpec (inventoryStuckPodTests)
 import InventoryTransactionSpec
   ( inventoryTransactionTests
   , runInventoryLockHoldProbe
@@ -223,6 +224,7 @@ main = do
             , inventoryRenameRecoveryModelTests
             , inventorySettleTests
             , inventoryStuckPodTests
+            , inventoryActionPublicationTests
             , inventoryKubernetesReadinessTests
             , inventoryCloseTests
             , inventoryTransferScriptTests

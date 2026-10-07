@@ -1,13 +1,13 @@
 diff --git a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesStuckPod.hs b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesStuckPod.hs
-index 8e5ae525..461f34c2 100644
+index 445d61be..d25b67bb 100644
 --- a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesStuckPod.hs
 +++ b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesStuckPod.hs
-@@ -249,7 +249,7 @@ stuckPod statefulSet podList = first T.pack (parseEither parse ())
-         else do
+@@ -285,7 +285,7 @@ podBlock statefulSet podList = first T.pack (parseEither parse ())
            labels <- fromMaybe mempty <$> metadata .:? "labels" :: Parser (Map Text Text)
            revision <- maybe (fail "a pod the StatefulSet controls has no controller-revision-hash label") pure (Map.lookup "controller-revision-hash" labels)
+           name' <- metadata .: "name"
 -          if revision == target
 +          if False
-             then pure Nothing
+             then pure (Just (name', Left revision))
              else do
-               name' <- metadata .: "name"
+               namespace' <- metadata .: "namespace"

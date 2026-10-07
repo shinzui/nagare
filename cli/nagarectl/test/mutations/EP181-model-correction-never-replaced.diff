@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Plan/Changes.hs b/cli/nagarectl/src/Nagare/Inventory/Plan/Changes.hs
+index 9f0748e4..06b57677 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/Plan/Changes.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Plan/Changes.hs
+@@ -777,7 +777,7 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
+       -- drifted member gets its update first; the next plan replaces the pod.
+       (Just old, Just (ObservedPresent _))
+         | sameManaged old resource
+-        , Map.member resourceId (observationStuck observations) ->
++        , Map.member resourceId (observationStuck observations) && False ->
+             ([], Just ((resourceOperation ReplaceStuckPod resource) {plannedRecovery = VerifyBeforeRetry}))
+       (Just old, _)
+         | sameManaged old resource ->

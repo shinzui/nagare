@@ -1,12 +1,13 @@
 diff --git a/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs b/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs
+index ab8e3a25..6cd151fd 100644
 --- a/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs
 +++ b/cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs
-@@ -275,7 +275,7 @@
+@@ -317,7 +317,7 @@ mkKubernetesAdapterWithObservations specs ops pods observeBatch readBackupReceip
                    -- G6: a retire's DELETE carries the fresh observation as its
                    -- precondition. An update's apply takes its resourceVersion
                    -- from the runtime's own guarded live read (RES-4 U10).
 -                  else kubernetesMutateConditional ops (if mutationAction mutation == RetireResource then mutation {mutationBefore = current} else mutation)
 +                  else kubernetesMutateConditional ops mutation
-     verify operation prepared = case decodeMutation (kubernetesContext ops) specs operation prepared of
-       Left reason -> pure (Left reason)
-       Right mutation -> do
+     verify operation prepared
+       | plannedAction operation == ReplaceStuckPod =
+           replacementRecovery operation prepared <&> \case

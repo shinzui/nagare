@@ -27,6 +27,7 @@ module Nagare.Test.Model.Run
   , inspectHistory
   , inspectIncarnations
   , orFail
+  , registryFor
   )
 where
 
@@ -39,6 +40,7 @@ import Data.Set qualified as Set
 import Data.Text qualified as T
 import InventoryTransactionSpec (fixtureBinding)
 import Nagare.Dsl.Prelude
+import Nagare.Inventory.Adapter (AdapterRegistry, mkAdapterRegistry)
 import Nagare.Inventory.Plan (InventoryHistory, loadInventoryHistory)
 import Nagare.Inventory.Status qualified as Status
 import Nagare.Inventory.Store
@@ -212,3 +214,10 @@ inspectIncarnations run headValue = let InspectStore store = runInspect run in S
 -- | A model read that cannot fail unless the harness itself is wrong.
 orFail :: (Show e) => String -> Either e a -> IO a
 orFail context = either (\err -> assertFailure (context <> ": " <> show err) >> pure (error "unreachable")) pure
+
+-- | As production builds it for one review: the reviewed members' specs.
+registryFor :: Run -> Shape -> Text -> Text -> IO AdapterRegistry
+registryFor run volume image historyImage = do
+  database <- readIORef (runDatabase run)
+  adapter <- worldKubernetesAdapter (fixtureBinding ^. #identity) (boundMembers volume image historyImage <> database) (runWorld run) (runAdversary run)
+  pure (ok (mkAdapterRegistry [adapter]))

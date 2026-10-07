@@ -103,7 +103,7 @@ roundTrip action resource state = do
   let (declared, _) = pgBound
       ops = KubernetesAdapterOps fixtureContext (unstamped (\_ -> pure state)) (\_ -> pure AdapterEffectCompleted)
       pods = noPodOps {readStuckPod = \_ -> pure (Right (Just (reviewedPod & #statefulSetUid .~ planUid)))}
-      adapter = mkKubernetesAdapterWithObservations specs ops pods (traverse (kubernetesObserve ops)) noReceipt noScratch Nothing Nothing
+      adapter = mkKubernetesAdapterWithObservations specs ops pods (traverse (kubernetesObserve ops)) noReceipt noScratch Nothing
       registry = ok (withAdapterFence (ok (mkAdapterRegistry [adapter])) KubernetesExecutor stubFence)
   (store, candidate, history) <- acceptedStore declared declared
   snapshot <- readStoreSnapshot store >>= expectRight

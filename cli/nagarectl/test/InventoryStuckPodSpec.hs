@@ -234,7 +234,7 @@ inventoryStuckPodTests =
               state <- newIORef (notReady statefulDigest)
               let ops = K.ops state calls
                   podOps = noPodOps {readStuckPod = \_ -> readIORef current, observeReplacement = \_ -> pure observation}
-                  adapter = mkKubernetesAdapterWithObservations databaseNative ops podOps (traverse (kubernetesObserve ops)) noReceipt noScratch Nothing Nothing
+                  adapter = mkKubernetesAdapterWithObservations databaseNative ops podOps (traverse (kubernetesObserve ops)) noReceipt noScratch Nothing
               prepared <- adapterPrepare adapter replaceOperation >>= expectRight
               adapterVerify adapter replaceOperation prepared
         verifyAfter (Right (ReplacementObservation (Just (uidOf "sts-uid", True)) ReviewedPodGone)) >>= (@?= replacementProof replacementFixture)
@@ -295,7 +295,7 @@ inventoryStuckPodTests =
     , testCase "prepare: a member that is not a StatefulSet refuses" $ do
         calls <- newIORef 0
         state <- newIORef (KubernetesNotReady K.physical "1" (Just K.resource) (contentDigest K.nativeBytes))
-        let adapter = mkKubernetesAdapterWithObservations K.specs (K.ops state calls) (noPodOps {readStuckPod = \_ -> pure (Right (Just reviewedPod))}) (traverse (kubernetesObserve (K.ops state calls))) noReceipt noScratch Nothing Nothing
+        let adapter = mkKubernetesAdapterWithObservations K.specs (K.ops state calls) (noPodOps {readStuckPod = \_ -> pure (Right (Just reviewedPod))}) (traverse (kubernetesObserve (K.ops state calls))) noReceipt noScratch Nothing
         prepared <- adapterPrepare adapter (K.operation ReplaceStuckPod)
         case prepared of
           Left (PrepareRefused _ reason) -> reason @?= "a stuck pod is replaced only for an apps/StatefulSet"
@@ -448,7 +448,7 @@ runtimeRegistry = do
       config = withKubectlInterpreter (runKubectlWith answer) (KubernetesRuntimeConfig (fixtureBinding ^. #identity) "stuck-pod" (pure (Right ())))
       specs = Map.singleton planId pgBound
       (ops, batch) = mkKubernetesRuntimeOpsAndBatchWithCacheKey config (\_ -> pure (Left "no cache output")) specs
-  pure (ok (mkAdapterRegistry [mkKubernetesAdapterWithObservations specs ops (runtimePodOps config specs) batch noReceipt noScratch Nothing Nothing]), asked)
+  pure (ok (mkAdapterRegistry [mkKubernetesAdapterWithObservations specs ops (runtimePodOps config specs) batch noReceipt noScratch Nothing]), asked)
 
 -- * The adapter over the database fixture
 
@@ -471,7 +471,7 @@ databaseAdapter answer = do
   calls <- newIORef 0
   current <- newIORef (notReady statefulDigest)
   let ops = K.ops current calls
-  pure (mkKubernetesAdapterWithObservations databaseNative ops (noPodOps {readStuckPod = \_ -> answer}) (traverse (kubernetesObserve ops)) noReceipt noScratch Nothing Nothing)
+  pure (mkKubernetesAdapterWithObservations databaseNative ops (noPodOps {readStuckPod = \_ -> answer}) (traverse (kubernetesObserve ops)) noReceipt noScratch Nothing)
 
 -- | Prepare the replacement of 'reviewedPod', then preflight and execute it
 -- once the fresh read answers @fresh@. Replacements are recorded, not run.
@@ -487,7 +487,7 @@ executeAfter fresh = do
           { readStuckPod = \_ -> readIORef current
           , replaceStuckPod = \replacement revision -> modifyIORef' replaced (<> [(replacement ^. #stuck, revision)]) >> pure AdapterEffectCompleted
           }
-      adapter = mkKubernetesAdapterWithObservations databaseNative ops podOps (traverse (kubernetesObserve ops)) noReceipt noScratch Nothing Nothing
+      adapter = mkKubernetesAdapterWithObservations databaseNative ops podOps (traverse (kubernetesObserve ops)) noReceipt noScratch Nothing
   prepared <- adapterPrepare adapter replaceOperation >>= expectRight
   writeIORef current fresh
   checked <- adapterPreflight adapter replaceOperation prepared
@@ -524,7 +524,7 @@ applyReplacement executed observed = do
           , replaceStuckPod = \_ _ -> pure executed
           , observeReplacement = \_ -> pure (Right observed)
           }
-      registry = ok (mkAdapterRegistry [mkKubernetesAdapterWithObservations specs ops podOps (traverse (kubernetesObserve ops)) noReceipt noScratch Nothing Nothing])
+      registry = ok (mkAdapterRegistry [mkKubernetesAdapterWithObservations specs ops podOps (traverse (kubernetesObserve ops)) noReceipt noScratch Nothing])
   observations <- observeWithRegistry registry (requirementsByExecutor (observationRequirements candidate history)) >>= expectRight
   snapshot <- readStoreSnapshot store >>= expectRight
   bundle <- prepareReview registry snapshot (ok (planChanges candidate noLifecycleDecisions history observations)) >>= expectRight
@@ -584,7 +584,7 @@ observeDatabase state answer = do
   current <- newIORef state
   let ops = K.ops current calls
       podOps = noPodOps {readStuckPod = \resource -> modifyIORef' podReads (<> [resource]) >> answer}
-      adapter = mkKubernetesAdapterWithObservations databaseNative ops podOps (traverse (kubernetesObserve ops)) noReceipt noScratch Nothing Nothing
+      adapter = mkKubernetesAdapterWithObservations databaseNative ops podOps (traverse (kubernetesObserve ops)) noReceipt noScratch Nothing
   observed <- adapterObserve adapter (Map.keys databaseNative)
   (observed,) <$> readIORef podReads
 
