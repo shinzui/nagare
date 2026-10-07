@@ -284,7 +284,7 @@
   {
     "record": "F57b-journal-no-effect-refusal",
     "suite": "nagarectl",
-    "pattern": "/fast tier/",
+    "pattern": "/a retry the adapter proved safe that preflight then refuses/",
     "expect": "test-fails"
   },
   {

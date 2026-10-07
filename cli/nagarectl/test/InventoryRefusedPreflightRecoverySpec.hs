@@ -36,9 +36,49 @@ inventoryRefusedPreflightRecoveryTests :: TestTree
 inventoryRefusedPreflightRecoveryTests =
   testGroup
     "refused preflight after admission (F35)"
-    [ testCase (show variant) (scenario variant)
-    | variant <- [ForeignStillPresent, ForeignRemoved, CompletedOperation, EarlierUncertain, ExecuteRefusal]
-    ]
+    ( [ testCase (show variant) (scenario variant)
+      | variant <- [ForeignStillPresent, ForeignRemoved, CompletedOperation, EarlierUncertain, ExecuteRefusal]
+      ]
+        <> [testCase "a retry the adapter proved safe that preflight then refuses is journalled as failed with no effect (F57)" retryRefused]
+    )
+
+-- | The adapter proves a retry safe, and its preflight refuses it: the driver
+-- journals the refusal as a no-effect failure, so close by proof settles the
+-- operation without asking the adapter again.
+retryRefused :: IO ()
+retryRefused = do
+  store <- newMemoryStore
+  refusing <- newIORef False
+  let owner = ok (mkScopeId Standalone "retry")
+      cluster = mintResourceId owner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
+      only = member owner cluster "service" []
+      base = ok (mkScopeSnapshot fixtureBinding Map.empty Map.empty)
+      seed = ok (composeInventory base (ReplaceScope (ok (mkScopeDeclaration (ok (mkScopeId Standalone "dummy")) [])) :| []))
+      candidate = ok (composeInventory base (ReplaceScope (ok (mkScopeDeclaration owner [ResourceBundle [only] [] [] [] [] []])) :| []))
+      registry =
+        recordingRegistryWith
+          (\_ _ -> (\refused -> if refused then Left "object changed since review" else Right ()) <$> readIORef refusing)
+          (\_ _ -> pure (AdapterEffectAmbiguous "lost acknowledgement"))
+          (\_ _ -> pure RecoverySafeToRetry)
+  _ <- initializeStore store fixtureBinding "retry-refused" >>= expectRight
+  _ <- seedInventoryHistory store seed >>= expectRight
+  history <- loadInventoryHistory store >>= expectRight
+  let proposal = ok (planChanges candidate noLifecycleDecisions history (ok (observationSet [(declarationId only, ConfirmedAbsent (contentDigest "absent"))])))
+  snapshot <- readStoreSnapshot store >>= expectRight
+  bundle <- prepareReview registry snapshot proposal >>= expectRight
+  _ <- publishReview store bundle >>= expectRight
+  published <- readStoreSnapshot store >>= expectRight
+  reviewed <- either (assertFailure . show . NE.toList) pure (verifyReview published bundle)
+  (transaction, operation) <-
+    applyReviewed store registry reviewed >>= expectRight >>= \case
+      StoppedAmbiguous tx op -> pure (tx, op)
+      other -> assertFailure (show other) >> undefined
+  writeIORef refusing True
+  resumeTransaction store registry transaction >>= expectRight >>= (@?= StoppedFailed transaction operation (KnownNoEffect "adapter preflight refused"))
+  after <- readHead store >>= expectRight >>= maybe (assertFailure "head missing" >> undefined) pure
+  raw <- readJournalPrefix store (headSequence after) >>= expectRight
+  events <- either (assertFailure . show) pure (traverse decodeJournalEvent raw)
+  Map.lookup operation (operationStates transaction events) @?= Just (Failed (KnownNoEffect "adapter preflight refused: object changed since review"))
 
 scenario :: Variant -> IO ()
 scenario variant = do
