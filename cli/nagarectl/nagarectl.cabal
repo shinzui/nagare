@@ -557,6 +557,7 @@ test-suite nagarectl-test
     InventoryVmPowerSpec
     InventoryVolumeRestorePinSpec
     InventoryWorldConformanceSpec
+    InventoryWorldFaultsSpec
     Nagare.Test.Application
     Nagare.Test.Backend
     Nagare.Test.Backup.Escrow

@@ -97,7 +97,15 @@ How to see it working:
     the production functions directly until then.
 - [ ] M3: faults are re-expressed on the fake server, with `acted` accounting, `ControllerLag`,
   table-driven churn, finalizer-held Terminating, and the stuck StatefulSet rollout. Each fault has
-  a test that it acts.
+  a test that it acts. Nearly done, 2026-10-06:
+  - `Cluster.clusterAnswer` counts boundaries by request and applies every world fault, and the store records
+    `acted` for its faults.
+  - `world faults` holds 18 tests: each fault acts; LandsUnready, StatusChurn, ChurnAlways (on a Knative
+    Service) and ForeignObject (at an occupied address) do not act where they change nothing; and the stuck
+    StatefulSet clears only by a pod DELETE.
+  - Dropping ForeignObject's acted record, or making ChurnAlways churn nothing, fails the matching test.
+  - Remaining: the parser-side test "a lagging controller's stale Ready is not accepted". It asserts EP-180's F69
+    fix, so it is written after rebasing onto EP-180.
 - [ ] M4: the recovery model runs on the new world. The old world is deleted, pinned regressions
   are re-pinned by locator and require their faults to act, and the known-defect ledger is two-sided.
   The before/after classification of every fast-tier change is recorded below with nothing unexplained.

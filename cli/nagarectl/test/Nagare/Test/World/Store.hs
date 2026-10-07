@@ -9,6 +9,7 @@ where
 import Control.Exception (throwIO)
 import Data.Aeson (Value (..), eitherDecodeStrict')
 import Data.Aeson.KeyMap qualified as KM
+import Data.Foldable (traverse_)
 import Data.IORef
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude
@@ -20,20 +21,26 @@ faultingObjectOps :: IORef Adversary -> ObjectOps -> ObjectOps
 faultingObjectOps adversary base =
   base
     { putObject = \condition name bytes -> do
-        fault <- nextFault adversary StorePutCall
-        case fault of
-          Just PutRefused -> pure (PutUnknown "injected: store write refused before landing")
+        placement <- nextFaultAt adversary StorePutCall
+        -- EP-182: every store fault but a lost claim changes the answer it
+        -- fires at; a lost claim acts only on a head write it can steal.
+        let acts = traverse_ (noteActed adversary) placement
+        case snd <$> placement of
+          Just PutRefused -> acts >> pure (PutUnknown "injected: store write refused before landing")
           Just PutLandedUnacknowledged -> do
             _ <- putObject base condition name bytes
-            pure (PutUnknown "injected: store write acknowledgement lost")
-          Just CrashBeforeStorePut -> throwIO Interrupted
-          Just CrashAfterStorePut -> putObject base condition name bytes >> throwIO Interrupted
-          Just ClaimLost -> stealClaim condition name >> putObject base condition name bytes
+            acts >> pure (PutUnknown "injected: store write acknowledgement lost")
+          Just CrashBeforeStorePut -> acts >> throwIO Interrupted
+          Just CrashAfterStorePut -> putObject base condition name bytes >> acts >> throwIO Interrupted
+          Just ClaimLost -> do
+            stolen <- stealClaim condition name
+            when stolen acts
+            putObject base condition name bytes
           _ -> putObject base condition name bytes
     , getObject = \name -> do
-        fault <- nextFault adversary StoreGetCall
-        case fault of
-          Just GetFailedOnce -> pure (GetUnknown "injected: store read failed")
+        placement <- nextFaultAt adversary StoreGetCall
+        case snd <$> placement of
+          Just GetFailedOnce -> traverse_ (noteActed adversary) placement >> pure (GetUnknown "injected: store read failed")
           _ -> getObject base name
     }
   where
@@ -48,6 +55,6 @@ faultingObjectOps adversary base =
             , Right (Object root) <- eitherDecodeStrict' bytes
             , Just (Object claim) <- KM.lookup "executorClaim" root
             , Right stolen <- canonicalValue (Object (KM.insert "executorClaim" (Object (KM.insert "clientIdentity" (String "model-intruder") claim)) root)) ->
-                () <$ putObject base condition (ObjectName name) stolen
-          _ -> pure ()
-      _ -> pure ()
+                True <$ putObject base condition (ObjectName name) stolen
+          _ -> pure False
+      _ -> pure False

@@ -35,10 +35,11 @@ import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.KubernetesTransport (KubectlRequest (..))
 import Nagare.Resource.Types (ResourceId, contextIdText, digestText, resourceIdText)
 import Nagare.Test.Model.Fixtures (bindMember, serviceDigest, serviceId, serviceValue)
+import Nagare.Test.World.Adversary (newAdversary)
 import Nagare.Test.World.ApiServer
-import Nagare.Test.World.Kinds (KindSemantics (..), ReadinessModel (..))
 import Nagare.Test.World.Cluster (clusterOps, newCluster)
 import Nagare.Test.World.Cluster qualified as Cluster
+import Nagare.Test.World.Kinds (KindSemantics (..), ReadinessModel (..))
 import Nagare.Test.World.Kubectl (Response (..), kubectlResponse)
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -72,7 +73,7 @@ inventoryWorldConformanceTests =
         ]
           @?= []
     , testCase "the production runtime reads the fake server: Present, then stale while its controller lags, then NotReady" $ do
-        cluster <- newCluster emptyServer
+        cluster <- newCluster emptyServer =<< newAdversary []
         let context = fixtureBinding ^. #identity
             key = ObjectKey "serving.knative.dev" "service" (Just "personal") "web"
             write image = do
@@ -246,8 +247,9 @@ replayStep state step
           refusedWrite = isJust worldRefusal && realRefused
           controlled = maybe False ((/= NoReadinessModel) . (^. #readinessModel)) (semanticsFor key)
           movement which
-            | refusedWrite = [which <> " moved under a refused write" | moved which worldSeen (Map.lookup key (previousWorld state')) == Bool True]
-                <> (if controlled then [] else differ (which <> " moved") (moved which realSeen (Map.lookup key (previousReal state'))) (moved which worldSeen (Map.lookup key (previousWorld state'))))
+            | refusedWrite =
+                [which <> " moved under a refused write" | moved which worldSeen (Map.lookup key (previousWorld state')) == Bool True]
+                  <> (if controlled then [] else differ (which <> " moved") (moved which realSeen (Map.lookup key (previousReal state'))) (moved which worldSeen (Map.lookup key (previousWorld state'))))
             | verb `elem` ["apply", "create", "patchJson", "patchMerge", "statusWrite", "delete", "replace", "unattended"] =
                 differ (which <> " moved") (moved which realSeen (Map.lookup key (previousReal state') <|> beforeOf)) (moved which worldSeen (Map.lookup key (previousWorld state')))
             | otherwise = []

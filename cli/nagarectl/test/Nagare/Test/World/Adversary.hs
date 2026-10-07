@@ -13,6 +13,9 @@ module Nagare.Test.World.Adversary
   , faultPersistence
   , newAdversary
   , nextFault
+  , nextFaultAt
+  , noteActed
+  , unacted
   )
 where
 
@@ -78,6 +81,10 @@ data Fault
   | -- | EP-177: another client takes the executor claim just before this
     -- head write, as a second operator's take-over would.
     ClaimLost
+  | -- | EP-182: the written object's controller does not observe this write's
+    -- generation until the object is written again; its status, including a
+    -- stale @Ready=True@, stays at the previous generation (RES-4 E4, G2).
+    ControllerLag
   deriving stock (Eq, Ord, Show, Enum, Bounded)
 
 -- | The provider operation whose boundaries a fault is scheduled at.
@@ -108,6 +115,7 @@ faultPersistence fault = case fault of
   ForeignManager -> Persistent
   ChurnAlways -> Persistent
   ForeignObject -> Persistent
+  ControllerLag -> Persistent
   Replaced -> Persistent
   Deleted -> Persistent
   _ -> Transient
@@ -119,11 +127,16 @@ data Adversary = Adversary
   -- ^ Store calls count only once the run's setup is done.
   , fired :: ![Fault]
   -- ^ Faults that have fired, most recent first.
+  , acted :: ![(Boundary, Fault)]
+  -- ^ EP-182: faults that changed the world's state or the answer the caller
+  -- received, most recent first. A fault can fire and do nothing (a
+  -- 'ForeignObject' at an occupied address); a pinned regression needs its
+  -- faults to act.
   }
   deriving stock (Eq, Show)
 
 newAdversary :: [(Boundary, Fault)] -> IO (IORef Adversary)
-newAdversary faults = newIORef (Adversary faults Map.empty False [])
+newAdversary faults = newIORef (Adversary faults Map.empty False [] [])
 
 -- | Count one call and return the fault scheduled at its boundary, if any.
 nextFault :: IORef Adversary -> Call -> IO (Maybe Fault)
@@ -140,6 +153,22 @@ countCall adversary operation =
    in ( adversary {counts = Map.insert operation count (counts adversary), fired = maybe id (:) fault (fired adversary)}
       , fault
       )
+
+-- | Like 'nextFault', with the boundary the fault fired at.
+nextFaultAt :: IORef Adversary -> Call -> IO (Maybe (Boundary, Fault))
+nextFaultAt ref operation = do
+  fault <- nextFault ref operation
+  count <- Map.findWithDefault 0 operation . counts <$> readIORef ref
+  pure ((Boundary operation count,) <$> fault)
+
+-- | Record that a fault changed the world or the caller's answer.
+noteActed :: IORef Adversary -> (Boundary, Fault) -> IO ()
+noteActed ref placement = modifyIORef' ref (\adversary -> adversary {acted = placement : acted adversary})
+
+-- | Scheduled faults that did not act: never fired, or fired and changed
+-- nothing.
+unacted :: Adversary -> [(Boundary, Fault)]
+unacted adversary = [placement | placement <- schedule adversary, placement `notElem` acted adversary]
 
 -- | What a killed executor looks like to the driver: the call never returns.
 data Interrupted = Interrupted

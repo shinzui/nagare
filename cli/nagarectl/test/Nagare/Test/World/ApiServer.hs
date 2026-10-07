@@ -58,6 +58,7 @@ module Nagare.Test.World.ApiServer
   , conditionMet
   , rolloutComplete
   , statusManager
+  , apiVersionOf
   )
 where
 

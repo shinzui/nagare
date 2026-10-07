@@ -71,6 +71,7 @@ import InventoryTransferScriptSpec (inventoryTransferScriptTests)
 import InventoryUpstreamSpec (inventoryUpstreamTests)
 import InventoryVolumeRestorePinSpec (inventoryVolumeRestorePinTests)
 import InventoryWorldConformanceSpec (inventoryWorldConformanceTests)
+import InventoryWorldFaultsSpec (inventoryWorldFaultsTests)
 import Nagare.Dsl.Prelude ()
 import Nagare.Test.Application (appTests, deploymentsTests)
 import Nagare.Test.Backend
@@ -211,6 +212,7 @@ main = do
             , inventoryKindTotalityTests
             , inventoryKindSemanticsTests
             , inventoryWorldConformanceTests
+            , inventoryWorldFaultsTests
             , inventoryTests
             , inventoryApplicationUpdateRecoveryTests
             , inventoryLandedUpdateStopTests
