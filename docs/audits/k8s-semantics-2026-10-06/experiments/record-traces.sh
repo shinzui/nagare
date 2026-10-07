@@ -225,8 +225,8 @@ kubectl patch cm e13 -n $NS --type=merge --field-manager=kubectl-edit -p '{"data
 step E13 configmap "foreign edit of a managed field" '{"op":"patchMerge","manager":"kubectl-edit","patch":{"data":{"k":"edited"}}}' "$(observe configmap e13)"
 own13 "apply without force after a foreign edit" false v4 d4
 kubectl patch cm e13 -n $NS --type=merge --field-manager=kubectl-edit -p '{"data":{"k":"v3"}}' >/dev/null
-step E13 configmap "foreign same-value write" '{"op":"patchMerge","manager":"kubectl-edit","patch":{"data":{"k":"v3"}}}' "$(observe configmap e13)"
-own13 "apply without force after a foreign same-value write" false v5 d5
+step E13 configmap "foreign write restoring an earlier value" '{"op":"patchMerge","manager":"kubectl-edit","patch":{"data":{"k":"v3"}}}' "$(observe configmap e13)"
+own13 "apply without force after a foreign write restoring an earlier value" false v5 d5
 kubectl delete cm e13b -n $NS --ignore-not-found >/dev/null
 zero() { jq -cn --arg v "$1" '{apiVersion:"v1",kind:"ConfigMap",metadata:{name:"e13b",namespace:"trace",resourceVersion:"0"},data:{k:$v}}'; }
 refusal=$(attempt kubectl apply --server-side --field-manager=nagare-inventory -f <(zero v1))

@@ -17,7 +17,7 @@ echo "-- kubectl-edit changed data.k (a Nagare-managed field)"
 try "d no-force apply after a foreign edit of a managed field" bash -c "$(declare -f cm); cm v4 d4 $uid | kubectl apply --server-side --field-manager=nagare-inventory -f -"
 kubectl patch cm e13 --type=merge --field-manager=kubectl-edit -p '{"data":{"k":"v3"}}' >/dev/null
 echo "-- kubectl-edit set data.k back to Nagare's value v3"
-try "e no-force apply after a foreign same-value write" bash -c "$(declare -f cm); cm v5 d5 $uid | kubectl apply --server-side --field-manager=nagare-inventory -f -"
+try "e no-force apply after a foreign write restoring an earlier value" bash -c "$(declare -f cm); cm v5 d5 $uid | kubectl apply --server-side --field-manager=nagare-inventory -f -"
 kubectl delete cm e13 >/dev/null; cm v1 d1 | kubectl create --field-manager=nagare-inventory -f - >/dev/null; uid=$(kubectl get cm e13 -o jsonpath='{.metadata.uid}')
 kubectl apply --server-side --force-conflicts --field-manager=nagare-inventory -f <(cm v1 d1 $uid) >/dev/null
 kubectl patch cm e13 --type=merge --field-manager=kubectl-edit -p '{"data":{"k2":"theirs"}}' >/dev/null

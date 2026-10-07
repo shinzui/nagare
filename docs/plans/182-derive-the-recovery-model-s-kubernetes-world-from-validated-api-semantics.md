@@ -351,7 +351,7 @@ Then two new test modules:
   - an apply records Apply, and a forced apply moves only the fields whose value it changes;
   - a no-force apply that changes a field another entry owns is refused with 409 and kubectl's
     "Apply failed with N conflicts" text;
-  - every foreign write adds its own entry, even at the same value;
+  - a foreign Update that changes a field takes ownership of it (a write that changes nothing changes no ownership; untested, modelled as the API documents);
   - status writes use status-subresource entries;
   - an apply ignores `resourceVersion: "0"`.
 
