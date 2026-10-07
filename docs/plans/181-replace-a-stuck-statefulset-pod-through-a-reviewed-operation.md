@@ -329,6 +329,45 @@ How to see it working:
   Date: 2026-10-06
 
 
+- Decision (session nagare, from RES-4 U15 / experiment E17 on k3s 1.34.6, 2026-10-07): `db restart`
+  never stamps a token behind a pod that is not Ready. E17 showed that no template change, whether a
+  restart annotation or a fix, replaces such a pod; it only moves `updateRevision`.
+  `compileStatefulSetRestart` returns a `RestartDecision`:
+  - a pod stuck at an old revision: review the accepted scope unchanged, and the plan replaces it;
+  - a pod not Ready at the update revision: `RestartNotPlanned`, and `db restart` exits non-zero
+    with "the pod's current template doesn't become ready; correct the database spec, then run db
+    restart to replace the stuck pod";
+  - otherwise, a restart token as before.
+  Submitting the scope unchanged in the second case would not plan nothing: after a landed
+  correction the scope is not converged, so the plan verifies the StatefulSet, and prepare refuses
+  it as not Ready.
+  Date: 2026-10-07
+
+- Decision (session nagare, 2026-10-07): I9's template excuse is per member. The run is excused only
+  when a LandsUnready or LandsFailed fault acted and every member left unconverged is justified:
+  - it declares exactly a template such a fault landed (by spec digest); or
+  - it is absent in the world, never started (no `IntentRecorded` event in the journal for an
+    operation on it), and reaches such a member through the final revision's OrderedAfter edges,
+    transitively.
+  A member that started and then went missing is never justified. Tests cover each side, including a
+  dependent created and later deleted.
+  Date: 2026-10-07
+
+- Decision (implementation, 2026-10-07): EP-182's world now serves StatefulSet pods to kubectl.
+  `get pods` lists them filtered by `-l`, and `get pod NAME` renders one. Each pod carries an owner
+  reference to its StatefulSet (controller: true), the template's labels, and its
+  `controller-revision-hash`. Before, `get pods` always answered an empty list, so the model could
+  never see a stuck pod. The world also records each applied review's operations, so I9 can tell
+  from the journal which members started.
+  Date: 2026-10-07
+
+- Decision (operator, 2026-10-07): F78 is a documented limit. While a StatefulSet's own template
+  never becomes Ready, every transaction stops at it, and independent members planned after it are
+  starved until the template is corrected. The next MasterPlan owns the fix ("let a transaction
+  continue independent operations past a stop"). The two schedules are in the known-defect ledger;
+  I9 gains no excuse for them.
+  Date: 2026-10-07
+
 ## Outcomes & Retrospective
 
 (To be filled during and after implementation.)

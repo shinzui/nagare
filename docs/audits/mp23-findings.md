@@ -92,6 +92,7 @@ This is the authoritative list of implementation findings for [MP-23](../masterp
 | [F72](#f72) | P1 | The Kubernetes transport refuses a corrective update of an unready StatefulSet or Deployment as an unsupported precondition | Verifying | EP-153 / EP-180 |
 | [F68](#f68) | P1 | An update whose target is deleted and replaced by an object not stamped as its own settles unknown, so only an attested close can end it | Verifying | EP-153 / EP-177 |
 | [F77](#f77) | P1 | A database volume claim deleted outside review while its pod runs stays Terminating, and every review of the database refuses until it goes | Deferred | deferral ledger (operator, 2026-10-07); next MasterPlan |
+| [F78](#f78) | P2 | While a StatefulSet's own template never becomes Ready, every transaction stops at it, and independent members planned after it are never created until the template is corrected | Deferred | operator, 2026-10-07; next MasterPlan |
 
 Closed findings keep their full text, location, implementation updates and verification in [the closed-findings archive](mp23-archive/mp23-findings-closed.md). F01 and F11 retain their [earlier independent closure](mp23-archive/mp23-verification.md). F02, F03, F04, F05, F06, F07, F08 and F20 now have [2026-10-02 independent closure](mp23-independent-verification-2026-10-02.md). F34, F35, F36, F37, F38, F41 and F42 have 2026-10-04 independent closure on candidate `7596632c`, and F49 and F50 on candidate `847543896d07` ([records](mp23-independent-results-2026-10-04/phase1-source-and-regressions-7596632c.md)). Other entries retain their status shown above.
 
@@ -1086,3 +1087,31 @@ E16 verified steps 1, 2, 4 and 6 (and a file-level backup through the pod) on k3
 - Planning carries the adapter's `ObservationUnavailable` reason into its refusal, and a terminating durable claim points at the runbook. Not done here: the refusal drops the reason today (`Plan/Changes.hs`, `observation-unavailable`), so a pointer in the adapter's message would not reach the operator.
 
 **Verification.** None. Deferred findings are not closed; the ledger entry is removed when the reviewed exit lands.
+
+## F78
+
+**While a StatefulSet's own template never becomes Ready, every transaction stops at it, and independent members planned after it are never created until the template is corrected** — P2; **Deferred**; owner: next MasterPlan, "let a transaction continue independent operations past a stop" (operator, 2026-10-07).
+
+**Found by EP-181's invariant I9 ("a correction converges") on EP-182's validated world (2026-10-07, claude-opus-5-5).**
+
+**Schedules** (fast tier, `InventoryRecoveryModelSpec`, scenario "create a database, update its resources, update it again, then restart it"):
+- `LandsUnready` at `MutateCall` 5, the StatefulSet's create;
+- `LandsFailed` at `MutateCall` 5, the same write.
+
+**Mechanism.**
+- The create lands the database's StatefulSet with a template that never becomes Ready.
+- The driver ends a transaction at its first stop (`StoppedAmbiguous`), so the create transaction stops at the StatefulSet. Its later operations never start, including those of members that do not depend on the StatefulSet: `backup-account`, then `backup-read-binding`, which is OrderedAfter it.
+- Every later review of the database (the update, the correction, the restart) plans those creates again, sequenced after the StatefulSet's operation, and stops at the StatefulSet again.
+- In this schedule the "correction" re-applies the faulted create template, so the StatefulSet never becomes Ready and those members never appear.
+- With a template that does become Ready, the next transaction passes the StatefulSet and creates them.
+
+**Excuses I9 already has, and why they do not cover this.**
+- The StatefulSet itself is excused: its final template is the faulted one, matched by spec digest.
+- `backup` is excused: it is absent, never started, and OrderedAfter the StatefulSet.
+- `backup-account` has no OrderedAfter path to the StatefulSet. Only execution order keeps it back, and the operator decided not to excuse that.
+
+**Ledger.** Both schedules are in the recovery model's known-defect ledger (`cli/nagarectl/test/Nagare/Test/Model/KnownDefects.hs`) under F78, with this owner.
+
+**Operator view.** `inventory status` reports the missing members. The managed-databases guide says they appear in the first review after the database's template is corrected and lands Ready.
+
+**For the next MasterPlan.** Let a transaction continue the operations that do not depend on a stopped one, so a broken workload no longer starves independent members.
