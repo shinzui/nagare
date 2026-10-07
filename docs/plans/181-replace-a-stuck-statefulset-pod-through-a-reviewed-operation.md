@@ -368,6 +368,24 @@ How to see it working:
   I9 gains no excuse for them.
   Date: 2026-10-07
 
+- Decision (session nagare, 2026-10-07): the rebase onto aaa96eaf leaves 13 commits whose test
+  suite does not compile alone. EP-180 M9 dropped the landed-reader argument of
+  `mkKubernetesAdapterWithObservations`. Their tests (`InventoryStuckPodSpec`, then
+  `InventoryActionPublicationSpec`) still pass it, and 2213591b fixes the calls. The library and CLI
+  build in each.
+
+  A bisect should skip these commits, or test only the library:
+
+  ```text
+  9c37bc63 1a9d42ed 15ff7f84 fc2239ae 58e8b6cc 5c6e8363 04001275
+  e2361e58 300d1e7d 02eb39a1 a1838ae2 db901cd3 ec906376
+  ```
+
+  The rebase also dropped the action publication group from the suite list from 5c6e8363 on;
+  2213591b restores it. Rewriting the commits was rejected: the gate proves only the landed tip, and
+  rewriting thirteen commits risked new conflicts for no change in the tip.
+  Date: 2026-10-07
+
 ## Outcomes & Retrospective
 
 (To be filled during and after implementation.)
