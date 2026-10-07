@@ -82,6 +82,9 @@ MasterPlan, not by this plan.
       `G6-no-revision-retry` each fail their test.
     - F72 was found and fixed: the transport refused an unready correction. Record `F72-unready-update-unsupported`.
     - Retires keep the exact guard until M6 (G5): see Surprises.
+  - Follow-up (session nagare): settlement's stamp row and the write guard share one rule, `stampDistinguishes` (the
+    before stamp exists and differs from the reviewed digest). A drift-repair test and record
+    `G6-repair-proves-by-stamp` pin it in both places.
   - M5b: fold the Knative-only version 2 into this discipline.
 - [ ] M6 (G5): terminating objects are classified, not read as present.
 - [ ] M7 (G7): resource quantities compare canonically.

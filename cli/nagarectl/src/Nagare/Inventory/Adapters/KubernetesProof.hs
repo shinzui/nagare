@@ -9,6 +9,7 @@ module Nagare.Inventory.Adapters.KubernetesProof
   , settleMutation
   , requireSameBefore
   , requireWriteTarget
+  , stampDistinguishes
   , completionProof
   , statePhysical
   , knativeServiceAddress
@@ -127,12 +128,7 @@ settleMutation mutation before current stamp decision = case decision of
     _ -> SettledUnknown (unresolved decision) "a corrected review, or an attested close"
   where
     resource = mutationResource mutation
-    stampProves =
-      mutationAction mutation == UpdateResource
-        && isJust (mutationBeforeStamp mutation)
-        && mutationBeforeStamp mutation /= Just (mutationNativeDigest mutation)
-        && isJust beforeIdentity
-        && onReviewed == beforeIdentity
+    stampProves = stampDistinguishes mutation && isJust beforeIdentity && onReviewed == beforeIdentity
     onReviewed = case current of
       KubernetesPresent uid _ (Just owner) _ | owner == resource -> Just uid
       KubernetesNotReady uid _ (Just owner) _ | owner == resource -> Just uid
@@ -334,6 +330,14 @@ kubectlRefusal errors = listToMaybe [line | line <- map T.strip (T.lines errors)
       ["Error from server (" <> code <> ")" | code <- ["Conflict", "Invalid", "AlreadyExists", "NotFound", "Forbidden", "BadRequest"]]
         <> ["error: Operation cannot be fulfilled", "error: Apply failed with"]
 
+-- | F67, G6: whether an update's before stamp can tell the reviewed write from
+-- its before-state, for settlement and for the write guard alike. It must
+-- exist and differ from the reviewed digest: a drift repair's before stamp
+-- already is the reviewed digest, so it proves nothing either way.
+stampDistinguishes :: KubernetesMutation -> Bool
+stampDistinguishes mutation =
+  mutationAction mutation == UpdateResource && maybe False (/= mutationNativeDigest mutation) (mutationBeforeStamp mutation)
+
 -- | G6, RES-4 U10: the guard before an update writes. It needs the reviewed
 -- UID, this member's ownership and the before-state stamp, not the
 -- resourceVersion: the write carries the fresh one, and the runtime repeats
@@ -347,7 +351,7 @@ requireWriteTarget mutation current stamp = case mutationAction mutation of
   -- write from the before-state (F67); without one, and for a drift repair or
   -- a Knative version-2 update, the exact before-state guards the write.
   UpdateResource
-    | mutationVersion mutation == 2 || maybe True (== mutationNativeDigest mutation) (mutationBeforeStamp mutation) -> requireSameBefore mutation current
+    | mutationVersion mutation == 2 || not (stampDistinguishes mutation) -> requireSameBefore mutation current
     | not sameObject -> Left "Kubernetes object changed since review; replan before mutation"
     | stamp /= mutationBeforeStamp mutation -> Left "Kubernetes object's stamp changed since review; replan before mutation"
     | otherwise -> Right ()

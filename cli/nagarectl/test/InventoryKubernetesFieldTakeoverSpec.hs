@@ -162,6 +162,9 @@ kubernetesFieldTakeoverTests =
         adapterPreflight update K.updateOperation updateNative >>= assertBool "a changed stamp passed preflight" . isLeft
         adapterExecute update K.updateOperation updateNative >>= assertKnownNoEffect "stamp"
         length <$> readIORef updateWrites >>= (@?= 1)
+        -- A drift repair's before stamp already is the reviewed digest: the exact before-state guards it.
+        repair <- (\update -> update {mutationBeforeStamp = Just (mutationNativeDigest update)}) <$> stampedUpdate
+        assertBool "a drift repair passed on its stamp" (isLeft (requireWriteTarget repair (KubernetesPresent K.physical "5" (Just K.resource) (contentDigest "drifted")) (Just (mutationNativeDigest repair))))
         -- A retire keeps its exact before-state until G5 observes a terminating object.
         mutation <- stampedUpdate
         let retire = mutation {mutationAction = RetireResource, mutationBefore = KubernetesPresent K.physical "4" (Just K.resource) reviewed, mutationBeforeStamp = Nothing}
