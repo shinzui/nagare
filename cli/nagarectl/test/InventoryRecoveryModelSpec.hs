@@ -115,16 +115,17 @@ inventoryRecoveryModelTests =
     , testCase "a not-Ready verify refusal on a member live at its poisoned template is excused, per member (3d B6)" $ do
         let poisoned = contentDigest "poisoned-template"
             member = "standalone:database-pg/pg/statefulset"
-            refusal members = "PrepareRefused (OperationId \"op-1\") \"Kubernetes object is present but its required condition is not ready\" :| [] refused members " <> members
+            refusal members = "PrepareRefused (OperationId \"op-1\") \"Kubernetes object is present but its required condition is not ready\" :| [] refused verifies " <> members
             lands = [(Boundary MutateCall 5, LandsUnready)]
             outcomes' = Map.singleton (digestText poisoned) Unready
             live = Map.fromList [(statefulId, poisoned), (pvcId, contentDigest "other")]
         refusedTemplateExcused (refusal member) lands outcomes' live @?= True
-        -- Not excused: another template, another member, no acted Lands*, or another refusal.
+        -- Not excused: another template or member, no acted Lands*, another refusal, or an update (F63).
         refusedTemplateExcused (refusal member) lands outcomes' (Map.insert statefulId (contentDigest "corrected") live) @?= False
         refusedTemplateExcused (refusal (member <> ",standalone:database-pg/pg/pvc")) lands outcomes' live @?= False
         refusedTemplateExcused (refusal member) [(Boundary MutateCall 5, ControllerLag)] outcomes' live @?= False
-        refusedTemplateExcused ("PrepareRefused (OperationId \"op-1\") \"update requires a present object\" refused members " <> member) lands outcomes' live @?= False
+        refusedTemplateExcused ("PrepareRefused (OperationId \"op-1\") \"update requires a present object\" refused verifies " <> member) lands outcomes' live @?= False
+        refusedTemplateExcused (refusal "") lands outcomes' live @?= False
     , testCase "the known-defect ledger is two-sided: unlisted violations and changed counts fail (EP-182)" $ do
         let found scenario' fault' line = T.unlines ["scenario: " <> scenario', "faults: [(Boundary {call = ObserveCall, ordinal = 3}," <> T.pack (show fault') <> ")]", "review: v1", "violation: " <> line]
             entry = KnownViolation "G0" "EP-0" "s" Deleted "I1: planning refused" 1
@@ -862,11 +863,11 @@ planWith store registry change decide = do
           before <- readStoreSnapshot store >>= orTrouble "read snapshot"
           prepared <- prepareReview registry before proposal
           case prepared of
-            -- The members of each refused operation, so an excuse can judge
-            -- the refusal per member.
+            -- B6: the refused members, named only when every refused operation is a verify.
             Left err ->
-              let members = [resource | PrepareRefused refused _ <- NE.toList err, operation <- proposalOperations proposal, plannedOperationId operation == refused, resource <- NE.toList (plannedResources operation)]
-               in pure (Left (T.pack (show err) <> " refused members " <> T.intercalate "," (map resourceIdText members)))
+              let refused = [operation | PrepareRefused refusedId _ <- NE.toList err, operation <- proposalOperations proposal, plannedOperationId operation == refusedId]
+                  members = [resource | all ((== VerifyResource) . plannedAction) refused, operation <- refused, resource <- NE.toList (plannedResources operation)]
+               in pure (Left (T.pack (show err) <> " refused verifies " <> T.intercalate "," (map resourceIdText members)))
             Right bundle -> do
               _ <- publishReview store bundle >>= orTrouble "publish review"
               published <- readStoreSnapshot store >>= orTrouble "read snapshot"

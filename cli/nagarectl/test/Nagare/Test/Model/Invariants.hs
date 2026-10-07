@@ -206,9 +206,10 @@ convergedStaleIncarnations run = do
           ]
 
 -- | 3d B6: I1's prepare-refusal path gets 'faultedTemplateRecurs' per
--- member. The refusal is a prepare refusal for a member that is not Ready,
--- it names its refused members, and every one of them is live at a template
--- an acted Lands* fault poisoned.
+-- member. The refusal is a prepare refusal of verifies only (a review that
+-- re-applies the unchanged template) of members that are not Ready, it names
+-- them, and every one is live at a template an acted Lands* fault poisoned. A
+-- refused update carries a corrected template and is never excused here.
 refusedTemplateExcused :: Text -> [(Boundary, Fault)] -> Map.Map Text Outcome -> Map.Map ResourceId ContentDigest -> Bool
 refusedTemplateExcused refusal acted' outcomes' live =
   "PrepareRefused" `T.isInfixOf` refusal
@@ -217,9 +218,9 @@ refusedTemplateExcused refusal acted' outcomes' live =
     && Map.size refused == length named
     && faultedTemplateRecurs acted' outcomes' refused Map.empty Set.empty
   where
-    named = case T.breakOn " refused members " refusal of
+    named = case T.breakOn " refused verifies " refusal of
       (_, rest) | T.null rest -> []
-      (_, rest) -> filter (not . T.null) (T.splitOn "," (T.strip (T.drop (T.length " refused members ") rest)))
+      (_, rest) -> filter (not . T.null) (T.splitOn "," (T.strip (T.drop (T.length " refused verifies ") rest)))
     refused = Map.fromList [(resource, digest) | name <- named, Right resource <- [mkResourceId name], Just digest <- [Map.lookup resource live]]
 
 -- | B2's pure judgement, per PlanError and resource (see 'excusedRefusal' in
