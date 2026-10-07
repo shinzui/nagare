@@ -18,14 +18,18 @@ import InventoryTransactionSpec (fixtureBinding, recordingRegistryWith)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes (KubernetesState (..), kubernetesObserve, mkKubernetesAdapterWithObservations)
+import Nagare.Inventory.Adapters.KubernetesRuntime (mkKubernetesRuntimeOpsAndBatchWithCacheKey)
 import Nagare.Inventory.Adapters.KubernetesStuckPod
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Execute
+import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.KubernetesTransport (KubectlRequest (..), KubernetesRuntimeConfig (..), runKubectlWith, withKubectlInterpreter)
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Status qualified as Status
 import Nagare.Inventory.Store
+import Nagare.Resource.Canonical (canonicalValue)
 import Nagare.Resource.Inventory
+import Nagare.Resource.Kubernetes (KubernetesInput (..))
 import Nagare.Resource.Policy
 import Nagare.Resource.Types
 import Nagare.Test.Model.Fixtures (databaseNative, ok, statefulId)
@@ -95,6 +99,25 @@ inventoryStuckPodTests =
         map (\finding -> (Status.findingCategory finding, Status.findingReason finding)) (classify blocked)
           @?= [(Status.StuckRollout, Just "rollout is stuck: pg-0 at revision pg-9d647 is not Ready and blocks the rollout to pg-d9d6d; the next inventory plan proposes replace-stuck-pod")]
         map Status.findingCategory (classify Map.empty) @?= [Status.Converged]
+    , testCase "end to end: a stuck pod read by the runtime is planned, reviewed and reported by status" $ do
+        let (declared, _) = pgBound
+        (store, candidate, history) <- acceptedStore declared declared
+        (registry, asked) <- runtimeRegistry
+        -- Planning, as the operator CLI does it.
+        observations <- observeWithRegistry registry (requirementsByExecutor (observationRequirements candidate history)) >>= expectRight
+        let proposal = ok (planChanges candidate noLifecycleDecisions history observations)
+        map (\operation -> (plannedAction operation, plannedResources operation)) (proposalOperations proposal) @?= [(ReplaceStuckPod, planId :| [])]
+        snapshot <- readStoreSnapshot store >>= expectRight
+        bundle <- prepareReview registry snapshot proposal >>= expectRight
+        map reviewPublicSummary (reviewOperations (reviewBundleDocument bundle))
+          @?= ["replace-stuck-pod  statefulset personal/pg  pod pg-0 (uid uid-pg-0…, revision 9d647, not Ready) blocks rollout to revision d9d6d"]
+        -- Status, as the operator CLI does it.
+        kubernetes <- expectRight (lookupAdapter registry KubernetesExecutor)
+        (facts, stuck) <- Status.statusFacts "adapter omitted this resource" [planId] <$> adapterObserve kubernetes [planId]
+        map Status.findingCategory (Status.classifyDriftWith (Map.singleton planId planUid) (candidateInventory candidate) (withStuckRollouts stuck (ok (observationSet facts))))
+          @?= [Status.StuckRollout]
+        -- Every pod read went through kubectl: plan, prepare and status.
+        readIORef asked >>= \requests -> length [() | "get" : "pods" : _ <- requests] @?= 3
     , testCase "observe: a member StatefulSet that is not Ready reports its stuck pod" $ do
         (observed, podReads) <- observeDatabase (notReady statefulDigest) (pure (Right (Just reviewedPod)))
         fmap observationStuck observed @?= Right (Map.singleton statefulId "pg-0 at revision pg-9d647 is not Ready and blocks the rollout to pg-d9d6d")
@@ -143,6 +166,9 @@ planOwner = ok (mkScopeId Platform "stuck")
 planId :: ResourceId
 planId = mintResourceId planOwner (ok (mkLogicalKey "pg")) (ok (mkName "statefulset"))
 
+planCluster :: ResourceId
+planCluster = mintResourceId planOwner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
+
 planUid :: PhysicalIdentity
 planUid = uidOf "sts-uid"
 
@@ -153,7 +179,7 @@ planMember template =
     { identity = planId
     , owner = planOwner
     , executor = KubernetesExecutor
-    , address = Kubernetes (mintResourceId planOwner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))) "apps" (ok (mkName "statefulset")) (Just (ok (mkName "personal"))) (ok (mkName "pg"))
+    , address = Kubernetes planCluster "apps" (ok (mkName "statefulset")) (Just (ok (mkName "personal"))) (ok (mkName "pg"))
     , aliases = []
     , spec = StatefulSet 1 [] (contentDigest (TE.encodeUtf8 template))
     , lifecycle = Retain
@@ -170,6 +196,13 @@ planScope member' = ok (mkScopeDeclaration planOwner [ResourceBundle [Managed me
 -- | Accept and apply @accepted@, then plan @desired@ against this observation.
 planAccepted :: ManagedResource -> ManagedResource -> ResourceObservation -> Map ResourceId Text -> IO [PlannedOperation]
 planAccepted accepted desired fact stuck = do
+  (_, candidate, history) <- acceptedStore accepted desired
+  pure (proposalOperations (ok (planChanges candidate noLifecycleDecisions history (withStuckRollouts stuck (ok (observationSet [(planId, fact)]))))))
+
+-- | A store that accepted and applied @accepted@, with the candidate and
+-- planning history for @desired@.
+acceptedStore :: ManagedResource -> ManagedResource -> IO (InventoryStore, CompositionCandidate, InventoryHistory)
+acceptedStore accepted desired = do
   store <- newMemoryStore
   _ <- initializeStore store fixtureBinding "stuck-pod-plan" >>= expectRight
   let registry = recordingRegistryWith (\_ _ -> pure (Right ())) (\_ _ -> pure AdapterEffectCompleted) (\_ _ -> pure RecoverySafeToRetry)
@@ -187,7 +220,72 @@ planAccepted accepted desired fact stuck = do
   reviewed <- expectRight (verifyReview published bundle)
   _ <- applyReviewed store registry reviewed >>= expectRight
   (candidate, history) <- candidateFor desired
-  pure (proposalOperations (ok (planChanges candidate noLifecycleDecisions history (withStuckRollouts stuck (ok (observationSet [(planId, fact)]))))))
+  pure (store, candidate, history)
+
+-- * The production-shaped adapter over a stubbed kubectl
+
+-- | The member StatefulSet, bound as the compiler binds it.
+pgBound :: (ManagedResource, ByteString)
+pgBound = ok (bindKubernetesObject (KubernetesInput planId planOwner planCluster pgDesired (contentDigest (ok (canonicalValue pgDesired))) Retain Stateless Private (SourceLocation "test" "pg")))
+
+pgDesired :: Value
+pgDesired =
+  object
+    [ "apiVersion" .= ("apps/v1" :: Text)
+    , "kind" .= ("StatefulSet" :: Text)
+    , "metadata" .= object ["name" .= ("pg" :: Text), "namespace" .= ("personal" :: Text)]
+    , "spec" .= pgSpec
+    ]
+
+pgSpec :: Value
+pgSpec =
+  object
+    [ "replicas" .= (1 :: Int)
+    , "serviceName" .= ("pg" :: Text)
+    , "selector" .= object ["matchLabels" .= object ["app" .= ("pg" :: Text)]]
+    , "template" .= object ["metadata" .= object ["labels" .= object ["app" .= ("pg" :: Text)]], "spec" .= object ["containers" .= [object ["name" .= ("pg" :: Text), "image" .= ("postgres:18" :: Text)]]]]
+    ]
+
+-- | E6f's final state: the corrected template landed (generation 3, observed)
+-- and the pod at the broken revision is not Ready.
+pgLive :: Value
+pgLive =
+  object
+    [ "apiVersion" .= ("apps/v1" :: Text)
+    , "kind" .= ("StatefulSet" :: Text)
+    , "metadata"
+        .= object
+          [ "name" .= ("pg" :: Text)
+          , "namespace" .= ("personal" :: Text)
+          , "uid" .= ("sts-uid" :: Text)
+          , "resourceVersion" .= ("7" :: Text)
+          , "generation" .= (3 :: Int)
+          , "annotations"
+              .= object
+                [ "nagare.dev/context-id" .= contextIdText (fixtureBinding ^. #identity)
+                , "nagare.dev/resource-id" .= resourceIdText planId
+                , "nagare.dev/spec-digest" .= digestText (contentDigest (snd pgBound))
+                ]
+          ]
+    , "spec" .= pgSpec
+    , "status" .= object ["observedGeneration" .= (3 :: Int), "replicas" .= (1 :: Int), "readyReplicas" .= (0 :: Int), "updatedReplicas" .= (0 :: Int), "currentRevision" .= ("pg-9d647" :: Text), "updateRevision" .= ("pg-d9d6d" :: Text)]
+    ]
+
+-- | The adapter production installs, over a kubectl that answers with E6f's
+-- StatefulSet and its stuck pod, and the requests it was asked.
+runtimeRegistry :: IO (AdapterRegistry, IORef [[String]])
+runtimeRegistry = do
+  asked <- newIORef []
+  let answer request = do
+        modifyIORef' asked (<> [request ^. #arguments])
+        pure $ case request ^. #arguments of
+          "get" : "statefulset.apps" : _ -> Right (ExitSuccess, BLC.unpack (encode pgLive), "")
+          "get" : "pods" : _ -> Right (ExitSuccess, BLC.unpack (encode (pods [pgPod "pg-0" "pg-9d647" False])), "")
+          other -> Left ("unexpected kubectl call " <> T.pack (show other))
+      config = withKubectlInterpreter (runKubectlWith answer) (KubernetesRuntimeConfig (fixtureBinding ^. #identity) "stuck-pod" (pure (Right ())))
+      specs = Map.singleton planId pgBound
+      (ops, batch) = mkKubernetesRuntimeOpsAndBatchWithCacheKey config (\_ -> pure (Left "no cache output")) specs
+  pure (ok (mkAdapterRegistry [mkKubernetesAdapterWithObservations specs ops (runtimePodOps config specs) batch noReceipt noScratch Nothing Nothing]), asked)
 
 -- * The adapter over the database fixture
 

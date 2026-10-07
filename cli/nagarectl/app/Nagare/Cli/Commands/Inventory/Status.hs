@@ -252,23 +252,7 @@ runInventoryStatus mctx requested json gcOutput = do
         let requestedIds = ids executor
         if null requestedIds
           then pure ([], Map.empty)
-          else do
-            result <- InventoryAdapter.adapterObserve adapter requestedIds
-            pure $ case result of
-              Left reason -> ([(resource, InventoryAdapter.ObservationUnavailable reason) | resource <- requestedIds], Map.empty)
-              Right facts ->
-                ( [ ( resource
-                    , Map.findWithDefault
-                        ( InventoryAdapter.ObservationUnavailable
-                            "adapter omitted this resource"
-                        )
-                        resource
-                        (InventoryAdapter.observationMap facts)
-                    )
-                  | resource <- requestedIds
-                  ]
-                , InventoryAdapter.observationStuck facts
-                )
+          else InventoryStatus.statusFacts "adapter omitted this resource" requestedIds <$> InventoryAdapter.adapterObserve adapter requestedIds
       inspect adapter executor = fst <$> inspectWithStuck adapter executor
   (kubeFacts, kubeStuck) <- inspectWithStuck kubernetes ResourceInventory.KubernetesExecutor
   helmFacts <- inspect helm ResourceInventory.HelmExecutor
@@ -311,21 +295,7 @@ runInventoryStatus mctx requested json gcOutput = do
         let requestedIds = retainedIds executor
         if null requestedIds
           then pure []
-          else do
-            result <- InventoryAdapter.adapterObserve adapter requestedIds
-            pure $ case result of
-              Left reason -> [(resource, InventoryAdapter.ObservationUnavailable reason) | resource <- requestedIds]
-              Right facts ->
-                [ ( resource
-                  , Map.findWithDefault
-                      ( InventoryAdapter.ObservationUnavailable
-                          "adapter omitted this retained resource"
-                      )
-                      resource
-                      (InventoryAdapter.observationMap facts)
-                  )
-                | resource <- requestedIds
-                ]
+          else fst . InventoryStatus.statusFacts "adapter omitted this retained resource" requestedIds <$> InventoryAdapter.adapterObserve adapter requestedIds
   retainedKubeFacts <- inspectRetained retainedKubernetes ResourceInventory.KubernetesExecutor
   retainedHelmFacts <- inspectRetained retainedHelm ResourceInventory.HelmExecutor
   retainedBrokerFacts <- inspectRetained broker ResourceInventory.BrokerExecutor

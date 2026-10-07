@@ -10,6 +10,7 @@ module Nagare.Inventory.Status
   , CollectionAssessment (..)
   , classifyDrift
   , classifyDriftWith
+  , statusFacts
   , statusIncarnations
   , traceDependencies
   , traceRetainedDependencies
@@ -649,6 +650,17 @@ data DriftFinding = DriftFinding
   , findingReason :: !(Maybe Text)
   }
   deriving stock (Eq, Show)
+
+-- | One adapter's answer for the requested members: a fact for each, with
+-- @omitted@ for one it did not report, and the members whose rollout it
+-- found stuck (EP-181), which status must keep when it merges the facts.
+statusFacts :: Text -> [ResourceId] -> Either Text ObservationSet -> ([(ResourceId, ResourceObservation)], Map ResourceId Text)
+statusFacts omitted requested = \case
+  Left reason -> ([(resource, ObservationUnavailable reason) | resource <- requested], Map.empty)
+  Right facts ->
+    ( [(resource, Map.findWithDefault (ObservationUnavailable omitted) resource (observationMap facts)) | resource <- requested]
+    , observationStuck facts
+    )
 
 classifyDrift :: ValidatedInventory -> ObservationSet -> [DriftFinding]
 classifyDrift = classifyDriftWith Map.empty
