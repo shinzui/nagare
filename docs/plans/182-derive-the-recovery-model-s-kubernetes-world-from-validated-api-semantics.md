@@ -255,7 +255,17 @@ How to see it working:
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+**Deep-tier acceptance: pending MP-23 step 3d (a recorded departure from ADR 25).**
+- ADR 25's 2026-10-06 amendment requires a passing `just gate-deep` before accepting a change to the
+  recovery model or to adapters. This plan touches the model and the world (`test/Nagare/Test/World/`,
+  `test/Nagare/Test/Model/`, `test/InventoryRecoveryModelSpec.hs`) and, through the pure composition
+  move, `src/Nagare/Inventory/Adapters/`.
+- It lands on `just gate` without a deep run. MP-23's Decision Log entry of 2026-10-06 ("first
+  principles, not brute force", approved by the operator) makes the deep tier the confirmation at step
+  3d, after EP-180, EP-181 and EP-182. The coordinator applied that entry to this plan on 2026-10-07.
+- The deep tier does not read the known-defect ledger. Step 3d's run will therefore report F77's
+  violations (deferred), and possibly more of them through fault pairs, as well as anything G3's
+  liveness invariant exposes once EP-181 adds it.
 
 
 ## Context and Orientation
