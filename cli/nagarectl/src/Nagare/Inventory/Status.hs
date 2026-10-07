@@ -625,6 +625,10 @@ data DriftCategory
     -- It is reported, not refused, except where data is at stake; a
     -- reviewed rebind records it.
     UnrecordedIncarnation
+  | -- | EP-181 (RES-4 G3): an unchanged member StatefulSet whose rollout is
+    -- blocked by a pod that is not Ready. The next plan proposes the reviewed
+    -- replacement of that pod.
+    StuckRollout
   | UnknownObservation
   deriving stock (Eq, Ord, Show)
 
@@ -658,6 +662,7 @@ classifyDriftWith incarnations inventory observations =
   ]
   where
     observed = observationMap observations
+    stuck = observationStuck observations
     replaced resource uid = case checkedPhysical incarnations (resource ^. #identity) uid of
       IdentityReplaced _ _ -> True
       _ -> False
@@ -680,6 +685,9 @@ classifyDriftWith incarnations inventory observations =
             Just (ObservedPresent uid)
               | unrecorded resource uid ->
                   (UnrecordedIncarnation, HealthUnknown, Just uid, Nothing, Just "no incarnation is recorded; a reviewed rebind records it")
+            Just (ObservedPresent uid)
+              | Just blocked <- Map.lookup (resource ^. #identity) stuck ->
+                  (StuckRollout, HealthNotReady, Just uid, Nothing, Just ("rollout is stuck: " <> blocked <> "; the next inventory plan proposes replace-stuck-pod"))
             Just (ObservedPresent uid) -> (Converged, HealthUnknown, Just uid, Nothing, Nothing)
             Just (ObservedDrifted uid changed) ->
               (ConfigurationDrift, HealthUnknown, Just uid, Just changed, Nothing)
@@ -718,6 +726,7 @@ instance ToJSON DriftCategory where
     ImmutableReplacementRequired -> "immutable-replacement-required"
     ReplacedIncarnation -> "replaced-incarnation"
     UnrecordedIncarnation -> "unrecorded"
+    StuckRollout -> "stuck-rollout"
     MissingResource -> "missing"
     UnownedResource -> "unowned"
     ForeignOwner -> "foreign-owner"

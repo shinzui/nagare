@@ -4,6 +4,8 @@ module Nagare.Inventory.Adapter
   , ObservationSet
   , observationSet
   , observationMap
+  , observationStuck
+  , withStuckRollouts
   , MigrationObservationSet
   , migrationObservationSet
   , migrationObservationMap
@@ -65,18 +67,32 @@ data ResourceObservation
   | ObservationUnavailable !Text
   deriving stock (Eq, Show, Generic)
 
-newtype ObservationSet = ObservationSet (Map ResourceId ResourceObservation)
+-- | What the provider observed for each member, and, beside it, the members
+-- whose rollout is stuck behind a pod that is not Ready (EP-181, RES-4 G3),
+-- each with a description of that pod. A stuck member is still observed as
+-- it is (present), so no consumer of the observations changes meaning; a set
+-- rebuilt without the stuck members only proposes no replacement.
+data ObservationSet = ObservationSet !(Map ResourceId ResourceObservation) !(Map ResourceId Text)
   deriving stock (Eq, Show)
 
 observationSet :: [(ResourceId, ResourceObservation)] -> Either Text ObservationSet
 observationSet entries
-  | length entries == Map.size values = Right (ObservationSet values)
+  | length entries == Map.size values = Right (ObservationSet values Map.empty)
   | otherwise = Left "duplicate resource observation"
   where
     values = Map.fromList entries
 
 observationMap :: ObservationSet -> Map ResourceId ResourceObservation
-observationMap (ObservationSet values) = values
+observationMap (ObservationSet values _) = values
+
+-- | Members whose rollout is stuck, with a description of the blocking pod.
+observationStuck :: ObservationSet -> Map ResourceId Text
+observationStuck (ObservationSet _ stuck) = stuck
+
+-- | Record stuck rollouts for members this set observes.
+withStuckRollouts :: Map ResourceId Text -> ObservationSet -> ObservationSet
+withStuckRollouts stuck (ObservationSet values previous) =
+  ObservationSet values (Map.union (Map.restrictKeys stuck (Map.keysSet values)) previous)
 
 -- | Two observations for one logical identity must remain separate. The
 -- ordinary observation map can describe only the desired incarnation.
@@ -118,6 +134,9 @@ data OperationAction
   | VerifyResource
   | AdoptResource
   | RetireResource
+  | -- | Delete the pod that blocks a member StatefulSet's rollout, so the
+    -- controller recreates it at the reviewed template (EP-181, RES-4 G3).
+    ReplaceStuckPod
   | RunDeclaredOperation
   | OpenMaintenanceSession
   | RestoreLiveDatabase
@@ -438,7 +457,8 @@ observeWithRegistry registry requests = do
   results <- traverse observeOne (Map.toAscList requests)
   pure $ do
     observedSets <- sequence results
-    observationSet (concatMap (Map.toList . observationMap) observedSets)
+    withStuckRollouts (Map.unions (map observationStuck observedSets))
+      <$> observationSet (concatMap (Map.toList . observationMap) observedSets)
   where
     observeOne (executor, resources) = case lookupAdapter registry executor of
       Left err -> pure (Left err)

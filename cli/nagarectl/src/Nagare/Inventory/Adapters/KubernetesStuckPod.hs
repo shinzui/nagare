@@ -9,15 +9,21 @@
 -- being deleted.
 module Nagare.Inventory.Adapters.KubernetesStuckPod
   ( StuckPod (..)
+  , PodReplacement (..)
   , KubernetesPodOps (..)
   , noPodOps
   , runtimePodOps
   , stuckPod
   , podTerminating
+  , isStatefulSet
+  , preparePodReplacement
+  , decodePodReplacement
+  , podReplacementSummary
   )
 where
 
-import Data.Aeson (Value (..), eitherDecodeStrict')
+import Data.Aeson (FromJSON, ToJSON, Value (..), eitherDecodeStrict', toJSON)
+import Data.Aeson.KeyMap qualified as KM
 import Data.Aeson.Types (Object, Parser, parseEither, withObject, (.:), (.:?))
 import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
@@ -29,8 +35,11 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Nagare.Dsl.Prelude
+import Nagare.Inventory.Adapter (OperationAction (ReplaceStuckPod), PlannedOperation (..), PrepareError (..), PreparedNative (..))
 import Nagare.Inventory.Adapters.KubernetesReadiness (statefulSetReady)
+import Nagare.Inventory.Journal (OperationId)
 import Nagare.Inventory.KubernetesTransport (KubernetesRuntimeConfig (..), invokeKubectl)
+import Nagare.Resource.Canonical (canonicalValue)
 import Nagare.Resource.Inventory (ManagedResource (..))
 import Nagare.Resource.Types
 import System.Exit (ExitCode (ExitSuccess))
@@ -51,6 +60,21 @@ data StuckPod = StuckPod
   -- ^ The StatefulSet's @status.updateRevision@, the template the pod blocks.
   }
   deriving stock (Eq, Show, Generic)
+  deriving anyclass (ToJSON, FromJSON)
+
+-- | The reviewed native bytes of a 'ReplaceStuckPod' operation: the pod the
+-- review saw blocking the member's rollout, bound to the operation.
+data PodReplacement = PodReplacement
+  { version :: !Int
+  , operation :: !OperationId
+  , inputDigest :: !ContentDigest
+  , member :: !ResourceId
+  , target :: !ProviderAddress
+  -- ^ The member StatefulSet's address.
+  , stuck :: !StuckPod
+  }
+  deriving stock (Eq, Show, Generic)
+  deriving anyclass (ToJSON, FromJSON)
 
 -- | The Kubernetes reads and writes that act on a member's pods rather than
 -- on the member itself.
@@ -161,12 +185,63 @@ stuckPod statefulSet podList = first T.pack (parseEither parse ())
     -- A StatefulSet names its pods <name>-<ordinal>.
     ordinal stuck = fromMaybe (maxBound :: Int) (readMaybe (T.unpack (T.takeWhileEnd (/= '-') (stuck ^. #pod))))
 
--- | A pod being deleted is already going, so it is never stuck.
--- EP-180 M6 replaces this with its shared parser's @KubernetesTerminating@.
+-- | A pod being deleted is already going, so it is never stuck. The rule is
+-- EP-180 M6's for members (@parseObserved@ classes an object as
+-- @KubernetesTerminating@): a @deletionTimestamp@ that is present and not
+-- null.
 podTerminating :: Object -> Bool
-podTerminating root = either (const False) id (parseEither terminating root)
+podTerminating root = case KM.lookup "metadata" root of
+  Just (Object metadata) -> KM.lookup "deletionTimestamp" metadata `notElem` [Nothing, Just Null]
+  _ -> False
+
+-- | An @apps/StatefulSet@ address, the only kind whose pods this module
+-- replaces.
+isStatefulSet :: ProviderAddress -> Bool
+isStatefulSet = \case
+  Kubernetes _ "apps" kind (Just _) _ -> nameText kind == "statefulset"
+  _ -> False
+
+-- | Review the member's stuck pod. A member whose rollout is no longer stuck
+-- refuses: the plan that proposed the replacement is stale.
+preparePodReplacement :: KubernetesPodOps -> PlannedOperation -> ResourceId -> ProviderAddress -> IO (Either PrepareError PreparedNative)
+preparePodReplacement pods operation' resource address' = do
+  found <- readStuckPod pods resource
+  pure . first (PrepareRefused (plannedOperationId operation')) $ do
+    reviewed <- found >>= maybe (Left "the StatefulSet's rollout is no longer stuck; the plan is stale, replan") Right
+    let replacement = PodReplacement 1 (plannedOperationId operation') (plannedInputDigest operation') resource address' reviewed
+    bytes <- canonicalValue (toJSON replacement)
+    pure (PreparedNative bytes (podReplacementSummary replacement))
+
+-- | The reviewed replacement, bound to this operation and member.
+decodePodReplacement :: PlannedOperation -> ResourceId -> ProviderAddress -> PreparedNative -> Either Text PodReplacement
+decodePodReplacement operation' resource address' prepared = do
+  replacement <- first T.pack (eitherDecodeStrict' (preparedNativeBytes prepared))
+  unless (replacement ^. #version == 1) (Left "unsupported pod replacement version")
+  unless (plannedAction operation' == ReplaceStuckPod) (Left "a pod replacement belongs to a replace-stuck-pod operation")
+  unless (replacement ^. #operation == plannedOperationId operation' && replacement ^. #inputDigest == plannedInputDigest operation') (Left "pod replacement operation binding changed")
+  unless (replacement ^. #member == resource && replacement ^. #target == address') (Left "pod replacement resource binding changed")
+  pure replacement
+
+-- | The review line, for example
+-- @replace-stuck-pod  statefulset personal/pg  pod pg-0 (uid 3f2a9c1e…, revision 9d647, not Ready) blocks rollout to revision d9d6d@.
+podReplacementSummary :: PodReplacement -> Text
+podReplacementSummary replacement =
+  "replace-stuck-pod  statefulset "
+    <> reviewed ^. #namespace
+    <> "/"
+    <> set'
+    <> "  pod "
+    <> reviewed ^. #pod
+    <> " (uid "
+    <> T.take 8 (physicalIdentityText (reviewed ^. #podUid))
+    <> "…, revision "
+    <> short (reviewed ^. #podRevision)
+    <> ", not Ready) blocks rollout to revision "
+    <> short (reviewed ^. #updateRevision)
   where
-    terminating object' = do
-      metadata <- object' .:? "metadata" :: Parser (Maybe Object)
-      stamp <- maybe (pure Nothing) (.:? "deletionTimestamp") metadata :: Parser (Maybe Value)
-      pure (case stamp of Just (String _) -> True; _ -> False)
+    reviewed = replacement ^. #stuck
+    set' = case replacement ^. #target of
+      Kubernetes _ _ _ _ name' -> nameText name'
+      _ -> "?"
+    -- A revision is named <statefulset>-<hash>.
+    short revision = fromMaybe revision (T.stripPrefix (set' <> "-") revision)

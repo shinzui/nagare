@@ -34,6 +34,7 @@ import Nagare.Inventory.Adapter
     , CreateResource
     , MigrateResource
     , OpenMaintenanceSession
+    , ReplaceStuckPod
     , RestoreLiveDatabase
     , RetireResource
     , RunDeclaredOperation
@@ -51,6 +52,7 @@ import Nagare.Inventory.Adapter
     , ObservedUnowned
     )
   , observationMap
+  , observationStuck
   )
 import Nagare.Inventory.CloudCollection (cloudCollectionPolicyOnly)
 import Nagare.Inventory.Digest (contentDigest)
@@ -770,6 +772,13 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
       (Just _, Just (ObservedDrifted _ _)) -> ([], Just (resourceOperation UpdateResource resource))
       (Just _, Just (ObservedReplacementRequired _ _)) ->
         ([PlanError "replacement-review-required" "provider requires an explicit reviewed replacement or migration" [resourceId]], Nothing)
+      -- EP-181 (RES-4 G3): an unchanged member whose rollout is stuck behind a
+      -- pod that is not Ready gets the reviewed replacement of that pod. A
+      -- drifted member gets its update first; the next plan replaces the pod.
+      (Just old, Just (ObservedPresent _))
+        | sameManaged old resource
+        , Map.member resourceId (observationStuck observations) ->
+            ([], Just ((resourceOperation ReplaceStuckPod resource) {plannedRecovery = VerifyBeforeRetry}))
       (Just old, _)
         | sameManaged old resource ->
             ( []

@@ -14,6 +14,7 @@ module Nagare.Inventory.Adapters.Kubernetes
   , mkKubernetesAdapterWithRecoveryProbes
   , mkKubernetesAdapterWithFieldTakeover
   , mkKubernetesAdapterWithBackupReceiptAndBatch
+  , mkKubernetesAdapterWithObservations
   , settleMutation
   , unstampNative
   )
@@ -34,6 +35,7 @@ import Data.Text.Encoding qualified as TE
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.KubernetesProof
+import Nagare.Inventory.Adapters.KubernetesStuckPod (KubernetesPodOps (..), decodePodReplacement, isStatefulSet, noPodOps, preparePodReplacement)
 import Nagare.Inventory.BackendMap (renderBackendMapNative, renderShomeiSettingsNative)
 import Nagare.Inventory.Backup
   ( BackupReceiptExpectation (..)
@@ -106,7 +108,7 @@ mkKubernetesAdapterWithBackupReceiptAndBatch ::
   (ResourceId -> PhysicalIdentity -> IO (Either Text ByteString)) ->
   Adapter
 mkKubernetesAdapterWithBackupReceiptAndBatch specs ops observeBatch readBackupReceipt =
-  mkKubernetesAdapterWithObservations specs ops observeBatch readBackupReceipt noScratchFailureProbe Nothing
+  mkKubernetesAdapterWithObservations specs ops noPodOps observeBatch readBackupReceipt noScratchFailureProbe Nothing
 
 -- | Without a runtime pod probe, a failed restore scratch workload is never
 -- proved terminal; recovery stays unresolved, as before.
@@ -123,7 +125,7 @@ mkKubernetesAdapterWithRecoveryProbes ::
   (ResourceId -> PhysicalIdentity -> IO (Either Text Bool)) ->
   Adapter
 mkKubernetesAdapterWithRecoveryProbes specs ops batch receipt scratch =
-  mkKubernetesAdapterWithObservations specs ops batch receipt scratch Nothing
+  mkKubernetesAdapterWithObservations specs ops noPodOps batch receipt scratch Nothing
 
 -- | Planning with an explicit operator opt-in to reviewed field takeover. An
 -- update whose live object has foreign managed fields records those exact
@@ -138,17 +140,21 @@ mkKubernetesAdapterWithFieldTakeover ::
   (ProviderAddress -> IO (Either Text Value)) ->
   Adapter
 mkKubernetesAdapterWithFieldTakeover specs ops batch receipt scratch reader =
-  mkKubernetesAdapterWithObservations specs ops batch receipt scratch (Just reader)
+  mkKubernetesAdapterWithObservations specs ops noPodOps batch receipt scratch (Just reader)
 
+-- | Every observation and recovery input. The pod operations find a member
+-- StatefulSet's stuck pod (EP-181); the other constructors install none.
+-- The takeover reader enables reviewed field takeover (F37).
 mkKubernetesAdapterWithObservations ::
   Map ResourceId (ManagedResource, ByteString) ->
   KubernetesAdapterOps ->
+  KubernetesPodOps ->
   ([ResourceId] -> IO [KubernetesState]) ->
   (ResourceId -> PhysicalIdentity -> IO (Either Text ByteString)) ->
   (ResourceId -> PhysicalIdentity -> IO (Either Text Bool)) ->
   Maybe (ProviderAddress -> IO (Either Text Value)) ->
   Adapter
-mkKubernetesAdapterWithObservations specs ops observeBatch readBackupReceipt scratchFailed takeoverReader =
+mkKubernetesAdapterWithObservations specs ops pods observeBatch readBackupReceipt scratchFailed takeoverReader =
   Adapter
     { adapterExecutor = KubernetesExecutor
     , adapterIdentity = "kubernetes-conditional-object"
@@ -164,6 +170,8 @@ mkKubernetesAdapterWithObservations specs ops observeBatch readBackupReceipt scr
   where
     -- ADR 26: what an operation with intent and no completion did, from its
     -- recovery decision and one fresh observation. It never writes.
+    settle operation prepared
+      | plannedAction operation == ReplaceStuckPod = pure (SettledUnknown "replace-stuck-pod settlement lands in EP-181 M4" "inventory resume")
     settle operation prepared = case decodeMutation (kubernetesContext ops) specs operation prepared of
       Left reason -> pure (SettledUnknown reason "the saved review's native bundle")
       Right mutation -> do
@@ -172,9 +180,25 @@ mkKubernetesAdapterWithObservations specs ops observeBatch readBackupReceipt scr
         (before, _) <- observeMutation mutation
         pure (settleMutation mutation before current stamp decision)
     observeMutation mutation = kubernetesObserveStamped ops (mutationResource mutation)
+    -- EP-181 M3 executes the replacement; until then it refuses with no effect.
+    podReplacementPending operation prepared = either id (const "replace-stuck-pod execution is not implemented yet (EP-181 M3)") $ do
+      (resource, declaration, _) <- singleSpec specs operation
+      decodePodReplacement operation resource (address declaration) prepared
     observeAll resources = do
       states <- observeBatch resources
-      pure (observationSet (zipWith toObservation resources states))
+      let observed = zipWith toObservation resources states
+      -- EP-181 (RES-4 G3): an unchanged member StatefulSet that is not Ready
+      -- may have a pod that blocks its rollout. A failed pod read makes the
+      -- member's observation unavailable rather than "not stuck".
+      stuck <- traverse stuckRollout [resource | ((resource, ObservedPresent _), state) <- zip observed states, candidateStuck resource state]
+      let failures = Map.fromList [(resource, ObservationUnavailable ("the StatefulSet's pods could not be read: " <> reason)) | (resource, Left reason) <- stuck]
+          found = Map.fromList [(resource, describe pod') | (resource, Right (Just pod')) <- stuck]
+          describe pod' = pod' ^. #pod <> " at revision " <> pod' ^. #podRevision <> " is not Ready and blocks the rollout to " <> pod' ^. #updateRevision
+      pure (withStuckRollouts found <$> observationSet [(resource, Map.findWithDefault observation resource failures) | (resource, observation) <- observed])
+    candidateStuck resource = \case
+      KubernetesNotReady {} -> maybe False (isStatefulSet . address . fst) (Map.lookup resource specs)
+      _ -> False
+    stuckRollout resource = (resource,) <$> readStuckPod pods resource
     toObservation resource state =
       ( resource
       , case state of
@@ -211,6 +235,8 @@ mkKubernetesAdapterWithObservations specs ops observeBatch readBackupReceipt scr
       )
     prepare operation = case singleSpec specs operation of
       Left reason -> pure (Left (PrepareRefused (plannedOperationId operation) reason))
+      Right (resource, declaration, _)
+        | plannedAction operation == ReplaceStuckPod -> preparePodReplacement pods operation resource (address declaration)
       Right (resource, declaration, native) -> do
         takeover <- case takeoverReader of
           Just reader | plannedAction operation == UpdateResource -> prepareTakeover reader operation resource declaration
@@ -247,6 +273,8 @@ mkKubernetesAdapterWithObservations specs ops observeBatch readBackupReceipt scr
             | physicalIdentityText physical == uid && observedRevision == revision ->
                 Right (Just (FieldTakeover physical revision others, observed, stamp))
           _ -> Left "Kubernetes object changed while its field takeover was prepared; replan"
+    preflight operation prepared
+      | plannedAction operation == ReplaceStuckPod = pure (Left (podReplacementPending operation prepared))
     preflight operation prepared = case decodeMutation (kubernetesContext ops) specs operation prepared of
       Left reason -> pure (Left reason)
       Right mutation -> do
@@ -257,6 +285,8 @@ mkKubernetesAdapterWithObservations specs ops observeBatch readBackupReceipt scr
             then Right ()
             else requireWriteTarget mutation current stamp
           sourceGuard
+    execute operation prepared
+      | plannedAction operation == ReplaceStuckPod = pure (AdapterEffectFailed (KnownNoEffect (podReplacementPending operation prepared)))
     execute operation prepared = case decodeMutation (kubernetesContext ops) specs operation prepared of
       Left reason -> pure (AdapterEffectFailed (KnownNoEffect reason))
       Right mutation -> do
@@ -274,6 +304,8 @@ mkKubernetesAdapterWithObservations specs ops observeBatch readBackupReceipt scr
                   -- precondition. An update's apply takes its resourceVersion
                   -- from the runtime's own guarded live read (RES-4 U10).
                   else kubernetesMutateConditional ops (if mutationAction mutation == RetireResource then mutation {mutationBefore = current} else mutation)
+    verify operation prepared
+      | plannedAction operation == ReplaceStuckPod = pure (Left (podReplacementPending operation prepared))
     verify operation prepared = case decodeMutation (kubernetesContext ops) specs operation prepared of
       Left reason -> pure (Left reason)
       Right mutation -> do
@@ -282,6 +314,8 @@ mkKubernetesAdapterWithObservations specs ops observeBatch readBackupReceipt scr
         case sourceGuard of
           Left reason -> pure (Left reason)
           Right () -> verifiedProof mutation current
+    recover operation prepared
+      | plannedAction operation == ReplaceStuckPod = pure (RecoveryUnresolved (podReplacementPending operation prepared))
     recover operation prepared = case decodeMutation (kubernetesContext ops) specs operation prepared of
       Left reason -> pure (RecoveryUnresolved reason)
       Right mutation -> do
@@ -448,6 +482,7 @@ singleSpec specs operation = do
                , RunDeclaredOperation
                , OpenMaintenanceSession
                , RestoreLiveDatabase
+               , ReplaceStuckPod
                ]
     )
     (Left "Kubernetes adapter does not support this action")
@@ -468,6 +503,7 @@ singleSpec specs operation = do
   when
     (plannedAction operation == RetireResource && not (supportsRetainedCollection declaration))
     (Left "reviewed collection supports only proved stateless namespaced kinds with deletion policy")
+  when (plannedAction operation == ReplaceStuckPod && not (isStatefulSet (declaration ^. #address))) (Left "a stuck pod is replaced only for an apps/StatefulSet")
   when (plannedAction operation == RunDeclaredOperation) $ case declaration ^. #address of
     Kubernetes _ "batch" kind _ _ | nameText kind == "job" -> pure ()
     _ -> Left "Kubernetes declared operation must verify a bound Job"

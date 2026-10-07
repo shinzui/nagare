@@ -247,26 +247,30 @@ runInventoryStatus mctx requested json gcOutput = do
       helm = readOnlyHelm helmNative
   retainedKubernetes <- inventoryKubernetesAdapter active binding cacheKey retainedKubernetesNative
   let retainedHelm = readOnlyHelm retainedHelmNative
-  let inspect adapter executor = do
+  -- The facts, and the members whose rollout is stuck (EP-181).
+  let inspectWithStuck adapter executor = do
         let requestedIds = ids executor
         if null requestedIds
-          then pure []
+          then pure ([], Map.empty)
           else do
             result <- InventoryAdapter.adapterObserve adapter requestedIds
             pure $ case result of
-              Left reason -> [(resource, InventoryAdapter.ObservationUnavailable reason) | resource <- requestedIds]
+              Left reason -> ([(resource, InventoryAdapter.ObservationUnavailable reason) | resource <- requestedIds], Map.empty)
               Right facts ->
-                [ ( resource
-                  , Map.findWithDefault
-                      ( InventoryAdapter.ObservationUnavailable
-                          "adapter omitted this resource"
-                      )
-                      resource
-                      (InventoryAdapter.observationMap facts)
-                  )
-                | resource <- requestedIds
-                ]
-  kubeFacts <- inspect kubernetes ResourceInventory.KubernetesExecutor
+                ( [ ( resource
+                    , Map.findWithDefault
+                        ( InventoryAdapter.ObservationUnavailable
+                            "adapter omitted this resource"
+                        )
+                        resource
+                        (InventoryAdapter.observationMap facts)
+                    )
+                  | resource <- requestedIds
+                  ]
+                , InventoryAdapter.observationStuck facts
+                )
+      inspect adapter executor = fst <$> inspectWithStuck adapter executor
+  (kubeFacts, kubeStuck) <- inspectWithStuck kubernetes ResourceInventory.KubernetesExecutor
   helmFacts <- inspect helm ResourceInventory.HelmExecutor
   pulumiFacts <- inspect pulumi ResourceInventory.PulumiExecutor
   artifactFacts <- inspect artifact ResourceInventory.ArtifactExecutor
@@ -397,7 +401,7 @@ runInventoryStatus mctx requested json gcOutput = do
         either
           (error . T.unpack)
           (\value -> value)
-          (InventoryAdapter.observationSet (allFacts <> remaining))
+          (InventoryAdapter.withStuckRollouts kubeStuck <$> InventoryAdapter.observationSet (allFacts <> remaining))
       retainedObservations =
         either
           (error . T.unpack)

@@ -347,7 +347,8 @@ inventoryPlanRegistryWithMode controllerCollection takeover active workspace sup
                 pure $ do
                   base <- ordinary
                   facts <- sequence projected
-                  InventoryAdapter.observationSet (Map.toAscList (InventoryAdapter.observationMap base) <> facts)
+                  InventoryAdapter.withStuckRollouts (InventoryAdapter.observationStuck base)
+                    <$> InventoryAdapter.observationSet (Map.toAscList (InventoryAdapter.observationMap base) <> facts)
             }
   host <-
     maybe

@@ -11,8 +11,9 @@ import Data.Map.Strict (Map)
 import Data.Text (Text)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter (Adapter)
-import Nagare.Inventory.Adapters.Kubernetes (mkKubernetesAdapterWithFieldTakeover, mkKubernetesAdapterWithRecoveryProbes)
+import Nagare.Inventory.Adapters.Kubernetes (mkKubernetesAdapterWithObservations)
 import Nagare.Inventory.Adapters.KubernetesRuntime (mkKubernetesRuntimeOpsAndBatchWithCacheKey, readBackupReceiptFromCompletedPod, readLiveManagedObject)
+import Nagare.Inventory.Adapters.KubernetesStuckPod (runtimePodOps)
 import Nagare.Inventory.Adapters.RestoreScratch (restoreScratchPodFailed)
 import Nagare.Inventory.KubernetesTransport (KubernetesRuntimeConfig (..))
 import Nagare.Resource.Inventory (ManagedResource)
@@ -31,9 +32,9 @@ kubernetesApplicationAdapter takeover config cacheKey specs =
   let (ops, observeBatch) = mkKubernetesRuntimeOpsAndBatchWithCacheKey config cacheKey specs
       receipt = readBackupReceiptFromCompletedPod config specs
       scratch = restoreScratchPodFailed config specs
-   in if takeover
-        then mkKubernetesAdapterWithFieldTakeover specs ops observeBatch receipt scratch guardedLiveObject
-        else mkKubernetesAdapterWithRecoveryProbes specs ops observeBatch receipt scratch
+   in -- EP-181: the pod operations find and replace a member StatefulSet's
+      -- stuck pod. The takeover reader enables reviewed field takeover (F37).
+      mkKubernetesAdapterWithObservations specs ops (runtimePodOps config specs) observeBatch receipt scratch (if takeover then Just guardedLiveObject else Nothing)
   where
     guardedLiveObject target = do
       guarded <- runtimeGuard config

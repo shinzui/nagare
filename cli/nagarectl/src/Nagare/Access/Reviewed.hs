@@ -205,7 +205,8 @@ planPortalSync active guard output = do
                     pure $ do
                       observed <- live
                       acceptedFacts <- known
-                      observationSet (Map.toAscList (observationMap observed) <> Map.toAscList (observationMap acceptedFacts))
+                      withStuckRollouts (observationStuck observed)
+                        <$> observationSet (Map.toAscList (observationMap observed) <> Map.toAscList (observationMap acceptedFacts))
                 }
         either
           (fail . T.unpack)
