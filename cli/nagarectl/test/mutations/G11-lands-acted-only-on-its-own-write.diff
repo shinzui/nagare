@@ -1,5 +1,5 @@
 diff --git a/cli/nagarectl/test/Nagare/Test/World/Cluster.hs b/cli/nagarectl/test/Nagare/Test/World/Cluster.hs
-index afe61769..cb1b5ec6 100644
+index afe61769..3a95acf2 100644
 --- a/cli/nagarectl/test/Nagare/Test/World/Cluster.hs
 +++ b/cli/nagarectl/test/Nagare/Test/World/Cluster.hs
 @@ -155,7 +155,7 @@ clusterAnswer cluster request = do
@@ -7,7 +7,7 @@ index afe61769..cb1b5ec6 100644
            bad <- (^. #poisoned) <$> readIORef (world cluster)
            for_ (requestBody request) $ \body -> for_ (Map.lookup (outcomeKey body) bad) $ \placed ->
 -            when (code == ExitSuccess && maybe False (\k -> hasReadiness k && rolledOut k previous current) key) $ do
-+            when (code == ExitSuccess && maybe False (\k -> hasReadiness k && (snd placed == LandsUnready || ((^. #readinessModel) <$> semanticsFor k) == Just JobTerminal) && rolledOut k previous current) key) $ do
++            when (code == ExitSuccess && placement == Just placed && maybe False (\k -> hasReadiness k && rolledOut k previous current) key) $ do
                already <- elem placed . acted <$> readIORef (adversary cluster)
                unless already (noteActed (adversary cluster) placed)
            case placement of

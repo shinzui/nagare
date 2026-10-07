@@ -670,5 +670,11 @@
     "suite": "nagarectl",
     "pattern": "/the catch-up follows it/",
     "expect": "test-fails"
+  },
+  {
+    "record": "G11-lands-acted-only-on-its-own-write",
+    "suite": "nagarectl",
+    "pattern": "/when a write of its spec lands/",
+    "expect": "test-fails"
   }
 ]
