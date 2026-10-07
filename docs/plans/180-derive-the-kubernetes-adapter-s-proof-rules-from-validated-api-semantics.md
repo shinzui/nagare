@@ -165,7 +165,14 @@ MasterPlan, not by this plan.
   - `InventoryKubernetesRecoverySpec` pins what settlement concludes for each deleted case (TargetGone, Landed), the
     resourceVersion-insensitive verify, and item 6's negatives. The digest-only Landed row is sound by RES-4 U3.
     Records `M9-verify-guard-compares-resource-version` and `M9-unready-update-landed-without-digest` each fail their
-    test. Seven guards stopped being observed when ADR 26's close by proof landed (`1f6c1a13`, `5bb33741`), and their
+    test.
+  - 2026-10-07, after EP-182 landed:
+    - F54's adapter arm is deleted, with its proof (`confirmLandedUnready`, including F63's readiness-by-replicas)
+      and the reader that fed it.
+    - The non-takeover constructor is now `mkKubernetesAdapterWithRecoveryProbes`.
+    - RecoveryLandedUnready and its driver and settlement arms stay for EP-181.
+    - F30's refresh at execute now covers retires only (`0ed073ee`). An update's apply takes its resourceVersion from
+      the runtime's own guarded read, and EP-182's world showed the update half equivalent (`290af91c`). Seven guards stopped being observed when ADR 26's close by proof landed (`1f6c1a13`, `5bb33741`), and their
   records now pass. Each pin gets a failing-first test and a fresh record. Each deletion gets a test that the remaining
   close by proof still exits.
   - Pin F57a: a stopped verify is safe to retry, and resume re-runs it to completion.

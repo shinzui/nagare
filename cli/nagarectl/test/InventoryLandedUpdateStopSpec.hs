@@ -1,6 +1,9 @@
 -- | F54: a landed application Service update that never becomes Ready has a
--- reviewed exit. The adapter proves the landing exactly; the stop keeps the
--- accepted ownership; a corrected review updates the same Service.
+-- reviewed exit: the stop keeps the accepted ownership, and a corrected review
+-- updates the same Service. The driver's handling of RecoveryLandedUnready is
+-- pinned here with a recording adapter; the Kubernetes adapter no longer gives
+-- that answer (EP-180 M9), since resume and settlement reach the same stop and
+-- landing without it.
 module InventoryLandedUpdateStopSpec (inventoryLandedUpdateStopTests) where
 
 import Control.Monad (forM_)
@@ -37,110 +40,10 @@ inventoryLandedUpdateStopTests :: TestTree
 inventoryLandedUpdateStopTests =
   testGroup
     "landed unready application update (F54)"
-    [ testCase "adapter proves a landed Knative update only when exact, observed, exclusive and unready" adapterProof
-    , testCase "landed update stops with ownership retained and a corrected review updates the same Service" stopThenCorrect
+    [ testCase "landed update stops with ownership retained and a corrected review updates the same Service" stopThenCorrect
     , testCase "a landed update with only readiness pending closes, keeping the scope (ADR 26)" pendingReadinessCloses
     , testCase "resume of a landed unready update stops ambiguous without a second write" resumeStopsAmbiguous
     ]
-
-adapterProof :: Assertion
-adapterProof = do
-  let value =
-        object
-          [ "apiVersion" .= ("serving.knative.dev/v1" :: Text)
-          , "kind" .= ("Service" :: Text)
-          , "metadata" .= object ["name" .= ("web" :: Text), "namespace" .= ("personal" :: Text)]
-          ]
-      bytes = K.ok (canonicalValue value)
-      bound = Map.singleton K.resource (K.ok (bindKubernetesObject (K.input {inputObject = value, objectDigest = contentDigest bytes})))
-      before = KubernetesNotReady K.physical "4" (Just K.resource) (contentDigest "old-configuration")
-      landed = KubernetesNotReady K.physical "6" (Just K.resource) (contentDigest bytes)
-      uid = physicalIdentityText K.physical
-      exact = liveService uid "6" 2 2 "False" [inventoryEntry]
-  state <- newIORef before
-  live <- newIORef exact
-  calls <- newIORef (0 :: Int)
-  let runtime = K.ops state calls
-      adapter =
-        mkKubernetesAdapterWithConfigurationObservation
-          bound
-          runtime
-          (traverse (kubernetesObserve runtime))
-          (\_ _ -> pure (Left "not a backup"))
-          (\_ _ -> pure (Right False))
-          (\_ -> Right <$> readIORef live)
-      legacy = mkKubernetesAdapter bound runtime
-  reviewed <- adapterPrepare adapter K.updateOperation >>= K.expectRight
-  legacyReviewed <- adapterPrepare legacy K.updateOperation >>= K.expectRight
-  writeIORef state landed
-  adapterRecover adapter K.updateOperation reviewed >>= (@?= RecoveryLandedUnready K.physical)
-  -- Without a live reader no landing is proved; resume semantics stay as before.
-  adapterRecover legacy K.updateOperation legacyReviewed >>= (@?= RecoveryAwaitingReadiness K.physical)
-  let replacement = K.ok (mkPhysicalIdentity "replacement-uid")
-      foreignOwner = object ["manager" .= ("kubectl-edit" :: Text), "operation" .= ("Update" :: Text), "fieldsV1" .= object ["f:spec" .= object ["f:template" .= object []]]]
-  forM_
-    [ ("changed spec", KubernetesNotReady K.physical "6" (Just K.resource) (contentDigest "other-configuration"), exact)
-    , ("unowned object", KubernetesNotReady K.physical "6" Nothing (contentDigest bytes), exact)
-    , ("another owner", KubernetesNotReady K.physical "6" (Just K.cluster) (contentDigest bytes), exact)
-    ]
-    $ \(label, observedState, liveObject) -> do
-      writeIORef state observedState
-      writeIORef live liveObject
-      adapterRecover adapter K.updateOperation reviewed >>= \case
-        RecoveryUnresolved _ -> pure ()
-        other -> assertFailure (label <> " was not refused: " <> show other)
-  -- The reviewed digest on the reviewed object is this update live (RES-4
-  -- U3, F73), so it awaits readiness; only the reviewed stop's proof that the
-  -- controller saw it unready is refused.
-  forM_
-    [ ("foreign field appScope", liveService uid "6" 2 2 "False" [inventoryEntry, foreignOwner])
-    , ("unobserved generation", liveService uid "6" 3 2 "False" [inventoryEntry])
-    , ("moved between reads", liveService uid "7" 2 2 "False" [inventoryEntry])
-    , ("ready", liveService uid "6" 2 2 "True" [inventoryEntry])
-    ]
-    $ \(label, liveObject) -> do
-      writeIORef state landed
-      writeIORef live liveObject
-      adapterRecover adapter K.updateOperation reviewed >>= \case
-        RecoveryAwaitingReadiness physical | physical == K.physical -> pure ()
-        other -> assertFailure (label <> " was not awaiting readiness: " <> show other)
-  -- A replaced object is never a proved landing; its reviewed target is gone,
-  -- which close by proof settles (M9 deleted F56's TargetReplaced answer).
-  writeIORef state (KubernetesNotReady replacement "6" (Just K.resource) (contentDigest bytes))
-  writeIORef live (liveService (physicalIdentityText replacement) "6" 2 2 "False" [inventoryEntry])
-  adapterRecover adapter K.updateOperation reviewed >>= \case
-    RecoveryUnresolved _ -> pure ()
-    other -> assertFailure ("a replaced target was answered " <> show other)
-  traverse (\settle -> settle K.updateOperation reviewed) (adapterSettle adapter) >>= (@?= Just (SettledTargetGone (Just replacement)))
-  readIORef calls >>= (@?= 0)
-
--- | The live object a reader returns: Nagare owns the spec, the controller
--- owns status through the status subresource.
-liveService :: Text -> Text -> Int -> Int -> Text -> [Value] -> Value
-liveService uid revision generation observedGeneration ready owners =
-  object
-    [ "apiVersion" .= ("serving.knative.dev/v1" :: Text)
-    , "kind" .= ("Service" :: Text)
-    , "metadata"
-        .= object
-          [ "name" .= ("web" :: Text)
-          , "namespace" .= ("personal" :: Text)
-          , "uid" .= uid
-          , "resourceVersion" .= revision
-          , "generation" .= generation
-          , "managedFields" .= (owners <> [statusEntry])
-          ]
-    , "spec" .= object ["template" .= object []]
-    , "status"
-        .= object
-          [ "observedGeneration" .= observedGeneration
-          , "conditions" .= [object ["type" .= ("Ready" :: Text), "status" .= ready]]
-          ]
-    ]
-
-inventoryEntry, statusEntry :: Value
-inventoryEntry = object ["manager" .= ("nagare-inventory" :: Text), "operation" .= ("Apply" :: Text), "fieldsV1" .= object ["f:spec" .= object ["f:template" .= object []]]]
-statusEntry = object ["manager" .= ("controller" :: Text), "operation" .= ("Update" :: Text), "subresource" .= ("status" :: Text), "fieldsV1" .= object ["f:status" .= object []]]
 
 data Stopped = Stopped
   { store :: !InventoryStore

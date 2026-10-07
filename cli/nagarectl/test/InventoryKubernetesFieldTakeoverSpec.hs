@@ -99,7 +99,7 @@ kubernetesFieldTakeoverTests =
         state <- newIORef drifted
         calls <- newIORef (0 :: Int)
         let runtime = K.ops state calls
-            adapter = mkKubernetesAdapterWithConfigurationObservation bound runtime (traverse (kubernetesObserve runtime)) noReceipt noScratch (\_ -> pure (Left "no live object reader"))
+            adapter = mkKubernetesAdapterWithRecoveryProbes bound runtime (traverse (kubernetesObserve runtime)) noReceipt noScratch
         native <- adapterPrepare adapter K.updateOperation >>= K.expectRight
         mutation <- K.expectRight (eitherDecodeStrict' (preparedNativeBytes native)) :: IO KubernetesMutation
         writeIORef state (KubernetesPresent K.physical "5" (Just K.resource) (mutationNativeDigest mutation))
@@ -268,7 +268,7 @@ prepared reader = do
   calls <- newIORef (0 :: Int)
   let runtime = K.ops state calls
       adapter = case reader of
-        Nothing -> mkKubernetesAdapterWithConfigurationObservation bound runtime (traverse (kubernetesObserve runtime)) noReceipt noScratch (\_ -> pure (Left "no live object reader"))
+        Nothing -> mkKubernetesAdapterWithRecoveryProbes bound runtime (traverse (kubernetesObserve runtime)) noReceipt noScratch
         Just selected -> takeoverAdapter state calls selected
   native <- adapterPrepare adapter K.updateOperation >>= K.expectRight
   K.expectRight (eitherDecodeStrict' (preparedNativeBytes native))

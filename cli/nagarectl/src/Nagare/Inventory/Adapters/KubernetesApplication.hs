@@ -11,7 +11,7 @@ import Data.Map.Strict (Map)
 import Data.Text (Text)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter (Adapter)
-import Nagare.Inventory.Adapters.Kubernetes (mkKubernetesAdapterWithConfigurationObservation, mkKubernetesAdapterWithFieldTakeover)
+import Nagare.Inventory.Adapters.Kubernetes (mkKubernetesAdapterWithFieldTakeover, mkKubernetesAdapterWithRecoveryProbes)
 import Nagare.Inventory.Adapters.KubernetesRuntime (mkKubernetesRuntimeOpsAndBatchWithCacheKey, readBackupReceiptFromCompletedPod, readLiveManagedObject)
 import Nagare.Inventory.Adapters.RestoreScratch (restoreScratchPodFailed)
 import Nagare.Inventory.KubernetesTransport (KubernetesRuntimeConfig (..))
@@ -29,16 +29,11 @@ kubernetesApplicationAdapter ::
   Adapter
 kubernetesApplicationAdapter takeover config cacheKey specs =
   let (ops, observeBatch) = mkKubernetesRuntimeOpsAndBatchWithCacheKey config cacheKey specs
-      construct
-        | takeover = mkKubernetesAdapterWithFieldTakeover
-        | otherwise = mkKubernetesAdapterWithConfigurationObservation
-   in construct
-        specs
-        ops
-        observeBatch
-        (readBackupReceiptFromCompletedPod config specs)
-        (restoreScratchPodFailed config specs)
-        guardedLiveObject
+      receipt = readBackupReceiptFromCompletedPod config specs
+      scratch = restoreScratchPodFailed config specs
+   in if takeover
+        then mkKubernetesAdapterWithFieldTakeover specs ops observeBatch receipt scratch guardedLiveObject
+        else mkKubernetesAdapterWithRecoveryProbes specs ops observeBatch receipt scratch
   where
     guardedLiveObject target = do
       guarded <- runtimeGuard config

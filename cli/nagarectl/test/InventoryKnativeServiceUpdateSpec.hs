@@ -144,7 +144,7 @@ knativeAdapter initial = do
                   writeIORef state (KubernetesPresent K.physical "8" (Just K.resource) (mutationNativeDigest mutation), Just (mutationNativeDigest mutation))
                   pure AdapterEffectCompleted
           }
-      adapter = mkKubernetesAdapterWithConfigurationObservation knativeBound ops (traverse (kubernetesObserve ops)) noReceipt noScratch (\_ -> pure (Left "no live object reader"))
+      adapter = mkKubernetesAdapterWithRecoveryProbes knativeBound ops (traverse (kubernetesObserve ops)) noReceipt noScratch
   pure (adapter, state, calls, race)
   where
     noReceipt _ _ = pure (Left "not a backup")
