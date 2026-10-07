@@ -78,15 +78,15 @@ inventoryWorldConformanceTests =
             key = ObjectKey "serving.knative.dev" "service" (Just "personal") "web"
             write image = do
               let stamped = stamp (contextIdText context) serviceId (snd (bindMember serviceId (serviceValue image)))
-              modifyIORef' (Cluster.server cluster) (\server' -> either (error . show) fst (applyServerSide "nagare-inventory" True stamped server'))
+              Cluster.modifyServer cluster (\server' -> either (error . show) fst (applyServerSide "nagare-inventory" True stamped server'))
             observeAt image = kubernetesObserve (fst (clusterOps context cluster (Map.fromList [(serviceId, bindMember serviceId (serviceValue image))]))) serviceId
         write "v1"
         observeAt "v1" >>= \case
           KubernetesPresent _ _ (Just owner) digest -> (owner, digest) @?= (serviceId, serviceDigest "v1")
           other -> assertFailure ("after a good create: " <> show other)
-        modifyIORef' (Cluster.server cluster) (\server' -> server' & #outcomes %~ Map.insert (digestText (serviceDigest "bad")) Unready & #frozen %~ Set.insert key)
+        Cluster.modifyServer cluster (\server' -> server' & #outcomes %~ Map.insert (digestText (serviceDigest "bad")) Unready & #frozen %~ Set.insert key)
         write "bad"
-        stale <- get False key <$> readIORef (Cluster.server cluster)
+        stale <- get False key <$> Cluster.readServer cluster
         -- RES-4 E4: the spec moved on, the controller has not observed it, and
         -- the old Ready=True stands. How the parser reads this is G2's
         -- question (EP-180); the server's state is what this asserts.
@@ -97,7 +97,7 @@ inventoryWorldConformanceTests =
         observeAt "bad" >>= \case
           KubernetesPresent {} -> assertFailure "a lagging controller's stale Ready=True was read as Present (F69)"
           _ -> pure ()
-        modifyIORef' (Cluster.server cluster) (\server' -> settleControllers (server' & #frozen %~ Set.delete key))
+        Cluster.modifyServer cluster (\server' -> settleControllers (server' & #frozen %~ Set.delete key))
         observeAt "bad" >>= \case
           KubernetesNotReady _ _ (Just owner) digest -> (owner, digest) @?= (serviceId, serviceDigest "bad")
           other -> assertFailure ("after the controller observed a bad update: " <> show other)

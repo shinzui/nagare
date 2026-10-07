@@ -10,10 +10,17 @@
 -- an 'ObserveCall', every write (@create@, @apply@, @patch@, @delete@) a
 -- 'MutateCall'. A fault is recorded as acted ('noteActed') only when it
 -- changed the server's state or the answer kubectl gave.
+--
+-- The world's whole state is one pure 'KubeWorld' value, so a recovery-model
+-- snapshot (EP-179) copies all of it.
 module Nagare.Test.World.Cluster
-  ( Cluster (..)
+  ( KubeWorld (..)
+  , Cluster (..)
   , UnsupportedRequest (..)
+  , newWorld
   , newCluster
+  , readServer
+  , modifyServer
   , clusterAnswer
   , clusterConfig
   , clusterOps
@@ -38,24 +45,49 @@ import Nagare.Inventory.Adapter (Adapter)
 import Nagare.Inventory.Adapters.Kubernetes (KubernetesAdapterOps, KubernetesState)
 import Nagare.Inventory.Adapters.KubernetesApplication (kubernetesApplicationAdapter)
 import Nagare.Inventory.Adapters.KubernetesRuntime (mkKubernetesRuntimeOpsAndBatchWithCacheKey)
+import Nagare.Inventory.Journal (OperationId)
 import Nagare.Inventory.KubernetesTransport (KubectlRequest (..), KubectlResult, KubernetesRuntimeConfig (..), runKubectlWith, withKubectlInterpreter)
 import Nagare.Resource.Inventory (ManagedResource)
-import Nagare.Resource.Types (ContextId, ResourceId)
+import Nagare.Resource.Types (ContextId, PhysicalIdentity, ResourceId, mkPhysicalIdentity, mkResourceId)
 import Nagare.Test.World.Adversary
 import Nagare.Test.World.ApiServer
 import Nagare.Test.World.Kinds (KindSemantics (..), ReadinessModel (..))
 import Nagare.Test.World.Kubectl
 import System.Exit (ExitCode (..))
 
-data Cluster = Cluster
-  { server :: !(IORef ApiServer)
-  , adversary :: !(IORef Adversary)
-  , requests :: !(IORef [(Maybe Boundary, LoggedRequest)])
-  -- ^ Every request and the boundary it counted as, most recent first.
-  , inspecting :: !(IORef Bool)
-  -- ^ The model reads as an operator would: no fault fires, nothing churns.
-  , churning :: !(IORef (Maybe (Boundary, Fault)))
+-- | Everything the fake cluster is, as one value.
+data KubeWorld = KubeWorld
+  { server :: !ApiServer
+  , churning :: !(Maybe (Boundary, Fault))
   -- ^ Where 'ChurnAlways' fired, once it has.
+  , quiet :: !Bool
+  -- ^ Churn quiets while the operator works an exit (a refused stop is
+  -- retried once status settles).
+  , inspecting :: !Bool
+  -- ^ The model reads as an operator would: no fault fires, nothing churns.
+  , inFlight :: !(Maybe OperationId)
+  -- ^ The reviewed operation whose write the adapter is executing.
+  , writes :: !(Map.Map OperationId Int)
+  -- ^ Effective writes per reviewed operation (invariant I4).
+  , lastWriter :: !(Map.Map ResourceId OperationId)
+  -- ^ The reviewed operation whose write produced each object.
+  , replacedUids :: !(Set.Set PhysicalIdentity)
+  -- ^ UIDs the 'Replaced' fault created outside review (invariant I3).
+  , deletedOutOfBand :: !(Set.Set ResourceId)
+  -- ^ Members the 'Deleted' fault removed outside review.
+  , requests :: ![(Maybe Boundary, LoggedRequest)]
+  -- ^ Every request and the boundary it counted as, most recent first.
+  , addresses :: !(Map.Map ObjectKey ResourceId)
+  -- ^ Each member's address, so an unstamped object at one is attributed.
+  }
+  deriving stock (Eq, Show, Generic)
+
+newWorld :: ApiServer -> KubeWorld
+newWorld initial = KubeWorld initial Nothing False False Nothing Map.empty Map.empty Set.empty Set.empty [] Map.empty
+
+data Cluster = Cluster
+  { world :: !(IORef KubeWorld)
+  , adversary :: !(IORef Adversary)
   }
 
 newtype UnsupportedRequest = UnsupportedRequest Text
@@ -64,27 +96,34 @@ newtype UnsupportedRequest = UnsupportedRequest Text
 instance Exception UnsupportedRequest
 
 newCluster :: ApiServer -> IORef Adversary -> IO Cluster
-newCluster initial adversary' = Cluster <$> newIORef initial <*> pure adversary' <*> newIORef [] <*> newIORef False <*> newIORef Nothing
+newCluster initial adversary' = (`Cluster` adversary') <$> newIORef (newWorld initial)
+
+readServer :: Cluster -> IO ApiServer
+readServer cluster = (^. #server) <$> readIORef (world cluster)
+
+modifyServer :: Cluster -> (ApiServer -> ApiServer) -> IO ()
+modifyServer cluster f = modifyIORef' (world cluster) (#server %~ f)
 
 -- | Answer one kubectl request: count its boundary, apply the fault scheduled
 -- there, then let the fake server answer.
 clusterAnswer :: Cluster -> KubectlRequest -> IO KubectlResult
 clusterAnswer cluster request = do
-  quiet <- readIORef (inspecting cluster)
-  let logged = logRequest request
+  state0 <- readIORef (world cluster)
+  let quietReads = state0 ^. #inspecting
+      logged = logRequest request
       written = writtenKey request
       key = written <|> (logged ^. #target)
       call = callOf (logged ^. #verb) key
   placement <- case call of
-    Just call' | not quiet -> nextFaultAt (adversary cluster) call'
+    Just call' | not quietReads -> nextFaultAt (adversary cluster) call'
     _ -> pure Nothing
-  modifyIORef' (requests cluster) ((fst <$> placement, logged) :)
+  modifyIORef' (world cluster) (#requests %~ ((fst <$> placement, logged) :))
   -- A write reaches a lagging controller: it observes again.
   for_ written $ \k ->
     when (maybe True ((/= ControllerLag) . snd) placement) $
-      modifyIORef' (server cluster) (\s -> if Set.member k (frozen s) then controllerStep k (s & #frozen %~ Set.delete k) else s)
+      modifyServer cluster (\s -> if Set.member k (frozen s) then controllerStep k (s & #frozen %~ Set.delete k) else s)
   for_ placement (before key)
-  unless quiet (for_ key churnBeforeObserving)
+  unless (quietReads || state0 ^. #quiet) (for_ key churnBeforeObserving)
   case placement of
     Just placed@(_, TransientReadFailure) -> do
       noteActed (adversary cluster) placed
@@ -93,70 +132,104 @@ clusterAnswer cluster request = do
       noteActed (adversary cluster) placed
       pure (Right (ExitFailure 1, "", "Error from server (Forbidden): admission webhook \"policy.example\" denied the request: refused before any effect"))
     _ -> do
-      previous <- readIORef (server cluster)
-      response <- atomicModifyIORef' (server cluster) (kubectlResponse request)
-      current <- readIORef (server cluster)
+      previous <- readServer cluster
+      response <- atomicModifyIORef' (world cluster) (\w -> let (s', r) = kubectlResponse request (w ^. #server) in (w & #server .~ s', r))
+      current <- readServer cluster
       case response of
         Unsupported argv -> throwIO (UnsupportedRequest ("world: kubectl request outside the runtime's grammar: " <> argv))
-        Answered code stdout stderr -> case placement of
-          Just placed@(_, LostAcknowledgement) -> do
-            noteActed (adversary cluster) placed
-            pure (Right (ExitFailure 1, "", "error: unexpected EOF"))
-          Just placed@(_, Interrupt) | current /= previous -> do
-            noteActed (adversary cluster) placed
-            throwIO Interrupted
-          Just placed@(_, fault)
-            | fault `elem` [LandsUnready, LandsFailed]
-            , code == ExitSuccess
-            , maybe False (landsWith fault) key ->
-                noteActed (adversary cluster) placed >> answered code stdout stderr
-          _ -> answered code stdout stderr
+        Answered code stdout stderr -> do
+          for_ written (countWrite previous current)
+          case placement of
+            Just placed@(_, LostAcknowledgement) -> do
+              noteActed (adversary cluster) placed
+              pure (Right (ExitFailure 1, "", "error: unexpected EOF"))
+            Just placed@(_, Interrupt) | current /= previous -> do
+              noteActed (adversary cluster) placed
+              throwIO Interrupted
+            Just placed@(_, fault)
+              | fault `elem` [LandsUnready, LandsFailed]
+              , code == ExitSuccess
+              , maybe False (landsWith fault) key ->
+                  noteActed (adversary cluster) placed >> answered code stdout stderr
+            _ -> answered code stdout stderr
   where
     answered code stdout stderr = pure (Right (code, T.unpack stdout, T.unpack stderr))
     note = noteActed (adversary cluster)
 
+    -- An effective write by a reviewed operation: the object it names
+    -- appeared, went, or changed outside its status and server bookkeeping.
+    countWrite previous current k = do
+      operation <- (^. #inFlight) <$> readIORef (world cluster)
+      for_ operation $ \operation' ->
+        when (written' k previous /= written' k current) $ do
+          let resource = resourceOf k current <|> resourceOf k previous
+          modifyIORef' (world cluster) $ \w ->
+            w
+              & #writes
+              %~ Map.insertWith (+) operation' 1
+              & #lastWriter
+              %~ maybe id (`Map.insert` operation') resource
+    written' k s = writtenContent <$> get False k s
+
     -- Faults that change the world before the request is answered.
     before key placed@(_, fault) = case (fault, key) of
       (ForeignObject, Just k) -> do
-        s <- readIORef (server cluster)
+        s <- readServer cluster
         when (isNothing (get False k s)) $ case create "kubectl-create" (foreignObject k) s of
-          Right (s', _) -> writeIORef (server cluster) s' >> note placed
+          Right (s', _) -> modifyServer cluster (const s') >> note placed
           Left _ -> pure ()
       (Replaced, Just k) -> do
-        s <- readIORef (server cluster)
+        s <- readServer cluster
         case get False k s of
           Just live | stamped live -> case delete (Preconditions Nothing Nothing) Background k s of
-            Right s' | Just content' <- withoutServerFields live, Right (s'', _) <- create "kubectl-replace" content' s' -> writeIORef (server cluster) s'' >> note placed
+            Right s'
+              | Just content' <- withoutServerFields live
+              , Right (s'', created') <- create "kubectl-replace" content' s' -> do
+                  modifyServer cluster (const s'')
+                  for_ (physicalOf created') $ \uid' -> modifyIORef' (world cluster) (#replacedUids %~ Set.insert uid')
+                  note placed
             _ -> pure ()
           _ -> pure ()
       (Deleted, Just k) -> do
-        s <- readIORef (server cluster)
+        s <- readServer cluster
         case get False k s of
-          Just live | stamped live, Right s' <- delete (Preconditions Nothing Nothing) Background k s -> writeIORef (server cluster) s' >> note placed
+          Just live
+            | stamped live
+            , Right s' <- delete (Preconditions Nothing Nothing) Background k s -> do
+                modifyServer cluster (const s')
+                -- The deleted object's write no longer stands, so writing it again
+                -- is not a repeated effect (I4).
+                for_ (resourceOf k s) $ \resource -> modifyIORef' (world cluster) $ \w ->
+                  w
+                    & #deletedOutOfBand
+                    %~ Set.insert resource
+                    & #writes
+                    %~ maybe id (Map.adjust (subtract 1)) (Map.lookup resource (w ^. #lastWriter))
+                note placed
           _ -> pure ()
-      (ChurnAlways, _) -> writeIORef (churning cluster) (Just placed)
+      (ChurnAlways, _) -> modifyIORef' (world cluster) (#churning ?~ placed)
       (StatusChurn, Just k) -> do
-        s <- readIORef (server cluster)
+        s <- readServer cluster
         when (hasStatus k && isJust (get False k s)) $ case writeStatus (statusManager k) k (object ["churn" .= ("before-write" :: Text)]) s of
-          Right (s', _) | s' /= s -> writeIORef (server cluster) s' >> note placed
+          Right (s', _) | s' /= s -> modifyServer cluster (const s') >> note placed
           _ -> pure ()
       (ForeignManager, Just k) -> do
-        s <- readIORef (server cluster)
+        s <- readServer cluster
         case get False k s >>= editable of
-          Just patch | Right (s', _) <- patchUpdate "kubectl-edit" k patch s -> writeIORef (server cluster) s' >> note placed
+          Just patch | Right (s', _) <- patchUpdate "kubectl-edit" k patch s -> modifyServer cluster (const s') >> note placed
           _ -> pure ()
       (LandsUnready, Just _) -> registerOutcome Unready
       (LandsFailed, Just _) -> registerOutcome Failed
       (ControllerLag, Just k) -> do
-        s <- readIORef (server cluster)
+        s <- readServer cluster
         let lags = maybe False (^. #tracksObservedGeneration) (semanticsFor k) && maybe False ((/= Null) . field "status") (get False k s)
-        modifyIORef' (server cluster) (#frozen %~ Set.insert k)
+        modifyServer cluster (#frozen %~ Set.insert k)
         when lags (note placed)
       _ -> pure ()
 
     -- The written spec's outcome, by the stamp the request carries.
     registerOutcome outcome = for_ (requestBody request) $ \body ->
-      modifyIORef' (server cluster) (#outcomes %~ Map.insert (outcomeKey body) outcome)
+      modifyServer cluster (#outcomes %~ Map.insert (outcomeKey body) outcome)
 
     landsWith fault k = case (^. #readinessModel) <$> semanticsFor k of
       Just JobTerminal -> True
@@ -167,17 +240,43 @@ clusterAnswer cluster request = do
     -- 'ChurnAlways': the kind's churn source writes status before every
     -- observation from then on (RES-4 E10).
     churnBeforeObserving k =
-      readIORef (churning cluster) >>= \case
+      (^. #churning) <$> readIORef (world cluster) >>= \case
         Just placed | callOf "get" (Just k) == Just ObserveCall -> do
-          s <- readIORef (server cluster)
+          s <- readServer cluster
           let s' = churnOnce k s
           when (s' /= s) $ do
-            writeIORef (server cluster) s'
+            modifyServer cluster (const s')
             already <- elem placed . acted <$> readIORef (adversary cluster)
             unless already (note placed)
         _ -> pure ()
 
     hasStatus k = maybe False (^. #hasStatusSubresource) (semanticsFor k)
+
+-- | What a write can change: the object without its status and server
+-- bookkeeping, but with its deletion state.
+writtenContent :: Value -> Value
+writtenContent = \case
+  Object root ->
+    let metadata = KM.filterWithKey (\k _ -> k `notElem` ["resourceVersion", "managedFields", "generation"]) (objectOf (field "metadata" (Object root)))
+     in Object (KM.insert "metadata" (Object metadata) (KM.delete "status" root))
+  other -> other
+  where
+    objectOf = \case
+      Object fields -> fields
+      _ -> KM.empty
+
+-- | The resource a stored object belongs to, by its stamp.
+resourceOf :: ObjectKey -> ApiServer -> Maybe ResourceId
+resourceOf k s = do
+  live <- get False k s
+  case field "nagare.dev/resource-id" (field "annotations" (field "metadata" live)) of
+    String text' -> either (const Nothing) Just (mkResourceId text')
+    _ -> Nothing
+
+physicalOf :: Value -> Maybe PhysicalIdentity
+physicalOf written = case field "uid" (field "metadata" written) of
+  String text' -> either (const Nothing) Just (mkPhysicalIdentity text')
+  _ -> Nothing
 
 -- | The boundary a request counts as.
 callOf :: Text -> Maybe ObjectKey -> Maybe Call

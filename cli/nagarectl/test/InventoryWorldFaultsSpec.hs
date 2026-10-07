@@ -110,9 +110,9 @@ inventoryWorldFaultsTests =
         uidOf cluster historyKey >>= (@?= Nothing)
         assertActed cluster Deleted
         claim <- seeded [volume] [(Boundary ObserveCall 1, Deleted)]
-        modifyIORef' (server claim) (mountClaim volumeKey)
+        modifyServer claim (mountClaim volumeKey)
         _ <- clusterAnswer claim (get' volumeKey)
-        held <- get False volumeKey <$> readIORef (server claim)
+        held <- get False volumeKey <$> readServer claim
         (field "deletionTimestamp" . field "metadata" <$> held) /= Nothing @? "the claim is Terminating"
         assertActed claim Deleted
     , testCase "fault acts: TransientReadFailure (one observation cannot be read)" $ do
@@ -121,28 +121,28 @@ inventoryWorldFaultsTests =
         assertActed cluster TransientReadFailure
     , testCase "fault acts: ControllerLag (Ready stays from the previous generation until the next write)" $ do
         (cluster, _) <- once [service "v1"] MutateCall ControllerLag (apply (service "v2"))
-        stale <- get False serviceKey <$> readIORef (server cluster)
+        stale <- get False serviceKey <$> readServer cluster
         (generationOf stale, observedOf stale, readyOf' stale) @?= (Just 2, Just 1, Just "True")
         assertActed cluster ControllerLag
         -- Observing does not wake the controller; only the next write does.
         _ <- clusterAnswer cluster (get' serviceKey)
-        observed <- get False serviceKey <$> readIORef (server cluster)
+        observed <- get False serviceKey <$> readServer cluster
         (generationOf observed, observedOf observed) @?= (Just 2, Just 1)
         _ <- clusterAnswer cluster (apply (service "v3"))
-        caught <- get False serviceKey <$> readIORef (server cluster)
+        caught <- get False serviceKey <$> readServer cluster
         (generationOf caught, observedOf caught) @?= (Just 3, Just 3)
     , testCase "world rule: a StatefulSet correction stays stuck until its unready pod is deleted (RES-4 E6)" $ do
         cluster <- seeded [statefulSet "good"] []
-        modifyIORef' (server cluster) (#outcomes %~ Map.insert (digestOf (statefulSet "broken")) Unready)
+        modifyServer cluster (#outcomes %~ Map.insert (digestOf (statefulSet "broken")) Unready)
         _ <- clusterAnswer cluster (apply (statefulSet "broken"))
         _ <- clusterAnswer cluster (apply (statefulSet "fixed"))
-        stuck <- get False statefulKey <$> readIORef (server cluster)
+        stuck <- get False statefulKey <$> readServer cluster
         (readyReplicasOf stuck, revisionsEqualOf stuck) @?= (Nothing, Just False)
-        pod <- getPod (Just "personal") "db-0" <$> readIORef (server cluster)
+        pod <- getPod (Just "personal") "db-0" <$> readServer cluster
         let uid' = field "uid" . field "metadata" <$> pod
         result <- clusterAnswer cluster (deletePodRequest uid')
         exitOf result @?= Just ExitSuccess
-        rolled <- get False statefulKey <$> readIORef (server cluster)
+        rolled <- get False statefulKey <$> readServer cluster
         (readyReplicasOf rolled, revisionsEqualOf rolled) @?= (Just 1, Just True)
     ]
 
@@ -245,7 +245,7 @@ assertNotActed cluster fault = do
 versionAfter :: Cluster -> KubectlRequest -> IO (Maybe Value)
 versionAfter cluster request = do
   _ <- clusterAnswer cluster request
-  fmap (field "resourceVersion" . field "metadata") . get False quotaOrService <$> readIORef (server cluster)
+  fmap (field "resourceVersion" . field "metadata") . get False quotaOrService <$> readServer cluster
   where
     quotaOrService = case request ^. #arguments of
       _ : "resourcequota" : _ -> quotaKey
@@ -261,7 +261,7 @@ stdoutOf :: KubectlResult -> IO Text
 stdoutOf = either (assertFailure . T.unpack) (\(_, out, _) -> pure (T.pack out))
 
 live :: Cluster -> ObjectKey -> IO (Maybe Value)
-live cluster key = get True key <$> readIORef (server cluster)
+live cluster key = get True key <$> readServer cluster
 
 dataOf :: Cluster -> ObjectKey -> IO (Maybe Text)
 dataOf cluster key = (>>= textOf . field "current" . field "data") <$> live cluster key
@@ -281,7 +281,7 @@ conditionsOf cluster key = maybe [] (\v -> [(t, s) | c <- arrayOf (field "condit
 readyOf :: Cluster -> ObjectKey -> IO (Maybe Text)
 readyOf cluster key = readyOf' <$> (settle >> live cluster key)
   where
-    settle = modifyIORef' (server cluster) settleControllers
+    settle = modifyServer cluster settleControllers
 
 readyOf' :: Maybe Value -> Maybe Text
 readyOf' = (>>= \v -> listToMaybe [s | c <- arrayOf (field "conditions" (field "status" v)), textOf (field "type" c) == Just "Ready", Just s <- [textOf (field "status" c)]])

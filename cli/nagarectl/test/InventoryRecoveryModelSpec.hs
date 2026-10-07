@@ -211,16 +211,17 @@ equivalenceSample scenario finished = every 25 (singleFaults scenario finished) 
 runTier :: Bool -> [Scenario] -> (Scenario -> Finished -> [Schedule]) -> Assertion
 runTier progress selected schedulesFor = checkTier progress label (`runScenario` []) selected schedulesFor (\scenario schedule -> either pure (const []) <$> runScenario scenario schedule)
 
--- | A pinned regression: every scheduled fault's boundary is reached, and the
--- run exits along exactly the expected paths ([] marks a pin whose faults are
--- absorbed without a stop). A schedule whose ordinals drift then fails, rather
--- than passing vacuously. A reached boundary does not prove the fault took
--- effect; the mutation records check that.
+-- | A pinned regression: every scheduled fault fired and acted (EP-182: it
+-- changed the world or the answer its caller got), and the run exits along
+-- exactly the expected paths ([] marks a pin whose faults are absorbed without
+-- a stop). A schedule whose ordinals drift, or whose fault lands where it
+-- changes nothing, then fails rather than passing vacuously.
 pinned :: Scenario -> Schedule -> [[Move]] -> Assertion
 pinned scenario schedule expected = do
   finished <- runScenario scenario schedule >>= either (assertFailure . T.unpack) pure
-  forM_ schedule $ \(Boundary call' n, fault) ->
+  forM_ schedule $ \placement@(Boundary call' n, fault) -> do
     assertBool (show fault <> " at " <> show call' <> " " <> show n <> " did not fire") (Map.findWithDefault 0 call' (finishedCalls finished) >= n)
+    assertBool (show fault <> " at " <> show call' <> " " <> show n <> " fired but changed nothing") (placement `elem` finishedActed finished)
   assertEqual (T.unpack (label scenario) <> " under " <> show schedule <> ": exits") expected (finishedExits finished)
 
 scenarioNamed :: Text -> IO Scenario
@@ -253,6 +254,8 @@ data Finished = Finished
   { finishedCalls :: !(Map.Map Call Int)
   , finishedExits :: ![[Move]]
   -- ^ The exit taken at each stopped review.
+  , finishedActed :: ![(Boundary, Fault)]
+  -- ^ EP-182: the scheduled faults that changed the world or an answer.
   }
   deriving stock (Eq, Show)
 
@@ -295,7 +298,7 @@ traceScenarioWith strategy scenario resumed schedule = do
   run <- maybe (newRun (shape scenario) (unready scenario) schedule) (resumeRun (shape scenario) (unready scenario) schedule . (^. #state)) resumed
   (driven, saved) <- drive scenario schedule (searchStop strategy scenario schedule) run resumed
   pure . (,saved) $ case driven of
-    Ended (Right trace) taken -> (,trace) <$> liveness (Finished (trace ^. #totals) (map snd taken)) (map snd taken)
+    Ended (Right trace) taken -> (,trace) <$> liveness (Finished (trace ^. #totals) (map snd taken) (trace ^. #actedFaults)) (map snd taken)
     Ended (Left violation) _ -> Left violation
     Halted {} -> Left "internal: a search halted at a stop"
   where
@@ -349,7 +352,8 @@ drive scenario schedule onStop start resumed = do
     ended (began, _) run taken result = do
       (starts', heads') <- unzip . reverse <$> readIORef began
       final <- headState run
-      pure (Ended (Trace starts' (heads' <> [final]) (Map.fromList [(k, T.pack (show path)) | (k, path) <- taken]) <$> result) taken)
+      actedNow <- acted <$> readIORef (runAdversary run)
+      pure (Ended ((\totals' -> Trace starts' (heads' <> [final]) (Map.fromList [(k, T.pack (show path)) | (k, path) <- taken]) totals' actedNow) <$> result) taken)
     go began run _ [] taken = do
       adversary <- readIORef (runAdversary run)
       consistent <- storeConsistent run
@@ -929,4 +933,5 @@ describe scenario schedule image violation tried =
 registryFor :: Run -> Shape -> Text -> Text -> IO AdapterRegistry
 registryFor run volume image historyImage = do
   database <- readIORef (runDatabase run)
-  pure (ok (mkAdapterRegistry [worldKubernetesAdapter (fixtureBinding ^. #identity) (boundMembers volume image historyImage <> database) (runWorld run) (runAdversary run)]))
+  adapter <- worldKubernetesAdapter (fixtureBinding ^. #identity) (boundMembers volume image historyImage <> database) (runWorld run) (runAdversary run)
+  pure (ok (mkAdapterRegistry [adapter]))

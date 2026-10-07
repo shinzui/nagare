@@ -39,6 +39,8 @@ data Trace = Trace
   , stops :: !(Map.Map Int Text)
   -- ^ The exit path each stopped step took, by step index.
   , totals :: !(Map.Map Call Int)
+  , actedFaults :: ![(Boundary, Fault)]
+  -- ^ EP-182: the scheduled faults that changed the world or an answer.
   }
   deriving stock (Eq, Generic, Show)
 

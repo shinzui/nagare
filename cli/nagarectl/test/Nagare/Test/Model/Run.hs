@@ -89,7 +89,7 @@ newRun shape unready schedule = do
   adversary <- newAdversary schedule
   -- The model's stores retry refused head writes without waiting (EP-179).
   pauses <- newIORef 0
-  (base, objects) <- first (\ops -> ops {pauseBeforeRetry = \_ -> modifyIORef' pauses (+ 1)}) <$> fakeObjectState
+  (base, objectsRef) <- first (\ops -> ops {pauseBeforeRetry = \_ -> modifyIORef' pauses (+ 1)}) <$> fakeObjectState
   store <- newObjectStore (faultingObjectOps adversary base) fixtureBinding "recovery-model" Nothing >>= orFail "open store"
   inspect <- newObjectStore base fixtureBinding "recovery-inspect" Nothing >>= orFail "open inspection store"
   _ <- initializeStore store fixtureBinding "recovery-model" >>= orFail "initialize store"
@@ -100,7 +100,7 @@ newRun shape unready schedule = do
   incarnations <- newIORef Map.empty
   database <- newIORef databaseNative
   converged <- newIORef Map.empty
-  pure (Run store (InspectStore inspect) objects world adversary bound images incarnations database converged pauses)
+  pure (Run store (InspectStore inspect) objectsRef world adversary bound images incarnations database converged pauses)
 
 -- | Everything a run's later behaviour depends on. The adversary keeps its
 -- counts, so a restored run fires later faults at the same ordinals.
