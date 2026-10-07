@@ -42,6 +42,7 @@ import Nagare.Test.World.Cluster (clusterOps, newCluster)
 import Nagare.Test.World.Cluster qualified as Cluster
 import Nagare.Test.World.Kinds (KindSemantics (..), ReadinessModel (..))
 import Nagare.Test.World.Kubectl (Response (..), kubectlResponse)
+import Nagare.Test.World.Quantity (canonicalQuantity)
 import Test.Tasty
 import Test.Tasty.HUnit
 
