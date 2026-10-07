@@ -183,6 +183,8 @@ closure remains pending. [Exact stopped state](mp23-independent-results-2026-10-
 
 **Verification (2026-10-04, nagare-reviewer, candidate `7596632c`):** `52432400` fails on its parent ("observation Kubernetes envelope differs from reviewed operation"). `95b58a24` fails only to compile there (new module). Both pass at the candidate ([phase-1 record](mp23-independent-results-2026-10-04/phase1-source-and-regressions-7596632c.md)). The A4 terminal resume records (`/tmp/mp23-independent-application-correction/a4-*.json`) agree with the updates above: converged, the same Service/StatefulSet/PVC UIDs, the known row, a zero-operation replan. But they were written by the implementer with development binary `ab3aabf7` and are retained only in `/tmp`; archive them under `docs/audits/`. Status set to Verifying. Next check: native application change and recovery on the acceptance C3 (phase 3a).
 
+**Version 2 removed (2026-10-06, EP-180 M5b; claude-opus-5-5):** The status-stable version-2 observation this entry introduced for Knative Service updates is deleted. Every update now follows G6's single discipline (RES-4 U3, U10): it is guarded by the reviewed UID, this member's ownership and its before-state stamp, which status writes never change, and it writes with a fresh resourceVersion. A status-only transition like this entry's RevisionFailed therefore no longer refuses an admitted correction, for any kind. Saved version-2 reviews are refused, since Nagare has no installation to keep compatible. Deleting version 2 exposed F73.
+
 ## F31
 
 **Registry refresh cadence permits credentials to expire before its next run** — P1; **Verifying**; owners EP-154 / EP-156.
@@ -978,7 +980,7 @@ The class is not `NoEffect`. The absent before-state has changed, and in the `De
 
 **Fix.** The arm also requires the reviewed digest. RES-4 U3: the stamp is written in the same atomic write as the spec, and the adapter reports the reviewed digest only while the stamp and the desired fields both match. That holds exactly while this update is live, through any status churn.
 
-**Tests.** "a Knative Service update awaits readiness only while its own write is live (F73)", in `InventoryKubernetesConfigurationSpec`. It failed with `RecoveryAwaitingReadiness`.
+**Tests.** "a Knative Service update awaits readiness only while its own write is live (F73)", in `InventoryKnativeServiceUpdateSpec` (named `InventoryKubernetesConfigurationSpec` until M5b). It failed with `RecoveryAwaitingReadiness`.
 
 **Mutation.** `test/mutations/F73-awaiting-readiness-ignores-digest.diff`.
 

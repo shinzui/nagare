@@ -98,7 +98,7 @@ kubernetesFieldTakeoverTests =
         state <- newIORef drifted
         calls <- newIORef (0 :: Int)
         let runtime = K.ops state calls
-            adapter = mkKubernetesAdapterWithConfigurationObservation bound runtime (traverse (kubernetesObserve runtime)) (kubernetesObserveStamped runtime) noReceipt noScratch (\_ -> pure (Left "no live object reader"))
+            adapter = mkKubernetesAdapterWithConfigurationObservation bound runtime (traverse (kubernetesObserve runtime)) noReceipt noScratch (\_ -> pure (Left "no live object reader"))
         native <- adapterPrepare adapter K.updateOperation >>= K.expectRight
         mutation <- K.expectRight (eitherDecodeStrict' (preparedNativeBytes native)) :: IO KubernetesMutation
         writeIORef state (KubernetesPresent K.physical "5" (Just K.resource) (mutationNativeDigest mutation))
@@ -131,7 +131,7 @@ kubernetesFieldTakeoverTests =
         (churned, churnedBodies) <- scriptedTransport mutation (stampedLive "5" stampBefore [own, status]) [Nothing]
         churned @?= AdapterEffectIdentified K.physical AdapterEffectCompleted
         map bodyRevision churnedBodies @?= [Just "5"]
-        -- A foreign writer of a non-status field, even of the same value (E13 d, e).
+        -- A foreign writer that changed a non-status field (E13 d, e).
         (foreign', foreignBodies) <- scriptedTransport mutation (stampedLive "5" stampBefore [own, edit, status]) [Nothing]
         assertKnownNoEffect "another writer" foreign'
         foreignBodies @?= []
@@ -229,7 +229,7 @@ drifted = KubernetesPresent K.physical "4" (Just K.resource) (contentDigest "dri
 
 takeoverAdapter :: IORef KubernetesState -> IORef Int -> (ProviderAddress -> IO (Either Text Value)) -> Adapter
 takeoverAdapter state calls reader =
-  mkKubernetesAdapterWithFieldTakeover bound runtime (traverse (kubernetesObserve runtime)) (kubernetesObserveStamped runtime) noReceipt noScratch reader
+  mkKubernetesAdapterWithFieldTakeover bound runtime (traverse (kubernetesObserve runtime)) noReceipt noScratch reader
   where
     runtime = K.ops state calls
 
@@ -239,7 +239,7 @@ prepared reader = do
   calls <- newIORef (0 :: Int)
   let runtime = K.ops state calls
       adapter = case reader of
-        Nothing -> mkKubernetesAdapterWithConfigurationObservation bound runtime (traverse (kubernetesObserve runtime)) (kubernetesObserveStamped runtime) noReceipt noScratch (\_ -> pure (Left "no live object reader"))
+        Nothing -> mkKubernetesAdapterWithConfigurationObservation bound runtime (traverse (kubernetesObserve runtime)) noReceipt noScratch (\_ -> pure (Left "no live object reader"))
         Just selected -> takeoverAdapter state calls selected
   native <- adapterPrepare adapter K.updateOperation >>= K.expectRight
   K.expectRight (eitherDecodeStrict' (preparedNativeBytes native))

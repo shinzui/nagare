@@ -15,8 +15,6 @@ module Nagare.Inventory.Adapters.KubernetesRuntime
   , desiredFieldsMatch
   , deploymentSelectorReplacement
   , statefulSetImmutableReplacement
-  , observeKubernetesConfiguration
-  , parseObservedConfiguration
   , parseObserved
   , confirmInventoryFieldOwnership
   , confirmInventoryFieldOwnershipFor
@@ -79,7 +77,7 @@ import Nagare.Inventory.Adapters.KubernetesProof (kubectlRefusal, resourceVersio
 import Nagare.Inventory.Adapters.KubernetesReadiness
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect))
-import Nagare.Inventory.KubernetesConfiguration (configurationDigest, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, confirmReviewedFieldTakeover, confirmTakeoverSettled, confirmUpdateTarget, liveStamp)
+import Nagare.Inventory.KubernetesConfiguration (confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, confirmReviewedFieldTakeover, confirmTakeoverSettled, confirmUpdateTarget, liveStamp)
 import Nagare.Inventory.KubernetesTransport (KubernetesRuntimeConfig (..), invokeKubectl)
 import Nagare.Inventory.Migration.PostgresRename (migrationFenced, scaledToZero)
 import Nagare.Resource.Inventory (ManagedResource (..))
@@ -107,23 +105,7 @@ mkKubernetesRuntimeOpsAndBatchWithCacheKey ::
   (ResourceId -> IO (Either Text Text)) ->
   Map ResourceId (ManagedResource, ByteString) ->
   (KubernetesAdapterOps, [ResourceId] -> IO [KubernetesState])
-mkKubernetesRuntimeOpsAndBatchWithCacheKey = mkKubernetesRuntimeObservations False
-
-observeKubernetesConfiguration ::
-  KubernetesRuntimeConfig ->
-  (ResourceId -> IO (Either Text Text)) ->
-  Map ResourceId (ManagedResource, ByteString) ->
-  ResourceId ->
-  IO (KubernetesState, Maybe ContentDigest)
-observeKubernetesConfiguration config cache specs = kubernetesObserveStamped (fst (mkKubernetesRuntimeObservations True config cache specs))
-
-mkKubernetesRuntimeObservations ::
-  Bool ->
-  KubernetesRuntimeConfig ->
-  (ResourceId -> IO (Either Text Text)) ->
-  Map ResourceId (ManagedResource, ByteString) ->
-  (KubernetesAdapterOps, [ResourceId] -> IO [KubernetesState])
-mkKubernetesRuntimeObservations stable config resolveCacheKey specs =
+mkKubernetesRuntimeOpsAndBatchWithCacheKey config resolveCacheKey specs =
   ( KubernetesAdapterOps
       { kubernetesContext = runtimeContext config
       , kubernetesObserveStamped = observe
@@ -147,7 +129,6 @@ mkKubernetesRuntimeObservations stable config resolveCacheKey specs =
               ( ["get", kindToken group kind, T.unpack (nameText name)]
                   <> namespaceArgs namespace
                   <> ["-o", "json", "--ignore-not-found"]
-                  <> ["--show-managed-fields" | stable]
               )
               ""
           case result of
@@ -162,7 +143,7 @@ mkKubernetesRuntimeObservations stable config resolveCacheKey specs =
               | otherwise -> pure (KubernetesUnknown "kubectl get failed", Nothing)
             Right (ExitSuccess, output, _)
               | null output -> pure (KubernetesAbsent (contentDigest (TE.encodeUtf8 (resourceIdText resource <> ":absent"))), Nothing)
-              | otherwise -> case parseObservedWithConfiguration stable config resource native (T.pack output) of
+              | otherwise -> case parseObserved config resource native (T.pack output) of
                   Left reason -> pure (KubernetesUnknown reason, Nothing)
                   Right state -> (,liveStamp (T.pack output)) <$> observeCacheClientOutput resolveCacheKey native (T.pack output) state
         _ -> pure (KubernetesUnknown "bound resource has no Kubernetes address", Nothing)
@@ -427,13 +408,7 @@ observeCacheClientOutput resolve native response state = case eitherDecodeStrict
     observedClientText _ = Nothing
 
 parseObserved :: KubernetesRuntimeConfig -> ResourceId -> ByteString -> Text -> Either Text KubernetesState
-parseObserved = parseObservedWithConfiguration False
-
-parseObservedConfiguration :: KubernetesRuntimeConfig -> ResourceId -> ByteString -> Text -> Either Text KubernetesState
-parseObservedConfiguration = parseObservedWithConfiguration True
-
-parseObservedWithConfiguration :: Bool -> KubernetesRuntimeConfig -> ResourceId -> ByteString -> Text -> Either Text KubernetesState
-parseObservedWithConfiguration stable config resource native response = do
+parseObserved config resource native response = do
   observed <- first (T.pack . show) (eitherDecodeStrict (TE.encodeUtf8 response))
   desired <- first (T.pack . show) (eitherDecodeStrict native)
   metadata <- metadataOf observed
@@ -461,12 +436,9 @@ parseObservedWithConfiguration stable config resource native response = do
     (hasAnyStamp && (stampedContext == Nothing || stampedOwner == Nothing))
     (Left "Kubernetes inventory ownership stamp is incomplete or malformed")
   driftDigest <-
-    if stable
-      then configurationDigest observed
-      else
-        if fieldsMatch && (not hasAnyStamp || stampMatches)
-          then Right desiredDigest
-          else contentDigest <$> canonicalValue observed
+    if fieldsMatch && (not hasAnyStamp || stampMatches)
+      then Right desiredDigest
+      else contentDigest <$> canonicalValue observed
   -- Keep a different logical owner visible to status. A foreign context is
   -- refused below rather than being misclassified as an unstamped object.
   when

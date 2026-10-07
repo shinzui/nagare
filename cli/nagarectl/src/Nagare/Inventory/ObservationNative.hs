@@ -83,12 +83,6 @@ observationBytesFromMutation context identity version operation bytes
       mutation <- first T.pack (eitherDecodeStrict' bytes)
       unless
         ( ( mutationVersion mutation == 1
-              || ( mutationVersion mutation == 2
-                     && mutationAction mutation == UpdateResource
-                     && case mutationAddress mutation of
-                       Kubernetes _ "serving.knative.dev" kind (Just _) _ -> nameText kind == "service"
-                       _ -> False
-                 )
               -- A reviewed field takeover (F37) is a version-1 update with a takeover record.
               || (mutationVersion mutation == 3 && mutationAction mutation == UpdateResource && isJust (mutationTakeover mutation))
           )

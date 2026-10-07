@@ -98,7 +98,6 @@ import Nagare.Inventory.Adapters.Kubernetes
 import Nagare.Inventory.Adapters.KubernetesRuntime
   ( KubernetesRuntimeConfig (KubernetesRuntimeConfig, runtimeGuard)
   , mkKubernetesRuntimeOpsAndBatchWithCacheKey
-  , observeKubernetesConfiguration
   , readBackupReceiptFromCompletedPod
   , readLiveManagedObject
   )
@@ -169,7 +168,6 @@ inventoryKubernetesAdapterWith takeover active binding cacheKey specs
             specs
             ops
             observeBatch
-            (observeKubernetesConfiguration config cacheKey specs)
             (readBackupReceiptFromCompletedPod config specs)
             (restoreScratchPodFailed config specs)
             (guardedLiveObject config)

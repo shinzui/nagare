@@ -96,7 +96,6 @@ worldKubernetesAdapter context specs world adversary =
     specs
     ops
     (traverse (kubernetesObserve ops))
-    (unstamped (stableObserve specs world adversary))
     (\_ _ -> pure (Left "no backup receipt in the Kubernetes world"))
     (\_ _ -> pure (Right False))
     (liveObject world)
@@ -107,25 +106,22 @@ worldKubernetesOps :: ContextId -> Map.Map ResourceId (ManagedResource, ByteStri
 worldKubernetesOps context specs world adversary =
   KubernetesAdapterOps
     { kubernetesContext = context
-    , kubernetesObserveStamped = unstamped (observe specs world adversary)
+    , kubernetesObserveStamped = observe specs world adversary
     , kubernetesMutateConditional = mutate world adversary
     }
 
-observe :: Map.Map ResourceId (ManagedResource, ByteString) -> IORef KubeWorld -> IORef Adversary -> ResourceId -> IO KubernetesState
+-- | The object's state and its spec-digest stamp. An interim stamp until
+-- EP-182's world renders annotations: only Nagare's own writes set an owned
+-- object's digest ('apply'), and status churn and a foreign manager leave it,
+-- as they leave a real stamp (RES-4 U3). An unowned object carries none.
+observe :: Map.Map ResourceId (ManagedResource, ByteString) -> IORef KubeWorld -> IORef Adversary -> ResourceId -> IO (KubernetesState, Maybe ContentDigest)
 observe specs world adversary resource = do
   transient <- observationFaults specs world adversary resource
   if transient
-    then pure (KubernetesUnknown "injected: Kubernetes API read timed out")
-    else stateOf resource (\object' -> nativeDigest object') <$> readIORef world
-
--- | The status-independent configuration observation: status churn changes
--- resourceVersion but not this digest.
-stableObserve :: Map.Map ResourceId (ManagedResource, ByteString) -> IORef KubeWorld -> IORef Adversary -> ResourceId -> IO KubernetesState
-stableObserve specs world adversary resource = do
-  transient <- observationFaults specs world adversary resource
-  if transient
-    then pure (KubernetesUnknown "injected: Kubernetes API read timed out")
-    else stateOf resource (\object' -> contentDigest (TE.encodeUtf8 ("configuration:" <> digestText (nativeDigest object')))) <$> readIORef world
+    then pure (KubernetesUnknown "injected: Kubernetes API read timed out", Nothing)
+    else (\state -> (stateOf resource nativeDigest state, stamp state)) <$> readIORef world
+  where
+    stamp state = Map.lookup resource (objects state) >>= \object' -> nativeDigest object' <$ owner object'
 
 -- | Faults at an observation boundary, applied before the object is read.
 -- 'True' when this read itself fails transiently.

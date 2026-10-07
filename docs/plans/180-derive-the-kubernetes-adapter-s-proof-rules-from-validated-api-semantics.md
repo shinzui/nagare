@@ -85,10 +85,41 @@ MasterPlan, not by this plan.
   - Follow-up (session nagare): settlement's stamp row and the write guard share one rule, `stampDistinguishes` (the
     before stamp exists and differs from the reviewed digest). A drift-repair test and record
     `G6-repair-proves-by-stamp` pin it in both places.
-  - M5b: fold the Knative-only version 2 into this discipline.
+  - M5b, 2026-10-06, done: Knative-only version 2 is deleted. That covers prepare, decode, the observation envelope,
+    the configured guard, the stable observation (runtime flag, `observeKubernetesConfiguration`, `configurationDigest`,
+    the adapters' stable-observer parameter, and the world's `stableObserve`) and `requireWriteTarget`'s version-2
+    clause. A Knative Service update is a version-1 review under the M5a guard.
+    - Tests failed first: `InventoryKnativeServiceUpdateSpec` (the renamed configuration spec) asserted version 1,
+      stamp-guarded churn, and F73's arm, and got version 2.
+    - The landed-update stop spec's four landed-digest cases now await readiness instead of being refused, because the
+      reviewed digest on the reviewed UID is this write live (U3).
+    - F30's tracker entry records the removal. F73 was found first and fixed in its own commit.
+    - The recovery model's world now reports a stamp (pre-approved by nagare). Without one, every Knative update fell
+      back to the exact guard, and 16 fast-tier schedules (`create then good update` under `ChurnAlways`) needed a
+      close (I7). With it, all 13 model tests pass. This is an interim world-side stamp in `World/Kubernetes.hs`
+      `observe`: an owned object's digest, which only Nagare's writes set and which status churn and a foreign manager
+      leave alone. EP-182 replaces it with rendered annotations.
+    - Records `ADR26-O1-kubernetes-settle-unknown`, `G6-runtime-guard-ignores-stamp`,
+      `G6-write-guard-compares-whole-state` and `F73-awaiting-readiness-ignores-digest` were regenerated for the moved
+      context, and each still fails its tests.
 - [ ] M6 (G5): terminating objects are classified, not read as present.
 - [ ] M7 (G7): resource quantities compare canonically.
 - [ ] M8: `just mutation-check` proves every mutation record on the remote builder.
+- [ ] M9 (session nagare, 2026-10-06, from nagare-deep-tier-fixes' attribution): no adapter recovery guard stays
+  untested. Seven guards stopped being observed when ADR 26's close by proof landed (`1f6c1a13`, `5bb33741`), and their
+  records now pass. Each pin gets a failing-first test and a fresh record. Each deletion gets a test that the remaining
+  close by proof still exits.
+  - Pin F57a: a stopped verify is safe to retry, and resume re-runs it to completion.
+  - Pin F54: a landed, unready Knative update is LandedUnready, so resume stops at once with a reason. Keep it
+    consistent with F73's awaiting arm.
+  - Delete F56: a replaced target answers TargetReplaced, but the driver result and settlement are the same without it.
+  - Delete F64: an absent owned target answers SafeToRetry, but it only adds a journal record.
+  - Pin F59: a created StatefulSet not yet ready awaits readiness, so resume converges a slow database without a close.
+  - Delete F63's StatefulSet `landedUpdate` answer. First check that settlement grants Landed for an update only
+    through the M3 stamp row (stamp == D_new on the reviewed UID), and remove any digest-only Landed arm that
+    bypasses it, tests first.
+  - Delete F63's readiness-by-replicas check in `KubernetesConfiguration.hs` with it, unless the previous item
+    adopts it.
 
 
 ## Surprises & Discoveries
@@ -157,6 +188,11 @@ MasterPlan, not by this plan.
   (the dropped v4) and keeping v1's exact guard (G6's friction).
   Date: 2026-10-06
 
+
+- Decision (2026-10-06, session nagare): M5b deletes version 2 before M6. Version 2's `configurationDigest` refused a
+  terminating object, and version 1 has no such check until M6 (G5). Until then, an update of a terminating Knative
+  Service passes the stamp guard on this branch. The window exists only on this branch: the batch lands whole after
+  M6, which refuses an update whose target is terminating, alongside a retire's Landed.
 
 - Decision (2026-10-06, session nagare): once M6 makes terminating objects observable, a retire's G6 change carries
   the fresh resourceVersion without a re-read loop.

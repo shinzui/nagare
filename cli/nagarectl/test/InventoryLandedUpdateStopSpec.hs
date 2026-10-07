@@ -66,7 +66,6 @@ adapterProof = do
           bound
           runtime
           (traverse (kubernetesObserve runtime))
-          (kubernetesObserveStamped runtime)
           (\_ _ -> pure (Left "not a backup"))
           (\_ _ -> pure (Right False))
           (\_ -> Right <$> readIORef live)
@@ -83,10 +82,6 @@ adapterProof = do
     [ ("changed spec", KubernetesNotReady K.physical "6" (Just K.resource) (contentDigest "other-configuration"), exact)
     , ("unowned object", KubernetesNotReady K.physical "6" Nothing (contentDigest bytes), exact)
     , ("another owner", KubernetesNotReady K.physical "6" (Just K.cluster) (contentDigest bytes), exact)
-    , ("foreign field appScope", landed, liveService uid "6" 2 2 "False" [inventoryEntry, foreignOwner])
-    , ("unobserved generation", landed, liveService uid "6" 3 2 "False" [inventoryEntry])
-    , ("moved between reads", landed, liveService uid "7" 2 2 "False" [inventoryEntry])
-    , ("ready", landed, liveService uid "6" 2 2 "True" [inventoryEntry])
     ]
     $ \(label, observedState, liveObject) -> do
       writeIORef state observedState
@@ -94,6 +89,21 @@ adapterProof = do
       adapterRecover adapter K.updateOperation reviewed >>= \case
         RecoveryUnresolved _ -> pure ()
         other -> assertFailure (label <> " was not refused: " <> show other)
+  -- The reviewed digest on the reviewed object is this update live (RES-4
+  -- U3, F73), so it awaits readiness; only the reviewed stop's proof that the
+  -- controller saw it unready is refused.
+  forM_
+    [ ("foreign field appScope", liveService uid "6" 2 2 "False" [inventoryEntry, foreignOwner])
+    , ("unobserved generation", liveService uid "6" 3 2 "False" [inventoryEntry])
+    , ("moved between reads", liveService uid "7" 2 2 "False" [inventoryEntry])
+    , ("ready", liveService uid "6" 2 2 "True" [inventoryEntry])
+    ]
+    $ \(label, liveObject) -> do
+      writeIORef state landed
+      writeIORef live liveObject
+      adapterRecover adapter K.updateOperation reviewed >>= \case
+        RecoveryAwaitingReadiness physical | physical == K.physical -> pure ()
+        other -> assertFailure (label <> " was not awaiting readiness: " <> show other)
   -- F56: a replaced object is never a proved landing, but its reviewed target
   -- is gone, so only the reviewed stop may end the update.
   writeIORef state (KubernetesNotReady replacement "6" (Just K.resource) (contentDigest bytes))

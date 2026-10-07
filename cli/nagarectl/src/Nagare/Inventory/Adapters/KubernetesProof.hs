@@ -176,18 +176,9 @@ requireSameBefore mutation current =
                   Right ()
           _ -> Left "Kubernetes object identity or desired fields changed since review"
         else
-          if mutationVersion mutation == 2 && mutationAction mutation == UpdateResource
-            then case (configured (mutationBefore mutation), configured current) of
-              (Just before, Just now) | before == now -> Right ()
-              _ -> Left "Knative Service configuration or ownership changed since review"
-            else
-              if current == mutationBefore mutation
-                then Right ()
-                else Left "Kubernetes object changed since review; replan before mutation"
-  where
-    configured (KubernetesPresent uid _ (Just owner) digest) | owner == mutationResource mutation = Just (uid, owner, digest)
-    configured (KubernetesNotReady uid _ (Just owner) digest) | owner == mutationResource mutation = Just (uid, owner, digest)
-    configured _ = Nothing
+          if current == mutationBefore mutation
+            then Right ()
+            else Left "Kubernetes object changed since review; replan before mutation"
 
 knativeServiceAddress :: ProviderAddress -> Bool
 knativeServiceAddress (Kubernetes _ "serving.knative.dev" kind (Just _) _) = nameText kind == "service"
@@ -348,10 +339,10 @@ stampDistinguishes mutation =
 requireWriteTarget :: KubernetesMutation -> KubernetesState -> Maybe ContentDigest -> Either Text ()
 requireWriteTarget mutation current stamp = case mutationAction mutation of
   -- Only a before stamp other than the reviewed digest can tell the reviewed
-  -- write from the before-state (F67); without one, and for a drift repair or
-  -- a Knative version-2 update, the exact before-state guards the write.
+  -- write from the before-state (F67); without one, and for a drift repair,
+  -- the exact before-state guards the write.
   UpdateResource
-    | mutationVersion mutation == 2 || not (stampDistinguishes mutation) -> requireSameBefore mutation current
+    | not (stampDistinguishes mutation) -> requireSameBefore mutation current
     | not sameObject -> Left "Kubernetes object changed since review; replan before mutation"
     | stamp /= mutationBeforeStamp mutation -> Left "Kubernetes object's stamp changed since review; replan before mutation"
     | otherwise -> Right ()

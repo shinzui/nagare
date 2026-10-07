@@ -1,7 +1,7 @@
--- | Status-independent configuration evidence for versioned Knative updates.
+-- | Live-object evidence for Kubernetes updates: the spec-digest stamp, the
+-- managed-field owners and the identity a write is guarded by.
 module Nagare.Inventory.KubernetesConfiguration
-  ( configurationDigest
-  , liveStamp
+  ( liveStamp
   , stampOf
   , confirmUpdateTarget
   , confirmInventoryFieldOwnership
@@ -45,10 +45,12 @@ stampOf = \case
 -- reviewed UID, still carries the before-state stamp, and no other writer owns
 -- a non-status field (beyond a reviewed takeover). Every API write records its
 -- writer per field, and status writes go to status-subresource entries, so
--- this is immune to status churn and catches a same-value foreign write. The
--- result is the live resourceVersion, the write's precondition. A reviewed
--- takeover (F37) forces another writer's fields, so it stays bound to the
--- exact reviewed resourceVersion.
+-- this is immune to status churn and catches any foreign write that changed a
+-- spec or metadata field (one that changes nothing takes no ownership and
+-- leaves the object as Nagare wrote it). The result is the live
+-- resourceVersion, the write's precondition. A reviewed takeover (F37) forces
+-- another writer's fields, so it stays bound to the exact reviewed
+-- resourceVersion.
 confirmUpdateTarget :: Maybe ProviderAddress -> [Value] -> PhysicalIdentity -> Maybe ContentDigest -> Maybe Text -> Value -> Either Text Text
 confirmUpdateTarget target reviewed uid stamp takeoverRevision observed = do
   (actualUid, actualRevision) <- liveIdentity observed
@@ -56,30 +58,6 @@ confirmUpdateTarget target reviewed uid stamp takeoverRevision observed = do
   unless (maybe True (== actualRevision) takeoverRevision) (Left "Kubernetes object changed after the reviewed observation")
   unless (stampOf observed == stamp) (Left "Kubernetes object's stamp changed after the reviewed observation")
   actualRevision <$ confirmReviewedFieldTakeover target reviewed uid actualRevision observed
-
-configurationDigest :: Value -> Either Text ContentDigest
-configurationDigest (Object root) = do
-  metadata <- case KM.lookup "metadata" root of
-    Just (Object value) -> Right value
-    _ -> Left "configuration observation lacks metadata"
-  unless
-    (KM.lookup "deletionTimestamp" metadata `elem` [Nothing, Just Null])
-    (Left "terminating resource cannot receive a configuration update")
-  fields <- case KM.lookup "managedFields" metadata of
-    Just (Array entries) -> traverse normalize (toList entries)
-    _ -> Left "configuration observation lacks managed-field authority"
-  let stableMetadata = KM.insert "managedFields" (toJSON (catMaybes fields)) (KM.delete "resourceVersion" metadata)
-  contentDigest <$> canonicalValue (Object (KM.insert "metadata" (Object stableMetadata) (KM.delete "status" root)))
-  where
-    normalize (Object entry) = case KM.lookup "fieldsV1" entry of
-      Just (Object fields)
-        | KM.lookup "subresource" entry == Just (String "status")
-            || (not (KM.null fields) && all (== "f:status") (KM.keys fields)) ->
-            Right Nothing
-        | otherwise -> Right (Just (Object (KM.delete "time" entry)))
-      _ -> Left "configuration observation has malformed managed fields"
-    normalize _ = Left "configuration observation has malformed managed fields"
-configurationDigest _ = Left "configuration observation is not an object"
 
 -- | A create is recorded as an Update field manager even when it uses the
 -- same manager name as later server-side apply. Force is safe only while all

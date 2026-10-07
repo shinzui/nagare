@@ -35,7 +35,7 @@ import InventoryIncarnationSpec (inventoryIncarnationTests)
 import InventoryIntegrationSpec (inventoryIntegrationTests)
 import InventoryJournalHeadAdvanceSpec (inventoryJournalHeadAdvanceTests)
 import InventoryKindTotalitySpec (inventoryKindTotalityTests)
-import InventoryKubernetesConfigurationSpec (kubernetesConfigurationTests)
+import InventoryKnativeServiceUpdateSpec (knativeServiceUpdateTests)
 import InventoryKubernetesFieldTakeoverSpec (kubernetesFieldTakeoverTests)
 import InventoryKubernetesReadinessSpec (inventoryKubernetesReadinessTests)
 import InventoryKubernetesSpec (inventoryKubernetesTests)
@@ -183,7 +183,7 @@ main = do
             , controllerCollectionTests
             , inventoryEffectfulCollectionTests
             , inventoryEffectfulTests
-            , kubernetesConfigurationTests
+            , knativeServiceUpdateTests
             , kubernetesFieldTakeoverTests
             , inventoryKubernetesTests
             , inventoryApplicationTests

@@ -523,7 +523,7 @@ test-suite nagarectl-test
     InventoryIntegrationSpec
     InventoryJournalHeadAdvanceSpec
     InventoryKindTotalitySpec
-    InventoryKubernetesConfigurationSpec
+    InventoryKnativeServiceUpdateSpec
     InventoryKubernetesFieldTakeoverSpec
     InventoryKubernetesLifecycleSpec
     InventoryKubernetesReadinessSpec
