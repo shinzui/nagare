@@ -134,13 +134,14 @@ A new record needs its row here and its entry in `records.json`.
 | `G11-controller-never-lags.diff` | a frozen controller does not reconcile (RES-4 E4, G2) | "the fake API server reproduces the recorded traces" fails at the E4 step (EP-182, 2026-10-07) |
 | `G11-statefulset-replaces-unready-pod.diff` | OrderedReady replaces a pod at another revision only when it is Ready (RES-4 E6, G3) | the world rule test fails: the correction rolls without a pod DELETE (EP-182, 2026-10-07) |
 | `G11-claim-never-held.diff` | a PVC a running workload mounts is held by pvc-protection (RES-4 U6, E7, E16; F77) | "fault acts: Deleted" fails: the PVC is gone at once, not Terminating (EP-182, 2026-10-07) |
-| `G11-outcome-per-write.diff` | a written spec's outcome is decided only when its pod template changes | the fast tier fails: an annotation-only update of an unready revision is decided again (EP-182, 2026-10-07) |
+| `G11-outcome-per-write.diff` | a written spec's outcome is decided only when its pod template changes | "a write that leaves the pod template unchanged keeps its rollout's outcome" fails: a metadata-only update of a broken Deployment becomes available (EP-182, 2026-10-07; the first sweep found no fast-tier scenario that reaches it, so it is pinned by a world rule) |
 | `G11-get-wakes-lagging-controller.diff` | only a write, never a read, reaches a lagging controller | "fault acts: ControllerLag" fails: an observation wakes the controller (the F69 check could then pass vacuously) (EP-182, 2026-10-07) |
 | `G11-foreign-object-not-acted.diff` | ForeignObject records that it acted | "fault acts: ForeignObject" fails (EP-182, 2026-10-07) |
 | `G11-churn-always-churns-nothing.diff` | ChurnAlways makes the churn source write status before each observation | "fault acts: ChurnAlways" fails: nothing churns and the fault never acts (EP-182, 2026-10-07) |
 | `G11-ledger-ignores-counts.diff` | the known-defect ledger fails an entry whose count changed | "the known-defect ledger is two-sided" fails: a fixed or extra occurrence is not reported (EP-182, 2026-10-07) |
 | `G11-lands-failed-acted-only-on-jobs.diff` | LandsFailed records that it acted on every kind with a readiness model, not only a Job | "fault acts: LandsFailed on a Deployment create" fails: the rollout fails unrecorded (EP-182, 2026-10-07) |
 | `G11-controller-lag-never-acted.diff` | ControllerLag records that it acted when the controller would have changed the object, including a new object's first status | "fault acts: ControllerLag on a create" fails (EP-182, 2026-10-07) |
+| `G11-churn-before-writes.diff` | ChurnAlways churns before observations only, never before a write | "churn precedes observations, never a write" fails: the apply after a churned read conflicts (EP-182, 2026-10-07) |
 
 The two F58 records are caught by focused regressions rather than by the model;
 run them with `-p "application update recovery"`.

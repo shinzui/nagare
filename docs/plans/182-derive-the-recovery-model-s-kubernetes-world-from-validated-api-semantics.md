@@ -190,7 +190,20 @@ How to see it working:
 
   Fixed in M3's code: a lag now acts exactly when the controller would have changed the object after the write.
   Two failing-first `world faults` tests cover the fix, and two mutation records pin it.
-- EP-182's mutation proofs are now records (`G11-*` in `cli/nagarectl/test/mutations/`, 14 of them), swept with
+- The first mutation sweep (2026-10-07, at `2e8a68bb`) killed 93 of 95 records. Two survived, and both were
+  harness gaps:
+  - **The world churned before writes.** A ChurnAlways object churned before every request that named it, writes
+    included. So a write carrying the resourceVersion it had just observed always conflicted. Under ChurnAlways, a
+    ResourceQuota or CronJob update then needed a resume (I7) at most placements. The fast tier places ChurnAlways
+    once per generated scenario, so it never reached those placements.
+    - EP-180's F30 record survived because every such update failed with or without its guard.
+    - Churn now precedes observations only, pinned by a failing-first world rule.
+    - With the fix, F30's mutant changes no outcome at any ChurnAlways placement on either churning kind. Since
+      G6 (EP-180), the apply's resourceVersion comes from the live guard read, so the refresh it reverts is
+      redundant. The record is EP-180's to retire or re-target.
+  - **The template-outcome rule was unpinned.** No fast-tier scenario makes a metadata-only update, so
+    `G11-outcome-per-write` survived. A world rule test now pins it.
+- EP-182's mutation proofs are now records (`G11-*` in `cli/nagarectl/test/mutations/`, 15 of them), swept with
   the others.
 - The fast gate's architecture check bounds a module at 1000 lines. `ApiServer.hs` reached 1043 with E15's quantity
   rules, which now live in `Nagare/Test/World/Quantity.hs`.

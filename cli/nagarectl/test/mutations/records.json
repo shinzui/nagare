@@ -530,7 +530,7 @@
   {
     "record": "G11-outcome-per-write",
     "suite": "nagarectl",
-    "pattern": "/one placement per fault/",
+    "pattern": "/keeps its rollout/",
     "expect": "test-fails"
   },
   {
@@ -567,6 +567,12 @@
     "record": "G11-controller-lag-never-acted",
     "suite": "nagarectl",
     "pattern": "/fault acts: ControllerLag on a create/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "G11-churn-before-writes",
+    "suite": "nagarectl",
+    "pattern": "/churn precedes observations/",
     "expect": "test-fails"
   }
 ]
