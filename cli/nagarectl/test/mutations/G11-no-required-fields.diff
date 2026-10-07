@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/test/Nagare/Test/World/ApiServer.hs b/cli/nagarectl/test/Nagare/Test/World/ApiServer.hs
+index 7bf5ae60..bfa511d0 100644
+--- a/cli/nagarectl/test/Nagare/Test/World/ApiServer.hs
++++ b/cli/nagarectl/test/Nagare/Test/World/ApiServer.hs
+@@ -800,7 +800,7 @@ outcomeKey value = fromMaybe ("content:" <> tshow (Object (KM.delete "metadata"
+ -- refuses it (422): a workload's selector and pod template, a CronJob's
+ -- schedule and Job template, a PVC's access modes and requested storage.
+ requireFields :: ObjectKey -> Value -> Either ApiRefusal ()
+-requireFields key value = case [path | path <- required, leafAt path value == Null] of
++requireFields key value = case [path | path <- required, leafAt path value == Null, False] of
+   [] -> Right ()
+   missing ->
+     Left (invalid ("The " <> kindName key <> " \"" <> key ^. #name <> "\" is invalid: " <> T.intercalate ", " [T.intercalate "." path <> ": Required value" | path <- missing]))

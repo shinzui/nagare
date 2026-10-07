@@ -162,6 +162,8 @@ A new record needs its row here and its entry in `records.json`.
 | `G11-churn-before-writes.diff` | ChurnAlways churns before observations only, never before a write | "churn precedes observations, never a write" fails: the apply after a churned read conflicts (EP-182, 2026-10-07) |
 | `G11-lag-catch-up-before-write.diff` | a write to a lagging object thaws it, and its controller catches up after the write lands (RES-4 U16) | "a write to a lagging object lands at the resourceVersion just read, and the catch-up follows it" fails: the catch-up's status write refuses the write; the 3d B1 pin fails too (3d triage, 2026-10-07) |
 | `G11-lands-acted-only-on-its-own-write.diff` | a LandsUnready or LandsFailed fault acts when any write of its poisoned spec lands, not only its own request | "LandsUnready acts when a write of its spec lands, not when its own write is refused" fails: the retry that lands the bad spec is not recorded (3d triage, 2026-10-07) |
+| `G11-foreign-object-bare.diff` | ForeignObject plants a valid, unstamped object of the address's kind | "ForeignObject creates a valid unowned object of the address's kind" fails: the planted object has no selector or template, and the server refuses it (3d triage, 2026-10-07) |
+| `G11-no-required-fields.diff` | a new workload, CronJob or PVC must carry its kind's required fields (422) | "the API server refuses an object missing a required field" fails: the bare StatefulSet is stored (3d triage, 2026-10-07) |
 
 The two F58 records are caught by focused regressions rather than by the model;
 run them with `-p "application update recovery"`.

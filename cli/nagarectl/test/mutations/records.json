@@ -688,5 +688,17 @@
     "suite": "nagarectl",
     "pattern": "/3d B7/",
     "expect": "test-fails"
+  },
+  {
+    "record": "G11-foreign-object-bare",
+    "suite": "nagarectl",
+    "pattern": "/creates a valid unowned object/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "G11-no-required-fields",
+    "suite": "nagarectl",
+    "pattern": "/refuses an object missing a required field/",
+    "expect": "test-fails"
   }
 ]

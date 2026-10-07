@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/test/Nagare/Test/World/Cluster.hs b/cli/nagarectl/test/Nagare/Test/World/Cluster.hs
+index a28f352d..1a899b56 100644
+--- a/cli/nagarectl/test/Nagare/Test/World/Cluster.hs
++++ b/cli/nagarectl/test/Nagare/Test/World/Cluster.hs
+@@ -335,7 +335,7 @@ stamped live = isJust (specDigestOf live)
+ -- address's kind (a real API server refuses one missing required fields),
+ -- from the kind table's fixture, with none of our stamps.
+ foreignObject :: ObjectKey -> Value
+-foreignObject key = case [fixture "foreign" | row <- kindTable, kubernetesKind row == Just (key ^. #group, key ^. #kind), Just fixture <- [kindFixture row]] of
++foreignObject key = case [fixture "foreign" | row <- kindTable, kubernetesKind row == Just (key ^. #group, key ^. #kind), Just fixture <- [kindFixture row], False] of
+   Object root : _ -> Object (KM.insert "metadata" (object (["name" .= (key ^. #name)] <> ["namespace" .= ns | Just ns <- [key ^. #namespace]])) root)
+   _ ->
+     object
