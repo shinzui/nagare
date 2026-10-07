@@ -1,5 +1,13 @@
 # nagare — operating rules
 
+## Release goal
+
+The operator's goal and its evidence-backed checklist are in
+[`docs/releases/production-readiness-checklist.md`](docs/releases/production-readiness-checklist.md):
+production use with a day-to-day reliable ledger, no data loss, safe node and database upgrades, and
+safe continued development. Its scope is fixed. Tick a box only with linked evidence, and send any new
+finding that does not risk data loss to the deferral ledger with the operator's approval.
+
 ## GCP project isolation
 
 This repository targets **one** GCP project at a time — but **which** project is

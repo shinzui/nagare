@@ -482,6 +482,8 @@ Feature children produce code and focused local proof; the native children (EP-1
 
 ## Progress
 
+**Release goal tracker:** [the production readiness checklist](../releases/production-readiness-checklist.md) records the operator's goal and the evidence-backed boxes that reach it. It is the reference for "how far are we".
+
 ### Release line (b) and the structural plan (operator decision, 2026-10-05)
 
 The operator approved all six decisions of [the exhaustive review's proposal](../audits/mp23-exhaustive-review-2026-10-05/PROPOSAL.md) and chose **release line (b)**. Where this section and the finish line below disagree, this section wins. The finish line's gates still apply, on a **new** candidate.
