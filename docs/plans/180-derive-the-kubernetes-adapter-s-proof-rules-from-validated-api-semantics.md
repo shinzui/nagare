@@ -106,6 +106,11 @@ MasterPlan, not by this plan.
 - M1 needed no Deployment branch in `confirmLandedUnready`. `recover`'s landed-update path does not cover
   Deployments, so the branch would be dead code, and settlement already classes an exactly landed, unready update as
   landed through its generic arm. The Plan of Work's mention of it is superseded.
+- Version 2 was hiding a false Landed (F73), found before M5b. `recover`'s awaiting-readiness arm for a version-1 or
+  version-3 Knative update ignored the digest. Another write that left the object unready was therefore awaited as
+  this update's, and settle maps that decision to Landed. Production updates were version 2, which the arm excludes,
+  so deleting version 2 would have made this the default path. The fix requires the reviewed digest (RES-4 U3) and
+  landed in its own commit ahead of M5b.
 
 
 ## Decision Log

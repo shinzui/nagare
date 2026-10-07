@@ -3,6 +3,7 @@ module InventoryKubernetesConfigurationSpec (kubernetesConfigurationTests) where
 import Control.Monad (forM_)
 import Data.Aeson
 import Data.Aeson.KeyMap qualified as KM
+import Data.ByteString (ByteString)
 import Data.ByteString.Lazy qualified as BL
 import Data.Either (isLeft)
 import Data.IORef
@@ -15,6 +16,7 @@ import Nagare.Inventory.Journal (FailureClass (KnownNoEffect))
 import Nagare.Inventory.Kubernetes
 import Nagare.Inventory.KubernetesConfiguration
 import Nagare.Inventory.ObservationNative (observationBytesFromMutation)
+import Nagare.Resource.Inventory (ManagedResource)
 import Nagare.Resource.Kubernetes
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
@@ -98,6 +100,27 @@ kubernetesConfigurationTests =
           RecoveryProvedComplete _ -> pure ()
           other -> assertFailure (show other)
         readIORef calls >>= (@?= 1)
+    , testCase "a Knative Service update awaits readiness only while its own write is live (F73)" $ do
+        -- RES-4 U3: the reviewed digest is observed only while the stamp and
+        -- the desired fields both match, so it is the proof our write is live.
+        state <- newIORef (KubernetesNotReady K.physical "4" (Just K.resource) (contentDigest "old-configuration"))
+        calls <- newIORef (0 :: Int)
+        let adapter = mkKubernetesAdapter knativeBound (K.ops state calls)
+        reviewed <- adapterPrepare adapter K.updateOperation >>= K.expectRight
+        mutation <- K.expectRight (eitherDecodeStrict' (preparedNativeBytes reviewed))
+        writeIORef state (KubernetesNotReady K.physical "5" (Just K.resource) (mutationNativeDigest mutation))
+        adapterRecover adapter K.updateOperation reviewed >>= (@?= RecoveryAwaitingReadiness K.physical)
+        -- Another write of this member's left the object unready: ours is not live.
+        writeIORef state (KubernetesNotReady K.physical "6" (Just K.resource) (contentDigest "another-review"))
+        adapterRecover adapter K.updateOperation reviewed >>= \case
+          RecoveryUnresolved _ -> pure ()
+          other -> assertFailure ("another write was awaited as ours: " <> show other)
+        case adapterSettle adapter of
+          Nothing -> assertFailure "the Kubernetes adapter does not settle"
+          Just settle ->
+            settle K.updateOperation reviewed >>= \case
+              SettledLanded _ -> assertFailure "another write settled as our landed update"
+              _ -> pure ()
     , testCase "status race refuses the conditional write and only unchanged configuration can retry" $ do
         let value =
               object
@@ -168,3 +191,15 @@ metadataField key value (Object root) = case KM.lookup "metadata" root of
   Just (Object metadata) -> Object (KM.insert "metadata" (Object (KM.insert key value metadata)) root)
   _ -> error "fixture metadata missing"
 metadataField _ _ _ = error "fixture object missing"
+
+-- | A bound Knative Service.
+knativeBound :: Map.Map ResourceId (ManagedResource, ByteString)
+knativeBound =
+  Map.singleton K.resource (K.ok (bindKubernetesObject (K.input {inputObject = value, objectDigest = contentDigest (K.ok (canonicalValue value))})))
+  where
+    value =
+      object
+        [ "apiVersion" .= ("serving.knative.dev/v1" :: Text)
+        , "kind" .= ("Service" :: Text)
+        , "metadata" .= object ["name" .= ("web" :: Text), "namespace" .= ("personal" :: Text)]
+        ]

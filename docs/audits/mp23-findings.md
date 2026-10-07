@@ -967,3 +967,20 @@ The class is not `NoEffect`. The absent before-state has changed, and in the `De
 **Mutation.** `test/mutations/F72-unready-update-unsupported.diff`.
 
 **Model.** EP-182's world runs behind the production kubectl interpreter, so the model will exercise this path.
+
+## F73
+
+**A Knative Service update that another write left unready is awaited as ours and settles as Landed** — P1; **Verifying**; owners EP-180.
+
+**Found before EP-180 M5b (2026-10-06, claude-opus-5-5); proved by an adapter test on the version-1 adapter (observed).**
+- **The gap.** Recovery of a version-1 or version-3 update to a Knative Service returned `RecoveryAwaitingReadiness` for any owned, unready object on the reviewed UID, whatever its digest. Settle maps that decision to `SettledLanded`. So if another write of this member's left the object unready, this update was claimed landed when its write was not live.
+- **Exposure.** Production Knative updates were version 2, which the arm excludes, so only a reviewed field takeover (version 3) reached it. M5b deletes version 2 and makes every Knative update version 1, so it would have become the default path. Version 2 was hiding this defect.
+
+**Fix.** The arm also requires the reviewed digest. RES-4 U3: the stamp is written in the same atomic write as the spec, and the adapter reports the reviewed digest only while the stamp and the desired fields both match. That holds exactly while this update is live, through any status churn.
+
+**Tests.** "a Knative Service update awaits readiness only while its own write is live (F73)", in `InventoryKubernetesConfigurationSpec`. It failed with `RecoveryAwaitingReadiness`.
+
+**Mutation.** `test/mutations/F73-awaiting-readiness-ignores-digest.diff`.
+
+**Model.** The recovery model's world observed Knative updates through the stable version-2 observation, so it never reached this arm. After M5b it does.
+

@@ -353,11 +353,15 @@ mkKubernetesAdapterWithObservations specs ops observeBatch stableObserve readBac
                                _ -> False
                            ) ->
                         RecoveryAwaitingReadiness physical
-                  KubernetesNotReady physical _ (Just owner) _
+                  -- F73, RES-4 U3: the stamp is written with the spec, so the
+                  -- reviewed digest on the reviewed object is this update live;
+                  -- another write left unready is not ours to await.
+                  KubernetesNotReady physical _ (Just owner) digest
                     | mutationVersion mutation `elem` [1, 3]
                     , mutationAction mutation == UpdateResource
                     , knativeServiceAddress (mutationAddress mutation)
                     , owner == mutationResource mutation
+                    , digest == mutationNativeDigest mutation
                     , ( case mutationBefore mutation of
                           KubernetesPresent prior _ (Just previousOwner) _ -> prior == physical && previousOwner == owner
                           KubernetesNotReady prior _ (Just previousOwner) _ -> prior == physical && previousOwner == owner
