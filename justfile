@@ -333,6 +333,19 @@ mutation-check rev="HEAD" base="":
     if [ -n '{{base}}' ]; then args+=(--base "$(git rev-parse --verify '{{base}}^{commit}')"); fi
     cabal run --project-dir=cli/nagare-harness -v0 nagare-harness -- "${args[@]}"
 
+# EP-180 M8: prove every mutation record at a committed revision in one remote
+# build (nix/test-runs.nix mutationSweep). Each of `width` workers compiles the
+# revision once with cabal at -O0, then per record patches, rebuilds
+# incrementally, runs the record's pattern and reverts. Run it beside every
+# landing batch's `just gate`. Exits non-zero when any record survives.
+# Sweep every mutation record at a commit on the remote builder.
+[group('test')]
+mutation-sweep rev="HEAD" width="4":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    commit=$(git rev-parse --verify '{{rev}}^{commit}')
+    cabal run --project-dir=cli/nagare-harness -v0 nagare-harness -- mutations sweep --rev "$commit" --width '{{width}}'
+
 # EP-179 (ADR 25 amendment of 2026-10-06): list the recovery-related files
 # changed since `base` (committed, uncommitted or untracked), and exit non-zero
 # when there are any: such a change needs a passing `just gate-deep`.

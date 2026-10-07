@@ -142,9 +142,15 @@ MasterPlan, not by this plan.
     - `just mutation-check rev [base]` wraps it and is registered in the command audit.
     - `test-remote` and `nix/test-runs.nix` take a `suite`, so DSL records run against `nagare-dsl-test`.
   - Found F76 on the way: the incarnation test group had been dropped from the suite, and twelve records were vacuous.
-  - Remaining: measure one full-build proof, then build runner (b). Runner (b) compiles the base once and, for each
-    record, applies, rebuilds incrementally, runs the record's pattern and reverts, with N workers. The target is a full
-    sweep in under about 45 minutes, before EP-182 lands.
+  - Measured, runner (a): one record proved through `mutations prove --record` was killed in 4 min 50 s, nearly all of
+    it the Nix build. 88 records, four at a time, would take about two hours.
+  - Runner (b), `just mutation-sweep rev`, builds `mutationSweep` in `nix/test-runs.nix`:
+    - A GHC with both suites' dependencies, and cabal offline with a project file generated from the real
+      `cabal.project`. The generator drops only the `source-repository-package` stanzas and fails on any stanza it does
+      not know.
+    - The build is at -O0, so a mutation inside a body changes no other interface.
+    - Each of W workers compiles the revision once, then per record patches, rebuilds, runs the pattern and reverts.
+    - `mutations sweep` classifies `results.tsv`.
 - [ ] M9 (session nagare, 2026-10-06, from nagare-deep-tier-fixes' attribution): no adapter recovery guard stays
   untested. Seven guards stopped being observed when ADR 26's close by proof landed (`1f6c1a13`, `5bb33741`), and their
   records now pass. Each pin gets a failing-first test and a fresh record. Each deletion gets a test that the remaining

@@ -18,7 +18,10 @@ the prose.
 
 - The fast gate checks that every record applies and has an entry (`mutations check`).
 - After the builds, it checks that every pattern selects a test (`mutations patterns`).
-- `just mutation-check [rev] [base]` proves on the remote builder that each record still fails.
+- `just mutation-sweep [rev]` proves every record still fails, in one remote build that compiles the revision once per
+  worker, at -O0.
+- `just mutation-check [rev] [base]` proves records one Nix build each, which is slower; use it to debug a single record
+  (`nagare-harness mutations prove --record NAME`).
 
 A new record needs its row here and its entry in `records.json`.
 

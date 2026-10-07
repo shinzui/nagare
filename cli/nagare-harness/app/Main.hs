@@ -5,7 +5,7 @@ import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Nagare.Harness.FixtureSmoke (runFixtureSmoke)
 import Nagare.Harness.Gate (GateRun (..), newLogDir, repositoryRoot, runFastGate, runFullGate, verifyRevision)
-import Nagare.Harness.Mutation (Outcome (..), checkPatterns, checkRecords, loadRecords, proveRecords, selectRecords)
+import Nagare.Harness.Mutation (Outcome (..), checkPatterns, checkRecords, loadRecords, proveRecords, selectRecords, sweepRecords)
 import Nagare.Harness.Prelude
 import Nagare.Harness.Step (stepSucceeded)
 import Options.Applicative
@@ -20,7 +20,8 @@ data Command
   | FixtureSmoke !(Maybe FilePath) !Bool
   | MutationsCheck
   | MutationsPatterns
-  | MutationsProve !Text !(Maybe Text) !Int
+  | MutationsProve !Text !(Maybe Text) !Int ![Text]
+  | MutationsSweep !Text !Int
   deriving stock (Eq, Show)
 
 commandParser :: Parser Command
@@ -43,8 +44,18 @@ mutationsParser =
                   <$> (T.pack <$> strOption (long "rev" <> metavar "REV" <> help "Committed revision to prove the records against"))
                   <*> optional (T.pack <$> strOption (long "base" <> metavar "BASE" <> help "Prove only records the range BASE..REV could affect; default: every record"))
                   <*> option auto (long "width" <> metavar "N" <> value 4 <> showDefault <> help "Records proved at once on the remote builder")
+                  <*> many (T.pack <$> strOption (long "record" <> metavar "NAME" <> help "Prove only this record (repeatable)"))
               )
               (progDesc "Prove on the remote builder that each record still fails its tests")
+          )
+        <> command
+          "sweep"
+          ( info
+              ( MutationsSweep
+                  <$> (T.pack <$> strOption (long "rev" <> metavar "REV" <> help "Committed revision to sweep"))
+                  <*> option auto (long "width" <> metavar "N" <> value 4 <> showDefault <> help "Workers in the remote build")
+              )
+              (progDesc "Prove every record in one remote build that compiles the revision once per worker")
           )
     )
 
@@ -90,16 +101,28 @@ main = do
         Right summary -> TIO.putStrLn ("gate verify: " <> summary)
     MutationsCheck -> report "mutations check" =<< checkRecords root
     MutationsPatterns -> report "mutations patterns" =<< checkPatterns root
-    MutationsProve revision base width -> do
+    MutationsProve revision base width chosen -> do
       loaded <- loadRecords root
       entries <- either (refuse . ("mutations prove: " <>)) pure loaded
-      selected <- selectRecords root ((,revision) <$> base) entries
+      selected <- filter (\entry -> null chosen || entry ^. #record `elem` chosen) <$> selectRecords root ((,revision) <$> base) entries
       TIO.putStrLn ("mutations prove: " <> T.pack (show (length selected)) <> " of " <> T.pack (show (length entries)) <> " records at " <> revision)
       results <- proveRecords root width revision selected
       forM_ results $ \result ->
         TIO.putStrLn ("mutations prove: " <> T.pack (show (result ^. #outcome)) <> " " <> result ^. #record <> (if T.null (result ^. #detail) then "" else " (" <> result ^. #detail <> ")"))
       let failed = [result | result <- results, result ^. #outcome /= Killed]
       TIO.putStrLn ("mutations prove: " <> T.pack (show (length results - length failed)) <> " killed, " <> T.pack (show (length failed)) <> " not")
+      unless (null failed) exitFailure
+    MutationsSweep revision width -> do
+      loaded <- loadRecords root
+      entries <- either (refuse . ("mutations sweep: " <>)) pure loaded
+      logDir <- newLogDir
+      TIO.putStrLn ("mutations sweep: " <> T.pack (show (length entries)) <> " records at " <> revision <> ", logs in " <> T.pack logDir)
+      swept <- sweepRecords root logDir revision width entries
+      results <- either (refuse . ("mutations sweep: " <>)) pure swept
+      forM_ [result | result <- results, result ^. #outcome /= Killed] $ \result ->
+        TIO.putStrLn ("mutations sweep: " <> T.pack (show (result ^. #outcome)) <> " " <> result ^. #record <> " (" <> result ^. #detail <> ")")
+      let failed = [result | result <- results, result ^. #outcome /= Killed]
+      TIO.putStrLn ("mutations sweep: " <> T.pack (show (length results - length failed)) <> " killed, " <> T.pack (show (length failed)) <> " not")
       unless (null failed) exitFailure
     FixtureSmoke manifest allowShared -> do
       green <- runFixtureSmoke (fromMaybe (root </> "fixtures/inventory-release/local/fixture-smoke.json") manifest) allowShared

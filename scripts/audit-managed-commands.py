@@ -200,7 +200,7 @@ def family_assignments() -> dict[str, str]:
     return result
 
 RECIPES = {
-    "read": "default docs-validate terminology-validate reviews-validate user-documentation-validate nixos-registry-host nix-cache-status job-runs-status context-show status live-test test-inventory-effects haskell-style-check gate-fast gate-deep deep-tier-required gate gate-verify test-remote mutation-check",
+    "read": "default docs-validate terminology-validate reviews-validate user-documentation-validate nixos-registry-host nix-cache-status job-runs-status context-show status live-test test-inventory-effects haskell-style-check gate-fast gate-deep deep-tier-required gate gate-verify test-remote mutation-check mutation-sweep",
     "reviewed": "infra-up infra-preview infra-destroy cluster-bootstrap nix-cache-publish nix-cache-bootstrap job-runs-bootstrap cluster-enable-tls local-bootstrap local-minio observability deploy-hello host-switch host-image vm-start vm-stop smoke local-smoke",
     "bounded": "iap-ssh",
     "local": "local-up local-down nix-cache-secret-init install-hooks fixture-smoke land",

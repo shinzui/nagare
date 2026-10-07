@@ -9,7 +9,7 @@ import Data.List (sort)
 import Data.Map.Strict qualified as Map
 import Nagare.Harness.FixtureSmoke
 import Nagare.Harness.Gate (fastSteps)
-import Nagare.Harness.Mutation (Expectation (..), MutationRecord (..), Outcome (..), Suite (..), classifyProof)
+import Nagare.Harness.Mutation (Expectation (..), MutationRecord (..), Outcome (..), Suite (..), classifyProof, readSweepResults)
 import Nagare.Harness.Prelude
 import Nagare.Harness.Realise (remainingPaths)
 import Nagare.Harness.Record
@@ -58,6 +58,16 @@ tests =
         classifyProof BuildFails (ExitFailure 1) False @?= Killed
         classifyProof BuildFails (ExitFailure 1) True @?= WrongStage
         classifyProof BuildFails ExitSuccess True @?= WrongStage
+    , testCase "a sweep's results classify each record, and a record it never reached is not run (EP-180 M8)" $ do
+        let entries =
+              [ MutationRecord "killed" Nagarectl "/a/" TestFails
+              , MutationRecord "survived" Nagarectl "/b/" TestFails
+              , MutationRecord "stale" Nagarectl "/c/" TestFails
+              , MutationRecord "compiles-not" Nagarectl "/d/" BuildFails
+              , MutationRecord "unreached" NagareDsl "/e/" TestFails
+              ]
+            rows = "killed\tbuilt\t1\t40\nsurvived\tbuilt\t0\t38\nstale\tstale\t\t0\ncompiles-not\tbuild-failed\t\t12\n"
+        map (^. #outcome) (readSweepResults entries rows) @?= [Killed, Survived, Stale, Killed, NotRun]
     , testCase "a mutation manifest entry names its suite, pattern and expectation (EP-180 M8)" $ do
         let entry = "[{\"record\":\"G7-x\",\"suite\":\"nagare-dsl\",\"pattern\":\"/a || b/\",\"expect\":\"test-fails\"}]"
         eitherDecode entry @?= Right [MutationRecord "G7-x" NagareDsl "/a || b/" TestFails]

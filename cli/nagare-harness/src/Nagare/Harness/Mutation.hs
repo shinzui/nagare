@@ -15,26 +15,29 @@ module Nagare.Harness.Mutation
   , classifyProof
   , loadRecords
   , proveRecords
+  , readSweepResults
   , recordsDirectory
   , selectRecords
+  , sweepRecords
   )
 where
 
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
 import Control.Concurrent.QSem (newQSem, signalQSem, waitQSem)
-import Control.Exception (bracket_, finally)
+import Control.Exception (bracket_, evaluate, finally)
 import Data.Aeson (FromJSON (..), eitherDecodeFileStrict, withObject, withText, (.:))
 import Data.Generics.Labels ()
 import Data.List (nub, sort, (\\))
 import Data.Text qualified as T
+import Data.Text.Read qualified as TR
 import Nagare.Harness.Prelude
 import System.Directory (getTemporaryDirectory, listDirectory, removeFile)
 import System.Exit (ExitCode (..))
 import System.FilePath (dropExtension, takeExtension, (</>))
-import System.IO (hClose, openTempFile)
+import System.IO (hClose, hGetContents, openTempFile)
 import System.IO.Error (catchIOError)
-import System.Process (CreateProcess (..), proc, readCreateProcessWithExitCode)
+import System.Process (CreateProcess (..), StdStream (..), createProcess, proc, readCreateProcessWithExitCode, waitForProcess)
 
 -- | The test suite a record is proved against.
 data Suite = Nagarectl | NagareDsl
@@ -166,6 +169,8 @@ data Outcome
     WrongStage
   | -- | The record no longer applies to the revision.
     Stale
+  | -- | The sweep never reached the record (its worker's base build failed).
+    NotRun
   deriving stock (Eq, Show, Generic)
 
 data ProofResult = ProofResult
@@ -253,6 +258,56 @@ proofCommit root rev entry = do
                     else Right (commit, branch)
   removeFile indexPath `catchIOError` const (pure ())
   pure result
+
+-- | Sweep every record at a committed revision in one remote build (the
+-- @mutationSweep@ derivation: each worker compiles the revision once, then
+-- patches, rebuilds, tests and reverts per record). Its output is copied to
+-- @logs@; the result is each record's outcome.
+sweepRecords :: FilePath -> FilePath -> Text -> Int -> [MutationRecord] -> IO (Either Text [ProofResult])
+sweepRecords root logs rev width entries = do
+  let expression =
+        "(builtins.getFlake \"git+file://"
+          <> root
+          <> "?rev="
+          <> T.unpack rev
+          <> "\").legacyPackages.x86_64-linux.mutationSweep { label = \""
+          <> T.unpack (T.take 8 rev)
+          <> "\"; width = "
+          <> show width
+          <> "; }"
+  (code, out) <- streamingStderr root "nix" ["build", "--no-link", "--print-out-paths", "--print-build-logs", "--impure", "--expr", expression]
+  case (code, reverse (filter (not . T.null) (T.lines out))) of
+    (ExitSuccess, output : _) -> do
+      _ <- capture root "cp" ["-R", T.unpack (T.strip output) <> "/.", logs]
+      _ <- capture root "chmod" ["-R", "u+w", logs]
+      Right . readSweepResults entries <$> readFile (logs </> "results.tsv")
+    _ -> pure (Left "the sweep's build failed; see its log above")
+
+-- | Each record's outcome from the sweep's @results.tsv@ rows: the record, then
+-- @stale@, @build-failed@ or @built@, then the test exit code when built.
+readSweepResults :: [MutationRecord] -> String -> [ProofResult]
+readSweepResults entries contents =
+  [ case lookup (entry ^. #record) rows of
+      Nothing -> ProofResult (entry ^. #record) NotRun "its worker's base build failed"
+      Just ("stale" : _) -> ProofResult (entry ^. #record) Stale "does not apply at the revision"
+      Just ("build-failed" : _) -> ProofResult (entry ^. #record) (classifyProof (entry ^. #expect) (ExitFailure 1) False) "the build failed"
+      Just ("built" : exit : _) -> ProofResult (entry ^. #record) (classifyProof (entry ^. #expect) (exitCode exit) True) ("test exit " <> exit)
+      Just other -> ProofResult (entry ^. #record) NotRun ("unreadable result: " <> T.intercalate " " other)
+  | entry <- entries
+  ]
+  where
+    rows = [(record', rest) | line <- T.lines (T.pack contents), record' : rest <- [T.splitOn "\t" line]]
+    exitCode text = if text == "0" then ExitSuccess else ExitFailure (either (const 1) fst (TR.decimal text))
+
+-- | Run a command with its standard error shown as it runs, capturing its
+-- standard output.
+streamingStderr :: FilePath -> FilePath -> [String] -> IO (ExitCode, Text)
+streamingStderr workdir program arguments = do
+  (_, Just stdoutHandle, _, process) <- createProcess (proc program arguments) {cwd = Just workdir, std_out = CreatePipe, std_err = Inherit}
+  output <- T.pack <$> hGetContents stdoutHandle
+  _ <- evaluate (T.length output)
+  code <- waitForProcess process
+  pure (code, output)
 
 capture :: FilePath -> FilePath -> [String] -> IO (ExitCode, Text, Text)
 capture workdir program arguments = do
