@@ -182,3 +182,37 @@ hours and eight shards need 7–9 hours.
   [Plan 179](../plans/179-bring-the-recovery-model-deep-tier-within-an-hour.md)
   brings the tier within budget without weakening what it proves. Until it lands, the tier is
   over budget, and a change that needs it records its run time.
+
+## Amendment (2026-10-07): the model's world is derived from validated semantics
+
+Decided by the operator on 2026-10-06, when MasterPlan 23 step 3 was redirected to first principles
+([RES-4](../research/kubernetes-api-semantics-for-inventory-proofs.md)), and implemented by
+[Plan 182](../plans/182-derive-the-recovery-model-s-kubernetes-world-from-validated-api-semantics.md).
+The earlier Kubernetes world built the adapter's view of an object itself, so it shared the adapter's
+beliefs. Defects in those beliefs (stale readiness, refusal classes, terminating objects) passed the
+model and were found only by analysis.
+
+- **The world is a fake API server behind the production interpreter.**
+  - The model runs the adapter that the CLI composes (`kubernetesApplicationAdapter`) against a pure
+    API server (`test/Nagare/Test/World/ApiServer.hs`), through the production kubectl interpreter.
+  - Production code builds every request, maps every refusal and parses every object. The world
+    answers as a real server would; it never tells the adapter an object's state.
+- **Its behaviour is data checked against a real cluster.**
+  - Each in-line kind's semantics are columns of the kind table (`KindSemantics`): generation,
+    observedGeneration, readiness model, churn source and deletion rule.
+  - A checked-in script (`docs/audits/k8s-semantics-2026-10-06/experiments/record-traces.sh`)
+    records traces from a real k3s and Knative. Two tests fail when the table or the fake server
+    disagrees with the traces: `kind semantics` and `world conformance`.
+  - **Re-run the recorder on any change of the k3s, kubectl or Knative version, or of the in-line
+    kinds,** and commit the new traces with the change.
+  - Behaviour the traces do not cover is added by a new recorded experiment, not by assumption.
+- **A fault counts only when it acted.** A pinned regression requires every scheduled fault to have
+  fired and changed the world or its caller's answer. Every fault kind has a test that it acts.
+- **Known defects are a two-sided ledger, never a relaxed invariant.**
+  - A violation whose defect is known, owned and unfixed is listed in
+    `test/Nagare/Test/Model/KnownDefects.hs`. Each entry names its gap, owner, scenario, fault,
+    violation and exact count.
+  - The fast tier fails on an unlisted violation and on a changed count.
+  - A deferred defect's owner is the deferral ledger, with the operator's decision date.
+- **A world change is classified.** A change to the world's fidelity records, for every fast-tier
+  outcome it changes, the cause: a validated rule, a ledger entry, or a harness defect it fixed.
