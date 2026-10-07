@@ -173,7 +173,7 @@
             patchShebangs "$tree/cluster" > /dev/null
             cp "$TMPDIR/cabal.project.sweep" "$tree/cli/nagarectl/cabal.project.sweep"
             cd "$tree/cli/nagarectl"
-            build() { cabal build --offline -w ${sweepGhc}/bin/ghc -O0 -j"$jobs" --project-file=cabal.project.sweep nagarectl-test nagare-dsl-test; }
+            build() { cabal build --offline --enable-tests -w ${sweepGhc}/bin/ghc -O0 -j"$jobs" --project-file=cabal.project.sweep nagarectl-test nagare-dsl-test; }
             local start=$(date +%s)
             if ! build > "$out/logs/base-$w.log" 2>&1; then
               echo "worker $w: base build failed" | tee -a "$out/status"
@@ -190,7 +190,7 @@
               fi
               if build >> "$log" 2>&1; then
                 local binary dir
-                binary=$(cabal list-bin --offline -w ${sweepGhc}/bin/ghc -O0 --project-file=cabal.project.sweep "$suite-test" 2>> "$log")
+                binary=$(cabal list-bin --offline --enable-tests -w ${sweepGhc}/bin/ghc -O0 --project-file=cabal.project.sweep "$suite-test" 2>> "$log")
                 dir="$tree/cli/$suite"
                 (cd "$dir" && timeout 1800 "$binary" -p "$pattern") >> "$log" 2>&1
                 printf '%s\tbuilt\t%s\t%s\n' "$record" "$?" "$(( $(date +%s) - began ))" >> "$out/results-$w.tsv"
