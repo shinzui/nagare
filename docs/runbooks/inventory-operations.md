@@ -301,6 +301,112 @@ superseded incarnation no longer describe the member's object. Admission refuses
 live object changed after review. The member keeps its declaration; a rebind changes only the
 record.
 
+## A database volume claim deleted outside review (F77)
+
+This is a documented limit of MP-23 ([F77](../audits/mp23-findings.md#f77)). Nagare has no reviewed
+exit for it yet; the steps below are out of band except where they name `nagarectl`.
+
+**Recognize it.** Someone or something deleted the PersistentVolumeClaim of a database (PostgreSQL,
+Redis or ClickHouse) while its pod still mounts it. Kubernetes' `pvc-protection` finalizer holds the
+claim in `Terminating` for as long as that pod runs, which can be indefinitely. Nagare reads a
+terminating object as unavailable and waits for it to go, so every review that touches the database
+refuses at planning:
+- a deploy or update: `observation-unavailable`, naming the claim's resource ID;
+- a retirement: `invalid-retirement`.
+
+The refusal does not say why the observation is unavailable. Check the claim yourself:
+
+```bash
+kubectl get pvc "$CLAIM" -n "$NAMESPACE" \
+  -o jsonpath='{.metadata.deletionTimestamp} {.metadata.finalizers} {.spec.volumeName}{"\n"}'
+```
+
+A timestamp, `["kubernetes.io/pvc-protection"]` and a volume name mean this case.
+
+**What Kubernetes does next** ([RES-4](../research/kubernetes-api-semantics-for-inventory-proofs.md)
+rule U6, experiment E16 in [the k8s semantics audit](../audits/k8s-semantics-2026-10-06/results.md#e16)):
+- The running pod keeps the claim mounted and its data readable.
+- No new pod can mount the claim. A backup Job that mounts it stays Pending with
+  `persistentvolumeclaim "…" is being deleted`.
+- When the pod ends for any reason, the claim goes within seconds. Reasons include a delete, a
+  node restart, an eviction or a rollout. The StatefulSet's replacement pod then waits for a claim
+  that no longer exists.
+- With the default local-path `Delete` reclaim policy, the volume and its data go with the claim.
+  With `Retain`, the volume stays `Released` and can be bound again.
+
+So the data is one pod restart away from loss. Do the first two steps at once, before anything
+else.
+
+1. **Keep the volume.** Set its reclaim policy to `Retain`. This touches only the PersistentVolume,
+   which Nagare does not manage.
+
+   ```bash
+   VOLUME=$(kubectl get pvc "$CLAIM" -n "$NAMESPACE" -o jsonpath='{.spec.volumeName}')
+   kubectl patch pv "$VOLUME" --type=merge -p '{"spec":{"persistentVolumeReclaimPolicy":"Retain"}}'
+   ```
+
+2. **Save the claim's manifest**, which carries Nagare's ownership stamp, to a private location:
+
+   ```bash
+   kubectl get pvc "$CLAIM" -n "$NAMESPACE" -o json > "$PRIVATE/claim.json"
+   ```
+
+3. **Back up through the running pod.** Nagare cannot plan its reviewed backup now, and nothing can
+   mount the claim beside the pod. Use the database's own dump tool inside the pod, or over the
+   database's Service, and write the dump to private storage outside the cluster. For example, for
+   PostgreSQL:
+
+   ```bash
+   kubectl exec -n "$NAMESPACE" "$POD" -- pg_dumpall -U postgres > "$PRIVATE/dump.sql"
+   ```
+
+   Check the dump before going on. E16 verified a file-level stream out of the running pod (`tar` over
+   `kubectl exec`); the database-level commands follow each engine's own documentation.
+
+4. **Let the claim go.** Delete the pod. Do not scale or edit the StatefulSet, which Nagare owns,
+   and never remove the `pvc-protection` finalizer by hand.
+
+   ```bash
+   kubectl delete pod "$POD" -n "$NAMESPACE"
+   kubectl get pv "$VOLUME" -o jsonpath='{.status.phase}{"\n"}'   # Released
+   ```
+
+5. **Close any stopped transaction on the database's scope** as in
+   [Close a stopped transaction](#close-a-stopped-transaction). If close refuses only because an
+   operation on the claim is unknown, check the claim yourself and use an
+   [attested close](#attested-close-when-no-adapter-can-prove-an-operation) that records what you
+   found. Planning now refuses `durable-resource-missing`. No review can re-create an accepted
+   durable member, or retire one that is absent.
+
+6. **Restore the claim.**
+   - **The retained volume, with its original data (preferred).** Free the volume and recreate the
+     claim from the saved manifest, pinned to the volume, as Nagare's field manager:
+
+     ```bash
+     kubectl patch pv "$VOLUME" --type=json -p '[{"op":"remove","path":"/spec/claimRef"}]'
+     jq 'del(.metadata.uid, .metadata.resourceVersion, .metadata.creationTimestamp, .metadata.deletionTimestamp,
+             .metadata.deletionGracePeriodSeconds, .metadata.finalizers, .metadata.managedFields, .status)
+         | .metadata.annotations |= with_entries(select(.key | (startswith("pv.kubernetes.io/") or startswith("volume.")) | not))' \
+       "$PRIVATE/claim.json" | kubectl create --field-manager=nagare-inventory -f -
+     ```
+
+     The StatefulSet's waiting pod starts on the original data. E16 verified this sequence with plain
+     kubectl.
+   - **The volume is gone.** Recreate the claim the same way, but without `spec.volumeName` (add
+     `| del(.spec.volumeName)` to the filter). The database starts empty. Restore the dump from step
+     3 with the engine's own client.
+
+7. **Rebind the claim in Nagare.** The new claim carries the member's stamp under a new UID, so
+   `inventory status --json` reports the claim's resource as `replaced-incarnation`. When it is the
+   object to keep, rebind it as in [Replaced and unrecorded members](#replaced-and-unrecorded-members).
+   Reviews of the database plan normally again. Its earlier recovery points describe the superseded
+   incarnation.
+
+The Kubernetes steps (1, 2, 4 and 6) were verified on k3s v1.34.6 in E16. Steps 5 and 7 are the
+documented close and rebind procedures. They have not been exercised end to end on this case
+through `nagarectl`. A reviewed exit that plans the backup, the release of the claim and the rebind
+is deferred to the next MasterPlan ([F77](../audits/mp23-findings.md#f77)).
+
 ## Repair configuration drift
 
 `inventory status --json` reports a changed accepted object as

@@ -22,6 +22,11 @@ provenance:
       at: 2026-10-06T22:38:00Z
       mode: "update"
       note: "No compatibility with the old world, old pins or earlier journals (operator)"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-07T04:06:18Z
+      mode: "implement"
+      note: "M1-M4 implemented; F77 ledgered as deferred; before/after classification filled"
 ---
 
 # Derive the recovery model's Kubernetes world from validated API semantics
@@ -110,6 +115,15 @@ How to see it working:
 - [ ] M4: the recovery model runs on the new world. The old world is deleted, pinned regressions
   are re-pinned by locator and require their faults to act, and the known-defect ledger is two-sided.
   The before/after classification of every fast-tier change is recorded below with nothing unexplained.
+  Nearly done, 2026-10-07:
+  - The model runs on the fake API server (`b1a3bbf5`); the old world is deleted. The self-test passes with
+    14,567 runs and no violation, and every pin passes with its faults fired and acted.
+  - The fast tier finds three violations, all F77. All three are in the two-sided ledger
+    (`Nagare/Test/Model/KnownDefects.hs`), and the tier passes (70 s locally).
+  - The ledger's own test passes: an unlisted violation, a missing occurrence and an extra occurrence each
+    fail.
+  - The before/after classification is filled in under Milestone 4.
+  - Remaining: the remote run of the committed revision.
 - [ ] M5: acceptance evidence. The fast tier, self-test, conformance and pins are green on the remote
   builder through `just test-remote`, `just gate` passes, and the coordinator lands it.
 
@@ -147,6 +161,29 @@ How to see it working:
   leaves the controller frozen.
 - kubectl 1.37 warns on every run that it is three minor versions from the 1.34 server (RES-4 G12). The recorded
   answers match RES-4's, so the skew did not change any observed behaviour.
+- The first fast-tier runs on the new world found harness defects before any product finding. Each was fixed in
+  M4:
+  - Kind fixtures were not valid objects: a core Service had no `spec.ports`, and a StatefulSet no selector. That
+    produced 13 violations, so the fixtures now carry valid bodies (`0afa551d`).
+  - Every PVC was held as if mounted. A claim is now in use only while a running workload's pod template names it.
+  - An annotation-only StatefulSet update "landed unready", because a spec's outcome was keyed by the stamp digest.
+    It is now tied to the pod template it rolls out (`12876d1b`). That cleared five violations.
+  - The ground truth read a StatefulSet's update revision at the wrong path.
+- F77, a real finding: a mounted database PVC deleted outside review stays Terminating, and every later review of
+  the database refuses at planning, indefinitely. The old world deleted the PVC at once, which leads to the excused
+  `durable-resource-missing`. The operator deferred F77 as a documented limit (Decision Log). E16 found the
+  runbook's facts on a real cluster:
+  - No second pod can mount a Terminating claim, so a backup must go through the running pod.
+  - Ending the pod releases the claim within seconds, and its `Delete` volume takes the data with it.
+  - Setting the volume to `Retain` first keeps the data, and a recreated claim pinned to the volume mounts it.
+- Planning drops the adapter's `ObservationUnavailable` reason (`Plan/Changes.hs`, `observation-unavailable`). So
+  the "being deleted" text never reaches the operator, and a runbook pointer there would not be seen. This is
+  noted in F77 for the next MasterPlan.
+- G3 (P6) is invisible, not absent. A database StatefulSet that lands unready closes, and the corrected review lands
+  and stays stuck. No invariant flags a correction that never takes effect: the model has no "a corrected review
+  converges" liveness invariant. Raised with the coordinator as a scope question; EP-181 owns the G3 fix.
+- The fast gate's architecture check bounds a module at 1000 lines. `ApiServer.hs` reached 1043 with E15's quantity
+  rules, which now live in `Nagare/Test/World/Quantity.hs`.
 - Every RES-4 claim reproduced in the second, independent recording: the stale `Ready=True` (E4),
   `Available=True` past the progress deadline (E5), OrderedReady corrections stuck for both a crash loop and a
   Pending pod until the pod is deleted, with Parallel rolling (E6), the 409/422/404 classes (E3), the SSA
@@ -199,6 +236,21 @@ How to see it working:
   world. The before/after classification in M4 stays: it is the audit that no behaviour change goes unexplained, not
   a compatibility promise.
   Date: 2026-10-06
+
+
+- Decision: F77 is a documented limit for MP-23 (operator, 2026-10-07, relayed by the coordinator). Its three
+  fast-tier violations stay in the known-defect ledger with owner "deferral ledger (operator, 2026-10-07)".
+  Its tracker entry is Deferred, and the runbook section is in `docs/runbooks/inventory-operations.md`. The
+  reviewed exit is the next MasterPlan's.
+  Rationale: the exit needs a new reviewed operation (a backup through the running pod, the release of the
+  claim, a rebind), which is beyond EP-182's world-fidelity scope and after MP-23's fidelity freeze.
+  Date: 2026-10-07
+
+- Decision: only the fast tier reads the ledger. The deep tier reports every violation.
+  Rationale: the ledger's counts are exact for the fast tier's single-fault placements. The deep tier's pairs
+  would reach the same defects a different number of times, and a deep run is a confirmation that must show
+  them.
+  Date: 2026-10-07
 
 
 ## Outcomes & Retrospective
@@ -549,6 +601,20 @@ classification is filled in:
 | P9 | every scenario | `generation` on every kind; `observedGeneration == generation` always | absent on nine kinds; it lags only under `ControllerLag` | fidelity, no outcome change expected |
 | P10 | every pinned regression | raw ordinals | locator-based pins requiring "acted" | harness, no outcome change expected |
 | P11 | every scenario | boundary counts | more `ObserveCall`s, because the production runtime issues extra `get`s (ownership check, stable observation, live-object reader) | fidelity of the boundary count; ordinals shift |
+
+**Actual classification (2026-10-07).** The fast tier on the starting revision `fee4d8bc` (EP-180 M6) passed with
+no violation. On this milestone it finds three violations, all F77 and all in the ledger. Every other change
+between the first switched run and the last was a harness defect, fixed in M4 (Surprises & Discoveries).
+
+| # | Actual | Cause |
+| --- | --- | --- |
+| P1 | as predicted: `ChurnAlways` on a Knative Service does not act, and the `world faults` test pins it | fidelity (E4, E10) |
+| P2–P5 | no violation | EP-180 fixed G6, G1, G2 and G4 before the switch |
+| P6 | no violation, but the correction stays stuck: no invariant reads it | G3 (EP-181); the missing liveness invariant is raised with the coordinator |
+| P7 | the PVC is Terminating; the parser says Terminating (EP-180's G5 fix), not Present. Planning then refuses for as long as the pod runs: three violations | F77, in the ledger (deferred) |
+| P8 | not added: G7 moved to EP-180 M7, and E15's fixture went to its owner | G7 (EP-180) |
+| P9, P10 | no outcome change; every pin passes with its faults acted | fidelity; harness |
+| P11 | ordinals shifted as predicted; the pins locate their boundaries by request | fidelity |
 
 Acceptance: the fast tier passes on the new world, with every remaining violation in the two-sided
 ledger. The classification table is filled from the actual output. Each pinned regression passes

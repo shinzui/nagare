@@ -91,6 +91,7 @@ This is the authoritative list of implementation findings for [MP-23](../masterp
 | [F71](#f71) | P2 | A Kubernetes write the API server definitively refused (409, 422, 404 and the other 4xx) is reported ambiguous | Verifying | EP-153 / EP-180 |
 | [F72](#f72) | P1 | The Kubernetes transport refuses a corrective update of an unready StatefulSet or Deployment as an unsupported precondition | Verifying | EP-153 / EP-180 |
 | [F68](#f68) | P1 | An update whose target is deleted and replaced by an object not stamped as its own settles unknown, so only an attested close can end it | Verifying | EP-153 / EP-177 |
+| [F77](#f77) | P1 | A database volume claim deleted outside review while its pod runs stays Terminating, and every review of the database refuses until it goes | Deferred | deferral ledger (operator, 2026-10-07); next MasterPlan |
 
 Closed findings keep their full text, location, implementation updates and verification in [the closed-findings archive](mp23-archive/mp23-findings-closed.md). F01 and F11 retain their [earlier independent closure](mp23-archive/mp23-verification.md). F02, F03, F04, F05, F06, F07, F08 and F20 now have [2026-10-02 independent closure](mp23-independent-verification-2026-10-02.md). F34, F35, F36, F37, F38, F41 and F42 have 2026-10-04 independent closure on candidate `7596632c`, and F49 and F50 on candidate `847543896d07` ([records](mp23-independent-results-2026-10-04/phase1-source-and-regressions-7596632c.md)). Other entries retain their status shown above.
 
@@ -1010,6 +1011,48 @@ The class is not `NoEffect`. The absent before-state has changed, and in the `De
 
 **Model.** The recovery model's world has no finalizers. EP-182's world renders deletion timestamps and finalizers, and the production parser classifies them.
 
+## F77
+
+**A database volume claim deleted outside review while its pod runs stays Terminating, and every review of the database refuses until it goes** — P1; **Deferred**; owner: deferral ledger (operator, 2026-10-07). The reviewed exit belongs to the next MasterPlan.
+
+**Found by EP-182's fast tier on the validated world (2026-10-06, nagare-first-principle, claude-opus-5-5).** This was the first run with a world that renders `pvc-protection`. The finding was proved by three single-fault schedules (observed).
+
+**Semantics** ([RES-4](../research/kubernetes-api-semantics-for-inventory-proofs.md) U6; experiments E7 and E16 in [the k8s semantics audit](k8s-semantics-2026-10-06/results.md#e16)):
+- A database's StatefulSet mounts its PVC by name (`Nagare/Dsl/Database/Render.hs`, `dbPvcName`). A DELETE of that PVC while the pod runs is held by the `kubernetes.io/pvc-protection` finalizer. The PVC stays, with its UID, a deletion timestamp and the finalizer, for as long as the pod runs. That can be indefinitely: nothing in Nagare ends the pod.
+- While held, the pod keeps the data readable, and the scheduler refuses every new pod that names the claim.
+- When the pod ends for any reason, the claim goes within seconds, before the StatefulSet's replacement pod can schedule. Under local-path's `Delete` reclaim policy, its volume and data go too. A volume patched to `Retain` first stays `Released`, and a recreated claim pinned to it mounts the original data.
+
+**Schedules** (fast tier, `InventoryRecoveryModelSpec`, at EP-182 revision `12876d1b`):
+- "create a database, then retire it", `Deleted` at `ObserveCall` 52, review `retire database`: `I1: planning refused` with `invalid-retirement`.
+- "create a database, update its resources, then update it again", `Deleted` at `ObserveCall` 52, review `update database`: `I1: planning refused` with `observation-unavailable` naming `standalone:database-pg/pg/pvc`.
+- The same scenario, `Deleted` at `ObserveCall` 66, review `create database`: the same refusal.
+
+In each, the fault deletes the PVC between reviews, so no transaction is open. The refusal is at planning, and I1 finds no supported exit.
+
+**Why there is no exit today.**
+- **While the claim is held.** Planning reads a terminating object as `ObservationUnavailable` (F74's fix, G5), which `Plan/Changes.hs` turns into `observation-unavailable` for a deploy or update. A retirement needs an owned present member to retain (`invalid-retirement`, `Plan/Lifecycle.hs`). The adapter's reason ("being deleted … replan once it is gone") is dropped by planning, so the operator sees only "resource observation is unavailable".
+- **After the claim goes.** Planning refuses `durable-resource-missing` for every review that keeps or retires the database. `inventory collect` covers only retained, present, stateless members. The reviewed way back is a rebind (ADR 27 §3) of a recreated, stamped claim.
+
+**Why the model missed it before.** The old world deleted a PVC at once. That leads straight to `durable-resource-missing`, which the model rightly excuses as data lost outside review (`deletedDataRefusal`). EP-182's world holds a mounted claim as a real API server does.
+
+**Exit for MP-23: a documented limit with a runbook.** The steps are in [A database volume claim deleted outside review (F77)](../runbooks/inventory-operations.md#a-database-volume-claim-deleted-outside-review-f77):
+1. Set the volume to `Retain` at once.
+2. Save the claim's stamped manifest.
+3. Back up through the running pod. A backup Job cannot mount the claim, and the reviewed backup cannot be planned.
+4. Delete the pod, so the claim goes.
+5. Close any stopped transaction on the scope. Where close refuses only because an operation on the claim is unknown, this is ADR 26's attested close, which accepts nothing.
+6. Recreate the claim from the manifest, pinned to the retained volume, as field manager `nagare-inventory`. If the volume is lost, recreate it empty and restore the dump with the engine's client.
+7. Rebind the `replaced-incarnation` claim.
+
+E16 verified steps 1, 2, 4 and 6 (and a file-level backup through the pod) on k3s v1.34.6. Steps 5 and 7 are the documented close and rebind procedures, not yet exercised end to end on this case.
+
+**Ledger.** The three violations are listed in the recovery model's two-sided known-defect ledger (`cli/nagarectl/test/Nagare/Test/Model/KnownDefects.hs`) with this owner. The fast tier fails if the count changes or a new violation appears. The deep tier does not read the ledger and reports them.
+
+**For the next MasterPlan.**
+- A reviewed exit that plans the backup through the running pod, the release of the claim (the volume set to `Retain`, the pod deleted) and the rebind. Each step is guarded by the claim's UID and deletion timestamp.
+- Planning carries the adapter's `ObservationUnavailable` reason into its refusal, and a terminating durable claim points at the runbook. Not done here: the refusal drops the reason today (`Plan/Changes.hs`, `observation-unavailable`), so a pointer in the adapter's message would not reach the operator.
+
+**Verification.** None. Deferred findings are not closed; the ledger entry is removed when the reviewed exit lands.
 ## F75
 
 **A non-canonical resource quantity drifts forever** — P1; **Verifying**; owners EP-180.
@@ -1042,4 +1085,3 @@ The class is not `NoEffect`. The absent before-state has changed, and in the `De
 - The fast gate's `mutation-patterns` step fails when any record's pattern selects no test of its built suite.
 
 **Tests.** The ten restored tests. `mutations patterns` reports a pattern that selects nothing, and `mutations check` reports a record missing from the manifest; both were tried against a corrupted manifest.
-
