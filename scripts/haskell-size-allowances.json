@@ -2,7 +2,7 @@
   "cli/nagare-access/test/Spec.hs": 1852,
   "cli/nagare-dsl/src/Nagare/Resource/Inventory.hs": 1015,
   "cli/nagare-dsl/test/Spec.hs": 1283,
-  "cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesRuntime.hs": 1303,
+  "cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesRuntime.hs": 1185,
   "cli/nagarectl/src/Nagare/Inventory/Command.hs": 1039,
   "cli/nagarectl/src/Nagare/Inventory/DataFence/KubernetesExclusion.hs": 1199,
   "cli/nagarectl/src/Nagare/Inventory/Site.hs": 1426,
