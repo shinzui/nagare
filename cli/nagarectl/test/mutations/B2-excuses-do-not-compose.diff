@@ -1,7 +1,7 @@
-diff --git a/cli/nagarectl/test/InventoryRecoveryModelSpec.hs b/cli/nagarectl/test/InventoryRecoveryModelSpec.hs
---- a/cli/nagarectl/test/InventoryRecoveryModelSpec.hs
-+++ b/cli/nagarectl/test/InventoryRecoveryModelSpec.hs
-@@ -759,7 +759,7 @@
+diff --git a/cli/nagarectl/test/Nagare/Test/Model/Invariants.hs b/cli/nagarectl/test/Nagare/Test/Model/Invariants.hs
+--- a/cli/nagarectl/test/Nagare/Test/Model/Invariants.hs
++++ b/cli/nagarectl/test/Nagare/Test/Model/Invariants.hs
+@@ -232,7 +232,7 @@ refusalExcused deleted foreign' refusal = not (null errors) && all covered error
        | chunk <- drop 1 (T.splitOn "PlanError {" refusal)
        ]
      named text = [T.takeWhile (/= '"') resource | resource <- drop 1 (T.splitOn "ResourceId \"" text)]
@@ -9,4 +9,4 @@ diff --git a/cli/nagarectl/test/InventoryRecoveryModelSpec.hs b/cli/nagarectl/te
 +    covered (code, resources) = not (null resources) && (all (\resource -> code == "durable-resource-missing" && Set.member resource deleted) resources || all (`Set.member` foreign') resources)
      excused code resource = (code == "durable-resource-missing" && Set.member resource deleted) || Set.member resource foreign'
  
- -- | A retirement of a scope that was never accepted (its create was closed
+ -- | I8's settlement of an operation with intent and no completion, when it

@@ -676,5 +676,17 @@
     "suite": "nagarectl",
     "pattern": "/when a write of its spec lands/",
     "expect": "test-fails"
+  },
+  {
+    "record": "B6-template-excuse-ignores-digest",
+    "suite": "nagarectl",
+    "pattern": "/3d B6/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "B7-i8-asks-adapter-for-verify",
+    "suite": "nagarectl",
+    "pattern": "/3d B7/",
+    "expect": "test-fails"
   }
 ]

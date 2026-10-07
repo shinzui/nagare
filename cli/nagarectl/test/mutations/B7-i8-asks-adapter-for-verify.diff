@@ -1,0 +1,12 @@
+diff --git a/cli/nagarectl/test/Nagare/Test/Model/Invariants.hs b/cli/nagarectl/test/Nagare/Test/Model/Invariants.hs
+--- a/cli/nagarectl/test/Nagare/Test/Model/Invariants.hs
++++ b/cli/nagarectl/test/Nagare/Test/Model/Invariants.hs
+@@ -242,7 +242,7 @@ refusalExcused deleted foreign' refusal = not (null errors) && all covered error
+ -- adapter.
+ i8Settlement :: OperationAction -> Maybe Settlement
+ i8Settlement action
+-  | action == VerifyResource = Just (SettledNoEffect "a verify never executes (ADR 26 §6)")
++  | action == VerifyResource = Nothing
+   | otherwise = Nothing
+ 
+ -- | I8's verdict on one settlement: unknown is a gap, unless resume resolves it.
