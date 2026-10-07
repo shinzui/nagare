@@ -120,7 +120,7 @@
       localPackages = [ "nagare-dsl" "nagarectl" ];
       sweepGhc = hp.ghcWithPackages (_: lib.filter
         (dep: dep != null && !(lib.elem (dep.pname or "") localPackages))
-        (cabalDeps hp.nagarectl ++ cabalDeps hp.nagare-dsl));
+        (cabalDeps hp.nagarectl ++ cabalDeps nagarePackages.checkedNagareDsl));
 
       # The sweep's project file is the real cabal.project less its
       # source-repository-package stanzas (their packages are already in
