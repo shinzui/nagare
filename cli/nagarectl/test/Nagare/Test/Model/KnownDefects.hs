@@ -47,16 +47,38 @@ knownViolations =
       Deleted
       "I1: planning refused (PlanError {planErrorCode = \"invalid-retirement\""
       1
-  , KnownViolation
+  , -- EP-181 added the restart step to this scenario; its plan waits for the
+    -- Terminating claim too, so one more placement ends here.
+    KnownViolation
       "F77"
       deferral
-      "create a database, update its resources, then update it again"
+      "create a database, update its resources, update it again, then restart it"
       Deleted
       "I1: planning refused (PlanError {planErrorCode = \"observation-unavailable\""
-      2
+      3
+  , -- F78: while a StatefulSet's own template never becomes Ready, every
+    -- transaction stops at it, and independent members planned after it
+    -- (backup-account, backup-read-binding) are starved until the template is
+    -- corrected. Here the create's template is faulted and the correction
+    -- re-applies it. A documented limit (docs/audits/mp23-findings.md#f78).
+    KnownViolation
+      "F78"
+      nextMasterPlan
+      "create a database, update its resources, update it again, then restart it"
+      LandsUnready
+      "I9: the final step's scope ScopeId Standalone (Name \"database-pg\") ended accepted but not converged"
+      1
+  , KnownViolation
+      "F78"
+      nextMasterPlan
+      "create a database, update its resources, update it again, then restart it"
+      LandsFailed
+      "I9: the final step's scope ScopeId Standalone (Name \"database-pg\") ended accepted but not converged"
+      1
   ]
   where
     deferral = "deferral ledger (operator, 2026-10-07)"
+    nextMasterPlan = "next MasterPlan: let a transaction continue independent operations past a stop (operator, 2026-10-07)"
 
 -- | The violations that fail the tier: every one no entry matches, and one
 -- line per entry whose count differs from what was found.

@@ -65,7 +65,7 @@ explicitScenarios =
     , Scenario "create with a durable volume, then retire" [Deploy "v1", Retire] [] True volumeShape
     , Scenario "create a database, then ingest a scheduled receipt" [CreateDatabase, IngestReceipt] [] True plainShape
     , Scenario "create a database, then retire it" [CreateDatabase, RetireDatabase] [] True plainShape
-    , Scenario "create a database, update its resources, then update it again" [CreateDatabase, UpdateDatabase, CreateDatabase] [] True plainShape
+    , Scenario "create a database, update its resources, update it again, then restart it" [CreateDatabase, UpdateDatabase, CreateDatabase, RestartDatabase] [] True plainShape
     ]
 
 data Step
@@ -82,6 +82,10 @@ data Step
   | -- | Review and apply the database with new resource requests, which
     -- rewrites its StatefulSet.
     UpdateDatabase
+  | -- | Restart the database as `db restart` does (EP-181): a StatefulSet
+    -- whose rollout is stuck submits its accepted scope unchanged, and the
+    -- plan replaces the stuck pod; otherwise it stamps a restart token.
+    RestartDatabase
   deriving stock (Eq, Show)
 
 stepText :: Step -> Text
@@ -92,3 +96,4 @@ stepText step = case step of
   IngestReceipt -> "ingest receipt"
   RetireDatabase -> "retire database"
   UpdateDatabase -> "update database"
+  RestartDatabase -> "restart database"

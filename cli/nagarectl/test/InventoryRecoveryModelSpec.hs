@@ -15,7 +15,7 @@ import Data.List (partition)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
-import Data.Maybe (isJust)
+import Data.Maybe (fromMaybe, isJust, listToMaybe)
 import Data.Set qualified as Set
 import Data.Text qualified as T
 import GHC.Clock (getMonotonicTime)
@@ -26,9 +26,10 @@ import Nagare.Dsl.Database.Render (dbPvcName)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Inventory.Adapter
+import Nagare.Inventory.Adapters.KubernetesStuckPod (KubernetesPodOps (..), runtimePodOps)
 import Nagare.Inventory.Backup (ScheduledBackupReceipt (..), ScheduledReceiptExpectation (..), scheduledReceiptExpectationFromCronJob)
 import Nagare.Inventory.BackupFreshness (RecoveryPointObjective (HourlyRecoveryPoint))
-import Nagare.Inventory.DataService (compileStandaloneDatabase)
+import Nagare.Inventory.DataService (NativeDataKind (DatabaseObjects), RestartDecision (..), compileStandaloneDatabase, compileStatefulSetRestart)
 import Nagare.Inventory.Database (DatabaseBackupTarget (DatabaseBackupTarget))
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Execute
@@ -55,6 +56,9 @@ import Nagare.Test.Model.Scenarios
 import Nagare.Test.Model.Search
 import Nagare.Test.Model.Tier
 import Nagare.Test.World.Adversary
+import Nagare.Test.World.ApiServer (Outcome (Good, Unready))
+import Nagare.Test.World.ApiServer qualified as ApiServer
+import Nagare.Test.World.Cluster (Cluster (..), clusterConfig)
 import Nagare.Test.World.Kinds (KindAction (..), KindRow, KindStatus (InLine), kindFixture, kindTable, kubernetesKind)
 import Nagare.Test.World.Kubernetes
 import System.Environment (lookupEnv)
@@ -74,6 +78,32 @@ inventoryRecoveryModelTests =
             <> " generated from the kind table (one placement per fault)"
         )
         (runTier False scenarios singleFaults)
+    , testCase "I9's template excuse: the final revision declaring the faulted template is excused (EP-181)" $ do
+        let faulted = contentDigest "faulted-template"
+            placed = [(Boundary MutateCall 5, LandsUnready)]
+            outcomes' = Map.singleton (digestText faulted) Unready
+        faultedTemplateRecurs placed outcomes' (Map.singleton statefulId faulted) Map.empty Set.empty @?= True
+        faultedTemplateRecurs [(Boundary MutateCall 5, LandsFailed)] (Map.singleton (digestText faulted) ApiServer.Failed) (Map.singleton statefulId faulted) Map.empty Set.empty @?= True
+        -- (a) An absent, never-started dependent of the faulted member is held
+        -- back by the dependency gate, transitively.
+        faultedTemplateRecurs placed outcomes' (Map.fromList [(statefulId, faulted), (cronId, contentDigest "backup"), (signingId, contentDigest "signing")]) (Map.fromList [(cronId, [statefulId]), (signingId, [cronId])]) (Set.fromList [cronId, signingId]) @?= True
+    , testCase "I9's template excuse: a different final template is not excused, which is G3 (EP-181)" $ do
+        let faulted = contentDigest "faulted-template"
+            outcomes' = Map.singleton (digestText faulted) Unready
+        faultedTemplateRecurs [(Boundary MutateCall 10, LandsUnready)] outcomes' (Map.singleton statefulId (contentDigest "corrected-template")) Map.empty Set.empty @?= False
+        -- An outcome no LandsUnready or LandsFailed fault acted for excuses nothing.
+        faultedTemplateRecurs [(Boundary MutateCall 10, ControllerLag)] outcomes' (Map.singleton statefulId faulted) Map.empty Set.empty @?= False
+        -- Per member: one member's recurring faulted template never excuses
+        -- another member left stuck for another reason.
+        faultedTemplateRecurs [(Boundary MutateCall 5, LandsUnready)] outcomes' (Map.fromList [(statefulId, faulted), (pvcId, contentDigest "other-template")]) Map.empty Set.empty @?= False
+        -- Nothing failing is nothing to excuse.
+        faultedTemplateRecurs [(Boundary MutateCall 5, LandsUnready)] outcomes' Map.empty Map.empty Set.empty @?= False
+        -- (b) An absent, never-started member with no OrderedAfter path to the
+        -- faulted member is not held back by it.
+        faultedTemplateRecurs [(Boundary MutateCall 5, LandsUnready)] outcomes' (Map.fromList [(statefulId, faulted), (cronId, contentDigest "backup")]) (Map.fromList [(cronId, [pvcId])]) (Set.singleton cronId) @?= False
+        -- (c) A dependent that was created and later deleted out of band
+        -- started, so it is not excused.
+        faultedTemplateRecurs [(Boundary MutateCall 5, LandsUnready)] outcomes' (Map.fromList [(statefulId, faulted), (cronId, contentDigest "backup")]) (Map.fromList [(cronId, [statefulId])]) Set.empty @?= False
     , testCase "the known-defect ledger is two-sided: unlisted violations and changed counts fail (EP-182)" $ do
         let found scenario' fault' line = T.unlines ["scenario: " <> scenario', "faults: [(Boundary {call = ObserveCall, ordinal = 3}," <> T.pack (show fault') <> ")]", "review: v1", "violation: " <> line]
             entry = KnownViolation "G0" "EP-0" "s" Deleted "I1: planning refused" 1
@@ -380,7 +410,11 @@ drive scenario schedule onStop start resumed = do
     go began run _ [] taken = do
       adversary <- readIORef (runAdversary run)
       consistent <- storeConsistent run
-      ended began run taken $ case consistent of
+      -- I9 needs the call counts at the final step's start: the most recent
+      -- step began last.
+      finalStart <- maybe Map.empty fst . listToMaybe <$> readIORef (fst began)
+      corrected <- correctionConverges scenario finalStart run
+      ended began run taken $ case consistent *> corrected of
         Left violation -> Left (describe scenario schedule "(end)" violation [])
         Right () -> Right (counts adversary)
     go began run previous (IngestReceipt : rest) taken = do
@@ -397,6 +431,7 @@ drive scenario schedule onStop start resumed = do
         Retire -> retireAndApply run (shape scenario) previous (historyImage previous)
         CreateDatabase -> databaseAndApply run (databaseScope, databaseNative) (shape scenario) previous (historyImage previous)
         UpdateDatabase -> databaseAndApply run resizedDatabase (shape scenario) previous (historyImage previous)
+        RestartDatabase -> restartAndApply run (shape scenario) previous (historyImage previous)
         RetireDatabase -> scopeRetireAndApply run databaseScopeId (shape scenario) previous (historyImage previous)
         _ -> reviewAndApply run (shape scenario) image (historyImage image)
       deletedData <- either (deletedDataRefusal run) (const (pure False)) outcome
@@ -404,6 +439,7 @@ drive scenario schedule onStop start resumed = do
       absentScope <- either (absentScopeRetirement run) (const (pure False)) outcome
       case outcome of
         Left refusal
+          | refusal == restartNotPlanned -> go began run (next previous step) rest taken
           | foreignBlocked || deletedData || absentScope -> do
               -- An unowned object at a planned address refuses planning, and a
               -- durable member deleted outside review refuses until its data is
@@ -565,6 +601,38 @@ databaseAndApply run (scope, native) volume image historyImage = do
       applied <- applyAsOperator run registry reviewed
       Right . (registry,reviewed,) <$> classify run applied
 
+-- | Restart the database as `db restart` does (EP-181): from the accepted
+-- scope and its stored native bytes, read the StatefulSet's stuck pod through
+-- the runtime's pod operations, then plan and apply what
+-- 'compileStatefulSetRestart' compiles. A failed read refuses the restart, and
+-- the operator re-runs it.
+restartAndApply :: Run -> Shape -> Text -> Text -> IO (Either Text (AdapterRegistry, ReviewedPlan, Applied))
+restartAndApply run volume image historyImage = do
+  compiled <- asOperator run $ \store -> do
+    history <- loadInventoryHistory store >>= orTrouble "load history"
+    case Map.lookup databaseScopeId (historyAccepted history) of
+      Nothing -> pure (Left "reviewed data restart requires one accepted StatefulSet scope")
+      Just (_, accepted) -> do
+        let acceptedInventory = ok (composeSnapshot (ok (mkScopeSnapshot fixtureBinding (Map.map (\(revision', declared) -> (revisionGeneration revision', declared)) (historyAccepted history)) (historyReservations history))))
+            members = Set.fromList [member ^. #identity | bundle <- scopeBundles accepted, Managed member <- declarations bundle]
+        native <- fst <$> (Status.loadAcceptedNativeSelected members store history acceptedInventory >>= orTrouble "load accepted native")
+        stuck <- readPodBlock (runtimePodOps (clusterConfig (fixtureBinding ^. #identity) (Cluster (runWorld run) (runAdversary run))) native) statefulId
+        debugServer <- (^. #server) <$> readIORef (runWorld run)
+        pure $ case stuck of
+          Left reason -> Left ("could not read the StatefulSet's pods: " <> reason)
+          Right observed -> first (T.pack . show) (compileStatefulSetRestart observed DatabaseObjects "pg" "personal" "model-restart" accepted native)
+  case compiled of
+    Left refusal -> pure (Left refusal)
+    -- E17: a pod not Ready at the update revision has a broken template; the
+    -- restart plans nothing and tells the operator to correct the spec.
+    Right (RestartNotPlanned _) -> pure (Left restartNotPlanned)
+    Right (RestartReview revised native _) -> databaseAndApply run (revised, native) volume image historyImage
+
+-- | The refusal 'restartAndApply' answers when the restart plans nothing; the
+-- step then ends with no review.
+restartNotPlanned :: Text
+restartNotPlanned = "db restart planned nothing: the pod's current template doesn't become ready"
+
 -- | I3: plan ingestion of a scheduled receipt from the live source, as `db
 -- backup-receipts` plans it. A receipt whose source StatefulSet or PVC was
 -- created outside review never compiles for ingestion. In a fault-free run the
@@ -682,6 +750,7 @@ startTransaction run = modifyIORef' (runWorld run) (\world -> world {writes = Ma
 -- transaction that finished before the crash.
 applyAsOperator :: Run -> AdapterRegistry -> ReviewedPlan -> IO (Either Interrupted (Either (NonEmpty AdmissionError) TransactionResult))
 applyAsOperator run registry reviewed = do
+  modifyIORef' (runWorld run) (#reviewedOperations %~ Map.union (Map.fromList [(plannedOperationId operation, NE.toList (plannedResources operation)) | entry <- reviewOperations (reviewedDocument reviewed), let operation = reviewPlannedOperation entry]))
   outcome <- operatorAction run $ \store -> do
     started <- fmap headGeneration <$> (inspectHead run >>= orFail "read head")
     attempt <- try (applyReviewed store registry reviewed)
@@ -874,6 +943,91 @@ storeConsistent run = do
           pure $ case raw >>= first (StoreInvalidObject "journal") . traverse decodeJournalEvent of
             Left err -> Left ("I5: the published journal is unreadable: " <> T.pack (show err))
             Right events -> first (\err -> "I5: the journal chain is invalid: " <> err) (() <$ validateJournal events)
+
+-- | I9 (EP-181, from RES-4 G3): a run that takes every step of its scenario,
+-- and whose final step reviews a spec the scenario does not mark unready, ends
+-- with that step's scope converged at its accepted revision, every member the
+-- revision bound live at its reviewed digest and Ready. A close that keeps the
+-- scope does not satisfy it. A fault that acted during the final step, or one
+-- whose effect legitimately outlives later writes, excuses the run.
+correctionConverges :: Scenario -> Map.Map Call Int -> Run -> IO (Either Text ())
+correctionConverges scenario finalStart run = case finalScope of
+  Nothing -> pure (Right ())
+  Just scope -> do
+    adversary <- readIORef (runAdversary run)
+    current <- inspectHead run >>= orFail "read head"
+    world <- readIORef (runWorld run)
+    bound <- readIORef (runBound run)
+    let accepted = current >>= Map.lookup scope . headAccepted
+        converged = current >>= Map.lookup scope . headConverged
+        finalMembers = fromMaybe Map.empty (accepted >>= (`Map.lookup` bound) . revisionDigest)
+        unproven =
+          [ resource
+          | (resource, digest) <- Map.toList finalMembers
+          , case Map.lookup resource (objects world) of
+              Just object' -> nativeDigest object' /= digest || readiness object' /= Ready
+              Nothing -> Set.notMember resource (deletedOutOfBand world)
+          ]
+    -- The final accepted revision's OrderedAfter edges, and the members no
+    -- journalled intent ever started.
+    history <- inspectHistory run >>= orFail "read history"
+    events <- maybe (pure []) (\headValue -> inspectJournal run (headSequence headValue) >>= orFail "read journal" >>= orFail "decode journal" . traverse decodeJournalEvent) current
+    let orderedAfter =
+          Map.fromList
+            [ (member ^. #identity, [dependency | OrderedAfter dependency <- member ^. #dependencies])
+            | Just (_, declared) <- [Map.lookup scope (historyAccepted history)]
+            , bundle <- scopeBundles declared
+            , Managed member <- declarations bundle
+            ]
+        started = Set.fromList (concat [Map.findWithDefault [] operation (world ^. #reviewedOperations) | event <- events, eventState event == IntentRecorded, Just operation <- [eventOperation event]])
+        neverStarted = Set.fromList [resource | resource <- unproven, Map.notMember resource (objects world), Set.notMember resource started]
+    if any excuses (acted adversary) || faultedTemplateRecurs (acted adversary) (world ^. #server . #outcomes) (Map.restrictKeys finalMembers (Set.fromList unproven)) orderedAfter neverStarted
+      then pure (Right ())
+      else pure $ case (accepted, unproven) of
+        (Nothing, _) -> Left ("I9: the final step's scope " <> T.pack (show scope) <> " has no accepted revision")
+        _ | accepted /= converged -> Left ("I9: the final step's scope " <> T.pack (show scope) <> " ended accepted but not converged")
+        (_, resource : _) -> Left ("I9: the final step's scope converged while " <> resourceIdText resource <> " is not its reviewed Ready object")
+        _ -> Right ()
+  where
+    finalScope = case reverse (steps scenario) of
+      Deploy image : _ | image `notElem` unready scenario -> Just appScope
+      CreateDatabase : _ -> Just databaseScopeId
+      UpdateDatabase : _ -> Just databaseScopeId
+      RestartDatabase : _ -> Just databaseScopeId
+      _ -> Nothing
+    -- (a) a fault placed during the final step: the step's first call has
+    -- ordinal one more than the count at its start; (b) faults whose effect
+    -- legitimately outlives later writes.
+    excuses (Boundary call' n, fault) =
+      n > Map.findWithDefault 0 call' finalStart
+        || fault `elem` [ForeignManager, ForeignObject, Replaced, Deleted, ChurnAlways]
+
+-- | I9's template excuse: a LandsUnready or LandsFailed fault that acted
+-- excuses the run when every member left unconverged is justified:
+--
+-- * it declares, in the final accepted revision, exactly a template such a
+--   fault landed, by spec digest (re-applying the same bad template is not a
+--   correction; a different template that stays stuck is G3); or
+-- * it is absent and never started (no journalled intent), and it depends
+--   through the final revision's OrderedAfter edges, transitively, on a
+--   member justified by its template: the dependency gate holds it back.
+--
+-- A member that started and then went missing is never justified. The
+-- arguments are the failing members with their final digests, the final
+-- revision's OrderedAfter edges, and the failing members that are absent and
+-- never started.
+faultedTemplateRecurs :: [(Boundary, Fault)] -> Map.Map Text Outcome -> Map.Map ResourceId ContentDigest -> Map.Map ResourceId [ResourceId] -> Set.Set ResourceId -> Bool
+faultedTemplateRecurs acted' outcomes' failing orderedAfter neverStarted =
+  any ((`elem` [LandsUnready, LandsFailed]) . snd) acted'
+    && not (Map.null failing)
+    && all justified (Map.keys failing)
+  where
+    faulted = Map.keysSet (Map.filter (\digest -> maybe False (/= Good) (Map.lookup (digestText digest) outcomes')) failing)
+    justified resource = Set.member resource faulted || (Set.member resource neverStarted && reaches Set.empty resource)
+    reaches seen resource =
+      any
+        (\dependency -> Set.member dependency faulted || (Set.notMember dependency seen && reaches (Set.insert dependency seen) dependency))
+        (Map.findWithDefault [] resource orderedAfter)
 
 checkInvariants :: Run -> IO (Either Text ())
 checkInvariants run = do

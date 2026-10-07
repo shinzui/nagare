@@ -79,11 +79,14 @@ data KubeWorld = KubeWorld
   -- ^ Every request and the boundary it counted as, most recent first.
   , addresses :: !(Map.Map ObjectKey ResourceId)
   -- ^ Each member's address, so an unstamped object at one is attributed.
+  , reviewedOperations :: !(Map.Map OperationId [ResourceId])
+  -- ^ EP-181: the members each applied review's operations act on, so the
+  -- model can tell from the journal's intents which members ever started.
   }
   deriving stock (Eq, Show, Generic)
 
 newWorld :: ApiServer -> KubeWorld
-newWorld initial = KubeWorld initial Nothing False False Nothing Map.empty Map.empty Set.empty Set.empty [] Map.empty
+newWorld initial = KubeWorld initial Nothing False False Nothing Map.empty Map.empty Set.empty Set.empty [] Map.empty Map.empty
 
 data Cluster = Cluster
   { world :: !(IORef KubeWorld)
