@@ -1,18 +1,22 @@
+{-# OPTIONS_GHC -Werror=unused-imports #-}
+
 module Main (main) where
 
-import Data.Aeson (eitherDecodeFileStrict)
+import Data.Aeson (eitherDecode, eitherDecodeFileStrict)
 import Data.Either (isLeft, isRight)
 import Data.Generics.Labels ()
 import Data.List (sort)
 import Data.Map.Strict qualified as Map
 import Nagare.Harness.FixtureSmoke
 import Nagare.Harness.Gate (fastSteps)
+import Nagare.Harness.Mutation (Expectation (..), MutationRecord (..), Outcome (..), Suite (..), classifyProof)
 import Nagare.Harness.Prelude
 import Nagare.Harness.Realise (remainingPaths)
 import Nagare.Harness.Record
 import Nagare.Harness.Step
 import Nagare.Harness.Verify
 import System.Directory (listDirectory)
+import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 import Test.Tasty
@@ -47,9 +51,20 @@ tests =
               results <- runSteps (const (pure ())) dir dir [Step "missing" "." "nagare-harness-no-such-program" []]
               map (^. #exit) results @?= [127]
         ]
-    , testCase "the fast gate runs the static checks, which take seconds, before both suites" $
+    , testCase "a mutation proof counts only when its record fails at the stage it names (EP-180 M8)" $ do
+        classifyProof TestFails (ExitFailure 1) True @?= Killed
+        classifyProof TestFails ExitSuccess True @?= Survived
+        classifyProof TestFails (ExitFailure 1) False @?= WrongStage
+        classifyProof BuildFails (ExitFailure 1) False @?= Killed
+        classifyProof BuildFails (ExitFailure 1) True @?= WrongStage
+        classifyProof BuildFails ExitSuccess True @?= WrongStage
+    , testCase "a mutation manifest entry names its suite, pattern and expectation (EP-180 M8)" $ do
+        let entry = "[{\"record\":\"G7-x\",\"suite\":\"nagare-dsl\",\"pattern\":\"/a || b/\",\"expect\":\"test-fails\"}]"
+        eitherDecode entry @?= Right [MutationRecord "G7-x" NagareDsl "/a || b/" TestFails]
+        assertBool "an unknown suite decoded" (isLeft (eitherDecode "[{\"record\":\"x\",\"suite\":\"other\",\"pattern\":\"/x/\",\"expect\":\"test-fails\"}]" :: Either String [MutationRecord]))
+    , testCase "the fast gate runs the static checks, which take seconds, then both builds and the record patterns, before both suites" $
         map (^. #name) fastSteps
-          @?= ["haskell-style-check", "architecture-and-command-audit", "nagarectl-build", "nagarectl-test", "nagare-dsl-build", "nagare-dsl-test"]
+          @?= ["haskell-style-check", "architecture-and-command-audit", "mutation-records", "nagarectl-build", "nagare-dsl-build", "mutation-patterns", "nagarectl-test", "nagare-dsl-test"]
     , testGroup
         "dry-run realisation"
         [ testCase "nothing to build or fetch leaves nothing remaining" $

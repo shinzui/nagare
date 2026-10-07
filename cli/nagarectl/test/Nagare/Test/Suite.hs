@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -Werror=unused-imports #-}
+
 -- | Suite responsibilities; internal implementation behind Nagare.Test.
 module Nagare.Test.Suite
   ( main
@@ -67,7 +69,7 @@ import InventoryTransactionSpec
 import InventoryTransferScriptSpec (inventoryTransferScriptTests)
 import InventoryUpstreamSpec (inventoryUpstreamTests)
 import InventoryVolumeRestorePinSpec (inventoryVolumeRestorePinTests)
-import Nagare.Dsl.Prelude hiding ((<.>))
+import Nagare.Dsl.Prelude ()
 import Nagare.Test.Application (appTests, deploymentsTests)
 import Nagare.Test.Backend
   ( backupProjectTests
@@ -203,6 +205,7 @@ main = do
             , inventoryGogolTests
             , inventoryObjectOpsTests
             , inventoryJournalHeadAdvanceTests
+            , inventoryIncarnationTests
             , inventoryKindTotalityTests
             , inventoryTests
             , inventoryApplicationUpdateRecoveryTests

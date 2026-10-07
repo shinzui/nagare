@@ -1,6 +1,6 @@
 -- | The local gate (EP-174). The fast gate runs on every push through
--- @.githooks/pre-push@: the style check, the architecture check and both
--- Haskell suites, serially, stopping at the first failure.
+-- @.githooks/pre-push@: the style check, the architecture check, the mutation
+-- records and both Haskell suites, serially, stopping at the first failure.
 module Nagare.Harness.Gate
   ( GateRun (..)
   , fastSteps
@@ -43,8 +43,8 @@ data GateRun = GateRun
   deriving stock (Eq, Show, Generic)
 
 -- | The fast gate, in order. The static checks take seconds, so they run
--- first: a style or architecture failure stops the gate before minutes of
--- builds and tests. @haskell-style-check@ is fourmolu, cabal-gild and the
+-- first: a style, architecture or mutation-record failure stops the gate
+-- before minutes of builds and tests. @haskell-style-check@ is fourmolu, cabal-gild and the
 -- style rules. The architecture step is the flake's @managed-command-audit@
 -- check: the CLI and Haskell architecture checks and their tests, and the
 -- managed-command audit (every just recipe and mutating command registered,
@@ -54,15 +54,25 @@ data GateRun = GateRun
 -- into the root, and @cabal test@ writes it only after the tests have run. So
 -- each suite is built, then tested, from its package directory. The suites run
 -- serially because those tests also fail during a concurrent cabal rebuild.
+--
+-- The mutation records (EP-180 M8) are checked twice: that each still applies
+-- and has a manifest entry, with the static checks, and that each one's test
+-- pattern selects a test of its built suite, once both suites are built and
+-- before they run. A record that applies to nothing or names no test proves
+-- nothing (F76).
 fastSteps :: [Step]
 fastSteps =
   [ Step "haskell-style-check" "." "just" ["haskell-style-check"]
   , Step "architecture-and-command-audit" "." "bash" ["scripts/test-managed-command-audit.sh"]
+  , harness "mutation-records" ["mutations", "check"]
   , Step "nagarectl-build" "cli/nagarectl" "cabal" ["build", "nagarectl-test"]
-  , Step "nagarectl-test" "cli/nagarectl" "cabal" ["test", "nagarectl-test"]
   , Step "nagare-dsl-build" "cli/nagare-dsl" "cabal" ["build", "nagare-dsl-test"]
+  , harness "mutation-patterns" ["mutations", "patterns"]
+  , Step "nagarectl-test" "cli/nagarectl" "cabal" ["test", "nagarectl-test"]
   , Step "nagare-dsl-test" "cli/nagare-dsl" "cabal" ["test", "nagare-dsl-test"]
   ]
+  where
+    harness name arguments = Step name "." "cabal" (["run", "--project-dir=cli/nagare-harness", "-v0", "nagare-harness", "--"] <> arguments)
 
 repositoryRoot :: IO FilePath
 repositoryRoot = filter (/= '\n') <$> readProcess "git" ["rev-parse", "--show-toplevel"] ""

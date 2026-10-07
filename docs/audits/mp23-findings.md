@@ -1027,3 +1027,19 @@ The class is not `NoEffect`. The absent before-state has changed, and in the `De
 
 **Mutation.** `G7-resource-quantities-compare-exactly`, `G7-dsl-emits-spelling-as-written`, `G7-no-milli-rounding`, `G7-written-text-not-kept`.
 
+## F76
+
+**The accepted-incarnation tests stopped running, and twelve mutation records passed vacuously** — P1; **Verifying**; owners EP-180 (M8) / EP-177.
+
+**Found while building EP-180 M8's record manifest (2026-10-06, claude-opus-5-5); proved by `--list-tests` (observed).**
+- **The defect.** nagare's EP-177 M1 commit (`cb076214`, "a kind table with a totality test against the adapter", 2026-10-05) replaced the line `, inventoryIncarnationTests` in `test/Nagare/Test/Suite.hs`'s test list with `, inventoryKindTotalityTests`, where it should have added the new line beside it. The import stayed, and an unused import is only a warning, so the "accepted incarnations (F49)" group stopped running and nothing noticed.
+- **Impact.** Ten tests were dark for about a day: F49, F60, ADR 27 N3, N6, N7 and N21, the §3 rebind, the returned identity and the ingestion source. Twelve mutation records name them (ADR27-F60, -N3, -N5, -N6, -N7, -N21, -accessor-reads-unrecorded-as-match, -driver-drops-returned-identity, -runtime-ignores-returned-uid and the three rebind records), so those records passed vacuously.
+- **Found by.** `records.json`'s pattern for each of the twelve selected no test.
+
+**Fix.**
+- The list entry is restored. All ten tests pass, so nothing regressed while they were dark.
+- Every suite's top-level list (`nagarectl`'s `Suite.hs`, and `nagare-dsl`'s and `nagare-harness`'s `Spec.hs`) is compiled with `-Werror=unused-imports`. A group that is imported but missing from the list no longer compiles.
+- The fast gate's `mutation-patterns` step fails when any record's pattern selects no test of its built suite.
+
+**Tests.** The ten restored tests. `mutations patterns` reports a pattern that selects nothing, and `mutations check` reports a record missing from the manifest; both were tried against a corrupted manifest.
+

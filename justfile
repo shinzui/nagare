@@ -293,9 +293,10 @@ haskell-style-check:
     cabal-gild --mode check --input cli/nagare-access/nagare-access.cabal
     cabal-gild --mode check --input cli/nagare-harness/nagare-harness.cabal
 
-# EP-174: the fast local gate the pre-push hook runs. Both Haskell suites
-# (serially), the style check and the architecture check; logs go to
-# ${XDG_STATE_HOME:-~/.local/state}/nagare/gates/logs/.
+# EP-174: the fast local gate the pre-push hook runs. The style check, the
+# architecture check and the mutation records' manifest first (seconds), then
+# both Haskell suites (serially), whose builds come before the record patterns
+# are checked; logs go to ${XDG_STATE_HOME:-~/.local/state}/nagare/gates/logs/.
 # Run the fast local gate (both Haskell suites, style, architecture).
 [group('test')]
 gate-fast:
@@ -315,6 +316,22 @@ gate-deep rev="HEAD" shards="16":
     set -euo pipefail
     specs=$(for i in $(seq 0 $(( {{shards}} - 1 ))); do printf '%s/%s ' "$i" "{{shards}}"; done)
     just test-remote '{{rev}}' '/deep tier/' "$specs" true
+
+# EP-180 M8: prove on the remote builder that every mutation record still fails
+# its tests at a committed revision. records.json beside the records names each
+# one's suite, test pattern and expectation; each is applied to a detached
+# commit of the revision and run through `just test-remote`, four at a time.
+# With base, only the records the range base..rev could affect are proved.
+# Exits non-zero when any record survives, builds at the wrong stage or is stale.
+# Prove the mutation records against a commit on the remote builder.
+[group('test')]
+mutation-check rev="HEAD" base="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    commit=$(git rev-parse --verify '{{rev}}^{commit}')
+    args=(mutations prove --rev "$commit")
+    if [ -n '{{base}}' ]; then args+=(--base "$(git rev-parse --verify '{{base}}^{commit}')"); fi
+    cabal run --project-dir=cli/nagare-harness -v0 nagare-harness -- "${args[@]}"
 
 # EP-179 (ADR 25 amendment of 2026-10-06): list the recovery-related files
 # changed since `base` (committed, uncommitted or untracked), and exit non-zero
@@ -367,18 +384,19 @@ gate-verify rev:
 # operator's machine (2026-10-06). Builds nix/test-runs.nix's testRun from the
 # exact commit, so uncommitted changes are never what ran. shards is a
 # space-separated list of NAGARE_RECOVERY_MODEL_SHARD values run in parallel;
-# deep=true sets NAGARE_RECOVERY_MODEL_DEEP. Logs and per-shard exit codes are
-# copied to ${XDG_STATE_HOME:-~/.local/state}/nagare/gates/logs/remote-*/.
+# deep=true sets NAGARE_RECOVERY_MODEL_DEEP. suite selects the nagarectl or
+# nagare-dsl test binary. Logs and per-shard exit codes are copied to
+# ${XDG_STATE_HOME:-~/.local/state}/nagare/gates/logs/remote-*/.
 # Run nagarectl tests for a commit on the remote builder.
 [group('test')]
-test-remote rev pattern shards="0/1" deep="false":
+test-remote rev pattern shards="0/1" deep="false" suite="nagarectl":
     #!/usr/bin/env bash
     set -euo pipefail
     commit=$(git rev-parse --verify '{{rev}}^{commit}')
     stamp=$(date -u +%Y%m%dT%H%M%SZ)
     label="${commit:0:8}-$stamp"
     shard_list=$(for spec in {{shards}}; do printf '"%s" ' "$spec"; done)
-    expr="(builtins.getFlake \"git+file://$(git rev-parse --show-toplevel)?rev=$commit\").legacyPackages.x86_64-linux.testRun { label = \"$label\"; pattern = \"{{pattern}}\"; shards = [ $shard_list]; deep = {{deep}}; }"
+    expr="(builtins.getFlake \"git+file://$(git rev-parse --show-toplevel)?rev=$commit\").legacyPackages.x86_64-linux.testRun { label = \"$label\"; pattern = \"{{pattern}}\"; shards = [ $shard_list]; deep = {{deep}}; suite = \"{{suite}}\"; }"
     out=$(nix build --no-link --print-out-paths --print-build-logs --impure --expr "$expr")
     logs="${XDG_STATE_HOME:-$HOME/.local/state}/nagare/gates/logs/remote-$label"
     mkdir -p "$logs"

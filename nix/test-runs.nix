@@ -26,18 +26,40 @@
         '';
       });
 
+      # The nagare-dsl test binary, likewise built but not run (EP-180 M8: a
+      # mutation record of the DSL is proved against its own suite).
+      dslTestBinary = hl.overrideCabal nagarePackages.checkedNagareDsl (old: {
+        pname = "nagare-dsl-test-binary";
+        checkPhase = ":";
+        postInstall = (old.postInstall or "") + ''
+          install -D dist/build/nagare-dsl-test/nagare-dsl-test "$out/libexec/nagare-dsl-test"
+        '';
+      });
+
+      # suite is "nagarectl" or "nagare-dsl".
       testRun =
         { label
         , pattern
         , shards ? [ "0/1" ]
         , deep ? false
+        , suite ? "nagarectl"
         }:
-        pkgs.runCommand "nagarectl-test-run-${label}" { } ''
+        let
+          selected =
+            if suite == "nagare-dsl" then {
+              binary = "${dslTestBinary}/libexec/nagare-dsl-test";
+              src = nagarePackages.haskellPackages.nagare-dsl.src;
+            } else if suite == "nagarectl" then {
+              binary = "${testBinary}/libexec/nagarectl-test";
+              src = nagarePackages.haskellPackages.nagarectl.src;
+            } else throw "testRun: unknown suite ${suite}";
+        in
+        pkgs.runCommand "${suite}-test-run-${label}" { } ''
           mkdir -p "$out"
           # The suite reads test/fixtures relative to the package directory.
-          cp -r ${nagarePackages.haskellPackages.nagarectl.src} "$TMPDIR/nagarectl"
-          chmod -R u+w "$TMPDIR/nagarectl"
-          cd "$TMPDIR/nagarectl"
+          cp -r ${selected.src} "$TMPDIR/suite"
+          chmod -R u+w "$TMPDIR/suite"
+          cd "$TMPDIR/suite"
           # The sandbox has no locale; test names and fixtures carry UTF-8.
           export LANG=C.UTF-8 LC_ALL=C.UTF-8
           export GHC_ENVIRONMENT=-
@@ -53,7 +75,7 @@
             (
               start=$(date +%s)
               set +e
-              NAGARE_RECOVERY_MODEL_SHARD="$spec" ${testBinary}/libexec/nagarectl-test -p ${lib.escapeShellArg pattern} > "$out/$name.log" 2>&1
+              NAGARE_RECOVERY_MODEL_SHARD="$spec" ${selected.binary} -p ${lib.escapeShellArg pattern} > "$out/$name.log" 2>&1
               code=$?
               echo "$spec exit=$code seconds=$(( $(date +%s) - start ))" >> "$out/status"
               echo "test run: $spec finished, exit $code"
@@ -83,6 +105,6 @@
         '';
     in
     {
-      legacyPackages = { inherit testBinary testRun; };
+      legacyPackages = { inherit dslTestBinary testBinary testRun; };
     };
 }

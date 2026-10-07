@@ -11,6 +11,17 @@ git -C "$SCRATCH/mut" apply "$PWD/cli/nagarectl/test/mutations/<name>.diff"
 git worktree remove --force "$SCRATCH/mut"
 ```
 
+Since EP-180 M8, `records.json` is the machine-readable form of this table. For each record it gives the suite
+(`nagarectl` or `nagare-dsl`), the tasty test pattern that must fail, and whether the record must fail its tests
+(`test-fails`) or its build (`build-fails`). The patterns live in JSON because they contain `||`. The table below keeps
+the prose.
+
+- The fast gate checks that every record applies and has an entry (`mutations check`).
+- After the builds, it checks that every pattern selects a test (`mutations patterns`).
+- `just mutation-check [rev] [base]` proves on the remote builder that each record still fails.
+
+A new record needs its row here and its entry in `records.json`.
+
 | Diff | Guard reverted | Expected failure (2026-10-05, at `c9a86b82`) |
 |---|---|---|
 | `F16-unready-create-stop` (retired) | the stop of an unready created Service (`RecoveryAwaitingReadiness`) | Retired at EP-175 M3: ADR 26 deleted this guard with the stop and abandon allowlists. Rule-level record: `ADR26-O1-kubernetes-settle-unknown` (an unready create settles as landed, and close keeps it). |

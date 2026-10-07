@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -Werror=unused-imports #-}
+
 module Main (main) where
 
 import ApplicationSpec (applicationTests)
@@ -13,6 +15,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TE
 import Data.Yaml qualified as Yaml
+import ImageSpec (imageTests)
 import JobSpec (jobTests)
 import LoadSpec (loadTests)
 import Nagare.Dsl.Access
@@ -33,10 +36,9 @@ import Nagare.Dsl.Database.Render
   , renderDatabaseService
   , renderStatefulSet
   )
-import Nagare.Dsl.Image (imageRefFromName, mkImageName)
 import Nagare.Dsl.Load (LoadError (..), decodeBroker, decodeDatabase, decodeDeployment, decodeTask, loadBroker, loadDeployment)
 import Nagare.Dsl.Path (mkFilePathText)
-import Nagare.Dsl.Prelude hiding (elements)
+import Nagare.Dsl.Prelude hiding (Text, elements, (&), (.~))
 import Nagare.Dsl.Presets (attachVolume, development, production, secretEnv, webService)
 import Nagare.Dsl.Render (renderDomainMappings, renderService, renderVolumeClaims)
 import Nagare.Dsl.Task
@@ -79,7 +81,7 @@ main =
       , testGroup "Nagare.Dsl.Task (EP-50)" taskTests
       , jobTests
       , testGroup "Nagare.Dsl Deployment tasks (EP-52)" deploymentTaskTests
-      , testGroup "Nagare.Dsl.Image (EP-62)" imageDerivationTests
+      , imageTests
       , loadTests
       , testGroup "Nagare.Dsl.Presets" (presetsGoldenTests <> presetsPropertyTests)
       , staticTests
@@ -89,26 +91,6 @@ main =
       , applicationTests
       , quantityTests
       ]
-
--- | EP-62 M3: the registry-prefix derivation that turns a short image NAME plus
--- a deploy-time prefix into a fully-qualified 'ImageRef'. The prefix is supplied
--- by nagarectl from the target profile; the DSL stays environment-agnostic.
-imageDerivationTests :: [TestTree]
-imageDerivationTests =
-  [ testCase "imageRefFromName joins <prefix>/<name>" $
-      fmap imageRefText (imageRefFromName "us-west1-docker.pkg.dev/tan-nb-exp/nagare" "notes")
-        @?= Right "us-west1-docker.pkg.dev/tan-nb-exp/nagare/notes"
-  , testCase "imageRefFromName tolerates a trailing slash on the prefix" $
-      fmap imageRefText (imageRefFromName "host/proj/repo/" "app")
-        @?= Right "host/proj/repo/app"
-  , testCase "imageRefFromName derives a different prefix purely from inputs" $
-      fmap imageRefText (imageRefFromName "europe-west1-docker.pkg.dev/acme-prod/nagare" "notes")
-        @?= Right "europe-west1-docker.pkg.dev/acme-prod/nagare/notes"
-  , testCase "mkImageName accepts a bare name (deferring the prefix)" $
-      fmap imageRefText (mkImageName "notes") @?= Right "notes"
-  , testCase "mkImageName rejects a tagged name (no ':' allowed)" $
-      assertBool "Left on a tag" (isLeft (mkImageName "notes:tag"))
-  ]
 
 -- | EP-10: the hello config-as-program file loads to the very same
 -- 'Deployment' EP-9 constructs, and renders to the same golden Service YAML.

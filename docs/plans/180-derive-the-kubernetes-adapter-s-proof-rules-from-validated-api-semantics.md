@@ -133,6 +133,18 @@ MasterPlan, not by this plan.
   - Four records each fail their test. `G7-no-milli-rounding` first survived (a coincidence of `numerator`), and the
     case `1500u` -> `2m` now kills it.
 - [ ] M8: `just mutation-check` proves every mutation record on the remote builder.
+  - 2026-10-06, done, the static half and runner (a):
+    - `records.json` names every live record's suite, pattern and expectation (88 records).
+    - The harness has `mutations check` (applies and has an entry; the third fast-gate step) and `mutations patterns`
+      (each pattern selects a test; after the builds, before the suites).
+    - `mutations prove` builds proof commits through a temporary index and branch, then runs `just test-remote`, four
+      at a time.
+    - `just mutation-check rev [base]` wraps it and is registered in the command audit.
+    - `test-remote` and `nix/test-runs.nix` take a `suite`, so DSL records run against `nagare-dsl-test`.
+  - Found F76 on the way: the incarnation test group had been dropped from the suite, and twelve records were vacuous.
+  - Remaining: measure one full-build proof, then build runner (b). Runner (b) compiles the base once and, for each
+    record, applies, rebuilds incrementally, runs the record's pattern and reverts, with N workers. The target is a full
+    sweep in under about 45 minutes, before EP-182 lands.
 - [ ] M9 (session nagare, 2026-10-06, from nagare-deep-tier-fixes' attribution): no adapter recovery guard stays
   untested. Seven guards stopped being observed when ADR 26's close by proof landed (`1f6c1a13`, `5bb33741`), and their
   records now pass. Each pin gets a failing-first test and a fresh record. Each deletion gets a test that the remaining
@@ -227,6 +239,11 @@ MasterPlan, not by this plan.
   readiness, but nearly every consumer must treat it as "not a live member", so a forgotten case is a compile error
   rather than a missed field check. It keeps the resourceVersion, which a retire's fresh-resourceVersion guard needs,
   and the owner and digest, which settlement needs.
+
+- Decision (2026-10-06, M8, with session nagare): the README's machine-readable test-pattern column is a JSON manifest,
+  `records.json`, beside it. Tasty patterns contain `||`, which a markdown column cannot hold. The tooling is
+  nagare-harness Haskell (ADR 24). File-touch scoping (`--base`) is a convenience only: today's seven vacuous records
+  went vacuous through changes elsewhere, so only a full sweep proves the records. Hence runner (b).
 
 - Decision (2026-10-06, session nagare): once M6 makes terminating objects observable, a retire's G6 change carries
   the fresh resourceVersion without a re-read loop.

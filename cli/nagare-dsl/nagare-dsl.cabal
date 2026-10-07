@@ -127,6 +127,7 @@ test-suite nagare-dsl-test
   other-modules:
     ApplicationSpec
     CdnSpec
+    ImageSpec
     JobSpec
     LoadSpec
     QuantitySpec

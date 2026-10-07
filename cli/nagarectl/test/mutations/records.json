@@ -1,0 +1,530 @@
+[
+  {
+    "record": "ADR25-adapter-kind-without-row",
+    "suite": "nagarectl",
+    "pattern": "/kind totality/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "ADR25-kind-row-claims-update",
+    "suite": "nagarectl",
+    "pattern": "/kind totality/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "ADR25-kind-row-deleted",
+    "suite": "nagarectl",
+    "pattern": "/kind totality/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "ADR25-model-check-reads-faulting-store",
+    "suite": "nagarectl",
+    "pattern": "/recovery model/",
+    "expect": "build-fails"
+  },
+  {
+    "record": "ADR25-model-move-without-progress-not-rerun",
+    "suite": "nagarectl",
+    "pattern": "/a move that a new fault stopped without progress is re-run/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "ADR25-model-no-takeover-exit",
+    "suite": "nagarectl",
+    "pattern": "/fast tier/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "ADR25-model-operator-reruns-once",
+    "suite": "nagarectl",
+    "pattern": "/create-scenario fault pairs that had no exit now have one/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "ADR26-O1-kubernetes-settle-unknown",
+    "suite": "nagarectl",
+    "pattern": "/fast tier/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "ADR26-O6-verify-executes",
+    "suite": "nagarectl",
+    "pattern": "/the driver never executes a verification/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "ADR26-U2-cdn-purge-settles-by-recovery",
+    "suite": "nagarectl",
+    "pattern": "/lost provider acknowledgement remains unresolved without replay/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "ADR26-U2-vm-power-settles-by-recovery",
+    "suite": "nagarectl",
+    "pattern": "/incomplete power outcome never authorizes automatic retry/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "ADR26-attest-overrides-proof",
+    "suite": "nagarectl",
+    "pattern": "/closing a refused update keeps a created member owned/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "ADR26-close-ignores-unknown",
+    "suite": "nagarectl",
+    "pattern": "/close refuses while an operation is unproved/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "ADR26-close-keeps-retained-additions",
+    "suite": "nagarectl",
+    "pattern": "/a review in which nothing took effect reverts every changed scope/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "ADR26-close-rebinds-incarnations",
+    "suite": "nagarectl",
+    "pattern": "/a landed update is kept, and a refused head release is completed by closing again/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "ADR26-close-reverts-to-converged",
+    "suite": "nagarectl",
+    "pattern": "/abandoning a refused correction after a stop reverts to the correction/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "ADR26-never-started-admits-updates",
+    "suite": "nagarectl",
+    "pattern": "/closing a refused update keeps a created member owned/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "ADR26-never-started-skips-absence",
+    "suite": "nagarectl",
+    "pattern": "/a landed update is kept, and a refused head release is completed by closing again/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "ADR26-refused-retry-counts-as-progress",
+    "suite": "nagarectl",
+    "pattern": "/fast tier/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "ADR27-A52-writer-unchecked",
+    "suite": "nagarectl",
+    "pattern": "/a rename refuses a writer replaced between planning/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "ADR27-F60-binds-from-observation",
+    "suite": "nagarectl",
+    "pattern": "/not one that replaced it before convergence (F60)/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "ADR27-F62-migration-source-unchecked",
+    "suite": "nagarectl",
+    "pattern": "/a rename refuses a source replaced outside Nagare, at planning/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "ADR27-N1-replaced-retirement-unnamed",
+    "suite": "nagarectl",
+    "pattern": "/fast tier/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "ADR27-N12-restore-source-unpinned",
+    "suite": "nagarectl",
+    "pattern": "/reviewed Redis restore binds RDB receipt to an isolated scratch instance/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "ADR27-N21-status-replacement-required",
+    "suite": "nagarectl",
+    "pattern": "/status reports a member whose object is not the accepted incarnation as replaced/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "ADR27-N3-backup-source-unchecked",
+    "suite": "nagarectl",
+    "pattern": "/a manual backup refuses a source that is not the recorded incarnation/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "ADR27-N4-snapshot-source-unchecked",
+    "suite": "nagarectl",
+    "pattern": "/a snapshot refuses a source PVC that is not the recorded incarnation/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "ADR27-N5-signing-secret-unchecked",
+    "suite": "nagarectl",
+    "pattern": "/ingestion refuses a receipt whose source is not the accepted incarnation/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "ADR27-N6-restore-target-unchecked",
+    "suite": "nagarectl",
+    "pattern": "/a restore pins only the recorded incarnation of its target/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "ADR27-N7-fence-skips-identity",
+    "suite": "nagarectl",
+    "pattern": "/a data fence binds only the recorded incarnation of its target/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "ADR27-N8-collection-unverified",
+    "suite": "nagarectl",
+    "pattern": "/a parent replaced after review is refused at admission/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "ADR27-N9-update-proof-accepts-replacement",
+    "suite": "nagarectl",
+    "pattern": "/an update is proved only on the object it wrote, not a same-stamp replacement/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "ADR27-accessor-reads-unrecorded-as-match",
+    "suite": "nagarectl",
+    "pattern": "/accepted incarnations/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "ADR27-driver-drops-returned-identity",
+    "suite": "nagarectl",
+    "pattern": "/accepted incarnations/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "ADR27-rebind-not-bound",
+    "suite": "nagarectl",
+    "pattern": "/a reviewed rebind records a replacement/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "ADR27-rebind-of-recorded-object",
+    "suite": "nagarectl",
+    "pattern": "/a reviewed rebind records a replacement/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "ADR27-rebind-unverified-at-admission",
+    "suite": "nagarectl",
+    "pattern": "/a reviewed rebind records a replacement/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "ADR27-runtime-ignores-returned-uid",
+    "suite": "nagarectl",
+    "pattern": "/returned object names the identity the journal records/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "ADR27-status-unrecorded-as-converged",
+    "suite": "nagarectl",
+    "pattern": "/keeps provider absence, foreign ownership, drift, and unreadability distinct/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "E13-create-manager-foreign",
+    "suite": "nagarectl",
+    "pattern": "/under both its managed-field entries (E13)/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "EP179-head-retry-count",
+    "suite": "nagarectl",
+    "pattern": "/the model retries a refused head write three times/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "EP179-restore-skips-adversary",
+    "suite": "nagarectl",
+    "pattern": "/a snapshot taken at a stop restores the head, journal, world and adversary/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "F30-refresh-before-state-at-write",
+    "suite": "nagarectl",
+    "pattern": "/fast tier/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "F38-journal-head-retry-and-orphan-adoption",
+    "suite": "nagarectl",
+    "pattern": "/fast tier/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "F49-ingestion-ignores-incarnation",
+    "suite": "nagarectl",
+    "pattern": "/fast tier/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "F49-status-ignores-incarnation",
+    "suite": "nagarectl",
+    "pattern": "/fast tier/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "F51-retention-proof-uses-observed",
+    "suite": "nagarectl",
+    "pattern": "/fast tier/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "F52-status-compares-migrated-records",
+    "suite": "nagarectl",
+    "pattern": "/rename recovery model/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "F54-landed-unready-recovery",
+    "suite": "nagarectl",
+    "pattern": "/fast tier/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "F56-target-replaced-recovery",
+    "suite": "nagarectl",
+    "pattern": "/fast tier/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "F57a-verify-safe-to-retry",
+    "suite": "nagarectl",
+    "pattern": "/fast tier/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "F57b-journal-no-effect-refusal",
+    "suite": "nagarectl",
+    "pattern": "/fast tier/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "F58-absence-proof-holds-no-data",
+    "suite": "nagarectl",
+    "pattern": "/is never replanned or retired as absent (F55, F58)/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "F58-admission-absence-recheck",
+    "suite": "nagarectl",
+    "pattern": "/retirement drops a confirmed-absent stateless member only while it stays absent/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "F58-admission-holds-no-data",
+    "suite": "nagarectl",
+    "pattern": "/admission refuses an absence proof for a member that holds data/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "F59-standalone-unstarted-creates",
+    "suite": "nagarectl",
+    "pattern": "/fast tier/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "F59-statefulset-create-awaits-readiness",
+    "suite": "nagarectl",
+    "pattern": "/fast tier/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "F61-transfer-ignores-mounts",
+    "suite": "nagarectl",
+    "pattern": "/a transfer refuses while another pod mounts the destination/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "F61-transfer-mark-ignores-owner",
+    "suite": "nagarectl",
+    "pattern": "/a copy refuses a destination another migration/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "F61-transfer-redoes-incomplete-copy",
+    "suite": "nagarectl",
+    "pattern": "/a copy redoes a destination its own interrupted copy left marked/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "F63-correct-unready-statefulset",
+    "suite": "nagarectl",
+    "pattern": "/fast tier/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "F63-deployment-correction-refused",
+    "suite": "nagarectl",
+    "pattern": "/a corrective update of an unready Deployment plans and closes/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "F63-statefulset-landed-update",
+    "suite": "nagarectl",
+    "pattern": "/fast tier/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "F63-statefulset-readiness-by-replicas",
+    "suite": "nagarectl",
+    "pattern": "/fast tier/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "F64-deleted-update-target-retry",
+    "suite": "nagarectl",
+    "pattern": "/fast tier/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "F66-create-over-foreign-object-settles-unknown",
+    "suite": "nagarectl",
+    "pattern": "/settles as target gone (F66)/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "F67-settle-ignores-stamp",
+    "suite": "nagarectl",
+    "pattern": "/an update settles by the stamp on the reviewed object/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "F68-update-over-foreign-object-settles-unknown",
+    "suite": "nagarectl",
+    "pattern": "/settles as target gone (F68)/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "F69-knative-ready-ignores-generation",
+    "suite": "nagarectl",
+    "pattern": "/is ready only at the observed generation (F69)/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "F70-deployment-ready-ignores-rollout",
+    "suite": "nagarectl",
+    "pattern": "/a Deployment is ready only when its rollout is complete/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "F72-unready-update-unsupported",
+    "suite": "nagarectl",
+    "pattern": "/a corrective update of an unready object reaches the API server/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "F73-awaiting-readiness-ignores-digest",
+    "suite": "nagarectl",
+    "pattern": "/awaits readiness only while its own write is live (F73)/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "G4-kubectl-refusal-ignored",
+    "suite": "nagarectl",
+    "pattern": "/(G4)/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "G4-runtime-refusal-ambiguous",
+    "suite": "nagarectl",
+    "pattern": "/an update the API server refuses with a 4xx is a known no effect/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "G5-parser-ignores-deletion",
+    "suite": "nagarectl",
+    "pattern": "/an object with a deletion timestamp is observed as terminating/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "G5-planning-reads-terminating-present",
+    "suite": "nagarectl",
+    "pattern": "/planning never reads a terminating member as present/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "G5-retire-deletes-terminating",
+    "suite": "nagarectl",
+    "pattern": "/no write targets a terminating object/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "G5-settle-ignores-terminating",
+    "suite": "nagarectl",
+    "pattern": "/a retire's own delete is landed/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "G6-no-revision-retry",
+    "suite": "nagarectl",
+    "pattern": "/a write the object outran is re-read and retried/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "G6-repair-proves-by-stamp",
+    "suite": "nagarectl",
+    "pattern": "/the adapter guards an update by UID, owner and stamp/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "G6-retire-exact-guard",
+    "suite": "nagarectl",
+    "pattern": "/a retire is guarded by UID, owner and digest/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "G6-retire-stale-precondition",
+    "suite": "nagarectl",
+    "pattern": "/a retire is guarded by UID, owner and digest/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "G6-runtime-guard-ignores-stamp",
+    "suite": "nagarectl",
+    "pattern": "/an update guarded by UID, stamp and field owners writes with the fresh resourceVersion/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "G6-write-guard-compares-whole-state",
+    "suite": "nagarectl",
+    "pattern": "/the adapter guards an update by UID, owner and stamp/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "G7-dsl-emits-spelling-as-written",
+    "suite": "nagare-dsl",
+    "pattern": "/the DSL emits the canonical form/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "G7-no-milli-rounding",
+    "suite": "nagare-dsl",
+    "pattern": "/apimachinery's rules on cases E15 did not record/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "G7-resource-quantities-compare-exactly",
+    "suite": "nagarectl",
+    "pattern": "/a resource list's quantities compare in the server's canonical form/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "G7-written-text-not-kept",
+    "suite": "nagare-dsl",
+    "pattern": "/as RES-4 E11 and experiment E15 recorded it/",
+    "expect": "test-fails"
+  }
+]

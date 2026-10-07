@@ -30,6 +30,7 @@ library
   exposed-modules:
     Nagare.Harness.FixtureSmoke
     Nagare.Harness.Gate
+    Nagare.Harness.Mutation
     Nagare.Harness.Prelude
     Nagare.Harness.Realise
     Nagare.Harness.Record
