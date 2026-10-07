@@ -53,6 +53,11 @@ inventoryWorldFaultsTests =
         (cluster, _) <- once [] MutateCall LandsFailed (createRequest job)
         conditionsOf cluster jobKey >>= assertBool "Failed=True" . elem ("Failed", "True")
         assertActed cluster LandsFailed
+    , testCase "fault acts: LandsFailed on a Deployment create (its rollout never becomes available)" $ do
+        (cluster, _) <- once [] MutateCall LandsFailed (createRequest deployment)
+        modifyServer cluster settleControllers
+        conditionsOf cluster deploymentKey >>= assertBool "Available=False" . elem ("Available", "False")
+        assertActed cluster LandsFailed
     , testCase "fault acts: StatusChurn (a controller writes status just before the write)" $ do
         -- The runtime writes with the resourceVersion it just observed; the
         -- controller's status write moves it first, so the write conflicts.
@@ -131,6 +136,15 @@ inventoryWorldFaultsTests =
         _ <- clusterAnswer cluster (apply (service "v3"))
         caught <- get False serviceKey <$> readServer cluster
         (generationOf caught, observedOf caught) @?= (Just 3, Just 3)
+    , testCase "fault acts: ControllerLag on a create (the new object has no status until the next write)" $ do
+        (cluster, _) <- once [] MutateCall ControllerLag (createRequest (service "v1"))
+        modifyServer cluster settleControllers
+        lagging <- get False serviceKey <$> readServer cluster
+        (generationOf lagging, observedOf lagging, readyOf' lagging) @?= (Just 1, Nothing, Nothing)
+        assertActed cluster ControllerLag
+    , testCase "fault does not act: ControllerLag on a kind without a controller" $ do
+        (cluster, _) <- once [] MutateCall ControllerLag (createRequest (history "v1"))
+        assertNotActed cluster ControllerLag
     , testCase "world rule: a StatefulSet correction stays stuck until its unready pod is deleted (RES-4 E6)" $ do
         cluster <- seeded [statefulSet "good"] []
         modifyServer cluster (#outcomes %~ Map.insert (digestOf (statefulSet "broken")) Unready)
@@ -188,15 +202,26 @@ volume = named "v1" "PersistentVolumeClaim" "web-uploads" [("spec", object ["acc
 job :: Value
 job = named "batch/v1" "Job" "backup" [("spec", object ["template" .= object ["spec" .= object ["restartPolicy" .= ("Never" :: Text), "containers" .= [object ["image" .= ("registry.example/backup" :: Text)]]]]])]
 
+deployment :: Value
+deployment =
+  named
+    "apps/v1"
+    "Deployment"
+    "worker"
+    [("spec", object ["replicas" .= (1 :: Int), "selector" .= object ["matchLabels" .= labels], "template" .= object ["metadata" .= object ["labels" .= labels], "spec" .= object ["containers" .= [object ["name" .= ("worker" :: Text), "image" .= ("registry.example/worker:v1" :: Text)]]]]])]
+  where
+    labels = object ["app" .= ("worker" :: Text)]
+
 statefulSet :: Text -> Value
 statefulSet v = named "apps/v1" "StatefulSet" "db" [("spec", object ["replicas" .= (1 :: Int), "serviceName" .= ("db" :: Text), "template" .= object ["metadata" .= object ["annotations" .= object ["v" .= v]], "spec" .= object ["containers" .= [object ["image" .= ("postgres:18" :: Text)]]]]])]
 
-historyKey, serviceKey, quotaKey, volumeKey, jobKey, statefulKey :: ObjectKey
+historyKey, serviceKey, quotaKey, volumeKey, jobKey, deploymentKey, statefulKey :: ObjectKey
 historyKey = ObjectKey "" "configmap" (Just "personal") "web-history"
 serviceKey = ObjectKey "serving.knative.dev" "service" (Just "personal") "web"
 quotaKey = ObjectKey "" "resourcequota" (Just "personal") "web-quota"
 volumeKey = ObjectKey "" "persistentvolumeclaim" (Just "personal") "web-uploads"
 jobKey = ObjectKey "batch" "job" (Just "personal") "backup"
+deploymentKey = ObjectKey "apps" "deployment" (Just "personal") "worker"
 statefulKey = ObjectKey "apps" "statefulset" (Just "personal") "db"
 
 -- * Requests, as the production runtime sends them

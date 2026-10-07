@@ -150,8 +150,17 @@ clusterAnswer cluster request = do
               | fault `elem` [LandsUnready, LandsFailed]
               , code == ExitSuccess
               , Just k <- key
-              , landsWith fault k
+              , hasReadiness k
               , rolledOut k previous current ->
+                  noteActed (adversary cluster) placed >> answered code stdout stderr
+            -- A lag acts when the controller would have changed the object
+            -- after this write: a new generation to observe, or a new object's
+            -- first status.
+            Just placed@(_, ControllerLag)
+              | code == ExitSuccess
+              , Just k <- key
+              , let thawed = current & #frozen %~ Set.delete k
+              , controllerStep k thawed /= thawed ->
                   noteActed (adversary cluster) placed >> answered code stdout stderr
             _ -> answered code stdout stderr
   where
@@ -222,11 +231,7 @@ clusterAnswer cluster request = do
           _ -> pure ()
       (LandsUnready, Just _) -> registerOutcome Unready
       (LandsFailed, Just _) -> registerOutcome Failed
-      (ControllerLag, Just k) -> do
-        s <- readServer cluster
-        let lags = maybe False (^. #tracksObservedGeneration) (semanticsFor k) && maybe False ((/= Null) . field "status") (get False k s)
-        modifyServer cluster (#frozen %~ Set.insert k)
-        when lags (note placed)
+      (ControllerLag, Just k) -> modifyServer cluster (#frozen %~ Set.insert k)
       _ -> pure ()
 
     -- The written spec's outcome, by the stamp the request carries.
@@ -240,10 +245,11 @@ clusterAnswer cluster request = do
       (Just before', Just after') -> templateOf (before' ^. #content) /= templateOf (after' ^. #content)
       _ -> False
 
-    landsWith fault k = case (^. #readinessModel) <$> semanticsFor k of
-      Just JobTerminal -> True
+    -- Every controller with a readiness model treats a spec that is not
+    -- good, unready or failed, as not ready.
+    hasReadiness k = case (^. #readinessModel) <$> semanticsFor k of
       Just NoReadinessModel -> False
-      Just _ -> fault == LandsUnready
+      Just _ -> True
       Nothing -> False
 
     -- 'ChurnAlways': the kind's churn source writes status before every
