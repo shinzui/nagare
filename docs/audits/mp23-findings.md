@@ -1010,3 +1010,20 @@ The class is not `NoEffect`. The absent before-state has changed, and in the `De
 
 **Model.** The recovery model's world has no finalizers. EP-182's world renders deletion timestamps and finalizers, and the production parser classifies them.
 
+## F75
+
+**A non-canonical resource quantity drifts forever** — P1; **Verifying**; owners EP-180.
+
+**Found by RES-4's gap analysis (G7; 2026-10-06, nagare-first-principle; experiments E11 and E15); fixed in EP-180 M7 (claude-opus-5-5).**
+- **The gap.** The API server stores a resource list's quantities in canonical form: `1024Mi` becomes `1Gi`, `1000m` becomes `1`, `1.5` becomes `1500m`. `desiredFieldsMatch` normalised CPU only, and `mkQuantity` kept the text the user wrote. A declared `1024Mi` of memory or storage therefore never matched what the server stored. The update never verified, and the landed proof could not match: a wedge on every deploy.
+- **Evidence corrected the source reading.** Rules taken from apimachinery's source alone got two of E15's rows wrong. On admission a resource list is rounded up to milli (`0.1m` is stored as `1m`), and text the parser keeps as written stays (`1500e0`).
+
+**Fix.**
+- `Nagare.Dsl.Quantity.canonicalQuantity` (nagare-dsl) holds the rule in one place. It cites `k8s.io/apimachinery` v0.32.3 `pkg/api/resource` (`ParseQuantity`'s kept text, `RoundUp`, `CanonicalizeBytes`) and E15's recorded output (`docs/audits/k8s-semantics-2026-10-06/experiments/e15.out`).
+- `mkQuantity` emits the canonical form.
+- `desiredFieldsMatch` compares every `resources.{limits,requests}.*` and `spec.hard.*` value in it, replacing the CPU-only millicore rule. Every other string keeps exact equality.
+
+**Tests.** `QuantitySpec` (nagare-dsl): every E11 and E15 row, plus rules E15 did not record. `InventoryKubernetesFieldsSpec`: container memory and CPU, PVC storage and ResourceQuota hard limits match across spellings; a different quantity and ConfigMap data do not.
+
+**Mutation.** `G7-resource-quantities-compare-exactly`, `G7-dsl-emits-spelling-as-written`, `G7-no-milli-rounding`, `G7-written-text-not-kept`.
+

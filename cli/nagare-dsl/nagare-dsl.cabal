@@ -66,6 +66,7 @@ library
     Nagare.Dsl.Path
     Nagare.Dsl.Prelude
     Nagare.Dsl.Presets
+    Nagare.Dsl.Quantity
     Nagare.Dsl.Render
     Nagare.Dsl.Server.Render
     Nagare.Dsl.Server.Types
@@ -128,6 +129,7 @@ test-suite nagare-dsl-test
     CdnSpec
     JobSpec
     LoadSpec
+    QuantitySpec
     ResourceInventorySpec
     ServerSpec
     StaticSpec

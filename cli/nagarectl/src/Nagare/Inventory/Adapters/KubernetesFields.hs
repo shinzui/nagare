@@ -15,6 +15,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Vector qualified as V
 import Nagare.Dsl.Prelude hiding ((.=))
+import Nagare.Dsl.Quantity (canonicalQuantity)
 
 -- | Compare only fields present in the retained desired object. Server-added
 -- metadata, defaults and status do not count as drift. Arrays stay ordered;
@@ -109,28 +110,10 @@ desiredFieldsMatch desired observed
         (KM.toList desired)
     go path (Array desired) (Array observed) =
       length desired == length observed && and (zipWith (go path) (foldr (:) [] desired) (foldr (:) [] observed))
-    go ("cpu" : className : "resources" : _) (String desired) (String observed)
-      | className `elem` ["limits", "requests"] =
-          desired == observed || case (cpuMilli desired, cpuMilli observed) of
-            (Just left, Just right) -> left == right
-            _ -> False
+    -- G7, RES-4 U7 (E11, E15): the API server stores a resource list's
+    -- quantities in canonical form, so they compare in it. Any other string
+    -- keeps exact equality, so ConfigMap data is never normalised.
+    go (_ : list : parent : _) (String declared) (String stored)
+      | (list `elem` ["limits", "requests"] && parent == "resources") || (list == "hard" && parent == "spec") =
+          declared == stored || maybe False (\canonical -> Just canonical == canonicalQuantity stored) (canonicalQuantity declared)
     go _ desired observed = desired == observed
-
-    -- The API server canonicalises CPU quantities (for example 1000m to 1).
-    -- Compare only CPU resource fields in millicores; arbitrary strings retain
-    -- exact equality so ConfigMap data cannot be silently normalised.
-    cpuMilli quantity = case T.stripSuffix "m" quantity of
-      Just millis -> decimal millis
-      Nothing -> case T.splitOn "." quantity of
-        [whole] -> (* 1000) <$> decimal whole
-        [whole, fraction] | not (T.null fraction) && T.length fraction <= 3 -> do
-          integral <- decimal whole
-          fractional <- decimal fraction
-          pure (integral * 1000 + fractional * (10 ^ (3 - T.length fraction)))
-        _ -> Nothing
-    decimal digits
-      | T.null digits = Nothing
-      | otherwise = T.foldl' step (Just 0) digits
-    step prior char
-      | char >= '0' && char <= '9' = (\value -> value * 10 + toInteger (fromEnum char - fromEnum '0')) <$> prior
-      | otherwise = Nothing

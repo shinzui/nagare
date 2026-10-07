@@ -37,6 +37,7 @@ import InventoryJournalHeadAdvanceSpec (inventoryJournalHeadAdvanceTests)
 import InventoryKindTotalitySpec (inventoryKindTotalityTests)
 import InventoryKnativeServiceUpdateSpec (knativeServiceUpdateTests)
 import InventoryKubernetesFieldTakeoverSpec (kubernetesFieldTakeoverTests)
+import InventoryKubernetesFieldsSpec (inventoryKubernetesFieldsTests)
 import InventoryKubernetesReadinessSpec (inventoryKubernetesReadinessTests)
 import InventoryKubernetesSpec (inventoryKubernetesTests)
 import InventoryKubernetesTerminatingSpec (inventoryKubernetesTerminatingTests)
@@ -186,6 +187,7 @@ main = do
             , inventoryEffectfulTests
             , knativeServiceUpdateTests
             , inventoryKubernetesTerminatingTests
+            , inventoryKubernetesFieldsTests
             , kubernetesFieldTakeoverTests
             , inventoryKubernetesTests
             , inventoryApplicationTests

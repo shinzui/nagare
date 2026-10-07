@@ -1,0 +1,12 @@
+diff --git a/cli/nagare-dsl/src/Nagare/Dsl/Types.hs b/cli/nagare-dsl/src/Nagare/Dsl/Types.hs
+--- a/cli/nagare-dsl/src/Nagare/Dsl/Types.hs
++++ b/cli/nagare-dsl/src/Nagare/Dsl/Types.hs
+@@ -305,7 +305,7 @@
+             else
+               let (_frac, rest1) = parseFraction rest0
+                in if validSuffix rest1
+-                    then Right (Quantity (fromMaybe t (canonicalQuantity t)))
++                    then Right (Quantity t)
+                     else Left ("unrecognised quantity suffix: " <> rest1 <> " (in: " <> t <> ")")
+   where
+     parseFraction s =

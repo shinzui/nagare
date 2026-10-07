@@ -1,0 +1,21 @@
+{"sent":"1.5Gi","memory":"1536Mi","cpu":"1536Mi","storage":"1536Mi","storageWarning":null}
+{"sent":"0.5Gi","memory":"512Mi","cpu":"512Mi","storage":"512Mi","storageWarning":null}
+{"sent":"1536Mi","memory":"1536Mi","cpu":"1536Mi","storage":"1536Mi","storageWarning":null}
+{"sent":"1.1Ki","memory":"1126400m","cpu":"1126400m","storage":"1126400m","storageWarning":"Warning: spec.resources.requests[storage]: fractional byte value \"1126400m\" is invalid, must be an integer"}
+{"sent":"0.1m","memory":"1m","cpu":"1m","storage":"1m","storageWarning":"Warning: spec.resources.requests[storage]: fractional byte value \"1m\" is invalid, must be an integer"}
+{"sent":"1e3","memory":"1e3","cpu":"1e3","storage":"1e3","storageWarning":null}
+{"sent":"1500e0","memory":"1500e0","cpu":"1500e0","storage":"1500e0","storageWarning":null}
+{"sent":"2000m","memory":"2","cpu":"2","storage":"2","storageWarning":null}
+{"sent":"1500m","memory":"1500m","cpu":"1500m","storage":"1500m","storageWarning":"Warning: spec.resources.requests[storage]: fractional byte value \"1500m\" is invalid, must be an integer"}
+{"sent":"1024","memory":"1024","cpu":"1024","storage":"1024","storageWarning":null}
+{"sent":"512Ki","memory":"512Ki","cpu":"512Ki","storage":"512Ki","storageWarning":null}
+{"sent":"1000Ki","memory":"1000Ki","cpu":"1000Ki","storage":"1000Ki","storageWarning":null}
+{"sent":"1024Mi","memory":"1Gi","cpu":"1Gi","storage":"1Gi","storageWarning":null}
+{"sent":"2048Mi","memory":"2Gi","cpu":"2Gi","storage":"2Gi","storageWarning":null}
+{"sent":"1000M","memory":"1G","cpu":"1G","storage":"1G","storageWarning":null}
+{"sent":"1000m","memory":"1","cpu":"1","storage":"1","storageWarning":null}
+{"sent":"1.5","memory":"1500m","cpu":"1500m","storage":"1500m","storageWarning":"Warning: spec.resources.requests[storage]: fractional byte value \"1500m\" is invalid, must be an integer"}
+{"sent":"0.5","memory":"500m","cpu":"500m","storage":"500m","storageWarning":"Warning: spec.resources.requests[storage]: fractional byte value \"500m\" is invalid, must be an integer"}
+{"sent":"100u","memory":"1m","cpu":"1m","storage":"1m","storageWarning":"Warning: spec.resources.requests[storage]: fractional byte value \"1m\" is invalid, must be an integer"}
+{"sent":"1e-3","memory":"1e-3","cpu":"1e-3","storage":"1e-3","storageWarning":"Warning: spec.resources.requests[storage]: fractional byte value \"1e-3\" is invalid, must be an integer"}
+{"sent":"1Ei","memory":"1Ei","cpu":"1Ei","storage":"1Ei","storageWarning":"Warning: spec.resources.requests[storage]: fractional byte value \"1Ei\" is invalid, must be an integer"}

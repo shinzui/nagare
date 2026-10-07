@@ -122,6 +122,7 @@ import Nagare.Dsl.Broker.Types (BrokerBinding)
 import Nagare.Dsl.Build (BuildSpec)
 import Nagare.Dsl.Cdn.Types (Cdn)
 import Nagare.Dsl.Prelude
+import Nagare.Dsl.Quantity (canonicalQuantity)
 import {-# SOURCE #-} Nagare.Dsl.Task (Task)
 import Nagare.Resource.Types (LogicalKey)
 
@@ -292,7 +293,8 @@ newtype Quantity = Quantity Text
 
 -- | Validate and construct a 'Quantity': an integer (or decimal fraction)
 -- optionally followed by a recognised suffix (@m k M G T P E Ki Mi Gi Ti Pi
--- Ei@).
+-- Ei@). It is kept in the API server's canonical form (G7, RES-4 U7), so
+-- @1024Mi@ is @1Gi@ and the stored object matches what Nagare declared.
 mkQuantity :: Text -> Either Text Quantity
 mkQuantity t
   | Text.null t = Left "quantity must not be empty"
@@ -303,7 +305,7 @@ mkQuantity t
             else
               let (_frac, rest1) = parseFraction rest0
                in if validSuffix rest1
-                    then Right (Quantity t)
+                    then Right (Quantity (fromMaybe t (canonicalQuantity t)))
                     else Left ("unrecognised quantity suffix: " <> rest1 <> " (in: " <> t <> ")")
   where
     parseFraction s =

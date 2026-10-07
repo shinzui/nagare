@@ -50,6 +50,7 @@ import Nagare.Resource.Policy (DataPolicy (..), LifecyclePolicy (DeleteWhenUnref
 import Nagare.Resource.Policy qualified as ResourcePolicy
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types (ScopeKind (..), SourceLocation (SourceLocation), mintResourceId, mkContentDigest, mkLogicalKey, mkName, mkScopeId)
+import QuantitySpec (quantityTests)
 import ResourceInventorySpec (resourceInventoryTests)
 import ServerSpec (serverTests)
 import StaticSpec (staticTests)
@@ -86,6 +87,7 @@ main =
       , cdnTests
       , workerTests
       , applicationTests
+      , quantityTests
       ]
 
 -- | EP-62 M3: the registry-prefix derivation that turns a short image NAME plus
@@ -254,18 +256,6 @@ unitTests =
       , testCase "rejects 0" $ assertLeftContains ">= 1" (mkPort 0)
       , testCase "rejects negative" $ assertLeftContains ">= 1" (mkPort (-1))
       , testCase "rejects 65536" $ assertLeftContains "<= 65535" (mkPort 65536)
-      ]
-  , testGroup
-      "mkQuantity"
-      [ testCase "accepts 250m" $ assertRight (mkQuantity "250m")
-      , testCase "accepts 512Mi" $ assertRight (mkQuantity "512Mi")
-      , testCase "accepts 1" $ assertRight (mkQuantity "1")
-      , testCase "accepts 2Gi" $ assertRight (mkQuantity "2Gi")
-      , testCase "accepts 1.5" $ assertRight (mkQuantity "1.5")
-      , testCase "rejects empty" $ assertLeftContains "empty" (mkQuantity "")
-      , testCase "rejects abc" $ assertLeftContains "digit" (mkQuantity "abc")
-      , testCase "rejects 100x" $ assertLeftContains "suffix" (mkQuantity "100x")
-      , testCase "rejects space" $ assertLeftContains "suffix" (mkQuantity "100 Mi")
       ]
   , testGroup
       "mkScale"

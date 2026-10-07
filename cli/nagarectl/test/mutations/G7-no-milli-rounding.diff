@@ -1,0 +1,12 @@
+diff --git a/cli/nagare-dsl/src/Nagare/Dsl/Quantity.hs b/cli/nagare-dsl/src/Nagare/Dsl/Quantity.hs
+--- a/cli/nagare-dsl/src/Nagare/Dsl/Quantity.hs
++++ b/cli/nagare-dsl/src/Nagare/Dsl/Quantity.hs
+@@ -137,7 +137,7 @@
+ 
+ -- | Round a magnitude up to a multiple of 10^-3.
+ roundUpToMilli :: Rational -> Rational
+-roundUpToMilli value = fromInteger (ceiling (value * 1000)) / 1000
++roundUpToMilli value = value
+ 
+ canonical :: Rational -> Family -> Maybe Text
+ canonical value valueFamily

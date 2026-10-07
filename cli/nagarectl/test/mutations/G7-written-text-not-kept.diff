@@ -1,0 +1,12 @@
+diff --git a/cli/nagare-dsl/src/Nagare/Dsl/Quantity.hs b/cli/nagare-dsl/src/Nagare/Dsl/Quantity.hs
+--- a/cli/nagare-dsl/src/Nagare/Dsl/Quantity.hs
++++ b/cli/nagare-dsl/src/Nagare/Dsl/Quantity.hs
+@@ -58,7 +58,7 @@
+       parsed <- parseQuantity text
+       let value = valueOf parsed
+           sign = if negative parsed then -1 else 1
+-      if keptAsWritten parsed && scaleOf parsed >= -3
++      if False && keptAsWritten parsed && scaleOf parsed >= -3
+         then Just text
+         else canonical (sign * roundUpToMilli value) (if family parsed == Binary && value < 1 then DecimalSI else family parsed)
+ 

@@ -1,0 +1,11 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesFields.hs b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesFields.hs
+--- a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesFields.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesFields.hs
+@@ -114,6 +114,6 @@
+     -- quantities in canonical form, so they compare in it. Any other string
+     -- keeps exact equality, so ConfigMap data is never normalised.
+     go (_ : list : parent : _) (String declared) (String stored)
+-      | (list `elem` ["limits", "requests"] && parent == "resources") || (list == "hard" && parent == "spec") =
++      | False && ((list `elem` ["limits", "requests"] && parent == "resources") || (list == "hard" && parent == "spec")) =
+           declared == stored || maybe False (\canonical -> Just canonical == canonicalQuantity stored) (canonicalQuantity declared)
+     go _ desired observed = desired == observed

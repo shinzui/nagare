@@ -124,7 +124,14 @@ MasterPlan, not by this plan.
   - Consumers outside the adapter match only Present, so they refuse a terminating object.
   - M5b's window is closed: requireWriteTarget refuses an update of a terminating target, because it is not an owned
     live object.
-- [ ] M7 (G7): resource quantities compare canonically.
+- [x] M7 (G7), 2026-10-06: resource quantities compare canonically (F75).
+  - `canonicalQuantity` in nagare-dsl holds the rule. `mkQuantity` emits it, and `desiredFieldsMatch` compares
+    resource lists (`resources.{limits,requests}`, `spec.hard`) in it.
+  - Tests failed first.
+  - The rule was taken from E15's trace, not from the source alone. E15 corrected two derived rows: milli rounding,
+    and kept text such as `1500e0`.
+  - Four records each fail their test. `G7-no-milli-rounding` first survived (a coincidence of `numerator`), and the
+    case `1500u` -> `2m` now kills it.
 - [ ] M8: `just mutation-check` proves every mutation record on the remote builder.
 - [ ] M9 (session nagare, 2026-10-06, from nagare-deep-tier-fixes' attribution): no adapter recovery guard stays
   untested. Seven guards stopped being observed when ADR 26's close by proof landed (`1f6c1a13`, `5bb33741`), and their
