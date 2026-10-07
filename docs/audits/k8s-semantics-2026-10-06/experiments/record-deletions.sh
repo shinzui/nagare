@@ -9,11 +9,12 @@ set -uo pipefail
 : "${KUBECONFIG:?point at the cluster record-traces.sh used}"
 NS=trace
 log() { echo "record-deletions: $*" >&2; }
-OBS='{present: true, uid: .metadata.uid, resourceVersion: .metadata.resourceVersion,
- deletionTimestamp: (.metadata.deletionTimestamp != null), finalizers: (.metadata.finalizers // []), phase: .status.phase}'
+OBS='{present: true, uid: .metadata.uid, resourceVersion: .metadata.resourceVersion, generation: .metadata.generation,
+ deletionTimestamp: (.metadata.deletionTimestamp != null), finalizers: (.metadata.finalizers // []), phase: .status.phase,
+ managers: [.metadata.managedFields[]? | "\(.manager)/\(.operation)/\(.subresource // "-")"]}'
 observe() { # resource name namespace|-
   local args=(); [ "$3" != - ] && args=(-n "$3")
-  local out; out=$(kubectl get "$1" "$2" "${args[@]}" -o json --ignore-not-found 2>/dev/null)
+  local out; out=$(kubectl get "$1" "$2" "${args[@]}" -o json --show-managed-fields --ignore-not-found 2>/dev/null)
   if [ -z "$out" ]; then echo '{"present":false}'; else echo "$out" | jq -c "$OBS"; fi
 }
 step() { jq -cn --arg k "$1" --arg s "$2" --argjson a "$3" --argjson o "$4" '{experiment:"E14", kind:$k, step:$s, action:$a, observation:$o, refusal:null}'; }
@@ -23,11 +24,17 @@ while IFS='|' read -r kind resource name ns path propagation; do
   [ -z "$kind" ] && continue
   log "$kind"
   args=(); [ "$ns" != - ] && args=(-n "$ns")
-  read -r uid rv < <(kubectl get "$resource" "$name" "${args[@]}" -o jsonpath='{.metadata.uid} {.metadata.resourceVersion}' 2>/dev/null)
-  if [ -z "${uid:-}" ]; then step "$kind" "missing before delete" '{"op":"none"}' '{"present":false}'; continue; fi
+  group=$(case $kind in deployment|statefulset) echo apps;; cronjob|job) echo batch;; networkpolicy) echo networking.k8s.io;; role|rolebinding) echo rbac.authorization.k8s.io;; ksvc|domainmapping) echo serving.knative.dev;; *) echo "";; esac)
+  target=$(jq -cn --arg g "$group" --arg k "$([ "$kind" = ksvc ] && echo service || echo "$kind")" --arg n "$name" --arg ns "$ns" '{group:$g, kind:$k, name:$n, namespace:(if $ns == "-" then null else $ns end)}')
+  # Observe first, so a replay can map the UID and resourceVersion the delete
+  # carries as its preconditions.
+  seen=$(observe "$resource" "$name" "$ns")
+  step "$kind" "before delete" "$(jq -cn --argjson t "$target" '{op:"observe",target:$t}')" "$seen"
+  uid=$(echo "$seen" | jq -r '.uid // empty'); rv=$(echo "$seen" | jq -r '.resourceVersion // empty')
+  if [ -z "${uid:-}" ]; then continue; fi
   body=$(jq -cn --arg u "$uid" --arg r "$rv" --arg p "$propagation" '{apiVersion:"meta.k8s.io/v1",kind:"DeleteOptions",preconditions:{uid:$u,resourceVersion:$r},propagationPolicy:$p}')
   kubectl delete --raw "$path" -f <(echo "$body") >/dev/null 2>&1
-  action=$(jq -cn --arg p "$propagation" '{op:"delete",propagation:$p,preconditions:"current uid and rv",inUse:false}')
+  action=$(jq -cn --argjson t "$target" --argjson o "$body" '{op:"delete",target:$t,options:$o}')
   step "$kind" "$propagation delete, immediately" "$action" "$(observe "$resource" "$name" "$ns")"
   sleep 5
   step "$kind" "$propagation delete, after 5s" '{"op":"wait","seconds":5}' "$(observe "$resource" "$name" "$ns")"

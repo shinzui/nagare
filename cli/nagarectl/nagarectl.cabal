@@ -556,6 +556,7 @@ test-suite nagarectl-test
     InventoryUpstreamSpec
     InventoryVmPowerSpec
     InventoryVolumeRestorePinSpec
+    InventoryWorldConformanceSpec
     Nagare.Test.Application
     Nagare.Test.Backend
     Nagare.Test.Backup.Escrow
@@ -614,7 +615,10 @@ test-suite nagarectl-test
     Nagare.Test.Version
     Nagare.Test.Webhook
     Nagare.Test.World.Adversary
+    Nagare.Test.World.ApiServer
+    Nagare.Test.World.Cluster
     Nagare.Test.World.Kinds
+    Nagare.Test.World.Kubectl
     Nagare.Test.World.Kubernetes
     Nagare.Test.World.ObjectStore
     Nagare.Test.World.Store

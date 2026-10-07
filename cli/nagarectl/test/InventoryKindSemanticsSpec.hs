@@ -135,7 +135,7 @@ disagreements steps selected semantics' =
         where
           hasCondition condition = KM.member (Key.fromText condition) (objectOf (field "conditions" settled))
 
-    churnSource = case of' "E10" of
+    churnSource = case [step | step <- of' "E10", field "op" (action step) `elem` [String "unattended", String "wait"]] of
       [] -> Left "E10"
       watched -> case [label step | step <- watched, moved "resourceVersion" (field "before" (action step)) (observation step)] of
         [] -> Right NoChurn

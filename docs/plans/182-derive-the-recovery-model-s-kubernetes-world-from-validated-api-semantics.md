@@ -86,7 +86,15 @@ How to see it working:
     `("","resourcequota") churnSource: the table says NoChurn, the traces say PodChanges`.
 - [ ] M2: a fake API server behind the production kubectl interpreter, with the adapter composed
   exactly as the CLI composes it, passes `-p '/world conformance/'` against the traces. The recovery
-  model is not yet switched.
+  model is not yet switched. Partial, 2026-10-06:
+  - `ApiServer`, `Kubectl` and `Cluster` exist.
+  - `world conformance` passes on the third recording (298 steps): every compared aspect, including
+    kubectl's refusal lines.
+  - Three mutations of the fake server each fail it with a named step: a Deployment that loses
+    Available during a broken update (E5), no apply conflicts (E13), no lagging controller (E4).
+  - The smoke test (runtime → fake kubectl → fake server → production parser) passes.
+  - Remaining: the `src/` composition move, timed after EP-180 M5b; `Cluster.clusterAdapter` composes
+    the production functions directly until then.
 - [ ] M3: faults are re-expressed on the fake server, with `acted` accounting, `ControllerLag`,
   table-driven churn, finalizer-held Terminating, and the stuck StatefulSet rollout. Each fault has
   a test that it acts.
@@ -105,6 +113,25 @@ How to see it working:
   even when empty. Its `HeldUntilEmpty` rule is derived from E12 instead.
 - A full recording takes about 20 minutes on a 2-CPU, 4 GiB Colima VM, not 10. Most of it is E1's 8-second settles
   across 16 kinds and E10's churn window, which overlaps the later experiments.
+- Conformance found real semantics RES-4 had not stated, all now modelled and checked against the traces:
+  - A held DELETE moves `generation` along with `deletionTimestamp`, and a controller stops reconciling an
+    object being deleted. A Knative Service held by an Orphan delete therefore shows `observedGeneration` behind.
+  - A mutating admission plugin's change (a PVC's default StorageClass) is owned by the request's manager, for
+    Apply and Update alike. Defaulting (a Namespace's `kubernetes.io/metadata.name` label) is owned only by an
+    Update-style create. That is why a repeated identical apply of a PVC moves resourceVersion once, and why
+    `kubectl create` of a Namespace leaves a `kubectl-create` entry.
+  - A DomainMapping carries Knative's `domainmappings.serving.knative.dev` finalizer from creation, as a
+    non-status field of the `controller` manager.
+  - `kubernetes.io/pvc-protection` is removed asynchronously, so even an unused PVC is briefly Terminating after
+    DELETE.
+  - A creating manager's entry keeps owning the map containers it created after a forced apply took every leaf.
+  - kubectl's wait timeout names the bare plural (`services/e4`). An apply with several conflicts lists their
+    paths on later lines, and one with a single conflict keeps it on the first.
+- The first two recordings could not be replayed. Their actions named intents ("stale rv") instead of what was
+  sent, and setup steps (a consumer pod, a frozen controller, a namespace's contents) were not recorded. The
+  recorder now records each action exactly as sent and records setup as steps. A replay maps real UIDs and
+  resourceVersions to its own through the observations at the same steps, so the recorder also observes an
+  object right before every DELETE whose preconditions it reads.
 - kubectl 1.37 warns on every run that it is three minor versions from the 1.34 server (RES-4 G12). The recorded
   answers match RES-4's, so the skew did not change any observed behaviour.
 - Every RES-4 claim reproduced in the second, independent recording: the stale `Ready=True` (E4),
@@ -133,6 +160,17 @@ How to see it working:
   its owning plan, the scenario, the fault and the violation prefix, and states how many times it
   must occur. The tier fails on any unlisted violation and on any count mismatch, so a fix forces
   the entry's removal and a regression cannot hide inside an entry.
+  Date: 2026-10-06
+
+- Decision: the conformance test compares by step class. After a write: presence, resourceVersion and generation
+  movement, deletion state, the refusal class, non-status writers, and kubectl's first stderr line (UIDs and
+  numbers masked). After a settling step (a wait, `rollout status`, `kubectl wait`, an unattended window): also
+  conditions, reasons, replica counters, revision equality and pods. What a controller had done "immediately"
+  after a write, and a namespace's emptying within a timed 5-second window, are racy in a real cluster and are
+  not compared. A refused write must not move resourceVersion in the world. Its recorded movement is compared
+  only for kinds without a controller, because a real controller may write status around the refusal.
+  Rationale: compare everything that is deterministic in a real cluster and nothing that depends on controller
+  speed, so a failure is always a semantic difference.
   Date: 2026-10-06
 
 - Decision: the adapter composition moves from `cli/nagarectl/app/Nagare/Cli/Inventory/Adapters.hs`
