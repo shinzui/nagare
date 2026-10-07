@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesMigration.hs b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesMigration.hs
+index e6740b00..2ba6320b 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesMigration.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesMigration.hs
+@@ -802,7 +802,7 @@ migrationWrite config arguments body = do
+       pure $ case result of
+         Right (ExitSuccess, output, _) -> Right output
+         Right (ExitFailure _, _, errors)
+-          | Just refusal <- kubectlRefusal (T.pack errors) -> Left (WriteRefused ("the API server refused the write: " <> refusal))
++          | Just refusal <- kubectlRefusal (T.pack errors) -> Left (WriteUnknown ("the API server refused the write: " <> refusal))
+         _ -> Left (WriteUnknown "Kubernetes write did not return success; reobserve before retry")
+ 
+ migrationObject :: KubernetesRuntimeConfig -> ProviderAddress -> IO (Either Text (Maybe Value))

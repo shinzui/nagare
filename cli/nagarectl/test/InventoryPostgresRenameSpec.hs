@@ -3,12 +3,34 @@
 -- and serial driver against a modelled Kubernetes API.
 module InventoryPostgresRenameSpec
   ( inventoryPostgresRenameTests
+  , describe
+  , expectRight
+  , plannedRenameOn
+  , probed
+  , binding
+  , jsonPath
+  , keyOf
+  , newNative
+  , oldScope
+  , roleOf
+  , setPath
   , RenameWorld
+  , Transport
   , databaseOwner
   , newScope
   , plannedRenameThrough
+  , seededRename
+  , planRenameIn
   , recordOldIncarnations
   , reviewRenamedAgain
+  , rebindMembers
+  , renameRelease
+  , replaceOutOfBand
+  , sourceKeys
+  , replacedOldMembers
+  , sourceWriterFenced
+  , sourceScheduleSuspended
+  , knownRow
   , newObjectUids
   , dataBearing
   , renameVolumes
@@ -17,6 +39,7 @@ module InventoryPostgresRenameSpec
   , destinationCopies
   , armPartialCopy
   , verifyRenamedWorld
+  , verifyRenamedWorldWith
   )
 where
 
@@ -47,18 +70,18 @@ import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Types qualified as Dsl
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes (KubernetesState (..), mkKubernetesAdapter)
-import Nagare.Inventory.Adapters.KubernetesMigration (MigrationPlanning (..), kubernetesMigrationAdapter, renameProposal)
+import Nagare.Inventory.Adapters.KubernetesMigration (MigrationPlanning (..), kubernetesMigrationAdapter, kubernetesMigrationExit, renameProposal)
 import Nagare.Inventory.Adapters.KubernetesRuntime (mkKubernetesRuntimeOps, parseObserved)
 import Nagare.Inventory.BackupFreshness (RecoveryPointObjective (..))
 import Nagare.Inventory.Command (compileInput, openTargetStore, planInventoryAdoptionWith)
 import Nagare.Inventory.DataService (compileStandaloneDatabase)
 import Nagare.Inventory.Database (DatabaseBackupTarget (DatabaseBackupTarget))
 import Nagare.Inventory.Digest (contentDigest)
-import Nagare.Inventory.Execute (TransactionResult (..), applyReviewed, resumeTransaction)
-import Nagare.Inventory.Journal (OperationId, mkOperationId)
+import Nagare.Inventory.Execute (AbandonInput (..), AdmissionError (..), CloseInput (..), MigrationExit, TransactionResult (..), abandonMigration, applyReviewed, closeTransaction, resumeTransaction)
+import Nagare.Inventory.Journal (OperationId, mkOperationId, transactionIdText)
 import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
 import Nagare.Inventory.KubernetesTransport
-import Nagare.Inventory.Lifecycle (AdoptionInput (..), decideAdoption)
+import Nagare.Inventory.Lifecycle (AdoptionInput (..), AdoptionTarget (..), decideAdoption)
 import Nagare.Inventory.Migration (decideMigration)
 import Nagare.Inventory.Migration.PostgresRename
 import Nagare.Inventory.Migration.Types (migrationPoliciesCompatible)
@@ -233,55 +256,6 @@ inventoryPostgresRenameTests =
           recorded <- headIncarnations <$> (must (readHead store) >>= maybe (fail "missing head") pure)
           final <- readIORef world
           Map.map physicalIdentityText recorded @?= newObjectUids final
-    , testCase "the adopt command issues a reviewed rebind for a database's replaced and unrecorded members (F80)" $
-        withSystemTempDirectory "postgres-rename-rebind" $ \root -> withStateRoot root $ do
-          store <- openTargetStore renameTarget
-          probe <- newIORef Nothing
-          (world, reviewed, executionRegistry') <- plannedRenameOn store recordOldIncarnations id probe
-          renamed <- must (applyReviewed store executionRegistry' reviewed)
-          case renamed of
-            Converged _ -> pure ()
-            other -> assertFailure ("rename did not converge: " <> describe reviewed other)
-          -- Outside review, the claim is replaced; the Service is unrecorded, as
-          -- a lost create response leaves it (ADR 27).
-          let roleId role = fromJust (listToMaybe [identity | (identity, (declaration, _)) <- Map.toList newNative, roleOf declaration == role])
-              pvc = roleId "pvc"
-              service = roleId "service"
-          modifyIORef' world (#objects %~ Map.adjust (setPath ["metadata", "uid"] (String "replacement-uid")) ("persistentvolumeclaim", "default", "nagare-db-pg-new-data"))
-          dropped <- must (readHead store) >>= maybe (fail "missing head") pure
-          _ <- must (replaceHeadIfGenerationMatches store (Just (headGeneration dropped)) dropped {headGeneration = headGeneration dropped + 1, headIncarnations = Map.delete service (headIncarnations dropped)})
-          replacedMembers store world >>= (@?= [pvc])
-          -- The documented path: an unchanged compiled candidate and a rebind
-          -- proposal naming each member's live object.
-          history <- must (loadInventoryHistory store)
-          let snapshot = checked (mkScopeSnapshot binding (Map.map (\(revision, declared) -> (revisionGeneration revision, declared)) (historyAccepted history)) (historyReservations history))
-              files = checked (compileInput (checked (canonicalValue (candidateInputValue (CandidateInput snapshot (ReplaceScope newScope :| []))))))
-          createDirectoryIfMissing True (root </> "candidate" </> "scopes")
-          mapM_ (\(path, bytes) -> BS.writeFile (root </> "candidate" </> path) bytes) files
-          live <- newObjectUids <$> readIORef world
-          let target identity = object ["resource" .= identity, "address" .= (fst (newNative Map.! identity) ^. #address), "physicalIdentity" .= (live Map.! identity), "rebind" .= True]
-          BS.writeFile (root </> "rebind.json") (checked (canonicalValue (object ["version" .= (1 :: Int), "candidate" .= ("candidate" :: Text), "binding" .= binding, "resources" .= map target [pvc, service]])))
-          planInventoryAdoptionWith (adoptionRegistry root store world probe) renameTarget (root </> "rebind.json") (root </> "review")
-          bundle <- loadReviewBundle (root </> "review") >>= either (assertFailure . show) pure
-          Map.keysSet (reviewRebinds (reviewBundleDocument bundle)) @?= Set.fromList [pvc, service]
-          -- Apply it as `inventory apply` does: the review's own bytes, and the
-          -- rebound members' accepted bytes, for admission's reverification.
-          reviewedSpecs <- expectRight (kubernetesSpecsFromReview bundle)
-          rebound <- must (loadRebindNative store (reviewBundleDocument bundle))
-          Map.keysSet rebound @?= Set.fromList [pvc, service]
-          let specs = Map.union reviewedSpecs rebound
-              runtime = probed world probe
-              execution = checked (mkAdapterRegistry [mkKubernetesAdapter specs (mkKubernetesRuntimeOps runtime specs)])
-          published <- must (readReviewSnapshot store (reviewDigest bundle))
-          rebind <- expectRight (verifyReview published bundle)
-          applied <- must (applyReviewed store execution rebind)
-          case applied of
-            Converged _ -> pure ()
-            other -> assertFailure ("the rebind did not converge: " <> describe rebind other)
-          recorded <- headIncarnations <$> (must (readHead store) >>= maybe (fail "missing head") pure)
-          final <- readIORef world
-          Map.map physicalIdentityText recorded @?= newObjectUids final
-          replacedMembers store world >>= (@?= [])
     , testCase "a lost transfer acknowledgement resumes without a second copy" $
         withSystemTempDirectory "postgres-rename-loss" $ \root -> do
           (store, world, reviewed, executionRegistry') <- plannedRename root
@@ -366,6 +340,19 @@ newNative :: Map ResourceId (ManagedResource, ByteString)
 
 roleOf :: ManagedResource -> Text
 roleOf declaration = last (T.splitOn "/" (resourceIdText (declaration ^. #identity)))
+
+-- | The old database's members whose object at the old address is a
+-- replacement made outside review.
+replacedOldMembers :: World -> [ResourceId]
+replacedOldMembers final =
+  [ identity
+  | (identity, (_, bytes)) <- Map.toList oldNative
+  , Right value <- [eitherDecodeStrict bytes]
+  , Just key <- [keyOf value]
+  , Just live <- [Map.lookup key (final ^. #objects)]
+  , Just uid <- [jsonText ["metadata", "uid"] live]
+  , "replaced-" `T.isPrefixOf` uid
+  ]
 
 -- | The members that hold or guard the data: the claim, its writer, the
 -- credential and the backup signing key.
@@ -486,7 +473,9 @@ respond arguments body state = case arguments of
            in if lost
                 then (next & #loseJobAck .~ False, Right (ExitFailure 1, "", "lost acknowledgement"))
                 else (next, Right (ExitSuccess, maybe "" encodeText (Map.lookup key (next ^. #objects)), ""))
-    _ -> (state, Right (ExitFailure 1, "", "create refused"))
+    Right value
+      | Just key <- keyOf value -> (state, Right (ExitFailure 1, "", "Error from server (AlreadyExists): " <> T.unpack (fst3 key) <> " \"" <> T.unpack (thd3 key) <> "\" already exists"))
+    _ -> (state, Right (ExitFailure 1, "", "Error from server (BadRequest): the object could not be decoded"))
   ("patch" : kind : name : rest)
     | Just patch <- flag "-p" rest
     , Right value <- eitherDecodeStrict (TE.encodeUtf8 (T.pack patch)) ->
@@ -496,7 +485,8 @@ respond arguments body state = case arguments of
                 | jsonPath ["metadata", "uid"] value == jsonPath ["metadata", "uid"] current
                 , jsonPath ["metadata", "resourceVersion"] value == jsonPath ["metadata", "resourceVersion"] current ->
                     (patchObject key current value state, Right (ExitSuccess, "", ""))
-              _ -> (state, Right (ExitFailure 1, "", "conflict"))
+              Just _ -> (state, Right (ExitFailure 1, "", "Error from server (Conflict): Operation cannot be fulfilled on " <> kind <> " \"" <> name <> "\": the object has been modified; please apply your changes to the latest version and try again"))
+              Nothing -> (state, Right (ExitFailure 1, "", "Error from server (NotFound): " <> kind <> " \"" <> name <> "\" not found"))
   ["delete", "--raw", path, "-f", "-"]
     | ["", "apis", "batch", "v1", "namespaces", namespace, "jobs", name] <- T.splitOn "/" (T.pack path)
     , Right options <- eitherDecodeStrict (TE.encodeUtf8 (T.pack body)) ->
@@ -507,13 +497,14 @@ respond arguments body state = case arguments of
                     ( state & #objects %~ Map.filterWithKey (\(kind, _, _) value -> not (kind == "pod" && jsonPath ["metadata", "labels", "batch.kubernetes.io/job-name"] value == Just (String name))) . Map.delete key
                     , Right (ExitSuccess, "", "")
                     )
-              _ -> (state, Right (ExitFailure 1, "", "precondition failed"))
+              _ -> (state, Right (ExitFailure 1, "", "Error from server (Conflict): Operation cannot be fulfilled on jobs.batch \"" <> T.unpack name <> "\": Precondition failed"))
   ("wait" : _) -> (state, Right (ExitSuccess, "", ""))
   ("rollout" : "status" : _) -> (state, Right (ExitSuccess, "", ""))
   _ -> (state, Right (ExitFailure 1, "", "unmodelled request: " <> unwords arguments))
   where
     ok next value = (next, Right (ExitSuccess, encodeText value, ""))
     fst3 (value, _, _) = value
+    thd3 (_, _, value) = value
 
 createObject :: (Text, Text, Text) -> Value -> World -> World
 createObject key@(kind, namespace, name) value state =
@@ -650,7 +641,7 @@ seededWorld =
             ]
               <> [(("pod", "default", "pg-old-0"), object ["metadata" .= object ["name" .= ("pg-old-0" :: Text)]])]
           )
-    , volumes = Map.fromList [("nagare-db-pg-old-data", "pgdata:known-row-1")]
+    , volumes = Map.fromList [("nagare-db-pg-old-data", knownRow)]
     , counter = 0
     , created = []
     , loseJobAck = False
@@ -696,10 +687,30 @@ plannedRenameThrough seed transport probe root = do
 -- | 'plannedRenameThrough' on a given empty store.
 plannedRenameOn :: InventoryStore -> (HeadManifest -> HeadManifest) -> Transport -> IORef (Maybe (IO ())) -> IO (IORef World, ReviewedPlan, AdapterRegistry)
 plannedRenameOn store seed transport probe = do
+  world <- seededOn store seed
+  (reviewed, execution) <- planRenameIn store world transport probe
+  pure (world, reviewed, execution)
+
+-- | The accepted old database: a store seeded through `seed` under `root`,
+-- and the API server holding its objects.
+seededRename :: (HeadManifest -> HeadManifest) -> FilePath -> IO (InventoryStore, IORef World)
+seededRename seed root = do
+  store <- must (openFilesystemStore (root </> "history"))
+  world <- seededOn store seed
+  pure (store, world)
+
+seededOn :: InventoryStore -> (HeadManifest -> HeadManifest) -> IO (IORef World)
+seededOn store seed = do
   world <- newIORef seededWorld
   seedAccepted store binding [oldScope] oldNative
   seeded <- must (readHead store) >>= maybe (fail "missing head") pure
   _ <- must (replaceHeadIfGenerationMatches store (Just (headGeneration seeded)) ((seed seeded) {headGeneration = headGeneration seeded + 1}))
+  pure world
+
+-- | Plan and publish the reviewed rename from the store's current history, as
+-- `db rename` does; planning issues no writes, and a refusal fails it.
+planRenameIn :: InventoryStore -> IORef World -> Transport -> IORef (Maybe (IO ())) -> IO (ReviewedPlan, AdapterRegistry)
+planRenameIn store world transport probe = do
   history <- must (loadInventoryHistory store)
   let snapshot =
         checked
@@ -740,7 +751,7 @@ plannedRenameOn store seed transport probe = do
   -- Execution reconstructs everything from the saved bundle; it has no
   -- planning context and no access to the accepted source bytes.
   let execution = checked (mkAdapterRegistry [kubernetesMigrationAdapter runtime Nothing (mkKubernetesAdapter newNative (mkKubernetesRuntimeOps runtime newNative))])
-  pure (world, reviewed, execution)
+  pure (reviewed, execution)
   where
     expectRight' = either (\errors -> assertFailure (show errors) >> fail "unreachable") pure
 
@@ -748,7 +759,17 @@ plannedRenameOn store seed transport probe = do
 -- production planner and applied to convergence: any converged review after
 -- the rename.
 reviewRenamedAgain :: InventoryStore -> IORef World -> Transport -> IORef (Maybe (IO ())) -> IO ()
-reviewRenamedAgain store world transport probe = do
+reviewRenamedAgain store world transport probe = reviewScopeIn store world transport probe newScope newNative []
+
+-- | ADR 27 §3's exit for members replaced outside review: a reviewed rebind
+-- of the accepted old database, recording each member's live object.
+rebindMembers :: InventoryStore -> IORef World -> Transport -> IORef (Maybe (IO ())) -> [ResourceId] -> IO ()
+rebindMembers store world transport probe = reviewScopeIn store world transport probe oldScope oldNative
+
+-- | Review an accepted database unchanged through the production planner,
+-- rebinding the given members, and apply the review to convergence.
+reviewScopeIn :: InventoryStore -> IORef World -> Transport -> IORef (Maybe (IO ())) -> ScopeDeclaration -> Map ResourceId (ManagedResource, ByteString) -> [ResourceId] -> IO ()
+reviewScopeIn store world transport probe scope native members = do
   history <- must (loadInventoryHistory store)
   let snapshot =
         checked
@@ -757,11 +778,16 @@ reviewRenamedAgain store world transport probe = do
               (Map.map (\(accepted, declared) -> (revisionGeneration accepted, declared)) (historyAccepted history))
               (historyReservations history)
           )
-      candidate = checked (composeInventory snapshot (ReplaceScope newScope :| []))
+      candidate = checked (composeInventory snapshot (ReplaceScope scope :| []))
       runtime = probedThrough world transport probe
-      registry = checked (mkAdapterRegistry [mkKubernetesAdapter newNative (mkKubernetesRuntimeOps runtime newNative)])
+      registry = checked (mkAdapterRegistry [mkKubernetesAdapter native (mkKubernetesRuntimeOps runtime native)])
   observations <- must (observeWithRegistry registry (requirementsByExecutor (observationRequirements candidate history)))
-  decisions <- expectRight (decideAdoption candidate history observations (AdoptionInput "candidate" binding []))
+  let targets =
+        [ AdoptionTarget member (fst (native Map.! member) ^. #address) physical Nothing True
+        | member <- members
+        , Just physical <- [present =<< Map.lookup member (observationMap observations)]
+        ]
+  decisions <- expectRight (decideAdoption candidate history observations (AdoptionInput "candidate" binding targets))
   proposal <- expectRight (planChanges candidate decisions history observations)
   before <- must (readStoreSnapshot store)
   bundle <- either (\errors -> assertFailure (show errors) >> fail "unreachable") pure =<< prepareReview registry before proposal
@@ -771,26 +797,46 @@ reviewRenamedAgain store world transport probe = do
   result <- must (applyReviewed store registry reviewed)
   case result of
     Converged _ -> pure ()
-    other -> assertFailure ("the later review did not converge: " <> describe reviewed other)
+    other -> assertFailure ("the review did not converge: " <> describe reviewed other)
+  where
+    present (ObservedPresent physical) = Just physical
+    present (ObservedDrifted physical _) = Just physical
+    present _ = Nothing
 
--- | The context the command-path tests run in; its store is the target's.
-renameTarget :: ActiveTarget
-renameTarget = ActiveTarget (checked (mkContextName "rename-test")) (profileFromContextMap (Map.singleton "CLOUDSDK_CORE_PROJECT" "project"))
+-- | The fence release abandon-migration runs, against the modelled API.
+renameRelease :: IORef World -> Transport -> IORef (Maybe (IO ())) -> MigrationExit
+renameRelease world transport probe = kubernetesMigrationExit (probedThrough world transport probe)
 
-withStateRoot :: FilePath -> IO a -> IO a
-withStateRoot root action =
-  bracket
-    (lookupEnv "XDG_STATE_HOME" <* setEnv "XDG_STATE_HOME" root)
-    (maybe (unsetEnv "XDG_STATE_HOME") (setEnv "XDG_STATE_HOME"))
-    (const action)
+-- | The rename source's data-bearing objects: its claim and its writer.
+sourceKeys :: [(Text, Text, Text)]
+sourceKeys = [("persistentvolumeclaim", "default", "nagare-db-pg-old-data"), ("statefulset.apps", "default", "pg-old")]
 
--- | The planning registry `inventory adopt` builds: Kubernetes members' native
--- bytes resolved as the command resolves them (F80), observed in the world.
-adoptionRegistry :: FilePath -> InventoryStore -> IORef World -> IORef (Maybe (IO ())) -> CompositionCandidate -> InventoryHistory -> IO AdapterRegistry
-adoptionRegistry workspace store world probe candidate history = do
-  let members = [member | Managed member <- inventoryDeclarations (candidateInventory candidate), member ^. #executor == KubernetesExecutor]
-  native <- loadKubernetesMembers workspace store history members >>= either (assertFailure . T.unpack) pure
-  pure (checked (mkAdapterRegistry [mkKubernetesAdapter native (mkKubernetesRuntimeOps (probed world probe) native)]))
+-- | The recovery model's `Replaced`: the object is deleted and recreated out
+-- of band at the same address, with a new UID and the same ownership stamp;
+-- a replaced claim binds a new volume holding `content`.
+replaceOutOfBand :: IORef World -> Text -> (Text, Text, Text) -> IO ()
+replaceOutOfBand world content key@(kind, _, name) = modifyIORef' world $ \state -> case Map.lookup key (state ^. #objects) of
+  Nothing -> state
+  Just current ->
+    state
+      & #counter
+      %~ (+ 1)
+      & #objects
+      %~ Map.insert key (setPath ["metadata", "resourceVersion"] (String "1") (setPath ["metadata", "uid"] (String ("replaced-" <> T.pack (show (state ^. #counter)))) current))
+      & #volumes
+      %~ (if kind == "persistentvolumeclaim" then Map.insert name content else id)
+
+-- | Whether the old database's writer is still stopped by a migration fence.
+sourceWriterFenced :: World -> Bool
+sourceWriterFenced final = case Map.lookup ("statefulset.apps", "default", "pg-old") (final ^. #objects) of
+  Just writer -> isJust (jsonText ["metadata", "annotations", "nagare.dev/migration-fence"] writer) || jsonPath ["spec", "replicas"] writer == Just (Number 0)
+  Nothing -> False
+
+-- | Whether the old database's backup schedule is still suspended.
+sourceScheduleSuspended :: World -> Bool
+sourceScheduleSuspended final = case Map.lookup ("cronjob.batch", "default", "nagare-dbbackup-pg-old") (final ^. #objects) of
+  Just schedule -> jsonPath ["spec", "suspend"] schedule == Just (Bool True)
+  Nothing -> False
 
 -- | The volumes' contents, by claim name.
 renameVolumes :: World -> Map Text Text
@@ -813,8 +859,17 @@ armPartialCopy world = modifyIORef' world (#partialCopyOnce .~ True)
 destinationCopies :: World -> Int
 destinationCopies = destinationWrites
 
+-- | The source database's data, as seeded.
+knownRow :: Text
+knownRow = "pgdata:known-row-1"
+
 verifyRenamedWorld :: World -> Assertion
-verifyRenamedWorld final = do
+verifyRenamedWorld = verifyRenamedWorldWith knownRow knownRow
+
+-- | A renamed database's every reviewed effect, with the data the rename
+-- copied and the data the retained source holds.
+verifyRenamedWorldWith :: Text -> Text -> World -> Assertion
+verifyRenamedWorldWith copied source final = do
   let objectAt key = Map.lookup key (final ^. #objects)
       credential = objectAt ("secret", "default", "nagare-db-pg-new")
       signing = objectAt ("secret", "default", "nagare-dbbackup-pg-new-signing")
@@ -825,8 +880,8 @@ verifyRenamedWorld final = do
   decoded "DATABASE_URL" (fieldsOf credential) @?= "postgresql://nagare:secret-password@pg-new.default.svc.cluster.local:5432/pg_old"
   decoded "POSTGRES_PASSWORD" (fieldsOf credential) @?= "secret-password"
   fieldsOf signing @?= signingData
-  Map.lookup "nagare-db-pg-new-data" (final ^. #volumes) @?= Just "pgdata:known-row-1"
-  Map.lookup "nagare-db-pg-old-data" (final ^. #volumes) @?= Just "pgdata:known-row-1"
+  Map.lookup "nagare-db-pg-new-data" (final ^. #volumes) @?= Just copied
+  Map.lookup "nagare-db-pg-old-data" (final ^. #volumes) @?= Just source
   (oldWriter >>= jsonPath ["spec", "replicas"]) @?= Just (Number 0)
   (objectAt ("cronjob.batch", "default", "nagare-dbbackup-pg-old") >>= jsonPath ["spec", "suspend"]) @?= Just (Bool True)
   assertBool "renamed backup schedule runs" (isNothing (objectAt ("cronjob.batch", "default", "nagare-dbbackup-pg-new") >>= jsonPath ["spec", "suspend"]))
@@ -834,9 +889,10 @@ verifyRenamedWorld final = do
   assertBool "old writer Pod is stopped" (isNothing (objectAt ("pod", "default", "pg-old-0")))
   assertBool "new writer Pod runs" (isJust (objectAt ("pod", "default", "pg-new-0")))
   assertBool "transfer Jobs are removed" (null [() | (kind, _, _) <- Map.keys (final ^. #objects), kind == "job.batch"])
+  -- A member replaced outside review is present as its replacement.
   assertBool
     "every old member is still present"
-    (all (\identity -> any (\value -> jsonText ["metadata", "uid"] value == Just (uidFor identity)) (Map.elems (final ^. #objects))) (Map.keys oldNative))
+    (all (\identity -> any (\value -> maybe False (\uid -> uid == uidFor identity || "replaced-" `T.isPrefixOf` uid) (jsonText ["metadata", "uid"] value)) (Map.elems (final ^. #objects))) (Map.keys oldNative))
 
 -- JSON helpers ----------------------------------------------------------------
 

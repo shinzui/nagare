@@ -156,6 +156,9 @@ It refuses, and changes nothing, in these cases:
 - Resume could still progress: a pending operation passes a fresh preflight, or the adapter
   proves an uncertain one complete or safe to retry. Run `inventory resume` first.
 - A data fence or a migration is active. Those keep their own recovery phases.
+- A reviewed migration (`db rename`) fenced its source and has not finished (`migration-fenced`).
+  Close writes nothing, so it cannot release the fence; use
+  [abandon-migration](#abandon-a-migration-that-cannot-go-forward).
 
 Otherwise close publishes one record and writes one head. The transaction ends, nothing is
 converged, and no incarnation is bound. Scopes the review did not change are untouched. Each
@@ -164,6 +167,9 @@ changed scope gets one of two dispositions:
   and the review's own retained additions are removed.
 - **Kept.** Something in it completed, landed or partially ran. It keeps the review's desired
   revision; its objects stay owned and unconverged, and the next review plans from them.
+
+A scope in which a reviewed migration did not complete every stage always reverts, even if some
+of its stages completed, so a half-moved database is never accepted under its new name (F81).
 
 The record also lists the creates that never started and were confirmed absent at close. A later
 review of the same accepted scope may create them.
@@ -229,6 +235,57 @@ are aliases of close. Their operation must belong to the transaction's review.
 Before ADR 26 these exits behaved differently: an abandon returned the scope to its last
 converged revision and dropped completed effects from ownership. Close keeps a scope in which
 anything took effect, and reverts to the review's base rather than to the converged revision.
+
+## Abandon a migration that cannot go forward
+
+A reviewed `db rename` has no forward exit when its source was replaced outside review after
+admission, or when the copy script refuses its source (an empty volume, for example). If its fence
+stage ran, the old database's writer is scaled to zero and its backup schedule may be suspended.
+Resume refuses each time, and close refuses with `migration-fenced`. End it with:
+
+```bash
+nagarectl --context "$CONTEXT" inventory abandon-migration "$TRANSACTION" --review "$REVIEW_SHA256"
+nagarectl --context "$CONTEXT" inventory status --json
+```
+
+Abandon refuses (`migration-past-return`) once the rename's new writer may have started; after that
+point only `inventory resume` goes on. Otherwise it:
+- releases the writer fence and the backup-schedule suspension that this migration set. The patch
+  is preconditioned on the reviewed incarnation's UID and resourceVersion. An object the migration
+  never fenced, including a replacement made outside review, is left as it is;
+- ends the transaction with close's record. The database's scope reverts to its old name and
+  revision, and its incarnation records are unchanged;
+- deletes nothing. Destination objects the rename created stay in the cluster, unaccepted.
+
+It is re-enterable: after a failure, fix the cause and run the same command; a released fence is
+not written again. If status then reports a replaced source, follow
+[Replaced and unrecorded members](#replaced-and-unrecorded-members) before renaming again.
+
+### Leftover destination objects block the next rename (D1, deferred)
+
+After an abandoned or reverted rename, the destination objects its completed stages created remain
+at the new name. The next `db rename` to that name refuses with "rename destination address is not
+confirmed absent". The old database is accepted, running and backed up; only renaming it is
+blocked. A reviewed cleanup is on the deferral ledger. Until then, remove the leftovers by exact UID:
+
+1. List the objects at the new name that carry this context's stamp:
+   `kubectl get statefulset,pvc,service,secret,serviceaccount,role,rolebinding,cronjob -n NAMESPACE -o json`,
+   and keep those whose `nagare.dev/context-id` is the context and whose name is the rename's
+   destination (`NEW`, `nagare-db-NEW`, `nagare-db-NEW-data`, `nagare-dbbackup-NEW`,
+   `nagare-dbbackup-NEW-signing`).
+2. Confirm that none is accepted: `inventory status --json` must not name them, and the database's
+   accepted scope must be the old name.
+3. Delete each with a UID precondition, so only the object you inspected goes. For the claim:
+
+   ```bash
+   echo '{"apiVersion":"v1","kind":"DeleteOptions","preconditions":{"uid":"UID"}}' > precondition.json
+   kubectl delete --raw /api/v1/namespaces/NAMESPACE/persistentvolumeclaims/nagare-db-NEW-data -f precondition.json
+   ```
+
+   The path follows each kind's API group (`/apis/apps/v1/.../statefulsets/NEW`,
+   `/api/v1/.../secrets/nagare-db-NEW`, and so on). A destination volume holds at most a partial
+   copy of the old data; the old volume is untouched.
+4. Plan the rename again.
 
 ## Other recovery decisions
 

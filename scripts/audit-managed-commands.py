@@ -34,7 +34,7 @@ ROUTES = {
     "Command": {
         "read": "Version InventoryStatus InventoryLegacyGuard InventoryExplain InventoryStoreStatus PlatformRoot PlatformStatusCmd PlatformGuard PlatformUpgradeStatus SiteReleases SitePreviewList AppList AppGet AppLogs DeploymentsList DeploymentsLogs ServerStatus Doctor InventoryGc",
         "group": "Host Kubeconfig Cluster Env Secret Storage Broker Db Task Worker Access ContextCmdGroup Infra Domains CdnCmd",
-        "reviewed": "InventoryPlan InventoryAdopt InventoryMigrate InventoryRetire InventoryCollect InventoryApply InventoryResume InventoryRecover InventoryClose InventoryRegistryRecoveryPlan InventoryStoreMigrate PlatformBootstrapPlan PlatformBootstrapApply Deploy SiteDeploy SiteRollback SitePreviewDeploy SitePreviewDelete AppRestart AppStop AppDelete AppDeploy AppImagePlan Cleanup",
+        "reviewed": "InventoryPlan InventoryAdopt InventoryMigrate InventoryRetire InventoryCollect InventoryApply InventoryResume InventoryRecover InventoryClose InventoryAbandonMigration InventoryRegistryRecoveryPlan InventoryStoreMigrate PlatformBootstrapPlan PlatformBootstrapApply Deploy SiteDeploy SiteRollback SitePreviewDeploy SitePreviewDelete AppRestart AppStop AppDelete AppDeploy AppImagePlan Cleanup",
         "local": "InventoryCompile AppCheck",
         "bounded": "InventoryStoreMaterializeNative InventoryExport InventoryRestore Init",
         "retired": "PlatformStamp",
@@ -168,7 +168,7 @@ DEFAULT_FAMILY = {
 }
 
 FAMILY_ROUTES = {
-    "InventoryPlan InventoryAdopt InventoryMigrate InventoryApply InventoryResume InventoryRecover InventoryClose InventoryRegistryRecoveryPlan": "Scoped review observation and operation selection",
+    "InventoryPlan InventoryAdopt InventoryMigrate InventoryApply InventoryResume InventoryRecover InventoryClose InventoryAbandonMigration InventoryRegistryRecoveryPlan": "Scoped review observation and operation selection",
     "InventoryRetire": "Partial scope member retirement",
     "InventoryCollect": "Retained stateless Kubernetes collection",
     "InventoryStoreMaterializeNative InventoryStoreMigrate InventoryExport InventoryRestore": "Inventory history export, restore, and store migration",
@@ -232,7 +232,7 @@ RECIPE_FAMILY = {
 # Public library calls from production consumers are checked as an exact set.
 # Pure observations are included so a new write cannot hide as an unlisted call.
 LIBRARY_CALLS = {
-    "cli/nagarectl/app": "applyInventoryWithFactory compileInventory convergeInventoryCandidateWith executionBlockedAdapterFor exportInventory loadCandidate loadTargetSnapshot loadTargetSnapshotReadOnly manifestAdapterFor migrateTargetStore openTargetStoreReadOnly openProfileReviewStoreReadOnly planInventory planInventoryAdoptionWith planInventoryCandidateAdoptionWith planInventoryCandidateWith planInventoryCandidateWithPayloadIdentity planInventoryCandidateWithRetirements planInventoryCollectionWith planInventoryCollectionsWith planInventoryMigrationCandidateWith planInventoryMigrationWith planInventoryRetirementWith planInventoryRetirementsWith planInventoryWithRetirements prepareRegistryRecoveryWithFactory recoverInventoryWithFactory closeInventoryWithFactory restoreInventory resumeInventoryWithFactoryTakeover selectFoundationStore",
+    "cli/nagarectl/app": "applyInventoryWithFactory compileInventory convergeInventoryCandidateWith executionBlockedAdapterFor exportInventory loadCandidate loadTargetSnapshot loadTargetSnapshotReadOnly manifestAdapterFor migrateTargetStore openTargetStore openTargetStoreReadOnly openProfileReviewStoreReadOnly planInventory planInventoryAdoptionWith planInventoryCandidateAdoptionWith planInventoryCandidateWith planInventoryCandidateWithPayloadIdentity planInventoryCandidateWithRetirements planInventoryCollectionWith planInventoryCollectionsWith planInventoryMigrationCandidateWith planInventoryMigrationWith planInventoryRetirementWith planInventoryRetirementsWith planInventoryWithRetirements prepareRegistryRecoveryWithFactory recoverInventoryWithFactory closeInventoryWithFactory rejectReentry restoreInventory resumeInventoryWithFactoryTakeover selectFoundationStore",
     "cli/nagarectl/nagared/Main.hs": "loadTargetSnapshot openTargetStoreReadOnly",
 }
 

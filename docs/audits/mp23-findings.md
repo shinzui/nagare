@@ -97,6 +97,7 @@ This is the authoritative list of implementation findings for [MP-23](../masterp
 | [F76](mp23-archive/mp23-findings-closed.md#f76) | P1 | The accepted-incarnation tests stopped running, and twelve mutation records passed vacuously | Closed | EP-180 / EP-177 |
 | [F79](mp23-archive/mp23-findings-closed.md#f79) | P1 | Close drops a never-started member whose absence it cannot read, leaving it accepted with no exit | Closed | MP-23 (step 3d) |
 | [F80](#f80) | P1 | The reviewed rebind cannot be issued for application or standalone-database members, so an unrecorded database never has its backups accepted again | Open | nagare-fix (MP-23 step 5) |
+| [F81](#f81) | P1 | A reviewed rename stopped by a source replaced outside review, or by a refused copy, had no exit, and close could accept it half done | Open | nagare-fix (MP-23 step 5) |
 | [F82](#f82) | P1 | The no-data-loss drill (checklist section 2) has no documented procedure: the guide places full restore after total cluster loss outside this release | Open (scope decided; rebuild-in-place deferred) | nagare-fix (MP-23 step 5); rebuild-in-place: next MasterPlan |
 | [F77](#f77) | P1 | A database volume claim deleted outside review while its pod runs stays Terminating, and every review of the database refuses until it goes | Deferred | deferral ledger (operator, 2026-10-07); next MasterPlan |
 | [F78](#f78) | P2 | While a StatefulSet's own template never becomes Ready, every transaction stops at it, and independent members planned after it are never created until the template is corrected | Deferred | operator, 2026-10-07; next MasterPlan |
@@ -563,6 +564,8 @@ After convergence, the creates re-established the records and status reported `c
 
 **Independent verification (2026-10-07, nagare-verify; candidate `96c1da11`, code identical to `8824f469`; observed).** Status moves from Open to Verifying. The planning refusal is pinned by "a rename refuses a source replaced outside Nagare, at planning (F62)". Killed: `ADR27-F62-migration-source-unchecked`, `ADR27-A52-writer-unchecked`. The required `Replaced` fault on the rename source in the rename recovery model is not done, and was sent to session nagare-fix. The candidate's full gate is green ([record](mp23-independent-results-2026-10-07/gate-96c1da11.json)), and the mutation sweep at `8824f469` killed all 117 records ([results](mp23-independent-results-2026-10-07/mutation-sweep-8824f469.tsv)). Tests named here pass in that gate run ([lines](mp23-independent-results-2026-10-07/test-evidence-96c1da11.txt)). Summary: [2026-10-07 verification record](mp23-independent-results-2026-10-07/README.md).
 
+**Implementation update (2026-10-07, session nagare-fix; claude-opus-5-5; landed in the commit that adds this entry).** The rename recovery model now injects `Replaced` on the rename source's claim or writer at each of its 124 reads, with the replacement volume either empty or holding other data. The exits are status, a reviewed rebind (ADR 27 §3) and the rename again. A replacement before admission refuses at planning (`migration-source-incarnation`), and the rebind then the rename converges, copying only the data the rebind's review accepted (the final check compares the copied data with it). Replacements after admission found F81, fixed in the same commit except its pinned E2 and E3.
+
 ## F80
 
 **The reviewed rebind cannot be issued for application or standalone-database members, so an unrecorded database never has its backups accepted again** — P1; **Open**; owner session nagare-fix (MP-23 step 5).
@@ -591,6 +594,36 @@ After convergence, the creates re-established the records and status reported `c
 
 **Verification.** Pending the fix and a C2 on the new candidate.
 
+## F81
+
+**A reviewed rename stopped by a source replaced outside review, or by a refused copy, had no exit, and close could accept it half done** — P1; **Open**; owner session nagare-fix (MP-23 step 5).
+
+**Found by the F62 rename model (2026-10-07, session nagare-fix, at `a7958867`; observed).** The model replaces the rename source's claim or writer outside review at each of its 124 reads, with an empty volume or another volume's data, and its exits are status, a reviewed rebind (ADR 27 §3) and the rename again. Classes (characterised with nagare-verify):
+- **Close accepted a half-done rename.** A stage preflight refused the replaced source and resume refused the same way; close then ended the transaction and kept the renamed scope, because some destination creates had landed. The members' records named the old objects while status observed the new ones (status reported destination objects as replaced), and the never-started destination claim and credential left `durable-resource-missing` on every later review.
+- **A fenced writer had no release.** A rename stopped after its fence stage left the old writer at zero replicas under `nagare.dev/migration-fence`, which parses as its retained incarnation, so no review released it.
+- **Definite failures were ambiguous.** A 4xx refusal of a stage write and a transfer the copy script refused ("source volume is empty") were classed ambiguous or safe to retry, so resume retried forever and close refused.
+
+**Fix (this commit).**
+- `inventory abandon-migration TX --review DIGEST` (`Execute/Abandon.hs`): refused once the destination's own writer may have started (`migration-past-return`). Otherwise it releases this operation's writer fence and backup-schedule suspension, preconditioned on the reviewed incarnation's UID and resourceVersion (`kubernetesMigrationExit`). An object the stage never fenced, or a replacement of it, is left as it is. It then marks unfinished stages abandoned and ends the transaction through close's record. It deletes nothing and is re-enterable.
+- Close reverts every scope of a migration that did not complete all its stages, and refuses `migration-fenced` while a fence stage ran and the migration has not finished.
+- A stage write refused with a 4xx (G4) is a refusal with no effect; a transfer Job's own Pod (controlled by the Job's UID) that ended Failed with the script's message is a definite failure. Anything unobserved stays ambiguous.
+- The rename test world answers refusals as the API server does (`Error from server (Conflict|AlreadyExists|NotFound)`, RES-4 U4).
+
+**Tests.**
+- The F62 rename model ("a source replaced outside review at any read of it is never copied unreviewed, and rebind then rename is its exit (F62)"): resume, close, then abandon; a database that was not renamed never keeps a fenced writer or a suspended backup schedule. A rebound empty source cannot be renamed (the copy script refuses it), and its clean abandon is the exit.
+- "abandon-migration releases a rename's fence after its copy is refused, and accepts and deletes nothing (F81)": the CLI path on the target store.
+- "abandon-migration leaves a writer it did not fence as it is, so a replacement is never released (F81)".
+- "a stage write the API server refuses with a 4xx stops the rename with no effect, not ambiguous (F81, G4)".
+- The write-fault rename model (kill at the copy Job, then resume) stays green.
+
+**Mutation records.** `F81-close-accepts-incomplete-migration`, `F81-close-ends-fenced-migration`, `F81-failed-transfer-ambiguous`, `F81-release-ignores-incarnation` and `F81-stage-refusal-ambiguous`, each failing its focused test. The F62 model alone does not kill the last one, because abandon-migration also ends an ambiguous stage; the first sweep showed that.
+
+**Pinned, pending the follow-up candidate (operator, 2026-10-07: land now, fix next).**
+- **E2**, reads 102, 103, 104, 106 and 111, both variants: the writer is replaced around its fence by a copy carrying this operation's fence. Abandon releases only the reviewed incarnation, so the replacement stays fenced. Planned exit: after abandon, the documented rebind records the replacement, then a reviewed release of the fence naming this operation on the recorded writer.
+- **E3**, reads 112–124, both variants: the source is replaced after the destination writer's creation began. Abandon refuses past that point, and the remaining stages still require the source incarnation. Planned exit: after the transfer verified, the remaining stages no longer require the source, and RetainSource retains what is present.
+
+**Deferral candidate D1 (operator decision pending).** After an abandoned or reverted rename, the destination objects its completed stages created block the next rename to that name ("rename destination address is not confirmed absent"). The old database is accepted, running and backed up. Schedules: reads 93–101, 105 and 107–110, both variants (28 schedules, pinned as `d1Schedules`). Manual exit: [inventory-operations](../runbooks/inventory-operations.md#leftover-destination-objects-block-the-next-rename-d1-deferred).
+
 ## F82
 
 **The no-data-loss drill (checklist section 2) has no documented procedure: the guide places full restore after total cluster loss outside this release** — P1 (it blocks section 2, before real company data); **Open**; owner session nagare-fix (MP-23 step 5).
@@ -618,6 +651,11 @@ After convergence, the creates re-established the records and status reported `c
   - promotion of a scratch restore to live (EP-160's deferred `--into-live`).
 
   Until then, "usable service after total loss" is a documented limit.
+
+**Implementation update (2026-10-07, session nagare-fix; claude-opus-5-5; landed in the commit that adds this entry).** Scope A's docs:
+- `docs/user/backups-and-disaster-recovery.md`: "Total cluster loss: recover the data" replaces the pre-inventory "disaster-recovery runbook (target)" and "Drill it". It covers the prerequisites (hourly objective, escrow per database, private material off the machine); detection (`server status`, `doctor`, `db backup-receipts --check-freshness`); and recovery from a fresh operator root: `db verify-escrowed-backup --escrow` against the bucket (or `--offline-object-store` in local mode), fetching the exact archive version, checking its SHA-256, restoring into a disposable engine, comparing the content and recording the times. It states the known limit: no reviewed rebuild-in-place with live service. "Rebuilding the host" keeps the VM and disk guidance. The recovery-archive paragraph now names the three things data recovery needs, kept in the private operator repository.
+- `docs/runbooks/disaster-recovery.md`: its pre-inventory rebuild sequence is replaced by a pointer to that procedure and the limit, and its freshness note now describes receipt-graded freshness.
+- Left for the verifier: the escrow section's sentence placing full restore outside this release's accepted evidence, to be edited with the cloud drill's evidence.
 
 **Verification.** Pending the procedure docs and the section-2 drill on the C3 cloud context.
 

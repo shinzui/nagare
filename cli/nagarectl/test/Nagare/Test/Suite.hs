@@ -54,12 +54,12 @@ import InventoryNativeCollectionSpec (nativeCollectionTests)
 import InventoryObjectOpsSpec (inventoryObjectOpsTests)
 import InventoryObservabilitySpec (inventoryObservabilityTests)
 import InventoryObservationSpec (inventoryObservationTests)
-import InventoryPostgresRenameSpec (inventoryPostgresRenameTests)
 import InventoryPreviewRecoverySpec (inventoryPreviewRecoveryTests)
 import InventoryPublicationSpec (inventoryPublicationTests)
 import InventoryRecoveryModelSpec (inventoryRecoveryModelTests)
 import InventoryRedisRestoreRecoverySpec
 import InventoryRefusedPreflightRecoverySpec
+import InventoryRenameCommandSpec (inventoryPostgresRenameTests, inventoryRenameCommandTests)
 import InventoryRenameRecoveryModelSpec (inventoryRenameRecoveryModelTests)
 import InventorySettleSpec (inventorySettleTests)
 import InventorySpec (inventoryTests)
@@ -205,6 +205,7 @@ main = do
             , inventoryMigrationTests
             , inventoryCompanionCollectionTests
             , inventoryPostgresRenameTests
+            , inventoryRenameCommandTests
             , inventoryVolumeRestorePinTests
             , inventoryStatusTests
             , inventoryObservationTests

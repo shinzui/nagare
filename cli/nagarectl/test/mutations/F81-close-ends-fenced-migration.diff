@@ -1,13 +1,13 @@
 diff --git a/cli/nagarectl/src/Nagare/Inventory/Execute/Close.hs b/cli/nagarectl/src/Nagare/Inventory/Execute/Close.hs
-index 84ec6ae7..c902b556 100644
+index 84ec6ae7..21d0cdcd 100644
 --- a/cli/nagarectl/src/Nagare/Inventory/Execute/Close.hs
 +++ b/cli/nagarectl/src/Nagare/Inventory/Execute/Close.hs
-@@ -197,7 +197,7 @@ closeTransaction store registry input = do
+@@ -193,7 +193,7 @@ closeTransaction store registry input = do
+         (err : more, _) -> pure (Left (err :| more))
+         (_, Just why) -> pure (failure "resume-progresses" ("resume can still progress: " <> why <> "; run inventory resume first"))
+         (_, Nothing)
+-          | fencedMigration document states ->
++          | fencedMigration document states && False ->
                pure (failure "migration-fenced" "the migration fenced its source and has not finished; inventory abandon-migration releases the fence and ends the transaction")
          (_, Nothing) -> do
            classes <- Map.fromList <$> traverse (\entry -> (plannedOperationId (reviewPlannedOperation entry),) <$> classify registry reviewed transaction states entry) entries
--          case [(operation, reason, resolvesBy) | (operation, ClassUnknown reason resolvesBy) <- Map.toList classes] of
-+          case [(operation, reason, resolvesBy) | (operation, ClassUnknown reason resolvesBy) <- Map.toList classes, False] of
-             unknowns@(_ : _)
-               | Just attestation <- closeAttestation input ->
-                   commitClose lock (attestedRecord attestation (closeRecordFor transaction (closeReview input) document classes Set.empty))

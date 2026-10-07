@@ -1,0 +1,12 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Execute/Close.hs b/cli/nagarectl/src/Nagare/Inventory/Execute/Close.hs
+index 84ec6ae7..a24cec61 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/Execute/Close.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Execute/Close.hs
+@@ -428,7 +428,6 @@ closeRecordFor transaction review document classes absent =
+     dispositions = Map.fromList [(scope, disposition scope) | scope <- changed]
+     disposition scope
+       | all noEffect (classesOf scope) = RevertTo (Map.lookup scope base)
+-      | migrationIncomplete scope = RevertTo (Map.lookup scope base)
+       | otherwise = KeepDesired
+     -- F81: a migration accepted half done names members whose data was never
+     -- moved. Unless every stage completed, the scope keeps its source.

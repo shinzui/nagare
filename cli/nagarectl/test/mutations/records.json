@@ -312,6 +312,36 @@
     "expect": "test-fails"
   },
   {
+    "record": "F81-close-accepts-incomplete-migration",
+    "suite": "nagarectl",
+    "pattern": "/abandon-migration releases a rename's fence after its copy is refused, and accepts and deletes nothing (F81)/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "F81-close-ends-fenced-migration",
+    "suite": "nagarectl",
+    "pattern": "/abandon-migration releases a rename's fence after its copy is refused, and accepts and deletes nothing (F81)/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "F81-failed-transfer-ambiguous",
+    "suite": "nagarectl",
+    "pattern": "/abandon-migration releases a rename's fence after its copy is refused, and accepts and deletes nothing (F81)/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "F81-release-ignores-incarnation",
+    "suite": "nagarectl",
+    "pattern": "/abandon-migration leaves a writer it did not fence as it is, so a replacement is never released (F81)/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "F81-stage-refusal-ambiguous",
+    "suite": "nagarectl",
+    "pattern": "/a stage write the API server refuses with a 4xx stops the rename with no effect, not ambiguous (F81, G4)/",
+    "expect": "test-fails"
+  },
+  {
     "record": "F57b-journal-no-effect-refusal",
     "suite": "nagarectl",
     "pattern": "/a retry the adapter proved safe that preflight then refuses/",

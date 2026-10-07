@@ -16,6 +16,9 @@ module Nagare.Inventory.Execute.Close
   , closeTransaction
   , closeRolledBack
   , releaseClosedTransaction
+  , abandonedMarker
+  , journalClass
+  , reviewDigestOf
   )
 where
 
@@ -35,7 +38,8 @@ import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
   ( Adapter (adapterIdentity, adapterObserve, adapterPreflight, adapterRecover, adapterVersion)
   , AdapterRegistry
-  , OperationAction (CreateResource, VerifyResource)
+  , MigrationStage (FenceWriters)
+  , OperationAction (CreateResource, MigrateResource, VerifyResource)
   , PlannedOperation (plannedAction, plannedExecutor, plannedOperationId, plannedResources)
   , RecoveryDecision (RecoveryProvedComplete, RecoverySafeToRetry)
   , ResourceObservation (ConfirmedAbsent, ObservationUnavailable)
@@ -188,6 +192,9 @@ closeTransaction store registry input = do
       case (versionErrors, progress) of
         (err : more, _) -> pure (Left (err :| more))
         (_, Just why) -> pure (failure "resume-progresses" ("resume can still progress: " <> why <> "; run inventory resume first"))
+        (_, Nothing)
+          | fencedMigration document states ->
+              pure (failure "migration-fenced" "the migration fenced its source and has not finished; inventory abandon-migration releases the fence and ends the transaction")
         (_, Nothing) -> do
           classes <- Map.fromList <$> traverse (\entry -> (plannedOperationId (reviewPlannedOperation entry),) <$> classify registry reviewed transaction states entry) entries
           case [(operation, reason, resolvesBy) | (operation, ClassUnknown reason resolvesBy) <- Map.toList classes] of
@@ -314,6 +321,32 @@ classify registry reviewed transaction states entry = case journalClass states o
   where
     operation = reviewPlannedOperation entry
 
+-- | F81: a migration whose fence stage may have taken effect and that did not
+-- finish. Close never writes, so it cannot release the fence; the backward
+-- exit is abandon-migration.
+fencedMigration :: ReviewDocument -> Map OperationId OperationState -> Bool
+fencedMigration document states = any fenceStarted operations && any unfinished operations
+  where
+    operations = [reviewPlannedOperation entry | entry <- reviewOperations document, migrationStage (reviewPlannedOperation entry)]
+    migrationStage operation = case plannedAction operation of
+      MigrateResource _ -> True
+      _ -> False
+    stateOf operation = Map.lookup (plannedOperationId operation) states
+    fenceStarted operation =
+      plannedAction operation == MigrateResource FenceWriters && case stateOf operation of
+        Nothing -> False
+        Just Pending -> False
+        Just (Failed (KnownNoEffect _)) -> False
+        Just (OperatorResolved marker) -> not (abandonedMarker `T.isPrefixOf` marker)
+        Just _ -> True
+    unfinished operation = case stateOf operation of
+      Just (Completed _) -> False
+      _ -> True
+
+-- | The journal marker of a migration stage abandon-migration ended (F81).
+abandonedMarker :: Text
+abandonedMarker = "migration-abandoned"
+
 -- | The classes the journal alone proves.
 journalClass :: Map OperationId OperationState -> PlannedOperation -> Maybe OperationClass
 journalClass states operation = case Map.lookup (plannedOperationId operation) states of
@@ -323,6 +356,7 @@ journalClass states operation = case Map.lookup (plannedOperationId operation) s
   Just (Failed (KnownNoEffect _)) -> Just ClassRefused
   Just (OperatorResolved marker)
     | "fenced-recovery-proved" `T.isPrefixOf` marker -> Just ClassReverted
+    | abandonedMarker `T.isPrefixOf` marker -> Just ClassReverted
   _
     | plannedAction operation == VerifyResource -> Just (ClassNoEffect "a verification writes nothing")
     | otherwise -> Nothing
@@ -394,7 +428,20 @@ closeRecordFor transaction review document classes absent =
     dispositions = Map.fromList [(scope, disposition scope) | scope <- changed]
     disposition scope
       | all noEffect (classesOf scope) = RevertTo (Map.lookup scope base)
+      | migrationIncomplete scope = RevertTo (Map.lookup scope base)
       | otherwise = KeepDesired
+    -- F81: a migration accepted half done names members whose data was never
+    -- moved. Unless every stage completed, the scope keeps its source.
+    migrationIncomplete scope =
+      or
+        [ Map.lookup (plannedOperationId operation) classes /= Just ClassCompleted
+        | entry <- reviewOperations document
+        , let operation = reviewPlannedOperation entry
+        , case plannedAction operation of
+            MigrateResource _ -> True
+            _ -> False
+        , any (ownedBy scope) (NE.toList (plannedResources operation))
+        ]
     classesOf scope =
       [ cls
       | entry <- reviewOperations document

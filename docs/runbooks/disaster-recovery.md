@@ -92,218 +92,24 @@ Resolve the active context's backup bucket with:
 pulumi -C infra/pulumi stack output backupBucket
 ```
 
-`nagarectl server status` reports the **freshness** (newest-object age) of its
-`databases/<name>`, `litestream`, and `volumes` prefixes in that bucket, so you
-can confirm backups are current without a manual `gsutil ls -l`.
+`nagarectl server status` and `nagarectl doctor` grade each accepted managed
+database's recovery point from verified receipts and exit nonzero on a breach
+(`db backup-receipts NAME --check-freshness` for one database).
 
-## Rebuild sequence
+## Total cluster loss
 
-### 1. Provision cloud resources (EP-2)
+The procedure for recovering the data after total cluster loss, and for drilling
+it, is [Total cluster loss: recover the data](../user/backups-and-disaster-recovery.md#total-cluster-loss-recover-the-data)
+in the backups guide. It reads only the backup bucket and the private operator
+material (escrowed signing keys, the age key, the context), restores each
+database's newest verified backup into a disposable engine, compares the content
+and records the recovery time.
 
-```bash
-pulumi -C infra/pulumi up
-pulumi -C infra/pulumi stack output backupBucket # e.g. <project>-nagare-backups
-```
-
-Observe: `Resources: + N created`; `backupBucket`, `publicIp`, `dnsZoneName`,
-etc. print. The static IP, Cloud DNS zone, data disk, service account, Artifact
-Registry, and both buckets exist.
-
-### 2. Build & register the NixOS image, then boot the VM (EP-3, Integration Point 10)
-
-```bash
-just host-image                     # build on the x86_64-linux remote builder,
-                                    # upload, register a GCE image, write
-                                    # nagareImageSelfLink into Pulumi config
-pulumi -C infra/pulumi up          # instance boots from the registered image
-```
-
-Observe: `host-image` prints the registered image self-link; `pulumi up` shows
-the instance created/replaced; the VM is `RUNNING`.
-
-> **Boot disk size:** `NagareInstance.ts` sets `bootDisk.initializeParams.size =
-> 100`. The 6 GB image default is too small — it holds both `/nix/store` and the
-> containerd image store, and tripped DiskPressure during the observability
-> install. Keep it at 100 GB (NixOS `growPartition` grows root to fill it).
-
-> **DNS must be baked into the image.** The registered image MUST contain the
-> `nixos/hosts/nagare-01/networking.nix` fix (`networking.nameservers =
-> [8.8.8.8 8.8.4.4]`, `dhcpcd.extraConfig = "nohook resolv.conf"`). Verify on a
-> fresh boot: `ssh deploy@nagare-01 'grep nohook /etc/dhcpcd.conf && cat
-> /etc/resolv.conf'` shows `8.8.8.8`, NOT `169.254.169.254`. If it shows the
-> metadata resolver, the image predates the fix — rebuild it (`just host-image`).
-> Without working DNS, containerd cannot pull cluster images and coredns cannot
-> resolve external names (cert-manager / Let's Encrypt fail).
-
-### 3. Reach the cluster (Integration Point 7)
-
-Until Tailscale is joined, the kube-apiserver (6443) is reachable only over an
-SSH local-forward through the port-22 IAP tunnel:
-
-```bash
-TUNPID=$(scripts/iap-ssh.sh tunnel nagare-01 22 2222)        # localhost:2222 -> VM:22
-ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes -o StrictHostKeyChecking=no \
-    -o UserKnownHostsFile=/dev/null -p 2222 \
-    -L 6443:127.0.0.1:6443 -N -f deploy@127.0.0.1            # forward 6443
-ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes -p 2222 deploy@127.0.0.1 \
-    'sudo cat /etc/rancher/k3s/k3s.yaml' > /tmp/nagare-kubeconfig.yaml
-export KUBECONFIG=/tmp/nagare-kubeconfig.yaml
-kubectl get nodes
-```
-
-Observe: one node, `STATUS Ready`. (The k3s cert SAN includes 127.0.0.1, so the
-unmodified server address works through the forward.) Clean up the forward/tunnel
-with `pkill -f 'ssh.*-L 6443'; kill $TUNPID` when done.
-
-### 4. Bootstrap the cluster platform (EP-4)
-
-```bash
-just cluster-bootstrap
-just deploy-hello
-kubectl -n personal wait --for=condition=Ready ksvc/hello --timeout=300s
-curl -i --resolve hello.personal.apps.example.com:80:$(pulumi -C infra/pulumi stack output publicIp) \
-  http://hello.personal.apps.example.com
-```
-
-Observe: cert-manager, knative-serving, kourier-system pods `Running`; the
-`letsencrypt-dns` ClusterIssuer `READY=True`; the hello ksvc `READY=True`; the
-curl returns `200` / `Hello Nagare!`. (v1 is HTTP-first; Let's Encrypt wildcard
-TLS is enabled with `just cluster-enable-tls` once a real `baseDomain` is
-delegated — see EP-4.)
-
-> `nagarectl doctor` now checks these same assertions automatically — the
-> Knative/Kourier/cert-manager rollouts and the `letsencrypt-dns` ClusterIssuer
-> readiness — so after this step you can run `nagarectl doctor` to confirm them
-> in one graded command. The manual `kubectl`/`curl` assertions above remain the
-> ground-truth fallback when the CLI is unavailable mid-rebuild.
-
-> On a cold cluster, cert-manager/Knative images take a few minutes to pull. If a
-> rollout times out, wait and re-run `just cluster-bootstrap` (idempotent). If
-> pods are stuck `ImagePullBackOff`, confirm DNS (step 2 note) and delete the
-> stuck pods so kubelet retries.
-
-### 5. Install observability (EP-5)
-
-```bash
-just observability
-kubectl get pods -n monitoring -n logging -n tracing
-```
-
-Observe: `helm list -A` shows `vmks`, `victoria-logs`, `victoria-logs-collector`,
-`victoria-traces`, `otel-collector` all `deployed`; pods `Running`; PVCs `Bound`
-to `local-path`. Reach Grafana with
-`kubectl port-forward -n monitoring svc/vmks-grafana 3000:80`. Dashboards under
-`cluster/observability/grafana/dashboards/` load via the sidecar. (Log search
-uses the stream selector `{kubernetes.pod_namespace="<ns>"}`.)
-
-> `nagarectl server status` reports boot- and data-disk usage (the
-> `/var/lib/nagare` data disk backs these PVCs over `local-path`), so you can spot
-> disk pressure here without an SSH `df -h`.
-
-### 6. Restore secrets (EP-7 M1)
-
-```bash
-# Ensure the age private key is in place first (see "the one thing not in Git").
-kubectl create namespace personal --dry-run=client -o yaml | kubectl apply -f -
-secrets_dir="${NAGARE_CLUSTER_SECRETS_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/nagare/cluster-secrets/<context>}"
-for f in "$secrets_dir"/*.yaml; do sops -d "$f" | kubectl apply -f -; done
-kubectl get secrets -n personal
-```
-
-Observe: each prints `secret/<name> created`; the Secrets are listed.
-
-### 7. Restore data (EP-7 M2)
-
-```bash
-export BACKUP_BUCKET=$(pulumi -C infra/pulumi stack output backupBucket)
-# SQLite (Litestream) into a scratch file, then promote into the app volume/disk.
-# (The old restore-sqlite helper script is removed — restore with litestream
-# directly, pointing at the replica prefix in the backup bucket.)
-litestream restore -o /tmp/restore-app.db gcs://$BACKUP_BUCKET/litestream/<app-db>
-sqlite3 /tmp/restore-app.db "SELECT count(*) FROM notes;"
-# Managed database (EP-47) into a SCRATCH target, compare, then promote manually.
-# The removed host-side Postgres helpers are no longer a supported restore path.
-# A reviewed PostgreSQL, Redis, or ClickHouse scratch restore requires an accepted backup receipt.
-nagarectl db restore <name> <accepted-backup-id> --restore-id recovery-001 --save-plan ./db-restore
-nagarectl inventory apply ./db-restore --yes
-# App volume (EP-36) into a SCRATCH PVC, eyeball the restored tree, then promote:
-# The direct storage restore command is unavailable after inventory admission.
-# Use a separately reviewed volume recovery procedure when it is available.
-```
-
-Observe that scratch PostgreSQL or ClickHouse rows, or Redis keys, match the source at backup
-time. Redis uses a separate PVC-backed scratch StatefulSet named
-`<database>-restore-<restore-id>`. For an app volume, compare the restored file
-tree printed by the Job. The reviewed database restores write only to new
-scratch targets and check the accepted receipt and current object bytes before
-execution. Live-target restore needs a separate reviewed recovery procedure.
-
-**App-volume snapshots are file-level, point-in-time copies** (`tar` of the
-mounted volume → `gs://<backupBucket>/volumes/<app>/<volume>/<ts>.tar.gz`, taken
-by `nagarectl storage snapshot APP VOLUME`). A snapshot of a *hot* (actively
-written) SQLite database can capture a torn page — quiesce the app first, or use
-the continuous Litestream pattern (`cluster/examples/sqlite-litestream/`) for
-databases that are written while live. Uploaded files / generated assets / a
-stopped app's DB snapshot cleanly. Volumes declared with `retention = Delete` are
-treated as throwaway and are **excluded** from backups (and `nagarectl deploy`
-warns about them).
-
-**Managed databases (EP-47) are backed up by default.** Each reviewed `nagarectl db
-create` provisions a daily **CronJob** that runs an
-engine-appropriate logical dump (`pg_dump` for Postgres, an RDB dump for Redis, a
-native database backup ZIP for ClickHouse), gzips it, and uploads it to
-`gs://<backupBucket>/databases/<name>/<ts>.<ext>`. Reviewed schedules do not
-prune. Take a manual backup with `nagarectl db backup <name> --backup-id ID
---save-plan DIR` and apply that review. A reviewed PostgreSQL, Redis, or ClickHouse
-restore needs an accepted manual or scheduled backup ID and a separate
-`--restore-id ID --save-plan DIR` review; it creates separate scratch data.
-Live-target restore is unavailable. A database
-declared `retention = Delete` is treated as throwaway and gets **no** scheduled
-backup.
-
-**Restore drill (against a disposable database).** Prove the path end to end
-without risking live data — run on the VM (`scripts/iap-ssh.sh`) or through a
-forwarded kube-API port (IAP forwards only SSH/22):
-
-```bash
-nagarectl db create postgres drilldb \
-  --recovery-backup drilldb-backup --recovery-key-version v1
-# write a known row, then:
-nagarectl db backup drilldb --backup-id drill-001 --save-plan ./drill-backup
-nagarectl inventory apply ./drill-backup --yes
-nagarectl db restore drilldb drill-001 --restore-id drill-restore-001 --save-plan ./drill-restore
-nagarectl inventory apply ./drill-restore --yes
-# the restore Job's logs print the scratch db's table list / row count to compare
-nagarectl db delete drilldb --save-plan ./drill-retire
-nagarectl inventory apply ./drill-retire --yes
-```
-
-The retirement review retains the drill database's provider resources. Collect
-them through separate exact reviews when native database collection is supported;
-do not reuse the drill name while retained addresses remain claimed.
-
-> **In-pod GCS auth (fixed 2026-06-10):** in-pod GCS upload was blocked because
-> k3s/flannel's IPv4LL `169.254.0.0/16` addresses hijacked the GCE metadata IP
-> `169.254.169.254` into the VXLAN overlay (the litestream sidecar failed the same
-> way). Fixed in `nixos/hosts/nagare-01/networking.nix`: a `/32` metadata route on
-> the primary NIC (beats the `/16`) + a MASQUERADE for pod SNAT; the backup/restore
-> Jobs also set `hostAliases` so gcloud/gsutil resolve `metadata.google.internal`.
-> Applied live on the node and committed to NixOS — run `just host-switch` (or
-> rebuild the image) to persist across reboots. See MasterPlan 9 and EP-43. As of
-> MasterPlan 13 / EP-1, that `hostAliases` is rendered by the shared
-> `Nagare.Cluster.GcsJob` module for every GCS data-movement Job (db backup/restore,
-> volume snapshot/restore), so it cannot be present in one path and missing in another.
-
-### 8. Redeploy the apps (EP-6)
-
-```bash
-nagarectl deploy        # run in each app repo containing a nagare/Config.hs
-```
-
-Observe: the tool prints the app URL; `curl` returns the app's response.
-(EP-6 — the `nagarectl` CLI — is a separate child plan; until it exists, apply
-the rendered Knative Service manifests directly as in
-`cluster/examples/hello-knative-service/`.)
+This release has no reviewed rebuild of the same context with the databases
+restored into service: planning refuses to recreate an accepted durable member,
+and a backup restores only into the incarnation it was taken from (ADR 27). That
+is the next MasterPlan's scope. Recreating the host itself follows
+[Rebuilding the host](../user/backups-and-disaster-recovery.md#rebuilding-the-host).
 
 ## Power management (stop / start / full teardown)
 

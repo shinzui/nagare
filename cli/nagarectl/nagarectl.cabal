@@ -47,6 +47,7 @@ library
     Nagare.Inventory.Application.Tasks
     Nagare.Inventory.Application.Types
     Nagare.Inventory.Application.Worker
+    Nagare.Inventory.Execute.Abandon
     Nagare.Inventory.Execute.AdapterEnv
     Nagare.Inventory.Execute.Admission
     Nagare.Inventory.Execute.Claims
@@ -551,6 +552,7 @@ test-suite nagarectl-test
     InventoryRecoveryModelSpec
     InventoryRedisRestoreRecoverySpec
     InventoryRefusedPreflightRecoverySpec
+    InventoryRenameCommandSpec
     InventoryRenameRecoveryModelSpec
     InventorySettleSpec
     InventorySpec

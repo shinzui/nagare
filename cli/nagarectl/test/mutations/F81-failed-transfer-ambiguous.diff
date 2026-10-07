@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesMigration.hs b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesMigration.hs
+index e6740b00..2b85597c 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesMigration.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesMigration.hs
+@@ -563,7 +563,7 @@ kubernetesMigrationAdapter config planning base =
+           -- script's refusal is a definite outcome, not an unknown one.
+           case (completedJobContainerMessageFromPodList uid "transfer" pods, failedTransferMessage uid pods) of
+             (Right message, _) -> Right message
+-            (Left _, Just message) -> Right message
++            (Left reason, Just _) -> Left (WriteUnknown reason)
+             (Left reason, Nothing) -> Left (WriteUnknown reason)
+         _ -> Left (WriteUnknown "transfer Job Pod read failed")
+ 

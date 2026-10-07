@@ -8,6 +8,7 @@
 module Nagare.Inventory.Adapters.KubernetesMigration
   ( MigrationPlanning (..)
   , kubernetesMigrationAdapter
+  , kubernetesMigrationExit
   , renameProposal
   , migrationDestinationMember
   )
@@ -24,14 +25,17 @@ import Data.Generics.Labels ()
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (listToMaybe, mapMaybe)
 import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Kubernetes (KubernetesMutation (..))
+import Nagare.Inventory.Adapters.KubernetesProof (kubectlRefusal)
 import Nagare.Inventory.Adapters.KubernetesRuntime (completedJobContainerMessageFromPodList, identified)
 import Nagare.Inventory.Digest (contentDigest)
+import Nagare.Inventory.Execute.Abandon (MigrationExit (..))
 import Nagare.Inventory.Identity (IdentityCheck (..), checkedPhysical, requireAccepted)
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect), OperationId, operationIdText)
 import Nagare.Inventory.KubernetesTransport (KubernetesRuntimeConfig (..), invokeKubectl)
@@ -240,7 +244,7 @@ kubernetesMigrationAdapter config planning base =
           (FenceWriters, RenameSchedule) -> suspendSchedule bundle
           (TransferState, RenameVolume) -> do
             transferred <- runTransfer bundle TransferCopy
-            pure (either AdapterEffectAmbiguous (const AdapterEffectCompleted) transferred)
+            pure (either writeFailed (const AdapterEffectCompleted) transferred)
           _ -> pure AdapterEffectCompleted
 
     verify bundle = case (bundle ^. #stage, bundle ^. #member) of
@@ -254,7 +258,7 @@ kubernetesMigrationAdapter config planning base =
         suspended <- scheduleSuspended bundle
         pure (suspended >> proof bundle ["sourcePhysical" .= (bundle ^. #sourcePhysical), "suspended" .= True])
       (TransferState, RenameVolume) -> do
-        manifest <- runTransfer bundle TransferVerify
+        manifest <- first writeFailureText <$> runTransfer bundle TransferVerify
         destination <- destinationOwned bundle
         pure $ do
           checked <- manifest
@@ -329,26 +333,7 @@ kubernetesMigrationAdapter config planning base =
 
     -- Observation -------------------------------------------------------
 
-    getObject address = case address of
-      Kubernetes _ group kind namespace name -> do
-        guarded <- runtimeGuard config
-        case guarded of
-          Left reason -> pure (Left ("cluster guard refused: " <> reason))
-          Right () -> do
-            result <-
-              invokeKubectl
-                config
-                ( ["get", kindToken group kind, T.unpack (nameText name)]
-                    <> maybe [] (\value -> ["--namespace", T.unpack (nameText value)]) namespace
-                    <> ["-o", "json", "--ignore-not-found"]
-                )
-                ""
-            pure $ case result of
-              Right (ExitSuccess, output, _)
-                | null output -> Right Nothing
-                | otherwise -> Just <$> first T.pack (eitherDecodeStrict (TE.encodeUtf8 (T.pack output)))
-              _ -> Left "Kubernetes read failed"
-      _ -> pure (Left "rename member has no Kubernetes address")
+    getObject = migrationObject config
 
     -- The object must carry this context's ownership stamp for the logical
     -- resource; a name match alone never proves identity.
@@ -446,7 +431,7 @@ kubernetesMigrationAdapter config planning base =
                       ]
               patched <- kubectlWrite (patchArguments (bundle ^. #writerAddress) patch) ""
               case patched of
-                Left reason -> pure (AdapterEffectAmbiguous reason)
+                Left failure -> pure (writeFailed failure)
                 Right () -> do
                   settled <- poll 90 (either (const False) (const True) <$> writerFenced bundle)
                   pure (if settled then AdapterEffectCompleted else AdapterEffectAmbiguous "fenced writer Pod has not stopped")
@@ -473,7 +458,7 @@ kubernetesMigrationAdapter config planning base =
                       , "spec" .= object ["suspend" .= True]
                       ]
               patched <- kubectlWrite (patchArguments (bundle ^. #sourceAddress) patch) ""
-              pure (either AdapterEffectAmbiguous (const AdapterEffectCompleted) patched)
+              pure (either writeFailed (const AdapterEffectCompleted) patched)
 
     copySecret bundle = do
       source <- sourceValue bundle
@@ -489,7 +474,7 @@ kubernetesMigrationAdapter config planning base =
         Right bytes -> do
           -- ADR 27 (N11): the copy's create returns the object it created.
           created <- kubectlCreate ["create", "--field-manager=nagare-inventory", "-f", "-", "-o", "json"] (T.unpack (TE.decodeUtf8 bytes))
-          pure (either AdapterEffectAmbiguous (`identified` AdapterEffectCompleted) created)
+          pure (either writeFailed (`identified` AdapterEffectCompleted) created)
 
     expectedData bundle value = case valueAt ["data"] value of
       Just (Object fields)
@@ -541,25 +526,25 @@ kubernetesMigrationAdapter config planning base =
           timeout = if mode == TransferCopy then 900 else 600
       existing <- getObject address
       started <- case existing of
-        Left reason -> pure (Left reason)
+        Left reason -> pure (Left (WriteUnknown reason))
         Right (Just value)
           | valueAt ["metadata", "labels", "nagare.dev/migration-operation"] value == Just (toJSON (bundle ^. #operation)) -> pure (Right ())
-          | otherwise -> pure (Left "transfer Job name belongs to another operation")
+          | otherwise -> pure (Left (WriteRefused "transfer Job name belongs to another operation"))
         Right Nothing -> case canonicalValue job of
-          Left reason -> pure (Left reason)
+          Left reason -> pure (Left (WriteRefused reason))
           Right bytes -> kubectlWrite ["create", "-f", "-"] (T.unpack (TE.decodeUtf8 bytes))
       case started of
-        Left reason -> pure (Left reason)
+        Left failure -> pure (Left failure)
         Right () -> do
           _ <- poll timeout (either (const False) finished <$> getObject address)
           current <- getObject address
           case current of
             Right (Just value) | finished (Just value) -> do
               uid <- pure (textAt ["metadata", "uid"] value >>= either (const Nothing) Just . mkPhysicalIdentity)
-              message <- maybe (pure (Left "transfer Job has no UID")) (readMessage facts name) uid
+              message <- maybe (pure (Left (WriteUnknown "transfer Job has no UID"))) (readMessage facts name) uid
               removed <- maybe (pure (Right ())) (deleteJob address) uid
-              pure (removed >> (message >>= parseTransferManifest))
-            _ -> pure (Left "transfer Job did not finish")
+              pure (first WriteUnknown removed >> (message >>= first WriteRefused . parseTransferManifest))
+            _ -> pure (Left (WriteUnknown "transfer Job did not finish"))
 
     finished = \case
       Just value -> any (\key -> maybe False (/= Number 0) (valueAt ["status", key] value)) ["succeeded", "failed"]
@@ -573,9 +558,14 @@ kubernetesMigrationAdapter config planning base =
           ""
       pure $ case result of
         Right (ExitSuccess, output, _) -> do
-          pods <- first T.pack (eitherDecodeStrict (TE.encodeUtf8 (T.pack output)))
-          completedJobContainerMessageFromPodList uid "transfer" pods
-        _ -> Left "transfer Job Pod read failed"
+          pods <- first (WriteUnknown . T.pack) (eitherDecodeStrict (TE.encodeUtf8 (T.pack output)))
+          -- F81: a Pod of exactly this Job that ended Failed with the
+          -- script's refusal is a definite outcome, not an unknown one.
+          case (completedJobContainerMessageFromPodList uid "transfer" pods, failedTransferMessage uid pods) of
+            (Right message, _) -> Right message
+            (Left _, Just message) -> Right message
+            (Left reason, Nothing) -> Left (WriteUnknown reason)
+        _ -> Left (WriteUnknown "transfer Job Pod read failed")
 
     deleteJob address uid = case address of
       Kubernetes _ _ _ (Just namespace) name -> do
@@ -589,37 +579,15 @@ kubernetesMigrationAdapter config planning base =
         case canonicalValue options of
           Left reason -> pure (Left reason)
           Right bytes ->
-            kubectlWrite
-              ["delete", "--raw", "/apis/batch/v1/namespaces/" <> T.unpack (nameText namespace) <> "/jobs/" <> T.unpack (nameText name), "-f", "-"]
-              (T.unpack (TE.decodeUtf8 bytes))
+            first writeFailureText
+              <$> kubectlWrite
+                ["delete", "--raw", "/apis/batch/v1/namespaces/" <> T.unpack (nameText namespace) <> "/jobs/" <> T.unpack (nameText name), "-f", "-"]
+                (T.unpack (TE.decodeUtf8 bytes))
       _ -> pure (Left "transfer Job has no namespaced address")
 
-    kubectlWrite arguments body = do
-      guarded <- runtimeGuard config
-      case guarded of
-        Left reason -> pure (Left ("cluster guard refused before Kubernetes write: " <> reason))
-        Right () -> do
-          result <- invokeKubectl config arguments body
-          pure $ case result of
-            Right (ExitSuccess, _, _) -> Right ()
-            _ -> Left "Kubernetes write did not return success; reobserve before retry"
+    kubectlWrite arguments body = void <$> migrationWrite config arguments body
 
-    kubectlCreate arguments body = do
-      guarded <- runtimeGuard config
-      case guarded of
-        Left reason -> pure (Left ("cluster guard refused before Kubernetes write: " <> reason))
-        Right () -> do
-          result <- invokeKubectl config arguments body
-          pure $ case result of
-            Right (ExitSuccess, output, _) -> Right output
-            _ -> Left "Kubernetes write did not return success; reobserve before retry"
-
-    patchArguments address patch = case address of
-      Kubernetes _ group kind namespace name ->
-        ["patch", kindToken group kind, T.unpack (nameText name)]
-          <> maybe [] (\value -> ["--namespace", T.unpack (nameText value)]) namespace
-          <> ["--type=merge", "--field-manager=nagare-inventory", "-p", T.unpack (TE.decodeUtf8 (either (const "") id (canonicalValue patch)))]
-      _ -> []
+    kubectlCreate = migrationWrite config
 
     poll :: Int -> IO Bool -> IO Bool
     poll attempts check = do
@@ -803,3 +771,140 @@ annotation key value = case valueAt ["metadata", "annotations"] value of
     Just (String text) -> Just text
     _ -> Nothing
   _ -> Nothing
+
+-- | A stage write's failure. The API server's 4xx answer left the object
+-- unchanged (G4, RES-4 U4), so it is a refusal with no effect; anything else
+-- (no answer, a 5xx, a guard that could not run) may hide a committed write.
+data WriteFailure
+  = WriteRefused !Text
+  | WriteUnknown !Text
+  deriving stock (Eq, Show)
+
+writeFailureText :: WriteFailure -> Text
+writeFailureText = \case
+  WriteRefused reason -> reason
+  WriteUnknown reason -> reason
+
+-- | F81: a definite refusal ends the stage with no effect, so the stopped
+-- migration reaches its backward exit; only an unknown outcome is ambiguous.
+writeFailed :: WriteFailure -> AdapterExecution
+writeFailed = \case
+  WriteRefused reason -> AdapterEffectFailed (KnownNoEffect reason)
+  WriteUnknown reason -> AdapterEffectAmbiguous reason
+
+migrationWrite :: KubernetesRuntimeConfig -> [String] -> String -> IO (Either WriteFailure String)
+migrationWrite config arguments body = do
+  guarded <- runtimeGuard config
+  case guarded of
+    Left reason -> pure (Left (WriteRefused ("cluster guard refused before Kubernetes write: " <> reason)))
+    Right () -> do
+      result <- invokeKubectl config arguments body
+      pure $ case result of
+        Right (ExitSuccess, output, _) -> Right output
+        Right (ExitFailure _, _, errors)
+          | Just refusal <- kubectlRefusal (T.pack errors) -> Left (WriteRefused ("the API server refused the write: " <> refusal))
+        _ -> Left (WriteUnknown "Kubernetes write did not return success; reobserve before retry")
+
+migrationObject :: KubernetesRuntimeConfig -> ProviderAddress -> IO (Either Text (Maybe Value))
+migrationObject config address = case address of
+  Kubernetes _ group kind namespace name -> do
+    guarded <- runtimeGuard config
+    case guarded of
+      Left reason -> pure (Left ("cluster guard refused: " <> reason))
+      Right () -> do
+        result <-
+          invokeKubectl
+            config
+            ( ["get", kindToken group kind, T.unpack (nameText name)]
+                <> maybe [] (\value -> ["--namespace", T.unpack (nameText value)]) namespace
+                <> ["-o", "json", "--ignore-not-found"]
+            )
+            ""
+        pure $ case result of
+          Right (ExitSuccess, output, _)
+            | null output -> Right Nothing
+            | otherwise -> Just <$> first T.pack (eitherDecodeStrict (TE.encodeUtf8 (T.pack output)))
+          _ -> Left "Kubernetes read failed"
+  _ -> pure (Left "rename member has no Kubernetes address")
+
+patchArguments :: ProviderAddress -> Value -> [String]
+patchArguments address patch = case address of
+  Kubernetes _ group kind namespace name ->
+    ["patch", kindToken group kind, T.unpack (nameText name)]
+      <> maybe [] (\value -> ["--namespace", T.unpack (nameText value)]) namespace
+      <> ["--type=merge", "--field-manager=nagare-inventory", "-p", T.unpack (TE.decodeUtf8 (either (const "") id (canonicalValue patch)))]
+  _ -> []
+
+-- | The refusal a transfer Job's own Pod reported when it ended Failed: the
+-- Pod is controlled by exactly this Job's UID, and its transfer container
+-- terminated nonzero with the script's message.
+failedTransferMessage :: PhysicalIdentity -> Value -> Maybe ByteString
+failedTransferMessage physical pods = case valueAt ["items"] pods of
+  Just (Array items) -> listToMaybe (mapMaybe failed (toList items))
+  _ -> Nothing
+  where
+    failed pod = do
+      Array owners <- valueAt ["metadata", "ownerReferences"] pod
+      guard (any owned (toList owners))
+      guard (valueAt ["status", "phase"] pod == Just (String "Failed"))
+      Array containers <- valueAt ["status", "containerStatuses"] pod
+      terminated <- listToMaybe [state | container <- toList containers, valueAt ["name"] container == Just (String "transfer"), Just state <- [valueAt ["state", "terminated"] container]]
+      Number code <- valueAt ["exitCode"] terminated
+      guard (code /= 0)
+      String message <- valueAt ["message"] terminated
+      guard (not (T.null message))
+      pure (TE.encodeUtf8 message)
+    owned owner =
+      valueAt ["kind"] owner == Just (String "Job")
+        && valueAt ["uid"] owner == Just (String (physicalIdentityText physical))
+        && valueAt ["controller"] owner == Just (Bool True)
+
+-- | F81: the backward exit of a stopped migration, one fence stage at a time.
+-- A fenced writer is released to the replicas its accepted declaration names,
+-- and a suspended backup schedule resumes, each only when the object is the
+-- reviewed incarnation and carries this operation's fence; the write is
+-- preconditioned on its UID and resourceVersion. An object the stage never
+-- fenced, or a replacement of it, is left as it is.
+kubernetesMigrationExit :: KubernetesRuntimeConfig -> MigrationExit
+kubernetesMigrationExit config = MigrationExit pastReturn (kubernetesMigrationRelease config)
+  where
+    -- The destination's own writer, once its creation starts, may accept
+    -- writes that exist nowhere else.
+    pastReturn planned prepared = case decodeBundle planned prepared of
+      Left _ -> True
+      Right bundle -> bundle ^. #member == RenameWorkload && bundle ^. #stage /= FenceWriters && bundle ^. #stage /= BackUpSource
+
+kubernetesMigrationRelease :: KubernetesRuntimeConfig -> PlannedOperation -> PreparedNative -> IO (Either Text ())
+kubernetesMigrationRelease config planned prepared = case decodeBundle planned prepared of
+  Left reason -> pure (Left reason)
+  Right bundle -> case (bundle ^. #stage, bundle ^. #member) of
+    (FenceWriters, kind)
+      | kind `elem` [RenameVolume, RenameWorkload] ->
+          release bundle (bundle ^. #writerAddress) (bundle ^. #writerPhysical) (\_ -> object ["replicas" .= writerReplicas bundle])
+    (FenceWriters, RenameSchedule) ->
+      release bundle (bundle ^. #sourceAddress) (bundle ^. #sourcePhysical) (\_ -> object ["suspend" .= False])
+    _ -> pure (Right ())
+  where
+    -- A managed database's writer is a single-replica StatefulSet
+    -- (`Nagare.Dsl.Database.Render`), the only writer a rename fences.
+    writerReplicas _ = 1 :: Int
+    release bundle address physical spec = do
+      observed <- migrationObject config address
+      case observed of
+        Left reason -> pure (Left reason)
+        Right Nothing -> pure (Right ())
+        Right (Just value)
+          | textAt ["metadata", "uid"] value /= Just (physicalIdentityText physical) -> pure (Right ())
+          | annotation (Key.toText fenceAnnotation) value /= Just (operationIdText (bundle ^. #operation)) -> pure (Right ())
+          | otherwise -> do
+              let patch =
+                    object
+                      [ "metadata"
+                          .= object
+                            [ "uid" .= physicalIdentityText physical
+                            , "resourceVersion" .= fromMaybe "" (textAt ["metadata", "resourceVersion"] value)
+                            , "annotations" .= object [fenceAnnotation .= Null]
+                            ]
+                      , "spec" .= spec value
+                      ]
+              first writeFailureText . void <$> migrationWrite config (patchArguments address patch) ""

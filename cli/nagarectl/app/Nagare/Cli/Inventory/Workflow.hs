@@ -11,6 +11,7 @@ module Nagare.Cli.Inventory.Workflow
   , runInventoryPlan
   , runInventoryRecover
   , runInventoryClose
+  , runInventoryAbandonMigration
   , runInventoryRegistryRecoveryPlan
   , runInventoryRestore
   , runInventoryResume
@@ -37,6 +38,7 @@ import Nagare.Cli.Inventory.Planning (inventoryControllerCollectionRegistry, inv
 import Nagare.Cli.Platform.InfrastructureReview
   ( prepareInfraMutation
   )
+import Nagare.Cli.Runtime.Cluster (guardKubernetesContext)
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Cli.Runtime.Guards (guardLegacyMutationInventory)
 import Nagare.Cli.Runtime.Target
@@ -48,10 +50,14 @@ import Nagare.Inventory.Adapter qualified as InventoryAdapter
 import Nagare.Inventory.Adapters.Cache
   ( cacheSpecsFromDeclarations
   )
+import Nagare.Inventory.Adapters.KubernetesMigration (kubernetesMigrationExit)
 import Nagare.Inventory.Artifact qualified as InventoryArtifact
 import Nagare.Inventory.Cloud qualified as InventoryCloud
 import Nagare.Inventory.Command qualified as Inventory
+import Nagare.Inventory.Execute qualified as InventoryExecute
 import Nagare.Inventory.Host qualified as InventoryHost
+import Nagare.Inventory.Journal qualified as InventoryJournal
+import Nagare.Inventory.KubernetesTransport (KubernetesRuntimeConfig (KubernetesRuntimeConfig))
 import Nagare.Inventory.MigrationPlanning qualified as Inventory
 import Nagare.Inventory.Plan qualified as InventoryPlan
 import Nagare.Inventory.Status qualified as InventoryStatus
@@ -63,6 +69,7 @@ import Nagare.Target
   ( ActiveTarget
   , InventoryStoreKind (InventoryStoreGcs, InventoryStoreLocal)
   , Mode (Cloud)
+  , contextNameText
   , effectiveInventoryStore
   )
 
@@ -330,6 +337,23 @@ runInventoryClose :: Maybe String -> Text -> Text -> Maybe FilePath -> Bool -> I
 runInventoryClose mctx transaction review attest takeOver = do
   target <- activeTarget mctx
   Inventory.closeInventoryWithFactory (inventoryExecutionRegistry mctx) target transaction review attest takeOver
+
+-- | F81: the release runs against the active context's cluster, under the
+-- same guard as every Kubernetes write.
+runInventoryAbandonMigration :: Maybe String -> Text -> Text -> Bool -> IO ()
+runInventoryAbandonMigration mctx transaction review takeOver = do
+  target <- activeTarget mctx
+  context <- either dieT pure (Resource.mkContextId (contextNameText (target ^. #contextName)))
+  let runtime = KubernetesRuntimeConfig context (contextNameText (target ^. #contextName)) (fmap (fmap (const ())) (guardKubernetesContext target))
+  Inventory.rejectReentry
+  transactionId <- either dieT pure (InventoryJournal.mkTransactionId transaction)
+  reviewDigest <- either dieT pure (Resource.mkContentDigest review)
+  store <- Inventory.openTargetStore target
+  record <-
+    InventoryExecute.abandonMigration store (kubernetesMigrationExit runtime) (InventoryExecute.AbandonInput transactionId reviewDigest takeOver)
+      >>= either (dieT . T.intercalate "\n" . map InventoryExecute.admissionErrorMessage . NE.toList) pure
+  TIO.putStrLn "Abandoned the migration: its writer fence and backup-schedule suspension were released (its only writes); nothing of it is accepted and no destination object was deleted."
+  TIO.putStr (InventoryExecute.renderCloseRecord record)
 
 runInventoryRegistryRecoveryPlan :: Maybe String -> String -> String -> FilePath -> IO ()
 runInventoryRegistryRecoveryPlan mctx transaction operation output = do

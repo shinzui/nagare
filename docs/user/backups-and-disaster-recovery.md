@@ -391,86 +391,144 @@ but generated database passwords, authentication keys, backup HMAC keys and loca
 object-store credentials exist only in Kubernetes after creation. Their reviewed
 templates contain no generated values.
 
-Before admitting company data, capture the required live credentials into an
-encrypted recovery archive under the operator's recovery-key policy, retain it
-off-cluster, and prove decryption from a separate operator root. Record the exact
-context, Secret names and UIDs, accepted scope revisions, backup object generations
-and receipt digests alongside the encrypted archive. Keep plaintext out of Git,
-public reviews and diagnostic output. An inventory export alone does not satisfy
-this recovery-material requirement. The source-cluster-unavailable drill remains
-unaccepted until that archive and the exact backups recover verified content and
-usable service without the original cluster or workstation.
+Recovering the *data* after total cluster loss needs only three things kept off
+the cluster: each database's escrowed signing key, the age key that decrypts it,
+and read access to the backup bucket. Generated service passwords are not needed
+to load a dump into a new engine. Keep the escrow files, the age key and the
+context in the private operator repository (ADR 13). The procedure is
+[Total cluster loss](#total-cluster-loss-recover-the-data) below.
 
-## The disaster-recovery runbook (target)
+## Total cluster loss: recover the data
 
-Rebuilding `nagare-01` from nothing:
+This is the drill for "the cluster is gone, is the data?". Run it before trusting
+the platform with real data, then on a schedule. It recovers each managed
+database's newest verified backup into a disposable engine, checks the content,
+and records how long that took. It reads only the backup bucket and the material
+in the private operator repository: no cluster, no inventory store, and no
+workstation state.
 
-```text
-1. pulumi up
-      → VPC, firewall, static IP, data disk, service account + IAM,
-        DNS zone + wildcard record, Artifact Registry, GCS buckets.
-        (The static IP is reserved, so the wildcard DNS record is still valid.
-        The data disk and backup bucket are Pulumi-protected.)
+**Known limit.** This release has no reviewed rebuild of the same context with
+the data restored into it and the service live again. After a rebuild, planning
+refuses to recreate an accepted durable member (`durable-resource-missing`), and
+a backup restores only into the incarnation it was taken from (ADR 27). That
+rebuild-in-place is the next MasterPlan's scope. Until then the drill proves the
+data is recoverable and how fast; it does not bring the service back.
 
-2. Build + register the NixOS image, set nagareImageSelfLink, pulumi up again
-      → nagare-01 boots NixOS + k3s from the baked image; the data disk
-        re-attaches. (If the disk survived, data is intact; if it's new, it
-        auto-formats blank — restore in step 5.)
+### Prerequisites, before you need them
 
-3. Re-place the host age key at /var/lib/sops-nix/age-key.txt
-      → sops-nix can decrypt secrets; Tailscale rejoins.
+- **Hourly objective.** The context uses `NAGARE_BACKUP_RECOVERY_POINT=hourly`
+  (the default): a backup every 15 minutes, a warning at 30 minutes and a breach
+  at one hour, measured including upload and verification
+  ([Managed databases](#managed-databases-backed-up-by-default)).
+- **Escrow per database.** Run `nagarectl db escrow-signing-key NAME` for every
+  managed database, and again after a database is replaced
+  ([Escrow the signing key](#escrow-the-signing-key-off-the-cluster)). Commit the
+  sops file to the private operator repository.
+- **Private material off this machine.** The private operator repository holds
+  the context, the escrow files and the sops rules; the age private key is kept
+  offline. In cloud mode the backup bucket is GCS (versioned and protected). In
+  local mode it is the in-cluster MinIO, so a total-loss drill needs a copy of the
+  bucket that keeps its object versions (copy MinIO's data directory, not
+  `mc mirror`).
 
-4. just cluster-bootstrap  &&  just observability
-      → Knative + Kourier + cert-manager, then the Victoria stack + Grafana.
-        Dashboards restore from Git.
+### Detect
 
-5. Restore data
-      → managed database restores and volume restores read from GCS; app-specific
-        Litestream or host-Postgres restores are run by the app/host runbook.
+`nagarectl server status` and `nagarectl doctor` grade every accepted database's
+recovery point from verified receipts, and exit nonzero on a breach. For one
+database or a monitoring probe:
 
-6. Redeploy apps
-      → nagarectl deploy for each app (or kubectl apply the manifests in Git).
+```bash
+nagarectl db backup-receipts pg-main --check-freshness
 ```
 
-The from-zero path has no existing VM to protect. For an intentional replacement
-of a live VM, disable and apply `nagare:vmDeletionProtection` **before** changing
-the image self-link, preserve the protected data disk through the replacement,
-then re-enable VM protection. See
+A warning means the next missed schedule breaches the objective. Act on the
+warning, not the breach.
+
+### Recover, from a fresh operator root
+
+Use a clean checkout and a fresh operator root: clone the private operator
+repository, place the age key, and select the context. Do not reuse the lost
+cluster's workstation state. Note the start time.
+
+1. **Choose the backup.** List the receipts and verify the candidates with only
+   the escrow and the object store. Pick the newest recovery point:
+
+   ```bash
+   nagarectl db verify-escrowed-backup pg-main --backup-id JOB_UID \
+     --escrow PATH/TO/personal-pg-main.sops.yaml
+   ```
+
+   It prints the exact archive and its version, the receipt version, the
+   archive's SHA-256 and the recovery point. It refuses a receipt whose signature,
+   source identities or archive hash do not check, so a corrupt or incomplete
+   upload is never chosen. If the cluster is gone, list candidate job UIDs from
+   the bucket's `databases/pg-main/` prefix.
+
+   In local mode, serve the bucket copy from a disposable MinIO on a loopback port
+   and add `--offline-object-store http://127.0.0.1:PORT --offline-credentials
+   FILE` ([Escrow the signing key](#escrow-the-signing-key-off-the-cluster)).
+
+2. **Fetch exactly that archive** by the version the command printed, and check
+   its hash against the printed SHA-256:
+
+   ```bash
+   # cloud: the version is the GCS generation
+   gcloud storage cp "gs://BUCKET/databases/pg-main/JOB_UID.sql.gz#GENERATION" dump.sql.gz
+   # local: the bucket copy, by MinIO version
+   mc cp --version-id VERSION copy/nagare-backups/databases/pg-main/JOB_UID.sql.gz dump.sql.gz
+   shasum -a 256 dump.sql.gz
+   ```
+
+3. **Restore into a disposable engine** of the database's engine version, for
+   example PostgreSQL:
+
+   ```bash
+   docker run -d --name pg-recovered -e POSTGRES_PASSWORD=drill postgres:18-alpine
+   docker exec pg-recovered createdb -U postgres recovered
+   gunzip -c dump.sql.gz | docker exec -i pg-recovered psql -U postgres -d recovered -q
+   ```
+
+   The restore must report no errors.
+
+4. **Compare the content** with what you know was written before the recovery
+   point: known rows, counts, or an application-level checksum.
+
+5. **Record** the start and end times, the backup's job UID, the archive version,
+   the SHA-256 and the recovery point. The difference between the end time and
+   the start time is the recovery time; the recovery point's age at the loss is
+   the data lost.
+
+Remove the disposable engine and the downloaded dump when you are done; the dump
+holds the database's data in plaintext.
+
+### Drill it
+
+A backup you have never restored is a hypothesis. On a schedule:
+
+- run the total-loss procedure above against one database from a fresh operator
+  root, with the cluster stopped or unreachable, and record the times;
+- restore a managed database into its scratch target with `db restore`;
+- restore an app volume into a scratch PVC with `storage restore` (volumes are
+  outside the recovery objective; see above).
+
+If a step here stops matching the commands, fix the step.
+
+## Rebuilding the host
+
+The host itself is disposable: [Provisioning with Pulumi](provisioning-with-pulumi.md),
+[Host image and first boot](host-image-and-boot.md), [Secrets](secrets.md) and
+[Cluster bootstrap](cluster-bootstrap.md) recreate it. A rebuilt cluster does not
+restore its databases into service in this release (see the known limit above).
+For an intentional replacement of a live VM, disable and apply
+`nagare:vmDeletionProtection` **before** changing the image self-link, preserve the
+protected data disk through the replacement, then re-enable VM protection. See
 [Provisioning with Pulumi](provisioning-with-pulumi.md#review-replacements-and-protected-resources).
 
-Step-by-step, each maps to a page in this guide:
-
-1. [Provisioning with Pulumi](provisioning-with-pulumi.md)
-2. [Host image and first boot](host-image-and-boot.md)
-3. [Secrets](secrets.md)
-4. [Cluster bootstrap](cluster-bootstrap.md) + [Observability](observability.md)
-5. this page (managed database, volume, and app-specific restore procedures)
-6. [Deploying apps](deploying-apps.md)
-
-## Two failure modes worth distinguishing
-
-- **VM lost, data disk survives.** Re-run steps 1–4. The `nagare-data` disk is a
-  protected Pulumi resource separate from the VM, so destroying the instance
-  does not destroy it. `/var/lib/nagare` (SQLite, Postgres, Victoria data) comes
-  back attached and intact. The host's first-boot format step is idempotent and
-  skips a disk that already has a filesystem — your data is not touched.
-- **Everything lost (disk too).** Same steps, but the new blank disk
-  auto-formats and step 5's restore-from-GCS is mandatory. This is the case the
-  database and volume backups protect against. Before declaring the disk lost,
-  inspect the retained daily GCE snapshots and restore the newest usable one.
-
-## Drill it
-
-A backup you've never restored is a hypothesis. Periodically:
-
-- restore a managed database into its scratch target,
-- restore an app volume into its scratch PVC,
-- restore a SQLite/Litestream app through that app's runbook, and
-- spin a throwaway from-scratch rebuild (or at least `pulumi preview` + an image
-  build) to confirm the runbook still matches reality.
-
-If any step here stops matching the repo, fix the step — the runbook only has
-value if it's boring *and* true.
+- **VM lost, data disk survives.** The `nagare-data` disk is a protected Pulumi
+  resource separate from the VM. A replacement VM re-attaches it, and the first-boot
+  format step skips a disk that already has a filesystem.
+- **Everything lost (disk too).** Recover the data with the total-loss procedure.
+  Before declaring the disk lost, inspect the retained daily GCE snapshots.
 
 ## Next
 

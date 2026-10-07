@@ -76,7 +76,8 @@ import Nagare.Cli.Commands.Storage (runStorage)
 import Nagare.Cli.Commands.Task (runTask)
 import Nagare.Cli.Commands.Worker (runWorker)
 import Nagare.Cli.Inventory.Workflow
-  ( runInventoryAdopt
+  ( runInventoryAbandonMigration
+  , runInventoryAdopt
   , runInventoryApply
   , runInventoryClose
   , runInventoryCollect
@@ -180,6 +181,7 @@ dispatch (mctx, cmd0) = case cmd0 of
   InventoryRecover transaction operation decisionFile takeOver ->
     runInventoryRecover mctx (T.pack transaction) (T.pack operation) decisionFile takeOver
   InventoryClose transaction review attest takeOver -> runInventoryClose mctx (T.pack transaction) (T.pack review) attest takeOver
+  InventoryAbandonMigration transaction review takeOver -> runInventoryAbandonMigration mctx (T.pack transaction) (T.pack review) takeOver
   InventoryRegistryRecoveryPlan transaction operation output ->
     runInventoryRegistryRecoveryPlan mctx transaction operation output
   InventoryExport output -> runInventoryExport mctx output

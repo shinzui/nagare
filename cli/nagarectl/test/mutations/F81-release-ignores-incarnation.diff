@@ -1,0 +1,20 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesMigration.hs b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesMigration.hs
+index e6740b00..c5d67318 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesMigration.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesMigration.hs
+@@ -894,14 +894,13 @@ kubernetesMigrationRelease config planned prepared = case decodeBundle planned p
+         Left reason -> pure (Left reason)
+         Right Nothing -> pure (Right ())
+         Right (Just value)
+-          | textAt ["metadata", "uid"] value /= Just (physicalIdentityText physical) -> pure (Right ())
+           | annotation (Key.toText fenceAnnotation) value /= Just (operationIdText (bundle ^. #operation)) -> pure (Right ())
+           | otherwise -> do
+               let patch =
+                     object
+                       [ "metadata"
+                           .= object
+-                            [ "uid" .= physicalIdentityText physical
++                            [ "uid" .= fromMaybe "" (textAt ["metadata", "uid"] value)
+                             , "resourceVersion" .= fromMaybe "" (textAt ["metadata", "resourceVersion"] value)
+                             , "annotations" .= object [fenceAnnotation .= Null]
+                             ]
