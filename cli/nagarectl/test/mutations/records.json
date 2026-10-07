@@ -282,6 +282,36 @@
     "expect": "test-fails"
   },
   {
+    "record": "F52-migration-destination-not-established",
+    "suite": "nagarectl",
+    "pattern": "/status never reports a renamed member as replaced, at any step (F52)/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "F52-release-drops-every-retained-record",
+    "suite": "nagarectl",
+    "pattern": "/a later converged review keeps the renamed members' records (F52)/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "F52-convergence-observation-repeats-members",
+    "suite": "nagarectl",
+    "pattern": "/every single fault at every rename write has an exit and keeps the data (F52)/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "F80-generated-member-needs-packaged-source",
+    "suite": "nagarectl",
+    "pattern": "/the adopt command issues a reviewed rebind for a database's replaced and unrecorded members (F80)/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "F80-rebind-members-unbound-at-admission",
+    "suite": "nagarectl",
+    "pattern": "/the adopt command issues a reviewed rebind for a database's replaced and unrecorded members (F80)/",
+    "expect": "test-fails"
+  },
+  {
     "record": "F57b-journal-no-effect-refusal",
     "suite": "nagarectl",
     "pattern": "/a retry the adapter proved safe that preflight then refuses/",

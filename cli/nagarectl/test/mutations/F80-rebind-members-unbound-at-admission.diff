@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Status.hs b/cli/nagarectl/src/Nagare/Inventory/Status.hs
+index 041a5a94..3ee5cc37 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/Status.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Status.hs
+@@ -474,7 +474,7 @@ loadKubernetesMembers workspace store history members = do
+ -- bytes.
+ loadRebindNative :: InventoryStore -> ReviewDocument -> IO (Either Text (Map ResourceId (ManagedResource, ByteString)))
+ loadRebindNative store document
+-  | Map.null (reviewRebinds document) = pure (Right Map.empty)
++  | Map.null (reviewRebinds document) || True = pure (Right Map.empty)
+   | otherwise = do
+       loaded <- loadInventoryHistory store
+       case loaded of

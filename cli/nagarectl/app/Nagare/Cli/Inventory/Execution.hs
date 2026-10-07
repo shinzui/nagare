@@ -454,12 +454,18 @@ inventoryExecutionRegistry mctx store bundle = do
           (Set.union (Map.keysSet selectedKubernetes) (Map.keysSet selectedHelm) == retiredIds)
           (dieT "retirement review lacks accepted immutable native evidence")
         pure (selectedKubernetes, selectedHelm)
+  -- A rebind writes nothing; admission reverifies its members through their
+  -- accepted native bytes (ADR 27 §3; F80).
+  rebindSpecs <- InventoryStatus.loadRebindNative store document >>= either dieT pure
   let kubernetesSpecs =
         Map.restrictKeys
-          (Map.unions [reviewedKubernetesSpecs, retiringKubernetesSpecs, sourceNative])
-          ( Set.union
-              (selected ResourceInventory.KubernetesExecutor)
-              (Map.keysSet sourceNative `Set.union` Map.keysSet retiringKubernetesSpecs)
+          (Map.unions [reviewedKubernetesSpecs, retiringKubernetesSpecs, sourceNative, rebindSpecs])
+          ( Set.unions
+              [ selected ResourceInventory.KubernetesExecutor
+              , Map.keysSet sourceNative
+              , Map.keysSet retiringKubernetesSpecs
+              , Map.keysSet rebindSpecs
+              ]
           )
       allHelmSpecs =
         Map.restrictKeys

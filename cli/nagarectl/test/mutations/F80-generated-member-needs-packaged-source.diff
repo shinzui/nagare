@@ -1,0 +1,15 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Status.hs b/cli/nagarectl/src/Nagare/Inventory/Status.hs
+index 041a5a94..fa316b47 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/Status.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Status.hs
+@@ -462,8 +462,8 @@ loadKubernetesMembers workspace store history members = do
+     validateSuppliedKubernetesMembers generated accepted
+     pure (Map.union files accepted)
+   where
+-    packaged = filter hasPackagedSource members
+-    generated = filter (not . hasPackagedSource) members
++    packaged = members
++    generated = filter (const False) members
+     wanted = Set.fromList (map (^. #identity) generated)
+     acceptedMembers = Map.fromList [(member ^. #identity, member) | Managed member <- historyDeclarations history]
+     changed member = Map.lookup (member ^. #identity) acceptedMembers /= Just member

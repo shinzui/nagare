@@ -4,7 +4,9 @@
 -- ('InventoryPostgresRenameSpec'), with one fault at each write it issues. For
 -- every schedule, status never reports a renamed member as replaced (I3), the
 -- stopped transaction has a supported exit (I1), the data survives, and the
--- transfer copy runs once (I4).
+-- transfer copy runs once (I4). A renamed database records each renamed
+-- member as its new object or not at all, records its data-bearing members,
+-- and keeps those records through a later review (F52).
 module InventoryRenameRecoveryModelSpec (inventoryRenameRecoveryModelTests) where
 
 import Control.Exception (SomeException, displayException, throwIO, try)
@@ -18,13 +20,16 @@ import Data.Text qualified as T
 import InventoryPostgresRenameSpec
   ( RenameWorld
   , armPartialCopy
+  , dataBearing
   , databaseOwner
   , destinationCopies
+  , newObjectUids
   , newScope
   , plannedRenameThrough
   , recordOldIncarnations
   , renameVolumes
   , replacedMembers
+  , reviewRenamedAgain
   , transferJobs
   , verifyRenamedWorld
   )
@@ -36,6 +41,7 @@ import Nagare.Inventory.Journal
 import Nagare.Inventory.KubernetesTransport (KubectlRequest, KubectlResult)
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Store
+import Nagare.Resource.Types (physicalIdentityText)
 import Nagare.Resource.Wire (encodeCanonicalScope)
 import Nagare.Test.World.Adversary (Interrupted (..))
 import System.Exit (ExitCode (..))
@@ -102,10 +108,20 @@ runRename schedule = withSystemTempDirectory "rename-model" $ \root -> do
   seen <- readIORef written
   let faulted = maybe "" (\(boundary, _) -> " at `kubectl " <> fromMaybe "?" (listToMaybe (drop (boundary - 1) seen)) <> "`") schedule
       explain violation = "faults: " <> T.pack (show schedule) <> faulted <> "\nviolation: " <> violation
-  outcome <- case applied of
+  stopped <- case applied of
     Right (Right (Converged _)) -> pure (Right ())
     Right (Left errors) -> pure (Left ("admission refused: " <> T.pack (show (NE.toList errors))))
     _ -> recover store world registry reviewed
+  -- Any later converged review keeps what the rename recorded (F52).
+  outcome <- case stopped of
+    Right () -> do
+      renamed <- renamedIn store
+      if not renamed
+        then pure (Right ())
+        else do
+          later <- try @SomeException (reviewRenamedAgain store world id probe)
+          pure (either (\reason -> Left ("a later review of the renamed database failed: " <> T.pack (displayException reason))) Right later)
+    other -> pure other
   case outcome of
     Left violation -> pure (Left (explain violation))
     Right () -> do
@@ -146,27 +162,41 @@ recover store world registry reviewed = do
           | done -> Right ()
           | otherwise -> Left ("I1: the rename stopped with no supported exit; open operations " <> T.pack (show (map operationIdText open)))
 
+-- | Whether the accepted database is the renamed one.
+renamedIn :: InventoryStore -> IO Bool
+renamedIn store = do
+  history <- loadInventoryHistory store
+  pure $ case history of
+    Right loaded -> (revisionDigest . fst <$> Map.lookup databaseOwner (historyAccepted loaded)) == Just (contentDigest (encodeCanonicalScope newScope))
+    Left _ -> False
+
 -- | At an idle head: status reports nothing replaced (I3); a renamed database
--- has every reviewed effect and copied its data exactly once (I4); an
--- unrenamed one still holds its data.
+-- has every reviewed effect and copied its data exactly once (I4), and
+-- records each renamed member as its new object or not at all, every
+-- data-bearing member included (F52); an unrenamed one still holds its data.
 finalChecks :: InventoryStore -> RenameWorld -> IO (Either Text ())
 finalChecks store world = do
   stale <- replacedMembers store world
-  history <- loadInventoryHistory store
+  renamed <- renamedIn store
   final <- readIORef world
-  let renamed = case history of
-        Right loaded -> (revisionDigest . fst <$> Map.lookup databaseOwner (historyAccepted loaded)) == Just (contentDigest (encodeCanonicalScope newScope))
-        Left _ -> False
+  recorded <- either (const Map.empty) (maybe Map.empty headIncarnations) <$> readHead store
   checked <-
     if renamed
       then either (Left . T.pack . displayException) Right <$> try @SomeException (verifyRenamedWorld final)
       else pure (Right ())
-  pure (verdict stale checked renamed final)
+  let current = newObjectUids final
+      staleRecords = [member | (member, physical) <- Map.toList recorded, Map.lookup member current /= Just (physicalIdentityText physical)]
+      -- A lost write response leaves a member unrecorded (ADR 27), but the
+      -- convergence observation records a migrated data-bearing member.
+      unrecordedData = [member | member <- dataBearing, Map.member member current, Map.notMember member recorded]
+  pure (verdict stale checked renamed final staleRecords unrecordedData)
   where
-    verdict stale checked renamed final
+    verdict stale checked renamed final staleRecords unrecordedData
       | not (null stale) = Left ("I3: status reports renamed members as replaced at the end: " <> T.pack (show stale))
       | Left reason <- checked = Left ("the renamed database is incomplete: " <> reason)
       | renamed && destinationCopies final /= 1 = Left ("I4: the destination volume was written " <> T.pack (show (destinationCopies final)) <> " times (transfer Jobs " <> T.pack (show (transferJobs final)) <> ")")
+      | renamed && not (null unrecordedData) = Left ("F52: a renamed data-bearing member is unrecorded after convergence: " <> T.pack (show unrecordedData))
+      | renamed && not (null staleRecords) = Left ("F52: a renamed member's record names an object other than its new one: " <> T.pack (show staleRecords))
       | Map.lookup "nagare-db-pg-old-data" (renameVolumes final) /= Just "pgdata:known-row-1" = Left "the source volume lost its data"
       | otherwise = Right ()
 

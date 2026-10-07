@@ -20,6 +20,8 @@ module Nagare.Inventory.Status
   , assessCollections
   , loadAcceptedNative
   , loadAcceptedNativeSelected
+  , loadKubernetesMembers
+  , loadRebindNative
   , loadRetainedNative
   , loadActiveTransactionStatus
   , summarizeActiveTransaction
@@ -46,6 +48,7 @@ import Nagare.Inventory.HelmReview (helmSpecsFromReview)
 import Nagare.Inventory.Identity (IdentityCheck (..), checkedPhysical)
 import Nagare.Inventory.Journal
 import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
+import Nagare.Inventory.KubernetesSources (hasPackagedSource, loadKubernetesSources, validateSuppliedKubernetesMembers)
 import Nagare.Inventory.ObservationNative
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Plan.Types (historyDeclarations)
@@ -427,6 +430,84 @@ loadAcceptedNativeSelected ::
         )
     )
 loadAcceptedNativeSelected wanted = loadNativeFor False (Just wanted)
+
+-- | Native bytes for the selected Kubernetes members no domain compiler
+-- supplied. A packaged member is read from the platform workspace. A
+-- generated member (an application's or a database's) has no source file: it
+-- is planned only unchanged from its accepted declaration, with the bytes its
+-- accepted revision recorded, so an adoption or a reviewed rebind of an
+-- accepted application or database member has its native content (F80). A
+-- changed generated member still needs its domain compiler.
+loadKubernetesMembers ::
+  FilePath ->
+  InventoryStore ->
+  InventoryHistory ->
+  [ManagedResource] ->
+  IO (Either Text (Map ResourceId (ManagedResource, ByteString)))
+loadKubernetesMembers workspace store history members = do
+  fromFiles <- if null packaged then pure (Right Map.empty) else loadKubernetesSources workspace packaged
+  fromAccepted <-
+    if null generated
+      then pure (Right Map.empty)
+      else
+        if any changed generated
+          then pure (Left "Kubernetes declaration lacks a packaged document source, and differs from its accepted declaration")
+          else case acceptedInventoryOf history of
+            Left reason -> pure (Left reason)
+            Right inventory -> fmap fst <$> loadAcceptedNativeSelected wanted store history inventory
+  pure $ do
+    files <- fromFiles
+    accepted <- Map.restrictKeys <$> fromAccepted <*> pure wanted
+    unless (Map.keysSet accepted == wanted) (Left "an accepted application or database member lacks its accepted native evidence")
+    validateSuppliedKubernetesMembers generated accepted
+    pure (Map.union files accepted)
+  where
+    packaged = filter hasPackagedSource members
+    generated = filter (not . hasPackagedSource) members
+    wanted = Set.fromList (map (^. #identity) generated)
+    acceptedMembers = Map.fromList [(member ^. #identity, member) | Managed member <- historyDeclarations history]
+    changed member = Map.lookup (member ^. #identity) acceptedMembers /= Just member
+
+-- | Native bytes for the Kubernetes members a reviewed rebind records (ADR 27
+-- §3; F80). A rebind changes no object, so its review carries no native
+-- bytes for them; admission reverifies each live object through its accepted
+-- bytes.
+loadRebindNative :: InventoryStore -> ReviewDocument -> IO (Either Text (Map ResourceId (ManagedResource, ByteString)))
+loadRebindNative store document
+  | Map.null (reviewRebinds document) = pure (Right Map.empty)
+  | otherwise = do
+      loaded <- loadInventoryHistory store
+      case loaded of
+        Left err -> pure (Left (T.pack (show err)))
+        Right history -> do
+          let wanted =
+                Set.fromList
+                  [ member ^. #identity
+                  | Managed member <- historyDeclarations history
+                  , member ^. #executor == KubernetesExecutor
+                  , Map.member (member ^. #identity) (reviewRebinds document)
+                  ]
+          case acceptedInventoryOf history of
+            Left reason -> pure (Left reason)
+            Right inventory -> do
+              native <- loadAcceptedNativeSelected wanted store history inventory
+              pure $ do
+                selected <- Map.restrictKeys . fst <$> native <*> pure wanted
+                unless (Map.keysSet selected == wanted) (Left "a reviewed rebind lacks its members' accepted native evidence")
+                pure selected
+
+-- | The accepted inventory a history records.
+acceptedInventoryOf :: InventoryHistory -> Either Text ValidatedInventory
+acceptedInventoryOf history = do
+  snapshot <-
+    first
+      (T.pack . show)
+      ( mkScopeSnapshot
+          (headBinding (historyHead history))
+          (Map.map (\(revision, scope) -> (revisionGeneration revision, scope)) (historyAccepted history))
+          (historyReservations history)
+      )
+  first (T.pack . show) (composeSnapshot snapshot)
 
 -- | The historical source is a separate incarnation after a reviewed rename.
 -- Callers observing it must use an adapter built from these old native bytes.

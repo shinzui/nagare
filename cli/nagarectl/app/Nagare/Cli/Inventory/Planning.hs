@@ -71,8 +71,7 @@ import Nagare.Inventory.Components.Foundation
   )
 import Nagare.Inventory.Host qualified as InventoryHost
 import Nagare.Inventory.KubernetesSources
-  ( loadKubernetesSources
-  , validateSuppliedKubernetesMembers
+  ( validateSuppliedKubernetesMembers
   )
 import Nagare.Inventory.LiveRestoreAdapter (liveRestoreRuntime)
 import Nagare.Inventory.LiveRestoreFence
@@ -227,10 +226,14 @@ inventoryPlanRegistryWithMode controllerCollection takeover active workspace sup
                 && Set.notMember (resource ^. #identity) suppliedIds
           )
           kubernetesResources
+  -- A packaged member comes from the workspace; an accepted application or
+  -- database member, unchanged, from its accepted native evidence (F80).
   loaded <-
     if null fileBacked
       then pure Map.empty
-      else loadKubernetesSources (workspace ^. #root) fileBacked >>= either dieT pure
+      else do
+        store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
+        InventoryStatus.loadKubernetesMembers (workspace ^. #root) store history fileBacked >>= either dieT pure
   let desiredIds = Set.fromList (map ResourceInventory.declarationId declarations)
       retiringIds executor =
         Set.fromList

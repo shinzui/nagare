@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Execute/Incarnations.hs b/cli/nagarectl/src/Nagare/Inventory/Execute/Incarnations.hs
+index 21faf9ed..4253a475 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/Execute/Incarnations.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Execute/Incarnations.hs
+@@ -90,7 +90,7 @@ migrationDestinations locked registry document = do
+       -- Each member once: a migration has several stages per member, and an
+       -- observation refuses a repeated resource.
+       touched =
+-        Set.toList . Set.fromList $
++        id $
+           [ resource
+           | reviewOperation <- reviewOperations document
+           , let planned = reviewPlannedOperation reviewOperation

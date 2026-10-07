@@ -87,15 +87,18 @@ migrationDestinations locked registry document = do
           , member ^. #executor == KubernetesExecutor
           , isDurable (member ^. #dataPolicy) || isStatefulSet (member ^. #address)
           ]
+      -- Each member once: a migration has several stages per member, and an
+      -- observation refuses a repeated resource.
       touched =
-        [ resource
-        | reviewOperation <- reviewOperations document
-        , let planned = reviewPlannedOperation reviewOperation
-        , plannedExecutor planned == KubernetesExecutor
-        , migrates (plannedAction planned)
-        , resource <- NE.toList (plannedResources planned)
-        , Set.member resource durable
-        ]
+        Set.toList . Set.fromList $
+          [ resource
+          | reviewOperation <- reviewOperations document
+          , let planned = reviewPlannedOperation reviewOperation
+          , plannedExecutor planned == KubernetesExecutor
+          , migrates (plannedAction planned)
+          , resource <- NE.toList (plannedResources planned)
+          , Set.member resource durable
+          ]
   case lookupAdapter registry KubernetesExecutor of
     Left _ -> pure Map.empty
     Right adapter

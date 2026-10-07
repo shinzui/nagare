@@ -1,7 +1,7 @@
 -- | Resolve packaged Kubernetes source members during review preparation.
 -- The exact bytes are retained in the private review; apply never reopens the
 -- source file. Sources must resolve within the immutable platform workspace.
-module Nagare.Inventory.KubernetesSources (loadKubernetesSources, validateSuppliedKubernetesMembers) where
+module Nagare.Inventory.KubernetesSources (hasPackagedSource, loadKubernetesSources, validateSuppliedKubernetesMembers) where
 
 import Control.Exception (IOException, try)
 import Control.Monad (forM)
@@ -36,8 +36,8 @@ loadKubernetesSources workspace declarations = do
       Kubernetes cluster _ _ _ _ -> do
         let location = declaration ^. #source
             sourceFile = T.unpack (file location)
-            (basePath, suffix) = T.breakOn "#document[" (path location)
-        if T.null suffix || null sourceFile || not (isRelative sourceFile)
+            (basePath, _) = T.breakOn "#document[" (path location)
+        if not (hasPackagedSource declaration)
           then pure (Left "Kubernetes declaration lacks a packaged document source")
           else do
             canonical <- try (canonicalizePath (root </> sourceFile))
@@ -75,6 +75,16 @@ loadKubernetesSources workspace declarations = do
                         (Left "packaged Kubernetes source differs from the typed declaration")
                       pure (declaration ^. #identity, (declaration, bound))
       _ -> pure (Left "Kubernetes source loader received a non-Kubernetes resource")
+
+-- | Whether a declaration names a document of a packaged manifest within the
+-- workspace; generated members (applications', databases') do not.
+hasPackagedSource :: ManagedResource -> Bool
+hasPackagedSource declaration =
+  not (T.null suffix) && not (null sourceFile) && isRelative sourceFile
+  where
+    location = declaration ^. #source
+    sourceFile = T.unpack (file location)
+    (_, suffix) = T.breakOn "#document[" (path location)
 
 -- | Generated members enter the planner directly. Rebind their exact bytes so
 -- a caller cannot pair a valid declaration with different native content.

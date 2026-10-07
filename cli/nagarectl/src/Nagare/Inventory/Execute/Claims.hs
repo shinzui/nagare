@@ -28,7 +28,7 @@ import Nagare.Inventory.Journal
   , transactionIdText
   )
 import Nagare.Inventory.Plan
-  ( ReviewDocument (reviewBaseRevisions, reviewDesiredRevisions, reviewMigrations)
+  ( ReviewDocument (reviewBaseRevisions, reviewCollections, reviewDesiredRevisions, reviewMigrations, reviewRetentions)
   )
 import Nagare.Inventory.Store
   ( ExecutorClaim
@@ -100,15 +100,21 @@ releaseClaim :: LockedStore s -> TransactionId -> Maybe ReviewDocument -> IO Boo
 releaseClaim locked transaction completedReview = releaseClaimWith locked transaction completedReview Map.empty
 
 -- | Release the claim; a converged review also records the incarnations it
--- established or proved (F49). Retained, collected and migrated members drop
--- their earlier record first; a migration's destination is then bound as the
--- member's new object (F52).
+-- established or proved (F49). The members this review retained, collected or
+-- migrated drop their earlier record first; a migration's destination is then
+-- bound as the member's new object (F52). Members an earlier review retained
+-- keep their records: a rename retains its source under the renamed members'
+-- own resource IDs.
 releaseClaimWith :: LockedStore s -> TransactionId -> Maybe ReviewDocument -> Map ResourceId IncarnationBinding -> IO Bool
 releaseClaimWith locked transaction completedReview bindings = do
   let converged = isJust completedReview
       -- A migrated member's record names its previous address; its new object
       -- is bound from the convergence observation, or stays unrecorded (F52).
-      migrated = maybe Set.empty (Map.keysSet . reviewMigrations) completedReview
+      released =
+        maybe
+          Set.empty
+          (\document -> Map.keysSet (reviewMigrations document) <> Map.keysSet (reviewRetentions document) <> Map.keysSet (reviewCollections document))
+          completedReview
   let store = lockedStore locked
   headResult <- observeCurrentHead store
   case headResult of
@@ -135,7 +141,7 @@ releaseClaimWith locked transaction completedReview bindings = do
                                 bindings
                                 ( Map.withoutKeys
                                     (headIncarnations headValue)
-                                    (migrated <> Map.keysSet (headRetained headValue) <> Map.keysSet (headCollected headValue))
+                                    released
                                 )
                             else headIncarnations headValue
                       }

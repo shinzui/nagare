@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Execute/Incarnations.hs b/cli/nagarectl/src/Nagare/Inventory/Execute/Incarnations.hs
+index 8bdfba29..257fe020 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/Execute/Incarnations.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Execute/Incarnations.hs
+@@ -66,7 +66,7 @@ convergedIncarnations locked registry transaction events document = do
+         | reviewOperation <- reviewOperations document
+         , let planned = reviewPlannedOperation reviewOperation
+         , plannedExecutor planned == KubernetesExecutor
+-        , plannedAction planned `elem` [CreateResource, AdoptResource, UpdateResource] || migrates (plannedAction planned)
++        , plannedAction planned `elem` [CreateResource, AdoptResource, UpdateResource]
+         , [resource] <- [NE.toList (plannedResources planned)]
+         , Just physical <- [Map.lookup (plannedOperationId planned) returned]
+         ]

@@ -8,6 +8,9 @@ module InventoryPostgresRenameSpec
   , newScope
   , plannedRenameThrough
   , recordOldIncarnations
+  , reviewRenamedAgain
+  , newObjectUids
+  , dataBearing
   , renameVolumes
   , replacedMembers
   , transferJobs
@@ -17,12 +20,13 @@ module InventoryPostgresRenameSpec
   )
 where
 
-import Control.Exception (SomeException, try)
+import Control.Exception (SomeException, bracket, try)
 import Control.Monad (forM)
 import Data.Aeson (Value (..), eitherDecodeStrict, object, toJSON, (.=))
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
 import Data.Either (isRight)
 import Data.Generics.Labels ()
 import Data.IORef
@@ -31,6 +35,7 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromJust, listToMaybe)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
@@ -45,6 +50,7 @@ import Nagare.Inventory.Adapters.Kubernetes (KubernetesState (..), mkKubernetesA
 import Nagare.Inventory.Adapters.KubernetesMigration (MigrationPlanning (..), kubernetesMigrationAdapter, renameProposal)
 import Nagare.Inventory.Adapters.KubernetesRuntime (mkKubernetesRuntimeOps, parseObserved)
 import Nagare.Inventory.BackupFreshness (RecoveryPointObjective (..))
+import Nagare.Inventory.Command (compileInput, openTargetStore, planInventoryAdoptionWith)
 import Nagare.Inventory.DataService (compileStandaloneDatabase)
 import Nagare.Inventory.Database (DatabaseBackupTarget (DatabaseBackupTarget))
 import Nagare.Inventory.Digest (contentDigest)
@@ -52,19 +58,23 @@ import Nagare.Inventory.Execute (TransactionResult (..), applyReviewed, resumeTr
 import Nagare.Inventory.Journal (OperationId, mkOperationId)
 import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
 import Nagare.Inventory.KubernetesTransport
+import Nagare.Inventory.Lifecycle (AdoptionInput (..), decideAdoption)
 import Nagare.Inventory.Migration (decideMigration)
 import Nagare.Inventory.Migration.PostgresRename
 import Nagare.Inventory.Migration.Types (migrationPoliciesCompatible)
 import Nagare.Inventory.ObservationNative (loadObservationNative, observationKubernetes)
 import Nagare.Inventory.Plan
-import Nagare.Inventory.Status (DriftCategory (ReplacedIncarnation), DriftFinding (..), classifyDriftWith, statusIncarnations)
+import Nagare.Inventory.Status (DriftCategory (ReplacedIncarnation), DriftFinding (..), classifyDriftWith, loadKubernetesMembers, loadRebindNative, statusIncarnations)
 import Nagare.Inventory.Store
 import Nagare.Resource.Database (DatabaseDirectInput (..))
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
 import Nagare.Resource.Types hiding (resources)
-import Nagare.Resource.Wire (canonicalValue, encodeCanonicalScope)
+import Nagare.Resource.Wire (CandidateInput (..), candidateInputValue, canonicalValue, encodeCanonicalScope)
+import Nagare.Target (ActiveTarget (..), mkContextName, profileFromContextMap)
 import Nagare.Test.Effectful.Fixture (checked, must, seedAccepted)
+import System.Directory (createDirectoryIfMissing)
+import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
@@ -204,10 +214,74 @@ inventoryPostgresRenameTests =
             Converged _ -> pure ()
             other -> assertFailure ("rename did not converge: " <> describe reviewed other)
           readIORef replaced >>= (@?= [])
-          -- Convergence records the renamed data-bearing members' new objects.
+          -- Convergence records every renamed member's new object, as the API
+          -- server holds it at the member's new address, never the old one.
           recorded <- headIncarnations <$> (must (readHead store) >>= maybe (fail "missing head") pure)
-          assertBool "the renamed members' new objects are not recorded" (not (Map.null recorded))
-          assertBool "a record still names an old object" (all (\(identity, physical) -> physicalIdentityText physical /= uidFor identity) (Map.toList recorded))
+          final <- readIORef world
+          Map.map physicalIdentityText recorded @?= newObjectUids final
+    , testCase "a later converged review keeps the renamed members' records (F52)" $
+        withSystemTempDirectory "postgres-rename-later" $ \root -> do
+          probe <- newIORef Nothing
+          (store, world, reviewed, executionRegistry') <- plannedRenameWith recordOldIncarnations probe root
+          result <- must (applyReviewed store executionRegistry' reviewed)
+          case result of
+            Converged _ -> pure ()
+            other -> assertFailure ("rename did not converge: " <> describe reviewed other)
+          -- The rename retains the old incarnations under the members' own
+          -- resource IDs; a later review must not drop the new records.
+          reviewRenamedAgain store world id probe
+          recorded <- headIncarnations <$> (must (readHead store) >>= maybe (fail "missing head") pure)
+          final <- readIORef world
+          Map.map physicalIdentityText recorded @?= newObjectUids final
+    , testCase "the adopt command issues a reviewed rebind for a database's replaced and unrecorded members (F80)" $
+        withSystemTempDirectory "postgres-rename-rebind" $ \root -> withStateRoot root $ do
+          store <- openTargetStore renameTarget
+          probe <- newIORef Nothing
+          (world, reviewed, executionRegistry') <- plannedRenameOn store recordOldIncarnations id probe
+          renamed <- must (applyReviewed store executionRegistry' reviewed)
+          case renamed of
+            Converged _ -> pure ()
+            other -> assertFailure ("rename did not converge: " <> describe reviewed other)
+          -- Outside review, the claim is replaced; the Service is unrecorded, as
+          -- a lost create response leaves it (ADR 27).
+          let roleId role = fromJust (listToMaybe [identity | (identity, (declaration, _)) <- Map.toList newNative, roleOf declaration == role])
+              pvc = roleId "pvc"
+              service = roleId "service"
+          modifyIORef' world (#objects %~ Map.adjust (setPath ["metadata", "uid"] (String "replacement-uid")) ("persistentvolumeclaim", "default", "nagare-db-pg-new-data"))
+          dropped <- must (readHead store) >>= maybe (fail "missing head") pure
+          _ <- must (replaceHeadIfGenerationMatches store (Just (headGeneration dropped)) dropped {headGeneration = headGeneration dropped + 1, headIncarnations = Map.delete service (headIncarnations dropped)})
+          replacedMembers store world >>= (@?= [pvc])
+          -- The documented path: an unchanged compiled candidate and a rebind
+          -- proposal naming each member's live object.
+          history <- must (loadInventoryHistory store)
+          let snapshot = checked (mkScopeSnapshot binding (Map.map (\(revision, declared) -> (revisionGeneration revision, declared)) (historyAccepted history)) (historyReservations history))
+              files = checked (compileInput (checked (canonicalValue (candidateInputValue (CandidateInput snapshot (ReplaceScope newScope :| []))))))
+          createDirectoryIfMissing True (root </> "candidate" </> "scopes")
+          mapM_ (\(path, bytes) -> BS.writeFile (root </> "candidate" </> path) bytes) files
+          live <- newObjectUids <$> readIORef world
+          let target identity = object ["resource" .= identity, "address" .= (fst (newNative Map.! identity) ^. #address), "physicalIdentity" .= (live Map.! identity), "rebind" .= True]
+          BS.writeFile (root </> "rebind.json") (checked (canonicalValue (object ["version" .= (1 :: Int), "candidate" .= ("candidate" :: Text), "binding" .= binding, "resources" .= map target [pvc, service]])))
+          planInventoryAdoptionWith (adoptionRegistry root store world probe) renameTarget (root </> "rebind.json") (root </> "review")
+          bundle <- loadReviewBundle (root </> "review") >>= either (assertFailure . show) pure
+          Map.keysSet (reviewRebinds (reviewBundleDocument bundle)) @?= Set.fromList [pvc, service]
+          -- Apply it as `inventory apply` does: the review's own bytes, and the
+          -- rebound members' accepted bytes, for admission's reverification.
+          reviewedSpecs <- expectRight (kubernetesSpecsFromReview bundle)
+          rebound <- must (loadRebindNative store (reviewBundleDocument bundle))
+          Map.keysSet rebound @?= Set.fromList [pvc, service]
+          let specs = Map.union reviewedSpecs rebound
+              runtime = probed world probe
+              execution = checked (mkAdapterRegistry [mkKubernetesAdapter specs (mkKubernetesRuntimeOps runtime specs)])
+          published <- must (readReviewSnapshot store (reviewDigest bundle))
+          rebind <- expectRight (verifyReview published bundle)
+          applied <- must (applyReviewed store execution rebind)
+          case applied of
+            Converged _ -> pure ()
+            other -> assertFailure ("the rebind did not converge: " <> describe rebind other)
+          recorded <- headIncarnations <$> (must (readHead store) >>= maybe (fail "missing head") pure)
+          final <- readIORef world
+          Map.map physicalIdentityText recorded @?= newObjectUids final
+          replacedMembers store world >>= (@?= [])
     , testCase "a lost transfer acknowledgement resumes without a second copy" $
         withSystemTempDirectory "postgres-rename-loss" $ \root -> do
           (store, world, reviewed, executionRegistry') <- plannedRename root
@@ -292,6 +366,23 @@ newNative :: Map ResourceId (ManagedResource, ByteString)
 
 roleOf :: ManagedResource -> Text
 roleOf declaration = last (T.splitOn "/" (resourceIdText (declaration ^. #identity)))
+
+-- | The members that hold or guard the data: the claim, its writer, the
+-- credential and the backup signing key.
+dataBearing :: [ResourceId]
+dataBearing = [identity | (identity, (declaration, _)) <- Map.toList newNative, roleOf declaration `elem` ["pvc", "statefulset", "credential", "backup-signing-key"]]
+
+-- | The UID of the object at each renamed member's new address.
+newObjectUids :: World -> Map ResourceId Text
+newObjectUids final =
+  Map.fromList
+    [ (identity, uid)
+    | (identity, (_, bytes)) <- Map.toList newNative
+    , Right value <- [eitherDecodeStrict bytes]
+    , Just key <- [keyOf value]
+    , Just live <- [Map.lookup key (final ^. #objects)]
+    , Just uid <- [jsonText ["metadata", "uid"] live]
+    ]
 
 uidFor :: ResourceId -> Text
 uidFor identity = "old-" <> roleOf (fst (oldNative Map.! identity)) <> "-uid"
@@ -598,8 +689,14 @@ type RenameWorld = IORef World
 -- transport wrapper; planning issues no writes.
 plannedRenameThrough :: (HeadManifest -> HeadManifest) -> Transport -> IORef (Maybe (IO ())) -> FilePath -> IO (InventoryStore, IORef World, ReviewedPlan, AdapterRegistry)
 plannedRenameThrough seed transport probe root = do
-  world <- newIORef seededWorld
   store <- must (openFilesystemStore (root </> "history"))
+  (world, reviewed, execution) <- plannedRenameOn store seed transport probe
+  pure (store, world, reviewed, execution)
+
+-- | 'plannedRenameThrough' on a given empty store.
+plannedRenameOn :: InventoryStore -> (HeadManifest -> HeadManifest) -> Transport -> IORef (Maybe (IO ())) -> IO (IORef World, ReviewedPlan, AdapterRegistry)
+plannedRenameOn store seed transport probe = do
+  world <- newIORef seededWorld
   seedAccepted store binding [oldScope] oldNative
   seeded <- must (readHead store) >>= maybe (fail "missing head") pure
   _ <- must (replaceHeadIfGenerationMatches store (Just (headGeneration seeded)) ((seed seeded) {headGeneration = headGeneration seeded + 1}))
@@ -643,9 +740,57 @@ plannedRenameThrough seed transport probe root = do
   -- Execution reconstructs everything from the saved bundle; it has no
   -- planning context and no access to the accepted source bytes.
   let execution = checked (mkAdapterRegistry [kubernetesMigrationAdapter runtime Nothing (mkKubernetesAdapter newNative (mkKubernetesRuntimeOps runtime newNative))])
-  pure (store, world, reviewed, execution)
+  pure (world, reviewed, execution)
   where
     expectRight' = either (\errors -> assertFailure (show errors) >> fail "unreachable") pure
+
+-- | A later review of the renamed database that changes nothing, through the
+-- production planner and applied to convergence: any converged review after
+-- the rename.
+reviewRenamedAgain :: InventoryStore -> IORef World -> Transport -> IORef (Maybe (IO ())) -> IO ()
+reviewRenamedAgain store world transport probe = do
+  history <- must (loadInventoryHistory store)
+  let snapshot =
+        checked
+          ( mkScopeSnapshot
+              binding
+              (Map.map (\(accepted, declared) -> (revisionGeneration accepted, declared)) (historyAccepted history))
+              (historyReservations history)
+          )
+      candidate = checked (composeInventory snapshot (ReplaceScope newScope :| []))
+      runtime = probedThrough world transport probe
+      registry = checked (mkAdapterRegistry [mkKubernetesAdapter newNative (mkKubernetesRuntimeOps runtime newNative)])
+  observations <- must (observeWithRegistry registry (requirementsByExecutor (observationRequirements candidate history)))
+  decisions <- expectRight (decideAdoption candidate history observations (AdoptionInput "candidate" binding []))
+  proposal <- expectRight (planChanges candidate decisions history observations)
+  before <- must (readStoreSnapshot store)
+  bundle <- either (\errors -> assertFailure (show errors) >> fail "unreachable") pure =<< prepareReview registry before proposal
+  _ <- must (publishReview store bundle)
+  published <- must (readStoreSnapshot store)
+  reviewed <- expectRight (verifyReview published bundle)
+  result <- must (applyReviewed store registry reviewed)
+  case result of
+    Converged _ -> pure ()
+    other -> assertFailure ("the later review did not converge: " <> describe reviewed other)
+
+-- | The context the command-path tests run in; its store is the target's.
+renameTarget :: ActiveTarget
+renameTarget = ActiveTarget (checked (mkContextName "rename-test")) (profileFromContextMap (Map.singleton "CLOUDSDK_CORE_PROJECT" "project"))
+
+withStateRoot :: FilePath -> IO a -> IO a
+withStateRoot root action =
+  bracket
+    (lookupEnv "XDG_STATE_HOME" <* setEnv "XDG_STATE_HOME" root)
+    (maybe (unsetEnv "XDG_STATE_HOME") (setEnv "XDG_STATE_HOME"))
+    (const action)
+
+-- | The planning registry `inventory adopt` builds: Kubernetes members' native
+-- bytes resolved as the command resolves them (F80), observed in the world.
+adoptionRegistry :: FilePath -> InventoryStore -> IORef World -> IORef (Maybe (IO ())) -> CompositionCandidate -> InventoryHistory -> IO AdapterRegistry
+adoptionRegistry workspace store world probe candidate history = do
+  let members = [member | Managed member <- inventoryDeclarations (candidateInventory candidate), member ^. #executor == KubernetesExecutor]
+  native <- loadKubernetesMembers workspace store history members >>= either (assertFailure . T.unpack) pure
+  pure (checked (mkAdapterRegistry [mkKubernetesAdapter native (mkKubernetesRuntimeOps (probed world probe) native)]))
 
 -- | The volumes' contents, by claim name.
 renameVolumes :: World -> Map Text Text
