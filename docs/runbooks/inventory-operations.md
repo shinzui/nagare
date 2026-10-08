@@ -464,6 +464,36 @@ documented close and rebind procedures. They have not been exercised end to end 
 through `nagarectl`. A reviewed exit that plans the backup, the release of the claim and the rebind
 is deferred to the next MasterPlan ([F77](../audits/mp23-findings.md#f77)).
 
+## A database whose own template never becomes Ready (F78)
+
+**Symptom.** Every review of a standalone database stops at its StatefulSet
+(stopped as landed and not ready), and `inventory status` reports members
+planned after it as missing, for example the backup account and its role
+binding. The database's pod is stuck at a template that never becomes Ready.
+
+**Why.** A transaction ends at its first stop. Until the StatefulSet's template
+becomes Ready, its later operations never start, including those of members
+that do not depend on it. This is a documented limit of this release, deferred
+to the next MasterPlan ("let a transaction continue independent operations past
+a stop"). No data is lost: the volume and its data are untouched.
+
+**Exit.**
+1. Close the stopped transaction ([Close a stopped transaction](#close-a-stopped-transaction)).
+   The StatefulSet landed, so close keeps the scope.
+2. Correct the database's spec and apply the reviewed update. The correction
+   lands, but the stuck pod keeps the old revision.
+3. Run `db restart` for the database and apply its review. It replaces the
+   stuck pod through a reviewed, precondition-guarded delete, and the StatefulSet
+   rolls to the corrected revision.
+4. Once the StatefulSet is Ready, the next review of the database creates the
+   missing members, and `inventory status` no longer reports them.
+
+If the corrected pod does not become Ready either, close again, correct the
+template again and repeat. While the pod is stuck at the current template,
+`db restart` plans nothing and says to correct the spec first. The full
+procedure, with its messages, is in [Managed databases: A database whose pod is
+stuck](../user/managed-databases.md#a-database-whose-pod-is-stuck).
+
 ## Repair configuration drift
 
 `inventory status --json` reports a changed accepted object as

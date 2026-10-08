@@ -39,6 +39,7 @@ inventoryApplicationUpdateRecoveryTests =
     [ companionRules
     , testCase "a durable member only verified by a stopped update is never replanned or retired as absent (F55, F58)" durableVerifyNotRecreated
     , testCase "retirement drops a confirmed-absent stateless member only while it stays absent (F58)" absentMemberRecheckedAtAdmission
+    , testCase "a stopped review that recreates a deleted Service with its release-history update closes, keeping the scope (F65)" recreatedServiceCloses
     , testCase "admission refuses an absence proof for a member that holds data (F58)" durableAbsenceRefusedAtAdmission
     ]
 
@@ -117,6 +118,61 @@ companionRules = testCase "a pending application update closes: kept when it lan
     headExecutorClaim after @?= Nothing
     headAccepted after @?= (if intended then headAccepted before else Map.union (reviewBaseRevisions (reviewedDocument reviewed)) (headAccepted before))
     void (loadInventoryPlanningHistory store candidate >>= expectRight)
+
+-- | F65: the Service is deleted out of band, so the next review creates it
+-- again with its release-history update ordered after it. The create lands
+-- unready and the transaction stops; ADR 26's close ends it by per-operation
+-- proof, keeping the scope (the create landed) with the update never started.
+recreatedServiceCloses :: Assertion
+recreatedServiceCloses = do
+  store <- newMemoryStore
+  let owner = ok (mkScopeId Application "web")
+      cluster = mintResourceId owner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
+      service digest = case member owner cluster "service" of
+        Managed resource ->
+          Managed (resource {address = Kubernetes cluster "serving.knative.dev" (ok (mkName "service")) (Just (ok (mkName "personal"))) (ok (mkName "web")), spec = KnativeService (contentDigest digest)})
+        _ -> error "fixture"
+      newService = service "new"
+      releaseHistory digest = case member owner cluster "history" of
+        Managed resource -> Managed (resource {spec = NativeObject (contentDigest digest), dependencies = [OrderedAfter (declarationId newService)]})
+        _ -> error "fixture"
+      scope members = ok (mkScopeDeclaration owner [ResourceBundle members [] [] [] [] []])
+      base = ok (mkScopeSnapshot fixtureBinding (Map.singleton owner (ok (mkScopeGeneration 1), scope [service "old", releaseHistory "v1"])) Map.empty)
+      seed = ok (composeInventory base (ReplaceScope (ok (mkScopeDeclaration (ok (mkScopeId Standalone "dummy")) [])) :| []))
+      candidate = ok (composeInventory base (ReplaceScope (scope [newService, releaseHistory "v2"]) :| []))
+      registry =
+        recordingRegistryWith
+          (\_ _ -> pure (Right ()))
+          (\_ _ -> pure (AdapterEffectAmbiguous "the recreated Service landed and is not ready"))
+          (\_ _ -> pure (RecoveryAwaitingReadiness (ok (mkPhysicalIdentity "recreated-service"))))
+  _ <- initializeStore store fixtureBinding "recreated-service" >>= expectRight
+  _ <- seedInventoryHistory store seed >>= expectRight
+  history <- loadInventoryHistory store >>= expectRight
+  let observations =
+        ok
+          ( observationSet
+              [ (declarationId newService, ConfirmedAbsent (contentDigest "deleted-out-of-band"))
+              , (declarationId (releaseHistory "v2"), ObservedPresent (ok (mkPhysicalIdentity "history-uid")))
+              ]
+          )
+      proposal = ok (planChanges candidate noLifecycleDecisions history observations)
+      actions = [(plannedAction operation, NE.toList (plannedResources operation)) | operation <- proposalOperations proposal]
+  assertBool ("the review does not recreate the Service with its history update: " <> show actions) ((CreateResource, [declarationId newService]) `elem` actions && (UpdateResource, [declarationId (releaseHistory "v2")]) `elem` actions)
+  beforeReview <- readStoreSnapshot store >>= expectRight
+  bundle <- prepareReview registry beforeReview proposal >>= expectRight
+  _ <- publishReview store bundle >>= expectRight
+  published <- readStoreSnapshot store >>= expectRight
+  reviewed <- either (assertFailure . show . NE.toList) pure (verifyReview published bundle)
+  transaction <-
+    applyReviewed store registry reviewed >>= expectRight >>= \case
+      StoppedAmbiguous tx _ -> pure tx
+      StoppedFailed tx _ _ -> pure tx
+      other -> assertFailure (show other) >> undefined
+  record <- closeTransaction store registry (CloseInput transaction (reviewDigestFor reviewed) False Nothing) >>= expectRight
+  after <- readHead store >>= expectRight >>= maybe (assertFailure "head missing" >> undefined) pure
+  headActiveTransaction after @?= Nothing
+  Map.lookup owner (headAccepted after) @?= Map.lookup owner (reviewDesiredRevisions (reviewedDocument reviewed))
+  Map.elems (closedScopes record) @?= [KeepDesired]
 
 -- | F55: a never-intended update stopped as F30's never-started stop (the
 -- adapter reports readiness pending after status-only churn) may now carry a
