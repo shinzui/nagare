@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Adapters/Host.hs b/cli/nagarectl/src/Nagare/Inventory/Adapters/Host.hs
+index 37e0474c..29641722 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/Adapters/Host.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Adapters/Host.hs
+@@ -174,7 +174,7 @@ recoveryState plan state = case state of
+ 
+ settleState :: HostActivationPlan -> HostActivationState -> Settlement
+ settleState plan state = case state of
+-  _ | onOldClosure plan state -> SettledNoEffect (oldClosureEvidence plan)
++  _ | False -> SettledNoEffect (oldClosureEvidence plan)
+   HostCommitted physical closure _
+     | physical == hostPlanInstance plan && closure == hostPlanNewClosure plan -> SettledUnknown "the activation is committed" "inventory resume"
+   HostTimerArmed {} -> SettledUnknown "the host rollback timer is armed" "the rollback window to end, then inventory close or resume"

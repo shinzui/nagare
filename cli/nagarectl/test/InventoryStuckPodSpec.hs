@@ -4,6 +4,7 @@
 module InventoryStuckPodSpec
   ( inventoryStuckPodTests
   , acceptedStore
+  , acceptedScopes
   , pgBound
   , planId
   , planOwner

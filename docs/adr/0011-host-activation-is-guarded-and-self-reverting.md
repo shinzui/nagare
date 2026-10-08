@@ -115,3 +115,15 @@ need the operator's go-ahead for a rehearsed, bounded sequence. Nothing mechanic
 agent from running `nixos-rebuild` or `switch-to-configuration` any more. Layers 2 and 3 are
 what make such a mistake recoverable. The Consequences above that describe the hook's prompts
 and text matching no longer apply.
+
+## Amendment — 2026-10-08: an activation that did not commit closes
+
+A reviewed host activation whose process stopped before `COMMITTED`, and whose
+host now runs the reviewed old closure with no rollback timer armed, either never
+committed or was reverted by the timer. Resume no longer retries it: retrying
+would switch again without the investigation this ADR requires. The host
+adapter settles it as no effect, so `inventory close` accepts nothing and leaves
+the host scope at its accepted revision; a new review carries any retry. A
+committed new closure is still proved by resume, and close refuses while the
+timer is armed.
+

@@ -162,6 +162,16 @@ names another payload refuses as a platform-version change.
    unresolved operation, `nagarectl doctor` is clean, and the backed-up data
    reads back unchanged.
 
+If the apply stops before `COMMITTED` (its process killed, or the fresh-login
+check failing), the host keeps its rollback timer armed and returns to the
+previous generation after the window (`NAGARE_SWITCH_CONFIRM_SECONDS`, default
+600, read from the applying shell's environment). While the timer is armed,
+`inventory close` refuses. Once the host runs the old closure again, `inventory
+resume` does not switch again (ADR 11); `inventory close` proves the activation
+had no effect, accepts nothing, and leaves the host scope at its accepted
+revision. Investigate, then plan the change again. If the host committed the
+new closure, `inventory resume` proves it and completes the transaction.
+
 To go back to the previous NixOS, restore the previous `flake.lock` from the
 operator repository and plan and apply it the same way, within the same k3s
 minor.

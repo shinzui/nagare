@@ -1,0 +1,12 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Adapters/Host.hs b/cli/nagarectl/src/Nagare/Inventory/Adapters/Host.hs
+index 37e0474c..e0a1f107 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/Adapters/Host.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Adapters/Host.hs
+@@ -185,6 +185,7 @@ onOldClosure :: HostActivationPlan -> HostActivationState -> Bool
+ onOldClosure plan state = case state of
+   HostBeforeActivation physical closure -> matches physical closure
+   HostReverted physical closure -> matches physical closure
++  HostTimerArmed physical _ -> physical == hostPlanInstance plan
+   _ -> False
+   where
+     matches physical closure = physical == hostPlanInstance plan && closure == hostPlanExpectedOldClosure plan && hostPlanExpectedOldClosure plan /= hostPlanNewClosure plan

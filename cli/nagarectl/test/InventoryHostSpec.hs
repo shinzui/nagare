@@ -6,6 +6,7 @@ import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString.Char8 qualified as BC
 import Data.ByteString.Lazy qualified as LBS
+import Data.Either (isLeft)
 import Data.Foldable (for_)
 import Data.Generics.Labels ()
 import Data.IORef
@@ -15,16 +16,21 @@ import Data.Text (Text)
 import Data.Text qualified
 import Data.Text.Encoding qualified as TE
 import InventoryImagePruneSpec (inventoryImagePruneTests)
+import InventoryStuckPodSpec (acceptedScopes)
+import InventoryTransactionSpec (fixtureBinding)
 import InventoryVmPowerSpec (inventoryVmPowerTests)
 import Nagare.Dsl.Prelude hiding (contains, (.=))
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.Host
 import Nagare.Inventory.Adapters.HostRuntime
 import Nagare.Inventory.Digest
+import Nagare.Inventory.Execute
 import Nagare.Inventory.Host
 import Nagare.Inventory.HostLock (hostLockRepin)
 import Nagare.Inventory.Journal
+import Nagare.Inventory.Plan
 import Nagare.Inventory.RegistryCredentials
+import Nagare.Inventory.Store
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
 import Nagare.Resource.Types
@@ -169,11 +175,69 @@ inventoryHostTests =
           Left message | "timer is armed" `contains` message -> pure ()
           other -> assertFailure ("expected timer refusal, got " <> show other)
         readIORef state >>= (@?= HostTimerArmed instanceIdentity "/nix/store/test-active")
-    , testCase "reverted activation is safe to retry; committed closure has durable proof" $ do
+    , testCase "settle: the reviewed host on its old closure with no timer armed is no effect; anything else is unproved (Section 3)" $ do
+        let settleIn hostState = do
+              state <- newIORef hostState
+              let adapter = mkHostAdapter (ops state)
+              prepared <- adapterPrepare adapter operation >>= expectRight
+              settleOperationWith adapter operation prepared
+            unproved settled = case settled of
+              SettledUnknown {} -> pure ()
+              other -> assertFailure ("expected an unproved settlement, got " <> show other)
+            replacement = ok (mkPhysicalIdentity "gce://replacement")
+        settleIn (HostBeforeActivation instanceIdentity "/nix/store/old") >>= \case
+          SettledNoEffect _ -> pure ()
+          other -> assertFailure ("a reverted host did not settle no effect: " <> show other)
+        settleIn (HostReverted instanceIdentity "/nix/store/old") >>= \case
+          SettledNoEffect _ -> pure ()
+          other -> assertFailure ("a reverted host did not settle no effect: " <> show other)
+        settleIn (HostTimerArmed instanceIdentity "/nix/store/new") >>= unproved
+        settleIn (HostCommitted instanceIdentity "/nix/store/new" acknowledgement) >>= unproved
+        settleIn (HostReverted instanceIdentity "/nix/store/third") >>= unproved
+        settleIn (HostBeforeActivation replacement "/nix/store/old") >>= unproved
+        settleIn (HostUnreachable "no route") >>= unproved
+    , testCase "close: an activation killed after ACTIVATE closes only once the timer has reverted the host, accepting nothing (Section 3)" $ do
+        let upgraded = hostBundle {hostLockDigest = contentDigest "re-pinned lock"}
+        (store, candidate, history) <- acceptedScopes (ok (compileHostScope hostBundle)) (ok (compileHostScope upgraded))
+        state <- newIORef (HostBeforeActivation instanceIdentity "/nix/store/old")
+        let killed =
+              (ops state)
+                { hostPreparePlan = \planned -> pure (Right activationPlan {hostPlanOperation = plannedOperationId planned, hostPlanInputDigest = plannedInputDigest planned})
+                , -- The apply process dies after ACTIVATE: the host runs the
+                  -- new closure under an armed rollback timer, and no commit
+                  -- receipt ever returns.
+                  hostRunActivation = \_ -> writeIORef state (HostTimerArmed instanceIdentity "/nix/store/new") >> pure (AdapterEffectAmbiguous "the apply process ended before COMMIT")
+                }
+            registry = ok (mkAdapterRegistry [mkHostAdapter killed])
+        observations <- observeWithRegistry registry (requirementsByExecutor (observationRequirements candidate history)) >>= expectRight
+        snapshot <- readStoreSnapshot store >>= expectRight
+        bundle <- prepareReview registry snapshot (ok (planChanges candidate noLifecycleDecisions history observations)) >>= expectRight
+        _ <- publishReview store bundle >>= expectRight
+        published <- readStoreSnapshot store >>= expectRight
+        reviewed <- expectRight (verifyReview published bundle)
+        acceptedBefore <- readHead store >>= expectRight
+        applied <- applyReviewed store registry reviewed >>= expectRight
+        transaction <- case applied of
+          StoppedAmbiguous tx _ -> pure tx
+          other -> assertFailure ("the killed activation did not stop ambiguous: " <> show other) >> pure (error "unreachable")
+        let closeIt = closeTransaction store registry (CloseInput transaction (contentDigest (encodeReviewDocument (reviewedDocument reviewed))) False Nothing)
+        -- Inside the window the host may still commit or revert: close refuses.
+        armed <- closeIt
+        assertBool "close accepted a host whose rollback timer is armed" (isLeft armed)
+        -- The timer reactivates the old closure; the activation had no effect.
+        writeIORef state (HostBeforeActivation instanceIdentity "/nix/store/old")
+        record <- closeIt >>= expectRight
+        Map.elems (closedClasses record) @?= [ClassNoEffect "the reviewed host runs its old closure /nix/store/old with no rollback timer armed"]
+        after <- readHead store >>= expectRight
+        fmap headActiveTransaction after @?= Just Nothing
+        fmap (Map.lookup scope . headAccepted) after @?= fmap (Map.lookup scope . headAccepted) acceptedBefore
+    , testCase "a reverted activation is not retried by resume (ADR 11); a committed closure has durable proof" $ do
         state <- newIORef (HostReverted instanceIdentity "/nix/store/old")
         let adapter = mkHostAdapter (ops state)
         prepared <- adapterPrepare adapter operation >>= expectRight
-        adapterRecover adapter operation prepared >>= (@?= RecoverySafeToRetry)
+        adapterRecover adapter operation prepared >>= \case
+          RecoveryUnresolved reason | "close the transaction" `contains` reason -> pure ()
+          other -> assertFailure ("a reverted activation was not left to close: " <> show other)
         adapterExecute adapter operation prepared >>= (@?= AdapterEffectCompleted)
         proof <- adapterVerify adapter operation prepared >>= expectRight
         proof @?= hostCompletionProof activationPlan acknowledgement

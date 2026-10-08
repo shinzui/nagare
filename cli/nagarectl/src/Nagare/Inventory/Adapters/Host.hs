@@ -68,7 +68,7 @@ mkHostAdapter ops =
     , adapterPreflight = preflight
     , adapterExecute = executePlan
     , adapterVerify = verifyPlan
-    , adapterSettle = Nothing
+    , adapterSettle = Just settlePlan
     , adapterRecover = recoverPlan
     }
   where
@@ -104,6 +104,9 @@ mkHostAdapter ops =
     recoverPlan operation prepared = case decodePlan operation (preparedNativeBytes prepared) of
       Left err -> pure (RecoveryUnresolved err)
       Right plan -> recoveryState plan <$> hostInspectActivation ops plan
+    settlePlan operation prepared = case decodePlan operation (preparedNativeBytes prepared) of
+      Left err -> pure (SettledUnknown err "the saved review's native bundle")
+      Right plan -> settleState plan <$> hostInspectActivation ops plan
 
 validatePlan :: PlannedOperation -> HostActivationPlan -> Either PrepareError ()
 validatePlan operation plan
@@ -155,17 +158,39 @@ preflightState plan state = case state of
       | closure /= hostPlanExpectedOldClosure plan = Left "host old closure changed since review"
       | otherwise = Right ()
 
+-- | Checklist section 3: a started activation whose host runs the reviewed old
+-- closure with no rollback timer armed did not commit, or its timer reverted
+-- it. ADR 11 forbids switching again without investigation, so resume does not
+-- retry it; close proves it had no effect, accepts nothing, and a new review
+-- carries any retry.
 recoveryState :: HostActivationPlan -> HostActivationState -> RecoveryDecision
 recoveryState plan state = case state of
   HostCommitted physical closure acknowledgement
     | physical == hostPlanInstance plan && closure == hostPlanNewClosure plan -> RecoveryProvedComplete (hostCompletionProof plan acknowledgement)
-  HostBeforeActivation physical closure
-    | physical == hostPlanInstance plan && closure == hostPlanExpectedOldClosure plan -> RecoverySafeToRetry
-  HostReverted physical closure
-    | physical == hostPlanInstance plan && closure == hostPlanExpectedOldClosure plan -> RecoverySafeToRetry
+  _ | onOldClosure plan state -> RecoveryUnresolved (oldClosureEvidence plan <> "; close the transaction and review the change again")
   HostTimerArmed {} -> RecoveryUnresolved "host activation is test-active with a rollback timer armed"
   HostUnreachable reason -> RecoveryUnresolved ("host is unreachable: " <> reason)
   _ -> RecoveryUnresolved "host identity or closure does not match the reviewed activation"
+
+settleState :: HostActivationPlan -> HostActivationState -> Settlement
+settleState plan state = case state of
+  _ | onOldClosure plan state -> SettledNoEffect (oldClosureEvidence plan)
+  HostCommitted physical closure _
+    | physical == hostPlanInstance plan && closure == hostPlanNewClosure plan -> SettledUnknown "the activation is committed" "inventory resume"
+  HostTimerArmed {} -> SettledUnknown "the host rollback timer is armed" "the rollback window to end, then inventory close or resume"
+  HostUnreachable reason -> SettledUnknown ("host is unreachable: " <> reason) "a host observation"
+  _ -> SettledUnknown "host identity or closure does not match the reviewed activation" "operator investigation of the host"
+
+onOldClosure :: HostActivationPlan -> HostActivationState -> Bool
+onOldClosure plan state = case state of
+  HostBeforeActivation physical closure -> matches physical closure
+  HostReverted physical closure -> matches physical closure
+  _ -> False
+  where
+    matches physical closure = physical == hostPlanInstance plan && closure == hostPlanExpectedOldClosure plan && hostPlanExpectedOldClosure plan /= hostPlanNewClosure plan
+
+oldClosureEvidence :: HostActivationPlan -> Text
+oldClosureEvidence plan = "the reviewed host runs its old closure " <> hostPlanExpectedOldClosure plan <> " with no rollback timer armed"
 
 hostCompletionProof :: HostActivationPlan -> ContentDigest -> ContentDigest
 hostCompletionProof plan acknowledgement =

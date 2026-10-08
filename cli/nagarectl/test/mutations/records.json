@@ -850,5 +850,23 @@
     "suite": "nagarectl",
     "pattern": "/F87/&&/only shares a prefix/",
     "expect": "test-fails"
+  },
+  {
+    "record": "HOST-reverted-settles-unknown",
+    "suite": "nagarectl",
+    "pattern": "/Section 3/&&/close: an activation killed after ACTIVATE/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "HOST-reverted-retried",
+    "suite": "nagarectl",
+    "pattern": "/a reverted activation is not retried by resume/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "HOST-armed-counts-as-old",
+    "suite": "nagarectl",
+    "pattern": "/Section 3/&&/close: an activation killed after ACTIVATE/",
+    "expect": "test-fails"
   }
 ]
