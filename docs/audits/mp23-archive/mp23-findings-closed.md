@@ -1927,6 +1927,8 @@ patch credentials to manufacture the acceptance result. F15 remains Verifying.
 **Independent verification (2026-10-08, nagare-verify; final candidate `3ae20f8c`; observed).** Closed. On `mp23-c3j`, all three `nagare-registry-pull` Secrets were rewritten by the timer after boot, and 7 private pulls after expiry had 0 failures. The regression script passes at the candidate. Wiring it into the gate is done on `next-release` (`e96fee1a`). Evidence: [C3 evidence](../mp23-independent-results-2026-10-07/c3-acceptance-3ae20f8c/).
 
 
+**Implementation update (2026-10-07, session nagare-fix; claude-opus-5-5; next release):** the regression now runs in every gate. `registry-credential-delegation` is a fast-gate step (`cli/nagare-harness/src/Nagare/Harness/Gate.hs`) after the command audit, so `just gate-fast`, the pre-push hook and `just gate` all run `python3 scripts/test-registry-credential-delegation.py` and fail on its failure. It takes about 4 s. The harness test that pins the step list names it.
+
 ## F32
 
 **Image-cache cleanup selects an image used by active pod sandboxes** — P1; **Closed**; owners EP-153 / EP-156.

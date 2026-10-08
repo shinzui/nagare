@@ -74,7 +74,7 @@ tests =
         assertBool "an unknown suite decoded" (isLeft (eitherDecode "[{\"record\":\"x\",\"suite\":\"other\",\"pattern\":\"/x/\",\"expect\":\"test-fails\"}]" :: Either String [MutationRecord]))
     , testCase "the fast gate runs the static checks, which take seconds, then both builds and the record patterns, before both suites" $
         map (^. #name) fastSteps
-          @?= ["haskell-style-check", "architecture-and-command-audit", "mutation-records", "nagarectl-build", "nagare-dsl-build", "mutation-patterns", "nagarectl-test", "nagare-dsl-test"]
+          @?= ["haskell-style-check", "architecture-and-command-audit", "registry-credential-delegation", "mutation-records", "nagarectl-build", "nagare-dsl-build", "mutation-patterns", "nagarectl-test", "nagare-dsl-test"]
     , testGroup
         "dry-run realisation"
         [ testCase "nothing to build or fetch leaves nothing remaining" $

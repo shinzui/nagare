@@ -64,6 +64,8 @@ fastSteps :: [Step]
 fastSteps =
   [ Step "haskell-style-check" "." "just" ["haskell-style-check"]
   , Step "architecture-and-command-audit" "." "bash" ["scripts/test-managed-command-audit.sh"]
+  , -- F31: the rendered registry-refresh timer against a recording API.
+    Step "registry-credential-delegation" "." "python3" ["scripts/test-registry-credential-delegation.py"]
   , harness "mutation-records" ["mutations", "check"]
   , Step "nagarectl-build" "cli/nagarectl" "cabal" ["build", "nagarectl-test"]
   , Step "nagare-dsl-build" "cli/nagare-dsl" "cabal" ["build", "nagare-dsl-test"]
