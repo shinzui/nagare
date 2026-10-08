@@ -56,9 +56,10 @@ just host-switch /private/reviews/host-change
 scripts/host-switch.sh --dry-run
 ```
 
-Keep the accepted `flake.lock` unchanged: this command reconciles operator inputs
-within the selected payload. It refuses dependency re-pinning; admitted-context
-platform upgrades remain unavailable. If accepted host intent binds an age key and
+Keep the accepted `flake.lock` unchanged for a configuration change: this command
+reconciles operator inputs within the selected payload. A lock change is a separate
+review (see [Upgrade NixOS and k3s](#upgrade-nixos-and-k3s)); a plan that changes
+both refuses. Admitted-context platform-version upgrades remain unavailable. If accepted host intent binds an age key and
 you change the configuration, supply `--age-key-file /secure/host.agekey` when
 planning. Set `NAGARE_HOST_AGE_KEY_FILE` to that same file for apply or resume.
 Reviews contain its digest, never its private bytes. Unchanged reviews can verify
@@ -120,6 +121,50 @@ itself. A reboot would also boot the previous one, because the boot default neve
 Investigate the configuration before switching again. If SSH still fails after the window, use
 the serial console boot menu in
 [Accessing the host](accessing-the-host.md#path-3-serial-console-boot-menu-break-glass).
+
+## Upgrade NixOS and k3s
+
+NixOS and k3s reach the host through the Nagare input's transitive `nixpkgs`. Move
+them by re-pinning only that node, in a review of its own, with `flake.nix` and
+`host.nix` byte-identical to the accepted ones. `host plan` accepts the new lock
+only while its root's single input stays the `path:/nix/store/…` node that
+`flake.nix` names, so the platform payload cannot change on this path; a lock that
+names another payload refuses as a platform-version change.
+
+1. **Back up first, and prove it.** Take a fresh manual backup of every managed
+   database and verify one restore, as in
+   [Backups and disaster recovery](backups-and-disaster-recovery.md). A revert
+   restores the previous system, not data the new one wrote.
+2. **Choose the revision.** Keep k3s on the same minor version. k3s does not
+   support downgrades: if an activation that moved k3s across a minor reverts,
+   the previous k3s starts against a datastore the newer one has written, and
+   recovery is from the backup. Read the candidate's k3s version before planning:
+
+   ```bash
+   HOST_FLAKE=${XDG_CONFIG_HOME:-$HOME/.config}/nagare/hosts/$CONTEXT
+   REV=<nixpkgs commit>
+   nix eval --raw "github:NixOS/nixpkgs/$REV#k3s.version"
+   nix eval --raw --no-update-lock-file "path:$HOST_FLAKE#nixosConfigurations.$(nagarectl host name).config.services.k3s.package.version"
+   ```
+
+3. **Re-pin, review, apply.**
+
+   ```bash
+   nix flake lock "path:$HOST_FLAKE" --override-input nagare/nixpkgs "github:NixOS/nixpkgs/$REV"
+   nagarectl --context "$CONTEXT" host plan --save-plan /private/reviews/host-nixos
+   nagarectl --context "$CONTEXT" host apply /private/reviews/host-nixos --yes
+   ```
+
+   The apply is the same self-reverting activation as any host change: it
+   commits only after a fresh SSH login proves access, and otherwise the host
+   returns to the previous generation by itself.
+4. **Verify.** `nagarectl --context "$CONTEXT" inventory status` shows no
+   unresolved operation, `nagarectl doctor` is clean, and the backed-up data
+   reads back unchanged.
+
+To go back to the previous NixOS, restore the previous `flake.lock` from the
+operator repository and plan and apply it the same way, within the same k3s
+minor.
 
 ## Switch over an IAP tunnel
 

@@ -1685,3 +1685,18 @@ EP-176 M2 and M3 remove the second "Known limits" item, "Unrecorded members pass
 The earlier statement that a replaced database's only exit is "retire and recreate" now holds
 through that retirement. The accessor covers the Kubernetes kinds. Non-Kubernetes kinds without
 a provider identity remain documented limits (ADR 27 §4).
+
+## Amendment — 2026-10-08: lock-only NixOS re-pin
+
+The production-readiness checklist's node-upgrade route is an in-place,
+self-reverting activation. A transition may now change the dependency lock when
+`flake.nix` and `host.nix` equal the accepted configuration digest and the new
+lock keeps the root's single `nagare` input as a path node locked and originally
+named at the store path `flake.nix` names (`Nagare.Inventory.HostLock`). Only that
+input's transitive nodes (nixpkgs, which carries NixOS and k3s, and sops-nix)
+move, so the payload is unchanged and this is still not an admitted-context
+platform-version upgrade (ADR 6). A plan that changes the configuration and the
+lock together refuses. Nix preparation still refuses lock updates: the reviewed
+lock digest is the one the transport builds. A k3s minor change cannot be
+reverted in place; the operator procedure requires a verified backup first.
+

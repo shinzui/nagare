@@ -802,5 +802,23 @@
     "suite": "nagarectl",
     "pattern": "/refuses an object missing a required field/",
     "expect": "test-fails"
+  },
+  {
+    "record": "HOSTLOCK-payload-path-unchecked",
+    "suite": "nagarectl",
+    "pattern": "/host lock re-pin/&&/locks another store path/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "HOSTLOCK-original-unchecked",
+    "suite": "nagarectl",
+    "pattern": "/host lock re-pin/&&/original differs from its locked path/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "HOSTLOCK-mutable-payload-path",
+    "suite": "nagarectl",
+    "pattern": "/host lock re-pin/&&/is not a store path refuses/",
+    "expect": "test-fails"
   }
 ]

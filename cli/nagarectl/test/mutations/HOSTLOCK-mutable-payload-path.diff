@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/HostLock.hs b/cli/nagarectl/src/Nagare/Inventory/HostLock.hs
+index 677c959d..f059d979 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/HostLock.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/HostLock.hs
+@@ -55,7 +55,7 @@ hostLockRepin flake lock = do
+ flakePayload :: ByteString -> Either Text Text
+ flakePayload flake = case mapMaybe assignment (T.lines (TE.decodeUtf8Lenient flake)) of
+   [path]
+-    | "/nix/store/" `T.isPrefixOf` path && not (T.any (`elem` ("\"\\$" :: String)) path) -> Right path
++    | not (T.any (`elem` ("\"\\$" :: String)) path) -> Right path
+     | otherwise -> Left "the host flake's nagare input is not an immutable store path"
+   _ -> Left "the host flake must have exactly one inputs.nagare.url assignment"
+   where

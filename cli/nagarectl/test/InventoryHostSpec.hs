@@ -2,8 +2,10 @@ module InventoryHostSpec (inventoryHostTests) where
 
 import ContextReviewSpec (contextReviewTests)
 import Data.Aeson qualified as Aeson
+import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString.Char8 qualified as BC
+import Data.ByteString.Lazy qualified as LBS
 import Data.Foldable (for_)
 import Data.Generics.Labels ()
 import Data.IORef
@@ -20,6 +22,7 @@ import Nagare.Inventory.Adapters.Host
 import Nagare.Inventory.Adapters.HostRuntime
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Host
+import Nagare.Inventory.HostLock (hostLockRepin)
 import Nagare.Inventory.Journal
 import Nagare.Inventory.RegistryCredentials
 import Nagare.Resource.Inventory
@@ -38,6 +41,7 @@ inventoryHostTests =
     [ contextReviewTests
     , inventoryImagePruneTests
     , inventoryVmPowerTests
+    , hostLockRepinTests
     , testCase "legacy host plan bytes omit replacement authority" $ do
         case Aeson.toJSON activationPlan of
           Aeson.Object fields -> KeyMap.lookup "previousAgeKeyDigest" fields @?= Nothing
@@ -369,3 +373,66 @@ expectRight result = case result of
 
 ok :: (Show e) => Either e a -> a
 ok = either (error . show) id
+
+-- Checklist section 3: a node upgrade re-pins NixOS and k3s (the Nagare input's
+-- transitive nixpkgs) while the platform payload stays the accepted store path.
+hostLockRepinTests :: TestTree
+hostLockRepinTests =
+  testGroup
+    "host lock re-pin"
+    [ testCase "a lock that moves only nixpkgs and keeps the flake's Nagare store path is a NixOS re-pin" $
+        hostLockRepin hostFlake (repinLock [("nagare", "nagare")] (pathNode payload payload)) @?= Right ()
+    , testCase "a lock whose Nagare node names another store path is a payload change and refuses" $
+        assertRefused (hostLockRepin hostFlake (repinLock [("nagare", "nagare")] (pathNode otherPayload otherPayload)))
+    , testCase "a lock that keeps the Nagare original but locks another store path refuses" $
+        assertRefused (hostLockRepin hostFlake (repinLock [("nagare", "nagare")] (pathNode otherPayload payload)))
+    , testCase "a lock whose Nagare original differs from its locked path refuses" $
+        assertRefused (hostLockRepin hostFlake (repinLock [("nagare", "nagare")] (pathNode payload otherPayload)))
+    , testCase "a lock with a root input besides Nagare refuses" $
+        assertRefused (hostLockRepin hostFlake (repinLock [("nagare", "nagare"), ("nixpkgs", "nixpkgs")] (pathNode payload payload)))
+    , testCase "a lock whose Nagare node is not a path input refuses" $
+        assertRefused
+          ( hostLockRepin
+              hostFlake
+              (repinLock [("nagare", "nagare")] (Aeson.object ["locked" Aeson..= Aeson.object ["type" Aeson..= ("github" :: Text), "path" Aeson..= payload], "original" Aeson..= Aeson.object ["type" Aeson..= ("path" :: Text), "path" Aeson..= payload]]))
+          )
+    , testCase "a flake whose Nagare input is not a store path refuses" $
+        assertRefused (hostLockRepin (flakeFor "/home/operator/nagare/nixos") (repinLock [("nagare", "nagare")] (pathNode "/home/operator/nagare/nixos" "/home/operator/nagare/nixos")))
+    , testCase "a flake with two Nagare input assignments refuses" $
+        assertRefused (hostLockRepin (hostFlake <> flakeFor payload) (repinLock [("nagare", "nagare")] (pathNode payload payload)))
+    ]
+  where
+    payload = "/nix/store/jr0jwgd506n6x1qm8l0l2rk30k8ng3ca-nagare-platform-0.4.0/share/nagare/nixos" :: Text
+    otherPayload = "/nix/store/0xi2vwhd3n7cibkhyzmc9lqsg1gw41rn-nagare-platform-0.5.0/share/nagare/nixos" :: Text
+    hostFlake = flakeFor payload
+    flakeFor path = TE.encodeUtf8 ("{\n  inputs.nagare.url = \"path:" <> path <> "\";\n  outputs = { self, nagare }: { };\n}\n")
+    pathNode :: Text -> Text -> Aeson.Value
+    pathNode locked original =
+      Aeson.object
+        [ "inputs" Aeson..= Aeson.object ["nixpkgs" Aeson..= ("nixpkgs" :: Text)]
+        , "locked" Aeson..= Aeson.object ["narHash" Aeson..= ("sha256-yJN6t+eXKQLi5i5C9gBRZNKjohRgwGsxBy8u04l2AYg=" :: Text), "path" Aeson..= locked, "type" Aeson..= ("path" :: Text)]
+        , "original" Aeson..= Aeson.object ["path" Aeson..= original, "type" Aeson..= ("path" :: Text)]
+        ]
+    repinLock :: [(Text, Text)] -> Aeson.Value -> BC.ByteString
+    repinLock rootInputs nagareNode =
+      LBS.toStrict
+        ( Aeson.encode
+            ( Aeson.object
+                [ "nodes"
+                    Aeson..= Aeson.object
+                      [ "nagare" Aeson..= nagareNode
+                      , "nixpkgs"
+                          Aeson..= Aeson.object
+                            [ "locked" Aeson..= Aeson.object ["owner" Aeson..= ("NixOS" :: Text), "repo" Aeson..= ("nixpkgs" :: Text), "rev" Aeson..= ("0000000000000000000000000000000000000001" :: Text), "type" Aeson..= ("github" :: Text)]
+                            , "original" Aeson..= Aeson.object ["owner" Aeson..= ("NixOS" :: Text), "ref" Aeson..= ("nixos-unstable" :: Text), "repo" Aeson..= ("nixpkgs" :: Text), "type" Aeson..= ("github" :: Text)]
+                            ]
+                      , "root" Aeson..= Aeson.object ["inputs" Aeson..= Aeson.object [Key.fromText key Aeson..= value | (key, value) <- rootInputs]]
+                      ]
+                , "root" Aeson..= ("root" :: Text)
+                , "version" Aeson..= (7 :: Int)
+                ]
+            )
+        )
+    assertRefused result = case result of
+      Left _ -> pure ()
+      Right () -> assertFailure "expected the re-pin to refuse"

@@ -55,6 +55,7 @@ import Nagare.Inventory.Artifact
 import Nagare.Inventory.Artifact qualified as InventoryArtifact
 import Nagare.Inventory.Digest qualified as InventoryDigest
 import Nagare.Inventory.Host qualified as InventoryHost
+import Nagare.Inventory.HostLock qualified as HostLock
 import Nagare.Inventory.RegistryCredentials qualified as RegistryCredentials
 import Nagare.Platform.Workspace (PlatformWorkspace)
 import Nagare.Resource.Inventory qualified as ResourceInventory
@@ -126,10 +127,18 @@ buildHostCandidate transition active _ snapshot
           lockDigest = InventoryDigest.contentDigest lock
           acceptedScope = snd <$> Map.lookup owner (ResourceInventory.snapshotScopes snapshot)
           systemId = Resource.mintResourceId owner key role
+      -- Checklist section 3: a transition may re-pin flake.lock only for
+      -- NixOS dependencies, with flake.nix and host.nix unchanged and the
+      -- payload input still the flake's store path.
       when transition $ for_ acceptedScope $ \prior -> do
         inputs <- either dieT pure (InventoryHost.hostExecutionInputsFromScopes [prior])
-        unless (maybe False (lockDigest `elem`) inputs) $
-          dieT "host plan cannot change the accepted flake.lock; in-place payload upgrades are unsupported"
+        case inputs of
+          Just accepted
+            | lockDigest `elem` accepted -> pure ()
+            | configurationDigest `notElem` accepted ->
+                dieT "host plan re-pins flake.lock only with the accepted flake.nix and host.nix; review the configuration change separately"
+            | otherwise -> either (dieT . ("host plan cannot re-pin flake.lock: " <>)) pure (HostLock.hostLockRepin flake lock)
+          Nothing -> dieT "host plan cannot change flake.lock without an accepted host activation"
       ageKeyPath <- lookupEnv "NAGARE_HOST_AGE_KEY_FILE"
       ageKeyDigest <- case ageKeyPath of
         Just keyPath -> do

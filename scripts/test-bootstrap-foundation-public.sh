@@ -1078,7 +1078,17 @@ if "$nagarectl_bin" --context freshlocal host plan --save-plan "$fixture_root/ho
   > "$fixture_root/host-repin-out" 2>&1; then
   printf 'host plan accepted a changed dependency lock\n' >&2; exit 1
 fi
-grep -q 'cannot change the accepted flake.lock' "$fixture_root/host-repin-out"
+# Checklist section 3: a lock-only re-pin must keep the flake's payload store
+# path (this fixture flake names none); one that also edits host.nix refuses.
+grep -q 'cannot re-pin flake.lock' "$fixture_root/host-repin-out"
+cp "$XDG_CONFIG_HOME/nagare/hosts/freshlocal/host.nix" "$fixture_root/host-module-before"
+printf '\n# configuration edited with the lock\n' >> "$XDG_CONFIG_HOME/nagare/hosts/freshlocal/host.nix"
+if "$nagarectl_bin" --context freshlocal host plan --save-plan "$fixture_root/host-repin-with-config" \
+  > "$fixture_root/host-repin-config-out" 2>&1; then
+  printf 'host plan accepted a lock re-pin bundled with a configuration change\n' >&2; exit 1
+fi
+grep -q 'only with the accepted flake.nix and host.nix' "$fixture_root/host-repin-config-out"
+cp "$fixture_root/host-module-before" "$XDG_CONFIG_HOME/nagare/hosts/freshlocal/host.nix"
 cp "$fixture_root/host-lock-before" "$XDG_CONFIG_HOME/nagare/hosts/freshlocal/flake.lock"
 printf '\n# reviewed host input revision\n' >> "$XDG_CONFIG_HOME/nagare/hosts/freshlocal/host.nix"
 "$nagarectl_bin" --context freshlocal host plan --save-plan "$fixture_root/host-update-review" \
@@ -1105,6 +1115,46 @@ cp "$fixture_root/reviewed-host-input" "$XDG_CONFIG_HOME/nagare/hosts/freshlocal
   > "$fixture_root/host-replay-apply-out" 2>&1 || { cat "$fixture_root/host-replay-apply-out" >&2; exit 1; }
 test "$(grep -Fc 'host activate' "$XDG_STATE_HOME/ssh.log")" -eq 1
 printf 'reviewed host input update and replay preserved the already committed closure without activation\n'
+# Checklist section 3: name a payload store path in flake.nix (a configuration
+# review), then re-pin only flake.lock's NixOS dependencies (a lock review).
+host_payload=/nix/store/00000000000000000000000000000000-nagare-platform-fixture/share/nagare/nixos
+printf '{\n  inputs.nagare.url = "path:%s";\n}\n' "$host_payload" > "$XDG_CONFIG_HOME/nagare/hosts/freshlocal/flake.nix"
+"$nagarectl_bin" --context freshlocal host plan --save-plan "$fixture_root/host-payload-review" \
+  > "$fixture_root/host-payload-plan-out" 2>&1 || { cat "$fixture_root/host-payload-plan-out" >&2; exit 1; }
+"$nagarectl_bin" --context freshlocal host apply "$fixture_root/host-payload-review" --yes \
+  > "$fixture_root/host-payload-apply-out" 2>&1 || { cat "$fixture_root/host-payload-apply-out" >&2; exit 1; }
+write_host_lock() {
+  python3 - "$XDG_CONFIG_HOME/nagare/hosts/freshlocal/flake.lock" "$1" "$2" <<'PYLOCK'
+import json, sys
+path, payload, rev = sys.argv[1:]
+node = {"type": "path", "path": payload}
+json.dump({"nodes": {
+  "nagare": {"inputs": {"nixpkgs": "nixpkgs"}, "locked": dict(node, narHash="sha256-fixture"), "original": node},
+  "nixpkgs": {"locked": {"owner": "NixOS", "repo": "nixpkgs", "rev": rev, "type": "github"},
+              "original": {"owner": "NixOS", "ref": "nixos-unstable", "repo": "nixpkgs", "type": "github"}},
+  "root": {"inputs": {"nagare": "nagare"}}}, "root": "root", "version": 7}, open(path, "w"))
+PYLOCK
+}
+write_host_lock "${host_payload/fixture/other}" 0000000000000000000000000000000000000002
+if "$nagarectl_bin" --context freshlocal host plan --save-plan "$fixture_root/host-payload-repin" \
+  > "$fixture_root/host-payload-repin-out" 2>&1; then
+  printf 'host plan accepted a lock that changes the payload\n' >&2; exit 1
+fi
+grep -q 'platform-version change' "$fixture_root/host-payload-repin-out"
+write_host_lock "$host_payload" 0000000000000000000000000000000000000002
+"$nagarectl_bin" --context freshlocal host plan --save-plan "$fixture_root/host-nixos-repin" \
+  > "$fixture_root/host-nixos-repin-out" 2>&1 || { cat "$fixture_root/host-nixos-repin-out" >&2; exit 1; }
+python3 - "$fixture_root/host-nixos-repin" "$(shasum -a 256 "$XDG_CONFIG_HOME/nagare/hosts/freshlocal/flake.lock" | awk '{print $1}')" <<'PYREPIN'
+import json, pathlib, sys
+root = pathlib.Path(sys.argv[1])
+review = json.load(open(root / "review.json"))
+assert {o['operation']['executor'] for o in review['operations']} == {'HostExecutor'}, review
+assert any(o['operation']['action']['tag'] == 'UpdateResource' for o in review['operations']), review
+assert any(sys.argv[2] in scope.read_text() for scope in (root / "scopes").glob("*.json")), 'the review does not bind the re-pinned lock'
+PYREPIN
+"$nagarectl_bin" --context freshlocal host apply "$fixture_root/host-nixos-repin" --yes \
+  > "$fixture_root/host-nixos-repin-apply-out" 2>&1 || { cat "$fixture_root/host-nixos-repin-apply-out" >&2; exit 1; }
+printf 'reviewed host lock re-pin moved NixOS dependencies and refused a payload change\n'
 cat > "$XDG_STATE_HOME/remote-kubeconfig.yaml" <<'EOF'
 apiVersion: v1
 kind: Config
