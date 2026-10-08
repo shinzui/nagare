@@ -1,0 +1,14 @@
+# Section-2 tests passing in candidate 3ae20f8c's green gate run ($XDG_STATE_HOME/nagare/gates/logs/20261008T011045.92922Z/nagarectl-test.log)
+## summary: All 1368 tests passed (951.93s)
+## freshness and breach grading
+4567: recoveryPointProbe: fresh, warning, breach and unknown grades: OK
+4578: remediationFor: recovery point FAIL -> receipt ingestion: OK
+4807: backup freshness uses the recovery point and warns before the one-hour breach: OK
+4808: daily recovery-point objective warns at 25 hours and breaches at 26: OK
+## corrupt and incomplete uploads refused
+163: malformed receipt refuses planning and execution: OK
+229: actual rendered download rejects missing generations and corrupt bytes: OK (0.24s)
+421: a newer receipt version refuses before any review: OK
+4320: complete backup restores and incomplete backup is refused: OK
+4824: escrow verification refuses another key, source incarnation or database: OK
+4831: reviewed scheduled backup writes a UID-bound receipt after stored-byte verification: OK (0.87s)

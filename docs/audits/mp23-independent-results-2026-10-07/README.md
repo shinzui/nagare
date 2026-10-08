@@ -150,5 +150,5 @@ The final candidate is `3ae20f8c`: F52 and F80 (`a7958867`), F81 (`2df33205`), F
 - **D1:** leftover destination objects block a re-rename; the runbook has a manual exit.
 - Recording the identity a stamp-proved lost create observes, so no rebind is needed. Needs an uncopyable discriminator, likely managed fields; an experiment and an ADR 27 amendment come first.
 - Done on `next-release`, landing next release: F31 gate wiring (`e96fee1a`), the F78 runbook section and the F65 test (`eb642303`).
-- Section-2 boxes still open: a natively observed breach graded unhealthy, and a native corrupt or incomplete upload refusal on this candidate.
+- Section-2 breach grading and corrupt/incomplete-upload refusal are ticked from tests in the candidate's green gate run ([tests](test-evidence-section2-3ae20f8c.txt)). A native breach observation and a native tamper drill on this candidate remain a monitoring item, not a box.
 - C5: release assembly, IR-24 mapping and release notes.

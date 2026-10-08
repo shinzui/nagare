@@ -1,0 +1,100 @@
+{
+    "builderProbe": {
+        "ok": true,
+        "system": "x86_64-linux"
+    },
+    "clean": true,
+    "commit": "3ae20f8c9ed5bcfaa1681a7c3a3a927d6ede773b",
+    "green": true,
+    "steps": [
+        {
+            "command": "nix build --no-link --impure --expr derivation { name = \"nagare-builder-probe\"; system = \"x86_64-linux\"; builder = \"/bin/sh\"; args = [ \"-c\" \"echo 16916881815448222669 > $out\" ]; }",
+            "exit": 0,
+            "logPath": "/Users/shinzui/.local/state/nagare/gates/logs/20261008T011045.92922Z/builder-probe-x86_64-linux.log",
+            "name": "builder-probe-x86_64-linux",
+            "seconds": 43.01893
+        },
+        {
+            "command": "just haskell-style-check",
+            "exit": 0,
+            "logPath": "/Users/shinzui/.local/state/nagare/gates/logs/20261008T011045.92922Z/haskell-style-check.log",
+            "name": "haskell-style-check",
+            "seconds": 7.580242
+        },
+        {
+            "command": "bash scripts/test-managed-command-audit.sh",
+            "exit": 0,
+            "logPath": "/Users/shinzui/.local/state/nagare/gates/logs/20261008T011045.92922Z/architecture-and-command-audit.log",
+            "name": "architecture-and-command-audit",
+            "seconds": 7.311331
+        },
+        {
+            "command": "cabal run --project-dir=cli/nagare-harness -v0 nagare-harness -- mutations check",
+            "exit": 0,
+            "logPath": "/Users/shinzui/.local/state/nagare/gates/logs/20261008T011045.92922Z/mutation-records.log",
+            "name": "mutation-records",
+            "seconds": 2.185285
+        },
+        {
+            "command": "cabal build nagarectl-test",
+            "exit": 0,
+            "logPath": "/Users/shinzui/.local/state/nagare/gates/logs/20261008T011045.92922Z/nagarectl-build.log",
+            "name": "nagarectl-build",
+            "seconds": 19.802374
+        },
+        {
+            "command": "cabal build nagare-dsl-test",
+            "exit": 0,
+            "logPath": "/Users/shinzui/.local/state/nagare/gates/logs/20261008T011045.92922Z/nagare-dsl-build.log",
+            "name": "nagare-dsl-build",
+            "seconds": 1.68663
+        },
+        {
+            "command": "cabal run --project-dir=cli/nagare-harness -v0 nagare-harness -- mutations patterns",
+            "exit": 0,
+            "logPath": "/Users/shinzui/.local/state/nagare/gates/logs/20261008T011045.92922Z/mutation-patterns.log",
+            "name": "mutation-patterns",
+            "seconds": 9.157201
+        },
+        {
+            "command": "cabal test nagarectl-test",
+            "exit": 0,
+            "logPath": "/Users/shinzui/.local/state/nagare/gates/logs/20261008T011045.92922Z/nagarectl-test.log",
+            "name": "nagarectl-test",
+            "seconds": 958.978764
+        },
+        {
+            "command": "cabal test nagare-dsl-test",
+            "exit": 0,
+            "logPath": "/Users/shinzui/.local/state/nagare/gates/logs/20261008T011045.92922Z/nagare-dsl-test.log",
+            "name": "nagare-dsl-test",
+            "seconds": 9.035308
+        },
+        {
+            "command": "nix flake check --all-systems --print-build-logs",
+            "exit": 0,
+            "logPath": "/Users/shinzui/.local/state/nagare/gates/logs/20261008T011045.92922Z/nix-flake-check.log",
+            "name": "nix-flake-check",
+            "seconds": 1722.477257
+        }
+    ],
+    "systems": {
+        "aarch64-darwin": {
+            "checks": 37,
+            "realised": 37,
+            "remaining": []
+        },
+        "x86_64-linux": {
+            "checks": 36,
+            "realised": 36,
+            "remaining": []
+        }
+    },
+    "tools": {
+        "cabal": "3.16.1.0",
+        "ghc": "9.12.4",
+        "nix": "nix (Determinate Nix 3.23.0) 2.35.2"
+    },
+    "tree": "f93114988654dcf19a9e65b1ed18a6678b6dc55c",
+    "version": 1
+}

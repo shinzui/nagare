@@ -62,13 +62,16 @@ drill log. Nothing is ticked on an estimate.
       recovery point, measured including upload, verification and retry delays (all five databases
       healthy in `server status`, ages 215–1063 s, backups in GCS; volumes are outside the objective by
       decision D2).
-- [ ] Freshness deterioration is visible before a breach, and a breach is reported unhealthy.
-      (Healthy grading observed natively on `mp23-c3j`; a breach was not observed on this candidate.)
+- [x] Freshness deterioration is visible before a breach, and a breach is reported unhealthy.
+      (Grading observed natively on `mp23-c3j`; warning and breach grades pinned by tests in candidate
+      `3ae20f8c`'s green gate run, [gate](../audits/mp23-independent-results-2026-10-07/gate-3ae20f8c.json), [tests](../audits/mp23-independent-results-2026-10-07/test-evidence-section2-3ae20f8c.txt).)
 - [x] Backups and recovery credentials are retrievable with the cluster and the operator root gone
       (the drill recovered from a fresh operator root holding only the context, escrow files and sops
       rules).
-- [ ] Corrupt and incomplete uploads are refused. (Verification refuses a bad signature or hash by
-      design; not exercised natively on this candidate.)
+- [x] Corrupt and incomplete uploads are refused. (Pinned by tests in candidate `3ae20f8c`'s green
+      gate run: corrupt bytes and missing generations rejected, an incomplete backup refused, malformed
+      and newer receipts refused, escrow verification refuses another key or source;
+      [tests](../audits/mp23-independent-results-2026-10-07/test-evidence-section2-3ae20f8c.txt).)
 - [x] **Drill:** real data in an application and a database; destroy the cluster; restore from the
       off-cluster backups by the documented procedure; verify the content matches; record the time
       taken. (`mp23-c3j`, 2026-10-08: VM, data disk and snapshots deleted; newest post-seed backup verified
