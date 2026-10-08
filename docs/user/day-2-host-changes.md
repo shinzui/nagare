@@ -168,10 +168,15 @@ names another payload refuses as a platform-version change.
    input, so the payload is unchanged. Evaluate the system before planning, so
    a re-pin that does not evaluate never reaches review:
 
+   Overriding `nagare/sops-nix` drops its `follows` of the Nagare input's nixpkgs: the lock gains
+   a second nixpkgs node (`nixpkgs_2`) at sops-nix's own pin. Pin that node to the same revision,
+   so the host builds from one nixpkgs:
+
    ```bash
    nix flake lock "path:$HOST_FLAKE" \
      --override-input nagare/nixpkgs "github:NixOS/nixpkgs/$REV" \
-     --override-input nagare/sops-nix "github:Mic92/sops-nix/$SOPS_REV"
+     --override-input nagare/sops-nix "github:Mic92/sops-nix/$SOPS_REV" \
+     --override-input nagare/sops-nix/nixpkgs "github:NixOS/nixpkgs/$REV"
    nix eval --raw --no-update-lock-file \
      "path:$HOST_FLAKE#nixosConfigurations.$(nagarectl --context "$CONTEXT" host name).config.system.build.toplevel.drvPath"
    ```
