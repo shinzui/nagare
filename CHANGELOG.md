@@ -11,6 +11,18 @@ immutable `v<major>.<minor>.<patch>` Git tags.
 
 ## [0.4.0] - 2026-09-16
 
+- **Typed resource inventory.** Each context keeps one typed, scoped inventory of what Nagare owns
+  across cloud, host, cluster, data, secrets and artifacts. Changes are reviewed, context-bound plans
+  applied as journalled, resumable transactions; collisions and ambiguous ownership refuse before
+  mutation, and a stopped transaction closes only by per-operation proof (ADR 26, ADR 27).
+- **Data protection.** Signed scheduled database backups off-cluster in GCS under a per-context
+  recovery-point objective, unattended freshness, escrowed signing keys, and a drilled total
+  cluster loss recovery from escrow and GCS.
+- **Reviewed data and host operations.** Isolated restores, a fenced PostgreSQL rename with a
+  backward exit, a side-by-side PostgreSQL major upgrade with refusal of in-place major or engine
+  changes, `app deploy --retire-database`, and NixOS/k3s node upgrades by reviewed lock re-pin with
+  a no-effect close for an activation that did not commit.
+
 - **Optional in-cluster Nix binary cache.** Cloud contexts can opt into a context-local Attic
   service backed by a protected GCS bucket and managed PostgreSQL. Nagare publishes a digest-pinned
   server image, owns encrypted storage and JWT credentials, emits a public-read client ConfigMap,
