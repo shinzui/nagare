@@ -217,7 +217,7 @@ kubernetesMigrationAdapter config planning base =
         | otherwise -> case createPrepared bundle of
             Left reason -> pure (Left reason)
             Right prepared -> do
-              source <- sourceOwned bundle
+              source <- sourceAfterTransfer bundle
               created <- adapterPreflight base (createOperation bundle) prepared
               pure (source >> created)
       (FenceWriters, kind) | kind `elem` [RenameVolume, RenameWorkload] -> void <$> writerOwned bundle
@@ -228,8 +228,9 @@ kubernetesMigrationAdapter config planning base =
         destination <- destinationOwned bundle
         unmounted <- destinationUnmounted bundle
         pure (fenced >> source >> void destination >> unmounted)
+      (RetainSource, _) -> sourceStamped bundle
       (stageName, _)
-        | stageName `elem` [BackUpSource, FenceWriters, RetainSource] -> sourceOwned bundle
+        | stageName `elem` [BackUpSource, FenceWriters] -> sourceOwned bundle
         | otherwise -> void <$> destinationOwned bundle
 
     execute bundle = do
@@ -270,10 +271,10 @@ kubernetesMigrationAdapter config planning base =
             source <- sourceOwned bundle
             pure (source >> proof bundle ["sourcePhysical" .= (bundle ^. #sourcePhysical)])
         | stageName == RetainSource -> do
-            source <- sourceOwned bundle
+            source <- sourceStamped bundle
             fenced <- case kind of
-              RenameWorkload -> writerFenced bundle
-              RenameSchedule -> scheduleSuspended bundle
+              RenameWorkload -> orReplaced (bundle ^. #writerAddress) (bundle ^. #scope . #writer) (bundle ^. #writerPhysical) =<< writerFenced bundle
+              RenameSchedule -> orReplaced (bundle ^. #sourceAddress) (bundle ^. #resource) (bundle ^. #sourcePhysical) =<< scheduleSuspended bundle
               _ -> pure (Right ())
             pure (source >> fenced >> proof bundle ["sourcePhysical" .= (bundle ^. #sourcePhysical), "retained" .= True])
         | otherwise -> do
@@ -355,6 +356,27 @@ kubernetesMigrationAdapter config planning base =
       pure $ do
         (physical, _) <- observed
         unless (physical == bundle ^. #sourcePhysical) (Left "rename source incarnation changed since review")
+
+    -- E3: once the transfer has verified, the data is in the destination and
+    -- the source is only retained. A stage that runs after it needs the source
+    -- present under this context's stamp, not its reviewed incarnation; a
+    -- replacement is retained as it is, and status reports it.
+    sourceStamped bundle = void <$> observeOwned (bundle ^. #sourceAddress) (bundle ^. #resource)
+
+    -- The destination's own writer is created only after the transfer.
+    sourceAfterTransfer bundle
+      | bundle ^. #member == RenameWorkload = sourceStamped bundle
+      | otherwise = sourceOwned bundle
+
+    -- A retained writer or schedule is either the one this migration fenced,
+    -- or a replacement made outside review, which carries no fence of ours.
+    orReplaced address owner reviewed fenced = case fenced of
+      Right () -> pure (Right ())
+      Left reason -> do
+        observed <- observeOwned address owner
+        pure $ case observed of
+          Right (physical, _) | physical /= reviewed -> Right ()
+          _ -> Left reason
 
     sourceValue bundle = do
       observed <- observeOwned (bundle ^. #sourceAddress) (bundle ^. #resource)
@@ -868,26 +890,29 @@ failedTransferMessage physical pods = case valueAt ["items"] pods of
 kubernetesMigrationExit :: KubernetesRuntimeConfig -> MigrationExit
 kubernetesMigrationExit config = MigrationExit pastReturn (kubernetesMigrationRelease config)
   where
-    -- The destination's own writer, once its creation starts, may accept
-    -- writes that exist nowhere else.
+    -- Writes can reach the destination only once its writer is switched to
+    -- and admits them; before that the destination holds only the copy.
     pastReturn planned prepared = case decodeBundle planned prepared of
       Left _ -> True
-      Right bundle -> bundle ^. #member == RenameWorkload && bundle ^. #stage /= FenceWriters && bundle ^. #stage /= BackUpSource
+      Right bundle -> bundle ^. #member == RenameWorkload && bundle ^. #stage `elem` [SwitchConsumers, AdmitWrites, RetainSource]
 
-kubernetesMigrationRelease :: KubernetesRuntimeConfig -> PlannedOperation -> PreparedNative -> IO (Either Text ())
-kubernetesMigrationRelease config planned prepared = case decodeBundle planned prepared of
+kubernetesMigrationRelease :: KubernetesRuntimeConfig -> Map ResourceId PhysicalIdentity -> PlannedOperation -> PreparedNative -> IO (Either Text ())
+kubernetesMigrationRelease config recorded planned prepared = case decodeBundle planned prepared of
   Left reason -> pure (Left reason)
   Right bundle -> case (bundle ^. #stage, bundle ^. #member) of
     (FenceWriters, kind)
       | kind `elem` [RenameVolume, RenameWorkload] ->
-          release bundle (bundle ^. #writerAddress) (bundle ^. #writerPhysical) (\_ -> object ["replicas" .= writerReplicas bundle])
+          release bundle (bundle ^. #writerAddress) (accepted (bundle ^. #scope . #writer) (bundle ^. #writerPhysical)) (\_ -> object ["replicas" .= writerReplicas bundle])
     (FenceWriters, RenameSchedule) ->
-      release bundle (bundle ^. #sourceAddress) (bundle ^. #sourcePhysical) (\_ -> object ["suspend" .= False])
+      release bundle (bundle ^. #sourceAddress) (accepted (bundle ^. #resource) (bundle ^. #sourcePhysical)) (\_ -> object ["suspend" .= False])
     _ -> pure (Right ())
   where
     -- A managed database's writer is a single-replica StatefulSet
     -- (`Nagare.Dsl.Database.Render`), the only writer a rename fences.
     writerReplicas _ = 1 :: Int
+    -- The incarnation recorded now: the reviewed one, or a replacement a
+    -- reviewed rebind recorded since (E2). Never an unrecorded object.
+    accepted member reviewed = Map.findWithDefault reviewed member recorded
     release bundle address physical spec = do
       observed <- migrationObject config address
       case observed of

@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesMigration.hs b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesMigration.hs
+index 8662d4c4..7d9edf9d 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesMigration.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesMigration.hs
+@@ -894,7 +894,7 @@ kubernetesMigrationExit config = MigrationExit pastReturn (kubernetesMigrationRe
+     -- and admits them; before that the destination holds only the copy.
+     pastReturn planned prepared = case decodeBundle planned prepared of
+       Left _ -> True
+-      Right bundle -> bundle ^. #member == RenameWorkload && bundle ^. #stage `elem` [SwitchConsumers, AdmitWrites, RetainSource]
++      Right bundle -> bundle ^. #member == RenameWorkload && bundle ^. #stage /= FenceWriters && bundle ^. #stage /= BackUpSource
+ 
+ kubernetesMigrationRelease :: KubernetesRuntimeConfig -> Map ResourceId PhysicalIdentity -> PlannedOperation -> PreparedNative -> IO (Either Text ())
+ kubernetesMigrationRelease config recorded planned prepared = case decodeBundle planned prepared of

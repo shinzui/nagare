@@ -22,6 +22,7 @@ module Nagare.Inventory.Execute.Abandon
 where
 
 import Data.List.NonEmpty (NonEmpty (..))
+import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter
@@ -39,8 +40,9 @@ import Nagare.Inventory.Execute.Types
 import Nagare.Inventory.Journal
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Plan.CloseRecord (CloseRecord, closedRecordDigest)
+import Nagare.Inventory.Plan.Types (ReviewedPlan (..))
 import Nagare.Inventory.Store
-import Nagare.Resource.Types (ContentDigest)
+import Nagare.Resource.Types (ContentDigest, PhysicalIdentity, ResourceId)
 
 data AbandonInput = AbandonInput
   { abandonTarget :: !TransactionId
@@ -54,9 +56,10 @@ data MigrationExit = MigrationExit
   { exitPastReturn :: !(PlannedOperation -> PreparedNative -> Bool)
   -- ^ Whether this stage, once started, may have let writes reach the
   -- destination; going back would then lose them.
-  , exitRelease :: !(PlannedOperation -> PreparedNative -> IO (Either Text ()))
-  -- ^ Release one fence stage's fence; 'Right' also when there is nothing of
-  -- this stage's to release.
+  , exitRelease :: !(Map ResourceId PhysicalIdentity -> PlannedOperation -> PreparedNative -> IO (Either Text ()))
+  -- ^ Release one fence stage's fence on the object its target's recorded
+  -- incarnation names; 'Right' also when there is nothing of this stage's to
+  -- release.
   }
 
 abandonMigration :: InventoryStore -> MigrationExit -> AbandonInput -> IO (Either (NonEmpty AdmissionError) CloseRecord)
@@ -78,7 +81,14 @@ abandonMigration store exit input = do
           case eventsResult of
             Left err -> pure (failure "journal" (showText err))
             Right events
-              | Just _ <- closedRecordDigest transaction events -> closeRolledBack lock transaction
+              -- E2: after its close, the same exit releases a fence that names
+              -- this migration on the writer now recorded, which a rebind of
+              -- a replacement made outside review may have changed.
+              | Just _ <- closedRecordDigest transaction events -> do
+                  released <- releaseAfterClose (headIncarnations headValue) events
+                  case released of
+                    Left err -> pure (Left err)
+                    Right () -> closeRolledBack lock transaction
               | headActiveTransaction headValue /= Just (transactionIdText transaction) ->
                   pure (failure "inactive-transaction" "abandon-migration requires the active transaction")
               | Just (abandonReview input) /= reviewDigestOf transaction ->
@@ -87,7 +97,29 @@ abandonMigration store exit input = do
                   claimed <- acquireResumeClaim store transaction observed headValue (abandonTakeOver input)
                   case claimed of
                     Left err -> pure (Left err)
-                    Right () -> withReview (proceed lock events)
+                    Right () -> withReview (proceed lock (headIncarnations headValue) events)
+    releaseAfterClose recorded events = do
+      bundle <- loadPublishedReview store (abandonReview input)
+      case bundle of
+        Left err -> pure (failure "review" (showText err))
+        Right published -> do
+          let reviewed = ReviewedPlan (reviewBundleDocument published) (reviewBundleNative published)
+              states = operationStates transaction events
+              fences =
+                [ entry
+                | entry <- reviewOperations (reviewBundleDocument published)
+                , plannedAction (reviewPlannedOperation entry) == MigrateResource FenceWriters
+                , isJust (Map.lookup (plannedOperationId (reviewPlannedOperation entry)) states)
+                ]
+          released <- traverse (releaseFence recorded reviewed) fences
+          pure $ case [AdmissionError "release" reason | Left reason <- released] of
+            err : more -> Left (err :| more)
+            [] -> Right ()
+    releaseFence recorded reviewed entry =
+      let operation = reviewPlannedOperation entry
+       in case preparedFor reviewed entry of
+            Left reason -> pure (Left reason)
+            Right prepared -> withAdapterEnv transaction operation (exitRelease exit recorded operation prepared)
     withReview continue = do
       bundle <- loadPublishedReview store (abandonReview input)
       snapshot <- readReviewSnapshot store (abandonReview input)
@@ -97,13 +129,13 @@ abandonMigration store exit input = do
         (Right published, Right state) -> case verifyActiveReview state (transactionIdText transaction) published of
           Left errs -> pure (Left (fmap reviewAdmission errs))
           Right reviewed -> continue reviewed
-    proceed :: forall s. LockedStore s -> [JournalEvent] -> ReviewedPlan -> IO (Either (NonEmpty AdmissionError) CloseRecord)
-    proceed lock events reviewed
+    proceed :: forall s. LockedStore s -> Map ResourceId PhysicalIdentity -> [JournalEvent] -> ReviewedPlan -> IO (Either (NonEmpty AdmissionError) CloseRecord)
+    proceed lock recorded events reviewed
       | null migrations = pure (failure "not-a-migration" "abandon-migration ends only a reviewed migration; use inventory close")
       | not (null pastFence) =
           pure (failure "migration-past-return" "the migration may have let writes reach its destination; resume it to its end")
       | otherwise = do
-          released <- traverse releaseFence [entry | entry <- migrations, stageOf entry == Just FenceWriters, started entry]
+          released <- traverse (releaseFence recorded reviewed) [entry | entry <- migrations, stageOf entry == Just FenceWriters, started entry]
           case [AdmissionError "release" reason | Left reason <- released] of
             err : more -> pure (Left (err :| more))
             [] -> do
@@ -129,11 +161,7 @@ abandonMigration store exit input = do
           , started entry
           , either (const True) (exitPastReturn exit (reviewPlannedOperation entry)) (preparedFor reviewed entry)
           ]
-        releaseFence entry =
-          let operation = reviewPlannedOperation entry
-           in case preparedFor reviewed entry of
-                Left reason -> pure (Left reason)
-                Right prepared -> withAdapterEnv transaction operation (exitRelease exit operation prepared)
+
         markAbandoned target entry =
           appendEvent
             target

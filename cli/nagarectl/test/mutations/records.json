@@ -348,6 +348,30 @@
     "expect": "test-fails"
   },
   {
+    "record": "F81-E2-release-ignores-record",
+    "suite": "nagarectl",
+    "pattern": "/a source replaced outside review at any read of it is never copied unreviewed, and rebind then rename is its exit (F62)/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "F81-E2-no-release-after-close",
+    "suite": "nagarectl",
+    "pattern": "/a source replaced outside review at any read of it is never copied unreviewed, and rebind then rename is its exit (F62)/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "F81-E3-retention-requires-source-incarnation",
+    "suite": "nagarectl",
+    "pattern": "/a source replaced outside review at any read of it is never copied unreviewed, and rebind then rename is its exit (F62)/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "F81-abandon-cutoff-at-destination-writer",
+    "suite": "nagarectl",
+    "pattern": "/a source replaced outside review at any read of it is never copied unreviewed, and rebind then rename is its exit (F62)/",
+    "expect": "test-fails"
+  },
+  {
     "record": "F57b-journal-no-effect-refusal",
     "suite": "nagarectl",
     "pattern": "/a retry the adapter proved safe that preflight then refuses/",

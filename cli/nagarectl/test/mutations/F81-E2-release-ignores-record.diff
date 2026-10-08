@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesMigration.hs b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesMigration.hs
+index 8662d4c4..a88cb4e6 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesMigration.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesMigration.hs
+@@ -912,7 +912,7 @@ kubernetesMigrationRelease config recorded planned prepared = case decodeBundle
+     writerReplicas _ = 1 :: Int
+     -- The incarnation recorded now: the reviewed one, or a replacement a
+     -- reviewed rebind recorded since (E2). Never an unrecorded object.
+-    accepted member reviewed = Map.findWithDefault reviewed member recorded
++    accepted _ reviewed = reviewed
+     release bundle address physical spec = do
+       observed <- migrationObject config address
+       case observed of

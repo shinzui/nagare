@@ -83,15 +83,11 @@ inventoryRenameRecoveryModelTests =
         outcomes <- forM [(boundary, ReplacedSource content) | boundary <- [1 .. sourceReads], content <- ["", replacementRow]] $ \schedule ->
           (schedule,) <$> runRename (Just schedule)
         let leftovers = [schedule | (schedule, Left violation) <- outcomes, d1Marker `T.isInfixOf` violation]
-            pinned = e2Schedules <> e3Schedules
-            known = [schedule | (schedule, Left violation) <- outcomes, not (d1Marker `T.isInfixOf` violation), schedule `elem` pinned]
-        report [violation | (schedule, Left violation) <- outcomes, not (d1Marker `T.isInfixOf` violation), schedule `notElem` pinned]
+        report [violation | (_, Left violation) <- outcomes, not (d1Marker `T.isInfixOf` violation)]
         -- D1, on the deferral ledger: destination objects an abandoned or
         -- reverted rename created block the next rename of that database,
         -- whose data and service are intact. Pinned, so a new case surfaces.
         leftovers @?= d1Schedules
-        -- E2 and E3 (F81's follow-up): pinned until fixed, so a fix surfaces.
-        known @?= pinned
     ]
   where
     report violations = case violations of
@@ -103,19 +99,7 @@ d1Marker = "D1: "
 
 -- | The schedules D1 covers (F81's deferral ledger entry).
 d1Schedules :: [(Int, RenameFault)]
-d1Schedules = [(boundary, ReplacedSource content) | boundary <- [93 .. 101] <> [105] <> [107 .. 110], content <- ["", replacementRow]]
-
--- | F81 E2, pending: the writer replaced around its fence by a copy that
--- carries this operation's fence; abandon releases only the reviewed
--- incarnation, so the replacement stays fenced.
-e2Schedules :: [(Int, RenameFault)]
-e2Schedules = [(boundary, ReplacedSource content) | boundary <- [102, 103, 104, 106, 111], content <- ["", replacementRow]]
-
--- | F81 E3, pending: the source replaced after the destination writer's
--- creation began; abandon refuses past that point and the remaining stages
--- still require the source incarnation.
-e3Schedules :: [(Int, RenameFault)]
-e3Schedules = [(boundary, ReplacedSource content) | boundary <- [112 .. 124], content <- ["", replacementRow]]
+d1Schedules = [(boundary, ReplacedSource content) | boundary <- [93 .. 107] <> [111 .. 120], content <- ["", replacementRow]]
 
 -- | A fault at one write (`create`, `patch` or `delete`) of the rename.
 data RenameFault
@@ -188,6 +172,7 @@ runRename schedule = withSystemTempDirectory "rename-model" $ \root -> do
   written <- newIORef []
   sourceReads <- newIORef 0
   probe <- newIORef Nothing
+  abandoned <- newIORef Nothing
   (store, world) <- seededRename recordOldIncarnations root
   let transport = adversary world written sourceReads schedule
       replacing = case schedule of
@@ -197,7 +182,7 @@ runRename schedule = withSystemTempDirectory "rename-model" $ \root -> do
   -- The data a review accepted as the source's: the seeded data until a
   -- reviewed rebind accepts a replacement's.
   accepted <- newIORef knownRow
-  outcome <- renameOnce store world transport probe replacing
+  outcome <- renameOnce store world transport probe abandoned replacing
   -- ADR 27 §3: a source replaced outside review is refused before any copy,
   -- and its exit is a reviewed rebind of the members status reports
   -- replaced, then the rename again.
@@ -214,7 +199,10 @@ runRename schedule = withSystemTempDirectory "rename-model" $ \root -> do
                 Left reason -> pure (Left ("I1: the rebind of the replaced source " <> T.pack (show stale) <> " failed: " <> T.pack (displayException reason)))
                 Right () -> do
                   readIORef world >>= writeIORef accepted . fromMaybe "" . Map.lookup "nagare-db-pg-old-data" . renameVolumes
-                  again <- renameOnce store world transport probe False
+                  -- E2: the rebind recorded a replacement that still carries
+                  -- this migration's fence; the same exit now releases it.
+                  readIORef abandoned >>= mapM_ (\input -> try @SomeException (abandonMigration store (renameRelease world id probe) input))
+                  again <- renameOnce store world transport probe abandoned False
                   renamed' <- renamedIn store
                   stopped <- readIORef world
                   pure $ case again of
@@ -258,8 +246,8 @@ runRename schedule = withSystemTempDirectory "rename-model" $ \root -> do
 -- | Plan and run the rename once, recovering a stopped transaction through
 -- its supported exits. A planning or admission refusal, which has no effect,
 -- is the expected outcome only when the source was replaced outside review.
-renameOnce :: InventoryStore -> RenameWorld -> Transport -> IORef (Maybe (IO ())) -> Bool -> IO (Either Text ())
-renameOnce store world transport probe replacing = do
+renameOnce :: InventoryStore -> RenameWorld -> Transport -> IORef (Maybe (IO ())) -> IORef (Maybe AbandonInput) -> Bool -> IO (Either Text ())
+renameOnce store world transport probe abandoned replacing = do
   planned <- try @SomeException (planRenameIn store world transport probe)
   case planned of
     Left refusal
@@ -272,7 +260,7 @@ renameOnce store world transport probe replacing = do
         Right (Left errors)
           | replacing -> pure (Right ())
           | otherwise -> pure (Left ("admission refused: " <> T.pack (show (NE.toList errors))))
-        _ -> recover store world registry (renameRelease world id probe) reviewed
+        _ -> recover store world registry (renameRelease world id probe) abandoned reviewed
 
 -- | Whether the accepted database is the renamed one.
 renamedIn :: InventoryStore -> IO Bool
@@ -295,8 +283,8 @@ wronglyReplaced store world = do
 -- | After a stop: I3 at the stop, then the supported exits. Resume first (a
 -- transient fault clears); if the transaction is still active, each recovery
 -- decision for each open operation, then resume again.
-recover :: InventoryStore -> RenameWorld -> AdapterRegistry -> MigrationExit -> ReviewedPlan -> IO (Either Text ())
-recover store world registry release reviewed = do
+recover :: InventoryStore -> RenameWorld -> AdapterRegistry -> MigrationExit -> IORef (Maybe AbandonInput) -> ReviewedPlan -> IO (Either Text ())
+recover store world registry release abandoned reviewed = do
   stale <- wronglyReplaced store world
   if not (null stale)
     then pure (Left ("I3: status reports renamed members as replaced while stopped: " <> T.pack (show stale)))
@@ -326,7 +314,9 @@ recover store world registry release reviewed = do
       abandoned <-
         if closed
           then pure (Right ())
-          else either (Left . T.pack . displayException) (either (Left . T.pack . show) (const (Right ()))) <$> try @SomeException (abandonMigration store release (AbandonInput transaction review False))
+          else do
+            writeIORef abandoned (Just (AbandonInput transaction review False))
+            either (Left . T.pack . displayException) (either (Left . T.pack . show) (const (Right ()))) <$> try @SomeException (abandonMigration store release (AbandonInput transaction review False))
       done <- isNothing <$> activeTransaction store
       pure $
         if done
