@@ -1298,6 +1298,8 @@ invalid-retirement: retention needs a selected scope replacement or retirement t
 
 **Independent verification (2026-10-07, nagare-verify; observed).** Reopened (Verifying). F83 shows that a retirement's absence proof always refuses through the CLI, so this fix, a retirement with absence proofs, has only been proved with a test registry that observes everything. It closes again when F83's CLI-path test for a stopped first deploy, then close and retire, passes, and when the final C2 confirms it.
 
+**Implementation update (2026-10-07, session nagare-fix; claude-opus-5-5; with F83).** The CLI's execution registry now binds the members a retirement proves absent (`Status.loadAbsenceNative`), so this fix's admission recheck works through `inventory apply`. The recovery model's retirements now apply through the registry the command builds (`retirementRegistryFor`). Under `F83-absences-unbound-at-admission`, the fast tier fails F58's own class: an application or database whose first deploy stopped, closed and then retired, refused `retention-observation` at admission.
+
 ## F59
 
 **A standalone database whose StatefulSet is created but never becomes Ready has no exit** — P1 (a stuck state: every later plan on the context is refused); **Closed**; owners EP-153 / EP-173.

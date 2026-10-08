@@ -626,9 +626,9 @@ retireAndApply run volume image historyImage = do
   case planned of
     Left err -> pure (Left err)
     Right (registry, reviewed) -> do
-      startTransaction run
-      applied <- applyAsOperator run registry reviewed
-      Right . (registry,reviewed,) <$> classify run applied
+      cli <- startTransaction run >> retirementRegistryFor run reviewed
+      applied <- applyAsOperator run cli reviewed
+      Right . (cli,reviewed,) <$> classify run applied
 
 -- | Retire one scope, retaining its members, as `inventory retire` plans it.
 scopeRetireAndApply :: Run -> ScopeId -> Shape -> Text -> Text -> IO (Either Text (AdapterRegistry, ReviewedPlan, Applied))
@@ -637,9 +637,9 @@ scopeRetireAndApply run scope volume image historyImage = do
   case planned of
     Left err -> pure (Left err)
     Right (registry, reviewed) -> do
-      startTransaction run
-      applied <- applyAsOperator run registry reviewed
-      Right . (registry,reviewed,) <$> classify run applied
+      cli <- startTransaction run >> retirementRegistryFor run reviewed
+      applied <- applyAsOperator run cli reviewed
+      Right . (cli,reviewed,) <$> classify run applied
 
 planRetirement :: Run -> Shape -> Text -> Text -> InventoryStore -> IO (Either Text (AdapterRegistry, ReviewedPlan))
 planRetirement run volume image historyImage store =

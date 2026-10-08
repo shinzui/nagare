@@ -22,6 +22,8 @@ module Nagare.Inventory.Status
   , loadAcceptedNativeSelected
   , loadKubernetesMembers
   , loadRebindNative
+  , loadAbsenceNative
+  , acceptedKubernetesNative
   , loadRetainedNative
   , loadActiveTransactionStatus
   , summarizeActiveTransaction
@@ -473,8 +475,18 @@ loadKubernetesMembers workspace store history members = do
 -- bytes for them; admission reverifies each live object through its accepted
 -- bytes.
 loadRebindNative :: InventoryStore -> ReviewDocument -> IO (Either Text (Map ResourceId (ManagedResource, ByteString)))
-loadRebindNative store document
-  | Map.null (reviewRebinds document) = pure (Right Map.empty)
+loadRebindNative store document = acceptedKubernetesNative "a reviewed rebind" (Map.keysSet (reviewRebinds document)) store
+
+-- | Native bytes for the Kubernetes members a review proved absent (F83).
+-- Admission rereads each to confirm it is still absent, through its accepted
+-- bytes, as it does a retained member.
+loadAbsenceNative :: InventoryStore -> ReviewDocument -> IO (Either Text (Map ResourceId (ManagedResource, ByteString)))
+loadAbsenceNative store document = acceptedKubernetesNative "a reviewed absence" (Map.keysSet (reviewAbsences document)) store
+
+-- | The accepted native bytes of the given accepted Kubernetes members.
+acceptedKubernetesNative :: Text -> Set.Set ResourceId -> InventoryStore -> IO (Either Text (Map ResourceId (ManagedResource, ByteString)))
+acceptedKubernetesNative purpose members store
+  | Set.null members = pure (Right Map.empty)
   | otherwise = do
       loaded <- loadInventoryHistory store
       case loaded of
@@ -485,7 +497,7 @@ loadRebindNative store document
                   [ member ^. #identity
                   | Managed member <- historyDeclarations history
                   , member ^. #executor == KubernetesExecutor
-                  , Map.member (member ^. #identity) (reviewRebinds document)
+                  , Set.member (member ^. #identity) members
                   ]
           case acceptedInventoryOf history of
             Left reason -> pure (Left reason)
@@ -493,7 +505,7 @@ loadRebindNative store document
               native <- loadAcceptedNativeSelected wanted store history inventory
               pure $ do
                 selected <- Map.restrictKeys . fst <$> native <*> pure wanted
-                unless (Map.keysSet selected == wanted) (Left "a reviewed rebind lacks its members' accepted native evidence")
+                unless (Map.keysSet selected == wanted) (Left (purpose <> " lacks its members' accepted native evidence"))
                 pure selected
 
 -- | The accepted inventory a history records.

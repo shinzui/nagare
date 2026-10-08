@@ -342,6 +342,12 @@
     "expect": "test-fails"
   },
   {
+    "record": "F83-absences-unbound-at-admission",
+    "suite": "nagarectl",
+    "pattern": "/fast tier/",
+    "expect": "test-fails"
+  },
+  {
     "record": "F57b-journal-no-effect-refusal",
     "suite": "nagarectl",
     "pattern": "/a retry the adapter proved safe that preflight then refuses/",

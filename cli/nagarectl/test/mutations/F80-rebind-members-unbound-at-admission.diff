@@ -1,13 +1,13 @@
 diff --git a/cli/nagarectl/src/Nagare/Inventory/Status.hs b/cli/nagarectl/src/Nagare/Inventory/Status.hs
-index 041a5a94..3ee5cc37 100644
+index cd5491a4..1dfd8bf5 100644
 --- a/cli/nagarectl/src/Nagare/Inventory/Status.hs
 +++ b/cli/nagarectl/src/Nagare/Inventory/Status.hs
-@@ -474,7 +474,7 @@ loadKubernetesMembers workspace store history members = do
+@@ -475,7 +475,7 @@ loadKubernetesMembers workspace store history members = do
+ -- bytes for them; admission reverifies each live object through its accepted
  -- bytes.
  loadRebindNative :: InventoryStore -> ReviewDocument -> IO (Either Text (Map ResourceId (ManagedResource, ByteString)))
- loadRebindNative store document
--  | Map.null (reviewRebinds document) = pure (Right Map.empty)
-+  | Map.null (reviewRebinds document) || True = pure (Right Map.empty)
-   | otherwise = do
-       loaded <- loadInventoryHistory store
-       case loaded of
+-loadRebindNative store document = acceptedKubernetesNative "a reviewed rebind" (Map.keysSet (reviewRebinds document)) store
++loadRebindNative store document = acceptedKubernetesNative "a reviewed rebind" (Map.keysSet (reviewRebinds document) `Set.difference` Map.keysSet (reviewRebinds document)) store
+ 
+ -- | Native bytes for the Kubernetes members a review proved absent (F83).
+ -- Admission rereads each to confirm it is still absent, through its accepted

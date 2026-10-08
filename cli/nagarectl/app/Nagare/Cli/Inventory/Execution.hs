@@ -457,14 +457,17 @@ inventoryExecutionRegistry mctx store bundle = do
   -- A rebind writes nothing; admission reverifies its members through their
   -- accepted native bytes (ADR 27 §3; F80).
   rebindSpecs <- InventoryStatus.loadRebindNative store document >>= either dieT pure
+  -- F83: and rereads each member a review proved absent.
+  absenceSpecs <- InventoryStatus.loadAbsenceNative store document >>= either dieT pure
   let kubernetesSpecs =
         Map.restrictKeys
-          (Map.unions [reviewedKubernetesSpecs, retiringKubernetesSpecs, sourceNative, rebindSpecs])
+          (Map.unions [reviewedKubernetesSpecs, retiringKubernetesSpecs, sourceNative, rebindSpecs, absenceSpecs])
           ( Set.unions
               [ selected ResourceInventory.KubernetesExecutor
               , Map.keysSet sourceNative
               , Map.keysSet retiringKubernetesSpecs
               , Map.keysSet rebindSpecs
+              , Map.keysSet absenceSpecs
               ]
           )
       allHelmSpecs =

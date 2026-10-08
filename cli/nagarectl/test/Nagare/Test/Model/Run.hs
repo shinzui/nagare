@@ -28,6 +28,7 @@ module Nagare.Test.Model.Run
   , inspectIncarnations
   , orFail
   , registryFor
+  , retirementRegistryFor
   )
 where
 
@@ -41,7 +42,7 @@ import Data.Text qualified as T
 import InventoryTransactionSpec (fixtureBinding)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter (AdapterRegistry, mkAdapterRegistry)
-import Nagare.Inventory.Plan (InventoryHistory, loadInventoryHistory)
+import Nagare.Inventory.Plan (InventoryHistory, ReviewedPlan, loadInventoryHistory, reviewAbsences, reviewRetentions, reviewedDocument)
 import Nagare.Inventory.Status qualified as Status
 import Nagare.Inventory.Store
 import Nagare.Inventory.Store.ObjectOps (ObjectOps (..))
@@ -220,4 +221,18 @@ registryFor :: Run -> Shape -> Text -> Text -> IO AdapterRegistry
 registryFor run volume image historyImage = do
   database <- readIORef (runDatabase run)
   adapter <- worldKubernetesAdapter (fixtureBinding ^. #identity) (boundMembers volume image historyImage <> database) (runWorld run) (runAdversary run)
+  pure (ok (mkAdapterRegistry [adapter]))
+
+-- | As `inventory apply` builds it for a retirement (F83). A retirement has
+-- no operations, so the members bound are those admission rereads: each
+-- retained, rebound or absent member, from its accepted native bytes. The
+-- model never binds more than the command does.
+retirementRegistryFor :: Run -> ReviewedPlan -> IO AdapterRegistry
+retirementRegistryFor run reviewed = do
+  let InspectStore store = runInspect run
+      document = reviewedDocument reviewed
+  retained <- Status.acceptedKubernetesNative "a reviewed retention" (Map.keysSet (reviewRetentions document)) store >>= orFail "retained native"
+  rebound <- Status.loadRebindNative store document >>= orFail "rebound native"
+  absent <- Status.loadAbsenceNative store document >>= orFail "absent native"
+  adapter <- worldKubernetesAdapter (fixtureBinding ^. #identity) (Map.unions [retained, rebound, absent]) (runWorld run) (runAdversary run)
   pure (ok (mkAdapterRegistry [adapter]))

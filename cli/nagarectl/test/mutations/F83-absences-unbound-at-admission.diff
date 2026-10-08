@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Status.hs b/cli/nagarectl/src/Nagare/Inventory/Status.hs
+index cd5491a4..dd69be5b 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/Status.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Status.hs
+@@ -481,7 +481,7 @@ loadRebindNative store document = acceptedKubernetesNative "a reviewed rebind" (
+ -- Admission rereads each to confirm it is still absent, through its accepted
+ -- bytes, as it does a retained member.
+ loadAbsenceNative :: InventoryStore -> ReviewDocument -> IO (Either Text (Map ResourceId (ManagedResource, ByteString)))
+-loadAbsenceNative store document = acceptedKubernetesNative "a reviewed absence" (Map.keysSet (reviewAbsences document)) store
++loadAbsenceNative store document = acceptedKubernetesNative "a reviewed absence" (Map.keysSet (reviewAbsences document) `Set.difference` Map.keysSet (reviewAbsences document)) store
+ 
+ -- | The accepted native bytes of the given accepted Kubernetes members.
+ acceptedKubernetesNative :: Text -> Set.Set ResourceId -> InventoryStore -> IO (Either Text (Map ResourceId (ManagedResource, ByteString)))
