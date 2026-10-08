@@ -838,5 +838,17 @@
     "suite": "nagarectl",
     "pattern": "/stuck pod/&&/review loader leaves a replace-stuck-pod/",
     "expect": "test-fails"
+  },
+  {
+    "record": "F87-retire-declared-database",
+    "suite": "nagarectl",
+    "pattern": "/F87/&&/a database the config still declares refuses/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "F87-retire-by-key-prefix",
+    "suite": "nagarectl",
+    "pattern": "/F87/&&/only shares a prefix/",
+    "expect": "test-fails"
   }
 ]

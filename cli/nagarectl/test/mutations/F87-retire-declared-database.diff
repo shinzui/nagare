@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Application/Retire.hs b/cli/nagarectl/src/Nagare/Inventory/Application/Retire.hs
+index c5925b9b..c3fcf934 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/Application/Retire.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Application/Retire.hs
+@@ -20,7 +20,7 @@ applicationDatabaseRetirements accepted desired names
+       let members = [resource | resource <- accepted, keyOf resource == Just name]
+       when (null members) (Left ("the application has no accepted database " <> name))
+       when
+-        (any ((== Just name) . keyOf) desired)
++        False
+         (Left ("database " <> name <> " is still declared; remove it from the config to retire it"))
+       pure members
+     keyOf resource = case T.splitOn "/" (resourceIdText resource) of

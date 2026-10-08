@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Application/Retire.hs b/cli/nagarectl/src/Nagare/Inventory/Application/Retire.hs
+index c5925b9b..c955046d 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/Application/Retire.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Application/Retire.hs
+@@ -17,7 +17,7 @@ applicationDatabaseRetirements accepted desired names
+   | otherwise = concat <$> traverse retire names
+   where
+     retire name = do
+-      let members = [resource | resource <- accepted, keyOf resource == Just name]
++      let members = [resource | resource <- accepted, maybe False (name `T.isPrefixOf`) (keyOf resource)]
+       when (null members) (Left ("the application has no accepted database " <> name))
+       when
+         (any ((== Just name) . keyOf) desired)

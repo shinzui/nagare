@@ -381,8 +381,11 @@ by side (F86):
 4. Switch the application's binding to the new database in a reviewed deploy.
    Switching back is the same reviewed change while the new instance has taken
    no write.
-5. Prove the new instance with its own backup and restore, then retire the old
-   database. Its members are retained, not deleted.
+5. Prove the new instance with its own backup and restore, then remove the old
+   database from the config and retire it in the same reviewed deploy:
+   `nagarectl app deploy … --save-plan DIR --retire-database OLD` (F87). The
+   review retains every member of the old database, bound to its observed
+   incarnation, and deletes nothing.
 
 ## Connecting an app to a database
 

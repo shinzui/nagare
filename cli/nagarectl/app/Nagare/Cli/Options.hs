@@ -164,6 +164,7 @@ data AppDeployOpts = AppDeployOpts
   , legacyReleaseImport :: !(Maybe FilePath)
   , releaseAdoptionInput :: !(Maybe FilePath)
   , takeOverFields :: !Bool
+  , retireDatabases :: ![Text]
   }
   deriving stock (Generic, Show)
 

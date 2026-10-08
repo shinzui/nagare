@@ -124,6 +124,7 @@ import Nagare.Inventory.Application
   , acceptedBrokerBindings
   , acceptedImageBuildSecrets
   , acceptedSecretBindings
+  , applicationDatabaseRetirements
   , applicationRetirementScope
   , applicationVolumeRecoveryBindings
   , compileApplicationDeployment
@@ -173,6 +174,9 @@ runAppDeployPlan mctx params appOptions output = do
   when
     (appOptions ^. #takeOverFields && (isNothing (appOptions ^. #savePlan) || isJust (appOptions ^. #legacyReleaseImport)))
     (dieT "--take-over-fields requires --save-plan for an ordinary reviewed deploy")
+  when
+    (not (null (appOptions ^. #retireDatabases)) && (isNothing (appOptions ^. #savePlan) || isJust (appOptions ^. #legacyReleaseImport)))
+    (dieT "--retire-database requires --save-plan for an ordinary reviewed deploy")
   when
     ( isNothing (appOptions ^. #savePlan)
         && ( isJust (appOptions ^. #legacyReleaseImport)
@@ -522,12 +526,24 @@ runAppDeployPlan mctx params appOptions output = do
           (inventoryExecutionRegistry mctx)
           active
           candidate
-      (Nothing, Just _) ->
-        Inventory.planInventoryCandidateWith
-          (inventoryPlanRegistryWithTakeover (appOptions ^. #takeOverFields) active workspace native)
-          active
-          candidate
-          output
+      (Nothing, Just _)
+        | null (appOptions ^. #retireDatabases) ->
+            Inventory.planInventoryCandidateWith
+              (inventoryPlanRegistryWithTakeover (appOptions ^. #takeOverFields) active workspace native)
+              active
+              candidate
+              output
+        | otherwise -> do
+            -- F87: retain each named database's accepted members.
+            let members owned = [ResourceInventory.declarationId declaration | bundle <- ResourceInventory.scopeBundles owned, declaration@(ResourceInventory.Managed _) <- ResourceInventory.declarations bundle]
+                accepted = maybe [] (members . snd) (Map.lookup (ResourceInventory.scopeId scope) (ResourceInventory.snapshotScopes snapshot))
+            retired <- either dieT pure (applicationDatabaseRetirements accepted (members scope) (appOptions ^. #retireDatabases))
+            Inventory.planInventoryCandidateWithRetirements
+              (inventoryPlanRegistryWithTakeover (appOptions ^. #takeOverFields) active workspace native)
+              active
+              candidate
+              retired
+              output
       (Just proposal, Just _) ->
         Inventory.planInventoryCandidateAdoptionWith
           (inventoryPlanRegistryWithNative active workspace native)

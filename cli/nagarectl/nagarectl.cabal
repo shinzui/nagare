@@ -43,6 +43,7 @@ library
     Nagare.Inventory.Application.Policy
     Nagare.Inventory.Application.Recovery
     Nagare.Inventory.Application.Release
+    Nagare.Inventory.Application.Retire
     Nagare.Inventory.Application.Service
     Nagare.Inventory.Application.Tasks
     Nagare.Inventory.Application.Types
@@ -211,9 +212,9 @@ library
     Nagare.Inventory.DataFence.StatefulWriter
     Nagare.Inventory.DataFence.VolumeState
     Nagare.Inventory.DataFence.WriterInventory
-    Nagare.Inventory.DatabaseEngine
     Nagare.Inventory.DataService
     Nagare.Inventory.Database
+    Nagare.Inventory.DatabaseEngine
     Nagare.Inventory.Digest
     Nagare.Inventory.Environment
     Nagare.Inventory.Execute
@@ -503,6 +504,7 @@ test-suite nagarectl-test
     HostSpec
     InventoryAccessSpec
     InventoryActionPublicationSpec
+    InventoryApplicationRetireSpec
     InventoryApplicationSpec
     InventoryApplicationUpdateRecoverySpec
     InventoryArtifactSpec
@@ -519,12 +521,12 @@ test-suite nagarectl-test
     InventoryCompanionCollectionSpec
     InventoryContributionRetirementSpec
     InventoryControllerCollectionSpec
+    InventoryDatabaseEngineSpec
     InventoryEffectfulCollectionSpec
     InventoryEffectfulSpec
     InventoryFoundationSpec
     InventoryGcloudAuthSpec
     InventoryGogolSpec
-    InventoryDatabaseEngineSpec
     InventoryHostSpec
     InventoryImagePruneSpec
     InventoryIncarnationSpec
