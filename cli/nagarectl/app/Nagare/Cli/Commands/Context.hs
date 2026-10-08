@@ -21,7 +21,7 @@ import Nagare.Cli.Runtime.ContextReview (guardRemovedContext, runContextReview, 
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Cli.Runtime.ProjectGuard (runContextGuard)
 import Nagare.Cli.Runtime.Pulumi
-  ( ensurePulumiForContext
+  ( ensurePulumiForContextWithDependencies
   , selectReviewedPulumiForContext
   )
 import Nagare.Cli.Runtime.Target
@@ -170,6 +170,9 @@ runContextEnv mctx = do
   active <- activeTarget mctx
   let name = active ^. #contextName
       tp = active ^. #profile
-  _ <- ensurePulumiForContext name tp
+  -- The launcher evaluates this on every call. It prepares the Pulumi home,
+  -- state and stack link only; a command that runs Pulumi installs the
+  -- program's Node dependencies itself.
+  _ <- ensurePulumiForContextWithDependencies False True True name tp
   stateRoot <- nagareStateDir
   TIO.putStr (renderContextShellEnv name tp (pulumiEnvFor stateRoot (contextNameText name) tp))

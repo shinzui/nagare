@@ -96,8 +96,10 @@ run_cli() {
   nix run "${flake_ref}#nagarectl" -- "$@"
 }
 
+# Every operator step runs with only the isolated host tools (defined below),
+# so a host npm, node or pulumi can never stand in for the release's own.
 run_operator() {
-  nix run "${flake_ref}#nagare" -- "$@"
+  PATH="$isolated_host_bin" nix run "${flake_ref}#nagare" -- "$@"
 }
 
 run_target_operator_cli() {
@@ -128,7 +130,8 @@ fi
 PATH="$isolated_host_bin" run_target_operator_cli version --json --tools > operator-tools.json
 jq -e '
   (.tools.pulumi | startswith("/nix/store/")) and
-  (.tools["pulumi-language-nodejs"] | startswith("/nix/store/"))
+  (.tools["pulumi-language-nodejs"] | startswith("/nix/store/")) and
+  (.tools.npm | startswith("/nix/store/"))
 ' operator-tools.json >/dev/null
 operator_pulumi="$(jq -er '.tools.pulumi' operator-tools.json)"
 "$operator_pulumi" version > pulumi-version.out

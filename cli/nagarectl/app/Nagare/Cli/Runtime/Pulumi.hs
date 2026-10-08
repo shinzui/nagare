@@ -28,6 +28,7 @@ import Nagare.Platform.StackConfig (linkContextStackConfig)
 import Nagare.Platform.Workspace (PlatformWorkspace)
 import Nagare.Target
   ( ContextName
+  , Mode (Cloud)
   , PulumiBackendKind (PulumiBackendGcs, PulumiBackendLocal)
   , TargetProfile
   , contextNameText
@@ -88,7 +89,9 @@ ensurePulumiInWorkspaceWithDependencies installDependencies announceInstall crea
   -- EP-121: payload workspaces exclude every Pulumi.<stack>.yaml, so link the
   -- context-owned stack config in before Pulumi reads or writes it.
   linkContextStackConfig name pulumiDir >>= either dieT (const (pure ()))
-  when installDependencies (ensurePulumiProgramDependencies announceInstall pulumiDir)
+  -- A local context runs no Pulumi program, so it never needs its Node
+  -- dependencies (C4 on 3ae20f8c: `local-up` failed on a host without npm).
+  when (installDependencies && tp ^. #mode == Cloud) (ensurePulumiProgramDependencies announceInstall pulumiDir)
   createDirectoryIfMissing True (penv ^. #home)
   -- Only a local (@file://@) backend has a state directory to create; a GCS
   -- backend URL is @gs://…@ and must never be treated as a local path.

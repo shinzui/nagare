@@ -140,6 +140,9 @@ let
     atticClient
     pkgs.pulumi
     pkgs.pulumiPackages.pulumi-nodejs
+    # The Pulumi program is TypeScript: its language host runs node, and a
+    # payload workspace installs its locked dependencies with npm ci.
+    pkgs.nodejs
     pkgs.socat
     pkgs.skopeo
     nixBuilderProxy
