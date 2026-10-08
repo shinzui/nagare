@@ -450,19 +450,31 @@ Use a clean checkout and a fresh operator root: clone the private operator
 repository, place the age key, and select the context. Do not reuse the lost
 cluster's workstation state. Note the start time.
 
-1. **Choose the backup.** List the receipts and verify the candidates with only
-   the escrow and the object store. Pick the newest recovery point:
+1. **Choose the backup.** `db backup-receipts pg-main` lists receipts only while
+   the cluster and the inventory store answer. With the cluster gone, list the
+   candidates in the context's backup bucket (`NAGARE_BACKUP_BUCKET`). Each
+   scheduled backup is `JOB_UID.sql.gz`, with its receipt beside it:
+
+   ```bash
+   gcloud storage objects list "gs://$NAGARE_BACKUP_BUCKET/databases/pg-main/*.sql.gz" \
+     --format='table(name,generation,creation_time)'
+   ```
+
+   Verify candidates, newest first, with only the escrow and the object store,
+   and pick the newest that verifies:
 
    ```bash
    nagarectl db verify-escrowed-backup pg-main --backup-id JOB_UID \
      --escrow PATH/TO/personal-pg-main.sops.yaml
    ```
 
-   It prints the exact archive and its version, the receipt version, the
+   Without `--escrow` it reads the escrow from its default location under
+   `$XDG_CONFIG_HOME/nagare/cluster-secrets/<context>/backup-signing/`. It reads
+   neither the cluster nor the inventory store. It prints the exact archive and
+   its version (in cloud mode, the GCS generation), the receipt version, the
    archive's SHA-256 and the recovery point. It refuses a receipt whose signature,
    source identities or archive hash do not check, so a corrupt or incomplete
-   upload is never chosen. If the cluster is gone, list candidate job UIDs from
-   the bucket's `databases/pg-main/` prefix.
+   upload is never chosen.
 
    In local mode, serve the bucket copy from a disposable MinIO on a loopback port
    and add `--offline-object-store http://127.0.0.1:PORT --offline-credentials
@@ -473,7 +485,7 @@ cluster's workstation state. Note the start time.
 
    ```bash
    # cloud: the version is the GCS generation
-   gcloud storage cp "gs://BUCKET/databases/pg-main/JOB_UID.sql.gz#GENERATION" dump.sql.gz
+   gcloud storage cp "gs://$NAGARE_BACKUP_BUCKET/databases/pg-main/JOB_UID.sql.gz#GENERATION" dump.sql.gz
    # local: the bucket copy, by MinIO version
    mc cp --version-id VERSION copy/nagare-backups/databases/pg-main/JOB_UID.sql.gz dump.sql.gz
    shasum -a 256 dump.sql.gz
@@ -485,10 +497,12 @@ cluster's workstation state. Note the start time.
    ```bash
    docker run -d --name pg-recovered -e POSTGRES_PASSWORD=drill postgres:18-alpine
    docker exec pg-recovered createdb -U postgres recovered
-   gunzip -c dump.sql.gz | docker exec -i pg-recovered psql -U postgres -d recovered -q
+   gunzip -c dump.sql.gz | docker exec -i pg-recovered psql -U postgres -d recovered -q -v ON_ERROR_STOP=1
    ```
 
-   The restore must report no errors.
+   The restore must report no errors (`ON_ERROR_STOP=1` makes psql stop at the
+   first one). Backups are taken with `pg_dump --no-owner --no-privileges`, so
+   restoring as `postgres` into a new database needs no roles from the source.
 
 4. **Compare the content** with what you know was written before the recovery
    point: known rows, counts, or an application-level checksum.
@@ -506,7 +520,19 @@ holds the database's data in plaintext.
 A backup you have never restored is a hypothesis. On a schedule:
 
 - run the total-loss procedure above against one database from a fresh operator
-  root, with the cluster stopped or unreachable, and record the times;
+  root, with the cluster stopped or unreachable, and record the times. On a cloud
+  context, stop the VM through a review and start it again afterwards:
+
+  ```bash
+  nagarectl host stop --operation-id drill-stop --save-plan reviews/vm-stop
+  nagarectl inventory apply reviews/vm-stop --yes
+  # the total-loss procedure, with the VM TERMINATED
+  nagarectl host start --operation-id drill-start --save-plan reviews/vm-start
+  nagarectl inventory apply reviews/vm-start --yes
+  ```
+
+  Choose a backup taken after the rows you seeded for the comparison, so they
+  must be present;
 - restore a managed database into its scratch target with `db restore`;
 - restore an app volume into a scratch PVC with `storage restore` (volumes are
   outside the recovery objective; see above).
