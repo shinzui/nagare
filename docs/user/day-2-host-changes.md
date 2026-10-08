@@ -135,10 +135,8 @@ names another payload refuses as a platform-version change.
    database and verify one restore, as in
    [Backups and disaster recovery](backups-and-disaster-recovery.md). A revert
    restores the previous system, not data the new one wrote.
-2. **Choose the revision.** Keep k3s on the same minor version. k3s does not
-   support downgrades: if an activation that moved k3s across a minor reverts,
-   the previous k3s starts against a datastore the newer one has written, and
-   recovery is from the backup. Read the candidate's k3s version before planning:
+2. **Choose the revision.** Read the candidate's k3s version and compare it with
+   the running one:
 
    ```bash
    HOST_FLAKE=${XDG_CONFIG_HOME:-$HOME/.config}/nagare/hosts/$CONTEXT
@@ -146,6 +144,22 @@ names another payload refuses as a platform-version change.
    nix eval --raw "github:NixOS/nixpkgs/$REV#k3s.version"
    nix eval --raw --no-update-lock-file "path:$HOST_FLAKE#nixosConfigurations.$(nagarectl host name).config.services.k3s.package.version"
    ```
+
+   - **Same k3s minor** (NixOS, the kernel or a k3s patch release): the
+     self-reverting activation covers it. A revert returns the host to the
+     previous generation with its data.
+   - **Next k3s minor** (for example 1.35 to 1.36): supported forward only, one
+     minor per re-pin; to cross two minors, re-pin, verify and back up between
+     them. k3s does not support downgrades, so this upgrade has no in-place way
+     back. The backup in step 1 is required, taken immediately before, and
+     proven by its restore. If the activation's fresh-login check fails and the
+     timer reverts the host, the previous k3s starts against a datastore the
+     newer one may have written. Close the transaction as below, check
+     `nagarectl doctor` and `inventory status`, and if the cluster is unhealthy,
+     recover it from that backup as in
+     [Total cluster loss: recover the data](backups-and-disaster-recovery.md#total-cluster-loss-recover-the-data).
+     Never re-pin back to the older minor.
+   - **Two or more minors, or an older minor:** not supported.
 
 3. **Re-pin, review, apply.**
 
