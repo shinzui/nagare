@@ -161,10 +161,24 @@ names another payload refuses as a platform-version change.
      Never re-pin back to the older minor.
    - **Two or more minors, or an older minor:** not supported.
 
-3. **Re-pin, review, apply.**
+3. **Re-pin and prove it evaluates.** Move `nagare/nixpkgs`, and move
+   `nagare/sops-nix` with it when the newer nixpkgs no longer builds the pinned
+   one (for example `Go 1.25 is end-of-life, and 'buildGo125Module' has been
+   removed`, from `sops.package`). Both are transitive nodes of the Nagare
+   input, so the payload is unchanged. Evaluate the system before planning, so
+   a re-pin that does not evaluate never reaches review:
 
    ```bash
-   nix flake lock "path:$HOST_FLAKE" --override-input nagare/nixpkgs "github:NixOS/nixpkgs/$REV"
+   nix flake lock "path:$HOST_FLAKE" \
+     --override-input nagare/nixpkgs "github:NixOS/nixpkgs/$REV" \
+     --override-input nagare/sops-nix "github:Mic92/sops-nix/$SOPS_REV"
+   nix eval --raw --no-update-lock-file \
+     "path:$HOST_FLAKE#nixosConfigurations.$(nagarectl --context "$CONTEXT" host name).config.system.build.toplevel.drvPath"
+   ```
+
+4. **Review and apply.**
+
+   ```bash
    nagarectl --context "$CONTEXT" host plan --save-plan /private/reviews/host-nixos
    nagarectl --context "$CONTEXT" host apply /private/reviews/host-nixos --yes
    ```
@@ -172,9 +186,16 @@ names another payload refuses as a platform-version change.
    The apply is the same self-reverting activation as any host change: it
    commits only after a fresh SSH login proves access, and otherwise the host
    returns to the previous generation by itself.
-4. **Verify.** `nagarectl --context "$CONTEXT" inventory status` shows no
-   unresolved operation, `nagarectl doctor` is clean, and the backed-up data
-   reads back unchanged.
+5. **Reboot to finish the upgrade.** A committed switch makes the new
+   generation the boot default, but the running kernel changes only at the
+   next boot, and a boot is when the data disk, the age key, Tailscale and k3s
+   start from cold. Reboot through the reviewed VM power path
+   ([Reviewed VM power](#reviewed-vm-power)): review and apply a stop, then a
+   start. Never reboot by hand over SSH.
+6. **Verify.** `uname -r` on the host shows the new kernel, the node is Ready
+   and every pod Running, `nagarectl --context "$CONTEXT" inventory status`
+   shows no unresolved operation, `nagarectl doctor` is clean, and the
+   backed-up data reads back unchanged.
 
 If the apply stops before `COMMITTED` (its process killed, or the fresh-login
 check failing), the host keeps its rollback timer armed and returns to the
