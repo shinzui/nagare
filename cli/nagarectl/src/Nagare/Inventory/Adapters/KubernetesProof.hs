@@ -356,10 +356,17 @@ stampDistinguishes mutation =
 requireWriteTarget :: KubernetesMutation -> KubernetesState -> Maybe ContentDigest -> Either Text ()
 requireWriteTarget mutation current stamp = case mutationAction mutation of
   -- Only a before stamp other than the reviewed digest can tell the reviewed
-  -- write from the before-state (F67); without one, and for a drift repair,
-  -- the exact before-state guards the write.
+  -- write from the before-state (F67). Without one, a drift repair keeps the
+  -- exact before-state: the operator reviewed overwriting that object. An
+  -- update whose before-state already carried the desired fields (F88: a
+  -- declaration change with unchanged native bytes) is guarded by the
+  -- reviewed object, this member's ownership and that digest, so a
+  -- controller's status write, such as every CronJob run, does not refuse it.
   UpdateResource
-    | not (stampDistinguishes mutation) -> requireSameBefore mutation current
+    | not (stampDistinguishes mutation) ->
+        if inSync && sameObject && digestOf current == digestOf (mutationBefore mutation)
+          then Right ()
+          else requireSameBefore mutation current
     | not sameObject -> Left "Kubernetes object changed since review; replan before mutation"
     | stamp /= mutationBeforeStamp mutation -> Left "Kubernetes object's stamp changed since review; replan before mutation"
     | otherwise -> Right ()
@@ -373,6 +380,7 @@ requireWriteTarget mutation current stamp = case mutationAction mutation of
       KubernetesNotReady uid _ (Just owner) _ | owner == mutationResource mutation -> Just uid
       _ -> Nothing
     sameObject = isJust (owned (mutationBefore mutation)) && owned current == owned (mutationBefore mutation)
+    inSync = digestOf (mutationBefore mutation) == Just (mutationNativeDigest mutation)
     digestOf state = case state of
       KubernetesPresent _ _ _ digest -> Just digest
       KubernetesNotReady _ _ _ digest -> Just digest

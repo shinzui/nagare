@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Execute/Driver.hs b/cli/nagarectl/src/Nagare/Inventory/Execute/Driver.hs
+index 50d38ffd..06b6f6ec 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/Execute/Driver.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Execute/Driver.hs
+@@ -404,7 +404,7 @@ runOperationsWith latest locked registry transaction reviewed initialEvents oper
+                 Right _ -> StoppedFailed transaction operationId (KnownNoEffect ("adapter preflight refused: " <> reason))
+         -- F88: a first refusal is not journalled (nothing started), but the
+         -- operator still gets the adapter's reason.
+-        Left reason -> pure (Just (StoppedFailed transaction operationId (KnownNoEffect ("adapter preflight refused: " <> reason))))
++        Left _ -> pure (Just (StoppedFailed transaction operationId (KnownNoEffect "adapter preflight refused")))
+         Right () -> do
+           intent <- appendEvent locked transaction (Just operationId) IntentRecorded "operation intent recorded"
+           case intent of

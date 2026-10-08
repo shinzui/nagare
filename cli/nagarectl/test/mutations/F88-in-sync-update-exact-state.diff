@@ -1,12 +1,13 @@
 diff --git a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs
-index 05cd8a20..1aec0ddc 100644
+index 05cd8a20..68220089 100644
 --- a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs
 +++ b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs
-@@ -378,6 +378,7 @@ requireWriteTarget mutation current stamp = case mutationAction mutation of
-     owned state = case state of
-       KubernetesPresent uid _ (Just owner) _ | owner == mutationResource mutation -> Just uid
+@@ -380,7 +380,7 @@ requireWriteTarget mutation current stamp = case mutationAction mutation of
        KubernetesNotReady uid _ (Just owner) _ | owner == mutationResource mutation -> Just uid
-+      KubernetesTerminating uid _ (Just owner) _ | owner == mutationResource mutation -> Just uid
        _ -> Nothing
      sameObject = isJust (owned (mutationBefore mutation)) && owned current == owned (mutationBefore mutation)
-     inSync = digestOf (mutationBefore mutation) == Just (mutationNativeDigest mutation)
+-    inSync = digestOf (mutationBefore mutation) == Just (mutationNativeDigest mutation)
++    inSync = False
+     digestOf state = case state of
+       KubernetesPresent _ _ _ digest -> Just digest
+       KubernetesNotReady _ _ _ digest -> Just digest

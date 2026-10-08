@@ -868,5 +868,17 @@
     "suite": "nagarectl",
     "pattern": "/Section 3/&&/close: an activation killed after ACTIVATE/",
     "expect": "test-fails"
+  },
+  {
+    "record": "F88-in-sync-update-exact-state",
+    "suite": "nagarectl",
+    "pattern": "/an in-sync update survives a controller's status write/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "F88-preflight-reason-dropped",
+    "suite": "nagarectl",
+    "pattern": "/a first preflight refusal stops with the adapter's reason/",
+    "expect": "test-fails"
   }
 ]

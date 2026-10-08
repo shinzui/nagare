@@ -1,12 +1,13 @@
 diff --git a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs
+index 05cd8a20..50ec7f7a 100644
 --- a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs
 +++ b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesProof.hs
-@@ -354,7 +354,7 @@
+@@ -354,7 +354,7 @@ stampDistinguishes mutation =
  -- RES-4 U6), never an owned live object, so it is not deleted twice. Other
  -- actions keep the exact before-state.
  requireWriteTarget :: KubernetesMutation -> KubernetesState -> Maybe ContentDigest -> Either Text ()
 -requireWriteTarget mutation current stamp = case mutationAction mutation of
 +requireWriteTarget mutation current stamp = case VerifyResource of
    -- Only a before stamp other than the reviewed digest can tell the reviewed
-   -- write from the before-state (F67); without one, and for a drift repair,
-   -- the exact before-state guards the write.
+   -- write from the before-state (F67). Without one, a drift repair keeps the
+   -- exact before-state: the operator reviewed overwriting that object. An

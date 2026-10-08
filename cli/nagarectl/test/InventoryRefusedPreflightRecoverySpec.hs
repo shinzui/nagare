@@ -39,12 +39,41 @@ inventoryRefusedPreflightRecoveryTests =
     ( [ testCase (show variant) (scenario variant)
       | variant <- [ForeignStillPresent, ForeignRemoved, CompletedOperation, EarlierUncertain, ExecuteRefusal]
       ]
-        <> [testCase "a retry the adapter proved safe that preflight then refuses is journalled as failed with no effect (F57)" retryRefused]
+        <> [ testCase "a retry the adapter proved safe that preflight then refuses is journalled as failed with no effect (F57)" retryRefused
+           , testCase "a first preflight refusal stops with the adapter's reason (F88)" firstRefused
+           ]
     )
 
 -- | The adapter proves a retry safe, and its preflight refuses it: the driver
 -- journals the refusal as a no-effect failure, so close by proof settles the
 -- operation without asking the adapter again.
+firstRefused :: IO ()
+firstRefused = do
+  store <- newMemoryStore
+  let owner = ok (mkScopeId Standalone "refused")
+      cluster = mintResourceId owner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
+      only = member owner cluster "service" []
+      base = ok (mkScopeSnapshot fixtureBinding Map.empty Map.empty)
+      seed = ok (composeInventory base (ReplaceScope (ok (mkScopeDeclaration (ok (mkScopeId Standalone "dummy")) [])) :| []))
+      candidate = ok (composeInventory base (ReplaceScope (ok (mkScopeDeclaration owner [ResourceBundle [only] [] [] [] [] []])) :| []))
+      registry =
+        recordingRegistryWith
+          (\_ _ -> pure (Left "Kubernetes object changed since review; replan before mutation"))
+          (\_ _ -> pure AdapterEffectCompleted)
+          (\_ _ -> pure RecoverySafeToRetry)
+  _ <- initializeStore store fixtureBinding "first-refused" >>= expectRight
+  _ <- seedInventoryHistory store seed >>= expectRight
+  history <- loadInventoryHistory store >>= expectRight
+  let proposal = ok (planChanges candidate noLifecycleDecisions history (ok (observationSet [(declarationId only, ConfirmedAbsent (contentDigest "absent"))])))
+  snapshot <- readStoreSnapshot store >>= expectRight
+  bundle <- prepareReview registry snapshot proposal >>= expectRight
+  _ <- publishReview store bundle >>= expectRight
+  published <- readStoreSnapshot store >>= expectRight
+  reviewed <- either (assertFailure . show . NE.toList) pure (verifyReview published bundle)
+  applyReviewed store registry reviewed >>= expectRight >>= \case
+    StoppedFailed _ _ (KnownNoEffect reason) -> reason @?= "adapter preflight refused: Kubernetes object changed since review; replan before mutation"
+    other -> assertFailure ("the refused preflight did not stop failed: " <> show other)
+
 retryRefused :: IO ()
 retryRefused = do
   store <- newMemoryStore
@@ -74,7 +103,7 @@ retryRefused = do
       StoppedAmbiguous tx op -> pure (tx, op)
       other -> assertFailure (show other) >> undefined
   writeIORef refusing True
-  resumeTransaction store registry transaction >>= expectRight >>= (@?= StoppedFailed transaction operation (KnownNoEffect "adapter preflight refused"))
+  resumeTransaction store registry transaction >>= expectRight >>= (@?= StoppedFailed transaction operation (KnownNoEffect "adapter preflight refused: object changed since review"))
   after <- readHead store >>= expectRight >>= maybe (assertFailure "head missing" >> undefined) pure
   raw <- readJournalPrefix store (headSequence after) >>= expectRight
   events <- either (assertFailure . show) pure (traverse decodeJournalEvent raw)

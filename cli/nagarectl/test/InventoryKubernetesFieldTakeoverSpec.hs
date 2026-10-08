@@ -166,6 +166,23 @@ kubernetesFieldTakeoverTests =
         -- A drift repair's before stamp already is the reviewed digest: the exact before-state guards it.
         repair <- (\pending -> pending {mutationBeforeStamp = Just (mutationNativeDigest pending)}) <$> stampedUpdate
         assertBool "a drift repair passed on its stamp" (isLeft (requireWriteTarget repair (KubernetesPresent K.physical "5" (Just K.resource) (contentDigest "drifted")) (Just (mutationNativeDigest repair))))
+    , testCase "an in-sync update survives a controller's status write; a spec change or another object refuses (F88)" $ do
+        -- The CronJob's desired spec equals the live one, so its before stamp
+        -- is the reviewed digest and cannot tell the write apart (F67). A
+        -- scheduled run then writes status: only resourceVersion moves.
+        let reviewed = contentDigest (snd (bound Map.! K.resource))
+        (update, writes, state) <- stampedAdapter (KubernetesPresent K.physical "16218" (Just K.resource) reviewed, Just reviewed)
+        native <- adapterPrepare update K.updateOperation >>= K.expectRight
+        writeIORef state (KubernetesPresent K.physical "16340" (Just K.resource) reviewed, Just reviewed)
+        adapterPreflight update K.updateOperation native >>= (@?= Right ())
+        _ <- adapterExecute update K.updateOperation native
+        length <$> readIORef writes >>= (@?= 1)
+        -- Another writer changed the spec since review: refused before a write.
+        writeIORef state (KubernetesPresent K.physical "16400" (Just K.resource) (contentDigest "edited"), Just reviewed)
+        adapterPreflight update K.updateOperation native >>= assertBool "a changed spec passed preflight" . isLeft
+        -- The object was replaced under the same name: refused.
+        writeIORef state (KubernetesPresent (ok (mkPhysicalIdentity "kubernetes-uid-2")) "1" (Just K.resource) reviewed, Just reviewed)
+        adapterPreflight update K.updateOperation native >>= assertBool "a replaced object passed preflight" . isLeft
     , testCase "a retire is guarded by UID, owner and digest, deletes with the fresh resourceVersion, and never deletes twice (G6, G5)" $ do
         let reviewed = contentDigest (snd (bound Map.! K.resource))
             retireOperation = K.operation RetireResource

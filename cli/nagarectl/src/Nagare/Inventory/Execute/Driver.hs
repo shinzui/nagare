@@ -401,8 +401,10 @@ runOperationsWith latest locked registry transaction reviewed initialEvents oper
                   "retried operation refused by adapter preflight"
               pure $ Just $ case appended of
                 Left _ -> StoppedAmbiguous transaction operationId
-                Right _ -> StoppedFailed transaction operationId (KnownNoEffect "adapter preflight refused")
-        Left _ -> pure (Just (StoppedFailed transaction operationId (KnownNoEffect "adapter preflight refused")))
+                Right _ -> StoppedFailed transaction operationId (KnownNoEffect ("adapter preflight refused: " <> reason))
+        -- F88: a first refusal is not journalled (nothing started), but the
+        -- operator still gets the adapter's reason.
+        Left reason -> pure (Just (StoppedFailed transaction operationId (KnownNoEffect ("adapter preflight refused: " <> reason))))
         Right () -> do
           intent <- appendEvent locked transaction (Just operationId) IntentRecorded "operation intent recorded"
           case intent of
