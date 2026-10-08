@@ -365,27 +365,96 @@ the update itself is left stuck, the next review replaces the pod.
 
 ### Upgrade PostgreSQL to a new major version
 
-PostgreSQL cannot open data files that another major version initialized, so
-planning refuses a version change across majors on an existing database (and
-any engine change), naming this section. A minor update within one major
-(`"17"` to `"17.6"`) is an ordinary in-place update. A major upgrade runs side
-by side (F86):
+PostgreSQL cannot open data files that another major version initialized. Planning therefore refuses
+a major-version change of an existing database, and any engine change, and names this section (F86).
+A minor update within one major (`"17"` to `"17.6"`) is an ordinary in-place update. Upgrade a major
+side by side instead:
 
-1. Take a fresh reviewed backup and prove it with an isolated restore.
-2. Declare a new database at the new major beside the old one; bindings stay on
-   the old one.
-3. Fence the old instance read-only, copy with the new major's `pg_dump` into the
-   new instance under `psql -v ON_ERROR_STOP=1 --single-transaction`, and compare
-   every table and sequence. A failed restore leaves nothing behind; lift the
-   fence and the old instance carries on.
-4. Switch the application's binding to the new database in a reviewed deploy.
-   Switching back is the same reviewed change while the new instance has taken
-   no write.
-5. Prove the new instance with its own backup and restore, then remove the old
-   database from the config and retire it in the same reviewed deploy:
-   `nagarectl app deploy … --save-plan DIR --retire-database OLD` (F87). The
-   review retains every member of the old database, bound to its observed
-   incarnation, and deletes nothing.
+1. Take a fresh backup and prove it restores.
+2. Declare a second database at the new major.
+3. Copy the data with `pg_dump` and `psql` while the old database is read-only.
+4. Verify the copy.
+5. Switch the application's binding through a reviewed deploy.
+6. Retire the old database only after the new one is proven.
+
+Until the new database takes writes, the old one stays the authority, so every failure returns to it
+with nothing lost.
+
+The examples use application `APP` with database `OLD` at `"17"`, bound by its service, and a new
+database `NEW` at `"18"`. `K` is `kubectl --context <cluster>`. Pods run the official
+`postgres` image, so `POSTGRES_USER` and `POSTGRES_DB` are in each pod's environment.
+
+```bash
+# Run SQL in a database, or in the maintenance database `postgres` (fence and unfence run there,
+# so a read-only target cannot block them).
+q()  { K -n personal exec "$1-0" -- sh -c "psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -v ON_ERROR_STOP=1 -tA -c \"$2\""; }
+qm() { K -n personal exec "$1-0" -- sh -c "psql -U \"\$POSTGRES_USER\" -d postgres -v ON_ERROR_STOP=1 -tA -c \"$2\""; }
+fence()   { qm "$1" "alter database \\\"\$POSTGRES_DB\\\" set default_transaction_read_only = on" &&
+            qm "$1" "select count(pg_terminate_backend(pid)) from pg_stat_activity where datname = '\$POSTGRES_DB' and pid <> pg_backend_pid()"; }
+unfence() { qm "$1" "alter database \\\"\$POSTGRES_DB\\\" reset default_transaction_read_only"; }
+```
+
+**1. Take a fresh backup and prove it restores.** Save and apply a reviewed manual backup, then
+restore it into an isolated scratch database and compare it with the source:
+
+```bash
+nagarectl db backup OLD --backup-id pre-upgrade --save-plan "$REVIEWS/backup"
+nagarectl inventory apply "$REVIEWS/backup" --yes
+nagarectl db restore OLD pre-upgrade --restore-id pre-upgrade --save-plan "$REVIEWS/restore"
+nagarectl inventory apply "$REVIEWS/restore" --yes
+# Compare row counts in OLD and in its scratch database "OLD_restore_pre-upgrade".
+```
+
+**2. Add the new database beside the old one.** In `nagare/Config.hs`, add `NEW` with `version =
+"18"` to `databases`, and keep the service bound to `OLD`. Deploy with a recovery binding for each
+database (`--database-recovery OLD=OLD:v1 --database-recovery NEW=NEW:v1`) and apply the review.
+It creates `NEW`. `OLD` and the binding are unchanged.
+
+**3. Fence the old database and copy it.** The application's writes fail from here until the
+switch. That is the downtime window, and no write is accepted anywhere that would be lost.
+Use the new major's `pg_dump`, as PostgreSQL recommends, and restore in one transaction that
+stops at the first error:
+
+```bash
+fence OLD
+K -n personal get secret nagare-db-OLD -o jsonpath='{.data.POSTGRES_PASSWORD}' | base64 -d |
+  K -n personal exec -i NEW-0 -- sh -c 'read -r P; PGPASSWORD="$P" pg_dump -h OLD.personal.svc.cluster.local \
+    -U "$POSTGRES_USER" -d OLD_DB --no-owner --no-privileges > /tmp/upgrade.sql &&
+    psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -q -v ON_ERROR_STOP=1 --single-transaction -f /tmp/upgrade.sql;
+    rc=$?; rm -f /tmp/upgrade.sql; exit $rc'
+fence NEW
+```
+
+`OLD_DB` is the old database's `POSTGRES_DB` (its Secret's `POSTGRES_DB` key).
+
+**4. Verify the copy.** For each table, compare an ordered content hash and the sequences in both
+databases. For example:
+
+```sql
+select md5(coalesce(string_agg(t::text, '|' order by t.id), '')) from my_table t;
+select last_value from my_table_id_seq;
+```
+
+Every value must be equal. If any differs, or step 3 failed, return to the old database:
+`unfence OLD`. Nothing else changed, and the application writes again. Empty `NEW`
+(`drop schema public cascade; create schema public`) before you try again.
+
+**5. Switch the binding through review.** Change the service's `databases` to `NEW`, deploy and
+apply. While both databases are read-only, check the application's configuration
+(`POSTGRES_HOST` on its Knative Service). If anything is wrong, switch the binding back to `OLD`
+with another reviewed deploy, then `unfence OLD`. `NEW` never accepted a write, so nothing is lost.
+Otherwise run `unfence NEW`. The application now writes to the new major.
+
+**6. Prove the new database, then retire the old one.** Back up `NEW` and restore it into a scratch
+database as in step 1. Keep `OLD` declared and read-only until you are satisfied. To retire it:
+1. Retire, which means retain, the scopes that consume it, such as its manual backups and restores:
+   `nagarectl inventory retire --scope standalone:database-backup-personal-OLD-pre-upgrade --scope
+   standalone:database-restore-personal-OLD-pre-upgrade --out "$REVIEWS/retire-consumers"`, then
+   apply that review. Otherwise the next step refuses with `dangling-reference`.
+2. Remove `OLD` from `databases` and retire it in the same reviewed deploy:
+   `nagarectl app deploy … --save-plan "$REVIEWS/retire-old" --retire-database OLD` (F87). The
+   review retains every member of `OLD`, bound to its observed incarnation, and deletes nothing.
+   Deletion is a separate reviewed collection.
 
 ## Connecting an app to a database
 

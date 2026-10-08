@@ -213,6 +213,50 @@ Kubernetes members can be collected one review at a time, but host and artifact 
 
 **Fix on `next-release`:** `context env` no longer runs `npm ci`, local mode installs nothing, `operatorTools` ship nodejs, and the clone-free rehearsal isolates every operator step's PATH.
 
+## F86
+
+**A review admits an in-place PostgreSQL major-version change; once applied, an application-owned database is down with no reviewed exit** — P1 (outage, no data loss); **Verifying** (fixed in `4d6abd28`; final proof is the section 4 drill on the next candidate); owner nagare-fix.
+
+**Found by nagare-verify in the section 4 local rehearsal on `3ae20f8c` (2026-10-08; observed).** It ran on cp3, in the C2 context. Application `upg-app` owns `upg-pg` at `"17"`, holding 7 rows.
+- Changing that database's version to `"18"` in the application config plans as a plain `UpdateResource` of `application:upg-app/upg-pg/statefulset` and its backup. There is no refusal and no warning.
+- Applied, the pod restarts on `postgres:18`. It fails with `FATAL: database files are incompatible with server` ("initialized by PostgreSQL version 17"), and the apply stops `ambiguous`.
+- The data files are untouched: PostgreSQL refuses to start rather than convert them.
+- The runbook's F78 exit was then followed:
+  - `inventory close` kept the scope;
+  - the corrected review (`"17"`) completed, but the pod stayed on the stuck revision, and `close` kept the scope again;
+  - `db restart upg-pg` refused with `generated native members overlap a supplied or contributed resource`, after reporting `rollout stuck on pod upg-pg-0 … proposing replace-stuck-pod`.
+  So the reviewed exit exists only for standalone databases. The stuck state is kept on cp3 as the reproduction. No pod was deleted by hand.
+
+**Expected:**
+1. Planning refuses a major-version change of an existing PostgreSQL scope and points to the side-by-side procedure. Section 4's route is dump and restore into a new database.
+2. An application-owned database stuck at a broken template has the same reviewed replace-stuck-pod exit as a standalone one.
+
+**Fix (`4d6abd28`, nagare-fix): three defects, not two.**
+1. **No planning guard.** `Nagare.Inventory.DatabaseEngine` compares the accepted and desired StatefulSet natives. It refuses an in-place engine change, and a PostgreSQL image change whose major differs or cannot be read, pointing to [Upgrade PostgreSQL to a new major version](../user/managed-databases.md#upgrade-postgresql-to-a-new-major-version). A minor change within one major still plans.
+2. **`db restart` supplied every accepted native.** That overlapped the generated namespace, the backend map and the Shomei settings. It now supplies only the restarted scope's own non-contribution members.
+3. **No reviewed replace-stuck-pod could ever be applied** (new; standalone or application, and the released `3ae20f8c` binary fails identically). `kubernetesSpecsFromReview` decoded every Kubernetes operation's native as a mutation. A `PodReplacement` has no `action`, so the apply failed with `Error in $: key "action" not found`. One accepted replacement review would also have broken every accepted-native load, in status and planning. EP-181's tests used test registries and never reached this loader. The loader now skips `ReplaceStuckPod`, and execution loads the unchanged member's accepted native.
+
+Mutation records: `F86-postgres-major-unchecked`, `F86-restart-supplies-every-native`, `F86-review-loader-decodes-replacement`. `EP181-restart-ignores-stuck-pod` was regenerated and reproved with its own pattern.
+
+**Native proof on cp3 (nagare-fix, re-checked read-only by nagare-verify, 2026-10-08).**
+- Planning `config-inplace` refuses: "PostgreSQL upg-pg would change from postgres:17 to postgres:18 in place".
+- The unchanged config still plans.
+- Review `366999eb` (one `ReplaceStuckPod` and 19 `VerifyResource`) converged. `upg-pg-0` came back as a new pod (uid `31354dbd`) on postgres:17: Ready, 0 restarts, PostgreSQL 17.11, `hits` 7:7, store idle.
+
+## F87
+
+**An application cannot drop one of its databases through review, so the old instance of a side-by-side upgrade can never be retired** — P2; **Verifying** (fixed in `d459ba78`); owner nagare-fix.
+
+**Found by nagare-verify in the section 4 local rehearsal on `3ae20f8c` (2026-10-08; observed).** Application `upg2-app` declares `upg2-pg` (`"17"`) and `upg2-pg18` (`"18"`), and its service is bound to `upg2-pg18`, which is proven by a reviewed backup and isolated restore. A deploy whose config declares only `upg2-pg18` fails at planning:
+- First `dangling-reference`, because the pre-upgrade manual backup and restore scopes consume the old database. That is correct, and the documented exit worked: `inventory retire` of both consumer scopes.
+- Then `retirement-required` ("accepted resource is absent from desired inventory without a lifecycle decision") for all nine `application:upg2-app/upg2-pg/*` members.
+
+`app deploy` has no option to record that decision. `db retire upg2-pg` refuses ("standalone scope is absent from accepted inventory history"). An application may bind only databases it declares (`Nagare/Dsl/Application.hs`, "declared databases"), so the procedure cannot use a standalone database either. The only reviewed route left retires the whole application.
+
+**Fix (`d459ba78`, nagare-fix):** `app deploy … --save-plan DIR --retire-database NAME`, repeatable. It plans through the explicit-retirement path: every member of the application's accepted members whose logical key is NAME is retained, bound to its physical UID, and nothing is deleted. It refuses without `--save-plan`, for a name the config still declares, for a name with no accepted members, and for a repeated name. A member already confirmed absent cannot carry the approval (`invalid-retirement`), as on the explicit-retirement path. A read-only plan against the held `upg2-app` state retained exactly the nine `upg2-pg` members (review `e3f53ebd`).
+
+**Expected:** a reviewed lifecycle decision for an application's removed database. One option is `app deploy … --retire-database NAME`, which retains every member, as `inventory retire` does, deletes nothing, and frees the binding.
+
 ## F77
 
 **A database volume claim deleted outside review while its pod runs stays Terminating, and every review of the database refuses until it goes** — P1; **Deferred**; owner: deferral ledger (operator, 2026-10-07). The reviewed exit belongs to the next MasterPlan.

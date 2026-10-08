@@ -1,0 +1,25 @@
+== 16:46:55 failed upgrade 1: restore into the new instance fails; return to the old instance
+== 16:46:58 copy refused as injected: psql:/tmp/s4-dump.sql:33: ERROR:  relation "hits" already exists
+== 16:46:58 returned to the old instance: rows 7:7 -> 8:8 (fenced write refused with HTTP 502)
+PHASE-OK fail1
+== 16:47:38 copy: fence the old instance, copy into the new one, verify
+== 16:47:39 verified: hits=0c123f04decfeccbfe8b8648dc1fffb5 hits_id_seq=8; both instances read-only
+PHASE-OK copy
+v3-switch-new: converged tx-ea57798aeee293386211de820409b935f87288eb9741b23d079422bcdbf92ba4
+v4-switch-back: converged tx-0ca7e5557ec4fc01ab38250310e2e70146a68f0f49f6b5102c0ef38cc1e8e9ef
+== 16:48:29 returned to the old instance: 9:9; new instance never accepted a write (default_transaction_read_only=on)
+PHASE-OK fail2
+== 16:49:05 recopy: fence the old instance, copy into the new one, verify
+NOTICE:  drop cascades to table hits
+== 16:49:06 verified: hits=cc4d224c6380d955ca8ce613f937aeb0 hits_id_seq=9; both instances read-only
+PHASE-OK recopy
+== 16:49:39 reviewed switch-over to the new instance
+v5-switch-new: converged tx-85eb0b89aebf29ae21a80bd413291c3ab299ffce2dfe1cf6afe56395f2d74d2a
+== 16:49:46 app on PostgreSQL 18: rows 9:9 -> 10:10; old instance kept read-only (default_transaction_read_only=on)
+PHASE-OK switch
+== 16:50:22 prove the new instance: reviewed backup and isolated restore
+== 16:51:13 new instance backup s4post restored with 11:11 rows = source
+PHASE-OK prove
+== 16:51:48 retire the old instance only now (reviewed; retention keeps its volume)
+S4 FAILED [retire]: v6-new-only plan: nagarectl: InventoryError {code = "dangling-reference", message = "dependency producer is absent", scopes = [ScopeId Standalone (Name "database-backup-personal-upg2-pg-s4pre")], resources = [ResourceId "application:upg2-app/upg2-pg/credential",ResourceId "standalone:database-backup-personal-upg2-pg-s4pre/s4pre/job"], claims = [], sources = [SourceLocation {file = "db backup/upg2-pg", path = "s4pre"}]} :| [InventoryError {code = "dangling-reference", message = "dependency producer is absent", scopes = [ScopeId Standalone (Name "database-backup-personal-upg2-pg-s4pre")], resources = [ResourceId "application:upg2-app/upg2-pg/pvc",ResourceId "standalone:database-backup-personal-upg2-pg-s4pre/s4pre/job"], claims = [], sources = [SourceLocation {file = "db backup/upg2-pg", path = "s4pre"}]},InventoryError {code = "dangling-reference", message = "dependency producer is absent", scopes = [ScopeId Standalone (Name "database-backup-personal-upg2-pg-s4pre")], resources = [ResourceId "application:upg2-app/upg2-pg/statefulset",ResourceId "standalone:database-backup-personal-upg2-pg-s4pre/s4pre/job"], claims = [], sources = [SourceLocation {file = "db backup/upg2-pg", path = "s4pre"}]},InventoryError {code = "dangling-reference", message = "dependency producer is absent", scopes = [ScopeId Standalone (Name "database-restore-personal-upg2-pg-s4pre")], resources = [ResourceId "application:upg2-app/upg2-pg/credential",ResourceId "standalone:database-restore-personal-upg2-pg-s4pre/s4pre/job"], claims = [], sources = [SourceLocation {file = "db restore/upg2-pg", path = "s4pre"}]},InventoryError {code = "dangling-reference", message = "dependency producer is absent", scopes = [ScopeId Standalone (Name "database-restore-personal-upg2-pg-s4pre")], resources = [ResourceId "application:upg2-app/upg2-pg/pvc",ResourceId "standalone:database-restore-personal-upg2-pg-s4pre/s4pre/job"], claims = [], sources = [SourceLocation {file = "db restore/upg2-pg", path = "s4pre"}]},InventoryError {code = "dangling-reference", message = "dependency producer is absent", scopes = [ScopeId Standalone (Name "database-restore-personal-upg2-pg-s4pre")], resources = [ResourceId "application:upg2-app/upg2-pg/statefulset",ResourceId "standalone:database-restore-personal-upg2-pg-s4pre/s4pre/job"], claims = [], sources = [SourceLocation {file = "db restore/upg2-pg", path = "s4pre"}]}] 
+STOPPED at retire

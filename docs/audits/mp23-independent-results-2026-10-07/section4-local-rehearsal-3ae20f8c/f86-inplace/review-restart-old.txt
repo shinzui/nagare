@@ -1,0 +1,2 @@
+nagarectl: generated native members overlap a supplied or contributed resource
+db restart: rollout stuck on pod upg-pg-0 at revision upg-pg-699b446f89; proposing replace-stuck-pod instead of a restart token

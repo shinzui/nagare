@@ -1,0 +1,12 @@
+statefulset.apps/scenario-ch
+statefulset.apps/scenario-events
+statefulset.apps/scenario-pg
+statefulset.apps/scenario-redis
+statefulset.apps/scenario-redis-restore-c2f36r
+statefulset.apps/scenario-redis-restore-c2redr1
+statefulset.apps/scenario-rename-src
+statefulset.apps/scenario-renamed
+statefulset.apps/upg-pg
+statefulset.apps/upg-pg18
+statefulset.apps/upg2-pg
+statefulset.apps/upg2-pg18
