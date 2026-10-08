@@ -110,3 +110,45 @@ Pipeline rehearsals done before the run (before-a-native-run §4):
 C2 (fresh local context on this candidate) and C3 (fresh cloud context, then the staged teardown
 and the `mp23-c3i` teardown). The F52 and F62 closure gaps come back from nagare-fix as test-only
 changes. If either exposes a product defect, the candidate changes.
+
+## Final candidate `3ae20f8c`: results (2026-10-08)
+
+The final candidate is `3ae20f8c`: F52 and F80 (`a7958867`), F81 (`2df33205`), F83 (`0d828d50`) and F81's E2 and E3 (`3ae20f8c`). Its gate record is green on both systems, and the mutation sweep killed 132 of 132 records.
+
+| Check | Result | Evidence |
+|---|---|---|
+| C2, fresh local context | Pass: 16/16 assertions, inventory evidence assembled, C1 verify-only with 0 provider mutations; F83 confirmed (kept scratch scopes retire) | [`c2-acceptance-3ae20f8c/`](c2-acceptance-3ae20f8c/) |
+| C3, fresh cloud context `mp23-c3j` (`c3-1009`) | Pass: 17/17 assertions, inventory evidence assembled (run `7c8dbfbc…`), F48 guard held, secret scan 0 | [`c3-acceptance-3ae20f8c/`](c3-acceptance-3ae20f8c/) |
+| Operations runbook, end to end on `mp23-c3j` | Pass for every section exercised (see below) | [`runbook-execution-3ae20f8c/`](runbook-execution-3ae20f8c/) |
+| Section-2 no-data-loss drill | Pass: cluster destroyed; recovered from a fresh root with escrow and GCS only; 4/4 rows; 20 s | [`section2-drill-3ae20f8c/`](section2-drill-3ae20f8c/) |
+| C4 | aarch64-darwin pass; x86_64-linux fails at `local-init` (F85) | [`c4-3ae20f8c/`](c4-3ae20f8c/) |
+| `mp23-c3i` teardown | Stage 1 converged (F39). Retirement is blocked by F84. Disposed by exact-name deletes from its own stack export after a final history export | [`c3i-teardown/`](c3i-teardown/) |
+| `mp23-c3j` disposal | History exported. VM, disk and snapshots deleted for the drill; then the remaining 30 exact deletes. A read-only sweep finds nothing named `c3-1009` | this record |
+
+**Runbook sections.** Each was executed natively on `mp23-c3j`, unless the cell says otherwise.
+
+| Section | Result |
+|---|---|
+| Select the private context | `context guard`; `kubeconfig recover` into a fresh root (19 s, mode 0600, node reached) |
+| Apply a saved review | Inspected, applied and converged; `inventory explain` captured |
+| Resume the original transaction | Apply killed mid-flight, then resumed to convergence |
+| Take over after a crash | C3 `takeover.sh`: a plain resume from root B was refused ("explicit takeover is required"); `--take-over` converged in 31 s with UIDs unchanged |
+| Resolve with adapter proof | Not reached natively: no operation was uncertain at the kill. Covered by tests |
+| Close a stopped transaction | An update that landed but never became Ready was closed with its scope kept; the corrected review converged with the same Service UID, Ready. An attested close replayed on the closed transaction is idempotent and accepts nothing |
+| Abandon a migration (F81) | Rename killed at its copy Job, then abandoned: the writer went from replicas 0 under the fence to 1, unfenced, same UID; the row is intact; 4 leftovers listed (D1) |
+| Replaced and unrecorded members | Replaced Role and lost-response members rebound through `inventory adopt` |
+| F77 procedure | Not executed natively; steps 1, 2, 4 and 6 were verified on k3s by RES-4 E16 |
+| Repair configuration drift | C3 `drift-classification`: strict apply refused, `--take-over-fields` repair converged |
+| Synchronize a protected backend | `access portal sync` converged |
+| Reviewed controller collection | Application B was retired with its Redis backup and restore scopes; its release history was collected first; then its Service and all 5 controller descendants were collected; its Redis data was retained |
+| Staged cloud teardown | Blocked by F84 on both contexts; the exact-name disposal path was used |
+
+**Deferral ledger for the next release** (operator rule, 2026-10-07: only a critical break delays the release):
+- **F84:** access-grant retirement. Fixed on `next-release` `de7100f0`; its revoke-first policy is a choice for the operator.
+- **F85:** npm missing from `operatorTools`. Fixed on `next-release` `6011d1ba`.
+- **F33:** the cloud-collection recheck; native proof is owed by a staged teardown, which F84 blocks.
+- **D1:** leftover destination objects block a re-rename; the runbook has a manual exit.
+- Recording the identity a stamp-proved lost create observes, so no rebind is needed. Needs an uncopyable discriminator, likely managed fields; an experiment and an ADR 27 amendment come first.
+- Done on `next-release`, landing next release: F31 gate wiring (`e96fee1a`), the F78 runbook section and the F65 test (`eb642303`).
+- Section-2 boxes still open: a natively observed breach graded unhealthy, and a native corrupt or incomplete upload refusal on this candidate.
+- C5: release assembly, IR-24 mapping and release notes.

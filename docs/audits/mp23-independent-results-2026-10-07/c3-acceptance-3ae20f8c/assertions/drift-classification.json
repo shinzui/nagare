@@ -1,0 +1,30 @@
+{
+  "cluster": "nagare-c3-1009",
+  "context": "mp23-c3j",
+  "evidence": [
+    {
+      "path": "checks/drift-classification/decision.json",
+      "sha256": "3031d714057fede3d77418c61b9406b0c5fedc9641ff234f71d4767a393477df"
+    },
+    {
+      "path": "checks/drift-classification/ksvc-after.json",
+      "sha256": "63232b08ed30174bc18a6068ed82902bdae5c1d5cdc69df204e72801db1f60c8"
+    },
+    {
+      "path": "checks/drift-classification/ksvc-before.json",
+      "sha256": "e6750c2922988a2ea8a517682b9d66e0bccccbc276d0026681a7f3bf06430c21"
+    },
+    {
+      "path": "checks/drift-classification/result.json",
+      "sha256": "1c547b9d980c70d03fd45a665653ad11e5a3ba00161321d0fd3830f247681a91"
+    }
+  ],
+  "fixtureDigest": "83f1544ca8c476e7a813ebb95f3d2bee4b5bb945dd5101584baf7b2facfe7431",
+  "mode": "cloud",
+  "name": "drift-classification",
+  "operatorRevision": "3ae20f8c9ed5bcfaa1681a7c3a3a927d6ede773b",
+  "passed": true,
+  "recordedAt": "2026-10-08T05:28:50Z",
+  "schemaVersion": 1,
+  "summary": "Out-of-band drift on the scenario-a Service was refused by the strict apply as KnownNoEffect, closed with abandon-refused-operation, and repaired by a reviewed --take-over-fields replan"
+}

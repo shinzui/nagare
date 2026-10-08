@@ -1,0 +1,18 @@
+{
+  "cluster": "nagare-c3-1009",
+  "context": "mp23-c3j",
+  "evidence": [
+    {
+      "path": "checks/postgresql-backup-restore/result.json",
+      "sha256": "f4973b7689a3c3d841afc82509ac918e5e92f2f08d563696bde414a278386a90"
+    }
+  ],
+  "fixtureDigest": "83f1544ca8c476e7a813ebb95f3d2bee4b5bb945dd5101584baf7b2facfe7431",
+  "mode": "cloud",
+  "name": "postgresql-backup-restore",
+  "operatorRevision": "3ae20f8c9ed5bcfaa1681a7c3a3a927d6ede773b",
+  "passed": true,
+  "recordedAt": "2026-10-08T05:28:50Z",
+  "schemaVersion": 1,
+  "summary": "A reviewed PostgreSQL backup to GCS restored into a scratch database with exactly the two pre-backup rows, while the live database kept its later row"
+}

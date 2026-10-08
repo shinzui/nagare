@@ -1,0 +1,6 @@
+service.serving.knative.dev/scenario-b
+configuration.serving.knative.dev/scenario-b
+revision.serving.knative.dev/scenario-b-00001
+revision.serving.knative.dev/scenario-b-00002
+revision.serving.knative.dev/scenario-b-00003
+route.serving.knative.dev/scenario-b

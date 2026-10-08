@@ -1,0 +1,41 @@
+{
+  "transaction": "tx-4676e13f6da16c5022a7d9d0c3a94cbaf3a41a8a5696104b942d99604daca932",
+  "abandon": "inspect inventory status before saving a corrected review or a retirement",
+  "writerBefore": {
+    "uid": "ada7366a-f071-47f6-8060-63cb917ba044",
+    "replicas": 0,
+    "fence": "op-a71d7dbc0baa309c422f7b8d"
+  },
+  "writerAfter": {
+    "uid": "ada7366a-f071-47f6-8060-63cb917ba044",
+    "replicas": 1,
+    "fence": null
+  },
+  "rowAfter": "before-rename",
+  "leftovers": [
+    {
+      "kind": "PersistentVolumeClaim",
+      "name": "nagare-db-rbk-pg2-data",
+      "uid": "2382e63c-f15e-4d0c-bdd4-6de9fc7d9de8",
+      "apiVersion": "v1"
+    },
+    {
+      "kind": "Secret",
+      "name": "nagare-db-rbk-pg2",
+      "uid": "ceb24158-72f0-494b-a709-ba4619189a4b",
+      "apiVersion": "v1"
+    },
+    {
+      "kind": "Secret",
+      "name": "nagare-dbbackup-rbk-pg2-signing",
+      "uid": "8f94fed8-f930-49f2-8c57-5029984f066d",
+      "apiVersion": "v1"
+    },
+    {
+      "kind": "ServiceAccount",
+      "name": "nagare-dbbackup-rbk-pg2",
+      "uid": "5d552ca1-a7e6-45a7-97f2-58fcc954b2b8",
+      "apiVersion": "v1"
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+gcloud compute instances update nagare-c3-1009 --zone us-west1-a --no-deletion-protection
+gcloud compute instances delete nagare-c3-1009 --zone us-west1-a
+gcloud compute disks remove-resource-policies nagare-data-2ab726f --zone us-west1-a --resource-policies nagare-data-snapshots-856ac3c
+gcloud compute disks delete nagare-data-2ab726f --zone us-west1-a
+for s in $(gcloud compute snapshots list --filter='sourceDisk~/zones/us-west1-a/disks/nagare-data-2ab726f$' --format='value(name)'); do gcloud compute snapshots delete "$s"; done

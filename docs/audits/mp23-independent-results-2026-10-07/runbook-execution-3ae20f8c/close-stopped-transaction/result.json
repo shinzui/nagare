@@ -1,0 +1,11 @@
+{
+  "transaction": "tx-5b5049e88a7f97ad7c37b3bddb0b06cb62f4e71df44c18f190660bbe43c3d68c",
+  "close": "inspect inventory status before saving a corrected review or a retirement",
+  "attestedCloseOnClosed": {
+    "exit": 0,
+    "output": "inspect inventory status before saving a corrected review or a retirement"
+  },
+  "corrected": "converged tx-421678b967a54b932b4faf68233b588f9c5685bc0df5aaa4ebb5ca6ab8a09233",
+  "serviceUidUnchanged": true,
+  "ready": "True"
+}

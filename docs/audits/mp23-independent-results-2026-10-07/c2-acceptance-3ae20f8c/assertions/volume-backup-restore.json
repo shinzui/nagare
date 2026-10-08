@@ -1,0 +1,30 @@
+{
+  "cluster": "k3d-nagare-local",
+  "context": "local",
+  "evidence": [
+    {
+      "path": "checks/volume-backup-restore/manifest.txt",
+      "sha256": "1aa49ed71e003809a87f6dae1776d00f0b4888e63b914520be24a6a71a9f2b6c"
+    },
+    {
+      "path": "checks/volume-backup-restore/projection-Config.hs",
+      "sha256": "03070ba8e7e27ba5221f5fe034ffde0d7d6047a9edf0e98e52c4dfb94158cac8"
+    },
+    {
+      "path": "checks/volume-backup-restore/restore-log.txt",
+      "sha256": "403fb087aef384e1fe8280082031358f628c70b0d6287d6ed96f672d21ccb678"
+    },
+    {
+      "path": "checks/volume-backup-restore/source-after.json",
+      "sha256": "198d6dde7286198bef01ca7ae9658d23bf63c701a763a32312759f4a27e0d938"
+    }
+  ],
+  "fixtureDigest": "dd431786f1905bccae8524ad465c1ea4fe81bcc81a619726dc2583b6232b4a1c",
+  "mode": "local",
+  "name": "volume-backup-restore",
+  "operatorRevision": "3ae20f8c9ed5bcfaa1681a7c3a3a927d6ede773b",
+  "passed": true,
+  "recordedAt": "2026-10-08T03:33:03Z",
+  "schemaVersion": 1,
+  "summary": "Reviewed snapshot c2vol1 of scenario-a uploads restored into a separate PVC; the restore Job's manifest proves scenario-known.txt at the seeded sha after the source changed"
+}

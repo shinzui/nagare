@@ -1,0 +1,18 @@
+{
+  "cluster": "k3d-nagare-local",
+  "context": "local",
+  "evidence": [
+    {
+      "path": "checks/collision-refusal/result.json",
+      "sha256": "5d5ae7e0f500a09ed68cd89a28c842fc9da90dd0cf20b7a5cc1e50d5047e58f4"
+    }
+  ],
+  "fixtureDigest": "dd431786f1905bccae8524ad465c1ea4fe81bcc81a619726dc2583b6232b4a1c",
+  "mode": "local",
+  "name": "collision-refusal",
+  "operatorRevision": "3ae20f8c9ed5bcfaa1681a7c3a3a927d6ede773b",
+  "passed": true,
+  "recordedAt": "2026-10-08T03:33:02Z",
+  "schemaVersion": 1,
+  "summary": "A second application claiming application A's route host is refused at composition with claim-conflict; no review is published and the head is unchanged"
+}

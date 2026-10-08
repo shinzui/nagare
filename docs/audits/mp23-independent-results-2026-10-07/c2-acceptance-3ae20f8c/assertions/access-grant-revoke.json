@@ -1,0 +1,22 @@
+{
+  "cluster": "k3d-nagare-local",
+  "context": "local",
+  "evidence": [
+    {
+      "path": "checks/access-grant-revoke/grant.json",
+      "sha256": "d8325f8fd727902aa72a110d07371f3f1fa5826b57b455d1bd9875c343a77e54"
+    },
+    {
+      "path": "checks/access-grant-revoke/revoke.json",
+      "sha256": "7239b1ab825d52c65746d8638ef06c6fb089b228b3ab9ae5b4b454e996c67a29"
+    }
+  ],
+  "fixtureDigest": "dd431786f1905bccae8524ad465c1ea4fe81bcc81a619726dc2583b6232b4a1c",
+  "mode": "local",
+  "name": "access-grant-revoke",
+  "operatorRevision": "3ae20f8c9ed5bcfaa1681a7c3a3a927d6ede773b",
+  "passed": true,
+  "recordedAt": "2026-10-08T03:33:03Z",
+  "schemaVersion": 1,
+  "summary": "Reviewed access grant and revoke for a test subject on scenario-a.127-0-0-1.sslip.io converged as en viewer tuples; access list showed the subject after the grant and not after the revoke (polled past en's read cache); browser login remains a stated restriction"
+}

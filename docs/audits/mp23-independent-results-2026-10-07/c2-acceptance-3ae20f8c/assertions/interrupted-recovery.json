@@ -1,0 +1,30 @@
+{
+  "cluster": "k3d-nagare-local",
+  "context": "local",
+  "evidence": [
+    {
+      "path": "checks/interrupted-recovery/cluster-completion.json",
+      "sha256": "de4770b6e4e49c9e17f1c13fa75e5fe0ec56b83910896999d5b94866c5cb830a"
+    },
+    {
+      "path": "checks/interrupted-recovery/database-readiness.json",
+      "sha256": "07a81923bca5e2b24d500c908e67d99b9be6b1cfcc345dad3ff87d3eda232903"
+    },
+    {
+      "path": "checks/interrupted-recovery/final-marker.json",
+      "sha256": "bde6b4b1bb0b49c54f6018e2c85cb9e50c6acf6591d83f267b6cd307dac18b26"
+    },
+    {
+      "path": "checks/interrupted-recovery/migration.json",
+      "sha256": "bd4caa4173c28ccf312e4ac8f8d5fca6ef25fc380a3c66fd4765adf95dd5cd6e"
+    }
+  ],
+  "fixtureDigest": "dd431786f1905bccae8524ad465c1ea4fe81bcc81a619726dc2583b6232b4a1c",
+  "mode": "local",
+  "name": "interrupted-recovery",
+  "operatorRevision": "3ae20f8c9ed5bcfaa1681a7c3a3a927d6ede773b",
+  "passed": true,
+  "recordedAt": "2026-10-08T03:34:02Z",
+  "schemaVersion": 1,
+  "summary": "Killed applies at database readiness, cluster completion and migration TransferState each resumed through the recorded transaction with pre-interruption UIDs unchanged and one completed effect per operation (the migration copy recorded a second intent on its adapter-proved retry and adopted the same Job); verify killed before its marker re-ran to verified with the store head unchanged"
+}

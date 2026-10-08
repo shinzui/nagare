@@ -1,0 +1,16 @@
+{
+  "database": "personal/scenario-pg",
+  "backupJob": "5667e362-7ec6-4e4e-88ec-3bf0ab757461",
+  "gcsGeneration": "1791443715202899",
+  "sha256": "09dcd7ba1f04c43a58b0e3e4f1be1be13f66788841661da4b4cf49b8326d315b",
+  "seedTime": "2026-10-08T06:53:15Z",
+  "seedMark": "s2-drill-20261008T065315Z",
+  "verifyOutput": "Verified scheduled backup 5667e362-7ec6-4e4e-88ec-3bf0ab757461 of personal/scenario-pg with the escrowed signing key.   object:  gs://tan-ng-labs-c3-1009-pmkjjpp-backups/databases/scenario-pg/5667e362-7ec6-4e4e-88ec-3bf0ab757461.sql.gz (version 1791443715202899)   receipt: version 1791443733854482   sha256:  09dcd7ba1f04c43a58b0e3e4f1be1be13f66788841661da4b4cf49b8326d315b   recovery point: 2026-10-08 07:15:02 UTC (age 184s) This is evidence only; restore requires reviewed ingestion of the receipt. ",
+  "recoveredRows": "1|scenario-pg-row-1 2|scenario-pg-row-2 3|after-backup 4|s2-drill-20261008T065315Z ",
+  "rowsMatchSourceAtSeed": true,
+  "recoveryStart": "2026-10-08T07:17:50Z",
+  "recoveryEnd": "2026-10-08T07:18:10Z",
+  "recoverySeconds": 20,
+  "freshRoot": "context profile + escrow files + sops rules only; age key read from the operator location",
+  "clusterState": "VM nagare-c3-1009 and its data disk deleted"
+}

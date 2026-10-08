@@ -1,0 +1,31 @@
+  STATUS   CHECK                    DETAIL
+  OK       VM                       RUNNING
+  OK       k3s node                 Ready
+  OK       Knative controller       rolled out
+  OK       Knative webhook          rolled out
+  OK       Kourier gateway          rolled out
+  OK       cert-manager             rolled out
+  OK       cert-manager-webhook     rolled out
+  OK       cert-manager-cainjector  rolled out
+  OK       net-certmanager          rolled out
+  OK       ClusterIssuer            letsencrypt-dns Ready
+  OK       Kourier ingress          serving on 35.233.232.221 (HTTP 404; LB EXTERNAL-IP 10.10.0.2)
+  OK       base domain              c3-1009.labs.topagentnetwork.net (= Pulumi baseDomain)
+  UNKNOWN  external-domain-tls      config-network not reachable
+  OK       certificate policy       public ACME names are confined to labeled app namespaces
+  OK       Artifact Registry        us-west1-docker.pkg.dev/tan-ng-labs/nagare-c3-1009 reachable
+  OK       private image pull       us-west1-docker.pkg.dev in registriesSkippingTagResolving
+  OK       build platform           linux/amd64 matches node amd64
+  UNKNOWN  backup litestream        gsutil unavailable or prefix empty
+  UNKNOWN  backup volumes           gsutil unavailable or prefix empty
+  OK       stuck rollouts           none
+  OK       host age key             ready at /var/lib/sops-nix/age-key.txt (sha256 eea4fc818b777e33046430e45a319c32fbf38223d6affaa244282c977eeaf638)
+  OK       boot disk                14% of 99G
+  OK       data disk                1% of 98G
+  OK       recovery point           nagare-system/en-db: healthy; age=859s; objective=hourly; newest point is verified and awaits reviewed ingestion
+  OK       recovery point           nagare-system/shomei-db: healthy; age=1063s; objective=hourly; newest point is verified and awaits reviewed ingestion
+  OK       recovery point           personal/rbk-pg: healthy; age=215s; objective=hourly; newest point is verified and awaits reviewed ingestion
+  OK       recovery point           personal/scenario-ch: healthy; age=392s; objective=hourly; newest point is verified and awaits reviewed ingestion
+  OK       recovery point           personal/scenario-pg: healthy; age=566s; objective=hourly; newest point is verified and awaits reviewed ingestion
+  OK       platform version         CLI, payload, context, host, and cluster agree
+server status exit=0

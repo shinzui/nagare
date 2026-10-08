@@ -1,0 +1,14 @@
+{
+  "guard": "warning: Application Default Credentials do not expose a principal; the gcloud account comparison is unavailable",
+  "kubeconfigRecover": {
+    "seconds": 19,
+    "mode": "600",
+    "node": "node/mp23-c3j-nagare"
+  },
+  "headAfter": {
+    "generation": 927,
+    "sequence": 800,
+    "activeTransaction": null,
+    "executorClaim": null
+  }
+}

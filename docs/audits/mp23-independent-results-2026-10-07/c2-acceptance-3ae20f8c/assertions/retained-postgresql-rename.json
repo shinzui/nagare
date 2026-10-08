@@ -1,0 +1,26 @@
+{
+  "cluster": "k3d-nagare-local",
+  "context": "local",
+  "evidence": [
+    {
+      "path": "checks/retained-postgresql-rename/rows.json",
+      "sha256": "901be4612fdf4622d9a30030caeb9c51ff8c0b107695c61ba5c38dc36b5af5e2"
+    },
+    {
+      "path": "checks/retained-postgresql-rename/uids.json",
+      "sha256": "fde92285f64e268ceff9e05262860f6fce77b408145de4d7a6ca7f2db27bac03"
+    },
+    {
+      "path": "checks/retained-postgresql-rename/unrelated-identity.json",
+      "sha256": "0e773a525aa3f2ca2e3f7de01865c1792df28b83717a80ed368946d7ff2b2c71"
+    }
+  ],
+  "fixtureDigest": "dd431786f1905bccae8524ad465c1ea4fe81bcc81a619726dc2583b6232b4a1c",
+  "mode": "local",
+  "name": "retained-postgresql-rename",
+  "operatorRevision": "3ae20f8c9ed5bcfaa1681a7c3a3a927d6ede773b",
+  "passed": true,
+  "recordedAt": "2026-10-08T03:33:02Z",
+  "schemaVersion": 1,
+  "summary": "db rename moved scenario-rename-src to scenario-renamed through 72 reviewed migration stages; the three known rows read back, the old incarnations stay retained with unchanged UIDs and fenced writers, and the unrelated auth signing key is unchanged"
+}

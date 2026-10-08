@@ -1,0 +1,18 @@
+Scheduled retention: keep=7 and expiry are unenforced; backups are retained by default.
+0bad9720-f874-4a16-8d31-d05650eec868  verified; ingestion pending
+1b1e4ef5-f759-4def-bd71-e168ac23ae48  verified; ingestion pending
+3355dd99-f8bc-467c-9c58-3f7b167dc8d8  verified; ingestion pending
+4588ae66-24bc-413a-bd1b-352a9a705fcf  verified; ingestion pending
+51bca981-6a61-45c6-8f7e-072e752158ea  verified; ingestion pending
+63bb01e7-a55c-475a-94f6-38e3a039ec52  verified; ingestion pending
+90c159e1-60c0-477d-a761-8205e21e4af9  verified; ingestion pending
+a14f3b0b-7fe8-4544-885d-9ff89100f6ff  verified; ingestion pending
+aec95162-83fb-4edc-989e-502484e08869  verified; ingestion pending
+af411f20-2fb1-4d22-8515-319a41b63238  verified; ingestion pending
+b3468d70-1dfd-455a-9cfb-3e4b60761f09  verified; ingestion pending
+c347c6e4-99bc-404d-b547-712f905c4ce6  verified; ingestion pending
+d23a1f84-d463-4147-a5ef-26fdc3b9e280  verified; ingestion pending
+fca015e9-8728-4a04-8c1f-829c060bd4e7  verified; ingestion pending
+feaed2cb-62f5-4523-a01a-2da4842525f9  verified; ingestion pending
+Recovery-point freshness: healthy; age=741s; objective=hourly; newest point is verified and awaits reviewed ingestion
+freshness exit=0

@@ -255,8 +255,10 @@ replaced, because a new incarnation has a new key.
 `verify-escrowed-backup` needs only the escrow and the object store, not the
 cluster. It rereads the exact receipt and archive versions, checks the signature,
 source identities and archive hash, and prints the recovery point. It is evidence
-only and grants no restore authority. A full restore after total cluster loss
-remains outside this release's accepted evidence.
+only and grants no restore authority. Recovering the data after total cluster
+loss is the procedure in [Total cluster loss: recover the data](#total-cluster-loss-recover-the-data).
+A reviewed rebuild of the same context with the service live again is not in this
+release.
 
 In local mode the object store is the in-cluster MinIO, so by default the command
 reads it through the cluster (its credential Secret and a port-forward). When the

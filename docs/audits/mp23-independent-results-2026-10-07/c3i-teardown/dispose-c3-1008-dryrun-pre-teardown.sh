@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Exact disposal of nagare-c3-1008 in tan-ng-labs, generated from its own Pulumi stack export (33 gcp resources) plus the state bucket and host image.
+set -euo pipefail
+export CLOUDSDK_ACTIVE_CONFIG_NAME=labs CLOUDSDK_CORE_PROJECT=tan-ng-labs CLOUDSDK_CORE_DISABLE_PROMPTS=true
+[ "$(gcloud config get-value core/project 2>/dev/null)" = tan-ng-labs ] || { echo 'REFUSED: gcloud project is not tan-ng-labs'; exit 1; }
+run() { echo "+ $*"; if [ "${DISPOSE_EXECUTE:-0}" = 1 ]; then bash -c "$*" || { echo "STOPPED at: $*"; exit 1; }; fi; }
+run 'gcloud compute instances update nagare-c3-1008 --zone us-west1-a --no-deletion-protection'
+run 'gcloud compute forwarding-rules delete nagare-cdn-fr-http-31bd5fe --global'
+run 'gcloud compute forwarding-rules delete nagare-cdn-fr-https-5fff09c --global'
+run 'gcloud compute target-https-proxies delete nagare-cdn-https-proxy-7297ab0'
+run 'gcloud compute target-http-proxies delete nagare-cdn-http-proxy-a760d8b'
+run 'gcloud compute url-maps delete nagare-cdn-redirect-dc6f2ad --global'
+run 'gcloud compute url-maps delete nagare-cdn-urlmap-d161550 --global'
+run 'gcloud compute backend-services delete nagare-cdn-backend-be13d25 --global'
+run 'gcloud compute health-checks delete nagare-cdn-hc-bd2a84c --global'
+run 'gcloud compute ssl-certificates delete nagare-cdn-cert-cba8ab8 --global'
+run 'gcloud compute addresses delete nagare-cdn-ip-d385894 --global'
+run 'gcloud compute instance-groups unmanaged delete nagare-cdn-ig-fd722ee --zone us-west1-a'
+run 'gcloud compute instances delete nagare-c3-1008 --zone us-west1-a'
+run 'gcloud compute disks remove-resource-policies nagare-data-0862524 --zone us-west1-a --resource-policies nagare-data-snapshots-13d2d9f'
+run 'gcloud compute disks delete nagare-data-0862524 --zone us-west1-a'
+run 'for s in $(gcloud compute snapshots list --filter='"'"'sourceDisk~/zones/us-west1-a/disks/nagare-data-0862524$'"'"' --format='"'"'value(name)'"'"'); do gcloud compute snapshots delete "$s"; done'
+run 'gcloud compute resource-policies delete nagare-data-snapshots-13d2d9f --region us-west1'
+run 'gcloud compute images delete nagare-image-0h3ylsc859jp'
+run 'gcloud dns record-sets delete '"'"'*.c3-1008.labs.topagentnetwork.net.'"'"' --type A --zone nagare-zone-82c1e2c'
+run 'gcloud dns record-sets delete '"'"'c3-1008.labs.topagentnetwork.net.'"'"' --type A --zone nagare-zone-82c1e2c'
+run 'gcloud dns managed-zones delete nagare-zone-82c1e2c'
+run 'gcloud compute firewall-rules delete nagare-network-fw-web-b3adc6d'
+run 'gcloud compute firewall-rules delete nagare-network-fw-tailscale-6d9f9f6'
+run 'gcloud compute firewall-rules delete nagare-network-fw-iap-ssh-8596e3d'
+run 'gcloud compute firewall-rules delete nagare-network-fw-lb-health-3faa503'
+run 'gcloud compute networks subnets delete nagare-network-subnet-be00658 --region us-west1'
+run 'gcloud compute networks delete nagare-network-net-30f8916'
+run 'gcloud compute addresses delete nagare-ip-9199e97 --region us-west1'
+run 'gcloud projects remove-iam-policy-binding tan-ng-labs --member serviceAccount:nagare-c3-1008@tan-ng-labs.iam.gserviceaccount.com --role roles/dns.reader --condition=None'
+run 'gcloud projects remove-iam-policy-binding tan-ng-labs --member serviceAccount:nagare-c3-1008@tan-ng-labs.iam.gserviceaccount.com --role roles/artifactregistry.writer --condition=None'
+run 'gcloud iam service-accounts delete nagare-c3-1008@tan-ng-labs.iam.gserviceaccount.com'
+run 'gcloud artifacts repositories delete nagare-c3-1008 --location us-west1'
+run 'gcloud storage rm --recursive --all-versions gs://tan-ng-labs-c3-1008-pmkjjpp-backups'
+run 'gcloud storage rm --recursive --all-versions gs://tan-ng-labs-c3-1008-pmkjjpp-images'
+run 'gcloud storage rm --recursive --all-versions gs://tan-ng-labs-c3-1008-pmkjjpp-state'
+echo DISPOSE-DONE

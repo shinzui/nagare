@@ -1,0 +1,159 @@
+{
+  "reviewSha256": "db7c0ef2ba7d15fc5fc1e9941a2a7273ac012d937d184e964d165f581726be58",
+  "operations": [
+    {
+      "id": "op-04289cafdbd9d2e7b7f12711",
+      "action": "VerifyResource",
+      "executor": "PulumiExecutor",
+      "resources": [
+        "platform:cloud/nagare-network-fw-tailscale/nagare-network-fw-tailscale"
+      ],
+      "adapter": "pulumi-saved-plan",
+      "nativeDigest": "14df84e7d948d36e4b112b87d75b40f151e5f6de03f97113a93f5b94c76140c6",
+      "summary": "Pulumi saved plan e4ab19ebede0c0be10ba2dea0704815968b07d444d753256c49aaa3bb0212f34; 0 declared mutation(s); stack mp23-c3i; project tan-ng-labs"
+    },
+    {
+      "id": "op-0cccb9fda5d141e6e67fcf6e",
+      "action": "VerifyResource",
+      "executor": "PulumiExecutor",
+      "resources": [
+        "platform:cloud/nagare-instance-vm/nagare-c3-1008"
+      ],
+      "adapter": "pulumi-saved-plan",
+      "nativeDigest": "f35fc21f06420b3a8d352a43e7b39c6afc3d30af1bdc684ff9d456f8d2e23e99",
+      "summary": "Pulumi saved plan c00eb55a16db4190707b01889000c36d0503adfb0e496f78c949efdc58438776; 0 declared mutation(s); stack mp23-c3i; project tan-ng-labs"
+    },
+    {
+      "id": "op-16043fa43666c57fdc2a96a8",
+      "action": "VerifyResource",
+      "executor": "PulumiExecutor",
+      "resources": [
+        "platform:cloud/nagare-wildcard/nagare-wildcard"
+      ],
+      "adapter": "pulumi-saved-plan",
+      "nativeDigest": "fd89d3f1a35f5c7258322af4ddb8bbcba7f36ed41ad615003741ab3ff95c4a4a",
+      "summary": "Pulumi saved plan 256d6c0be4451823a02416222b189d8b2464ae6492a6d91affac63eb36a6c145; 0 declared mutation(s); stack mp23-c3i; project tan-ng-labs"
+    },
+    {
+      "id": "op-26bdf25e492f2f09f6ed4143",
+      "action": "VerifyResource",
+      "executor": "PulumiExecutor",
+      "resources": [
+        "platform:cloud/nagare-network-fw-web/nagare-network-fw-web"
+      ],
+      "adapter": "pulumi-saved-plan",
+      "nativeDigest": "536c76f2d13d62b7179216ec836a4a96e020e73c28f46218cf7f35b1ebca5bfb",
+      "summary": "Pulumi saved plan 93d197539809e4941139b707345de63fc184c2bc6822d68b0c265dbfd820074e; 0 declared mutation(s); stack mp23-c3i; project tan-ng-labs"
+    },
+    {
+      "id": "op-276ea330d93d5a9bdda1d8d8",
+      "action": "VerifyResource",
+      "executor": "PulumiExecutor",
+      "resources": [
+        "platform:cloud/nagare-network-fw-lb-health/nagare-network-fw-lb-health"
+      ],
+      "adapter": "pulumi-saved-plan",
+      "nativeDigest": "c601c4256497203626a1b9b5ae7be121d906d00d55c2bf8f874d3529f7e09d26",
+      "summary": "Pulumi saved plan b8b327e810bd564136bb51ef97452c6739344fe99c24e6d1dd12b3a6080879a8; 0 declared mutation(s); stack mp23-c3i; project tan-ng-labs"
+    },
+    {
+      "id": "op-55ef747af28f893004a24bb3",
+      "action": "VerifyResource",
+      "executor": "PulumiExecutor",
+      "resources": [
+        "platform:cloud/nagare-network/nagare-network"
+      ],
+      "adapter": "pulumi-saved-plan",
+      "nativeDigest": "e9a8ccacc5e60ee7e008bb696df235431bb0fde060eb126dce56dc9944b46016",
+      "summary": "Pulumi saved plan 0ff346d7306342decddac0f408b0654ca2d60243bf0c74b4a3d55b627e1edaf0; 0 declared mutation(s); stack mp23-c3i; project tan-ng-labs"
+    },
+    {
+      "id": "op-66f82269a72ae8a248832619",
+      "action": "VerifyResource",
+      "executor": "PulumiExecutor",
+      "resources": [
+        "platform:cloud/nagare-apex/nagare-apex"
+      ],
+      "adapter": "pulumi-saved-plan",
+      "nativeDigest": "1f6bfab68d44b823925875adcd32352c1e4be0a58d3101fe1ac01e8cede6a94f",
+      "summary": "Pulumi saved plan e8b622fa35abdee154befbf8b0bba8cb7f82c27603a3fc6e7f8b02e280a30de6; 0 declared mutation(s); stack mp23-c3i; project tan-ng-labs"
+    },
+    {
+      "id": "op-6aaacefff30ff5ea4c9dfced",
+      "action": "VerifyResource",
+      "executor": "PulumiExecutor",
+      "resources": [
+        "platform:cloud/nagare-zone/nagare-zone"
+      ],
+      "adapter": "pulumi-saved-plan",
+      "nativeDigest": "1cf0f49d6dd36ab1a203a49ca8c7c1a32bb11d56fb41caab99bc4bcb421912ae",
+      "summary": "Pulumi saved plan 6d30ceb48df952a8290ab17d18020e1ee4559a2ca4f345c82101532b14fe8ece; 0 declared mutation(s); stack mp23-c3i; project tan-ng-labs"
+    },
+    {
+      "id": "op-70681c9dac07d343b26d31d3",
+      "action": "VerifyResource",
+      "executor": "PulumiExecutor",
+      "resources": [
+        "platform:cloud/nagare-network-subnet/nagare-network-subnet"
+      ],
+      "adapter": "pulumi-saved-plan",
+      "nativeDigest": "95ac77ac2a76f7e50bfcb07ffcf046bd2e04ff7dd7e0553d5e1c5fe219dcab6c",
+      "summary": "Pulumi saved plan 13f80af5dfed5fb473c35314a2812096b162b7d783778afb12c29c0f19281aa5; 0 declared mutation(s); stack mp23-c3i; project tan-ng-labs"
+    },
+    {
+      "id": "op-74cba2147e0d09393bcdeb39",
+      "action": "VerifyResource",
+      "executor": "PulumiExecutor",
+      "resources": [
+        "platform:cloud/nagare-instance/nagare-c3-1008"
+      ],
+      "adapter": "pulumi-saved-plan",
+      "nativeDigest": "3c79534947bc63f21804032b32bef5e1805123fd8622cb3dbf8d93f0fec5fc5b",
+      "summary": "Pulumi saved plan 0475866b7be1344045e29e212395cf882abd426a8f602857820646dfdfa4277c; 0 declared mutation(s); stack mp23-c3i; project tan-ng-labs"
+    },
+    {
+      "id": "op-7e2bae80b2b9aa97b672342c",
+      "action": "VerifyResource",
+      "executor": "PulumiExecutor",
+      "resources": [
+        "platform:cloud/nagare-network-net/nagare-network-net"
+      ],
+      "adapter": "pulumi-saved-plan",
+      "nativeDigest": "3ef849eb452218104c142a9bda37fdde874bfd1047b2ad68fac05c8ecdf532a7",
+      "summary": "Pulumi saved plan 5f42a04a875807e969b55e90187d55d689083ebbd7042b41acbb5430ccc1a907; 0 declared mutation(s); stack mp23-c3i; project tan-ng-labs"
+    },
+    {
+      "id": "op-aca4d4bdc9e8eccf41211773",
+      "action": "VerifyResource",
+      "executor": "PulumiExecutor",
+      "resources": [
+        "platform:cloud/nagare-ip/nagare-ip"
+      ],
+      "adapter": "pulumi-saved-plan",
+      "nativeDigest": "97c49997acd1db563ac2f350dc13981a72e48911cfbe67fe4bf96ce8d6a970ae",
+      "summary": "Pulumi saved plan 8764b80bbe2f3529827dfe0eaca3e49d48ce9e3c7c5edc0fd89e35dbcbae4952; 0 declared mutation(s); stack mp23-c3i; project tan-ng-labs"
+    },
+    {
+      "id": "op-b8e74a83859786f506b8236b",
+      "action": "VerifyResource",
+      "executor": "PulumiExecutor",
+      "resources": [
+        "platform:cloud/nagare-network-fw-iap-ssh/nagare-network-fw-iap-ssh"
+      ],
+      "adapter": "pulumi-saved-plan",
+      "nativeDigest": "2467cab2af2f17ac93fe3ee26de91497fa76a88b38cafdc5541e5605dafe5ddc",
+      "summary": "Pulumi saved plan 9c800d6bcddccc3eb9623dc01ce383ea3ba6c5ae628d476f7095ced1c69ffcc2; 0 declared mutation(s); stack mp23-c3i; project tan-ng-labs"
+    },
+    {
+      "id": "op-e838b40f0730df2d1a49a19f",
+      "action": "VerifyResource",
+      "executor": "PulumiExecutor",
+      "resources": [
+        "platform:cloud/nagare-nix-cache/nagare-nix-cache"
+      ],
+      "adapter": "pulumi-saved-plan",
+      "nativeDigest": "aa6dbb18bde189aee28e1472368be90bee739afd60f97a974f0f2cc62b6a7e2a",
+      "summary": "Pulumi saved plan c8eef8189a8db5a8f0708748e2294335cfd211b435bbb12401487b976fe2df06; 0 declared mutation(s); stack mp23-c3i; project tan-ng-labs"
+    }
+  ]
+}

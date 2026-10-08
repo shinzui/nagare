@@ -33,8 +33,8 @@ This is the authoritative list of implementation findings for [MP-23](../masterp
 | [F12](mp23-archive/mp23-findings-closed.md#f12) | P1 | A later operation’s preflight blocks recovery of its ambiguous prerequisite | Closed | EP-153 / EP-159 |
 | [F13](mp23-archive/mp23-findings-closed.md#f13) | P1 | Ordinary executor recovery has no terminal-failure branch | Closed | EP-153 / EP-159 |
 | [F14](mp23-archive/mp23-findings-closed.md#f14) | P1 | Initial Knative activator readiness blocks its uncreated autoscaler | Closed | EP-156 |
-| [F15](#f15) | P1 | Patched certificate controller lacks refreshed private-image credentials | Verifying | EP-156 / EP-154 |
-| [F16](#f16) | P1 | Unready application creation cannot yield to a corrected reviewed configuration | Verifying | EP-153 / EP-156 |
+| [F15](mp23-archive/mp23-findings-closed.md#f15) | P1 | Patched certificate controller lacks refreshed private-image credentials | Closed | EP-156 / EP-154 |
+| [F16](mp23-archive/mp23-findings-closed.md#f16) | P1 | Unready application creation cannot yield to a corrected reviewed configuration | Closed | EP-153 / EP-156 |
 | [F17](mp23-archive/mp23-findings-closed.md#f17) | P1 | Effect-free retirement discards required native identity observations | Closed | EP-153 / EP-156 |
 | [F18](mp23-archive/mp23-findings-closed.md#f18) | P1 | Initial GCS foundation transaction cannot resume its local journal | Closed | EP-153 / EP-156 |
 | [F19](mp23-archive/mp23-findings-closed.md#f19) | P1 | Rendered pinned GCS restore omits download generations | Closed | EP-160 / EP-156 |
@@ -48,24 +48,24 @@ This is the authoritative list of implementation findings for [MP-23](../masterp
 | [F27](mp23-archive/mp23-findings-closed.md#f27) | P1 | Credential streaming loses argument boundaries at the real SSH transport | Closed | EP-153 / EP-154 |
 | [F28](mp23-archive/mp23-findings-closed.md#f28) | P1 | Release cleanup omits native evidence for adjacent scope members | Closed | EP-153 |
 | [F29](mp23-archive/mp23-findings-closed.md#f29) | P1 | Admitted preview route failure lacks a bounded configuration correction | Closed | EP-153 |
-| [F30](#f30) | P1 | Controller status churn strands admitted conditional Service correction | Verifying | EP-153 / EP-156 |
-| [F31](#f31) | P1 | Registry refresh cadence permits credentials to expire before its next run | Verifying | EP-154 / EP-156 |
-| [F32](#f32) | P1 | Image-cache cleanup selects an image used by active pod sandboxes | Verifying | EP-153 / EP-156 |
+| [F30](mp23-archive/mp23-findings-closed.md#f30) | P1 | Controller status churn strands admitted conditional Service correction | Closed | EP-153 / EP-156 |
+| [F31](mp23-archive/mp23-findings-closed.md#f31) | P1 | Registry refresh cadence permits credentials to expire before its next run | Closed | EP-154 / EP-156 |
+| [F32](mp23-archive/mp23-findings-closed.md#f32) | P1 | Image-cache cleanup selects an image used by active pod sandboxes | Closed | EP-153 / EP-156 |
 | [F33](#f33) | P1 | Cloud collection does not recheck its reviewed physical incarnation before deletion | Verifying | EP-153 / EP-156 |
 | [F34](mp23-archive/mp23-findings-closed.md#f34) | P1 | Kourier gateway rejects HTTPS listener updates on cp3, so new routes never become Ready | Closed | EP-155 / EP-153 |
 | [F35](mp23-archive/mp23-findings-closed.md#f35) | P1 | Preflight refusal after admission strands the transaction with no supported exit | Closed | EP-153 / EP-160 |
 | [F36](mp23-archive/mp23-findings-closed.md#f36) | P1 | A failed Redis scratch restore cannot be abandoned and wedges the store | Closed | EP-160 |
 | [F37](mp23-archive/mp23-findings-closed.md#f37) | P1 | Configuration drift written by another field manager has no reviewed repair | Closed | EP-149 / EP-153 |
 | [F38](mp23-archive/mp23-findings-closed.md#f38) | P2 | A failed GCS head advance after a published journal event stops ambiguous and discards the store error | Closed | EP-153 / EP-156 |
-| [F39](#f39) | P1 | Staged cloud teardown cannot prepare any Pulumi operation on a real stack | Verifying | EP-153 / EP-156 |
+| [F39](mp23-archive/mp23-findings-closed.md#f39) | P1 | Staged cloud teardown cannot prepare any Pulumi operation on a real stack | Closed | EP-153 / EP-156 |
 | [F40](#f40) | P1 | A real context cannot be retired: contribution targets, scope cycles and host or artifact members block every teardown | Partial | EP-153 / EP-156 |
 | [F41](mp23-archive/mp23-findings-closed.md#f41) | P1 | A local node restart destroys every local backup, and local escrow verification needs the source cluster | Closed | EP-155 / EP-159 |
 | [F42](mp23-archive/mp23-findings-closed.md#f42) | P1 | The managed-resource evidence assembler can never accept real runner output | Closed | EP-157 |
-| [F43](#f43) | P1 | A fresh inventory context cannot enable the platform Google CDN backend, so B3 cannot run | Verifying | EP-158 / EP-156 |
-| [F44](#f44) | P1 | Inventory status on a cloud context never observes cloud-foundation members, so cloud runner evidence cannot assemble | Verifying | EP-153 / EP-157 |
-| [F45](#f45) | P1 | Reviewed Google CDN deploy on an inventory context cannot observe or apply its DNS record | Verifying | EP-158 / EP-156 |
-| [F46](#f46) | P1 | A retired site's edge DNS record can never be collected, because retained release history orders after it | Verifying | EP-158 / EP-156 |
-| [F47](#f47) | P2 | CDN platform outputs are read with the caller's Pulumi environment, not the active context's | Verifying | EP-158 |
+| [F43](mp23-archive/mp23-findings-closed.md#f43) | P1 | A fresh inventory context cannot enable the platform Google CDN backend, so B3 cannot run | Closed | EP-158 / EP-156 |
+| [F44](mp23-archive/mp23-findings-closed.md#f44) | P1 | Inventory status on a cloud context never observes cloud-foundation members, so cloud runner evidence cannot assemble | Closed | EP-153 / EP-157 |
+| [F45](mp23-archive/mp23-findings-closed.md#f45) | P1 | Reviewed Google CDN deploy on an inventory context cannot observe or apply its DNS record | Closed | EP-158 / EP-156 |
+| [F46](mp23-archive/mp23-findings-closed.md#f46) | P1 | A retired site's edge DNS record can never be collected, because retained release history orders after it | Closed | EP-158 / EP-156 |
+| [F47](mp23-archive/mp23-findings-closed.md#f47) | P2 | CDN platform outputs are read with the caller's Pulumi environment, not the active context's | Closed | EP-158 |
 | [F48](#f48) | P2 | Inventory evidence names the manifest's payload without checking the payload the context runs | Open | MP-26 (EP-168 port) |
 | [F49](mp23-archive/mp23-findings-closed.md#f49) | P1 | An out-of-band replacement of an accepted database is reported converged, and its new incarnation's receipts plan for ingestion | Closed | EP-159 / EP-153 |
 | [F50](mp23-archive/mp23-findings-closed.md#f50) | P2 | One transient failed gcloud read makes the state-bucket ownership guard stop a run | Closed | EP-156 |
@@ -76,7 +76,7 @@ This is the authoritative list of implementation findings for [MP-23](../masterp
 | [F55](mp23-archive/mp23-findings-closed.md#f55) | P1 | A landed unready application update still has no exit when its review also updates its release history or verifies a member | Closed | EP-153 / EP-173 |
 | [F56](mp23-archive/mp23-findings-closed.md#f56) | P1 | A landed application Service update whose Service is then replaced outside review has no exit | Closed | EP-153 / EP-173 |
 | [F57](mp23-archive/mp23-findings-closed.md#f57) | P1 | A verification whose target is replaced after it ends ambiguous has no exit | Closed | EP-153 / EP-173 |
-| [F58](mp23-archive/mp23-findings-closed.md#f58) | P2 | An application whose first deploy stopped unready cannot be retired, because a never-created member has nothing to retain | Verifying (reopened 2026-10-07 by F83) | EP-153 / EP-173 |
+| [F58](mp23-archive/mp23-findings-closed.md#f58) | P2 | An application whose first deploy stopped unready cannot be retired, because a never-created member has nothing to retain | Closed | EP-153 / EP-173 |
 | [F59](mp23-archive/mp23-findings-closed.md#f59) | P1 | A standalone database whose StatefulSet is created but never becomes Ready has no exit | Closed | EP-153 / EP-173 |
 | [F60](mp23-archive/mp23-findings-closed.md#f60) | P2 | One out-of-band replacement between a create and convergence is recorded as the accepted incarnation (F49's fail-open recording, reachable with one fault) | Closed | EP-173 |
 | [F61](mp23-archive/mp23-findings-closed.md#f61) | P1 | A reviewed PostgreSQL rename whose copy Job fails partway has no exit | Closed | EP-173 / EP-153 |
@@ -97,168 +97,17 @@ This is the authoritative list of implementation findings for [MP-23](../masterp
 | [F76](mp23-archive/mp23-findings-closed.md#f76) | P1 | The accepted-incarnation tests stopped running, and twelve mutation records passed vacuously | Closed | EP-180 / EP-177 |
 | [F79](mp23-archive/mp23-findings-closed.md#f79) | P1 | Close drops a never-started member whose absence it cannot read, leaving it accepted with no exit | Closed | MP-23 (step 3d) |
 | [F80](mp23-archive/mp23-findings-closed.md#f80) | P1 | The reviewed rebind cannot be issued for application or standalone-database members, so an unrecorded database never has its backups accepted again | Closed | nagare-fix (MP-23 step 5) |
-| [F81](#f81) | P1 | A reviewed rename stopped by a source replaced outside review, or by a refused copy, had no exit, and close could accept it half done | Verifying | nagare-fix (MP-23 step 5) |
-| [F82](#f82) | P1 | The no-data-loss drill (checklist section 2) has no documented procedure: the guide places full restore after total cluster loss outside this release | Open (scope decided; rebuild-in-place deferred) | nagare-fix (MP-23 step 5); rebuild-in-place: next MasterPlan |
-| [F83](#f83) | P1 | A reviewed retirement whose review proves a Kubernetes member absent always refuses through the CLI | Open | nagare-fix (follow-up candidate) |
+| [F81](mp23-archive/mp23-findings-closed.md#f81) | P1 | A reviewed rename stopped by a source replaced outside review, or by a refused copy, had no exit, and close could accept it half done | Closed | nagare-fix (MP-23 step 5) |
+| [F82](mp23-archive/mp23-findings-closed.md#f82) | P1 | The no-data-loss drill (checklist section 2) has no documented procedure: the guide places full restore after total cluster loss outside this release | Closed | nagare-fix (MP-23 step 5); rebuild-in-place: next MasterPlan |
+| [F83](mp23-archive/mp23-findings-closed.md#f83) | P1 | A reviewed retirement whose review proves a Kubernetes member absent always refuses through the CLI | Closed | nagare-fix (follow-up candidate) |
+| [F84](#f84) | P2 | An accepted access grant cannot be retired, so a full context holding one has no reviewed teardown | Deferred (next release) | nagare-fix |
+| [F85](#f85) | P2 | The installed package needs host npm, so the clone-free rehearsal fails on x86_64-linux | Deferred (next release) | nagare-fix |
 | [F77](#f77) | P1 | A database volume claim deleted outside review while its pod runs stays Terminating, and every review of the database refuses until it goes | Deferred | deferral ledger (operator, 2026-10-07); next MasterPlan |
 | [F78](#f78) | P2 | While a StatefulSet's own template never becomes Ready, every transaction stops at it, and independent members planned after it are never created until the template is corrected | Deferred | operator, 2026-10-07; next MasterPlan |
 
 Closed findings keep their full text, location, implementation updates and verification in [the closed-findings archive](mp23-archive/mp23-findings-closed.md). F01 and F11 retain their [earlier independent closure](mp23-archive/mp23-verification.md). F02, F03, F04, F05, F06, F07, F08 and F20 now have [2026-10-02 independent closure](mp23-independent-verification-2026-10-02.md). F34, F35, F36, F37, F38, F41 and F42 have 2026-10-04 independent closure on candidate `7596632c`, and F49 and F50 on candidate `847543896d07` ([records](mp23-independent-results-2026-10-04/phase1-source-and-regressions-7596632c.md)). F51, F53, F55–F61, F63–F76 and F79 have 2026-10-07 independent closure on candidate `96c1da11`, all on source except F53 and F76, which close on the gate itself ([record](mp23-independent-results-2026-10-07/README.md)). Other entries retain their status shown above.
 
 **Exit change for open findings (2026-10-05, EP-175 M3; claude-opus-5-5).** [ADR 26](../adr/0026-stopped-transactions-close-by-per-operation-proof.md) replaced every stop and abandon exit with `nagarectl inventory close`. The affected findings are F16, F54–F59 and F63–F65, plus the closed F35–F37. Their instance-level guards (the Application-only and StatefulSet-only stop rules, the companion rules F55 and F65, and the landed/replaced stop proofs) are deleted. Their mutation records are retired in [the mutation README](../../cli/nagarectl/test/mutations/README.md), which names the rule-level record that now pins each class. A verifier re-checking these findings should run the close path: each scenario's stop now ends with `inventory close`, keeping or reverting the changed scope by proof. Statuses are unchanged here; they are the verifier's to set.
-
-## F15
-
-**Implementation update (2026-09-30, F15 pre-review boundary):** Installed CLI `705716b7` passes the full native local platform-bootstrap gate and preserves the retained F15 `d73c1dc4` payload identity. Its prerequisite public shared-store status refuses with `StoreConditionFailed "gcloud credential or ownership command failed or timed out"` under configuration `labs`; cloud preparation stops at the guard, before a VM review or mutation. Restore that successful guarded read before the bounded cloud rehearsal. This supplies no new credential-expiry/re-pull evidence; operator Verification remains pending.
-
-**Patched certificate controller lacks refreshed private-image credentials** — P1; **Verifying**; owners EP-156 / EP-154.
-
-**Locations:** nixos/hosts/nagare-01/registries.nix; bootstrap private certificate-controller Deployment and ServiceAccount declarations.
-
-**Native evidence:** The original saved bootstrap creates `net-certmanager-controller` in `knative-serving`; its private Artifact Registry image receives a 401 token response. The accepted host supplies boot-only k3s registry credentials, which have expired. Its recurring Secret policy covers `personal` and `nagare-system` default ServiceAccounts; this controller uses the `knative-serving` controller account. The bounded rollout stops naturally after 436.558 seconds. Shared generation 469 retains the same original transaction with no claim/fence. Serving and public-image certificate webhook workloads are Ready.
-
-**Implementation update:** A bounded explicit registry recovery candidate passes all 992 CLI tests, the public foundation/bootstrap regression, registration/injected-mutation audit and structural style checks. Named regressions include `bounded registry recovery journals intent and requires actual workload readiness`, `registry recovery binds completed host history and original private Deployment`, `registry unit recovery preserves landed phases across expiry and settles ready workloads`, and strict intent/receipt parsing. It saves the original Deployment/host/unit proof separately, journals intent before replaying only the accepted registry bootstrap unit and k3s service, and retains independent Deployment readiness as the completion criterion. Installed `39842f8058bdaaf94819365b1f2511a3a7147246` runs this public recovery in 101.552 seconds and proves the original Deployment/pod Ready. Public original-review resume converges in 230.454 seconds at generation 549, with no active transaction, claim, fence or migration; all accepted/prerequisite revisions remain exact. [Retained redacted proof](mp23-archive/mp23-native-bootstrap-results-2026-09-30/registry-recovery.json) binds both journal events and actual workload readiness. No new Secret/ServiceAccount authority is introduced. This preserves the original payload version and review. The final 992-test recheck also proves exact-capsule settlement after lost acknowledgement/readiness, refuses ordinary proof bypass, and retains completed unit evidence after credential expiry. Native locking and quiescent unit jobs bound uncertain host execution. Steady private platform credential coverage still needs a typed ownership/delegation contract and installed acceptance before safe use.
-
-**Implementation update (2026-09-30):** EP-153 moves the registry-recovery mutation into the shared `runOperations` driver. The driver owns intent journaling, claim recheck, recovery-capability execution, and exact receipt settlement; preparation remains read-only. The unchanged retained F15 recording-adapter regressions pass, as do the focused registry suite, all 1,001 `nagarectl` tests, executable build, entrypoint-guard script, structural style, and all 460 `nagare-dsl` tests. The entrypoint guard now covers legacy `platform upgrade --apply --resume missing --yes` and refuses the inventory-admitted context before any upgrade/provider action. This source repair does not verify installed controller credential expiry or re-pull.
-
-**Steady credential source candidate (2026-09-30):** Fresh generated hosts reserve the exact three pull Secret addresses; the Serving controller account binds its calculated resource identity and a typed host-only refresh grant. The actual timer checks that static grant and both native owner identities, uses resource-version conditions, and refuses foreign credentials or pull references. Legacy accepted hosts stay legacy. All 1,001 CLI tests pass (48.80 seconds); the rendered timer regression passes owned create/refresh, six foreign/race refusals and legacy policy, and fails against the original source with `controller credential target missing`. The CLI executable build, public foundation/bootstrap regression, structural style, command audit, Cabal formatting, host options and NixOS registry assertions pass. [Exact source hashes and verification boundaries](mp23-archive/mp23-native-bootstrap-results-2026-09-30/registry-credential-delegation-candidate.json) are retained. Installed fresh-host expiry and re-pull proof remains pending; the existing cloud host/payload have not been changed or upgraded. This source candidate does not close F15 or establish safe use.
-
-**Native fresh-host verification (2026-10-01):** Installed `71288437` converges the original fresh `f15-preview` cluster review with the admitted `d73c1dc4` payload. Its actual timer creates the three exact owned pull Secrets, validates and updates the typed Serving account, and the original private certificate controller performs an uncached pull and becomes Ready after its boot credential expired. A guarded native containerd re-pull of that same cached image refuses without the refreshed Secret and succeeds with the exact owned Secret. VM, closure, node, account, Secret and Deployment identities are checked; k3s invocation, original Deployment and shared head stay unchanged. [Redacted native evidence](mp23-archive/mp23-native-bootstrap-results-2026-09-30/f15-cloud-sequence-rehearsal.json) retains the timer, registry response and pull-event boundaries. Native implementation proof is accepted; the operator runbook verification and independent release closure remain pending.
-
-**Required verification:** Exercise source drift, foreign VM/closure/node/boot/workload, malformed or changed recovery proof, lost acknowledgement and partial-unit replay with zero repeated proved phases. Verify the installed original-transaction path and real image readiness without raw provider repair or review reset. Prove future credential expiry/re-pull coverage before initial safe-use acceptance.
-
-**Verification:** Source regressions and installed original-transaction recovery/bootstrap convergence are retained; steady credential refresh/re-pull coverage remains open. Independent closure is required.
-
-**Verification (2026-10-04, nagare-reviewer, candidate `7596632c`):** No source change in phase 1. Native closure is the phase-3 C3 run: a genuine credential refresh and a private pull after the boot credential expired. Next check: phase 3a.
-
-**Independent verification (2026-10-07, nagare-verify; candidate `96c1da11`, code identical to `8824f469`; observed).** Every native pass so far is on `84754389`. The candidate changes 310 files under `cli/`, so the carry-over ruling does not apply. Stays Verifying until C3 on this candidate. The candidate's full gate is green ([record](mp23-independent-results-2026-10-07/gate-96c1da11.json)), and the mutation sweep at `8824f469` killed all 117 records ([results](mp23-independent-results-2026-10-07/mutation-sweep-8824f469.tsv)). Tests named here pass in that gate run ([lines](mp23-independent-results-2026-10-07/test-evidence-96c1da11.txt)). Summary: [2026-10-07 verification record](mp23-independent-results-2026-10-07/README.md).
-
-## F16
-
-**Unready application creation cannot yield to a corrected reviewed configuration** — P1; **Verifying**; owners EP-153 / EP-156.
-
-**Native evidence:** The cloud fixture has 2 CPUs, with 1,785m allocated after full bootstrap. Application A's default web pod requests 275m and cannot schedule, although its PostgreSQL pod is Ready and its retained PVC is Bound. Public saved apply stops after 365.186 seconds at `op-711f755156b69c10be13390c`. Generation 576 keeps the original application transaction without claim, fence or migration. Its review targets only its 11 owned resources; [redacted evidence](mp23-archive/mp23-native-bootstrap-results-2026-09-30/application-capacity.json) preserves the review, identity and failure. No raw resize, patch, restart, review rewrite or history reset occurred.
-
-**Implementation update:** A guarded `stop-incomplete-application` decision requires one changed Application scope, only unfenced owned Kubernetes creates, an originally absent stateless Knative Service proved owned and unchanged but unready, and no other uncertain operation. It journals selection before clearing the active transaction, retaining admitted ownership and prior converged revisions. It never completes the workload or rolls ownership back away from created retained data. The same decision settles a lost head acknowledgement without provider IO; ordinary proof cannot bypass a pending stop. A new application review can correct resource configuration. Knative conditional updates retain UID/resourceVersion and exclusive non-status ownership checks; installed update proof remains pending.
-
-**Required verification:** Preserve unselected stopped applications' prior converged revisions when another scope completes. Prove created retained-data ownership survives stopping, foreign/durable/changed-native and multiple-uncertain refusals, exact decision replay after lost acknowledgement, and installed stop followed by a new corrected review. Require the same Service/PVC/database identities, Ready application and no platform revision change. Prove the Knative conditional update and unchanged replay through the public installed path.
-
-**Verification:** The installed `0f6fa7db` stop passes in 12.441 seconds: all 24 accepted and 23 converged revisions and the original Service/PostgreSQL/PVC UIDs are preserved; generation 579 is idle. The corrected plan then refuses in 17.365 seconds at the original never-created backup signing key. [Redacted evidence](mp23-archive/mp23-native-bootstrap-results-2026-09-30/application-stop-and-replan.json) retains this consumer result. The follow-up repair derives never-started create proof from the original immutable stopped review and validated committed journal, only for planning that selects its unchanged unconverged application revision. Previously completed, uncertain, changed and foreign durable members still refuse; ordinary inspection and unrelated planning do not scan execution history. The final CLI suite passes all 997 tests in 52.48 seconds, covering never-started creation, completed data refusal, later uncertain intent, foreign ownership, changed declaration, superseded revision, missing committed journal and inspection/unrelated planning isolation. Structural style and the managed-command audit pass. The installed public bootstrap fixture passes. Installed `49db2199` saves the corrected Application A review in 42.372 seconds and converges in 63.123 seconds: same Service/PostgreSQL/PVC UIDs, Ready Service, expected HTTP body and preserved seeded row. Only its accepted revision changes, with all 24 scopes converged at generation 605/sequence 539. [Redacted native proof](mp23-archive/mp23-native-bootstrap-results-2026-09-30/application-correction.json) retains the original NotReady UID/resourceVersion precondition and actual consumer results. A follow-up real-planner regression reproduces a convergence leak: completing another application incorrectly marks a stopped, unready application converged. The repair advances only revisions changed by the completing review and removes retired scopes; it preserves unselected prior convergence. The eight focused regression cases and all 998 CLI tests now pass (60.14 seconds); structural Haskell style passes. Installed `eb582eb0` builds successfully. A second regression exposes unchanged stopped members being omitted while remaining creates complete; selected unconverged scopes now require fresh verification for unchanged managed members. Native preparation still refuses NotReady verification, while a corrected Knative configuration uses its guarded update. All 998 tests pass after this extension in 67.46 seconds, and structural style passes. Final installed validation and independent closure remain open.
-
-**Installed follow-up:** Immutable `2101b834` builds on aarch64-darwin and passes the installed public foundation/bootstrap fixture. Its [cloud interruption and second-root proof](mp23-archive/mp23-native-bootstrap-results-2026-09-30/cloud-interruption-and-second-root.json) preserves every prior accepted owner and all application/database identities while recovering a separate backup without repeating its create. Its [installed stopped-readiness proof](mp23-archive/mp23-native-bootstrap-results-2026-09-30/cloud-stopped-notready-verification.json) now confirms unchanged NotReady replan refusal without a review or head change, followed by a corrected conditional update retaining the Service UID. All 29 scopes converge at generation 698/sequence 615; original application/database/PVC identities and data remain intact. Independent F16 closure remains open.
-
-**Implementation update (2026-09-30):** EP-153 adds a bounded fixed-seed in-memory driver model to the ordinary `nagarectl-test` suite. Planner-produced create/update/selected-unconverged-verification/retention-retirement reviews across two Application scopes interrupt each provider-effect boundary and resume with recording-adapter proof; stale conditional writes refuse without mutating the head, and a foreign executor claim requires explicit takeover. The model checks no duplicate effect, selected-only revision completion, accepted/converged consistency, monotonic head/journal state, and finite ambiguity recovery. Its stopped-scope assertion rejects the `eb582eb0` convergence leak; its unchanged selected member assertion rejects the `7c957c02` readiness-verification leak. The focused model test and all 1,002 CLI tests pass; structural style passes. This is source-only evidence and does not replace the operator's F16 runbook verification on `f15-preview`.
-
-**Verification (2026-10-04, nagare-reviewer, candidate `7596632c`):** All fix diffs read. Without the fix, `eb582eb0` fails (the convergence leak), `7c957c02` fails ("unchanged stopped workload lacks fresh readiness proof"), and a stop-guard mutation of `0f6fa7db` fails "refuses foreign scope". `49db2199` fails only to compile on its parent (new API). All pass at the candidate, in a full suite of 1,184 tests ([phase-1 record](mp23-independent-results-2026-10-04/phase1-source-and-regressions-7596632c.md)). Source verified. Next check: native application change and recovery on the acceptance C3 (phase 3a).
-
-**Independent verification (2026-10-07, nagare-verify; candidate `96c1da11`, code identical to `8824f469`; observed).** Source is done: ADR 26 close plus the fast tier. Stays Verifying until native confirmation on this candidate (C2 or C3). The candidate's full gate is green ([record](mp23-independent-results-2026-10-07/gate-96c1da11.json)), and the mutation sweep at `8824f469` killed all 117 records ([results](mp23-independent-results-2026-10-07/mutation-sweep-8824f469.tsv)). Tests named here pass in that gate run ([lines](mp23-independent-results-2026-10-07/test-evidence-96c1da11.txt)). Summary: [2026-10-07 verification record](mp23-independent-results-2026-10-07/README.md).
-
-## F30
-
-**Controller status churn strands admitted conditional Service correction** — P1; **Verifying**; owners EP-153 / EP-156.
-
-**Independent installed native evidence (2026-10-02):** A fresh public Application
-review creates its PostgreSQL/PVC and an intentionally unschedulable Service.
-Exact stop preserves ownership; an unchanged replan refuses NotReady, and an
-unrelated scope completes without falsely converging the application. Its
-corrected review then completes the original unfinished backup create but refuses
-the conditional Service update: Knative's status-only RevisionFailed transition
-changes resourceVersion after planning. UID, generation, spec, labels, annotations,
-finalizers, deletion timestamp and owner references remain exact. The existing
-strict saved-state preflight says to replan, but the admitted transaction cannot
-replan, and ordinary resume repeats the same refusal. No provider write was
-attempted for the correction. [Exact native evidence](mp23-independent-results-2026-10-02/application-status-race-f30.json).
-
-**Required repair/verification:** Preserve the original review and transaction.
-Preserve legacy full-object observation semantics; the old digest cannot prove a
-status-only refresh. Stop only this never-intended owned Service Update and its
-never-intended dependent release-history Create, with completed companions and
-unchanged accepted/converged vectors. Fresh reviews may use a versioned
-status-stable observation retaining spec/ownership/identity authority and a fresh
-atomic UID/resourceVersion write precondition. Refuse changed desired fields,
-foreign ownership, deletion, replacement and any prior selected intent; test a
-race after refresh. Execute the fresh correction, prove the same Service/database/
-PVC identities and known row, and complete independent F16 verification. No generic precondition
-relaxation, history reset or raw patch is authorized.
-
-**Stopped handoff (2026-10-02):** The independently executed bounded stop
-succeeded and preserved all ownership/convergence/retention vectors. Source fixes
-`95b58a24` and `52432400` then prepared a version-2 update with one dependent
-ConfigMap create, nine verifies, and all 31 unrelated scopes preserved. The
-conditional Service update landed on its original UID; generation 2 was observed
-and ConfigurationsReady became True, while route/load-balancer readiness remained
-Unknown. At the user's instruction, only the waiting CLI was interrupted after
-183.115 seconds. No rollback or provider patch occurred. The original new
-transaction remains preserved; final data/replay checks were not run. F30 native
-closure remains pending. [Exact stopped state](mp23-independent-results-2026-10-02/application-status-race-f30-handoff.json).
-
-**Implementation update (2026-10-02, MP-23 A4 resume attempt; claude-opus-5-5):** With no live executor process and the store still at generation 9314 with the original claim, the admitting binary (`ab3aabf7…`, same isolated operator root) ran the public `inventory resume tx-b4da295e… --yes`. It exited 1 after 3 s with `ambiguous … at op-fed6a9432af7669b7446f230` and wrote no provider effect. That is the driver's correct refusal to retry an unproved update. Read-only observation: the Service keeps UID `470ff139…` at generation/observedGeneration 2; ConfigurationsReady is True; revision 00002 is Running 2/2; Ready/RoutesReady are Unknown ("Waiting for load balancer to be ready"). The cause is [F34](mp23-archive/mp23-findings-closed.md#f34), not the F30 repair. Following the stop rule, no `inventory recover`, takeover, patch or rollback was attempted, and the transaction remains preserved. Private record: `/tmp/mp23-independent-application-correction/a4-resume-refusal.json`. Next: diagnose and repair F34 under a written recovery plan, then resume the same transaction and verify identities, the known row and replay.
-
-**Implementation update (2026-10-02, A4 terminal state; claude-opus-5-5):** After the F34 repair, the same public `inventory resume tx-b4da295e… --yes`, with the same admitting binary and root, exited 0 in 3 s (`converged`). Store status shows no active transaction or claim (generation 9322). Service `470ff139…` (generation 2, Ready), StatefulSet `03a23352…` and PVC `15138d3a…` are unchanged, and `select id, value from mp23_correction_probe` returns `1|mp23-original-data-before-correction`. An unchanged `app deploy … --save-plan` replan with the scope's recorded tag, image resource and recovery binding produced review `701d1306…` with zero operations. No rollback, patch or history reset occurred. Private record: `/tmp/mp23-independent-application-correction/a4-f34-recovery.json`. F30 and F16 now await independent verification.
-
-**Verification (2026-10-04, nagare-reviewer, candidate `7596632c`):** `52432400` fails on its parent ("observation Kubernetes envelope differs from reviewed operation"). `95b58a24` fails only to compile there (new module). Both pass at the candidate ([phase-1 record](mp23-independent-results-2026-10-04/phase1-source-and-regressions-7596632c.md)). The A4 terminal resume records (`/tmp/mp23-independent-application-correction/a4-*.json`) agree with the updates above: converged, the same Service/StatefulSet/PVC UIDs, the known row, a zero-operation replan. But they were written by the implementer with development binary `ab3aabf7` and are retained only in `/tmp`; archive them under `docs/audits/`. Status set to Verifying. Next check: native application change and recovery on the acceptance C3 (phase 3a).
-
-**Version 2 removed (2026-10-06, EP-180 M5b; claude-opus-5-5):** The status-stable version-2 observation this entry introduced for Knative Service updates is deleted. Every update now follows G6's single discipline (RES-4 U3, U10): it is guarded by the reviewed UID, this member's ownership and its before-state stamp, which status writes never change, and it writes with a fresh resourceVersion. A status-only transition like this entry's RevisionFailed therefore no longer refuses an admitted correction, for any kind. Saved version-2 reviews are refused, since Nagare has no installation to keep compatible. Deleting version 2 exposed F73.
-
-**Independent verification (2026-10-07, nagare-verify; candidate `96c1da11`, code identical to `8824f469`; observed).** Source is done: the G6 guard; killed `G6-write-guard-compares-whole-state` and `G6-retire-stale-precondition`. The A4 native records were never archived. Stays Verifying until this candidate's native run. The candidate's full gate is green ([record](mp23-independent-results-2026-10-07/gate-96c1da11.json)), and the mutation sweep at `8824f469` killed all 117 records ([results](mp23-independent-results-2026-10-07/mutation-sweep-8824f469.tsv)). Tests named here pass in that gate run ([lines](mp23-independent-results-2026-10-07/test-evidence-96c1da11.txt)). Summary: [2026-10-07 verification record](mp23-independent-results-2026-10-07/README.md).
-
-## F31
-
-**Registry refresh cadence permits credentials to expire before its next run** — P1; **Verifying**; owners EP-154 / EP-156.
-
-**Independent installed native evidence (2026-10-02):** The fresh immutable 762
-host and full cluster converge, with all three exact host-owned pull Secrets, the
-Serving account grant, and all 33 Pods Ready/Succeeded. Its automatic timer ran
-successfully at 02:22:18 UTC, yet every current credential expires at 02:50:10.
-The native 30-minute timer next deadline is approximately 02:52:18, leaving at
-least 128 seconds after expiry before the next scheduled refresh. A successful
-metadata request reused the cached boot token. [Google's documented metadata
-cache behavior](https://docs.cloud.google.com/compute/docs/access/authenticate-workloads)
-retains a token until five minutes of remaining lifetime; the current validation
-accepts any lifetime above 300 seconds. Thus a healthy refresh can install a token
-that expires before the next run. [Native timer and credential evidence](mp23-independent-results-2026-10-02/registry-timer-expiry-gap-f31.json).
-
-**Required repair/verification:** Align automatic refresh cadence, lifetime checks
-and scheduling margin with metadata-token caching. Independently prove a genuine
-automatic replacement before the previous credentials expire, then authenticate
-the exact private controller image after the original boot credential expires.
-Preserve typed Secret/account ownership, exact conditional writes, and the
-immutable/disposable fixture decision. Do not manually start the refresh unit or
-patch credentials to manufacture the acceptance result. F15 remains Verifying.
-
-**Implementation update (2026-10-02, `ebe9d3a7`; claude-opus-5-5):** `nixos/hosts/nagare-01/registries.nix` now runs the pull-Secret timer every 120 s (`AccuracySec` 5 s) with a 60 s `TimeoutStartSec`. A module assertion requires interval + accuracy + timeout < 300 s, the minimum `expires_in` the script accepts, which is the metadata cache floor. An unchanged token and current ServiceAccount cause no Kubernetes write (compared on stdin; the token never enters argv), and a rotated token keeps the resourceVersion-conditional replace. `python3 scripts/test-registry-credential-delegation.py` passes the cadence invariant, create, no-op, rotation, ≤300 s refusal, six foreign/race refusals and the legacy policy. It fails against the previous module. `nix eval` of the `nagare-01` toplevel drv succeeds. Remaining: an installed fresh-host observation of an automatic replacement before expiry and an expired-boot-credential private pull (EP-156 C3); independent closure.
-
-**Verification (2026-10-04, nagare-reviewer, candidate `7596632c`):** `python3 scripts/test-registry-credential-delegation.py` passes at the candidate. With the previous module it fails: there the cadence was 30 minutes and any token with more than 300 s left was accepted ([phase-1 record](mp23-independent-results-2026-10-04/phase1-source-and-regressions-7596632c.md)). Next check: in phase 3a, read the controller timeline for a refresh before expiry.
-
-**Independent verification (2026-10-07, nagare-verify; candidate `96c1da11`, code identical to `8824f469`; observed).** Every native pass so far is on `84754389`. The candidate changes 310 files under `cli/`, so the carry-over ruling does not apply. Stays Verifying until C3 on this candidate. The candidate's full gate is green ([record](mp23-independent-results-2026-10-07/gate-96c1da11.json)), and the mutation sweep at `8824f469` killed all 117 records ([results](mp23-independent-results-2026-10-07/mutation-sweep-8824f469.tsv)). Tests named here pass in that gate run ([lines](mp23-independent-results-2026-10-07/test-evidence-96c1da11.txt)). Summary: [2026-10-07 verification record](mp23-independent-results-2026-10-07/README.md).
-
-## F32
-
-**Image-cache cleanup selects an image used by active pod sandboxes** — P1; **Verifying**; owners EP-153 / EP-156.
-
-**Independent installed native evidence (2026-10-02):** Installed b805 prepares
-two exact cache deletions on the fixed 762 host, including the full image ID for
-`rancher/mirrored-pause:3.10.2`. The runtime reports `pinned=false`, but independent
-`crictl inspectp` and containerd container inspection show a Ready sandbox uses
-that exact image alias. Thirty-five sandboxes exist. The production capture only
-lists ordinary containers with `crictl ps -a`, omitting sandbox image references.
-No apply occurred; the original review and idle head remain preserved.
-[Native review and sandbox evidence](mp23-independent-results-2026-10-02/image-prune-sandbox-f32.json).
-
-**Required repair/verification:** Resolve and protect exact image IDs referenced
-by Ready and retained stopped sandboxes, and fail closed when required sandbox
-observations are missing or ambiguous. Account for the configured runtime sandbox
-image rather than relying solely on the reported pinned flag. Exercise the actual
-production script with sandbox-only use and inspection failure, then independently
-prepare and execute a fresh installed native review that excludes those protected
-images. Prove ordinary unused-image deletion, workload preservation and durable
-one-shot replay behavior. Do not apply the unsafe saved review.
-
-**Implementation update (2026-10-02, `c2dc2bb1`; claude-opus-5-5):** The production script (`cli/nagarectl/src/Nagare/Inventory/ImagePruneScript.hs`) adds every pod sandbox's image (`crictl pods -o json`, then `crictl inspectp -o json` `.info.image`, for Ready and NotReady sandboxes) and the configured sandbox image (`pinned_images` `sandbox` or legacy `sandbox_image` in `/var/lib/rancher/k3s/agent/etc/containerd/config.toml`) to the resolved used set that both inspection and removal protect. A failed listing or inspection, a missing image field, or an absent or ambiguous configured image refuses the capture. Read-only observation on local k3s v1.34.6 (cp3) confirmed `crictl info` lacks the sandbox image, `inspectp` reports `.info.image`, and the pause image is `pinned=false`. `python3 scripts/test-image-prune-protocol.py` passes 23 cases (was 10), including sandbox-only, configured-only, seven fail-closed observations, ordinary deletion beside protected sandboxes, and inspection reporting sandbox images as used. The first sandbox case fails against the previous script. Remaining: a fresh installed native review that excludes protected images and deletes an ordinary unused one, with one-shot replay; independent closure.
-
-**Verification (2026-10-04, nagare-reviewer, candidate `7596632c`):** The production script protects every pod sandbox image, Ready or NotReady, plus the configured sandbox image. A failed or ambiguous observation refuses the capture. `test-image-prune-protocol.py` passes 23/23 at the candidate; with the previous script, the first sandbox case fails ([phase-1 record](mp23-independent-results-2026-10-04/phase1-source-and-regressions-7596632c.md)). Status set to Verifying. Next check: the reviewed GCE-image cleanup in phase 3a.
-
-**Independent verification (2026-10-07, nagare-verify; candidate `96c1da11`, code identical to `8824f469`; observed).** Every native pass so far is on `84754389`. The candidate changes 310 files under `cli/`, so the carry-over ruling does not apply. Stays Verifying until C3 on this candidate. The candidate's full gate is green ([record](mp23-independent-results-2026-10-07/gate-96c1da11.json)), and the mutation sweep at `8824f469` killed all 117 records ([results](mp23-independent-results-2026-10-07/mutation-sweep-8824f469.tsv)). Tests named here pass in that gate run ([lines](mp23-independent-results-2026-10-07/test-evidence-96c1da11.txt)). Summary: [2026-10-07 verification record](mp23-independent-results-2026-10-07/README.md).
 
 ## F33
 
@@ -292,31 +141,7 @@ verify the regression and a fresh disposable native collection before closure.
 
 **Independent verification (2026-10-07, nagare-verify; candidate `96c1da11`, code identical to `8824f469`; observed).** Every native pass so far is on `84754389`. The candidate changes 310 files under `cli/`, so the carry-over ruling does not apply. Stays Verifying until C3 on this candidate (staged teardown). The candidate's full gate is green ([record](mp23-independent-results-2026-10-07/gate-96c1da11.json)), and the mutation sweep at `8824f469` killed all 117 records ([results](mp23-independent-results-2026-10-07/mutation-sweep-8824f469.tsv)). Tests named here pass in that gate run ([lines](mp23-independent-results-2026-10-07/test-evidence-96c1da11.txt)). Summary: [2026-10-07 verification record](mp23-independent-results-2026-10-07/README.md).
 
-## F39
-
-**Staged cloud teardown cannot prepare any Pulumi operation on a real stack** — P1; **Verifying**; owners EP-153 / EP-156.
-
-**Implementer native evidence (2026-10-03, claude-opus-5-5, candidate `db808a74`, checkpoint C3 context `mp23-c3` in `tan-ng-labs`):** This is the first native run of staged teardown; F33 records that none had been attempted. In the clean `env -i` operator wrapper the runbook prescribes, `infra destroy --save-plan` refused before saving a review. Every one of the 14 cloud operations failed in `PrepareRefused` with `passphrase must be set with PULUMI_CONFIG_PASSPHRASE or PULUMI_CONFIG_PASSPHRASE_FILE`. The planner was then given the context's own documented exports (`PULUMI_HOME`, `PULUMI_BACKEND_URL`, `PULUMI_CONFIG_PASSPHRASE_FILE`, `NAGARE_PULUMI_STACK`, as printed by `nagarectl context env`). Every operation then refused with `PulumiResourceStepMissing`. A manual targeted `pulumi preview --json` of `nagare-apex` (Pulumi v3.255.0) returned only the implicit stack step. The same command with `--show-sames` returned `same` steps.
-
-**Cause (source):**
-- `Runtime/CloudTeardown.saveReviewedCloudTeardown` resolved the workspace with `resolvePlatformWorkspace`, so the Pulumi home, backend and passphrase file were never set. `inventory apply` and bootstrap get them through `Platform/InfrastructureReview.prepareInfraTargetWithPulumi`.
-- `Adapters/PulumiRuntime.prepareUnprotectedPlan` ran the saved-plan preview without `--show-sames`. `Adapters/Pulumi.validatePulumiPreparation` requires a step for every selected resource, so any Pulumi operation with no native change (verify-only, policy-only) could never prepare.
-- Both defects are present unchanged in candidate `44ff0fd7`.
-
-**Why it matters:** S9 of the C3 sequence, and any operator teardown of a cloud context, cannot start. A reviewed `VerifyResource` over cloud resources in any other review fails the same way.
-
-**Implementation update (2026-10-03; claude-opus-5-5):**
-- Teardown planning now calls `prepareInfraTargetWithPulumi True`. That is the same ADC check, reviewed Pulumi selection and project guard as inventory apply, and it doesn't probe the guest being torn down.
-- The adapter preview passes `--show-sames`.
-- New regression in `test/InventoryCloudSpec.hs`: `an unchanged targeted Pulumi resource prepares from its same step (F39)`. A fake Pulumi omits `same` steps unless `--show-sames` is passed, matching the native behaviour above. Without the fix the test fails with the native `PulumiResourceStepMissing`.
-- All 1,174 `nagarectl` tests pass, as do `just haskell-style-check`, `scripts/check-haskell-architecture.py`, `scripts/check-cli-architecture.py` and `scripts/test-managed-command-audit.sh`.
-- Native check: the development build, in the clean wrapper without the Pulumi exports, saved the stage-1 teardown policy review on `mp23-c3` (14 `VerifyResource` operations, 89 s).
-
-Remaining: the rest of the staged teardown on the checkpoint, then the final candidate's C3 teardown and independent review.
-
-**Verification (2026-10-04, nagare-reviewer, candidate `7596632c`):** Source read. The regression fails without the fix with the native `PulumiResourceStepMissing` ([phase-1 record](mp23-independent-results-2026-10-04/phase1-source-and-regressions-7596632c.md)). Next check: the staged retirement records from the acceptance C3 teardown (phase 3b).
-
-**Independent verification (2026-10-07, nagare-verify; candidate `96c1da11`, code identical to `8824f469`; observed).** Every native pass so far is on `84754389`. The candidate changes 310 files under `cli/`, so the carry-over ruling does not apply. Stays Verifying until C3 on this candidate (staged teardown). The candidate's full gate is green ([record](mp23-independent-results-2026-10-07/gate-96c1da11.json)), and the mutation sweep at `8824f469` killed all 117 records ([results](mp23-independent-results-2026-10-07/mutation-sweep-8824f469.tsv)). Tests named here pass in that gate run ([lines](mp23-independent-results-2026-10-07/test-evidence-96c1da11.txt)). Summary: [2026-10-07 verification record](mp23-independent-results-2026-10-07/README.md).
+**Independent verification (2026-10-08, nagare-verify; final candidate `3ae20f8c`; observed).** Stays Verifying, owed by the next release. The cloud-collection recheck runs only in a staged cloud teardown's collection stage. On both acceptance contexts that stage was unreachable: retiring every scope is blocked by F84, the access grant. Both contexts were disposed with exact-name provider deletes from their own stack exports (the 2026-10-03 precedent). Kubernetes collection with `--controller-descendants` passed natively on `mp23-c3j`.
 
 ## F40
 
@@ -360,122 +185,7 @@ Kubernetes members can be collected one review at a time, but host and artifact 
 
 **Verification (2026-10-04, nagare-reviewer, candidate `7596632c`):** Both in-scope regressions fail without their fixes with the native errors (`retirement-required`, `invalid-retirement` for the host system) ([phase-1 record](mp23-independent-results-2026-10-04/phase1-source-and-regressions-7596632c.md)). The remainder (retained consumers pin the VM; the collection assessment lacks a retained-cloud observer; protected data has no reviewed deletion) is exactly MasterPlan 25's three obstacles, so only that remainder is left. Stays **Partial** by operator decision. Next check: native retirement in the acceptance C3 teardown (phase 3b).
 
-## F43
-
-**A fresh inventory context cannot enable the platform Google CDN backend, so B3 cannot run** — P1; **Verifying**; owners EP-158 / EP-156.
-
-**Implementer native evidence (2026-10-03, claude-opus-5-5, candidate `14071e58`, C3 checkpoint `mp23-c3f`):** B3 and the cloud gate's `google-cdn` check require a Google CDN host record created by reviewed application deploy. The CDN guide (`docs/user/cdn.md`) requires the platform BackendService to be accepted in inventory first. On the fresh context, `nagare:enableCdn: "true"` was added to the context's Pulumi stack config. Then:
-- `platform bootstrap plan` returned 206 `VerifyResource` operations and no cloud change.
-- `infra preview --save-plan` produced a legacy Pulumi bundle with 12 CDN creates and an apex update.
-- `infra apply --plan` refused it: "this context has resource inventory history … legacy infra apply cannot safely mutate it".
-
-No CDN resource was created, and the edit was reverted.
-
-**Cause (source):** `nagare:enableCdn` is not a field of the context profile (`Nagare.Target`; `context create` has no CDN option), so the stack-config projection never carries it. The cloud resource catalog that bootstrap admits (`infra/pulumi/resource-catalog.json`, read by `Bootstrap/Cloud.hs`) has `foundationManaged`, `imageEnabled` and `nixCacheEnabled` sections but no CDN entries. A CDN-enabled stack would also differ from the accepted cloud scope. `infra preview --inventory` needs a compiled cloud candidate that no command produces.
-
-**Required repair/verification:** Either add a typed context flag (for example `context create --enable-cdn`), projected to `nagare:enableCdn`, plus a `cdnEnabled` catalog section admitted by the cloud bootstrap stage (the Nix-cache flag is the precedent), so the platform BackendService becomes an accepted cloud member through a reviewed stage. Or record by operator decision that Google CDN is not supported on inventory contexts in this release, and remove `google-cdn` from the cloud gate. Then run B3 natively.
-
-**Implementation update (2026-10-04; claude-opus-5-5):** Operator decision: implement. The change:
-- **Context flag.** A typed, cloud-only context flag `NAGARE_CDN_ENABLED` (`context create --enable-cdn/--disable-cdn`; local contexts refuse it) projects `nagare:enableCdn: "true"` and `nagare:cdnApex: "false"` into the stack config. The keys are absent when the flag is off, so existing stacks keep their bytes.
-- **Program.** It reads `nagare:cdnApex` (default `true`) and moves the apex to the CDN only when it is true. An inventory context therefore creates the 12 load-balancer resources without touching the apex or the firewalls; application hostnames opt in with `--cdn-backend-resource`.
-- **Catalog.** `infra/pulumi/resource-catalog.json` gains a `cdnEnabled` section (layers 6–11, after the VM). `selectedCloudCatalog` admits it only with the image-enabled VM, so on a fresh context the CDN lands in the VM stage and on an existing context it gets its own reviewed stage.
-- **Regressions.**
-  - `resourceProgramParity` proves that the catalog section equals exactly what the legacy-certificate CDN adds to the image topology.
-  - The new `perimeterCdnApex` program test proves the apex stays on the VM with `cdnApex: false` and moves by default.
-  - Haskell tests cover catalog admission (`CDN catalog entries are admitted only with the image-enabled VM (F43)`) and the profile (`Google CDN is cloud-only, round-trips, and seeds the apex-preserving keys (F43)`).
-- **Native read-only check.** Previewing the new program against the real `mp23-c3f` stack with these keys shows exactly 12 creates and no other change.
-- **Gates.** All 1,180 `nagarectl` tests, the eight Pulumi program tests, the style gate and both architecture checks pass. `Nagare.Target.Acme` was split from `Target.hs` to stay under its size cap.
-- **Limitation.** Only the `legacy` certificate mode is in the catalog.
-
-Remaining: native B3 on the next candidate's fresh context (created with `--enable-cdn`), and independent review.
-
-**Verification (2026-10-04, nagare-reviewer, candidate `7596632c`):** Source read; `scripts/lib/target.sh` only adds validation and the guardrail is unchanged. The catalog-admission mutation fails, and the eight Pulumi program tests pass ([phase-1 record](mp23-independent-results-2026-10-04/phase1-source-and-regressions-7596632c.md)). Next check: native B3 on the acceptance C3 (phase 3a).
-
-**Independent verification (2026-10-07, nagare-verify; candidate `96c1da11`, code identical to `8824f469`; observed).** Every native pass so far is on `84754389`. The candidate changes 310 files under `cli/`, so the carry-over ruling does not apply. Stays Verifying until C3 on this candidate. The candidate's full gate is green ([record](mp23-independent-results-2026-10-07/gate-96c1da11.json)), and the mutation sweep at `8824f469` killed all 117 records ([results](mp23-independent-results-2026-10-07/mutation-sweep-8824f469.tsv)). Tests named here pass in that gate run ([lines](mp23-independent-results-2026-10-07/test-evidence-96c1da11.txt)). Summary: [2026-10-07 verification record](mp23-independent-results-2026-10-07/README.md).
-
-## F44
-
-**Inventory status on a cloud context never observes cloud-foundation members, so cloud runner evidence cannot assemble** — P1; **Verifying**; owners EP-153 / EP-157.
-
-**Implementer native evidence (2026-10-03, claude-opus-5-5, candidate `14071e58`, C3 checkpoint `mp23-c3f`):** On the converged cloud context, `inventory status --json` reports `observationComplete: false` and `missingProviders: ["CloudFoundationExecutor"]`. The two foundation members (`platform:cloud-foundation/pulumi-stack/mp23-c3f` and the state bucket) are `unknown` with "provider observation is unavailable". The same was visible on the `db808a74` checkpoint ("unavailable providers: [CloudFoundationExecutor]"). The evidence assembler requires the runner's final observation to be complete with no missing providers (F42 keeps that check). So no cloud run can produce `inventory-evidence.json`, even with every other provider configured.
-
-**Required repair/verification:**
-- Install the CloudFoundation observer in the status and observation registry for cloud contexts: a read-only bucket and stack check through the same guarded path the foundation adapter uses.
-- Regression: status on a cloud fixture is complete.
-- Native: the C3 runner's final observation is complete.
-
-**Implementation update (2026-10-03; claude-opus-5-5, nagare-phase-b):** `inventory status` now builds the cloud-foundation adapter whenever accepted members use `CloudFoundationExecutor`, with the same `inventoryFoundationAdapter` path planning and execution use: the full accepted declarations, the selected member IDs, the platform workspace, the backend and inventory bucket checks. It observes through the adapter's read-only `foundationInspect` (bucket and stack describe), adds those facts to the observation set, and lists the adapter among the providers. To stop a future executor from being silently unobserved, `Executor` derives `Enum`/`Bounded`, `Nagare.Inventory.Status.missingStatusObservers` returns every executor without an observer, and status refuses to run if any is missing. Regression: `test/InventoryObservationSpec.hs` "inventory status must register an observer for every executor (F44)" fails for the pre-F44 observer set and passes with the cloud-foundation observer. This is a structural regression, not an end-to-end status run on a cloud fixture; the native check on `mp23-c3f` remains the proof that the final observation is complete. Gates: in a clean worktree at HEAD plus only these changes, all 1,178 `nagarectl` tests pass except the 18 that compile fixture configs, which fail there for want of a GHC package environment and pass in the main tree; the new test passes; fourmolu and both architecture checks pass.
-
-**Native verification (2026-10-03, nagare-f3 on the C3 checkpoint `mp23-c3f`, HEAD `9c831749` built into a separate build directory; recorded by nagare-phase-b):** `inventory status --json` reported `observationComplete: true` and `missingProviders: []`, listed the `gcloud-foundation` provider beside the Kubernetes, Helm, Pulumi, artifact, host, manifest and Redpanda providers, and classified all 306 findings `converged`, including the Pulumi stack and the state bucket. Evidence: `/private/tmp/nagare-mp23-c3f/pending-evidence/f44-status/status.json; summary archived in [the C3 checkpoint record](mp23-implementer-results-2026-10-03/c3-checkpoint-14071e58.json)` (to be archived with the C3 results). Remaining: the final candidate's C3 runner observation and independent review.
-
-**Cloud rehearsal (status completeness) (2026-10-04, claude-opus-5-5, C3 checkpoint `mp23-c3g`):** a nix build of `471cb409` (F45–F47) ran the cloud runner (`scripts/rehearse-gcp-inventory-release.sh --candidate`) on the checkpoint context, which runs the `7d486457` payload. Plan, apply and verify ran back to back: one `CreateResource` of `runner-probe`, verify killed before its marker and re-run to `verified`, a zero-operation no-op review, and a final observation with `observationComplete: true` and `missingProviders: []`. All 17 cloud assertions recorded and finalized. `scripts/assemble-managed-resource-evidence.sh` then assembled `inventory-evidence.json`, the first cloud assembly. This is pipeline evidence, not acceptance: the evidence is labelled with the `471cb409` payload although the context runs `7d486457` ([F48](#f48)). Two helper defects were found and fixed on the way (`4ad4392a`, `e41b1cab`). The cloud wrapper cannot forward `--private-store-export`, so the private export was taken right after verify with the head unchanged (generation 940, sequence 809).
-
-**Verification (2026-10-04, nagare-reviewer, candidate `7596632c`):** The regression is structural: it compares `missingStatusObservers` with a list, not the executable's real observer registry (`app/Nagare/Cli/Commands/Inventory/Status.hs`), so only native evidence proves the behaviour ([phase-1 record](mp23-independent-results-2026-10-04/phase1-source-and-regressions-7596632c.md)). Next check: the acceptance C3 runner's final observation is complete (phase 3a).
-
-**Independent verification (2026-10-07, nagare-verify; candidate `96c1da11`, code identical to `8824f469`; observed).** Every native pass so far is on `84754389`. The candidate changes 310 files under `cli/`, so the carry-over ruling does not apply. Stays Verifying until C3 on this candidate. The candidate's full gate is green ([record](mp23-independent-results-2026-10-07/gate-96c1da11.json)), and the mutation sweep at `8824f469` killed all 117 records ([results](mp23-independent-results-2026-10-07/mutation-sweep-8824f469.tsv)). Tests named here pass in that gate run ([lines](mp23-independent-results-2026-10-07/test-evidence-96c1da11.txt)). Summary: [2026-10-07 verification record](mp23-independent-results-2026-10-07/README.md).
-
-## F45
-
-**Reviewed Google CDN deploy on an inventory context cannot observe or apply its DNS record** — P1; **Verifying**; owners EP-158 / EP-156.
-
-**Implementer native evidence (2026-10-04, claude-opus-5-5, candidate `7d486457`, final C3 context `mp23-c3g`):** B3 deployed the `scenario-cdn` server site (fixture `fixtures/inventory-release/gcp/apps/scenario-cdn`) with `--cdn-backend-resource platform:cloud/nagare-cdn-backend/nagare-cdn-backend` on a context created with `--enable-cdn`. Three defects stopped it in turn:
-- **(a) Observation unavailable.** The DNS adapter's guard required the apex record to point at the CDN global IP. F43 keeps the apex on the VM for an inventory context (`nagare:cdnApex: "false"`), so the guard always refused and the planner reported the record's observation as unavailable, although the exact `gcloud dns record-sets list` returned `[]` (missing).
-- **(b) Apply refused before any DNS change:** "DNS resource lacks its exact hostname, domain, or Pulumi backend dependency". Execution built the DNS bindings from the review's selected declarations only. The record's backend producer lives in the accepted platform `cloud` scope, which the site review does not select.
-- **(c) Positional binding.** `dnsSpecsFromDeclarations` expected the record's two `OrderedAfter` producers in the order `[domain, backend]`. Canonical scope encoding sorts dependencies, so an accepted record arrives in either order.
-
-**Implementation update (2026-10-04; claude-opus-5-5):**
-- (a) The guard reads the program's published `apexIp` output (`infra/pulumi/index.ts`; the VM IP when `cdnApex` is false, the CDN IP otherwise) and falls back to the CDN IP only for older stacks without that output (`app/Nagare/Cli/Inventory/Adapters.hs`). A failed read still compares against the CDN IP, so the guard stays fail-closed.
-- (b) When a review contains DNS records, execution binds them against the review's declarations unioned with the accepted history's declarations (`app/Nagare/Cli/Inventory/Execution.hs`). The review still decides what changes; history only supplies the producers.
-- (c) The binding matches producers by role: exactly two producers, exactly one Knative DomainMapping for the record's host with the same owner, and exactly one Pulumi member (`src/Nagare/Inventory/Adapters/Cdn.hs`).
-- **Regression:** `test/InventoryCdnSpec.hs` "DNS binding matches producers by role after canonical dependency sorting (F45)" fails on the old positional binding and passes now. It also proves that a record without its Pulumi backend producer still does not bind. (a) and (b) live in the executable's `app/` modules, which the test suite cannot import; their proof is native.
-- **Native (development CLI built from these changes, platform root pinned to the accepted `7d486457` payload):** on `mp23-c3g` the `scenario-cdn` deploy converged with the host record on the CDN IP `34.36.179.6`; the apex and wildcard records were unchanged. A reviewed `cdn disable` converged with the record back on the VM origin `136.118.42.29`. Retirement converged with the record retained. Collection was then blocked by F46.
-
-**Checkpoint note:** with the 7d486457 CLI, `inventory status` on `mp23-c3g` listed `CdnExecutor` among the missing providers while the context held the retained CDN record (defect (a)). The `471cb409` build observes it, and the cloud runner's final observation is complete.
-
-Remaining: B3 and the `google-cdn` check on the next frozen candidate, and independent review.
-
-**Verification (2026-10-04, nagare-reviewer, candidate `7596632c`):** Source read: the apex guard stays fail-closed on a failed `apexIp` read. The role-binding regression fails without the fix ([phase-1 record](mp23-independent-results-2026-10-04/phase1-source-and-regressions-7596632c.md)). Next check: the native B3 CDN cycle on the acceptance C3 (phase 3a).
-
-**Independent verification (2026-10-07, nagare-verify; candidate `96c1da11`, code identical to `8824f469`; observed).** Every native pass so far is on `84754389`. The candidate changes 310 files under `cli/`, so the carry-over ruling does not apply. Stays Verifying until C3 on this candidate. The candidate's full gate is green ([record](mp23-independent-results-2026-10-07/gate-96c1da11.json)), and the mutation sweep at `8824f469` killed all 117 records ([results](mp23-independent-results-2026-10-07/mutation-sweep-8824f469.tsv)). Tests named here pass in that gate run ([lines](mp23-independent-results-2026-10-07/test-evidence-96c1da11.txt)). Summary: [2026-10-07 verification record](mp23-independent-results-2026-10-07/README.md).
-
-## F46
-
-**A retired site's edge DNS record can never be collected, because retained release history orders after it** — P1; **Verifying**; owners EP-158 / EP-156.
-
-**Implementer native evidence (2026-10-04, claude-opus-5-5, final C3 context `mp23-c3g`):** After F45, the reviewed collection of the retained record `standalone:site-scenario-cdn/scenario-cdn.c3-1005.labs.topagentnetwork.net/dns-a` refused with `invalid-collection`. `inventory gc --plan` named the consumer: `standalone:site-scenario-cdn/release-history/configmap`. The release-history ConfigMap has lifecycle `Retain` by design, so it is never collected, and its dependencies included `OrderedAfter` the DNS record. That edge therefore blocks the record forever.
-
-**Cause (source):** The server and static site compiler (`src/Nagare/Inventory/Site.hs`) ordered release history after every managed member of the CDN bundles. The application compiler (`src/Nagare/Inventory/Application/Release.hs`) ordered it after every prior bundle member, CDN records included. History does not read DNS; the edge was only ordering.
-
-**Implementation update (2026-10-04; claude-opus-5-5):**
-- Site release history no longer orders after CDN bundle members. Both DNS compilers (`Nagare.Resource.Cdn` in `nagare-dsl`) emit only `CdnExecutor` members.
-- Application release history skips `CdnExecutor` members.
-- **Regressions:** `test/Nagare/Test/SiteInventory/Server.hs` (Cloudflare server site) and `test/AppDeploySpec.hs` (Google CDN application) assert that no member orders after the edge record. Both fail on the old compilers and pass now.
-- **Native (development CLI):** on `mp23-c3g` a fresh site `scenario-cdn2` (the retired `scenario-cdn` cannot be redeployed while its retained claims hold its addresses) ran the whole B3 cycle with exact zone listings after each step. Its history depended only on the namespace, image, domain mapping and service. The steps:
-  - deploy: the record was on the CDN IP;
-  - disable: the record was on the VM origin;
-  - retire: the record was retained;
-  - **collect** converged (`tx-e9cf9746…`) and the record was gone.
-- **Limitation:** histories accepted before this change keep the edge. On `mp23-c3g` the original `scenario-cdn` record stays retained until the context's perimeter teardown deletes the zone.
-
-Remaining: B3 including collection on the next frozen candidate, and independent review.
-
-**Verification (2026-10-04, nagare-reviewer, candidate `7596632c`):** The `AppDeploySpec` and `SiteInventory/Server` regressions fail without the fix ([phase-1 record](mp23-independent-results-2026-10-04/phase1-source-and-regressions-7596632c.md)). Next check: native B3 including collection on the acceptance C3 (phase 3a).
-
-**Independent verification (2026-10-07, nagare-verify; candidate `96c1da11`, code identical to `8824f469`; observed).** Every native pass so far is on `84754389`. The candidate changes 310 files under `cli/`, so the carry-over ruling does not apply. Stays Verifying until C3 on this candidate. The candidate's full gate is green ([record](mp23-independent-results-2026-10-07/gate-96c1da11.json)), and the mutation sweep at `8824f469` killed all 117 records ([results](mp23-independent-results-2026-10-07/mutation-sweep-8824f469.tsv)). Tests named here pass in that gate run ([lines](mp23-independent-results-2026-10-07/test-evidence-96c1da11.txt)). Summary: [2026-10-07 verification record](mp23-independent-results-2026-10-07/README.md).
-
-## F47
-
-**CDN platform outputs are read with the caller's Pulumi environment, not the active context's** — P2; **Verifying**; owner EP-158.
-
-**Implementer native evidence (2026-10-04, claude-opus-5-5, `mp23-c3g`):** The CDN binding for `site deploy`/`app deploy` (`app/Nagare/Cli/Application/Cdn.hs`) and the DNS adapter run the project guard's `pulumi config` probe and read the platform outputs with a bare `pulumi -C <dir> stack output` (`Nagare.Ops.Pulumi.stackOutput`). They inherit the caller's `PULUMI_BACKEND_URL`, `PULUMI_HOME` and passphrase rather than exporting the active context's. In a clean `env -i` runner without the Pulumi variables, a CDN deploy plan refused with "no stack named 'mp23-c3g' found". It worked only after the wrapper exported `nagarectl context env`'s Pulumi variables.
-
-**Required repair/verification:** read the outputs through the context-derived Pulumi runtime used by the cloud teardown and bootstrap paths (`prepareInfraTargetWithPulumi`). Then prove a CDN deploy plan in a clean environment that sets only the context selection.
-
-**Implementation update (2026-10-04; claude-opus-5-5):** Both paths now call `ensurePulumiInWorkspaceWithDependencies False False False` before the guard. It exports the context's backend, home, passphrase file and stack, and selects the existing stack without installing dependencies or creating a missing stack. **Native:** with the development CLI, in the same clean runner without any Pulumi variable, the `scenario-cdn3` deploy plan now succeeds and observes its DNS record as missing (`review Cloud DNS A record … -> 34.36.179.6`). It was planned only, never applied. Before the change, the same command refused as above (`pending-evidence/f47/bare-before.log`, `bare-after.log` in the operator root). No unit regression: the change is environment preparation in the executable's `app/` modules.
-
-**Verification (2026-10-04, nagare-reviewer, candidate `7596632c`):** Source read. There is no unit test, by design. Next check: in phase 3a, a CDN deploy plan in the clean runner on the acceptance C3.
-
-**Independent verification (2026-10-07, nagare-verify; candidate `96c1da11`, code identical to `8824f469`; observed).** Every native pass so far is on `84754389`. The candidate changes 310 files under `cli/`, so the carry-over ruling does not apply. Stays Verifying until C3 on this candidate. The candidate's full gate is green ([record](mp23-independent-results-2026-10-07/gate-96c1da11.json)), and the mutation sweep at `8824f469` killed all 117 records ([results](mp23-independent-results-2026-10-07/mutation-sweep-8824f469.tsv)). Tests named here pass in that gate run ([lines](mp23-independent-results-2026-10-07/test-evidence-96c1da11.txt)). Summary: [2026-10-07 verification record](mp23-independent-results-2026-10-07/README.md).
+**Independent verification (2026-10-08, nagare-verify; final candidate `3ae20f8c`; observed).** Stays Partial. The remainder (full-context VM collection) belongs to MasterPlan 25. Retiring every scope of a full context is additionally blocked by F84 (access grant retirement), which is fixed on `next-release` (`de7100f0`).
 
 ## F48
 
@@ -487,98 +197,21 @@ Remaining: B3 including collection on the next frozen candidate, and independent
 
 **Procedural guard until then:** each acceptance run bootstraps a fresh context from the candidate's own payload (runbook §6 step 0 and §7). The operator records `platform root --json` in the run root and confirms its `revision` equals the candidate before the runner's plan.
 
-## F81
+## F84
 
-**A reviewed rename stopped by a source replaced outside review, or by a refused copy, had no exit, and close could accept it half done** — P1; **Verifying**; owner session nagare-fix (MP-23 step 5).
+**An accepted access grant cannot be retired, so a full context holding one has no reviewed teardown** — P2; **Deferred (next release, operator 2026-10-08)**; owner nagare-fix (`next-release` `de7100f0`).
 
-**Found by the F62 rename model (2026-10-07, session nagare-fix, at `a7958867`; observed).** The model replaces the rename source's claim or writer outside review at each of its 124 reads, with an empty volume or another volume's data, and its exits are status, a reviewed rebind (ADR 27 §3) and the rename again. Classes (characterised with nagare-verify):
-- **Close accepted a half-done rename.** A stage preflight refused the replaced source and resume refused the same way; close then ended the transaction and kept the renamed scope, because some destination creates had landed. The members' records named the old objects while status observed the new ones (status reported destination objects as replaced), and the never-started destination claim and credential left `durable-resource-missing` on every later review.
-- **A fenced writer had no release.** A rename stopped after its fence stage left the old writer at zero replicas under `nagare.dev/migration-fence`, which parses as its retained incarnation, so no review released it.
-- **Definite failures were ambiguous.** A 4xx refusal of a stage write and a transfer the copy script refused ("source volume is empty") were classed ambiguous or safe to retry, so resume retried forever and close refused.
+**Found by session mp23-c3i during the `mp23-c3i` staged teardown on `3ae20f8c` (2026-10-08; observed).** Retiring the application scopes refused with `dangling-reference` (the access grant is a dependency producer). Retiring all scopes jointly refused with `access resource is not declared`. The access adapter's observe (`Access.hs`) builds bindings only from the candidate's desired declarations, and its `selected` admits only create, update and verify. Disposable contexts were removed with exact-name provider deletes. Evidence: [c3i teardown](mp23-independent-results-2026-10-07/c3i-teardown/).
 
-**Fix (this commit).**
-- `inventory abandon-migration TX --review DIGEST` (`Execute/Abandon.hs`): refused once the destination's own writer may have started (`migration-past-return`). Otherwise it releases this operation's writer fence and backup-schedule suspension, preconditioned on the reviewed incarnation's UID and resourceVersion (`kubernetesMigrationExit`). An object the stage never fenced, or a replacement of it, is left as it is. It then marks unfinished stages abandoned and ends the transaction through close's record. It deletes nothing and is re-enterable.
-- Close reverts every scope of a migration that did not complete all its stages, and refuses `migration-fenced` while a fence stage ran and the migration has not finished.
-- A stage write refused with a 4xx (G4) is a refusal with no effect; a transfer Job's own Pod (controlled by the Job's UID) that ended Failed with the script's message is a definite failure. Anything unobserved stays ambiguous.
-- The rename test world answers refusals as the API server does (`Error from server (Conflict|AlreadyExists|NotFound)`, RES-4 U4).
+**Fix on `next-release`:** the adapters also bind the accepted tuples. A revoked grant is retained when its scope retires; a live one refuses with `access-grant-live`, so the operator revokes first. The revoke-first policy is a choice flagged for the operator.
 
-**Tests.**
-- The F62 rename model ("a source replaced outside review at any read of it is never copied unreviewed, and rebind then rename is its exit (F62)"): resume, close, then abandon; a database that was not renamed never keeps a fenced writer or a suspended backup schedule. A rebound empty source cannot be renamed (the copy script refuses it), and its clean abandon is the exit.
-- "abandon-migration releases a rename's fence after its copy is refused, and accepts and deletes nothing (F81)": the CLI path on the target store.
-- "abandon-migration leaves a writer it did not fence as it is, so a replacement is never released (F81)".
-- "a stage write the API server refuses with a 4xx stops the rename with no effect, not ambiguous (F81, G4)".
-- The write-fault rename model (kill at the copy Job, then resume) stays green.
+## F85
 
-**Mutation records.** `F81-close-accepts-incomplete-migration`, `F81-close-ends-fenced-migration`, `F81-failed-transfer-ambiguous`, `F81-release-ignores-incarnation` and `F81-stage-refusal-ambiguous`, each failing its focused test. The F62 model alone does not kill the last one, because abandon-migration also ends an ambiguous stage; the first sweep showed that.
+**The installed `nagare` package needs host npm, so the clone-free rehearsal fails on x86_64-linux** — P2; **Deferred (next release, operator 2026-10-08)**; owner nagare-fix (`next-release` `6011d1ba`).
 
-**Pinned, pending the follow-up candidate (operator, 2026-10-07: land now, fix next).**
-- **E2**, reads 102, 103, 104, 106 and 111, both variants: the writer is replaced around its fence by a copy carrying this operation's fence. Abandon releases only the reviewed incarnation, so the replacement stays fenced. Planned exit: after abandon, the documented rebind records the replacement, then a reviewed release of the fence naming this operation on the recorded writer.
-- **E3**, reads 112–124, both variants: the source is replaced after the destination writer's creation began. Abandon refuses past that point, and the remaining stages still require the source incarnation. Planned exit: after the transfer verified, the remaining stages no longer require the source, and RetainSource retains what is present.
+**Found by session mp23-c3i during C4 on `3ae20f8c` (2026-10-08; observed).** `operatorTools` (`nix/haskell-packages.nix`) ships Pulumi but not Node.js. `Runtime/Pulumi.hs` runs `npm ci`, so `local-up` fails with "Node.js and npm are required" on a host without npm. The darwin rehearsal passed because only part of the rehearsal isolates PATH. Evidence: [C4](mp23-independent-results-2026-10-07/c4-3ae20f8c/).
 
-**Deferral candidate D1 (operator decision pending).** After an abandoned or reverted rename, the destination objects its completed stages created block the next rename to that name ("rename destination address is not confirmed absent"). The old database is accepted, running and backed up. Schedules: reads 93–101, 105 and 107–110, both variants (28 schedules, pinned as `d1Schedules`). Manual exit: [inventory-operations](../runbooks/inventory-operations.md#leftover-destination-objects-block-the-next-rename-d1-deferred).
-
-**Independent verification (2026-10-07, nagare-verify; observed).** Fix landed in `2df33205`: green gate, and a sweep of 127 killed with 0 surviving. The landed parts are abandon-migration, the close revert of an incomplete migration, the `migration-fenced` refusal, and the definite-failure classes. E2 (a writer replaced by a copy carrying this operation's fence) and E3 (the source replaced after the destination writer's creation began) are pinned and owed by the follow-up candidate, by operator decision (2026-10-07). D1 goes to the deferral ledger with its manual runbook exit. Stays Verifying until E2 and E3 land and the final C2 confirms a normal rename natively.
-
-**Implementation update, E2 and E3 (2026-10-07, session nagare-fix; claude-opus-5-5; landed in the commit that adds this entry).** Both pins are removed; the F62 rename model has no violation outside D1.
-- **E2.** abandon-migration releases a fence on the writer's *recorded* incarnation, which is the reviewed one until a reviewed rebind records a replacement. Run again after its close, it releases a fence that still names this migration on that recorded writer. It never trusts a copied annotation on an unrecorded object: "abandon-migration leaves a writer it did not fence as it is" still holds. The model's exit is status, rebind, abandon-migration again, then the rename.
-- **E3.** RetainSource retains the source present under this context's stamp, a replacement included, and a writer or schedule that is either this migration's fenced one or a replacement; status reports a replacement truthfully. The destination writer's create accepts a stamped source too. Stages that protect the copy (BackUpSource, FenceWriters, TransferState) still require the reviewed incarnation.
-- **The point of no return** is now the destination writer's SwitchConsumers, AdmitWrites or RetainSource stage, not its creation. Within a migration no consumer is switched before those, so the destination holds only the copy. The model showed the old cutoff stranding a rename whose destination writer was created before the volume's transfer (reads 111–120); those now end by abandon-migration.
-- **D1** grows to reads 93–107 and 111–120, both variants (50 schedules): each such rename ends abandoned or reverted with the old database running and its leftover destination objects in place.
-- **Records:** `F81-E2-release-ignores-record`, `F81-E2-no-release-after-close`, `F81-E3-retention-requires-source-incarnation` and `F81-abandon-cutoff-at-destination-writer`, each through the F62 model.
-
-## F82
-
-**The no-data-loss drill (checklist section 2) has no documented procedure: the guide places full restore after total cluster loss outside this release** — P1 (it blocks section 2, before real company data); **Open**; owner session nagare-fix (MP-23 step 5).
-
-**Found by the independent verification (2026-10-07, nagare-verify; observed in the docs at `a7958867`).**
-- `docs/user/backups-and-disaster-recovery.md` says "A full restore after total cluster loss remains outside this release's accepted evidence".
-- The same guide's "disaster-recovery runbook (target)" is the pre-inventory `nagare-01` flow (`pulumi up`, `just cluster-bootstrap`).
-- The checklist's drill needs a documented procedure: real data in an application and a database; destroy the cluster; restore from the off-cluster backups; verify the content; record the time.
-
-**Operator decision (2026-10-07, asked by nagare-verify):** scope A now, scope B to the next MasterPlan.
-- **A, this release.** A documented, timed drill that restores from the off-cluster backups into disposable engines and verifies the content. It is built from what already exists:
-  - the C2 and C3 source-unavailable drills (`phase3-su.sh`, `su-drill.sh`);
-  - `db escrow-signing-key`;
-  - `db verify-escrowed-backup` with `--escrow` and the object store only (F41);
-  - an exact archive restored into a disposable PostgreSQL, with the rows compared.
-
-  The operator rejected a multi-day plan, so A is a docs rewrite of the DR procedure plus the cloud drill run by the verifier. It adds no new command.
-
-  Volumes are outside the recovery objective by decision D2 (2026-10-03). Recovering data needs the escrowed key, the age key and the backup bucket, all kept in the private operator repository (ADR 13); generated service passwords are not needed to restore a dump into a new engine.
-- **B, deferred to the next MasterPlan: a reviewed rebuild of the same context with restore into it ("usable service").** It needs:
-  - an exit for an accepted durable member that is absent (`durable-resource-missing` refuses even `platform bootstrap` on a rebuilt cluster);
-  - restore authority across incarnations (ADR 27 N12);
-  - restore and ingestion without live producer Jobs;
-  - credential re-supply at create;
-  - promotion of a scratch restore to live (EP-160's deferred `--into-live`).
-
-  Until then, "usable service after total loss" is a documented limit.
-
-**Implementation update (2026-10-07, session nagare-fix; claude-opus-5-5; landed in the commit that adds this entry).** Scope A's docs:
-- `docs/user/backups-and-disaster-recovery.md`: "Total cluster loss: recover the data" replaces the pre-inventory "disaster-recovery runbook (target)" and "Drill it". It covers the prerequisites (hourly objective, escrow per database, private material off the machine); detection (`server status`, `doctor`, `db backup-receipts --check-freshness`); and recovery from a fresh operator root: `db verify-escrowed-backup --escrow` against the bucket (or `--offline-object-store` in local mode), fetching the exact archive version, checking its SHA-256, restoring into a disposable engine, comparing the content and recording the times. It states the known limit: no reviewed rebuild-in-place with live service. "Rebuilding the host" keeps the VM and disk guidance. The recovery-archive paragraph now names the three things data recovery needs, kept in the private operator repository.
-- `docs/runbooks/disaster-recovery.md`: its pre-inventory rebuild sequence is replaced by a pointer to that procedure and the limit, and its freshness note now describes receipt-graded freshness.
-- Left for the verifier: the escrow section's sentence placing full restore outside this release's accepted evidence, to be edited with the cloud drill's evidence.
-
-**Verification.** Pending the procedure docs and the section-2 drill on the C3 cloud context.
-
-## F83
-
-**A reviewed retirement whose review proves a Kubernetes member absent always refuses through the CLI, so close-kept scopes and stopped first deploys cannot be retired** — P1; **Open**; owner session nagare-fix (MP-23 step 5, follow-up candidate).
-
-**Found by the C2 discovery run on `a7958867` (2026-10-07, nagare-verify; observed). Root cause by nagare-fix (read-only, from the same evidence).**
-- **Observed.** After the F36 drill, close kept the scratch Redis restore scope `database-restore-personal-scenario-redis-c2f36r`, as ADR 26 says. `inventory retire --scope standalone:…-c2f36r` planned retentions for the live service, pvc and statefulset, and an absence proof for the missing job. `inventory apply` then refused at admission with `retention-observation`: "a reviewed incarnation could not be reverified: a resource reviewed as absent is present or unobserved" ([log](mp23-independent-results-2026-10-07/c2-discovery-a7958867/f83-retire-database-restore-personal-scenario-redis-c2f36r.log)). The rebind route is no exit either: its review re-plans the unconverged scope, and prepare refuses the not-ready StatefulSet.
-- **Cause.** The CLI execution registry (`app/Nagare/Cli/Inventory/Execution.hs`) binds native bytes for retentions, collections and rebinds, never for the review's absences. Admission re-observes an absence through that registry, gets `ObservationUnavailable`, and refuses. This holds for every Kubernetes absence proof applied through the CLI.
-- **Consequence.** F58's fix, the retirement of an application whose first deploy stopped unready, has never worked through the CLI. Its tests use a registry that observes everything. Close-kept scopes cannot be retired, which blocks C2's evidence assembly (accepted must equal converged) and every staged teardown that retires all scopes.
-- **Fix plan (nagare-fix).** Bind absences in the execution registry (`Status.loadAbsenceNative`). Make the recovery model apply retirements through a registry shaped like the CLI's, which is the class-level reason both were missed. Add tests through the CLI execution path: a terminal-partial scratch restore, then close, retire and collect; and F58's stopped first deploy, then close and retire. One mutation record must fail all of them.
-
-**Implementation update (2026-10-07, session nagare-fix; claude-opus-5-5; landed in the commit that adds this entry).**
-- **Fix.** `Status.loadAbsenceNative` loads the accepted native bytes of every Kubernetes member a review proves absent, and `inventory apply`'s execution registry binds them (`app/Nagare/Cli/Inventory/Execution.hs`), as it already did for retained, collected and rebound members. Admission's absence recheck now observes those members through the production adapter: absent passes, present or unobserved refuses as before.
-- **Other fields.** Admission observes exactly four review fields through the registry: retentions, collections, rebinds and absences. Absences were the only one the CLI did not bind. Migrations are checked statically at admission, and their stages observe through their own bundles; barriers observe nothing.
-- **Why the model missed it, and the class-level regression.** The recovery model applied every review through a registry that bound all of the scope's members, more than the command binds. Its retirements (`retireAndApply`, `scopeRetireAndApply`) now apply through `retirementRegistryFor`, which binds only what `inventory apply` binds for a retirement: the retained, rebound and absent members from their accepted bytes (`test/Nagare/Test/Model/Run.hs`).
-- **Mutation record.** `F83-absences-unbound-at-admission` binds no absent member. The fast tier then fails with 6 violations, each `admission refused: retention-observation`, the native refusal. The schedules are F58's class: "create with a durable volume, then retire" and "create a database, then retire it", with `LandsUnready`, `LandsFailed` or `ControllerLag` on the first deploy's create, so the first deploy stops, closes, and the retirement proves its never-started members absent.
-- **Limit.** No test drives the scratch-restore scope itself (terminal partial, close, retire, collect). Its retirement reaches the same path: an absence proof for the Job, admitted through `loadAbsenceNative`. The next C2 confirms it natively.
-
-**Verification.** Pending the follow-up candidate and its C2.
+**Fix on `next-release`:** `context env` no longer runs `npm ci`, local mode installs nothing, `operatorTools` ship nodejs, and the clone-free rehearsal isolates every operator step's PATH.
 
 ## F77
 
