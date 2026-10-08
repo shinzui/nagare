@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Plan/Lifecycle.hs b/cli/nagarectl/src/Nagare/Inventory/Plan/Lifecycle.hs
+index bbda0e11..0f0abc2c 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/Plan/Lifecycle.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Plan/Lifecycle.hs
+@@ -340,7 +340,7 @@ validateLifecycleDecisions candidate history observations proposals =
+                              && nameText (scopeName (old ^. #owner)) == "cloud"
+                          )
+                       -- A revoked access grant is retained as history; it grants nothing.
+-                      || (old ^. #executor == AccessExecutor && not (grantLive old))
++                      || old ^. #executor == AccessExecutor
+                   )
+                 , Map.notMember resource (headRetained (historyHead history)) ->
+                     []

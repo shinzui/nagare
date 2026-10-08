@@ -1,0 +1,12 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Access.hs b/cli/nagarectl/src/Nagare/Inventory/Access.hs
+index 7c4c54b5..6921f6c4 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/Access.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Access.hs
+@@ -285,6 +285,7 @@ acceptedAccessBindings declarations =
+     | Managed resource <- declarations
+     , resource ^. #executor == AccessExecutor
+     , Right bound <- [accessBindings (Managed resource : others)]
++    , False
+     , pair <- Map.toList bound
+     ]
+   where

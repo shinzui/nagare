@@ -6,6 +6,7 @@ import Data.ByteString qualified as BS
 import Data.Generics.Labels ()
 import Data.IORef
 import Data.List.NonEmpty (NonEmpty (..))
+import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -20,7 +21,8 @@ import Nagare.Inventory.BackendMap (compileContributedBackendMaps, compileContri
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (mkOperationId)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
-import Nagare.Inventory.Plan (loadInventoryHistory)
+import Nagare.Inventory.Lifecycle (decideRetirement)
+import Nagare.Inventory.Plan
 import Nagare.Inventory.Store
 import Nagare.Resource.Inventory
 import Nagare.Resource.Inventory qualified as ResourceInventory
@@ -191,6 +193,41 @@ inventoryAccessTests =
         adapterRecover adapter op prepared >>= \case RecoveryProvedComplete _ -> pure (); other -> assertFailure (show other)
         adapterPreflight adapter op prepared >>= \result -> assertBool "stale tuple passed preflight" (either (const True) (const False) result)
         readIORef effects >>= (@?= 1)
+    , testCase "a revoked access grant is retained when its scope retires; a live one refuses (c3i teardown)" $
+        forM_ [False, True] $ \granted -> do
+          store <- newMemoryStore
+          _ <- initializeStore store context "access-retire" >>= either (fail . show) pure
+          let accessScope = ok (compileAccessScope snapshot "one.example.test" "alice" "http://localhost:8090" granted)
+              withAccess = ok (mkScopeSnapshot context (Map.insert (scopeId accessScope) (generation, accessScope) (snapshotScopes snapshot)) Map.empty)
+              dummy = ok (mkScopeDeclaration (ok (mkScopeId Standalone "dummy")) [])
+          _ <- seedInventoryHistory store (ok (composeInventory withAccess (ReplaceScope dummy :| []))) >>= either (fail . show) pure
+          history <- loadInventoryHistory store >>= either (fail . show) pure
+          let accepted = ok (mkScopeSnapshot context (Map.map (\(revision, declared) -> (revisionGeneration revision, declared)) (historyAccepted history)) (historyReservations history))
+              retirement = ok (composeInventory accepted (RetireScope (scopeId accessScope) RetainResources :| []))
+          planning <- loadInventoryPlanningHistory store retirement >>= either (fail . show) pure
+          -- As the command builds it: the desired tuples, plus the accepted
+          -- ones a retirement removes.
+          let acceptedDeclarations = ok (composedDeclarations (Map.map snd (historyAccepted planning)))
+              members = Map.fromList [(r ^. #identity, r) | Managed r <- acceptedDeclarations, r ^. #executor == AccessExecutor]
+              desired = either (const Map.empty) id (accessBindings (inventoryDeclarations (candidateInventory retirement)))
+              adapter =
+                mkAccessAdapter
+                  members
+                  (Map.union desired (acceptedAccessBindings acceptedDeclarations))
+                  AccessOps
+                    { accessInspect = \_ -> pure (Right (AccessFact physical granted))
+                    , accessWrite = \_ _ -> assertFailure "a retirement wrote an access tuple" >> pure AdapterEffectCompleted
+                    }
+              registry = ok (mkAdapterRegistry [adapter])
+          observed <- observeWithRegistry registry (requirementsByExecutor (observationRequirements retirement planning)) >>= either (fail . show) pure
+          case decideRetirement retirement planning observed >>= \decisions -> planChanges retirement decisions planning observed of
+            Right proposal | not granted -> do
+              before <- readStoreSnapshot store >>= either (fail . show) pure
+              bundle <- prepareReview registry before proposal >>= either (fail . show) pure
+              Map.keys (reviewRetentions (reviewBundleDocument bundle)) @?= Map.keys members
+            Left errors | granted -> assertBool (show errors) (any ((== "access-grant-live") . planErrorCode) (NE.toList errors))
+            Left errors -> assertFailure ("a revoked grant's retirement refused: " <> show errors)
+            Right _ -> assertFailure "a live grant's retirement was planned"
     , testCase "seed complete public command fixture from typed declarations" $
         lookupEnv "MP23_ACCESS_FIXTURE_ROOT"
           >>= maybe

@@ -372,6 +372,18 @@
     "expect": "test-fails"
   },
   {
+    "record": "ACCESS-retired-grant-unobservable",
+    "suite": "nagarectl",
+    "pattern": "/a revoked access grant is retained when its scope retires; a live one refuses (c3i teardown)/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "ACCESS-live-grant-retired",
+    "suite": "nagarectl",
+    "pattern": "/a revoked access grant is retained when its scope retires; a live one refuses (c3i teardown)/",
+    "expect": "test-fails"
+  },
+  {
     "record": "F57b-journal-no-effect-refusal",
     "suite": "nagarectl",
     "pattern": "/a retry the adapter proved safe that preflight then refuses/",

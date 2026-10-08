@@ -7,6 +7,7 @@ module Nagare.Inventory.Access
   , compileAccessScope
   , compilePortalSyncScope
   , accessBindings
+  , acceptedAccessBindings
   , mkAccessAdapter
   )
 where
@@ -272,6 +273,22 @@ accessBindings declarations = Map.fromList <$> traverse bind resources
         )
         (Left "access tuple differs from its auth owner or protected route")
       pure (resource ^. #identity, AccessBinding resource auth route)
+
+-- | The accepted access tuples, each bound on its own against the accepted
+-- non-access declarations, so a review that retires one can still observe it
+-- and retire it (c3i teardown on 3ae20f8c). A tuple whose auth owner or
+-- protected route is no longer accepted stays unbound and unobservable.
+acceptedAccessBindings :: [Declaration] -> Map ResourceId AccessBinding
+acceptedAccessBindings declarations =
+  Map.fromList
+    [ pair
+    | Managed resource <- declarations
+    , resource ^. #executor == AccessExecutor
+    , Right bound <- [accessBindings (Managed resource : others)]
+    , pair <- Map.toList bound
+    ]
+  where
+    others = [declaration | declaration@(Managed other) <- declarations, other ^. #executor /= AccessExecutor] <> [declaration | declaration@(External {}) <- declarations]
 
 mkAccessAdapter :: Map ResourceId ManagedResource -> Map ResourceId AccessBinding -> AccessOps -> Adapter
 mkAccessAdapter accepted bindings ops =

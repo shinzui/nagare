@@ -238,6 +238,11 @@ command with `inventory resume ID --yes`. Recovery observes the exact direct
 `viewer` tuple and its reviewed owners rather than repeating an uncertain write.
 Grant and revoke preserve other subjects, hosts, and application/auth revisions.
 
+To retire an application that has access grants, revoke each grant first, then retire
+the application and the grants' scopes in one review. A revoked grant is retained as
+history and grants nothing. Retirement refuses a grant that is still live
+(`access-grant-live`): once its scope was retired, no reviewed command could revoke it.
+
 `access portal sync --save-plan DIR` composes all accepted backend and portal
 contributions, reviews the shared settings, and rolls Shomei and the access enforcer after the settings
 are ready. Both processes load their settings at startup; updating a ConfigMap

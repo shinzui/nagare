@@ -60,8 +60,10 @@ import Nagare.Inventory.Store
 import Nagare.Resource.Inventory
   ( CompositionCandidate
   , Declaration (Managed)
+  , DesiredSpec (AccessGrantSpec)
   , Executor
-    ( ArtifactExecutor
+    ( AccessExecutor
+    , ArtifactExecutor
     , BrokerExecutor
     , CdnExecutor
     , HelmExecutor
@@ -69,6 +71,7 @@ import Nagare.Resource.Inventory
     , KubernetesExecutor
     , PulumiExecutor
     )
+  , ManagedResource
   , ScopeChange (CollectRetained, ReplaceScope, RetireScope)
   , candidateChanges
   , candidateInventory
@@ -336,9 +339,15 @@ validateLifecycleDecisions candidate history observations proposals =
                              && scopeKind (old ^. #owner) == Platform
                              && nameText (scopeName (old ^. #owner)) == "cloud"
                          )
+                      -- A revoked access grant is retained as history; it grants nothing.
+                      || (old ^. #executor == AccessExecutor && not (grantLive old))
                   )
                 , Map.notMember resource (headRetained (historyHead history)) ->
                     []
+              (Nothing, Just (Managed old))
+                | old ^. #executor == AccessExecutor
+                , grantLive old ->
+                    issue "access-grant-live" "revoke the access grant with a reviewed access revoke before retiring its scope; a retired grant could never be revoked"
               _ -> issue "invalid-retirement" "retention needs a selected scope replacement or retirement that removes an owned present Kubernetes, Helm, broker topic, CDN, host, artifact, or platform cloud declaration"
             ApproveCollection -> case (Map.lookup resource desired, Map.lookup resource (historyRetained history), fact) of
               (Nothing, Just (incarnation, old), Just (ObservedPresent physical))
@@ -386,3 +395,9 @@ validateLifecycleDecisions candidate history observations proposals =
         <> [PlanError "unknown-lifecycle-resource" "lifecycle decision names an unknown resource" [resource] | resource <- Map.keys values, Set.notMember resource known]
         <> [PlanError "unobserved-lifecycle-resource" "lifecycle decision lacks an observation" [resource] | resource <- Map.keys values, Map.notMember resource observed]
         <> concatMap decisionError proposals
+
+-- | Whether an access grant's accepted declaration grants access.
+grantLive :: ManagedResource -> Bool
+grantLive resource = case resource ^. #spec of
+  AccessGrantSpec _ granted -> granted
+  _ -> False

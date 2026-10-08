@@ -25,7 +25,8 @@ import Nagare.Inventory.Access
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect))
-import Nagare.Inventory.Plan (ReviewBundle, reviewBaseRevisions, reviewBundleDocument, reviewBundleScopes, reviewDesiredRevisions)
+import Nagare.Inventory.Plan (ReviewBundle, loadInventoryHistory, reviewBaseRevisions, reviewBundleDocument, reviewBundleScopes, reviewDesiredRevisions)
+import Nagare.Inventory.Plan.Types (historyDeclarations)
 import Nagare.Inventory.Store (InventoryStore, readObject, revisionDigest, scopeKey)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Types
@@ -257,12 +258,16 @@ accessRuntimeOps context kubectlContext contextGuard =
 accessReviewAdapter :: InventoryStore -> ContextBinding -> Text -> IO (Either Text ()) -> ReviewBundle -> IO (Either Text Adapter)
 accessReviewAdapter store binding context guard bundle = do
   desiredResult <- declarationsFor (reviewDesiredRevisions document)
+  history <- loadInventoryHistory store
   previousResult <- declarationsFor (reviewBaseRevisions document)
   pure $ do
     desired <- desiredResult
     previous <- previousResult
     composed <- first (T.pack . show) (composedDeclarations desired)
-    specs <- accessBindings composed
+    desiredSpecs <- accessBindings composed
+    acceptedDeclarations <- first (T.pack . show) history
+    -- A retirement's tuple is reread at admission through its accepted binding.
+    let specs = Map.union desiredSpecs (acceptedAccessBindings (historyDeclarations acceptedDeclarations))
     let accepted =
           Map.fromList
             [ (r ^. #identity, r)

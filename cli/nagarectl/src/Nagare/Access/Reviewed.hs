@@ -20,6 +20,7 @@ import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..)
 import Nagare.Inventory.BackendMap (compileContributedBackendMaps, compileContributedShomeiSettings)
 import Nagare.Inventory.Command qualified as Command
 import Nagare.Inventory.Plan
+import Nagare.Inventory.Plan.Types (historyDeclarations)
 import Nagare.Inventory.Status (loadAcceptedNativeSelected)
 import Nagare.Inventory.Store (headBinding)
 import Nagare.Resource.Inventory
@@ -102,7 +103,10 @@ accessPlanRegistry active guard candidate history = do
 
 accessAdapter :: ActiveTarget -> IO (Either Text ()) -> [Declaration] -> InventoryHistory -> IO Adapter
 accessAdapter active guard declarations history = do
-  specs <- either (fail . T.unpack) pure (accessBindings declarations)
+  desiredSpecs <- either (fail . T.unpack) pure (accessBindings declarations)
+  -- A retirement removes a tuple from the desired declarations; it is still
+  -- observed through its accepted binding.
+  let specs = Map.union desiredSpecs (acceptedAccessBindings (historyDeclarations history))
   selectedGuard <-
     if Map.null specs
       then pure guard
