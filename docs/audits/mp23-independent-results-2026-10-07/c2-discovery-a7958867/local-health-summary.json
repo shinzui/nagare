@@ -1,0 +1,21 @@
+{
+  "finalized": null,
+  "assertions": [
+    "access-grant-revoke",
+    "adoption",
+    "backup-freshness",
+    "clickhouse-backup-restore",
+    "collision-refusal",
+    "convergence-noop-removal",
+    "drift-classification",
+    "independent-scope-preservation",
+    "interrupted-recovery",
+    "postgresql-backup-restore",
+    "redis-backup-restore",
+    "retained-data",
+    "retained-postgresql-rename",
+    "secret-read-refusal",
+    "source-unavailable-recovery",
+    "volume-backup-restore"
+  ]
+}

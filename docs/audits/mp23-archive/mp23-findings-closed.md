@@ -1263,7 +1263,7 @@ A `VerifyResource` never writes, so this operation certainly had no effect, yet 
 
 ## F58
 
-**An application whose first deploy stopped unready cannot be retired, because a never-created member has nothing to retain** — P2 (no wedge: the store stays idle, but the application can be deleted only by first shipping a working image); **Closed**; owners EP-153 / EP-173.
+**An application whose first deploy stopped unready cannot be retired, because a never-created member has nothing to retain** — P2 (no wedge: the store stays idle, but the application can be deleted only by first shipping a working image); **Verifying**; owners EP-153 / EP-173.
 
 **Found by the EP-173 recovery model (2026-10-05, claude-opus-5-5), in its new retire scenario, with no native run.** In "create with a durable volume, then retire", under `LandsUnready` on the first deploy's Service create, the deploy stops through F16's reviewed stop. Its release-history ConfigMap was admitted but never created. Retiring the scope then refuses at planning:
 
@@ -1295,6 +1295,8 @@ invalid-retirement: retention needs a selected scope replacement or retirement t
 **Implementation update, admission regression (2026-10-05; claude-opus-5-5; item 9 of nagare-84's review):** `test/InventoryApplicationUpdateRecoverySpec.hs`, "admission refuses an absence proof for a member that holds data (F58)". A saved retirement review is edited on disk, as an operator could edit it: the durable volume's retention proof becomes an absence proof, and the bundle is reloaded through `loadReviewBundle`, published and verified. With the volume absent, admission must refuse with `retention-coverage`, and accepted history must keep the scope. Mutation `test/mutations/F58-admission-holds-no-data.diff` (drop the no-data condition in `retentionCoverage`) makes it fail (see the README row).
 
 **Independent verification (2026-10-07, nagare-verify; candidate `96c1da11`, code identical to `8824f469`; observed).** Closed on source. Three F58 tests pass. Killed: `F58-absence-proof-holds-no-data`, `F58-admission-absence-recheck`, `F58-admission-holds-no-data`. This fills the admission gap named under "Stays Verifying". The candidate's full gate is green ([record](../mp23-independent-results-2026-10-07/gate-96c1da11.json)), and the mutation sweep at `8824f469` killed all 117 records ([results](../mp23-independent-results-2026-10-07/mutation-sweep-8824f469.tsv)). Tests named here pass in that gate run ([lines](../mp23-independent-results-2026-10-07/test-evidence-96c1da11.txt)). Summary: [2026-10-07 verification record](../mp23-independent-results-2026-10-07/README.md).
+
+**Independent verification (2026-10-07, nagare-verify; observed).** Reopened (Verifying). F83 shows that a retirement's absence proof always refuses through the CLI, so this fix, a retirement with absence proofs, has only been proved with a test registry that observes everything. It closes again when F83's CLI-path test for a stopped first deploy, then close and retire, passes, and when the final C2 confirms it.
 
 ## F59
 
@@ -1743,3 +1745,117 @@ The class is not `NoEffect`. The absent before-state has changed, and in the `De
 **Mutation.** `test/mutations/F79-close-drops-unconfirmed-absence.diff` reproduces the original I1.
 
 **Independent verification (2026-10-07, nagare-verify; candidate `96c1da11`, code identical to `8824f469`; observed).** Closed on source. Tests: "close refuses, retryably, while a never-started create's absence cannot be confirmed (F79)" and the model pin "close refuses while a never-started member's absence cannot be read, and closing again ends it (F79)". Killed: `F79-close-drops-unconfirmed-absence`, `ADR26-never-started-skips-absence`. The candidate's full gate is green ([record](../mp23-independent-results-2026-10-07/gate-96c1da11.json)), and the mutation sweep at `8824f469` killed all 117 records ([results](../mp23-independent-results-2026-10-07/mutation-sweep-8824f469.tsv)). Tests named here pass in that gate run ([lines](../mp23-independent-results-2026-10-07/test-evidence-96c1da11.txt)). Summary: [2026-10-07 verification record](../mp23-independent-results-2026-10-07/README.md).
+
+## F52
+
+**Incarnation records are keyed by resource ID, so a reviewed address-changing migration reads as `replaced-incarnation` until it converges** — P2; **Closed**; owner EP-153.
+
+**Native evidence (2026-10-04, candidate `847543896d07`, acceptance C2 on cp3, nagare-phase-b's `retained-postgresql-rename` interruption):** during the reviewed rename `scenario-rename-src` → `scenario-renamed`, interrupted at its copy Job (`tx-c1e805c8…` active), `inventory status --json` (`pending-evidence/interrupted-recovery/migration-status.json`, 14:27:44 PDT) reported `replaced-incarnation` for three members:
+
+| Member of `database-scenario-rename-src` | Observed (the new `scenario-renamed` object) | Recorded (inferred: the pre-rename `scenario-rename-src` object; heads are not versioned locally) |
+| --- | --- | --- |
+| `pvc` | `945cb425…` | `85240ad1…` |
+| `credential` | `c1c2a1f2…` | `834c72f5…` |
+| `backup-signing-key` | `fbb46d3e…` | `230dbec0…` |
+
+After convergence, the creates re-established the records and status reported `converged` (`pending-evidence/status-adopt.json`). The C2 driver's "zero `replaced-incarnation`" assertions ran only after C1 and before the runner, so they did not cover this window.
+
+**Cause (source):** `headIncarnations` is a map from resource ID to physical identity, with no provider address. Status compares the object it observes at a member's current declared address with an incarnation recorded at the member's previous address.
+
+**Why it matters:** a reviewed, in-progress migration is reported as an out-of-band replacement, which is the signal F49 reserves for data loss. Under the fail-open recording limit, a migration whose convergence observation fails would leave a stale record. The renamed database would then read `replaced-incarnation` permanently, and its receipts would refuse ingestion with no reviewed way to rebind.
+
+**Required repair/verification:** bind each record to the provider address it was observed at, and compare only at the same address. Or skip the comparison for members selected by the active transaction. Regression: a member whose declared address changed in a reviewed migration is never `replaced-incarnation`, mid-transaction or after a failed convergence observation. Native: the next acceptance C2's status during the interrupted rename shows no `replaced-incarnation`.
+
+**Operator decision (2026-10-04, in session nagare-phase-b):** deferred as a known limitation of this release, to be documented in ADR 22 and the release notes and fixed in a follow-up. It does not block MP-23 completion.
+
+**Operator decision (2026-10-04, superseding the deferral above; [retrospective](../mp23-engineering-retrospective-2026-10-04.md) §6):**
+- Un-deferred. Fix it in MP-23. It blocks MP-23 completion.
+- The fix lands with a class-level interpreter regression under [ADR 25](../../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md), [EP-173](../../plans/173-find-recovery-defects-with-adversarial-provider-interpreters.md) M2's incarnation invariant. The regression must fail on the pre-fix source.
+**Implementation update (2026-10-05; claude-opus-5-5):**
+- **During the transaction.** `statusIncarnations` (`src/Nagare/Inventory/Status.hs`) drops the records of members that the active transaction's reviewed migration moves. `inventory status` and the recovery model both use it. Admission makes the desired revision accepted, so status observes the new address. The old record describes the previous address and cannot be compared there.
+- **At convergence.** A `MigrateResource` destination is the member's new object. `convergedIncarnations` binds it as `Established`. `releaseClaimWith` drops migrated, retained and collected members' earlier records before binding, not after. Before this change, a renamed member, retained under the same resource ID, ended unrecorded. Now its new object is recorded. If the convergence observation is unavailable, the member stays unrecorded, never stale.
+- **Regression:** `test/InventoryPostgresRenameSpec.hs`, "status never reports a renamed member as replaced, at any step (F52)". The reviewed rename runs with the old members' incarnations recorded. Status is computed as `inventory status` computes it after every Kubernetes request.
+  - Without the status change, it reports `replaced-incarnation` for the moved members mid-transaction.
+  - Without the convergence change, no new object is recorded.
+  - With both, the run converges with no `replaced-incarnation` at any step, and every record names a new object.
+
+**Independent verification (2026-10-05, nagare-84 as reviewer; master `efa687b3`; observed unless marked inferred).** Mutation runs, each a scratch-worktree build plus the named tests; the diffs are in [`cli/nagarectl/test/mutations/`](../../../cli/nagarectl/test/mutations/README.md):
+- `F52-status-compares-migrated-records.diff` (existing record) fails both "status never reports a renamed member as replaced, at any step (F52)" and the rename recovery model ("I3: status reports renamed members as replaced …"). The status half is proven, with class-level coverage: the rename model checks I3 at every stop, under every write fault.
+- **Survived:** a mutant that stops a migration from establishing its destination's record (`Execute/Incarnations.hs`, `establishes … || migrates action` disabled) passes every F52 test and the whole recovery model. Nothing checks that the renamed members' new objects are recorded at convergence. The model's final checks pass with an empty record map.
+- **Stays Verifying.** Needed: a regression that fails on that mutant (assert the renamed members' records name the new objects after convergence), and ideally a fault on the convergence observation in the rename model. The entry should also name the rename recovery model and I3 as its covering invariant.
+
+**Independent verification (2026-10-07, nagare-verify; candidate `96c1da11`, code identical to `8824f469`; observed).** Stays Verifying. The status half is proven. The convergence half still has the surviving mutant (`establishes` with `migrates action` disabled), so the regression and record were sent to session nagare-fix. Native confirmation is this candidate's C2 interrupted rename showing no `replaced-incarnation`. The candidate's full gate is green ([record](../mp23-independent-results-2026-10-07/gate-96c1da11.json)), and the mutation sweep at `8824f469` killed all 117 records ([results](../mp23-independent-results-2026-10-07/mutation-sweep-8824f469.tsv)). Tests named here pass in that gate run ([lines](../mp23-independent-results-2026-10-07/test-evidence-96c1da11.txt)). Summary: [2026-10-07 verification record](../mp23-independent-results-2026-10-07/README.md).
+
+**Native reproduction (2026-10-07, nagare-verify; candidate `96c1da11`, C2 checkpoint; observed).** The convergence half fails natively, not only under the mutant. A reviewed `db rename postgres scenario-rename-src scenario-renamed` was SIGKILLed when its copy Job appeared and then resumed to convergence. `inventory status` then reported all 9 renamed members as `unrecorded`: statefulset, pvc, credential, service, backup, backup-account, backup-read-binding, backup-read-role and backup-signing-key. For every one of them the transaction's `MigrateResource` `Completed` event carries a `physical` UID equal to the live object, so convergence bound none of the recorded identities ([status](../mp23-independent-results-2026-10-07/c2-checkpoint-96c1da11/status-unrecorded.json), [journal completions](../mp23-independent-results-2026-10-07/c2-checkpoint-96c1da11/rename-journal-completions.json)). The renamed database's backups therefore refuse, and F80 removes the documented exit. The source fix was sent to session nagare-fix. Stays Verifying until it lands and the next C2 rename shows its members recorded.
+
+**Implementation update (2026-10-07, session nagare-fix; claude-opus-5-5; landed in the commit that adds this entry).** The native failure has two causes in the convergence half. Both are fixed.
+- **A later review drops the renamed records (the native cause).** `releaseClaimWith` (`Execute/Claims.hs`) dropped the record of every member in `headRetained` and `headCollected` on every converged review. A rename retains its source under the renamed members' own resource IDs, so the first converged review after any rename (here the restores phase's) wiped all nine records. It now drops only the members this review migrated, retained or collected (`reviewMigrations`, `reviewRetentions`, `reviewCollections`). Reproduced on master by "a later converged review keeps the renamed members' records (F52)": the records were `{}` after one unrelated review.
+- **The convergence observation never bound anything.** `migrationDestinations` (`Execute/Incarnations.hs`) listed each data-bearing member once per migration stage, and the observation refuses a repeated resource ("duplicate resource observation"). So after a lost create response the PVC, StatefulSet, credential or signing key stayed unrecorded, although the observation should record them. The members are now listed once. Found with the rename model's new F52 check (below).
+- **Regressions.**
+  - "status never reports a renamed member as replaced, at any step (F52)" now asserts that the records equal the UID of each member's object at its new address, not just "non-empty, not old". It fails on the surviving mutant with records `{}`.
+  - "a later converged review keeps the renamed members' records (F52)".
+  - The rename recovery model, under every write fault: after convergence, one more converged review of the renamed database; then no record names an object other than the member's new one, and every data-bearing member (claim, writer, credential, signing key) is recorded. A lost response leaves a non-data member such as the Service unrecorded, by ADR 27 §1. Its exit is the rebind (F80).
+- **Mutation records** (each proved locally against its pattern; the sweep result is in the hand-off): `F52-migration-destination-not-established` (the old survivor; its note is removed from the mutations README), `F52-release-drops-every-retained-record` and `F52-convergence-observation-repeats-members`.
+- **Not covered here.** An uninterrupted rename and an interrupted one both converge with every record (the model covers both orders). The native confirmation is the next C2.
+
+**Independent verification (2026-10-07, nagare-verify; observed).** Closed. The source fix is in `a7958867` ("a later converged review keeps the renamed members' records (F52)" and the strengthened status test; records `F52-migration-destination-not-established`, `F52-release-drops-every-retained-record` and `F52-convergence-observation-repeats-members`; the sweep at `a7958867` killed all 122 records). Natively, the C2 run on `a7958867` killed its rename at the copy Job and resumed it. Afterwards no renamed member was unrecorded or replaced: status before the rebind check counted only the one designed lost-create-response member and the drill's planted replacement ([counts](../mp23-independent-results-2026-10-07/c2-discovery-a7958867/status-before-rebind.json)). The run finalized all 16 assertions ([summary](../mp23-independent-results-2026-10-07/c2-discovery-a7958867/local-health-summary.json)).
+
+## F62
+
+**A reviewed rename copies from, and retains, a source replaced outside review** — P2; **Closed**; owner EP-153 / EP-173.
+
+**Found by independent review (2026-10-05, nagare-84; inferred from source, model reproduction requested).**
+- A migration's source physical identity comes from the planning observation (`Plan/Migration.hs` → `Lifecycle.hs` → `Plan/Changes.hs` `validatedSourcePhysical` → `headRetained`). It is never compared with the member's recorded incarnation.
+- If the source PVC or StatefulSet was replaced outside review, the reviewed rename copies from the replacement, possibly an empty volume, and puts the replacement's UID into retained history.
+- That is F51's harm through migration instead of retirement. No model injects `Replaced` on a rename source.
+
+**Required:**
+- `Replaced` on the rename source in the rename recovery model, which should fail I3 on HEAD;
+- refusing a migration whose source is not the recorded incarnation;
+- a mutation record.
+
+**Implementation update (2026-10-05, EP-176 M2; claude-opus-5-5):**
+- **Source.** The migration validator (`Migration.hs`, `validateMigrationInput`) now reads each source through the checked accessor. A durable source must be its recorded incarnation, and no source may be a replacement of a recorded one. Otherwise planning refuses with `migration-source-incarnation`.
+- **Writer (A52).** The writer StatefulSet that prepare reads and fences is checked against its record too. This closes the window between the planner's observation and prepare's re-read.
+- **Regressions.**
+  - "a rename refuses a source replaced outside Nagare, at planning (F62)";
+  - "a rename refuses a writer replaced between planning's reads (ADR 27, A52)";
+  - mutation records `ADR27-F62-migration-source-unchecked` and `ADR27-A52-writer-unchecked`, each failing its test.
+- **Fixtures.** The rename fixtures now record the old members' incarnations by default, as a converged create does.
+- **Not done.** The rename recovery model has no `Replaced` fault on the source yet, so the refusal is pinned by the focused test only. Status is the verifier's to set.
+
+**Independent verification (2026-10-07, nagare-verify; candidate `96c1da11`, code identical to `8824f469`; observed).** Status moves from Open to Verifying. The planning refusal is pinned by "a rename refuses a source replaced outside Nagare, at planning (F62)". Killed: `ADR27-F62-migration-source-unchecked`, `ADR27-A52-writer-unchecked`. The required `Replaced` fault on the rename source in the rename recovery model is not done, and was sent to session nagare-fix. The candidate's full gate is green ([record](../mp23-independent-results-2026-10-07/gate-96c1da11.json)), and the mutation sweep at `8824f469` killed all 117 records ([results](../mp23-independent-results-2026-10-07/mutation-sweep-8824f469.tsv)). Tests named here pass in that gate run ([lines](../mp23-independent-results-2026-10-07/test-evidence-96c1da11.txt)). Summary: [2026-10-07 verification record](../mp23-independent-results-2026-10-07/README.md).
+
+**Implementation update (2026-10-07, session nagare-fix; claude-opus-5-5; landed in the commit that adds this entry).** The rename recovery model now injects `Replaced` on the rename source's claim or writer at each of its 124 reads, with the replacement volume either empty or holding other data. The exits are status, a reviewed rebind (ADR 27 §3) and the rename again. A replacement before admission refuses at planning (`migration-source-incarnation`), and the rebind then the rename converges, copying only the data the rebind's review accepted (the final check compares the copied data with it). Replacements after admission found F81, fixed in the same commit except its pinned E2 and E3.
+
+**Independent verification (2026-10-07, nagare-verify; observed).** Closed. The planning refusal is pinned ("a rename refuses a source replaced outside Nagare, at planning (F62)"; `ADR27-F62-migration-source-unchecked` killed). The required model fault now exists: the rename recovery model injects `Replaced` on the source at each of its 124 reads, with an empty volume or other data. The exit classes it found are F81, fixed in `2df33205` except the pinned E2 and E3 (the follow-up candidate) and D1 (deferral ledger, manual runbook exit).
+
+## F80
+
+**The reviewed rebind cannot be issued for application or standalone-database members, so an unrecorded database never has its backups accepted again** — P1; **Closed**; owner session nagare-fix (MP-23 step 5).
+
+**Found by the independent C2 checkpoint (2026-10-07, nagare-verify, candidate `96c1da11`; observed).**
+- **How a database becomes unrecorded.**
+  - By design (ADR 27 §1), a create whose response is lost records no identity. Here `app deploy` of scenario-a was SIGKILLed 1 s after the `scenario-pg` StatefulSet create's intent (journal seq 988). Resume's adapter recovery proved completion (seq 989) with no `physical`, so the StatefulSet stayed `unrecorded` ([journal](../mp23-independent-results-2026-10-07/c2-checkpoint-96c1da11/deploy-a-statefulset-journal.json)). One lost acknowledgement, a single fault, is enough.
+  - F52's convergence defect leaves every renamed member unrecorded.
+- **What refuses.** An unrecorded member refuses backups, snapshots and restores, receipt listing and ingestion, data fences, rename and collection ([runbook](../../runbooks/inventory-operations.md#replaced-and-unrecorded-members)). Here `db backup scenario-pg` refused at planning with `invalid-manual-backup`: "the backup source StatefulSet 716f7737… has no recorded incarnation; a reviewed rebind records it before its data is used" ([log](../mp23-independent-results-2026-10-07/c2-checkpoint-96c1da11/restores.log)).
+- **The documented exit fails.** The runbook's rebind (an adoption input with `"rebind": true`, issued by `inventory adopt`) refuses before any review for both affected scopes, Application:scenario-a and Standalone:database-scenario-rename-src. The command path was `inventory export` → `scripts/unchanged-inventory-candidate.py` → `inventory compile` (succeeds) → `inventory adopt`, which answered `Kubernetes declaration lacks a packaged document source` (`src/Nagare/Inventory/KubernetesSources.hs`, `loadKubernetesSources`). Application- and database-composed declarations have no packaged `#document[` source ([driver](../mp23-independent-results-2026-10-07/c2-checkpoint-96c1da11/rebind-unrecorded.sh), [adopt logs](../mp23-independent-results-2026-10-07/c2-checkpoint-96c1da11/)).
+- **Why tests missed it.** The rebind is tested only at the decision layer (`decideAdoption`, "a reviewed rebind records a replacement, after which it is the accepted incarnation (ADR 27 §3)"). The recovery model counts a rebind as a supported exit, but no test issues one through the CLI for an application or database scope.
+
+**Impact.** With no executable exit, an unrecorded database's scheduled receipts are never ingested and manual backups never plan. Its off-cluster recovery points stop until the database is rebuilt. ADR 27 §3 says "refusal without an exit is not acceptable". This blocks the data-protection gate and the C2 restores phase.
+
+**Required.** An operator-reachable rebind for application and standalone-database members, proved through the CLI command path for a lost-create-response StatefulSet and a renamed member, with a mutation record. The implementer may also consider whether an adapter recovery that proves completion by the reviewed stamp should record the observed identity, so a lost response needs no rebind; that is a design question for the operator.
+
+**Implementation update (2026-10-07, session nagare-fix; claude-opus-5-5; landed in the commit that adds this entry).** The rebind failed in two places, at planning and at apply.
+- **Planning.** The CLI's planning registry read every selected Kubernetes member without domain-compiler bytes from a packaged `#document[` source. A new library function, `Status.loadKubernetesMembers`, still does that for packaged members. A generated member (an application's or a database's) is accepted only unchanged from its accepted declaration, and takes the bytes its accepted revision recorded, validated as supplied members are. A changed generated member still refuses. `app/Nagare/Cli/Inventory/Planning.hs` calls it.
+- **Apply.** A rebind writes nothing, so its review carries no native bytes for its members, and admission's reverification ("the object a rebind records changed since review") could not observe them. `Status.loadRebindNative` loads the rebound Kubernetes members' accepted bytes, and `app/Nagare/Cli/Inventory/Execution.hs` binds them.
+- **Regression.** "the adopt command issues a reviewed rebind for a database's replaced and unrecorded members (F80)", in `InventoryPostgresRenameSpec`. After a reviewed rename converges, the claim is replaced outside review and the Service's record is lost, as a lost create response leaves it. The test then follows the documented path: an unchanged compiled candidate, a `"rebind": true` proposal, `planInventoryAdoptionWith` against the target's store with the command's member resolution, and apply from the published review alone. Status then reports nothing replaced, and every record names its live object.
+- **Mutation records**: `F80-generated-member-needs-packaged-source` (the test fails with the native message) and `F80-rebind-members-unbound-at-admission`.
+- **Limits.**
+  - The test covers a standalone database. An application scope's members take the same path (generated, unchanged, accepted bytes), but no test drives an application's rebind; the next C2 confirms scenario-a.
+  - The two `app/` call sites are one line each and are not unit-tested.
+  - Proposed deferral (for the operator, not done): an adapter recovery that proves a lost create by its reviewed stamp could record the observed identity, so a lost response needs no rebind.
+
+**Verification.** Pending the fix and a C2 on the new candidate.
+
+**Independent verification (2026-10-07, nagare-verify; observed).** Closed. The source fix is in `a7958867` ("the adopt command issues a reviewed rebind for a database's replaced and unrecorded members (F80)"; records `F80-generated-member-needs-packaged-source` and `F80-rebind-members-unbound-at-admission`). Natively, on `a7958867` C2, an application-scope member (scenario-a's backup-read Role) was replaced with `kubectl replace --force`. Status reported it as `replaced-incarnation`. The documented rebind, issued through `inventory adopt` for Application:scenario-a, converged and recorded it together with the lost-create-response StatefulSet. Status then counted 279 converged and 0 replaced or unrecorded ([log](../mp23-independent-results-2026-10-07/c2-discovery-a7958867/rebind-check.log), [after](../mp23-independent-results-2026-10-07/c2-discovery-a7958867/status-after-rebind.json)).
