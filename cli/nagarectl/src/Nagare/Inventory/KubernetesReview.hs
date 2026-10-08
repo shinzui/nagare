@@ -1,6 +1,6 @@
 -- | Reconstruct Kubernetes adapter inputs only from immutable private review
 -- members. Apply and resume do not reopen packaged manifests or render again.
-module Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview) where
+module Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview, replacementMembers) where
 
 import Data.Aeson (eitherDecodeStrict)
 import Data.ByteString (ByteString)
@@ -48,6 +48,10 @@ kubernetesSpecsFromReview bundle = do
           ( plannedAction (reviewPlannedOperation operation) == RetireResource
               && any (`Set.member` collections) (NE.toList (plannedResources (reviewPlannedOperation operation)))
           )
+        , -- F86: a pod replacement's native names the stuck pod, not the
+        -- member; the member is unchanged, so execution loads its accepted
+        -- native ('replacementMembers').
+        plannedAction (reviewPlannedOperation operation) /= ReplaceStuckPod
         ]
   entries <- traverse (reconstruct context declarationsById) operations
   let grouped = Map.fromListWith (<>) [(resource, [member]) | (resource, member) <- entries]
@@ -153,3 +157,14 @@ kubernetesSpecsFromReview bundle = do
             )
         )
       pure (resource, (declaration, native))
+
+-- | The members whose stuck pod a review replaces.
+replacementMembers :: ReviewDocument -> Set.Set ResourceId
+replacementMembers document =
+  Set.fromList
+    [ resource
+    | operation <- map reviewPlannedOperation (reviewOperations document)
+    , plannedExecutor operation == KubernetesExecutor
+    , plannedAction operation == ReplaceStuckPod
+    , resource <- NE.toList (plannedResources operation)
+    ]

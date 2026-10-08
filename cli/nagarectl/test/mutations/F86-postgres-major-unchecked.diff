@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/DatabaseEngine.hs b/cli/nagarectl/src/Nagare/Inventory/DatabaseEngine.hs
+index 3b46352c..b51f778c 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/DatabaseEngine.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/DatabaseEngine.hs
+@@ -28,7 +28,7 @@ databaseEngineUnchanged accepted desired = do
+     (Just (engine, image), Just (engine', image'))
+       | engine /= engine' ->
+           Left ("database " <> label <> " would change engine from " <> engine <> " to " <> engine' <> " in place; create a new database beside it and move the data")
+-      | engine == "postgres" && image /= image' && (isNothing (major image) || major image /= major image') ->
++      | engine == "postgres" && image /= image' && isNothing (major image) ->
+           Left
+             ( "PostgreSQL "
+                 <> label

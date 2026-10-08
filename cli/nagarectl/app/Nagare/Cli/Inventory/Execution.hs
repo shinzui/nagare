@@ -121,6 +121,7 @@ import Nagare.Inventory.HelmReview (helmSpecsFromReview)
 import Nagare.Inventory.Host qualified as InventoryHost
 import Nagare.Inventory.KubernetesReview
   ( kubernetesSpecsFromReview
+  , replacementMembers
   )
 import Nagare.Inventory.LiveRestoreAdapter (liveRestoreRuntime)
 import Nagare.Inventory.LiveRestoreFence
@@ -459,15 +460,18 @@ inventoryExecutionRegistry mctx store bundle = do
   rebindSpecs <- InventoryStatus.loadRebindNative store document >>= either dieT pure
   -- F83: and rereads each member a review proved absent.
   absenceSpecs <- InventoryStatus.loadAbsenceNative store document >>= either dieT pure
+  -- F86: and the unchanged member whose stuck pod a review replaces.
+  replacementSpecs <- InventoryStatus.acceptedKubernetesNative "a reviewed pod replacement" (replacementMembers document) store >>= either dieT pure
   let kubernetesSpecs =
         Map.restrictKeys
-          (Map.unions [reviewedKubernetesSpecs, retiringKubernetesSpecs, sourceNative, rebindSpecs, absenceSpecs])
+          (Map.unions [reviewedKubernetesSpecs, retiringKubernetesSpecs, sourceNative, rebindSpecs, absenceSpecs, replacementSpecs])
           ( Set.unions
               [ selected ResourceInventory.KubernetesExecutor
               , Map.keysSet sourceNative
               , Map.keysSet retiringKubernetesSpecs
               , Map.keysSet rebindSpecs
               , Map.keysSet absenceSpecs
+              , Map.keysSet replacementSpecs
               ]
           )
       allHelmSpecs =

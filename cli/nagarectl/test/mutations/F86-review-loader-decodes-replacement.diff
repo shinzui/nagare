@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/KubernetesReview.hs b/cli/nagarectl/src/Nagare/Inventory/KubernetesReview.hs
+index 37ae27e0..93dcf6de 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/KubernetesReview.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/KubernetesReview.hs
+@@ -51,7 +51,7 @@ kubernetesSpecsFromReview bundle = do
+         , -- F86: a pod replacement's native names the stuck pod, not the
+         -- member; the member is unchanged, so execution loads its accepted
+         -- native ('replacementMembers').
+-        plannedAction (reviewPlannedOperation operation) /= ReplaceStuckPod
++        True
+         ]
+   entries <- traverse (reconstruct context declarationsById) operations
+   let grouped = Map.fromListWith (<>) [(resource, [member]) | (resource, member) <- entries]

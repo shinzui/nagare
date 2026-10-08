@@ -1,13 +1,13 @@
 diff --git a/cli/nagarectl/src/Nagare/Inventory/DataService.hs b/cli/nagarectl/src/Nagare/Inventory/DataService.hs
-index 8f06c7bd..9baef562 100644
+index bf317fb7..71d860d2 100644
 --- a/cli/nagarectl/src/Nagare/Inventory/DataService.hs
 +++ b/cli/nagarectl/src/Nagare/Inventory/DataService.hs
-@@ -209,7 +209,7 @@ compileStatefulSetRestart ::
+@@ -210,7 +210,7 @@ compileStatefulSetRestart ::
    ScopeDeclaration ->
    Map ResourceId (ManagedResource, ByteString) ->
    Either (NonEmpty InventoryError) RestartDecision
 -compileStatefulSetRestart blocked dataKind name namespaceName stamp accepted native = case blocked of
 +compileStatefulSetRestart blocked dataKind name namespaceName stamp accepted native = case (Nothing :: Maybe PodBlock) of
    Just (PodStuck pod') ->
-     Right (RestartReview accepted native (Just ("rollout stuck on pod " <> pod' ^. #pod <> " at revision " <> pod' ^. #podRevision <> "; proposing replace-stuck-pod instead of a restart token")))
+     Right (RestartReview accepted own (Just ("rollout stuck on pod " <> pod' ^. #pod <> " at revision " <> pod' ^. #podRevision <> "; proposing replace-stuck-pod instead of a restart token")))
    Just (PodBrokenAtRevision pod' revision) ->

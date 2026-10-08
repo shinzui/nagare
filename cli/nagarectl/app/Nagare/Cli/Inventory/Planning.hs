@@ -69,6 +69,7 @@ import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Components.Foundation
   ( compileContributedNamespaces
   )
+import Nagare.Inventory.DatabaseEngine qualified as InventoryDatabaseEngine
 import Nagare.Inventory.Host qualified as InventoryHost
 import Nagare.Inventory.KubernetesSources
   ( validateSuppliedKubernetesMembers
@@ -252,10 +253,7 @@ inventoryPlanRegistryWithMode controllerCollection takeover active workspace sup
       historicalKubernetesIds = Set.union (retiringIds ResourceInventory.KubernetesExecutor) collectingIds
       historicalHelmIds = retiringIds ResourceInventory.HelmExecutor
       historicalIds = Set.union historicalKubernetesIds historicalHelmIds
-  (retiringNative, retiringHelmNative) <-
-    if Set.null historicalIds
-      then pure (Map.empty, Map.empty)
-      else do
+  let loadAcceptedSelected ids = do
         store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
         acceptedSnapshot <-
           either
@@ -274,9 +272,13 @@ inventoryPlanRegistryWithMode controllerCollection takeover active workspace sup
             (dieT . T.pack . show)
             pure
             (ResourceInventory.composeSnapshot acceptedSnapshot)
-        (native, helmNative) <-
-          InventoryStatus.loadAcceptedNativeSelected historicalIds store history acceptedInventory
-            >>= either dieT pure
+        InventoryStatus.loadAcceptedNativeSelected ids store history acceptedInventory
+          >>= either dieT pure
+  (retiringNative, retiringHelmNative) <-
+    if Set.null historicalIds
+      then pure (Map.empty, Map.empty)
+      else do
+        (native, helmNative) <- loadAcceptedSelected historicalIds
         let selectedRetiringKubernetes =
               Map.filterWithKey
                 (\resource _ -> Set.member resource historicalKubernetesIds)
@@ -291,6 +293,22 @@ inventoryPlanRegistryWithMode controllerCollection takeover active workspace sup
           )
           (dieT "retained or retiring resource lacks immutable native evidence")
         pure (selectedRetiringKubernetes, selectedRetiringHelm)
+  -- F86: an accepted database keeps its engine, and PostgreSQL its major
+  -- version, in place.
+  let acceptedKubernetesIds =
+        Set.fromList
+          [ resource ^. #identity
+          | ResourceInventory.Managed resource <- historicalComposed
+          , resource ^. #executor == ResourceInventory.KubernetesExecutor
+          ]
+      updatedNative = Map.restrictKeys kubernetesSuppliedNative (Set.intersection acceptedKubernetesIds selectedKubernetes)
+  unless (Map.null updatedNative) $ do
+    (acceptedUpdated, _) <- loadAcceptedSelected (Map.keysSet updatedNative)
+    sequence_
+      [ either dieT pure (InventoryDatabaseEngine.databaseEngineUnchanged before after)
+      | (resource, (_, after)) <- Map.toList updatedNative
+      , Just (_, before) <- [Map.lookup resource acceptedUpdated]
+      ]
   let kubernetesSpecs =
         Map.restrictKeys
           (Map.unions [kubernetesSuppliedNative, loaded, retiringNative])

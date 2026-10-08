@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/DataService.hs b/cli/nagarectl/src/Nagare/Inventory/DataService.hs
+index bf317fb7..987b6d72 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/DataService.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/DataService.hs
+@@ -221,7 +221,7 @@ compileStatefulSetRestart blocked dataKind name namespaceName stamp accepted nat
+     -- contributed objects (an application's namespace, backend map or Shomei
+     -- settings) and loads every other accepted member from its evidence, so
+     -- supplying them as well refuses as an overlap.
+-    own = Map.restrictKeys native ownMembers
++    own = native
+     ownMembers =
+       Set.fromList
+         [ resource ^. #identity

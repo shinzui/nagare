@@ -27,6 +27,7 @@ import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (StoreBackend)
@@ -211,10 +212,23 @@ compileStatefulSetRestart ::
   Either (NonEmpty InventoryError) RestartDecision
 compileStatefulSetRestart blocked dataKind name namespaceName stamp accepted native = case blocked of
   Just (PodStuck pod') ->
-    Right (RestartReview accepted native (Just ("rollout stuck on pod " <> pod' ^. #pod <> " at revision " <> pod' ^. #podRevision <> "; proposing replace-stuck-pod instead of a restart token")))
+    Right (RestartReview accepted own (Just ("rollout stuck on pod " <> pod' ^. #pod <> " at revision " <> pod' ^. #podRevision <> "; proposing replace-stuck-pod instead of a restart token")))
   Just (PodBrokenAtRevision pod' revision) ->
     Right (RestartNotPlanned ("pod " <> pod' <> " at revision " <> revision <> ": the pod's current template doesn't become ready; correct the database spec, then run db restart to replace the stuck pod"))
-  Nothing -> (\(revised, changed) -> RestartReview revised changed Nothing) <$> compileStatefulSetRestartScope dataKind name namespaceName stamp accepted native
+  Nothing -> (\(revised, changed) -> RestartReview revised changed Nothing) <$> compileStatefulSetRestartScope dataKind name namespaceName stamp accepted own
+  where
+    -- F86: supply only this scope's own members. Planning regenerates
+    -- contributed objects (an application's namespace, backend map or Shomei
+    -- settings) and loads every other accepted member from its evidence, so
+    -- supplying them as well refuses as an overlap.
+    own = Map.restrictKeys native ownMembers
+    ownMembers =
+      Set.fromList
+        [ resource ^. #identity
+        | bundle <- scopeBundles accepted
+        , Managed resource <- declarations bundle
+        , resource ^. #source . #file /= "contribution"
+        ]
 
 -- | Restart one accepted data workload by changing only its pod template.
 -- The scope's other declarations and private bytes remain those of the

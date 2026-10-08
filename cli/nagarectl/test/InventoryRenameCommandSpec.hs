@@ -23,6 +23,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Vector qualified as V
+import InventoryDatabaseEngineSpec (inventoryDatabaseEngineTests)
 import InventoryPostgresRenameSpec
 import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.Database.Secret (b64decode, b64encode)
@@ -69,7 +70,8 @@ inventoryRenameCommandTests :: TestTree
 inventoryRenameCommandTests =
   testGroup
     "inventory PostgreSQL rename commands"
-    [ testCase "the adopt command issues a reviewed rebind for a database's replaced and unrecorded members (F80)" $
+    [ inventoryDatabaseEngineTests
+    , testCase "the adopt command issues a reviewed rebind for a database's replaced and unrecorded members (F80)" $
         withSystemTempDirectory "postgres-rename-rebind" $ \root -> withStateRoot root $ do
           store <- openTargetStore renameTarget
           probe <- newIORef Nothing

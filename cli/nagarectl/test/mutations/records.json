@@ -820,5 +820,23 @@
     "suite": "nagarectl",
     "pattern": "/host lock re-pin/&&/is not a store path refuses/",
     "expect": "test-fails"
+  },
+  {
+    "record": "F86-postgres-major-unchecked",
+    "suite": "nagarectl",
+    "pattern": "/F86/&&/a PostgreSQL major change refuses/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "F86-restart-supplies-every-native",
+    "suite": "nagarectl",
+    "pattern": "/F86/&&/only the scope's own members are supplied/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "F86-review-loader-decodes-replacement",
+    "suite": "nagarectl",
+    "pattern": "/stuck pod/&&/review loader leaves a replace-stuck-pod/",
+    "expect": "test-fails"
   }
 ]

@@ -363,6 +363,27 @@ a `db restart` of a StatefulSet that is not stuck) carries only that update. If
 the update itself is left stuck, the next review replaces the pod.
 
 
+### Upgrade PostgreSQL to a new major version
+
+PostgreSQL cannot open data files that another major version initialized, so
+planning refuses a version change across majors on an existing database (and
+any engine change), naming this section. A minor update within one major
+(`"17"` to `"17.6"`) is an ordinary in-place update. A major upgrade runs side
+by side (F86):
+
+1. Take a fresh reviewed backup and prove it with an isolated restore.
+2. Declare a new database at the new major beside the old one; bindings stay on
+   the old one.
+3. Fence the old instance read-only, copy with the new major's `pg_dump` into the
+   new instance under `psql -v ON_ERROR_STOP=1 --single-transaction`, and compare
+   every table and sequence. A failed restore leaves nothing behind; lift the
+   fence and the old instance carries on.
+4. Switch the application's binding to the new database in a reviewed deploy.
+   Switching back is the same reviewed change while the new instance has taken
+   no write.
+5. Prove the new instance with its own backup and restore, then retire the old
+   database. Its members are retained, not deleted.
+
 ## Connecting an app to a database
 
 Add the database's name to your app's `databases` list in its `Config.hs`:
@@ -611,7 +632,8 @@ drill and procedure.
   memory limit via `resources` (see the ClickHouse example).
 - **ClusterIP-only.** Databases are never exposed to the public internet. Reach
   one from your workstation with `kubectl port-forward`, not a DomainMapping.
-- **Out of scope:** major-version upgrades, in-place engine migration, connection
+- **Out of scope:** in-place major-version upgrades and engine changes (planning
+  refuses both; see [Upgrade PostgreSQL to a new major version](#upgrade-postgresql-to-a-new-major-version)), connection
   pooling as a managed feature (run your own pooler), and multi-tenant users.
 
 

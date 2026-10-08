@@ -19,11 +19,13 @@ import Data.ByteString (ByteString)
 import Data.ByteString.Lazy qualified as BL
 import Data.ByteString.Lazy.Char8 qualified as BLC
 import Data.Either (isLeft)
+import Data.Foldable (for_)
 import Data.Generics.Labels ()
 import Data.IORef
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
@@ -38,6 +40,7 @@ import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Execute
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect))
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
+import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview, replacementMembers)
 import Nagare.Inventory.KubernetesTransport (KubectlRequest (..), KubernetesRuntimeConfig (..), runKubectlWith, withKubectlInterpreter)
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Status qualified as Status
@@ -239,6 +242,11 @@ inventoryStuckPodTests =
               adapterVerify adapter replaceOperation prepared
         verifyAfter (Right (ReplacementObservation (Just (uidOf "sts-uid", True)) ReviewedPodGone)) >>= (@?= replacementProof replacementFixture)
         verifyAfter (Right (ReplacementObservation (Just (uidOf "sts-uid", False)) ReviewedPodGone)) >>= assertBool "a replacement whose StatefulSet is not Ready verified" . isLeft
+    , testCase "apply: the CLI's review loader leaves a replace-stuck-pod to the member's accepted native (F86)" $ do
+        (_, _, bundle) <- replacementReview AdapterEffectCompleted (ReplacementObservation (Just (planUid, True)) ReviewedPodGone)
+        map (plannedAction . reviewPlannedOperation) (reviewOperations (reviewBundleDocument bundle)) @?= [ReplaceStuckPod]
+        kubernetesSpecsFromReview bundle @?= Right Map.empty
+        replacementMembers (reviewBundleDocument bundle) @?= Set.singleton planId
     , testCase "apply: a replacement whose StatefulSet becomes Ready converges" $ do
         (_, _, _, applied) <- applyReplacement AdapterEffectCompleted (ReplacementObservation (Just (planUid, True)) ReviewedPodGone)
         case applied of
@@ -278,6 +286,18 @@ inventoryStuckPodTests =
         note @?= Just "rollout stuck on pod pg-0 at revision pg-9d647; proposing replace-stuck-pod instead of a restart token"
         planned <- planDatabase revised (Map.singleton statefulId "pg-0 at revision pg-9d647 is not Ready and blocks the rollout to pg-d9d6d")
         map (\operation -> (plannedAction operation, plannedResources operation)) planned @?= [(ReplaceStuckPod, statefulId :| [])]
+    , testCase "db restart: only the scope's own members are supplied, never contributed objects planning regenerates (F86)" $ do
+        let (stsBound, stsBytes) = databaseNative Map.! statefulId
+            foreignNamespace = mintResourceId (ok (mkScopeId Platform "namespaces")) (ok (mkLogicalKey "personal")) (ok (mkName "namespace"))
+            contributed = stsBound & #identity .~ foreignNamespace & #owner .~ ok (mkScopeId Platform "namespaces") & #source .~ SourceLocation "contribution" "namespace"
+            withForeign = Map.insert foreignNamespace (contributed, stsBytes) databaseNative
+        for_ [Just (PodStuck reviewedPod), Nothing] $ \blocked -> do
+          decision <- expectRight (compileStatefulSetRestart blocked DatabaseObjects "pg" "personal" "2026-10-06T00:00:00Z" databaseScope withForeign)
+          case decision of
+            RestartReview _ native _ -> do
+              Map.member foreignNamespace native @?= False
+              Map.keysSet native @?= Map.keysSet databaseNative
+            other -> assertFailure ("the restart did not review: " <> show other)
     , testCase "db restart: a pod not Ready at the update revision plans nothing and says to correct the spec (E17)" $ do
         compileStatefulSetRestart (Just (PodBrokenAtRevision "pg-0" "pg-9dc98")) DatabaseObjects "pg" "personal" "2026-10-06T00:00:00Z" databaseScope databaseNative
           @?= Right (RestartNotPlanned "pod pg-0 at revision pg-9dc98: the pod's current template doesn't become ready; correct the database spec, then run db restart to replace the stuck pod")
@@ -512,6 +532,16 @@ runtimeReplace guard' respond = do
 -- whose delete answers @executed@ and whose fresh observation is @observed@.
 applyReplacement :: AdapterExecution -> ReplacementObservation -> IO (InventoryStore, AdapterRegistry, ReviewedPlan, TransactionResult)
 applyReplacement executed observed = do
+  (store, registry, bundle) <- replacementReview executed observed
+  _ <- publishReview store bundle >>= expectRight
+  published <- readStoreSnapshot store >>= expectRight
+  reviewed <- expectRight (verifyReview published bundle)
+  applied <- applyReviewed store registry reviewed >>= expectRight
+  pure (store, registry, reviewed, applied)
+
+-- | The prepared review of a replace-stuck-pod on the planning member.
+replacementReview :: AdapterExecution -> ReplacementObservation -> IO (InventoryStore, AdapterRegistry, ReviewBundle)
+replacementReview executed observed = do
   let (declared, _) = pgBound
   (store, candidate, history) <- acceptedStore declared declared
   calls <- newIORef 0
@@ -528,11 +558,7 @@ applyReplacement executed observed = do
   observations <- observeWithRegistry registry (requirementsByExecutor (observationRequirements candidate history)) >>= expectRight
   snapshot <- readStoreSnapshot store >>= expectRight
   bundle <- prepareReview registry snapshot (ok (planChanges candidate noLifecycleDecisions history observations)) >>= expectRight
-  _ <- publishReview store bundle >>= expectRight
-  published <- readStoreSnapshot store >>= expectRight
-  reviewed <- expectRight (verifyReview published bundle)
-  applied <- applyReviewed store registry reviewed >>= expectRight
-  pure (store, registry, reviewed, applied)
+  pure (store, registry, bundle)
 
 -- | The replacement of 'reviewedPod' on the planning member.
 replacementFixture :: PodReplacement
