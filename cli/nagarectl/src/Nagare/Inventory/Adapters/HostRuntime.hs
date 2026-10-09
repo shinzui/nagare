@@ -22,8 +22,9 @@ import Nagare.Inventory.Digest
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect), operationIdText)
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
-import System.Environment (getEnvironment)
+import System.Environment (getEnvironment, getExecutablePath)
 import System.Exit (ExitCode (..))
+import System.FilePath (takeDirectory)
 import System.Process (CreateProcess (env), proc, readCreateProcessWithExitCode)
 
 data HostRuntimeConfig = HostRuntimeConfig
@@ -162,10 +163,20 @@ runActivation config plan = do
 runTransport :: HostRuntimeConfig -> String -> Maybe HostActivationPlan -> IO (Either Text HostTransportResponse)
 runTransport config action plan = do
   environment <- getEnvironment
+  self <- getExecutablePath
   let marker = ("NAGARE_INVENTORY_ADAPTER_CHILD", "host")
       additions = filter ((/= fst marker) . fst) (runtimeHostEnvironment config)
-      names = map fst (marker : additions)
-      childEnvironment = marker : additions <> filter ((`notElem` names) . fst) environment
+      -- F90: the transport's scripts call this nagarectl, never whichever
+      -- one comes first on the operator's PATH (an older release there ran
+      -- part of a reviewed host apply).
+      inherited = lookup "PATH" additions <|> lookup "PATH" environment
+      selfEnvironment = [("NAGARECTL", self), ("PATH", takeDirectory self <> maybe "" (':' :) inherited)]
+      names = map fst (marker : selfEnvironment <> additions)
+      childEnvironment =
+        marker
+          : selfEnvironment
+            <> filter ((`notElem` map fst selfEnvironment) . fst) additions
+            <> filter ((`notElem` names) . fst) environment
       credentialProtocol =
         maybe False ((== 2) . hostPlanVersion) plan
           || (action == "prepare" && lookup "NAGARE_HOST_REVIEW_CREDENTIAL" childEnvironment == Just "1")

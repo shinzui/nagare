@@ -880,5 +880,11 @@
     "suite": "nagarectl",
     "pattern": "/a first preflight refusal stops with the adapter's reason/",
     "expect": "test-fails"
+  },
+  {
+    "record": "F90-transport-uses-path-nagarectl",
+    "suite": "nagarectl",
+    "pattern": "/the host transport runs this nagarectl/",
+    "expect": "test-fails"
   }
 ]

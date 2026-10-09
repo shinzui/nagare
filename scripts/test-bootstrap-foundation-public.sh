@@ -1013,14 +1013,12 @@ else:
 PY
 printf 'ssh-ed25519 fixture-key fixture@example.invalid\n' > "$fixture_root/operator.pub"
 export NAGARE_SSH_PUBLIC_KEY_FILE="$fixture_root/operator.pub"
+# F90: a decoy first on PATH. The host transport's scripts must call the
+# nagarectl that runs them (NAGARECTL), never this one.
 cat > "$fixture_root/bin/nagarectl" <<'EOF'
 #!/usr/bin/env bash
-if test "$*" = 'host name'; then
-  printf 'freshlocal-nagare\n'
-else
-  printf 'unexpected nested nagarectl command: %s\n' "$*" >&2
-  exit 44
-fi
+printf 'a nested call resolved nagarectl from PATH: %s\n' "$*" >&2
+exit 44
 EOF
 chmod +x "$fixture_root/bin/nagarectl"
 "$nagarectl_bin" --context freshlocal platform bootstrap plan --out "$fixture_root/host-review" \

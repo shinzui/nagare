@@ -34,7 +34,8 @@ import Nagare.Inventory.Store
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
 import Nagare.Resource.Types
-import System.FilePath ((</>))
+import System.Environment (getExecutablePath)
+import System.FilePath (takeDirectory, (</>))
 import System.IO.Temp (withSystemTempDirectory)
 import System.Posix.Files (setFileMode)
 import Test.Tasty
@@ -53,6 +54,31 @@ inventoryHostTests =
           Aeson.Object fields -> KeyMap.lookup "previousAgeKeyDigest" fields @?= Nothing
           _ -> assertFailure "host plan is not an object"
         Aeson.eitherDecode (Aeson.encode activationPlan) @?= Right activationPlan
+    , testCase "the host transport runs this nagarectl, never another one earlier on PATH (F90)" $
+        withSystemTempDirectory "host-transport-self" $ \temporary -> do
+          let executable = temporary </> "transport"
+              decoy = temporary </> "decoy"
+              seen = temporary </> "seen"
+              runtime =
+                HostRuntimeConfig
+                  executable
+                  [("PATH", decoy)]
+                  (ok (mkContextId "dev"))
+                  (name "dev-nagare")
+                  "example-project"
+                  "us-west1-a"
+                  "dev-nagare"
+                  "deploy@dev-nagare"
+                  (contentDigest "configuration")
+                  (contentDigest "lock")
+                  Nothing
+                  True
+              response = "{\"tag\":\"HostTransportPrepared\",\"contents\":[\"gce://example-project/us-west1-a/dev-nagare\",\"/fixture/old\",\"/fixture/new\"]}"
+          writeFile executable ("#!/bin/sh\ncat >/dev/null\nprintf '%s\\n%s\\n' \"$NAGARECTL\" \"${PATH%%:*}\" > " <> seen <> "\nprintf '%s\\n' '" <> response <> "'\n")
+          setFileMode executable 0o700
+          _ <- hostPreparePlan (mkHostRuntimeOps runtime) operation >>= expectRight
+          self <- getExecutablePath
+          lines <$> readFile seen >>= (@?= [self, takeDirectory self])
     , testCase "credential preparation pins previous digest for host update and verification" $
         withSystemTempDirectory "host-credential-plan" $ \temporary -> do
           let executable = temporary </> "transport"

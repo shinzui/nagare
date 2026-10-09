@@ -6,11 +6,12 @@
 _nagare_resolve_host_flake() {
   local resolved="${NAGARE_HOST_FLAKE:-}"
   if [ -z "${resolved}" ]; then
-    if ! command -v nagarectl >/dev/null 2>&1; then
+    # F90: an inventory adapter passes its own binary as NAGARECTL.
+    if ! command -v "${NAGARECTL:-nagarectl}" >/dev/null 2>&1; then
       echo "nagare: nagarectl is required to resolve the active host flake; set NAGARE_HOST_FLAKE explicitly" >&2
       return 1
     fi
-    resolved="$(nagarectl host path)" || return 1
+    resolved="$("${NAGARECTL:-nagarectl}" host path)" || return 1
   fi
 
   if [ ! -f "${resolved}/flake.nix" ] || [ ! -f "${resolved}/host.nix" ]; then

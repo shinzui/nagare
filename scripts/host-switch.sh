@@ -35,7 +35,9 @@ done
 
 _nagare_resolve_host_flake
 
-GENERATED_HOST_NAME="$(nagarectl host name)"
+# F90: an inventory adapter passes its own binary as NAGARECTL; never an older
+# nagarectl that happens to come first on the operator's PATH.
+GENERATED_HOST_NAME="$("${NAGARECTL:-nagarectl}" host name)"
 HOST_ATTR="${NAGARE_HOST_ATTR:-${GENERATED_HOST_NAME}}"
 SSH_USER="${NAGARE_SSH_USER:-deploy}"
 SSH_HOST="${NAGARE_SSH_HOST:-${NAGARE_HOST_ATTR:-${GENERATED_HOST_NAME}}}"
@@ -60,7 +62,7 @@ if [ "${DRY_RUN}" -eq 1 ]; then
 fi
 
 if [ "${NAGARE_INVENTORY_ADAPTER_CHILD:-}" != host ]; then
-  nagarectl inventory guard-legacy host-switch
+  "${NAGARECTL:-nagarectl}" inventory guard-legacy host-switch
 fi
 
 # 1. Refuse the in-repo evaluation fixture (`or false` keeps older Nagare inputs evaluable).
