@@ -91,4 +91,19 @@ grep -q '^HostTransportCommitted ' "${temporary}/ready.out"
 if grep -q '^send-file ' "${AUDIT_CALLS}"; then
   echo "ready host unnecessarily reactivated" >&2; exit 1
 fi
-printf 'host transport identity, key refusal, interrupted activation retry, and fresh login: OK\n'
+# F93: a host review can carry two activation operations for one closure (an
+# update of the system and its declared activation). The first writes the
+# credential receipt; the second must find it, so the receipt is keyed by what it
+# proves (instance, closures, keys), not by the operation that wrote it.
+plan_for() {
+  printf '{"plan":{"operation":"%s","inputDigest":"%s","activationId":"%s","version":2,"credentialReceiptRequired":true,"instance":"gce://reviewed-instance","expectedOldClosure":"/nix/store/old","newClosure":"%s","ageKeyDigest":"%s"}}' "$1" "$2" "$1" "$3" "$4"
+}
+receipt_for() { (request="$1"; credential_receipt_path); }
+first="$(receipt_for "$(plan_for op-update 1111 /nix/store/new "${age_key_digest}")")"
+second="$(receipt_for "$(plan_for op-declared 2222 /nix/store/new "${age_key_digest}")")"
+[ "${first}" = "${second}" ] || { echo "two activations of one review use different credential receipts" >&2; exit 1; }
+[ "${first}" != "$(receipt_for "$(plan_for op-update 1111 /nix/store/other "${age_key_digest}")")" ] \
+  || { echo "a different closure shares the credential receipt" >&2; exit 1; }
+[ "${first}" != "$(receipt_for "$(plan_for op-update 1111 /nix/store/new bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb)")" ] \
+  || { echo "a different key shares the credential receipt" >&2; exit 1; }
+printf 'host transport identity, key refusal, interrupted activation retry, fresh login, and one receipt per reviewed activation: OK\n'

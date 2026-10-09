@@ -159,9 +159,12 @@ prepare() {
   fi
 }
 
+# F93: keyed by what the receipt proves (this instance, the reviewed closures and
+# keys), not by the operation that wrote it. One review may carry two activation
+# operations for one closure; the second must find the first one's receipt.
 credential_receipt_path() {
   local digest
-  digest="$(jq -cS '.plan' <<<"${request}" | shasum -a 256 | awk '{print $1}')"
+  digest="$(jq -cS '.plan | del(.operation, .inputDigest, .activationId)' <<<"${request}" | shasum -a 256 | awk '{print $1}')"
   printf '/var/lib/nagare/host-credential-receipts/%s' "${digest}"
 }
 
