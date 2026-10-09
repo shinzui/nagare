@@ -10,6 +10,12 @@ provenance:
     model: "claude-opus-5-5"
     harness: "claude-code"
     at: 2026-10-04T04:49:45Z
+  revisions:
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-09T22:17:13Z
+      mode: "update"
+      note: "Cascade 2026-10-09 re-scope of MasterPlans 21/25/26"
 ---
 
 # Move release tooling out of the platform payload
@@ -40,6 +46,10 @@ The platform payload is the set of files the `nagarectl` CLI installs into a con
 - Decision: Classify by observed use (code paths and recipes that reference a file), not by name.
   Rationale: Names such as `rehearse-*` look like tooling, but a recipe or a manifest may reference them; only the referencing code proves a file is runtime.
   Date: 2026-10-04
+
+- Decision (2026-10-09): The harness identity is the `cli/nagare-harness` package that EP-174 created. Tooling moved out of the payload goes there, ported to Haskell when touched ([ADR 24](../adr/0024-release-and-harness-tooling-follows-the-production-haskell-standard.md)), or stays as frozen scripts outside `share/nagare`. EP-172's release compatibility table is a runtime file and ships in the payload.
+  Rationale: The harness package now exists, and EP-169's separate checkout premise is gone. The transition table must travel with the release it describes.
+  Date: 2026-10-09
 
 
 ## Outcomes & Retrospective
@@ -87,4 +97,4 @@ The change is reversible by restoring the broader copy in `nix/platform-package.
 
 ## Interfaces and Dependencies
 
-No hard dependencies; it should land before most other streams finish. It defines the payload boundary consumed by [EP-170](170-size-the-release-gate-to-the-change.md) (change classes) and [EP-169](169-run-the-local-acceptance-in-ci.md) (checking out harness tooling separately).
+No hard dependencies; it should land before most other streams finish. It defines the payload boundary consumed by [EP-170](170-size-the-release-gate-to-the-change.md) (change classes). [EP-169](169-run-the-local-acceptance-in-ci.md) is cancelled.

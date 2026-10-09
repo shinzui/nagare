@@ -267,8 +267,8 @@ The initiative remains partially implemented and is optional follow-up work, not
 production-readiness prerequisite. EP-122/124/125 have no accepted replacement implementation;
 EP-123/126/127 have the existing minimal model, state contract and injected safety core.
 No live IP handoff, promotable candidate topology, automated cross-cluster final transfer or bounded
-public replacement drill is accepted. The next useful work is EP-123's inventory-authority binding
-and EP-122's bounded feasibility proof, after the operator chooses to schedule implementation.
+public replacement drill is accepted. Only EP-122's measurement spike is scheduled. EP-123's
+inventory-authority binding is the first code to resume if the operator's gate decides to continue.
 
 Accepted inputs to reuse, rather than rebuild:
 

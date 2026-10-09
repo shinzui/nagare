@@ -22,6 +22,11 @@ provenance:
       at: 2026-10-09T19:45:59Z
       mode: "update"
       note: "Refresh MP-21 as optional inventory-backed replacement after MP-23 upgrade drills"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-09T22:17:13Z
+      mode: "update"
+      note: "Cascade 2026-10-09 re-scope of MasterPlans 21/25/26"
 ---
 
 # Model resumable replacement-upgrade transactions and downtime budgets
@@ -81,6 +86,10 @@ Missing provider evidence always blocks readiness.
 
 Retained rules: monotonic downtime arithmetic, explicit rollback reserve/margin, exact confirmation,
 source/target identity binding and observed candidate write admission as the irreversible boundary.
+
+- Decision (operator, 2026-10-09): On hold. [MasterPlan 21](../masterplans/21-rehearsed-replacement-upgrades-with-bounded-downtime-for-nagare.md) runs only EP-122's measured IP-handoff spike until the operator decides, from its numbers, whether to resume, re-scope or cancel the remaining children. Do not start this plan's remaining milestones before that decision. If it resumes, its source/target release and store-wire compatibility comes from [MasterPlan 26](../masterplans/26-make-platform-changes-and-releases-routine-after-the-inventory-release.md) EP-172's compatibility table, rather than a separate binding defined here.
+  Rationale: Replacement has the largest cloud surface of the follow-up plans, and its downtime budget's feasibility is unmeasured.
+  Date: 2026-10-09
 
 
 ## Outcomes & Retrospective
