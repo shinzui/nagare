@@ -13,8 +13,10 @@ module Nagare.Harness.Gate
   )
 where
 
+import Control.Monad (join)
 import Data.Aeson (Value (..), eitherDecodeStrict)
 import Data.Aeson.KeyMap qualified as KeyMap
+import Data.Containers.ListUtils (nubOrd)
 import Data.Generics.Labels ()
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
@@ -23,6 +25,7 @@ import Data.Text.IO qualified as TIO
 import Data.Time.Clock (getCurrentTime)
 import Data.Time.Format (defaultTimeLocale, formatTime)
 import Data.Vector qualified as Vector
+import Nagare.Harness.CarryForward (carryForwardVerdict, referenceNeedles)
 import Nagare.Harness.Prelude
 import Nagare.Harness.Realise (remainingPaths)
 import Nagare.Harness.Record
@@ -287,7 +290,10 @@ runFullGate run = do
           pure (Right final)
 
 -- | Refuse a revision without a green, clean, fully realised gate record for
--- its exact tree.
+-- its exact tree. A revision with no record of its own may carry forward the
+-- record of its nearest gated ancestor when every path between the two trees
+-- is inert documentation ("Nagare.Harness.CarryForward"). A revision whose own
+-- record is red never carries forward.
 verifyRevision :: FilePath -> Text -> IO (Either Text Text)
 verifyRevision workdir revision = do
   (code, out, err) <- capture workdir "git" ["rev-parse", "--verify", T.unpack revision <> "^{commit}"]
@@ -295,11 +301,70 @@ verifyRevision workdir revision = do
     ExitFailure _ -> pure (Left ("unknown revision " <> revision <> ": " <> T.strip err))
     ExitSuccess -> do
       let commitId = T.strip out
-      treeId <- captureLine workdir "git" ["rev-parse", T.unpack commitId <> "^{tree}"]
-      supported <- supportedSystemsAt workdir commitId
-      stored <- readRecord commitId
-      pure $ do
+      own <- verifyOwnRecord workdir commitId
+      case own of
+        Right (Just systems) -> pure (Right (summary commitId systems))
+        Left refusal -> pure (Left refusal)
+        Right Nothing -> do
+          carried <- carryForwardRecord workdir commitId
+          pure $ case carried of
+            Right (ancestor, paths, systems) ->
+              Right
+                ( summary commitId systems
+                    <> " (carried forward from "
+                    <> ancestor
+                    <> ": "
+                    <> T.pack (show paths)
+                    <> " changed paths, all inert documentation)"
+                )
+            Left refusal -> Left ("no gate record for " <> commitId <> ", and no carry-forward: " <> refusal <> "; run `just gate` on a clean checkout of it")
+  where
+    summary commitId systems = commitId <> " green, systems " <> T.unwords systems
+
+-- | @Right (Just systems)@ when the commit's own record verifies, @Right
+-- Nothing@ when it has no record, and @Left@ when its record is unusable.
+verifyOwnRecord :: FilePath -> Text -> IO (Either Text (Maybe [Text]))
+verifyOwnRecord workdir commitId = do
+  treeId <- captureLine workdir "git" ["rev-parse", T.unpack commitId <> "^{tree}"]
+  supported <- supportedSystemsAt workdir commitId
+  stored <- readRecord commitId
+  pure $ do
+    record <- stored
+    case record of
+      Nothing -> Right Nothing
+      Just present -> do
         systems <- supported
-        record <- stored
-        verifyRecord VerifyTarget {commit = commitId, tree = treeId, supportedSystems = systems} record
-        pure (commitId <> " green, tree " <> treeId <> ", systems " <> T.unwords systems)
+        verifyRecord VerifyTarget {commit = commitId, tree = treeId, supportedSystems = systems} (Just present)
+        Right (Just systems)
+
+-- | The nearest ancestor (within 500 commits) whose own record verifies, and
+-- the verdict on the paths that differ between its tree and the commit's.
+carryForwardRecord :: FilePath -> Text -> IO (Either Text (Text, Int, [Text]))
+carryForwardRecord workdir commitId = do
+  (_, listed, _) <- capture workdir "git" ["rev-list", "--max-count=500", T.unpack commitId <> "^@"]
+  ancestor <- firstGreen (T.lines listed)
+  case ancestor of
+    Nothing -> pure (Left "no ancestor within 500 commits has a green gate record")
+    Just (ancestorId, systems) -> do
+      (_, diffed, _) <- capture workdir "git" ["diff", "-z", "--name-only", "--no-renames", T.unpack ancestorId, T.unpack commitId]
+      let changed = filter (not . T.null) (T.splitOn "\0" diffed)
+      named <- forM (nubOrd (concatMap referenceNeedles changed)) $ \needle -> (needle,) <$> namingFile needle
+      let namedBy needle = join (lookup needle named)
+      pure $ case carryForwardVerdict namedBy changed of
+        Left blocked -> Left ("nearest gated ancestor " <> ancestorId <> "; blocked by " <> blocked)
+        Right count -> Right (ancestorId, count, systems)
+  where
+    firstGreen = \case
+      [] -> pure Nothing
+      candidate : rest -> do
+        own <- verifyOwnRecord workdir candidate
+        case own of
+          Right (Just systems) -> pure (Just (candidate, systems))
+          _ -> firstGreen rest
+    -- The first non-Markdown file outside docs/ in the commit's tree that
+    -- names the needle.
+    namingFile needle = do
+      (_, found, _) <- capture workdir "git" ["grep", "-l", "-I", "-F", "-e", T.unpack needle, T.unpack commitId, "--", ".", ":(exclude)docs", ":(exclude,glob)**/*.md"]
+      pure $ case T.lines found of
+        hit : _ -> Just (fromMaybe hit (T.stripPrefix (commitId <> ":") hit))
+        [] -> Nothing

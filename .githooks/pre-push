@@ -5,7 +5,8 @@
 # from a clean tree. `just gate` (the full gate) refuses dirty trees.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
-# Commits pushed with a green full-gate record (`just land`) need no second
+# Commits pushed with a green full-gate record (`just land`), or one carried
+# forward from a gated ancestor over inert documentation, need no second
 # gate. Git passes "<local ref> <local sha> <remote ref> <remote sha>" lines on
 # stdin; the record is checked for each pushed commit, not for the working
 # tree, so `just land` can push a gated commit from any checkout.

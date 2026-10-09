@@ -84,6 +84,8 @@ let
       # EP-174: the local gate and acceptance harness (maintainer tooling,
       # outside the platform payload).
       nagare-harness = nagarePackage (hl.overrideCabal (hfinal.callCabal2nix "nagare-harness" ../cli/nagare-harness { }) (_old: {
+        # The documentation carry-forward test builds a throwaway repository.
+        testToolDepends = [ pkgs.git ];
         postPatch = ''
           substituteInPlace test/Spec.hs \
             --replace-fail "../../fixtures/inventory-release/local" "${../fixtures/inventory-release/local}"

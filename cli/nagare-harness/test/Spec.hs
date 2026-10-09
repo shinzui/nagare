@@ -2,23 +2,28 @@
 
 module Main (main) where
 
+import Control.Exception (finally)
 import Data.Aeson (eitherDecode, eitherDecodeFileStrict)
 import Data.Either (isLeft, isRight)
 import Data.Generics.Labels ()
 import Data.List (sort)
 import Data.Map.Strict qualified as Map
+import Data.Text qualified as T
+import Nagare.Harness.CarryForward
 import Nagare.Harness.FixtureSmoke
-import Nagare.Harness.Gate (fastSteps)
+import Nagare.Harness.Gate (fastSteps, verifyRevision)
 import Nagare.Harness.Mutation (Expectation (..), MutationRecord (..), Outcome (..), Suite (..), classifyProof, readSweepResults)
 import Nagare.Harness.Prelude
 import Nagare.Harness.Realise (remainingPaths)
 import Nagare.Harness.Record
 import Nagare.Harness.Step
 import Nagare.Harness.Verify
-import System.Directory (listDirectory)
+import System.Directory (createDirectoryIfMissing, listDirectory)
+import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.Exit (ExitCode (..))
-import System.FilePath ((</>))
+import System.FilePath (takeDirectory, (</>))
 import System.IO.Temp (withSystemTempDirectory)
+import System.Process (callProcess, readProcess)
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -132,7 +137,78 @@ tests =
         , testCase "a failed builder probe is refused" $
             assertBool "failed probe accepted" (isLeft (verifyRecord target (Just (greenRecord & #builderProbe . #ok .~ False))))
         ]
+    , testGroup
+        "documentation carry-forward (EP-170, operator 2026-10-09)"
+        [ testCase "needles are the path and each directory below its inert prefix" $
+            referenceNeedles "docs/audits/run/c2/chain.sh"
+              @?= ["docs/audits/run", "docs/audits/run/c2", "docs/audits/run/c2/chain.sh"]
+        , testCase "plans, MasterPlans, ADRs and audits nobody names are inert" $
+            carryForwardVerdict (const Nothing) ["docs/plans/1-x.md", "docs/masterplans/2-y.md", "docs/adr/0001-z.md", "docs/audits/a/b.json"]
+              @?= Right 4
+        , testCase "an empty difference carries forward" $
+            carryForwardVerdict (const Nothing) [] @?= Right 0
+        , testCase "code, user guides, runbooks and release notes are not inert" $
+            map
+              (classifyPath (const Nothing))
+              ["cli/nagarectl/src/X.hs", "docs/user/reference.md", "docs/runbooks/a.md", "docs/releases/v0.4.0.md", "release.json"]
+              @?= replicate 5 OutsideInertDocumentation
+        , testCase "plans the payload ships are not inert" $
+            map (classifyPath (const Nothing)) shippedDocuments @?= replicate 2 ShippedInPayload
+        , testCase "a fixture named by a test, or in a directory a test names, is not inert" $ do
+            let namedBy needle = if needle == "docs/audits/k8s" then Just "cli/nagarectl/test/KSpec.hs" else Nothing
+            classifyPath namedBy "docs/audits/k8s/experiments/e6e.out" @?= NamedByCode "cli/nagarectl/test/KSpec.hs"
+            classifyPath namedBy "docs/audits/other/notes.md" @?= Inert
+        , testCase "one blocking path refuses the whole difference" $
+            assertBool "mixed difference accepted" (isLeft (carryForwardVerdict (const Nothing) ["docs/plans/1-x.md", "justfile"]))
+        , testCase "gate verify carries a green record forward over inert documentation only" carryForwardRoundTrip
+        ]
     ]
+
+-- | A throwaway repository and gate-record directory: a gated base commit,
+-- then documentation, fixture, code and red-record commits on top.
+carryForwardRoundTrip :: Assertion
+carryForwardRoundTrip =
+  withSystemTempDirectory "carry" $ \dir -> do
+    let repo = dir </> "repo"
+        state = dir </> "state"
+        git arguments = callProcess "git" (["-C", repo, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"] <> arguments)
+        write path content = createDirectoryIfMissing True (takeDirectory (repo </> path)) >> writeFile (repo </> path) content
+        commitAll message = git ["add", "-A"] >> git ["commit", "-q", "-m", message] >> headOf
+        headOf = T.strip . T.pack <$> readProcess "git" ["-C", repo, "rev-parse", "HEAD"] ""
+        treeOf commitId = T.strip . T.pack <$> readProcess "git" ["-C", repo, "rev-parse", T.unpack commitId <> "^{tree}"] ""
+        recordFor commitId isGreen = do
+          treeId <- treeOf commitId
+          _ <- writeRecord (greenRecord & #commit .~ commitId & #tree .~ treeId & #green .~ isGreen)
+          pure ()
+    createDirectoryIfMissing True repo
+    git ["init", "-q"]
+    write "release.json" "{\"supportedSystems\":[\"x86_64-linux\",\"aarch64-darwin\"]}"
+    write "src/Spec.hs" "-- reads docs/audits/fixtures/known.json"
+    write "docs/audits/fixtures/known.json" "{}"
+    write "docs/plans/1-plan.md" "one"
+    write "agents/skills/x/SKILL.md" "See docs/plans/1-plan.md and docs/audits/new-run."
+    previous <- lookupEnv "XDG_STATE_HOME"
+    flip finally (maybe (unsetEnv "XDG_STATE_HOME") (setEnv "XDG_STATE_HOME") previous) $ do
+      setEnv "XDG_STATE_HOME" state
+      base <- commitAll "base"
+      recordFor base True
+      write "docs/plans/1-plan.md" "two"
+      write "docs/audits/new-run/README.md" "evidence"
+      docsOnly <- commitAll "docs"
+      verdict <- verifyRevision repo docsOnly
+      assertBool ("documentation-only commit refused: " <> show verdict) (isRight verdict)
+      write "docs/audits/fixtures/known.json" "{\"changed\":true}"
+      fixture <- commitAll "fixture"
+      assertBool "a fixture a test names carried forward" . isLeft =<< verifyRevision repo fixture
+      git ["reset", "-q", "--hard", T.unpack docsOnly]
+      write "src/Spec.hs" "-- changed"
+      code <- commitAll "code"
+      assertBool "a code change carried forward" . isLeft =<< verifyRevision repo code
+      git ["reset", "-q", "--hard", T.unpack docsOnly]
+      write "docs/plans/1-plan.md" "three"
+      redOwn <- commitAll "red"
+      recordFor redOwn False
+      assertBool "a commit with its own red record carried forward" . isLeft =<< verifyRevision repo redOwn
 
 target :: VerifyTarget
 target = VerifyTarget {commit = "c0ffee", tree = "7ree", supportedSystems = ["x86_64-linux", "aarch64-darwin"]}

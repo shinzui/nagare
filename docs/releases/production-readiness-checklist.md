@@ -137,7 +137,9 @@ no host activation ([diff stat](../audits/mp23-independent-results-2026-10-07/di
 
 ## 5. Keep developing safely
 
-- [x] Master moves only through `just land` with a green full-gate record for the exact commit.
+- [x] Master moves only through `just land` with a green full-gate record for the exact commit, or,
+      for a commit that changes only inert documentation, the record of its nearest gated ancestor
+      carried forward (operator, 2026-10-09; [ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md)).
 - [x] Heavy runs go to the remote builder (`just test-remote`, `just mutation-sweep`).
 - [x] A mutation sweep proves every recorded guard is observed by a test.
 - [x] The deep tier runs per release as monitoring; its classes are triaged.

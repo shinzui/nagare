@@ -225,3 +225,23 @@ The operator decided (MP-23 Decision Log, 2026-10-07) to ship Nagare's first rel
 - **What this amends:** the 2026-10-06 amendment's "a passing `just gate-deep` before acceptance" for recovery-related changes. A recovery-related change needs a deep run and a triage record, not a passing run.
 - **Widening the guarantee** to fault pairs, within the one-hour budget, is a later MasterPlan's goal, under the same gates.
 
+
+## Amendment (2026-10-09): documentation-only commits carry their ancestor's gate record forward
+
+The operator decided that documentation which no check reads does not need its own gate run.
+`nagare-harness gate verify` accepts a commit that has no record of its own when two conditions
+hold. First, its nearest ancestor has a green record. Second, every path that differs between the
+two trees is inert documentation (`Nagare.Harness.CarryForward`). An inert path:
+- lies under `docs/plans`, `docs/masterplans`, `docs/adr` or `docs/audits`;
+- is not a plan the payload ships (66 and 67);
+- is not named, together with every directory between it and that prefix, by any non-Markdown file
+  outside `docs/`. Tests read fixtures under `docs/audits` by naming them, so a named fixture blocks
+  carry-forward.
+
+A commit whose own record is red never carries forward. Everything else still needs `just gate`,
+including user guides, runbooks, release notes and architecture documents. The rule applies wherever
+`gate verify` is used: `just land`, the pre-push hook and native preflight.
+Rationale: a docs-only full gate spent about 20 minutes re-running unchanged suites (16 of them in
+`nagarectl-test`), and its outcome could not differ from the ancestor's. This is the first slice of
+[EP-170](../plans/170-size-the-release-gate-to-the-change.md).
+

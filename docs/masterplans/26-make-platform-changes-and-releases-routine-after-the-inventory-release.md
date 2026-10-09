@@ -269,6 +269,9 @@ Any stream that adds an adapter adds it there, with a world.
 - **Lane A** can start immediately. Lane B starts with EP-168 M1 on cp3.
 - **Already done for EP-168:** the driver set it ports is archived in the repository (`77cdefe8`),
   because its only copy was in a scratch directory that macOS purges.
+- **Landed ahead of item 4 (operator decision, 2026-10-09):** EP-170's first slice. A commit that
+  changes only inert documentation carries its gated ancestor's record forward, so plan edits need
+  no 20-minute gate (ADR 25 amendment).
 - **No item is ticked.**
 
 

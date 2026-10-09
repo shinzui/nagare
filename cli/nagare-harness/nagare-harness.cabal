@@ -28,6 +28,7 @@ library
   import: common
   hs-source-dirs: src
   exposed-modules:
+    Nagare.Harness.CarryForward
     Nagare.Harness.FixtureSmoke
     Nagare.Harness.Gate
     Nagare.Harness.Mutation
@@ -81,6 +82,8 @@ test-suite nagare-harness-test
     generic-lens ^>=2.3,
     lens ^>=5.3,
     nagare-harness,
+    process,
     tasty >=1.4,
     tasty-hunit >=0.10,
     temporary,
+    text,

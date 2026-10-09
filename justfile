@@ -421,7 +421,8 @@ test-remote rev pattern shards="0/1" deep="false" suite="nagarectl":
     ! grep -qv ' exit=0 ' "$logs/status"
 
 # The only way a revision reaches master (2026-10-06): it needs a green full
-# gate record for its exact tree (`just gate` on a clean checkout of it) and
+# gate record for its exact tree (`just gate` on a clean checkout of it), or
+# one carried forward over inert documentation (`gate verify`, 2026-10-09), and
 # must descend from origin/master. It pushes that exact commit to origin's
 # master from any checkout, without touching the local master branch, which
 # may hold someone else's unpushed work; the push hook verifies the record.
