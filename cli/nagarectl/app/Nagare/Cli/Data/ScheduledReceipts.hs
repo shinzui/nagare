@@ -21,6 +21,7 @@ import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Data.Time (getCurrentTime)
+import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import Nagare.Cli.Inventory.Adapters (inventoryKubernetesAdapter)
 import Nagare.Cli.Inventory.Planning
   ( inventoryPlanRegistryWithNative
@@ -54,6 +55,7 @@ import Nagare.Inventory.BackupFreshness
   ( BackupFreshness (Fresh)
   , RecoveryPointGrade (RecoveryPointGrade)
   , backupFreshness
+  , newestRecoveryPoint
   , renderBackupFreshness
   )
 import Nagare.Inventory.Command qualified as Inventory
@@ -87,7 +89,8 @@ import Nagare.Inventory.ScheduledReceipt
   , verifyAcceptedScheduledReceiptPoint
   )
 import Nagare.Inventory.ScheduledStore
-  ( ObjectReader (listObjectKeys)
+  ( ListedObject (listedKey, listedModified)
+  , ObjectReader (listObjectEntries, listObjectKeys)
   , readSecretField
   )
 import Nagare.Inventory.Status qualified as InventoryStatus
@@ -153,7 +156,7 @@ scheduledRecoveryPointProbes mctx =
               )
       forM sources $ \(namespaceName, database) ->
         recoveryPointProbe (namespaceName <> "/" <> database)
-          <$> ( (Right . (^. #freshness) <$> scheduledReceiptReport mctx database namespaceName Nothing)
+          <$> ( (Right . (^. #freshness) <$> scheduledReceiptScan NewestVerified mctx database namespaceName Nothing)
                   `catches` unobservable
               )
   )
@@ -294,8 +297,20 @@ resolveScheduledSource mctx database namespaceName bucketArg = do
       , expectation = expectation
       }
 
+-- | How much of a source's scheduled history a report verifies.
+data ReceiptScan
+  = -- | Every scheduled object and receipt (@db backup-receipts@).
+    FullListing
+  | -- | Only the newest verified recovery point, for freshness (F92: doctor
+    -- downloaded every retained backup, linear in their number).
+    NewestVerified
+  deriving stock (Eq, Show)
+
 scheduledReceiptReport :: Maybe String -> Text -> Text -> Maybe String -> IO ScheduledReceiptReport
-scheduledReceiptReport mctx database namespaceName bucketArg = do
+scheduledReceiptReport = scheduledReceiptScan FullListing
+
+scheduledReceiptScan :: ReceiptScan -> Maybe String -> Text -> Text -> Maybe String -> IO ScheduledReceiptReport
+scheduledReceiptScan scan mctx database namespaceName bucketArg = do
   ScheduledSource active snapshot sourceScope _ _ _ backend expectation <-
     resolveScheduledSource mctx database namespaceName bucketArg
   signingKey <-
@@ -334,84 +349,100 @@ scheduledReceiptReport mctx database namespaceName bucketArg = do
       (T.stripPrefix bucketPrefix prefix)
   listed <- withScheduledObjectStore (contextNameText (active ^. #contextName)) backend $
     \reader -> do
-      keys <- listObjectKeys reader keyPrefix
-      case keys of
+      entries <- listObjectEntries reader keyPrefix
+      case entries of
         Left reason -> pure (Left reason)
-        Right allKeys -> do
-          let (recognized, unknown) =
+        Right listedEntries -> do
+          let allKeys = map listedKey listedEntries
+              classifyKeys =
                 classifyScheduledListingKeys
                   bucketPrefix
                   keyPrefix
                   (scheduledFormat expectation)
                   accepted
-                  allKeys
+              (recognized, unknown) = classifyKeys allKeys
+              objectTimes =
+                Map.fromList
+                  [ (selected, listedModified entry)
+                  | entry <- listedEntries
+                  , ([(selected, True)], _) <- [classifyKeys [listedKey entry]]
+                  ]
               candidates =
                 Set.toAscList
                   ( Set.fromList
                       (Map.keys accepted <> map fst recognized)
                   )
               hasPart selected isObject = (selected, isObject) `elem` recognized
-          rows <- forM candidates $ \selected -> do
-            let objectPresent = hasPart selected True
-                receiptPresent = hasPart selected False
-                acceptedScope = Map.lookup selected accepted
-                acceptedPrune =
-                  maybe
-                    False
-                    ((`Set.member` pruned) . Resource.scopeIdText . ResourceInventory.scopeId)
-                    acceptedScope
-                unresolved message = pure (message, Nothing)
-                acceptedPoint stamp = fmap (\at -> (at, False)) stamp
-                point = scheduledRecoveryPoint . scheduledReceipt
-            (status, recoveryPoint) <- case (objectPresent, receiptPresent, acceptedPrune) of
-              (False, False, True) -> unresolved "pruned"
-              (True, _, True) -> unresolved "unresolved: pruned backup object reappeared"
-              (_, True, True) -> unresolved "unresolved: pruned receipt reappeared"
-              (False, False, False) -> unresolved "unresolved: accepted provider objects are missing"
-              (True, False, False) -> unresolved "unresolved: backup object has no receipt"
-              (False, True, False) -> unresolved "unresolved: receipt has no backup object"
-              (True, True, False) -> case acceptedScope of
-                Just scope -> do
-                  let sameSchedule =
-                        Map.lookup
-                          "scheduled.backup.schedule.revision"
-                          (ResourceInventory.scopeOverrides scope)
-                          == Just (Resource.digestText (scheduledPolicyRevision expectation))
-                      acceptedStatus = "accepted " <> Resource.scopeIdText (ResourceInventory.scopeId scope)
-                  inspected <-
-                    if sameSchedule
-                      then inspectScheduledReceipt reader expectation selected signingKey
-                      else pure (Left "accepted historical schedule revision")
-                  case inspected of
-                    Right evidence
-                      | scheduledIngestEvidenceMatches scope evidence ->
-                          pure (acceptedStatus, acceptedPoint (point evidence))
-                    _ -> do
-                      let acceptedAddress = Map.lookup "scheduled.backup.object" (ResourceInventory.scopeOverrides scope)
-                          expectedPrefix = scheduledObjectPrefix expectation <> selected <> "."
-                      checked <- case acceptedAddress of
-                        Just address
-                          | expectedPrefix `T.isPrefixOf` address ->
-                              verifyAcceptedScheduledReceiptPoint reader address scope
-                        _ -> pure (Left "accepted scheduled receipt has another object address")
+          let row selected = do
+                let objectPresent = hasPart selected True
+                    receiptPresent = hasPart selected False
+                    acceptedScope = Map.lookup selected accepted
+                    acceptedPrune =
+                      maybe
+                        False
+                        ((`Set.member` pruned) . Resource.scopeIdText . ResourceInventory.scopeId)
+                        acceptedScope
+                    unresolved message = pure (message, Nothing)
+                    acceptedPoint stamp = fmap (\at -> (at, False)) stamp
+                    point = scheduledRecoveryPoint . scheduledReceipt
+                (status, recoveryPoint) <- case (objectPresent, receiptPresent, acceptedPrune) of
+                  (False, False, True) -> unresolved "pruned"
+                  (True, _, True) -> unresolved "unresolved: pruned backup object reappeared"
+                  (_, True, True) -> unresolved "unresolved: pruned receipt reappeared"
+                  (False, False, False) -> unresolved "unresolved: accepted provider objects are missing"
+                  (True, False, False) -> unresolved "unresolved: backup object has no receipt"
+                  (False, True, False) -> unresolved "unresolved: receipt has no backup object"
+                  (True, True, False) -> case acceptedScope of
+                    Just scope -> do
+                      let sameSchedule =
+                            Map.lookup
+                              "scheduled.backup.schedule.revision"
+                              (ResourceInventory.scopeOverrides scope)
+                              == Just (Resource.digestText (scheduledPolicyRevision expectation))
+                          acceptedStatus = "accepted " <> Resource.scopeIdText (ResourceInventory.scopeId scope)
+                      inspected <-
+                        if sameSchedule
+                          then inspectScheduledReceipt reader expectation selected signingKey
+                          else pure (Left "accepted historical schedule revision")
+                      case inspected of
+                        Right evidence
+                          | scheduledIngestEvidenceMatches scope evidence ->
+                              pure (acceptedStatus, acceptedPoint (point evidence))
+                        _ -> do
+                          let acceptedAddress = Map.lookup "scheduled.backup.object" (ResourceInventory.scopeOverrides scope)
+                              expectedPrefix = scheduledObjectPrefix expectation <> selected <> "."
+                          checked <- case acceptedAddress of
+                            Just address
+                              | expectedPrefix `T.isPrefixOf` address ->
+                                  verifyAcceptedScheduledReceiptPoint reader address scope
+                            _ -> pure (Left "accepted scheduled receipt has another object address")
+                          pure $
+                            either
+                              (\reason -> ("unresolved: " <> reason, Nothing))
+                              (\stamp -> (acceptedStatus, acceptedPoint stamp))
+                              checked
+                    Nothing -> do
+                      inspected <- inspectScheduledReceipt reader expectation selected signingKey
                       pure $
                         either
                           (\reason -> ("unresolved: " <> reason, Nothing))
-                          (\stamp -> (acceptedStatus, acceptedPoint stamp))
-                          checked
-                Nothing -> do
-                  inspected <- inspectScheduledReceipt reader expectation selected signingKey
-                  pure $
-                    either
-                      (\reason -> ("unresolved: " <> reason, Nothing))
-                      ( \evidence ->
-                          ( "verified; ingestion pending"
-                          , fmap (\at -> (at, True)) (point evidence)
+                          ( \evidence ->
+                              ( "verified; ingestion pending"
+                              , fmap (\at -> (at, True)) (point evidence)
+                              )
                           )
-                      )
-                      inspected
-            pure (selected <> "  " <> status, recoveryPoint)
-          pure (Right (rows <> [("unresolved provider key: " <> key, Nothing) | key <- unknown]))
+                          inspected
+                pure (selected <> "  " <> status, recoveryPoint)
+          case scan of
+            FullListing -> do
+              rows <- forM candidates row
+              pure (Right (rows <> [("unresolved provider key: " <> key, Nothing) | key <- unknown]))
+            NewestVerified -> do
+              newest <-
+                newestRecoveryPoint
+                  [(selected, Map.findWithDefault (posixSecondsToUTCTime 0) selected objectTimes) | selected <- candidates]
+                  (\selected -> (\(label, point') -> (label,) <$> point') <$> row selected)
+              pure (Right [(label, Just point') | Just (label, point') <- [newest]])
   verifiedRows <- either reportFail pure listed >>= either reportFail pure
   now <- getCurrentTime
   let points = catMaybes (map snd verifiedRows)

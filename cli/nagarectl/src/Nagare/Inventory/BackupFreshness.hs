@@ -5,6 +5,7 @@ module Nagare.Inventory.BackupFreshness
   , RecoveryPointObjective (..)
   , RecoveryPointGrade (..)
   , backupFreshness
+  , newestRecoveryPoint
   , renderBackupFreshness
   , recoveryPointDetail
   , parseRecoveryPointObjective
@@ -14,6 +15,8 @@ module Nagare.Inventory.BackupFreshness
   )
 where
 
+import Data.List (sortOn)
+import Data.Ord (Down (..))
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Time (UTCTime, diffUTCTime)
@@ -96,3 +99,13 @@ recoveryPointDetail (RecoveryPointGrade selected value pending) =
     name = recoveryPointObjectiveText selected
     pendingNote = if pending then "; newest point is verified and awaits reviewed ingestion" else ""
     seconds age = T.pack (show age) <> "s"
+
+-- | F92: the newest verified recovery point. Freshness depends only on the
+-- newest point, so verify candidates newest-first by their stored time and
+-- stop at the first that verifies, instead of downloading every retained
+-- backup. A candidate that does not verify is skipped for the next newest.
+newestRecoveryPoint :: (Monad m) => [(key, UTCTime)] -> (key -> m (Maybe point)) -> m (Maybe point)
+newestRecoveryPoint candidates verify = go (map fst (sortOn (Down . snd) candidates))
+  where
+    go [] = pure Nothing
+    go (key : rest) = verify key >>= maybe (go rest) (pure . Just)

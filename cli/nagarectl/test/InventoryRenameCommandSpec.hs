@@ -26,6 +26,7 @@ import Data.Vector qualified as V
 import InventoryApplicationRetireSpec (inventoryApplicationRetireTests)
 import InventoryDatabaseEngineSpec (inventoryDatabaseEngineTests)
 import InventoryPostgresRenameSpec
+import InventoryRecoveryPointScanSpec (inventoryRecoveryPointScanTests)
 import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.Database.Secret (b64decode, b64encode)
 import Nagare.Dsl.Database (Database (Database), Engine (..), defaultEngineVersion, mkDatabaseName, mkEngineVersion)
@@ -73,6 +74,7 @@ inventoryRenameCommandTests =
     "inventory PostgreSQL rename commands"
     [ inventoryDatabaseEngineTests
     , inventoryApplicationRetireTests
+    , inventoryRecoveryPointScanTests
     , testCase "the adopt command issues a reviewed rebind for a database's replaced and unrecorded members (F80)" $
         withSystemTempDirectory "postgres-rename-rebind" $ \root -> withStateRoot root $ do
           store <- openTargetStore renameTarget

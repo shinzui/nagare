@@ -555,6 +555,7 @@ test-suite nagarectl-test
     InventoryPreviewRecoverySpec
     InventoryPublicationSpec
     InventoryRecoveryModelSpec
+    InventoryRecoveryPointScanSpec
     InventoryRedisRestoreRecoverySpec
     InventoryRefusedPreflightRecoverySpec
     InventoryRenameCommandSpec

@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/BackupFreshness.hs b/cli/nagarectl/src/Nagare/Inventory/BackupFreshness.hs
+index ff7cba4c..e5866654 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/BackupFreshness.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/BackupFreshness.hs
+@@ -105,7 +105,7 @@ recoveryPointDetail (RecoveryPointGrade selected value pending) =
+ -- stop at the first that verifies, instead of downloading every retained
+ -- backup. A candidate that does not verify is skipped for the next newest.
+ newestRecoveryPoint :: (Monad m) => [(key, UTCTime)] -> (key -> m (Maybe point)) -> m (Maybe point)
+-newestRecoveryPoint candidates verify = go (map fst (sortOn (Down . snd) candidates))
++newestRecoveryPoint candidates verify = go (map fst (sortOn snd candidates))
+   where
+     go [] = pure Nothing
+     go (key : rest) = verify key >>= maybe (go rest) (pure . Just)

@@ -886,5 +886,11 @@
     "suite": "nagarectl",
     "pattern": "/the host transport runs this nagarectl/",
     "expect": "test-fails"
+  },
+  {
+    "record": "F92-recovery-point-scan-oldest-first",
+    "suite": "nagarectl",
+    "pattern": "/F92/&&/the newest backup that verifies is the point/",
+    "expect": "test-fails"
   }
 ]

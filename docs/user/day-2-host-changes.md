@@ -209,7 +209,11 @@ previous generation after the window (`NAGARE_SWITCH_CONFIRM_SECONDS`, default
 `inventory close` refuses. Once the host runs the old closure again, `inventory
 resume` does not switch again (ADR 11); `inventory close` proves the activation
 had no effect, accepts nothing, and leaves the host scope at its accepted
-revision. Investigate, then plan the change again. If the host committed the
+revision. Then restore the accepted `flake.lock` (the one before the re-pin, from
+the operator repository): until you do, `inventory status` and every plan refuse
+with `reviewed host inputs differ from the selected configuration or lock`,
+because the context's lock no longer matches the accepted host. Investigate,
+then plan the change again. If the host committed the
 new closure, `inventory resume` proves it and completes the transaction.
 
 To go back to the previous NixOS, restore the previous `flake.lock` from the
