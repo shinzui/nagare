@@ -5,6 +5,7 @@ okf_version: "0.2"
 # Explanation
 
 - [Build modes](build-modes.md) - Understand Nagare prebuilt-image, Dockerfile, and Nixpacks build modes and choose the right mode for an application.
+- [Resource inventory and operation ledger](resource-inventory.md) - Understand scoped resource ownership, reviewed changes, live status, and recovery through Nagare's durable operation ledger.
 
 # Guide
 

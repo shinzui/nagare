@@ -1,5 +1,10 @@
 # Bundle Update Log
 
+## 2026-10-09
+
+* **Add**: Explain the resource inventory and operation ledger, including independent ownership scopes, logical and physical identity, saved reviews, accepted and converged revisions, live status, interruption recovery, single-writer storage, and retained resource collection.
+* **Update**: Link the inventory explanation from the operator guide and the explanation index.
+
 ## 2026-10-02
 
 * **Change**: Add `nagarectl app check`, which evaluates a typed Application config without any context, inventory or provider access.

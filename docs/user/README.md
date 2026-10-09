@@ -107,6 +107,9 @@ you can observe.
 2. [Target contexts](contexts.md) — define `prod`, `labs`, or `local` targets,
    switch with `nagarectl context use`, and select one command with
    `--context` / `NAGARE_CONTEXT`. ✅
+   - [Resource inventory and operation ledger](resource-inventory.md) — understand
+     ownership scopes, saved reviews, status, interruption recovery, and retained
+     resources before changing an inventory-backed context. 🟡
 3. [Provisioning with Pulumi](provisioning-with-pulumi.md) — create the cloud
    perimeter: VPC, static IP, DNS, disks, service account, registry, buckets. 🟡
 4. [Host image and first boot](host-image-and-boot.md) — build the NixOS GCE
