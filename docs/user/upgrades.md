@@ -15,6 +15,14 @@ generated:
 > There is no in-place platform version upgrade after inventory admission.
 > The legacy procedure below applies only to untouched older contexts.
 
+Inventory-backed contexts do have a proved **node configuration upgrade** path: reviewed inventory
+apply through the self-reverting host adapter for NixOS/k3s changes, with verified backups first.
+See [the node upgrade drills](../releases/production-readiness-checklist.md#3-upgrade-a-node-without-worry).
+That differs from advancing the Nagare payload/context pin or inventory schema; the restriction
+above applies to those release transitions. PostgreSQL major upgrades use
+[the side-by-side procedure](managed-databases.md#upgrade-postgresql-to-a-new-major-version).
+
+
 Nagare treats the CLI, immutable platform payload, context, generated host
 flake, and cluster marker as one versioned release. `platform status` compares
 those five identities; `platform upgrade` stages and previews a new release,
@@ -523,6 +531,9 @@ point. The old host is stopped and retained until explicit guarded cleanup.
 
 The provider-independent executor is implemented, but the operator command remains gated on the
 candidate, rehearsal, state-transfer, and disposable address-handoff prerequisites. Until a
-replacement transaction can reach `ready`, continue using the supported in-place workflow above and
-do not assemble a cutover from hand-written cloud commands. The complete acceptance and recovery
+replacement transaction can reach `ready`, use only the applicable supported path: reviewed node
+configuration changes for inventory-backed contexts, the side-by-side PostgreSQL procedure, or the
+legacy release workflow for eligible untouched contexts. Full replacement is an optional follow-up,
+not a prerequisite for the accepted ordinary node/database upgrades. Do not assemble a cutover from
+hand-written cloud commands. The complete acceptance and recovery
 procedure is in [Replacement cutover and rollback drill](../runbooks/replacement-cutover-drill.md).

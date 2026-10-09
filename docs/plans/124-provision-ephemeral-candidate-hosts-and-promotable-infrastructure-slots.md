@@ -17,6 +17,11 @@ provenance:
       at: 2026-09-16T04:38:37Z
       mode: "update"
       note: "Refresh candidate provisioning against current guarded plan and identity boundaries"
+    - model: "gpt-6.1-sol"
+      harness: "codex-cli"
+      at: 2026-10-09T19:45:59Z
+      mode: "update"
+      note: "Refresh MP-21 as optional inventory-backed replacement after MP-23 upgrade drills"
 ---
 
 # Provision ephemeral candidate hosts and promotable infrastructure slots
@@ -27,6 +32,14 @@ If durable project context changes, update or create ADRs in docs/adr/ in the sa
 
 
 ## Purpose / Big Picture
+
+**Current scope (2026-10-09).** This child implements optional machine/cluster replacement after
+MP-23, not a prerequisite for ordinary node or PostgreSQL upgrades. The
+[production checklist](../releases/production-readiness-checklist.md) credits those completed drills.
+MP-23's typed scopes, reviewed native effects, conditional shared history, receipt verification and
+proof-based recovery are the implementation foundation. Replacement phase records never grant
+mutation authority independently of inventory admission. Proposed replacement commands below remain
+unavailable until their owned implementation and acceptance are complete.
 
 Nagare can temporarily provision a second, isolated machine beside the live machine without
 adding a load balancer or changing wildcard DNS. The candidate boots the target NixOS image,
@@ -52,9 +65,13 @@ even if it requires splitting a partially completed task into two ("done" vs. "r
 This section must always reflect the actual current state of the work.
 
 - [ ] Refactor the singleton Pulumi component into active and optional inactive host slots
-      while preserving existing resource URNs and physical names.
+```text
+  while preserving existing resource URNs and physical names.
+```
 - [ ] Add candidate-only network tags, IAP access, independent protected storage, and
-      least-privilege candidate identity.
+```text
+  least-privilege candidate identity.
+```
 - [ ] Add candidate host-flake staging and explicit active/candidate Pulumi outputs.
 - [ ] Implement idempotent prepare/reconcile operations behind the replacement transaction.
 - [ ] Add mock-provider, preview, migration, and disposable-project verification.
@@ -137,6 +154,29 @@ this section into docs/adr/. Keep task-local execution details here.
 
 ## Context and Orientation
 
+Extend `Nagare.Inventory.Cloud`, the TypeScript declaration/registration parity path, host scopes
+and inventory adapters together. Review active-slot adoption before any provider mutation, and
+review each new candidate resource before creation. `prepare` consumes EP-123's store-bound control
+record through the existing inventory driver; reviewed native Pulumi plans and
+`Nagare.Platform.PulumiReceipt` remain guards underneath that authority. Do not invoke public
+apply/resume entrypoints recursively from an adapter that already owns the writer lock.
+
+Scope/address composition must distinguish source and candidate clusters, hosts and incarnations.
+Keep one authoritative context history with explicit candidate ownership; do not seed another
+writable copy of the active store. Candidate host/kubeconfig workspace files are private derivatives
+of that history. Extend physical-identity completion evidence for the exact GCE VM/disks that will
+be promoted or deleted: ADR 27's current MP-23 implementation guarantee is Kubernetes-only, so
+provider identity binding is remaining work here, not inherited proof. Refuse a missing or changed
+incarnation rather than trusting an instance name, label or URN alone.
+
+Rehearse the actual provider sequence accepted by EP-122 and consume EP-123's admission/interruption/
+fresh-root test before expanding cloud variants. Follow ADRs
+[22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md),
+[25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md),
+[26](../adr/0026-stopped-transactions-close-by-per-operation-proof.md) and
+[27](../adr/0027-physical-identity-is-recorded-at-creation-and-read-through-one-checked-accessor.md).
+No slot milestone is complete from MP-23's singleton bootstrap alone.
+
 `infra/pulumi/src/components/NagarePerimeter.ts` creates shared network, reserved regional
 address, wildcard DNS, protected data disk, node service account, registry, buckets, and one
 `NagareInstance`. `infra/pulumi/src/components/NagareInstance.ts` always attaches the
@@ -173,8 +213,7 @@ for selected-project confinement, [ADR 0011](../adr/0011-host-activation-is-guar
 for guarded host switching, [ADR 0012](../adr/0012-platform-data-disk-capacity-is-forward-only-and-grows-itself.md)
 for protected data, [ADR 0013](../adr/0013-operator-deployment-material-lives-in-a-private-repository-with-remote-state.md)
 for context-owned state, and [ADR 0014](../adr/0014-the-active-context-owns-the-vm-shape.md)
-for intentional VM replacement. ExecPlan 122 adds the replacement-topology ADR that this
-plan must follow. Mori did not locate a registered Pulumi GCP provider corpus, so the
+for intentional VM replacement. ExecPlan 122 amends ADR 19 with the measured replacement topology this plan must follow. Mori did not locate a registered Pulumi GCP provider corpus, so the
 implementation must use the repository-locked provider behavior rather than assume an API.
 
 
@@ -182,13 +221,19 @@ implementation must use the repository-locked provider behavior rather than assu
 
 ### Milestone 1: Non-replacing slot migration
 
+First reconcile EP-122's measured topology/operation report with EP-123's accepted abstract
+phase/evidence contract. Add a producer/consumer test for the actual report, including reverse timing,
+expiry and exact resource identities. Reject incompatibility before reviewing any candidate/provider
+effect; this is the integration join for the two completed prerequisites.
+
 Refactor `NagareInstance.ts` into a reusable `NagareHostSlot` component whose inputs include
 slot identity, network tags, optional public address, boot image, data disk, and service
 account. In `NagarePerimeter.ts`, declare slot A with aliases and physical names that adopt
 the existing `NagareInstance`, VM, data disk, snapshot policy, and attachment URNs. Add
 `activeSlot`, defaulting to A, but do not create slot B yet. Update network firewall rules so
-public 80/443 ingress targets only `nagare-active`; IAP SSH targets both `nagare-active` and
-`nagare-candidate`. The active VM receives `nagare-active` in place. A saved pre-change stack
+public 80/443 ingress targets only `nagare-active`; include the currently untagged
+`fw-lb-health` rule in that audit so candidate ingress cannot bypass the web-rule fence. IAP SSH
+targets both `nagare-active` and `nagare-candidate`. The active VM receives `nagare-active` in place. A saved pre-change stack
 fixture and a real preview must show tag updates and no creates, deletes, or replacements for
 the VM and data disk.
 
@@ -211,9 +256,9 @@ Extend `Nagare.Host.Config` to stage a candidate flake under
 `replacement-upgrades/<id>/host/`, preserving the target release lock and secrets while
 overriding physical hostname, instance name, and cluster identity. Add an explicit host
 target record to the replacement schema from ExecPlan 123. Wire
-`platform replacement prepare` in `Main.hs` to stage the candidate, write replacement
-Pulumi config, save and review the expected create-only candidate plan through
-`Nagare.Infra.Plan`, apply that exact plan, record the outcome through
+`platform replacement prepare` through `Nagare.Cli.Commands.Platform` to stage the candidate, compile explicit candidate declarations, prepare native replacement Pulumi config, and save/review
+its inventory operation together with the expected create-only candidate native plan through
+`Nagare.Infra.Plan`, execute that exact admitted inventory operation/native plan, record provider outcome through
 `Nagare.Platform.PulumiReceipt`, and retain the actual outputs. Use existing Pulumi project/stack
 guards and GCP project/zone guards for every subprocess. Fetch the candidate kubeconfig through the
 explicit identity contract in `Nagare.Cluster.Kubeconfig`, storing it under the transaction without
@@ -232,12 +277,17 @@ configuration cannot delete active resources. Record command output as transacti
 
 ## Concrete Steps
 
-Run Pulumi commands from the repository root as shown. Run Cabal from `cli/nagarectl/` because the
-monorepo has no root `cabal.project`:
+Run validation from the repository root. REV is the exact implementation commit; heavy tests run
+on the builder. Follow current ADR 25: full gate, zero-survivor mutation sweep, validated-world fast
+tier and deep monitoring with triage. Native examples below require the native-run preflight and
+bounded operator approval before any cloud mutation.
 
-    npm --prefix infra/pulumi run build
-    npm --prefix infra/pulumi test
-    nix develop ../.. -c cabal test nagarectl-test --test-show-details=direct
+
+```bash
+npm --prefix infra/pulumi run build
+npm --prefix infra/pulumi test
+just test-remote REV Platform
+```
 
 If `infra/pulumi` still has no test script when implementation begins, invoke its committed
 test runner directly and add the stable script to `package.json`; do not silently skip mock
@@ -246,27 +296,33 @@ reserved address`, and `candidate service account cannot write backups`.
 
 With the existing context selected, run a non-mutating migration preview:
 
-    pulumi -C <context-infra-workspace> preview --diff
+```bash
+pulumi -C <context-infra-workspace> preview --diff
+```
 
 Expected summary before candidate configuration:
 
-    Resources:
-        ~ 2 to update
-        0 to create
-        0 to replace
-        0 to delete
+```text
+Resources:
+    ~ 2 to update
+    0 to create
+    0 to replace
+    0 to delete
+```
 
 The exact update count may change as provider normalization evolves; the acceptance rule is
 zero replacement/deletion and only the reviewed tag/alias changes.
 
 Against a disposable test stack, run:
 
-    nagarectl platform replacement prepare <transaction-id> --json
-    gcloud compute instances describe <candidate> --project <test-project> --zone <zone>
-    gcloud compute addresses describe <reserved-address> --project <test-project> \
-      --region <region>
-    gcloud compute ssh <candidate> --project <test-project> --zone <zone> \
-      --tunnel-through-iap --command 'systemctl is-system-running --wait'
+```bash
+nagarectl platform replacement prepare <transaction-id> --json
+gcloud compute instances describe <candidate> --project <test-project> --zone <zone>
+gcloud compute addresses describe <reserved-address> --project <test-project> \
+  --region <region>
+gcloud compute ssh <candidate> --project <test-project> --zone <zone> \
+  --tunnel-through-iap --command 'systemctl is-system-running --wait'
+```
 
 The prepare result names the candidate VM and disk. The address still reports the active VM
 as its user, the candidate has only the candidate tag, IAP succeeds, and an external probe
@@ -274,7 +330,9 @@ to candidate ports 80/443 times out or is rejected.
 
 Finally run:
 
-    nix flake check --print-build-logs
+```bash
+just gate
+```
 
 
 ## Validation and Acceptance
@@ -326,22 +384,24 @@ and proven by ExecPlan 122.
 
 `NagareHostSlot` must accept and expose a contract equivalent to:
 
-    interface NagareHostSlotArgs {
-      slot: "a" | "b";
-      role: "active" | "candidate";
-      transactionId?: string;
-      instanceName: string;
-      zone: string;
-      machineType: string;
-      imageSelfLink: string;
-      subnetId: pulumi.Input<string>;
-      publicIp?: pulumi.Input<string>;
-      dataDiskSizeGb: number;
-      serviceAccountEmail: pulumi.Input<string>;
-      deletionProtection: pulumi.Input<boolean>;
-      bootDiskSizeGb: number;
-      bootDiskType: string;
-    }
+```typescript
+interface NagareHostSlotArgs {
+  slot: "a" | "b";
+  role: "active" | "candidate";
+  transactionId?: string;
+  instanceName: string;
+  zone: string;
+  machineType: string;
+  imageSelfLink: string;
+  subnetId: pulumi.Input<string>;
+  publicIp?: pulumi.Input<string>;
+  dataDiskSizeGb: number;
+  serviceAccountEmail: pulumi.Input<string>;
+  deletionProtection: pulumi.Input<boolean>;
+  bootDiskSizeGb: number;
+  bootDiskType: string;
+}
+```
 
 The perimeter exports stable `activeSlot`, `activeInstanceName`, `activeDataDiskName`,
 `candidateSlot`, `candidateInstanceName`, `candidateDataDiskName`, `candidateInternalIp`,
@@ -351,12 +411,14 @@ sentinels.
 
 The command layer owns an operation interface so tests do not invoke real infrastructure:
 
-    data CandidateOps = CandidateOps
-      { previewCandidate :: CandidateSpec -> IO PulumiPreviewEvidence
-      , applyCandidate :: CandidateSpec -> IO CandidateResources
-      , inspectCandidate :: CandidateResources -> IO CandidateObservedState
-      , destroyCandidate :: CandidateResources -> IO ()
-      }
+```haskell
+data CandidateOps = CandidateOps
+  { previewCandidate :: CandidateSpec -> IO PulumiPreviewEvidence
+  , applyCandidate :: CandidateSpec -> IO CandidateResources
+  , inspectCandidate :: CandidateResources -> IO CandidateObservedState
+  , destroyCandidate :: CandidateResources -> IO ()
+  }
+```
 
 This plan has hard prerequisites on ExecPlans 122 and 123. ExecPlan 125 consumes candidate
 host and kubeconfig identities. ExecPlan 126 consumes candidate storage identities. ExecPlan
@@ -367,3 +429,8 @@ handoff primitive selected by ExecPlan 122.
 Revision note (2026-09-15): Refreshed candidate preparation against Nagare 0.3.0's reviewed Pulumi
 plan, apply-receipt, staged-host, and context-safe kubeconfig boundaries; no candidate infrastructure
 milestone is marked complete.
+
+
+Revision note (2026-10-09): Aligned this replacement-specific child with MP-23's accepted upgrade
+inputs and single inventory authority, current identity/recovery/validation contracts and the
+optional scope in the refreshed MasterPlan. No implementation milestone is newly accepted.

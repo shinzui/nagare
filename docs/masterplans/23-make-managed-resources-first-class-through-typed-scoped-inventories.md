@@ -371,6 +371,11 @@ provenance:
       at: 2026-10-09T19:30:00Z
       mode: "update"
       note: "Close-out: final candidate 83124396, checklist complete, v0.4.0 published; registry, IR-24, Outcomes; pre-close Progress archived"
+    - model: "gpt-6.1-sol"
+      harness: "codex-cli"
+      at: 2026-10-09T19:45:59Z
+      mode: "update"
+      note: "Refresh MP-21 as optional inventory-backed replacement after MP-23 upgrade drills"
   reviews:
     - model: "claude-fable-5-1"
       harness: "claude-code"
@@ -407,9 +412,17 @@ State lives in a private, context-owned store with one writer, immutable snapsho
 
 **Release boundary.** The first release claim covers fresh inventory-backed contexts only. It excludes in-place platform-version upgrade of an admitted context, automatic adoption of foreign resources, generic schema rollback, a daemon or distributed coordinator, and production rollout. Existing pre-inventory contexts are disposable. The failed development fixture `f15-preview` is retired from acceptance by [the fixture disposition](../audits/mp23-prerelease-fixture-disposition.md); its history is preserved, but it is not revived or counted as success.
 
-**Production readiness is a separate, later gate.** The operator intends Nagare to host critical developer tooling on a company intranet. Completing MP-23 does not by itself make that safe: production use additionally requires (a) the data-protection gate in Progress — off-cluster backups meeting a one-hour recovery-point objective after total cluster loss, verified restored content, and a documented recovery procedure — and (b) a supported, rehearsed platform upgrade on an inventory-backed context with rollback or data-preserving forward recovery, which [MP-21](21-rehearsed-replacement-upgrades-with-bounded-downtime-for-nagare.md) owns. EP-157 must report any unmet production target explicitly rather than implying readiness.
+**Production readiness follows the current checklist.** On 2026-10-07 the operator made safe production use MP-23's goal (Decision Log), so checklist sections 2–4 became MP-23 scope. The operator's fixed goal and accepted
+upgrade/data-protection evidence are in [the production readiness checklist](../releases/production-readiness-checklist.md).
+The October 8–9 drills prove reviewed self-reverting NixOS/k3s upgrades and a documented side-by-side
+PostgreSQL major upgrade with reviewed switch-over and pre-write recovery. These supersede the
+October 2 requirement to complete [MP-21](21-rehearsed-replacement-upgrades-with-bounded-downtime-for-nagare.md)
+before ordinary safe node/database upgrades. MP-21 now owns optional fresh-machine/cluster rehearsal
+and bounded replacement cutover. The node drills do not establish arbitrary Nagare payload/context-pin
+or inventory-schema transitions, and scratch backup restore does not establish complete live-service
+rebuild. EP-157 reports actual supported paths and remaining limits; final production go/no-go remains
+the operator's. Volumes remain outside the hourly recovery-point objective by D2.
 
-**Amendment (operator, 2026-10-07).** The operator's goal for MP-23 became safe production use: a reliable ledger day to day, no data loss, and safe node and database upgrades. [The production readiness checklist](../releases/production-readiness-checklist.md) records it, and its sections 2 (data protection), 3 (node upgrades) and 4 (database upgrades) became MP-23 scope, reached through the shortest safe route: in-place, self-reverting host activation and a side-by-side PostgreSQL upgrade. MP-21's replacement upgrades stay a later improvement. D2, D3 and D4 remain unmet production targets, as the 0.4.0 notes state.
 
 **Standing operator constraints.** No GKE: Nagare targets local k3d/k3s and k3s on a NixOS VM in Compute Engine, and no child may create, select or depend on a GKE cluster. Local checks use only the `nagare-mp23-cp3` Colima profile and run sequentially. Cloud work uses the active context's guardrails (ADR 9) and the repository's host and cloud mutation rules in `CLAUDE.md`. External tool evaluation (K8up/restic first, CloudNativePG/Barman for PostgreSQL, Velero as a secondary comparison) lives in MP-24/[EP-163](../plans/163-evaluate-established-tooling-against-nagare-s-managed-resource-layers.md) and does not gate MP-23.
 
@@ -703,7 +716,8 @@ Gating is local; GitHub Actions is not used.
 
 2026-10-02: The operator authorizes implementation through the supported contract and non-publishing release acceptance. An independent reviewer, not the operator, performs technical verification including the runbook and findings closure. Operator input is needed only for unavailable access, product-scope changes, actions beyond this authorization, and the final production go/no-go.
 
-2026-10-02: Production use requires the data-protection gate (one-hour recovery-point objective after total cluster loss, including upload/verification lag and retry margin) and MP-21's upgrade/recovery gate. MP-23 completion alone does not establish production readiness.
+2026-10-02 (historical; MP-21 prerequisite superseded by the October 8–9 drills and 2026-10-09
+MP-21 refresh): Production use requires the data-protection gate (one-hour recovery-point objective after total cluster loss, including upload/verification lag and retry margin) and MP-21's upgrade/recovery gate. MP-23 completion alone does not establish production readiness.
 
 2026-10-02: Retire failed prerelease fixtures (`f15-preview`) from acceptance instead of preserving their transactions indefinitely; keep their history honest and prove recovery on the supported candidate. EP-156 owns non-blocking scoped teardown.
 
@@ -773,6 +787,10 @@ The operator's production goal (checklist sections 2–4) was also met on the fi
 
 
 ## Revision Notes
+
+2026-10-09: Reconciled production-readiness wording with the current accepted node/database drills
+and MP-21's optional replacement scope. Preserved the distinction between node configuration and
+unsupported general payload/schema transitions; no child status or acceptance evidence changed.
 
 2026-10-09: Closed out the plan:
 - recorded the final status (candidate `83124396`, gates, checklist sections 2–4, findings at close, v0.4.0 publication);

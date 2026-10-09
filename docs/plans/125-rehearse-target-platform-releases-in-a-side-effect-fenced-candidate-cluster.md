@@ -17,6 +17,11 @@ provenance:
       at: 2026-09-16T04:38:37Z
       mode: "update"
       note: "Refresh rehearsal against current kubeconfig and certificate-policy boundaries"
+    - model: "gpt-6.1-sol"
+      harness: "codex-cli"
+      at: 2026-10-09T19:45:59Z
+      mode: "update"
+      note: "Refresh MP-21 as optional inventory-backed replacement after MP-23 upgrade drills"
 ---
 
 # Rehearse target platform releases in a side-effect-fenced candidate cluster
@@ -27,6 +32,14 @@ If durable project context changes, update or create ADRs in docs/adr/ in the sa
 
 
 ## Purpose / Big Picture
+
+**Current scope (2026-10-09).** This child implements optional machine/cluster replacement after
+MP-23, not a prerequisite for ordinary node or PostgreSQL upgrades. The
+[production checklist](../releases/production-readiness-checklist.md) credits those completed drills.
+MP-23's typed scopes, reviewed native effects, conditional shared history, receipt verification and
+proof-based recovery are the implementation foundation. Replacement phase records never grant
+mutation authority independently of inventory admission. Proposed replacement commands below remain
+unavailable until their owned implementation and acceptance are complete.
 
 An operator can boot the candidate's target NixOS, k3s, and Nagare platform release while
 the old machine still serves production, then run deterministic health and compatibility
@@ -55,9 +68,13 @@ even if it requires splitting a partially completed task into two ("done" vs. "r
 This section must always reflect the actual current state of the work.
 
 - [ ] Add candidate-targeted host activation and kubeconfig plumbing with no ambient-target
-      fallback.
+```text
+  fallback.
+```
 - [ ] Add a declarative rehearsal overlay that suspends side-effecting workloads and uses
-      local TLS.
+```text
+  local TLS.
+```
 - [ ] Add fence attestation and fail-closed validation before any application probe runs.
 - [ ] Add platform, restored-state, and opt-in application probes plus evidence capture.
 - [ ] Add offline/fake-target tests and a live candidate rehearsal test.
@@ -68,8 +85,9 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-- Observation: Context selection does not currently select a kubeconfig; multi-cluster
-  guidance pairs the context with ambient `KUBECONFIG` manually.
+- Observation: Historical observation (2026-09-13): multi-cluster guidance paired context selection with an
+  ambient kubeconfig. The current guarded kubeconfig implementation below is the reuse boundary;
+  this historical pairing is not the proposed candidate targeting.
   Evidence: `docs/guides/running-multiple-clusters.md` documents this pairing and
   `scripts/live-test.sh` retrieves and rewrites a k3s kubeconfig over IAP.
 - Observation: Applying production objects unchanged is not a safe rehearsal because Nagare
@@ -133,6 +151,30 @@ this section into docs/adr/. Keep task-local execution details here.
 
 ## Context and Orientation
 
+Reuse `Nagare.Inventory.Bootstrap`, accepted component/application scopes, current host activation
+and Kubernetes/Helm adapters. Candidate-targeted typed declarations include all rehearsal policy
+changes before compilation, native preparation and review. A post-render transformation may be an
+internal compiler step, but cannot alter bytes, membership or allowed effects after review. Observe
+accepted live source scope revisions separately from candidate desired state; replay must preserve
+unselected application owners. Candidate target addresses include explicit cluster identity.
+
+Every bootstrap, probe, fence change and cleanup is a reviewed inventory effect under EP-123's
+conditional authority. No direct legacy cluster-bootstrap/upgrade path may bypass inventory guards.
+Use [ADR 19](../adr/0019-replacement-cutovers-reserve-rollback-before-write-admission.md) for the
+commit boundary and ADRs
+[22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md),
+[25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md),
+[26](../adr/0026-stopped-transactions-close-by-per-operation-proof.md) and
+[27](../adr/0027-physical-identity-is-recorded-at-creation-and-read-through-one-checked-accessor.md)
+for composition, model-first validation, proof-based recovery and exact incarnation checks.
+
+The report binds base/scope revisions, source/target release and schema compatibility, exact candidate
+incarnations, fence policy, state seed and probe inputs. Independent image/restore checks and MP-23's
+HTTP-only fixture do not establish full candidate isolation or public TLS/auth readiness. Prove the
+fence through interpreter tests first, including unknown pod-bearing kinds and outbound effects;
+then confirm locally and on an approved candidate. Every public path/production TLS check affected
+by EP-127 arming must be repeated before downtime.
+
 Nagare builds its host configuration from `nixos/hosts/nagare-01/` and switches it with
 `scripts/host-switch.sh`, whose access guard reverts a bad activation. Cluster bootstrap
 assets live under `cluster/bootstrap/`, and `just cluster-bootstrap` installs k3s platform
@@ -143,8 +185,8 @@ IAP and tunnel to the API server.
 
 Applications, tasks, databases, brokers, and retained volumes are rendered by modules under
 `cli/nagarectl/src/Nagare/`. Rehearsal must not edit those canonical renderers to make all
-deployments permanently inert. Instead, add a typed post-render transformation and audit
-under a new `Nagare.Platform.Rehearsal` module. The transformation labels every object with
+deployments permanently inert. Instead, add a typed candidate-declaration transformation and audit under a new
+`Nagare.Platform.Rehearsal` module before inventory review. The transformation labels every object with
 the transaction ID and role, suspends or scales workloads, replaces production issuer
 references, and installs namespace network policies before selected pods can start.
 
@@ -167,8 +209,7 @@ Relevant local decisions are [ADR 0004](../adr/0004-separate-immutable-platform-
 [ADR 0006](../adr/0006-version-platform-state-across-cli-payload-context-host-and-cluster.md),
 [ADR 0009](../adr/0009-assert-the-active-context-project-on-every-cloud-mutating-path.md),
 [ADR 0011](../adr/0011-host-activation-is-guarded-and-self-reverting.md), and
-[ADR 0018](../adr/0018-the-upgrade-transaction-is-as-guarded-as-the-recipes-it-replaces.md). The replacement ADR created by
-ExecPlan 122 defines the new topology. Mori searches found no cross-repository ADR governing
+[ADR 0018](../adr/0018-the-upgrade-transaction-is-as-guarded-as-the-recipes-it-replaces.md). ADR 19, amended with EP-122 evidence, defines the replacement topology. Mori searches found no cross-repository ADR governing
 candidate-cluster rehearsal.
 
 
@@ -232,25 +273,34 @@ without leaving probe pods or policy exceptions.
 
 ## Concrete Steps
 
-Run focused Cabal commands from `cli/nagarectl/` because this monorepo has no root
-`cabal.project`; run the flake command from the repository root:
+Run validation from the repository root. REV is the exact implementation commit; heavy tests run
+on the builder. Follow current ADR 25: full gate, zero-survivor mutation sweep, validated-world fast
+tier and deep monitoring with triage. Native examples below require the native-run preflight and
+bounded operator approval before any cloud mutation.
 
-    nix develop ../.. -c cabal test nagarectl-test --test-show-details=direct
-    nix flake check --print-build-logs
+
+```bash
+just test-remote REV Platform
+just gate
+```
 
 Focused output must include candidate-target and fence tests, for example:
 
-    PlatformRehearsal
-      rejects a kubeconfig for the active cluster: OK
-      suspends every CronJob before apply: OK
-      rejects an unknown pod-bearing resource: OK
-      invalidates a report after a fence violation: OK
+```text
+PlatformRehearsal
+  rejects a kubeconfig for the active cluster: OK
+  suspends every CronJob before apply: OK
+  rejects an unknown pod-bearing resource: OK
+  invalidates a report after a fence violation: OK
+```
 
 Against the disposable replacement transaction:
 
-    nagarectl platform replacement rehearse <transaction-id> --json \
-      > <transaction-dir>/rehearsal-command.json
-    nagarectl platform replacement status <transaction-id> --json
+```bash
+nagarectl platform replacement rehearse <transaction-id> --json \
+  > <transaction-dir>/rehearsal-command.json
+nagarectl platform replacement status <transaction-id> --json
+```
 
 Expected result excerpts are `"candidateFence":"passed"`, explicit candidate instance and
 cluster IDs, `"publicIngress":false`, and a successful component-version matrix. During the
@@ -258,10 +308,12 @@ run, independently probe the current public domain and require uninterrupted suc
 
 Inspect the candidate explicitly:
 
-    KUBECONFIG=<candidate-kubeconfig> kubectl get cronjobs -A \
-      -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}={.spec.suspend}{"\n"}{end}'
-    KUBECONFIG=<candidate-kubeconfig> kubectl get pods -A \
-      -l nagare.dev/replacement-role=candidate
+```bash
+KUBECONFIG=<candidate-kubeconfig> kubectl get cronjobs -A \
+  -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}={.spec.suspend}{"\n"}{end}'
+KUBECONFIG=<candidate-kubeconfig> kubectl get pods -A \
+  -l nagare.dev/replacement-role=candidate
+```
 
 Every candidate CronJob reports `true`; only allowlisted platform/state/probe pods are
 running. Remove the probe and repeat the pod query to prove cleanup.
@@ -291,7 +343,8 @@ Acceptance requires:
 ## Idempotence and Recovery
 
 Host switching uses the existing self-reverting guard. Bootstrap, transformations, and
-policies use declarative apply and may be rerun after identity and recipe guards pass.
+policies use reviewed inventory adapters; resume requires admission, exact identity and operation
+proof under the shared writer protocol.
 Evidence is replaced only after a complete successful run; failed-attempt logs remain under
 an attempt-specific directory.
 
@@ -313,38 +366,40 @@ target payload's bootstrap assets and exact component pins.
 
 The owned interfaces are:
 
-    data CandidateTarget = CandidateTarget
-      { project :: Text, zone :: Text, instance :: Text
-      , hostFlake :: FilePath, kubeconfig :: FilePath
-      , expectedClusterId :: Text, transactionId :: Text
-      }
+```haskell
+data CandidateTarget = CandidateTarget
+  { project :: Text, zone :: Text, instance :: Text
+  , hostFlake :: FilePath, kubeconfig :: FilePath
+  , expectedClusterId :: Text, transactionId :: Text
+  }
 
-    data RehearsalPolicy = RehearsalPolicy
-      { allowedPlatformResources :: Set ResourceId
-      , allowedStateResources :: Set ResourceId
-      , applicationProbes :: Map AppName ProbePolicy
-      }
+data RehearsalPolicy = RehearsalPolicy
+  { allowedPlatformResources :: Set ResourceId
+  , allowedStateResources :: Set ResourceId
+  , applicationProbes :: Map AppName ProbePolicy
+  }
 
-    data ProbePolicy = ProbePolicy
-      { command :: NonEmpty Text
-      , allowedClusterDestinations :: Set Destination
-      , allowedExternalDestinations :: Set Destination
-      , timeoutSeconds :: Natural
-      }
+data ProbePolicy = ProbePolicy
+  { command :: NonEmpty Text
+  , allowedClusterDestinations :: Set Destination
+  , allowedExternalDestinations :: Set Destination
+  , timeoutSeconds :: Natural
+  }
 
-    data FenceAttestation = FenceAttestation
-      { infrastructurePassed :: Bool, identityPassed :: Bool
-      , workloadPassed :: Bool, violations :: [FenceViolation]
-      , observedAt :: UTCTime, policyDigest :: Text
-      }
+data FenceAttestation = FenceAttestation
+  { infrastructurePassed :: Bool, identityPassed :: Bool
+  , workloadPassed :: Bool, violations :: [FenceViolation]
+  , observedAt :: UTCTime, policyDigest :: Text
+  }
 
-    transformForRehearsal
-      :: RehearsalPolicy -> [KubernetesObject]
-      -> Either RehearsalError [KubernetesObject]
-    attestFence :: RehearsalOps -> CandidateTarget -> RehearsalPolicy
-                -> IO (Either RehearsalError FenceAttestation)
-    runRehearsal :: RehearsalOps -> ReplacementTransaction
-                 -> IO (Either RehearsalError RehearsalReport)
+transformForRehearsal
+  :: RehearsalPolicy -> [KubernetesObject]
+  -> Either RehearsalError [KubernetesObject]
+attestFence :: RehearsalOps -> CandidateTarget -> RehearsalPolicy
+            -> IO (Either RehearsalError FenceAttestation)
+runRehearsal :: RehearsalOps -> ReplacementTransaction
+             -> IO (Either RehearsalError RehearsalReport)
+```
 
 ExecPlan 124 is a hard prerequisite and supplies the target. ExecPlan 126 is a soft
 coordination dependency: this plan can bootstrap platform-only first, but it cannot produce
@@ -356,3 +411,8 @@ and platform checks, and invalidates rehearsal if that arming changes any unrela
 Revision note (2026-09-15): Refreshed candidate rehearsal against the current explicit kubeconfig,
 cluster-guard, certificate-policy, and reviewed Kubernetes-migration boundaries; all rehearsal
 milestones remain incomplete.
+
+
+Revision note (2026-10-09): Aligned this replacement-specific child with MP-23's accepted upgrade
+inputs and single inventory authority, current identity/recovery/validation contracts and the
+optional scope in the refreshed MasterPlan. No implementation milestone is newly accepted.

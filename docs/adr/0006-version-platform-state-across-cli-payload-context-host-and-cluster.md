@@ -139,3 +139,19 @@ has been implemented. The older transaction and its guarded recovery rules
 remain historical compatibility for untouched legacy contexts; existing
 bundles stay inspectable and must not be converted into invented component
 receipts. Read-only version status remains useful for both generations.
+
+
+## Amendment — 2026-10-09: distinguish node upgrades from Nagare release transitions
+
+The [production checklist](../releases/production-readiness-checklist.md) records successful reviewed
+NixOS/k3s configuration upgrades and failed-activation reversion on an inventory-backed context.
+These use the inventory host adapter and self-reverting activation, preserving application data;
+they do not bypass the blocked legacy coarse upgrade runner or establish arbitrary Nagare payload,
+context-pin or inventory-wire transitions. The September 26 release-transition restriction above
+still applies to that distinct capability.
+
+[MP-21](../masterplans/21-rehearsed-replacement-upgrades-with-bounded-downtime-for-nagare.md) now owns
+optional replacement rehearsal/cutover. It must bind exact source/target release and schema
+compatibility, refuse unsupported pairs and recover promotion through inventory-authorized steps.
+The full two-host/IP-handoff workflow is not required before using the accepted ordinary node or
+side-by-side PostgreSQL upgrade paths. General in-place release/schema migration remains separate.

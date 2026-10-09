@@ -12,6 +12,12 @@ tags: [upgrades, replacement, cutover, rollback, operations]
 > state-transfer, and disposable GCE handoff plans are implemented and their evidence makes the
 > transaction `ready`.
 
+This is acceptance for MP-21's optional replacement capability. Ordinary node and PostgreSQL
+upgrade drills are already credited in [the production checklist](../releases/production-readiness-checklist.md).
+Replacement control and each native effect must use the reviewed inventory admission/history
+protocol; standalone transaction JSON is not mutation authority. Follow
+[the native-run preflight](before-a-native-run.md) and obtain approval for the bounded cloud sequence.
+
 This drill exercises one reserved public IP moving from an old host to a fenced candidate and back.
 DNS is never edited. Use a disposable project whose resources can be deleted and whose context name,
 project, zone, instance IDs, disks, and address exactly match the transaction.

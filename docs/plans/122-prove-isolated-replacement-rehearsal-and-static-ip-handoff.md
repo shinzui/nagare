@@ -17,6 +17,11 @@ provenance:
       at: 2026-09-16T04:38:36Z
       mode: "update"
       note: "Refresh feasibility gate against current bootstrap rehearsal and Pulumi evidence"
+    - model: "gpt-6.1-sol"
+      harness: "codex-cli"
+      at: 2026-10-09T19:45:59Z
+      mode: "update"
+      note: "Refresh MP-21 as optional inventory-backed replacement after MP-23 upgrade drills"
 ---
 
 # Prove isolated replacement rehearsal and static-IP handoff
@@ -27,6 +32,14 @@ If durable project context changes, update or create ADRs in docs/adr/ in the sa
 
 
 ## Purpose / Big Picture
+
+**Current scope (2026-10-09).** This child implements optional machine/cluster replacement after
+MP-23, not a prerequisite for ordinary node or PostgreSQL upgrades. The
+[production checklist](../releases/production-readiness-checklist.md) credits those completed drills.
+MP-23's typed scopes, reviewed native effects, conditional shared history, receipt verification and
+proof-based recovery are the implementation foundation. Replacement phase records never grant
+mutation authority independently of inventory admission. Proposed replacement commands below remain
+unavailable until their owned implementation and acceptance are complete.
 
 Before Nagare encodes a replacement-upgrade state machine, prove the cloud operations on which its
 safety promise depends. This plan delivers a disposable same-project spike that creates two tiny
@@ -54,7 +67,7 @@ This section must always reflect the actual current state of the work.
 
 - [ ] Milestone 1: add a fail-closed dry-run model and fake-`gcloud` contract tests for every spike operation.
 - [ ] Milestone 2: run the disposable live two-host/IAP/static-IP forward-and-reverse handoff and retain redacted timing evidence.
-- [ ] Milestone 3: record the proven topology and budget semantics in a new ADR, or revise the MasterPlan if the proof fails.
+- [ ] Milestone 3: record the proven topology and budget semantics in ADR 19, or revise the MasterPlan if the proof fails.
 
 
 ## Surprises & Discoveries
@@ -99,6 +112,26 @@ this section into docs/adr/. Keep task-local execution details here.
 
 
 ## Context and Orientation
+
+The spike is narrowly scoped feasibility evidence for replacement. It does not reopen the proved
+in-place node/database upgrade paths. EP-123 may develop its abstract model/store binding independently;
+EP-124 is the join that requires both complete and their contracts reconciled. Before selecting GCP
+or Pulumi APIs, use Mori to locate dependency source/docs; inspect the repository's actual lock and
+verify authoritative registry/tags before changing versions. September's provider version is
+historical evidence, not a refreshed pin.
+
+Follow [ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md): establish
+provider semantics, model interruption/unknown outcomes with injected interpreters, then confirm
+with the bounded disposable live run after `docs/runbooks/before-a-native-run.md` and operator approval.
+Keep scripts thin transport/fixture wrappers; durable readiness and recovery policy belong in typed
+Haskell and the shared inventory driver. The exact run ledger is disposable test-resource evidence,
+not a competing production ownership store. Its interruption/cleanup manifest must exclude all
+active context resources and bind exact creation identities; a name prefix is never deletion authority.
+
+Amend [ADR 19](../adr/0019-replacement-cutovers-reserve-rollback-before-write-admission.md) with the
+measured topology and timing contract. Do not create a duplicate replacement ADR merely because the
+original September plan expected one to be absent. Provider-outage observations remain explicit;
+a successful sample is not an unconditional downtime bound.
 
 Nagare is a single-node GCP platform. `infra/pulumi/src/components/NagarePerimeter.ts` creates a
 regional reserved address and one wildcard Cloud DNS record that points at it.
@@ -172,12 +205,13 @@ disposable resource after evidence has been copied outside the temporary directo
 
 ### Milestone 3 — Fix the architecture contract
 
-Create a repository-convention ADR under `docs/adr/` after inspecting the next filename and existing
-frontmatter shape. Record only behavior established by the spike: no load balancer, no DNS mutation,
-IAP-only candidate verification, independent candidate state, explicit address ownership checks,
-deadline reserve, and rollback before expiry. Reference this MasterPlan and EP-122. If the provider
-or live platform cannot perform the measured reverse handoff safely, do not write the assumed ADR;
-instead update this ExecPlan and the MasterPlan with the observed blocker and a revised topology.
+Amend ADR 19 with the topology, operations and budget semantics actually established by the spike.
+Record no load balancer, unchanged DNS, IAP candidate verification, independent state, exact
+address/instance identities, monotonic timing and reverse-handoff reserve. If the proof fails,
+record the observed blocker and revise this child and MP-21 before dependent implementation.
+Do not publish an assumed topology as measured fact. EP-123 consumes the report and reconciles
+its phase/evidence contract before EP-124 begins.
+
 
 
 ## Concrete Steps
@@ -272,3 +306,8 @@ later plan chooses a Pulumi resource shape.
 Revision note (2026-09-15): Refreshed the feasibility gate against the new hermetic GCP bootstrap
 rehearsal and guarded Pulumi evidence boundary while keeping the live forward/reverse address proof
 explicitly unimplemented.
+
+
+Revision note (2026-10-09): Aligned this replacement-specific child with MP-23's accepted upgrade
+inputs and single inventory authority, current identity/recovery/validation contracts and the
+optional scope in the refreshed MasterPlan. No implementation milestone is newly accepted.
