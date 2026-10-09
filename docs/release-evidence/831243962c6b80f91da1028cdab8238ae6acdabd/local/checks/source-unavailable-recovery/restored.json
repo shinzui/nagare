@@ -1,0 +1,16 @@
+{
+ "archive": "databases/scenario-pg/17820020-91af-4ccc-9abf-f79bb8cab61d.sql.gz",
+ "objectVersion": "8258a429-afa8-43dc-b7e4-ed958c7c31e5",
+ "downloadedSha256": "b30520cbfc6fc29b4e2a550a2c8454f375ceabae9606eef7978a08c5dc510d74",
+ "receiptSha256": "b30520cbfc6fc29b4e2a550a2c8454f375ceabae9606eef7978a08c5dc510d74",
+ "archiveMatchesReceipt": true,
+ "target": "disposable postgres:18-alpine container, database scenario_pg_recovered",
+ "restoreErrors": 0,
+ "rows": [
+  "1|scenario-pg-row-1",
+  "2|scenario-pg-row-2",
+  "3|scenario-pg-after-backup"
+ ],
+ "seededRowsPresent": true,
+ "note": "rows written to the source before the scheduled backup's recovery point are carried by it"
+}

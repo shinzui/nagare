@@ -1,0 +1,30 @@
+{
+  "cluster": "k3d-nagare-local",
+  "context": "local",
+  "evidence": [
+    {
+      "path": "checks/postgresql-backup-restore/restored.json",
+      "sha256": "d17aa60d1d7340315a583a63137a8e68bad456afc1e3878f0a8ae62c8a78cd67"
+    },
+    {
+      "path": "checks/postgresql-backup-restore/seed.json",
+      "sha256": "04199554a4a6dd85b6c9e08a2b9d35e80574b2a349db3ba64218ff950aeee997"
+    },
+    {
+      "path": "checks/postgresql-backup-restore/source-after.json",
+      "sha256": "849bab2adc9626a54955521f426e068817420d4f29055f5d49579909768be26b"
+    },
+    {
+      "path": "checks/postgresql-backup-restore/wrong-incarnation-postgresql.json",
+      "sha256": "813f6fda619798ba8b623e85fa0cc018234303219655594c625049150e18d11f"
+    }
+  ],
+  "fixtureDigest": "dd431786f1905bccae8524ad465c1ea4fe81bcc81a619726dc2583b6232b4a1c",
+  "mode": "local",
+  "name": "postgresql-backup-restore",
+  "operatorRevision": "3b59bcb7612d513bfd663c36c251f8454e615502",
+  "passed": true,
+  "recordedAt": "2026-10-09T04:38:09Z",
+  "schemaVersion": 1,
+  "summary": "A reviewed manual MinIO backup of scenario-pg restored into an isolated scratch database with exactly the seeded rows while the source kept its later row; a pre-existing scratch database was refused by the restore Job with zero writes and closed with abandon-partial-database-restore"
+}

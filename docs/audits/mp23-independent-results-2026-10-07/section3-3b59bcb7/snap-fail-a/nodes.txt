@@ -1,0 +1,1 @@
+mp23-c3l-nagare ready=True kubelet=v1.35.8+k3s1 os=NixOS 26.11 (Zokor) kernel=6.18.51

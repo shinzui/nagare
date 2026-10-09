@@ -1,0 +1,9 @@
+2026-10-09T16:21:23Z phase snap0 rc=0 PHASE-OK snap0
+2026-10-09T16:29:02Z phase backup rc=0 PHASE-OK backup
+2026-10-09T16:39:28Z phase fail-a rc=0 PHASE-OK fail-a
+2026-10-09T16:40:17Z phase fail-a-close rc=0 PHASE-OK fail-a-close
+2026-10-09T16:48:12Z phase fail-a-verify rc=0 PHASE-OK fail-a-verify
+2026-10-09T17:06:20Z phase apply-b rc=0 PHASE-OK apply-b
+2026-10-09T17:13:51Z phase backup-c rc=0 PHASE-OK backup-c
+2026-10-09T17:38:50Z phase apply-c rc=0 PHASE-OK apply-c
+S3-ALL-OK

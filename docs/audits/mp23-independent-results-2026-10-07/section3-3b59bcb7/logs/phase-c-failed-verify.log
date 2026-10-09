@@ -1,0 +1,3 @@
+== 2026-10-09T08:28:24Z restored the previous flake.lock after the closed failed upgrade
+== 2026-10-09T08:35:51Z snap c-failed: e-google-compute-26.11.20260916.b1b8759 v1.35.8+k3s1 data=24467b7d4163 pg=3 redis=2 ch=4 notRunning=0 doctor exit=0 seconds=113 {"activeTransaction":null,"findings":326,"categories":{"converged":325,"unknown":1}}
+PHASE-OK c-failed-verify

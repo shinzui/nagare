@@ -1,0 +1,18 @@
+{
+  "cluster": "nagare-c3-1011",
+  "context": "mp23-c3l",
+  "evidence": [
+    {
+      "path": "checks/independent-scope-preservation/result.json",
+      "sha256": "5038234a6f71413f74c1b5b15d69fac9dea258e12a8dbdf1fbfc4c3b524d45b9"
+    }
+  ],
+  "fixtureDigest": "f27611323b465011cab862289b98a1e553c0f59c5e76f3363a868d9785531e00",
+  "mode": "cloud",
+  "name": "independent-scope-preservation",
+  "operatorRevision": "3b59bcb7612d513bfd663c36c251f8454e615502",
+  "passed": true,
+  "recordedAt": "2026-10-09T06:42:44Z",
+  "schemaVersion": 1,
+  "summary": "A reviewed environment change to scenario-a left every other accepted scope, including scenario-b, at its prior revision"
+}

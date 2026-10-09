@@ -1,0 +1,5 @@
+current=/nix/store/agkqnr1m5il207wgsy20rknx6sjkhmxa-nixos-system-mp23-c3k-nagare-google-compute-26.11.20260916.b1b8759
+timer=inactive
+k3s=k3s version v1.35.8+k3s1 (e952d68a)
+kernel=6.18.51
+boot=4243a667-720e-417c-856e-89e72579fee0

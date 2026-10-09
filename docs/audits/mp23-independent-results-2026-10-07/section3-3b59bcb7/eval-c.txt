@@ -1,0 +1,1 @@
+/nix/store/0z34fbqr48fx9g907crvswfymxlwsb5a-nixos-system-mp23-c3l-nagare-google-compute-26.11.20261008.e7439b6.drv

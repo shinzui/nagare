@@ -1,0 +1,5 @@
+platform mutation allowed (exact)
+  warning: Application Default Credentials do not expose a principal; the gcloud account comparison is unavailable
+context guard: mp23-c3l confined to project tan-ng-labs (stack mp23-c3l)
+warning: Application Default Credentials do not expose a principal; the gcloud account comparison is unavailable
+ambiguous tx-0f6f381200a37b477b608b070eac6b9084371602737dc9150a70e0ac0510812c at op-33a83920f4fd7a7ed870f1ab

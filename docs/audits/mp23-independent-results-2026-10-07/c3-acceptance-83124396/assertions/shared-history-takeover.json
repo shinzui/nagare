@@ -1,0 +1,18 @@
+{
+  "cluster": "nagare-c3-1012",
+  "context": "mp23-c3m",
+  "evidence": [
+    {
+      "path": "checks/shared-history-takeover/result.json",
+      "sha256": "75fcc96c6212b02feeee5a9bcd44db55148a24182b0ccb91b7c02a5adba99d3c"
+    }
+  ],
+  "fixtureDigest": "a87386fa4527e267d3e90a781b1414929525a900ea493bbfd441195990884472",
+  "mode": "cloud",
+  "name": "shared-history-takeover",
+  "operatorRevision": "831243962c6b80f91da1028cdab8238ae6acdabd",
+  "passed": true,
+  "recordedAt": "2026-10-09T16:06:20Z",
+  "schemaVersion": 1,
+  "summary": "An application deploy interrupted in root A could not be planned over or plainly resumed from root B; an explicit takeover from root B converged the same transaction"
+}

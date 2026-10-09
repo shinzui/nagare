@@ -1,0 +1,4 @@
+== 08:58:43 failed upgrade 1: restore into the new instance fails; return to the old instance
+== 08:58:48 copy refused as injected: psql:/tmp/s4-dump.sql:33: ERROR:  relation "hits" already exists
+== 08:58:49 returned to the old instance: rows 7:7 -> 8:8 (fenced write refused with HTTP 502)
+PHASE-OK fail1

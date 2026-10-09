@@ -1,0 +1,36 @@
+{
+ "backupId": "b2347c17-f748-40f2-9806-a4f13af97d85",
+ "sourceClusterInaccessible": {
+  "serverStoppedAt": "2026-10-09T04:31:22Z",
+  "apiWhileStopped": "Unable to connect to the server: EOF",
+  "serverStartedAt": "2026-10-09T04:31:41Z"
+ },
+ "offlineCopy": "live tar of the minio-data local-path volume taken from the running node before the stop, served by a disposable MinIO (pinned nagare-minio image) on loopback 127.0.0.1:19000",
+ "onlineVerifyBeforeStop": [
+  "Verified scheduled backup b2347c17-f748-40f2-9806-a4f13af97d85 of personal/scenario-pg with the escrowed signing key.",
+  "  object:  s3://nagare-backups/databases/scenario-pg/b2347c17-f748-40f2-9806-a4f13af97d85.sql.gz (version 20fc6736-8475-4bcb-a7f2-61065b801c0a)",
+  "  receipt: version c6ef0565-8661-42d1-98b3-d636e16be06b",
+  "  sha256:  bdc73b44a8c5a504a0c15d71927434e52cc9592dd1e9d07547c180cbac50e544",
+  "  recovery point: 2026-10-09 04:30:01 UTC (age 81s)",
+  "This is evidence only; restore requires reviewed ingestion of the receipt."
+ ],
+ "offlineVerify": {
+  "command": "nagarectl db verify-escrowed-backup scenario-pg --backup-id JOB_UID --escrow FILE --offline-object-store http://127.0.0.1:19000 --offline-credentials PRIVATE_FILE",
+  "output": [
+   "Verified scheduled backup b2347c17-f748-40f2-9806-a4f13af97d85 of personal/scenario-pg with the escrowed signing key.",
+   "  object:  s3://nagare-backups/databases/scenario-pg/b2347c17-f748-40f2-9806-a4f13af97d85.sql.gz (version 20fc6736-8475-4bcb-a7f2-61065b801c0a)",
+   "  receipt: version c6ef0565-8661-42d1-98b3-d636e16be06b",
+   "  sha256:  bdc73b44a8c5a504a0c15d71927434e52cc9592dd1e9d07547c180cbac50e544",
+   "  recovery point: 2026-10-09 04:30:01 UTC (age 97s)",
+   "This is evidence only; restore requires reviewed ingestion of the receipt."
+  ]
+ },
+ "onlineVerifyAfterRestart": [
+  "Verified scheduled backup b2347c17-f748-40f2-9806-a4f13af97d85 of personal/scenario-pg with the escrowed signing key.",
+  "  object:  s3://nagare-backups/databases/scenario-pg/b2347c17-f748-40f2-9806-a4f13af97d85.sql.gz (version 20fc6736-8475-4bcb-a7f2-61065b801c0a)",
+  "  receipt: version c6ef0565-8661-42d1-98b3-d636e16be06b",
+  "  sha256:  bdc73b44a8c5a504a0c15d71927434e52cc9592dd1e9d07547c180cbac50e544",
+  "  recovery point: 2026-10-09 04:30:01 UTC (age 110s)",
+  "This is evidence only; restore requires reviewed ingestion of the receipt."
+ ]
+}

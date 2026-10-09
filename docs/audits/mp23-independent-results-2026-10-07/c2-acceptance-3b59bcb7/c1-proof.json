@@ -1,0 +1,25 @@
+{
+  "operatorRevision": "3b59bcb7612d513bfd663c36c251f8454e615502",
+  "colimaProfile": "nagare-mp23-cp3",
+  "acceptedPayloadPreserved": "nagare-0.4.0-3b59bcb7612d",
+  "gate": "MP-23 C1 installed public local platform bootstrap plan/apply on retained accepted cluster",
+  "reviewDigest": "72db620156750585df805c040f56aae444da59896cc993bd91be27acb43ea371",
+  "operations": 214,
+  "actions": [
+    "VerifyResource"
+  ],
+  "providerMutations": 0,
+  "planSeconds": 36.837,
+  "applySeconds": 33.102,
+  "acceptedScopeContentDigestsUnchanged": true,
+  "head": {
+    "generation": 890,
+    "sequence": 879,
+    "activeTransaction": null,
+    "executorClaim": null
+  },
+  "acceptedScopeCount": 19,
+  "podsReadyOrSucceeded": 35,
+  "podsNotReady": [],
+  "freshCandidatePayloadBootstrap": false
+}

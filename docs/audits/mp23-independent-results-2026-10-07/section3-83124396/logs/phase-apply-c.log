@@ -1,0 +1,9 @@
+== 2026-10-09T17:16:52Z re-pinned nixpkgs e7439b6b14ad3cc35d05608ebca9bce01a25f5f8 and sops-nix dcd241ba97088c22569d1573286e1b9daad340c0 (c); only those nodes changed; toplevel evaluates: /nix/store/n8c9p7w9ca6kv659r3wlsv7p87icf6qr-nixos-system-mp23-c3m-nagare-google-compute-26.11.20261008.e7439b6.drv
+== 2026-10-09T17:17:47Z started builder nix-builder-ep150
+== 2026-10-09T17:20:14Z planned apply-c: [{"a":"RunDeclaredOperation","r":["platform:host/nixos-system/system"]},{"a":"UpdateResource","r":["platform:host/nixos-system/system"]}]
+== 2026-10-09T17:25:24Z apply apply-c exit=0: converged tx-ac398031ba8794056f6f4af542e3fc317e360ec58abaa373e6fab0feea014add 
+== 2026-10-09T17:28:33Z snap c: e-google-compute-26.11.20261008.e7439b6 v1.36.4+k3s1 data=24467b7d4163 pg=3 redis=2 ch=4 notRunning=0 doctor skipped at this intermediate state {"activeTransaction":null,"findings":326,"categories":{"converged":325,"unknown":1}}
+== 2026-10-09T17:31:29Z apply stop-c exit=0: converged tx-606cbe201268477ab2c935b34c8d53e9a9a8ee255b845c7084e9059916a13638 
+== 2026-10-09T17:32:35Z apply start-c exit=0: converged tx-a4c45f4077b9f138c640f0adabe6eff978656a1eedf897ddfa87c67b4278f930 
+== 2026-10-09T17:38:50Z snap c-rebooted: e-google-compute-26.11.20261008.e7439b6 v1.36.4+k3s1 data=24467b7d4163 pg=3 redis=2 ch=4 notRunning=0 doctor exit=0 seconds=123 {"activeTransaction":null,"findings":326,"categories":{"converged":325,"unknown":1}}
+PHASE-OK apply-c

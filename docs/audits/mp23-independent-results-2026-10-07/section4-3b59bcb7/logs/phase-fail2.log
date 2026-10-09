@@ -1,0 +1,5 @@
+== 09:04:54 failed upgrade 2: after the reviewed switch-over the new instance is rejected; reviewed switch back
+v3-switch-new: converged tx-1ace07733534e42149a9e5b1fbd8ae8badda3a0784a340c1936375872520742b
+v4-switch-back: converged tx-629f07016e1ef8c1146cedf75e345d74575f4e9fb27706df58dcac14afbbf91c
+== 09:06:48 returned to the old instance: 9:9; new instance never accepted a write (default_transaction_read_only=on)
+PHASE-OK fail2

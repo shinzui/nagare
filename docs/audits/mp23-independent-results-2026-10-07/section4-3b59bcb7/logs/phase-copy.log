@@ -1,0 +1,3 @@
+== 09:01:54 copy: fence the old instance, copy into the new one, verify
+== 09:02:01 verified: hits=e055cf630cfe8878ee064d91fe837fd4 hits_id_seq=8; both instances read-only
+PHASE-OK copy

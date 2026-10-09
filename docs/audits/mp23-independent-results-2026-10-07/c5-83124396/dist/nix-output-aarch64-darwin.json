@@ -1,0 +1,15 @@
+{
+  "outputs": {
+    "nagare-platform": {
+      "narHash": "sha256-t4O7cR1XaAJPk70iKjzvx7FRojDzkhIL6bWGvmWSOPk=",
+      "narSize": 120442080
+    },
+    "nagarectl": {
+      "narHash": "sha256-cWKtRAwfx4cCTPlb2Gdkmh+9xdoGaMVKXm86x0wMyKw=",
+      "narSize": 2256
+    }
+  },
+  "revision": "831243962c6b80f91da1028cdab8238ae6acdabd",
+  "system": "aarch64-darwin",
+  "version": "0.4.0"
+}

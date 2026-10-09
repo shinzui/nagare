@@ -1,0 +1,10 @@
+persistentvolumeclaim/nagare-broker-scenario-events-data
+persistentvolumeclaim/nagare-db-scenario-ch-data
+persistentvolumeclaim/nagare-db-scenario-pg-data
+persistentvolumeclaim/nagare-db-scenario-redis-data
+persistentvolumeclaim/nagare-db-scenario-retire-data
+persistentvolumeclaim/nagare-db-upg-pg-data
+persistentvolumeclaim/nagare-db-upg-pg18-data
+persistentvolumeclaim/nagare-restore-scenario-a-uploads-c3gvolr1
+persistentvolumeclaim/nagare-vol-scenario-a-uploads
+persistentvolumeclaim/scenario-redis-restore-c3grdr1

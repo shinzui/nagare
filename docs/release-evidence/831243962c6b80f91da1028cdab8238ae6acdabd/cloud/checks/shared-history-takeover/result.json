@@ -1,0 +1,19 @@
+{
+ "explicitTakeover": "converged tx-231c0ccd5f053b0d6107087c1b81a73b0a400ff4c75538c08343047440a2ed83",
+ "headAfter": {
+  "activeTransaction": null,
+  "executorClaim": null,
+  "generation": 640,
+  "sequence": 597
+ },
+ "headBefore": {
+  "activeTransaction": "tx-231c0ccd5f053b0d6107087c1b81a73b0a400ff4c75538c08343047440a2ed83",
+  "generation": 634,
+  "sequence": 593
+ },
+ "otherPlanRefused": "nagarectl: InventoryError {code = \"invalid-manual-backup\", message = \"the backup source StatefulSet 5a913395-c1bf-4487-8a98-f3b64fb1270b has no recorded incarnation; a reviewed rebind records it before its data is used\", scopes = [ScopeId Application (Name \"scenario-a\")], resources = [], claims = [], sources = [SourceLocation {file = \"db backup/scenario-pg\", path = \"c3i-takeover-probe\"}]} :| []",
+ "plainResumeRefused": "[AdmissionError {admissionErrorCode = \"executor-claim\", admissionErrorMessage = \"transaction is claimed by a different store client; explicit takeover is required\"}]",
+ "rootA": "application B deploy killed after the Service write; the claim stayed with root A's store client",
+ "rootB": "an isolated second operator root on the same GCS history",
+ "transaction": "tx-231c0ccd5f053b0d6107087c1b81a73b0a400ff4c75538c08343047440a2ed83"
+}

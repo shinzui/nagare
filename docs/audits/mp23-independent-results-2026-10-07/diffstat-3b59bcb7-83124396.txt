@@ -1,0 +1,15 @@
+ CHANGELOG.md                                       |   4 +-
+ ...ost-activation-is-guarded-and-self-reverting.md |  16 ++
+ docs/releases/v0.4.0.md                            |  11 +-
+ docs/user/day-2-host-changes.md                    |  11 +-
+ nix/checks/platform.nix                            |   6 +-
+ nix/checks/scripts/test-host-switch-identity.sh    |   1 +
+ .../scripts/test-host-switch-session-loss.sh       | 228 +++++++++++++++++++++
+ nixos/flake.nix                                    |  45 ++++
+ nixos/lib/nagare-safe-activate.sh                  |  67 +++++-
+ nixos/lib/nagare-safe-switch-client.sh             |  59 ++++--
+ scripts/host-switch.sh                             |   2 +-
+ scripts/inventory-host-transport.sh                |   7 +-
+ scripts/test-bootstrap-foundation-public.sh        |   5 +-
+ scripts/test-host-fresh-login.py                   |   1 +
+ 14 files changed, 429 insertions(+), 34 deletions(-)

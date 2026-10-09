@@ -1,0 +1,26 @@
+{
+  "cluster": "k3d-nagare-local",
+  "context": "local",
+  "evidence": [
+    {
+      "path": "checks/adoption/cleanup.json",
+      "sha256": "0550f28f4240a063e83c401e141a7ee09d4dffe20d377a6e4bf71abab481ac15"
+    },
+    {
+      "path": "checks/adoption/refusal.json",
+      "sha256": "da9bb31e628bf78c80997e76ffd49002cad4198352132bd01e416772500c4b76"
+    },
+    {
+      "path": "checks/adoption/status-unowned.json",
+      "sha256": "06f33a3bbf531e0a8c7e765a7381cec9caf11a9b0a8af51454d9bdec809ddebb"
+    }
+  ],
+  "fixtureDigest": "dd431786f1905bccae8524ad465c1ea4fe81bcc81a619726dc2583b6232b4a1c",
+  "mode": "local",
+  "name": "adoption",
+  "operatorRevision": "3b59bcb7612d513bfd663c36c251f8454e615502",
+  "passed": true,
+  "recordedAt": "2026-10-09T04:38:09Z",
+  "schemaVersion": 1,
+  "summary": "An unowned PVC at a restore's planned scratch address refused planning with adoption-required; no review saved, store generation unchanged; the object was then deleted by exact UID"
+}

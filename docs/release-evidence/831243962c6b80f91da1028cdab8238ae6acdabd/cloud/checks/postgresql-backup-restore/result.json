@@ -1,0 +1,16 @@
+{
+ "backup": "nagarectl db backup scenario-pg",
+ "backupResult": "converged tx-7be4581f16db74ec99857ad1682b1afc9bff71b8f1bc083ac0a76a496e7073bd",
+ "liveRows": [
+  "1|scenario-pg-row-1",
+  "2|scenario-pg-row-2",
+  "3|after-backup"
+ ],
+ "pointInTime": true,
+ "restore": "nagarectl db restore scenario-pg c3gpg1 --restore-id c3gpgr1 (reviewed, into a scratch database)",
+ "restoreResult": "converged tx-2f2e498c08a5e608855951c3e3f43ce717495ae97e3bfe9fba9ef777e62acbef",
+ "scratchRows": [
+  "1|scenario-pg-row-1",
+  "2|scenario-pg-row-2"
+ ]
+}

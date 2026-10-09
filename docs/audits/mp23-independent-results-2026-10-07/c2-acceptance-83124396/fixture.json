@@ -1,0 +1,170 @@
+{
+  "schemaVersion": 1,
+  "mode": "local",
+  "clusterPrefix": "k3d-",
+  "knativeNamespace": "knative-serving",
+  "knativeWebhook": "webhook",
+  "objectStoreNamespace": "nagare-system",
+  "objectStoreDeployment": "minio",
+  "objectStoreService": "minio",
+  "objectStoreBucketJob": "minio-make-bucket",
+  "registryUrl": "http://k3d-registry.localhost:5000/v2/",
+  "scenario": {
+    "name": "mp23-local-release",
+    "plan": "docs/plans/155-prove-local-application-and-data-recovery-end-to-end.md",
+    "target": {
+      "colimaProfile": "nagare-mp23-cp3",
+      "contextMode": "local",
+      "namespace": "personal",
+      "baseDomain": "127-0-0-1.sslip.io",
+      "freshContext": "bootstrapped from the final candidate's own payload; an admitted context never changes platform version"
+    },
+    "applications": [
+      {
+        "id": "a",
+        "config": "apps/scenario-a/nagare/Config.hs",
+        "buildContext": "apps/scenario-a",
+        "owner": "application:scenario-a",
+        "route": {"host": "scenario-a.127-0-0-1.sslip.io", "access": "require-login"},
+        "databases": ["scenario-pg"],
+        "volumes": ["uploads"],
+        "schedules": ["scenario-a-report"],
+        "image": {"repository": "scenario-a", "publication": "context registry, reviewed artifact"}
+      },
+      {
+        "id": "b",
+        "config": "apps/scenario-b/nagare/Config.hs",
+        "buildContext": "apps/scenario-b",
+        "owner": "application:scenario-b",
+        "route": {"access": "public"},
+        "databases": ["scenario-redis"],
+        "brokerTopics": [{"broker": "scenario-events", "topic": "jobs"}],
+        "image": {"repository": "scenario-b", "publication": "context registry, reviewed artifact"}
+      }
+    ],
+    "collisionVariant": {
+      "config": "apps/scenario-collision/nagare/Config.hs",
+      "claims": "route host scenario-a.127-0-0-1.sslip.io owned by application:scenario-a"
+    },
+    "site": {
+      "config": "apps/scenario-site/nagare/Config.hs",
+      "projectDir": "apps/scenario-site",
+      "preview": "pr-scenario",
+      "marker": "mp23-local-scenario-site"
+    },
+    "channels": [
+      {"application": "scenario-a", "scope": "runtime", "source": "literal", "key": "SCENARIO_MODE"},
+      {"application": "scenario-a", "scope": "preview", "source": "literal", "key": "SCENARIO_PREVIEW_BANNER"},
+      {"application": "scenario-a", "scope": "runtime", "source": "encrypted-store", "key": "SCENARIO_API_TOKEN", "store": "nagare-secret-scenario-a-runtime", "value": "generated at run time from stdin; only its SHA-256 is recorded"}
+    ],
+    "broker": {
+      "name": "scenario-events",
+      "topics": ["jobs"],
+      "create": "nagarectl broker create redpanda scenario-events --namespace personal --size 1Gi --topic jobs --save-plan DIR"
+    },
+    "jobs": {
+      "scheduled": {"application": "scenario-a", "task": "scenario-a-report", "schedule": "*/30 * * * *"},
+      "oneOff": {"command": "nagarectl task run scenario-a scenario-a-report --run-id scenario-once-1 --save-plan DIR", "expectedLog": "scenario-a report"}
+    },
+    "dataStores": [
+      {
+        "id": "postgresql",
+        "engine": "postgresql",
+        "name": "scenario-pg",
+        "owner": "application:scenario-a",
+        "seed": {"table": "scenario_known", "rows": [[1, "scenario-pg-row-1"], [2, "scenario-pg-row-2"]]},
+        "afterBackup": {"table": "scenario_known", "rows": [[3, "scenario-pg-after-backup"]]}
+      },
+      {
+        "id": "redis",
+        "engine": "redis",
+        "name": "scenario-redis",
+        "owner": "application:scenario-b",
+        "seed": {"keys": [["scenario:known:1", "scenario-redis-value-1"], ["scenario:known:2", "scenario-redis-value-2"]]},
+        "afterBackup": {"keys": [["scenario:known:3", "scenario-redis-after-backup"]]}
+      },
+      {
+        "id": "clickhouse",
+        "engine": "clickhouse",
+        "name": "scenario-ch",
+        "owner": "standalone:database-scenario-ch",
+        "create": "nagarectl db create clickhouse scenario-ch --size 1Gi --recovery-backup scenario-ch --recovery-key-version v1 --save-plan DIR",
+        "seed": {"table": "scenario_events", "rows": [[1, "scenario-ch-row-1"], [2, "scenario-ch-row-2"]]},
+        "afterBackup": {"table": "scenario_events", "rows": [[3, "scenario-ch-after-backup"]]}
+      },
+      {
+        "id": "volume",
+        "engine": "volume",
+        "application": "scenario-a",
+        "volume": "uploads",
+        "seed": {"files": [["/uploads/scenario-known.txt", "mp23-local-scenario-volume"]]},
+        "afterBackup": {"files": [["/uploads/scenario-after-backup.txt", "mp23-local-scenario-volume-later"]]}
+      }
+    ],
+    "rename": {
+      "source": "scenario-rename-src",
+      "destination": "scenario-renamed",
+      "create": "nagarectl db create postgres scenario-rename-src --size 1Gi --recovery-backup scenario-rename --recovery-key-version v1 --save-plan DIR",
+      "command": "nagarectl db rename postgres scenario-rename-src scenario-renamed --size 1Gi --recovery-backup scenario-rename --recovery-key-version v1 --save-plan DIR",
+      "seed": {"table": "scenario_rename", "rows": [[1, "scenario-rename-row-1"], [2, "scenario-rename-row-2"], [3, "scenario-rename-row-3"]]},
+      "unchangedIdentity": "nagare-system/nagare-shomei-keys",
+      "expected": "72 reviewed stages converge; rows read back on scenario-renamed-0; all nine old incarnations retained with unchanged UIDs; old StatefulSet fenced at zero replicas; old backup schedule suspended"
+    },
+    "companionCollection": {
+      "database": "scenario-retire",
+      "create": "nagarectl db create postgres scenario-retire --size 1Gi --recovery-backup scenario-retire --recovery-key-version v1 --save-plan DIR",
+      "retire": "nagarectl db retire scenario-retire --save-plan DIR",
+      "order": [["backup"], ["statefulset", "backup-read-binding"], ["service", "backup-read-role", "backup-account"]],
+      "staysRetained": ["pvc", "credential", "backup-signing-key"],
+      "refused": "nagarectl inventory collect --resource standalone:database-scenario-retire/scenario-retire/pvc --out DIR"
+    },
+    "interruptions": [
+      {"stage": "database-readiness", "within": "application A deploy, before scenario-pg reports ready"},
+      {"stage": "migration", "within": "rename TransferState, after the copy Job is created"},
+      {"stage": "cluster-completion", "within": "application B deploy, after the Service write and before readiness"},
+      {"stage": "final-marker", "within": "platform verify, before the run marker is written"}
+    ],
+    "steps": [
+      {"id": "platform", "summary": "C1 gate, then plan/apply/verify of the fresh context through the local runner", "commands": ["scripts/rehearse-local-inventory-release.sh --phase plan|apply|verify"]},
+      {"id": "data", "summary": "create the standalone ClickHouse, broker, rename source and retire databases", "commands": ["dataStores[clickhouse].create", "broker.create", "rename.create", "companionCollection.create", "nagarectl inventory apply DIR --yes"]},
+      {"id": "deploy-a", "summary": "set the encrypted value, then deploy application A", "commands": ["nagarectl secret set scenario-a --runtime SCENARIO_API_TOKEN --save-plan DIR", "nagarectl app deploy -f apps/scenario-a/nagare/Config.hs --save-plan DIR", "nagarectl inventory apply DIR --yes"]},
+      {"id": "deploy-b", "summary": "deploy application B", "commands": ["nagarectl app deploy -f apps/scenario-b/nagare/Config.hs --save-plan DIR", "nagarectl inventory apply DIR --yes"]},
+      {"id": "site", "summary": "deploy the site and its reviewed preview", "commands": ["nagarectl site deploy -C apps/scenario-site --save-plan DIR", "nagarectl site preview deploy -C apps/scenario-site --name pr-scenario --save-plan DIR", "nagarectl inventory apply DIR --yes"]},
+      {"id": "seed", "summary": "write the seed content of every data store and the volume", "commands": ["fixture writes through kubectl exec into the exact Pods; recorded by digest"]},
+      {"id": "collision", "summary": "the collision variant is refused at composition; no review is published", "commands": ["nagarectl app deploy -f apps/scenario-collision/nagare/Config.hs --save-plan DIR"]},
+      {"id": "adoption", "summary": "an unowned object at a planned address is reported as an adoption decision, never silently taken over", "commands": ["nagarectl inventory status --json", "nagarectl inventory adopt --input FILE --out DIR"]},
+      {"id": "drift", "summary": "foreign, missing, retained-orphan and repairable configuration drift are reported as distinct categories", "commands": ["nagarectl inventory status --json"]},
+      {"id": "update-a", "summary": "an application A update leaves application B and every platform revision unchanged", "commands": ["nagarectl env set scenario-a --runtime SCENARIO_MODE updated --reviewed --save-plan DIR", "nagarectl inventory apply DIR --yes"]},
+      {"id": "noop", "summary": "an unchanged replan has zero operations and the runner's verify phase records noOp", "commands": ["scripts/rehearse-local-inventory-release.sh --phase verify"]},
+      {"id": "interrupt", "summary": "each listed interruption resumes through the recorded transaction without a duplicate effect", "commands": ["nagarectl inventory resume TRANSACTION --yes"]},
+      {"id": "backup-restore", "summary": "back up every store through MinIO, change the source, restore into isolated targets and compare with the seed", "commands": ["nagarectl db backup NAME --backup-id ID --save-plan DIR", "nagarectl db restore NAME BACKUP_ID --restore-id ID --save-plan DIR", "nagarectl storage snapshot scenario-a uploads --snapshot-id ID --save-plan DIR", "nagarectl storage restore scenario-a uploads BACKUP_ID --restore-id ID --save-plan DIR"]},
+      {"id": "wrong-incarnation", "summary": "a restore whose destination incarnation changed since review is refused before any effect", "commands": ["nagarectl inventory apply DIR --yes"]},
+      {"id": "source-unavailable", "summary": "recover seeded content from MinIO with the source cluster inaccessible, using the escrowed signing key", "commands": ["nagarectl db verify-escrowed-backup NAME --backup-id JOB_UID"]},
+      {"id": "freshness", "summary": "every scheduled backup grades healthy under the hourly objective; a stopped schedule reaches warning and breach", "commands": ["nagarectl server status", "nagarectl db backup-receipts NAME --check-freshness"]},
+      {"id": "access", "summary": "grant and revoke a user on the protected host; the enforcer honors both", "commands": ["nagarectl access grant --host scenario-a.127-0-0-1.sslip.io --user USER --save-plan DIR", "nagarectl access revoke --host scenario-a.127-0-0-1.sslip.io --user USER --save-plan DIR"]},
+      {"id": "credential-privacy", "summary": "no review, status output, export summary or evidence file contains the encrypted value; only its digest is recorded", "commands": ["scan of public evidence for the run-time value"]},
+      {"id": "rename", "summary": "the bounded PostgreSQL rename", "commands": ["rename.create", "rename.command", "nagarectl inventory apply DIR --yes"]},
+      {"id": "companions", "summary": "retire one database and collect only its stateless companions in dependency order", "commands": ["companionCollection.retire", "nagarectl inventory collect --resource ID --out DIR", "companionCollection.refused"]},
+      {"id": "preview-cleanup", "summary": "collect the preview through reviewed cleanup, DomainMapping descendants included", "commands": ["nagarectl cleanup --previews --save-plan DIR"]},
+      {"id": "history", "summary": "export the private history and restore it into an isolated state root with identical accepted identities", "commands": ["nagarectl inventory export --out PRIVATE_DIR", "nagarectl inventory restore --from PRIVATE_DIR --yes"]}
+    ],
+    "assertions": [
+      {"name": "collision-refusal", "steps": ["collision"]},
+      {"name": "adoption", "steps": ["adoption"]},
+      {"name": "drift-classification", "steps": ["drift"]},
+      {"name": "convergence-noop-removal", "steps": ["platform", "noop", "preview-cleanup"]},
+      {"name": "independent-scope-preservation", "steps": ["update-a"]},
+      {"name": "secret-read-refusal", "steps": ["credential-privacy"]},
+      {"name": "interrupted-recovery", "steps": ["interrupt"]},
+      {"name": "postgresql-backup-restore", "steps": ["backup-restore", "wrong-incarnation"]},
+      {"name": "redis-backup-restore", "steps": ["backup-restore"]},
+      {"name": "clickhouse-backup-restore", "steps": ["backup-restore"]},
+      {"name": "volume-backup-restore", "steps": ["backup-restore"]},
+      {"name": "source-unavailable-recovery", "steps": ["source-unavailable"]},
+      {"name": "backup-freshness", "steps": ["freshness"]},
+      {"name": "retained-data", "steps": ["companions", "history"]},
+      {"name": "access-grant-revoke", "steps": ["access"]},
+      {"name": "retained-postgresql-rename", "steps": ["rename"]}
+    ]
+  }
+}

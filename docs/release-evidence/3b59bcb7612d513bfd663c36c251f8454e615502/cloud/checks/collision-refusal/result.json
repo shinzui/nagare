@@ -1,0 +1,16 @@
+{
+  "command": "nagarectl app deploy -f apps/scenario-collision/nagare/Config.hs --save-plan DIR",
+  "exitCode": 1,
+  "refusal": "code = \"claim-conflict\" ",
+  "reviewSaved": false,
+  "headBefore": {
+    "generation": 687,
+    "sequence": 630,
+    "activeTransaction": null
+  },
+  "headAfter": {
+    "generation": 687,
+    "sequence": 630,
+    "activeTransaction": null
+  }
+}

@@ -1,0 +1,11 @@
+{
+ "backup": "nagarectl db backup scenario-ch",
+ "backupResult": "converged tx-caed487d8694720d0979a4289f5232bb847cf428cfdd7d0faf787c4e5c67be73",
+ "knownRowsRestored": true,
+ "restore": "nagarectl db restore scenario-ch c3gch1 --restore-id c3gchr1 (reviewed, into a scratch database)",
+ "restoreResult": "converged tx-47009aacef402eec06ff92bfcab85e94929438c0b770aafc4f55795a50a5a7cb",
+ "scratchRows": [
+  "1|scenario-ch-row-1",
+  "2|scenario-ch-row-2"
+ ]
+}

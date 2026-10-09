@@ -322,9 +322,13 @@ A fresh host also needs these inputs, as the retained F15 root shows:
   (ADR 11). If the tailnet's SSH policy uses `check` mode, the first connection waits for a browser
   re-authentication, so the activation step can time out and report an ambiguous outcome. Do not
   re-run activation. Read `inventory status --json`, then `inventory resume`, which re-observes the
-  host and converges when activation in fact succeeded (as it did here). Use an `accept` rule for the
-  tag the ephemeral auth key grants. Keys and SSH checks can only be managed in the admin console or
-  through the Tailscale API with an API token; the `tailscale` CLI cannot do either.
+  host and converges when activation in fact succeeded (as it did here). Generate every test-host
+  auth key with the tag `tag:nagare-test`. The tailnet policy gives that tag an SSH `accept` rule
+  (source `autogroup:member`, users `autogroup:nonroot` and `root`) above the default `check` rule
+  for `autogroup:self`, so a tagged host never waits for a browser check. An untagged key leaves the
+  host under `check`; the `mp23-c3m` bootstrap stalled at stage 7 for that reason on 2026-10-09.
+  Keys and SSH checks can only be managed in the admin console or through the Tailscale API with an
+  API token; the `tailscale` CLI cannot do either.
 
 Staged teardown on a full context, as natively proven on the `db808a74` checkpoint with the F39 and F40 fixes:
 1. `infra destroy --save-plan` stage 1, the cloud policy review (verify-only).

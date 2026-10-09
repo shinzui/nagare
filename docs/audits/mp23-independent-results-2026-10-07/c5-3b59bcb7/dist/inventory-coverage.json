@@ -1,0 +1,41 @@
+{
+  "candidateDigest": "df82fb0ff26774c84db8588fc302072383e18782795e98543249442282241700",
+  "complete": true,
+  "deferredRoutes": [
+    "DbCommand.DbPruneScheduledBackups",
+    "DbCommand.DbRestore.--into-live",
+    "DbCommand.DbShell",
+    "StorageCommand.StorageRestore.--into-live"
+  ],
+  "dirty": false,
+  "entrypoints": [
+    "cli/nagarectl/nagared/Main.hs",
+    "justfile",
+    "scripts/host-switch.sh",
+    "scripts/iap-ssh.sh",
+    "scripts/install-net-certmanager-controller.sh",
+    "scripts/inventory-artifact-transport.sh",
+    "scripts/inventory-cache-transport.sh",
+    "scripts/inventory-host-transport.sh",
+    "scripts/lib/smoke-readback.sh",
+    "scripts/live-smoke.sh",
+    "scripts/local-smoke.sh",
+    "scripts/nix-builder-proxy.sh",
+    "scripts/run-reviewed-bootstrap.sh",
+    "scripts/setup-nix-builder.sh",
+    "scripts/upload-images.sh",
+    "scripts/vm-power.sh"
+  ],
+  "errors": [],
+  "incompleteCatalogueRows": [],
+  "libraryCalls": 35,
+  "pending": [],
+  "pendingRecipes": [],
+  "recipes": 46,
+  "recoveryOnlyRoutes": [
+    "DbCommand.DbRecoverScheduledPrune"
+  ],
+  "registeredRoutes": 156,
+  "schemaVersion": 1,
+  "sourceRevision": "3b59bcb7612d513bfd663c36c251f8454e615502"
+}

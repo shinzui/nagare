@@ -1,0 +1,4 @@
+== 08:51:04 add the new PostgreSQL 18 instance beside the old one; binding unchanged
+v2-both-old: converged tx-0a3c08f54168d55c04f457def4913e0354d5cdb5f62c6d3ba96917e7cf652bda
+== 08:52:55 new instance PostgreSQL 18.6 ; app still on upg-pg.personal.svc.cluster.local
+PHASE-OK add

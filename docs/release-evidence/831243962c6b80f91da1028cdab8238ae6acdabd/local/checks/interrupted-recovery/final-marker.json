@@ -1,0 +1,25 @@
+{
+ "stage": "final-marker",
+ "within": "platform verify, before the run marker is written",
+ "interruptedRunLog": "Verified no-op review and final observations: /private/tmp/nagare-mp23-c2-83124396.PqNDSb/evidence/c2-83124396",
+ "runStateAfterKill": "applied",
+ "rerunLog": "Verified no-op review and final observations: /private/tmp/nagare-mp23-c2-83124396.PqNDSb/evidence/c2-83124396",
+ "runStateAfterRerun": "verified",
+ "storeHead": {
+  "before": [
+   "1477",
+   "1356"
+  ],
+  "afterKill": [
+   "1477",
+   "1356",
+   "None"
+  ],
+  "afterRerun": [
+   "1477",
+   "1356",
+   "None"
+  ]
+ },
+ "note": "verify has no transaction; the rerun replaced the interrupted no-op review and the store head did not move, so no effect was repeated"
+}

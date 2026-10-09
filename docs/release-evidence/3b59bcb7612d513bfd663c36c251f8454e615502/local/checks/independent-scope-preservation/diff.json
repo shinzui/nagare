@@ -1,0 +1,18 @@
+{
+ "changedScopes": [
+  {
+   "after": {
+    "digest": "b0f1e424c73926f851c31df4efeebe10a34446067c654e7c327b950bdda55cb0",
+    "generation": 1
+   },
+   "before": null,
+   "scope": "Application:env-scenario-a-runtime"
+  }
+ ],
+ "platformScopesCompared": 19,
+ "platformScopesUnchanged": true,
+ "review": "e98003e75baa4ef48329c064c4df63acc512c98711adc1b6d96e54509585ee4c",
+ "reviewOperations": 1,
+ "scenarioBRevisionUnchanged": true,
+ "scenarioBServiceUnchanged": true
+}

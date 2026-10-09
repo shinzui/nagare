@@ -1,0 +1,14 @@
+{
+  "host": "scenario-a.c3-1012.labs.topagentnetwork.net",
+  "subject": "0199a1c2-c3a0-7000-8000-00000000c3a1",
+  "subjectNote": "test subject id; grants are en relationship tuples (D3 browser login remains a stated restriction)",
+  "listBefore": "(none) ",
+  "interruptedAt": "2026-10-09T15:13:40Z",
+  "transactionLeftActive": "tx-749670c3019fd9eef04d9f7f79e9e7771d711bd34fc6145674860d44b9041de7",
+  "resume": "converged tx-749670c3019fd9eef04d9f7f79e9e7771d711bd34fc6145674860d44b9041de7",
+  "listAfterGrant": "0199a1c2-c3a0-7000-8000-00000000c3a1 ",
+  "revoke": "converged tx-b26304212c3690a189fd746fe7e2ea0b586237e690a236b3441aa170734a4bc1",
+  "listAfterRevoke": "(none) ",
+  "subjectListedAfterGrant": true,
+  "subjectAbsentAfterRevoke": true
+}

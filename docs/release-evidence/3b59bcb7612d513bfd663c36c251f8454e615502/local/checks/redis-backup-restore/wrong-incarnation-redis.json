@@ -1,0 +1,22 @@
+{
+  "restoreId": "c2redr2",
+  "review": "1a6a80562b9386fde6c4387cc2e2ad790d18981a944d007ad8921a9b8c71b0a1",
+  "foreignObject": "PersistentVolumeClaim personal/scenario-redis-restore-c2redr2 created between plan and apply",
+  "foreignBefore": [
+    "2277d92c-d150-413d-8f37-76d84c4779c6",
+    "7607"
+  ],
+  "foreignAfterApply": [
+    "2277d92c-d150-413d-8f37-76d84c4779c6",
+    "7607"
+  ],
+  "applyResult": "stopped tx-1a6a80562b9386fde6c4387cc2e2ad790d18981a944d007ad8921a9b8c71b0a1 at op-d98b41bd10ab847c22d27dcf: KnownNoEffect \"adapter preflight refused: Kubernetes object changed since review; replan before mutation\"",
+  "recovery": {
+    "action": "abandon-refused-operation",
+    "result": "inspect inventory status before saving a corrected review or a retirement"
+  },
+  "unacceptedEarlierEffects": [
+    "scenario-redis-restore-c2redr2"
+  ],
+  "foreignObjectUntouched": true
+}

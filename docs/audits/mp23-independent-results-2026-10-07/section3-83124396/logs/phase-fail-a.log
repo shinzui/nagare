@@ -1,0 +1,12 @@
+== 2026-10-09T16:31:47Z re-pinned nixpkgs b1b875982b17dabde9b4a37f3e229e74913e6db3 and sops-nix dcd241ba97088c22569d1573286e1b9daad340c0 (a); only those nodes changed; toplevel evaluates: /nix/store/pga70mslhqf2m7r75lr4wzrpxxnzha3c-nixos-system-mp23-c3m-nagare-google-compute-26.11.20260916.b1b8759.drv
+== 2026-10-09T16:32:42Z started builder nix-builder-ep150
+== 2026-10-09T16:34:36Z planned fail-a: [{"a":"UpdateResource","r":["platform:host/nixos-system/system"]},{"a":"RunDeclaredOperation","r":["platform:host/nixos-system/system"]}]
+== 2026-10-09T16:34:39Z apply fail-a with NAGARE_SWITCH_CONFIRM_SECONDS=120 (apply-time setting, not bound in the review)
+== 2026-10-09T16:36:10Z transport shell 87479 stopped while its activation ssh 90847 ran (apply pid 76843); no fresh-login check or commit can follow
+== 2026-10-09T16:36:10Z remote activation returned
+== 2026-10-09T16:36:12Z processes killed; host: /nix/store/9ra8yfrcp0dhm3zfiv0ljihi02mkiscb-nixos-system-mp23-c3m-nagare-google-compute-26.11.20260916.b1b8759 active
+== 2026-10-09T16:36:54Z close while the timer is armed: exit=1: OperationId "op-38d9b8bf4e9a1c4a5f1f13bd" is not proved: the host rollback timer is armed (resolved by the rollback window to end, then inventory close or resume) 
+== 2026-10-09T16:36:54Z waiting for the on-host rollback timer
+== 2026-10-09T16:38:24Z host reverted to the old closure with the timer inactive
+== 2026-10-09T16:39:25Z resume exit=1: ambiguous tx-0e9211058f369e00746e5115a1ce54a830e31dfba1b5bf971e130c14441d577a at op-38d9b8bf4e9a1c4a5f1f13bd 
+PHASE-OK fail-a

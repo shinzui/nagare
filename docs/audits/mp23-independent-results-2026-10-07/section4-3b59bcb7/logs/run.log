@@ -1,0 +1,12 @@
+2026-10-09T08:42:31Z phase setup rc=0 PHASE-OK setup
+2026-10-09T08:48:05Z phase backup rc=0 PHASE-OK backup
+2026-10-09T08:52:55Z phase add rc=0 PHASE-OK add
+2026-10-09T08:56:03Z phase probe-inplace rc=0 PHASE-OK probe-inplace
+2026-10-09T08:58:50Z phase fail1 rc=0 PHASE-OK fail1
+2026-10-09T09:02:01Z phase copy rc=0 PHASE-OK copy
+2026-10-09T09:06:48Z phase fail2 rc=0 PHASE-OK fail2
+2026-10-09T09:09:47Z phase recopy rc=0 PHASE-OK recopy
+2026-10-09T09:13:23Z phase switch rc=0 PHASE-OK switch
+2026-10-09T09:18:40Z phase prove rc=0 PHASE-OK prove
+2026-10-09T09:23:19Z phase retire rc=0 PHASE-OK retire
+S4-ALL-OK

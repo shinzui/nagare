@@ -1,0 +1,28 @@
+== 2026-10-09T00:24:31Z snap 0: e-google-compute-26.11.20260911.eaad089 v1.35.8+k3s1 data=24467b7d4163 pg=3 redis=2 ch=4 notRunning=0 doctor exit=124 {"activeTransaction":null,"findings":318,"categories":{"converged":316,"unknown":1,"unrecorded":1}}
+== 2026-10-09T00:32:15Z backup s3pre: three databases backed up; scenario-pg restore = source (3 rows)
+== 2026-10-09T00:34:59Z re-pinned nixpkgs b1b875982b17dabde9b4a37f3e229e74913e6db3 and sops-nix dcd241ba97088c22569d1573286e1b9daad340c0 (a); only those nodes changed; toplevel evaluates: /nix/store/jib430wsnbrm9gxf6faly3jz2l71z50r-nixos-system-mp23-c3k-nagare-google-compute-26.11.20260916.b1b8759.drv
+== 2026-10-09T00:35:54Z started builder nix-builder-ep150
+== 2026-10-09T00:40:07Z planned fail-a: [{"a":"RunDeclaredOperation","r":["platform:host/nixos-system/system"]},{"a":"UpdateResource","r":["platform:host/nixos-system/system"]}]
+== 2026-10-09T00:40:10Z apply fail-a with NAGARE_SWITCH_CONFIRM_SECONDS=120 (apply-time setting, not bound in the review)
+S3 FAILED [fail-a]: the activation step was never reached: ambiguous tx-06a0551f816a478672c89119b44e648cc45d348a1bee6409cc04ef0dd67e98e9 at op-349a8168a61ac4673ad0d53a 
+== 2026-10-09T00:47:01Z re-pinned nixpkgs b1b875982b17dabde9b4a37f3e229e74913e6db3 and sops-nix dcd241ba97088c22569d1573286e1b9daad340c0 (a); only those nodes changed; toplevel evaluates: /nix/store/jib430wsnbrm9gxf6faly3jz2l71z50r-nixos-system-mp23-c3k-nagare-google-compute-26.11.20260916.b1b8759.drv
+== 2026-10-09T00:47:42Z planned fail-a: [{"a":"RunDeclaredOperation","r":["platform:host/nixos-system/system"]},{"a":"UpdateResource","r":["platform:host/nixos-system/system"]}]
+== 2026-10-09T00:47:45Z apply fail-a with NAGARE_SWITCH_CONFIRM_SECONDS=120 (apply-time setting, not bound in the review)
+== 2026-10-09T00:49:48Z transport shell 59044 stopped while its activation ssh 94158 ran (apply pid 49773); no fresh-login check or commit can follow
+== 2026-10-09T00:49:55Z remote activation returned
+== 2026-10-09T00:49:56Z processes killed; host: /nix/store/agkqnr1m5il207wgsy20rknx6sjkhmxa-nixos-system-mp23-c3k-nagare-google-compute-26.11.20260916.b1b8759 active
+== 2026-10-09T00:53:28Z close while the timer is armed: exit=0:   op-349a8168a61ac4673ad0d53a: no effect (the reviewed host runs its old closure /nix/store/i838di6qnkf7b6mfbfd08rhxl0984jdn-nixos-system-mp23-c3k-nagare-google-compute-26.11.20260911.eaad089 with no rollback timer armed)   scope platform:host: reverted to the review's base inspect inventory status before saving a corrected review or a retirement 
+S3 FAILED [fail-a]: close accepted while the rollback timer was armed
+S3 FAILED [fail-a-verify]: transaction active
+== 2026-10-09T00:54:28Z restored the previous flake.lock after the closed failed upgrade
+== 2026-10-09T01:01:02Z restored the previous flake.lock after the closed failed upgrade
+== 2026-10-09T01:25:05Z snap fail-a: e-google-compute-26.11.20260911.eaad089 v1.35.8+k3s1 data=24467b7d4163 pg=3 redis=2 ch=4 notRunning=0 doctor exit=0 seconds=1092 {"activeTransaction":null,"findings":322,"categories":{"converged":320,"unknown":1,"unrecorded":1}}
+== 2026-10-09T01:28:03Z re-pinned nixpkgs b1b875982b17dabde9b4a37f3e229e74913e6db3 and sops-nix dcd241ba97088c22569d1573286e1b9daad340c0 (b); only those nodes changed; toplevel evaluates: /nix/store/jib430wsnbrm9gxf6faly3jz2l71z50r-nixos-system-mp23-c3k-nagare-google-compute-26.11.20260916.b1b8759.drv
+== 2026-10-09T01:28:58Z started builder nix-builder-ep150
+== 2026-10-09T01:29:37Z planned apply-b: [{"a":"RunDeclaredOperation","r":["platform:host/nixos-system/system"]},{"a":"UpdateResource","r":["platform:host/nixos-system/system"]}]
+== 2026-10-09T01:31:07Z apply apply-b exit=1: stopped tx-b0f7d71ff595b5ae4e89794fab4766518d40df9643f784301ca12953940de1ac at op-1b840ff27b0d48e08c70365b: KnownNoEffect "adapter preflight refused" 
+S3 FAILED [apply-b]: apply apply-b
+== 2026-10-09T01:39:35Z snap b: e-google-compute-26.11.20260916.b1b8759 v1.35.8+k3s1 data=24467b7d4163 pg=3 redis=2 ch=4 notRunning=0 doctor skipped at this intermediate state {"activeTransaction":null,"findings":322,"categories":{"converged":320,"unknown":1,"unrecorded":1}}
+== 2026-10-09T01:42:26Z apply stop-b exit=0: converged tx-fc2dbc1897cebe2c39aac71b0238094ac723004851ec435bbe0e7ca3e08994e1 
+== 2026-10-09T01:43:29Z apply start-b exit=0: converged tx-a7aa5d7f76b1a58627fd35b6d0a765db25d8c71f27e87cb618b9709c7e9b4012 
+== 2026-10-09T02:06:57Z snap b-rebooted: e-google-compute-26.11.20260916.b1b8759 v1.35.8+k3s1 data=24467b7d4163 pg=3 redis=2 ch=4 notRunning=0 doctor exit=0 seconds=1188 {"activeTransaction":null,"findings":322,"categories":{"converged":320,"unknown":1,"unrecorded":1}}

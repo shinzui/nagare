@@ -1,0 +1,22 @@
+{
+  "cluster": "nagare-c3-1011",
+  "context": "mp23-c3l",
+  "evidence": [
+    {
+      "path": "checks/backup-freshness/receipts.txt",
+      "sha256": "15af2055f3ece055e6a1a5476e7d32ab0c69b3b6bf761f30e0fe88f5450f29ed"
+    },
+    {
+      "path": "checks/backup-freshness/result.json",
+      "sha256": "22144102bf90ac732fd86b6d7eef58fef2e72935bbfa5be80cd123710f314b18"
+    }
+  ],
+  "fixtureDigest": "f27611323b465011cab862289b98a1e553c0f59c5e76f3363a868d9785531e00",
+  "mode": "cloud",
+  "name": "backup-freshness",
+  "operatorRevision": "3b59bcb7612d513bfd663c36c251f8454e615502",
+  "passed": true,
+  "recordedAt": "2026-10-09T06:42:45Z",
+  "schemaVersion": 1,
+  "summary": "Recovery-point freshness for scenario-pg reports healthy against the hourly objective"
+}

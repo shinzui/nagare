@@ -1,0 +1,7 @@
+{
+ "command": "nagarectl db backup-receipts scenario-pg --check-freshness",
+ "freshness": [
+  "Recovery-point freshness: healthy; age=672s; objective=hourly; newest point is verified and awaits reviewed ingestion"
+ ],
+ "healthy": true
+}

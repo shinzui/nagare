@@ -1,0 +1,12 @@
+pg_dump (PostgreSQL) 18.6 (Debian 18.6-1.pgdg13+2)
+9497788a8f598af2cbf129c0f6c417922f9519d9fe861799baaae39f83783447  /tmp/s4-dump.sql
+ set_config 
+------------
+ 
+(1 row)
+
+ setval 
+--------
+      8
+(1 row)
+

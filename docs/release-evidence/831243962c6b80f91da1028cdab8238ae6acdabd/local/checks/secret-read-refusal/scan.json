@@ -1,0 +1,17 @@
+{
+ "valueSha256": "70b08e0bfe0a26eed82cdf2c57d1c6c3b74fd879417b8eb53c88e4f039cb70e7",
+ "recordedShaMatches": true,
+ "forms": [
+  "raw",
+  "base64"
+ ],
+ "scannedRoots": [
+  "evidence directory (public)",
+  "saved review directories",
+  "status outputs and pending evidence"
+ ],
+ "filesScanned": 2274,
+ "matches": 0,
+ "matchedPaths": [],
+ "note": "the value was generated at run time and passed only on stdin to secret set; there is no public secret get"
+}

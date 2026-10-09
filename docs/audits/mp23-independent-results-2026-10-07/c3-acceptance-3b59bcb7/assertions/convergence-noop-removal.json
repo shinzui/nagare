@@ -1,0 +1,22 @@
+{
+  "cluster": "nagare-c3-1011",
+  "context": "mp23-c3l",
+  "evidence": [
+    {
+      "path": "checks/convergence-noop-removal/preview-cleanup.json",
+      "sha256": "e6b2dd74a55c08d0b57f7a7a8aa110679deddeb29b721dbfea2c2539c51a2805"
+    },
+    {
+      "path": "no-op-review/review.json",
+      "sha256": "ca87a58117cbebfe79021d260091e1801853fc61934a68486bea04de3476f8d5"
+    }
+  ],
+  "fixtureDigest": "f27611323b465011cab862289b98a1e553c0f59c5e76f3363a868d9785531e00",
+  "mode": "cloud",
+  "name": "convergence-noop-removal",
+  "operatorRevision": "3b59bcb7612d513bfd663c36c251f8454e615502",
+  "passed": true,
+  "recordedAt": "2026-10-09T06:49:58Z",
+  "schemaVersion": 1,
+  "summary": "The runner's verify replan of the unchanged platform candidate has zero operations, and reviewed preview cleanup retired pr-scenario and removed its DomainMapping, Service and route while the other routes stayed"
+}

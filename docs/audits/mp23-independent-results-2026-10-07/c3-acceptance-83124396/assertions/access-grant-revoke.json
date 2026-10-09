@@ -1,0 +1,18 @@
+{
+  "cluster": "nagare-c3-1012",
+  "context": "mp23-c3m",
+  "evidence": [
+    {
+      "path": "checks/access-grant-revoke/result.json",
+      "sha256": "d69312c937be8ddb7d9b4f1308a55973d40db59bdbdacdcf5dd68476401778a1"
+    }
+  ],
+  "fixtureDigest": "a87386fa4527e267d3e90a781b1414929525a900ea493bbfd441195990884472",
+  "mode": "cloud",
+  "name": "access-grant-revoke",
+  "operatorRevision": "831243962c6b80f91da1028cdab8238ae6acdabd",
+  "passed": true,
+  "recordedAt": "2026-10-09T16:06:20Z",
+  "schemaVersion": 1,
+  "summary": "An access grant killed after its transaction began resumed to convergence and listed the subject; the reviewed revoke removed it"
+}

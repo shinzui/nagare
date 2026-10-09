@@ -1,0 +1,30 @@
+{
+  "cluster": "nagare-c3-1012",
+  "context": "mp23-c3m",
+  "evidence": [
+    {
+      "path": "checks/interrupted-recovery/access-grant.json",
+      "sha256": "7da23d7894df6bc627606aed3e8b31b3aaf297a7a70d430d2e6ad37e8776bc6a"
+    },
+    {
+      "path": "checks/interrupted-recovery/cluster-completion.json",
+      "sha256": "605e5f07fc8812a886625abe3f1ce066da9c04d54abd184c8cf6fb27c2f78643"
+    },
+    {
+      "path": "checks/interrupted-recovery/database-readiness.json",
+      "sha256": "8506d77658081ecbe195943cf9275059ca76ab10a10ec514b28e5afb552f1069"
+    },
+    {
+      "path": "checks/interrupted-recovery/final-marker.json",
+      "sha256": "5efc0cf3db0ecbde715c19b79130f7b94c6f435d09145e6ef5827e5255e0c61e"
+    }
+  ],
+  "fixtureDigest": "a87386fa4527e267d3e90a781b1414929525a900ea493bbfd441195990884472",
+  "mode": "cloud",
+  "name": "interrupted-recovery",
+  "operatorRevision": "831243962c6b80f91da1028cdab8238ae6acdabd",
+  "passed": true,
+  "recordedAt": "2026-10-09T16:13:39Z",
+  "schemaVersion": 1,
+  "summary": "Killed applies at database readiness, cluster completion (resumed from a second root by explicit takeover) and an access grant each converged through their recorded transaction with pre-interruption UIDs unchanged; verify killed before its marker re-ran to verified with the store head unchanged"
+}

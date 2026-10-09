@@ -1,0 +1,4 @@
+  warning: Application Default Credentials do not expose a principal; the gcloud account comparison is unavailable
+context guard: mp23-c3m confined to project tan-ng-labs (stack mp23-c3m)
+warning: Application Default Credentials do not expose a principal; the gcloud account comparison is unavailable
+converged tx-606cbe201268477ab2c935b34c8d53e9a9a8ee255b845c7084e9059916a13638

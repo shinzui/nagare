@@ -1,0 +1,8 @@
+07:12:40 /nix/store/rx0n8pv9qpi14za4vsdk6gipwik9piz2-nixos-system-mp23-c3l-nagare-google-compute-26.11.20260916.b1b8759 active
+07:12:53 /nix/store/rx0n8pv9qpi14za4vsdk6gipwik9piz2-nixos-system-mp23-c3l-nagare-google-compute-26.11.20260916.b1b8759 active
+07:13:06 /nix/store/rx0n8pv9qpi14za4vsdk6gipwik9piz2-nixos-system-mp23-c3l-nagare-google-compute-26.11.20260916.b1b8759 active
+07:13:19 /nix/store/rx0n8pv9qpi14za4vsdk6gipwik9piz2-nixos-system-mp23-c3l-nagare-google-compute-26.11.20260916.b1b8759 active
+07:13:32 /nix/store/rx0n8pv9qpi14za4vsdk6gipwik9piz2-nixos-system-mp23-c3l-nagare-google-compute-26.11.20260916.b1b8759 active
+07:13:44 /nix/store/rx0n8pv9qpi14za4vsdk6gipwik9piz2-nixos-system-mp23-c3l-nagare-google-compute-26.11.20260916.b1b8759 active
+07:13:56 /nix/store/g4grr5zkmhahmn3h84l3b9fnnandisrx-nixos-system-mp23-c3l-nagare-google-compute-26.11.20260911.eaad089 active
+07:14:08 /nix/store/g4grr5zkmhahmn3h84l3b9fnnandisrx-nixos-system-mp23-c3l-nagare-google-compute-26.11.20260911.eaad089 inactive

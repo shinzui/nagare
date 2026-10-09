@@ -1,0 +1,25 @@
+{
+ "stage": "final-marker",
+ "within": "runner verify, before the run marker is written",
+ "runStateAfterKill": "applied",
+ "rerunLog": "Verified no-op review and final observations: /Users/shinzui/.local/state/nagare-verify/mp23-c3m/evidence/c3-83124396",
+ "runStateAfterRerun": "verified",
+ "storeHead": {
+  "before": [
+   "929",
+   "801",
+   "null"
+  ],
+  "afterKill": [
+   "929",
+   "801",
+   "null"
+  ],
+  "afterRerun": [
+   "929",
+   "801",
+   "null"
+  ]
+ },
+ "note": "verify has no transaction; the rerun replaced the interrupted no-op review and the store head did not move"
+}

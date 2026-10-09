@@ -1,0 +1,2 @@
+== 2026-10-09T16:40:16Z close exit=0: closed tx-0e9211058f369e00746e5115a1ce54a830e31dfba1b5bf971e130c14441d577a; nothing was written to any provider   op-38d9b8bf4e9a1c4a5f1f13bd: no effect (the reviewed host runs its old closure /nix/store/n11ymdl9brs4c37jf82110jhk2avswsj-nixos-system-mp23-c3m-nagare-google-compute-26.11.20260911.eaad089 with no rollback timer armed)   op-7be070c178f84442a4d789ab: never started   scope platform:host
+PHASE-OK fail-a-close

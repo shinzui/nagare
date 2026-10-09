@@ -1,0 +1,32 @@
+## 09:34:01 c1
+   ok
+{"operations":214,"actions":["VerifyResource"],"providerMutations":0,"acceptedScopeContentDigestsUnchanged":true}
+## 09:35:04 noreplaced-after-c1
+   ok
+## 09:35:25 phase2
+   ok
+## 09:38:18 phase2b
+   ok
+## 09:41:50 rebind-check
+   ok
+## 09:43:09 restores
+   ok
+## 09:51:47 misc
+   ok
+## 09:59:22 su
+   ok
+## 09:59:59 final-a
+   ok
+## 10:03:09 retire-kept
+   ok
+## 10:04:10 noreplaced-before-runner
+   ok
+## 10:04:38 settle-workloads
+   ok
+## 10:04:39 final-b
+   ok
+## 10:07:12 assemble
+   ok
+0
+CHAIN-DONE
+chain exit=0

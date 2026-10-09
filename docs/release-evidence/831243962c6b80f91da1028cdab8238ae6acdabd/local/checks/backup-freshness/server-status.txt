@@ -1,0 +1,31 @@
+  STATUS   CHECK                    DETAIL
+  UNKNOWN  VM                       gcloud unavailable or no access
+  OK       k3s node                 Ready
+  OK       Knative controller       rolled out
+  OK       Knative webhook          rolled out
+  OK       Kourier gateway          rolled out
+  OK       cert-manager             rolled out
+  OK       cert-manager-webhook     rolled out
+  OK       cert-manager-cainjector  rolled out
+  OK       net-certmanager          rolled out
+  UNKNOWN  ClusterIssuer            letsencrypt-dns not reachable
+  WARN     Kourier ingress          LB EXTERNAL-IP 172.18.0.3 (publicIp unknown)
+  WARN     base domain              127-0-0-1.sslip.io (Pulumi baseDomain unknown)
+  OK       external-domain-tls      Enabled
+  FAIL     certificate policy       logging/logging.127-0-0-1.sslip.io: public namespace wildcard is not using letsencrypt-dns; monitoring/monitoring.127-0-0-1.sslip.io: public namespace wildcard is not using letsencrypt-dns; personal/personal.127-0-0-1.sslip.io: public namespace wildcard is not using letsencrypt-dns; tracing/tracing.127-0-0-1.sslip.io: public namespace wildcard is not using letsencrypt-dns
+  UNKNOWN  Artifact Registry        gcloud unavailable or no access
+  OK       private image pull       k3d-registry.localhost:5000 in registriesSkippingTagResolving
+  OK       build platform           linux/arm64 matches node arm64
+  WARN     backup litestream        no objects (empty prefix)
+  WARN     backup volumes           no objects (empty prefix)
+  OK       stuck rollouts           none
+  OK       host age key             ready at /var/lib/sops-nix/age-key.txt (sha256 a6b4d7ae6712bd0326581370849d0f2667c71c91a1241ba5b959fe71a4e7cc7f)
+  OK       boot disk                20% of 99G
+  OK       data disk                3% of 108G
+  OK       recovery point           nagare-system/en-db: healthy; age=853s; objective=hourly; newest point is verified and awaits reviewed ingestion
+  OK       recovery point           nagare-system/shomei-db: healthy; age=854s; objective=hourly; newest point is verified and awaits reviewed ingestion
+  OK       recovery point           personal/scenario-ch: healthy; age=854s; objective=hourly; newest point is verified and awaits reviewed ingestion
+  OK       recovery point           personal/scenario-pg: healthy; age=856s; objective=hourly; newest point is verified and awaits reviewed ingestion
+  OK       recovery point           personal/scenario-redis: healthy; age=856s; objective=hourly; newest point is verified and awaits reviewed ingestion
+  OK       recovery point           personal/scenario-renamed: healthy; age=857s; objective=hourly; newest point is verified and awaits reviewed ingestion
+  WARN     platform version         one or more release identities are legacy, absent, or unreachable

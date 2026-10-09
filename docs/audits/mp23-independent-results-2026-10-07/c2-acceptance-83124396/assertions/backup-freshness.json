@@ -1,0 +1,22 @@
+{
+  "cluster": "k3d-nagare-local",
+  "context": "local",
+  "evidence": [
+    {
+      "path": "checks/backup-freshness/freshness.json",
+      "sha256": "f5cbea9dfefbaa4302bad4577a76e0fef947ed0913dfcc95bbe38974d08c62de"
+    },
+    {
+      "path": "checks/backup-freshness/server-status.txt",
+      "sha256": "7b1a443142333ddf7b21da06b23c3053d633a0cf119f03b5b71d0bfc92d2fcd7"
+    }
+  ],
+  "fixtureDigest": "dd431786f1905bccae8524ad465c1ea4fe81bcc81a619726dc2583b6232b4a1c",
+  "mode": "local",
+  "name": "backup-freshness",
+  "operatorRevision": "831243962c6b80f91da1028cdab8238ae6acdabd",
+  "passed": true,
+  "recordedAt": "2026-10-09T10:05:53Z",
+  "schemaVersion": 1,
+  "summary": "server status and db backup-receipts --check-freshness grade scenario-pg, scenario-redis and scenario-ch healthy under the hourly objective from verified scheduled receipts"
+}

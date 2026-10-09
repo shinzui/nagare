@@ -1,0 +1,66 @@
+{
+ "collectedInOrder": [
+  {
+   "members": [
+    "backup"
+   ],
+   "result": "converged tx-a13f48a68942925d4099d21021ba5583c77b0ccb43af447e77b6a13c62220600"
+  },
+  {
+   "members": [
+    "statefulset",
+    "backup-read-binding"
+   ],
+   "result": "converged tx-60ebdffdf9b5432ee680526c75387524ccd4c86ccad8b91da81e1896f3f3b318"
+  },
+  {
+   "members": [
+    "service",
+    "backup-read-role",
+    "backup-account"
+   ],
+   "result": "converged tx-237fd49b592885fac226f9d2d323f3b682c64362b5848c0a3660fce9cfb82146"
+  }
+ ],
+ "database": "scenario-retire",
+ "neighborStatefulSetsAndPvcsUnchanged": true,
+ "pvcCollection": {
+  "command": "inventory collect --resource standalone:database-scenario-retire/scenario-retire/pvc --out DIR",
+  "output": "[PlanError {planErrorCode = \"invalid-collection\", planErrorMessage = \"collection needs a selected retained incarnation of a supported kind, exact present provider identity, stateless deletion policy, and no known consumers\", planErrorResources = [ResourceId \"standalone:database-scenario-retire/scenario-retire/pvc\"]}]",
+  "reviewSaved": false
+ },
+ "retainedAfter": [
+  "backup-signing-key",
+  "credential",
+  "pvc"
+ ],
+ "retainedBefore": [
+  "backup",
+  "backup-account",
+  "backup-read-binding",
+  "backup-read-role",
+  "backup-signing-key",
+  "credential",
+  "pvc",
+  "service",
+  "statefulset"
+ ],
+ "retire": "db retire scenario-retire (converged)",
+ "staysRetained": [
+  {
+   "member": "backup-signing-key",
+   "physical": "19f1304f-a102-4ae5-bb19-929e4eeac1ab",
+   "unchangedPhysical": true
+  },
+  {
+   "member": "credential",
+   "physical": "6bd9d40d-4eb2-47b1-9d7a-ba4200117730",
+   "unchangedPhysical": true
+  },
+  {
+   "member": "pvc",
+   "physical": "982e45bd-6977-48c3-ad5b-3b10e4c4e2ef",
+   "unchangedPhysical": true
+  }
+ ]
+}

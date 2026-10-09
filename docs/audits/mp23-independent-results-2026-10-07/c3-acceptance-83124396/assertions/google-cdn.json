@@ -1,0 +1,18 @@
+{
+  "cluster": "nagare-c3-1012",
+  "context": "mp23-c3m",
+  "evidence": [
+    {
+      "path": "checks/google-cdn/result.json",
+      "sha256": "3f523bc3b59b987dae0eb1dc584694ba9df44bfa15be7972be86a9ff4e9f80d2"
+    }
+  ],
+  "fixtureDigest": "a87386fa4527e267d3e90a781b1414929525a900ea493bbfd441195990884472",
+  "mode": "cloud",
+  "name": "google-cdn",
+  "operatorRevision": "831243962c6b80f91da1028cdab8238ae6acdabd",
+  "passed": true,
+  "recordedAt": "2026-10-09T16:06:20Z",
+  "schemaVersion": 1,
+  "summary": "Candidate 83124396 moved a reviewed site's host record to the Google CDN, back to the VM origin on cdn disable, retained it on retirement and collected it, with exact zone listings after each step"
+}

@@ -1,0 +1,2 @@
+scenario:known:1=scenario-redis-value-1
+scenario:known:2=scenario-redis-value-2

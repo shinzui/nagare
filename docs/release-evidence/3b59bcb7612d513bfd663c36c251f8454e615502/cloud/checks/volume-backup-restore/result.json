@@ -1,0 +1,8 @@
+{
+ "changedAfterSnapshot": "/uploads/scenario-known.txt rewritten after the snapshot",
+ "restore": "nagarectl storage restore scenario-a uploads c3gvol1 --restore-id c3gvolr1 (reviewed)",
+ "restoreResult": "converged tx-a87b087eddcc0fb7ede2235da35790257ac4b5664c9e626479a29bc15accbdb2",
+ "snapshot": "nagarectl storage snapshot scenario-a uploads c3gvol1",
+ "snapshotResult": "converged tx-8488afcf696776c3c03f8f61ef693c3f642a1c586b4359b0c33b76dd1ecd1720",
+ "snapshotTimeFileRestored": true
+}

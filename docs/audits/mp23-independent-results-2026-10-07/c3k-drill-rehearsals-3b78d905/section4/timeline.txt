@@ -1,0 +1,31 @@
+== 04:01:33 publish the drill image
+== 04:02:14 deploy upg-app on PostgreSQL 17
+v1-old: converged tx-f07209b251c4f614955ce6ff51d9082be37d566a34a71bcc3dca9c160a744fb9
+== 04:03:10 seeded 5:5 on PostgreSQL 17.11
+== 04:06:04 fresh reviewed backup of the old instance, proven by an isolated restore
+== 04:08:53 backup s4pre restored with 6:6 rows = source
+== 04:11:59 add the new PostgreSQL 18 instance beside the old one; binding unchanged
+v2-both-old: converged tx-bc92989a2c2b6861c92f54fef8628cfaca6e5ac9d2c70c36708e822ca461929e
+== 04:13:58 new instance PostgreSQL 18.6 ; app still on upg-pg.personal.svc.cluster.local
+== 04:16:52 probe: an in-place major change of the old instance must not be applicable
+== 04:17:05 in-place plan exit=1: nagarectl: PostgreSQL upg-pg would change from postgres:17 to postgres:18 in place; PostgreSQL cannot open data files of another major version. Create a new database at the new version beside it and move the data (docs/user/managed-database
+== 04:19:53 failed upgrade 1: restore into the new instance fails; return to the old instance
+== 04:19:58 copy refused as injected: psql:/tmp/s4-dump.sql:33: ERROR:  relation "hits" already exists
+== 04:20:00 returned to the old instance: rows 7:7 -> 8:8 (fenced write refused with HTTP 502)
+== 04:22:49 copy: fence the old instance, copy into the new one, verify
+== 04:22:54 verified: hits=77c219e067d56e8773a4b57fd69825c3 hits_id_seq=8; both instances read-only
+== 04:25:58 failed upgrade 2: after the reviewed switch-over the new instance is rejected; reviewed switch back
+v3-switch-new: converged tx-fbbe9777217c35a23c9b4d6d0fe2596ce68f04b4166a71a02df763b9f88d7c71
+v4-switch-back: converged tx-0268ea46c79f9508957e985d97decba9248ffa293433b55466270f050d07af59
+== 04:27:59 returned to the old instance: 9:9; new instance never accepted a write (default_transaction_read_only=on)
+== 04:30:59 recopy: fence the old instance, copy into the new one, verify
+== 04:31:05 verified: hits=bf572e9f66454fefce1a1a20bfe00cc0 hits_id_seq=9; both instances read-only
+== 04:33:58 reviewed switch-over to the new instance
+v5-switch-new: converged tx-e76f08a811ed4d6083ae4a3cd2a1601094a0897c0f8c7ee183343cd35ea7f56d
+== 04:34:55 app on PostgreSQL 18: rows 9:9 -> 10:10; old instance kept read-only (default_transaction_read_only=on)
+== 04:37:39 prove the new instance: reviewed backup and isolated restore
+== 04:40:05 new instance backup s4post restored with 11:11 rows = source
+== 04:42:50 retire the old instance only now (reviewed; retention keeps its volume)
+== 04:43:35 consumers retired: converged tx-20a823a90304cd17da5e2d61e8031250941643e25bcf6e8014b17a369b85e265
+v6-new-only: converged tx-8339171f6d83b83bc8f314dc27803a57271cf45d80d4c16b34a172bcaf35a3bc
+== 04:44:44 after retirement: old volume 2 PVC match(es); old StatefulSet 1; app rows 12:12

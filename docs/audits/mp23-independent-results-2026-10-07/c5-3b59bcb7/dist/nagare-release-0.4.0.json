@@ -1,0 +1,67 @@
+{
+  "checkedSources": [
+    {
+      "source": "cli/nagare-dsl/nagare-dsl.cabal",
+      "version": "0.4.0"
+    },
+    {
+      "source": "cli/nagarectl/nagarectl.cabal",
+      "version": "0.4.0"
+    },
+    {
+      "source": "cli/nagare-access/nagare-access.cabal",
+      "version": "0.4.0"
+    },
+    {
+      "source": "release.json",
+      "version": "0.4.0"
+    },
+    {
+      "source": "CHANGELOG.md",
+      "version": "0.4.0"
+    },
+    {
+      "source": "docs/releases/v0.4.0.md",
+      "version": "0.4.0"
+    },
+    {
+      "source": "host-flake-metadata-schema",
+      "version": "1"
+    },
+    {
+      "source": "platform-compatibility-schema",
+      "version": "1"
+    },
+    {
+      "source": "minimum-inventory-schema",
+      "version": "1"
+    },
+    {
+      "source": "minimum-upgrade-transaction-schema",
+      "version": "1"
+    },
+    {
+      "revision": "3b59bcb7612d513bfd663c36c251f8454e615502",
+      "source": "nix:#nagarectl",
+      "version": "0.4.0"
+    },
+    {
+      "revision": "3b59bcb7612d513bfd663c36c251f8454e615502",
+      "source": "nix:#nagare-platform",
+      "version": "0.4.0"
+    }
+  ],
+  "consistent": true,
+  "payloadDigest": null,
+  "payloadDigests": {
+    "aarch64-darwin": "sha256-BnVqBKw5GJl/oPNrjc11qM/OXA2IZsaAtum+dh2Gy0I=",
+    "x86_64-linux": "sha256-sN/z8A/hcab2hNVEmPH5qPx6/2gXndMO/inTcj5tP20="
+  },
+  "revision": "3b59bcb7612d513bfd663c36c251f8454e615502",
+  "systems": [
+    "x86_64-linux",
+    "aarch64-darwin"
+  ],
+  "tag": "v0.4.0",
+  "version": "0.4.0"
+}

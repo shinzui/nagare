@@ -1,0 +1,641 @@
+Note: switching to '831243962c6b80f91da1028cdab8238ae6acdabd'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
+system: x86_64-linux
+nix (Nix) 2.35.2
+warning: could not read HEAD ref from repo at '/work/nagare', using 'master'
+warning: ignoring untrusted flake configuration setting 'extra-substituters'.
+Pass '--accept-flake-config' to trust it
+warning: ignoring untrusted flake configuration setting 'extra-trusted-public-keys'.
+Pass '--accept-flake-config' to trust it
+unpacking 'github:hercules-ci/flake-parts/31729ca8cbdb4fa927b34e5f4353e6a83f39e993?narHash=sha256-glZLQlzIn1fXH6PazR2iUmTo7kzzyYSshrWhLS9TqCU%3D' into the Git cache...
+nagarectl outPath: /nix/store/4ymd5gcpa2v1k3d20r8z1cp8l3w53smv-nagarectl-0.4.0
+warning: could not read HEAD ref from repo at '/work/nagare', using 'master'
+warning: ignoring untrusted flake configuration setting 'extra-substituters'.
+Pass '--accept-flake-config' to trust it
+warning: ignoring untrusted flake configuration setting 'extra-trusted-public-keys'.
+Pass '--accept-flake-config' to trust it
+unpacking 'github:hercules-ci/flake-parts/77826244401ea9de6e3bac47c2db46005e1f30b5?narHash=sha256-Tyw1RjYEsp5scoigs1384gIg6e0GoBVjms4aXFfRssQ%3D' into the Git cache...
+unpacking 'github:ipetkov/crane/aed2020fd3dc26e1e857d4107a5a67a33ab6c1fd?narHash=sha256-smpugNIkmDeicNz301Ll1bD7nFOty97T79m4GUMUczA%3D' into the Git cache...
+nagare outPath: /nix/store/fssh7acx7cphlxv4bn9hk7xd467yjn9k-nagare-0.4.0
+warning: could not read HEAD ref from repo at '/work/nagare', using 'master'
+warning: ignoring untrusted flake configuration setting 'extra-substituters'.
+Pass '--accept-flake-config' to trust it
+warning: ignoring untrusted flake configuration setting 'extra-trusted-public-keys'.
+Pass '--accept-flake-config' to trust it
+unpacking 'github:hercules-ci/flake-parts/31729ca8cbdb4fa927b34e5f4353e6a83f39e993?narHash=sha256-glZLQlzIn1fXH6PazR2iUmTo7kzzyYSshrWhLS9TqCU%3D' into the Git cache...
+these 381 paths will be fetched (784.6 MiB download, 5.4 GiB unpacked):
+  /nix/store/ir9gzl78jspybfx820dsqx244n4rj4pn-OneTuple-0.4.2.1
+  /nix/store/kjp8c2h44w2qzgkg0gzlqch9zxxnnsad-OneTuple-0.4.2.1-doc
+  /nix/store/0f4fglsx5cdpcnyimzfczvzind2751i3-QuickCheck-2.15.0.1
+  /nix/store/zn19c4zlhzqah0kic6337d4m08vzrzy2-QuickCheck-2.15.0.1-doc
+  /nix/store/15kz09mvb1026v8z7caxs33qq9l6a1yp-StateVar-1.2.2
+  /nix/store/bs62wqbpn9rwrchb8lg4ppswfk033snl-StateVar-1.2.2-doc
+  /nix/store/8jnb0l7s676sp8p1mh8n2188gk6vjgwp-acl-2.4.0
+  /nix/store/fr6ap25hqi8kngxqvs9sia6gssbvg68c-adjunctions-4.4.4
+  /nix/store/q7m7cp5k9rb3jap3zdd40yyacahpn55k-adjunctions-4.4.4-doc
+  /nix/store/y96c61byfqzxqlcx10m1fx9lx35nc5zh-aeson-2.2.4.1
+  /nix/store/vwm1qw454ban5rg88578npf3f7lmqap7-aeson-2.2.4.1-doc
+  /nix/store/ff2af8xqw6n0wcz5cjfg396mw0lsmy5b-ansi-terminal-1.1.5
+  /nix/store/sx6v8i3akdcnzfpgpxafhavnisqvfii9-ansi-terminal-1.1.5-doc
+  /nix/store/z84dsl73vy0cmzzldxxkp3flsn81fcyv-ansi-terminal-types-1.1.3
+  /nix/store/qiyhmxhf24njgz4miji1z5cq30rhl10g-ansi-terminal-types-1.1.3-doc
+  /nix/store/zdkb9cr0kk98f8z67g51j0shjib3c281-appar-0.1.8
+  /nix/store/drg9cirgc1bxm96mm4x1mi241mydxi1m-appar-0.1.8-doc
+  /nix/store/d742s7w20kygzby9n4fzf5p30kf08vmh-asn1-encoding-0.9.6
+  /nix/store/g2qal0ng8xsmyvc071c5n35kvsqx5r43-asn1-encoding-0.9.6-doc
+  /nix/store/0q7ibrh6v80rx803cs9g5lpif90ra3bj-asn1-parse-0.9.5
+  /nix/store/pwgj78kbi1dfca61vm7flznwz68giivp-asn1-parse-0.9.5-doc
+  /nix/store/r77dmf1am6xyr7gqbxkmy64c1mxrx9zx-asn1-types-0.3.4
+  /nix/store/d4kfsy73kcbqhfdagxiv8953sry3091s-asn1-types-0.3.4-doc
+  /nix/store/cq621zf5shvzq1n4lzy6lbzkph6vb9d6-assoc-1.1.1
+  /nix/store/si7dnxy97bnknfb9qimlph3j2wsfna1m-assoc-1.1.1-doc
+  /nix/store/07pnjq225jjhn3r4k6sd6ibawdd05x1c-async-2.2.6
+  /nix/store/lphwvdjqfiz23pkc7w51fd2cs95i207z-async-2.2.6-doc
+  /nix/store/21anhwm27kcysz3246zs229xw28agqgr-attoparsec-0.14.4
+  /nix/store/rgv013f16ihvb7xxr664wz1iwqg9cy1n-attoparsec-aeson-2.2.2.0
+  /nix/store/p4ijryk1m6hpb0i3b841g7sqs8nhi4lp-attoparsec-aeson-2.2.2.0-doc
+  /nix/store/bb2jb295969rw2xmijf6s578yb0pxypr-attr-2.6.0
+  /nix/store/lcr9lz9d8kv9kfskym5d62ijmxgkywb4-auto-update-0.2.6
+  /nix/store/m2mvbs18z2cpgm3ffm5w4irixkxp71x3-auto-update-0.2.6-doc
+  /nix/store/4vrcaci6rrdk5pgx75bfks15f412vgg3-base-orphans-0.9.4
+  /nix/store/28g5iyj1yrgqjj542c7qw4mqnv3zv9vg-base-orphans-0.9.4-doc
+  /nix/store/3kb8sdk41y7x1ljka8sz0wki3xf7qaq1-base16-bytestring-1.0.2.0
+  /nix/store/s3y45hcqairmp924hwnx8syfkwdqjrr8-base16-bytestring-1.0.2.0-doc
+  /nix/store/632ir6g4smy3q4j2zn4ppczdwnc3xv0d-base64-1.0
+  /nix/store/lznywnll02sfl7ail9d5wb11a4a33kxi-base64-1.0-doc
+  /nix/store/vs1djyhgwir75d2p4bhp59da14rpjh22-base64-bytestring-1.2.1.0
+  /nix/store/nmqdvqwyd9cplmzijgyq5zalwvl7k7dl-base64-bytestring-1.2.1.0-doc
+  /nix/store/z007mqs2v5zfbpibk87yndz6z80s6zds-basement-0.0.16
+  /nix/store/a2mcggnyjih9v159qd5qbnxzc3dlvsxv-basement-0.0.16-doc
+  /nix/store/9ipfvwnqp1q8ijnmi5sxvlx9r8w34lw3-bash-5.3p15
+  /nix/store/7a60q5dgnv6z96c279rc1nalyiw4mgqn-bash-interactive-5.3p15
+  /nix/store/phlgx5ppw5vmb3fkb2wq2kgfs1vv503w-bifunctors-5.6.3
+  /nix/store/8gvi4lc72pl0mlq4gg5bpsph0jsik8vs-bifunctors-5.6.3-doc
+  /nix/store/1p493s9n2n4kbxm5b4gxd1h0g5wm4yc5-bind-9.20.26-dnsutils
+  /nix/store/9gw5588qsr45kg2ssl81bywgpss712dn-bind-9.20.26-lib
+  /nix/store/5pa1282x1sasbwhmnah6bny1g9pc2lj1-binutils-2.46
+  /nix/store/pv8r845032qgj90a6mbqap950s5hqdjk-binutils-2.46-lib
+  /nix/store/rm982p6i9ry7rwq5jn638kdpv0a2331f-binutils-wrapper-2.46
+  /nix/store/i9chs0vndviklrky4gb4ajaws99q8bg6-bitvec-1.1.6.0
+  /nix/store/41mg69f1s68v91aw1vnwh1jvhs8wqvy1-bitvec-1.1.6.0-doc
+  /nix/store/z69x0qmxj7qwz2y9kk4sn824vjyx72g1-blaze-builder-0.4.4.1
+  /nix/store/9akzr5lhcfjqvksqqnb81cxa9w74yr0b-blaze-builder-0.4.4.1-doc
+  /nix/store/09pnzd5s6h74rvpb6ln0sd5w039bayb4-boring-0.2.2
+  /nix/store/f1nda1995q28g8w7cdzwg8653bdv7f9l-boring-0.2.2-doc
+  /nix/store/c56x66gbj3qwv3g7dhadcfiq408q2hay-brotli-1.2.0-lib
+  /nix/store/qk92lbdm7iz37n6rapc90nz6ypahfm47-bsb-http-chunked-0.0.0.4
+  /nix/store/v4kzip1y6ny5vdjhh8585kdw96n8nzay-bsb-http-chunked-0.0.0.4-doc
+  /nix/store/b6yc510qdyjqkcnz9g0a6nbncb4sg3yq-byteorder-1.0.4
+  /nix/store/k72rqpkgfbssm70br78s77pm512dn7hj-byteorder-1.0.4-doc
+  /nix/store/xz5xsq0nihfs15fbknz5w0yblg04760q-bzip2-1.0.8
+  /nix/store/9abzkh0qr68wa8h59il9jjmbc23510ld-call-stack-0.4.0
+  /nix/store/5v400fyibpip31z1dbpx90ipsy3p4hxr-call-stack-0.4.0-doc
+  /nix/store/xn7kf2bkv39hkpyaqacxhvsrm4jrp9sb-case-insensitive-1.2.1.0
+  /nix/store/jvfprw1xrn6g1djzv9v5zr2hq5hc85rg-case-insensitive-1.2.1.0-doc
+  /nix/store/l6k8lzhhpvqcqlkkn6mvqxfwfdcbx6rq-cborg-0.2.10.0
+  /nix/store/71yidhh0zdhslhskfjvr3fwl3cnx4963-cborg-0.2.10.0-doc
+  /nix/store/rvqrlqyw6hd5g9r6xdqcni9yi5s9bshc-cereal-0.5.8.3
+  /nix/store/msd7pi7ymbpmvyqr8zw1hwrqq8i7ljk9-cereal-0.5.8.3-doc
+  /nix/store/k2kaaajyc0fqb7jglacy0cvwch1s7zjc-character-ps-0.1
+  /nix/store/zpb7bixys04xsjrciq0jcwxhajnj2w5s-character-ps-0.1-doc
+  /nix/store/lr9mmpavbll50kcwv7y0c6h4nqi9vln4-colour-2.3.7
+  /nix/store/16fnmqys2amxs1ppnpbg19i8511ll2ij-colour-2.3.7-data
+  /nix/store/lb5917zq2y9cakp4scn83zyfcfl2wrgg-colour-2.3.7-doc
+  /nix/store/bvn2xi9164jlani03qnn11cy2vs88bbn-comonad-5.0.10
+  /nix/store/al56xhl93lbdc4m11rqh0ig0phyzkyjz-comonad-5.0.10-doc
+  /nix/store/5yd5klm6277dv6h8qz1w0x1irarn0ci9-conduit-1.3.6.1
+  /nix/store/blsw05697qqpfyaw1bgif7cningxv8f1-conduit-1.3.6.1-doc
+  /nix/store/m7qxg9q8s0j5g2jdh90sb76c1qxhf3f1-conduit-extra-1.3.8
+  /nix/store/hzk8lgw2f5zwxd20jyn1n0rmsdcr49jr-conduit-extra-1.3.8-doc
+  /nix/store/s8b3i1kjx9s1a24gfvsg5vrlap7icwf8-constraints-0.14.4
+  /nix/store/4b1mr7zwaylc8yxlyvc25raa3lavw9xm-constraints-0.14.4-doc
+  /nix/store/4c1kyw85scb1safd4bjhqkbhn32q0jsc-contravariant-1.5.6
+  /nix/store/7dq1f8g20lc43w5ybs7ijxrn0qrdfnly-contravariant-1.5.6-doc
+  /nix/store/5ns0jrysl9w0k853jqh9wy45zgvddfvy-cookie-0.5.1
+  /nix/store/9xg02hrhb3ngb5nf2pr0ka1kij87my0m-cookie-0.5.1-doc
+  /nix/store/3qgy8q2j64v2m9jy3a5jmssacbblhd4r-coreutils-9.11
+  /nix/store/yvrgj2glfv18dch618nrnyy9dn7r1ln0-cradle-0.0.0.0
+  /nix/store/i0k265w8k00jwg4qsf6dgq9gb6bk9x86-crypton-1.0.6
+  /nix/store/q7z6l1yrgypwx5qajih5ssg1j2qq5cl2-crypton-1.0.6-doc
+  /nix/store/lvlykqlrh3f7arbwz9qnb5yrryl6f6da-crypton-connection-0.4.5
+  /nix/store/b9g537pyqkbldgp24fg9m0c4l009sa8a-crypton-connection-0.4.5-doc
+  /nix/store/ily2z8shlq706p2niaraq7z164ish8ga-crypton-socks-0.6.2
+  /nix/store/m8va6ifr4gmhpb3jdah0wlbyfwy41kah-crypton-socks-0.6.2-doc
+  /nix/store/9z844psv1i985c4mp3cbczd2j8i0b2sx-crypton-x509-1.7.7
+  /nix/store/a3jrdm3mvzyqx1m607p8f2c5plha9zlh-crypton-x509-1.7.7-doc
+  /nix/store/fsknibaiikza5lgpaib8y5kdlmwrlg7c-crypton-x509-store-1.6.14
+  /nix/store/dj3ji3yc4nbm92z92i0868pd1xbyay9s-crypton-x509-store-1.6.14-doc
+  /nix/store/5nya0qikaaw9y317xsp07qrd509gilyz-crypton-x509-system-1.6.8
+  /nix/store/6v6rymhn4ak288sfv7mhiyvd953ayx88-crypton-x509-system-1.6.8-doc
+  /nix/store/in2kg3r70i3qvx8qzn1ya70w58nzln3m-crypton-x509-validation-1.6.14
+  /nix/store/0vadp6qr6bf2ib26h5b8wp5ykqnm51af-crypton-x509-validation-1.6.14-doc
+  /nix/store/x4xicianwlchh2cadblv4pfz8syvl97b-curl-8.21.0
+  /nix/store/k0czbk8apw05avijknig4wxkywwr2g9c-data-default-0.8.0.2
+  /nix/store/fv3pk0hj13sk6ilicxhyscra14hfpndm-data-default-0.8.0.2-doc
+  /nix/store/p4fwwk85rc62kxm5l6r8pd9a2sswm8xh-data-default-class-0.2.0.0
+  /nix/store/ja085j52xf47slbiafkdmns8309kaxhr-data-default-class-0.2.0.0-doc
+  /nix/store/ml5hhqsbvrs5d6safj63na8q383yr87j-data-fix-0.3.4
+  /nix/store/8fw3knhb2fcxr7pcpv2sz7359c8k8z1b-data-fix-0.3.4-doc
+  /nix/store/5kikcwb4yq748djqgnyb2p5dfc41g2nm-dec-0.0.6
+  /nix/store/al779762d25j6zm9v0fzxsvkn8qhjv2b-dec-0.0.6-doc
+  /nix/store/iyx00pdpfmf3y63h59m0m6sw4azk9lld-distributive-0.6.3
+  /nix/store/g2rxdxcpkdjdxswi248rs7l4d3n0prcf-distributive-0.6.3-doc
+  /nix/store/kywrf785fqaw12cjs1a48phbyp52564x-dlist-1.0
+  /nix/store/ywgcqx8fisxz70law3gdz47c9lqa31n9-dlist-1.0-doc
+  /nix/store/26m93d2bs16y6s3aby48w3iyi4wrs9gw-dns-root-data-2025-04-14
+  /nix/store/zg30w95daw3w48q60bbpij7ysrc6rypn-effectful-core-2.7.1.2
+  /nix/store/bivrzfx4dmsfkz6xdnjwrgwn1xxkyxnl-effectful-core-2.7.1.2-doc
+  /nix/store/3cfcygkbamw4b9snazj1xl4x5snhf62c-elfutils-0.195
+  /nix/store/049xfk945vn33hbfs098am7n7rgnr8ys-elfutils-0.195-bin
+  /nix/store/5hgdb35rlvpabafg4nb5qskvlkya3397-elfutils-0.195-dev
+  /nix/store/nbfwdpig13nr39k9a7bx0ayrfgzzm2ff-expand-response-params
+  /nix/store/5mvbiv0ma8z33gvlphwygwbk768m5x2i-free-5.2
+  /nix/store/21y86z1pd7p03nc4x1cw4as9ar5gabq2-free-5.2-doc
+  /nix/store/1fayzxymjrr5bm989ri79vycj8qdfzfq-fstrm-0.6.1
+  /nix/store/4yxdxw3kppr2pbic95p4mri520rkdag2-gcc-15.3.0
+  /nix/store/0vqb1mcas5j8dv6bhbrshinlgsg6bvgi-gcc-15.3.0-lib
+  /nix/store/wi6kaycsa2479qrxv9xy6yg3q5ggfs6j-gcc-15.3.0-libgcc
+  /nix/store/w88q44gqd1qg5wmkk7v0h97rpiqvam0l-gcc-wrapper-15.3.0
+  /nix/store/7dz55p909bwk6l1rwi45vddqv96abp3x-generic-lens-2.3.0.0
+  /nix/store/90hkvs1dzqkzd1z3xvqpsl8r774k9ybw-generic-lens-2.3.0.0-doc
+  /nix/store/vn85srh8jf3k0aqjym1fqiiqlr3rsxp5-generic-lens-core-2.3.0.0
+  /nix/store/njw4zkgxckwilkrgnq1m460h0qxyr43n-generic-lens-core-2.3.0.0-doc
+  /nix/store/5kzpaap6s7rmchzazmx7c9djhqrcf2gl-generics-sop-0.5.1.4
+  /nix/store/g3qqmfdf30g49gjk1l9s8rj28z24i4zc-generics-sop-0.5.1.4-doc
+  /nix/store/i6nc2j7qpx67im29fw36z9dwcmak69zf-ghc-9.12.4
+  /nix/store/bxxp8rvgks3j4z48669chvrvkyz7zznx-ghc-9.12.4-doc
+  /nix/store/snp45ksp6mp41vp25dpq2zljqsmf5cdy-ghc-9.12.4-with-packages
+  /nix/store/n51dhmdbik1kfrsm62j5knavmigwrl1a-glibc-2.42-84
+  /nix/store/axmdd5wlxg1c9dbblvj09pjhkawqxmqx-glibc-2.42-84-bin
+  /nix/store/qwi863qp79xkdm2yw3xzjh73dpg9qh67-glibc-2.42-84-dev
+  /nix/store/jrzincyqwpwvl7xvbnfjryyczd3b8a78-gmp-6.3.0
+  /nix/store/bmyw1idq6xyp1h4ksmb14s4imwnf8vwa-gmp-with-cxx-6.3.0
+  /nix/store/jwyskbj2mc7izs67ib2msydsh0vbnwl9-gmp-with-cxx-6.3.0
+  /nix/store/wjfai7nny77igkc51xj1izpz2gz6j366-gmp-with-cxx-6.3.0-dev
+  /nix/store/yhr4ps9rdmb55pgqaq246vlh7xfac1dx-gnugrep-3.12
+  /nix/store/d9l35nclmi0390dxpgivrikv5sf228kx-gnutls-3.8.13
+  /nix/store/394laydw6npf91rgywwi4f199hyfklqx-gogol-1.0.0.0
+  /nix/store/kv8d47zmpr5z5fvhnva1l47nf3ss83kx-gogol-core-1.0.0.0
+  /nix/store/rh6c4raivc7lq63pwkkyzi6i1720m5pk-gogol-storage-1.0.0
+  /nix/store/bl13fic22lmhp9gwd3s5s6qisw18v8jg-half-0.3.3
+  /nix/store/bbhlrqd5ap5246as6zbk3wilaybvrfpv-half-0.3.3-doc
+  /nix/store/m12y5gh9kv94dj9bzj83fj83z05nai0y-hashable-1.5.1.0
+  /nix/store/w8g1by64m6pkhpyybr1064fvnz196lm6-hashable-1.5.1.0-doc
+  /nix/store/9bpq26fsw09d33k9dc5qrnw52g8zhsmz-hourglass-0.2.12
+  /nix/store/xb9ni29y1v3sfim6vdddvzwm0k8jxrn0-hourglass-0.2.12-doc
+  /nix/store/2yni542r7q8i7rx916ylrihhdsv8p8z4-http-api-data-0.6.3
+  /nix/store/km2b2czl9rm9rzhfqrfxwic0vqmh19qx-http-api-data-0.6.3-doc
+  /nix/store/5xhnpag1p2dpjlqnisr3x6yn49pwj5m9-http-client-0.7.19
+  /nix/store/fc997168la5phcd7pb12wnfrjn16600j-http-client-0.7.19-doc
+  /nix/store/8js30qpjbl6vng590iw4rd9z7zwwybaj-http-client-tls-0.3.6.4
+  /nix/store/al10kq65jjb7qmhidrcy8s3dscivlcq4-http-client-tls-0.3.6.4-doc
+  /nix/store/63cxm0g05xk5yghszp6nnvvianbaf9p5-http-conduit-2.3.9.1
+  /nix/store/cyvigxpx8b05kyvijq42jnk19mhnc9k2-http-conduit-2.3.9.1-doc
+  /nix/store/hgyfzprsgx9sbl49ib787lfx4g4pcv3b-http-date-0.0.11
+  /nix/store/mc9jg1b6j1rkdv2i07pa7da4qgiv6zmv-http-date-0.0.11-doc
+  /nix/store/3p227wqw6rvm16rd248id7j2761plf8z-http-media-0.8.1.1
+  /nix/store/qfnpgjqakliqylnn254cpm036c5dyfkk-http-media-0.8.1.1-doc
+  /nix/store/xssxlg4jhsb7cy83sdfx5pqj2ksdbz5y-http-semantics-0.3.0
+  /nix/store/mmi8rhkqzjvbhci658a7xghgcn4r257n-http-semantics-0.3.0-doc
+  /nix/store/mlkp8riayinr0hh2izgakgnrppsspf9b-http-types-0.12.4
+  /nix/store/28wgri84xh9ysnr79jiygrzxc17ma25x-http-types-0.12.4-doc
+  /nix/store/lclm5bivj593rkr59as5lavr9aznfsxy-http2-5.3.10
+  /nix/store/fv695nd7q8i7cb27msy5a85q2cmnj58i-http2-5.3.10-doc
+  /nix/store/l68jnp88x42jpj59qw995nwafy6k139h-indexed-profunctors-0.1.1.1
+  /nix/store/717c4jlhy5sk6rbc1qzxa0kak2217d3m-indexed-profunctors-0.1.1.1-doc
+  /nix/store/vixlr3plry7n817971yzhc7gc3k9fblw-indexed-traversable-0.1.4
+  /nix/store/ysnhv6vwp89kb0v340pv5g403p5sjd0c-indexed-traversable-0.1.4-doc
+  /nix/store/2byhf729qh3k523fn726jg7apykcfhpr-indexed-traversable-instances-0.1.2.1
+  /nix/store/y9802ach3xv02a44bn7j8llz4c4n6a2b-indexed-traversable-instances-0.1.2.1-doc
+  /nix/store/mfpgyvclbfhqzb4kh723z3aijcplavmc-integer-conversion-0.1.1
+  /nix/store/dmn42f1n5lm7p3046p8jc14sanik9f4m-integer-conversion-0.1.1-doc
+  /nix/store/647lfris38qd3p6y7ym7h6fzc3rxj2dn-integer-logarithms-1.0.5
+  /nix/store/jvxw6czm2qgij8hgy3apa2bwhgxjd4br-integer-logarithms-1.0.5-doc
+  /nix/store/a2xcask8my33pqyp1wip9xz364dqs2nf-invariant-0.6.5
+  /nix/store/bxm62b8956472pj3v6y8hyq5mc8h45nz-invariant-0.6.5-doc
+  /nix/store/2j0jmxxk78a52dmrj2a65lnxpla0g6kx-iproute-1.7.15
+  /nix/store/scifk1b91hdps16j1m81fz0xy6bw7r95-iproute-1.7.15-doc
+  /nix/store/qq4wws3ilsbn5qv97r2mvsmrkh1pa1q3-isl-0.20
+  /nix/store/v5z9g7psrkbdb48drs8v213f6jhyvp5i-jemalloc-5.3.1
+  /nix/store/imvc9v7wiw7rh5rrzjdhmrd96s2wszi2-json-c-0.18
+  /nix/store/6i9cy7h9qblwzxxq1lv3ss2rvd3bfdr5-kan-extensions-5.2.8
+  /nix/store/anzsv5xk48dbaasx86g38kah2gbk7ybg-kan-extensions-5.2.8-doc
+  /nix/store/jg66vcyjabrdwfm6v8bz65vbpxfkhyal-keyutils-1.6.3-lib
+  /nix/store/adhjdycq6m1n6ljzm9ifp843y2my6zd8-krb5-1.22.2-lib
+  /nix/store/wrxm48j4y1bhiakwlfjbnjxki32kk76d-lens-5.3.6
+  /nix/store/5vc4n3hihl4p22hinq3vnl0xw0x9x4k6-lens-5.3.6-doc
+  /nix/store/lwvkmswcrra987aklpsby82hb4hscsa0-libarchive-3.8.9-lib
+  /nix/store/mhd5j36zdk4wq73d2znv4axx8fyvd2w9-libevent-2.1.13
+  /nix/store/wb232z007b8qynidq89lli8lb2c4q0r4-libffi-3.8.0
+  /nix/store/ysxsfbvgz35w24g5c74604rhxvmia47v-libffi-3.8.0-dev
+  /nix/store/nga9d6m9iplygw3iqghk2g840nz7b0gy-libidn2-2.3.8
+  /nix/store/il0fks5h18ddws825l0b83115ifcn0vp-libmicrohttpd-1.0.6
+  /nix/store/88xi58z58l9gs1hvm0inpljv7kcjd7pz-libmpc-1.4.1
+  /nix/store/ks6ni13a1bnfi1bdj03nqvrhr842ww86-libpsl-0.21.5
+  /nix/store/mp4xhfghdxp0db0jf3k5iqack3ms3x9k-libssh2-1.11.1
+  /nix/store/hz954b4dkbxmwl3vbisipn0ww9hqlyf4-libtasn1-4.21.0
+  /nix/store/yh8rykx8wakl1ccn8rc351f6r2wbg4cn-libunistring-1.4.2
+  /nix/store/sbna699bdaga9gsk48bnjfawglx4risf-liburcu-0.15.6
+  /nix/store/gad0h928a545w1rmyiymvyc7z3qnqb33-libuv-1.52.1
+  /nix/store/9g3536ribbggd4swm4bwk8sknsddfl3j-libxml2-2.15.3
+  /nix/store/5hphzxkbcyid6fpz023p4rhy6wxyvfls-libyaml-0.1.4
+  /nix/store/g3jmfr1qmj88c7ylmc1npzbc9q8jmqm4-libyaml-0.1.4-doc
+  /nix/store/pr0zbiqr6p3z26s6is1h980lp69sbchc-libyaml-clib-0.2.5
+  /nix/store/nk23cc1h6fkmcaw15pfcr5wf58a8pwj3-linux-headers-7.1
+  /nix/store/9660a14yhqz9flkzxyd6m771lgn5lq6z-memory-0.18.0
+  /nix/store/5wm8cj515m3jvzn7n6rq3l003d01z73y-memory-0.18.0-doc
+  /nix/store/qz2qjckaghwpwn3xy2761m8q6zixvnqx-mime-types-0.1.2.2
+  /nix/store/0k5aa2lw06myig8vnqvk61zhaz6hyii8-mime-types-0.1.2.2-doc
+  /nix/store/awwsd5npcr0h7d448f00xhgdwjpbb96j-mmorph-1.2.2
+  /nix/store/f17qm32b9s3f6872f9czfvb91fysd4zy-mmorph-1.2.2-doc
+  /nix/store/fpdp1l7mq3s46hszynyb60abzrf266n5-monad-control-1.0.3.1
+  /nix/store/xdvdw0q4yzvrpzlhfpbpc0h1rlgddvn2-monad-control-1.0.3.1-doc
+  /nix/store/8vmdq22a3mkynfmiml02nj74kywky6hl-mono-traversable-1.0.21.0
+  /nix/store/0mqaqwg6wp4q6flyqp6raz0g1yalymr6-mono-traversable-1.0.21.0-doc
+  /nix/store/b9ksw15df0bm2rxzjdi1lrdhz54gsmsl-mpfr-4.2.2
+  /nix/store/yy3jymc7nb4yd8c3frcynrbjvg4fqx4x-nagare-dsl-0.4.0
+  /nix/store/b2sz91v84adwz2wsqzksh0byzh4n6jmq-nagare-platform-0.4.0
+  /nix/store/3jh6rv3i705y549rwdc0yjckzs0j1fpx-nagarectl-0.4.0
+  /nix/store/4ymd5gcpa2v1k3d20r8z1cp8l3w53smv-nagarectl-0.4.0
+  /nix/store/zz125vwahb637g5ckl046ll8fcqmc8pk-ncurses-6.6
+  /nix/store/wqqcaj37fsa7bxrkh9l2my04lfwhw415-ncurses-6.6-dev
+  /nix/store/f6yh7qhkhgzjfj91ydv6irak4ciralqq-ncurses-6.6-man
+  /nix/store/4xxc7cldibnlw5496qg5d45i0nmxyz11-nettle-3.10.2
+  /nix/store/vqvqss0h12yygcz3vjfpbmi2rcbdx49i-network-3.2.8.0
+  /nix/store/6w15kq1vdaj2j4r21ghms8ll8mkisd3x-network-3.2.8.0-doc
+  /nix/store/d8ka6bml4jsl5nifadhisx8wfwsfyhkf-network-byte-order-0.1.8
+  /nix/store/33m67va1g3a918jzym80479pvbzyjzv9-network-byte-order-0.1.8-doc
+  /nix/store/qnxca41lddc1pdsw60bdhnj9m3iywvj4-network-control-0.1.7
+  /nix/store/g4n9w4i4h5v7ag52flz3w94hb6lrg3rw-network-control-0.1.7-doc
+  /nix/store/yyk6v05d8hmsam811rg4qkdvmhgjk29x-network-uri-2.6.4.2
+  /nix/store/rmvmiaxgk8hbjxx47qm88cnfc0gkmm3c-network-uri-2.6.4.2-doc
+  /nix/store/d4wj0svs73h1p0726a7k3vi4vkic8qb5-nghttp2-1.70.0-lib
+  /nix/store/xmrzhcfqg1vzwsvgm1dk9dq5fl64rlck-nghttp3-1.16.0
+  /nix/store/8vqfy9aqxcb5akhpcqdm2iv4q6wx2rih-ngtcp2-1.23.0
+  /nix/store/s8g1cy79c0rmzvxrj8qqslbzk31jh3a6-numactl-2.0.18
+  /nix/store/2r02zcdlmz44x9kw30k7c8hd1viya02f-numactl-2.0.18-dev
+  /nix/store/z534aca20xlxly2wb9dvil9kssida5v3-old-locale-1.0.0.7
+  /nix/store/n6h6b0g5d716xfzwc97x7bsiadq7jjlc-old-locale-1.0.0.7-doc
+  /nix/store/8xvg62asma2wi8im56yh22dakzrwhlcf-old-time-1.1.1.0
+  /nix/store/b6blj3idn4fm1i3pqilhrr2c56w9rj1y-old-time-1.1.1.0-doc
+  /nix/store/hg41dqig0qxm7shyi0a0xkw29a14i3js-openssl-3.6.3
+  /nix/store/myfd258h1chbzqd38m17csxafrbjdmid-optparse-applicative-0.18.1.0
+  /nix/store/4jknv738bq2irnqa5v0d7ryvrkwv6rc7-optparse-applicative-0.18.1.0-doc
+  /nix/store/s03pwvivxwjqbk3iflyhqyv4ryhfj374-p11-kit-0.26.2
+  /nix/store/7vh0f9h6f2laxkfn3imia5lrv709wxca-parallel-3.2.2.0
+  /nix/store/4fpav7bki3yx0fzvmz8zci79y46s1wcm-parallel-3.2.2.0-doc
+  /nix/store/cj9443b6ljpw3pzxa3x3ck7vrig9kkc0-pcre2-10.47
+  /nix/store/ssb3p9czag8q5ysx6piqchjfk4kxq0x5-pem-0.2.4
+  /nix/store/y07ybii0dg1sd58ybhk07jqd06r7iycp-pem-0.2.4-doc
+  /nix/store/4gbvc03534ql63jcjds1y40qa40zamnx-prettyprinter-1.7.1
+  /nix/store/wqwz78z3mszllc2m37p1h9pmzwnx69x9-prettyprinter-1.7.1-doc
+  /nix/store/89ijhm7xcss3jg9li4xfmzhhbwhqljrx-prettyprinter-ansi-terminal-1.1.3
+  /nix/store/0a0ryq68xps617qk6m1d1lxf2fl82hdl-prettyprinter-ansi-terminal-1.1.3-doc
+  /nix/store/hw3s58i1pp1srmb3rgxn0vrpxr8dgvdp-primitive-0.9.1.0
+  /nix/store/kn1371xiqncn1c3ak9a4ry5mx1phiw2f-primitive-0.9.1.0-doc
+  /nix/store/km6x7qd61crn9arqmn0b4ph88bkrwaan-profunctors-5.6.3
+  /nix/store/h2d0l8hcfz8ygl0i3jzvx75qqqz0mz3p-profunctors-5.6.3-doc
+  /nix/store/76040w2af6xbwpfpqaskc5708ws85grl-protobuf-c-1.5.2-lib
+  /nix/store/smn8klmn4xzy38lc0cq2iqnwk0ac1gmq-psqueues-0.2.8.3
+  /nix/store/0774xvr418lniphy1vqg4076dwq79y4s-psqueues-0.2.8.3-doc
+  /nix/store/r9agcp0d8ngzrrjf7pyampq0y0sipjxc-publicsuffix-list-0-unstable-2026-08-14
+  /nix/store/5x2gha7s94dxp25cmpk8035ay9zbcwfz-random-1.2.1.3
+  /nix/store/vpfn4n46zk4gi6f2chnya7kzyayd23ia-random-1.2.1.3-doc
+  /nix/store/c6mgy63s5y1353152dp2s2jaig026j3h-readline-8.3p3
+  /nix/store/1ggg4aqz7ciiir022wh6b1jxrsv2v0vi-recv-0.1.1
+  /nix/store/n3asazcq40211lm12ykrav53sx7w7s70-recv-0.1.1-doc
+  /nix/store/q2gz3bydm3qsayqv9n587m6rxlz8whdq-reflection-2.1.9
+  /nix/store/r5lgfx9kdwqk3q5xq4v0grignxg0fv22-reflection-2.1.9-doc
+  /nix/store/14j92jsd36wyzjin9vf7f35wz4fqyfpf-resourcet-1.3.0
+  /nix/store/vp0lxly45bqmh7sac5hb4gq62ca54b2f-resourcet-1.3.0-doc
+  /nix/store/vyx6wd2xl10rr2laivcbvligdlpkxsqm-scientific-0.3.8.1
+  /nix/store/vs72ii95w3br436xy8dbqmkzk59jvxg3-scientific-0.3.8.1-doc
+  /nix/store/zny8ymwz7mp0vavkpka4ln2870kvgw95-semialign-1.3.1.1
+  /nix/store/z862hganzdlv64a9p592p969vw37hhax-semialign-1.3.1.1-doc
+  /nix/store/hibf7ijbqnkcl3kmhj0hrcm2s0xddi5a-semigroupoids-6.0.2
+  /nix/store/zd22slr7m4k7pan4n40ccnwrkqnj9dfy-semigroupoids-6.0.2-doc
+  /nix/store/g5nwrsd83ca1advcb27gdhzplk0xmyf7-serialise-0.2.6.1
+  /nix/store/vd18sxvs6rjfg8nxqmlxvq9wfc15925y-serialise-0.2.6.1-doc
+  /nix/store/4pgzmf70ba1rs9nq4bblk32y4dgq1wpw-servant-0.20.3.0
+  /nix/store/zwvikwr6fw7axvvymagmvha7kgrcmxvy-servant-0.20.3.0-doc
+  /nix/store/nmrah0zi4n7cz584xl1malji1znm40pq-setup-debug-info-dirs-hook
+  /nix/store/vf1v0szl4hzynfb1rng8cg8hn9qs9kqw-simple-sendfile-0.2.32
+  /nix/store/s60cbaq051xszh1yxffc7sqxl6sxb519-simple-sendfile-0.2.32-doc
+  /nix/store/aijwqawdhnly4pakxw710gm0xgsnspbb-singleton-bool-0.1.8
+  /nix/store/a6lrh29dcnws1xx1acqgwakqcc41d2dp-singleton-bool-0.1.8-doc
+  /nix/store/76q3lnwdkfkha76s2pz6976zjhqjcpdh-some-1.0.6
+  /nix/store/156i1bckq3izvchw7szj049hmi0n5y8c-some-1.0.6-doc
+  /nix/store/0v2j9kcp94a9fpwjqhczisc4lxhcfxpa-sop-core-0.5.0.2
+  /nix/store/v00wa7wkmrcb69iv7gss0qybgp7hari1-sop-core-0.5.0.2-doc
+  /nix/store/x1j709zf3mm4yq0plaic8k1rd3i8myv6-split-0.2.5
+  /nix/store/s2zgi7yii4zshajn31mimwzqy0mz1rbp-split-0.2.5-doc
+  /nix/store/x69ihvhf7nx3i7hncprghbpksz5qx0k6-splitmix-0.1.3.2
+  /nix/store/42zb8l963a5clgb121zfq9mgc5jbbdf1-splitmix-0.1.3.2-doc
+  /nix/store/xcv2rrfly0za0kdhzvmc0j2a6074zkib-sqlite-3.53.3
+  /nix/store/4ypnmmb673nmnakiyqm6zdjxzrci7fpf-streaming-commons-0.2.3.1
+  /nix/store/x4gggv6csd5vzy7sih525gggifiypn9z-streaming-commons-0.2.3.1-doc
+  /nix/store/51b6m4byzcrnlpa6jjqm5vs319wg0nrd-strict-0.5.1
+  /nix/store/az282cg11d4mj9fmz3n85hw3k7cjpx7b-strict-0.5.1-doc
+  /nix/store/35lm785kam578hm7zl35im54ddhn30im-strict-mutable-base-2.0.0.0
+  /nix/store/vv018g4r8ng4i1q4rcg8ka5z0cj6w1fs-strict-mutable-base-2.0.0.0-doc
+  /nix/store/knz0yhlkx7mnbvw09xwydl3847jc51zx-string-conversions-0.4.0.1
+  /nix/store/ba7xhhaji719hgx6z339l1wykvp7fnib-string-conversions-0.4.0.1-doc
+  /nix/store/a13idjd4yir1mni02nrz79f6lzl6r0sq-tagged-0.8.9
+  /nix/store/rhf2xay3106fwk77vkim4jsb0bcnjpzk-tagged-0.8.9-doc
+  /nix/store/1254yis9gjxdv29y5k1idsxpi4jlls72-tasty-1.5.4
+  /nix/store/fddd292s388fm0cv1ig0s49m4xn4x27r-tasty-1.5.4-doc
+  /nix/store/8a85x9q8a8dxn6f78ff36qjak93vq552-temporary-1.3
+  /nix/store/26qy828k78cpkz4w99313aykwwdw5aan-temporary-1.3-doc
+  /nix/store/7fd8aqydg4k2y2dbl0ysiwyvcrk80p8b-text-iso8601-0.1.1.1
+  /nix/store/lzk8la0w1slzc2py4qj0ld21p3i1yw28-text-iso8601-0.1.1.1-doc
+  /nix/store/7hlj4nglqrk23lvajhadbdxwxxll2mhz-text-short-0.1.6.1
+  /nix/store/hvjiq60vmlqizp3y4gfdf87skci6nv0d-text-short-0.1.6.1-doc
+  /nix/store/aixcxgf99akgjrwxk4d6qqg7bq4nilaq-th-abstraction-0.7.2.0
+  /nix/store/s9y8y0dwhk9vim08aj312sbb6cr2iw1s-th-abstraction-0.7.2.0-doc
+  /nix/store/67qjqrxklv1rm84amkxkb7in1q0dz5w0-th-compat-0.1.7
+  /nix/store/zas7fsjrxf2awzhl7bmqw86mrm1ixm6i-th-compat-0.1.7-doc
+  /nix/store/kq150jg1d1j2jrh7xs3hhgwcl78sgzxz-these-1.2.1
+  /nix/store/8kh4dgihd3xs4qwljfab2r3kyivr193i-these-1.2.1-doc
+  /nix/store/zkyfby8lsba4ipq6y46ncdp8msnyw8ks-time-compat-1.9.9
+  /nix/store/hj8c9nqydvrpx5qdvwxgdbx8l5b2la89-time-compat-1.9.9-doc
+  /nix/store/g9g481zvbhzyg84mc2sp31lg1dcfmf4w-time-manager-0.2.4
+  /nix/store/wms8dwfalagsbhy83krq447njd0a4drc-time-manager-0.2.4-doc
+  /nix/store/cz70d78arps4mipky213725gk1gw3rv6-tls-2.1.8
+  /nix/store/vfs0h4xq0ribj0ymrkxcragbhakrpy94-tls-2.1.8-doc
+  /nix/store/66bx5kwg4dq5bjiq70chqi1m4bfj5s4y-transformers-base-0.4.6.1
+  /nix/store/wp0dwa7zyc551ljxjg5d0nh56icxx3f3-transformers-base-0.4.6.1-doc
+  /nix/store/9s0pbp8pm5bjrvd8nl8mb9ccvq286xka-transformers-compat-0.7.2
+  /nix/store/0fbk1g33zlzzmxnxcyq9mn66zd9fxhxc-transformers-compat-0.7.2-doc
+  /nix/store/v8k5dyj4b69limapnnw6ghww3k5s0yzd-typed-process-0.2.13.0
+  /nix/store/mpwdaj9214c86nm6768g14drfkaihfqh-typed-process-0.2.13.0-doc
+  /nix/store/qvh3wmxf35f8cb8sgb99cysrqikijzvj-unbound-1.26.0-lib
+  /nix/store/jxflavppgwaw8l72v1yb9js1q25nm60c-unix-time-0.4.17
+  /nix/store/q7jsamg4xxsahbs5gvpc20h877dj785h-unix-time-0.4.17-doc
+  /nix/store/cpzl57va6fk9fqyb8dr5x8lg5pf1dyvi-unliftio-core-0.2.1.0
+  /nix/store/mv8zyfhf0qv6hhcy6q3da4id5iiqfx1q-unliftio-core-0.2.1.0-doc
+  /nix/store/nvsi6phv6c265z58bzwirq9y68pj4098-unordered-containers-0.2.20.1
+  /nix/store/wwl16q4gq6zkr1qqpls5lr57li2dk8r6-unordered-containers-0.2.20.1-doc
+  /nix/store/8rr65clspcilh75g35rhacjpnvi109xq-utf8-string-1.0.2
+  /nix/store/v7vycp7gi4nrx2d7y6wv3wrxjvb4v8y5-utf8-string-1.0.2-doc
+  /nix/store/y4achbaqkgfc802h9jy0arb877lsszsf-uuid-types-1.0.6.1
+  /nix/store/r94nrqf5ylymyw1bj997iz1qp21d0k4f-uuid-types-1.0.6.1-doc
+  /nix/store/q6d3dxk9xs4lgd5mf1cfny5swxwg296f-vault-0.3.1.6
+  /nix/store/a3xf2hb3xjcxvz4r8sf92xdbjd9c2pav-vault-0.3.1.6-doc
+  /nix/store/yl0x8a1sw57pyzdyqdbnbic5qyx4l5n9-vector-0.13.2.0
+  /nix/store/vk7i50ds39bhmg5i2g5vpl88az1699f2-vector-algorithms-0.9.1.0
+  /nix/store/zb048l2gr5jr9afmmxjgvj5fc1lg7fgj-vector-algorithms-0.9.1.0-doc
+  /nix/store/q2wmwvsi2fnfv6045h5wbnid1a33pl8v-vector-stream-0.1.0.1
+  /nix/store/62bydxbqrr8h287az67lb3sghzcnq0na-vector-stream-0.1.0.1-doc
+  /nix/store/cds9fni6s1w35qxrxq37f099qri36v94-wai-3.2.4
+  /nix/store/g25bcqcbnmm0cbn6hql4l94kmwckzq9g-wai-3.2.4-doc
+  /nix/store/i6saqlh4b87qgsndfj44vha6w9c3jg82-warp-3.4.9
+  /nix/store/q1r1hp91w3a219zfpcjdc38c2sqsqdk4-warp-3.4.9-doc
+  /nix/store/daag9dswa15llf6vm13a5s3n3qhvbh67-witherable-0.5
+  /nix/store/0hycfa7yshj4vkspni3ii5lbs6iardp3-witherable-0.5-doc
+  /nix/store/fxzh0j6jw169q4si1kznswp4di867dyx-word8-0.1.3
+  /nix/store/sj3r21y9vy3a55avn1wkzfxvr4abzs42-word8-0.1.3-doc
+  /nix/store/ssvq1r0xd8f7paf6zqgpfql1a4drwhy2-xgcc-15.3.0-libgcc
+  /nix/store/bdwsskqikgdlq94xqh5dvyd8263w995g-xz-5.8.3
+  /nix/store/z4m7449pvs8mspm89d910q7617l56v6b-yaml-0.11.11.2
+  /nix/store/cf6vx3nwjxrrmzmc4hw7b46jvjy1pc8w-yaml-0.11.11.2-bin
+  /nix/store/4x0xsvjg2bvqkh2h3dgqfzjcn07r0clp-yaml-0.11.11.2-doc
+  /nix/store/7aiax1xjmwh5p8ylwgfwj4ikajf6ir9l-zlib-0.7.1.1
+  /nix/store/c68p33dmpv9f7z56ib5qxhn6rkpnx3sv-zlib-0.7.1.1-doc
+  /nix/store/l3p6y554mkxi4vipnnp8809kxj0g1lyv-zlib-1.3.2
+  /nix/store/nd34kmibbq6y7qmp78rhw38adsj5ffd0-zlib-1.3.2-dev
+  /nix/store/s17x7bnrq6yxyq7bczn6z0vqscz3dj42-zlib-1.3.2-static
+  /nix/store/xcwclh5qgw2x6qc39x6ixara06xczzlw-zstd-1.5.7
+warning: could not read HEAD ref from repo at '/work/nagare', using 'master'
+warning: ignoring untrusted flake configuration setting 'extra-substituters'.
+Pass '--accept-flake-config' to trust it
+warning: ignoring untrusted flake configuration setting 'extra-trusted-public-keys'.
+Pass '--accept-flake-config' to trust it
+unpacking 'github:hercules-ci/flake-parts/77826244401ea9de6e3bac47c2db46005e1f30b5?narHash=sha256-Tyw1RjYEsp5scoigs1384gIg6e0GoBVjms4aXFfRssQ%3D' into the Git cache...
+unpacking 'github:ipetkov/crane/aed2020fd3dc26e1e857d4107a5a67a33ab6c1fd?narHash=sha256-smpugNIkmDeicNz301Ll1bD7nFOty97T79m4GUMUczA%3D' into the Git cache...
+these 133 paths will be fetched (182.2 MiB download, 606.4 MiB unpacked):
+  /nix/store/hil2hhp0zhw426qn2ncg2akasr5dmkbr-acl-2.3.2
+  /nix/store/32bpy9v57sy21krs31i5p8f3h7n2zz7y-ada-4.0.0
+  /nix/store/2khmar0yigzx181qnc8g23p01g4673za-attic-0.1.0
+  /nix/store/xl1043bxc6q4ymbqrv3pyjmpssd6z0wj-attr-2.5.2
+  /nix/store/pjci74fbzifgi745glfjd5428cakw946-aws-c-auth-0.8.1
+  /nix/store/jn5l2l8gjgc1py9hnadqbylm929f4860-aws-c-cal-0.8.0
+  /nix/store/wnq8x4c5labg4s0s6wh6lf4vhdi6b8rw-aws-c-common-0.10.3
+  /nix/store/3hafhf12yik1frbid9g5zh8zlfqlbzgd-aws-c-compression-0.3.0
+  /nix/store/xlywf2g665nvf4p3i7naf9d2wi147nar-aws-c-event-stream-0.5.0
+  /nix/store/5kig5k0jfcsayqz2i1pr677m7hv1z9iw-aws-c-http-0.9.2
+  /nix/store/5lnrwrd2jdhibjw9ficsd7fa1ry7ybbf-aws-c-io-0.15.3
+  /nix/store/b47cr08pyf4zmgd26mnq3wdkg2alhsq9-aws-c-mqtt-0.11.0
+  /nix/store/x4gr6jgqy1gi6gzjvjlc9scqm753v912-aws-c-s3-0.7.1
+  /nix/store/7s87y4kvbwkq0wjcf0fnkiqs33rlahjk-aws-c-sdkutils-0.2.1
+  /nix/store/32frriwid6bbh1id2r514qbkw7ch7isq-aws-checksums-0.2.2
+  /nix/store/8l5g5gzjr5swc428n2p7222syskgcscp-aws-crt-cpp-0.29.4
+  /nix/store/1rckrw50ixns3zd366ja5hfrshdkv0q3-aws-sdk-cpp-1.11.448
+  /nix/store/00zrahbb32nzawrmv9sjxn36h7qk9vrs-bash-5.2p37
+  /nix/store/i5zd3ha7wjnxnshsqisqarm8gxrfgc70-boehm-gc-8.2.8
+  /nix/store/czrad292gq5adw7kjj0z71gkw48mnmim-brotli-1.1.0-lib
+  /nix/store/34vidkz6jm5pinhhyxi64pj82x70vida-brotli-1.2.0
+  /nix/store/46hh240hlj9si28zra66dyc3nj85lynw-brotli-1.2.0-dev
+  /nix/store/kfmj826jn1ksjsi1gk8mw9zb62mm04p5-busybox-1.36.1
+  /nix/store/ywc5ismph30i5a1w56rl9kxa0a5887wx-bzip2-1.0.8
+  /nix/store/54rqnl07mbj27r1w2c3rqk3xy29i4180-c-ares-1.34.8
+  /nix/store/lf1cnykz1gbdvlv7h2jpwnyy7gs8j5b6-c-ares-1.34.8
+  /nix/store/v4s78kgw1fv4jj766wj2q9695msrnpx1-c-ares-1.34.8-dev
+  /nix/store/frlckg2m2sf0gs8g5pqkryddbpy6qcz1-curl-8.14.1
+  /nix/store/scjpx9gmjl0pzkgivgs7p3hdg5b9yw67-cyrus-sasl-2.1.28
+  /nix/store/nsz0fdxbfn2c3g4bkirc36wplq0ghrbn-db-5.3.28
+  /nix/store/az5nnjl9j7pamf5y1zknz04cssmzi462-editline-1.17.1
+  /nix/store/0lyhggaxmmfdmgrzk60375ahy4fiwznn-fuse-3.18.2
+  /nix/store/6c7gs7v1gjramxwbibni53xw719asmgm-fuse-overlayfs-1.18
+  /nix/store/l7d6vwajpfvgsd3j4cr25imd1mzb7d1d-gcc-14.3.0-lib
+  /nix/store/h8x8m2vcaqd13sm794q5l3yrynbf3h0q-gcc-14.3.0-libgcc
+  /nix/store/q4wq65gl3r8fy746v9bbwgx4gzn0r2kl-glibc-2.40-66
+  /nix/store/nvh2r6adpxhkl37wsxglz4w9cbsz506h-gnupg-2.4.9
+  /nix/store/s140law6rxbjkyjblkaldi9klslnfvwg-gpgme-2.1.2
+  /nix/store/hfwj51h101nhrjgkk9vlbbl6npfzf2ch-gtest-1.16.0
+  /nix/store/xnnblbr6hhz4r2bsskc1zb0hpm8ybil9-gtest-1.17.0
+  /nix/store/3xpivcps020f0jz6i4vp2fcr2f2zd50z-gtest-1.17.0-dev
+  /nix/store/c80l8rqq5c3qs7qq43rirqvn6nkdd1pg-hdrhistogram_c-0.11.10
+  /nix/store/nb6fq3nrjmyx9f9syrfnmsyfhx1ks9vg-iana-etc-20251215
+  /nix/store/ia8ycxcfs23xblv3s18i4xgqxm5sbkri-icu4c-78.3
+  /nix/store/jdsqfc7k0n0rwq4b2wmhb89kjxj9sx36-icu4c-78.3-dev
+  /nix/store/d91mwgs15hv4ajza7jn6axyiwa07ga7m-jq-1.8.2
+  /nix/store/xvd6920kffyyshg7mbw5wvfk6lg9wfkl-jq-1.8.2-bin
+  /nix/store/z4czsax3mdyxx77mwb0yjarnzb1rip00-just-1.58.0
+  /nix/store/6k8218bcmnknl7vq07vmm33b33i35586-keyutils-1.6.3-lib
+  /nix/store/ppxfllzvl2b03x4ahqkyf6v6hiqf0hix-krb5-1.21.3-lib
+  /nix/store/rsmkw129v6akb6w03xn5yaj9iah8qskl-libarchive-3.8.0-lib
+  /nix/store/6zvxln5ygqlib6gqpimdiqfpc3gc9xpy-libassuan-3.0.2
+  /nix/store/p11abk01jqakfv8sdv65ksin8wrjql1j-libblake3-1.8.2
+  /nix/store/q22jwk7vaa69na5akgklgh70bhv9y4al-libcap-ng-0.9.3
+  /nix/store/kah5psmcq5nzf8l288d0m4ra4sinicb2-libcpuid-0.8.0
+  /nix/store/h9pdi3jg3y6s47kndl7v4421y9g3vs2n-libev-4.33
+  /nix/store/fwzl4in6i7pj30zp0rz3mx90cl6vg4km-libgcrypt-1.12.2-lib
+  /nix/store/5anjfblcb65jzqp7jp8wnnyxc55zx6hs-libgit2-1.9.1-lib
+  /nix/store/xryrhsmmwrgdpqd5ic0fwkm64ghjmn4c-libgpg-error-1.61
+  /nix/store/ncdwsrgq6n6161l433m4x34057zq0hhf-libidn2-2.3.8
+  /nix/store/33xn5f7b17rg5lhiva2nfrnxwfr4inrq-libksba-1.8.0
+  /nix/store/31fknicrbimbw6ivnxly9pdabsqqglk5-libpsl-0.21.5
+  /nix/store/q08xzwyksawmzfd5g5c8w2ifl37rqvr3-libseccomp-2.6.0-lib
+  /nix/store/hxbw5q9i50wsf518yhhcdr6q9gj1y6x9-libsodium-1.0.20
+  /nix/store/rbc496f0h04ddix6b05ya4w5csms1a9v-libsodium-1.0.22-unstable-2026-07-31
+  /nix/store/y6w3rwlym1mlpcysn6l7r5vbdmf9irf1-libssh2-1.11.1
+  /nix/store/7645ix9bmf95gzhdf390pbifbzg13ba9-libtool-2.6.2-lib
+  /nix/store/9kg53rdi54r7krlk9iwz6hplh75ppq5i-libtpms-0.10.2-unstable-2026-05-06
+  /nix/store/vm18dxfa5v7y3linrg1x1q9wx41bkxwf-libunistring-1.3
+  /nix/store/6lxb0vhv7gxpdcdirbfmm75vi4idjjhq-libusb-1.0.30
+  /nix/store/slqmqcgc0ynypknpjf1yzjviyqzvlikj-libuv-1.52.1-dev
+  /nix/store/pfww4nv3wkgpyk1jvqqpz6ymxgj7cbbh-libxcrypt-4.5.2
+  /nix/store/izqbxvpsxw8b4r4arhlbkm48s3ghbddg-libxml2-2.14.3
+  /nix/store/y21him23a8dligbwmhj2n892mha6ad6j-llhttp-9.3.0
+  /nix/store/62v5xr80ic15hlc0gnn83c4nclar5w4d-llhttp-9.4.3
+  /nix/store/sww7zcq75d86cak1l9f0xdwfv91hib2j-llhttp-9.4.3-dev
+  /nix/store/gfw7f9lv4lmxnx3h5988hcyvl7wi5zav-lowdown-1.3.2-lib
+  /nix/store/h6q94p1jw42irzqybm1049fmxakh8701-mailcap-2.1.54
+  /nix/store/l6b71h7n2rz3saykclmwm60rvqbmm36j-merve-1.2.2
+  /nix/store/kj35040fclqc6xg6dy0l2367hvyyyxig-nagare
+  /nix/store/fssh7acx7cphlxv4bn9hk7xd467yjn9k-nagare-0.4.0
+  /nix/store/0ivxa5kyn1q85r515fpx9lbr70d2h55v-nagare-nix-builder-proxy
+  /nix/store/w1f5z1i6kk3wcdmvay5rlir77975f45q-nagare-operator-nagarectl-0.4.0
+  /nix/store/ra3h8x9y8hvml7hj0lf36qcz2rwkqwjh-nbytes-0.1.4
+  /nix/store/gwwbjkdd3rghq7x74561agq08f4jmh7p-nghttp2-1.65.0-lib
+  /nix/store/whwwhcl6nixf5vixjwxsrn7fgrs40lvh-nghttp2-1.70.0
+  /nix/store/13av26aw2dvxngh031pyj2b3hd609bq8-nghttp2-1.70.0-dev
+  /nix/store/vc0hlhxb181d9kh8c6bqsa41cc70drak-nghttp3-1.16.0-dev
+  /nix/store/w0x2fby57fx935p2d83wlx5sw73y6qyd-ngtcp2-1.23.0-dev
+  /nix/store/w0sz6vzj889m03wys6mbra4fxmvlhszg-nix-2.28.4
+  /nix/store/74pcnir485smlvnq58xh4snk3fsi2p4k-nix-2.28.4-man
+  /nix/store/lfaydgacdyngci7p60s8wwvgdm74fjkx-nodejs-24.19.0
+  /nix/store/k3nz3s314bipvqbcbw3faq823hxpwbn1-nodejs-slim-24.19.0
+  /nix/store/2381p229a5w3zgfgk9bgf4vq1ravqyla-nodejs-slim-24.19.0-corepack
+  /nix/store/jfi4k67zal3n810x24v14bd8x3m11z49-nodejs-slim-24.19.0-npm
+  /nix/store/cqsl6djcsccg91y947v3rs5r456z6dww-npth-1.8
+  /nix/store/0v7nad1c5ksamzr1rqkvi6dfks7i4pcm-oniguruma-6.9.10-lib
+  /nix/store/gmj42fvbymgbhywp68g24xyfjfdshadd-openldap-2.6.13
+  /nix/store/byx7ahs386pskh8d5sdkrkpscfz9yyjp-openssl-3.4.1
+  /nix/store/63b5kdhvzs4sq7xgg8bikkvdv3kf7c7p-openssl-3.6.3-bin
+  /nix/store/3zlj0508348qn8y0f45y7f7954amigpp-openssl-3.6.3-dev
+  /nix/store/hqb180lba3mik6agk0dn2s4hhq9y32bh-pcre2-10.44
+  /nix/store/gqr3pk0kzp0f61nv793qrkh9h4075cz9-pcsclite-2.4.1-lib
+  /nix/store/glk3vjk3z4krbmg4clgy203d3293kzlf-publicsuffix-list-0-unstable-2025-03-12
+  /nix/store/c6qycay21p21dd7796gdkdwlslmm1lmf-pulumi-3.255.0
+  /nix/store/i1m4gqvadal4vg2jf8xk1cp7lksjw8ng-pulumi-nodejs-3.255.0
+  /nix/store/7pbijzbz9khb9dnzxaxzc0g7l7sf5bk8-rapidcheck-0-unstable-2023-12-14
+  /nix/store/vh8kag821rd1plhz9wbgvl6qwqwrn2q3-s2n-tls-1.5.20
+  /nix/store/pk17pfbv9kknm5vxiy8lnpcjv2wp148r-simdjson-4.6.5
+  /nix/store/gr4m16ipyv5b5ilhrg54s12b7pqin75w-simdutf-6.5.0
+  /nix/store/j4qg8flsdxhdnc7a4hdawdkkg16d5li9-simdutf-9.0.0
+  /nix/store/7n0a2yrcwc6j693c52h5y666njyazz52-skopeo-1.24.0
+  /nix/store/j3q0cqrvich2j2v5g9226grah9v6l50j-skopeo-1.24.0-man
+  /nix/store/a8hj1bz1gd378sxz4fabmgrl61ad202p-socat-1.8.1.3
+  /nix/store/x5mzmqjvmiz6ydabfwhvv0mrimln4k3l-sqlite-3.50.1
+  /nix/store/6slrxch2idk9v1hz54yf8bw8sknpxwhc-sqlite-3.53.3-bin
+  /nix/store/538744yaz5y7xyx780wpfw2azby9iqxj-sqlite-3.53.3-dev
+  /nix/store/4hlgp6r4j5p6b2b9sxw01cba0x3fjxd6-systemd-minimal-libs-261.2
+  /nix/store/plbyqgmdzkjna010fc2vm2kafzk3ddca-tbb-2021.12.0
+  /nix/store/8kdw4bzswar0130r5m5cd2m3ga22lmax-tpm2-tss-4.2.0
+  /nix/store/p0ff33dca0fbkskqwrl3spvxcn5974h0-tzdata-2026c
+  /nix/store/65ql38i4yki6adklv0d83amba6c5cd9i-util-linux-minimal-2.42.2-bin
+  /nix/store/17xmg38m60inc59az3frp540ccrwn2r8-util-linux-minimal-2.42.2-lib
+  /nix/store/5xym1gmpk8kxl2vvfaaxja52qap9g49l-util-linux-minimal-2.42.2-login
+  /nix/store/59qsa2rfqvj2frvnd3lz2w52bh3xzjci-util-linux-minimal-2.42.2-mount
+  /nix/store/mkrc0dnys009hh8hl04pczp6kldcg87v-util-linux-minimal-2.42.2-swap
+  /nix/store/dx4ixdly13b4q9n71ikww2ghg8j0n330-uvwasi-0.0.23
+  /nix/store/j4kybm2h5l6ing0i494zwdswp672pmgv-xgcc-14.3.0-libgcc
+  /nix/store/nm296vfrn2hqrb6yisablznknp9p7hx9-xz-5.8.1
+  /nix/store/vx438ll7xvv9q5ns8mqpphsg2dxg9yi9-zlib-1.3.1
+  /nix/store/and18rawgmwws8l2favbjr5wm31jnr4a-zstd-1.5.7
+  /nix/store/npsbrz5sr41nk35fap059a8ps05wjj63-zstd-1.5.7-bin
+  /nix/store/ghks3c4bpqll9b1909vr47qx892c3zzw-zstd-1.5.7-dev
+warning: could not read HEAD ref from repo at '/work/nagare', using 'master'
+warning: ignoring untrusted flake configuration setting 'extra-substituters'.
+Pass '--accept-flake-config' to trust it
+warning: ignoring untrusted flake configuration setting 'extra-trusted-public-keys'.
+Pass '--accept-flake-config' to trust it
+warning: could not read HEAD ref from repo at '/work/nagare', using 'master'
+warning: ignoring untrusted flake configuration setting 'extra-substituters'.
+Pass '--accept-flake-config' to trust it
+warning: ignoring untrusted flake configuration setting 'extra-trusted-public-keys'.
+Pass '--accept-flake-config' to trust it
+Wrote context 'local' (/tmp/nagare-clone-free.6llupS/config/nagare/contexts/local.env)
+Set current context to 'local'
+warning: could not read HEAD ref from repo at '/work/nagare', using 'master'
+warning: ignoring untrusted flake configuration setting 'extra-substituters'.
+Pass '--accept-flake-config' to trust it
+warning: ignoring untrusted flake configuration setting 'extra-trusted-public-keys'.
+Pass '--accept-flake-config' to trust it
+warning: could not read HEAD ref from repo at '/work/nagare', using 'master'
+warning: ignoring untrusted flake configuration setting 'extra-substituters'.
+Pass '--accept-flake-config' to trust it
+warning: ignoring untrusted flake configuration setting 'extra-trusted-public-keys'.
+Pass '--accept-flake-config' to trust it
+warning: could not read HEAD ref from repo at '/work/nagare', using 'master'
+warning: ignoring untrusted flake configuration setting 'extra-substituters'.
+Pass '--accept-flake-config' to trust it
+warning: ignoring untrusted flake configuration setting 'extra-trusted-public-keys'.
+Pass '--accept-flake-config' to trust it
+.nagarectl-wrapped: Ticker: poll failed: Interrupted system call: Interrupted system call
+warning: could not read HEAD ref from repo at '/work/nagare', using 'master'
+warning: ignoring untrusted flake configuration setting 'extra-substituters'.
+Pass '--accept-flake-config' to trust it
+warning: ignoring untrusted flake configuration setting 'extra-trusted-public-keys'.
+Pass '--accept-flake-config' to trust it
+warning: could not read HEAD ref from repo at '/work/nagare', using 'master'
+warning: ignoring untrusted flake configuration setting 'extra-substituters'.
+Pass '--accept-flake-config' to trust it
+warning: ignoring untrusted flake configuration setting 'extra-trusted-public-keys'.
+Pass '--accept-flake-config' to trust it
+.nagarectl-wrapped: Ticker: poll failed: Interrupted system call: Interrupted system call
+.nagarectl-wrapped: Ticker: poll failed: Interrupted system call: Interrupted system call
+.nagarectl-wrapped: Ticker: poll failed: Interrupted system call: Interrupted system call
+.nagarectl-wrapped: Ticker: poll failed: Interrupted system call: Interrupted system call
+.nagarectl-wrapped: Ticker: poll failed: Interrupted system call: Interrupted system call
+.nagarectl-wrapped: Ticker: poll failed: Interrupted system call: Interrupted system call
+.nagarectl-wrapped: Ticker: poll failed: Interrupted system call: Interrupted system call
+.nagarectl-wrapped: Ticker: poll failed: Interrupted system call: Interrupted system call
+.nagarectl-wrapped: Ticker: poll failed: Interrupted system call: Interrupted system call
+warning: could not read HEAD ref from repo at '/work/nagare', using 'master'
+warning: ignoring untrusted flake configuration setting 'extra-substituters'.
+Pass '--accept-flake-config' to trust it
+warning: ignoring untrusted flake configuration setting 'extra-trusted-public-keys'.
+Pass '--accept-flake-config' to trust it
+Wrote context 'rehearsal-cloud' (/tmp/nagare-clone-free.6llupS/config/nagare/contexts/rehearsal-cloud.env)
+warning: could not read HEAD ref from repo at '/work/nagare', using 'master'
+warning: ignoring untrusted flake configuration setting 'extra-substituters'.
+Pass '--accept-flake-config' to trust it
+warning: ignoring untrusted flake configuration setting 'extra-trusted-public-keys'.
+Pass '--accept-flake-config' to trust it
+warning: could not read HEAD ref from repo at '/work/nagare', using 'master'
+warning: ignoring untrusted flake configuration setting 'extra-substituters'.
+Pass '--accept-flake-config' to trust it
+warning: ignoring untrusted flake configuration setting 'extra-trusted-public-keys'.
+Pass '--accept-flake-config' to trust it
+warning: could not read HEAD ref from repo at '/work/nagare', using 'master'
+warning: ignoring untrusted flake configuration setting 'extra-substituters'.
+Pass '--accept-flake-config' to trust it
+warning: ignoring untrusted flake configuration setting 'extra-trusted-public-keys'.
+Pass '--accept-flake-config' to trust it
+.nagarectl-wrapped: Ticker: poll failed: Interrupted system call: Interrupted system call
+.nagarectl-wrapped: Ticker: poll failed: Interrupted system call: Interrupted system call
+.nagarectl-wrapped: Ticker: poll failed: Interrupted system call: Interrupted system call
+warning: could not read HEAD ref from repo at '/work/nagare', using 'master'
+warning: ignoring untrusted flake configuration setting 'extra-substituters'.
+Pass '--accept-flake-config' to trust it
+warning: ignoring untrusted flake configuration setting 'extra-trusted-public-keys'.
+Pass '--accept-flake-config' to trust it
+rehearsal exit=0 seconds=67
+run exit=0

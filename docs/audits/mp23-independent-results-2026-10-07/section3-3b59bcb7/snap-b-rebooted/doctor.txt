@@ -1,0 +1,37 @@
+nagare doctor — 29 checks
+
+  [OK]    VM                       RUNNING
+  [OK]    k3s node                 Ready
+  [OK]    Knative controller       rolled out
+  [OK]    Knative webhook          rolled out
+  [OK]    Kourier gateway          rolled out
+  [OK]    cert-manager             rolled out
+  [OK]    cert-manager-webhook     rolled out
+  [OK]    cert-manager-cainjector  rolled out
+  [OK]    net-certmanager          rolled out
+  [OK]    ClusterIssuer            letsencrypt-dns Ready
+  [OK]    Kourier ingress          serving on 35.199.190.114 (HTTP 404; LB EXTERNAL-IP 10.10.0.2)
+  [OK]    base domain              c3-1011.labs.topagentnetwork.net (= Pulumi baseDomain)
+  [WARN]  external-domain-tls      could not check; config-network not reachable
+          fix: expected while the base domain is the placeholder apps.example.com; enable once a real DNS-01-capable domain is set (/Users/shinzui/.local/state/nagare-verify/mp23-c3l/state/nagare/mp23-c3l/platform/nagare-0.4.0-3b59bcb7612d-9aa97a32fa69dc6b/cluster/bootstrap/net-certmanager/README.md)
+  [OK]    certificate policy       public ACME names are confined to labeled app namespaces
+  [OK]    Artifact Registry        us-west1-docker.pkg.dev/tan-ng-labs/nagare-c3-1011 reachable
+  [OK]    private image pull       us-west1-docker.pkg.dev in registriesSkippingTagResolving
+  [OK]    build platform           linux/amd64 matches node amd64
+  [WARN]  backup litestream        could not check; gsutil unavailable or prefix empty
+          fix: take an on-demand managed-DB backup: nagarectl db backup <name>; consult /Users/shinzui/.local/state/nagare-verify/mp23-c3l/state/nagare/mp23-c3l/platform/nagare-0.4.0-3b59bcb7612d-9aa97a32fa69dc6b/docs/runbooks/disaster-recovery.md
+  [WARN]  backup volumes           could not check; gsutil unavailable or prefix empty
+          fix: take an on-demand managed-DB backup: nagarectl db backup <name>; consult /Users/shinzui/.local/state/nagare-verify/mp23-c3l/state/nagare/mp23-c3l/platform/nagare-0.4.0-3b59bcb7612d-9aa97a32fa69dc6b/docs/runbooks/disaster-recovery.md
+  [OK]    stuck rollouts           none
+  [OK]    host age key             ready at /var/lib/sops-nix/age-key.txt (sha256 e8ee2264e5b5140a60140122c9ab922c34ea495a73e07527562458cf5d77883a)
+  [OK]    boot disk                15% of 99G
+  [OK]    data disk                1% of 98G
+  [OK]    recovery point           nagare-system/en-db: healthy; age=863s; objective=hourly; newest point is verified and awaits reviewed ingestion
+  [OK]    recovery point           nagare-system/shomei-db: healthy; age=881s; objective=hourly; newest point is verified and awaits reviewed ingestion
+  [OK]    recovery point           personal/scenario-ch: healthy; age=900s; objective=hourly; newest point is verified and awaits reviewed ingestion
+  [OK]    recovery point           personal/scenario-pg: healthy; age=922s; objective=hourly; newest point is verified and awaits reviewed ingestion
+  [OK]    recovery point           personal/scenario-redis: healthy; age=42s; objective=hourly; newest point is verified and awaits reviewed ingestion
+  [OK]    platform version         CLI, payload, context, host, and cluster agree
+
+0 failed, 3 warnings, 26 ok.
+doctor exit=0 seconds=119

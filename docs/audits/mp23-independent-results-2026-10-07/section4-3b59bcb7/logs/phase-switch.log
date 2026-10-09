@@ -1,0 +1,4 @@
+== 09:12:28 reviewed switch-over to the new instance
+v5-switch-new: converged tx-dab46b767223cbb337b4f5af0bfd3610722d4ba5d3c834a9f680376c1ff26b17
+== 09:13:23 app on PostgreSQL 18: rows 9:9 -> 10:10; old instance kept read-only (default_transaction_read_only=on)
+PHASE-OK switch

@@ -1,0 +1,30 @@
+{
+  "database": "scenario-retire",
+  "collectedInOrder": [
+    {
+      "members": [
+        "backup"
+      ],
+      "result": "converged tx-f4c4f9bba19bc2ae747e768f05c8a66506325a934d16d68989405c10ac6ef731"
+    },
+    {
+      "members": [
+        "statefulset",
+        "backup-read-binding"
+      ],
+      "result": "converged tx-636d4f629d2c41a087ba69c1941bb8c9b36737d09584563477fb7127b8367eb8"
+    },
+    {
+      "members": [
+        "service",
+        "backup-read-role",
+        "backup-account"
+      ],
+      "result": "converged tx-6c2b5a2bdb2510bf872587b358085472f57f5de8b83d382c0ad344aeb6688b80"
+    }
+  ],
+  "pvcCollection": {
+    "command": "inventory collect --resource standalone:database-scenario-retire/scenario-retire/pvc --out DIR",
+    "output": "PlanError {planErrorCode = \"invalid-collection\", planErrorMessage = \"collection needs a selected retained incarnation of a supported kind, exact present provider identity, stateless deletion policy, and no known consumers\", planErrorResources = [ResourceId \"standalone:database-scenario-retire/scenario-retire/pvc\"]}"
+  }
+}

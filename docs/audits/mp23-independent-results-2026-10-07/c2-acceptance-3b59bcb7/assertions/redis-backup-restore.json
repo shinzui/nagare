@@ -1,0 +1,30 @@
+{
+  "cluster": "k3d-nagare-local",
+  "context": "local",
+  "evidence": [
+    {
+      "path": "checks/redis-backup-restore/restored.json",
+      "sha256": "6d6e82df36fc630cf75c37d14a2cd9cb528b3e697070897a620d7d22c3db808f"
+    },
+    {
+      "path": "checks/redis-backup-restore/seed.json",
+      "sha256": "0336b348628c5baa010a06dcd1c013d249043fcc9377bfc3d49e741bffaafcb4"
+    },
+    {
+      "path": "checks/redis-backup-restore/source-after.json",
+      "sha256": "2440d35ae276951659584914f529533d1270c7ae32b2234c113515a8e59aa91f"
+    },
+    {
+      "path": "checks/redis-backup-restore/wrong-incarnation-redis.json",
+      "sha256": "6a5d28f06f47d400941ccbc8d17effbc5012ddc94ae8e18023633f1fb722cf5f"
+    }
+  ],
+  "fixtureDigest": "dd431786f1905bccae8524ad465c1ea4fe81bcc81a619726dc2583b6232b4a1c",
+  "mode": "local",
+  "name": "redis-backup-restore",
+  "operatorRevision": "3b59bcb7612d513bfd663c36c251f8454e615502",
+  "passed": true,
+  "recordedAt": "2026-10-09T04:38:09Z",
+  "schemaVersion": 1,
+  "summary": "A reviewed manual MinIO backup of scenario-redis restored into an isolated scratch instance with exactly the seeded keys while the source kept its later key; a foreign PVC created at the scratch address between plan and apply was refused at preflight, left untouched, and the review ended through abandon-refused-operation"
+}

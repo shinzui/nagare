@@ -1,0 +1,9 @@
+{
+  "context": "mp23-c3l",
+  "expectedCluster": "nagare-c3-1011",
+  "expectedProject": "tan-ng-labs",
+  "kubeCluster": "mp23-c3l",
+  "kubeContext": "mp23-c3l",
+  "mode": "cloud",
+  "schemaVersion": 1
+}

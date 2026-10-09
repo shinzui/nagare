@@ -1,0 +1,107 @@
+{
+    "builderProbe": {
+        "ok": true,
+        "system": "x86_64-linux"
+    },
+    "clean": true,
+    "commit": "3b59bcb7612d513bfd663c36c251f8454e615502",
+    "green": true,
+    "steps": [
+        {
+            "command": "nix build --no-link --impure --expr derivation { name = \"nagare-builder-probe\"; system = \"x86_64-linux\"; builder = \"/bin/sh\"; args = [ \"-c\" \"echo 13961219284061372211 > $out\" ]; }",
+            "exit": 0,
+            "logPath": "/Users/shinzui/.local/state/nagare/gates/logs/20261009T031342.508074Z/builder-probe-x86_64-linux.log",
+            "name": "builder-probe-x86_64-linux",
+            "seconds": 5.289185
+        },
+        {
+            "command": "just haskell-style-check",
+            "exit": 0,
+            "logPath": "/Users/shinzui/.local/state/nagare/gates/logs/20261009T031342.508074Z/haskell-style-check.log",
+            "name": "haskell-style-check",
+            "seconds": 7.523892
+        },
+        {
+            "command": "bash scripts/test-managed-command-audit.sh",
+            "exit": 0,
+            "logPath": "/Users/shinzui/.local/state/nagare/gates/logs/20261009T031342.508074Z/architecture-and-command-audit.log",
+            "name": "architecture-and-command-audit",
+            "seconds": 7.121868
+        },
+        {
+            "command": "python3 scripts/test-registry-credential-delegation.py",
+            "exit": 0,
+            "logPath": "/Users/shinzui/.local/state/nagare/gates/logs/20261009T031342.508074Z/registry-credential-delegation.log",
+            "name": "registry-credential-delegation",
+            "seconds": 4.120684
+        },
+        {
+            "command": "cabal run --project-dir=cli/nagare-harness -v0 nagare-harness -- mutations check",
+            "exit": 0,
+            "logPath": "/Users/shinzui/.local/state/nagare/gates/logs/20261009T031342.508074Z/mutation-records.log",
+            "name": "mutation-records",
+            "seconds": 2.169626
+        },
+        {
+            "command": "cabal build nagarectl-test",
+            "exit": 0,
+            "logPath": "/Users/shinzui/.local/state/nagare/gates/logs/20261009T031342.508074Z/nagarectl-build.log",
+            "name": "nagarectl-build",
+            "seconds": 473.718622
+        },
+        {
+            "command": "cabal build nagare-dsl-test",
+            "exit": 0,
+            "logPath": "/Users/shinzui/.local/state/nagare/gates/logs/20261009T031342.508074Z/nagare-dsl-build.log",
+            "name": "nagare-dsl-build",
+            "seconds": 84.520879
+        },
+        {
+            "command": "cabal run --project-dir=cli/nagare-harness -v0 nagare-harness -- mutations patterns",
+            "exit": 0,
+            "logPath": "/Users/shinzui/.local/state/nagare/gates/logs/20261009T031342.508074Z/mutation-patterns.log",
+            "name": "mutation-patterns",
+            "seconds": 12.677144
+        },
+        {
+            "command": "cabal test nagarectl-test",
+            "exit": 0,
+            "logPath": "/Users/shinzui/.local/state/nagare/gates/logs/20261009T031342.508074Z/nagarectl-test.log",
+            "name": "nagarectl-test",
+            "seconds": 957.268524
+        },
+        {
+            "command": "cabal test nagare-dsl-test",
+            "exit": 0,
+            "logPath": "/Users/shinzui/.local/state/nagare/gates/logs/20261009T031342.508074Z/nagare-dsl-test.log",
+            "name": "nagare-dsl-test",
+            "seconds": 8.018653
+        },
+        {
+            "command": "nix flake check --all-systems --print-build-logs",
+            "exit": 0,
+            "logPath": "/Users/shinzui/.local/state/nagare/gates/logs/20261009T031342.508074Z/nix-flake-check.log",
+            "name": "nix-flake-check",
+            "seconds": 259.792284
+        }
+    ],
+    "systems": {
+        "aarch64-darwin": {
+            "checks": 37,
+            "realised": 37,
+            "remaining": []
+        },
+        "x86_64-linux": {
+            "checks": 36,
+            "realised": 36,
+            "remaining": []
+        }
+    },
+    "tools": {
+        "cabal": "3.16.1.0",
+        "ghc": "9.12.4",
+        "nix": "nix (Determinate Nix 3.23.0) 2.35.2"
+    },
+    "tree": "a151b655a6bcc9281ba196be4feb561de2a346e8",
+    "version": 1
+}

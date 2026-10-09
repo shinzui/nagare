@@ -102,6 +102,16 @@ This is the authoritative list of implementation findings for [MP-23](../masterp
 | [F83](mp23-archive/mp23-findings-closed.md#f83) | P1 | A reviewed retirement whose review proves a Kubernetes member absent always refuses through the CLI | Closed | nagare-fix (follow-up candidate) |
 | [F84](#f84) | P2 | An accepted access grant cannot be retired, so a full context holding one has no reviewed teardown | Deferred (next release) | nagare-fix |
 | [F85](#f85) | P2 | The installed package needs host npm, so the clone-free rehearsal fails on x86_64-linux | Deferred (next release) | nagare-fix |
+| [F86](#f86) | P1 | A review admits an in-place PostgreSQL major-version change, with no reviewed exit once applied | Closed | nagare-fix |
+| [F87](#f87) | P2 | An application cannot drop one of its databases through review | Closed | nagare-fix |
+| [F88](#f88) | P2 | A controller's status write refuses an in-sync reviewed update, and the refusal has no reason | Verifying | nagare-fix |
+| [F89](#f89) | P3 | One failed GCS store read aborts a journal append and leaves the operation ambiguous | Deferred (next release) | nagare-fix |
+| [F90](#f90) | P2 | The host transport ran the `nagarectl` first on PATH | Closed | nagare-fix |
+| [F91](#f91) | P3 | After a closed failed host upgrade, `inventory status` refuses until the previous lock is restored | Deferred (next release) | nagare-fix |
+| [F92](#f92) | P2 | `doctor` verifies every retained backup serially | Closed | nagare-fix |
+| [F93](#f93) | P1 | A host upgrade with a bound age key strands its review's second activation operation | Closed | nagare-fix |
+| [F94](#f94) | P3 | `inventory resume` stops "ambiguous" without the adapter's recovery reason | Deferred (next release) | nagare-fix |
+| [F95](#f95) | P1 | A host upgrade that restarts `tailscaled` or the network ends its own activation session, never commits, and hangs the apply | Closed | nagare-fix |
 | [F77](#f77) | P1 | A database volume claim deleted outside review while its pod runs stays Terminating, and every review of the database refuses until it goes | Deferred | deferral ledger (operator, 2026-10-07); next MasterPlan |
 | [F78](#f78) | P2 | While a StatefulSet's own template never becomes Ready, every transaction stops at it, and independent members planned after it are never created until the template is corrected | Deferred | operator, 2026-10-07; next MasterPlan |
 
@@ -215,7 +225,7 @@ Kubernetes members can be collected one review at a time, but host and artifact 
 
 ## F86
 
-**A review admits an in-place PostgreSQL major-version change; once applied, an application-owned database is down with no reviewed exit** — P1 (outage, no data loss); **Verifying** (fixed in `4d6abd28`; final proof is the section 4 drill on the next candidate); owner nagare-fix.
+**A review admits an in-place PostgreSQL major-version change; once applied, an application-owned database is down with no reviewed exit** — P1 (outage, no data loss); **Closed** (fixed in `4d6abd28`; verified natively on cp3 and on `mp23-c3l`); owner nagare-fix.
 
 **Found by nagare-verify in the section 4 local rehearsal on `3ae20f8c` (2026-10-08; observed).** It ran on cp3, in the C2 context. Application `upg-app` owns `upg-pg` at `"17"`, holding 7 rows.
 - Changing that database's version to `"18"` in the application config plans as a plain `UpdateResource` of `application:upg-app/upg-pg/statefulset` and its backup. There is no refusal and no warning.
@@ -243,9 +253,11 @@ Mutation records: `F86-postgres-major-unchecked`, `F86-restart-supplies-every-na
 - The unchanged config still plans.
 - Review `366999eb` (one `ReplaceStuckPod` and 19 `VerifyResource`) converged. `upg-pg-0` came back as a new pod (uid `31354dbd`) on postgres:17: Ready, 0 restarts, PostgreSQL 17.11, `hits` 7:7, store idle.
 
+**Verification (nagare-verify, 2026-10-09, `mp23-c3l`, candidate `3b59bcb7`):** in the cloud section 4 drill, planning the in-place change of `upg-pg` from 17 to 18 refused with "PostgreSQL upg-pg would change from postgres:17 to postgres:18 in place …" and pointed to the side-by-side procedure ([section 4](mp23-independent-results-2026-10-07/section4-3b59bcb7/), `probe-inplace.txt`). The reviewed replace-stuck-pod exit was proven on cp3 (above).
+
 ## F87
 
-**An application cannot drop one of its databases through review, so the old instance of a side-by-side upgrade can never be retired** — P2; **Verifying** (fixed in `d459ba78`); owner nagare-fix.
+**An application cannot drop one of its databases through review, so the old instance of a side-by-side upgrade can never be retired** — P2; **Closed** (fixed in `d459ba78`; verified on `mp23-c3l`); owner nagare-fix.
 
 **Found by nagare-verify in the section 4 local rehearsal on `3ae20f8c` (2026-10-08; observed).** Application `upg2-app` declares `upg2-pg` (`"17"`) and `upg2-pg18` (`"18"`), and its service is bound to `upg2-pg18`, which is proven by a reviewed backup and isolated restore. A deploy whose config declares only `upg2-pg18` fails at planning:
 - First `dangling-reference`, because the pre-upgrade manual backup and restore scopes consume the old database. That is correct, and the documented exit worked: `inventory retire` of both consumer scopes.
@@ -256,6 +268,145 @@ Mutation records: `F86-postgres-major-unchecked`, `F86-restart-supplies-every-na
 **Fix (`d459ba78`, nagare-fix):** `app deploy … --save-plan DIR --retire-database NAME`, repeatable. It plans through the explicit-retirement path: every member of the application's accepted members whose logical key is NAME is retained, bound to its physical UID, and nothing is deleted. It refuses without `--save-plan`, for a name the config still declares, for a name with no accepted members, and for a repeated name. A member already confirmed absent cannot carry the approval (`invalid-retirement`), as on the explicit-retirement path. A read-only plan against the held `upg2-app` state retained exactly the nine `upg2-pg` members (review `e3f53ebd`).
 
 **Expected:** a reviewed lifecycle decision for an application's removed database. One option is `app deploy … --retire-database NAME`, which retains every member, as `inventory retire` does, deletes nothing, and frees the binding.
+
+**Verification (nagare-verify, 2026-10-09, `mp23-c3l`, candidate `3b59bcb7`):** in the cloud section 4 drill, after the consumer scopes were retired, `app deploy --retire-database upg-pg` planned and converged. It retained the old instance (StatefulSet and volume kept) and left the application on `upg-pg18` with every row (12:12) ([section 4](mp23-independent-results-2026-10-07/section4-3b59bcb7/), `review-v6-new-only.txt`).
+
+## F88
+
+**A reviewed update of a CronJob is refused when its controller writes status between planning and apply, and the refusal carries no reason** — P2; **Verifying** (fixed in `478e51de`, in final candidate `3b59bcb7`; interpreter tests pin it, and no native run has yet hit a status write inside the window); owner nagare-fix.
+
+**Found by nagare-verify in C3 on `mp23-c3k`, candidate `3b78d905` (2026-10-08; observed).** In phase 3's application change, `deploy-a-c3b` was admitted at 22:15:31. It stopped at `UpdateResource application:scenario-a/scenario-pg/backup`, the `*/15` backup CronJob, with `KnownNoEffect "adapter preflight refused"`. `inventory resume` refused the same way. These were ruled out:
+- the object's UID is unchanged;
+- the only field managers are `nagare-inventory` (metadata and spec) and `k3s` (the status subresource);
+- `verifyBackupSources` does not apply to updates.
+The scheduled backup Job ran from 22:15:00 to 22:15:33, and k3s wrote the CronJob's status when it completed. The guard therefore falls back to the exact before-state (`requireWriteTarget` → `requireSameBefore`), and a status write changes that before-state. A review of a CronJob then applies only if no scheduled run falls between planning and apply. The same step converged on `3ae20f8c` (`mp23-c3j`) only because no run fell in its window. This is the F30 class (status-only churn strands an admitted correction), here for CronJobs.
+
+A second defect: `Execute/Driver.hs:405` discards the adapter's reason on a first preflight refusal, so the operator sees no reason. F57 journals the reason only for a retried operation.
+
+The transaction was closed with no effect (`inventory close`, every refused operation "never started"). The deploy was then planned and applied again, and the chain continued; evidence is in `c3-acceptance-3b78d905/`.
+
+**Expected:**
+- Status-subresource churn does not invalidate a reviewed update, and the guard rests on UID, owner and spec stamp, as `KubernetesProof.hs` intends.
+- The preflight reason is kept and printed.
+- An interpreter test covers a status write between planning and apply.
+
+**Fix (`478e51de`, nagare-fix):** a controller's status write no longer invalidates an in-sync reviewed update, and a first preflight refusal now carries the adapter's reason. Interpreter tests cover both. On the final candidate, C3 on `mp23-c3l` applied the same application change on its first attempt ([C3](mp23-independent-results-2026-10-07/c3-acceptance-3b59bcb7/)). That run does not show whether a scheduled backup fell in the window, so the native run confirms only that nothing regressed. On `83124396` (`mp23-c3m`, 2026-10-09) the change again converged on its first apply, between 15:07:46 and 15:10:44. That window holds none of the `*/15` CronJob's scheduled runs, so F88 stays Verifying until a native run hits a status write inside the window ([C3](mp23-independent-results-2026-10-07/c3-acceptance-83124396/)).
+
+## F89
+
+**One failed read of the GCS inventory store aborts a journal append and leaves the operation ambiguous** — P3 (no data loss); **Deferred (next release, operator 2026-10-08)**; owner nagare-fix.
+
+**Found by nagare-verify on `mp23-c3k`, candidate `3b78d905` (2026-10-08; observed twice).** Both stopped with `StoreIoError "inventory object metadata could not be read"`:
+- bootstrap stage 3, at 20:27Z, during an expired gcloud reauthentication;
+- `cleanup --images`, at 23:1xZ, with valid credentials, so a transient failure.
+`inventory resume` converged both.
+
+A third observation, on `mp23-c3l` and final candidate `3b59bcb7` (2026-10-09, section 3 drill A): `inventory close` failed once with `StoreIoError "inventory object generation could not be downloaded completely"`, with valid credentials. It wrote nothing (the head's sequence and generation were unchanged, and no claim was held). The same close, rerun, is the exit.
+
+**Cause (nagare-fix, from the source).** In `Execute/Journal.hs` `appendEventAt`, only the final head write retries (`commitHead`). The reads before the conditional journal write have no retry: `observeHead`, the previous event read, and the put's failure readback. In `Store/Gogol.hs` `get`, any failed metadata call becomes `GetUnknown`.
+
+**Proposed fix:** retry the whole append on `StoreIoError`, bounded, with a model test for a transient failure at each read placement.
+
+**Deferral reasoning:**
+- No data is lost: the journal stays consistent and resume recovers the operation.
+- Touching the append path just before the final candidate would add risk to every rerun.
+The operator deferred it to the next release (2026-10-08).
+
+## F90
+
+**The host transport ran whatever `nagarectl` was first on PATH, not the binary that started it** — P2; **Closed** (fixed in `b9e66e21`; verified on `mp23-c3l`); owner nagare-fix.
+
+**Found by nagare-verify in the section 3 drill on `mp23-c3k`, candidate `3b78d905` (2026-10-08; observed).** The first reviewed `host apply` stopped ambiguous at activation with `host transport exited 1: … Invalid argument 'name'`. `scripts/host-switch.sh` calls bare `nagarectl host name` and `nagarectl inventory guard-legacy`, and `lib/host.sh` calls `nagarectl host path`. Those resolved to the operator's profile `nagarectl` 0.2.2. Nothing reached the host. The transaction closed with no effect through the new host settle ("the reviewed host runs its old closure … with no rollback timer armed"). The drill continued with the candidate's `bin` first on PATH.
+
+**Fix:** the host runtime passes its own executable as `NAGARECTL`, with its directory first on the transport's PATH. The scripts call `"${NAGARECTL:-nagarectl}"`. Tests use a decoy `nagarectl` on PATH.
+
+**Verification (nagare-verify, 2026-10-09, `mp23-c3l`, candidate `3b59bcb7`):** C3 and every section 3 host apply ran with the operator's own `PATH`, with no candidate-binary override, so a profile `nagarectl` 0.2.2 came first. The host transport's nested calls used the invoking binary: drill B's re-pin converged, and so did the reviewed `host stop` and `host start` ([section 3](mp23-independent-results-2026-10-07/section3-3b59bcb7/)).
+
+## F91
+
+**After a failed host upgrade is closed, `inventory status` refuses outright until the previous flake.lock is restored** — P3; **Deferred (next release, operator 2026-10-08, decided in nagare-fix's session)**; owner nagare-fix.
+
+**Found by nagare-verify in section 3 drill A on `mp23-c3k` (2026-10-09; observed).** Close reverted the host scope to its base, but the operator's flake.lock was still re-pinned. Every `inventory status` then failed with `reviewed host inputs differ from the selected configuration or lock` (from `inventoryHostAdapter`), and so did `doctor`'s inventory checks. Restoring the previous lock clears it.
+
+The procedure now says to restore the accepted lock first in the failed-upgrade exit. Reporting this as host-input drift instead of failing would change `inventory status` for every context. It is neither data loss nor blocking; the operator deferred it to the next release.
+
+## F92
+
+**`doctor` verifies every retained scheduled backup serially, so its run time grows without bound** — P2; **Closed** (fixed in `534ff1a1`; verified on `mp23-c3l`); owner nagare-fix.
+
+**Found by nagare-verify on `mp23-c3k`, candidate `3b78d905` (2026-10-09; observed).** The section 3 baseline `doctor` hit a 600 s timeout with no output. Run alone, it finished in 16 min 9 s (exit 0, 29 checks), while 164 backup objects were retained after about 4 hours of `*/15` schedules across five databases. While it ran, its only child processes were serial `gcloud storage cp` and `storage objects describe` calls for every backup object and receipt. Scheduled pruning is not enforced, so retained backups only grow, and a context with months of hourly backups would take hours.
+
+**Cause (nagare-fix):** `scheduledRecoveryPointProbes` in `Cli/Data/ScheduledReceipts.hs` runs the full `scheduledReceiptReport`, the code `db backup-receipts` uses, which downloads and verifies every candidate. It then reads only the freshness, which depends only on the newest verified recovery point.
+
+**Fix (`534ff1a1`):** a freshness-only scan that walks backups newest-first and stops at the first object and receipt that verify, so one verified object is read per database.
+
+**Verification (nagare-verify, 2026-10-09, `mp23-c3l`, candidate `3b59bcb7`):** `doctor` exited 0 in 110–119 s at each of the four section 3 states, with about 5 hours of `*/15` backups retained. On `3b78d905` it took 16 min 9 s ([section 3](mp23-independent-results-2026-10-07/section3-3b59bcb7/), `snap-*/doctor.txt`).
+
+## F93
+
+**A host upgrade on a context with a bound age key commits on the host, then strands its transaction on the review's second activation operation** — P1 (no data loss; blocks section 3); **Closed** (fixed in `f075df60`; verified on `mp23-c3l`); owner nagare-fix.
+
+**Found by nagare-verify in section 3 drill B on `mp23-c3k`, candidate `3b78d905` (2026-10-09; observed).** The re-pin review `apply-b` (nixpkgs `b1b87598`) has two operations on `platform:host/nixos-system/system`:
+- `UpdateResource` op-349a;
+- `RunDeclaredOperation` op-1b84, which depends on op-349a.
+Both carry a version-2 activation plan: the same old closure (`eaad089`), the same new closure (`b1b8759`), a required credential receipt, and each its own activation ID.
+- op-349a activated: `switch-to-configuration test` ran 01:30:38–01:30:46. The fresh login passed, the switch committed at 01:30:49, and op-349a completed at 01:31:00.
+- op-1b84 was then refused at preflight with no reason (F88's second defect). `preflightState` requires the plan's old closure or this plan's own commit, and the host is now committed to the new closure under op-349a's activation.
+- `inventory resume` refused the same way. `inventory close` reported op-349a completed, op-1b84 never started, and the host scope kept with nothing converged.
+
+The host itself is healthy on the new system: timer inactive, k3s active, node Ready, all pods Running. The plans are preserved in `s3/evidence` (blobs `88b65015…`, `4f903ba4…`).
+
+**Expected:** a re-pin review on a host with a bound credential converges, with an interpreter test. The public fixture's re-pin has no bound age key, so it did not exercise this path.
+
+**Fix (`f075df60`, nagare-fix):** the credential receipt is keyed by the reviewed activation, not by the operation that wrote it, so the review's second operation finds the committed activation and converges.
+
+**Verification (nagare-verify, 2026-10-09, `mp23-c3l`, candidate `3b59bcb7`):** section 3 drill B's re-pin review on a host with a bound age key (`UpdateResource` plus `RunDeclaredOperation` on `platform:host/nixos-system/system`) converged in one apply ([section 3](mp23-independent-results-2026-10-07/section3-3b59bcb7/), timeline 07:33:33).
+
+## F94
+
+**`inventory resume` stops "ambiguous" without the adapter's recovery reason** — P3 (no data loss; the refusal itself is correct); **Deferred (next release, under the operator's overnight rule of 2026-10-08)**; owner nagare-fix.
+
+**Found by nagare-verify in section 3 drill A on `mp23-c3l`, final candidate `3b59bcb7` (2026-10-09; observed).** The failed host upgrade was stopped mid-activation, and the on-host timer reverted it to the old closure. `inventory resume` then exited 1 with only `ambiguous tx-867b8bf0… at op-22a040a9…`. The host's recovery decision carries the reason and the exit ("the reviewed host runs its old closure … with no rollback timer armed; close the transaction and review the change again", `Adapters/Host.hs` `recoveryState`). The resume behaved as documented: it did not switch again, and it journaled nothing (the head's next sequence stayed at 826). `inventory close` was the documented next step.
+
+**Cause:** `Execute/Driver.hs` maps every non-complete recovery decision (`RecoveryUnresolved`, `RecoveryLandedUnready`, `RecoveryTargetReplaced`, `RecoveryTerminalFailure`, and a `RecoverySafeToRetry` that is not allowed) to `StoppedAmbiguous transaction operation`, which drops the reason. This is the class of F88's second defect, on the resume path, and it affects every adapter.
+
+**Expected:** `StoppedAmbiguous` carries the decision's reason, and `resume` prints it and the named exit.
+
+Second observation (mp23-c3m, candidate `83124396`, bootstrap stage 7, 2026-10-09): `apply` also printed only `ambiguous tx-e5c3b77f… at op-18e0018d…`. The reason was only in the journal: the transport's fresh Tailnet login met Tailscale SSH's periodic re-authentication ("Tailscale SSH requires an additional check. To authenticate, visit …") and timed out. Nothing was activated (no rollback timer, no activation record, host on its initial system). The exit needs the operator to approve the check, which the message never tells them.
+
+**Deferral reasoning:** the operator sees a refusal with no reason, but nothing is mutated. The host procedure (`day-2-host-changes.md`) already names close as the exit after a revert. Under the overnight rule (2026-10-08), non-critical findings are deferred and reported in the morning.
+
+## F95
+
+**A host upgrade that restarts `tailscaled` or the network ends its own activation session, so it can never commit, and the apply hangs** — P1 (no data loss; blocks section 3's k3s upgrade drill); **Closed** (fixed in `83124396`; natively verified by section 3 drill C on `mp23-c3m`); owner nagare-fix.
+
+**Found by nagare-verify in section 3 drill C on `mp23-c3l`, final candidate `3b59bcb7` (2026-10-09; observed).** The reviewed re-pin to nixpkgs `e7439b6b` (k3s 1.35.8 → 1.36.4) planned and applied. On the host:
+- 08:07:21: `switch-to-configuration test` started. It runs under `systemd-run --pipe --wait` inside the transport's SSH session (`nixos/lib/nagare-safe-activate.sh`), which reaches the host through Tailscale SSH.
+- 08:07:38: the new system restarted `network-addresses-eth0`, `dhcpcd`, `sshd` and `tailscaled` (1.102.4 → 1.102.5). tailscaled logged "terminating SSH session … context canceled". The network was unreachable until DHCP renewed at 08:07:45.
+- 08:07:45: `nagare-switch-activate.service` exited 101, which is Rust's panic exit code: the switch lost its piped output partway through.
+- 08:08:54: k3s 1.36.4 started.
+- Because the network was down when the session ended, the client never saw EOF. Its ssh has no `ServerAliveInterval`, so it waited indefinitely, the fresh-login check and commit never ran, and the apply hung.
+- 08:17:31: the rollback timer reverted the host to the previous system, and k3s 1.35.8 started on the same datastore.
+
+nagare-verify ended the hung ssh by its exact PID 22 minutes later, which is what a keepalive would have done. The apply then stopped `ambiguous`. The documented exit worked: resume refused without switching (F94: with no reason shown), `close` settled "no effect", and the previous lock was restored. Afterwards the data hash matched the pre-upgrade snapshot (`24467b7d`), all pods were running, and `doctor` exited 0 ([evidence](mp23-independent-results-2026-10-07/section3-3b59bcb7/)).
+
+**Drill B shows the same mechanism.** Its switch also exited 101 at 07:32:44, after six seconds, when tailscaled 1.102.3 → 1.102.4 restarted. The network stayed up, so the client got EOF, the fresh login succeeded, and the commit ran. B therefore committed a system whose `switch-to-configuration` had been cut off. The reviewed reboot that followed activated it fully.
+
+**Expected:**
+- The activation does not depend on the session that the activation may restart. For example: start the switch as a detached transient unit with its output in the journal, then reconnect with fresh logins to read the unit's result before the commit.
+- The transport's ssh has a keepalive, so a dead session fails within a bounded time instead of hanging the apply.
+- An interpreter or script test kills the session during the switch.
+
+**Fix (`83124396`, nagare-fix):** `nagare-safe-activate activate` starts the switch as a detached transient unit and returns at once. The client learns the result over fresh logins (`activation NEW`: running, done with its exit code, or unknown) and commits only after `DONE` and a fresh-login check. `commit` refuses while the unit runs. Every ssh of the client and transport has a keepalive. Tests: `nix/checks/scripts/test-host-switch-session-loss.sh` in the flake check, plus scenario 4 of the `host-switch-auto-rollback` NixOS VM test, which takes the network down and ends the deploy session mid-switch; that switch still committed ([VM log](mp23-independent-results-2026-10-07/f95-vm-test-83124396/vm-f95.log.gz)).
+
+**Verification (nagare-verify, 2026-10-09, `mp23-c3m`, candidate `83124396`; observed):** section 3 drill C, the same re-pin to nixpkgs `e7439b6b` (k3s 1.35.8 → 1.36.4), committed on its first apply in 5 minutes. The host journal for the activation (`apply-c-host-journal.txt`) shows the following:
+- 17:23:48: the switch started in its own transient unit.
+- 17:24:05: the new system restarted the network units and `tailscaled`, as on `mp23-c3l`.
+- 17:24:30: k3s 1.36.4 started.
+- 17:24:31: `nagare-switch-activate.service` finished on its own, after 42 s.
+- 17:24:36: the client read the result over a fresh login and committed, which disarmed the rollback timer.
+
+After a reviewed cold reboot the host ran k3s 1.36.4 on kernel 6.18.55. The data hash was unchanged (`24467b7d`), no pod was left not running, and `doctor` exited 0 ([section 3](mp23-independent-results-2026-10-07/section3-83124396/)).
 
 ## F77
 

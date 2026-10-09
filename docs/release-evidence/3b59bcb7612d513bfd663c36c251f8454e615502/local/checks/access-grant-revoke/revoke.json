@@ -1,0 +1,11 @@
+{
+ "host": "scenario-a.127-0-0-1.sslip.io",
+ "subject": "0199a1c2-c2a0-7000-8000-00000000c2a1",
+ "review": "5a2245deee7a51cd8aaa672c333f86fd87259c9cade74a0602d2ac5e6fc20b1d",
+ "operations": [
+  "revoke 0199a1c2-c2a0-7000-8000-00000000c2a1 viewer on scenario-a.127-0-0-1.sslip.io"
+ ],
+ "result": "converged tx-5a2245deee7a51cd8aaa672c333f86fd87259c9cade74a0602d2ac5e6fc20b1d",
+ "listAfterRevoke": "(none)",
+ "subjectAbsentAfterRevoke": true
+}

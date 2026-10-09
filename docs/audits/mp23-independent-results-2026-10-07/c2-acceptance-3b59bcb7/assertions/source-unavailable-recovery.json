@@ -1,0 +1,30 @@
+{
+  "cluster": "k3d-nagare-local",
+  "context": "local",
+  "evidence": [
+    {
+      "path": "checks/source-unavailable-recovery/escrow.json",
+      "sha256": "8fff1ef0baee00e57987b25dfba50e7c0dcb1299f50f352b330d4d17611e6532"
+    },
+    {
+      "path": "checks/source-unavailable-recovery/idle-after.json",
+      "sha256": "7f34c8af2c94447da23529b918692109d7a46c5dfaef9aef900b0ac0639ebe0a"
+    },
+    {
+      "path": "checks/source-unavailable-recovery/restored.json",
+      "sha256": "4403c0879ab3fff6ff456b7f90fb89f462e1d08ca3c5b2ad0f764509896ec184"
+    },
+    {
+      "path": "checks/source-unavailable-recovery/verify.json",
+      "sha256": "0c14eb87a638de51dee040209a7996e7d6a10dbf03b3b7834329edb70fe3c75e"
+    }
+  ],
+  "fixtureDigest": "dd431786f1905bccae8524ad465c1ea4fe81bcc81a619726dc2583b6232b4a1c",
+  "mode": "local",
+  "name": "source-unavailable-recovery",
+  "operatorRevision": "3b59bcb7612d513bfd663c36c251f8454e615502",
+  "passed": true,
+  "recordedAt": "2026-10-09T04:38:10Z",
+  "schemaVersion": 1,
+  "summary": "With the k3d server stopped (API unreachable), a live copy of the local MinIO bucket served offline verified the scheduled scenario-pg backup with only the escrowed signing key (verify-escrowed-backup --offline-object-store), its exact archive restored the known rows into a disposable PostgreSQL, and after restart the bucket survived and the store was unchanged and idle"
+}

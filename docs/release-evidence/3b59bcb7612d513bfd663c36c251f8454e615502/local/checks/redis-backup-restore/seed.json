@@ -1,0 +1,11 @@
+{
+  "database": "scenario-redis",
+  "keys": [
+    "scenario:known:1",
+    "scenario:known:2"
+  ],
+  "values": [
+    "scenario-redis-value-1",
+    "scenario-redis-value-2"
+  ]
+}

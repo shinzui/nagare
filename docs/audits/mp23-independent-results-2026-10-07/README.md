@@ -152,3 +152,31 @@ The final candidate is `3ae20f8c`: F52 and F80 (`a7958867`), F81 (`2df33205`), F
 - Done on `next-release`, landing next release: F31 gate wiring (`e96fee1a`), the F78 runbook section and the F65 test (`eb642303`).
 - Section-2 breach grading and corrupt/incomplete-upload refusal are ticked from tests in the candidate's green gate run ([tests](test-evidence-section2-3ae20f8c.txt)). A native breach observation and a native tamper drill on this candidate remain a monitoring item, not a box.
 - C5: release assembly, IR-24 mapping and release notes.
+
+## Final candidate `83124396`: results (2026-10-08 to 2026-10-09)
+
+Native runs after `3ae20f8c` found defects, and their fixes made new candidates:
+- `3ae20f8c`: the local section 4 rehearsal found F86 and F87.
+- `3b78d905`: on `mp23-c3k`, C3 found F88, and the section 3 drills found F90, F92 and F93; F89
+  and F91 were found there too.
+- `3b59bcb7`: on `mp23-c3l`, section 3 found F94 (drill A) and F95 (drill C).
+
+The final candidate is `83124396`, F95's fix. It differs from `3b59bcb7` only in the host-switch
+scripts, their tests and docs ([diff stat](diffstat-3b59bcb7-83124396.txt)).
+
+| Check | Result | Evidence |
+|---|---|---|
+| Gate and mutation sweep | Gate record green: 36/36 checks on x86_64-linux and 37/37 on aarch64-darwin. Sweep: 149 of 149 records killed. | [`gate-83124396.json`](gate-83124396.json), [`mutation-sweep-83124396.tsv`](mutation-sweep-83124396.tsv) |
+| F95 VM test | Pass: scenarios 0–4 of `host-switch-auto-rollback`. Scenario 4 cuts the network mid-switch. | [`f95-vm-test-83124396/`](f95-vm-test-83124396/) |
+| C2, fresh local context | Pass: 16/16 assertions | [`c2-acceptance-83124396/`](c2-acceptance-83124396/) |
+| C3, fresh cloud context `mp23-c3m` (`c3-1012`) | Pass: 17/17 assertions. Bootstrap stage 7 waited on a Tailscale SSH check and converged by `inventory resume`. | [`c3-acceptance-83124396/`](c3-acceptance-83124396/) |
+| C4 | Pass on both systems: clone-free, 11/11 checks each, `check-release.sh` consistent | [`c4-83124396/`](c4-83124396/) |
+| C5 | Pass: reproducible assembly, IR-24 mapping holds, notes byte-identical | [`c5-83124396/`](c5-83124396/) |
+| Section 3 (node upgrades) | Pass on `mp23-c3m`: backups `s3pre`/`s3prec` proven. A: induced failure reverted. B: NixOS upgrade and reboot. C: k3s 1.35 → 1.36 and reboot, committed through the restart that broke it on `3b59bcb7`. Data unchanged; `doctor` exit 0. | [`section3-83124396/`](section3-83124396/), earlier [`section3-3b59bcb7/`](section3-3b59bcb7/) |
+| Section 4 (PostgreSQL major upgrade) | Pass on `3b59bcb7` (`mp23-c3l`), counted for `83124396` because the drill runs no host activation | [`section4-3b59bcb7/`](section4-3b59bcb7/) |
+| Context disposal | `mp23-c3i` to `mp23-c3m`, each by exact-name deletes from its own stack export | [`context-disposals/`](context-disposals/) |
+
+Findings from this stretch:
+- Closed: F86, F87, F90, F92, F93 and F95.
+- Verifying: F88. No native run has yet hit a status write inside its window.
+- Deferred to the next release, each with its reason in [the register](../mp23-findings.md): F89, F91 and F94.

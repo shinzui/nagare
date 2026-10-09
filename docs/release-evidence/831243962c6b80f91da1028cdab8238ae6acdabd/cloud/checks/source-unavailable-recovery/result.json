@@ -1,0 +1,37 @@
+{
+  "database": "personal/scenario-pg",
+  "escrow": {
+    "command": "nagarectl db escrow-signing-key scenario-pg",
+    "fileSha256": "2e5adf7c732f9f4d6b5efe55322f7978209684284c4a73c193c7bfb7a26bec4b",
+    "mode": "0600",
+    "sopsEncrypted": true
+  },
+  "selection": {
+    "seedTime": "2026-10-09T14:40:00Z",
+    "rule": "newest verified scheduled backup created after the seed",
+    "candidates": 4,
+    "job": "82e85bd1-bb25-4e89-b918-f36f60209c0b",
+    "generation": "1791559815660401",
+    "created": "2026-10-09T15:30:15+0000"
+  },
+  "verifyOnline": "verified with the escrowed key while the VM ran",
+  "sourceUnavailable": {
+    "command": "nagarectl host stop --operation-id c3i-source-unavailable-stop --save-plan DIR; inventory apply",
+    "result": "converged tx-6dec76b7de0943e038180a18633750017cfe6ba60085c737d2115e09261b8548",
+    "vmStatus": "TERMINATED"
+  },
+  "verifyOffline": "nagarectl db verify-escrowed-backup scenario-pg --backup-id JOB passed with the VM stopped (escrow + GCS only)",
+  "restore": {
+    "downloadedSha256": "7d83fcd8653e56a830fd28c1551318f109779551c987da3095f097b9893d904c",
+    "target": "disposable local postgres@sha256:5a5a84b19854a9ffaa54082c166ff4ec27473a361e496e5ea167f298f2da9722",
+    "psqlErrors": 0,
+    "rows": "1|scenario-pg-row-1 2|scenario-pg-row-2 3|after-backup ",
+    "seedRowsPresent": true
+  },
+  "restart": {
+    "command": "nagarectl host start --operation-id c3i-source-unavailable-start --save-plan DIR; inventory apply",
+    "result": "converged tx-dbfec3307b53829b5e69c38517b4045da2230f30f1d642cd2da321d7819a3485",
+    "podsReady": true,
+    "apiservicesAvailable": true
+  }
+}

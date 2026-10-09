@@ -1,0 +1,29 @@
+{
+  "checks": [
+    "version",
+    "context",
+    "typed-config",
+    "inventory-compile",
+    "payload",
+    "host-config",
+    "local-init",
+    "cloud-init",
+    "context-env",
+    "operator-recipe",
+    "platform-upgrade"
+  ],
+  "cloneFree": true,
+  "flakeRef": "git+file:///private/tmp/nagare-cand-83124396-src?rev=831243962c6b80f91da1028cdab8238ae6acdabd",
+  "platformUpgrade": {
+    "previewCalls": 1,
+    "state": "planned"
+  },
+  "pulumiVersion": "v3.255.0",
+  "revision": "831243962c6b80f91da1028cdab8238ae6acdabd",
+  "supportedSystems": [
+    "x86_64-linux",
+    "aarch64-darwin"
+  ],
+  "system": "aarch64-darwin",
+  "version": "0.4.0"
+}

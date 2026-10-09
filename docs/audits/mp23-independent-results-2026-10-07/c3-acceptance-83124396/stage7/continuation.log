@@ -1,0 +1,10 @@
+2026-10-09T13:41:51Z Tailscale SSH check approved: APPROVED 13:41:31
+2026-10-09T13:41:53Z resume  exit=1:    Resume an unresolved inventory transaction 
+2026-10-09T13:41:54Z close exit=1:          TRANSACTION --review DIGEST [--attest FILE] [--take-over]    Close a stopped transaction whose every operation is proved; writes nothing to   any provider (ADR 26) 
+2026-10-09T13:41:54Z STOPPED: close refused
+2026-10-09T13:42:43Z restart: previous attempt passed an empty transaction (gcloud reauth expired); nothing written
+2026-10-09T13:43:47Z gcloud credentials valid
+2026-10-09T13:43:47Z Tailscale SSH check approved: APPROVED 13:41:31
+2026-10-09T13:44:37Z resume tx-e5c3b77fd6490b898ac457bfa0759a0a356fe5a2ae52f60a67db51e22d2670f0 exit=0: context guard: mp23-c3m confined to project tan-ng-labs (stack mp23-c3m) converged tx-e5c3b77fd6490b898ac457bfa0759a0a356fe5a2ae52f60a67db51e22d2670f0 
+2026-10-09T14:14:43Z bootstrap: 2026-10-09T14:14:43Z s10-stage is verify-only; bootstrap converged loop exit=0 
+2026-10-09T16:14:05Z C3: CHAIN-DONE

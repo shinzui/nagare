@@ -1,0 +1,18 @@
+2026-10-09T03:58:57Z s2-stage planned: CreateResource=1
+2026-10-09T04:00:19Z s2-stage applied: {"exit":0,"seconds":81}
+2026-10-09T04:01:22Z s3-stage planned: CreateResource=1
+2026-10-09T04:08:31Z s3-stage applied: {"exit":0,"seconds":429}
+2026-10-09T04:10:35Z s4-stage planned: CreateResource=1
+2026-10-09T04:14:06Z s4-stage applied: {"exit":0,"seconds":211}
+2026-10-09T04:14:39Z s5-stage planned: UpdateResource=1
+2026-10-09T04:15:15Z s5-stage applied: {"exit":0,"seconds":36}
+2026-10-09T04:15:59Z s6-stage planned: CreateResource=1
+2026-10-09T04:20:09Z s6-stage applied: {"exit":0,"seconds":250}
+2026-10-09T04:22:20Z s7-stage planned: CreateResource=1 RunDeclaredOperation=1
+2026-10-09T04:23:46Z s7-stage applied: {"exit":0,"seconds":86}
+2026-10-09T04:24:23Z s8-stage planned: CreateResource=1
+2026-10-09T04:24:35Z s8-stage applied: {"exit":0,"seconds":12}
+2026-10-09T04:30:22Z s9-stage planned: CreateResource=207 RunDeclaredOperation=3
+2026-10-09T04:47:51Z s9-stage applied: {"exit":0,"seconds":1049}
+2026-10-09T04:53:57Z s10-stage planned: VerifyResource=206
+2026-10-09T04:53:57Z s10-stage is verify-only; bootstrap converged

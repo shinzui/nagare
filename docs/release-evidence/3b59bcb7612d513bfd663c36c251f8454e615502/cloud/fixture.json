@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "mode": "cloud",
+  "context": "mp23-c3l",
+  "project": "tan-ng-labs",
+  "gcloudConfiguration": "labs",
+  "region": "us-west1",
+  "zone": "us-west1-a",
+  "cluster": "nagare-c3-1011",
+  "instance": "nagare-c3-1011",
+  "serviceAccountId": "nagare-c3-1011",
+  "artifactRegistryId": "nagare-c3-1011",
+  "stateBucket": "tan-ng-labs-c3-1011-oxwfiry-state",
+  "imageBucket": "tan-ng-labs-c3-1011-oxwfiry-images",
+  "backupBucket": "tan-ng-labs-c3-1011-oxwfiry-backups",
+  "nixCacheBucket": "tan-ng-labs-c3-1011-oxwfiry-nix-cache",
+  "domain": "c3-1011.labs.topagentnetwork.net",
+  "parentZone": "nagare-zone-89da8ae",
+  "initialMachineType": "e2-standard-4",
+  "acceptance": "MP-23 step 5 acceptance C3 for candidate 3b59bcb7 on a fresh context bootstrapped from its own payload: the six operational checks, F15, F32, B3, B6, access grant/revoke, the runner and assembled inventory evidence; then the checklist section 3 node-upgrade drills, the section 4 PostgreSQL-upgrade drills and disposal",
+  "builder": {
+    "project": "tan-ng-labs",
+    "zone": "us-west1-a",
+    "instance": "nix-builder-ep150",
+    "usage": "reuse the existing disposable builder only for reviewed artifact builds; no replacement or resize"
+  },
+  "cdnEnabled": true
+}

@@ -1,0 +1,22 @@
+{
+  "cluster": "nagare-c3-1010",
+  "context": "mp23-c3k",
+  "evidence": [
+    {
+      "path": "checks/retained-data/collection.json",
+      "sha256": "e6b09b055fe5b52530fab3b8c47b932a9536ffcb53a338df8dc98c678b6fc44b"
+    },
+    {
+      "path": "checks/retained-data/history-restore.json",
+      "sha256": "9dff5435a7889babf0fa9a212ba2e56c88358b03247467103ccd1fc82fce31e8"
+    }
+  ],
+  "fixtureDigest": "b78dde5ca109831e99ce9f77b7dccaa12764e6879c147f02a90274a0934ff925",
+  "mode": "cloud",
+  "name": "retained-data",
+  "operatorRevision": "3b78d905a7dbcdead997348eaba3db2499f487ac",
+  "passed": true,
+  "recordedAt": "2026-10-09T00:01:04Z",
+  "schemaVersion": 1,
+  "summary": "scenario-retire's stateless companions were collected in dependency order, its PVC collection was refused, and the exported history restored identically into an isolated root"
+}

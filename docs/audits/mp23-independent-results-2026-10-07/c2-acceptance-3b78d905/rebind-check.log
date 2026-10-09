@@ -1,0 +1,6 @@
+role personal/nagare-dbbackup-scenario-pg replaced: 1a7247ff-227c-441f-9aec-284787b2648c -> 0616a7d2-1bb5-41cf-abd3-f59ebe26a6da
+status: replaced-incarnation 0616a7d2-1bb5-41cf-abd3-f59ebe26a6da
+Application:scenario-a: rebinding ["backup-read-role","statefulset"]
+Application:scenario-a: converged tx-c05525baacd59b6564c5eb1d7421d63d51e6adf2f45996e9c322fccc2f10bc5f
+after rebind: application:scenario-a/scenario-pg/backup-read-role converged at 0616a7d2-1bb5-41cf-abd3-f59ebe26a6da; 0 replaced or unrecorded
+REBIND-CHECK-OK

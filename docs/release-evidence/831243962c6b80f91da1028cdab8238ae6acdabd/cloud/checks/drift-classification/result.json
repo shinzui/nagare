@@ -1,0 +1,9 @@
+{
+ "drift": "the scenario-a Knative Service was edited out of band",
+ "refusalClosedWith": "abandon-refused-operation",
+ "strictApply": [
+  "stopped tx-20ec704414297784e182f064ac88d72f57668463b811a628d0352cc153401b15 at op-0f33628bf361e69287af8f34: KnownNoEffect \"Kubernetes object has fields managed by another writer: kubectl-patch\""
+ ],
+ "takeover": "replanned with --take-over-fields and applied",
+ "takeoverResult": "converged tx-b7adf33f140cd8924937da148d128de8d05d836c40dd53c22836d08f91873a5f"
+}

@@ -1,0 +1,202 @@
+== 21:21:25 post-bootstrap status
+replaced-incarnation findings after bootstrap: 0
+== 21:23:17 f15.sh
+35 pods, 0 not ready
+{"ready":true,"image":"us-west1-docker.pkg.dev/tan-ng-labs/nagare-c3-1010/net-certmanager-controller@sh"}
+2026-10-08T21:11:52Z   Pulling     Pulling image "us-west1-docker.pkg.dev/tan-ng-labs/nagare-c3-1010/net-certmanager-controller@sha256:005c6492f8b0322d4c1436910
+2026-10-08T21:11:54Z   Pulled      Successfully pulled image "us-west1-docker.pkg.dev/tan-ng-labs/nagare-c3-1010/net-certmanager-controller@sha256:005c6492f8b03
+[{"namespace":"knative-serving","resourceVersion":"1930"},{"namespace":"nagare-system","resourceVersion":"870"},{"namespace":"personal","resourceVersion":"969"}]
+-- f15.sh rc=0
+== 21:23:20 phase2.sh
+== 21:23:20 data
+create-scenario-ch: converged tx-e12afe38ef4d89ad769e1f09a6ddfded737a30932ca1c3baf839eed6f1a48db9
+create-scenario-retire: converged tx-8662dd07371bf414ab50566e038795344ed366a7d99f4b2708417581dc353a60
+create-scenario-events: converged tx-1ec62fa7b8c9e4782e52e93d9a088bc25289356835210b2985ee72283599e370
+topic-jobs: converged tx-f5f23991ed1fe39a20069ebdef8dbbff7f1e9c10fd470841a1c8561d7211b68e
+== 21:28:14 images
+image-scenario-a: converged tx-cda412eb7df8e18a52d5fcb99f2ba5ab35fc11768f020a42dc4f2e1fdcd074ab
+image-scenario-b: converged tx-e1bc85513811b65afbddf1152582d39128005bf67e3e22eb87879617694a8b4b
+image-scenario-site: converged tx-90bf901c43594982579c92c1e549caee2ee930de33a7702e578249e226347bda
+== 21:31:44 secret-a
+== 21:33:21 deploy-a
+deploy-a killed=21:35:02
+deploy-a: converged tx-be351f451b10a84e9fabc929ae9ecda0307fd00321e6884590427c3c81b197b2
+== 21:38:14 deploy-b
+deploy-b killed=21:39:55
+deploy-b interrupted; transaction tx-24910ec7d45ab8af7603f1d80edc56d7e7a65357be52ea3ffa16ed6f02b6cb8c left for the shared-history takeover from a second root
+== 21:42:14 PHASE2-PAUSE-FOR-TAKEOVER
+-- phase2.sh rc=0
+== 21:42:14 takeover.sh
+plain exit=1 [AdmissionError {admissionErrorCode = "executor-claim", admissionErrorMessage = "transaction is claimed by a different store client; explicit takeover is required"}]
+other exit=1 nagarectl: InventoryError {code = "invalid-manual-backup", message = "the backup source StatefulSet f49004d2-5867-45ba-a10e-268f477f726e has no recorded incarnation; a reviewed rebind records it before its data is used", scopes = [ScopeId Application
+{"exit":0,"seconds":20}
+converged tx-24910ec7d45ab8af7603f1d80edc56d7e7a65357be52ea3ffa16ed6f02b6cb8c
+uids unchanged across takeover
+TAKEOVER-OK
+-- takeover.sh rc=0
+replaced-incarnation mid-transaction: {'database-readiness': 0, 'cluster-completion': 0}
+== 21:43:31 phase2b.sh
+== 21:43:31 site
+site: converged tx-25c12cd4e6f340afc3da001cb498bc0a5e08b6f19618dbaea823261903bfbd10
+site-env-runtime: converged tx-53ee275b33c75f5840081a7d6df583889f91222dda5792d97142cc6a5f33ea7a
+site-env-preview: converged tx-791940f37433d8376a578b76ef4a508be18ca873bbde88fb5edbbcc792aa3133
+preview: converged tx-216fde6082c80047ecdcc8ef5d25ca4f254cedeb7246755173f48026cf97c5d7
+== 21:47:45 seeds
+seed postgresql: 1|scenario-pg-row-1 2|scenario-pg-row-2 
+seed redis: scenario-redis-value-1 scenario-redis-value-2 
+seed clickhouse: 1|scenario-ch-row-1 2|scenario-ch-row-2 
+seed volume: be6a2310d65b391f582af08cd1d6eea37c1857fa75bae29ff624f74d1963a927  /uploads/scenario-known.txt 
+== 21:47:47 PHASE2B-OK
+-- phase2b.sh rc=0
+== 21:47:47 phase3.sh
+== rebind unrecorded (lost create responses, ADR 27 §3 / F80)
+to rebind: [{"resource":"application:scenario-a/scenario-pg/statefulset","category":"unrecorded"},{"resource":"application:scenario-b/scenario-b/service","category":"unrecorded"}]
+Application:scenario-a review: 
+Application:scenario-a: converged tx-e541a94ee5274901abb9a03e1f890f57e1977d73122422a2f1007fd3d6ee44fc
+Application:scenario-b review: VerifyResource=1
+Application:scenario-b: converged tx-443a0ce67ebb73a830fbfa9523de81d88e9fa1138edb8f5970569906c44eac5c
+REBIND-OK
+== 21:56:40 collision-refusal
+collision: refused, head unchanged
+== 21:56:49 independent-scope-preservation
+env-a: converged tx-6ac8c136a58f088e675ae66c3d35414faaf73915d798bcee43c8fc29b64c45e5
+independent scope: scenario-b unchanged
+== 21:57:26 drift-classification
+retire-db: converged tx-b3ba74db60f364659d50e60d6ec3ca883f1e9eb7d279a49ffe95dea201e7ea79
+drift: KnownNoEffect "Kubernetes object has fields managed by another writer: kubectl-patch"; after={"uid":"5450a78a-a552-4e57-8112-9c5e5b7df19e","maxScale":"3","managers":["controller","nagare-inventory"]}
+== 22:04:48 postgresql-backup-restore
+pg-backup: converged tx-b444d29d72a2f72db0cdbace93382bf2046773c3a4fa004e8d23588f4bfb27ff
+pg-restore: converged tx-3a4a29665926191cf191f1960d9e83f3595fb8325bebf4511826638b54831f29
+pg: scratch 1-2, live has row 3
+== 22:06:45 redis-backup-restore
+redis-backup: converged tx-eda28dafe661479799764970c50a9f1d33d9144fd1150a07c677952abd288fc1
+redis-restore: converged tx-22d72d1a7e5fd037e9c2d8d8ab6540a7f23be28d84531aa250f8f477b1d99830
+redis: scratch keys restored
+== 22:09:17 clickhouse-backup-restore
+ch-backup: converged tx-be69358444f6eb8782903f81c29195bf622d3b0281899d479c687b8f80b9fcc8
+ch-restore: converged tx-f6c4115b9444bc596ebc3f5bf110043946ced3c49b2c08be46cbc06ce28b9f9e
+clickhouse: scratch rows restored
+== 22:11:28 volume-backup-restore
+vol-snap: converged tx-7c215cbb0faa99674e13bfa14f5ab8a00ffdd4b4c3b0c766cecc4404dbe75ec9
+vol-restore: converged tx-0404b575481866446e607d2b895e62325e5c2f67b439f50bf86dc70dd6d7d529
+volume: restored snapshot-time file
+== 22:13:50 application-change
+image-scenario-a-c3b: converged tx-17f74e71fbd843f86a9d7b2b1ed494d2b91800cb6ee7a7648c6fd1ce62dc2154
+PHASE3 FAILED: deploy-a-c3b apply: stopped tx-a56437b5ba9e1c0b9dbadae23d25e09b1486530e41d2570aa256058a270995c8 at op-0f6713b5d6e532243fe03359: KnownNoEffect "adapter preflight refused"
+-- phase3.sh rc=1
+CHAIN STOPPED at phase3.sh
+== 22:50:44 continuation after F88 close
+== 22:50:44 phase3-from-app.sh
+== 22:50:44 application-change
+deploy-a-c3b: converged tx-4dc5b3906da6abae631b8edac2b25f0afabdc3ea5b42dcbcbd5c3d4cffab7aab
+application change: {"changeOps":{"RunDeclaredOperation":1,"UpdateResource":2,"VerifyResource":13}} replay {"replayOps":0}
+== 22:53:09 adoption
+adoption: refused adoption-required
+== 22:53:25 backup-freshness
+Recovery-point freshness: healthy; age=572s; objective=hourly; newest point is verified and awaits reviewed ingestion
+== 23:02:06 PHASE3-OK
+-- phase3-from-app.sh rc=0
+== 23:02:06 access-check.sh
+/Users/shinzui/.local/state/nagare-verify/mp23-c3k/access-check.sh: line 23: 39243 Killed: 9                  $RUN inventory apply $R/access-grant --yes > $E/grant-apply.log 2>&1
+{"interruptedAt":"2026-10-08T23:02:35Z","transactionLeftActive":"tx-981520bd33d6b5f50d1758ca3c1e7b6f574e70427a9225801bb24449964c1440","subjectListedAfterGrant":true,"subjectAbsentAfterRevoke":true}
+-- access-check.sh rc=0
+== 23:06:31 retained-check.sh
+collected: [["backup"],["statefulset","backup-read-binding"],["service","backup-read-role","backup-account"]]; pvc refused: PlanError {planErrorCode = "invalid-collection", planErrorMessage = "collection 
+-- retained-check.sh rc=0
+== 23:11:37 image-cleanup.sh
+IMAGE CLEANUP FAILED: apply: ambiguous tx-c945d2d8336ec332d23a5c6c1c01e2583ba42f4a97ae2f32af2b2d1d2c3e51c3 at op-c90589d5a18a14b6f406dc1e
+-- image-cleanup.sh rc=1
+CHAIN STOPPED at image-cleanup.sh
+== 23:21:58 continuation after image-cleanup resume
+== 23:21:58 image-cleanup-post.sh
+{"removed":3,"apply":"converged tx-c945d2d8336ec332d23a5c6c1c01e2583ba42f4a97ae2f32af2b2d1d2c3e51c3","podsAfter":"68 pods, 0 not ready","pullOrSandboxWarnings":0,"sameRequestReplanOperations":0}
+IMAGE-CLEANUP-OK
+-- image-cleanup-post.sh rc=0
+== 23:22:54 b3.sh
+deploy: converged tx-47868913b612a036eb29aae0c4e8c4b87c86f563241e42ab59fecb67091c4c23
+disable: converged tx-adf3a5e9818fb4581139428566e9694b7896c0fdbff0c62c99d0e23e9c375f43
+retire: converged tx-0a1dc9542647328e0b13528ffe62843a2605c0c4d6904420e2b3a412c1216b0b
+collect: converged tx-b607ac1c779234736c83cd57f16fcffd6cb38d71a4266aa9214267698e5cdbd0
+{"cdnTargetAfterDeploy": [["34.49.28.255"]], "originAfterDisable": [["34.145.6.8"]], "retainedAfterRetire": true, "absentAfterCollect": true}
+B3-OK
+-- b3.sh rc=0
+== 23:29:12 f15-late.sh
+{"latePulls": 4, "failures": 0, "secrets": 3, "rewrittenSinceBoot": ["knative-serving/nagare-registry-pull", "nagare-system/nagare-registry-pull", "personal/nagare-registry-pull"]}
+-- f15-late.sh rc=0
+== 23:31:44 su-drill.sh
+picked 8503d0d8-d8fb-40d3-95d7-fedb12a840c9 (2026-10-08T23:30:10+0000, seed 2026-10-08T21:47:45Z)
+{"selection":"8503d0d8-d8fb-40d3-95d7-fedb12a840c9","restore":"1|scenario-pg-row-1 2|scenario-pg-row-2 3|after-backup ","idle":{"generation":939,"sequence":814,"activeTransaction":null,"executorClaim":null}}
+SU-OK
+-- su-drill.sh rc=0
+== 23:41:06 preview-cleanup.sh
+round 1: 
+  converged tx-2516cc4261796a255a841fe0968b34a8a783d7d0088c78c0f11fb7cb3d74f909
+round 2: RetireResource=1
+  converged tx-38bef8b82ad2415d659e1a6b145983c09f9f306c49dd7735d9cb773b16350d64
+round 3: RetireResource=1
+  converged tx-e20c5541866f5d7595d64d75e43cbf5a016058181580701f3d399b2eb83bac08
+round 4: no review (0)
+PREVIEW-OK
+-- preview-cleanup.sh rc=0
+== 23:48:40 precheck-runner.sh
+unconverged: []
+precheck: accepted == converged (48)
+-- precheck-runner.sh rc=0
+== 23:51:12 c3-runner.sh
+ls: cannot access '/Users/shinzui/.local/state/nagare-verify/mp23-c3k/state/nagare/mp23-c3k/platform/nagare-0.4.0-3b78d9059ed5-*': No such file or directory
+== 23:51:12 candidate: unchanged platform scopes plus the runner probe
+usage: unchanged-inventory-candidate.py [-h]
+                                        [--add-packaged-scope NAME=MANIFEST]
+                                        [--payload-root PAYLOAD_ROOT]
+                                        export output [selected ...]
+unchanged-inventory-candidate.py: error: argument --payload-root: expected one argument
+RUNNER FAILED: candidate
+-- c3-runner.sh rc=1
+CHAIN STOPPED at c3-runner.sh
+== 23:53:07 c3-runner.sh
+== 23:53:07 candidate: unchanged platform scopes plus the runner probe
+48 accepted scopes, 3 unchanged replacements, 8 reservations
+== 23:57:10 F48 guard: the context runs the candidate's payload
+== 23:57:11 runner plan
+[1,["CreateResource"]]
+== 23:58:01 runner apply
+{"candidateDigest":"b3cbecb96759d23e53a2ce2f793995b5a10e005059f28fe47ec4a01bb8633613","reviewDigest":"e82b7abacf3c505e4a0dc14dfb658a4ada30602e668912be0c709a61bb073ac1","state":"applied"}
+== 00:01:03 records
+Recorded cloud assertion collision-refusal: /Users/shinzui/.local/state/nagare-verify/mp23-c3k/evidence/c3-3b78d905/assertions/collision-refusal.json
+Recorded cloud assertion adoption: /Users/shinzui/.local/state/nagare-verify/mp23-c3k/evidence/c3-3b78d905/assertions/adoption.json
+Recorded cloud assertion drift-classification: /Users/shinzui/.local/state/nagare-verify/mp23-c3k/evidence/c3-3b78d905/assertions/drift-classification.json
+Recorded cloud assertion independent-scope-preservation: /Users/shinzui/.local/state/nagare-verify/mp23-c3k/evidence/c3-3b78d905/assertions/independent-scope-preservation.json
+Recorded cloud assertion postgresql-backup-restore: /Users/shinzui/.local/state/nagare-verify/mp23-c3k/evidence/c3-3b78d905/assertions/postgresql-backup-restore.json
+Recorded cloud assertion redis-backup-restore: /Users/shinzui/.local/state/nagare-verify/mp23-c3k/evidence/c3-3b78d905/assertions/redis-backup-restore.json
+Recorded cloud assertion clickhouse-backup-restore: /Users/shinzui/.local/state/nagare-verify/mp23-c3k/evidence/c3-3b78d905/assertions/clickhouse-backup-restore.json
+Recorded cloud assertion volume-backup-restore: /Users/shinzui/.local/state/nagare-verify/mp23-c3k/evidence/c3-3b78d905/assertions/volume-backup-restore.json
+Recorded cloud assertion source-unavailable-recovery: /Users/shinzui/.local/state/nagare-verify/mp23-c3k/evidence/c3-3b78d905/assertions/source-unavailable-recovery.json
+Recorded cloud assertion backup-freshness: /Users/shinzui/.local/state/nagare-verify/mp23-c3k/evidence/c3-3b78d905/assertions/backup-freshness.json
+Recorded cloud assertion retained-data: /Users/shinzui/.local/state/nagare-verify/mp23-c3k/evidence/c3-3b78d905/assertions/retained-data.json
+Recorded cloud assertion access-grant-revoke: /Users/shinzui/.local/state/nagare-verify/mp23-c3k/evidence/c3-3b78d905/assertions/access-grant-revoke.json
+Recorded cloud assertion shared-history-takeover: /Users/shinzui/.local/state/nagare-verify/mp23-c3k/evidence/c3-3b78d905/assertions/shared-history-takeover.json
+Recorded cloud assertion google-cdn: /Users/shinzui/.local/state/nagare-verify/mp23-c3k/evidence/c3-3b78d905/assertions/google-cdn.json
+RECORDS-DONE 14
+== 00:01:04 verify with final-marker interruption
+49 accepted scopes, 3 unchanged replacements, 8 reservations
+/Users/shinzui/.local/state/nagare-verify/mp23-c3k/c3-runner.sh: line 64: 77864 Killed: 9                  gcp --phase verify --candidate $R/verify-candidate > $IP/final-marker-verify-1.log 2>&1
+verify killed=00:03:39 state=applied
+{"candidateDigest":"b3cbecb96759d23e53a2ce2f793995b5a10e005059f28fe47ec4a01bb8633613","noOp":true,"reviewDigest":"e82b7abacf3c505e4a0dc14dfb658a4ada30602e668912be0c709a61bb073ac1","state":"verified","verificationCandidateDigest":"a6a36930804af5df9886ffe6a972fa7aaa3e925452a7fea74d144397e320d4c6"}
+noop ops: 0
+{"observationComplete":true,"missingProviders":[]}
+== 00:08:31 interrupted-recovery
+['op-08cadc0e33c62e3028cfc7da'] ['op-c7224c920087882cf6db5f78'] {'before': ['963', '828', 'null'], 'afterKill': ['963', '828', 'null'], 'afterRerun': ['963', '828', 'null']}
+Recorded cloud assertion interrupted-recovery: /Users/shinzui/.local/state/nagare-verify/mp23-c3k/evidence/c3-3b78d905/assertions/interrupted-recovery.json
+Recorded cloud assertion convergence-noop-removal: /Users/shinzui/.local/state/nagare-verify/mp23-c3k/evidence/c3-3b78d905/assertions/convergence-noop-removal.json
+== 00:08:32 secret scan
+scan 2787 0
+Recorded cloud assertion secret-read-refusal: /Users/shinzui/.local/state/nagare-verify/mp23-c3k/evidence/c3-3b78d905/assertions/secret-read-refusal.json
+== 00:08:34 finalize
+Finalized /Users/shinzui/.local/state/nagare-verify/mp23-c3k/evidence/c3-3b78d905/cloud-health.json with 17 recorded assertions
+RUNNER-DONE
+-- c3-runner.sh rc=0
+== 00:08:34 c3-assemble.sh
+Assembled public inventory evidence /Users/shinzui/.local/state/nagare-verify/mp23-c3k/evidence/c3-3b78d905/inventory-evidence.json for run 5b3ed7ede3fabed673ffcb84240224c845123d68aacfd65a924eaf8d2e891823.
+{"schemaVersion":1,"payload":{"digest":"sha256-65DR8fEQBxUSFPQHFwwlHbuPmLWtCMGvldXKm67TP+8=","sourceRevision":"3b78d905a7dbcdead997348eaba3db2499f487ac","system":"aarch64-darwin","version":"0.4.0"},"converged":null}
+-- c3-assemble.sh rc=0
+CHAIN-DONE

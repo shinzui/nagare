@@ -1,0 +1,13 @@
+{
+  "seed": [
+    "1|scenario-rename-row-1",
+    "2|scenario-rename-row-2",
+    "3|scenario-rename-row-3"
+  ],
+  "renamedDatabaseRows": [
+    "1|scenario-rename-row-1",
+    "2|scenario-rename-row-2",
+    "3|scenario-rename-row-3"
+  ],
+  "equal": true
+}

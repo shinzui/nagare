@@ -1,0 +1,18 @@
+{
+  "cluster": "nagare-c3-1010",
+  "context": "mp23-c3k",
+  "evidence": [
+    {
+      "path": "checks/source-unavailable-recovery/result.json",
+      "sha256": "98ae3af4d48d8cd25fb2c799631a2ef2e3711c090c18bff0f037de07944fe09b"
+    }
+  ],
+  "fixtureDigest": "b78dde5ca109831e99ce9f77b7dccaa12764e6879c147f02a90274a0934ff925",
+  "mode": "cloud",
+  "name": "source-unavailable-recovery",
+  "operatorRevision": "3b78d905a7dbcdead997348eaba3db2499f487ac",
+  "passed": true,
+  "recordedAt": "2026-10-09T00:01:04Z",
+  "schemaVersion": 1,
+  "summary": "With the signing key escrowed and the VM stopped through a reviewed host stop, the newest verified scheduled PostgreSQL backup taken after the seed verified from escrow and GCS alone and restored into a disposable PostgreSQL 18 with its known rows"
+}

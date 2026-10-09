@@ -1,0 +1,7 @@
+{
+ "stage": "access-grant",
+ "within": "access grant apply, after its transaction began",
+ "transaction": "tx-38fde39015c8c44d2d3db4a21a86588153272208c6e1ca7e74c0c35549b0e538",
+ "resumeResult": "converged tx-38fde39015c8c44d2d3db4a21a86588153272208c6e1ca7e74c0c35549b0e538",
+ "subjectListedAfterResume": true
+}

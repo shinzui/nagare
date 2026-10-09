@@ -1,0 +1,26 @@
+{
+  "cluster": "k3d-nagare-local",
+  "context": "local",
+  "evidence": [
+    {
+      "path": "checks/clickhouse-backup-restore/restored.json",
+      "sha256": "2c4ae277d588f0ca652e9b2908801b959e286d8da255c3d950f77abe7b304d03"
+    },
+    {
+      "path": "checks/clickhouse-backup-restore/seed.json",
+      "sha256": "80cb9594d18ba75cbd7d96c012597e512fa84a2a2ae8baffaf3273b56f6b151a"
+    },
+    {
+      "path": "checks/clickhouse-backup-restore/source-after.json",
+      "sha256": "2ab450f13ed7d14b932eef91fd3c5b0b1d7b5b9ca5b3b0ef08027340aa465683"
+    }
+  ],
+  "fixtureDigest": "dd431786f1905bccae8524ad465c1ea4fe81bcc81a619726dc2583b6232b4a1c",
+  "mode": "local",
+  "name": "clickhouse-backup-restore",
+  "operatorRevision": "3b59bcb7612d513bfd663c36c251f8454e615502",
+  "passed": true,
+  "recordedAt": "2026-10-09T04:38:09Z",
+  "schemaVersion": 1,
+  "summary": "A reviewed manual MinIO backup of scenario-ch restored through native RESTORE into an isolated scratch database with exactly the seeded rows while the source kept its later row"
+}

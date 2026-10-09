@@ -1,0 +1,32 @@
+== 2026-10-09T16:21:23Z snap 0: e-google-compute-26.11.20260911.eaad089 v1.35.8+k3s1 data=24467b7d4163 pg=3 redis=2 ch=4 notRunning=0 doctor exit=0 seconds=123 {"activeTransaction":null,"findings":318,"categories":{"converged":317,"unknown":1}}
+== 2026-10-09T16:29:02Z backup s3pre: three databases backed up; scenario-pg restore = source (3 rows)
+== 2026-10-09T16:31:47Z re-pinned nixpkgs b1b875982b17dabde9b4a37f3e229e74913e6db3 and sops-nix dcd241ba97088c22569d1573286e1b9daad340c0 (a); only those nodes changed; toplevel evaluates: /nix/store/pga70mslhqf2m7r75lr4wzrpxxnzha3c-nixos-system-mp23-c3m-nagare-google-compute-26.11.20260916.b1b8759.drv
+== 2026-10-09T16:32:42Z started builder nix-builder-ep150
+== 2026-10-09T16:34:36Z planned fail-a: [{"a":"UpdateResource","r":["platform:host/nixos-system/system"]},{"a":"RunDeclaredOperation","r":["platform:host/nixos-system/system"]}]
+== 2026-10-09T16:34:39Z apply fail-a with NAGARE_SWITCH_CONFIRM_SECONDS=120 (apply-time setting, not bound in the review)
+== 2026-10-09T16:36:10Z transport shell 87479 stopped while its activation ssh 90847 ran (apply pid 76843); no fresh-login check or commit can follow
+== 2026-10-09T16:36:10Z remote activation returned
+== 2026-10-09T16:36:12Z processes killed; host: /nix/store/9ra8yfrcp0dhm3zfiv0ljihi02mkiscb-nixos-system-mp23-c3m-nagare-google-compute-26.11.20260916.b1b8759 active
+== 2026-10-09T16:36:54Z close while the timer is armed: exit=1: OperationId "op-38d9b8bf4e9a1c4a5f1f13bd" is not proved: the host rollback timer is armed (resolved by the rollback window to end, then inventory close or resume) 
+== 2026-10-09T16:36:54Z waiting for the on-host rollback timer
+== 2026-10-09T16:38:24Z host reverted to the old closure with the timer inactive
+== 2026-10-09T16:39:25Z resume exit=1: ambiguous tx-0e9211058f369e00746e5115a1ce54a830e31dfba1b5bf971e130c14441d577a at op-38d9b8bf4e9a1c4a5f1f13bd 
+== 2026-10-09T16:40:16Z close exit=0: closed tx-0e9211058f369e00746e5115a1ce54a830e31dfba1b5bf971e130c14441d577a; nothing was written to any provider   op-38d9b8bf4e9a1c4a5f1f13bd: no effect (the reviewed host runs its old closure /nix/store/n11ymdl9brs4c37jf82110jhk2avswsj-nixos-system-mp23-c3m-nagare-google-compute-26.11.20260911.eaad089 with no rollback timer armed)   op-7be070c178f84442a4d789ab: never started   scope platform:host
+== 2026-10-09T16:40:17Z restored the previous flake.lock after the closed failed upgrade
+== 2026-10-09T16:48:12Z snap fail-a: e-google-compute-26.11.20260911.eaad089 v1.35.8+k3s1 data=24467b7d4163 pg=3 redis=2 ch=4 notRunning=0 doctor exit=0 seconds=113 {"activeTransaction":null,"findings":322,"categories":{"converged":321,"unknown":1}}
+== 2026-10-09T16:51:04Z re-pinned nixpkgs b1b875982b17dabde9b4a37f3e229e74913e6db3 and sops-nix dcd241ba97088c22569d1573286e1b9daad340c0 (b); only those nodes changed; toplevel evaluates: /nix/store/pga70mslhqf2m7r75lr4wzrpxxnzha3c-nixos-system-mp23-c3m-nagare-google-compute-26.11.20260916.b1b8759.drv
+== 2026-10-09T16:51:48Z planned apply-b: [{"a":"UpdateResource","r":["platform:host/nixos-system/system"]},{"a":"RunDeclaredOperation","r":["platform:host/nixos-system/system"]}]
+== 2026-10-09T16:53:49Z apply apply-b exit=0: converged tx-96ab10fa8a99c1d4e04c4bbf46d64c7bd695967f19f414ee1aa3a0808461ae58 
+== 2026-10-09T16:56:38Z snap b: e-google-compute-26.11.20260916.b1b8759 v1.35.8+k3s1 data=24467b7d4163 pg=3 redis=2 ch=4 notRunning=0 doctor skipped at this intermediate state {"activeTransaction":null,"findings":322,"categories":{"converged":321,"unknown":1}}
+== 2026-10-09T16:59:28Z apply stop-b exit=0: converged tx-3c14c860e14190811a1416b3eef64fac80d2f6b8124f4928393dd41e687eb2fd 
+== 2026-10-09T17:00:35Z apply start-b exit=0: converged tx-ca684fed97c0f598738115f6829d700717d5e7f179b4b4953b9496f5b8bbdf3f 
+== 2026-10-09T17:06:20Z snap b-rebooted: e-google-compute-26.11.20260916.b1b8759 v1.35.8+k3s1 data=24467b7d4163 pg=3 redis=2 ch=4 notRunning=6 doctor exit=0 seconds=126 {"activeTransaction":null,"findings":322,"categories":{"converged":321,"unknown":1}}
+== 2026-10-09T17:13:51Z backup s3prec: three databases backed up; scenario-pg restore = source (3 rows)
+== 2026-10-09T17:16:52Z re-pinned nixpkgs e7439b6b14ad3cc35d05608ebca9bce01a25f5f8 and sops-nix dcd241ba97088c22569d1573286e1b9daad340c0 (c); only those nodes changed; toplevel evaluates: /nix/store/n8c9p7w9ca6kv659r3wlsv7p87icf6qr-nixos-system-mp23-c3m-nagare-google-compute-26.11.20261008.e7439b6.drv
+== 2026-10-09T17:17:47Z started builder nix-builder-ep150
+== 2026-10-09T17:20:14Z planned apply-c: [{"a":"RunDeclaredOperation","r":["platform:host/nixos-system/system"]},{"a":"UpdateResource","r":["platform:host/nixos-system/system"]}]
+== 2026-10-09T17:25:24Z apply apply-c exit=0: converged tx-ac398031ba8794056f6f4af542e3fc317e360ec58abaa373e6fab0feea014add 
+== 2026-10-09T17:28:33Z snap c: e-google-compute-26.11.20261008.e7439b6 v1.36.4+k3s1 data=24467b7d4163 pg=3 redis=2 ch=4 notRunning=0 doctor skipped at this intermediate state {"activeTransaction":null,"findings":326,"categories":{"converged":325,"unknown":1}}
+== 2026-10-09T17:31:29Z apply stop-c exit=0: converged tx-606cbe201268477ab2c935b34c8d53e9a9a8ee255b845c7084e9059916a13638 
+== 2026-10-09T17:32:35Z apply start-c exit=0: converged tx-a4c45f4077b9f138c640f0adabe6eff978656a1eedf897ddfa87c67b4278f930 
+== 2026-10-09T17:38:50Z snap c-rebooted: e-google-compute-26.11.20261008.e7439b6 v1.36.4+k3s1 data=24467b7d4163 pg=3 redis=2 ch=4 notRunning=0 doctor exit=0 seconds=123 {"activeTransaction":null,"findings":326,"categories":{"converged":325,"unknown":1}}

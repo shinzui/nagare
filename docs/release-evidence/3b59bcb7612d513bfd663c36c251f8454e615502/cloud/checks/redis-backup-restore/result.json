@@ -1,0 +1,11 @@
+{
+ "backup": "nagarectl db backup scenario-redis",
+ "backupResult": "converged tx-d465c45ff2c85da6bbe80cd3539b616693904e461def048dad9158c307022b4b",
+ "knownKeysRestored": true,
+ "restore": "nagarectl db restore scenario-redis c3grd1 --restore-id c3grdr1 (reviewed, into a scratch StatefulSet)",
+ "restoreResult": "converged tx-a01f0bef52086313134938080cb1b7603ed384b0f7456acaf5af89753a8e74c1",
+ "scratchValues": [
+  "scenario-redis-value-1",
+  "scenario-redis-value-2"
+ ]
+}

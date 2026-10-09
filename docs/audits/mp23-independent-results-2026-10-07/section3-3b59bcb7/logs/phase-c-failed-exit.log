@@ -1,0 +1,3 @@
+== 2026-10-09T08:27:28Z resume exit=1: ambiguous tx-0f6f381200a37b477b608b070eac6b9084371602737dc9150a70e0ac0510812c at op-33a83920f4fd7a7ed870f1ab 
+== 2026-10-09T08:28:08Z close exit=0: closed tx-0f6f381200a37b477b608b070eac6b9084371602737dc9150a70e0ac0510812c; nothing was written to any provider   op-33a83920f4fd7a7ed870f1ab: no effect (the reviewed host runs its old closure /nix/store/rx0n8pv9qpi14za4vsdk6gipwik9piz2-nixos-system-mp23-c3l-nagare-google-compute-26.11.20260916.b1b8759 with no rollback timer armed)   op-dbe505f7da60dd5ecdc85a3e: never started   scope platform:host
+S3 FAILED [c-failed-exit]: transaction still active after close

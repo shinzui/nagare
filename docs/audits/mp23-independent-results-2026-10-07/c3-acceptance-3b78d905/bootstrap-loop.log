@@ -1,0 +1,18 @@
+2026-10-08T20:16:38Z s2-stage planned: CreateResource=1
+2026-10-08T20:17:52Z s2-stage applied: {"exit":0,"seconds":73}
+2026-10-08T20:19:01Z s3-stage planned: CreateResource=1
+2026-10-08T20:27:02Z s3-stage apply FAILED: warning: Application Default Credentials do not expose a principal; the gcloud account comparison is unavailable ambiguous tx-8a169f491d86d579d5ce7c6a432b14e537965ff707b5b508e8e6b9a3ee27ff6d at op-e86b1f67ea7545d0ff1ffb86 nagarectl: inventory journal append for tx-8a169f491d86d579d5ce7c6a432b14e537965ff707b5b508e8e6b9a3ee27ff6d at op-e86b1f67ea7545d0ff1ffb86 failed: StoreIoError "inventory object 
+2026-10-08T20:35:22Z s4-stage planned: CreateResource=1
+2026-10-08T20:38:54Z s4-stage applied: {"exit":0,"seconds":212}
+2026-10-08T20:39:24Z s5-stage planned: UpdateResource=1
+2026-10-08T20:39:56Z s5-stage applied: {"exit":0,"seconds":32}
+2026-10-08T20:40:38Z s6-stage planned: CreateResource=1
+2026-10-08T20:44:31Z s6-stage applied: {"exit":0,"seconds":233}
+2026-10-08T20:47:01Z s7-stage planned: CreateResource=1 RunDeclaredOperation=1
+2026-10-08T20:51:39Z s7-stage applied: {"exit":0,"seconds":278}
+2026-10-08T20:52:16Z s8-stage planned: CreateResource=1
+2026-10-08T20:52:29Z s8-stage applied: {"exit":0,"seconds":13}
+2026-10-08T20:57:44Z s9-stage planned: CreateResource=207 RunDeclaredOperation=3
+2026-10-08T21:15:24Z s9-stage applied: {"exit":0,"seconds":1060}
+2026-10-08T21:21:10Z s10-stage planned: VerifyResource=206
+2026-10-08T21:21:10Z s10-stage is verify-only; bootstrap converged

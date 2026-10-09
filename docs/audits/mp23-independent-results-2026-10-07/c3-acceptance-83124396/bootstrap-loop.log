@@ -1,0 +1,20 @@
+2026-10-09T09:29:03Z s2-stage planned: CreateResource=1
+2026-10-09T09:30:07Z s2-stage applied: {"exit":0,"seconds":63}
+2026-10-09T09:31:04Z s3-stage planned: CreateResource=1
+2026-10-09T09:38:04Z s3-stage applied: {"exit":0,"seconds":420}
+2026-10-09T09:39:48Z s4-stage planned: CreateResource=1
+2026-10-09T09:43:09Z s4-stage applied: {"exit":0,"seconds":201}
+2026-10-09T09:43:38Z s5-stage planned: UpdateResource=1
+2026-10-09T09:44:07Z s5-stage applied: {"exit":0,"seconds":29}
+2026-10-09T09:44:45Z s6-stage planned: CreateResource=1
+2026-10-09T09:48:18Z s6-stage applied: {"exit":0,"seconds":213}
+2026-10-09T09:50:09Z s7-stage planned: CreateResource=1 RunDeclaredOperation=1
+2026-10-09T09:50:57Z s7-stage apply FAILED: context guard: mp23-c3m confined to project tan-ng-labs (stack mp23-c3m) warning: Application Default Credentials do not expose a principal; the gcloud account comparison is unavailable ambiguous tx-e5c3b77fd6490b898ac457bfa0759a0a356fe5a2ae52f60a67db51e22d2670f0 at op-18e0018de24cc8ede232a9ec 
+loop exit=2
+2026-10-09T13:45:16Z s8-stage planned: CreateResource=1
+2026-10-09T13:45:30Z s8-stage applied: {"exit":0,"seconds":14}
+2026-10-09T13:50:32Z s9-stage planned: CreateResource=207 RunDeclaredOperation=3
+2026-10-09T14:08:55Z s9-stage applied: {"exit":0,"seconds":1103}
+2026-10-09T14:14:43Z s10-stage planned: VerifyResource=206
+2026-10-09T14:14:43Z s10-stage is verify-only; bootstrap converged
+loop exit=0

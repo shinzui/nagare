@@ -1,0 +1,9 @@
+kept, unconverged: Standalone:database-restore-personal-scenario-pg-c2pgr2 Standalone:database-restore-personal-scenario-redis-c2f36r Standalone:database-restore-personal-scenario-redis-c2redr2 
+database-restore-personal-scenario-pg-c2pgr2: 0 ops, 1 retained, 0 absence proofs
+database-restore-personal-scenario-pg-c2pgr2: converged tx-db7c410ea9406c9ebbef0bd3e8f85f2c4831b4dcced2de686f333150c551bdb1
+database-restore-personal-scenario-redis-c2f36r: 0 ops, 3 retained, 1 absence proofs
+database-restore-personal-scenario-redis-c2f36r: converged tx-5232e6711c1c70881e875043d0fbae393e11161e986dd95b8dee09329471d7fa
+database-restore-personal-scenario-redis-c2redr2: 0 ops, 1 retained, 3 absence proofs
+database-restore-personal-scenario-redis-c2redr2: converged tx-65db4586501e0169ada7c76a1d78fbb5a45f3f0ce569bb93278cfd139982a10e
+accepted == converged: 45
+RETIRE-KEPT-OK

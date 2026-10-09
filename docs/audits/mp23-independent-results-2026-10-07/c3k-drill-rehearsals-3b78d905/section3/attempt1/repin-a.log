@@ -1,0 +1,10 @@
+warning: updating lock file "/Users/shinzui/.local/state/nagare-verify/mp23-c3k/config/nagare/hosts/mp23-c3k/flake.lock":
+• Updated input 'nagare/nixpkgs':
+    'github:NixOS/nixpkgs/eaad089' (2026-09-11)
+  → 'github:NixOS/nixpkgs/b1b8759' (2026-09-16)
+• Updated input 'nagare/sops-nix':
+    'github:Mic92/sops-nix/c591bf6' (2026-05-05)
+  → 'github:Mic92/sops-nix/dcd241b' (2026-10-04)
+• Updated input 'nagare/sops-nix/nixpkgs':
+    follows 'nagare/nixpkgs'
+  → 'github:NixOS/nixpkgs/b1b8759' (2026-09-16)

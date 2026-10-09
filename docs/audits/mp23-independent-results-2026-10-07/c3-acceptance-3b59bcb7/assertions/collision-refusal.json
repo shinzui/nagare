@@ -1,0 +1,22 @@
+{
+  "cluster": "nagare-c3-1011",
+  "context": "mp23-c3l",
+  "evidence": [
+    {
+      "path": "checks/collision-refusal/plan.log",
+      "sha256": "776bb6906a3be1a03de20a0c809fe89bd1aeee46b62e131125f34d247ac4f726"
+    },
+    {
+      "path": "checks/collision-refusal/result.json",
+      "sha256": "02796db2d7674f6807f28efafbc080102c06de6652247f541a73ca667817a6c0"
+    }
+  ],
+  "fixtureDigest": "f27611323b465011cab862289b98a1e553c0f59c5e76f3363a868d9785531e00",
+  "mode": "cloud",
+  "name": "collision-refusal",
+  "operatorRevision": "3b59bcb7612d513bfd663c36c251f8454e615502",
+  "passed": true,
+  "recordedAt": "2026-10-09T06:42:44Z",
+  "schemaVersion": 1,
+  "summary": "A second application claiming scenario-a's hostname was refused at planning with claim-conflict; no review was saved and the history head did not move"
+}

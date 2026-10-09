@@ -1,0 +1,11 @@
+{
+  "backupId": "c2red1",
+  "backupReview": "25b1c8d1ce7e447c3bbafb61d3439ce46316debff66d9db3448958e3afe42792",
+  "restoreId": "c2redr1",
+  "restoreReview": "83b1ba2bfd1f441e8c8c79e329854b031150d1dcc4aa79bdcd7aa782558d5b4c",
+  "scratchInstance": "scenario-redis-restore-c2redr1",
+  "known1": "scenario-redis-value-1",
+  "known2": "scenario-redis-value-2",
+  "known3": "",
+  "equalsSeedWithoutLaterKey": true
+}

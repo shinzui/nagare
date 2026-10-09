@@ -1,0 +1,9 @@
+platform mutation allowed (exact)
+  warning: Application Default Credentials do not expose a principal; the gcloud account comparison is unavailable
+context guard: mp23-c3l confined to project tan-ng-labs (stack mp23-c3l)
+warning: Application Default Credentials do not expose a principal; the gcloud account comparison is unavailable
+closed tx-867b8bf07e972d9d2a72544360a7187c7281a4602a716db6e9782481bf57601e; nothing was written to any provider
+  op-22a040a91684b2297d587786: no effect (the reviewed host runs its old closure /nix/store/g4grr5zkmhahmn3h84l3b9fnnandisrx-nixos-system-mp23-c3l-nagare-google-compute-26.11.20260911.eaad089 with no rollback timer armed)
+  op-68675df56e455aff4fd11998: never started
+  scope platform:host: reverted to the review's base
+inspect inventory status before saving a corrected review or a retirement

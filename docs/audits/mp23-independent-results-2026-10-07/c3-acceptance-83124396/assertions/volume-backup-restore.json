@@ -1,0 +1,18 @@
+{
+  "cluster": "nagare-c3-1012",
+  "context": "mp23-c3m",
+  "evidence": [
+    {
+      "path": "checks/volume-backup-restore/result.json",
+      "sha256": "5b4ecab58c01e683bf9ee8d7883058e2b7eb65c8580973ab62a8455507a73881"
+    }
+  ],
+  "fixtureDigest": "a87386fa4527e267d3e90a781b1414929525a900ea493bbfd441195990884472",
+  "mode": "cloud",
+  "name": "volume-backup-restore",
+  "operatorRevision": "831243962c6b80f91da1028cdab8238ae6acdabd",
+  "passed": true,
+  "recordedAt": "2026-10-09T16:06:20Z",
+  "schemaVersion": 1,
+  "summary": "A reviewed service-volume snapshot restored the snapshot-time file after the live file was changed"
+}

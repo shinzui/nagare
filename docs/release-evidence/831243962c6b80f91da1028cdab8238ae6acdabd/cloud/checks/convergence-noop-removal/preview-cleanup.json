@@ -1,0 +1,37 @@
+{
+ "after": [
+  "DomainMapping   scenario-cdn.c3-1012.labs.topagentnetwork.net",
+  "Service         scenario-a",
+  "Service         scenario-b",
+  "Service         scenario-cdn",
+  "Service         scenario-site",
+  "Ingress         scenario-a",
+  "Ingress         scenario-b",
+  "Ingress         scenario-cdn",
+  "Ingress         scenario-cdn.c3-1012.labs.topagentnetwork.net",
+  "Ingress         scenario-site"
+ ],
+ "applies": [
+  "converged tx-abc64c472cab739e2721bf2c1ec470052489567c19dab7d935a8c0ffd263909f",
+  "converged tx-2b0bd94d3b5414b2321962db3ebcf0e4358301bc43aefb7118f241983d7de8ca",
+  "converged tx-078101181e744e2168e50281909fd2d707930239e3f747805025d9c1fb087c8f"
+ ],
+ "before": [
+  "DomainMapping   pr-scenario.scenario-site.preview.c3-1012.labs.topagentnetwork.net",
+  "DomainMapping   scenario-cdn.c3-1012.labs.topagentnetwork.net",
+  "Service         scenario-a",
+  "Service         scenario-b",
+  "Service         scenario-cdn",
+  "Service         scenario-site",
+  "Service         scenario-site-pr-pr-scenario",
+  "Ingress         pr-scenario.scenario-site.previf0477f6665f52504b0bfff2fcca6e7bd",
+  "Ingress         scenario-a",
+  "Ingress         scenario-b",
+  "Ingress         scenario-cdn",
+  "Ingress         scenario-cdn.c3-1012.labs.topagentnetwork.net",
+  "Ingress         scenario-site",
+  "Ingress         scenario-site-pr-pr-scenario"
+ ],
+ "command": "nagarectl preview cleanup (reviewed), repeated until no review remains",
+ "finalPlan": "No stale accepted previews or eligible retained preview members; no cleanup review created"
+}

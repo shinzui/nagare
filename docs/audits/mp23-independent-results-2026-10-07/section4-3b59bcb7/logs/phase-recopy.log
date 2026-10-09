@@ -1,0 +1,4 @@
+== 09:09:41 recopy: fence the old instance, copy into the new one, verify
+NOTICE:  drop cascades to table hits
+== 09:09:47 verified: hits=c5b44779cb90b881c1ab7af303c53093 hits_id_seq=9; both instances read-only
+PHASE-OK recopy

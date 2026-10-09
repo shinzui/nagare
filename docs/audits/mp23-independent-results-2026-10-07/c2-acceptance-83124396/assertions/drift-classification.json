@@ -1,0 +1,22 @@
+{
+  "cluster": "k3d-nagare-local",
+  "context": "local",
+  "evidence": [
+    {
+      "path": "checks/drift-classification/repair.json",
+      "sha256": "888e795ece15e7dea1f28da2764566f27fbfe039b778342b633c5c6c1b2e99c7"
+    },
+    {
+      "path": "checks/drift-classification/status-drift.json",
+      "sha256": "51d19a0e80c9f6fab2c05cc15924990fb9aac6c83d4774c4c6302617b9858c52"
+    }
+  ],
+  "fixtureDigest": "dd431786f1905bccae8524ad465c1ea4fe81bcc81a619726dc2583b6232b4a1c",
+  "mode": "local",
+  "name": "drift-classification",
+  "operatorRevision": "831243962c6b80f91da1028cdab8238ae6acdabd",
+  "passed": true,
+  "recordedAt": "2026-10-09T10:05:52Z",
+  "schemaVersion": 1,
+  "summary": "Status separated application B's kubectl-patch configuration drift from scenario-retire's retained orphans; the strict replan refused the foreign field manager and was closed by abandon-refused-operation, and the --take-over-fields replan restored the reviewed bytes under the same UID with Nagare as sole field manager"
+}

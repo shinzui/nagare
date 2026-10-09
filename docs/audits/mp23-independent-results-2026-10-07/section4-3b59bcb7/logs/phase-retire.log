@@ -1,0 +1,5 @@
+== 09:21:33 retire the old instance only now (reviewed; retention keeps its volume)
+== 09:22:17 consumers retired: converged tx-7df52217264654087dc56a99a8e25997f2b3adcd0edaa3b3e0e191f07fb6f759
+v6-new-only: converged tx-c9cbb576f29cd71f58ade3d20fb2d87b8a9c660a639d4d91a691631670251e39
+== 09:23:19 after retirement: old volume 2 PVC match(es); old StatefulSet 1; app rows 12:12
+PHASE-OK retire

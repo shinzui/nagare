@@ -1,0 +1,44 @@
+{
+ "stage": "cluster-completion",
+ "within": "application B deploy, after the Service write and before readiness; resumed from a second operator root by explicit takeover",
+ "transaction": "tx-231c0ccd5f053b0d6107087c1b81a73b0a400ff4c75538c08343047440a2ed83",
+ "killedOperation": [
+  "op-a4263e3ca4613bb72d17270d"
+ ],
+ "uidsBefore": [
+  [
+   "Service",
+   "scenario-b",
+   "4c95ccde-260a-40cd-af5e-713df10abccc"
+  ],
+  [
+   "StatefulSet",
+   "scenario-redis",
+   "761ba588-ce95-40e4-a4dc-8289048efabc"
+  ],
+  [
+   "PersistentVolumeClaim",
+   "nagare-db-scenario-redis-data",
+   "3edf9d5a-de32-4e17-ae8b-adedb0d6538e"
+  ]
+ ],
+ "uidsAfter": [
+  [
+   "Service",
+   "scenario-b",
+   "4c95ccde-260a-40cd-af5e-713df10abccc"
+  ],
+  [
+   "StatefulSet",
+   "scenario-redis",
+   "761ba588-ce95-40e4-a4dc-8289048efabc"
+  ],
+  [
+   "PersistentVolumeClaim",
+   "nagare-db-scenario-redis-data",
+   "3edf9d5a-de32-4e17-ae8b-adedb0d6538e"
+  ]
+ ],
+ "preInterruptionUidsUnchanged": true,
+ "resumeResult": "converged tx-231c0ccd5f053b0d6107087c1b81a73b0a400ff4c75538c08343047440a2ed83"
+}

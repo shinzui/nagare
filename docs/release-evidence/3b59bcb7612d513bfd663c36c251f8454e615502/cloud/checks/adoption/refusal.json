@@ -1,0 +1,11 @@
+{
+  "command": "nagarectl db restore scenario-redis c3grd1 --restore-id c3gadopt --save-plan DIR",
+  "foreignObject": {
+    "kind": "PersistentVolumeClaim",
+    "name": "scenario-redis-restore-c3gadopt",
+    "uid": "6a7f619e-4f48-4cab-adee-c22628c582fb",
+    "createdBeforePlanning": true
+  },
+  "refusal": "PlanError {planErrorCode = \"adoption-required\", planErrorMessage = \"resource exists without inventory ownership\", planErrorResources = [ResourceId \"standalone:database-restore-personal-scenario-redis-c3gadopt/c3gadopt/pvc\"]}",
+  "reviewSaved": false
+}

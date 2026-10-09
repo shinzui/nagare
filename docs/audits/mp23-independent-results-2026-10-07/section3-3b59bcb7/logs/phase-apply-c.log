@@ -1,0 +1,5 @@
+== 2026-10-09T07:56:03Z re-pinned nixpkgs e7439b6b14ad3cc35d05608ebca9bce01a25f5f8 and sops-nix dcd241ba97088c22569d1573286e1b9daad340c0 (c); only those nodes changed; toplevel evaluates: /nix/store/0z34fbqr48fx9g907crvswfymxlwsb5a-nixos-system-mp23-c3l-nagare-google-compute-26.11.20261008.e7439b6.drv
+== 2026-10-09T07:57:00Z started builder nix-builder-ep150
+== 2026-10-09T08:03:21Z planned apply-c: [{"a":"UpdateResource","r":["platform:host/nixos-system/system"]},{"a":"RunDeclaredOperation","r":["platform:host/nixos-system/system"]}]
+== 2026-10-09T08:26:19Z apply apply-c exit=1: ambiguous tx-0f6f381200a37b477b608b070eac6b9084371602737dc9150a70e0ac0510812c at op-33a83920f4fd7a7ed870f1ab 
+S3 FAILED [apply-c]: apply apply-c

@@ -1,0 +1,107 @@
+{
+ "configurationDrift": [
+  {
+   "address": {
+    "contents": [
+     "platform:cluster/cluster/cluster",
+     "apps",
+     "statefulset",
+     "personal",
+     "scenario-pg"
+    ],
+    "tag": "Kubernetes"
+   },
+   "category": "unrecorded",
+   "executor": "KubernetesExecutor",
+   "health": "ready",
+   "observedDigest": null,
+   "owner": {
+    "kind": "Application",
+    "name": "scenario-a"
+   },
+   "physical": "7cd1de65-6ec3-4e61-9f9a-17a2b2cd4f23",
+   "reason": "no incarnation is recorded; a reviewed rebind records it",
+   "resource": "application:scenario-a/scenario-pg/statefulset"
+  },
+  {
+   "address": {
+    "contents": [
+     "platform:cluster/cluster/cluster",
+     "serving.knative.dev",
+     "service",
+     "personal",
+     "scenario-b"
+    ],
+    "tag": "Kubernetes"
+   },
+   "category": "configuration-drift",
+   "executor": "KubernetesExecutor",
+   "health": "ready",
+   "observedDigest": "7d7b9afd73fd042554cca946ce1fae6a924355c813994e0d0665fa18f82780e6",
+   "owner": {
+    "kind": "Application",
+    "name": "scenario-b"
+   },
+   "physical": "4fa7cd8a-f734-4e91-9a6c-8167c2d6580d",
+   "reason": null,
+   "resource": "application:scenario-b/scenario-b/service"
+  }
+ ],
+ "edit": "kubectl patch ksvc personal/scenario-b: spec.template.metadata.annotations autoscaling.knative.dev/max-scale 3 -> 5 (field manager kubectl-patch)",
+ "findingCategories": {
+  "configuration-drift": 1,
+  "converged": 277,
+  "unrecorded": 1
+ },
+ "observedAt": "2026-10-09T04:09:34.422321Z",
+ "retainedCategories": {
+  "retained-orphan": 9
+ },
+ "retainedOrphans": [
+  {
+   "category": "retained-orphan",
+   "physical": "43730d4c-a367-4a25-a16d-ea424170f26b",
+   "resource": "standalone:database-scenario-retire/scenario-retire/backup"
+  },
+  {
+   "category": "retained-orphan",
+   "physical": "a3866cba-e34d-4713-b3cb-f9c6460b3516",
+   "resource": "standalone:database-scenario-retire/scenario-retire/backup-account"
+  },
+  {
+   "category": "retained-orphan",
+   "physical": "ba372171-49a6-4035-9299-8aefbe380681",
+   "resource": "standalone:database-scenario-retire/scenario-retire/backup-read-binding"
+  },
+  {
+   "category": "retained-orphan",
+   "physical": "68ab29ae-fdb0-4c62-a6d2-2b62356d29df",
+   "resource": "standalone:database-scenario-retire/scenario-retire/backup-read-role"
+  },
+  {
+   "category": "retained-orphan",
+   "physical": "19f1304f-a102-4ae5-bb19-929e4eeac1ab",
+   "resource": "standalone:database-scenario-retire/scenario-retire/backup-signing-key"
+  },
+  {
+   "category": "retained-orphan",
+   "physical": "6bd9d40d-4eb2-47b1-9d7a-ba4200117730",
+   "resource": "standalone:database-scenario-retire/scenario-retire/credential"
+  },
+  {
+   "category": "retained-orphan",
+   "physical": "982e45bd-6977-48c3-ad5b-3b10e4c4e2ef",
+   "resource": "standalone:database-scenario-retire/scenario-retire/pvc"
+  },
+  {
+   "category": "retained-orphan",
+   "physical": "a857df6c-eb9f-4f7a-8a2c-8e414b5cd4c9",
+   "resource": "standalone:database-scenario-retire/scenario-retire/service"
+  },
+  {
+   "category": "retained-orphan",
+   "physical": "8dff2cc6-8bc8-4c97-9b51-d75cbc0b6e34",
+   "resource": "standalone:database-scenario-retire/scenario-retire/statefulset"
+  }
+ ]
+}

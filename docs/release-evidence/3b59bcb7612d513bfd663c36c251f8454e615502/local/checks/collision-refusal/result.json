@@ -1,0 +1,14 @@
+{
+  "command": "nagarectl app deploy -f apps/scenario-collision/nagare/Config.hs --tag c2 --image-resource publication:app-image-scenario-b-c2/scenario-b-c2/oci-image --save-plan DIR",
+  "exitCode": 1,
+  "headAfter": {
+    "generation": 1134,
+    "headDigest": "475cebea2bfe4aa9748dd0bd2725840c467b481d290fa434a32ab703d80a81ad"
+  },
+  "headBefore": {
+    "generation": 1134,
+    "headDigest": "475cebea2bfe4aa9748dd0bd2725840c467b481d290fa434a32ab703d80a81ad"
+  },
+  "output": "nagarectl: InventoryError {code = \"claim-conflict\", message = \"canonical address claimed by multiple resources\", scopes = [ScopeId Application (Name \"scenario-a\"),ScopeId Application (Name \"scenario-collision\")], resources = [ResourceId \"application:scenario-collision/scenario-a.127-0-0-1.sslip.io/domain-mapping\",ResourceId \"application:scenario-a/scenario-a.127-0-0-1.sslip.io/domain-mapping\"], claims = [CanonicalClaim [\"hostname\",\"scenario-a.127-0-0-1.sslip.io\"]], sources = [SourceLocation {file = \"/private/tmp/nagare-cand-3b59bcb7-src/fixtures/inventory-release/local/apps/scenario-collision/nagare/Config.hs\", path = \"scenario-collision/domain/scenario-a.127-0-0-1.sslip.io\"},SourceLocation {file = \"/private/tmp/nagare-cand-3b59bcb7-src/fixtures/inventory-release/local/apps/scenario-a/nagare/Config.hs\", path = \"scenario-a/domain/scenario-a.127-0-0-1.sslip.io\"}]} :| []",
+  "reviewDirectoryExists": false
+}

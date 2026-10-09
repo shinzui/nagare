@@ -1,0 +1,1 @@
+/nix/store/rx0n8pv9qpi14za4vsdk6gipwik9piz2-nixos-system-mp23-c3l-nagare-google-compute-26.11.20260916.b1b8759 active

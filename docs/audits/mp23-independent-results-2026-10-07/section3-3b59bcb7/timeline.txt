@@ -1,0 +1,37 @@
+== 2026-10-09T06:58:04Z snap 0: e-google-compute-26.11.20260911.eaad089 v1.35.8+k3s1 data=24467b7d4163 pg=3 redis=2 ch=4 notRunning=0 doctor exit=0 seconds=110 {"activeTransaction":null,"findings":318,"categories":{"converged":317,"unknown":1}}
+== 2026-10-09T07:05:12Z backup s3pre: three databases backed up; scenario-pg restore = source (3 rows)
+== 2026-10-09T07:07:48Z re-pinned nixpkgs b1b875982b17dabde9b4a37f3e229e74913e6db3 and sops-nix dcd241ba97088c22569d1573286e1b9daad340c0 (a); only those nodes changed; toplevel evaluates: /nix/store/2ap94f5w1yhw8g7gxpar0b9nz4n72v2a-nixos-system-mp23-c3l-nagare-google-compute-26.11.20260916.b1b8759.drv
+== 2026-10-09T07:08:45Z started builder nix-builder-ep150
+== 2026-10-09T07:10:03Z planned fail-a: [{"a":"UpdateResource","r":["platform:host/nixos-system/system"]},{"a":"RunDeclaredOperation","r":["platform:host/nixos-system/system"]}]
+== 2026-10-09T07:10:06Z apply fail-a with NAGARE_SWITCH_CONFIRM_SECONDS=120 (apply-time setting, not bound in the review)
+== 2026-10-09T07:11:46Z transport shell 51676 stopped while its activation ssh 55303 ran (apply pid 47713); no fresh-login check or commit can follow
+== 2026-10-09T07:11:56Z remote activation returned
+== 2026-10-09T07:11:58Z processes killed; host: /nix/store/rx0n8pv9qpi14za4vsdk6gipwik9piz2-nixos-system-mp23-c3l-nagare-google-compute-26.11.20260916.b1b8759 active
+== 2026-10-09T07:12:38Z close while the timer is armed: exit=1: OperationId "op-22a040a91684b2297d587786" is not proved: the host rollback timer is armed (resolved by the rollback window to end, then inventory close or resume) 
+== 2026-10-09T07:12:38Z waiting for the on-host rollback timer
+== 2026-10-09T07:14:08Z host reverted to the old closure with the timer inactive
+== 2026-10-09T07:14:34Z resume exit=1: ambiguous tx-867b8bf07e972d9d2a72544360a7187c7281a4602a716db6e9782481bf57601e at op-22a040a91684b2297d587786 
+S3 FAILED [fail-a]: resume refused for another reason (read fail-a-resume.txt)
+== 2026-10-09T07:19:46Z close exit=1: StoreIoError "inventory object generation could not be downloaded completely" 
+S3 FAILED [fail-a-close]: close refused
+== 2026-10-09T07:20:45Z close exit=0: closed tx-867b8bf07e972d9d2a72544360a7187c7281a4602a716db6e9782481bf57601e; nothing was written to any provider   op-22a040a91684b2297d587786: no effect (the reviewed host runs its old closure /nix/store/g4grr5zkmhahmn3h84l3b9fnnandisrx-nixos-system-mp23-c3l-nagare-google-compute-26.11.20260911.eaad089 with no rollback timer armed)   op-68675df56e455aff4fd11998: never started   scope platform:host
+== 2026-10-09T07:20:46Z restored the previous flake.lock after the closed failed upgrade
+== 2026-10-09T07:28:12Z snap fail-a: e-google-compute-26.11.20260911.eaad089 v1.35.8+k3s1 data=24467b7d4163 pg=3 redis=2 ch=4 notRunning=0 doctor exit=0 seconds=112 {"activeTransaction":null,"findings":322,"categories":{"converged":321,"unknown":1}}
+== 2026-10-09T07:31:04Z re-pinned nixpkgs b1b875982b17dabde9b4a37f3e229e74913e6db3 and sops-nix dcd241ba97088c22569d1573286e1b9daad340c0 (b); only those nodes changed; toplevel evaluates: /nix/store/2ap94f5w1yhw8g7gxpar0b9nz4n72v2a-nixos-system-mp23-c3l-nagare-google-compute-26.11.20260916.b1b8759.drv
+== 2026-10-09T07:31:43Z planned apply-b: [{"a":"UpdateResource","r":["platform:host/nixos-system/system"]},{"a":"RunDeclaredOperation","r":["platform:host/nixos-system/system"]}]
+== 2026-10-09T07:33:33Z apply apply-b exit=0: converged tx-f5d46e8cb3e3714bc8e6a669f25e687980029e793d5dba7094e837bae0c9ee62 
+== 2026-10-09T07:36:24Z snap b: e-google-compute-26.11.20260916.b1b8759 v1.35.8+k3s1 data=24467b7d4163 pg=3 redis=2 ch=4 notRunning=0 doctor skipped at this intermediate state {"activeTransaction":null,"findings":322,"categories":{"converged":321,"unknown":1}}
+== 2026-10-09T07:39:15Z apply stop-b exit=0: converged tx-fd5215f98acf4e8529c0fe75ccaec6229ee4e96ba4414dbdc86c84acc0fc5c80 
+== 2026-10-09T07:40:08Z apply start-b exit=0: converged tx-3a5fa7d7875e7d09494c3dacad1499d5541f5d83e02636d4483fd1fc28c44bba 
+== 2026-10-09T07:45:46Z snap b-rebooted: e-google-compute-26.11.20260916.b1b8759 v1.35.8+k3s1 data=24467b7d4163 pg=3 redis=2 ch=4 notRunning=0 doctor exit=0 seconds=119 {"activeTransaction":null,"findings":322,"categories":{"converged":321,"unknown":1}}
+== 2026-10-09T07:53:19Z backup s3prec: three databases backed up; scenario-pg restore = source (3 rows)
+== 2026-10-09T07:56:03Z re-pinned nixpkgs e7439b6b14ad3cc35d05608ebca9bce01a25f5f8 and sops-nix dcd241ba97088c22569d1573286e1b9daad340c0 (c); only those nodes changed; toplevel evaluates: /nix/store/0z34fbqr48fx9g907crvswfymxlwsb5a-nixos-system-mp23-c3l-nagare-google-compute-26.11.20261008.e7439b6.drv
+== 2026-10-09T07:57:00Z started builder nix-builder-ep150
+== 2026-10-09T08:03:21Z planned apply-c: [{"a":"UpdateResource","r":["platform:host/nixos-system/system"]},{"a":"RunDeclaredOperation","r":["platform:host/nixos-system/system"]}]
+== 2026-10-09T08:26:19Z apply apply-c exit=1: ambiguous tx-0f6f381200a37b477b608b070eac6b9084371602737dc9150a70e0ac0510812c at op-33a83920f4fd7a7ed870f1ab 
+S3 FAILED [apply-c]: apply apply-c
+== 2026-10-09T08:27:28Z resume exit=1: ambiguous tx-0f6f381200a37b477b608b070eac6b9084371602737dc9150a70e0ac0510812c at op-33a83920f4fd7a7ed870f1ab 
+== 2026-10-09T08:28:08Z close exit=0: closed tx-0f6f381200a37b477b608b070eac6b9084371602737dc9150a70e0ac0510812c; nothing was written to any provider   op-33a83920f4fd7a7ed870f1ab: no effect (the reviewed host runs its old closure /nix/store/rx0n8pv9qpi14za4vsdk6gipwik9piz2-nixos-system-mp23-c3l-nagare-google-compute-26.11.20260916.b1b8759 with no rollback timer armed)   op-dbe505f7da60dd5ecdc85a3e: never started   scope platform:host
+S3 FAILED [c-failed-exit]: transaction still active after close
+== 2026-10-09T08:28:24Z restored the previous flake.lock after the closed failed upgrade
+== 2026-10-09T08:35:51Z snap c-failed: e-google-compute-26.11.20260916.b1b8759 v1.35.8+k3s1 data=24467b7d4163 pg=3 redis=2 ch=4 notRunning=0 doctor exit=0 seconds=113 {"activeTransaction":null,"findings":326,"categories":{"converged":325,"unknown":1}}

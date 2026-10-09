@@ -1,0 +1,18 @@
+{
+  "cluster": "nagare-c3-1012",
+  "context": "mp23-c3m",
+  "evidence": [
+    {
+      "path": "checks/adoption/refusal.json",
+      "sha256": "5266bb4d774c3e6b098fa58c8f0df2db490be8eab7141f7a651c85e706b87bcb"
+    }
+  ],
+  "fixtureDigest": "a87386fa4527e267d3e90a781b1414929525a900ea493bbfd441195990884472",
+  "mode": "cloud",
+  "name": "adoption",
+  "operatorRevision": "831243962c6b80f91da1028cdab8238ae6acdabd",
+  "passed": true,
+  "recordedAt": "2026-10-09T16:06:19Z",
+  "schemaVersion": 1,
+  "summary": "A restore whose PersistentVolumeClaim already existed without inventory ownership was refused with adoption-required; no review was saved"
+}

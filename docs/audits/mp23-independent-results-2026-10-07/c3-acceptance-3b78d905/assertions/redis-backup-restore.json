@@ -1,0 +1,18 @@
+{
+  "cluster": "nagare-c3-1010",
+  "context": "mp23-c3k",
+  "evidence": [
+    {
+      "path": "checks/redis-backup-restore/result.json",
+      "sha256": "772ea1ef0120a1436e81c816509d97dc80dea6fb7440d97254ad85d0cfe3c1ec"
+    }
+  ],
+  "fixtureDigest": "b78dde5ca109831e99ce9f77b7dccaa12764e6879c147f02a90274a0934ff925",
+  "mode": "cloud",
+  "name": "redis-backup-restore",
+  "operatorRevision": "3b78d905a7dbcdead997348eaba3db2499f487ac",
+  "passed": true,
+  "recordedAt": "2026-10-09T00:01:04Z",
+  "schemaVersion": 1,
+  "summary": "A reviewed Redis backup to GCS restored into a scratch StatefulSet with the known keys"
+}

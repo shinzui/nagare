@@ -1,0 +1,4 @@
+Received exception from server (version 25.8.33):
+Code: 46. DB::Exception: Received from localhost:9000. DB::Exception: Function with name `chr` does not exist. In scope SELECT concat(toString(id), chr(124), v) FROM scenario_events ORDER BY id ASC. Maybe you meant: ['char']. (UNKNOWN_FUNCTION)
+(query: select concat(toString(id), chr(124), v) from scenario_events order by id)
+command terminated with exit code 46

@@ -1,0 +1,18 @@
+{
+  "cluster": "nagare-c3-1011",
+  "context": "mp23-c3l",
+  "evidence": [
+    {
+      "path": "checks/clickhouse-backup-restore/result.json",
+      "sha256": "d60ff8cc0c4b4ad025a0a167b9482bf02e6e8f47d9518eb795e5405b83cbb406"
+    }
+  ],
+  "fixtureDigest": "f27611323b465011cab862289b98a1e553c0f59c5e76f3363a868d9785531e00",
+  "mode": "cloud",
+  "name": "clickhouse-backup-restore",
+  "operatorRevision": "3b59bcb7612d513bfd663c36c251f8454e615502",
+  "passed": true,
+  "recordedAt": "2026-10-09T06:42:44Z",
+  "schemaVersion": 1,
+  "summary": "A reviewed ClickHouse backup to GCS restored into a scratch database with the known rows"
+}

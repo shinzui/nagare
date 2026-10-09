@@ -1,0 +1,4 @@
+  PID  PPID STAT COMMAND
+76843 48927 S    /nix/store/dry18pccl3s95ya62ycgavparhrhiqzb-nagare-operator-nagarectl-0.4.0/bin/.nagarectl-wrapped_ --context mp23-c3m inventory apply /Users/s
+87479 85760 T    bash /Users/shinzui/.local/state/nagare-verify/mp23-c3m/state/nagare/mp23-c3m/platform/nagare-0.4.0-831243962c6b-78c420ae9040ca7d/scripts/host-
+90847 87479 S    (ssh)

@@ -1,0 +1,6 @@
+nagare-system/nagare-dbbackup-en-db-29859420-hxbmm Pending
+nagare-system/nagare-dbbackup-shomei-db-29859420-54l8k Pending
+personal/nagare-dbbackup-scenario-ch-29859420-5hbcz Pending
+personal/nagare-dbbackup-scenario-pg-29859420-wn82f Pending
+personal/nagare-dbbackup-scenario-redis-29859420-ckn27 Pending
+personal/nagare-task-scenario-a-report-29859420-lwn5z Pending

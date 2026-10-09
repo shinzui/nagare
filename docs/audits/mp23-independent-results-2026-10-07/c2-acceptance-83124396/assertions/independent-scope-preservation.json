@@ -1,0 +1,26 @@
+{
+  "cluster": "k3d-nagare-local",
+  "context": "local",
+  "evidence": [
+    {
+      "path": "checks/independent-scope-preservation/after.json",
+      "sha256": "9f8869ed358874be7b1b3de52eae6c1ef3151d853912371592361b1444c0c477"
+    },
+    {
+      "path": "checks/independent-scope-preservation/before.json",
+      "sha256": "16a58e9cc92a5f9cdd9b7e777dc8c5057620ed3aab9dfc6ec9e203dfb56e3d98"
+    },
+    {
+      "path": "checks/independent-scope-preservation/diff.json",
+      "sha256": "fe5e7711cd52dcc2a936d11be0374d8c62270722be962f9c69f8aa2c7d9de266"
+    }
+  ],
+  "fixtureDigest": "dd431786f1905bccae8524ad465c1ea4fe81bcc81a619726dc2583b6232b4a1c",
+  "mode": "local",
+  "name": "independent-scope-preservation",
+  "operatorRevision": "831243962c6b80f91da1028cdab8238ae6acdabd",
+  "passed": true,
+  "recordedAt": "2026-10-09T10:05:53Z",
+  "schemaVersion": 1,
+  "summary": "update-a (env set scenario-a, one operation) changed only application A's runtime env scope; scenario-b's revision and Service UID and all platform revisions were unchanged"
+}

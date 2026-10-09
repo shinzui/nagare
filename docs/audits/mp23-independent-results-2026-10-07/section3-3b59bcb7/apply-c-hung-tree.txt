@@ -1,0 +1,4 @@
+apply 1237  1236 21:52
+2035 21:20 bash /Users/shinzui/.local/state/nagare-verify/mp23-c3l/state/nagare/mp23-c3l/platform/nagare-0.4.0-3b59bcb7612d-9aa97a32fa69dc6b/scripts/inventory-host-transport.sh activate
+2446 21:08 bash /Users/shinzui/.local/state/nagare-verify/mp23-c3l/state/nagare/mp23-c3l/platform/nagare-0.4.0-3b59bcb7612d-9aa97a32fa69dc6b/scripts/host-switch.sh
+8088 17:56 ssh -o BatchMode=yes -o ConnectTimeout=8 -o ConnectionAttempts=1 -o ControlMaster=no -o ControlPath=none -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/tmp/nagare-host

@@ -1,0 +1,12 @@
+2026-10-09T06:58:04Z phase snap0 rc=0 PHASE-OK snap0
+2026-10-09T07:05:12Z phase backup rc=0 PHASE-OK backup
+2026-10-09T07:14:34Z phase fail-a rc=1 S3 FAILED [fail-a]: resume refused for another reason (read fail-a-resume.txt)
+2026-10-09T07:19:46Z phase fail-a-close rc=1 S3 FAILED [fail-a-close]: close refused
+2026-10-09T07:20:46Z phase fail-a-close rc=0 PHASE-OK fail-a-close
+2026-10-09T07:28:12Z phase fail-a-verify rc=0 PHASE-OK fail-a-verify
+2026-10-09T07:45:46Z phase apply-b rc=0 PHASE-OK apply-b
+2026-10-09T07:53:19Z phase backup-c rc=0 PHASE-OK backup-c
+2026-10-09T08:26:19Z phase apply-c rc=1 S3 FAILED [apply-c]: apply apply-c
+2026-10-09T08:28:11Z phase c-failed-exit rc=1 S3 FAILED [c-failed-exit]: transaction still active after close
+2026-10-09T08:35:51Z phase c-failed-verify rc=0 PHASE-OK c-failed-verify
+S3-ALL-OK

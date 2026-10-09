@@ -1,0 +1,52 @@
+{
+ "absentAfterCollect": true,
+ "cdnTargetAfterDeploy": [
+  [
+   "136.81.131.164"
+  ]
+ ],
+ "collect": "converged tx-3c7936a1b67abab79dcb7ed95e6b17278b2d5101da50a75612b49854dbde66a4",
+ "deploy": "converged tx-c9747e4463b2aa8597eb3e3e34780299411578c8f3778a481d38f220e665cbbf",
+ "disable": "converged tx-e50463fa5c4251bf31e9aa2f8b414125dd24b1004cf1551b8b8ac2687fc0d9c9",
+ "host": "scenario-cdn.c3-1012.labs.topagentnetwork.net",
+ "operator": "candidate 83124396",
+ "originAfterDisable": [
+  [
+   "136.66.156.4"
+  ]
+ ],
+ "records": {
+  "0-before": [],
+  "1-after-deploy": [
+   {
+    "name": "scenario-cdn.c3-1012.labs.topagentnetwork.net.",
+    "rrdatas": [
+     "136.81.131.164"
+    ],
+    "ttl": 300
+   }
+  ],
+  "2-after-disable": [
+   {
+    "name": "scenario-cdn.c3-1012.labs.topagentnetwork.net.",
+    "rrdatas": [
+     "136.66.156.4"
+    ],
+    "ttl": 300
+   }
+  ],
+  "3-after-retire": [
+   {
+    "name": "scenario-cdn.c3-1012.labs.topagentnetwork.net.",
+    "rrdatas": [
+     "136.66.156.4"
+    ],
+    "ttl": 300
+   }
+  ],
+  "4-after-collect": []
+ },
+ "retainedAfterRetire": true,
+ "retire": "converged tx-84294fdfea2a1c04f357ec92ede1fb4fec47f20135ffd1cf311b3a8d4769f9ba",
+ "site": "scenario-cdn"
+}

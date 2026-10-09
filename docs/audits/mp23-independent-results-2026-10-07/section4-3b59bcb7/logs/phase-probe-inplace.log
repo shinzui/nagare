@@ -1,0 +1,3 @@
+== 08:55:51 probe: an in-place major change of the old instance must not be applicable
+== 08:56:03 in-place plan exit=1: nagarectl: PostgreSQL upg-pg would change from postgres:17 to postgres:18 in place; PostgreSQL cannot open data files of another major version. Create a new database at the new version beside it and move the data (docs/user/managed-database
+PHASE-OK probe-inplace

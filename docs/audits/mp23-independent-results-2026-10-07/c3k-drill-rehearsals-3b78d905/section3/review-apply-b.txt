@@ -1,0 +1,2 @@
+b0f7d71ff595b5ae4e89794fab4766518d40df9643f784301ca12953940de1ac
+Host review saved; use inventory apply with this directory. Credential reviews require the same NAGARE_HOST_AGE_KEY_FILE at apply/resume.

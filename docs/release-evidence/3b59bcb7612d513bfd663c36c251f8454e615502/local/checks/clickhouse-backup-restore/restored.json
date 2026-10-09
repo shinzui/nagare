@@ -1,0 +1,12 @@
+{
+  "backupId": "c2ch1",
+  "backupReview": "94c05cc7a85f701b629439a0417d5f04c5375b53d938d832c82e0e8e5cf32563",
+  "restoreId": "c2chr1",
+  "restoreReview": "1a6b78ec689297ebc926c33fbf32a31d6f7722357ee0d0554b64805c34b1ff16",
+  "scratchDatabase": "scenario-ch_restore_c2chr1",
+  "rows": [
+    "1|scenario-ch-row-1",
+    "2|scenario-ch-row-2"
+  ],
+  "equalsSeed": true
+}

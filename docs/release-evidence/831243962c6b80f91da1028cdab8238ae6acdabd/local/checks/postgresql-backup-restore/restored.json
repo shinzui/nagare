@@ -1,0 +1,12 @@
+{
+  "backupId": "c2pg1",
+  "backupReview": "5e7d0dd44c71d8c4e31450d75e435324d1fe01a31f456fbd8e84a98066be7a37",
+  "restoreId": "c2pgr1",
+  "restoreReview": "b2ed4a8b6b02fba10a67ac6f0596e13dd9d7307d5c5b811e2a255825a45b485b",
+  "scratchDatabase": "scenario-pg_restore_c2pgr1",
+  "rows": [
+    "1|scenario-pg-row-1",
+    "2|scenario-pg-row-2"
+  ],
+  "equalsSeed": true
+}

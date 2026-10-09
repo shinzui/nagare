@@ -1,0 +1,9 @@
+pg_dump (PostgreSQL) 18.6 (Debian 18.6-1.pgdg13+2)
+63960d7e94807e2113e48e987c95e7d37ad31a6ab54f6c5bda15146f19ce5b0a  /tmp/s4-dump.sql
+ set_config 
+------------
+ 
+(1 row)
+
+psql:/tmp/s4-dump.sql:33: ERROR:  relation "hits" already exists
+command terminated with exit code 3

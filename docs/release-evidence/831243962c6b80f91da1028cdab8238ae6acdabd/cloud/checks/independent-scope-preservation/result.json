@@ -1,0 +1,85 @@
+{
+  "command": "nagarectl env set scenario-a --runtime SCENARIO_MODE updated --reviewed",
+  "scopesBefore": [
+    {
+      "s": "env-scenario-site-preview",
+      "d": "e5606c28ef17c43df84c0a4fd0ad4c483caaf9f8e56c478ac54fadd155369e27",
+      "g": 1
+    },
+    {
+      "s": "env-scenario-site-runtime",
+      "d": "72b1cb72fea61ff9a3871e31749656314245a6ac0f9e1b60f614a526531ef88a",
+      "g": 1
+    },
+    {
+      "s": "scenario-a",
+      "d": "e764897b0f99740a129008698e4d6de38897d85ff3f2f3ec47c93488a57318c0",
+      "g": 2
+    },
+    {
+      "s": "scenario-b",
+      "d": "ca0a7347d03a4aadaaf08de9e6ce1dc1fdccd56f7347baf66395f3259b970e2f",
+      "g": 2
+    },
+    {
+      "s": "secret-scenario-a-runtime",
+      "d": "498af38084ea83681058390fa2972a5aa931c75c7ca5e606d79aa4bc221a2918",
+      "g": 1
+    },
+    {
+      "s": "secret-scenario-site-preview",
+      "d": "1f96ac7e93ca1281394dc0cc21fe87a3a1d6c2140ac2edbe3cad768fcad16716",
+      "g": 1
+    },
+    {
+      "s": "secret-scenario-site-runtime",
+      "d": "9d61362affa2167c327a9014769dd9e92af7996157bda7843fb91c5bafec7fc1",
+      "g": 1
+    }
+  ],
+  "scopesAfter": [
+    {
+      "s": "env-scenario-a-runtime",
+      "d": "b0f1e424c73926f851c31df4efeebe10a34446067c654e7c327b950bdda55cb0",
+      "g": 1
+    },
+    {
+      "s": "env-scenario-site-preview",
+      "d": "e5606c28ef17c43df84c0a4fd0ad4c483caaf9f8e56c478ac54fadd155369e27",
+      "g": 1
+    },
+    {
+      "s": "env-scenario-site-runtime",
+      "d": "72b1cb72fea61ff9a3871e31749656314245a6ac0f9e1b60f614a526531ef88a",
+      "g": 1
+    },
+    {
+      "s": "scenario-a",
+      "d": "e764897b0f99740a129008698e4d6de38897d85ff3f2f3ec47c93488a57318c0",
+      "g": 2
+    },
+    {
+      "s": "scenario-b",
+      "d": "ca0a7347d03a4aadaaf08de9e6ce1dc1fdccd56f7347baf66395f3259b970e2f",
+      "g": 2
+    },
+    {
+      "s": "secret-scenario-a-runtime",
+      "d": "498af38084ea83681058390fa2972a5aa931c75c7ca5e606d79aa4bc221a2918",
+      "g": 1
+    },
+    {
+      "s": "secret-scenario-site-preview",
+      "d": "1f96ac7e93ca1281394dc0cc21fe87a3a1d6c2140ac2edbe3cad768fcad16716",
+      "g": 1
+    },
+    {
+      "s": "secret-scenario-site-runtime",
+      "d": "9d61362affa2167c327a9014769dd9e92af7996157bda7843fb91c5bafec7fc1",
+      "g": 1
+    }
+  ],
+  "scenarioBUidBefore": "4c95ccde-260a-40cd-af5e-713df10abccc",
+  "scenarioBUidAfter": "4c95ccde-260a-40cd-af5e-713df10abccc",
+  "scenarioBUnchanged": true
+}

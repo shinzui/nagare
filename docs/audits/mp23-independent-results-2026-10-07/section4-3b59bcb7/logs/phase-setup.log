@@ -1,0 +1,5 @@
+== 08:39:10 publish the drill image
+== 08:40:20 deploy upg-app on PostgreSQL 17
+v1-old: converged tx-df7512feea56e84204b0c50436ff9e935897296b2826f8d68a27048c15ee9589
+== 08:42:31 seeded 5:5 on PostgreSQL 17.11
+PHASE-OK setup

@@ -1,0 +1,8 @@
+{
+  "database": "scenario-ch",
+  "table": "scenario_events",
+  "seed": [
+    "1|scenario-ch-row-1",
+    "2|scenario-ch-row-2"
+  ]
+}

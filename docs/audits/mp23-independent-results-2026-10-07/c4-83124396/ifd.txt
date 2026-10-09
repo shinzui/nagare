@@ -1,0 +1,10 @@
+/nix/store/8mrld1qlfi271kqsh0122mrlfswd07ya-cabal2nix-gogol-storage
+/nix/store/f6zmcs185cx9p6ssjkdpbam9ma2zf5r3-cabal2nix-nagarectl
+/nix/store/gjh440s8v68qdyc97q5r2fd69gh3pm9x-cabal2nix-strict-mutable-base
+/nix/store/nxf8b86x3ab3p369hvacgsnswcwwf8m4-cabal2nix-generic-lens-core-2.3.0.0
+/nix/store/p1pxkmpg0by8jaw3ng5wd84hn2kdiz4k-cabal2nix-generic-lens-2.3.0.0
+/nix/store/q0pp3swvnqq6k4xsprc5p46d1y0bqkfj-cabal2nix-nagare-dsl
+/nix/store/rx01n9ldnldixs488xps8wfzsxjnzwpw-cabal2nix-gogol
+/nix/store/rzaijk7lwlfk0m9xr5w76805v5cijilk-cabal2nix-gogol-core
+/nix/store/wfxwg13qh3vzzsk5mzq4f4bl5ld1sw5c-cabal2nix-cradle
+/nix/store/xh7zl185acdihvmwncj2klbj8164jrj6-cabal2nix-effectful-core

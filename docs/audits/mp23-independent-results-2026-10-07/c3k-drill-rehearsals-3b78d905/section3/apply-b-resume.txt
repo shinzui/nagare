@@ -1,0 +1,5 @@
+platform mutation allowed (exact)
+  warning: Application Default Credentials do not expose a principal; the gcloud account comparison is unavailable
+context guard: mp23-c3k confined to project tan-ng-labs (stack mp23-c3k)
+warning: Application Default Credentials do not expose a principal; the gcloud account comparison is unavailable
+stopped tx-b0f7d71ff595b5ae4e89794fab4766518d40df9643f784301ca12953940de1ac at op-1b840ff27b0d48e08c70365b: KnownNoEffect "adapter preflight refused"

@@ -1,0 +1,332 @@
+{
+ "accepted": [
+  {
+   "revision": {
+    "digest": "b0f1e424c73926f851c31df4efeebe10a34446067c654e7c327b950bdda55cb0",
+    "generation": 1
+   },
+   "scope": "Application:env-scenario-a-runtime"
+  },
+  {
+   "revision": {
+    "digest": "27a3f6e3ff8b847452417894e579e6f2272f609693db933c838cbee2404de481",
+    "generation": 1
+   },
+   "scope": "Application:env-scenario-site-preview"
+  },
+  {
+   "revision": {
+    "digest": "3e2192111e6a8b416c05f14a5330af7cc513a957dc342d9270e106cde17d86ab",
+    "generation": 1
+   },
+   "scope": "Application:env-scenario-site-runtime"
+  },
+  {
+   "revision": {
+    "digest": "8fe15022b6eef885117d793a497dd175db21fdc26bce724de0ac520691e63f10",
+    "generation": 2
+   },
+   "scope": "Application:scenario-a"
+  },
+  {
+   "revision": {
+    "digest": "5923709d7c569ec7afa504bac20e0654e452e2482c1858cdb5be84e34ac51cf1",
+    "generation": 2
+   },
+   "scope": "Application:scenario-b"
+  },
+  {
+   "revision": {
+    "digest": "a522252aeb4015f4094ff91bf37c860c55c205df1be2beda6b52cfbc7287ed6d",
+    "generation": 1
+   },
+   "scope": "Application:secret-scenario-a-runtime"
+  },
+  {
+   "revision": {
+    "digest": "4c22d9b2552e6694bf0e0b5ae6e94ef7925c7f857baeb1f3fd2ca2f9d8602a06",
+    "generation": 1
+   },
+   "scope": "Application:secret-scenario-site-preview"
+  },
+  {
+   "revision": {
+    "digest": "2cf6104704ef7af091d17cce7640352e7e88bfa90593913ef2eedc0495a7a38f",
+    "generation": 1
+   },
+   "scope": "Application:secret-scenario-site-runtime"
+  },
+  {
+   "revision": {
+    "digest": "1d5294d41d14ee0829b8726fcfbeae317d1b556a0041d483e036e9e5c7f173a6",
+    "generation": 1
+   },
+   "scope": "Platform:auth"
+  },
+  {
+   "revision": {
+    "digest": "00cfa40cd3760a7e7edcae28c95a4f99082be7c3829cd7083ad78dc3fa365899",
+    "generation": 2
+   },
+   "scope": "Platform:bootstrap-stamp"
+  },
+  {
+   "revision": {
+    "digest": "822c9c5d21bcdffa7e82cc7128071a8d17b95248a417999efe8c11bf7022205f",
+    "generation": 1
+   },
+   "scope": "Platform:cert-manager"
+  },
+  {
+   "revision": {
+    "digest": "a9e417b8cbfc5362bde3a13f6964a71740649c1aa149f9da1685ffc67ba52eea",
+    "generation": 1
+   },
+   "scope": "Platform:certificate-issuer"
+  },
+  {
+   "revision": {
+    "digest": "8ff134c636b787931b8c08ea4edd175c84802e12b88d63adc3633e23c29eaad0",
+    "generation": 1
+   },
+   "scope": "Platform:foundation"
+  },
+  {
+   "revision": {
+    "digest": "c97bd43de3124448739baa280c0bdeb021df080fcf4131a1e28770c1b0e958b0",
+    "generation": 1
+   },
+   "scope": "Platform:kourier"
+  },
+  {
+   "revision": {
+    "digest": "e08b6af64309e0992457817ef3723fb3a77578f06ba7eb1790bf57f93631768c",
+    "generation": 1
+   },
+   "scope": "Platform:kubeconfig"
+  },
+  {
+   "revision": {
+    "digest": "f2735da515ddf85a4ebf84fb95066a18a252bd853abcb0113eb0a88e35b2de62",
+    "generation": 1
+   },
+   "scope": "Platform:local-object-store"
+  },
+  {
+   "revision": {
+    "digest": "bdf78ef9987b6352d94ac06b8786ef8b1cb93cfc9580f0d4842dca192bf1456b",
+    "generation": 1
+   },
+   "scope": "Platform:local-substrate"
+  },
+  {
+   "revision": {
+    "digest": "79be2b23602f2eb0a8887af4e85caf4d2209f4d10aa30dce27d562419ad588ab",
+    "generation": 1
+   },
+   "scope": "Platform:net-certmanager"
+  },
+  {
+   "revision": {
+    "digest": "821654a713fd8c5206bf29f2e8d1b7433b1686a804ce0d8ce5e890283262b400",
+    "generation": 1
+   },
+   "scope": "Platform:net-controller-image"
+  },
+  {
+   "revision": {
+    "digest": "7c4999f425a33044fa83068a632c95e237f4db876ad3d9b8e778782cf460e71a",
+    "generation": 1
+   },
+   "scope": "Platform:observability-extra"
+  },
+  {
+   "revision": {
+    "digest": "26f851106d328db8cff097f57b1b25c53871a06da7ca6044bdadde1df59265c9",
+    "generation": 1
+   },
+   "scope": "Platform:observability-otel-collector"
+  },
+  {
+   "revision": {
+    "digest": "2bb0dd3d81e370b8473bb3d9669144a9fa0b39eeb5b08c24bc054b66341ff369",
+    "generation": 1
+   },
+   "scope": "Platform:observability-secrets"
+  },
+  {
+   "revision": {
+    "digest": "57a6482daacac3ebfa0f34e10c4ac99615a9af3d8d5121be6f75da0bced454c6",
+    "generation": 1
+   },
+   "scope": "Platform:observability-victoria-logs"
+  },
+  {
+   "revision": {
+    "digest": "bc9a22780aa51417037c64019ce2f72ff337fef42dea33a2006ef5f325ae0084",
+    "generation": 1
+   },
+   "scope": "Platform:observability-victoria-logs-collector"
+  },
+  {
+   "revision": {
+    "digest": "598fdb202b882bf8eb67ad188c0e429df7f75a8d42ed31327dbebe47bc221d46",
+    "generation": 1
+   },
+   "scope": "Platform:observability-victoria-traces"
+  },
+  {
+   "revision": {
+    "digest": "f0287991d062ee4171c7e90345aa92472f602c36cb5ef3cf8a302953b4215659",
+    "generation": 1
+   },
+   "scope": "Platform:observability-vmks"
+  },
+  {
+   "revision": {
+    "digest": "5abb532c0a22d0d039f66443b4c3bbe9f0453c6ca29510dce2558586fd893b76",
+    "generation": 1
+   },
+   "scope": "Platform:serving"
+  },
+  {
+   "revision": {
+    "digest": "391f87c6841fc54500de5849fce4259eefecef5c1e046afe6e98ea27ca5b143b",
+    "generation": 1
+   },
+   "scope": "Publication:app-image-scenario-a-c2"
+  },
+  {
+   "revision": {
+    "digest": "8258d38c07f5ee20bee494b3d97a204263329e871aeeeb5f2315dc27c32c84ce",
+    "generation": 1
+   },
+   "scope": "Publication:app-image-scenario-b-c2"
+  },
+  {
+   "revision": {
+    "digest": "ab14be80423d8d981e8a06bb6ffa62122abc39e0bbd4b0bce52a532fa19614f8",
+    "generation": 1
+   },
+   "scope": "Publication:app-image-scenario-site-c2"
+  },
+  {
+   "revision": {
+    "digest": "6c4516e9bf813d8eb35bebf1dc4cce166a0aad1997b771cd9b56b46a3111b75a",
+    "generation": 1
+   },
+   "scope": "Standalone:app-hook-bfc18d241bf863a11231ba544995b7ce6a44740e"
+  },
+  {
+   "revision": {
+    "digest": "8d7051de21495bccb255491a14fb86731d86a5bf694872314e73846ff6a77b13",
+    "generation": 2
+   },
+   "scope": "Standalone:broker-scenario-events"
+  },
+  {
+   "revision": {
+    "digest": "383163023ef9e27318bcef604b24ea7df6295e61eed7e6bc8851d11164a06b7f",
+    "generation": 1
+   },
+   "scope": "Standalone:database-backup-personal-scenario-ch-c2ch1"
+  },
+  {
+   "revision": {
+    "digest": "3289158b96cb06fa72cb1df5c4f2fec2f1ec15bb6e2dbdca814083e0c0845312",
+    "generation": 1
+   },
+   "scope": "Standalone:database-backup-personal-scenario-pg-c2pg1"
+  },
+  {
+   "revision": {
+    "digest": "42d22d21ee8d2ba0d5f6b16bf3c81e07b2b430c8c2148c3cce86fca189663430",
+    "generation": 1
+   },
+   "scope": "Standalone:database-backup-personal-scenario-redis-c2red1"
+  },
+  {
+   "revision": {
+    "digest": "54479b323f448c6de239bd5d260da270f9900dd7fbc4ab09e8c6519e307aa693",
+    "generation": 1
+   },
+   "scope": "Standalone:database-restore-personal-scenario-ch-c2chr1"
+  },
+  {
+   "revision": {
+    "digest": "27a847e45385f26384645e5ffe995f89ca88bc6ff54f142263633b9d83151284",
+    "generation": 1
+   },
+   "scope": "Standalone:database-restore-personal-scenario-pg-c2pgr1"
+  },
+  {
+   "revision": {
+    "digest": "544d76d040963b2405ba285380fa7e4de8c83fd4f905cf8989cbeb9f36903fb3",
+    "generation": 1
+   },
+   "scope": "Standalone:database-restore-personal-scenario-pg-c2pgr2"
+  },
+  {
+   "revision": {
+    "digest": "fb5202f9d5f2fb4201f84d77c0aaaa5009aa87aff694885296723ca615e9f74e",
+    "generation": 1
+   },
+   "scope": "Standalone:database-restore-personal-scenario-redis-c2redr1"
+  },
+  {
+   "revision": {
+    "digest": "b35c4373e912002db402de311f1055c2b6d692ccc1abf2e9fc0500efae53a9db",
+    "generation": 1
+   },
+   "scope": "Standalone:database-restore-personal-scenario-redis-c2redr2"
+  },
+  {
+   "revision": {
+    "digest": "7d953fb3975cdbd2723c1d881baeb2b4b1e9c50f628d6f55b282ac19af0676bc",
+    "generation": 1
+   },
+   "scope": "Standalone:database-scenario-ch"
+  },
+  {
+   "revision": {
+    "digest": "b67d2502aa44ca4bcf2cc1b31a6615251bff8fcf57d34e3b570e4988b096dc5d",
+    "generation": 2
+   },
+   "scope": "Standalone:database-scenario-rename-src"
+  },
+  {
+   "revision": {
+    "digest": "f02f7c628a27299c80e985892fd5a73984c77fc4eb19dc9147a406fea8e3ee76",
+    "generation": 1
+   },
+   "scope": "Standalone:site-preview-scenario-site-pr-pr-scenario"
+  },
+  {
+   "revision": {
+    "digest": "d0e57c487e0b41f2300684ab9d0f431ab7c1b5b5be185e5ddc50263b7f220cad",
+    "generation": 1
+   },
+   "scope": "Standalone:site-scenario-site"
+  },
+  {
+   "revision": {
+    "digest": "7b9ccd0adb4950890ad08e411f2b6010e49668d539c341e9049ad31e6c9b1dad",
+    "generation": 1
+   },
+   "scope": "Standalone:volume-restore-personal-scenario-a-uploads-c2volr1"
+  },
+  {
+   "revision": {
+    "digest": "27c1b05d121aa39ccfe2144b581fc7a2e56ece5d90e9ccb160623ad31caad178",
+    "generation": 1
+   },
+   "scope": "Standalone:volume-snapshot-personal-scenario-a-uploads-c2vol1"
+  }
+ ],
+ "observedAt": "2026-10-09T09:53:05.688038Z",
+ "scenarioBService": {
+  "generation": 3,
+  "latestReadyRevision": "scenario-b-00003",
+  "uid": "b99c9a09-cdd8-40f5-8edd-1d4ed637ff0d"
+ }
+}

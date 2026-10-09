@@ -1,0 +1,41 @@
+{
+ "managedFieldsAfter": [
+  {
+   "manager": "nagare-inventory",
+   "operation": "Apply",
+   "subresource": null
+  },
+  {
+   "manager": "nagare-inventory",
+   "operation": "Update",
+   "subresource": null
+  },
+  {
+   "manager": "controller",
+   "operation": "Update",
+   "subresource": "status"
+  }
+ ],
+ "maxScaleAfter": "3",
+ "reviewedBytesRestored": true,
+ "serviceUidUnchanged": true,
+ "statusAfter": {
+  "activeTransaction": null,
+  "findingCategories": {
+   "converged": 278,
+   "unrecorded": 1
+  }
+ },
+ "strictRepair": {
+  "applyResult": "stopped tx-38b011f4f32be4fdaacd2a18b71fb9c2171b5ff88565f9743569afbbdf227b55 at op-12c4c6722c61d6aee8a1dbcc: KnownNoEffect \"Kubernetes object has fields managed by another writer: kubectl-patch\"",
+  "closedWith": "inventory recover ... abandon-refused-operation",
+  "recoverResult": "inspect inventory status before saving a corrected review or a retirement",
+  "review": "38b011f4f32be4fdaacd2a18b71fb9c2171b5ff88565f9743569afbbdf227b55"
+ },
+ "takeoverRepair": {
+  "applyResult": "converged tx-9778dc4c685d8eb7d0ca031bf9b284cc9b674661ed1a7108a3f4b0048d1c10d2",
+  "command": "nagarectl app deploy -f apps/scenario-b/nagare/Config.hs ... --take-over-fields --save-plan DIR",
+  "review": "9778dc4c685d8eb7d0ca031bf9b284cc9b674661ed1a7108a3f4b0048d1c10d2",
+  "reviewSummaryNamesTakeover": true
+ }
+}

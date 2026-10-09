@@ -1,0 +1,17 @@
+{
+ "headBeforeStop": {
+  "generation": 1441,
+  "sequence": 1336,
+  "activeTransaction": null
+ },
+ "headAfterRestart": {
+  "generation": 1441,
+  "sequence": 1336,
+  "activeTransaction": null,
+  "executorClaim": null,
+  "acceptedEqualsConverged": false
+ },
+ "storeUnchanged": true,
+ "bucketSurvivedNodeStop": "online verify after restart read the same object version 8258a429-afa8-43dc-b7e4-ed958c7c31e5 (F41 durable local MinIO)",
+ "freshnessAfterRestart": "Recovery-point freshness: healthy; age=898s; objective=hourly; newest point is verified and awaits reviewed ingestion"
+}

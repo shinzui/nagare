@@ -1,0 +1,23 @@
+{
+  "restoreId": "c2pgr2",
+  "review": "a9b4d40fb12683b4ea09425fe296589ea03b6a112ccf4552f395ff5a8f934d9c",
+  "preexistingScratchDatabase": "scenario-pg_restore_c2pgr2",
+  "tablesBefore": "foreign_marker",
+  "tablesAndRowsAfter": [
+    "foreign_marker",
+    "1 rows: pre-existing"
+  ],
+  "restoreJob": [
+    "nagare-dbrestore-scenario-pg-c2pgr2",
+    "7cf997a5-10cf-44c0-82d8-58defebdf83a",
+    "<none>",
+    "1"
+  ],
+  "jobLogTail": "createdb: error: database creation failed: ERROR:  database \"scenario-pg_restore_c2pgr2\" already exists",
+  "applyResult": "ambiguous tx-a9b4d40fb12683b4ea09425fe296589ea03b6a112ccf4552f395ff5a8f934d9c at op-3e8a407ec89e99c69a54acf3",
+  "recovery": {
+    "action": "abandon-partial-database-restore",
+    "result": "inspect inventory status before saving a corrected review or a retirement"
+  },
+  "preexistingDatabaseUnchanged": true
+}

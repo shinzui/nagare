@@ -1,0 +1,42 @@
+Note: switching to '3b59bcb7612d513bfd663c36c251f8454e615502'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
+system: x86_64-linux
+warning: 'install' is a deprecated alias for 'add'
+unpacking 'github:hercules-ci/flake-parts/31729ca8cbdb4fa927b34e5f4353e6a83f39e993?narHash=sha256-glZLQlzIn1fXH6PazR2iUmTo7kzzyYSshrWhLS9TqCU%3D' into the Git cache...
+this derivation will be built:
+these 49 paths will be fetched (86.7 MiB download, 239.7 MiB unpacked):
+building '/nix/store/2c5gfl7gw5gdgvnvnz0abwi5576hjwqg-nagare-release-tools.drv'...
+these 359 paths will be fetched (761.3 MiB download, 5.3 GiB unpacked):
+check-release exit=0
+{
+  "outputs": {
+    "nagare-platform": {
+      "narHash": "sha256-sN/z8A/hcab2hNVEmPH5qPx6/2gXndMO/inTcj5tP20=",
+      "narSize": 108359400
+    },
+    "nagarectl": {
+      "narHash": "sha256-XCnXxjXYbSVgG6mTie5C9XNlDDZl/5rZUPlbYnk1I0k=",
+      "narSize": 2256
+    }
+  },
+  "revision": "3b59bcb7612d513bfd663c36c251f8454e615502",
+  "system": "x86_64-linux",
+  "version": "0.4.0"
+}
+X86-RELEASE-DONE
+run exit=0

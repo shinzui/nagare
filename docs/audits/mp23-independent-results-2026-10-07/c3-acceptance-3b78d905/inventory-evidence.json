@@ -1,0 +1,583 @@
+{
+  "componentReceipts": [
+    {
+      "journal": "journal/00000000000000000826.json",
+      "journalDigest": "3ed0979a761629ffbde24a98fd0f0d8f3d9e4688f3676f6679a9026eb5652cfc",
+      "operation": "op-fe12092905d5a419e18f1073",
+      "receiptDigest": "f7d3851b5d065b90ab775d4e66eaafc7b0eb425959bf65df934e91320d1cea8e"
+    }
+  ],
+  "coverage": {
+    "complete": true,
+    "resultDigest": "cb2f9048aad72d83afe226450b141963b9e29c20f9cd8ea4ade73d2baf076f4c"
+  },
+  "finalObservation": {
+    "complete": true,
+    "findings": [
+      {
+        "category": "converged",
+        "count": 317
+      },
+      {
+        "category": "unrecorded",
+        "count": 1
+      }
+    ],
+    "retainedCount": 6
+  },
+  "inventoryDigest": "b3cbecb96759d23e53a2ce2f793995b5a10e005059f28fe47ec4a01bb8633613",
+  "payload": {
+    "digest": "sha256-65DR8fEQBxUSFPQHFwwlHbuPmLWtCMGvldXKm67TP+8=",
+    "sourceRevision": "3b78d905a7dbcdead997348eaba3db2499f487ac",
+    "system": "aarch64-darwin",
+    "version": "0.4.0"
+  },
+  "privateStoreHeadDigest": "2f8dd26153da8df474e836abb1a1286a72a4473815c90f525f75bf494ce3265a",
+  "reviewedChangeDigest": "e82b7abacf3c505e4a0dc14dfb658a4ada30602e668912be0c709a61bb073ac1",
+  "run": {
+    "fixtureDigest": "095709ecc92291ad8949d8bc589e402571874a7a94fe4771b838ad21ddf7c120",
+    "id": "5b3ed7ede3fabed673ffcb84240224c845123d68aacfd65a924eaf8d2e891823",
+    "mode": "cloud"
+  },
+  "schemaVersion": 1,
+  "scopeRevisions": [
+    {
+      "revision": {
+        "digest": "b9dbe8e08f0912fb5f9e0f88e8bd828698717c9e57ac63451b5a7b65ee02e91b",
+        "generation": 1
+      },
+      "scope": {
+        "kind": "Platform",
+        "name": "auth"
+      }
+    },
+    {
+      "revision": {
+        "digest": "3b1ea7b89053974cebd07b8732353cf9fea2ecc5421371505ede357f056b0d52",
+        "generation": 1
+      },
+      "scope": {
+        "kind": "Platform",
+        "name": "bootstrap-stamp"
+      }
+    },
+    {
+      "revision": {
+        "digest": "60a55d63f26a7b00893d0a60d10735ff21850eb0bd1f77bc55bd79733cad1aff",
+        "generation": 2
+      },
+      "scope": {
+        "kind": "Platform",
+        "name": "cert-manager"
+      }
+    },
+    {
+      "revision": {
+        "digest": "f3f6ab14a25a7f0f24de61f5cf4d8f9ca004f42511a0b696963ec0c58ddb3255",
+        "generation": 1
+      },
+      "scope": {
+        "kind": "Platform",
+        "name": "certificate-issuer"
+      }
+    },
+    {
+      "revision": {
+        "digest": "5865bf4a2c6a646f54154ff99c0d309ea505b38043fae702029d861306b8b3a0",
+        "generation": 5
+      },
+      "scope": {
+        "kind": "Platform",
+        "name": "cloud"
+      }
+    },
+    {
+      "revision": {
+        "digest": "99f88543a9a8b530faa5dbf50c97a1d42d0a79585b2fd242a85932237ee897df",
+        "generation": 2
+      },
+      "scope": {
+        "kind": "Platform",
+        "name": "cloud-foundation"
+      }
+    },
+    {
+      "revision": {
+        "digest": "7d84fc3305775475af2105422c13491ca8e6bfc18bc0478e76d67f9129a4903b",
+        "generation": 1
+      },
+      "scope": {
+        "kind": "Platform",
+        "name": "foundation"
+      }
+    },
+    {
+      "revision": {
+        "digest": "e0507457a1d891bf0500989a88c997d181394c9085f380a0cf38f15a9798a452",
+        "generation": 1
+      },
+      "scope": {
+        "kind": "Platform",
+        "name": "host"
+      }
+    },
+    {
+      "revision": {
+        "digest": "8610239431ef64bf95f1804a815e420541daa45da77115be4409d634e965b073",
+        "generation": 1
+      },
+      "scope": {
+        "kind": "Platform",
+        "name": "host-image"
+      }
+    },
+    {
+      "revision": {
+        "digest": "69cd976d80c1683b00aef56881c4de54504658dfdd714df78de4bbefe66a93ae",
+        "generation": 1
+      },
+      "scope": {
+        "kind": "Platform",
+        "name": "host-image-build"
+      }
+    },
+    {
+      "revision": {
+        "digest": "c991aa4801c56e914d814482f005eda095f646662180a430c555cbc04d458d13",
+        "generation": 2
+      },
+      "scope": {
+        "kind": "Platform",
+        "name": "kourier"
+      }
+    },
+    {
+      "revision": {
+        "digest": "2cc71c761b6fd24b301c4ba89792fa4b3a62f5d9df456fb067b2baabf903bd2e",
+        "generation": 1
+      },
+      "scope": {
+        "kind": "Platform",
+        "name": "kubeconfig"
+      }
+    },
+    {
+      "revision": {
+        "digest": "8d53e6597d389d2f1a684fd2c513826b287e44ad1620be087a455f77263b2e25",
+        "generation": 1
+      },
+      "scope": {
+        "kind": "Platform",
+        "name": "net-certmanager"
+      }
+    },
+    {
+      "revision": {
+        "digest": "b0e396c16617d2913a6e29ac2f9375d091c1668bb065227767774df1300dc3a6",
+        "generation": 1
+      },
+      "scope": {
+        "kind": "Platform",
+        "name": "net-controller-image"
+      }
+    },
+    {
+      "revision": {
+        "digest": "d647f99fd860260cd15ac6d1cbff613a95cafc67d65914c480ed645be4b8bb5b",
+        "generation": 1
+      },
+      "scope": {
+        "kind": "Platform",
+        "name": "observability-extra"
+      }
+    },
+    {
+      "revision": {
+        "digest": "48467265c7dd3bb2866825c60f2b0f809647bfd0fd943bc01733e1bbadbf7e77",
+        "generation": 1
+      },
+      "scope": {
+        "kind": "Platform",
+        "name": "observability-otel-collector"
+      }
+    },
+    {
+      "revision": {
+        "digest": "577aef7ac3804ba44a5a376c3335569e9971f7ef2c5510e33695ba59db4acd44",
+        "generation": 1
+      },
+      "scope": {
+        "kind": "Platform",
+        "name": "observability-secrets"
+      }
+    },
+    {
+      "revision": {
+        "digest": "05bc409a157a7a12404780fa037f2d5281fe1934014c02abcc4ec4a31caa6fe3",
+        "generation": 1
+      },
+      "scope": {
+        "kind": "Platform",
+        "name": "observability-victoria-logs"
+      }
+    },
+    {
+      "revision": {
+        "digest": "4a19a477c7ca42228a8d578c06bbf5c9487ac5107769530f4f2d08b84a5a4d69",
+        "generation": 1
+      },
+      "scope": {
+        "kind": "Platform",
+        "name": "observability-victoria-logs-collector"
+      }
+    },
+    {
+      "revision": {
+        "digest": "bc1c192c044f2a32fc848a915e0b0075d72ee2a259746b0e5c64ac19d581cc71",
+        "generation": 1
+      },
+      "scope": {
+        "kind": "Platform",
+        "name": "observability-victoria-traces"
+      }
+    },
+    {
+      "revision": {
+        "digest": "ffc419e5d2bcf8c0d6df5d20e48ddcff07954c040ffd0646e345cd3d70d02b4e",
+        "generation": 1
+      },
+      "scope": {
+        "kind": "Platform",
+        "name": "observability-vmks"
+      }
+    },
+    {
+      "revision": {
+        "digest": "9db5d0c96adb4101b125ce3225aba19aa3ce0a2b5182e28da3d93ce999f4dbfa",
+        "generation": 1
+      },
+      "scope": {
+        "kind": "Platform",
+        "name": "runner-probe"
+      }
+    },
+    {
+      "revision": {
+        "digest": "630b52e8d3ec847d0acbb07930b2adfa02fb3425970996f8c64ec48f919be64d",
+        "generation": 1
+      },
+      "scope": {
+        "kind": "Platform",
+        "name": "serving"
+      }
+    },
+    {
+      "revision": {
+        "digest": "b0f1e424c73926f851c31df4efeebe10a34446067c654e7c327b950bdda55cb0",
+        "generation": 1
+      },
+      "scope": {
+        "kind": "Application",
+        "name": "env-scenario-a-runtime"
+      }
+    },
+    {
+      "revision": {
+        "digest": "e5606c28ef17c43df84c0a4fd0ad4c483caaf9f8e56c478ac54fadd155369e27",
+        "generation": 1
+      },
+      "scope": {
+        "kind": "Application",
+        "name": "env-scenario-site-preview"
+      }
+    },
+    {
+      "revision": {
+        "digest": "72b1cb72fea61ff9a3871e31749656314245a6ac0f9e1b60f614a526531ef88a",
+        "generation": 1
+      },
+      "scope": {
+        "kind": "Application",
+        "name": "env-scenario-site-runtime"
+      }
+    },
+    {
+      "revision": {
+        "digest": "c7dde9068621165e2240c9806919e3eb83df50c04426a17aae1f70adfd3529cf",
+        "generation": 4
+      },
+      "scope": {
+        "kind": "Application",
+        "name": "scenario-a"
+      }
+    },
+    {
+      "revision": {
+        "digest": "eb5e222747f3bb3195459f4fb7e2b9ce256194ef3d217e9c8d75e810ea6f648c",
+        "generation": 3
+      },
+      "scope": {
+        "kind": "Application",
+        "name": "scenario-b"
+      }
+    },
+    {
+      "revision": {
+        "digest": "680cb68aa9b1bd1bee255c6a79e8564eb07667479220163caeafa49c812e4904",
+        "generation": 1
+      },
+      "scope": {
+        "kind": "Application",
+        "name": "secret-scenario-a-runtime"
+      }
+    },
+    {
+      "revision": {
+        "digest": "2d423f3367163f1b32166823571b97348e45f1dd49d8aa640a02dc8bcda7370b",
+        "generation": 1
+      },
+      "scope": {
+        "kind": "Application",
+        "name": "secret-scenario-site-preview"
+      }
+    },
+    {
+      "revision": {
+        "digest": "22927f6ebc7e2dfc398098f649b649de86cb5bf93e71a584cea7750f653bd2bb",
+        "generation": 1
+      },
+      "scope": {
+        "kind": "Application",
+        "name": "secret-scenario-site-runtime"
+      }
+    },
+    {
+      "revision": {
+        "digest": "d75568c780ad1cb9f03343f0f22f68eb96a01790815ddc4079e98b03b527b14c",
+        "generation": 2
+      },
+      "scope": {
+        "kind": "Standalone",
+        "name": "access-dd67f0a342c69faec6e050fb717022d939b355ca"
+      }
+    },
+    {
+      "revision": {
+        "digest": "819c23d00c05b450925711d9a495efd86dbef451c6707b5731912321fa9de0ee",
+        "generation": 1
+      },
+      "scope": {
+        "kind": "Standalone",
+        "name": "app-hook-2fe6da8d2810f18599f9ff3c1958d92e700c11e5"
+      }
+    },
+    {
+      "revision": {
+        "digest": "9771cf400f2a532466dbc322a27e546ddd2d50a81db42743f807918d7934b9ec",
+        "generation": 2
+      },
+      "scope": {
+        "kind": "Standalone",
+        "name": "app-hook-5adb3d2529bd1113bed6bcbb960604ab0b990c41"
+      }
+    },
+    {
+      "revision": {
+        "digest": "8d7051de21495bccb255491a14fb86731d86a5bf694872314e73846ff6a77b13",
+        "generation": 2
+      },
+      "scope": {
+        "kind": "Standalone",
+        "name": "broker-scenario-events"
+      }
+    },
+    {
+      "revision": {
+        "digest": "9500669ce2548cce7cc34f57a208d794ac00e0c3def6d95634ca9e6c2397217e",
+        "generation": 1
+      },
+      "scope": {
+        "kind": "Standalone",
+        "name": "database-backup-personal-scenario-ch-c3gch1"
+      }
+    },
+    {
+      "revision": {
+        "digest": "76e5e18a77bd650c7ab1e4328817c25aa98e806ec73311bd536bb45cb164c02e",
+        "generation": 1
+      },
+      "scope": {
+        "kind": "Standalone",
+        "name": "database-backup-personal-scenario-pg-c3gpg1"
+      }
+    },
+    {
+      "revision": {
+        "digest": "726c35383b32a7b9e27e34aaa3df81a146916207c20ce0e381cab0106dff3057",
+        "generation": 1
+      },
+      "scope": {
+        "kind": "Standalone",
+        "name": "database-backup-personal-scenario-redis-c3grd1"
+      }
+    },
+    {
+      "revision": {
+        "digest": "07d9c9173ba64a3ddf7d77f34fe16b9658eee5f9336f35cf0b59f24e5c1b028f",
+        "generation": 1
+      },
+      "scope": {
+        "kind": "Standalone",
+        "name": "database-restore-personal-scenario-ch-c3gchr1"
+      }
+    },
+    {
+      "revision": {
+        "digest": "2d66144fe3521833f793de852ea980ee2f436224c9fc61deeec72f50cba2a7a1",
+        "generation": 1
+      },
+      "scope": {
+        "kind": "Standalone",
+        "name": "database-restore-personal-scenario-pg-c3gpgr1"
+      }
+    },
+    {
+      "revision": {
+        "digest": "8af122c63e66755fa6ea26bfe3239fefe3cee07cb834a940a45ae2d5c9e8f9dc",
+        "generation": 1
+      },
+      "scope": {
+        "kind": "Standalone",
+        "name": "database-restore-personal-scenario-redis-c3grdr1"
+      }
+    },
+    {
+      "revision": {
+        "digest": "627ad486a8e6ebab6b0dd693f45bda29c193ae9e61d6a1a8cb8c88ce60e62fae",
+        "generation": 1
+      },
+      "scope": {
+        "kind": "Standalone",
+        "name": "database-scenario-ch"
+      }
+    },
+    {
+      "revision": {
+        "digest": "75d460eb220896cff53a3a661b748b13e92c728cc9a8757210011f217f479e04",
+        "generation": 1
+      },
+      "scope": {
+        "kind": "Standalone",
+        "name": "site-scenario-site"
+      }
+    },
+    {
+      "revision": {
+        "digest": "87d25ce3f355740a026ba711659bba4f863446bc6ac59d5a2cc340b48637972e",
+        "generation": 1
+      },
+      "scope": {
+        "kind": "Standalone",
+        "name": "volume-restore-personal-scenario-a-uploads-c3gvolr1"
+      }
+    },
+    {
+      "revision": {
+        "digest": "0fe4bebf7b3c31fa5dd862456031e5b4acbb4b492f062898b8dd8c81527bceac",
+        "generation": 1
+      },
+      "scope": {
+        "kind": "Standalone",
+        "name": "volume-snapshot-personal-scenario-a-uploads-c3gvol1"
+      }
+    },
+    {
+      "revision": {
+        "digest": "501471206af6d138ceab802aca9812a321df6dfd21936505c412b5c223a28056",
+        "generation": 1
+      },
+      "scope": {
+        "kind": "Publication",
+        "name": "app-image-scenario-a-c3"
+      }
+    },
+    {
+      "revision": {
+        "digest": "875ebfcbb534dc0ae240bcd363cd4041cacc5e268576a092429a597105f638c9",
+        "generation": 1
+      },
+      "scope": {
+        "kind": "Publication",
+        "name": "app-image-scenario-a-c3b"
+      }
+    },
+    {
+      "revision": {
+        "digest": "af8ac9c9d2f01e82781635786119971d56ebeb02e3eb78ef2ee4fe8d37fa8154",
+        "generation": 1
+      },
+      "scope": {
+        "kind": "Publication",
+        "name": "app-image-scenario-b-c3"
+      }
+    },
+    {
+      "revision": {
+        "digest": "9dcce1d325c596e2f1ee89923283890886d9c45ffe2a9511ed39f24ce2af272d",
+        "generation": 1
+      },
+      "scope": {
+        "kind": "Publication",
+        "name": "app-image-scenario-site-c3"
+      }
+    }
+  ],
+  "tools": {
+    "adapters": [
+      {
+        "executor": "KubernetesExecutor",
+        "identity": "kubernetes-conditional-object",
+        "version": "1"
+      },
+      {
+        "executor": "HelmExecutor",
+        "identity": "helm-reviewed-render",
+        "version": "1"
+      },
+      {
+        "executor": "PulumiExecutor",
+        "identity": "pulumi-saved-plan",
+        "version": "1"
+      },
+      {
+        "executor": "CloudFoundationExecutor",
+        "identity": "gcloud-foundation",
+        "version": "1"
+      },
+      {
+        "executor": "ArtifactExecutor",
+        "identity": "digest-verified-artifact",
+        "version": "1"
+      },
+      {
+        "executor": "HostExecutor",
+        "identity": "nixos-safe-activation",
+        "version": "1"
+      },
+      {
+        "executor": "CacheExecutor",
+        "identity": "manifest-only",
+        "version": "1"
+      },
+      {
+        "executor": "BrokerExecutor",
+        "identity": "reviewed-redpanda-topic",
+        "version": "1"
+      }
+    ],
+    "operator": {
+      "revision": "3b78d905a7dbcdead997348eaba3db2499f487ac",
+      "version": "0.4.0"
+    }
+  }
+}

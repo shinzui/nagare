@@ -1,0 +1,266 @@
+{
+ "acceptedScopeRevisions": [
+  {
+   "revision": {
+    "digest": "1d5294d41d14ee0829b8726fcfbeae317d1b556a0041d483e036e9e5c7f173a6",
+    "generation": 1
+   },
+   "scope": "Platform:auth"
+  },
+  {
+   "revision": {
+    "digest": "f3fcf8b40db021ab233a90424b727aeead2c54636a0ae1550fbdb3448a5aba02",
+    "generation": 2
+   },
+   "scope": "Platform:bootstrap-stamp"
+  },
+  {
+   "revision": {
+    "digest": "822c9c5d21bcdffa7e82cc7128071a8d17b95248a417999efe8c11bf7022205f",
+    "generation": 1
+   },
+   "scope": "Platform:cert-manager"
+  },
+  {
+   "revision": {
+    "digest": "a9e417b8cbfc5362bde3a13f6964a71740649c1aa149f9da1685ffc67ba52eea",
+    "generation": 1
+   },
+   "scope": "Platform:certificate-issuer"
+  },
+  {
+   "revision": {
+    "digest": "ea7fe5e7052f4289b2ff0b0559a21d1879db9fc9dad91694e1a0241ba45b3fb4",
+    "generation": 1
+   },
+   "scope": "Platform:foundation"
+  },
+  {
+   "revision": {
+    "digest": "c97bd43de3124448739baa280c0bdeb021df080fcf4131a1e28770c1b0e958b0",
+    "generation": 1
+   },
+   "scope": "Platform:kourier"
+  },
+  {
+   "revision": {
+    "digest": "c37e276b63ea84e9b244472044718694ee2f5d4d186f3993ded3049bf7222d59",
+    "generation": 1
+   },
+   "scope": "Platform:kubeconfig"
+  },
+  {
+   "revision": {
+    "digest": "f2735da515ddf85a4ebf84fb95066a18a252bd853abcb0113eb0a88e35b2de62",
+    "generation": 1
+   },
+   "scope": "Platform:local-object-store"
+  },
+  {
+   "revision": {
+    "digest": "4070b0e676736f4935f64752d192cb7464c2dd8172b64c36bde3dd29dbc7d6b8",
+    "generation": 1
+   },
+   "scope": "Platform:local-substrate"
+  },
+  {
+   "revision": {
+    "digest": "79be2b23602f2eb0a8887af4e85caf4d2209f4d10aa30dce27d562419ad588ab",
+    "generation": 1
+   },
+   "scope": "Platform:net-certmanager"
+  },
+  {
+   "revision": {
+    "digest": "821654a713fd8c5206bf29f2e8d1b7433b1686a804ce0d8ce5e890283262b400",
+    "generation": 1
+   },
+   "scope": "Platform:net-controller-image"
+  },
+  {
+   "revision": {
+    "digest": "7c4999f425a33044fa83068a632c95e237f4db876ad3d9b8e778782cf460e71a",
+    "generation": 1
+   },
+   "scope": "Platform:observability-extra"
+  },
+  {
+   "revision": {
+    "digest": "84f787b76219381a262179430a20ab031ed874afd6e4fee20dfc69b82b436e3f",
+    "generation": 1
+   },
+   "scope": "Platform:observability-otel-collector"
+  },
+  {
+   "revision": {
+    "digest": "2bb0dd3d81e370b8473bb3d9669144a9fa0b39eeb5b08c24bc054b66341ff369",
+    "generation": 1
+   },
+   "scope": "Platform:observability-secrets"
+  },
+  {
+   "revision": {
+    "digest": "6353a3abbf0b98a41b1217f48f1991720fdfd4f4de73129383b96a0dd7dd89ee",
+    "generation": 1
+   },
+   "scope": "Platform:observability-victoria-logs"
+  },
+  {
+   "revision": {
+    "digest": "0cb74bcbc37c1fc5fde8a27b948c7b0cc155ddf246e9fe1d679730cf86b0da71",
+    "generation": 1
+   },
+   "scope": "Platform:observability-victoria-logs-collector"
+  },
+  {
+   "revision": {
+    "digest": "2b12f7e3fa0ba59e15269e05b0635ca541c8b89b759855f8069dd7d714430c89",
+    "generation": 1
+   },
+   "scope": "Platform:observability-victoria-traces"
+  },
+  {
+   "revision": {
+    "digest": "a0114eed3b40bb6e171b1604b66761d8fc00708502d47c45aa456f8ff3d52889",
+    "generation": 1
+   },
+   "scope": "Platform:observability-vmks"
+  },
+  {
+   "revision": {
+    "digest": "5abb532c0a22d0d039f66443b4c3bbe9f0453c6ca29510dce2558586fd893b76",
+    "generation": 1
+   },
+   "scope": "Platform:serving"
+  },
+  {
+   "revision": {
+    "digest": "27a3f6e3ff8b847452417894e579e6f2272f609693db933c838cbee2404de481",
+    "generation": 1
+   },
+   "scope": "Application:env-scenario-site-preview"
+  },
+  {
+   "revision": {
+    "digest": "3e2192111e6a8b416c05f14a5330af7cc513a957dc342d9270e106cde17d86ab",
+    "generation": 1
+   },
+   "scope": "Application:env-scenario-site-runtime"
+  },
+  {
+   "revision": {
+    "digest": "d5cf97587c8943ff4cc600a7f01676a8888f2f945da65b16e372b65bf3d4c7bd",
+    "generation": 1
+   },
+   "scope": "Application:scenario-a"
+  },
+  {
+   "revision": {
+    "digest": "def3de9581d7ebce9a9df651e7b90a9763d497720e46c746939a69409875b9fb",
+    "generation": 2
+   },
+   "scope": "Application:scenario-b"
+  },
+  {
+   "revision": {
+    "digest": "643eb12837ca0c7eb37934c184bbbc2f10fa305be0d9494a9c0ebd8c74116852",
+    "generation": 1
+   },
+   "scope": "Application:secret-scenario-a-runtime"
+  },
+  {
+   "revision": {
+    "digest": "49aef6dc3e34cdc118d9951041de872358ccd685b5705685242f14394426724f",
+    "generation": 1
+   },
+   "scope": "Application:secret-scenario-site-preview"
+  },
+  {
+   "revision": {
+    "digest": "bfe011b695e63e87d0e1fea35aa2450e68666e72938ad87d0bf76f07fbece714",
+    "generation": 1
+   },
+   "scope": "Application:secret-scenario-site-runtime"
+  },
+  {
+   "revision": {
+    "digest": "ac0142994873df4e077cef6c7925c1465f2958adda2f08b21abfa353181400ec",
+    "generation": 1
+   },
+   "scope": "Standalone:app-hook-bfc18d241bf863a11231ba544995b7ce6a44740e"
+  },
+  {
+   "revision": {
+    "digest": "8d7051de21495bccb255491a14fb86731d86a5bf694872314e73846ff6a77b13",
+    "generation": 2
+   },
+   "scope": "Standalone:broker-scenario-events"
+  },
+  {
+   "revision": {
+    "digest": "7d953fb3975cdbd2723c1d881baeb2b4b1e9c50f628d6f55b282ac19af0676bc",
+    "generation": 1
+   },
+   "scope": "Standalone:database-scenario-ch"
+  },
+  {
+   "revision": {
+    "digest": "b67d2502aa44ca4bcf2cc1b31a6615251bff8fcf57d34e3b570e4988b096dc5d",
+    "generation": 2
+   },
+   "scope": "Standalone:database-scenario-rename-src"
+  },
+  {
+   "revision": {
+    "digest": "613c96af2757899e620951600b8b7f5193a935607d3e5c632677eee3993f729c",
+    "generation": 1
+   },
+   "scope": "Standalone:site-preview-scenario-site-pr-pr-scenario"
+  },
+  {
+   "revision": {
+    "digest": "bbe4e9dd9d57e37b74c00a908919d8a75034d786fe1edb4696a04b980f3a99d4",
+    "generation": 1
+   },
+   "scope": "Standalone:site-scenario-site"
+  },
+  {
+   "revision": {
+    "digest": "07cee1c4f30c2d4265e749a0bc31067b03a6991559e36a03d2c860f6c20c8618",
+    "generation": 1
+   },
+   "scope": "Publication:app-image-scenario-a-c2"
+  },
+  {
+   "revision": {
+    "digest": "033cf388bcf3a8b05608bb04edbe6a2101da2e4557270ead16260379cb5f0149",
+    "generation": 1
+   },
+   "scope": "Publication:app-image-scenario-b-c2"
+  },
+  {
+   "revision": {
+    "digest": "372f9d54dda213dbde7071e665d98029c7b4b44623bebdd57d246f2a2eec424e",
+    "generation": 1
+   },
+   "scope": "Publication:app-image-scenario-site-c2"
+  }
+ ],
+ "export": "private, outside the evidence directory",
+ "identical": true,
+ "isolatedStateRoot": "separate XDG config/state/cache; context local created fresh, then inventory restore --from PRIVATE --yes",
+ "restoredHead": {
+  "acceptedDigest": "e585e4171571d300997b0eda6a444e09787eed2cba3bd00475a3c4a0f9ba6edc",
+  "convergedDigest": "e585e4171571d300997b0eda6a444e09787eed2cba3bd00475a3c4a0f9ba6edc",
+  "generation": 1311,
+  "retainedDigest": "82a8df348c2f8490a1d8598e9b1adb291a1e46cad6948bc946bffa1258e21378",
+  "sequence": 1244
+ },
+ "sourceHead": {
+  "acceptedDigest": "e585e4171571d300997b0eda6a444e09787eed2cba3bd00475a3c4a0f9ba6edc",
+  "convergedDigest": "e585e4171571d300997b0eda6a444e09787eed2cba3bd00475a3c4a0f9ba6edc",
+  "generation": 1311,
+  "retainedDigest": "82a8df348c2f8490a1d8598e9b1adb291a1e46cad6948bc946bffa1258e21378",
+  "sequence": 1244
+ }
+}

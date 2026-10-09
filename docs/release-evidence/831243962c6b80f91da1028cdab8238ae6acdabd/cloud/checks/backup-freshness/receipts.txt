@@ -1,0 +1,4 @@
+Scheduled retention: keep=7 and expiry are unenforced; backups are retained by default.
+cc3408a4-8349-4c9d-b438-07439432334d  verified; ingestion pending
+e5c72662-d75f-4979-8113-67e5308043fe  verified; ingestion pending
+Recovery-point freshness: healthy; age=672s; objective=hourly; newest point is verified and awaits reviewed ingestion
