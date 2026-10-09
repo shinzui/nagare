@@ -7,6 +7,7 @@ related:
   - docs/plans/108-add-per-context-platform-versions-and-safe-upgrades.md
   - docs/plans/135-make-fresh-gcp-contexts-preflight-and-re-pin-cleanly.md
   - docs/plans/143-skip-proven-pulumi-apply-work-when-resuming-upgrades.md
+  - docs/plans/172-rehearse-candidate-upgrades-of-an-inventory-context-instead-of-rebuilding-it.md
   - docs/adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md
   - docs/adr/0005-use-context-owned-host-flakes-for-operator-nixos-inputs.md
 ---
@@ -155,3 +156,24 @@ optional replacement rehearsal/cutover. It must bind exact source/target release
 compatibility, refuse unsupported pairs and recover promotion through inventory-authorized steps.
 The full two-host/IP-handoff workflow is not required before using the accepted ordinary node or
 side-by-side PostgreSQL upgrade paths. General in-place release/schema migration remains separate.
+
+
+## Amendment — 2026-10-09 (later): the next release is reached through a reviewed transition
+
+The operator assigned the "separately reviewed transition" that the 2026-09-26 amendment deferred to
+[MasterPlan 26](../masterplans/26-make-platform-changes-and-releases-routine-after-the-inventory-release.md),
+in [ExecPlan 172](../plans/172-rehearse-candidate-upgrades-of-an-inventory-context-instead-of-rebuilding-it.md).
+An admitted inventory context moves from release S to release T with one saved inventory review:
+- T's payload workspace is prepared by digest.
+- Platform scopes whose declarations differ get reviewed updates.
+- The host closure moves through the reviewed self-reverting host operation, when it differs.
+- The bootstrap stamp is updated.
+- The context pin is committed last.
+
+Supported pairs are explicit. T's payload carries a compatibility table of accepted source releases
+and store wire versions, and planning refuses any other pair before writing. After admission only
+T's CLI resumes or recovers the transaction.
+
+The legacy coarse `platform upgrade` runner stays blocked for inventory contexts. MasterPlan 21
+remains the owner only of replacement onto fresh infrastructure, and it consumes the same
+compatibility table. Until ExecPlan 172 is accepted, the 2026-09-26 restriction still holds.

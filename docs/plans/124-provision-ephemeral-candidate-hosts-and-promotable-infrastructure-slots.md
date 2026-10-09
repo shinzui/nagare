@@ -22,6 +22,11 @@ provenance:
       at: 2026-10-09T19:45:59Z
       mode: "update"
       note: "Refresh MP-21 as optional inventory-backed replacement after MP-23 upgrade drills"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-09T22:13:41Z
+      mode: "update"
+      note: "Cascade 2026-10-09 re-scope of MasterPlans 21/25/26"
 ---
 
 # Provision ephemeral candidate hosts and promotable infrastructure slots
@@ -140,6 +145,10 @@ Record every decision made while working on the plan.
   operator-reviewable evidence already required by ADR 18; a parallel unchecked apply path would
   weaken the platform boundary.
   Date: 2026-09-15
+
+- Decision (2026-10-09): On hold with [MasterPlan 21](../masterplans/21-rehearsed-replacement-upgrades-with-bounded-downtime-for-nagare.md). If the plan resumes, candidate VM, disk and address identity binding reuses the cloud physical identity that [MasterPlan 25](../masterplans/25-reviewed-full-context-teardown-with-vm-workload-collection.md)'s EP-165 adds (recorded at creation, read through ADR 27's checked accessor). This plan does not build its own.
+  Rationale: Build the primitive once, with a single owner.
+  Date: 2026-10-09
 
 
 ## Outcomes & Retrospective

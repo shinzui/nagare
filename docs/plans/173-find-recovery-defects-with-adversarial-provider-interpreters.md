@@ -21,6 +21,11 @@ provenance:
       at: 2026-10-05T14:39:49Z
       mode: "implement"
       note: "M2 part 2: retire scenario (F51, F58) and F38/F49 mutation records"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-09T22:13:41Z
+      mode: "update"
+      note: "Cascade 2026-10-09 re-scope of MasterPlans 21/25/26"
 ---
 
 # Find recovery defects with adversarial provider interpreters
@@ -124,12 +129,12 @@ behind it is in
     before the run.
   - F51 and F58 failed the retire scenario on their pre-fix sources.
   - F50 lives in the cloud-foundation world (M4).
-- [ ] M1: A Kubernetes provider world with an adversary drives the real Kubernetes adapter, driver and
+- [x] M1 (accepted 2026-10-05; evidence in the dated entries above): A Kubernetes provider world with an adversary drives the real Kubernetes adapter, driver and
   recovery policy through the application lifecycle. The exit, acceptance and at-most-once
   invariants pass. Acceptance: the model fails on the pre-F54-repair source and on documented
   reversions of the F16, F30, F35 and F37 guards, passes on the repaired source, and its fast tier
   runs in under 60 seconds.
-- [ ] M2: Incarnation, store and transient faults (replaced, renamed, foreign object, store put
+- [x] M2 (accepted 2026-10-05 except F50, which moves to M4's cloud-foundation world): Incarnation, store and transient faults (replaced, renamed, foreign object, store put
   refused or unacknowledged, one failed read) with the incarnation, store and transient invariants.
   Acceptance: documented reversions of the F38, F49 and F50 guards fail. The model reports F51 and
   F52 as violations on their pre-fix source, and passes once their MasterPlan 23 fixes land
@@ -138,7 +143,7 @@ behind it is in
   records, and the model runs that production wiring instead of a test-local copy. Acceptance: the
   model and the F44 observer check use the production registry builder, and every suite and the
   architecture check pass.
-- [ ] M4: Worlds for the remaining providers (Pulumi cloud foundation, Helm, host transport) reuse the
+- [ ] M4: Worlds for the remaining providers (Pulumi cloud foundation, Helm, host transport). The Pulumi cloud-foundation world is shared with [MasterPlan 25](../masterplans/25-reviewed-full-context-teardown-with-vm-workload-collection.md): EP-165 and EP-167 extend it with retained cloud members and teardown faults, so build it to observe from a stack export and to delete by exact physical identity reuse the
   existing restore and collection models, and fidelity fixtures check that the runtime parsers agree
   with the worlds on real recorded output. Acceptance: one fidelity fixture per L3 finding with
   retained real output, and every registered executor has a world.

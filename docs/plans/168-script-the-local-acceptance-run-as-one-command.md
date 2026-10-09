@@ -16,6 +16,11 @@ provenance:
       at: 2026-10-04T14:16:36Z
       mode: "update"
       note: "Haskell per ADR 24; one evidence directory, runner last, staged records"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-09T22:13:41Z
+      mode: "update"
+      note: "Cascade 2026-10-09 re-scope of MasterPlans 21/25/26"
 ---
 
 # Script the local acceptance run as one command
@@ -29,12 +34,12 @@ If durable project context changes, update or create ADRs in docs/adr/ in the sa
 
 Today the local release acceptance for a Nagare candidate (called C2 in [MasterPlan 23](../masterplans/23-make-managed-resources-first-class-through-typed-scoped-inventories.md)) is run by a person typing hundreds of commands: bootstrapping a fresh local cluster, deploying a scenario, killing applies at chosen moments, backing up and restoring every database, stopping the cluster for a recovery drill, and finally assembling evidence. The first run took most of a day; a later run with session-local scripts took about fifty minutes of mostly unattended work. After this plan, a maintainer runs one command against a candidate package and gets, without further input, a finalized local health record with every required assertion and an assembled `inventory-evidence.json`, or a clear stop naming the step and the refusal.
 
-You can see it working by running the command on the current candidate on the `nagare-mp23-cp3` Colima profile (or any profile sized like it) and finding `local-health.json` reporting 16 recorded assertions and `inventory-evidence.json` accepted by the assembler.
+You can see it working by running the command on the final MasterPlan 23 candidate `83124396` (v0.4.0) on the `nagare-mp23-cp3` Colima profile (or any profile sized like it) and finding `local-health.json` reporting 16 recorded assertions and `inventory-evidence.json` accepted by the assembler. This run is native run L1 of [MasterPlan 26](../masterplans/26-make-platform-changes-and-releases-routine-after-the-inventory-release.md)'s finish line.
 
 
 ## Progress
 
-- [ ] M1: The tool bootstraps a fresh local context from a candidate package, runs C1 on that payload, deploys the scenario with its interruption points, seeds every store, and leaves a converged, idle context. Acceptance: a run on the then-current candidate ends with the store idle and accepted equal to converged.
+- [ ] M1: The tool first runs the environment preflight and refuses unless every human dependency is settled: builder reachable, `gate verify` green for the candidate revision, only the expected Colima profile running, and for cloud contexts gcloud authenticated and the Tailscale key tagged `tag:nagare-test`. It then bootstraps a fresh local context from a candidate package, runs C1 on that payload, deploys the scenario with its interruption points, seeds every store, and leaves a converged, idle context. Acceptance: a run on `83124396` ends with the store idle and accepted equal to converged, and each preflight refusal is covered by a unit test.
 - [ ] M2: The tool runs every check in `fixtures/inventory-release/local/scenario.json`, including the source-unavailable drill, and records each assertion. Acceptance: `scripts/scenario-assertions.py finalize` reports all required assertions.
 - [ ] M3: After every scenario mutation, the tool runs the runner rehearsal: plan, apply and verify back to back in the evidence directory (one packaged CreateResource, apply, a verified no-op, every provider observable). It then replays the staged records and assembles `inventory-evidence.json`. Acceptance: the assembler accepts that same directory.
 
@@ -57,6 +62,17 @@ You can see it working by running the command on the current candidate on the `n
   Date: 2026-10-04
 
 
+- Decision: Port the driver set that passed C2 16/16 on `83124396`, stage for stage, rather than re-deriving the run. The set is archived as a frozen record in `docs/audits/mp23-independent-results-2026-10-07/drivers-83124396/` (`c2/`). Its stages are `setup`, `phase1`, C1, `phase2`, `phase2b`, `rebind-check`, `restores`, `misc`, `su`, `final-a`, `retire-kept`, `final-b` and `assemble`.
+  Rationale: It is the only acceptance run known to pass unattended. Porting a passing sequence turns a design problem into a translation with fixture replay.
+  Date: 2026-10-09
+- Decision: This tool owns the environment preflight, and MasterPlan 25's teardown runner reuses it.
+  Rationale: MasterPlan 23's overnight stalls were human dependencies: a Tailscale SSH check waiting for a browser approval for 3 h 40 m, gcloud re-authentication, and a builder that was off. A refusal at start costs seconds.
+  Date: 2026-10-09
+- Decision: Once [MasterPlan 25](../masterplans/25-reviewed-full-context-teardown-with-vm-workload-collection.md) EP-167 M3 lands reviewed local teardown, the tool runs it as its final stage, and `--replace-cluster` stops being the normal path.
+  Rationale: Teardown then runs every release instead of rotting.
+  Date: 2026-10-09
+
+
 ## Outcomes & Retrospective
 
 (To be filled during and after implementation.)
@@ -66,7 +82,7 @@ You can see it working by running the command on the current candidate on the `n
 
 Terms. A candidate is an exact commit whose Nix package `nix build .#nagare` contains the `nagarectl` CLI and the platform payload (the manifests and scripts the CLI installs, see [ADR 4](../adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md)). A local context is a Nagare target in `mode=local` that points every primitive at a k3d cluster named `nagare-local`, the registry `k3d-registry.localhost:5000` and an in-cluster MinIO object store. An operator root is a directory holding isolated `config/`, `state/` and `cache/` directories for one context, used through a wrapper script that runs `nagarectl` under `env -i`. Review, apply, resume and recover are the typed inventory's transaction commands ([ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md)).
 
-The procedure this tool automates is recorded in four places, all checked in. `docs/plans/155-prove-local-application-and-data-recovery-end-to-end.md` (the "Milestone 2 execution plan" and "Phase 3: the checks") lists every check and its expected result. `docs/runbooks/native-verification-harness.md` records the harness facts. Its section 6 is the C2 procedure, with its hard rules, inputs and step table. `docs/audits/mp23-implementer-results-2026-10-03/c2-acceptance-7d486457.json` records the accepted, assembled run for candidate `7d486457`. `docs/audits/mp23-implementer-results-2026-10-03/c2-drivers/` holds the exact drivers that ran it, as a frozen record: reference for exact commands only, not code to build on. The scenario itself is `fixtures/inventory-release/local/scenario.json` with configs under `fixtures/inventory-release/local/apps/`.
+The procedure this tool automates is recorded in four places, all checked in. `docs/plans/155-prove-local-application-and-data-recovery-end-to-end.md` (the "Milestone 2 execution plan" and "Phase 3: the checks") lists every check and its expected result. `docs/runbooks/native-verification-harness.md` records the harness facts. Its section 6 is the C2 procedure, with its hard rules, inputs and step table. `docs/audits/mp23-implementer-results-2026-10-03/c2-acceptance-7d486457.json` records the accepted, assembled run for candidate `7d486457`. `docs/audits/mp23-implementer-results-2026-10-03/c2-drivers/` holds the exact drivers that ran it, as a frozen record: reference for exact commands only, not code to build on. The newer set that passed on the final candidate `83124396` is in `docs/audits/mp23-independent-results-2026-10-07/drivers-83124396/c2/`, with its result in `docs/audits/mp23-independent-results-2026-10-07/c2-acceptance-83124396/`. Port that set. The scenario itself is `fixtures/inventory-release/local/scenario.json` with configs under `fixtures/inventory-release/local/apps/`.
 
 Existing building blocks. Call the CLI and the cluster; port the Python helpers instead of shelling out to them: `scripts/run-local-candidate-gate.py` (C1), `scripts/rehearse-local-inventory-release.sh` and `scripts/rehearse-managed-resources.sh` (runner plan, apply, verify; verify is re-runnable until its marker), `scripts/unchanged-inventory-candidate.py` (unchanged runner candidate with retained reservations and `--add-packaged-scope`), `scripts/scenario-assertions.py` (record and finalize), and `scripts/assemble-managed-resource-evidence.sh` (assembly).
 

@@ -16,6 +16,11 @@ provenance:
       at: 2026-10-05T03:25:17Z
       mode: "update"
       note: "Add M3 native-evidence precondition (gate record, interpreter coverage, class regressions)"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-09T22:13:41Z
+      mode: "update"
+      note: "Cascade 2026-10-09 re-scope of MasterPlans 21/25/26"
 ---
 
 # Size the release gate to the change
@@ -32,8 +37,8 @@ Under [MasterPlan 23](../masterplans/23-make-managed-resources-first-class-throu
 
 ## Progress
 
-- [ ] M1: A deterministic classifier maps the changes between two revisions to a change class and the required evidence, with tests covering each class. Acceptance: classifier tests pass and its output on real MasterPlan 23 candidate pairs matches a hand-checked expectation.
-- [ ] M2: The release gate (`scripts/assemble-inventory-release-index.py` and the release workflow) enforces the class's requirements and accepts carried-forward evidence only when the proved parts are identical. Acceptance: gate tests for each class, including a refused attempt to carry evidence across a payload change.
+- [ ] M1: A deterministic classifier maps the changes between two revisions to a change class and the required evidence, with tests covering each class. Acceptance: classifier tests pass and its output on real MasterPlan 23 candidate pairs (at least `3b59bcb7`→`83124396`, which changed only host-switch scripts, tests and docs) matches a hand-checked expectation.
+- [ ] M2: The release gate (the release index assembly and the local release runbook; there is no hosted release workflow) enforces the class's requirements and accepts carried-forward evidence only when the proved parts are identical. Acceptance: gate tests for each class, including a refused attempt to carry evidence across a payload change.
 - [ ] M3: Native evidence is accepted only after the interpreters and the local gate. The gate refuses fresh C1/C2/C3 evidence for a candidate unless two records are present for that exact revision: a green gate record from [EP-174](174-gate-every-commit-before-any-native-run.md) and an interpreter-coverage record from [EP-173](173-find-recovery-defects-with-adversarial-provider-interpreters.md) M5 that covers every executor and action the evidence exercises. For every finding opened against the previous candidate, it also requires a named interpreter regression recorded as failing on the pre-fix source. Acceptance: gate tests refuse each missing record and a finding without such a regression, and accept a complete set.
 
 
@@ -51,6 +56,10 @@ Under [MasterPlan 23](../masterplans/23-make-managed-resources-first-class-throu
 - Decision: Bind carried-forward evidence to content digests of what it proves (the CLI source tree, the payload asset digest, the fixture digest), not to the git revision.
   Rationale: The CLI embeds its git revision, so even a docs-only commit changes the binary's reported revision; content digests are the only stable identity for "the same thing was proven".
   Date: 2026-10-04
+
+- Decision (2026-10-09): Speak in MasterPlan 23's final check names, C1–C5, rather than C1/C2/C3. C4 is the clone-free install on both systems, and C5 the reproducible assembly. "Transition rehearsal" from [EP-172](172-rehearse-candidate-upgrades-of-an-inventory-context-instead-of-rebuilding-it.md) is a kind of evidence a class may accept. There is no hosted release workflow: v0.4.0 was published locally, and M2 changes the local release runbook and the assembly instead.
+  Rationale: The plan predates MasterPlan 23's close and the decision against GitHub Actions.
+  Date: 2026-10-09
 
 
 ## Outcomes & Retrospective

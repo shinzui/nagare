@@ -26,6 +26,11 @@ provenance:
       at: 2026-10-09T19:45:59Z
       mode: "update"
       note: "Refresh MP-21 as optional inventory-backed replacement after MP-23 upgrade drills"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-09T22:13:41Z
+      mode: "update"
+      note: "On hold except EP-122 measured IP-handoff spike and operator decision gate; consume MP-25/MP-26 primitives"
 ---
 
 # Rehearsed replacement upgrades with bounded downtime for Nagare
@@ -35,6 +40,31 @@ and Outcomes & Retrospective current. The registry owns child status; children o
 
 
 ## Vision & Scope
+
+**Status (operator, 2026-10-09): on hold, except the EP-122 measurement spike.**
+[MasterPlan 26](26-make-platform-changes-and-releases-routine-after-the-inventory-release.md) and
+[MasterPlan 25](25-reviewed-full-context-teardown-with-vm-workload-collection.md) go first.
+Replacement has the largest cloud surface of the three follow-up plans, so it is the most likely to
+repeat MasterPlan 23's native-run loop, and checklist sections 3–4 no longer need it. The one cheap
+thing worth learning now is whether the budget is physically plausible: how long a reserved regional
+IP takes to move between two VMs and back. If a fifteen-minute window, including rollback, is not
+plausible, most of this plan's remaining design is not worth building.
+
+**Finish line for the current phase (fixed 2026-10-09):**
+- [ ] 1. **Native run S1 (one bounded cloud sequence, disposable resources only).** The spike script
+      runs under the project guard and creates two tiny VMs and a test reserved address, never the
+      context's own. It moves the address forward and back at least five times, timing each step:
+      detach, attach, first successful TCP and TLS connect through the address, and IAP reachability
+      of the inactive host. Then it deletes everything it created, by exact name. The script's
+      `--dry-run` output is reviewed before the operator approves the sequence (EP-122 M2).
+- [ ] 2. The measured distribution and the topology it implies are recorded in EP-122 and in
+      [ADR 19](../adr/0019-replacement-cutovers-reserve-rollback-before-write-admission.md) (EP-122 M3).
+- [ ] 3. **Operator decision gate.** With those numbers, the operator decides whether to resume
+      EP-123 to EP-127 (scheduling MasterPlan 21 after MasterPlans 26 and 25), re-scope the budget, or
+      cancel the remaining children.
+
+Nothing else in this plan is scheduled until item 3 is decided. The text below describes the full
+capability if it resumes.
 
 **Current scope (2026-10-09): an optional replacement capability after MP-23.** Ordinary safe
 node upgrades and the supported PostgreSQL major-upgrade procedure no longer require completion
@@ -128,18 +158,25 @@ and upstream tags before changing bounds or pins; never traverse `/nix/store`.
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 122 | Prove isolated replacement rehearsal and static-IP handoff | docs/plans/122-prove-isolated-replacement-rehearsal-and-static-ip-handoff.md | None | None | Not Started |
-| 123 | Model resumable replacement-upgrade transactions and downtime budgets | docs/plans/123-model-resumable-replacement-upgrade-transactions-and-downtime-budgets.md | None | EP-122 | In Progress |
-| 124 | Provision ephemeral candidate hosts and promotable infrastructure slots | docs/plans/124-provision-ephemeral-candidate-hosts-and-promotable-infrastructure-slots.md | EP-122, EP-123 | None | Not Started |
-| 125 | Rehearse target platform releases in a side-effect-fenced candidate cluster | docs/plans/125-rehearse-target-platform-releases-in-a-side-effect-fenced-candidate-cluster.md | EP-124 | EP-126 | Not Started |
-| 126 | Make stateful cutovers and PostgreSQL major upgrades budgetable | docs/plans/126-make-stateful-cutovers-and-postgresql-major-upgrades-budgetable.md | EP-123, EP-124 | EP-125 | In Progress |
-| 127 | Execute deadline-bound cutover rollback cleanup and operator drills | docs/plans/127-execute-deadline-bound-cutover-rollback-cleanup-and-operator-drills.md | EP-125, EP-126 | None | In Progress |
+| 122 | Prove isolated replacement rehearsal and static-IP handoff | docs/plans/122-prove-isolated-replacement-rehearsal-and-static-ip-handoff.md | None | None | Not Started (the only scheduled child: M2 spike, then M3) |
+| 123 | Model resumable replacement-upgrade transactions and downtime budgets | docs/plans/123-model-resumable-replacement-upgrade-transactions-and-downtime-budgets.md | None | EP-122 | In Progress (on hold, operator 2026-10-09) |
+| 124 | Provision ephemeral candidate hosts and promotable infrastructure slots | docs/plans/124-provision-ephemeral-candidate-hosts-and-promotable-infrastructure-slots.md | EP-122, EP-123 | MP-25 EP-165 (cloud identity) | Not Started (on hold) |
+| 125 | Rehearse target platform releases in a side-effect-fenced candidate cluster | docs/plans/125-rehearse-target-platform-releases-in-a-side-effect-fenced-candidate-cluster.md | EP-124 | EP-126 | Not Started (on hold) |
+| 126 | Make stateful cutovers and PostgreSQL major upgrades budgetable | docs/plans/126-make-stateful-cutovers-and-postgresql-major-upgrades-budgetable.md | EP-123, EP-124 | EP-125 | In Progress (on hold, operator 2026-10-09) |
+| 127 | Execute deadline-bound cutover rollback cleanup and operator drills | docs/plans/127-execute-deadline-bound-cutover-rollback-cleanup-and-operator-drills.md | EP-125, EP-126 | MP-25 EP-164, EP-166 (collection, destruction) | In Progress (on hold, operator 2026-10-09) |
 
 No child becomes Complete merely because an overlapping MP-23 primitive or drill exists.
 EP-123, EP-126 and EP-127 retain credit for their partial provider-independent contracts.
 
 
 ## Dependency Graph
+
+**Current phase (2026-10-09):** only EP-122 runs, with M2 (the measured spike) before M1. M1's
+fake-`gcloud` contract tests are deferred until the operator resumes the plan, because the spike
+exercises provider behaviour, not Nagare code: it is a first-principles measurement, not a native
+run of an unmodelled Nagare path
+([ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md)). The graph
+below applies if the plan resumes.
 
 EP-122 and EP-123 may proceed independently. EP-122 owns measured provider feasibility;
 EP-123 owns the pure model, store binding and non-mutating plan/status surface. EP-123 can describe
@@ -168,7 +205,11 @@ it never grants mutation authority by itself. Derived private workspace files ar
 not an alternate head. EP-123 owns the producer/consumer test through real inventory admission,
 interruption, fresh-root reload and resume before EP-124 expands provider effects.
 
-**2. Candidate resources and identities — EP-124.**
+**2. Candidate resources and identities — EP-124.** Cloud physical identity recorded at creation
+(VM, disks, address) is built once by MasterPlan 25's EP-165 as an ADR 27 §4 amendment. EP-124 reuses
+it rather than building its own binding. Release and schema compatibility pairs come from MasterPlan
+26 EP-172's compatibility table. Cleanup (EP-127) reuses MasterPlan 25's reviewed collection and
+destruction intent.
 `infra/pulumi/src/components/NagareHostSlot.ts` is proposed, not implemented. The current
 `NagareInstance.ts`, `NagarePerimeter.ts` and `NagareNetwork.ts` supply the singleton baseline.
 EP-124 extends typed cloud/host declarations and native registration parity together. Candidate
@@ -218,6 +259,9 @@ replacement-specific public-path checks.
 
 
 ## Progress
+
+2026-10-09: On hold except EP-122's spike (finish line above). No replacement work is scheduled
+until the operator decides at the gate.
 
 The initiative remains partially implemented and is optional follow-up work, not an initial
 production-readiness prerequisite. EP-122/124/125 have no accepted replacement implementation;
@@ -270,6 +314,16 @@ greenfield duplication of inventory, journal, backup and basic PostgreSQL migrat
 verifiable with abstract provider effects; EP-124 remains the join requiring the complete model
 and measured EP-122 contract. No production readiness or provider assumption is weakened.
 
+2026-10-09 (operator): Hold MasterPlan 21 behind MasterPlans 26 and 25, except EP-122's measured
+IP-handoff spike, which runs as one bounded, disposable cloud sequence before any further replacement
+code. Ownership changes:
+- MasterPlan 26 EP-172 owns in-place release transitions and their compatibility table;
+- MasterPlan 25 EP-165 owns cloud physical identity;
+- this plan consumes both rather than building them.
+Rationale: MasterPlan 23's cost was native runs used as discovery. Replacement's cloud surface is the
+largest, and its budget's feasibility is unmeasured. A cheap measurement decides whether the rest is
+worth building.
+
 Decisions retained from September: one temporary candidate; independent fresh boot/data disks;
 reserved-IP handoff without DNS change or permanent load balancer; rollback reserve and margin
 before downtime; old authoritative state untouched until commit; observed write admission disables
@@ -288,6 +342,10 @@ replacement decisions into ADR 19; do not reopen the fixed production checklist.
 
 
 ## Revision Notes
+
+2026-10-09 (second revision): Put the plan on hold except EP-122's spike, with a three-item finish
+line and an operator decision gate. Redirected cloud identity to MasterPlan 25 EP-165, release
+compatibility to MasterPlan 26 EP-172, and cleanup to MasterPlan 25's collection.
 
 2026-10-09: Rewrote coordination around optional replacement after MP-23, credited October upgrade
 and recovery evidence, removed duplicate foundations and the stale production prerequisite, relaxed

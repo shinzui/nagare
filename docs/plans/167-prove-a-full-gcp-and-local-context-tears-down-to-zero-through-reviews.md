@@ -10,6 +10,12 @@ provenance:
     model: "claude-opus-5-5"
     harness: "claude-code"
     at: 2026-10-03T22:27:20Z
+  revisions:
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-09T22:13:41Z
+      mode: "update"
+      note: "Cascade 2026-10-09 re-scope of MasterPlans 21/25/26"
 ---
 
 # Prove a full GCP and local context tears down to zero through reviews
@@ -28,9 +34,14 @@ The operator runbook then documents the sequence.
 
 ## Progress
 
-- [ ] Milestone 1: rehearsal harness and target fixture.
-- [ ] Milestone 2: native GCP teardown to zero.
-- [ ] Milestone 3: native local teardown and the operator runbook.
+- [ ] Milestone 1 (no dependency on EP-164–166; needs MasterPlan 26 EP-173 M4's Pulumi cloud-foundation world): the teardown-to-zero model, the teardown runner and the target fixture.
+  - The model runs the real planner, driver and adapters over the Pulumi and Kubernetes worlds, under these faults: lost acknowledgement on delete, transient read, interruption at every boundary, out-of-band deletion, and protected data without intent.
+  - It asserts that every reachable stop reaches zero through supported commands, and that nothing protected is deleted without its intent.
+  - The model is expected to fail until EP-164 to EP-166 land.
+  - The runner is a `nagare-harness` command sharing EP-168's preflight and evidence layout.
+  - Acceptance: the model is green on the completed children, and each guard's mutation record fails it.
+- [ ] Milestone 2, native run G1, the only cloud sequence (needs EP-164, EP-165, EP-166 and M1): a native GCP teardown to zero of a fresh disposable context that holds a revoked access grant. It follows the runbook section verbatim and closes F33's and F84's native proof.
+- [ ] Milestone 3, native run L3 (needs MasterPlan 26 EP-168 M1): reviewed local teardown (retire, then substrate removal), run as the final stage of `nagare-harness local-acceptance` rather than as a separate run. Also the operator runbook section, written before G1.
 
 
 ## Surprises & Discoveries
@@ -40,7 +51,9 @@ The operator runbook then documents the sequence.
 
 ## Decision Log
 
-(None yet.)
+- Decision (2026-10-09): The model comes first and has no dependency on the other children. There is exactly one cloud sequence (G1), and the local proof is a stage of EP-168's local acceptance.
+  Rationale: [MasterPlan 25](../masterplans/25-reviewed-full-context-teardown-with-vm-workload-collection.md)'s fixed finish line, and [ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md). MasterPlan 23's native runs were mostly discovery; here the model is red first and native runs only confirm.
+  Date: 2026-10-09
 
 
 ## Outcomes & Retrospective
@@ -65,8 +78,11 @@ Cloud mutations need one operator approval for a bounded, rehearsed sequence (CL
 ## Plan of Work
 
 Milestone 1:
+- Write the teardown-to-zero model first, in the recovery model's style (`cli/nagarectl/test/Nagare/Test/World/`).
+  - It seeds a context's accepted history from the resource list in `docs/audits/mp23-independent-results-2026-10-07/drivers-83124396/disposal/`.
+  - It drives the real staged teardown over EP-173 M4's Pulumi cloud-foundation world and the Kubernetes world, with the faults listed in Progress.
 - Add a disposable target fixture under `fixtures/inventory-release/gcp/` with its own names.
-- Extend the runbook harness with a teardown runner that saves each stage, checks that it names only the context's resources, applies it, and records evidence.
+- Add the teardown runner as a `nagare-harness` command. It runs EP-168's preflight, then for each stage it saves the review, checks that the review names only the context's resources, applies it, and records evidence.
 - Each stage gets a 15-minute diagnostic checkpoint.
 
 Milestone 2:
@@ -75,7 +91,7 @@ Milestone 2:
 - Finish with a read-only inventory of the project filtered to the context's names, showing nothing left.
 
 Milestone 3:
-- Repeat on a local k3d context: retire, then a reviewed substrate removal (cluster and registry).
+- On a local k3d context: retire, then a reviewed substrate removal (cluster and registry). Deliver it as the final stage of MasterPlan 26 EP-168's `local-acceptance`, so it runs every release.
 - Write the operator runbook section "Tear down a context" in [`docs/runbooks/inventory-operations.md`](../runbooks/inventory-operations.md).
 
 
@@ -89,7 +105,8 @@ Follow the harness runbook. Record every stage's plan and apply timings and exit
 Accepted when:
 - the final read-only project listing for the context's names is empty;
 - the exported history verifies and records every collection;
-- the runbook has been executed by an independent reviewer.
+- run G1 followed the runbook section verbatim (the separate independent re-execution was dropped on 2026-10-09: one cloud sequence proves both);
+- the local acceptance's final stage leaves no cluster, registry or store behind.
 
 
 ## Idempotence and Recovery
@@ -99,4 +116,9 @@ Each stage is a saved review. An interrupted stage is resumed by its transaction
 
 ## Interfaces and Dependencies
 
-Hard dependencies: EP-164, EP-165 and EP-166 (the whole child plans).
+Hard dependencies, by milestone:
+- M1: MasterPlan 26 EP-173 M4 (the Pulumi cloud-foundation world).
+- M2: EP-164, EP-165, EP-166 and this plan's M1.
+- M3: MasterPlan 26 EP-168 M1.
+
+M3 also hands EP-168 its final stage.

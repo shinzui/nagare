@@ -27,6 +27,11 @@ provenance:
       at: 2026-10-09T19:45:59Z
       mode: "update"
       note: "Refresh MP-21 as optional inventory-backed replacement after MP-23 upgrade drills"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-09T22:13:41Z
+      mode: "update"
+      note: "Cascade 2026-10-09 re-scope of MasterPlans 21/25/26"
 ---
 
 # Execute deadline-bound cutover rollback cleanup and operator drills
@@ -216,6 +221,10 @@ Record every decision made while working on the plan.
   plan; replacement-specific evidence should add transaction bindings to those mechanisms instead
   of creating parallel unguarded execution paths.
   Date: 2026-09-15
+
+- Decision (2026-10-09): On hold with [MasterPlan 21](../masterplans/21-rehearsed-replacement-upgrades-with-bounded-downtime-for-nagare.md). If the plan resumes, exact cleanup and retained-disk finalization use [MasterPlan 25](../masterplans/25-reviewed-full-context-teardown-with-vm-workload-collection.md)'s reviewed collection (EP-164, EP-165) and typed destruction intent (EP-166), rather than a replacement-specific manifest cleanup. Source and target release pairs come from [MasterPlan 26](../masterplans/26-make-platform-changes-and-releases-routine-after-the-inventory-release.md) EP-172's compatibility table.
+  Rationale: Single owners for collection, destruction and release compatibility.
+  Date: 2026-10-09
 
 
 ## Outcomes & Retrospective

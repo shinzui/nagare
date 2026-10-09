@@ -10,6 +10,12 @@ provenance:
     model: "claude-opus-5-5"
     harness: "claude-code"
     at: 2026-10-03T22:27:20Z
+  revisions:
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-09T22:13:41Z
+      mode: "update"
+      note: "Cascade 2026-10-09 re-scope of MasterPlans 21/25/26"
 ---
 
 # Collect a retained VM together with the workloads it hosts
@@ -28,7 +34,7 @@ To see it working: on a disposable context with every scope retired, `nagarectl 
 
 - [ ] Milestone 1: define the hosted-member relation and its proof, with pure regressions.
 - [ ] Milestone 2: plan and admit a VM collection with hosted descendants.
-- [ ] Milestone 3: execute, recover and tombstone; native proof on a disposable context.
+- [ ] Milestone 3: execute, recover and tombstone, proven first in EP-167's teardown-to-zero model. The native proof is part of MasterPlan 25's single cloud sequence (run G1, EP-167 M2), not a separate run.
 
 
 ## Surprises & Discoveries
@@ -38,7 +44,9 @@ To see it working: on a disposable context with every scope retired, `nagarectl 
 
 ## Decision Log
 
-(None yet.)
+- Decision (2026-10-09): Milestones 1 and 2 are pure and may start before the Pulumi cloud-foundation world exists. Milestone 3 is developed against EP-167's teardown-to-zero model. The VM's delete precondition reads the VM's identity through the checked accessor that EP-165 adds for cloud members.
+  Rationale: [MasterPlan 25](../masterplans/25-reviewed-full-context-teardown-with-vm-workload-collection.md)'s 2026-10-09 finish line. Interpreters find defects, and the only cloud run is G1.
+  Date: 2026-10-09
 
 
 ## Outcomes & Retrospective

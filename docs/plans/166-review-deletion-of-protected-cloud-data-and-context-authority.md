@@ -10,6 +10,12 @@ provenance:
     model: "claude-opus-5-5"
     harness: "claude-code"
     at: 2026-10-03T22:27:20Z
+  revisions:
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-09T22:13:41Z
+      mode: "update"
+      note: "Cascade 2026-10-09 re-scope of MasterPlans 21/25/26"
 ---
 
 # Review deletion of protected cloud data and context authority
@@ -31,7 +37,7 @@ Teardown reports these as `retention-policy` and `unsupported-collection-transpo
 
 ## Progress
 
-- [ ] Milestone 1: typed data-destruction intent and its review shape.
+- [ ] Milestone 1: typed data-destruction intent and its review shape, with its refusals (missing, stale or unbound intent; a live consumer). This is pure and may start at once. A new ADR records the intent as the only path by which Nagare deletes durable data.
 - [ ] Milestone 2: protected disk, VM deletion protection, buckets and images.
 - [ ] Milestone 3: IAM, service account and registry; the last-authority stage (state bucket and inventory history).
 
@@ -43,7 +49,9 @@ Teardown reports these as `retention-policy` and `unsupported-collection-transpo
 
 ## Decision Log
 
-(None yet.)
+- Decision (2026-10-09): Milestones 2 and 3 are developed against EP-167's teardown-to-zero model, with a fault for protected data without intent. Their native proof is part of run G1 (EP-167 M2). Delete preconditions use EP-165's cloud identity accessor.
+  Rationale: [MasterPlan 25](../masterplans/25-reviewed-full-context-teardown-with-vm-workload-collection.md)'s 2026-10-09 finish line.
+  Date: 2026-10-09
 
 
 ## Outcomes & Retrospective

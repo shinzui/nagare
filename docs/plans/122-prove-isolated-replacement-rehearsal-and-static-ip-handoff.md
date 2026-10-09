@@ -22,6 +22,11 @@ provenance:
       at: 2026-10-09T19:45:59Z
       mode: "update"
       note: "Refresh MP-21 as optional inventory-backed replacement after MP-23 upgrade drills"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-09T22:13:41Z
+      mode: "update"
+      note: "Cascade 2026-10-09 re-scope of MasterPlans 21/25/26"
 ---
 
 # Prove isolated replacement rehearsal and static-IP handoff
@@ -65,7 +70,7 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] Milestone 1: add a fail-closed dry-run model and fake-`gcloud` contract tests for every spike operation.
+- [ ] Milestone 1: add a fail-closed dry-run model and fake-`gcloud` contract tests for every spike operation. Deferred until the operator resumes MasterPlan 21 (2026-10-09); Milestone 2 runs first as a measurement spike.
 - [ ] Milestone 2: run the disposable live two-host/IAP/static-IP forward-and-reverse handoff and retain redacted timing evidence.
 - [ ] Milestone 3: record the proven topology and budget semantics in ADR 19, or revise the MasterPlan if the proof fails.
 
@@ -99,6 +104,16 @@ Record every decision made while working on the plan.
   Rationale: hermetic coverage should not be duplicated, but provider control-plane timing and
   address ownership can only be established by the scoped live experiment this plan owns.
   Date: 2026-09-15.
+
+- Decision (operator, 2026-10-09): Run Milestone 2 first, as a measurement spike, and defer Milestone 1's fake-`gcloud` contract tests until the operator resumes [MasterPlan 21](../masterplans/21-rehearsed-replacement-upgrades-with-bounded-downtime-for-nagare.md).
+  - The spike is one script with a `--dry-run` that prints every command.
+  - It runs under `_require_target_project` against two tiny disposable VMs and a test reserved address, never the context's own.
+  - It moves the address forward and back at least five times, timing detach, attach, the first TCP and TLS connect through the address, and IAP reachability of the inactive host.
+  - It deletes what it created by exact name.
+  - The operator approves the reviewed dry run once, as a single bounded sequence.
+
+  Rationale: The spike measures provider behaviour, not a Nagare code path, so ADR 25's interpreter-first rule does not apply to it. Its numbers decide whether the rest of MasterPlan 21 is worth building, which is the cheapest decision available.
+  Date: 2026-10-09
 
 
 ## Outcomes & Retrospective
