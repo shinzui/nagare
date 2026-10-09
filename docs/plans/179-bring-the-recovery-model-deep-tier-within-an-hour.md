@@ -75,18 +75,31 @@ equivalence report for each reduction, and every mutation record still failing.
   were dropped as independent and 832 as unreached, about 15%. The check ran 14,866 independent
   pairs against their second fault alone, and 87,468 checkpoint-resumed pairs against the same
   pair from the start. None disagreed.)
-- [ ] M5: within budget. `just gate-deep` finishes within an hour with default shards, the
+- [-] M5: within budget. `just gate-deep` finishes within an hour with default shards, the
   timings are recorded here, every mutation record whose README row names the recovery model
   still fails, and `just deep-tier-required` reports whether a change needs the deep tier. A
   killed or interrupted run leaves behind everything it found: each violation is written to the
   shard's log as `recovery-model: violation: …` lines the moment it is found, and each
-  scenario's summary when that scenario ends.
+  scenario's summary when that scenario ends. Closed for v1 (2026-10-09): the parts of M5 that were met are recorded in Outcomes; the one-hour budget goes to a later MasterPlan that widens the guarantee, and the deep tier is per-release monitoring (operator, 2026-10-07). {disposition=out-of-scope}
+  - [x] Met (2026-10-09):
+    - The timings are recorded (Surprises and Outcomes).
+    - `just deep-tier-required` exists.
+    - Violations stream as they are found: the stopped 3d run kept all 4,944 schedules.
+    - The mutation records still fail: the sweep on `83124396` killed 149 of 149, including
+      `EP179-restore-skips-adversary` and `EP179-head-retry-count`
+      ([sweep](../audits/mp23-independent-results-2026-10-07/mutation-sweep-83124396.tsv)).
+  - Superseded/Moved (2026-10-09): the one-hour budget. On EP-182's world, the slowest shards of
+    the 3d run at `341b01bc` spent 4,637 s on scenarios 1–8 alone, so the budget is not met.
+    The 2026-10-07 amendment to ADR 25 made the deep tier per-release monitoring, not a gate. It
+    gives a later MasterPlan, not yet created, the goal of widening the guarantee to fault pairs
+    within the one-hour budget. The pair-budget input is in Outcomes.
 
 M5 is not met (2026-10-06): 1 h 53 m before the defect fixes' tryMove fix, about 2.5–3 hours
 projected after it (see Surprises). It is re-measured after EP-182 replaces the world. Then the
 levers go to the operator: fewer pairs in the 43 generated scenarios, given evidence that they
 repeat the explicit scenarios' pairs (46% of the first run's time), or a larger builder. This
-plan stays In Progress.
+plan stays In Progress. (Superseded 2026-10-09: the 2026-10-07 decision moved the budget, and the
+plan closes for v1; see M5 and Outcomes.)
 
 Status (2026-10-06): branch `ep179-rebased`, on land-through-gate `c9bf8d35`, which is on the
 defect fixes `9ac3a484`. Commits: M1 `8a66e467`, M2 `2ae4f461`, M4 `e42a7ed2`, the
@@ -296,7 +309,24 @@ M3 is not adopted: its sampled check failed (see the Decision Log).
   production change to EP-179, on the conditions above.
   Date: 2026-10-06
 
+- Decision (operator, 2026-10-07; recorded here 2026-10-09): for v1 the deep tier is monitoring,
+  not a release gate (ADR 25 amendment of 2026-10-07). A recovery-related change needs a deep run
+  and a triage record, not a passing run. This plan closes with M5's one-hour budget unmet. The
+  budget moves to the later MasterPlan that widens the guarantee to fault pairs.
+  Rationale: each deep run widened the problem and the estimate. The operator chose to ship the
+  proved single-fault guarantee and widen it per release.
+  Date: 2026-10-09
+
 ## Outcomes & Retrospective
+
+**Status (2026-10-09): Complete for v1, with its headline goal moved.**
+- **Shipped.** v0.4.0 (`83124396`) ships M1, M2 and M4: snapshot search, interaction pruning, per-step checkpoints and the injectable retry pause. It also ships `just gate-deep` on the remote builder and `just deep-tier-required`. M3 was rejected by its own sampled check.
+- **Not achieved.** The one-hour budget: the 3d run needed about 1 h 17 m for 8 of 52 scenarios. By the 2026-10-07 decision the deep tier is per-release monitoring, so this is no longer a release requirement.
+- **Moved.** The budget goes to a later MasterPlan, not yet created. Its first input is the SameStep pair-budget note below.
+- **Remaining monitoring work, outside this plan.**
+  - Each release runs the deep tier and triages its classes.
+  - No run has yet covered the 43 generated scenarios' pairs (EP-177).
+  - F77 and F78 are in the ledger.
 
 2026-10-06, at landing with the defect fixes, land-through-gate and the MP-23 redirect. M5 is open.
 

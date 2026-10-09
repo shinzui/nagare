@@ -1,0 +1,26 @@
+# nagarectl release publish (review only) on the published v0.4.0 attachments
+# 2026-10-09, nagare-fix: run from a clean checkout at 83124396 with the v0.4.0 nagarectl (nix run github:shinzui/nagare/v0.4.0#nagarectl),
+# --assets = the 18 attachments downloaded from the GitHub release (SHA256SUMS verified). Exit 0.
+
+Release candidate: shinzui/nagare/v0.4.0
+Tag object: 25db0b3c179406cfc8afc893a81b22a2393f94d5; commit: 831243962c6b80f91da1028cdab8238ae6acdabd
+Publication review: b742fc2da315aa615d023342721f6aeaa9f753b148eb8ef1d05bd76e147c27ae
+  nagare-release-0.4.0.json  a651380901975e879a6010b0959e22622a281fb0ecce38d6a4aba7e62d9f9bd1
+  nagare-v0.4.0.md  c41e9aad85ee185d0cef4ff5f19215af87b14771eecd899236bf3050b5454b94
+  nix-output-x86_64-linux.json  2ab181c998348fb1d38e63167ddc347bc2888d843beffd5d7fcadce64c63dc70
+  nix-output-aarch64-darwin.json  fa7c72eb53fd33380a60850262091cf884f98ade2f89a9700b01b808dfd420d6
+  clone-free-x86_64-linux.json  6a102b3a02e4cc36b61762d6cc6e219ebf8673fae1c962360a006acf782d2d16
+  clone-free-aarch64-darwin.json  3ed83d029d19f791a37e1cb998c6a6699e79a4511c312c1eb93510de0223c8f2
+  SHA256SUMS  40d6194e04f15feb9070f854cc391cc64caa84cb68dd239f1da5839ea5bc2f0d
+  nagare-inventory-evidence-v0.4.0.json  bd06cb003c525431071307bb767777206e4478a10368df07b0fb8e702ce17121
+  nagare-platform-metadata-v0.4.0.json  0d9ce193e67dcc40010eb28a6b9c732ddbe3eb9469f4bd815c07153b233056a3
+  inventory-coverage.json  15604c98bdccf14791ee8959f5760c2344db989547b63751219c9b2cf0f453bd
+  inventory-local-target.json  42551dc31ab8c8fefe7ba9f8c27a8dff355a084a96cc6f684d318f354a40b833
+  inventory-local-health.json  d431920c8ed5c5c3fb0b7d5eadc5948ba7df3392568229444105b16bda2efd73
+  inventory-local-fixture.json  dd431786f1905bccae8524ad465c1ea4fe81bcc81a619726dc2583b6232b4a1c
+  inventory-local-evidence.json  cd04998e0421e30077c186820dcf8dcb011034e4db23e6d5f1b544b01ea9871b
+  inventory-cloud-target.json  50c1af9edbfc9b0b0551fe96425351be074056e7fe50fdf7da32d761348f2194
+  inventory-cloud-health.json  6cce0f54534fab3058c78490e52fb429a42639d3b8357ea3e7ae821a37ad5ce5
+  inventory-cloud-fixture.json  a87386fa4527e267d3e90a781b1414929525a900ea493bbfd441195990884472
+  inventory-cloud-evidence.json  f47fd894cc017803b79871a1bc24f49a58bfbd159c4ad34a15ad6a6938428619
+Review only; pass --yes to publish these exact bytes.

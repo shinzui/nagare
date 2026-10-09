@@ -85,7 +85,12 @@ MasterPlan 23's release line (b).
   - **Mutation records.** Deleting a row, a wrong claim, and an adapter kind added without a row
     each fail a named test.
   - **Not yet.** The plan's per-row fixture is deferred to M2, where generation needs it.
-- [ ] M2 (code in 2026-10-05; acceptance waits for `just gate-deep`): the generated product.
+- [x] M2 (code in 2026-10-05; acceptance waits for `just gate-deep`): the generated product.
+  (2026-10-09: accepted for v1 on the fast tier. The generated scenarios and the harness self-test
+  run in `nagarectl-test`, green in the final candidate's gate,
+  [gate](../audits/mp23-independent-results-2026-10-07/gate-83124396.json).
+  Superseded (2026-10-07 amendment to ADR 25): a passing `just gate-deep` is no longer acceptance.
+  The deep tier is per-release monitoring; see Outcomes.)
   - **Scenarios.** Each in-line row with a fixture yields scenarios: create, update (where the
     row admits it) and retire, with one member of the kind added to the application scope. That
     gives 43 generated scenarios beside the 9 explicit ones.
@@ -101,7 +106,12 @@ MasterPlan 23's release line (b).
 - Original M2 text: the generated product. The scenario × applicable-fault × invariant product is generated
   from the table and replaces the hand-written scenario list. The fast tier runs a sampled product
   in the ordinary suite, and the deep tier runs the full product under `just gate-deep`.
-- [ ] M3 (code in 2026-10-05; acceptance waits for `just gate-deep`): the faults and harness fixes.
+- [x] M3 (code in 2026-10-05; acceptance waits for `just gate-deep`): the faults and harness fixes.
+  (2026-10-09: accepted for v1 on the fast tier, the self-test and the mutation sweep. The sweep on
+  `83124396` killed 149 of 149 records, including this plan's `ADR25-model-*` records,
+  [sweep](../audits/mp23-independent-results-2026-10-07/mutation-sweep-83124396.tsv). The deep-tier
+  half is superseded by the 2026-10-07 amendment, as for M2. The deferred `ReplacementRequired`
+  fault and the dedicated corrected-review move stay deferred.)
   - **New faults.** `CrashBeforeStorePut`, `CrashAfterStorePut` and `ClaimLost`. `ClaimLost` lands
     another client's claim at the generation a head write expects, so the write conflicts.
   - **Exit move.** `TakeOver`, a resume with take-over: the supported exit after a lost claim.
@@ -323,7 +333,21 @@ MasterPlan 23's release line (b).
   Date: 2026-10-06
 
 
+- Decision (operator, 2026-10-07; recorded here 2026-10-09): for v1 the deep tier is monitoring,
+  not a gate (ADR 25 amendment of 2026-10-07). This plan's "Deep tier: `just gate-deep` passes"
+  acceptance no longer applies. M2 and M3 are accepted on the fast tier, the self-test and the
+  mutation sweep, and each class a deep run reports is triaged into a fix or the ledger.
+  Rationale: the operator chose to ship the proved single-fault guarantee and widen it per release.
+  Date: 2026-10-09
+
+
 ## Outcomes & Retrospective
+
+**Status (2026-10-09): Complete for v1.** v0.4.0 (`83124396`) ships with recovery-model coverage generated from the kind table.
+- **Shipped.** The totality test and the 43 generated scenarios. The store, claim and crash faults. One retry policy, a read-only checker store and the harness self-test, all in the fast tier of a green gate. The mutation sweep killed 149 of 149 records.
+- **Acceptance changed.** This plan's acceptance included a passing `just gate-deep`. The 2026-10-07 operator decision (ADR 25 amendment; MP-23 Decision Log) made the deep tier per-release monitoring, so a passing run is no v1 requirement.
+- **Remaining work is monitoring, not this plan's.** No deep run has yet covered the pairs of the 43 generated scenarios: the 3d run stopped at 9 of 52. The next per-release deep run covers them, and its classes are triaged into fixes or the ledger. ADR 25 gives widening the proved guarantee to fault pairs to a later MasterPlan, not yet created.
+- **Lesson.** The harness self-test caught harness errors in seconds. The shared faulting store had been costing whole deep shards.
 
 2026-10-07, MP-23 step 3d: a partial monitoring record. The run was **stopped at scenario 9/52 after about 2 h by operator direction**. It was `just gate-deep 341b01bc`: 16 shards, 14:49:17Z to 16:48:41Z, with no other builder jobs. For v1 the deep tier is monitoring, not a gate (the 2026-10-07 amendment to [ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md)).
 

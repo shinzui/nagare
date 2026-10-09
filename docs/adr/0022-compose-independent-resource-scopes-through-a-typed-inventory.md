@@ -1700,3 +1700,25 @@ lock together refuses. Nix preparation still refuses lock updates: the reviewed
 lock digest is the one the transport builds. A k3s minor change cannot be
 reverted in place; the operator procedure requires a verified backup first.
 
+## Amendment — 2026-10-09: lessons from completing MasterPlan 23
+
+MasterPlan 23 shipped this architecture as Nagare 0.4.0, from final candidate `83124396`. These
+lessons constrain later work on the inventory:
+
+- **Defects are found by interpreters and models; native runs only confirm** (ADR 25). Proof rules
+  and the recovery model's world are derived from provider semantics validated against a real API,
+  not tuned by repeated deep-tier runs. The deep tier is per-release monitoring.
+- **Every stopped state has a reviewed exit, tested through the real CLI loaders.** A test registry
+  can hide a review that the public loader cannot decode, as F86 showed. Each feature names its
+  interrupted, refused, reverted and status-churned paths and tests them through the public entry
+  points.
+- **An operator procedure counts as supported only after it has run once through the real CLI.**
+  This includes its failure branches, and it applies before a candidate is cut. The node-upgrade
+  procedure needed a sops-nix re-pin, a reboot through reviewed VM power, and host activation that
+  survives the loss of its own session (F95, ADR 11 amendment). Each surfaced only in a drill.
+- **Acceptance binds to one frozen candidate and one evidence-backed checklist.** Evidence spread
+  across candidates and standalone audit documents hid both progress and new defects.
+- **The release's scope is fixed once agreed.** A new finding is fixed in place only if it risks
+  data loss or makes the release unusable. Every other finding goes to the deferral ledger with a
+  named home.
+

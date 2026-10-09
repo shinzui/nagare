@@ -100,8 +100,8 @@ This is the authoritative list of implementation findings for [MP-23](../masterp
 | [F81](mp23-archive/mp23-findings-closed.md#f81) | P1 | A reviewed rename stopped by a source replaced outside review, or by a refused copy, had no exit, and close could accept it half done | Closed | nagare-fix (MP-23 step 5) |
 | [F82](mp23-archive/mp23-findings-closed.md#f82) | P1 | The no-data-loss drill (checklist section 2) has no documented procedure: the guide places full restore after total cluster loss outside this release | Closed | nagare-fix (MP-23 step 5); rebuild-in-place: next MasterPlan |
 | [F83](mp23-archive/mp23-findings-closed.md#f83) | P1 | A reviewed retirement whose review proves a Kubernetes member absent always refuses through the CLI | Closed | nagare-fix (follow-up candidate) |
-| [F84](#f84) | P2 | An accepted access grant cannot be retired, so a full context holding one has no reviewed teardown | Deferred (next release) | nagare-fix |
-| [F85](#f85) | P2 | The installed package needs host npm, so the clone-free rehearsal fails on x86_64-linux | Deferred (next release) | nagare-fix |
+| [F84](#f84) | P2 | An accepted access grant cannot be retired, so a full context holding one has no reviewed teardown | Verifying | nagare-fix |
+| [F85](#f85) | P2 | The installed package needs host npm, so the clone-free rehearsal fails on x86_64-linux | Verifying | nagare-fix |
 | [F86](#f86) | P1 | A review admits an in-place PostgreSQL major-version change, with no reviewed exit once applied | Closed | nagare-fix |
 | [F87](#f87) | P2 | An application cannot drop one of its databases through review | Closed | nagare-fix |
 | [F88](#f88) | P2 | A controller's status write refuses an in-sync reviewed update, and the refusal has no reason | Verifying | nagare-fix |
@@ -209,19 +209,23 @@ Kubernetes members can be collected one review at a time, but host and artifact 
 
 ## F84
 
-**An accepted access grant cannot be retired, so a full context holding one has no reviewed teardown** — P2; **Deferred (next release, operator 2026-10-08)**; owner nagare-fix (`next-release` `de7100f0`).
+**An accepted access grant cannot be retired, so a full context holding one has no reviewed teardown** — P2; **Verifying** (fixed in `b171712a` on master, 2026-10-08, so it ships in 0.4.0; it was first deferred by the operator on 2026-10-08 with its fix on `next-release` `de7100f0`); owner nagare-fix.
 
 **Found by session mp23-c3i during the `mp23-c3i` staged teardown on `3ae20f8c` (2026-10-08; observed).** Retiring the application scopes refused with `dangling-reference` (the access grant is a dependency producer). Retiring all scopes jointly refused with `access resource is not declared`. The access adapter's observe (`Access.hs`) builds bindings only from the candidate's desired declarations, and its `selected` admits only create, update and verify. Disposable contexts were removed with exact-name provider deletes. Evidence: [c3i teardown](mp23-independent-results-2026-10-07/c3i-teardown/).
 
-**Fix on `next-release`:** the adapters also bind the accepted tuples. A revoked grant is retained when its scope retires; a live one refuses with `access-grant-live`, so the operator revokes first. The revoke-first policy is a choice flagged for the operator.
+**Implementation update (2026-10-09, nagare-fix):** the fix below landed on master as `b171712a` and is in final candidate `83124396` (v0.4.0). Native proof needs a staged retirement of a context holding a revoked grant. No context was retired that way after the fix: `mp23-c3k`, `mp23-c3l` and `mp23-c3m` were removed by exact-name deletes.
+
+**Fix:** the adapters also bind the accepted tuples. A revoked grant is retained when its scope retires; a live one refuses with `access-grant-live`, so the operator revokes first. The revoke-first policy is a choice flagged for the operator.
 
 ## F85
 
-**The installed `nagare` package needs host npm, so the clone-free rehearsal fails on x86_64-linux** — P2; **Deferred (next release, operator 2026-10-08)**; owner nagare-fix (`next-release` `6011d1ba`).
+**The installed `nagare` package needs host npm, so the clone-free rehearsal fails on x86_64-linux** — P2; **Verifying** (fixed in `1d8fd1f5` on master, 2026-10-08, so it ships in 0.4.0; it was first deferred by the operator on 2026-10-08 with its fix on `next-release` `6011d1ba`); owner nagare-fix.
 
 **Found by session mp23-c3i during C4 on `3ae20f8c` (2026-10-08; observed).** `operatorTools` (`nix/haskell-packages.nix`) ships Pulumi but not Node.js. `Runtime/Pulumi.hs` runs `npm ci`, so `local-up` fails with "Node.js and npm are required" on a host without npm. The darwin rehearsal passed because only part of the rehearsal isolates PATH. Evidence: [C4](mp23-independent-results-2026-10-07/c4-3ae20f8c/).
 
-**Fix on `next-release`:** `context env` no longer runs `npm ci`, local mode installs nothing, `operatorTools` ship nodejs, and the clone-free rehearsal isolates every operator step's PATH.
+**Implementation update (2026-10-09, nagare-fix):** the fix below landed on master as `1d8fd1f5` and is in final candidate `83124396` (v0.4.0). C4 on `83124396` passed the clone-free rehearsal on x86_64-linux with no host npm ([C4](mp23-independent-results-2026-10-07/c4-83124396/)), which is the closure evidence the verifier needs.
+
+**Fix:** `context env` no longer runs `npm ci`, local mode installs nothing, `operatorTools` ship nodejs, and the clone-free rehearsal isolates every operator step's PATH.
 
 ## F86
 

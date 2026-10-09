@@ -386,6 +386,12 @@ How to see it working:
 
 ## Outcomes & Retrospective
 
+**Status (2026-10-09): Complete.**
+- **Shipped.** v0.4.0 (`83124396`) ships the reviewed stuck-pod replacement. The production-readiness checklist ticks "Stuck StatefulSet rollouts have a reviewed exit" on `341b01bc`, an ancestor of the final candidate.
+- **Mutation records.** All eleven `EP181-*` records are killed by the sweep on `83124396`, 149 of 149 ([sweep](../audits/mp23-independent-results-2026-10-07/mutation-sweep-83124396.tsv)).
+- **Not run.** No native drill exercised a stuck rollout. This plan did not require one (Validation and Acceptance), and the checklist does not either.
+- **Moved.** F78, where independent members wait behind a StatefulSet whose own template never becomes Ready, stays a ledgered limit with a runbook, deferred to the next MasterPlan.
+
 Outcome (2026-10-07): a database whose rollout is stuck behind a pod that is not Ready now has a
 reviewed exit, and the recovery model proves it.
 - `inventory status` reports `stuck-rollout`, and `doctor` fails a `stuck rollout ns/name` check.

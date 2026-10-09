@@ -89,7 +89,7 @@ How to see it working:
   - Changing Deployment's `generationRule` to `SpecOnly` and dropping ResourceQuota's `PodChanges` fails with
     `("apps","deployment") generationRule: the table says SpecOnly, the traces say SpecAndAnnotations` and
     `("","resourcequota") churnSource: the table says NoChurn, the traces say PodChanges`.
-- [ ] M2: a fake API server behind the production kubectl interpreter, with the adapter composed
+- [x] M2: a fake API server behind the production kubectl interpreter, with the adapter composed
   exactly as the CLI composes it, passes `-p '/world conformance/'` against the traces. The recovery
   model is not yet switched. Partial, 2026-10-06:
   - `ApiServer`, `Kubectl` and `Cluster` exist.
@@ -101,7 +101,8 @@ How to see it working:
   - The branch is rebased onto EP-180 M6 (`fee4d8bc`). The composition moved to
     `Nagare.Inventory.Adapters.KubernetesApplication.kubernetesApplicationAdapter`, which the CLI and
     `Cluster.clusterAdapter` both call.
-- [ ] M3: faults are re-expressed on the fake server, with `acted` accounting, `ControllerLag`,
+  - Landed (2026-10-09 reconciliation): `1086911b` and the EP-182 series in `83124396`; `Nagare/Test/World/ApiServer.hs`, `Kubectl.hs` and `Cluster.hs` are in the final candidate.
+- [x] M3: faults are re-expressed on the fake server, with `acted` accounting, `ControllerLag`,
   table-driven churn, finalizer-held Terminating, and the stuck StatefulSet rollout. Each fault has
   a test that it acts. Nearly done, 2026-10-06:
   - `Cluster.clusterAnswer` counts boundaries by request and applies every world fault, and the store records
@@ -112,7 +113,8 @@ How to see it working:
   - Dropping ForeignObject's acted record, or making ChurnAlways churn nothing, fails the matching test.
   - Done on the EP-180 base: the smoke test now asserts that the production parser does not read a lagging
     controller's stale `Ready=True` as Present. Removing EP-180's observedGeneration check makes it fail.
-- [ ] M4: the recovery model runs on the new world. The old world is deleted, pinned regressions
+  - Landed (2026-10-09 reconciliation): `d006edbf`, `290af91c` and `3a032038` in `83124396`.
+- [x] M4: the recovery model runs on the new world. The old world is deleted, pinned regressions
   are re-pinned by locator and require their faults to act, and the known-defect ledger is two-sided.
   The before/after classification of every fast-tier change is recorded below with nothing unexplained.
   Nearly done, 2026-10-07:
@@ -124,8 +126,10 @@ How to see it working:
     fail.
   - The before/after classification is filled in under Milestone 4.
   - Remaining: the remote run of the committed revision.
-- [ ] M5: acceptance evidence. The fast tier, self-test, conformance and pins are green on the remote
+  - Landed (2026-10-09 reconciliation): the model runs on the fake API server and the two-sided ledger `Nagare/Test/Model/KnownDefects.hs` is in `83124396`; the remote run is covered by M5.
+- [x] M5: acceptance evidence. The fast tier, self-test, conformance and pins are green on the remote
   builder through `just test-remote`, `just gate` passes, and the coordinator lands it.
+  - Done (2026-10-09 reconciliation): landed through `just land` (`356e7f18`). The fast tier, self-test, conformance and pins run in `nagarectl-test`, a step of the final candidate's green gate ([gate](../audits/mp23-independent-results-2026-10-07/gate-83124396.json)); the mutation sweep killed 149 of 149. The deep-tier confirmation became monitoring on 2026-10-07.
 
 
 ## Surprises & Discoveries

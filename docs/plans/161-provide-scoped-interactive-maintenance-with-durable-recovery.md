@@ -50,8 +50,8 @@ This ExecPlan owns unfinished work transferred from EP-148. Keep its living sect
 Status is Cancelled in the parent registry. The unchecked original milestones below are historical uncompleted outcomes, not active work or claims of completion.
 
 
-- [ ] M1: Reviewed database shells and supported exec/migration entrypoints use an exact scoped maintenance receipt and the shared exclusion contract, preserving private credentials and rejecting concurrent mutation.
-- [ ] M2: Normal exit, nonzero exit, terminal loss, and operator-process death produce durable outcomes, re-observation, and explicit recovery of unresolved sessions without automatic replay.
+- [-] M1: Reviewed database shells and supported exec/migration entrypoints use an exact scoped maintenance receipt and the shared exclusion contract, preserving private credentials and rejecting concurrent mutation. {disposition=declined}
+- [-] M2: Normal exit, nonzero exit, terminal loss, and operator-process death produce durable outcomes, re-observation, and explicit recovery of unresolved sessions without automatic replay. {disposition=declined}
 
 Inherited: aggregate hooks already declare affected resources and reviewed per-tag Jobs. Database shell currently uses an imperative kubectl exec client and refuses after inventory initialization. The original proposal would replace that refusal with a supported reviewed session; that release obligation is now deferred. Recorded implementations below remain evidence, not a promise to admit new sessions.
 

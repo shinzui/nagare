@@ -181,7 +181,8 @@ MasterPlan, not by this plan.
     - D: the recovery model's drive now replans once when admission refuses (`retention-observation`) an unowned
       object that appeared where the review saw absence, as it already did for a replaced member (N1). On EP-182's
       world, "create with a durable volume, then retire" under `(Mutate 2, LandsUnready)` and
-      `(Observe 24, ForeignObject)` reached the refusal. Test and record `D-foreign-object-not-replanned`. Seven guards stopped being observed when ADR 26's close by proof landed (`1f6c1a13`, `5bb33741`), and their
+      `(Observe 24, ForeignObject)` reached the refusal. Test and record `D-foreign-object-not-replanned`.
+  - Original M9 text, superseded by the 2026-10-07 rulings above: Seven guards stopped being observed when ADR 26's close by proof landed (`1f6c1a13`, `5bb33741`), and their
   records now pass. Each pin gets a failing-first test and a fresh record. Each deletion gets a test that the remaining
   close by proof still exits.
   - Pin F57a: a stopped verify is safe to retry, and resume re-runs it to completion.
@@ -289,6 +290,11 @@ MasterPlan, not by this plan.
 
 
 ## Outcomes & Retrospective
+
+**Status (2026-10-09): Complete.**
+- **Shipped.** v0.4.0 (`83124396`) carries every rule below. The production-readiness checklist ticks "Kubernetes proof rules derived from validated API semantics" on `c3755ad7` and `aaa96eaf`, both ancestors of the final candidate.
+- **Acceptance.** The mutation sweep on `83124396` killed 149 of 149 records, including this plan's F67, F69, F70, G6, G7 and M9 records ([sweep](../audits/mp23-independent-results-2026-10-07/mutation-sweep-83124396.tsv)). The gate is green ([gate](../audits/mp23-independent-results-2026-10-07/gate-83124396.json)).
+- **Deep tier.** This plan never owned the deep-tier run. By the 2026-10-07 decision, that run is per-release monitoring (EP-179).
 
 **Outcome (2026-10-07).** The Kubernetes adapter's proof rules now follow RES-4's validated API semantics, and every
 rule is held by a test that a mutation record proves. Three batches landed on master: `c3755ad7`, `aaa96eaf`, and EP-182

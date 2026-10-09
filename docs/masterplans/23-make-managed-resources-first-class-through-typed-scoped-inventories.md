@@ -366,6 +366,11 @@ provenance:
       at: 2026-10-07T16:45:07Z
       mode: "update"
       note: "Operator: ship v1 with the single-fault guarantee; deep tier becomes monitoring"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-09T19:30:00Z
+      mode: "update"
+      note: "Close-out: final candidate 83124396, checklist complete, v0.4.0 published; registry, IR-24, Outcomes; pre-close Progress archived"
   reviews:
     - model: "claude-fable-5-1"
       harness: "claude-code"
@@ -404,6 +409,8 @@ State lives in a private, context-owned store with one writer, immutable snapsho
 
 **Production readiness is a separate, later gate.** The operator intends Nagare to host critical developer tooling on a company intranet. Completing MP-23 does not by itself make that safe: production use additionally requires (a) the data-protection gate in Progress — off-cluster backups meeting a one-hour recovery-point objective after total cluster loss, verified restored content, and a documented recovery procedure — and (b) a supported, rehearsed platform upgrade on an inventory-backed context with rollback or data-preserving forward recovery, which [MP-21](21-rehearsed-replacement-upgrades-with-bounded-downtime-for-nagare.md) owns. EP-157 must report any unmet production target explicitly rather than implying readiness.
 
+**Amendment (operator, 2026-10-07).** The operator's goal for MP-23 became safe production use: a reliable ledger day to day, no data loss, and safe node and database upgrades. [The production readiness checklist](../releases/production-readiness-checklist.md) records it, and its sections 2 (data protection), 3 (node upgrades) and 4 (database upgrades) became MP-23 scope, reached through the shortest safe route: in-place, self-reverting host activation and a side-by-side PostgreSQL upgrade. MP-21's replacement upgrades stay a later improvement. D2, D3 and D4 remain unmet production targets, as the 0.4.0 notes state.
+
 **Standing operator constraints.** No GKE: Nagare targets local k3d/k3s and k3s on a NixOS VM in Compute Engine, and no child may create, select or depend on a GKE cluster. Local checks use only the `nagare-mp23-cp3` Colima profile and run sequentially. Cloud work uses the active context's guardrails (ADR 9) and the repository's host and cloud mutation rules in `CLAUDE.md`. External tool evaluation (K8up/restic first, CloudNativePG/Barman for PostgreSQL, Velero as a secondary comparison) lives in MP-24/[EP-163](../plans/163-evaluate-established-tooling-against-nagare-s-managed-resource-layers.md) and does not gate MP-23.
 
 
@@ -429,21 +436,21 @@ Rejected alternatives: isolated platform/application inventories without shared 
 | 150 | Integration history — superseded by EP-152–157; delivered work retained | docs/plans/150-integrate-resource-inventories-into-upgrades-and-release-verification.md | None | None | Cancelled |
 | 151 | Store inventory history in the context state bucket with conditional writes | docs/plans/151-store-inventory-history-in-the-context-state-bucket-with-conditional-writes.md | EP-145 | EP-146 | Complete |
 | 152 | Complete fresh platform bootstrap through reviewed components | docs/plans/152-complete-fresh-platform-bootstrap-through-reviewed-components.md | EP-146, EP-147, EP-149, EP-151 | None | Complete |
-| 153 | Close managed command coverage for the inventory release | docs/plans/153-close-managed-command-coverage-for-the-inventory-release.md | EP-146, EP-147, EP-149, EP-151 | EP-152, EP-158, EP-159, EP-160 | In Progress |
-| 154 | Validate installed inventory packages on every supported system | docs/plans/154-validate-installed-inventory-packages-on-every-supported-system.md | EP-146, EP-147, EP-149, EP-151 | EP-152, EP-153, EP-158, EP-159, EP-160 | In Progress |
-| 155 | Prove local application and data recovery end to end | docs/plans/155-prove-local-application-and-data-recovery-end-to-end.md | EP-146, EP-147, EP-149, EP-151 | EP-152, EP-153, EP-154, EP-158, EP-159, EP-160 | In Progress |
-| 156 | Prove fresh GCP convergence and shared history recovery | docs/plans/156-prove-fresh-gcp-convergence-and-shared-history-recovery.md | EP-146, EP-147, EP-149, EP-151 | EP-152, EP-153, EP-154, EP-155, EP-158, EP-159, EP-160 | In Progress |
-| 157 | Gate the inventory release on complete immutable evidence | docs/plans/157-gate-the-inventory-release-on-complete-immutable-evidence.md | EP-146, EP-147, EP-149, EP-151 | EP-152, EP-153, EP-154, EP-155, EP-156, EP-158, EP-159, EP-160 | In Progress |
-| 158 | Complete reviewed access and CDN operations | docs/plans/158-complete-reviewed-access-and-cdn-operations.md | EP-146, EP-147, EP-149, EP-151 | None | In Progress |
-| 159 | Complete scheduled receipts and explicit retention limits | docs/plans/159-complete-scheduled-backup-receipts-and-exact-retention-pruning.md | EP-146, EP-147, EP-149, EP-151 | None | In Progress |
-| 160 | Complete verified isolated database and volume restore | docs/plans/160-complete-fenced-live-data-restore-across-supported-engines-and-volumes.md | EP-146, EP-147, EP-149, EP-151 | EP-159 | In Progress |
+| 153 | Close managed command coverage for the inventory release | docs/plans/153-close-managed-command-coverage-for-the-inventory-release.md | EP-146, EP-147, EP-149, EP-151 | EP-152, EP-158, EP-159, EP-160 | Complete |
+| 154 | Validate installed inventory packages on every supported system | docs/plans/154-validate-installed-inventory-packages-on-every-supported-system.md | EP-146, EP-147, EP-149, EP-151 | EP-152, EP-153, EP-158, EP-159, EP-160 | Complete |
+| 155 | Prove local application and data recovery end to end | docs/plans/155-prove-local-application-and-data-recovery-end-to-end.md | EP-146, EP-147, EP-149, EP-151 | EP-152, EP-153, EP-154, EP-158, EP-159, EP-160 | Complete |
+| 156 | Prove fresh GCP convergence and shared history recovery | docs/plans/156-prove-fresh-gcp-convergence-and-shared-history-recovery.md | EP-146, EP-147, EP-149, EP-151 | EP-152, EP-153, EP-154, EP-155, EP-158, EP-159, EP-160 | Complete |
+| 157 | Gate the inventory release on complete immutable evidence | docs/plans/157-gate-the-inventory-release-on-complete-immutable-evidence.md | EP-146, EP-147, EP-149, EP-151 | EP-152, EP-153, EP-154, EP-155, EP-156, EP-158, EP-159, EP-160 | Complete |
+| 158 | Complete reviewed access and CDN operations | docs/plans/158-complete-reviewed-access-and-cdn-operations.md | EP-146, EP-147, EP-149, EP-151 | None | Complete |
+| 159 | Complete scheduled receipts and explicit retention limits | docs/plans/159-complete-scheduled-backup-receipts-and-exact-retention-pruning.md | EP-146, EP-147, EP-149, EP-151 | None | Complete |
+| 160 | Complete verified isolated database and volume restore | docs/plans/160-complete-fenced-live-data-restore-across-supported-engines-and-volumes.md | EP-146, EP-147, EP-149, EP-151 | EP-159 | Complete |
 | 161 | Interactive maintenance deferred; delivered recovery history retained | docs/plans/161-provide-scoped-interactive-maintenance-with-durable-recovery.md | None | None | Cancelled |
 | 175 | Close stopped inventory transactions by per-operation proof (ADR 26; line (b) steps 1 and 4) | docs/plans/175-close-stopped-inventory-transactions-by-per-operation-proof.md | None | None | Complete |
 | 176 | Record physical identity at creation and read it through one checked accessor (ADR 27; step 2) | docs/plans/176-record-physical-identity-at-creation-and-read-it-through-one-checked-accessor.md | EP-175 M2 | None | Complete |
-| 177 | Generate recovery model coverage from a resource kind table (ADR 25 amendment; step 3) | docs/plans/177-generate-recovery-model-coverage-from-a-resource-kind-table.md | EP-175, EP-176 (M2–M3 only) | None | In Progress |
-| 179 | Bring the recovery model deep tier within an hour (ADR 25 amendment) | docs/plans/179-bring-the-recovery-model-deep-tier-within-an-hour.md | EP-177 M3 | None | In Progress |
-| 180 | Derive the Kubernetes adapter's proof rules from validated API semantics (RES-4 G1, G2, G4–G7, F67 stamp proof; step 3a) | docs/plans/180-derive-the-kubernetes-adapter-s-proof-rules-from-validated-api-semantics.md | EP-177 M3 | EP-182 | In Progress |
-| 181 | Replace a stuck StatefulSet pod through a reviewed operation (RES-4 G3; step 3b) | docs/plans/181-replace-a-stuck-statefulset-pod-through-a-reviewed-operation.md | EP-180 (settlement rules) | EP-182 | Not Started |
+| 177 | Generate recovery model coverage from a resource kind table (ADR 25 amendment; step 3) | docs/plans/177-generate-recovery-model-coverage-from-a-resource-kind-table.md | EP-175, EP-176 (M2–M3 only) | None | Complete (v1; deep-tier coverage of generated scenarios is monitoring) |
+| 179 | Bring the recovery model deep tier within an hour (ADR 25 amendment) | docs/plans/179-bring-the-recovery-model-deep-tier-within-an-hour.md | EP-177 M3 | None | Complete (v1; one-hour budget moved to a later MasterPlan) |
+| 180 | Derive the Kubernetes adapter's proof rules from validated API semantics (RES-4 G1, G2, G4–G7, F67 stamp proof; step 3a) | docs/plans/180-derive-the-kubernetes-adapter-s-proof-rules-from-validated-api-semantics.md | EP-177 M3 | EP-182 | Complete |
+| 181 | Replace a stuck StatefulSet pod through a reviewed operation (RES-4 G3; step 3b) | docs/plans/181-replace-a-stuck-statefulset-pod-through-a-reviewed-operation.md | EP-180 (settlement rules) | EP-182 | Complete |
 | 182 | Derive the recovery model's Kubernetes world from validated API semantics (RES-4 G11; step 3c) | docs/plans/182-derive-the-recovery-model-s-kubernetes-world-from-validated-api-semantics.md | EP-179 | EP-180 | Complete |
 
 Hard dependencies must be Complete before starting the dependent child; soft dependencies supply real-adapter coverage but allow fixture-backed work to proceed. EP-157's gate code is already implemented; its final assembly additionally needs every other active child's accepted outcome (see Dependency Graph). File slugs for EP-159 and EP-160 predate their current titles and are kept so existing links stay valid.
@@ -451,7 +458,7 @@ Hard dependencies must be Complete before starting the dependent child; soft dep
 
 ## Dependency Graph
 
-All hard prerequisites of the eight active children are complete, so every active child can be worked now. The remaining order is set by producer/consumer flow rather than by plan number:
+**Complete (2026-10-09):** every child's outcome is accepted on final candidate `83124396` (Progress). The rest of this section is the order the work followed. All hard prerequisites of the eight active children are complete, so every active child can be worked now. The remaining order is set by producer/consumer flow rather than by plan number:
 
 ```text
 feature + blocker work           one frozen candidate                 release
@@ -489,9 +496,48 @@ Feature children produce code and focused local proof; the native children (EP-1
 
 **Release goal tracker:** [the production readiness checklist](../releases/production-readiness-checklist.md) records the operator's goal and the evidence-backed boxes that reach it. It is the reference for "how far are we".
 
+**Status: Complete (2026-10-09).** Every box of the [production readiness checklist](../releases/production-readiness-checklist.md) is ticked with linked evidence on master `8a37a42f`, and Nagare **v0.4.0** is published from the final candidate.
+
+### Final status (2026-10-09)
+
+- **Final candidate `83124396`** (`831243962c6b80f91da1028cdab8238ae6acdabd`). It was cut after the defects found on earlier candidates `3ae20f8c`, `3b78d905` and `3b59bcb7` were fixed.
+- **Gates on it:**
+
+  | Gate | Result | Evidence |
+  |---|---|---|
+  | `just gate` and `just gate-verify` | green, 36/36 x86_64-linux and 37/37 aarch64-darwin | [gate](../audits/mp23-independent-results-2026-10-07/gate-83124396.json) |
+  | `just mutation-sweep` | 149 of 149 killed | [sweep](../audits/mp23-independent-results-2026-10-07/mutation-sweep-83124396.tsv) |
+  | C1 | 214 `VerifyResource`, zero provider mutations | [proof](../audits/mp23-independent-results-2026-10-07/c2-acceptance-83124396/c1-proof.json) |
+  | C2 (EP-155) | fresh local context, 16/16, assembler accepted | [C2](../audits/mp23-independent-results-2026-10-07/c2-acceptance-83124396/) |
+  | C3 (EP-156) | fresh cloud context `mp23-c3m`, 17/17, assembler accepted | [C3](../audits/mp23-independent-results-2026-10-07/c3-acceptance-83124396/) |
+  | C4 (EP-154) | clone-free installed rehearsal on both systems, 11/11 checks each; `check-release.sh` consistent | [C4](../audits/mp23-independent-results-2026-10-07/c4-83124396/) |
+  | C5 (EP-157) | non-publishing assembly, twice, byte-identical; IR-24 cases mapped | [C5](../audits/mp23-independent-results-2026-10-07/c5-83124396/), [release evidence](../release-evidence/831243962c6b80f91da1028cdab8238ae6acdabd/) |
+
+- **The operator's goal sections** (checklist §2–§4, added to MP-23 on 2026-10-07):
+  - **Data protection:** the destroy-and-restore drill passed ([drill](../audits/mp23-independent-results-2026-10-07/section2-drill-3ae20f8c/)).
+  - **Node upgrades on `83124396`:** NixOS with a reboot, and k3s 1.35 → 1.36.4 with a reboot, committed with the data hash unchanged. An induced failed upgrade reverted ([drills](../audits/mp23-independent-results-2026-10-07/section3-83124396/)). On `3b59bcb7`, a real failed k3s upgrade reverted with no data loss ([earlier](../audits/mp23-independent-results-2026-10-07/section3-3b59bcb7/)).
+  - **PostgreSQL 17 → 18:** a side-by-side upgrade with both failure drills passed on `3b59bcb7` ([drill](../audits/mp23-independent-results-2026-10-07/section4-3b59bcb7/)). It counts for `83124396` because the final candidate changes no Haskell ([diff stat](../audits/mp23-independent-results-2026-10-07/diffstat-3b59bcb7-83124396.txt)).
+- **Independent verification** was done by session nagare-verify, which implemented none of the work ([record](../audits/mp23-independent-results-2026-10-07/README.md)). It also executed [the operations runbook](../audits/mp23-independent-results-2026-10-07/runbook-execution-3ae20f8c/) end to end.
+- **Findings at close** ([tracker](../audits/mp23-findings.md)), F01–F95:
+  - 84 Closed.
+  - F33, F84, F85 and F88 are Verifying. Their fixes ship in 0.4.0:
+    - F33's and F84's native proof needs a staged teardown;
+    - F85's is C4 on x86_64-linux;
+    - F88 needs a native run that coincides with its CronJob window.
+  - F40 is Partial; full-context VM collection is [MasterPlan 25](25-reviewed-full-context-teardown-with-vm-workload-collection.md).
+  - F48 is Open; its code fix is EP-168 in [MasterPlan 26](26-make-platform-changes-and-releases-routine-after-the-inventory-release.md).
+  - Deferred to the next release: F89, F91 and F94.
+  - F77 and F78 are ledgered limits with runbooks.
+- **Release:** v0.4.0 has a signed annotated tag at `83124396` and a [GitHub release](https://github.com/shinzui/nagare/releases/tag/v0.4.0) with 18 attachments (2026-10-09). GitHub Actions is disabled by operator decision, so no tag workflow ran. The release was published from the C5 assembly, its checksums were verified from the download, and `nix run github:shinzui/nagare/v0.4.0#nagarectl -- version --json` reports 0.4.0 at `83124396`.
+- **Unmet production targets**, as stated in [the 0.4.0 notes](../releases/v0.4.0.md):
+  - D2: volumes are outside the recovery-point objective.
+  - D4: no recovery-time or retention targets have been agreed.
+  - D3: there are no HTTPS routes or protected browser login.
+  - MP-21's replacement upgrades remain a later improvement.
+
 ### Release line (b) and the structural plan (operator decision, 2026-10-05)
 
-The operator approved all six decisions of [the exhaustive review's proposal](../audits/mp23-exhaustive-review-2026-10-05/PROPOSAL.md) and chose **release line (b)**. Where this section and the finish line below disagree, this section wins. The finish line's gates still apply, on a **new** candidate.
+The operator approved all six decisions of [the exhaustive review's proposal](../audits/mp23-exhaustive-review-2026-10-05/PROPOSAL.md) and chose **release line (b)**. It superseded the 2026-10-04 finish line (now in History below), whose gates C1–C5 still applied, on a **new** candidate.
 
 **In the release line.** MP-23 guarantees reviewed, recoverable changes with a supported exit from every stopped state (ADR 26) and identity respect (ADR 27) for:
 - Kubernetes application scopes: Knative Service, worker Deployment, scheduled tasks (CronJob), DomainMapping, release history, application databases and attached volumes;
@@ -508,202 +554,31 @@ The operator approved all six decisions of [the exhaustive review's proposal](..
 **Work, in order.** nagare (implementer) owns steps 1–4. The final verification is by a reviewer that did not implement the work.
 - [x] 1. ([EP-175](../plans/175-close-stopped-inventory-transactions-by-per-operation-proof.md)) ADR 26: `adapterSettle` for every adapter in the line; `close-transaction` replacing the stop and abandon allowlists; scope-local, re-enterable abort; F61's forward wipe exit; verify never executes. Covers F16, F35–F37, F54–F59, F61, F63–F65, and A's in-line cells and E's U1 and U3. Done through EP-175 M3 (2026-10-05): settlement, close and its aliases are in, and the allowlists and both old terminal releases are deleted. The findings' statuses await the verifier (see the tracker's exit-change note).
 - [x] 2. ([EP-176](../plans/176-record-physical-identity-at-creation-and-read-it-through-one-checked-accessor.md)) ADR 27: create-identity recorded in the journal, binding from it at convergence, one checked identity accessor for every consumer in C, and a reviewed rebind. Covers F51 (reopened, N1), F52's convergence half, F60, F62 and C's N2–N13.
-- [ ] 3. ([EP-177](../plans/177-generate-recovery-model-coverage-from-a-resource-kind-table.md)) ADR 25 amendment: the kind table and generated product for every kind in the line, the totality test, and the harness fixes (no refusal counted as done, `LandsFailed` effective, no `ForeignObject` exemption, the corrected-review exit explored); deletion, crash-at-store and claim-loss faults.
+- [x] 3. ([EP-177](../plans/177-generate-recovery-model-coverage-from-a-resource-kind-table.md)) ADR 25 amendment: the kind table and generated product for every kind in the line, the totality test, and the harness fixes (no refusal counted as done, `LandsFailed` effective, no `ForeignObject` exemption, the corrected-review exit explored); deletion, crash-at-store and claim-loss faults. Done for v1 as redefined on 2026-10-07: the fast tier and harness self-test over every scenario on the validated world, through 3a–3d.
   - **Redirect (operator decision, 2026-10-06): first principles before the deep tier.** Step 3 is no longer closed by repeated deep-tier runs. The adapter's proof rules and the model's world are derived from Kubernetes semantics validated against a real API server ([RES-4](../research/kubernetes-api-semantics-for-inventory-proofs.md)), and the deep tier only confirms. The must-fix list is fixed at RES-4 §4's eight items:
-    - [ ] 3a. ([EP-180](../plans/180-derive-the-kubernetes-adapter-s-proof-rules-from-validated-api-semantics.md)) G1 Deployment readiness (rollout-status rule; F70), G2 Knative stale Ready (F69), the F67 spec-digest stamp proof (not configuration digest v4), G4 4xx refusals as no effect, G6 one conditional-write discipline for updates and retires, G5 terminating objects, G7 canonical quantities; plus F68 and F63's worker half. G1–G7 and F66–F76 landed `c3755ad7` (2026-10-07); M9 (untested recovery guards, F30 narrowing) and the harness replan after ForeignObject remain.
-    - [ ] 3b. ([EP-181](../plans/181-replace-a-stuck-statefulset-pod-through-a-reviewed-operation.md)) G3: a reviewed, precondition-guarded stuck-pod replacement, so a StatefulSet correction actually rolls.
+    - [x] 3a. ([EP-180](../plans/180-derive-the-kubernetes-adapter-s-proof-rules-from-validated-api-semantics.md)) G1 Deployment readiness (rollout-status rule; F70), G2 Knative stale Ready (F69), the F67 spec-digest stamp proof (not configuration digest v4), G4 4xx refusals as no effect, G6 one conditional-write discipline for updates and retires, G5 terminating objects, G7 canonical quantities; plus F68 and F63's worker half. G1–G7 and F66–F76 landed `c3755ad7` (2026-10-07); M9 (untested recovery guards, F30 narrowing) landed through `aaa96eaf` (2026-10-07).
+    - [x] 3b. ([EP-181](../plans/181-replace-a-stuck-statefulset-pod-through-a-reviewed-operation.md)) G3: a reviewed, precondition-guarded stuck-pod replacement, so a StatefulSet correction actually rolls. Closed in `341b01bc` (2026-10-07).
     - [x] 3c. ([EP-182](../plans/182-derive-the-recovery-model-s-kubernetes-world-from-validated-api-semantics.md)) G11: the world renders realistic objects classified by the production parser, from RES-4's per-kind table, with a conformance test against the recorded traces and "every scheduled fault took effect". Landed `356e7f18` (2026-10-07): the world is a fake API server behind the production kubectl interpreter, conformant with 298 recorded real-cluster steps; deep-tier acceptance is pending 3d.
-    - [ ] 3d. ([EP-179](../plans/179-bring-the-recovery-model-deep-tier-within-an-hour.md)) the confirming deep tier, under an hour, after 3a–3c, with no new defect class. **Redefined (operator, 2026-10-07): for v1 the deep tier is monitoring, not a gate.** Its 3d run at `341b01bc` found one product defect, F79, fixed in the 3d batch, plus harness classes B1, B2 and B6–B8, all fixed, and the ledgered F77 and F78.
+    - [x] 3d. ([EP-179](../plans/179-bring-the-recovery-model-deep-tier-within-an-hour.md)) the confirming deep tier, under an hour, after 3a–3c, with no new defect class. **Redefined (operator, 2026-10-07): for v1 the deep tier is monitoring, not a gate.** Its 3d run at `341b01bc` found one product defect, F79, fixed in the 3d batch, plus harness classes B1, B2 and B6–B8, all fixed, and the ledgered F77 and F78. The fix batch landed as `8824f469` (sweep 117 of 117).
   - **Fidelity freeze after 3c.** No further world-fidelity work inside MP-23 unless it exposes a P0 for a line (b) kind, and then only with the operator's approval. RES-4's ledger items (G8, G10, G12, G13) go to the deferral ledger.
 - [x] 4. (EP-175 M4) ADR 26 §5: the attested close-and-accept-nothing exit; E's U2 (CDN purge, VM power) routed to it.
-- [ ] 5. One final verification against this line, then a new candidate (the revision is reported by the shipped wrapper while compile-time stamping is off, [EP-178](../plans/178-make-the-flake-check-build-each-haskell-package-once.md)), with a green `just gate` record and `gate verify`, then C1–C5 (including the phase 3b teardown of `mp23-c3i`) under the finish line below.
+- [x] 5. One final verification against this line, then a new candidate (the revision is reported by the shipped wrapper while compile-time stamping is off, [EP-178](../plans/178-make-the-flake-check-build-each-haskell-package-once.md)), with a green `just gate` record and `gate verify`, then C1–C5. Done (2026-10-09): the verification by nagare-verify, then final candidate `83124396` with every gate green (Final status above). The cloud contexts were disposed by exact-name deletes from their own stack exports, because VM collection is MasterPlan 25 and F84's fix landed after the `mp23-c3i` teardown attempt.
 
-### Finish line (canonical checklist, 2026-10-04)
+### History
 
-This list says what remains before MP-23 is complete. It was agreed between sessions nagare-phase-b and nagare-f3. Where a dated snapshot below or a child plan disagrees with it, this list wins.
-- **Candidate: `b74b7e49`** (frozen 2026-10-04 by f3). It adds only the F53 check-harness fix to `84754389`, which includes F38, F45–F50 and the F49 StatefulSet follow-up. `nix flake check --all-systems` is green at `b74b7e49`. The earlier candidates `7d486457` and `7596632c` are checkpoints: C3 found F45–F47, and the EP-159 drill found F49.
-  - **Superseded in source (2026-10-05).** The F51, F52 and F54–F59 fixes change shipped code, so a new candidate is needed. `b74b7e49`'s gate results then count only where their recorded inputs still match it (Dependency Graph); C1 always reruns. Freezing it waits for EP-173 M2 (operator decision, 2026-10-04); a receipt-ingestion scenario and the in-model rename remain.
-- Tick a box only with linked evidence, on the frozen candidate unless the box says otherwise. Results on earlier candidates are linked as checkpoints.
-- When a box is ticked here, tick the matching `(MP-23 …)` box in its child plan.
-- Owners: **phase-b** = session nagare-phase-b; **f3** = session nagare-f3; **user** = the operator; **reviewer** = an independent session that did not implement the work.
+The 2026-10-04 finish line (candidate `b74b7e49`), the dated phase checkpoints from 2026-10-02 to 2026-10-05, the Phase A–D work list and the cross-plan gates are kept verbatim in [the pre-close snapshot](../audits/mp23-archive/plan-history/mp23-progress-before-close-2026-10-09.md). The final status above supersedes them.
 
-**Gates on the frozen candidate**
-- [x] **C1** (owner phase-b) on `b74b7e49`'s fresh payload: 214 `VerifyResource`, zero mutations, digests unchanged ([proof](../audits/mp23-implementer-results-2026-10-03/c1-local-gate-b74b7e49.json)). Checkpoints: [`84754389`](../audits/mp23-implementer-results-2026-10-03/c1-local-gate-84754389.json), [`7596632c`](../audits/mp23-implementer-results-2026-10-03/c1-local-gate-7596632c.json), [`7d486457`](../audits/mp23-implementer-results-2026-10-03/c1-local-gate-7d486457-rerun.json).
-- [x] **C2** (EP-155, owner phase-b): a fresh local context on `b74b7e49` finalized 16/16, and `assemble-managed-resource-evidence.sh` accepted the same directory (2026-10-05, [record](../audits/mp23-implementer-results-2026-10-03/c2-acceptance-b74b7e49.json)). `platform-root.json` shows the candidate's payload (F48 guard), and zero `replaced-incarnation` findings appeared after C1 and before the runner. The deferred F52 shows inside the interrupted-rename window, as expected, and is recorded rather than gated. The directory went to f3 for C5. The F49 native drills ran on `84754389`, whose shipped source is identical. Checkpoints: [`84754389`](../audits/mp23-implementer-results-2026-10-03/c2-acceptance-84754389.json), [`7596632c`](../audits/mp23-implementer-results-2026-10-03/c2-acceptance-7596632c.json), [`7d486457`](../audits/mp23-implementer-results-2026-10-03/c2-acceptance-7d486457.json).
-- [ ] **C3** (EP-156, owner f3; every check done, only exact cleanup remains): fresh GCP context `mp23-c3i` (`*-c3-1008`), bootstrapped from candidate `84754389`'s own payload. **Operator decision (2026-10-04):** this run is C3 for `b74b7e49`. The only code commit between the two revisions is F53's check-harness fix, with nothing under `cli/*/src`, `cli/*/app`, `cluster/`, `infra/` or `nixos/`, and the reviewer ruled closures carry over across it ([record](../audits/mp23-implementer-results-2026-10-03/c3-acceptance-84754389.json)). Checkpoints: `mp23-c3g` (`7d486457`), [`mp23-c3h`](../audits/mp23-implementer-results-2026-10-03/c3-checkpoint-7596632c.json) (`7596632c`).
-  - [x] all 17 cloud scenario assertions recorded and finalized. They cover the six operational checks: application change with unchanged replay, GCS backup and isolated restore for every engine plus a volume, interrupted-operation recovery, clean-root recovery, writer refusal and takeover, and collision, adoption and drift refusals.
-  - [ ] exact cleanup:
-    - [x] perimeter-only exact collection, proven on the candidate's own build in disposable `mp23-c3p` (`b5d059d7`);
-    - [ ] on `mp23-c3i`, policy plus retirement of every scope, including the cloud scope. This runs after the independent runbook execution (phase 3a), and its records feed phase 3b (F39, F33).
+**IR-24 verification cases** (final, 2026-10-09). Each case is proven by named assertions in the 0.4.0 inventory evidence, which binds C2 and C3 to one source revision and payload digest ([release evidence](../release-evidence/831243962c6b80f91da1028cdab8238ae6acdabd/)).
 
-    Full-context VM collection is MasterPlan 25 by operator decision.
-  - [x] F15/F31: 8 private pulls after the boot credential expired, with no failures, and all three owned pull Secrets rewritten since boot.
-  - [x] F32: reviewed image-cache cleanup with every previously Ready pod staying Ready, and a same-request replan of zero operations.
-  - [x] B3 (EP-158) with the candidate CLI itself: the host record goes to the CDN, back to the origin on disable, is retained on retirement, and is collected.
-  - [x] B6: takeover from a second root with a distinct client identity, after a plain resume and an unrelated plan were refused.
-  - [x] EP-158 access grant/revoke: an interrupted acknowledgement resumed, then revoke.
-  - [x] source-unavailable recovery: the newest verified backup after the seed, verified with the VM stopped and restored with its seed rows.
-  - [x] the runner ran last, with plan, apply and verify back to back (verify interrupted, then re-run), and the cloud `inventory-evidence.json` assembled. The F48 guard (`platform-root.json` revision equals the candidate) held, and status showed zero `replaced-incarnation` after bootstrap and before the runner.
-- [ ] **C4** (EP-154, owner f3, in progress on `b74b7e49`: the aarch64-darwin clone-free rehearsal passed with `typed-config`, and `nix flake check --all-systems` is green, 36/36 darwin and 35/35 x86_64-linux; F53 fixed the harness):
-  - installed rehearsal without a repo clone on `aarch64-darwin` (workstation) and `x86_64-linux` (an amd64 container under Colima; if that can't run Nix plus the installed CLI, the user decides on the x86_64 builder VM);
-  - `nix flake check` at the candidate;
-  - this also proves A5's `typed-config` check name.
-- [ ] **C5** (EP-157, owner f3):
-  - `scripts/assemble-release.sh` over `coverage.json`, `local/` (C2), `cloud/` (C3), and per-system native outputs and clone-free records (C4);
-  - IR-24 cases 1–7 mapped to that evidence;
-  - `docs/releases/v<version>.md` stating the unmet production targets (D2 volumes, D4) and the D3 HTTPS/browser-login restriction;
-  - a `workflow_dispatch` assembly run.
-
-**Independent verification** (owner reviewer, arranged by the user; implementer sessions never self-close)
-- [ ] Close every finding that is not yet Closed, per the [tracker](../audits/mp23-findings.md)'s closure rule:
-  - Open: F48, F60, F61, F62, F63 (F61–F63 opened 2026-10-05 by independent verification; model reproductions pending)
-  - Partial: F40, F59 (F59 reopened 2026-10-05: its post-stop exit fails for standalone databases)
-  - Verifying: F15, F16, F30, F31, F32, F33, F39, F43, F44, F45, F46, F47, F51, F52, F53, F55, F56, F57, F58, F64, F65
-  - Checkpoint 2026-10-05 (implementer, before the operator hold): fixes and model reproductions recorded for F59 gap A, F61, F63 (StatefulSets) and the new F64 and F65. Statuses are set by the reviewer. Further finding fixes are held pending the enumeration review and the structural exit-rule proposal; see [held work](../audits/mp23-held-work/README.md).
-  - Closed 2026-10-05 by independent verification: F54 (F51 was closed, then reopened the same day by the exhaustive review: its fix refuses retirement of a replaced member)
-  - F60 scheduled by ADR 27 (operator decision, 2026-10-05: approve all six); Open
-
-  (Register as of 2026-10-05. The independent reviewer closed F34–F38, F41, F42, F49 and F50 on 2026-10-04.)
-
-  Native proof already exists for:
-  - F30: the A4 terminal resume, 2026-10-02;
-  - F32: native image cleanup on the `14071e58` checkpoint;
-  - F31: refreshes before expiry observed, with more during C3;
-  - F33: exact collection on `7d486457`;
-  - F34: the C2 preview cleanup;
-  - F36, F37, F41: the C2 runs;
-  - F45, F46, F47: the CDN cycle on the `mp23-c3g` checkpoint, to be repeated in the acceptance C3.
-
-  So most of these need only the independent check. Per the operator decisions below, the F40 remainder moves to MasterPlan 25, and F48 is accepted for this release with a procedural guard. Its code fix belongs to EP-168.
-- [ ] Accept or reject the recorded arguments:
-  - EP-159 B1 source replacement, re-scoped to "out-of-band replacement refuses ingestion and isolated restore";
-  - EP-160 B2 Redis load interruption and partial ClickHouse effect.
-- [ ] Independent local PostgreSQL isolated restore with known content and the source preserved (EP-160).
-- [ ] Confirm the rename recovery model's relaxed I4 (EP-173 Decision Log, 2026-10-05). A recreated copy Job only compares a non-empty destination; check this for every fault the model saw.
-- [ ] Execute [the operations runbook](../runbooks/inventory-operations.md) end to end on the acceptance C3 context, before its teardown, and record F14–F18 and the cloud operational checks (EP-156; safe-use gate). Required for MP-23 completion (operator decision), in the same reviewer pass as the closures.
-
-**Operator decisions** (all decided 2026-10-04)
-- [x] F38 (P2, a GCS head-advance failure stops ambiguous): **fix before release** (operator decision, 2026-10-04). Implemented in `Execute/Journal`: bounded head retry with read-back, orphan adoption independent of proof equality, and store errors on stderr. It is in the next candidate.
-- [x] Independent closure comes **before the release is published**, but runs **in parallel** with the candidate gates.
-  - A reviewer session starts at the freeze, checking source fixes and regressions while C2–C4 run.
-  - Findings that need native evidence (F15, F31, F33, F45–F47) are checked once C3 produces it.
-  - The closures gate C5's publishing, not the runs.
-- [x] The F40 remainder (collecting a full context's VM and its workloads) **moves to MasterPlan 25**. MP-23 covers perimeter-only exact cleanup plus retirement of every scope.
-- [x] F48 (P2, evidence names the release manifest's payload without checking the payload the context runs): **accept the procedural guard for this release**; the code fix goes in EP-168.
-  - Every acceptance run uses a fresh context from the candidate's own payload.
-  - `platform root --json` is recorded before the runner's plan and saved with the evidence, so the reviewer can confirm which payload ran.
-- [x] F51 (retirement retains a replacement's identity) and F52 (an address-changing migration reads as `replaced-incarnation` until it converges), both P2: first deferred, then **un-deferred and fixed in MP-23** (operator decision on the retrospective, 2026-10-04; fixed in `15ca45e1`, Verifying).
-- [x] F58 (P2, an application whose first deploy stopped unready cannot be retired), found by the EP-173 model on 2026-10-05: **fix now in MP-23** (operator decision, 2026-10-05). Fixed with absence proofs; Verifying.
-- [x] The independent runbook execution **stays required for MP-23 completion**. It is done in the same reviewer pass as the closures, on the acceptance C3 context before teardown. If reviewer availability becomes the bottleneck, the fallback is to narrow it to the safe-use gate, with the release notes saying the release is not cleared for real workloads until it passes.
-
-**Close-out (Phase D)**
-- [ ] Finalize the living sections of EP-153 to EP-160 and mark the registry.
-- [ ] Distill durable lessons into ADR 22, and write this plan's Outcomes & Retrospective.
-- [ ] Update IR-24's status from the evidence.
-
-**Not required for MP-23** (recorded so nobody chases them):
-- D4 recovery-time and retention targets;
-- the data-protection and production gates;
-- full-context VM collection, durable and topic collection (MasterPlan 25 and the deferred B5 scope);
-- MasterPlan 26 streams.
-
-**Non-blocking follow-ups:**
-- cloud `server status` shows UNKNOWN for the litestream and volume backup rows ("gsutil unavailable"); f3 is recording it as a low-priority finding;
-- a collectable lifecycle for the runner probe (harness).
-
-**Snapshot (2026-10-02, consolidation assessment at `c57f1638`).** Seven foundation children are complete; eight remain In Progress. The architecture is implemented and holds up under independent review: typed composition, reviewed plans, the shared serial driver, conditional filesystem/GCS history, deferred-admission guards and the registration-only entrypoint all have evidence. Independent verification on 2026-10-02 additionally proved native F20 collection with interrupted-delete recovery, clean-root recovery, VM power transitions, CDN disable and purge, and isolated restores with checked content for PostgreSQL, Redis, ClickHouse and a volume on GCS. Access grant/revoke has only the implementer's native run on the retired fixture and must be re-proven in C3. That evidence spans roughly ten different candidates and partly the retired fixture, so none of it is yet final-candidate acceptance.
-
-**Phase A checkpoint (2026-10-02, claude-opus-5-5, `d4aa7168`–`7e26a1bb`).** A6 is done: the full style gate passes. A1 (F33), A2 (F32) and A3 (F31) have source fixes with regressions that fail on the old code, and await independent closure and their native proofs (C3, or a cp3 image-cleanup run for F32). A5 is source-complete for the clone-free `typed-config` check (new read-only `nagarectl app check`) and the cloud fixture/health producer. The scenario-assertion names in health records still have no producer (see Surprises). A4 reached its terminal state later the same day. F34 was traced to reviewed DomainMapping collection using Orphan propagation and fixed in `beca6886` (ADR 22 amendment); cp3 was repaired under the gated EP-155 recovery, and the F30 transaction converged with identities, data and a zero-operation replan intact. F30, F16 and F34 await independent verification.
-
-**Phase B checkpoint (2026-10-02, `cf3cd7fd`).** Two B1 pieces are done: `server status`/`doctor` grade each accepted database's recovery point from verified receipts, and the stale GCS statement in the backups guide is corrected. On cp3 the new rows show breaches without operator ingestion, which is the D1 gap now visible on the operational surface. B2–B6 need native local or cloud runs, and B3/B6 need operator approval for cloud mutation.
-
-**Operator decisions and B1 checkpoint (2026-10-03, claude-opus-5-5).** The operator decided D1, D2, D3, D5 and the new D6 (Decision Log). D1 and D6 are source-complete. Freshness counts verified pending uploads. `db escrow-signing-key` and `db verify-escrowed-backup` escrow the signing key and verify receipts without the cluster. `NAGARE_BACKUP_RECOVERY_POINT=hourly|daily` sets the schedule and is bound into the signed metadata. 1,138 tests and the style gate pass. On cp3 (read-only, development binary), all five recovery-point rows turned healthy without ingestion, and escrow plus offline verification succeeded with refusals intact. D2 and D3 are recorded in docs and EP-157/158. D5 is recorded in an ADR 22 amendment. The public `scheduledRetention` check exposed a status bug: the signing Secret was matched on API group `v1` instead of the core group. It is fixed in `6bb275e7`, and on cp3 all five schedules are now listed. Orphan uploads are documented as permanently unresolved (operator decision). B1 still needs source-replacement ingestion, which is a native run.
-
-Open findings ([tracker](../audits/mp23-findings.md)): F36 (a failed Redis scratch restore could not be abandoned; fixed in `6d7951c9`, Verifying), F35 (preflight refusal after admission strands the transaction; found by the 2026-10-03 cp3 drills; fixed in `570467f0` with the `abandon-refused-operation` decision and proven natively, Verifying), F34 (DomainMapping Orphan collection broke the Kourier gateway; source fix and cp3 repair done, verification pending), F30 (status-only churn strands an admitted Service correction; source fix in `95b58a24`/`52432400`, native correction interrupted at the operator's instruction with its transaction preserved, per `c57f1638`), F31 (registry credential refresh can lag expiry), F32 (image cleanup can select a sandbox image in use), F33 (cloud collection does not recheck the reviewed physical incarnation; unfinished guard checkpointed in `27bb0cd4`). F15 and F16 are Verifying.
-
-**cp3 data drills (2026-10-03, implementer, under the cp3 claim protocol agreed with session nagare-phase-b).** B2 database-tamper refusal and wrong-destination refusal at planning are proven natively. A foreign object created between plan and apply wedged the store (new P1 F35), and the store was recovered. Volume tamper detection happens only inside the Job, after the scratch PVC exists (EP-160 Surprises). The B1 source-replacement premise conflicts with the design; no supported replacement exists (EP-159 analysis). [Raw record](../audits/mp23-implementer-results-2026-10-03/cp3-data-drills.json).
-
-**Phase B close and candidate freeze (2026-10-03).** Phase B is code-complete. What is left needs cloud runs (B3, B6, manual cloud Redis/ClickHouse receipts, native F32/F33) or independent verification. Release candidate `db808a74` is frozen for Phase C, and any later code change makes a new candidate that must re-pass C1. C1 passed for `db808a74` on 2026-10-03: 213 verification-only operations, zero mutations, unchanged digests ([proof](../audits/mp23-implementer-results-2026-10-03/c1-local-gate-db808a74.json)). C2 (the full local scenario on a fresh local context) is assigned to session nagare-phase-b and starts after C1. The C3 cloud work, with B3, B6 and the F32/F33 proofs folded in, is written as one bounded sequence awaiting a single operator approval: [EP-156, "C3 bounded cloud sequence"](../plans/156-prove-fresh-gcp-convergence-and-shared-history-recovery.md) with target [`c3-target.json`](../../fixtures/inventory-release/gcp/c3-target.json).
-
-**Candidate `44ff0fd7` (2026-10-03).** The F37 fixes made a new candidate, `44ff0fd7`: abandonment of a `Failed (KnownNoEffect)` operation (`d9aed800`), and the reviewed field-ownership takeover `app deploy --take-over-fields` (`1df735a6`). C1 passed for it on the C2 context's accepted `db808a74` payload: 213 verification-only operations, zero mutations, digests unchanged ([proof](../audits/mp23-implementer-results-2026-10-03/c1-local-gate-44ff0fd7.json)). That first required one reviewed refresh of the bootstrap stamp, which was stale from C2's platform-scope reviews; the runbook explains why. C2 must restart on a fresh local context carrying the `44ff0fd7` payload (EP-155 Decision Log, ADR 6). The C3 run on `db808a74` (context `mp23-c3`) continues only as a checkpoint. Its cluster stage found F38 (P2): a failed GCS head advance after a published journal event stops ambiguous and drops the store error. `inventory resume` adopted the orphan event. Final C3 needs a fresh cloud context on the final candidate.
-
-**Checkpoint teardown and new fixes (2026-10-03).** Staged teardown ran natively for the first time, on the C3 checkpoint, and found:
-- **F39:** Pulumi preparation; fixed in `24320d82`.
-- **F40:** contribution targets, scope cycles, host and artifact retention, and cloud-retirement observation; fixed in `8fef3559` and `07d203ad`.
-
-Every platform scope and the cloud scope then retired natively. Collection stopped at the design gap described in the Decision Log, which has moved to MasterPlan 25. The checkpoint was deleted out of band with operator approval. In the C3 checkpoint, F15 and F31 refresh behaviour was observed: an uncached private controller pull 109 minutes after boot, and a timer refresh four minutes before expiry. The next candidate collects these fixes plus the local MinIO durability work (F41, nagare-phase-b). It then needs C1, a fresh C2, and a fresh C3 on [`c3-final-target.json`](../../fixtures/inventory-release/gcp/c3-final-target.json).
-
-**Candidate `14071e58` (2026-10-03).** Frozen with F39, F40 and F41. C1 passed on the fresh local C2 context immediately after its platform bootstrap: 214 verification-only operations, zero provider mutations, digests unchanged, 35 pods ready ([proof](../audits/mp23-implementer-results-2026-10-03/c1-local-gate-14071e58.json)). The acceptance C2 (nagare-phase-b) and the final C3 (`mp23-c3f`, `*-c3-1004`, operator-approved) are running on it.
-
-**Candidate `7d486457` (2026-10-04).** Frozen with F42, F43, F44 and the coverage dispositions; the managed-command audit is complete. C1 passed on the fresh local C2 context immediately after its platform bootstrap: 214 verification-only operations, zero mutations ([proof](../audits/mp23-implementer-results-2026-10-03/c1-local-gate-7d486457.json)). The candidate's own build proved perimeter-only exact collection on a disposable context (EP-156 Decision Log). The acceptance C2 (nagare-phase-b) and the final C3 (`mp23-c3g`, `*-c3-1005`, CDN enabled) are running on it. The `14071e58` C3 checkpoint ([record](../audits/mp23-implementer-results-2026-10-03/c3-checkpoint-14071e58.json)) was removed after export.
-
-**Scenario assertion checkpoint (2026-10-03).** The record shape is agreed and implemented across EP-155, EP-156 and EP-157. C2 and C3 now produce gate-ready health by recording each assertion as it passes and finalizing after verify. A name without a bound record refuses at assembly and in the CLI validator.
-
-**B5 checkpoint (2026-10-03, claude-opus-5-5, `dc53beb3`–`6ed92e61`).** B5 is source-complete with bounded cp3 proof on development binaries.
-- **Companion collection.** Retained collection now admits StatefulSets (Background propagation), ServiceAccounts, Roles and RoleBindings. On cp3 a retired PostgreSQL lost exactly its six stateless companions in three dependency-ordered reviews, while its PVC and Secrets kept their UIDs.
-- **Rename.** `db rename` is the first native binding of EP-149's migration contract. On cp3 it moved a seeded database through 72 reviewed stages. The rows survived, all nine old incarnations stayed retained and fenced, and the auth signing key kept its identity.
-- **Fixture.** `fixtures/inventory-release/local/scenario.json` defines the full C2 run and is validated against the gate's check names.
-
-The native run exposed two review readers that assumed base mutations; both are fixed in `bc2fd90e` (Surprises). 1,148 tests, the style gate, the command audit and the CLI architecture check pass. The four Haskell architecture size overages came from `9fef284a`; they were fixed in `2124ce2a`. Collection of durable members, topics and migrated-away incarnations is the scope proposal below.
-
-**Remaining work.** (Historical plan of record. For current status use the Finish line at the top of this section.) Each item is owned by the named child, whose plan holds the detail. Work proceeds in this order; items within a phase can run in parallel.
-
-Phase A — blockers (code and local regressions; no cloud mutation):
-
-- A1 (EP-153): finish F33 — bind the selected stack entry, physical ID and protection into collection evidence and recheck them at preflight and immediately before execution; regression for a change between the two.
-- A2 (EP-153): fix F32 — protect images referenced by Ready and retained sandboxes and the configured sandbox image; fail closed on missing sandbox observations.
-- A3 (EP-154/156): fix F31 — align refresh cadence and the token-lifetime check with metadata-token caching so a refresh always lands before expiry.
-- A4 (EP-153/156, executed on local `cp3`): bring the interrupted F30 correction transaction, which lives in the local `nagare-mp23-cp3` store, to a terminal state through the supported resume path, then verify F30 and F16 independently with the known row and identities preserved. Do not dispose of `cp3` before this transaction is terminal.
-- A5 (EP-157/154): make the clone-free rehearsal emit the check names the release gate requires (`typed-config`; it currently emits `inventory-compile`), add the missing cloud `fixture.json` and `cloud-health.json` producer, and correct `docs/user/upgrades.md`, which still calls inventory evidence an optional attachment.
-- A6 (EP-153): make the repository-wide `just haskell-style-check` (including fourmolu over all tracked Haskell files) pass and keep it passing.
-
-Phase B — finish the supported features (code plus focused local proof):
-
-- B1 (EP-159): make the recovery-point objective hold unattended by counting verified pending uploads and escrowing the signing key off-cluster (D1); make the objective a per-context `hourly`/`daily` preset bound into the signed schedule (D6); surface freshness in `server status`/doctor rather than only `--check-freshness`; state volumes as outside the objective (D2); prove source-replacement ingestion; give orphaned uploads (objects without a receipt) a public disposition, show `scheduledRetention` as unenforced in `inventory status`, and correct the stale GCS-acceptance statement in `docs/user/backups-and-disaster-recovery.md`.
-- B2 (EP-160): native refusal of a tampered accepted backup (database and volume) and of a wrong-incarnation destination; interruption during Redis load and a partial ClickHouse restore, or a recorded argument that existing runs cover them; manual cloud receipts for Redis and ClickHouse or an explicit scheduled-only statement.
-- B3 (EP-158): native Google DNS/CDN create, disable, retire and collect; record the HTTPS/browser-login disposition (decision D3).
-- B4 (EP-153): promote the `Cleanup` and `InfraDestroy` routes and the `infra-destroy`, `smoke` and `local-smoke` recipes; bring every gap row in the coverage catalogue to migrated or an explicit guarded exclusion. Status 2026-10-03: gap rows are down from 26 to 1, and `smoke`/`local-smoke` are promoted with restored-sentinel readback. `Cleanup`, `InfraDestroy` and `infra-destroy` wait on the independent closures of F32 and F33.
-- B5 (EP-155): check in the full local scenario fixture; implement the bounded retained PostgreSQL rename (IR-24 case 3) and companion collection bindings. Source-complete with cp3 proof (2026-10-03 checkpoint); final-candidate proof is C2.
-- B6 (EP-156): prove takeover from a genuinely different client.
-
-Phase C — one frozen candidate, proven natively:
-
-- C1: installed local platform bootstrap on `nagare-mp23-cp3` (candidate gate).
-- C2 (EP-155): the full local scenario including interruption, wrong-incarnation refusal, history export/restore and the PostgreSQL rename.
-- C3 (EP-156): a fresh cloud context with typed host credential delegation; the six operational checks (application change with owner isolation and unchanged replay; GCS backup and isolated restore; interrupted-operation recovery; clean-root recovery; writer refusal/takeover; exact cleanup including cloud teardown); a genuine automatic credential refresh and expired-credential pull (F15); independent runbook execution for the safe-use gate.
-- C4 (EP-154): clone-free installed rehearsal on aarch64-darwin and x86_64-linux at the candidate revision, with `nix flake check` green.
-- C5 (EP-157): non-publishing assembly of `docs/release-evidence/<revision>/`, IR-24 cases 1–7 mapped to that evidence, release notes stating unmet production targets.
-
-Phase D — close-out: finalize each child's living sections, mark the registry, distill durable lessons into ADR 22, update IR-24's status from evidence.
-
-**Operator decisions.** D1, D2, D3, D5 and D6 were decided on 2026-10-03 (see Decision Log). One remains pending and is not the implementer's to make:
-
-- D4 — Recovery-time and retention targets for production use (no values have been agreed). It gates production use, not MP-23 completion; EP-157 reports it as an unmet production target.
-
-Scope proposal from B5, decided 2026-10-03 as deferred (Decision Log). Three collections would each need a new operation, not a missing binding:
-- releasing durable PVCs and credential Secrets;
-- deleting broker topics, which also keep a retired broker's StatefulSet blocked;
-- collecting a migrated-away incarnation that shares a live ResourceId.
-
-None is required by the supported release contract. Retained members stay visible in status, and a renamed database's old writers are fenced.
-
-**Cross-plan gates.**
-
-- *Safe-use gate* (before any real low-risk workload): on one candidate that first passed C1 — the six cloud operational checks and F15 on a fresh context; EP-158 access grant/revoke; [the operations runbook](../runbooks/inventory-operations.md) executed end to end by an independent reviewer with F14–F18 recorded in the tracker; driver consolidation present. Final production go/no-go remains the operator's.
-- *Data-protection gate* (before real company data): the context uses the `hourly` objective; every signing key is escrowed; every authoritative store backed up off-cluster within the one-hour objective measured from the latest usable recovery point (including upload, verification and retry delays); freshness deterioration visible before breach and a breach reported unhealthy; backups and recovery credentials retrievable with the cluster and operator root gone; verified restored content; corruption and incomplete-upload refusal; documented, timed recovery procedure.
-- *Production gate* (outside MP-23 completion): the MP-21 supported upgrade/recovery rehearsal on an inventory-backed context.
-
-**IR-24 verification cases** (update only with evidence):
-
-| Case | Evidence today |
+| Case | Evidence (assertion, scenario) |
 |---|---|
-| 1. Collisions refused before mutation | EP-144 unit coverage only |
-| 2. Foreign or absent owner reported as an adoption decision | Foreign-UID refusal at retirement (installed); no adoption-decision report |
-| 3. Rename creates, migrates, verifies, retires with data preserved | Native `db rename` on cp3 (implementer, development binary): known rows preserved, old incarnations retained; final-candidate proof is C2 |
-| 4. Interrupted multi-component operation resumes without replaying effects | Installed cloud resume and takeover; independent native F20 interrupted delete |
-| 5. Drift categories distinguished | Foreign, missing, retained orphan and policy-bound collection proven; repairable configuration drift and immutable replacement not |
-| 6. Disposable context renders, applies, converges, no-ops, removes per policy | Installed cloud convergence and unchanged replay; full-platform no-op and local scenario open |
-| 7. Release evidence under one immutable payload identity | Gate code independently tested; no real evidence directory exists |
+| 1. Collisions refused before mutation | `collision-refusal` (local, cloud) |
+| 2. Foreign or absent owner reported as an adoption decision | `adoption` (local, cloud) |
+| 3. Rename creates, migrates, verifies, retires with data preserved | `retained-postgresql-rename` (local) |
+| 4. Interrupted multi-component operation resumes without replaying effects | `interrupted-recovery` (local, cloud); `shared-history-takeover` (cloud) |
+| 5. Drift categories distinguished | `drift-classification` (local, cloud) |
+| 6. Disposable context renders, applies, converges, no-ops, removes per policy | `convergence-noop-removal`, `retained-data`, `independent-scope-preservation` (local, cloud) |
+| 7. Release evidence under one immutable payload identity | the 0.4.0 release manifest and both scenarios' `inventory-evidence.json`, assembled in C5 |
 
 **Native harness.** Before any native run, read [the native verification harness runbook](../runbooks/native-verification-harness.md). It covers pinned candidate builds, isolated operator roots and wrappers, the cp3 claim protocol, the C1 gate script, object-store drills, fresh cloud context inputs and shared-tree commit hygiene.
 
@@ -711,6 +586,23 @@ None is required by the supported release contract. Retained members stay visibl
 
 
 ## Surprises & Discoveries
+
+2026-10-09 (F95, drill C on `3b59bcb7`): A node upgrade that restarts `tailscaled` or the network kills the SSH session that started its activation. Piped through `systemd-run --pipe --wait`, the Rust `switch-to-configuration` exited 101 when its stdout went away. A client on a dead network never saw the session end, so the apply hung until the rollback timer reverted the host. In the milder case of drill B, a cut-off activation was committed. The fix is in `83124396`, and an [ADR 11](../adr/0011-host-activation-is-guarded-and-self-reverting.md) amendment records it:
+- the activation runs as a detached transient unit that records its rc under `/run/nagare-switch`;
+- the client polls the result over fresh logins and verifies before committing;
+- `commit` refuses while the activation runs;
+- every switch SSH has a keepalive.
+On `mp23-c3m`, k3s 1.35 → 1.36.4 then committed in 5 minutes.
+
+2026-10-09 (F95's VM test): The NixOS VM test caught two defects in the fix itself before any cloud run:
+- A transient systemd unit's PATH has no coreutils. The first version wrote the rc with `mv`, so no activation could ever have committed. It now writes with the shell's builtin `printf`.
+- `switch-to-configuration` restarts changed units but does not start a unit that is new under an already-active target, so the test's network-cutting unit never ran until it existed in every generation.
+
+2026-10-09 (C3 on `mp23-c3m`): The tailnet's default SSH rule is `check` for `autogroup:self`. Test hosts joined with untagged auth keys, so the host transport's mandatory fresh login waited for a browser approval, and the overnight run stalled for 3 h 40 m. Test-context keys now carry `tag:nagare-test`, and the tailnet policy has an `accept` rule for it ([C3](../audits/mp23-independent-results-2026-10-07/c3-acceptance-83124396/)).
+
+2026-10-08 (checklist §3): A k3s minor upgrade is a lock-only re-pin of nixpkgs. sops-nix must be re-pinned with it, because its pinned nixpkgs input had rotted (`buildGo125Module` was removed). The upgrade is finished only by a reboot through reviewed VM power. Each of these surfaced only when a drill reached it.
+
+2026-10-08 (F86, F88): An in-place PostgreSQL major change was admitted, and no reviewed stuck-pod replacement could ever be applied, because the CLI review loader decoded it as a mutation. A controller's status write between plan and apply refused an in-sync reviewed update, with no reason given. Each test passed through a test registry rather than the real CLI loader.
 
 2026-10-05 (EP-176 complete): Data operations on any store written before ADR 27 now refuse until each member is rebound through review, because such stores carry no incarnation records. This includes backups, restores, scheduled ingestion, fences and renames. The C-phase candidate starts from a fresh context, where every write records its identity, so step 5 is unaffected. Long-lived contexts such as `tan-nb-exp` need a rebind pass before their first data operation on the new release. EP-177's kind table should list each kind's identity source, which is the journalled write response for Kubernetes and an ADR 27 §4 limit elsewhere.
 
@@ -745,6 +637,20 @@ Earlier discoveries (derived controller claims, explicit candidate changes, nati
 
 
 Decisions still in force, condensed. Full verbatim entries are in [the snapshot](../audits/mp23-archive/plan-history/mp23-before-consolidation-2026-10-02.md).
+
+2026-10-09 (sessions nagare-fix and nagare-verify, under the operator's delegation): **section 4 counts from the `3b59bcb7` cloud pass for `83124396`.** The final candidate changes no Haskell, only host-switch scripts, their tests and docs, and the section 4 driver runs no host activation ([diff stat](../audits/mp23-independent-results-2026-10-07/diffstat-3b59bcb7-83124396.txt)). C3 and section 3, which go through the changed code, ran in full on `83124396`.
+
+2026-10-09 (operator): **publish v0.4.0.** GitHub Actions stays disabled (2026-10-04), so the release was published from the local C5 assembly with `gh release create`, after a signed annotated tag at `83124396`. Moving the release runbook to this local path belongs to [MasterPlan 26](26-make-platform-changes-and-releases-routine-after-the-inventory-release.md).
+
+2026-10-09 (operator): **test contexts use `tag:nagare-test`.** The tailnet policy gives that tag a Tailscale SSH `accept` rule, and untagged devices such as nagare-01 stay on `check`.
+
+2026-10-07 and 2026-10-08 (operator): **only critical breaks delay the release.** A finding that neither loses data nor makes the release unusable goes to the next release, and the candidate stands:
+- F84 and F85 were first deferred; their fixes then landed on master the same day (`b171712a`, `1d8fd1f5`) and ship in 0.4.0. F89 and F91 were deferred.
+- That night the operator let the sessions defer non-critical findings themselves and report in the morning (F94).
+- Critical F95 was fixed and re-cut.
+- A standing go-ahead covered every cloud mutation, drill and landing needed to finish the checklist.
+
+2026-10-07 (operator): **MP-23's goal is safe production use, tracked in one evidence-backed checklist** ([checklist](../releases/production-readiness-checklist.md), `3671b780`). Its scope is fixed: a new finding goes to the deferral ledger unless it risks data loss. Sections 2–4 (data protection, node upgrades, database upgrades) joined MP-23 by the shortest safe route (Vision amendment).
 
 2026-10-07 (operator, session nagare, `3eddabae`): **ship v1 with the guarantee already proved, and widen it per release.** Every deep-tier run kept widening the problem and the estimate. The operator: "i would like to use nagare during my lifetime. A good plan figures out how to do that and improve it over time safely."
 - v1's guarantee (release line (b)): every in-line kind has a proved, supported exit under any single fault. That's the fast tier and harness self-test over every scenario on the validated world (EP-182). Every other stopped state has ADR 26 §5's attested close, and the documented limits F77 and F78 have runbooks.
@@ -839,15 +745,41 @@ Gating is local; GitHub Actions is not used.
 
 ## Outcomes & Retrospective
 
-Phase A (2026-10-02) delivered the style gate, source fixes for F31–F33 and the clone-free/cloud evidence producers; it surfaced F34 and the missing scenario-assertion producer.
+**Outcome (2026-10-09): complete.** Nagare 0.4.0 shipped what IR-24 asked for:
+- One typed, revision-bound inventory for every managed resource, composed from independent scopes.
+- Reviewed plans with a durable cross-tool journal, a supported exit from every stopped state (ADR 26), and identity respect (ADR 27).
+- Cloud, host, artifact and cluster adapters, with a GCS-backed store for cloud contexts.
+- Backups with receipts and verified isolated restore for PostgreSQL, Redis, ClickHouse and volumes.
+- All seven IR-24 cases, proven by named assertions under one payload identity.
 
-Delivered so far: the typed inventory foundation, reviewed plans and durable journal, cloud/host/artifact and cluster adapters, lifecycle policy, the GCS store and fresh bootstrap (EP-144–147, 149, 151, 152), plus substantial command, access, CDN, backup and restore implementation with independent checkpoint evidence. Remaining: the Phase A–D items in Progress, and the pending operator decisions D1–D5.
+The operator's production goal (checklist sections 2–4) was also met on the final candidate: data restored after cluster loss, node upgrades (NixOS and k3s minor) that commit or revert by themselves, and a side-by-side PostgreSQL major upgrade whose failures return to the old instance. Ninety-five findings were recorded; 84 are Closed, and the rest are Verifying, deferred with a named home, or ledgered (Final status).
 
-Lessons so far: plans accumulated dated narrative faster than they were reconciled, and evidence was spread across many candidates and standalone audit documents, which hid both progress and newly introduced defects. Keep one current snapshot per plan, record evidence where its owner reads it, and bind acceptance to one frozen candidate.
+**What moved:**
+- Full-context VM collection and the F40 remainder → [MasterPlan 25](25-reviewed-full-context-teardown-with-vm-workload-collection.md).
+- F48's code fix, release tooling, proportional gates and the release runbook → [MasterPlan 26](26-make-platform-changes-and-releases-routine-after-the-inventory-release.md).
+- Replacement upgrades → [MasterPlan 21](21-rehearsed-replacement-upgrades-with-bounded-downtime-for-nagare.md).
+- Team operation → [MasterPlan 24](24-operate-nagare-as-a-team-run-workplace-intranet-paas.md).
+- F89, F91 and F94 → the next release; F77 and F78 → the deferral ledger.
+- Also to the next release: the D6 sentence in the release notes, and `storage snapshot`/`storage restore` accepting `Application` configs (EP-160).
+- The deep tier is per-release monitoring.
 
-At completion, compare outcomes with IR-24, update its status only with evidence, and distill durable lessons into ADR 22 and affected ADRs. Do not publish a release or modify operator deployments as a side effect of plan updates.
+**Lessons**, distilled into [ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md)'s 2026-10-09 amendment:
+- **Find defects with interpreters and models, and let native runs only confirm** (ADR 25). Brute-force deep-tier runs found one Kubernetes-semantics defect per run until the proof rules were derived from validated API semantics (2026-10-06).
+- **Every feature needs its failure exits tested through the real CLI loaders.** F86's stuck-pod exit and F88's status churn passed test registries but failed the real path.
+- **Upgrade paths rot unless exercised.** The section 3 procedure needed a sops-nix re-pin, a reboot step and F95's session-loss fix, and each surfaced only when a drill reached it. Execute every documented operator procedure once before a candidate is cut.
+- **Bind acceptance to one frozen candidate and one checklist.** Evidence spread across about ten candidates and many audit documents hid progress and new defects (2026-10-02). The checklist and per-candidate result directories fixed that.
+- **Rehearse release mechanics early.** The notes are bound to the candidate, so the x86_64 C4 harness, the evidence assembler and the publication path without Actions each cost a re-cut or a late detour.
+- **Unattended native runs need their human dependencies settled first,** such as the Tailscale check approval and gcloud re-authentication, or they stall overnight.
 
 
 ## Revision Notes
+
+2026-10-09: Closed out the plan:
+- recorded the final status (candidate `83124396`, gates, checklist sections 2–4, findings at close, v0.4.0 publication);
+- ticked steps 3, 3a, 3b, 3d and 5;
+- marked the registry;
+- finalized the IR-24 table;
+- added the 2026-10-07 goal amendment, the 2026-10-07 to 2026-10-09 decisions and surprises, and the Outcomes & Retrospective.
+The superseded 2026-10-04 finish line and the dated checkpoints moved verbatim to [the pre-close snapshot](../audits/mp23-archive/plan-history/mp23-progress-before-close-2026-10-09.md).
 
 2026-10-02: Consolidated the plan into a single current-state document after an implementation assessment: replaced dated entrypoints and finish sequences with one ordered remaining-work list (Phases A–D), pending operator decisions D1–D5 and three explicit gates; recorded newly found release-path and recovery-point gaps; archived history unchanged. Earlier revision notes are in the snapshot.
