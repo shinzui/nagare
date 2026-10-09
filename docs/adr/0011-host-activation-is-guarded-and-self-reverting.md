@@ -127,3 +127,19 @@ the host scope at its accepted revision; a new review carries any retry. A
 committed new closure is still proved by resume, and close refuses while the
 timer is armed.
 
+
+## Amendment — 2026-10-09: the activation outlives its session (F95)
+
+A configuration that restarts `tailscaled`, `sshd` or the network kills the SSH
+session that started its activation. With the activation piped into that session,
+`switch-to-configuration` exited 101 when the pipe disappeared, and a client
+whose network went away never saw the session end and waited forever (drill C on
+the 0.4.0 candidate; drill B committed a cut-off activation). `activate` now
+starts `switch-to-configuration test` as a detached transient service whose
+output goes to the journal and whose exit code is written under
+`/run/nagare-switch`, and returns at once. The client polls `activation` over
+fresh logins until the activation has finished, and only then verifies access and
+commits; `commit` refuses while the activation still runs. Every SSH connection
+of the switch and the host transport has a keepalive. An activation that is still
+running when the polls run out, or that stopped without recording a result, is
+not committed and the timer reverts it.

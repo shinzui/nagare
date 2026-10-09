@@ -50,7 +50,7 @@ host_ssh() {
   if [ -n "${age_key_digest}" ]; then
     bash "${script_dir}/iap-ssh.sh" ssh "${instance}" -- "$@"
   else
-    ssh -o BatchMode=yes "${destination}" "$@"
+    ssh -o BatchMode=yes -o ServerAliveInterval=5 -o ServerAliveCountMax=3 "${destination}" "$@"
   fi
 }
 
@@ -62,7 +62,7 @@ tailnet_fresh_closure() {
   [ -n "${host_key}" ] || return 1
   known_hosts="$(mktemp -t nagare-host-known.XXXXXX)"
   printf '%s %s\n' "${ip}" "${host_key}" > "${known_hosts}"
-  closure="$(ssh -o BatchMode=yes -o ConnectTimeout=8 -o ConnectionAttempts=1 -o ControlMaster=no -o ControlPath=none -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+  closure="$(ssh -o BatchMode=yes -o ConnectTimeout=8 -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectionAttempts=1 -o ControlMaster=no -o ControlPath=none -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
     -o UserKnownHostsFile="${known_hosts}" -o GlobalKnownHostsFile=/dev/null \
     -i "${SSH_KEY:?SSH_KEY is required for reviewed host activation}" \
     "deploy@${ip}" 'sudo -n true && readlink -f /run/current-system' | tail -n 1)" || rc=$?
@@ -304,7 +304,8 @@ activate() {
     known_hosts="$(mktemp -t nagare-host-known.XXXXXX)"
     trap 'rm -f "${known_hosts}"' RETURN
     printf '%s %s\n' "${tailnet_ip}" "${host_key}" > "${known_hosts}"
-    ssh_options="-o BatchMode=yes -o ConnectTimeout=8 -o ConnectionAttempts=1 -o ControlMaster=no -o ControlPath=none -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=${known_hosts} -o GlobalKnownHostsFile=/dev/null -i ${SSH_KEY:?SSH_KEY is required for reviewed host activation}"
+    # F95: the keepalive ends a session the activation's network restart left dead.
+    ssh_options="-o BatchMode=yes -o ConnectTimeout=8 -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectionAttempts=1 -o ControlMaster=no -o ControlPath=none -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=${known_hosts} -o GlobalKnownHostsFile=/dev/null -i ${SSH_KEY:?SSH_KEY is required for reviewed host activation}"
     closure="$(ssh ${ssh_options} "deploy@${tailnet_ip}" 'sudo -n true && readlink -f /run/current-system' | tail -n 1)"
     [ "${closure}" = "${old}" ] || {
       echo "fresh Tailnet login found a closure outside the reviewed old state" >&2; return 1;

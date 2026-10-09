@@ -19,10 +19,11 @@ in
 
   host-switch-identity = pkgs.runCommand "host-switch-identity"
     {
-      nativeBuildInputs = [ pkgs.bash pkgs.coreutils pkgs.gawk pkgs.gnugrep pkgs.jq ];
+      nativeBuildInputs = [ pkgs.bash pkgs.coreutils pkgs.gawk pkgs.gnugrep pkgs.gnused pkgs.jq ];
     }
     ''
       bash ${./scripts/test-host-switch-identity.sh} ${src}
+      bash ${./scripts/test-host-switch-session-loss.sh} ${src}
       touch "$out"
     '';
 
@@ -223,6 +224,9 @@ in
         case "$*" in
           *"nagare-safe-activate arm /nix/store/fake-nagare-upgrade-result "*)
             printf '%s\n' 'ARMED previous=/nix/store/old-system new=/nix/store/fake-nagare-upgrade-result'
+            ;;
+          *"nagare-safe-activate activation /nix/store/fake-nagare-upgrade-result "*)
+            printf '%s\n' 'ACTIVATION_DONE rc=0 new=/nix/store/fake-nagare-upgrade-result'
             ;;
           *"nagare-safe-activate commit /nix/store/fake-nagare-upgrade-result "*)
             printf '%s\n' 'COMMITTED new=/nix/store/fake-nagare-upgrade-result'

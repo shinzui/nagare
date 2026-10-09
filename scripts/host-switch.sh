@@ -97,7 +97,7 @@ if [ -n "${NAGARE_HOST_PREPARED_CLOSURE:-}" ]; then
     read -r -a reviewed_ssh_options <<<"${NIX_SSHOPTS}"
     CURRENT="$(ssh "${reviewed_ssh_options[@]}" -o BatchMode=yes "${TARGET_HOST}" 'readlink -f /run/current-system' | tail -n 1)"
   else
-    CURRENT="$(ssh -o BatchMode=yes "${TARGET_HOST}" 'readlink -f /run/current-system' | tail -n 1)"
+    CURRENT="$(ssh -o BatchMode=yes -o ServerAliveInterval=5 -o ServerAliveCountMax=3 "${TARGET_HOST}" 'readlink -f /run/current-system' | tail -n 1)"
   fi
   [ -z "${NAGARE_HOST_EXPECTED_OLD_CLOSURE:-}" ] || [ "${CURRENT}" = "${NAGARE_HOST_EXPECTED_OLD_CLOSURE}" ] || {
     echo "host-switch: current closure ${CURRENT} differs from reviewed ${NAGARE_HOST_EXPECTED_OLD_CLOSURE}" >&2

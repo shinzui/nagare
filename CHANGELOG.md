@@ -21,7 +21,9 @@ immutable `v<major>.<minor>.<patch>` Git tags.
 - **Reviewed data and host operations.** Isolated restores, a fenced PostgreSQL rename with a
   backward exit, a side-by-side PostgreSQL major upgrade with refusal of in-place major or engine
   changes, `app deploy --retire-database`, and NixOS/k3s node upgrades by reviewed lock re-pin with
-  a no-effect close for an activation that did not commit.
+  a no-effect close for an activation that did not commit. Host activations run detached, so an
+  upgrade that restarts `tailscaled`, `sshd` or the network no longer hangs or commits a cut-off
+  activation.
 
 - **Optional in-cluster Nix binary cache.** Cloud contexts can opt into a context-local Attic
   service backed by a protected GCS bucket and managed PostgreSQL. Nagare publishes a digest-pinned

@@ -107,14 +107,19 @@ activation, no `switch-to-configuration`). The reviewed host transport does the 
 4. **Arms a rollback, activates, verifies, commits.** It prints:
    - `ARMED prev=… new=… seconds=600`: an on-host systemd timer will reactivate the boot-default
      generation after the window (`NAGARE_SWITCH_CONFIRM_SECONDS`, default 600).
-   - `ACTIVATE_RC=<n>`: the new configuration is running but is **not** the boot default. The
-     code is informational; pre-existing failed units make it non-zero.
+   - `activation finished: ACTIVATION_DONE rc=<n>`: the new configuration is running but is
+     **not** the boot default. The activation runs as the detached `nagare-switch-activate`
+     service, so it finishes even when it restarts `tailscaled`, `sshd` or the network and
+     drops the switch's SSH session; its output is in `journalctl -u nagare-switch-activate`.
+     The switch reads the result over fresh logins. The code is informational; pre-existing
+     failed units make it non-zero.
    - `fresh login and sudo verified`: a brand-new SSH connection (no multiplexing) ran
      `sudo -n true` and saw the new system.
    - `COMMITTED new=…`: the timer is cancelled and the new configuration is the boot default.
      Exit 0.
 
-If verification fails, it prints `NOT COMMITTED: access could not be verified …` and exits 4.
+If the activation does not finish in time or verification fails, it prints
+`NOT COMMITTED: the activation did not finish or access could not be verified …` and exits 4.
 **Do not run further commands against the host.** Wait for the window to pass, then try a fresh
 `ssh deploy@<host-name> true`. By then the host has reactivated the previous configuration by
 itself. A reboot would also boot the previous one, because the boot default never changed.

@@ -176,6 +176,37 @@
                 ];
                 environment.etc."nagare-generation".text = lib.mkForce "locked";
               };
+              # F95: like a tailscaled or network restart, the bounce generation's
+              # activation restarts a running unit that kills the operator's SSH
+              # sessions while the network is down, so the client of the session
+              # never sees it close. The activation must still finish. Both units run
+              # in every generation (a switch restarts changed running units, but
+              # does not start new ones) and change only in the bounce generation.
+              systemd.services.nagare-session-bounce = {
+                wantedBy = [ "multi-user.target" ];
+                serviceConfig.Type = "oneshot";
+                serviceConfig.RemainAfterExit = true;
+                path = [ pkgs.iproute2 pkgs.systemd ];
+                script = "true";
+              };
+              systemd.services.nagare-after-bounce = {
+                wantedBy = [ "multi-user.target" ];
+                after = [ "nagare-session-bounce.service" ];
+                serviceConfig.Type = "oneshot";
+                serviceConfig.RemainAfterExit = true;
+                script = "rm -f /run/nagare-after-bounce";
+              };
+              specialisation.bounce.configuration = {
+                environment.etc."nagare-generation".text = lib.mkForce "bounce";
+                systemd.services.nagare-session-bounce.script = lib.mkForce ''
+                  touch /run/nagare-bounced
+                  ip link set eth1 down
+                  loginctl terminate-user deploy || true
+                  sleep 10
+                  ip link set eth1 up
+                '';
+                systemd.services.nagare-after-bounce.script = lib.mkForce "touch /run/nagare-after-bounce";
+              };
             };
             nodes.client = { ... }: {
               environment.variables.NIX_SSHOPTS = sshOpts;
@@ -207,6 +238,7 @@
               assert "ALREADY_ACTIVE" in out
               good = host.succeed("readlink -f /run/current-system/specialisation/good").strip()
               locked = host.succeed("readlink -f /run/current-system/specialisation/locked").strip()
+              bounce = host.succeed("readlink -f /run/current-system/specialisation/bounce").strip()
               run = env + "source /etc/nagare/nagare-safe-switch-client.sh; nagare_safe_switch deploy@host {} {} /etc/nagare/nagare-safe-activate.sh"
 
               # Scenario 1: a switch that keeps access commits.
@@ -233,6 +265,7 @@
               # Scenario 3: a crash while unconfirmed boots the committed generation.
               host.succeed(f"bash /etc/nagare/nagare-safe-activate.sh arm {locked} 600")
               host.succeed(f"bash /etc/nagare/nagare-safe-activate.sh activate {locked}")
+              host.wait_until_succeeds(f"bash /etc/nagare/nagare-safe-activate.sh activation {locked} | grep -q ACTIVATION_DONE", timeout=120)
               host.succeed("grep -qx locked /etc/nagare-generation")
               host.succeed(f"test \"$(readlink -f /nix/var/nix/profiles/system)\" = {good}")
               host.crash()
@@ -241,6 +274,18 @@
               client.wait_until_succeeds(env + "ssh $NIX_SSHOPTS -o ConnectTimeout=5 deploy@host true", timeout=120)
               print("SCENARIO 3 after crash: " + host.succeed("cat /etc/nagare-generation; readlink -f /run/current-system"))
               host.succeed("grep -qx good /etc/nagare-generation")
+
+              # Scenario 4 (F95): the activation kills the session that started it
+              # while the network is down. It finishes anyway, and the client learns
+              # that over fresh logins, verifies access, and commits.
+              out = client.succeed(run.format(bounce, 300) + " 2>&1")
+              print("SCENARIO 4\n" + out)
+              assert "ACTIVATION_DONE rc=0" in out and "COMMITTED" in out
+              host.succeed("grep -qx bounce /etc/nagare-generation")
+              host.succeed("test -e /run/nagare-bounced")   # the sessions really were cut
+              host.succeed("test -e /run/nagare-after-bounce")
+              host.succeed(f"test \"$(readlink -f /nix/var/nix/profiles/system)\" = {bounce}")
+              print("SCENARIO 4 activation journal\n" + host.succeed("journalctl -u nagare-switch-activate.service --no-pager"))
             '';
           };
 

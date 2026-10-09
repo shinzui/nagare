@@ -34,6 +34,7 @@ remote.write_text('''#!/bin/sh
 case "$SSH_ORIGINAL_COMMAND" in
   *'nagare-safe-activate arm '*) echo 'ARMED previous=/fixture/old new=/fixture/new';;
   *'nagare-safe-activate activate '*) : > '''+quote(str(authorized))+''';;
+  *'nagare-safe-activate activation '*) echo 'ACTIVATION_DONE rc=0 new=/fixture/new';;
   *'nagare-safe-activate commit '*) touch '''+quote(str(root/'committed'))+'''; echo 'COMMITTED new=/fixture/new';;
   *) echo /fixture/new;;
 esac

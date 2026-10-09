@@ -2,7 +2,8 @@
 # On-host half of the self-reverting host switch (ExecPlan 115, ADR 11). Runs as root.
 #
 #   arm NEW WINDOW   schedule a rollback to the committed generation in WINDOW seconds
-#   activate NEW     activate NEW without making it the boot default
+#   activate NEW     start activating NEW, without making it the boot default
+#   activation NEW   report whether that activation is still running, and its exit code
 #   commit NEW       cancel the rollback and make NEW the boot default
 #   status           show the running system, the boot default, and the rollback timer
 #
@@ -13,8 +14,10 @@ set -euo pipefail
 export PATH="/run/current-system/sw/bin:/run/wrappers/bin:${PATH:-/usr/bin:/bin}"
 
 UNIT=nagare-switch-rollback
+ACTIVATE_UNIT=nagare-switch-activate
 PROFILE=/nix/var/nix/profiles/system
-STATE_DIR=/run/nagare-switch
+# sudo resets the environment, so on a host this is always /run/nagare-switch.
+STATE_DIR="${NAGARE_SWITCH_STATE_DIR:-/run/nagare-switch}"
 
 die() {
   echo "nagare-safe-activate: $*" >&2
@@ -50,20 +53,63 @@ cmd_arm() {
   echo "ARMED prev=$prev new=$new seconds=$window"
 }
 
+activation_running() {
+  case "$(systemctl show -p ActiveState --value "$ACTIVATE_UNIT.service" 2>/dev/null || true)" in
+    active | activating | deactivating | reloading) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 cmd_activate() {
-  local new="$1" rc=0
+  local new="$1" shell
   require_toplevel "$new"
-  # Run in a transient service, as nixos-rebuild does, so a dropped SSH session cannot kill
-  # the activation halfway. The exit code is informational: pre-existing failed units make
-  # it non-zero; the fresh-login verification decides success.
-  systemd-run --unit=nagare-switch-activate --collect --no-ask-password --pipe --quiet \
-    --service-type=exec --wait "$new/bin/switch-to-configuration" test || rc=$?
-  echo "ACTIVATE_RC=$rc"
+  if activation_running; then
+    echo "ACTIVATION_RUNNING"
+    return 0
+  fi
+  # F95: a configuration that restarts tailscaled, sshd or the network kills the SSH
+  # session that runs this. The activation is a detached transient service: it never
+  # waits on that session, and its output goes to the journal, never to a pipe into
+  # the session (switch-to-configuration exits 101 when that pipe is gone). The client
+  # reads the result with `activation` over fresh logins.
+  mkdir -p "$STATE_DIR"
+  rm -f "$STATE_DIR/activate-rc"
+  printf '%s\n' "$new" > "$STATE_DIR/activating"
+  systemctl reset-failed "$ACTIVATE_UNIT.service" >/dev/null 2>&1 || true
+  shell="$(readlink -f "$(command -v bash)")"
+  # The exit code is informational: pre-existing failed units make it non-zero; the
+  # fresh-login verification decides success. The unit's PATH has no coreutils, so
+  # the wrapper uses only shell builtins; `activation` reads the file only after the
+  # unit has exited.
+  systemd-run --unit="$ACTIVATE_UNIT" --collect --no-ask-password --quiet --service-type=exec \
+    "$shell" -c 'rc=0; "$1/bin/switch-to-configuration" test || rc=$?; printf "%s\n" "$rc" > "$2"' \
+    nagare-switch-activate "$new" "$STATE_DIR/activate-rc"
+  echo "ACTIVATION_STARTED new=$new"
+}
+
+cmd_activation() {
+  local new="$1" rc
+  if activation_running; then
+    echo "ACTIVATION_RUNNING"
+    return 0
+  fi
+  rc="$(cat "$STATE_DIR/activate-rc" 2>/dev/null || true)"
+  if [ -z "$rc" ] || [ "$(cat "$STATE_DIR/activating" 2>/dev/null || true)" != "$new" ]; then
+    # Killed before it recorded a result, or a reboot cleared /run: nothing to commit.
+    echo "ACTIVATION_UNKNOWN"
+    return 0
+  fi
+  echo "ACTIVATION_DONE rc=$rc new=$new"
 }
 
 cmd_commit() {
   local new="$1" state current
   require_toplevel "$new"
+  # Never make a half-activated configuration the boot default.
+  if activation_running; then
+    echo "ACTIVATION_RUNNING"
+    exit 1
+  fi
   systemctl stop "$UNIT.timer" >/dev/null 2>&1 || true
   state="$(systemctl show -p ActiveState --value "$UNIT.service" 2>/dev/null || true)"
   current="$(readlink -f /run/current-system)"
@@ -93,7 +139,8 @@ sub="${1:-}"
 case "$sub" in
   arm) [ "$#" -eq 2 ] || die "usage: arm NEW SECONDS"; cmd_arm "$@" ;;
   activate) [ "$#" -eq 1 ] || die "usage: activate NEW"; cmd_activate "$@" ;;
+  activation) [ "$#" -eq 1 ] || die "usage: activation NEW"; cmd_activation "$@" ;;
   commit) [ "$#" -eq 1 ] || die "usage: commit NEW"; cmd_commit "$@" ;;
   status) cmd_status ;;
-  *) die "usage: {arm NEW SECONDS|activate NEW|commit NEW|status}" ;;
+  *) die "usage: {arm NEW SECONDS|activate NEW|activation NEW|commit NEW|status}" ;;
 esac

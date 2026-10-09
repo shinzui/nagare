@@ -63,6 +63,7 @@ write_executable "$fixture/bin/ssh" \
   'printf "ssh %s\n" "$*" >> "${NAGARE_IDENTITY_LOG:?}"' \
   'case "$*" in' \
   '  *"nagare-safe-activate arm /nix/store/fake-labs-system 600 ") printf "%s\n" "ARMED previous=/nix/store/old-system new=/nix/store/fake-labs-system" ;;' \
+  '  *"nagare-safe-activate activation /nix/store/fake-labs-system ") printf "%s\n" "ACTIVATION_DONE rc=0 new=/nix/store/fake-labs-system" ;;' \
   '  *"nagare-safe-activate commit /nix/store/fake-labs-system ") printf "%s\n" "COMMITTED new=/nix/store/fake-labs-system" ;;' \
   '  *"sudo -n true && readlink -f /run/current-system") printf "%s\n" /nix/store/fake-labs-system ;;' \
   'esac'

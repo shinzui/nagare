@@ -739,6 +739,7 @@ logline="$*"
 case "$logline" in
   *"nagare-safe-activate arm "*) logline='host arm' ;;
   *"nagare-safe-activate activate "*) logline='host activate' ;;
+  *"nagare-safe-activate activation "*) logline='host activation' ;;
   *"nagare-safe-activate commit "*) logline='host commit' ;;
 esac
 printf '%s\n' "$logline" >> "$XDG_STATE_HOME/ssh.log"
@@ -762,7 +763,9 @@ case "$*" in
     printf 'ARMED\n' ;;
   *"nagare-safe-activate activate "*)
     touch "$XDG_STATE_HOME/host-activated"
-    printf 'ACTIVATED\n' ;;
+    printf 'ACTIVATION_STARTED\n' ;;
+  *"nagare-safe-activate activation "*)
+    printf 'ACTIVATION_DONE rc=0 new=%s\n' "$new" ;;
   *"nagare-safe-activate commit "*)
     mv "$XDG_STATE_HOME/host-armed" "$XDG_STATE_HOME/host-committed"
     if test -e "$XDG_STATE_HOME/fail-host-commit-ack"; then
