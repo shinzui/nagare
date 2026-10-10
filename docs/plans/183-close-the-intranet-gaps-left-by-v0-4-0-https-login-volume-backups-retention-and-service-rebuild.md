@@ -81,6 +81,14 @@ This plan only makes sure its changes are covered by that transition's compatibi
     2026-10-10).
   - [ ] Full gate and `gate-verify` at the landed revision. Then, on a fresh local context, the
     route-check run and its `--ca /dev/null` negative run.
+    - [x] (2026-10-10) M1–M4 landed at d42913c9 (full gate green, mutation sweep 184 killed, 0
+      survivors). A fresh local context on cp3 bootstrapped at d42913c9 and deployed scenario-a.
+      The first route-check run refused the wrong CA, then got 502 "no backend configured" for
+      the protected route (Surprises, 2026-10-10, enforcer).
+    - [x] (2026-10-10) The enforcer re-reads its backend map, and route-check waits for a new
+      route's 502 to clear (0212a55e).
+    - [ ] Roll the fixed enforcer image onto cp3 through a reviewed bootstrap, then rerun
+      route-check and its wrong-CA negative.
 - [ ] M2. (Targets recorded 2026-10-10: UC-3, ADR 28.) The operator's recovery-time and retention targets are recorded (EP-162 M1, or this plan's
   proposed defaults confirmed). `server status` reports scheduled database backups past retention
   as WARN. `db prune-scheduled-backups --save-plan` reviews them, and applying the review removes
@@ -259,6 +267,22 @@ This plan only makes sure its changes are covered by that transition's compatibi
   `NAGARE_LOCAL_MC_IMAGE` overrides. The operator chose to fix this here, as part of M1, because
   N1 needs fresh local contexts.
 
+- Observation (2026-10-10, enforcer): every route protected after the platform bootstrap answered
+  502 "no backend configured for host …". The enforcer (`cli/nagare-access/app/Main.hs`) read
+  `/etc/nagare-access/backends/backends.json` once at startup, and an application deploy changes
+  only the `nagare-access-backends` ConfigMap, so the running enforcer never learned the route.
+  The mounted file had the route within about a minute; the process did not. No earlier run
+  checked a protected route over HTTP after a deploy, which is the gap M1 exists to close.
+- Observation (2026-10-10): `scripts/publish-local-minio-images.sh` cannot push to cp3. It uses
+  `docker push`, and cp3's Docker daemon does not list `k3d-registry.localhost:5000` as an
+  insecure registry ("server gave HTTP response to HTTPS client"). The cp3 bring-up copied the
+  same MinIO images in by digest with skopeo and bound them with the overrides, so the default
+  binding was not exercised there.
+- Observation (2026-10-10): re-seeding a fresh registry from an export must leave out
+  platform-owned images. The exported `net-certmanager-controller` image carries the retired
+  history's ownership stamp, and the bootstrap refused it (`unverified-owner`). The k3d registry
+  refuses deletes, so the fresh context was discarded and rebuilt without that image.
+
 
 ## Decision Log
 
@@ -436,6 +460,20 @@ This plan only makes sure its changes are covered by that transition's compatibi
 - Decision: Defer key-kind-aware escrow and standalone services' and workers' volumes to the next
   release (overnight deferral, to be reported to the operator).
   Rationale: ingested runs need no escrow, and neither is in M3's acceptance.
+  Date: 2026-10-10
+
+- Decision: The enforcer polls its mounted backend map every five seconds and serves each request
+  with the map in force; a map that does not decode is logged and the previous routes keep
+  serving. A deploy does not roll the enforcer.
+  Rationale: the kubelet swaps a mounted ConfigMap in place, so reading the file is the standard
+  way to consume it. Rolling the enforcer from an application deploy would make an application
+  scope change a platform scope's workload.
+  Date: 2026-10-10
+
+- Decision: route-check waits up to 180 seconds for a new route's 502 to clear and fails at once
+  on any other status.
+  Rationale: the kubelet's ConfigMap sync (about a minute) plus the five-second re-read bound
+  how long a just-deployed route can be unknown to the enforcer.
   Date: 2026-10-10
 
 
