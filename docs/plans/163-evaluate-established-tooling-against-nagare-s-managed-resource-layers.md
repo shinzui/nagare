@@ -22,6 +22,11 @@ provenance:
       at: 2026-09-28T18:26:14Z
       mode: "update"
       note: "Prioritize K8up backup evaluation and assess the operator concern about Velero project direction"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-10T02:57:51Z
+      mode: "update"
+      note: "Volume backups extend the DB producer (EP-183); K8up is the fallback"
 ---
 
 # Evaluate established tooling against Nagare's managed-resource layers
@@ -69,6 +74,13 @@ The operator's concern about Velero is project direction. The precise upstream d
 Initial judgment: Velero may simplify Kubernetes resource/volume backup and recovery. Its value for the current local-path installation and database correctness is unresolved. It would not replace Pulumi/NixOS recovery or Nagare's cross-tool state/journal. If compatibility needs a new storage platform or a large custom database-consistency layer, record the added cost and prefer a narrower or rejected role rather than expanding MP-23.
 
 ## Decision Log
+
+- Decision: Volume backups for the intranet extend Nagare's scheduled database producer (EP-183 M3,
+  MasterPlan 24 Decision Log). K8up stays the volume candidate here as research and as EP-183's
+  fallback if its slice checkpoint stops. This plan no longer gates EP-183.
+  Rationale: the operator accepted EP-183's recommendation, conditional on the extension staying
+  small.
+  Date: 2026-10-09
 
 - Decision: Promote K8up/restic to the primary volume/application-backup candidate; retain Velero as a secondary desk comparison and CloudNativePG/Barman as the PostgreSQL comparison. Supersede the earlier Velero-first prototype order. A Velero prototype is conditional on a concrete gap in the primary comparisons and acceptable project-direction evidence.
   Rationale: The operator prefers K8up and identifies Velero's project direction as the concern. Evaluate long-term maintenance and recovery fit before any adoption decision; this does not change MP-23's release scope or gates.

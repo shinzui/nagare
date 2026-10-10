@@ -11,6 +11,12 @@ provenance:
     model: "claude-opus-5-5"
     harness: "claude-code"
     at: 2026-10-10T02:43:33Z
+  revisions:
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-10T02:58:24Z
+      mode: "update"
+      note: "Operator accepted extending the DB producer for volumes; M3 starts with a slice checkpoint"
 ---
 
 # Close the intranet gaps left by v0.4.0: HTTPS login, volume backups, retention and service rebuild
@@ -73,8 +79,8 @@ This plan only makes sure its changes are covered by that transition's compatibi
   as WARN. `db prune-scheduled-backups --save-plan` reviews them, and applying the review removes
   them. Recovery-model scenarios prove that a prune stopped at any operation closes by
   per-operation proof and never removes the newest verified recovery point.
-- [ ] M3. The volume-backup decision is recorded in MasterPlan 24's Decision Log. Every
-  backup-included volume of a context then has a scheduled producer with signed receipts. Its
+- [ ] M3. (Decision recorded 2026-10-09: extend the database producer.) Every backup-included
+  volume of a context has a scheduled producer with signed receipts. Its
   freshness is graded against the context's objective in `server status`. A restore of the newest
   receipt into a new PVC matches the source.
 - [ ] M4. A reviewed operation recreates a missing durable member from its predecessor's verified
@@ -108,8 +114,9 @@ This plan only makes sure its changes are covered by that transition's compatibi
   the target visible.
   Date: 2026-10-09
 
-- Decision (proposed; the operator confirms before M3 starts): back up volumes by extending the
-  existing scheduled database producer rather than adopting K8up. The pattern is a CronJob,
+- Decision (accepted by the operator 2026-10-09, conditional on staying small; see the M3 slice
+  checkpoint): back up volumes by extending the existing scheduled database producer rather than
+  adopting K8up. The pattern is a CronJob,
   receipts signed with HMAC (v5), escrowed signing keys and `Nagare.Inventory.BackupFreshness`
   grading. The volume archive is the tarball format `nagarectl storage snapshot` already writes.
   Rationale:
@@ -117,8 +124,8 @@ This plan only makes sure its changes are covered by that transition's compatibi
     escrow, receipt verification, refusal of corrupt uploads, and restore to a new PVC.
   - K8up would add a second repository format and a second retention engine beneath the journal,
     which EP-163 lists as an open question (`docs/plans/163-…md`, K8up questions).
-  - MasterPlan 24's Decision Log says to evaluate before implementing. So this choice is recorded
-    there by the operator, either now or after EP-163's K8up prototype (EP-163 M2).
+  - MasterPlan 24's Decision Log said to evaluate before implementing. The operator recorded this
+    choice there on 2026-10-09.
   Date: 2026-10-09
 
 - Decision: The rebuild restores into a new incarnation through an explicit lineage decision. It
@@ -285,7 +292,8 @@ No cross-repository ADR applies.
 ## Plan of Work
 
 The milestones are ordered by value to the intranet and by how little each depends on others. M1
-can start immediately. M2 needs the operator's targets. M3 needs the volume decision. M4 depends
+can start immediately. M2 needs the operator's targets. M3 has its decision and starts with a slice
+checkpoint. M4 depends
 only on the recovery model. M5 is the only place native runs happen.
 
 **Milestone 1: HTTPS and login are checked, not assumed.** Do these in order:
@@ -353,10 +361,36 @@ defaults and record the operator's yes or changes in this plan's Decision Log:
 
 **Milestone 3: volumes inside the recovery-point objective.**
 
-*Decision first.* Start by recording the volume-backup decision in MasterPlan 24's Decision Log
-(see this plan's Decision Log for the recommendation and the alternative).
+*Decision.* On 2026-10-09 the operator chose to extend the database producer, on condition that
+it does not become a long project. The scheduled Job in `cli/nagarectl/src/Nagare/Database/Backup.hs`
+already has two parts:
+- a dump container that writes `/dump/backup.<ext>` and is engine-specific (`dumpShell`,
+  `dumpEnv`);
+- an upload container that compresses, uploads create-only, reads back and signs the receipt, and
+  is independent of the engine except for the file extension.
 
-*If the recommendation is accepted:*
+A volume source is therefore a new dump container (a `tar` of the PVC mounted read-only) plus a
+source kind that replaces `Engine` wherever the extension and receipt are chosen. The receipt
+parser in `cli/nagarectl/src/Nagare/Inventory/BackupReceipt.hs` currently keys on the engine name.
+
+*Slice checkpoint (do this first; it decides whether M3 stays small).* Build one vertical slice
+before anything else:
+- one backup-included fixture volume gets its CronJob through the application's reviewed deploy;
+- on a local context, it uploads a tarball with a signed v5 receipt;
+- `server status` shows its graded recovery-point row.
+
+The slice passes when it needed only:
+- the new dump container;
+- the source kind in the job inputs and receipt;
+- a PVC-only source-identity check beside the database's StatefulSet/PVC check (in
+  `cli/nagarectl/src/Nagare/Inventory/ScheduledIngest.hs`);
+- the status row.
+
+If it needs a new ingestion or acceptance semantics, or a change to how receipts become restore
+authority, stop and report to the operator with what was found. Do not push on. Record the
+result in Surprises & Discoveries either way.
+
+*After the slice:*
 1. Generalise the scheduled producer in `cli/nagarectl/src/Nagare/Database/Backup.hs` so that a
    backup-included volume (`docs/user/backups-and-disaster-recovery.md`, "App volumes") gets a
    CronJob, `nagare-volbackup-<app>-<volume>`. The CronJob:
@@ -377,8 +411,8 @@ defaults and record the operator's yes or changes in this plan's Decision Log:
 volume. Document that an app needing transactional consistency belongs in a managed database. This
 is the same contract the manual snapshot has today.
 
-*If the operator chooses K8up after EP-163 M2,* rewrite this milestone around the evaluated tool
-before starting. The acceptance below stays as written.
+*If the slice checkpoint stops,* the alternatives are K8up (EP-163) or keeping volumes outside the
+objective; the operator chooses. The acceptance below stays as written.
 
 **Milestone 4: rebuild the service after losing the VM.**
 
@@ -580,9 +614,10 @@ Dependencies on other plans:
 - M2's targets come from EP-162 M1
   (`docs/plans/162-define-team-operating-requirements-and-decide-availability-for-the-intranet-paas.md`),
   or from the operator's confirmation of the defaults above.
-- M3 needs the operator's volume-backup decision in MasterPlan 24's Decision Log. If they choose to
-  wait for evaluation, it needs EP-163 M2
-  (`docs/plans/163-evaluate-established-tooling-against-nagare-s-managed-resource-layers.md`).
+- M3's tooling decision is recorded (MasterPlan 24, 2026-10-09). It depends on no other plan
+  unless its slice checkpoint stops; then EP-163
+  (`docs/plans/163-evaluate-established-tooling-against-nagare-s-managed-resource-layers.md`) is
+  the fallback.
 - M1's stage plugs into EP-168. Native run N1 uses `local-acceptance` once EP-168 lands it.
 - M4's model work uses the production adapter registry once EP-173 M3 lands
   (`docs/plans/173-find-recovery-defects-with-adversarial-provider-interpreters.md`). Until then,

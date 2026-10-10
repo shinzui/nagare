@@ -125,7 +125,8 @@ ExecPlans for these planned streams, each shaped by the chosen tooling:
    - D4, half two: a reviewed rebuild of the service after losing the VM, timed against a
      recovery-time objective.
 
-   Only its volume milestone touches the tooling choice, and it waits for that decision.
+   Only its volume milestone touched the tooling choice; the operator decided it on 2026-10-09
+   (Decision Log).
 
 Alternatives considered: writing all implementation ExecPlans up front (rejected, because their
 content would be speculative until the tooling is chosen); a single ExecPlan for requirements and
@@ -155,7 +156,7 @@ found to apply.
 |---|-------|------|-----------|-----------|--------|
 | 162 | Define team operating requirements and decide availability for the intranet PaaS | docs/plans/162-define-team-operating-requirements-and-decide-availability-for-the-intranet-paas.md | None | None | Not Started |
 | 163 | Evaluate established tooling against Nagare's managed-resource layers | docs/plans/163-evaluate-established-tooling-against-nagare-s-managed-resource-layers.md | EP-162 M1 (before EP-163 M3) | EP-162 | Not Started |
-| 183 | Close the intranet gaps left by v0.4.0: HTTPS login, volume backups, retention and service rebuild | docs/plans/183-close-the-intranet-gaps-left-by-v0-4-0-https-login-volume-backups-retention-and-service-rebuild.md | Operator volume-backup decision (before EP-183 M3) | EP-162 M1, EP-163 M2 | Not Started |
+| 183 | Close the intranet gaps left by v0.4.0: HTTPS login, volume backups, retention and service rebuild | docs/plans/183-close-the-intranet-gaps-left-by-v0-4-0-https-login-volume-backups-retention-and-service-rebuild.md | None | EP-162 M1 | Not Started |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-162).
@@ -175,9 +176,9 @@ and says so.
 
 EP-183 can start at once. Its M1 (HTTPS and login) and M4 (rebuild) depend on no evaluation. Its
 M2 takes the retention and recovery-time targets from EP-162 M1, or from the operator's
-confirmation of the plan's proposed defaults. Its M3 (volumes) waits for the operator's
-volume-backup decision in this Decision Log. That decision is taken either directly or after
-EP-163 M2's K8up prototype.
+confirmation of the plan's proposed defaults. Its M3 (volumes) has its decision (extend the
+database producer, 2026-10-09) and starts with a slice checkpoint. EP-163 is its fallback only if
+the slice stops.
 
 The planned implementation streams have a hard dependency on the operator's decision on EP-163's
 recommendation, recorded in this MasterPlan's Decision Log. They are added as ExecPlans at that
@@ -204,9 +205,9 @@ Prototype isolation. EP-163's prototypes run on a dedicated local k3d cluster th
 Nagare local context's cluster, so they cannot disturb MasterPlan 23's retained local fixtures.
 No cloud context is touched.
 
-EP-183 and the evaluation. EP-183's recommended volume backup extends Nagare's scheduled database
-producer. EP-163 scores that recommendation against K8up as a candidate. EP-183 does not start its
-volume milestone before the decision is recorded here. EP-183's release work reaches existing
+EP-183 and the evaluation. EP-183's volume backup extends Nagare's scheduled database producer
+(decided 2026-10-09). EP-163 may score the result as Nagare's existing option. It no longer
+gates EP-183 unless EP-183 M3's slice checkpoint stops. EP-183's release work reaches existing
 installations only through MasterPlan 26's EP-172, with a compatibility row for each format it
 changes.
 
@@ -233,6 +234,15 @@ streams listed in Decomposition Strategy are intentionally not yet planned.
 
 
 ## Decision Log
+
+- Decision: Volume backups extend Nagare's scheduled database producer (EP-183 M3), not K8up. The
+  operator's condition is that this stays small. EP-183 M3 starts with a vertical slice, and stops
+  and reports if the slice needs new ingestion or restore-authority semantics. EP-163 no longer
+  gates EP-183. Its K8up evaluation stays as research and becomes the fallback if the slice stops.
+  Rationale: the operator accepted EP-183's recommendation on 2026-10-09. The producer, receipts,
+  escrow, grading and restore to a new PVC are proven on v0.4.0, and only the dump step and source
+  kind are new.
+  Date: 2026-10-09
 
 - Decision: Plan EP-183 now, ahead of EP-163's recommendation, for the v0.4.0 production gaps:
   - HTTPS and login;
