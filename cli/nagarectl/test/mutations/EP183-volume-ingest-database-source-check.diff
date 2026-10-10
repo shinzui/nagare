@@ -1,0 +1,12 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/ScheduledIngest.hs b/cli/nagarectl/src/Nagare/Inventory/ScheduledIngest.hs
+--- a/cli/nagarectl/src/Nagare/Inventory/ScheduledIngest.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/ScheduledIngest.hs
+@@ -619,7 +619,7 @@
+ -- | A volume run's receipt names exactly its claim (EP-183 M3); every other
+ -- check is the database script's.
+ volumeIngestScriptFor :: StoreBackend -> Text
+-volumeIngestScriptFor = ingestScriptWith "assert payload[\"source\"]=={\"pvcUid\":e[\"PVC_UID\"]}"
++volumeIngestScriptFor = ingestScriptFor
+ 
+ ingestScriptWith :: Text -> StoreBackend -> Text
+ ingestScriptWith sourceCheck backend = T.intercalate "\n" (["set -eu"] <> downloads <> verification)

@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/ScheduledIngest.hs b/cli/nagarectl/src/Nagare/Inventory/ScheduledIngest.hs
+--- a/cli/nagarectl/src/Nagare/Inventory/ScheduledIngest.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/ScheduledIngest.hs
+@@ -697,8 +697,7 @@
+           labels <- case KM.lookup "nagare.dev/scheduled-receipt-source-kind" annotations of
+             Nothing -> Right ["source-statefulset", "source-pvc", "schedule", "signing"]
+             Just (String "volume")
+-              | not (KM.member "nagare.dev/scheduled-receipt-source-statefulset" annotations)
+-              , not (KM.member "nagare.dev/scheduled-receipt-source-statefulset-uid" annotations) ->
++              ->
+                   Right ["source-pvc", "schedule", "signing"]
+             _ -> Left "scheduled ingestion has an invalid source kind"
+           Just <$> traverse pin labels

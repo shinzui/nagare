@@ -1024,5 +1024,17 @@
     "suite": "nagarectl",
     "pattern": "/a volume expectation comes only from the accepted CronJob's own app, volume and claim/",
     "expect": "test-fails"
+  },
+  {
+    "record": "EP183-volume-ingest-pins-ignore-statefulset",
+    "suite": "nagarectl",
+    "pattern": "/a volume run is refused for another claim incarnation, a database shape, or a StatefulSet pin/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "EP183-volume-ingest-database-source-check",
+    "suite": "nagarectl",
+    "pattern": "/the rendered ingestion Job verifies a real volume receipt and the database script refuses it/",
+    "expect": "test-fails"
   }
 ]
