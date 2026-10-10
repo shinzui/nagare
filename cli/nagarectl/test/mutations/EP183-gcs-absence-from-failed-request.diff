@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Database/Prune.hs b/cli/nagarectl/src/Nagare/Database/Prune.hs
+index b2beb9b4..59719f69 100644
+--- a/cli/nagarectl/src/Nagare/Database/Prune.hs
++++ b/cli/nagarectl/src/Nagare/Database/Prune.hs
+@@ -244,7 +244,7 @@ gcsSetup bucket =
+     <> "TOKEN=$(gcloud auth print-access-token); "
+     <> "CODE=$(curl -sS -o /dev/null -w '%{http_code}' -H \"Authorization: Bearer $TOKEN\""
+     <> " \"https://storage.googleapis.com/storage/v1/b/$STORE_BUCKET/o/$NAME\"); "
+-    <> "case \"$CODE\" in 200) echo live;; 404) echo absent;; *) exit 1;; esac; }; "
++    <> "case \"$CODE\" in 200) echo live;; *) echo absent;; esac; }; "
+ 
+ pruneShellWithPins :: PruneJobInputs -> Bool -> Text
+ pruneShellWithPins inputs pinned =

@@ -1,0 +1,17 @@
+diff --git a/cli/nagarectl/src/Nagare/Database/Prune.hs b/cli/nagarectl/src/Nagare/Database/Prune.hs
+index b2beb9b4..32c63d7f 100644
+--- a/cli/nagarectl/src/Nagare/Database/Prune.hs
++++ b/cli/nagarectl/src/Nagare/Database/Prune.hs
+@@ -175,10 +175,9 @@ scheduledReceiptRecoveryShell inputs = case inputs ^. #backend of
+       <> "STATE=$(gcs_live \"$KEY\"); "
+       <> "if test \"$STATE\" = absent; then return 0; fi; "
+       <> "LIVE=$(gcloud storage objects describe \"$URL\" --format='value(generation)'); "
+-      <> "test \"$LIVE\" = \"$GEN\"; "
+-      <> "ACTUAL=$(gcloud storage cp \"$URL#$GEN\" - | sha256sum | cut -d' ' -f1); "
++      <> "ACTUAL=$(gcloud storage cp \"$URL#$LIVE\" - | sha256sum | cut -d' ' -f1); "
+       <> "test \"$ACTUAL\" = \"$SHA\"; "
+-      <> "gcloud storage rm \"$URL\" --if-generation-match=\"$GEN\"; "
++      <> "gcloud storage rm \"$URL\" --if-generation-match=\"$LIVE\"; "
+       <> "test \"$(gcs_live \"$KEY\")\" = absent; }; "
+       <> "converge_one \"$OBJECT\" \"$DATA_KEY\" \"$EXPECTED_OBJECT_VERSION\" \"$EXPECTED_OBJECT_SHA256\"; "
+       <> "converge_one \"$RECEIPT\" \"$RECEIPT_KEY\" \"$EXPECTED_RECEIPT_VERSION\" \"$EXPECTED_RECEIPT_SHA256\""

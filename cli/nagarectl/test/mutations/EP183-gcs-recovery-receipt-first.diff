@@ -1,0 +1,15 @@
+diff --git a/cli/nagarectl/src/Nagare/Database/Prune.hs b/cli/nagarectl/src/Nagare/Database/Prune.hs
+index b2beb9b4..e182b490 100644
+--- a/cli/nagarectl/src/Nagare/Database/Prune.hs
++++ b/cli/nagarectl/src/Nagare/Database/Prune.hs
+@@ -180,8 +180,8 @@ scheduledReceiptRecoveryShell inputs = case inputs ^. #backend of
+       <> "test \"$ACTUAL\" = \"$SHA\"; "
+       <> "gcloud storage rm \"$URL\" --if-generation-match=\"$GEN\"; "
+       <> "test \"$(gcs_live \"$KEY\")\" = absent; }; "
+-      <> "converge_one \"$OBJECT\" \"$DATA_KEY\" \"$EXPECTED_OBJECT_VERSION\" \"$EXPECTED_OBJECT_SHA256\"; "
+-      <> "converge_one \"$RECEIPT\" \"$RECEIPT_KEY\" \"$EXPECTED_RECEIPT_VERSION\" \"$EXPECTED_RECEIPT_SHA256\""
++      <> "converge_one \"$RECEIPT\" \"$RECEIPT_KEY\" \"$EXPECTED_RECEIPT_VERSION\" \"$EXPECTED_RECEIPT_SHA256\"; "
++      <> "converge_one \"$OBJECT\" \"$DATA_KEY\" \"$EXPECTED_OBJECT_VERSION\" \"$EXPECTED_OBJECT_SHA256\""
+   MinioBackend ref ->
+     "set -eu; "
+       <> storeShellPreamble (inputs ^. #backend)

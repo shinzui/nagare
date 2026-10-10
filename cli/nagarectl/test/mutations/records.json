@@ -970,5 +970,23 @@
     "suite": "nagarectl",
     "pattern": "/retention keeps ties and the newest point however old/",
     "expect": "test-fails"
+  },
+  {
+    "record": "EP183-gcs-recovery-unpinned",
+    "suite": "nagarectl",
+    "pattern": "/a GCS recovery Job refuses a reuploaded live generation/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "EP183-gcs-absence-from-failed-request",
+    "suite": "nagarectl",
+    "pattern": "/a GCS scheduled prune interrupted at every call/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "EP183-gcs-recovery-receipt-first",
+    "suite": "nagarectl",
+    "pattern": "/a GCS scheduled prune interrupted at every call/",
+    "expect": "test-fails"
   }
 ]
