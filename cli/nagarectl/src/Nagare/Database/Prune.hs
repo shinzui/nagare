@@ -155,13 +155,33 @@ pruneShell inputs = pruneShellWithPins inputs False
 scheduledPruneShell :: PruneJobInputs -> Text
 scheduledPruneShell inputs = pruneShellWithPins inputs True
 
--- | Recovery of an immutable Job that deleted only the data version. The
--- original review supplies both exact versions and hashes; a complete version
--- listing must find no data-key version or delete marker before the receipt
--- can be removed. The ordinary prune Job cannot be replayed after this point.
+-- | EP-183 M2: recovery of a scheduled prune Job that failed at any point.
+-- The original review supplies both exact versions and hashes. The Job
+-- converges each key in order, the archive before its receipt: a key with no
+-- live object is done; a key whose only live object is the reviewed version
+-- is checked against its hash, deleted by that exact version, and proved
+-- absent; anything else refuses before any further deletion. Running it again
+-- after any interruption therefore finishes the same deletion and nothing
+-- more, and a receipt is never removed while its archive is still live.
 scheduledReceiptRecoveryShell :: PruneJobInputs -> Text
 scheduledReceiptRecoveryShell inputs = case inputs ^. #backend of
-  GcsBackend {} -> "exit 1"
+  GcsBackend _ bucket ->
+    "set -eu; "
+      <> "command -v sha256sum >/dev/null 2>&1; "
+      <> gcsSetup bucket
+      <> "test \"$RECEIPT\" = \"$OBJECT.receipt.json\"; "
+      <> "case \"$EXPECTED_OBJECT_VERSION:$EXPECTED_RECEIPT_VERSION\" in *[!0-9:]*|:*|*:) exit 1;; esac; "
+      <> "converge_one() { URL=$1; KEY=$2; GEN=$3; SHA=$4; "
+      <> "STATE=$(gcs_live \"$KEY\"); "
+      <> "if test \"$STATE\" = absent; then return 0; fi; "
+      <> "LIVE=$(gcloud storage objects describe \"$URL\" --format='value(generation)'); "
+      <> "test \"$LIVE\" = \"$GEN\"; "
+      <> "ACTUAL=$(gcloud storage cp \"$URL#$GEN\" - | sha256sum | cut -d' ' -f1); "
+      <> "test \"$ACTUAL\" = \"$SHA\"; "
+      <> "gcloud storage rm \"$URL\" --if-generation-match=\"$GEN\"; "
+      <> "test \"$(gcs_live \"$KEY\")\" = absent; }; "
+      <> "converge_one \"$OBJECT\" \"$DATA_KEY\" \"$EXPECTED_OBJECT_VERSION\" \"$EXPECTED_OBJECT_SHA256\"; "
+      <> "converge_one \"$RECEIPT\" \"$RECEIPT_KEY\" \"$EXPECTED_RECEIPT_VERSION\" \"$EXPECTED_RECEIPT_SHA256\""
   MinioBackend ref ->
     "set -eu; "
       <> storeShellPreamble (inputs ^. #backend)
@@ -176,35 +196,55 @@ scheduledReceiptRecoveryShell inputs = case inputs ^. #backend of
       <> "case \"$OBJECT\" in s3://\"$STORE_BUCKET\"/*) ;; *) exit 1;; esac; "
       <> "DATA_KEY=${OBJECT#s3://$STORE_BUCKET/}; "
       <> "RECEIPT_KEY=${RECEIPT#s3://$STORE_BUCKET/}; "
-      <> "test -n \"$DATA_KEY\"; test -n \"$EXPECTED_OBJECT_VERSION\"; "
+      <> "test -n \"$DATA_KEY\"; test -n \"$EXPECTED_OBJECT_VERSION\"; test -n \"$EXPECTED_RECEIPT_VERSION\"; "
       <> "test \"$RECEIPT\" = \"$OBJECT.receipt.json\"; "
-      <> "version_absent() { TARGET_KEY=$1; export TARGET_KEY; "
+      -- Every version at the exact key, from a complete listing; a delete
+      -- marker refuses, since this Job never writes one.
+      <> "versions_of() { TARGET_KEY=$1; export TARGET_KEY; "
       <> "aws --no-paginate s3api list-object-versions --bucket \"$STORE_BUCKET\""
       <> " --prefix \"$TARGET_KEY\" --output json --endpoint-url \"$STORE_ENDPOINT\""
-      <> " > \"$VERSIONS_FILE\"; "
+      <> " > \"$VERSIONS_FILE\" && "
       <> "python3 -c 'import json,os,sys; d=json.load(sys.stdin); "
-      <> "assert d.get(\"IsTruncated\") is False; "
-      <> "assert all(v.get(\"Key\") != os.environ[\"TARGET_KEY\"] "
-      <> "for v in d.get(\"Versions\",[])+d.get(\"DeleteMarkers\",[]))'"
+      <> "assert d.get(\"IsTruncated\") is False; k=os.environ[\"TARGET_KEY\"]; "
+      <> "assert not [m for m in d.get(\"DeleteMarkers\") or [] if m.get(\"Key\") == k]; "
+      <> "print(\" \".join(v[\"VersionId\"] for v in d.get(\"Versions\") or [] if v.get(\"Key\") == k))'"
       <> " < \"$VERSIONS_FILE\"; }; "
-      <> "version_absent \"$DATA_KEY\"; "
-      <> "RECEIPT_VERSION=$(aws s3api head-object --bucket \"$STORE_BUCKET\""
-      <> " --key \"$RECEIPT_KEY\" --query VersionId --output text"
-      <> " --endpoint-url \"$STORE_ENDPOINT\"); "
-      <> "test \"$RECEIPT_VERSION\" = \"$EXPECTED_RECEIPT_VERSION\"; "
-      <> "ACTUAL_RECEIPT=$(aws s3api get-object --bucket \"$STORE_BUCKET\""
-      <> " --key \"$RECEIPT_KEY\" --version-id \"$RECEIPT_VERSION\""
+      <> "converge_one() { KEY=$1; VERSION=$2; SHA=$3; "
+      <> "FOUND=$(versions_of \"$KEY\"); "
+      <> "if test -z \"$FOUND\"; then return 0; fi; "
+      <> "test \"$FOUND\" = \"$VERSION\"; "
+      <> "ACTUAL=$(aws s3api get-object --bucket \"$STORE_BUCKET\""
+      <> " --key \"$KEY\" --version-id \"$VERSION\""
       <> " --endpoint-url \"$STORE_ENDPOINT\" /dev/fd/3 3>&1 1>/dev/null"
       <> " | sha256sum | cut -d' ' -f1); "
-      <> "test \"$ACTUAL_RECEIPT\" = \"$EXPECTED_RECEIPT_SHA256\"; "
-      <> "version_absent \"$DATA_KEY\"; "
-      <> "test \"$(aws s3api head-object --bucket \"$STORE_BUCKET\""
-      <> " --key \"$RECEIPT_KEY\" --query VersionId --output text"
-      <> " --endpoint-url \"$STORE_ENDPOINT\")\" = \"$RECEIPT_VERSION\"; "
+      <> "test \"$ACTUAL\" = \"$SHA\"; "
       <> "aws s3api delete-object --bucket \"$STORE_BUCKET\""
-      <> " --key \"$RECEIPT_KEY\" --version-id \"$RECEIPT_VERSION\""
+      <> " --key \"$KEY\" --version-id \"$VERSION\""
       <> " --endpoint-url \"$STORE_ENDPOINT\"; "
-      <> "version_absent \"$RECEIPT_KEY\""
+      <> "test -z \"$(versions_of \"$KEY\")\"; }; "
+      <> "converge_one \"$DATA_KEY\" \"$EXPECTED_OBJECT_VERSION\" \"$EXPECTED_OBJECT_SHA256\"; "
+      <> "converge_one \"$RECEIPT_KEY\" \"$EXPECTED_RECEIPT_VERSION\" \"$EXPECTED_RECEIPT_SHA256\""
+
+-- | The bucket, the two keys, and a positive live-object check for GCS. The
+-- JSON API's object GET without a generation answers 404 exactly when no live
+-- generation exists at the key, whatever noncurrent generations the versioned
+-- bucket keeps; any other answer, or a failed request, stops the Job. A failed
+-- @describe@ is never read as absence.
+gcsSetup :: Text -> Text
+gcsSetup bucket =
+  "STORE_BUCKET='"
+    <> bucket
+    <> "'; "
+    <> "case \"$OBJECT\" in gs://\"$STORE_BUCKET\"/*) ;; *) exit 1;; esac; "
+    <> "DATA_KEY=${OBJECT#gs://$STORE_BUCKET/}; "
+    <> "RECEIPT_KEY=${RECEIPT#gs://$STORE_BUCKET/}; "
+    <> "test -n \"$DATA_KEY\"; test -n \"$RECEIPT_KEY\"; "
+    <> "gcs_live() { case \"$1\" in ''|*[!A-Za-z0-9._/-]*) exit 1;; esac; "
+    <> "NAME=$(printf '%s' \"$1\" | sed 's#/#%2F#g'); "
+    <> "TOKEN=$(gcloud auth print-access-token); "
+    <> "CODE=$(curl -sS -o /dev/null -w '%{http_code}' -H \"Authorization: Bearer $TOKEN\""
+    <> " \"https://storage.googleapis.com/storage/v1/b/$STORE_BUCKET/o/$NAME\"); "
+    <> "case \"$CODE\" in 200) echo live;; 404) echo absent;; *) exit 1;; esac; }; "
 
 pruneShellWithPins :: PruneJobInputs -> Bool -> Text
 pruneShellWithPins inputs pinned =
@@ -256,7 +296,7 @@ pruneShellWithPins inputs pinned =
         "command -v sha256sum >/dev/null 2>&1 || dnf install -y -q coreutils >/dev/null 2>&1; "
           <> "command -v sha256sum >/dev/null 2>&1; "
     backendSetup = case backend of
-      GcsBackend {} -> ""
+      GcsBackend _ bucket -> gcsSetup bucket
       MinioBackend ref ->
         "STORE_BUCKET='"
           <> ref ^. #bucket
@@ -313,7 +353,7 @@ pruneShellWithPins inputs pinned =
     -- The receipt shares the backup key's prefix, so compare complete keys
     -- rather than searching for the selected key as a substring.
     verifyAbsent selectedKey = case backend of
-      GcsBackend {} -> "true"
+      GcsBackend {} -> "test \"$(gcs_live \"$" <> selectedKey <> "\")\" = absent"
       MinioBackend {} ->
         "VISIBLE=$(aws s3api list-objects-v2 --bucket \"$STORE_BUCKET\""
           <> " --prefix \"$"

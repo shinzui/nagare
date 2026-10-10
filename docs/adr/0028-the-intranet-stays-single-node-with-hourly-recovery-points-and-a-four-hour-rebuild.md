@@ -85,7 +85,18 @@ of downtime after the VM is lost.
   admission time against the accepted receipts. The check uses the widest objective's breach window,
   so the newest point, any point inside the 48-hour or breach window, and each retained day's newest
   point can never be removed.
-- **Cloud pruning waits.** The reviewed prune is local (MinIO) only. Receipt recovery after a
-  partial cloud prune needs GCS exact-generation listing, which does not exist yet. In a cloud
-  context, `server status` grades retention, but runs past policy stay in place until that
-  recovery exists.
+- **Deletion is pinned and proved, archive first.** Each prune Job deletes the archive before its
+  receipt, by the reviewed MinIO version or GCS generation (`--if-generation-match`). It then proves
+  that no live object remains at each key: on GCS, the JSON API answers 404 for the live object; a
+  failed command never counts as absence.
+- **A failed prune always has an exit.** A Job may fail before any deletion, or after deleting only
+  the archive. Close keeps the prune scope accepted in both cases. `db recover-scheduled-prune`
+  reviews one recovery Job that converges each key in order and finishes exactly the reviewed
+  deletion. A key with no live object is done, the reviewed version is deleted, and anything else
+  refuses. Before this, a Job that failed before deleting anything left the run marked pruned with
+  both objects live. Nothing could recover it, and the listing check then refused every later prune.
+- **A cloud prune leaves a noncurrent copy for 30 days.** The GCS backup bucket is versioned (EP-99),
+  so a pruned generation stays noncurrent until the bucket's lifecycle rule deletes it 30 days
+  later, plus the GCS soft-delete window. This keeps EP-99's protection against a compromised node
+  wiping backups. It also means personal data in a pruned run lingers that long; shortening the
+  window is a bucket-policy decision for the operator.

@@ -589,6 +589,7 @@ test-suite nagarectl-test
     Nagare.Test.Backup.Objective
     Nagare.Test.Backup.Paths
     Nagare.Test.Backup.Prune
+    Nagare.Test.Backup.PruneWorld
     Nagare.Test.Backup.Rendering
     Nagare.Test.Backup.Restore
     Nagare.Test.Backup.Retention
@@ -647,6 +648,7 @@ test-suite nagarectl-test
     Nagare.Test.Webhook
     Nagare.Test.World.Adversary
     Nagare.Test.World.ApiServer
+    Nagare.Test.World.Bucket
     Nagare.Test.World.Cluster
     Nagare.Test.World.Kinds
     Nagare.Test.World.Kubectl

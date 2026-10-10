@@ -28,9 +28,7 @@ import Nagare.Cli.Runtime.Target
   ( activeTarget
   , resolvePlatformWorkspace
   )
-import Nagare.Cluster.GcsJob
-  ( StoreBackend (GcsBackend, MinioBackend)
-  )
+import Nagare.Cluster.GcsJob (storeObjectUrl)
 import Nagare.Cluster.Kubeconfig (kubeconfigPath)
 import Nagare.Dsl.Database.Render (dbPvcName)
 import Nagare.Dsl.Prelude
@@ -60,9 +58,11 @@ import Nagare.Inventory.KubernetesReview
   ( kubernetesSpecsFromReview
   )
 import Nagare.Inventory.Plan qualified as InventoryPlan
+import Nagare.Inventory.ScheduledGcs (withScheduledObjectStore)
 import Nagare.Inventory.ScheduledPrune
   ( ScheduledPruneCandidate (..)
   , ScheduledPruneRequest (..)
+  , classifyStoppedPrune
   , compileScheduledPruneRecoveryScope
   , compileScheduledPruneScope
   , recoverScheduledPruneCandidate
@@ -76,7 +76,6 @@ import Nagare.Inventory.ScheduledStore
     , readObjectToFile
     )
   , StoredObject (storedLength, storedVersion)
-  , withLocalObjectStore
   )
 import Nagare.Inventory.Status qualified as InventoryStatus
 import Nagare.Inventory.Store qualified as InventoryStore
@@ -92,7 +91,8 @@ import System.IO.Temp (withSystemTempDirectory)
 -- | EP-183 M2: review the accepted scheduled runs of one database that the
 -- retention policy (ADR 28) places past policy, one exact prune scope each.
 -- Admission re-evaluates the policy against the accepted receipts before any
--- effect. Local (MinIO) contexts only, as receipt recovery is.
+-- effect. Both backends: GCS deletes are generation-pinned, and a failed Job
+-- is finished by `db recover-scheduled-prune`.
 runReviewedScheduledPrunePlan :: Maybe String -> Text -> Text -> Maybe String -> FilePath -> IO ()
 runReviewedScheduledPrunePlan mctx database namespaceName bucketArg output = do
   active <- activeTarget mctx
@@ -155,13 +155,10 @@ runReviewedScheduledPrunePlan mctx database namespaceName bucketArg output = do
   (_, cronBytes) <- maybe (dieT "accepted CronJob lacks private native bytes") pure (Map.lookup (cron ^. #identity) sourceNative)
   backend <- resolveStoreBackend mctx bucketArg
   expectation <- either dieT pure (scheduledReceiptExpectationFromCronJob backend namespaceName database statefulUid pvcUid cronBytes)
-  minio <- case backend of
-    MinioBackend ref -> pure ref
-    GcsBackend {} -> dieT "cloud scheduled prune requires exact-generation provider listing and receipt recovery"
-  let bucketAddress = "s3://" <> minio ^. #bucket <> "/"
+  let bucketAddress = storeObjectUrl backend ""
       prefix = scheduledObjectPrefix expectation
-  keyPrefix <- maybe (dieT "accepted schedule has another local bucket") pure (T.stripPrefix bucketAddress prefix)
-  listedResult <- withLocalObjectStore (contextNameText (active ^. #contextName)) minio (\reader -> listObjectEntries reader keyPrefix)
+  keyPrefix <- maybe (dieT "accepted schedule has another bucket") pure (T.stripPrefix bucketAddress prefix)
+  listedResult <- withScheduledObjectStore (contextNameText (active ^. #contextName)) backend (\reader -> listObjectEntries reader keyPrefix)
   listed <- either dieT pure listedResult >>= either dieT pure
   let receiptScopes =
         [ scope
@@ -511,28 +508,26 @@ runReviewedScheduledPruneRecoveryPlan
             pure uid
       _ -> dieT "accepted scheduled ingestion Job is absent or drifted"
     backend <- resolveStoreBackend mctx bucketArg
-    minio <- case backend of
-      MinioBackend ref -> pure ref
-      GcsBackend {} -> dieT "cloud partial prune recovery requires exact-generation proof"
-    let bucketAddress = "s3://" <> minio ^. #bucket <> "/"
+    let bucketAddress = storeObjectUrl backend ""
     objectAddress <- required "scheduled.prune.object"
     receiptAddress <- required "scheduled.prune.receipt"
     objectVersion <- required "scheduled.prune.object.version"
     receiptVersion <- required "scheduled.prune.receipt.version"
     objectKey <-
       maybe
-        (dieT "failed object is outside the selected local bucket")
+        (dieT "failed object is outside the selected bucket")
         pure
         (T.stripPrefix bucketAddress objectAddress)
     receiptKey <-
       maybe
-        (dieT "failed receipt is outside the selected local bucket")
+        (dieT "failed receipt is outside the selected bucket")
         pure
         (T.stripPrefix bucketAddress receiptAddress)
+    let (keyPrefix, _) = T.breakOnEnd "/" objectKey
     provider <- withSystemTempDirectory "nagare-partial-prune-review" $ \scratch ->
-      withLocalObjectStore (contextNameText (active ^. #contextName)) minio $ \reader -> do
-        current <- listObjectEntries reader objectKey
+      withScheduledObjectStore (contextNameText (active ^. #contextName)) backend $ \reader -> do
         versions <- listObjectVersions reader objectKey
+        current <- listObjectEntries reader keyPrefix
         receiptStored <-
           readObjectToFile
             reader
@@ -545,15 +540,12 @@ runReviewedScheduledPruneRecoveryPlan
             content <- BS.readFile (scratch <> "/receipt.json")
             pure (Right (stored, content))
         pure $ do
-          listed <- current
           exactVersions <- versions
+          listed <- current
           (stored, content) <- bytes
-          unless
-            ( map listedKey listed == [receiptKey]
-                && exactVersions == [(receiptKey, receiptVersion)]
-                && storedVersion stored == receiptVersion
-            )
-            (Left "partial prune provider state differs from one remaining exact receipt")
+          -- EP-183 M2: a Job that failed before deleting anything, or after
+          -- deleting only the archive, is finished by the same recovery Job.
+          _ <- classifyStoppedPrune (objectKey, objectVersion) (receiptKey, receiptVersion) exactVersions
           let expectedLength =
                 Map.lookup
                   "scheduled.backup.receipt.length"
@@ -563,16 +555,16 @@ runReviewedScheduledPruneRecoveryPlan
                   "scheduled.backup.receipt.digest"
                   (ResourceInventory.scopeOverrides backupScope)
           unless
-            ( expectedLength == Just (T.pack (show (storedLength stored)))
+            ( storedVersion stored == receiptVersion
+                && expectedLength == Just (T.pack (show (storedLength stored)))
                 && expectedDigest
                   == Just
                     ( Resource.digestText
                         (InventoryDigest.contentDigest content)
                     )
-                && not ((objectKey, objectVersion) `elem` exactVersions)
             )
-            (Left "remaining receipt bytes or reviewed object absence changed")
-          case listed of
+            (Left "remaining receipt bytes changed")
+          case [entry | entry <- listed, listedKey entry == receiptKey] of
             [entry] -> Right (listedModified entry)
             _ -> Left "partial prune receipt has no unique current listing"
     receiptTime <- either dieT pure provider >>= either dieT pure

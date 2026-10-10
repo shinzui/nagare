@@ -20,9 +20,7 @@ import Nagare.Cli.Runtime.Cluster (guardKubernetesContext)
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Cli.Runtime.ObjectStore (resolveStoreBackend)
 import Nagare.Cli.Runtime.Target (activeTarget)
-import Nagare.Cluster.GcsJob
-  ( StoreBackend (GcsBackend, MinioBackend)
-  )
+import Nagare.Cluster.GcsJob (storeObjectUrl)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapters.Kubernetes
   ( KubernetesState (KubernetesFailed, KubernetesPresent)
@@ -49,10 +47,10 @@ import Nagare.Inventory.Prune
       , pruneSourceUid
       )
   )
+import Nagare.Inventory.ScheduledGcs (withScheduledObjectStore)
+import Nagare.Inventory.ScheduledPrune (scheduledPruneProviderMatches)
 import Nagare.Inventory.ScheduledStore
-  ( ListedObject (listedKey)
-  , ObjectReader (listObjectEntries, listObjectVersions)
-  , withLocalObjectStore
+  ( ObjectReader (listObjectEntries, listObjectVersions)
   )
 import Nagare.Inventory.Status qualified as InventoryStatus
 import Nagare.Inventory.Store qualified as InventoryStore
@@ -102,9 +100,6 @@ verifyReviewedScheduledPruneProvider mctx scopes selectedJobs = do
         acceptedInventory
         >>= either dieT pure
     backend <- resolveStoreBackend mctx Nothing
-    minio <- case backend of
-      MinioBackend ref -> pure ref
-      GcsBackend {} -> dieT "cloud scheduled prune requires exact-generation provider preflight"
     context <-
       either
         dieT
@@ -131,7 +126,7 @@ verifyReviewedScheduledPruneProvider mctx scopes selectedJobs = do
                     (ResourceInventory.scopeOverrides scope)
                 ]
             ]
-        bucketAddress = "s3://" <> minio ^. #bucket <> "/"
+        bucketAddress = storeObjectUrl backend ""
     forM_ selected $ \pruneScope -> do
       let fields = ResourceInventory.scopeOverrides pruneScope
           required key =
@@ -191,12 +186,12 @@ verifyReviewedScheduledPruneProvider mctx scopes selectedJobs = do
       backupScopeName <- required "scheduled.prune.backup.scope"
       objectKey <-
         maybe
-          (dieT "scheduled prune object is outside the local bucket")
+          (dieT "scheduled prune object is outside the selected bucket")
           pure
           (T.stripPrefix bucketAddress objectAddress)
       receiptKey <-
         maybe
-          (dieT "scheduled prune receipt is outside the local bucket")
+          (dieT "scheduled prune receipt is outside the selected bucket")
           pure
           (T.stripPrefix bucketAddress receiptAddress)
       unless
@@ -239,20 +234,15 @@ verifyReviewedScheduledPruneProvider mctx scopes selectedJobs = do
             && all (T.isPrefixOf keyPrefix) expected
         )
         (dieT "scheduled prune accepted receipts changed their provider key space")
-      provider <- withLocalObjectStore contextName minio $ \reader -> do
+      provider <- withScheduledObjectStore contextName backend $ \reader -> do
         current <- listObjectEntries reader keyPrefix
         versions <- listObjectVersions reader objectKey
         pure ((,) <$> current <*> versions)
       (listed, versions) <- either dieT pure provider >>= either dieT pure
-      unless
-        ( Set.fromList (map listedKey listed) == Set.fromList expected
-            && length listed == length expected
-            && Set.fromList versions
-              == Set.fromList
-                [(objectKey, objectVersion), (receiptKey, receiptVersion)]
-            && length versions == 2
-        )
-        (dieT "scheduled prune provider listing or exact versions changed after review")
+      either
+        dieT
+        pure
+        (scheduledPruneProviderMatches expected listed (objectKey, objectVersion) (receiptKey, receiptVersion) versions)
 
 -- A saved receipt-only recovery must still refer to the exact failed Job and
 -- published prune review. Its Job rechecks complete provider version listings
@@ -327,7 +317,7 @@ verifyReviewedScheduledPruneRecovery mctx scopes selectedJobs = do
             , "scheduled.prune.receipt.version"
             , "scheduled.prune.policy.scope"
             , "scheduled.prune.policy.revision"
-            , "scheduled.prune.policy.keep"
+            , "scheduled.prune.policy.retention"
             ]
       unless
         ( all

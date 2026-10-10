@@ -9,6 +9,7 @@ import Nagare.Test.Backup.Escrow (signingKeyEscrowTests)
 import Nagare.Test.Backup.Objective (backupObjectiveTests)
 import Nagare.Test.Backup.Paths (backupPathTests)
 import Nagare.Test.Backup.Prune (backupPruneTests)
+import Nagare.Test.Backup.PruneWorld (pruneWorldTests)
 import Nagare.Test.Backup.Rendering (backupRendererTests)
 import Nagare.Test.Backup.Restore (restoreDownloadTests)
 import Nagare.Test.Backup.Retention (backupRetentionTests)
@@ -19,6 +20,6 @@ import Test.Tasty (TestTree, testGroup)
 backupRestoreTests :: [TestTree]
 backupRestoreTests =
   [ testGroup "pure path / extension / schedule" backupPathTests
-  , testGroup "Job / CronJob renderers" (backupRendererTests <> scheduledReceiptTests <> signingKeyEscrowTests <> backupObjectiveTests <> backupUploadTests <> backupPruneTests <> backupRetentionTests)
+  , testGroup "Job / CronJob renderers" (backupRendererTests <> scheduledReceiptTests <> signingKeyEscrowTests <> backupObjectiveTests <> backupUploadTests <> backupPruneTests <> backupRetentionTests <> pruneWorldTests)
   , testGroup "restore" restoreDownloadTests
   ]

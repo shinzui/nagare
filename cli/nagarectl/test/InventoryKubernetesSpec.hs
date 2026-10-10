@@ -8,7 +8,7 @@ import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BC
 import Data.ByteString.Lazy qualified as BL
-import Data.Either (isLeft)
+import Data.Either (isLeft, isRight)
 import Data.Foldable (toList)
 import Data.Generics.Labels ()
 import Data.IORef
@@ -1398,8 +1398,8 @@ inventoryKubernetesTests =
               )
           )
         assertBool
-          "cloud recovery lacks exact-generation evidence"
-          ( isLeft
+          "cloud recovery of a failed GCS prune does not compile (EP-183 M2)"
+          ( isRight
               ( compileScheduledPruneRecoveryScope
                   scheduledRequest
                   acceptedScheduled

@@ -3,6 +3,7 @@
 module Nagare.Inventory.ScheduledGcs
   ( withScheduledObjectStore
   , parseGcsObjectListing
+  , parseGcsObjectGenerations
   )
 where
 
@@ -35,8 +36,19 @@ withScheduledObjectStore _ (GcsBackend project bucket) action = Right <$> action
         (readGcsObjectAt project bucket)
         (fmap (fmap (map listedKey)) . listEntries)
         listEntries
-        (\_ -> pure (Left "scheduled GCS pruning is not supported"))
-    listEntries prefix
+        listGenerations
+    -- EP-183 M2: the live generation of every key that starts with this
+    -- exact key, from a complete listing of the key's parent prefix. The
+    -- versioned bucket's noncurrent generations are not listed: a prune makes
+    -- the reviewed generation noncurrent, and only a live one is evidence.
+    listGenerations key = do
+      let (parent, _) = T.breakOnEnd "/" key
+      listed <- listJson parent
+      pure (listed >>= parseGcsObjectGenerations bucket parent >>= \entries -> Right [entry | entry@(name, _) <- entries, key `T.isPrefixOf` name])
+    listEntries prefix = do
+      listed <- listJson prefix
+      pure (listed >>= parseGcsObjectListing bucket prefix)
+    listJson prefix
       | T.null prefix
           || not ("/" `T.isSuffixOf` prefix)
           || T.any (`elem` ("#*?[]" :: String)) prefix =
@@ -59,8 +71,28 @@ withScheduledObjectStore _ (GcsBackend project bucket) action = Right <$> action
               ) ::
               IO (Either IOException (ExitCode, String, String))
           pure $ case result of
-            Right (ExitSuccess, body, _) -> parseGcsObjectListing bucket prefix (BC.pack body)
+            Right (ExitSuccess, body, _) -> Right (BC.pack body)
             _ -> Left "scheduled GCS object listing is unavailable or incomplete"
+
+-- | Each listed object's name and live generation.
+parseGcsObjectGenerations :: Text -> Text -> ByteString -> Either Text [(Text, Text)]
+parseGcsObjectGenerations bucket prefix bytes = do
+  value <- first (const "scheduled GCS listing is malformed") (eitherDecodeStrict bytes)
+  entries <- case value of
+    Array items -> traverse entry (toList items)
+    _ -> Left "scheduled GCS listing is not a complete array"
+  unless
+    (Set.size (Set.fromList (map fst entries)) == length entries)
+    (Left "scheduled GCS listing repeats an object key")
+  pure entries
+  where
+    entry (Object fields) = case KM.lookup "name" fields of
+      Just (String name)
+        | prefix `T.isPrefixOf` name && name /= prefix -> do
+            stored <- parseGcsManualMetadata bucket name (LBS.toStrict (Aeson.encode (Object fields)))
+            pure (name, storedVersion stored)
+      _ -> Left "scheduled GCS listing escaped its object prefix"
+    entry _ = Left "scheduled GCS listing contains a non-object"
 
 parseGcsObjectListing :: Text -> Text -> ByteString -> Either Text [ListedObject]
 parseGcsObjectListing bucket prefix bytes = do

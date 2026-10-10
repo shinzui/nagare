@@ -13,6 +13,9 @@ module Nagare.Inventory.ScheduledPrune
   , isNewScheduledPrune
   , scheduledPruneRetentionAdmission
   , acceptedPastPolicy
+  , StoppedPrune (..)
+  , classifyStoppedPrune
+  , scheduledPruneProviderMatches
   )
 where
 
@@ -242,6 +245,43 @@ accepted prefix format visible scope = do
       , scheduledPruneReceiptDigest = receiptDigest
       , scheduledPruneCompleted = receiptTime
       }
+
+-- | What a failed scheduled prune Job left at its two exact keys, read from
+-- the provider's versions under the archive key (MinIO: every version; GCS:
+-- every live generation). The recovery Job finishes either state.
+data StoppedPrune
+  = -- | The Job deleted nothing: both reviewed versions are still live.
+    BothRemain
+  | -- | The archive is gone and its reviewed receipt is still live.
+    ReceiptRemains
+  deriving stock (Eq, Show)
+
+-- | EP-183 M2: accept only the states the prune Job's order can leave. Any
+-- other version at either key, a receipt gone while its archive is live, or
+-- nothing left at all (the run is already pruned) refuses.
+classifyStoppedPrune :: (Text, Text) -> (Text, Text) -> [(Text, Text)] -> Either Text StoppedPrune
+classifyStoppedPrune archive receipt versions
+  | any (`notElem` [archive, receipt]) versions || Set.size (Set.fromList versions) /= length versions =
+      Left "stopped prune provider state differs from the reviewed versions"
+  | otherwise = case (archive `elem` versions, receipt `elem` versions) of
+      (True, True) -> Right BothRemain
+      (False, True) -> Right ReceiptRemains
+      (False, False) -> Left "nothing of the stopped prune remains; the run is already pruned"
+      (True, False) -> Left "the receipt is gone while its archive is live; the bucket changed outside Nagare"
+
+-- | EP-183 M2: the apply-time preflight of a saved scheduled prune, for both
+-- backends. The live keys under the source's prefix are exactly the accepted
+-- unpruned receipts' objects, and the archive key's versions are exactly the
+-- two reviewed ones.
+scheduledPruneProviderMatches :: [Text] -> [ListedObject] -> (Text, Text) -> (Text, Text) -> [(Text, Text)] -> Either Text ()
+scheduledPruneProviderMatches expected listed archive receipt versions =
+  unless
+    ( Set.fromList (map listedKey listed) == Set.fromList expected
+        && length listed == length expected
+        && Set.fromList versions == Set.fromList [archive, receipt]
+        && length versions == 2
+    )
+    (Left "scheduled prune provider listing or exact versions changed after review")
 
 -- | The signed recovery point an accepted receipt scope recorded at ingestion,
 -- if its receipt carried one (v5). A malformed value refuses.
@@ -475,9 +515,6 @@ compileScheduledPruneScopeWith recovery request backup native = do
   case recovery of
     Nothing -> pure ()
     Just (failed, _, _) -> do
-      _ <- case scheduledPruneBackend request of
-        MinioBackend {} -> Right ()
-        GcsBackend {} -> Left (invalid "cloud scheduled prune recovery requires exact-generation evidence")
       checked <-
         first
           invalid

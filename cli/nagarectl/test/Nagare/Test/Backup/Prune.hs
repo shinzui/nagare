@@ -85,6 +85,7 @@ backupPruneTests =
           unlines
             [ "#!/bin/sh"
             , "set -eu"
+            , "if [ \"$1 $2\" = \"auth print-access-token\" ]; then echo token; exit 0; fi"
             , "[ \"$1\" = storage ] || exit 2; shift"
             , "case \"$1\" in"
             , "  objects)"
@@ -111,6 +112,17 @@ backupPruneTests =
             , "esac"
             ]
         setFileMode fakeGcloud 0o755
+        -- The JSON API answers 404 once no live object remains at the key.
+        writeFile (directory </> "curl") $
+          unlines
+            [ "#!/bin/sh"
+            , "for last in \"$@\"; do :; done"
+            , "case \"$last\" in"
+            , "  *.receipt.json) test -e \"$NAGARE_TEST_RECEIPT\" && printf 200 || printf 404;;"
+            , "  *) test -e \"$NAGARE_TEST_DATA\" && printf 200 || printf 404;;"
+            , "esac"
+            ]
+        setFileMode (directory </> "curl") 0o755
         parentEnv <- getEnvironment
         let path = maybe "" id (lookup "PATH" parentEnv)
             variables =
@@ -399,6 +411,7 @@ backupPruneTests =
                     , ("EXPECTED_OBJECT_VERSION", "v1")
                     , ("EXPECTED_RECEIPT_VERSION", "v2")
                     , ("EXPECTED_RECEIPT_SHA256", T.unpack receiptHash)
+                    , ("EXPECTED_OBJECT_SHA256", replicate 64 'a')
                     , ("NAGARE_VERSION_LIST_FILE", directory </> "versions.json")
                     , ("NAGARE_TEST_DATA", object)
                     , ("NAGARE_TEST_RECEIPT", receipt)

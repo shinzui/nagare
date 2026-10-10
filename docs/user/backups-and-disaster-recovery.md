@@ -52,7 +52,7 @@ Most of Nagare is reproduced from Git; only a few things need real backup jobs.
 | Host Postgres | Restore from disk if data disk survives; use managed DBs for Nagare-owned backup tooling | 🟡 |
 | Whole data disk | Daily GCE snapshot at 08:00 UTC, retained seven days and kept if the source disk is deleted | 🟡 (declared; live apply/verification pending) |
 | App volumes (PVCs) | Reviewed fixed-key snapshot and separate scratch restore Jobs → GCS or MinIO (`manual-volumes/<namespace>/<app>/<volume>/`) | 🟡 (live provider proof, exact pruning, and live-target recovery pending) |
-| Managed databases | Reviewed CronJob every 15 minutes → GCS or MinIO (`databases/<name>/`); reviewed schedules verify stored bytes without pruning; accepted databases can save reviewed manual backup, expired manual pruning, PostgreSQL and ClickHouse scratch restore Jobs, and Redis scratch instances | 🟡 (cloud scheduled pruning, live-target restore, and complete cloud provider proof pending) |
+| Managed databases | Reviewed CronJob every 15 minutes → GCS or MinIO (`databases/<name>/`); reviewed schedules verify stored bytes without pruning; accepted databases can save reviewed manual backup, expired manual pruning, PostgreSQL and ClickHouse scratch restore Jobs, and Redis scratch instances | 🟡 (live-target restore and complete cloud provider proof pending) |
 | Attic signing identity and metadata | Managed PostgreSQL `nix-cache` / reviewed `nagare-dbbackup-nix-cache` CronJob | 🟡 (provider implemented; live restore acceptance pending) |
 | Attic cache chunks | Reproducible producer inputs; optionally export the dedicated GCS bucket before retirement | Rebuildable |
 | Grafana dashboards | **Git** (dashboard JSON under `cluster/observability`) | ✅ |
@@ -169,13 +169,21 @@ nagarectl inventory apply ./scheduled-prune --yes
 The review names each run past policy as one exact prune scope, pinned to its
 provider versions. Admission evaluates the policy again against the accepted
 receipts and refuses the whole review if any named run is the newest, inside
-the 48-hour window, or the newest of a retained day. A prune stopped part way
-closes by per-operation proof; a Job that deleted the archive but not its
-receipt is finished with `db recover-scheduled-prune`. Every run must be
-ingested (`db backup-receipts`) before a prune, because the review refuses a
-listing that differs from the accepted receipts. Scheduled pruning is local
-(MinIO) only in this release; a cloud context refuses it until GCS
-exact-generation recovery exists, and `server status` still grades it.
+the 48-hour window, or the newest of a retained day. Each Job deletes the
+archive before its receipt, by the exact reviewed version (MinIO) or
+generation (GCS), and proves each key has no live object before it succeeds.
+A prune stopped part way closes by per-operation proof. If its Job failed,
+whether before deleting anything or after deleting only the archive, `db
+recover-scheduled-prune` reviews a recovery Job that finishes the same
+deletion and nothing more. Every run must be ingested (`db backup-receipts`)
+before a prune, because the review refuses a listing that differs from the
+accepted receipts.
+
+On GCS the backup bucket is versioned (EP-99), so a pruned generation becomes
+noncurrent and the bucket's lifecycle rule deletes it 30 days later. A pruned
+copy of personal data therefore lingers for up to 30 more days, plus GCS's
+soft-delete window, before it is gone. On MinIO the deleted version is removed
+at once.
 
 The schedule follows the context's recovery-point objective,
 `NAGARE_BACKUP_RECOVERY_POINT` (see [Contexts](contexts.md)):
