@@ -1102,5 +1102,11 @@
     "suite": "nagarectl",
     "pattern": "/a stopped volume prune stays recoverable after an application deploy/",
     "expect": "test-fails"
+  },
+  {
+    "record": "EP183-volume-dump-without-store-tools",
+    "suite": "nagarectl",
+    "pattern": "/volume backup CronJob: every aws-cli container installs tar and gzip before using them/",
+    "expect": "test-fails"
   }
 ]

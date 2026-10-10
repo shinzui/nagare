@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Database/Backup.hs b/cli/nagarectl/src/Nagare/Database/Backup.hs
+index 1fb23f1f..15eca0f4 100644
+--- a/cli/nagarectl/src/Nagare/Database/Backup.hs
++++ b/cli/nagarectl/src/Nagare/Database/Backup.hs
+@@ -393,7 +393,7 @@ dumpContainer i = case i ^. #source of
+       [ "name" .= ("dump" :: Text)
+       , "image" .= storeImage (i ^. #backend)
+       , "command" .= toJSON ["/bin/sh" :: Text, "-c"]
+-      , "args" .= toJSON ["set -e; " <> storeShellPreamble (i ^. #backend) <> "tar -C /source-data -cf /dump/backup.tar ."]
++      , "args" .= toJSON ["set -e; tar -C /source-data -cf /dump/backup.tar ." :: Text]
+       , "volumeMounts"
+           .= toJSON
+             [ dumpMount
