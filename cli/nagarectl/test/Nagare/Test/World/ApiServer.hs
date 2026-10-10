@@ -149,6 +149,10 @@ data ApiServer = ApiServer
   -- ^ PersistentVolumeClaims a running pod mounts.
   , frozen :: !(Set.Set ObjectKey)
   -- ^ Objects whose controller has not yet observed the latest write.
+  , externalDomainTls :: !Bool
+  -- ^ Knative's @config-network@ @external-domain-tls@ (EP-183 M1).
+  , unissued :: !(Set.Set Text)
+  -- ^ DomainMappings, by name, whose certificate never becomes Ready.
   }
   deriving stock (Eq, Show, Generic)
 
@@ -169,7 +173,7 @@ data Preconditions = Preconditions
   deriving stock (Eq, Show, Generic)
 
 emptyServer :: ApiServer
-emptyServer = ApiServer Map.empty 1000 1 Map.empty Set.empty Set.empty
+emptyServer = ApiServer Map.empty 1000 1 Map.empty Set.empty Set.empty False Set.empty
 
 keyOf :: Value -> Maybe ObjectKey
 keyOf value = do
@@ -520,17 +524,34 @@ churnOnce key server = case (Map.lookup key (objects server), (^. #churnSource) 
 
 -- | A Knative Service whose name an unowned core Service already holds stays
 -- @Ready=False/NotOwned@ (RES-4 E1, G8).
+--
+-- A DomainMapping also reports its certificate, as Knative 1.22's
+-- domainmapping reconciler does (EP-183 M1). With external-domain TLS off it
+-- is @CertificateProvisioned=True/TLSNotEnabled@, as the recorded traces show.
+-- With TLS on and the certificate not Ready, the default
+-- @http-protocol: Enabled@ serves the host over HTTP meanwhile: the condition
+-- is @True/HTTPDowngrade@, @Ready@ stays True and @status.url@ is @http://@.
+-- Only a Ready certificate makes the URL @https://@.
 knativeStatus :: ApiServer -> ObjectKey -> Stored -> Value
 knativeStatus server key stored =
   object
-    [ "observedGeneration" .= (stored ^. #generation)
-    , "conditions"
-        .= [ condition "ConfigurationsReady" ready reason'
-           , condition "Ready" ready reason'
-           , condition "RoutesReady" "True" Nothing
-           ]
-    ]
+    ( [ "observedGeneration" .= (stored ^. #generation)
+      , "conditions"
+          .= ( [ condition "ConfigurationsReady" ready reason'
+               , condition "Ready" ready reason'
+               , condition "RoutesReady" "True" Nothing
+               ]
+                 <> [condition "CertificateProvisioned" "True" certificate | mapping]
+             )
+      ]
+        <> ["url" .= (scheme <> "://" <> key ^. #name) | mapping]
+    )
   where
+    mapping = key ^. #kind == "domainmapping"
+    (certificate, scheme)
+      | not (externalDomainTls server) = (Just "TLSNotEnabled", "http" :: Text)
+      | Set.member (key ^. #name) (unissued server) = (Just "HTTPDowngrade", "http")
+      | otherwise = (Nothing, "https")
     (ready, reason')
       | key ^. #kind == "service" && Map.member (key & #group .~ "") (objects server) = ("False", Just "NotOwned")
       | otherwise = case outcomeOf server stored of

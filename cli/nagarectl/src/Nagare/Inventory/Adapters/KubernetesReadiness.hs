@@ -10,6 +10,8 @@ module Nagare.Inventory.Adapters.KubernetesReadiness
   , crdEstablished
   , certificateReady
   , knativeReady
+  , domainMappingReady
+  , httpDowngraded
   , hasCondition
   , deploymentAvailable
   , statefulSetReady
@@ -32,7 +34,7 @@ observedReady (Object root) = case (KM.lookup "apiVersion" root, KM.lookup "kind
   (_, Just (String "Certificate")) -> certificateReady (Object root)
   (_, Just (String "ClusterIssuer")) -> certificateReady (Object root)
   (Just (String "serving.knative.dev/v1"), Just (String "Service")) -> knativeReady (Object root)
-  (Just (String "serving.knative.dev/v1beta1"), Just (String "DomainMapping")) -> knativeReady (Object root)
+  (Just (String "serving.knative.dev/v1beta1"), Just (String "DomainMapping")) -> domainMappingReady (Object root)
   (_, Just (String "Deployment")) -> deploymentAvailable (Object root)
   (Just (String "apps/v1"), Just (String "StatefulSet")) -> statefulSetReady (Object root)
   _ -> True
@@ -79,6 +81,29 @@ hasCondition conditionType (Object root) = case KM.lookup "status" root of
         && KM.lookup "status" condition == Just (String "True")
     completed _ = False
 hasCondition _ _ = False
+
+-- | EP-183 M1: a DomainMapping is ready only once it serves the TLS it was
+-- given. With external-domain TLS on and the route's certificate not Ready,
+-- Knative 1.22's default @http-protocol: Enabled@ serves the host over plain
+-- HTTP meanwhile and reports @CertificateProvisioned=True/HTTPDowngrade@, so
+-- @Ready@ is True. That downgrade is not readiness. TLS off
+-- (@TLSNotEnabled@) is the context's choice and stays ready.
+domainMappingReady :: Value -> Bool
+domainMappingReady value = knativeReady value && not (httpDowngraded value)
+
+-- | The route is served over HTTP because its certificate is not Ready.
+httpDowngraded :: Value -> Bool
+httpDowngraded (Object root) = case KM.lookup "status" root of
+  Just (Object status) -> case KM.lookup "conditions" status of
+    Just (Array conditions) -> any downgrade (foldr (:) [] conditions)
+    _ -> False
+  _ -> False
+  where
+    downgrade (Object condition) =
+      KM.lookup "type" condition == Just (String "CertificateProvisioned")
+        && KM.lookup "reason" condition == Just (String "HTTPDowngrade")
+    downgrade _ = False
+httpDowngraded _ = False
 
 -- | F70, RES-4 §2 (E5) and U9: a Deployment is ready when its rollout is
 -- complete, as `kubectl rollout status` judges it. The controller has observed
@@ -142,7 +167,8 @@ readinessForAddress address value = case address of
   Kubernetes _ "batch" kind _ _ | nameText kind == "job" -> Just (jobCompleted value)
   Kubernetes _ "apiextensions.k8s.io" kind _ _ | nameText kind == "customresourcedefinition" -> Just (crdEstablished value)
   Kubernetes _ "cert-manager.io" kind _ _ | nameText kind `elem` ["certificate", "clusterissuer"] -> Just (certificateReady value)
-  Kubernetes _ "serving.knative.dev" kind _ _ | nameText kind `elem` ["service", "domainmapping"] -> Just (knativeReady value)
+  Kubernetes _ "serving.knative.dev" kind _ _ | nameText kind == "service" -> Just (knativeReady value)
+  Kubernetes _ "serving.knative.dev" kind _ _ | nameText kind == "domainmapping" -> Just (domainMappingReady value)
   Kubernetes _ "apps" kind _ _ | nameText kind == "deployment" -> Just (deploymentAvailable value)
   Kubernetes _ "apps" kind _ _ | nameText kind == "statefulset" -> Just (statefulSetReady value)
   _ -> Nothing

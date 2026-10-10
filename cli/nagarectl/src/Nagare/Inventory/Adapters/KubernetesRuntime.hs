@@ -27,6 +27,7 @@ module Nagare.Inventory.Adapters.KubernetesRuntime
   , crdEstablished
   , certificateReady
   , knativeReady
+  , domainMappingReady
   , materializeCredential
   , materializeLocalObjectStoreCredential
   , materializeLocalObjectStoreCredentialWith
@@ -300,8 +301,11 @@ waitForReadiness config address = case address of
     | nameText kind == "service" ->
         waitCondition "ready" "ksvc" namespace name "Knative Service"
   Kubernetes _ "serving.knative.dev" kind namespace name
-    | nameText kind == "domainmapping" ->
-        waitCondition "ready" "domainmapping.serving.knative.dev" namespace name "Knative DomainMapping"
+    | nameText kind == "domainmapping" -> do
+        ready <- waitCondition "ready" "domainmapping.serving.knative.dev" namespace name "Knative DomainMapping"
+        case ready of
+          AdapterEffectCompleted -> waitForCertificate namespace name
+          other -> pure other
   Kubernetes _ "apps" kind namespace name | nameText kind == "deployment" -> do
     result <-
       invoke
@@ -328,11 +332,12 @@ waitForReadiness config address = case address of
       _ -> AdapterEffectAmbiguous "Kubernetes StatefulSet did not prove readiness; reobserve before retry"
   _ -> pure AdapterEffectCompleted
   where
-    waitCondition condition kind namespace name label = do
+    waitCondition condition = waitFor ("condition=" <> condition)
+    waitFor for kind namespace name label = do
       result <-
         invoke
           config
-          ( ["wait", "--for=condition=" <> condition, kind <> "/" <> T.unpack (nameText name)]
+          ( ["wait", "--for=" <> for, kind <> "/" <> T.unpack (nameText name)]
               <> namespaceArgs namespace
               <> ["--timeout=300s"]
           )
@@ -340,6 +345,16 @@ waitForReadiness config address = case address of
       pure $ case result of
         Right (ExitSuccess, _, _) -> AdapterEffectCompleted
         _ -> AdapterEffectAmbiguous ("Kubernetes " <> label <> " did not prove readiness; reobserve before retry")
+    -- EP-183 M1: Ready=True can be an HTTP downgrade while the route's
+    -- certificate is pending ('httpDowngraded'). Only then wait for Knative
+    -- to serve the host over HTTPS; its URL turns https only with a Ready
+    -- certificate. TLS off is left as it is.
+    waitForCertificate namespace name =
+      readLiveManagedObject config address >>= \case
+        Left _ -> pure (AdapterEffectAmbiguous "Knative DomainMapping could not be read after Ready; reobserve before retry")
+        Right value
+          | httpDowngraded value -> waitFor ("jsonpath={.status.url}=https://" <> T.unpack (nameText name)) "domainmapping.serving.knative.dev" namespace name "DomainMapping certificate"
+          | otherwise -> pure AdapterEffectCompleted
 
 -- | A separate read-only condition probe. The UID check prevents a second
 -- get from attaching readiness of a replacement to the first observation.

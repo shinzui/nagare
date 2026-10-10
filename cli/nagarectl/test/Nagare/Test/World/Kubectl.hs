@@ -109,6 +109,14 @@ kubectlResponse request server = case args of
                 [condition] | Just conditionType <- T.stripPrefix "condition=" condition -> case get False key settled of
                   Just rendered | conditionMet conditionType rendered -> (settled, ok (pluralOf key <> "/" <> name <> " condition met"))
                   _ -> timedOut
+                -- @--for=jsonpath={.a.b}=value@: a dotted path, compared as
+                -- text (EP-183 M1 waits on a DomainMapping's URL scheme).
+                [condition]
+                  | Just jsonPath <- T.stripPrefix "jsonpath={." condition
+                  , (path, rest') <- T.breakOn "}=" jsonPath
+                  , Just expected <- T.stripPrefix "}=" rest' -> case get False key settled of
+                      Just rendered | textLeaf (T.splitOn "." path) rendered == Just expected -> (settled, ok (pluralOf key <> "/" <> name <> " condition met"))
+                      _ -> timedOut
                 _ -> unsupported
     _ -> unsupported
   "rollout" : "status" : resourceName : rest
@@ -240,3 +248,8 @@ arrayOf :: Value -> [Value]
 arrayOf = \case
   Array values -> V.toList values
   _ -> []
+
+textLeaf :: [Text] -> Value -> Maybe Text
+textLeaf path value = case foldl' (\v k -> case v of Object fields -> fromMaybe Null (KM.lookup (Key.fromText k) fields); _ -> Null) value path of
+  String text' -> Just text'
+  _ -> Nothing
