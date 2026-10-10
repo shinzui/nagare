@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/ScheduledPrune.hs b/cli/nagarectl/src/Nagare/Inventory/ScheduledPrune.hs
+index 40d326c6..bbee7cd3 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/ScheduledPrune.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/ScheduledPrune.hs
+@@ -167,7 +167,7 @@ scheduledPruneRecoveryBasis ::
+ scheduledPruneRecoveryBasis base desired failed current = do
+   backup <- maybe (Left "the failed prune names no run") Right (Map.lookup "scheduled.prune.backup.scope" (scopeOverrides failed))
+   let named name revisions = [revision | (owner, revision) <- Map.toList revisions, scopeIdText owner == name]
+-      unchanged = [backup]
++      unchanged = backup : maybe [] pure (Map.lookup "scheduled.prune.policy.scope" (scopeOverrides failed))
+   unless
+     (not (null (named failedName desired)) && named failedName current == named failedName desired)
+     (Left "the failed prune scope is no longer accepted as its review left it")

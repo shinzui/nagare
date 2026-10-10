@@ -1096,5 +1096,11 @@
     "suite": "nagarectl",
     "pattern": "/a volume's scheduled run is pruned only under its own volume's prefix/",
     "expect": "test-fails"
+  },
+  {
+    "record": "EP183-volume-recovery-pins-app-revision",
+    "suite": "nagarectl",
+    "pattern": "/a stopped volume prune stays recoverable after an application deploy/",
+    "expect": "test-fails"
   }
 ]
