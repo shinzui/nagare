@@ -3,6 +3,7 @@
 
 module Main (main) where
 
+import BackendMapSpec (backendMapTests, backendSourceTests)
 import Control.Concurrent (threadDelay)
 import Control.Exception (SomeException (..), bracket)
 import Crypto.JOSE.JWK (JWKSet (..))
@@ -109,6 +110,7 @@ main =
       "nagare-access"
       [ configTests
       , backendMapTests
+      , backendSourceTests
       , cookieTests
       , credentialTests
       , jwksTests
@@ -218,50 +220,6 @@ challengeTests =
     , testCase "cors fetch gets a JSON challenge" $
         classifyChallenge (RequestShape "/api" [("Sec-Fetch-Mode", "cors")])
           @?= JsonApi "/_nagare/login?rd=%2Fapi"
-    ]
-
-backendMapTests :: TestTree
-backendMapTests =
-  testGroup
-    "backend map"
-    [ testCase "decodes host to upstream JSON" $ do
-        backends <- assertRight (decodeBackendMap "{\"Tools.Example.com\":\"http://tools.personal.svc.cluster.local\"}")
-        lookupBackend "tools.example.com" backends @?= Just (BackendTarget "http://tools.personal.svc.cluster.local" ProtectedBackend)
-    , testCase "decodes object targets with protected and portal roles" $ do
-        backends <-
-          assertRight
-            ( decodeBackendMap
-                "{\"tools.example.com\":{\"upstream\":\"http://tools.personal.svc.cluster.local\",\"role\":\"protected\"},\"auth.example.com\":{\"upstream\":\"http://auth.personal.svc.cluster.local\",\"role\":\"portal\"}}"
-            )
-        lookupBackend "tools.example.com" backends
-          @?= Just (BackendTarget "http://tools.personal.svc.cluster.local" ProtectedBackend)
-        lookupBackend "auth.example.com" backends
-          @?= Just (BackendTarget "http://auth.personal.svc.cluster.local" PortalBackend)
-        portal <- maybe (assertFailure "expected portal") pure (findPortal backends)
-        publicHostText (portal ^. #host) @?= "auth.example.com"
-    , testCase "rejects a second portal and names its host" $
-        case decodeBackendMap
-          "{\"auth-a.example.com\":{\"upstream\":\"http://auth-a.personal.svc.cluster.local\",\"role\":\"portal\"},\"auth-b.example.com\":{\"upstream\":\"http://auth-b.personal.svc.cluster.local\",\"role\":\"portal\"}}" of
-          Left err -> assertBool "expected offending host in error" ("auth-b.example.com" `Text.isInfixOf` err)
-          Right _ -> assertFailure "expected duplicate portals to fail"
-    , testCase "rejects an unknown backend role" $
-        assertBool
-          "expected Left"
-          (isLeft (decodeBackendMap "{\"tools.example.com\":{\"upstream\":\"http://tools.personal.svc.cluster.local\",\"role\":\"admin\"}}"))
-    , testCase "lookup strips Host header port" $ do
-        backends <- assertRight (backendMapFromList [("tools.example.com", "http://tools.personal.svc.cluster.local")])
-        lookupBackend "tools.example.com:443" backends @?= Just (BackendTarget "http://tools.personal.svc.cluster.local" ProtectedBackend)
-    , testCase "lookup can return the canonical host used for auth decisions" $ do
-        backends <- assertRight (backendMapFromList [("tools.example.com", "http://tools.personal.svc.cluster.local")])
-        (host, target) <- maybe (assertFailure "expected backend") pure (lookupBackendWithHost "Tools.Example.com:443" backends)
-        publicHostText host @?= "tools.example.com"
-        target @?= BackendTarget "http://tools.personal.svc.cluster.local" ProtectedBackend
-    , testCase "rejects non-object JSON" $
-        assertBool "expected Left" (isLeft (decodeBackendMap "[]"))
-    , testCase "rejects non-string upstreams" $
-        assertBool "expected Left" (isLeft (decodeBackendMap "{\"tools.example.com\": 7}"))
-    , testCase "rejects upstreams without an HTTP scheme" $
-        assertBool "expected Left" (isLeft (backendMapFromList [("tools.example.com", "tools.personal")]))
     ]
 
 cookieTests :: TestTree

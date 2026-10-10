@@ -176,6 +176,10 @@ tests =
             routeOutcome (enforcing {protected = False}) >>= (@?= Left (NotRedirectedToLogin 200 Nothing))
         , testCase "a revoke the enforcer ignores fails" $
             routeOutcome (enforcing {honoursRevoke = False}) >>= (@?= Left (RevokeNotEnforced 200))
+        , testCase "a route whose backend reaches the enforcer within the wait passes" $
+            routeOutcome (enforcing {unknownFor = 3}) >>= (@?= Right ())
+        , testCase "a route the enforcer never learns fails with its 502" $
+            routeOutcome (enforcing {unknownFor = 4}) >>= (@?= Left (NotRedirectedToLogin 502 Nothing))
         , testCase "a wrong password is a rejected login" $
             routeOutcome (enforcing {acceptsPassword = False}) >>= (@?= Left (LoginRejected 401))
         , testCase "a redirect to an operator portal is named, not driven" $
@@ -200,16 +204,20 @@ data Route = Route
   , protected :: !Bool
   , honoursRevoke :: !Bool
   , acceptsPassword :: !Bool
+  , unknownFor :: !Int
+  -- ^ Requests the enforcer answers "no backend configured" before it re-reads
+  -- the backend map with this route in it.
   }
   deriving stock (Generic)
 
 enforcing :: Route
-enforcing = Route False True True True True
+enforcing = Route False True True True True 0
 
 routeOutcome :: Route -> IO (Either RouteFailure ())
 routeOutcome route = do
   granted <- newIORef False
   password <- newIORef ""
+  unknown <- newIORef (route ^. #unknownFor)
   let handshake trust'
         | trust' == CaFile "wrong.pem" = if route ^. #acceptsWrongCa then Right () else Left (TlsRejected "60: SSL certificate problem")
         | not (route ^. #verified) = Left (TlsRejected "60: SSL certificate problem")
@@ -217,7 +225,13 @@ routeOutcome route = do
       http' trust' req = do
         isGranted <- readIORef granted
         expected <- readIORef password
-        pure (handshake trust' >> Right (answer isGranted expected req))
+        remaining <- readIORef unknown
+        case handshake trust' of
+          Right ()
+            | remaining > 0 -> do
+                writeIORef unknown (remaining - 1)
+                pure (Right (HttpResponse 502 [] "no backend configured for host a.example"))
+          verdict -> pure (verdict >> Right (answer isGranted expected req))
       answer isGranted expected req = case (req ^. #method, req ^. #url) of
         ("GET", "https://a.example/")
           | not (route ^. #protected) -> HttpResponse 200 [] "rows: 3\n"
@@ -243,7 +257,7 @@ routeOutcome route = do
           , pause = pure ()
           , progress = const (pure ())
           }
-  runRouteCheck ops (RouteCheck "a.example" (CaFile "local-ca.pem") (CaFile "wrong.pem") "rows: " 3 3)
+  runRouteCheck ops (RouteCheck "a.example" (CaFile "local-ca.pem") (CaFile "wrong.pem") "rows: " 3 3 3)
 
 -- | A throwaway repository and gate-record directory: a gated base commit,
 -- then documentation, fixture, code and red-record commits on top.

@@ -31,6 +31,7 @@ library
     Nagare.Access.App
     Nagare.Access.Auth
     Nagare.Access.BackendMap
+    Nagare.Access.BackendSource
     Nagare.Access.Challenge
     Nagare.Access.Config
     Nagare.Access.Cookie
@@ -91,6 +92,9 @@ test-suite nagare-access-test
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   hs-source-dirs: test
+  other-modules:
+    BackendMapSpec
+
   build-depends:
     aeson,
     base,

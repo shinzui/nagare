@@ -86,6 +86,9 @@ data RouteCheck = RouteCheck
   , trust :: !Trust
   , wrongTrust :: !Trust
   , expectBody :: !Text
+  , routeWait :: !Int
+  -- ^ Seconds a just-deployed route may answer 502 before the enforcer has
+  -- its backend: the kubelet's ConfigMap sync plus the enforcer's re-read.
   , grantWait :: !Int
   -- ^ Seconds to wait for a new grant to reach the enforcer (En publishes
   -- on a short interval).
@@ -148,7 +151,7 @@ runRouteCheck ops check = do
     Left (Unreachable detail) -> pure (Left (RouteUnreachable detail))
     Left (TlsRejected _) -> do
       say "a wrong trust anchor is refused ok"
-      anonymous <- request (get root [])
+      anonymous <- awaitRoute (check ^. #routeWait)
       case anonymous of
         Left failure -> pure (Left failure)
         Right response -> case loginTarget (check ^. #host) response of
@@ -220,6 +223,14 @@ runRouteCheck ops check = do
                         Right (("nagare_session", sessionCookie) : [cookie' | cookie'@("nagare_refresh", _) <- responseCookies response])
                     | otherwise -> Left (LoginRejected (response ^. #status))
               _ -> pure (Left (LoginFormUnusable "no matching CSRF cookie and form token"))
+    awaitRoute remaining = do
+      answer <- request (get root [])
+      case answer of
+        Right response
+          | response ^. #status == 502
+          , remaining > 0 ->
+              ops ^. #pause >> awaitRoute (remaining - 1)
+        _ -> pure answer
     untilStatus remaining jar wanted = do
       answer <- (ops ^. #http) (check ^. #trust) (get root jar)
       case answer of
@@ -470,7 +481,7 @@ routeCheckMain options = do
               , enApiKey = key
               , reviews = options ^. #reviews
               }
-          check = RouteCheck (options ^. #host) trusted (CaFile wrong) (options ^. #expectBody) 60 120
+          check = RouteCheck (options ^. #host) trusted (CaFile wrong) (options ^. #expectBody) 180 60 120
           ingress action = case options ^. #ingressPort of
             Just port -> withPortForward (options ^. #kubeContext) "kourier-system" "kourier" port 443 action
             Nothing -> action

@@ -1,6 +1,8 @@
 module Main (main) where
 
-import Control.Monad (when)
+import Control.Concurrent (forkIO, threadDelay)
+import Control.Exception (IOException, try)
+import Control.Monad (forever, when)
 import Data.ByteString qualified as BS
 import Data.Generics.Labels ()
 import Data.Text qualified as Text
@@ -9,7 +11,8 @@ import Data.UUID (toText)
 import Data.UUID.V4 (nextRandom)
 import Nagare.Access.App (appWithBackends, appWithRuntime)
 import Nagare.Access.Auth (AccessServices (..))
-import Nagare.Access.BackendMap (BackendMap, decodeBackendMap, emptyBackendMap)
+import Nagare.Access.BackendMap (BackendMap, emptyBackendMap)
+import Nagare.Access.BackendSource (BackendSource, RefreshResult (..), liveApplication, newBackendSource, refreshBackends)
 import Nagare.Access.Config (AuthPlaneConfig (..), RuntimeConfig (..), listenPort, parseRuntimeConfig)
 import Nagare.Access.Cookie (CookieSettings, defaultCookieSettings, signedCookieSettings)
 import Nagare.Access.DecisionCache (newDecisionCache)
@@ -27,23 +30,46 @@ import System.IO (BufferMode (LineBuffering), hSetBuffering, stdout)
 defaultJwksTtlSeconds :: Int
 defaultJwksTtlSeconds = 300
 
+-- | How often the mounted backend map is re-read. The kubelet already delays a
+-- ConfigMap change by up to its sync period, so a few seconds more is noise.
+backendRefreshMicroseconds :: Int
+backendRefreshMicroseconds = 5000000
+
 main :: IO ()
 main = do
   hSetBuffering stdout LineBuffering
   runtime <- either (fail . Text.unpack) pure . parseRuntimeConfig =<< getEnvironment
-  backends <- loadBackends (runtime ^. #backendMapPath)
-  waiApp <- appForRuntime runtime backends
+  build <- appForRuntime runtime
+  waiApp <- case runtime ^. #backendMapPath of
+    Just path | not (null path) -> do
+      source <- either (fail . Text.unpack) pure =<< newBackendSource (BS.readFile path)
+      _ <- forkIO (refreshLoop path source)
+      pure (liveApplication source build)
+    _ -> pure (build emptyBackendMap)
   let port = listenPort (runtime ^. #listen)
   putStrLn ("nagare-access listening on :" <> show port)
   run port waiApp
 
-appForRuntime :: RuntimeConfig -> BackendMap -> IO Application
-appForRuntime runtime backends =
+appForRuntime :: RuntimeConfig -> IO (BackendMap -> Application)
+appForRuntime runtime =
   case runtime ^. #authPlaneConfig of
     Nothing ->
-      pure (appWithBackends backends)
-    Just cfg ->
-      appWithRuntime backends <$> buildAccessServices runtime cfg
+      pure appWithBackends
+    Just cfg -> do
+      services <- buildAccessServices runtime cfg
+      pure (`appWithRuntime` services)
+
+-- | Pick up reviewed changes to the mounted backend map. A map that does not
+-- decode is logged and the routes already in force keep serving.
+refreshLoop :: FilePath -> BackendSource -> IO ()
+refreshLoop path source = forever $ do
+  threadDelay backendRefreshMicroseconds
+  result <- try (refreshBackends source)
+  case result of
+    Right Unchanged -> pure ()
+    Right Reloaded -> putStrLn ("reloaded backend map " <> path)
+    Right (Rejected err) -> putStrLn ("kept the previous backend map; " <> path <> " does not decode: " <> Text.unpack err)
+    Left (err :: IOException) -> putStrLn ("kept the previous backend map; reading " <> path <> " failed: " <> show err)
 
 buildAccessServices :: RuntimeConfig -> AuthPlaneConfig -> IO AccessServices
 buildAccessServices runtime cfg = do
@@ -82,13 +108,6 @@ cookieSettingsFromAuthPlane cfg =
   case cfg ^. #cookieKey of
     Nothing -> defaultCookieSettings (cfg ^. #cookieDomain)
     Just key -> signedCookieSettings (cfg ^. #cookieDomain) key
-
-loadBackends :: Maybe FilePath -> IO BackendMap
-loadBackends Nothing = pure emptyBackendMap
-loadBackends (Just "") = pure emptyBackendMap
-loadBackends (Just path) = do
-  bytes <- BS.readFile path
-  either (fail . Text.unpack) pure (decodeBackendMap bytes)
 
 currentSeconds :: IO Int
 currentSeconds =
