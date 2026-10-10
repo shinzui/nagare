@@ -36,9 +36,12 @@ import Nagare.Test.World.Kubernetes
 loseCluster :: Run -> IO ()
 loseCluster run = modifyIORef' (runWorld run) (#server %~ \server -> server & #objects .~ Map.empty & #inUse .~ Set.empty & #frozen .~ Set.empty)
 
--- | The recovery point the model's operator chose for the volume.
-rebuildPoint :: RecoveryPoint
-rebuildPoint = RecoveryPoint ScheduledRecoveryPoint "gs://bucket/databases/pg/job-1.sql.gz.receipt.json" (contentDigest "receipt")
+-- | The recovery points the model's operator chose: a scheduled backup for
+-- the database's volume, a manual snapshot for the application's.
+rebuildPoint :: ResourceId -> RecoveryPoint
+rebuildPoint member
+  | member == volumeId = RecoveryPoint VolumeSnapshotRecoveryPoint "gs://bucket/manual-volumes/personal/model-web/uploads/snap-1.tar.gz.receipt.json" (contentDigest "snapshot receipt")
+  | otherwise = RecoveryPoint ScheduledRecoveryPoint "gs://bucket/databases/pg/job-1.sql.gz.receipt.json" (contentDigest "receipt")
 
 -- | Rebuild every missing durable member, as the generated decisions do: a
 -- volume from the recovery point of its recorded predecessor, or, when no
@@ -46,18 +49,17 @@ rebuildPoint = RecoveryPoint ScheduledRecoveryPoint "gs://bucket/databases/pg/jo
 -- review), fresh, as the operator then chooses.
 decideModelRebuild :: CompositionCandidate -> InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) LifecycleDecisions
 decideModelRebuild candidate history observations = do
-  targets <- rebuildTargets candidate history observations (\_ predecessor -> Right (maybe Fresh (const (FromRecoveryPoint rebuildPoint)) predecessor))
+  targets <- rebuildTargets candidate history observations (\member predecessor -> Right (maybe Fresh (const (FromRecoveryPoint (rebuildPoint member))) predecessor))
   decideRebuild candidate history observations (RebuildInput fixtureBinding targets)
 
--- | After the rebuild converged, each durable member of the database is
--- recorded as its live object: the new incarnation the rebuild created (the
--- lost cluster's UIDs are never reused, so it is not the predecessor).
-rebuildLineageHolds :: Run -> IO (Either Text ())
-rebuildLineageHolds run = do
+-- | After the rebuild converged, each rebuilt durable member is recorded as
+-- its live object: the new incarnation the rebuild created (the lost cluster's
+-- UIDs are never reused, so it is not the predecessor).
+rebuildLineageHolds :: [ResourceId] -> Run -> IO (Either Text ())
+rebuildLineageHolds durable run = do
   current <- inspectHead run >>= orFail "read head"
   world <- readIORef (runWorld run)
   let recorded = maybe Map.empty headIncarnations current
-      durable = [member ^. #identity | (member, _) <- Map.elems databaseNative, Durable _ <- [member ^. #dataPolicy]]
       wrong = [resource | resource <- durable, Map.lookup resource recorded /= (uid <$> Map.lookup resource (objects world))]
   pure $ case wrong of
     [] -> Right ()

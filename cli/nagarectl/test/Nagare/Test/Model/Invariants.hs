@@ -28,6 +28,7 @@ import Nagare.Inventory.Plan
 import Nagare.Inventory.Status qualified as Status
 import Nagare.Inventory.Store
 import Nagare.Resource.Inventory
+import Nagare.Resource.Policy (DataPolicy (Durable))
 import Nagare.Resource.Reference (Dependency (..))
 import Nagare.Resource.Types
 import Nagare.Test.Model.Fixtures
@@ -110,7 +111,8 @@ correctionConverges scenario finalStart run = case finalScope of
         _ | accepted /= converged -> pure (Left ("I9: the final step's scope " <> T.pack (show scope) <> " ended accepted but not converged"))
         (_, resource : _) -> pure (Left ("I9: the final step's scope converged while " <> resourceIdText resource <> " is not its reviewed Ready object"))
         -- EP-183 M4: a converged rebuild records each new incarnation.
-        _ | take 1 (reverse (steps scenario)) == [RebuildDatabase] -> rebuildLineageHolds run
+        _ | take 1 (reverse (steps scenario)) == [RebuildDatabase] -> rebuildLineageHolds [member ^. #identity | (member, _) <- Map.elems databaseNative, Durable _ <- [member ^. #dataPolicy]] run
+        _ | take 1 (reverse (steps scenario)) == [RebuildApplication] -> rebuildLineageHolds [volumeId | shapeVolume (shape scenario)] run
         _ -> pure (Right ())
   where
     finalScope = case reverse (steps scenario) of
@@ -119,6 +121,7 @@ correctionConverges scenario finalStart run = case finalScope of
       UpdateDatabase : _ -> Just databaseScopeId
       RestartDatabase : _ -> Just databaseScopeId
       RebuildDatabase : _ -> Just databaseScopeId
+      RebuildApplication : _ -> Just appScope
       _ -> Nothing
     -- (a) a fault placed during the final step: the step's first call has
     -- ordinal one more than the count at its start; (b) faults whose effect

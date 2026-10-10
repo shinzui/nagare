@@ -42,7 +42,7 @@ import Nagare.Cluster.GcsJob
   )
 import Nagare.Database.Backup (backupExt, backupRawExt, clickHouseSourceAffinity, dbBackupObjectPath, manualDatabaseJobName)
 import Nagare.Database.Discover (DbRow (..), getDatabase)
-import Nagare.Dsl.Database (Engine (..), dbSecretName, engineImage, parseEngine)
+import Nagare.Dsl.Database (Engine (..), dbSecretName, engineImage, engineToken, parseEngine)
 import Nagare.Dsl.Database.Render (dbPvcName)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Storage.Snapshot (snapshotTimestamp)
@@ -93,28 +93,47 @@ data VerifiedRestoreSource = VerifiedRestoreSource
 
 -- | Render the two-container restore Job (download init + engine-restore main).
 renderRestoreJob :: RestoreJobInputs -> ByteString
-renderRestoreJob i = renderJobWith (restoreContainer i) i
+renderRestoreJob i = renderJobWith (i ^. #engine == ClickHouse) (restoreContainer i) i
 
--- | EP-183 M4: load the verified PostgreSQL dump into the rebuilt database
--- itself, never over data. The load refuses unless the database holds no
--- relation, and runs as one transaction, so a failed load leaves it empty and
--- a second run refuses rather than loading twice.
+-- | EP-183 M4: load a verified recovery point into the rebuilt database
+-- itself, never over data. Each engine first refuses a target that already
+-- holds data, then loads as close to all-or-nothing as the engine allows:
+--
+-- * PostgreSQL: the dump loads in one transaction, so a failed load leaves the
+--   database empty and a second run is refused only once data is present.
+-- * ClickHouse: the archive restores into a staging database named for the
+--   restore; a failure leaves @default@ empty. One @RENAME TABLE@ statement then
+--   moves every table into @default@, after a second emptiness check, and the
+--   empty staging database is dropped.
+-- * Redis: the RDB is placed beside the data directory and renamed onto
+--   @dump.rdb@ (an atomic rename) after snapshots are switched off; the server
+--   then shuts down without saving, loads the file whole when its container
+--   restarts, and must report exactly the key count the RDB holds.
 renderRebuildRestoreJob :: RestoreJobInputs -> ByteString
 renderRebuildRestoreJob i =
   renderJobWith
+    (i ^. #engine /= Postgres)
     ( object
         [ "name" .= ("restore" :: Text)
         , "image" .= (i ^. #clientImage)
         , "command" .= toJSON ["/bin/sh" :: Text, "-c"]
-        , "args" .= toJSON [rebuildRestoreShell (i ^. #serviceHost)]
-        , "env" .= toJSON (restoreEnv Postgres (i ^. #secretName))
-        , "volumeMounts" .= toJSON [dumpMount]
+        , "args" .= toJSON [rebuildRestoreShell (i ^. #engine) (i ^. #serviceHost) (maybe "" (^. #scratchDatabase) (i ^. #verifiedSource))]
+        , "env" .= toJSON (restoreEnv (i ^. #engine) (i ^. #secretName))
+        , "volumeMounts"
+            .= toJSON
+              ( dumpMount
+                  : [ object ["name" .= ("source-data" :: Text), "mountPath" .= ("/source-data" :: Text)]
+                    | i ^. #engine /= Postgres
+                    ]
+              )
         ]
     )
     i
 
-rebuildRestoreShell :: Text -> Text
-rebuildRestoreShell svc =
+-- | The staging name (ClickHouse) or file (Redis) is the restore's own, so a
+-- leftover from a failed attempt refuses rather than mixing with a new one.
+rebuildRestoreShell :: Engine -> Text -> Text -> Text
+rebuildRestoreShell Postgres svc _ =
   "set -e; relations=\"$(psql -tA -v ON_ERROR_STOP=1 -h "
     <> svc
     <> " -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\" -c \"select count(*) from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname not in ('pg_catalog', 'information_schema') and n.nspname not like 'pg_toast%' and n.nspname not like 'pg_temp%'\")\"; "
@@ -122,9 +141,58 @@ rebuildRestoreShell svc =
     <> "psql -v ON_ERROR_STOP=1 --single-transaction -h "
     <> svc
     <> " -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\" -f /dump/backup.sql"
+rebuildRestoreShell ClickHouse svc stage =
+  "set -e; ch() { clickhouse-client -h "
+    <> svc
+    <> " --user \"$CLICKHOUSE_USER\" --password \"$CLICKHOUSE_PASSWORD\" --query \"$1\"; }; "
+    <> "tables=\"$(ch \"SELECT count() FROM system.tables WHERE database = 'default'\")\"; "
+    <> "test \"$tables\" = 0 || { echo \"the rebuilt database already holds $tables tables; refusing to restore over data\" >&2; exit 3; }; "
+    <> "test \"$(ch \"SELECT count() FROM system.databases WHERE name = '"
+    <> stage
+    <> "'\")\" = 0; "
+    <> "ARCHIVE=\"/source-data/backups/nagare-restore-"
+    <> stage
+    <> ".zip\"; test ! -e \"$ARCHIVE\"; mkdir -p /source-data/backups; cp /dump/backup.zip \"$ARCHIVE\"; "
+    <> "ch \"RESTORE DATABASE default AS \\`"
+    <> stage
+    <> "\\` FROM File('nagare-restore-"
+    <> stage
+    <> ".zip')\"; rm -- \"$ARCHIVE\"; "
+    <> "moves=\"$(ch \"SELECT arrayStringConcat(groupArray(concat('\\`"
+    <> stage
+    <> "\\`.\\`', name, '\\` TO default.\\`', name, '\\`')), ', ') FROM system.tables WHERE database = '"
+    <> stage
+    <> "'\")\"; "
+    <> "test \"$(ch \"SELECT count() FROM system.tables WHERE database = 'default'\")\" = 0 || { echo \"data reached the rebuilt database during the restore; the staging database "
+    <> stage
+    <> " is kept\" >&2; exit 3; }; "
+    <> "if test -n \"$moves\"; then ch \"RENAME TABLE $moves\"; fi; "
+    <> "ch \"DROP DATABASE \\`"
+    <> stage
+    <> "\\`\"; ch \"SELECT name, total_rows FROM system.tables WHERE database = 'default' ORDER BY name\""
+rebuildRestoreShell Redis svc stage =
+  "set -e; rc() { redis-cli -h "
+    <> svc
+    <> " -a \"$REDIS_PASSWORD\" --no-auth-warning \"$@\"; }; "
+    <> "expected=\"$(redis-check-rdb /dump/backup.rdb | sed -n 's/.*\\[info\\] \\([0-9][0-9]*\\) keys read.*/\\1/p' | tail -n 1)\"; "
+    <> "test -n \"$expected\" || { echo \"the recovery point's key count cannot be read\" >&2; exit 4; }; "
+    <> "keys=\"$(rc DBSIZE)\"; "
+    <> "test \"$keys\" = 0 || { echo \"the rebuilt database already holds $keys keys; refusing to restore over data\" >&2; exit 3; }; "
+    <> "STAGED=/source-data/nagare-rebuild-"
+    <> stage
+    <> ".rdb; test ! -e \"$STAGED\"; cp /dump/backup.rdb \"$STAGED\"; sync; "
+    <> "rc CONFIG SET save '' >/dev/null; "
+    <> "test \"$(rc DBSIZE)\" = 0 || { echo \"data reached the rebuilt database during the restore; $STAGED is kept\" >&2; exit 3; }; "
+    <> "mv -- \"$STAGED\" /source-data/dump.rdb; sync; "
+    <> "rc SHUTDOWN NOSAVE >/dev/null 2>&1 || true; "
+    <> "attempt=0; until test \"$(rc PING 2>/dev/null)\" = PONG; do attempt=$((attempt + 1)); test \"$attempt\" -lt 150 || exit 5; sleep 2; done; "
+    <> "loaded=\"$(rc DBSIZE)\"; "
+    <> "test \"$loaded\" = \"$expected\" || { echo \"the restarted server holds $loaded keys, the recovery point $expected\" >&2; exit 6; }; "
+    <> "echo \"restored $loaded keys\""
 
-renderJobWith :: Value -> RestoreJobInputs -> ByteString
-renderJobWith container i =
+-- | The data PVC is mounted, on the database's node, when the engine needs it.
+renderJobWith :: Bool -> Value -> RestoreJobInputs -> ByteString
+renderJobWith mountData container i =
   Y.encode $
     object
       [ "apiVersion" .= ("batch/v1" :: Text)
@@ -143,9 +211,8 @@ renderJobWith container i =
               , backoffLimit = 0
               , hostAliases = storeHostAliases (i ^. #backend)
               , affinity =
-                  if i ^. #engine == ClickHouse
-                    then
-                      Just (clickHouseSourceAffinity (i ^. #namespace) (i ^. #name))
+                  if mountData
+                    then Just (dataSourceAffinity (i ^. #engine) (i ^. #namespace) (i ^. #name))
                     else Nothing
               , initContainers = [downloadContainer i]
               , containers = [container]
@@ -155,7 +222,7 @@ renderJobWith container i =
                            [ "name" .= ("source-data" :: Text)
                            , "persistentVolumeClaim" .= object ["claimName" .= dbPvcName (i ^. #name)]
                            ]
-                       | i ^. #engine == ClickHouse
+                       | mountData
                        ]
               }
       ]
@@ -165,6 +232,24 @@ renderJobWith container i =
         [ "nagare.dev/managed-by" .= ("nagarectl" :: Text)
         , "nagare.dev/database" .= (i ^. #name)
         ]
+
+-- | A Job that mounts a database's data PVC runs on the database Pod's node.
+dataSourceAffinity :: Engine -> Text -> Text -> Value
+dataSourceAffinity ClickHouse namespaceName databaseName = clickHouseSourceAffinity namespaceName databaseName
+dataSourceAffinity engine namespaceName databaseName =
+  object
+    [ "podAffinity"
+        .= object
+          [ "requiredDuringSchedulingIgnoredDuringExecution"
+              .= toJSON
+                [ object
+                    [ "labelSelector" .= object ["matchLabels" .= object ["nagare.dev/database" .= databaseName, "nagare.dev/engine" .= engineToken engine]]
+                    , "namespaces" .= toJSON [namespaceName]
+                    , "topologyKey" .= ("kubernetes.io/hostname" :: Text)
+                    ]
+                ]
+          ]
+    ]
 
 -- | Redis RDB files load at server startup. A reviewed scratch restore therefore
 -- owns a separate Service, PVC, and StatefulSet; the source instance is never

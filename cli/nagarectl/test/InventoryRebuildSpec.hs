@@ -15,6 +15,7 @@ import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
+import InventoryRebuildRestoreSpec (inventoryRebuildRestoreTests)
 import InventoryTransactionSpec (fixtureBinding)
 import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend), storeObjectUrl)
 import Nagare.Dsl.Prelude
@@ -42,7 +43,8 @@ inventoryRebuildTests :: TestTree
 inventoryRebuildTests =
   testGroup
     "reviewed rebuild of a missing durable member (EP-183 M4)"
-    [ testCase "a rebuild recreates a confirmed-absent volume as a new incarnation and records its lineage in the review" $ do
+    [ inventoryRebuildRestoreTests
+    , testCase "a rebuild recreates a confirmed-absent volume as a new incarnation and records its lineage in the review" $ do
         (store, live) <- acceptedVolume
         writeIORef (live ^. #current) Nothing
         -- Without a decision, planning still refuses the missing durable member.

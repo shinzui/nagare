@@ -495,6 +495,7 @@ drive scenario schedule onStop start resumed = do
         RebuildDatabase -> databaseAndApply run decideModelRebuild (databaseScope, databaseNative) (shape scenario) previous (historyImage previous)
         RestartDatabase -> restartAndApply run (shape scenario) previous (historyImage previous)
         RetireDatabase -> scopeRetireAndApply run databaseScopeId (shape scenario) previous (historyImage previous)
+        RebuildApplication -> reviewAndApplyWith decideModelRebuild run (shape scenario) previous (historyImage previous)
         _ -> reviewAndApply run (shape scenario) image (historyImage image)
       excused <- either (excusedRefusal run) (const (pure False)) outcome
       absentScope <- either (absentScopeRetirement run) (const (pure False)) outcome
@@ -610,8 +611,11 @@ data Applied
 -- commands, re-run while new faults fire; an apply that stopped once its
 -- transaction started is ended by an exit, not re-run.
 reviewAndApply :: Run -> Shape -> Text -> Text -> IO (Either Text (AdapterRegistry, ReviewedPlan, Applied))
-reviewAndApply run volume image historyImage = do
-  planned <- asOperator run (planReview run volume image historyImage)
+reviewAndApply = reviewAndApplyWith noDecisions
+
+reviewAndApplyWith :: (CompositionCandidate -> InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) LifecycleDecisions) -> Run -> Shape -> Text -> Text -> IO (Either Text (AdapterRegistry, ReviewedPlan, Applied))
+reviewAndApplyWith decide run volume image historyImage = do
+  planned <- asOperator run (planReview decide run volume image historyImage)
   case planned of
     Left err -> pure (Left err)
     Right (registry, reviewed) -> do
@@ -756,9 +760,9 @@ applyAsOperator run registry reviewed = do
 headIdle :: Run -> IO Bool
 headIdle run = maybe True (isNothing . headActiveTransaction) <$> (inspectHead run >>= orFail "read head")
 
-planReview :: Run -> Shape -> Text -> Text -> InventoryStore -> IO (Either Text (AdapterRegistry, ReviewedPlan))
-planReview run volume image historyImage store =
-  registryFor run volume image historyImage >>= \registry -> planWith store registry (ReplaceScope (scopeFor volume image historyImage)) (\_ _ _ -> Right noLifecycleDecisions)
+planReview :: (CompositionCandidate -> InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) LifecycleDecisions) -> Run -> Shape -> Text -> Text -> InventoryStore -> IO (Either Text (AdapterRegistry, ReviewedPlan))
+planReview decide run volume image historyImage store =
+  registryFor run volume image historyImage >>= \registry -> planWith store registry (ReplaceScope (scopeFor volume image historyImage)) decide
 
 planWith ::
   InventoryStore ->

@@ -1,10 +1,12 @@
--- | EP-183 M4: restore a rebuilt PostgreSQL database's data from the one
--- recovery point its rebuild named. ADR 27 lets a backup restore only into
--- the incarnation it was taken from; this is its single exception. The volume
--- must be the incarnation a converged rebuild created ('RebuildLineage'), the
--- receipt must be that rebuild's recovery point byte for byte, and the receipt
--- must have been verified with the escrowed key of the predecessor the rebuild
--- named. The Job loads only into an empty database, in one transaction.
+-- | EP-183 M4: restore a rebuilt database's data (PostgreSQL, ClickHouse or
+-- Redis) from the one scheduled recovery point its rebuild named. ADR 27 lets
+-- a backup restore only into the incarnation it was taken from; this is its
+-- single exception. The volume must be the incarnation a converged rebuild
+-- created ('RebuildLineage'), the receipt must be that rebuild's recovery
+-- point byte for byte, and the receipt must have been verified with the
+-- escrowed key of the predecessor the rebuild named. The Job loads only into
+-- an empty database, as atomically as the engine allows
+-- ('Nagare.Database.Restore.renderRebuildRestoreJob').
 module Nagare.Inventory.RebuildRestore
   ( RebuildRestoreRequest (..)
   , compileRebuildRestoreScope
@@ -23,9 +25,9 @@ import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (StoreBackend, storeObjectUrl)
-import Nagare.Database.Backup (manualDatabaseJobName)
+import Nagare.Database.Backup (backupExt, manualDatabaseJobName)
 import Nagare.Database.Restore (RestoreJobInputs (..), VerifiedRestoreSource (..), renderRebuildRestoreJob)
-import Nagare.Dsl.Database (Engine (Postgres), dbSecretName, engineImage, parseEngine)
+import Nagare.Dsl.Database (dbSecretName, engineImage, parseEngine)
 import Nagare.Dsl.Database.Render (dbPvcName)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Types (mkServiceName)
@@ -112,7 +114,7 @@ compileRebuildRestoreScope request accepted native = do
     (Left (invalid "the target volume is not the incarnation a reviewed rebuild created; only that incarnation receives its predecessor's recovery point"))
   point <- case lineage' ^. #proof . #source of
     FromRecoveryPoint selected | selected ^. #kind == ScheduledRecoveryPoint -> Right selected
-    FromRecoveryPoint _ -> Left (invalid "the rebuild names a manual recovery point; a rebuild restore loads only a scheduled one")
+    FromRecoveryPoint _ -> Left (invalid "the rebuild names another kind of recovery point; a database rebuild restore loads only a scheduled backup")
     Fresh -> Left (invalid "the rebuild started the volume fresh; it names no recovery point")
   unless
     (Just (request ^. #escrowPvcUid) == lineage' ^. #proof . #predecessor)
@@ -120,9 +122,6 @@ compileRebuildRestoreScope request accepted native = do
   unless
     (point ^. #receipt == receiptUrl && point ^. #receiptDigest == receiptDigest)
     (Left (invalid "the verified receipt is not the recovery point the rebuild named"))
-  unless
-    (storeObjectUrl (request ^. #backend) ("databases/" <> db <> "/") `T.isPrefixOf` objectUrl && ".sql.gz" `T.isSuffixOf` objectUrl)
-    (Left (invalid "the recovery point is not a scheduled PostgreSQL backup of this database in the selected store"))
   statefulValue <- acceptedValue invalid native stateful
   _ <- acceptedValue invalid native pvc
   _ <- acceptedValue invalid native credential
@@ -131,7 +130,10 @@ compileRebuildRestoreScope request accepted native = do
     _ -> Left (invalid "rebuild restore target StatefulSet has no Kubernetes address")
   unless (all (sameCluster cluster) [pvc, credential]) (Left (invalid "rebuild restore resources belong to different clusters"))
   engineName <- metadata invalid "labels" "nagare.dev/engine" statefulValue
-  unless (parseEngine engineName == Just Postgres) (Left (invalid "a rebuild restore loads only PostgreSQL"))
+  engine <- maybe (Left (invalid "the database StatefulSet names an unknown engine")) Right (parseEngine engineName)
+  unless
+    (storeObjectUrl (request ^. #backend) ("databases/" <> db <> "/") `T.isPrefixOf` objectUrl && ("." <> backupExt engine) `T.isSuffixOf` objectUrl)
+    (Left (invalid "the recovery point is not a scheduled backup of this database's engine in the selected store"))
   version <- metadata invalid "annotations" "nagare.dev/version" statefulValue
   owner <- first invalid (mkScopeId Standalone ("database-rebuild-" <> ns <> "-" <> db <> "-" <> request ^. #restoreId))
   key <- first invalid (mkLogicalKey (request ^. #restoreId))
@@ -140,12 +142,14 @@ compileRebuildRestoreScope request accepted native = do
   let jobId = mintResourceId owner key jobRole
       proofId = mintResourceId owner key proofRole
       jobName = manualDatabaseJobName "nagare-dbrebuild-" db (request ^. #restoreId)
+      -- ClickHouse restores into this staging database; Redis stages this file.
+      stage = "nagare_rebuild_" <> T.replace "-" "_" (request ^. #restoreId)
       inputs =
         RestoreJobInputs
           { namespace = ns
           , jobName = jobName
-          , engine = Postgres
-          , clientImage = engineImage Postgres <> ":" <> version
+          , engine = engine
+          , clientImage = engineImage engine <> ":" <> version
           , serviceHost = db
           , secretName = dbSecretName db
           , name = db
@@ -157,7 +161,7 @@ compileRebuildRestoreScope request accepted native = do
                     receiptUrl
                     (digestText receiptDigest)
                     (scheduledSha256 receipt)
-                    db
+                    stage
                     0
                     (Just (scheduledObjectVersion (request ^. #evidence)))
                     (Just (scheduledReceiptVersion (request ^. #evidence)))
@@ -177,6 +181,7 @@ compileRebuildRestoreScope request accepted native = do
         , ("nagare.dev/restore-target-pvc", resourceIdText (pvc ^. #identity))
         , ("nagare.dev/restore-target-pvc-uid", physicalIdentityText (request ^. #targetPvcUid))
         , ("nagare.dev/restore-target-database", db)
+        , ("nagare.dev/restore-rebuild-stage", stage)
         ]
   rendered <- first (invalid . T.pack . show) (Yaml.decodeEither' (renderRebuildRestoreJob inputs) :: Either Yaml.ParseException Value)
   job <- case rendered of

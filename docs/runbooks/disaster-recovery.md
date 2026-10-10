@@ -113,32 +113,46 @@ To bring the same context back into service, follow
 The VM and its cluster are gone; the inventory store, the backup bucket and the
 private operator material (context, escrowed signing keys, age key) remain. A
 rebuild recreates each lost durable member as a new incarnation through one
-reviewed decision, then restores each database's data from the one recovery
-point its decision names ([ADR 27 amendment](../adr/0027-physical-identity-is-recorded-at-creation-and-read-through-one-checked-accessor.md)).
+reviewed decision, then restores each database and application volume from the
+one recovery point its decision names ([ADR 27 amendment](../adr/0027-physical-identity-is-recorded-at-creation-and-read-through-one-checked-accessor.md)).
 Note the start time; the recovery time runs to the service answering.
 
 1. **Recreate the host and the cluster.** Follow
    [Rebuilding the host](../user/backups-and-disaster-recovery.md#rebuilding-the-host),
    then run the reviewed bootstrap. In local mode, `just local-up` and
-   `just local-bootstrap` stand in for this.
-2. **Choose each database's recovery point.** For every managed database, verify
-   the newest scheduled backup with the escrow, as in
+   `just local-bootstrap` stand in for this. In local mode the backup bucket is
+   the in-cluster MinIO, so it went with the cluster: restore the preserved copy
+   of MinIO's data directory (it keeps object versions; `mc mirror` does not)
+   into the new MinIO before step 5, because the restore Jobs download the
+   pinned versions from it. Until then, steps 2 and 3 can read the copy from a
+   disposable MinIO on a loopback port with `--offline-object-store
+   http://127.0.0.1:PORT --offline-credentials FILE`.
+2. **Choose each database's recovery point.** For every managed database
+   (PostgreSQL, ClickHouse or Redis), verify the newest scheduled backup with the
+   escrow, as in
    [Recover, from a fresh operator root](../user/backups-and-disaster-recovery.md#recover-from-a-fresh-operator-root)
    step 1. The command prints the `rebuild recovery point` line,
-   `RECEIPT_URL@RECEIPT_SHA256`.
+   `RECEIPT_URL@RECEIPT_SHA256`. For each application volume, pick the newest
+   accepted manual snapshot (`storage snapshot`); `rebuild-decisions` verifies it
+   in the next step.
 3. **Write the rebuild decisions** (read-only):
 
    ```bash
    nagarectl --context "$CONTEXT" inventory rebuild-decisions \
      --recovery-point standalone:database-pg/pg/pvc=RECEIPT_URL@RECEIPT_SHA256 \
+     --volume-snapshot application:scenario-a/uploads/pvc=SNAPSHOT_ID \
      --out reviews/rebuild.json
    ```
 
-   One `--recovery-point RESOURCE_ID=...` per missing database volume. A volume
-   you choose to start empty takes `--fresh RESOURCE_ID` instead; nothing of its
+   One `--recovery-point RESOURCE_ID=...` per missing database volume and one
+   `--volume-snapshot RESOURCE_ID=SNAPSHOT_ID` per missing application volume.
+   The snapshot is verified from the object store against the inventory's record
+   of it: its receipt must name that snapshot, archive and source claim
+   incarnation, and the archive must match the receipt's checksum. A volume you
+   choose to start empty takes `--fresh RESOURCE_ID` instead; nothing of its
    data is then recovered. Generated Secrets (credentials, backup signing keys)
-   always start fresh. The command prints what each decision approves and refuses
-   a volume with neither choice. The input's shape is in
+   always start fresh. The command prints what each decision approves and
+   refuses a volume with no choice. The input's shape is in
    [Rebuilt members](inventory-operations.md#rebuilt-members).
 4. **Review and apply the rebuild.** It recreates the decided members and every
    other missing member of their scopes from the accepted declarations:
@@ -148,8 +162,12 @@ Note the start time; the recovery time runs to the service answering.
    nagarectl --context "$CONTEXT" inventory apply reviews/rebuild --yes
    ```
 
-   Admission refuses if a member reappeared after review. No application is
-   deployed yet, so nothing writes to the new, empty databases.
+   Admission refuses if a member reappeared after review. A standalone
+   database's scope holds no writer. An application's scope also recreates its
+   workloads, so apply steps 5 and 6 straight away and keep traffic away from
+   the context until they finish: every restore refuses a target that already
+   holds data, so a write that lands first stops the restore instead of being
+   mixed with restored data.
 5. **Restore each database** from the recovery point its rebuild named:
 
    ```bash
@@ -158,15 +176,36 @@ Note the start time; the recovery time runs to the service answering.
    ```
 
    The command verifies the receipt with the predecessor's escrowed key. The Job
-   re-reads the receipt and archive at their pinned versions, refuses a database
-   that already holds any relation, and loads the dump in one transaction, so a
-   failed load leaves the database empty.
-6. **Escrow the new signing keys.** Each rebuilt database has a new signing key:
-   run `nagarectl db escrow-signing-key NAME` for each, and commit the escrow.
-7. **Deploy the applications** through their saved reviews, read back known rows,
-   and record the elapsed time against the recovery-time objective.
+   re-reads the receipt and archive at their pinned versions, refuses a target
+   that already holds data, and loads as atomically as the engine allows:
+   - PostgreSQL loads the dump in one transaction, so a failed load leaves the
+     database empty.
+   - ClickHouse restores into a staging database named for the restore, then
+     moves every table into `default` with one `RENAME TABLE` statement after a
+     second emptiness check, and drops the empty staging database. A failure
+     before the move leaves `default` empty; a later restore needs a new ID.
+   - Redis stages the RDB on the claim, switches snapshots off, renames it onto
+     `dump.rdb`, shuts the server down without saving, and requires the
+     restarted server to hold exactly the RDB's key count.
+6. **Restore each application volume** from the snapshot its rebuild named:
 
-The new incarnations' backups start from the first scheduled run after step 4.
+   ```bash
+   nagarectl --context "$CONTEXT" storage restore-rebuilt scenario-a uploads --restore-id rebuild-1 --save-plan reviews/restore-uploads
+   nagarectl --context "$CONTEXT" inventory apply reviews/restore-uploads --yes
+   ```
+
+   The Job refuses a claim holding anything but `lost+found` (and the staging
+   directories of earlier failed attempts), extracts the archive into a staging
+   directory on the claim, checks again that nothing else arrived, and renames
+   each entry into place. It prints the restored files' manifest.
+7. **Escrow the new signing keys.** Each rebuilt database has a new signing key:
+   run `nagarectl db escrow-signing-key NAME` for each, and commit the escrow.
+8. **Deploy or restart the applications** through their saved reviews, read back
+   known rows and files, and record the elapsed time against the
+   recovery-time objective.
+
+The new incarnations' backups start from the first scheduled run after step 4;
+take a manual snapshot of each restored volume.
 
 ## Power management (stop / start / full teardown)
 

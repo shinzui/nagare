@@ -229,6 +229,8 @@ dbRestoreRebuiltOptsParser =
     <*> strOption (long "restore-id" <> metavar "ID" <> help "Fixed ID of this restore review")
     <*> optional (strOption (long "escrow" <> metavar "FILE" <> help "sops-encrypted escrow of the predecessor's signing key (default: the context's cluster-secrets backup-signing directory)"))
     <*> dbBackupBucketOpt
+    <*> optional (strOption (long "offline-object-store" <> metavar "URL" <> help "Local mode: read an offline copy of the object store at a loopback http://127.0.0.1:PORT instead of through the cluster"))
+    <*> optional (strOption (long "offline-credentials" <> metavar "FILE" <> help "Private file with AWS_ACCESS_KEY_ID= and AWS_SECRET_ACCESS_KEY= lines for --offline-object-store"))
     <*> strOption (long "save-plan" <> metavar "DIR" <> help "Write the reviewed restore")
 
 dbVerifyEscrowedBackupOptsParser :: Parser DbVerifyEscrowedBackupOpts
@@ -355,6 +357,24 @@ storageSubparser =
                     <**> helper
               )
               (progDesc "Save a reviewed scratch restore from an accepted volume snapshot")
+          )
+        <> command
+          "restore-rebuilt"
+          ( info
+              ( Storage
+                  <$> ( StorageRestoreRebuilt
+                          <$> strArgument (metavar "APP" <> help "Application that declares the volume")
+                          <*> strArgument (metavar "VOLUME" <> help "Declared volume name")
+                          <*> namespaceOpt
+                          <*> strOption (long "restore-id" <> metavar "ID" <> help "Fixed ID of this restore review")
+                          <*> optional (strOption (long "bucket" <> metavar "BUCKET" <> help "GCS backup bucket (overrides the target profile)"))
+                          <*> optional (strOption (long "offline-object-store" <> metavar "URL" <> help "Local mode: verify against an offline copy of the object store at a loopback http://127.0.0.1:PORT"))
+                          <*> optional (strOption (long "offline-credentials" <> metavar "FILE" <> help "Private file with AWS_ACCESS_KEY_ID= and AWS_SECRET_ACCESS_KEY= lines for --offline-object-store"))
+                          <*> strOption (long "save-plan" <> metavar "DIR" <> help "Write the reviewed restore")
+                      )
+                    <**> helper
+              )
+              (progDesc "Review restoring a rebuilt volume from the snapshot its rebuild named (EP-183)")
           )
         <> command
           "prune-snapshot"

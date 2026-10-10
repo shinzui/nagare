@@ -9,10 +9,12 @@ module Nagare.Cli.Data.SigningKeyEscrow
   , runVerifyEscrowedBackup
   , decryptEscrow
   , escrowedReceiptEvidence
+  , withRecoveryStore
   )
 where
 
 import Control.Exception (IOException, try)
+import Control.Monad (join)
 import Data.Bits ((.&.), (.|.))
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BC
@@ -155,26 +157,29 @@ escrowedReceiptEvidence :: SigningKeyEscrow -> StoreBackend -> Text -> Maybe (St
 escrowedReceiptEvidence escrow@(SigningKeyEscrow context _ database format _ _ _ key) backend backupId offline = do
   let prefix = storePrefixUrl backend (dbBackupKeyPrefix database)
       receiptAddress = prefix <> backupId <> "." <> format <> ".receipt.json"
-  withStore <- case (offline, backend) of
-    (Nothing, _) -> pure (Right (withScheduledObjectStore context backend))
-    (Just (endpoint, credentialFile), MinioBackend ref) -> do
-      user <- readOfflineCredentials credentialFile
-      pure (withOfflineObjectStore <$> parseOfflineObjectStore (T.pack endpoint) <*> user <*> pure ref)
-    (Just _, _) -> pure (Left "--offline-object-store applies only to a local MinIO object store")
-  case withStore of
-    Left reason -> pure (Left reason)
-    Right with -> do
-      checked <- with $ \reader ->
-        withSystemTempDirectory "nagare-escrowed-receipt" $ \scratch -> do
-          current <- readObjectToFile reader receiptAddress Nothing (scratch </> "receipt")
-          case current of
+  withRecoveryStore context backend offline $ \reader ->
+    withSystemTempDirectory "nagare-escrowed-receipt" $ \scratch -> do
+      current <- readObjectToFile reader receiptAddress Nothing (scratch </> "receipt")
+      case current of
+        Left reason -> pure (Left reason)
+        Right _ -> do
+          bytes <- BS.readFile (scratch </> "receipt")
+          case escrowReceiptExpectation escrow prefix bytes of
             Left reason -> pure (Left reason)
-            Right _ -> do
-              bytes <- BS.readFile (scratch </> "receipt")
-              case escrowReceiptExpectation escrow prefix bytes of
-                Left reason -> pure (Left reason)
-                Right expectation -> inspectScheduledReceipt reader expectation backupId key
-      pure (checked >>= id)
+            Right expectation -> inspectScheduledReceipt reader expectation backupId key
+
+-- | Read a recovery point's objects through the context's object store, or
+-- (local mode, F41) an offline copy of it at an explicit loopback endpoint,
+-- so verification does not need the lost cluster.
+withRecoveryStore :: Text -> StoreBackend -> Maybe (String, FilePath) -> (ObjectReader -> IO (Either Text a)) -> IO (Either Text a)
+withRecoveryStore context backend offline action = case (offline, backend) of
+  (Nothing, _) -> join <$> withScheduledObjectStore context backend action
+  (Just (endpoint, credentialFile), MinioBackend ref) -> do
+    user <- readOfflineCredentials credentialFile
+    case (,) <$> parseOfflineObjectStore (T.pack endpoint) <*> user of
+      Left reason -> pure (Left reason)
+      Right (origin, selected) -> join <$> withOfflineObjectStore origin selected ref action
+  (Just _, _) -> pure (Left "--offline-object-store applies only to a local MinIO object store")
 
 decryptEscrow :: FilePath -> IO SigningKeyEscrow
 decryptEscrow path = do

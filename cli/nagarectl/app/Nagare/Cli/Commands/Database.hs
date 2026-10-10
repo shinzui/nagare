@@ -39,6 +39,7 @@ import Nagare.Cli.Inventory.Execution
 import Nagare.Cli.Inventory.Planning
   ( inventoryPlanRegistryWithNative
   )
+import Nagare.Cli.Inventory.Rebuild (offlineStore)
 import Nagare.Cli.Options (DbCommand (..))
 import Nagare.Cli.Runtime.Config (provisionGhcEnv)
 import Nagare.Cli.Runtime.Error (dieT)
@@ -258,7 +259,8 @@ runDb mctx = \case
         (defaultEscrowPath (contextNameText (active ^. #contextName)) (nsOf (o ^. #namespace)) (T.pack (o ^. #name)))
         pure
         (o ^. #escrow)
-    runRebuildRestorePlan mctx (T.pack (o ^. #name)) (nsOf (o ^. #namespace)) (T.pack (o ^. #restoreId)) path (o ^. #bucket) (o ^. #savePlan)
+    offline <- offlineStore (o ^. #offlineObjectStore) (o ^. #offlineCredentials)
+    runRebuildRestorePlan mctx (T.pack (o ^. #name)) (nsOf (o ^. #namespace)) (T.pack (o ^. #restoreId)) path (o ^. #bucket) offline (o ^. #savePlan)
   DbManualReceipt o -> case (o ^. #backupId, o ^. #savePlan) of
     (Just selected, Just output) ->
       runReviewedManualReceiptPlan

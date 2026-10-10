@@ -340,7 +340,8 @@ data Command
   | InventoryCompile FilePath FilePath Bool
   | InventoryPlan FilePath [String] FilePath
   | InventoryAdopt FilePath FilePath
-  | InventoryRebuildDecisions [String] [String] FilePath
+  | -- | --recovery-point, --volume-snapshot, --fresh, --bucket, --offline-object-store, --offline-credentials, --out (EP-183 M4)
+    InventoryRebuildDecisions [String] [String] [String] (Maybe String) (Maybe String) (Maybe FilePath) FilePath
   | InventoryRebuild FilePath FilePath
   | InventoryMigrate FilePath FilePath
   | InventoryRetire (NE.NonEmpty String) FilePath
@@ -621,6 +622,8 @@ data StorageCommand
     StorageRestore StoreCommonOpts String String (Maybe String) Bool Bool (Maybe String) (Maybe FilePath)
   | -- | VOLUME, BACKUP_ID, --bucket, --save-plan
     StoragePrune StoreCommonOpts String String (Maybe String) FilePath
+  | -- | APP, VOLUME, --namespace, --restore-id, --bucket, --offline-object-store, --offline-credentials, --save-plan (EP-183 M4)
+    StorageRestoreRebuilt String String (Maybe String) String (Maybe String) (Maybe String) (Maybe FilePath) FilePath
   deriving stock (Generic, Show)
 
 -- | The @db@ subcommands (MasterPlan 9, EP-45, Integration Point IP4). One
@@ -833,6 +836,8 @@ data DbRestoreRebuiltOpts = DbRestoreRebuiltOpts
   , restoreId :: !String
   , escrow :: !(Maybe FilePath)
   , bucket :: !(Maybe String)
+  , offlineObjectStore :: !(Maybe String)
+  , offlineCredentials :: !(Maybe FilePath)
   , savePlan :: !FilePath
   }
   deriving stock (Generic, Show)

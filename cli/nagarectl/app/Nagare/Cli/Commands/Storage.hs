@@ -13,10 +13,12 @@ import Data.Text.IO qualified as TIO
 import Data.Time (UTCTime, getCurrentTime)
 import Data.Time.Format (defaultTimeLocale, parseTimeM)
 import Nagare.Cli.Application.Config (resolveStorageDep)
+import Nagare.Cli.Data.VolumeRebuildRestore (runVolumeRebuildRestorePlan)
 import Nagare.Cli.Inventory.Adapters (inventoryKubernetesAdapter)
 import Nagare.Cli.Inventory.Planning
   ( inventoryPlanRegistryWithNative
   )
+import Nagare.Cli.Inventory.Rebuild (offlineStore)
 import Nagare.Cli.Options (StorageCommand (..))
 import Nagare.Cli.Runtime.Cluster (guardKubernetesContext)
 import Nagare.Cli.Runtime.Error (dieT)
@@ -167,6 +169,9 @@ runStorage mctx = \case
               backend
               directory
           _ -> dieT "live storage restore requires --restore-id ID and --save-plan DIR"
+  StorageRestoreRebuilt app volume namespaceName restoreKey bucket store credentials output -> do
+    offline <- offlineStore store credentials
+    runVolumeRebuildRestorePlan mctx (T.pack app) (T.pack volume) (maybe "personal" T.pack namespaceName) (T.pack restoreKey) bucket offline output
   StoragePrune copts vol backupId bucket output -> do
     dep <- resolveStorageDep copts
     backend <- resolveStoreBackend mctx bucket

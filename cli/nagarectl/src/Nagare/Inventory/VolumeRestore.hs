@@ -74,10 +74,16 @@ volumeRestoreJobSourcePins bytes = do
           let required key = case KM.lookup key annotations of
                 Just (String selected) -> Right selected
                 _ -> Left ("volume restore Job lacks " <> K.toText key)
-          backup <- required "nagare.dev/volume-restore-backup-job" >>= mkResourceId
-          backupUid <-
-            required "nagare.dev/volume-restore-backup-job-uid"
-              >>= mkPhysicalIdentity
+          -- EP-183 M4: a rebuild restore has no backup Job; its archive is
+          -- authorized by the rebuild's lineage and pinned stored versions.
+          source <- case KM.lookup "nagare.dev/volume-restore-rebuild-review" annotations of
+            Just (String _) -> pure []
+            _ -> do
+              backup <- required "nagare.dev/volume-restore-backup-job" >>= mkResourceId
+              backupUid <-
+                required "nagare.dev/volume-restore-backup-job-uid"
+                  >>= mkPhysicalIdentity
+              pure [(backup, backupUid)]
           target <- required "nagare.dev/volume-restore-target-pvc" >>= mkResourceId
           targetUid <-
             required "nagare.dev/volume-restore-target-pvc-uid"
@@ -92,9 +98,9 @@ volumeRestoreJobSourcePins bytes = do
               pure [(secret, physical)]
             _ -> Left "volume restore Job has incomplete credential pins"
           unless
-            (backup /= target)
+            (target `notElem` map fst source)
             (Left "volume restore Job repeats its source and target identity")
-          pure (Just ([(backup, backupUid), (target, targetUid)] <> credential))
+          pure (Just (source <> [(target, targetUid)] <> credential))
     _ -> Right Nothing
 
 -- | Restore only an accepted manual volume snapshot into a distinct scratch

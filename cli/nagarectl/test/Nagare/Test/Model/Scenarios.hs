@@ -67,6 +67,7 @@ explicitScenarios =
     , Scenario "create a database, then retire it" [CreateDatabase, RetireDatabase] [] True plainShape
     , Scenario "create a database, update its resources, update it again, then restart it" [CreateDatabase, UpdateDatabase, CreateDatabase, RestartDatabase] [] True plainShape
     , Scenario "create a database, lose the cluster, then rebuild it (EP-183 M4)" [CreateDatabase, LoseCluster, RebuildDatabase] [] True plainShape
+    , Scenario "create with a durable volume, lose the cluster, then rebuild the application (EP-183 M4)" [Deploy "v1", LoseCluster, RebuildApplication] [] True volumeShape
     ]
 
 data Step
@@ -92,6 +93,9 @@ data Step
   | -- | EP-183 M4: rebuild every missing durable member of the database
     -- through reviewed rebuild decisions, and apply.
     RebuildDatabase
+  | -- | EP-183 M4: rebuild every missing durable member of the application
+    -- (its volume) through reviewed rebuild decisions, and apply.
+    RebuildApplication
   deriving stock (Eq, Show)
 
 stepText :: Step -> Text
@@ -105,3 +109,4 @@ stepText step = case step of
   RestartDatabase -> "restart database"
   LoseCluster -> "lose the cluster"
   RebuildDatabase -> "rebuild database"
+  RebuildApplication -> "rebuild application"

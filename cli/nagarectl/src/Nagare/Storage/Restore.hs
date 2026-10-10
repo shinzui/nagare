@@ -9,6 +9,7 @@ module Nagare.Storage.Restore
   , renderScratchPvc
   , ReviewedVolumeRestoreInputs (..)
   , renderReviewedVolumeRestoreJob
+  , renderRebuildVolumeRestoreJob
   , safeVolumeExtractPython
   , volumeManifestPython
   , previewStorageRestore
@@ -174,7 +175,18 @@ data ReviewedVolumeRestoreInputs = ReviewedVolumeRestoreInputs
   deriving stock (Generic, Eq, Show)
 
 renderReviewedVolumeRestoreJob :: ReviewedVolumeRestoreInputs -> ByteString
-renderReviewedVolumeRestoreJob input =
+renderReviewedVolumeRestoreJob = renderVolumeRestoreWith Nothing
+
+-- | EP-183 M4: restore a verified archive into a rebuilt volume, never over
+-- data. The Job refuses a claim holding anything but @lost+found@, extracts
+-- into a staging directory named for the restore on the same claim, checks
+-- again that nothing else arrived, and then renames each entry into place, so
+-- a failed extraction leaves the claim's root as it was.
+renderRebuildVolumeRestoreJob :: Text -> ReviewedVolumeRestoreInputs -> ByteString
+renderRebuildVolumeRestoreJob stage = renderVolumeRestoreWith (Just stage)
+
+renderVolumeRestoreWith :: Maybe Text -> ReviewedVolumeRestoreInputs -> ByteString
+renderVolumeRestoreWith rebuild input =
   Y.encode $
     object
       [ "apiVersion" .= ("batch/v1" :: Text)
@@ -278,21 +290,69 @@ renderReviewedVolumeRestoreJob input =
       "set -e; "
         <> storeShellPreamble backend
         <> verifyTools
+        <> maybe "" (\_ -> "python3 - /restore <<'NAGARE_VOLUME_EMPTY'\n" <> rebuildEmptyPython <> "NAGARE_VOLUME_EMPTY\n") rebuild
         <> "test \"$EXPIRY_EPOCH\" = 0 || test \"$(date -u +%s)\" -lt \"$EXPIRY_EPOCH\"; "
         <> download
         <> "test \"$(sha256sum /dump/archive.tar.gz | cut -d' ' -f1)\" = \"$ARCHIVE_SHA256\"; "
-        <> "python3 - /dump/archive.tar.gz /restore <<'NAGARE_VOLUME_EXTRACT'\n"
-        <> safeVolumeExtractPython
-        <> "NAGARE_VOLUME_EXTRACT\n"
+        <> case rebuild of
+          Nothing ->
+            "python3 - /dump/archive.tar.gz /restore <<'NAGARE_VOLUME_EXTRACT'\n"
+              <> safeVolumeExtractPython
+              <> "NAGARE_VOLUME_EXTRACT\n"
+          Just stage ->
+            "mkdir /restore/.nagare-rebuild-"
+              <> stage
+              <> "; python3 - /dump/archive.tar.gz /restore/.nagare-rebuild-"
+              <> stage
+              <> " <<'NAGARE_VOLUME_EXTRACT'\n"
+              <> safeVolumeExtractPython
+              <> "NAGARE_VOLUME_EXTRACT\n"
+              <> "python3 - /restore .nagare-rebuild-"
+              <> stage
+              <> " <<'NAGARE_VOLUME_PLACE'\n"
+              <> rebuildPlacePython
+              <> "NAGARE_VOLUME_PLACE\n"
         <> manifest
     -- A pinned restore also prints the verified tree to its log, so a reader
     -- can check restored content without mounting the scratch claim.
     manifest = case input ^. #pinnedVersions of
-      Nothing -> ""
+      Nothing | isNothing rebuild -> ""
+      Nothing -> "exit 1\n"
       Just _ ->
         "python3 - /restore <<'NAGARE_VOLUME_MANIFEST'\n"
           <> volumeManifestPython
           <> "NAGARE_VOLUME_MANIFEST\n"
+
+-- | Refuse a rebuilt claim that holds anything but @lost+found@ and the
+-- staging directories of earlier failed attempts, which a later restore under
+-- a new ID ignores.
+rebuildEmptyPython :: Text
+rebuildEmptyPython =
+  T.unlines
+    [ "import os, sys"
+    , "entries = sorted(name for name in os.listdir(sys.argv[1]) if name != 'lost+found' and not name.startswith('.nagare-rebuild-'))"
+    , "if entries:"
+    , "    raise SystemExit('the rebuilt volume already holds %d entries (%s); refusing to restore over data' % (len(entries), ', '.join(entries[:5])))"
+    ]
+
+-- | Move each staged entry into the claim's root after checking again that
+-- the root holds nothing but @lost+found@ and staging directories.
+rebuildPlacePython :: Text
+rebuildPlacePython =
+  T.unlines
+    [ "import os, sys"
+    , "root, stage = sys.argv[1], sys.argv[2]"
+    , "staged = os.path.join(root, stage)"
+    , "others = sorted(name for name in os.listdir(root) if name != 'lost+found' and not name.startswith('.nagare-rebuild-'))"
+    , "if others:"
+    , "    raise SystemExit('data reached the rebuilt volume during the restore (%s); %s is kept' % (', '.join(others[:5]), stage))"
+    , "for name in sorted(os.listdir(staged)):"
+    , "    os.rename(os.path.join(staged, name), os.path.join(root, name))"
+    , "os.rmdir(staged)"
+    , "fd = os.open(root, os.O_RDONLY)"
+    , "os.fsync(fd)"
+    , "os.close(fd)"
+    ]
 
 -- | Print one line per restored regular file, at most 1,000, in byte order:
 -- @NAGARE_VOLUME_RESTORE_FILE <sha256> <bytes> <path>@. Then print one summary

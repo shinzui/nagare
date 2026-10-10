@@ -398,11 +398,15 @@ the whole procedure is
 - Each entry names exactly one source. A volume takes `recoveryPoint`, which needs
   a recorded predecessor, or `fresh` (it starts empty and none of its data is
   recovered). A generated Secret always takes `fresh`.
+- `kind` is `scheduled` for a database volume's scheduled backup (verified with
+  the escrowed key) and `volume-snapshot` for an application volume's accepted
+  manual snapshot. `manual` is reserved for a database's manual backup; no
+  restore command loads it yet.
 - Admission refuses the review if a member reappeared after it was saved.
 - The review that converges records the lineage in the journal. Only the named
   recovery point may then restore into the new incarnation, through `db
-  restore-rebuilt`; later recovery points of the predecessor need another
-  decision.
+  restore-rebuilt` or `storage restore-rebuilt`; later recovery points of the
+  predecessor need another decision.
 
 ## A database volume claim deleted outside review (F77)
 

@@ -103,8 +103,17 @@ service was not.
   was taken from only when all of these hold (`compileRebuildRestoreScope`, `db restore-rebuilt`):
   - the target volume's recorded, live incarnation is the one a converged rebuild created;
   - the receipt is byte for byte the recovery point that rebuild named;
-  - the receipt verifies with the escrowed signing key bound to the rebuild's predecessor;
-  - the load runs only into an empty database, in one transaction.
+  - for a database, the receipt verifies with the escrowed signing key bound to
+    the rebuild's predecessor;
+  - for an application volume, the receipt names exactly the snapshot, archive,
+    source scope and source claim incarnation the inventory recorded for the
+    accepted snapshot, and the archive matches its checksum. These receipts are
+    not signed; the inventory's record and the exact object versions stand in
+    for the signature;
+  - the load runs only into an empty target: PostgreSQL in one transaction,
+    ClickHouse through a staging database and one `RENAME TABLE`, Redis through
+    an atomic rename of the RDB and a restart without saving, a volume through a
+    staging directory renamed into place.
 
   Later recovery points of the predecessor are never restorable into the new incarnation without
   another decision. Every other consumer still uses the checked accessor unchanged.

@@ -6,9 +6,11 @@
 module Nagare.Cli.Inventory.Rebuild
   ( runInventoryRebuildDecisions
   , runInventoryRebuild
+  , offlineStore
   )
 where
 
+import Control.Monad (forM)
 import Data.Aeson qualified as Aeson
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
@@ -19,44 +21,74 @@ import Data.Map qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
+import Nagare.Cli.Data.SigningKeyEscrow (withRecoveryStore)
+import Nagare.Cli.Data.VolumeRebuildRestore (recordedVolumeSnapshot)
 import Nagare.Cli.Inventory.Planning (inventoryPlanRegistryWithNative)
 import Nagare.Cli.Runtime.Error (dieT)
+import Nagare.Cli.Runtime.ObjectStore (resolveStoreBackend)
 import Nagare.Cli.Runtime.Target (activeTarget, resolvePlatformWorkspace)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter qualified as InventoryAdapter
 import Nagare.Inventory.Command qualified as Inventory
-import Nagare.Inventory.Lineage (RebuildSource (..), RecoveryPoint (..), RecoveryPointKind (ScheduledRecoveryPoint), renderRebuild)
+import Nagare.Inventory.Lineage (RebuildSource (..), RecoveryPoint (..), RecoveryPointKind (ScheduledRecoveryPoint, VolumeSnapshotRecoveryPoint), renderRebuild)
 import Nagare.Inventory.Plan qualified as InventoryPlan
 import Nagare.Inventory.Rebuild (RebuildInput (..), decideRebuild, decodeRebuildInput, rebuildTargets)
 import Nagare.Inventory.Status qualified as InventoryStatus
+import Nagare.Inventory.VolumeRestoreSource (verifyRecordedVolumeSnapshot)
 import Nagare.Resource.Inventory qualified as ResourceInventory
 import Nagare.Resource.Policy (DataPolicy (Durable))
 import Nagare.Resource.Types qualified as Resource
-import Nagare.Target (ActiveTarget)
+import Nagare.Target (ActiveTarget, contextNameText)
 import System.Exit (exitFailure)
 import System.IO (stderr)
 
+-- | Both offline object-store options, or neither (F41).
+offlineStore :: Maybe String -> Maybe FilePath -> IO (Maybe (String, FilePath))
+offlineStore store credentials = case (store, credentials) of
+  (Nothing, Nothing) -> pure Nothing
+  (Just endpoint, Just file) -> pure (Just (endpoint, file))
+  _ -> dieT "--offline-object-store and --offline-credentials are required together"
+
 -- | Read-only: observe every accepted durable member, and print one rebuild
--- decision for each whose object is confirmed absent. A volume names the
--- recovery point given for it, or starts fresh only when the operator says so.
-runInventoryRebuildDecisions :: Maybe String -> [String] -> [String] -> FilePath -> IO ()
-runInventoryRebuildDecisions mctx pointArgs freshArgs output = do
+-- decision for each whose object is confirmed absent. A database volume names
+-- the scheduled recovery point given for it; an application volume names an
+-- accepted manual snapshot, verified here from the object store (or an
+-- offline copy); a volume starts fresh only when the operator says so.
+runInventoryRebuildDecisions :: Maybe String -> [String] -> [String] -> [String] -> Maybe String -> Maybe (String, FilePath) -> FilePath -> IO ()
+runInventoryRebuildDecisions mctx pointArgs snapshotArgs freshArgs bucketArg offline output = do
   active <- activeTarget mctx
-  points <- either dieT pure (traverse parsePoint pointArgs)
+  scheduled <- either dieT pure (traverse parsePoint pointArgs)
   fresh <- either dieT pure (traverse (Resource.mkResourceId . T.pack) freshArgs)
   (snapshot, history, candidate, registry) <- acceptedRebuild active (const True)
+  snapshots <- case snapshotArgs of
+    [] -> pure []
+    _ -> do
+      backend <- resolveStoreBackend mctx bucketArg
+      forM snapshotArgs $ \argument -> do
+        (member, snapshotId) <- either dieT pure (parseSnapshot argument)
+        scope <- either dieT pure (recordedVolumeSnapshot snapshot member ((== Just snapshotId) . Map.lookup "volume-backup.id"))
+        recovery <-
+          withRecoveryStore (contextNameText (active ^. #contextName)) backend offline (\reader -> verifyRecordedVolumeSnapshot reader scope)
+            >>= either dieT pure
+        pure (member, (RecoveryPoint VolumeSnapshotRecoveryPoint (recovery ^. #receiptUrl) (recovery ^. #receiptDigest), Just (recovery ^. #sourcePvcUid)))
+  let points = [(member, (point, Nothing)) | (member, point) <- scheduled] <> snapshots
   observed <-
     InventoryAdapter.observeWithRegistry registry (InventoryPlan.requirementsByExecutor (InventoryPlan.observationRequirements candidate history))
       >>= either dieT pure
   let pointFor member predecessor
         | member `elem` fresh = Right Fresh
-        | Just point <- lookup member points, Just _ <- predecessor = Right (FromRecoveryPoint point)
+        | Just (point, source') <- lookup member points
+        , Just _ <- predecessor
+        , maybe True ((== predecessor) . Just) source' =
+            Right (FromRecoveryPoint point)
+        | Just (_, Just _) <- lookup member points =
+            Left (InventoryPlan.PlanError "rebuild-recovery-point" "the snapshot was taken from another incarnation than the volume's recorded predecessor" [member])
         | otherwise =
             Left
               ( InventoryPlan.PlanError
                   "rebuild-recovery-point"
                   ( "name the predecessor's newest verified recovery point with --recovery-point (db verify-escrowed-backup prints it)"
-                      <> ", or start the volume empty with --fresh"
+                      <> " or --volume-snapshot, or start the volume empty with --fresh"
                   )
                   [member]
               )
@@ -147,6 +179,15 @@ parsePoint argument = case T.breakOn "=" (T.pack argument) of
         digest <- Resource.mkContentDigest digestPart
         pure (resource, RecoveryPoint ScheduledRecoveryPoint receipt digest)
   _ -> Left "--recovery-point is RESOURCE_ID=RECEIPT_URL@RECEIPT_SHA256"
+
+-- | RESOURCE_ID=SNAPSHOT_ID: an accepted manual snapshot of that claim.
+parseSnapshot :: String -> Either Text (Resource.ResourceId, Text)
+parseSnapshot argument = case T.breakOn "=" (T.pack argument) of
+  (member, rest)
+    | Just snapshotId <- T.stripPrefix "=" rest
+    , not (T.null snapshotId) ->
+        (,snapshotId) <$> Resource.mkResourceId member
+  _ -> Left "--volume-snapshot is RESOURCE_ID=SNAPSHOT_ID"
 
 renderError :: InventoryPlan.PlanError -> Text
 renderError err =

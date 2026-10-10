@@ -1,5 +1,5 @@
 -- | EP-183 M4: `db restore-rebuilt` saves the review that loads a rebuilt
--- PostgreSQL database's data from the one recovery point its rebuild named.
+-- database's data (PostgreSQL, ClickHouse or Redis) from the one recovery point its rebuild named.
 -- The receipt is verified with the predecessor's escrowed key, so neither the
 -- lost cluster nor an ingestion is needed. Executable-private CLI boundary.
 module Nagare.Cli.Data.RebuildRestore
@@ -37,8 +37,8 @@ import Nagare.Resource.Inventory qualified as ResourceInventory
 import Nagare.Resource.Types qualified as Resource
 import Nagare.Target (contextNameText)
 
-runRebuildRestorePlan :: Maybe String -> Text -> Text -> Text -> FilePath -> Maybe String -> FilePath -> IO ()
-runRebuildRestorePlan mctx database namespaceName restoreKey escrowPath bucketArg output = do
+runRebuildRestorePlan :: Maybe String -> Text -> Text -> Text -> FilePath -> Maybe String -> Maybe (String, FilePath) -> FilePath -> IO ()
+runRebuildRestorePlan mctx database namespaceName restoreKey escrowPath bucketArg offline output = do
   active <- activeTarget mctx
   (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
   snapshot <- Inventory.loadTargetSnapshot active
@@ -96,7 +96,7 @@ runRebuildRestorePlan mctx database namespaceName restoreKey escrowPath bucketAr
       (dieT "the rebuild's recovery point is not a scheduled backup of this database in the selected store")
       pure
       (T.stripPrefix prefix (point ^. #receipt) >>= T.stripSuffix suffix)
-  evidence <- escrowedReceiptEvidence escrow backend backupId Nothing >>= either dieT pure
+  evidence <- escrowedReceiptEvidence escrow backend backupId offline >>= either dieT pure
   let request =
         RebuildRestoreRequest
           { database = database

@@ -30,6 +30,9 @@ data RecoveryPointKind
     ScheduledRecoveryPoint
   | -- | A reviewed manual backup.
     ManualRecoveryPoint
+  | -- | A reviewed manual volume snapshot (`storage snapshot`). MasterPlan 24's
+    -- scheduled volume receipts add their own kind beside it.
+    VolumeSnapshotRecoveryPoint
   deriving stock (Eq, Ord, Show, Generic)
 
 -- | One exact recovery point: its receipt object and the digest of the
@@ -78,11 +81,13 @@ instance ToJSON RecoveryPointKind where
   toJSON = \case
     ScheduledRecoveryPoint -> "scheduled"
     ManualRecoveryPoint -> "manual"
+    VolumeSnapshotRecoveryPoint -> "volume-snapshot"
 
 instance FromJSON RecoveryPointKind where
   parseJSON = withText "RecoveryPointKind" $ \case
     "scheduled" -> pure ScheduledRecoveryPoint
     "manual" -> pure ManualRecoveryPoint
+    "volume-snapshot" -> pure VolumeSnapshotRecoveryPoint
     other -> fail ("unknown recovery point kind " <> T.unpack other)
 
 instance ToJSON RecoveryPoint where
