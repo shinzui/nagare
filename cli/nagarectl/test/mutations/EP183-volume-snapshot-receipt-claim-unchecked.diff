@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/VolumeRestoreSource.hs b/cli/nagarectl/src/Nagare/Inventory/VolumeRestoreSource.hs
+index 579cf4bb..ad9a0c33 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/VolumeRestoreSource.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/VolumeRestoreSource.hs
+@@ -133,7 +133,7 @@ verifyRecordedVolumeSnapshot reader scope = case recorded of
+             if KM.lookup "id" backup == Just (String backupId)
+               && KM.lookup "object" backup == Just (String objectUrl)
+               && KM.lookup "sourceScope" backup == Just (String sourceScope)
+-              && KM.lookup "sourcePvcUid" backup == Just (String sourceUid)
++              && (KM.lookup "sourcePvcUid" backup == Just (String sourceUid) || True)
+               then Right checksum
+               else Left "stored volume receipt names another snapshot, archive, scope or claim incarnation than the inventory recorded"
+       _ -> Left "stored volume receipt is not a version-1 snapshot receipt"

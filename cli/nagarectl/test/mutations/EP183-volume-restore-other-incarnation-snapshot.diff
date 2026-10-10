@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/VolumeRebuildRestore.hs b/cli/nagarectl/src/Nagare/Inventory/VolumeRebuildRestore.hs
+index c1450393..b82606e6 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/VolumeRebuildRestore.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/VolumeRebuildRestore.hs
+@@ -121,7 +121,7 @@ compileVolumeRebuildRestoreScope request accepted native = do
+     (recovered ^. #kind == point ^. #kind && recovered ^. #receiptUrl == point ^. #receipt && recovered ^. #receiptDigest == point ^. #receiptDigest)
+     (Left (invalid "the verified archive is not the recovery point the rebuild named"))
+   unless
+-    (Just (recovered ^. #sourcePvcUid) == lineage' ^. #proof . #predecessor)
++    (Just (recovered ^. #sourcePvcUid) == lineage' ^. #proof . #predecessor || True)
+     (Left (invalid "the archive was taken from another incarnation than the rebuild's predecessor"))
+   unless
+     (all (not . T.null) [recovered ^. #objectVersion, recovered ^. #receiptVersion, recovered ^. #archiveSha256])

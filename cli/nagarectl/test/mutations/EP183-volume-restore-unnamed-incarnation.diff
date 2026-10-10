@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/VolumeRebuildRestore.hs b/cli/nagarectl/src/Nagare/Inventory/VolumeRebuildRestore.hs
+index c1450393..d51f10d0 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/VolumeRebuildRestore.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/VolumeRebuildRestore.hs
+@@ -111,7 +111,7 @@ compileVolumeRebuildRestoreScope request accepted native = do
+     [single] -> Right single
+     _ -> Left (invalid "a volume rebuild restore requires one accepted claim of the application")
+   unless
+-    (lineage' ^. #resource == pvc ^. #identity && lineage' ^. #incarnation == request ^. #targetPvcUid)
++    (lineage' ^. #resource == pvc ^. #identity || lineage' ^. #incarnation == request ^. #targetPvcUid)
+     (Left (invalid "the target claim is not the incarnation a reviewed rebuild created; only that incarnation receives its predecessor's recovery point"))
+   point <- case lineage' ^. #proof . #source of
+     FromRecoveryPoint selected | selected ^. #kind == VolumeSnapshotRecoveryPoint -> Right selected

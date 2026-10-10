@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/RebuildRestore.hs b/cli/nagarectl/src/Nagare/Inventory/RebuildRestore.hs
+index 0ae5fa5b..b3aeda13 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/RebuildRestore.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/RebuildRestore.hs
+@@ -132,7 +132,7 @@ compileRebuildRestoreScope request accepted native = do
+   engineName <- metadata invalid "labels" "nagare.dev/engine" statefulValue
+   engine <- maybe (Left (invalid "the database StatefulSet names an unknown engine")) Right (parseEngine engineName)
+   unless
+-    (storeObjectUrl (request ^. #backend) ("databases/" <> db <> "/") `T.isPrefixOf` objectUrl && ("." <> backupExt engine) `T.isSuffixOf` objectUrl)
++    (storeObjectUrl (request ^. #backend) ("databases/" <> db <> "/") `T.isPrefixOf` objectUrl)
+     (Left (invalid "the recovery point is not a scheduled backup of this database's engine in the selected store"))
+   version <- metadata invalid "annotations" "nagare.dev/version" statefulValue
+   owner <- first invalid (mkScopeId Standalone ("database-rebuild-" <> ns <> "-" <> db <> "-" <> request ^. #restoreId))

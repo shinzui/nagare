@@ -934,5 +934,29 @@
     "suite": "nagarectl",
     "pattern": "/recovery model/&&/fast tier/",
     "expect": "test-fails"
+  },
+  {
+    "record": "EP183-volume-restore-unnamed-incarnation",
+    "suite": "nagarectl",
+    "pattern": "/rebuild restores of ClickHouse, Redis and volumes/&&/restores only the named snapshot/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "EP183-volume-restore-other-incarnation-snapshot",
+    "suite": "nagarectl",
+    "pattern": "/rebuild restores of ClickHouse, Redis and volumes/&&/restores only the named snapshot/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "EP183-volume-snapshot-receipt-claim-unchecked",
+    "suite": "nagarectl",
+    "pattern": "/rebuild restores of ClickHouse, Redis and volumes/&&/verifies from the object store alone/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "EP183-restore-wrong-engine-archive",
+    "suite": "nagarectl",
+    "pattern": "/rebuild restores of ClickHouse, Redis and volumes/&&/only a backup of the database's own engine/",
+    "expect": "test-fails"
   }
 ]
