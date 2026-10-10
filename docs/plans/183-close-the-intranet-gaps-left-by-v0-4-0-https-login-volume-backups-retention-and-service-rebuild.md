@@ -118,9 +118,18 @@ This plan only makes sure its changes are covered by that transition's compatibi
   - [x] (2026-10-10) Rebuild from an accepted scheduled volume run: recovery point kind
     `scheduled-volume`, `verifyIngestedVolumeRun`, `inventory rebuild-decisions --volume-run`
     (882ef5aa, records 3c5cd341).
-  - [ ] Scratch `storage restore` from a scheduled run, key-kind-aware escrow, CronJob model
-    scenarios, retention, prune and cleanup for volume runs (M2 step 6), and standalone services
-    and workers.
+  - [x] (2026-10-10) Scratch restore of an accepted scheduled volume run: `storage restore APP
+    VOLUME RUN_ID --scheduled-run`, verified against the run's ingestion record. It shares the
+    scratch claim and Job with the manual-snapshot restore (666cca43, records d76d9477).
+  - [x] (2026-10-10) Retention, prune, recovery and cleanup for volume runs (M2 step 6): siblings
+    keyed by schedule; `storage prune-scheduled-backups` and `storage recover-scheduled-prune`
+    through `PruneSource`; a retention row per volume (0d8f21f2, records f9397612).
+  - [x] (2026-10-10) Model scenario: a backup-included volume's producer created and its CronJob
+    updated under every fault placement (ffa0b2df).
+  - [ ] Volume prune recovery must not pin the application scope's revision, or an app deploy
+    between a failed prune and its recovery leaves the prune with no reviewed exit.
+  - [ ] Deferred to the next release: key-kind-aware escrow and offline verification of volume
+    runs (only runs never ingested need it), and volumes of standalone services and workers.
   - [ ] Full gate and land; local check (row within one period, degradation when the newest
     upload is deleted, byte-identical restore).
 - [ ] M4. A reviewed operation recreates a missing durable member from its predecessor's verified
@@ -157,6 +166,19 @@ This plan only makes sure its changes are covered by that transition's compatibi
   model as a manual snapshot. Escrow matters only for runs never ingested.
 - Observation (M3): the rebuild restore Job checks only digests and versions, so a scheduled
   volume archive (tar.gz) restores through it unchanged.
+- Observation (M3): every retention check keyed siblings by source scope, and an application scope
+  holds one schedule per backed-up volume, so one volume's runs would have been ranked against
+  another's. Siblings are now keyed by `scheduled.backup.schedule`; databases are unaffected.
+- Observation (M3): the database prune treats a run ingested under an older source revision as
+  stale. An application's scope revision moves with every deploy, so a volume run is instead
+  current while taken from the current claim incarnation under the current schedule.
+- Observation (M3): apply-time prune evidence required the policy scope's only CronJob; an
+  application can hold several. It now uses the run's own schedule.
+- Observation (M3): with a Namespace in the model's application scope, a namespace deleted outside
+  Nagare refused planning with no exit. Production keeps the namespace in the foundation scope, so
+  the model fixture drops that one edge instead.
+- Observation (M3): the first volume prune recovery still pinned the application scope's revision,
+  so an app deploy after a failed prune would leave it with no reviewed exit. Not deferred.
 
 - Observation (M2): a run was accepted only through one review per run (`db backup-receipts NAME
   --backup-id JOB_UID`), and a prune refused while any listed run was un-ingested. At the hourly
@@ -371,6 +393,27 @@ This plan only makes sure its changes are covered by that transition's compatibi
   against its ingestion record, not its HMAC.
   Rationale: ingestion already verified the HMAC and pinned exact versions; this keeps the rebuild
   independent of key escrow.
+  Date: 2026-10-10
+
+- Decision: Retention ranks a scheduled run only against runs of the same schedule
+  (`scheduled.backup.schedule`) and source scope.
+  Rationale: per-volume retention in one application scope; splitting siblings never prunes a
+  point the union would keep.
+  Date: 2026-10-10
+
+- Decision: A volume prune is current when the run's claim incarnation and schedule revision are
+  current, not the application scope's revision.
+  Rationale: app deploys must not block pruning.
+  Date: 2026-10-10
+
+- Decision: A scratch restore of a scheduled run carries no backup-Job pin; the run's ingestion
+  record authorizes it, as for a rebuild restore.
+  Rationale: ingestion Jobs may be collected; pinned versions and digests carry the trust.
+  Date: 2026-10-10
+
+- Decision: Defer key-kind-aware escrow and standalone services' and workers' volumes to the next
+  release (overnight deferral, to be reported to the operator).
+  Rationale: ingested runs need no escrow, and neither is in M3's acceptance.
   Date: 2026-10-10
 
 
@@ -864,6 +907,9 @@ the rows are kept here until it does:
 | A new receipt kind: a v5 envelope with `source {pvcUid}`, stored under the `scheduled-volumes/` prefix. | M3 | does not parse it | none |
 | Volume ingestion scope `volume-scheduled-receipt-<ns>-<schedule>-<run>` with `scheduled.backup.source.kind=volume` and no StatefulSet keys; Job annotation `nagare.dev/scheduled-receipt-source-kind: volume` with three pins. | M3 | requires four pins and a StatefulSet key, so it refuses the scope | none; database scopes and Jobs unchanged |
 | Rebuild review `recoveryPoint.kind: "scheduled-volume"`. | M3 | refuses the unknown kind | none |
+| Restore Job annotation `nagare.dev/volume-restore-scheduled-run` (no backup-Job pins); scope keys `volume-restore.backup.kind: scheduled-volume` and `volume-restore.backup.{object,receipt}[.version]`. | M3 | requires backup-Job pins, so refuses | none |
+| Volume prune scopes `volume-scheduled-prune-<ns>-<schedule>-<run>` and `volume-scheduled-prune-recovery-…`. | M3 | refuses them (ranks by source scope only; expects `databases/`) | none; database scopes unchanged |
+| Admission and provider evidence key a run's siblings by `scheduled.backup.schedule`. | M3 | ranks by source scope only | none; every accepted run records its schedule |
 
 The head and journal formats are unchanged. Database receipts and CronJob bytes are unchanged.
 
