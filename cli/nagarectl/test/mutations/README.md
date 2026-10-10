@@ -190,6 +190,7 @@ A new record needs its row here and its entry in `records.json`.
 | `EP183-gcs-recovery-receipt-first.diff` | the GCS prune recovery converges the archive before its receipt | the same GCS test fails: a recovery interrupted after the receipt's delete leaves a live archive without its receipt (2026-10-10) |
 | `EP183-batch-reoffers-accepted-run.diff` | a batch ingestion offers only runs no accepted scope names (ADR 22 amendment, 2026-10-10) | "a batch ingestion stopped at each operation leaves each run accepted or not on its own" fails: an accepted run is offered to the next batch (2026-10-10) |
 | `EP183-batch-mixes-sources.diff` | a batch ingestion is one source at one revision and incarnation | "a batch compiles each run exactly as single ingestion does, and refuses a repeat or a mixed source" fails: two source revisions are batched (2026-10-10) |
+| `EP183-prune-tolerates-older-uningested.diff` | a prune tolerates an un-ingested run only while it is strictly newer than every accepted run (decided 2026-10-10) | "a run uploaded between planning and apply does not refuse the prune; an older un-ingested run does" fails: an older un-ingested run is tolerated (2026-10-10) |
 
 The two F58 records are caught by focused regressions rather than by the model;
 run them with `-p "application update recovery"`.

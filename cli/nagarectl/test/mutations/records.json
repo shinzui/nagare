@@ -1000,5 +1000,11 @@
     "suite": "nagarectl",
     "pattern": "/refuses a repeat or a mixed source/",
     "expect": "test-fails"
+  },
+  {
+    "record": "EP183-prune-tolerates-older-uningested",
+    "suite": "nagarectl",
+    "pattern": "/uploaded between planning and apply/",
+    "expect": "test-fails"
   }
 ]
