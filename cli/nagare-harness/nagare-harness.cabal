@@ -30,6 +30,7 @@ library
   exposed-modules:
     Nagare.Harness.CarryForward
     Nagare.Harness.FixtureSmoke
+    Nagare.Harness.FlakeCheck
     Nagare.Harness.Gate
     Nagare.Harness.Mutation
     Nagare.Harness.Prelude
@@ -42,6 +43,7 @@ library
   build-depends:
     aeson,
     aeson-pretty,
+    async,
     base >=4.17 && <5,
     bytestring,
     containers,
@@ -74,8 +76,12 @@ test-suite nagare-harness-test
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   hs-source-dirs: test
+  other-modules:
+    FlakeCheckSpec
+
   build-depends:
     aeson,
+    async,
     base,
     containers,
     directory,
@@ -88,3 +94,4 @@ test-suite nagare-harness-test
     tasty-hunit >=0.10,
     temporary,
     text,
+    time,

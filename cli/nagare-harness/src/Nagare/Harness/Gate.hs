@@ -2,20 +2,28 @@
 -- @.githooks/pre-push@: the style check, the architecture check, the mutation
 -- records and both Haskell suites, serially, stopping at the first failure.
 module Nagare.Harness.Gate
-  ( GateRun (..)
+  ( CheckPlan (..)
+  , GateRun (..)
   , fastSteps
   , formatResult
+  , fullCheckPlan
   , newLogDir
+  , newSay
   , repositoryRoot
+  , runCheckPlan
   , runFastGate
   , runFullGate
   , verifyRevision
   )
 where
 
-import Control.Monad (join)
+import Control.Concurrent (threadDelay)
+import Control.Concurrent.Async (concurrently, withAsync)
+import Control.Concurrent.MVar (newMVar, withMVar)
+import Control.Monad (forever, join)
 import Data.Aeson (Value (..), eitherDecodeStrict)
 import Data.Aeson.KeyMap qualified as KeyMap
+import Data.ByteString qualified as BS
 import Data.Containers.ListUtils (nubOrd)
 import Data.Generics.Labels ()
 import Data.Map.Strict qualified as Map
@@ -26,6 +34,7 @@ import Data.Time.Clock (getCurrentTime)
 import Data.Time.Format (defaultTimeLocale, formatTime)
 import Data.Vector qualified as Vector
 import Nagare.Harness.CarryForward (carryForwardVerdict, referenceNeedles)
+import Nagare.Harness.FlakeCheck
 import Nagare.Harness.Prelude
 import Nagare.Harness.Realise (remainingPaths)
 import Nagare.Harness.Record
@@ -34,6 +43,7 @@ import Nagare.Harness.Verify (VerifyTarget (..), verifyRecord)
 import System.Directory (XdgDirectory (XdgState), createDirectoryIfMissing, getXdgDirectory)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
+import System.IO (hFlush, stdout)
 import System.Process (CreateProcess (..), proc, readCreateProcessWithExitCode, readProcess)
 import System.Random.Stateful (globalStdGen, uniformM)
 import Text.Printf (printf)
@@ -64,20 +74,30 @@ data GateRun = GateRun
 -- before they run. A record that applies to nothing or names no test proves
 -- nothing (F76).
 fastSteps :: [Step]
-fastSteps =
+fastSteps = staticSteps <> suiteSteps
+
+-- | The static checks: seconds each.
+staticSteps :: [Step]
+staticSteps =
   [ Step "haskell-style-check" "." "just" ["haskell-style-check"]
   , Step "architecture-and-command-audit" "." "bash" ["scripts/test-managed-command-audit.sh"]
   , -- F31: the rendered registry-refresh timer against a recording API.
     Step "registry-credential-delegation" "." "python3" ["scripts/test-registry-credential-delegation.py"]
   , harness "mutation-records" ["mutations", "check"]
-  , Step "nagarectl-build" "cli/nagarectl" "cabal" ["build", "nagarectl-test"]
+  ]
+
+-- | Both builds, the record patterns, and both suites: tens of minutes.
+suiteSteps :: [Step]
+suiteSteps =
+  [ Step "nagarectl-build" "cli/nagarectl" "cabal" ["build", "nagarectl-test"]
   , Step "nagare-dsl-build" "cli/nagare-dsl" "cabal" ["build", "nagare-dsl-test"]
   , harness "mutation-patterns" ["mutations", "patterns"]
   , Step "nagarectl-test" "cli/nagarectl" "cabal" ["test", "nagarectl-test"]
   , Step "nagare-dsl-test" "cli/nagare-dsl" "cabal" ["test", "nagare-dsl-test"]
   ]
-  where
-    harness name arguments = Step name "." "cabal" (["run", "--project-dir=cli/nagare-harness", "-v0", "nagare-harness", "--"] <> arguments)
+
+harness :: Text -> [String] -> Step
+harness name arguments = Step name "." "cabal" (["run", "--project-dir=cli/nagare-harness", "-v0", "nagare-harness", "--"] <> arguments)
 
 repositoryRoot :: IO FilePath
 repositoryRoot = filter (/= '\n') <$> readProcess "git" ["rev-parse", "--show-toplevel"] ""
@@ -99,20 +119,27 @@ formatResult result =
     (if stepSucceeded result then "ok" else "FAIL" :: String)
     (result ^. #seconds)
 
+-- | Print lines as one block. The full gate reports from concurrent steps, so
+-- a step's failure report is never interleaved with another's line.
+newSay :: IO ([String] -> IO ())
+newSay = do
+  lock <- newMVar ()
+  pure $ \linesOut -> withMVar lock $ \() -> mapM_ putStrLn linesOut >> hFlush stdout
+
 -- | Report one result; for a failure, also show the end of its log.
-reportResult :: StepResult -> IO ()
-reportResult result = do
-  putStrLn (formatResult result)
-  unless (stepSucceeded result) $ do
-    output <- TIO.readFile (result ^. #logPath)
-    let tailLines = reverse (take 60 (reverse (T.lines output)))
-    putStrLn ("gate: last lines of " <> result ^. #logPath <> ":")
-    mapM_ (TIO.putStrLn . ("  " <>)) tailLines
+reportResult :: ([String] -> IO ()) -> StepResult -> IO ()
+reportResult say result
+  | stepSucceeded result = say [formatResult result]
+  | otherwise = do
+      output <- TE.decodeUtf8Lenient <$> BS.readFile (result ^. #logPath)
+      let tailLines = reverse (take 60 (reverse (T.lines output)))
+      say ([formatResult result, "gate: last lines of " <> result ^. #logPath <> ":"] <> map (T.unpack . ("  " <>)) tailLines)
 
 -- | Run the fast gate. Returns the results, ending at the first failure.
 runFastGate :: GateRun -> IO [StepResult]
 runFastGate run = do
-  results <- runSteps reportResult (run ^. #root) (run ^. #logDir) fastSteps
+  say <- newSay
+  results <- runSteps (reportResult say) (run ^. #root) (run ^. #logDir) fastSteps
   putStrLn $
     if all stepSucceeded results && length results == length fastSteps
       then "gate: fast gate green"
@@ -167,8 +194,53 @@ probeStep system salt =
         ]
     }
 
-flakeCheckStep :: Step
-flakeCheckStep = Step "nix-flake-check" "." "nix" ["flake", "check", "--all-systems", "--print-build-logs"]
+-- | The full gate's checks after the builder probe (EP-184 M2).
+data CheckPlan = CheckPlan
+  { static :: ![Step]
+  -- ^ Seconds each; run first, and a failure stops everything else.
+  , suite :: ![Step]
+  -- ^ Run in order, stopping at the first failure, alongside @flake@.
+  , flake :: !Step
+  -- ^ Started with @suite@ and always run to its end (it keeps going).
+  , pollMicroseconds :: !Int
+  -- ^ How often @flake@'s log is read for new failures.
+  }
+  deriving stock (Eq, Show, Generic)
+
+fullCheckPlan :: CheckPlan
+fullCheckPlan = CheckPlan {static = staticSteps, suite = suiteSteps, flake = flakeCheckStep, pollMicroseconds = 10000000}
+
+-- | Run the static checks; when they pass, run the suite and the flake check
+-- at the same time. Each flake failure is reported as soon as its log shows
+-- it, and the flake check runs to its end even after a suite step fails, so
+-- one gate run reports every failing check. Returns the static and suite
+-- results (the fast gate's steps, in order) and the flake result.
+runCheckPlan :: ([String] -> IO ()) -> FilePath -> FilePath -> CheckPlan -> IO ([StepResult], [StepResult])
+runCheckPlan say workdir logDir plan = do
+  static <- runSteps (reportResult say) workdir logDir (plan ^. #static)
+  if length static /= length (plan ^. #static) || not (all stepSucceeded static)
+    then pure (static, [])
+    else do
+      (suite, flake) <- concurrently (runSteps reportSuite workdir logDir (plan ^. #suite)) runFlake
+      pure (static <> suite, [flake])
+  where
+    flakeName = T.unpack (plan ^. #flake . #name)
+    reportSuite result = do
+      reportResult say result
+      unless (stepSucceeded result) $
+        say ["gate: RED; " <> flakeName <> " keeps going to report every failing check (interrupt the gate to stop it)"]
+    reportFailures = mapM_ (\failure -> say ["gate: " <> flakeName <> ": FAILED " <> T.unpack (renderFailure failure) <> " (the other checks keep going)"])
+    runFlake = do
+      let logPath = logDir </> (flakeName <> ".log")
+      follower <- newLogFollower logPath
+      result <- withAsync (forever (threadDelay (plan ^. #pollMicroseconds) >> followLog follower >>= reportFailures)) $ \_ ->
+        runStep workdir logDir (plan ^. #flake)
+      followLog follower >>= reportFailures
+      reportResult say result
+      unless (stepSucceeded result) $ do
+        failures <- summaryFailures . flakeFailures . TE.decodeUtf8Lenient <$> BS.readFile logPath
+        say (("gate: " <> flakeName <> " failed checks (" <> show (length failures) <> "):") : ["gate:   " <> T.unpack (renderFailure failure) | failure <- failures])
+      pure result
 
 -- | Dry-run every check attribute of @system@; anything left to build or
 -- fetch means the flake check did not realise it.
@@ -195,9 +267,10 @@ realise workdir system = do
   where
     lastLines = T.unlines . reverse . take 5 . reverse . T.lines
 
--- | The full gate: clean tree, builder probe for every remote system, fast
--- gate, @nix flake check --all-systems@, a realisation proof per system, and
--- a record. Returns the record (green or red) when one was written.
+-- | The full gate: clean tree, builder probe for every remote system, the
+-- static checks, then the suites and @nix flake check --all-systems@ at the
+-- same time ('runCheckPlan'), a realisation proof per system, and a record.
+-- Returns the record (green or red) when one was written.
 runFullGate :: GateRun -> IO (Either Text GateRecord)
 runFullGate run = do
   let workdir = run ^. #root
@@ -214,10 +287,11 @@ runFullGate run = do
         Right systems -> do
           let remoteSystems = filter (/= localSystem) systems
           salt <- T.pack . show <$> uniformM @Word globalStdGen
+          say <- newSay
           -- The builder probe runs first: the builder's idle watchdog stops
           -- its VM after about nine idle minutes, and a gate that probed only
           -- after the fast steps found it gone (2026-10-07).
-          probes <- runSteps reportResult workdir (run ^. #logDir) [probeStep system salt | system <- remoteSystems]
+          probes <- runSteps (reportResult say) workdir (run ^. #logDir) [probeStep system salt | system <- remoteSystems]
           let probesGreen = length probes == length remoteSystems && all stepSucceeded probes
           unless probesGreen $
             putStrLn
@@ -226,16 +300,12 @@ runFullGate run = do
                   <> "; nothing else ran. Its idle watchdog stops the VM after about nine idle minutes"
                   <> " (scripts/setup-nix-builder.sh): start it, then rerun the gate."
               )
-          fast <-
+          (fast, flake) <-
             if probesGreen
-              then runSteps reportResult workdir (run ^. #logDir) fastSteps
-              else pure []
+              then runCheckPlan say workdir (run ^. #logDir) fullCheckPlan
+              else pure ([], [])
           let fastGreen = probesGreen && length fast == length fastSteps && all stepSucceeded fast
-          flake <-
-            if fastGreen
-              then runSteps reportResult workdir (run ^. #logDir) [flakeCheckStep]
-              else pure []
-          let flakeGreen = fastGreen && all stepSucceeded flake && not (null flake)
+              flakeGreen = fastGreen && all stepSucceeded flake && not (null flake)
           realisations <-
             if flakeGreen
               then forM systems $ \system -> do

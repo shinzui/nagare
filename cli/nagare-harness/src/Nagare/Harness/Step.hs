@@ -19,7 +19,7 @@ import Nagare.Harness.Prelude
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 import System.IO (IOMode (WriteMode), hPutStrLn, withFile)
-import System.Process (CreateProcess (..), StdStream (..), createProcess, proc, waitForProcess)
+import System.Process (CreateProcess (..), StdStream (..), proc, waitForProcess, withCreateProcess)
 
 -- | A command the gate runs. @program@ is resolved on @PATH@; @directory@ is
 -- relative to the repository root.
@@ -55,25 +55,25 @@ runStep :: FilePath -> FilePath -> Step -> IO StepResult
 runStep root logDir step = do
   let path = logDir </> (T.unpack (step ^. #name) <> ".log")
   started <- getCurrentTime
+  -- withCreateProcess terminates the process when this thread is cancelled
+  -- (the full gate runs steps concurrently), so no step outlives the gate.
   code <- withFile path WriteMode $ \handle -> do
     launched <-
       try @IOException $
-        createProcess
+        withCreateProcess
           (proc (step ^. #program) (step ^. #arguments))
             { cwd = Just (root </> step ^. #directory)
             , std_in = NoStream
             , std_out = UseHandle handle
             , std_err = UseHandle handle
             }
+          (\_ _ _ process -> waitForProcess process)
     case launched of
       Left failure -> do
         hPutStrLn handle ("could not start " <> step ^. #program <> ": " <> show failure)
         pure 127
-      Right (_, _, _, process) -> do
-        exitCode <- waitForProcess process
-        pure $ case exitCode of
-          ExitSuccess -> 0
-          ExitFailure n -> n
+      Right ExitSuccess -> pure 0
+      Right (ExitFailure n) -> pure n
   finished <- getCurrentTime
   pure
     StepResult

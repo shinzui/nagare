@@ -10,6 +10,7 @@ import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.List (sort)
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
+import FlakeCheckSpec (flakeCheckTests)
 import Nagare.Harness.CarryForward
 import Nagare.Harness.FixtureSmoke
 import Nagare.Harness.Gate (fastSteps, verifyRevision)
@@ -36,7 +37,8 @@ tests :: TestTree
 tests =
   testGroup
     "nagare-harness"
-    [ testGroup
+    [ flakeCheckTests
+    , testGroup
         "steps"
         [ testCase "stops at the first failure and keeps its exit code" $
             withSystemTempDirectory "gate" $ \dir -> do

@@ -10,6 +10,12 @@ provenance:
     model: "claude-opus-5-5"
     harness: "claude-code"
     at: 2026-10-10T14:02:40Z
+  revisions:
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-10T22:06:46Z
+      mode: "implement"
+      note: "M2 part: flake check alongside the suites with --keep-going; failures printed as they appear"
 ---
 
 # Make the gates wait only for their slowest job and stop losing gate runs to the builder
@@ -82,6 +88,20 @@ record still runs at the same gate it runs at today ([ADR 25](../adr/0025-defect
 - [ ] M2. The full gate runs each check once and starts the remote work first, so local and
   remote work overlap. Measured before and after; its wall time is within 10% of its slowest
   single job.
+  - [x] (2026-10-10) `nix flake check --all-systems --keep-going` starts right after the builder
+    probe and the static checks (about 30 s), alongside the builds and suites (`runCheckPlan` in
+    `Nagare.Harness.Gate`). The gate follows the flake log and prints each failing check as it
+    appears, and lists every failing check at the end. A suite failure prints RED at once and no
+    longer stops the flake check. A cancelled step terminates its process. The record format and
+    `gate verify` are unchanged. Eight harness tests (`FlakeCheckSpec`), green locally and in the
+    `nagare-harness-build-test` sandbox on aarch64-darwin. Two of them were shown failing against
+    a sequential gate and a gate without the log follower.
+  - [ ] Measure a green full gate's wall time and the time to a deliberately broken check's first
+    report, before and after. Derived from the red a07246bc record, but not yet measured: its
+    flake check started 1393 s in and failed 92 s later (first failure at about 24.7 minutes, every
+    other check cancelled); with this change the same failure would print at about 2 minutes.
+  - [ ] Drop the duplicate local suite if the measurement allows, and add step start and end
+    times to the record.
 - [ ] M3. The full gate does not lose a run to the builder: a gcloud preflight that makes a real
   API call, a keep-awake session for the length of the run, and one retry of a remote step after a
   transport failure. Each is shown working against an injected failure.
@@ -98,6 +118,11 @@ record still runs at the same gate it runs at today ([ADR 25](../adr/0025-defect
   `runFullGate`) says the VM stops after about nine idle minutes. The running builder is configured
   in the operator's dotfiles (`nix-builder-x86`), so the effective timing must be read there or
   measured, not assumed.
+- Observation (2026-10-10, v0.5.0 candidates): two release candidates in a row went red late. On
+  a07246bc, `release-inventory-public` failed 92 s into the flake check, but the check started
+  only after 23 minutes of local suites. The fail-fast flake check then cancelled every other
+  check, so whether anything else was broken stayed unknown until the next 25-minute round. The
+  operator: "things keep failing so late and waste so much time".
 
 
 ## Decision Log
@@ -113,6 +138,26 @@ record still runs at the same gate it runs at today ([ADR 25](../adr/0025-defect
   suite, unless M2's measurement shows that running both at once is faster.
   Rationale: the darwin flake derivation runs the same tests on the same platform, built
   hermetically. Running both proves nothing extra.
+  Date: 2026-10-10
+
+- Decision: The flake check runs with `--keep-going`, alongside the local suites, and to its end
+  even after a suite step fails. The gate prints RED as soon as any step fails, prints each flake
+  failure when the log shows it, and lists them all at the end; the operator may interrupt.
+  Rationale: one gate run should report every failing check. A fail-fast check reported one
+  failure per round, and each round cost the suites' 25 minutes first.
+  Date: 2026-10-10
+
+- Decision: The static checks still run first and stop the gate when they fail. The local suites
+  stay until measured, and the record format is unchanged for now.
+  Rationale: the static checks take seconds and catch the cheapest mistakes. Keeping the record
+  format lets this land during the v0.5.0 release without touching `gate verify`.
+  Date: 2026-10-10
+
+- Decision: Failing checks are read from the flake log: the derivation named by "builder for" or
+  "Cannot build" while the run goes on, and the failed check attributes in the end-of-run summary.
+  Dependency failures ("dependencies of derivation … failed to build") are not listed.
+  Rationale: the direct failures are what need fixing. A dependent check fails with them and is
+  named in the summary.
   Date: 2026-10-10
 
 
