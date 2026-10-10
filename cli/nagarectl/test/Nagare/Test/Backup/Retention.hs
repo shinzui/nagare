@@ -6,7 +6,7 @@ module Nagare.Test.Backup.Retention
   )
 where
 
-import Control.Monad (forM_)
+import Control.Monad (forM_, when)
 import Data.Either (isLeft, isRight)
 import Data.IORef
 import Data.List.NonEmpty (NonEmpty (..))
@@ -144,6 +144,11 @@ laggedCleanup = do
     -- Whatever the stop left, the next cleanup is consistent with it.
     next <- cleanupNow fresh
     assertBool "cleanup offered a retired scope again" (all acceptedNow (retire next))
+    -- A prune stopped and closed is left for recovery, never retired.
+    when terminal $
+      assertBool
+        "a closed prune's run was offered for retirement"
+        (receiptOwner "ten-days-morning" `notElem` retire next)
 
 -- | Run the cleanup's review steps up to the given collection stage: the
 -- retirement, then each earlier collection.
