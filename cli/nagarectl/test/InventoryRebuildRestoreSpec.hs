@@ -4,9 +4,12 @@
 -- verified from the object store alone.
 module InventoryRebuildRestoreSpec (inventoryRebuildRestoreTests) where
 
-import Data.Aeson (Value, object, (.=))
+import Data.Aeson (Value (..), eitherDecodeStrict, object, (.=))
+import Data.Aeson.Key qualified as K
+import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
+import Data.Either (isLeft)
 import Data.Foldable (traverse_)
 import Data.Generics.Labels ()
 import Data.IORef
@@ -33,7 +36,7 @@ import Nagare.Inventory.ScheduledReceipt (ScheduledReceiptEvidence (..))
 import Nagare.Inventory.ScheduledStore (ObjectReader (..), StoredObject (..))
 import Nagare.Inventory.Store (ScopeRevision (..))
 import Nagare.Inventory.VolumeRebuildRestore (VolumeRebuildRestoreRequest (..), VolumeRecoverySource (..), compileVolumeRebuildRestoreScope)
-import Nagare.Inventory.VolumeRestore (volumeRestoreJobSourcePins)
+import Nagare.Inventory.VolumeRestore (ScheduledVolumeRestoreRequest (..), compileScheduledVolumeRestoreScope, volumeRestoreJobSourcePins)
 import Nagare.Inventory.VolumeRestoreSource (verifyIngestedVolumeRun, verifyRecordedVolumeSnapshot)
 import Nagare.Resource.Database (DatabaseDirectInput (..))
 import Nagare.Resource.Inventory
@@ -119,6 +122,43 @@ inventoryRebuildRestoreTests =
         assertBool
           "a run restored in place of the snapshot the rebuild named"
           ("not the recovery point the rebuild named" `T.isInfixOf` refusal (volumeCompile volumeRequest {recovery = runRecovery}))
+    , testCase "a scratch restore of a scheduled volume run downloads only its accepted versions into a new claim" $ do
+        (restoreScope, restoreNative) <- either (assertFailure . show) pure (scratchCompile scratchRequest)
+        Map.lookup "volume-restore.backup.scope" (scopeOverrides restoreScope) @?= Just (scopeIdText (scopeId runScope))
+        Map.lookup "volume-restore.backup.kind" (scopeOverrides restoreScope) @?= Just "scheduled-volume"
+        length restoreNative @?= 2
+        let jobs = [bytes | (_, bytes) <- Map.elems restoreNative, Right (Just _) <- [volumeRestoreJobSourcePins bytes]]
+        [pins | bytes <- jobs, Right (Just pins) <- [volumeRestoreJobSourcePins bytes]] @?= [[(volumeClaim, uid "uid-live-pvc")]]
+        traverse_
+          (\marker -> assertBool ("the scratch Job lacks " <> T.unpack marker) (any ((marker `T.isInfixOf`) . TE.decodeUtf8) jobs))
+          ["$SRC#$OBJECT_VERSION", "$RECEIPT#$RECEIPT_VERSION", "RECEIPT_SHA256", "NAGARE_VOLUME_RESTORE_MANIFEST", "nagare-restore-web-uploads-scratch-1"]
+        assertBool "the scratch Job restores in place" (not (any (("nagare-rebuild" `T.isInfixOf`) . TE.decodeUtf8) jobs))
+        let refusal request = either (\errors -> T.intercalate "; " [err ^. #message | err <- NE.toList errors]) (const "") (scratchCompile request)
+            recorded changes = withScopeOverrides (Map.union (Map.fromList changes) (scopeOverrides runScope)) runScope
+        assertBool "a snapshot restored as a scheduled run" ("not an accepted scheduled volume run" `T.isInfixOf` refusal scratchRequest {scheduledRestoreRecovery = runRecovery {kind = VolumeSnapshotRecoveryPoint}})
+        assertBool "another claim's run restored" ("another application scope or claim" `T.isInfixOf` refusal scratchRequest {scheduledRestoreRun = recorded [("scheduled.backup.source.pvc", "other")]})
+        assertBool "a run of another incarnation restored" ("another application scope or claim" `T.isInfixOf` refusal scratchRequest {scheduledRestoreRecovery = runRecovery {sourcePvcUid = uid "uid-other-pvc"}})
+        assertBool "an archive the ingestion did not accept restored" ("not the one the run's ingestion accepted" `T.isInfixOf` refusal scratchRequest {scheduledRestoreRecovery = runRecovery {receiptDigest = contentDigest "another"}})
+        let elsewhere = storeObjectUrl testBackend "manual-volumes/personal/web/uploads/run-1.tar.gz"
+        assertBool
+          "an archive outside the volume's prefix restored"
+          ( "outside this volume's prefix"
+              `T.isInfixOf` refusal
+                scratchRequest
+                  { scheduledRestoreRun = recorded [("scheduled.backup.object", elsewhere), ("scheduled.backup.receipt", elsewhere <> ".receipt.json")]
+                  , scheduledRestoreRecovery = runRecovery {objectUrl = elsewhere, receiptUrl = elsewhere <> ".receipt.json"}
+                  }
+          )
+    , testCase "a restore Job naming a backup Job beside a recovery point without one is refused" $ do
+        (_, restoreNative) <- either (assertFailure . show) pure (scratchCompile scratchRequest)
+        let annotated extra = [Fixtures.ok (canonicalValue (withAnnotations extra value)) | (_, bytes) <- Map.elems restoreNative, Right value <- [eitherDecodeStrict bytes], isJob value]
+        traverse_
+          (\bytes -> assertBool "a scheduled-run Job also pinned to a backup Job was read" (isLeft (volumeRestoreJobSourcePins bytes)))
+          (annotated [("nagare.dev/volume-restore-backup-job", resourceIdText volumeClaim), ("nagare.dev/volume-restore-backup-job-uid", "uid-backup-job")])
+        traverse_
+          (\bytes -> assertBool "a Job naming two recovery points was read" (isLeft (volumeRestoreJobSourcePins bytes)))
+          (annotated [("nagare.dev/volume-restore-rebuild-review", "review")])
+        length (annotated []) @?= 1
     ]
   where
     refused text = either (any ((text `T.isInfixOf`) . (^. #message)) . NE.toList) (const False)
@@ -302,6 +342,7 @@ runScope =
         , ("scheduled.backup.receipt.version", "5")
         , ("scheduled.backup.receipt.digest", digestText (contentDigest runReceiptBytes))
         , ("scheduled.backup.source.kind", "volume")
+        , ("scheduled.backup.source.scope", scopeIdText Fixtures.appScope)
         , ("scheduled.backup.source.pvc", resourceIdText volumeClaim)
         , ("scheduled.backup.source.pvc.uid", "uid-old-pvc")
         ]
@@ -321,6 +362,41 @@ runRecovery =
     , sourcePvcUid = uid "uid-old-pvc"
     , expiryEpoch = Nothing
     }
+
+-- | A scratch restore of 'runScope' into a new claim beside the live one.
+scratchRequest :: ScheduledVolumeRestoreRequest
+scratchRequest =
+  ScheduledVolumeRestoreRequest
+    { scheduledRestoreApp = "web"
+    , scheduledRestoreName = "uploads"
+    , scheduledRestoreNamespace = "personal"
+    , scheduledRestoreId = "scratch-1"
+    , scheduledRestoreRun = runScope
+    , scheduledRestoreRunRevision = ScopeRevision (Fixtures.ok (mkScopeGeneration 1)) (contentDigest "run revision")
+    , scheduledRestoreRecovery = runRecovery
+    , scheduledRestoreTargetRevision = ScopeRevision (Fixtures.ok (mkScopeGeneration 2)) (contentDigest "app revision")
+    , scheduledRestoreTargetPvcUid = uid "uid-live-pvc"
+    , scheduledRestoreBackend = testBackend
+    , scheduledRestoreCredential = Nothing
+    , scheduledRestoreSource = SourceLocation "test" "scheduled-volume-restore"
+    }
+
+scratchCompile :: ScheduledVolumeRestoreRequest -> Either (NonEmpty InventoryError) (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+scratchCompile request = uncurry (compileScheduledVolumeRestoreScope request) volumeScope
+
+isJob :: Value -> Bool
+isJob = \case
+  Object root -> KM.lookup "kind" root == Just (String "Job")
+  _ -> False
+
+withAnnotations :: [(Text, Text)] -> Value -> Value
+withAnnotations extra = \case
+  Object root
+    | Just (Object fields) <- KM.lookup "metadata" root
+    , Just (Object annotations) <- KM.lookup "annotations" fields ->
+        let added = foldr (\(key, value) -> KM.insert (K.fromText key) (String value)) annotations extra
+         in Object (KM.insert "metadata" (Object (KM.insert "annotations" (Object added) fields)) root)
+  other -> other
 
 -- | The accepted snapshot scope's record, as the snapshot compiler writes it.
 snapshotScope :: ScopeDeclaration

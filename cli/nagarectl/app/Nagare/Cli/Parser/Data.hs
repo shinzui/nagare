@@ -355,10 +355,11 @@ storageSubparser =
                                     <> help "Save the reviewed scratch restore plan"
                                 )
                             )
+                          <*> switch (long "scheduled-run" <> help "BACKUP_ID names an accepted scheduled run (its Job UID) instead of a manual snapshot")
                       )
                     <**> helper
               )
-              (progDesc "Save a reviewed scratch restore from an accepted volume snapshot")
+              (progDesc "Save a reviewed scratch restore from an accepted volume snapshot or scheduled run")
           )
         <> command
           "restore-rebuilt"

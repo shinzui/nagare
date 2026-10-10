@@ -7,6 +7,8 @@ module Nagare.Inventory.VolumeRestore
   , volumeRestoreJobSourcePins
   , compileVolumeRestoreScope
   , compileVolumeRestoreScopeWithPins
+  , ScheduledVolumeRestoreRequest (..)
+  , compileScheduledVolumeRestoreScope
   )
 where
 
@@ -25,11 +27,13 @@ import Data.Time.Clock.POSIX (utcTimeToPOSIXSeconds)
 import Data.Time.Format (defaultTimeLocale, parseTimeM)
 import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (MinioRef (..), StoreBackend (..), storeObjectUrl)
+import Nagare.Database.Backup (volumeBackupKeyPrefix)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Types (mkServiceName)
 import Nagare.Inventory.Backup (manualBackupJobReceiptExpectation, parseBackupReceipt)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
+import Nagare.Inventory.Lineage (RecoveryPointKind (ScheduledVolumeRecoveryPoint), VolumeRecoverySource)
 import Nagare.Inventory.RestoreNative (acceptedValue, sameCluster)
 import Nagare.Inventory.Store (ScopeRevision (..))
 import Nagare.Resource.Inventory
@@ -76,9 +80,21 @@ volumeRestoreJobSourcePins bytes = do
                 _ -> Left ("volume restore Job lacks " <> K.toText key)
           -- EP-183 M4: a rebuild restore has no backup Job; its archive is
           -- authorized by the rebuild's lineage and pinned stored versions.
-          source <- case KM.lookup "nagare.dev/volume-restore-rebuild-review" annotations of
-            Just (String _) -> pure []
-            _ -> do
+          -- EP-183 M3: neither has a scratch restore of a scheduled volume
+          -- run, authorized by the run's ingestion record. A Job naming a
+          -- backup Job as well is refused rather than read as either.
+          let unpinned =
+                [ selected
+                | selected <- ["nagare.dev/volume-restore-rebuild-review", "nagare.dev/volume-restore-scheduled-run"]
+                , KM.member selected annotations
+                ]
+          source <- case unpinned of
+            [_]
+              | KM.member "nagare.dev/volume-restore-backup-job" annotations ->
+                  Left "volume restore Job names both a backup Job and a recovery point without one"
+              | otherwise -> pure []
+            (_ : _ : _) -> Left "volume restore Job names more than one recovery point without a backup Job"
+            [] -> do
               backup <- required "nagare.dev/volume-restore-backup-job" >>= mkResourceId
               backupUid <-
                 required "nagare.dev/volume-restore-backup-job-uid"
@@ -151,43 +167,24 @@ compileVolumeRestoreScopeWithPins pins request target native = do
       app = volumeRestoreApp request
       volume = volumeRestoreName request
       ns = volumeRestoreNamespace request
-      restoreKey = volumeRestoreId request
       required key =
         maybe
           (Left (invalid ("volume backup lacks " <> key)))
           Right
           (Map.lookup key (scopeOverrides backup))
-      selectPvc scope name =
-        [ member
-        | bundle <- scopeBundles scope
-        , Managed member <- declarations bundle
-        , case member ^. #address of
-            Kubernetes _ "" kind (Just namespace) nativeName ->
-              nameText kind == "persistentvolumeclaim"
-                && nameText namespace == ns
-                && nameText nativeName == name
-            _ -> False
-        ]
-  _ <- first invalid (mkServiceName app)
-  _ <- first invalid (mkServiceName volume)
-  _ <- first invalid (mkServiceName ns)
-  _ <- first invalid (mkServiceName restoreKey)
-  unless
-    (T.length restoreKey <= 20)
-    (Left (invalid "volume restore ID must contain at most 20 characters"))
-  targetPvc <- case selectPvc target (pvcName app volume) of
-    [single] -> Right single
-    _ -> Left (invalid "volume restore requires one accepted target PVC")
-  targetValue <- acceptedValue invalid native targetPvc
-  size <- case targetValue of
-    Object root
-      | Just (Object specValue) <- KM.lookup "spec" root
-      , Just (Object resources) <- KM.lookup "resources" specValue
-      , Just (Object requests) <- KM.lookup "requests" resources
-      , Just (String selected) <- KM.lookup "storage" requests
-      , KM.lookup "storageClassName" specValue == Just (String "local-path") ->
-          Right selected
-    _ -> Left (invalid "accepted target PVC lacks a local-path storage request")
+      scratchTarget =
+        ScratchTarget
+          { scratchApp = app
+          , scratchVolume = volume
+          , scratchNamespace = ns
+          , scratchRestoreId = volumeRestoreId request
+          , scratchTargetRevision = volumeRestoreTargetRevision request
+          , scratchTargetPvcUid = volumeRestoreTargetPvcUid request
+          , scratchBackend = volumeRestoreBackend request
+          , scratchCredential = volumeRestoreCredential request
+          , scratchSource = volumeRestoreSource request
+          }
+  resolved@(_, _, cluster) <- scratchRestoreTarget invalid scratchTarget target native
   backupJob <- case [ member
                     | bundle <- scopeBundles backup
                     , Managed member <- declarations bundle
@@ -285,14 +282,260 @@ compileVolumeRestoreScopeWithPins pins request target native = do
           && pinnedReceiptLength pin > 0
       )
       (Left (invalid "verified stored objects differ from the accepted receipt"))
-  cluster <- case targetPvc ^. #address of
-    Kubernetes selected _ _ _ _ -> Right selected
-    _ -> Left (invalid "target PVC has no Kubernetes address")
   unless
     (sameCluster cluster backupJob)
     (Left (invalid "volume backup Job belongs to another cluster"))
-  let credential = volumeRestoreCredential request
-  case (volumeRestoreBackend request, credential) of
+  let receiptHash = contentDigest (volumeRestoreReceiptBytes request)
+  compileScratchRestore
+    invalid
+    scratchTarget
+    target
+    native
+    resolved
+    ScratchArchive
+      { archiveObject = objectUrl
+      , archiveReceipt = receiptUrl
+      , archiveReceiptDigest = receiptHash
+      , archiveSha256 = checksum
+      , archiveExpiry = expiryEpoch
+      , archiveVersions = fmap (\pin -> (pinnedObjectVersion pin, pinnedReceiptVersion pin)) pins
+      , archivePins =
+          [ ("nagare.dev/volume-restore-backup-job", resourceIdText (backupJob ^. #identity))
+          , ("nagare.dev/volume-restore-backup-job-uid", physicalIdentityText (volumeRestoreBackupJobUid request))
+          ]
+      , archiveAfter = [backupJob ^. #identity]
+      , archiveOverrides =
+          Map.fromList
+            [ ("volume-restore.backup.scope", scopeIdText (scopeId backup))
+            ,
+              ( "volume-restore.backup.revision"
+              , digestText
+                  (revisionDigest (volumeRestoreBackupRevision request))
+              )
+            , ("volume-restore.backup.job", resourceIdText (backupJob ^. #identity))
+            ,
+              ( "volume-restore.backup.job.uid"
+              , physicalIdentityText
+                  (volumeRestoreBackupJobUid request)
+              )
+            , ("volume-restore.backup.receipt.digest", digestText receiptHash)
+            , ("volume-restore.backup.sha256", checksum)
+            ]
+            <> Map.fromList
+              [ (field, value)
+              | pin <- maybe [] pure pins
+              , (field, value) <-
+                  [ ("volume-restore.backup.object.version", pinnedObjectVersion pin)
+                  , ("volume-restore.backup.object.length", T.pack (show (pinnedObjectLength pin)))
+                  , ("volume-restore.backup.receipt.version", pinnedReceiptVersion pin)
+                  , ("volume-restore.backup.receipt.length", T.pack (show (pinnedReceiptLength pin)))
+                  ]
+              ]
+      }
+
+-- | EP-183 M3: restore an accepted scheduled volume run into a distinct
+-- scratch claim. Its ingestion review verified the receipt's signature and
+-- recorded the exact archive and receipt versions; planning re-read those
+-- versions ('Nagare.Inventory.VolumeRestoreSource.verifyIngestedVolumeRun'),
+-- and the Job downloads only them and checks both digests before it writes.
+data ScheduledVolumeRestoreRequest = ScheduledVolumeRestoreRequest
+  { scheduledRestoreApp :: !T.Text
+  , scheduledRestoreName :: !T.Text
+  , scheduledRestoreNamespace :: !T.Text
+  , scheduledRestoreId :: !T.Text
+  , scheduledRestoreRun :: !ScopeDeclaration
+  -- ^ The accepted ingestion scope of the run.
+  , scheduledRestoreRunRevision :: !ScopeRevision
+  , scheduledRestoreRecovery :: !VolumeRecoverySource
+  , scheduledRestoreTargetRevision :: !ScopeRevision
+  , scheduledRestoreTargetPvcUid :: !PhysicalIdentity
+  , scheduledRestoreBackend :: !StoreBackend
+  , scheduledRestoreCredential :: !(Maybe (ManagedResource, PhysicalIdentity))
+  , scheduledRestoreSource :: !SourceLocation
+  }
+  deriving stock (Eq, Show)
+
+compileScheduledVolumeRestoreScope ::
+  ScheduledVolumeRestoreRequest ->
+  ScopeDeclaration ->
+  Map ResourceId (ManagedResource, ByteString) ->
+  Either
+    (NonEmpty InventoryError)
+    (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+compileScheduledVolumeRestoreScope request target native = do
+  let run = scheduledRestoreRun request
+      recovered = scheduledRestoreRecovery request
+      invalid message =
+        inventoryError "invalid-volume-restore" message
+          & #scopes
+          .~ [scopeId target, scopeId run]
+          & #sources
+          .~ [scheduledRestoreSource request]
+          & (:| [])
+      app = scheduledRestoreApp request
+      volume = scheduledRestoreName request
+      ns = scheduledRestoreNamespace request
+      recorded key = Map.lookup key (scopeOverrides run)
+      scratchTarget =
+        ScratchTarget
+          { scratchApp = app
+          , scratchVolume = volume
+          , scratchNamespace = ns
+          , scratchRestoreId = scheduledRestoreId request
+          , scratchTargetRevision = scheduledRestoreTargetRevision request
+          , scratchTargetPvcUid = scheduledRestoreTargetPvcUid request
+          , scratchBackend = scheduledRestoreBackend request
+          , scratchCredential = scheduledRestoreCredential request
+          , scratchSource = scheduledRestoreSource request
+          }
+  resolved@(targetPvc, _, _) <- scratchRestoreTarget invalid scratchTarget target native
+  unless
+    (recovered ^. #kind == ScheduledVolumeRecoveryPoint && recorded "scheduled.backup.source.kind" == Just "volume")
+    (Left (invalid "the selected run is not an accepted scheduled volume run"))
+  unless
+    ( recorded "scheduled.backup.source.scope" == Just (scopeIdText (scopeId target))
+        && recorded "scheduled.backup.source.pvc" == Just (resourceIdText (targetPvc ^. #identity))
+        && recorded "scheduled.backup.source.pvc.uid" == Just (physicalIdentityText (recovered ^. #sourcePvcUid))
+    )
+    (Left (invalid "the scheduled volume run was taken from another application scope or claim"))
+  unless
+    ( recorded "scheduled.backup.object" == Just (recovered ^. #objectUrl)
+        && recorded "scheduled.backup.object.version" == Just (recovered ^. #objectVersion)
+        && recorded "scheduled.backup.object.sha256" == Just (recovered ^. #archiveSha256)
+        && recorded "scheduled.backup.receipt" == Just (recovered ^. #receiptUrl)
+        && recorded "scheduled.backup.receipt.version" == Just (recovered ^. #receiptVersion)
+        && recorded "scheduled.backup.receipt.digest" == Just (digestText (recovered ^. #receiptDigest))
+        && all (not . T.null) [recovered ^. #objectVersion, recovered ^. #receiptVersion, recovered ^. #archiveSha256]
+    )
+    (Left (invalid "the verified archive is not the one the run's ingestion accepted"))
+  unless
+    ( storeObjectUrl (scheduledRestoreBackend request) (volumeBackupKeyPrefix ns app volume)
+        `T.isPrefixOf` (recovered ^. #objectUrl)
+        && recovered ^. #receiptUrl == recovered ^. #objectUrl <> ".receipt.json"
+    )
+    (Left (invalid "the scheduled volume run's archive lies outside this volume's prefix on the selected backend"))
+  compileScratchRestore
+    invalid
+    scratchTarget
+    target
+    native
+    resolved
+    ScratchArchive
+      { archiveObject = recovered ^. #objectUrl
+      , archiveReceipt = recovered ^. #receiptUrl
+      , archiveReceiptDigest = recovered ^. #receiptDigest
+      , archiveSha256 = recovered ^. #archiveSha256
+      , archiveExpiry = Nothing
+      , archiveVersions = Just (recovered ^. #objectVersion, recovered ^. #receiptVersion)
+      , archivePins = [("nagare.dev/volume-restore-scheduled-run", scopeIdText (scopeId run))]
+      , archiveAfter = []
+      , archiveOverrides =
+          Map.fromList
+            [ ("volume-restore.backup.scope", scopeIdText (scopeId run))
+            , ("volume-restore.backup.kind", "scheduled-volume")
+            , ("volume-restore.backup.revision", digestText (revisionDigest (scheduledRestoreRunRevision request)))
+            , ("volume-restore.backup.object", recovered ^. #objectUrl)
+            , ("volume-restore.backup.object.version", recovered ^. #objectVersion)
+            , ("volume-restore.backup.receipt", recovered ^. #receiptUrl)
+            , ("volume-restore.backup.receipt.version", recovered ^. #receiptVersion)
+            , ("volume-restore.backup.receipt.digest", digestText (recovered ^. #receiptDigest))
+            , ("volume-restore.backup.sha256", recovered ^. #archiveSha256)
+            ]
+      }
+
+-- | The application claim a scratch restore reads its size from, and what
+-- every scratch restore pins.
+data ScratchTarget = ScratchTarget
+  { scratchApp :: !T.Text
+  , scratchVolume :: !T.Text
+  , scratchNamespace :: !T.Text
+  , scratchRestoreId :: !T.Text
+  , scratchTargetRevision :: !ScopeRevision
+  , scratchTargetPvcUid :: !PhysicalIdentity
+  , scratchBackend :: !StoreBackend
+  , scratchCredential :: !(Maybe (ManagedResource, PhysicalIdentity))
+  , scratchSource :: !SourceLocation
+  }
+
+-- | The archive a scratch restore extracts, and the source pins,
+-- prerequisites and recorded fields that authorise it.
+data ScratchArchive = ScratchArchive
+  { archiveObject :: !T.Text
+  , archiveReceipt :: !T.Text
+  , archiveReceiptDigest :: !ContentDigest
+  , archiveSha256 :: !T.Text
+  , archiveExpiry :: !(Maybe Integer)
+  , archiveVersions :: !(Maybe (T.Text, T.Text))
+  , archivePins :: ![(K.Key, T.Text)]
+  , archiveAfter :: ![ResourceId]
+  , archiveOverrides :: !(Map T.Text T.Text)
+  }
+
+scratchRestoreTarget ::
+  (T.Text -> NonEmpty InventoryError) ->
+  ScratchTarget ->
+  ScopeDeclaration ->
+  Map ResourceId (ManagedResource, ByteString) ->
+  Either (NonEmpty InventoryError) (ManagedResource, T.Text, ResourceId)
+scratchRestoreTarget invalid scratchTarget target native = do
+  let app = scratchApp scratchTarget
+      volume = scratchVolume scratchTarget
+      ns = scratchNamespace scratchTarget
+      restoreKey = scratchRestoreId scratchTarget
+  _ <- first invalid (mkServiceName app)
+  _ <- first invalid (mkServiceName volume)
+  _ <- first invalid (mkServiceName ns)
+  _ <- first invalid (mkServiceName restoreKey)
+  unless
+    (T.length restoreKey <= 20)
+    (Left (invalid "volume restore ID must contain at most 20 characters"))
+  targetPvc <- case [ member
+                    | bundle <- scopeBundles target
+                    , Managed member <- declarations bundle
+                    , case member ^. #address of
+                        Kubernetes _ "" kind (Just namespace) nativeName ->
+                          nameText kind == "persistentvolumeclaim"
+                            && nameText namespace == ns
+                            && nameText nativeName == pvcName app volume
+                        _ -> False
+                    ] of
+    [single] -> Right single
+    _ -> Left (invalid "volume restore requires one accepted target PVC")
+  targetValue <- acceptedValue invalid native targetPvc
+  size <- case targetValue of
+    Object root
+      | Just (Object specValue) <- KM.lookup "spec" root
+      , Just (Object resources) <- KM.lookup "resources" specValue
+      , Just (Object requests) <- KM.lookup "requests" resources
+      , Just (String selected) <- KM.lookup "storage" requests
+      , KM.lookup "storageClassName" specValue == Just (String "local-path") ->
+          Right selected
+    _ -> Left (invalid "accepted target PVC lacks a local-path storage request")
+  cluster <- case targetPvc ^. #address of
+    Kubernetes selected _ _ _ _ -> Right selected
+    _ -> Left (invalid "target PVC has no Kubernetes address")
+  pure (targetPvc, size, cluster)
+
+-- | Bind the scratch claim and the restore Job for an archive whose source
+-- the caller has verified, against the target 'scratchRestoreTarget' resolved.
+compileScratchRestore ::
+  (T.Text -> NonEmpty InventoryError) ->
+  ScratchTarget ->
+  ScopeDeclaration ->
+  Map ResourceId (ManagedResource, ByteString) ->
+  (ManagedResource, T.Text, ResourceId) ->
+  ScratchArchive ->
+  Either
+    (NonEmpty InventoryError)
+    (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
+compileScratchRestore invalid scratchTarget target native (targetPvc, size, cluster) archive = do
+  let app = scratchApp scratchTarget
+      volume = scratchVolume scratchTarget
+      ns = scratchNamespace scratchTarget
+      restoreKey = scratchRestoreId scratchTarget
+      backend = scratchBackend scratchTarget
+      credential = scratchCredential scratchTarget
+  case (backend, credential) of
     (GcsBackend {}, Nothing) -> pure ()
     (MinioBackend ref, Just (secret, _)) -> do
       expected <-
@@ -350,7 +593,7 @@ compileVolumeRestoreScopeWithPins pins request target native = do
             , lifecyclePolicy = DeleteWhenUnreferenced
             , inputDataPolicy = Stateless
             , inputSensitivity = Private
-            , sourceLocation = volumeRestoreSource request
+            , sourceLocation = scratchSource scratchTarget
             }
       )
   let jobInputs =
@@ -358,17 +601,17 @@ compileVolumeRestoreScopeWithPins pins request target native = do
           ns
           jobName
           scratchName
-          objectUrl
+          (archiveObject archive)
           "/restore"
-          (volumeRestoreBackend request)
+          backend
       reviewed =
         Volume.ReviewedVolumeRestoreInputs
           jobInputs
-          receiptUrl
-          (digestText (contentDigest (volumeRestoreReceiptBytes request)))
-          checksum
-          expiryEpoch
-          (fmap (\pin -> (pinnedObjectVersion pin, pinnedReceiptVersion pin)) pins)
+          (archiveReceipt archive)
+          (digestText (archiveReceiptDigest archive))
+          (archiveSha256 archive)
+          (archiveExpiry archive)
+          (archiveVersions archive)
   rendered <-
     first
       (invalid . T.pack . show)
@@ -380,16 +623,13 @@ compileVolumeRestoreScopeWithPins pins request target native = do
       | Just (Object metadata) <- KM.lookup "metadata" root ->
           let annotations =
                 object
-                  ( [ "nagare.dev/volume-restore-id" .= restoreKey
-                    , "nagare.dev/volume-restore-backup-job"
-                        .= resourceIdText (backupJob ^. #identity)
-                    , "nagare.dev/volume-restore-backup-job-uid"
-                        .= physicalIdentityText (volumeRestoreBackupJobUid request)
-                    , "nagare.dev/volume-restore-target-pvc"
-                        .= resourceIdText (targetPvc ^. #identity)
-                    , "nagare.dev/volume-restore-target-pvc-uid"
-                        .= physicalIdentityText (volumeRestoreTargetPvcUid request)
-                    ]
+                  ( ["nagare.dev/volume-restore-id" .= restoreKey]
+                      <> [field .= value | (field, value) <- archivePins archive]
+                      <> [ "nagare.dev/volume-restore-target-pvc"
+                             .= resourceIdText (targetPvc ^. #identity)
+                         , "nagare.dev/volume-restore-target-pvc-uid"
+                             .= physicalIdentityText (scratchTargetPvcUid scratchTarget)
+                         ]
                       <> case credential of
                         Nothing -> []
                         Just (secret, uid) ->
@@ -424,7 +664,7 @@ compileVolumeRestoreScopeWithPins pins request target native = do
             , lifecyclePolicy = DeleteWhenUnreferenced
             , inputDataPolicy = Stateless
             , inputSensitivity = Private
-            , sourceLocation = volumeRestoreSource request
+            , sourceLocation = scratchSource scratchTarget
             }
       )
   expectedScratch <-
@@ -451,10 +691,9 @@ compileVolumeRestoreScopeWithPins pins request target native = do
     (scratch ^. #address == expectedScratch && boundJob ^. #address == expectedJob)
     (Left (invalid "volume restore members have unexpected native addresses"))
   let prerequisites =
-        [ scratch ^. #identity
-        , backupJob ^. #identity
-        , targetPvc ^. #identity
-        ]
+        [scratch ^. #identity]
+          <> archiveAfter archive
+          <> [targetPvc ^. #identity]
           <> maybe [] (\(secret, _) -> [secret ^. #identity]) credential
       job = boundJob {dependencies = map OrderedAfter prerequisites}
       proof =
@@ -462,56 +701,28 @@ compileVolumeRestoreScopeWithPins pins request target native = do
           proofId
           (jobId :| [])
           [ ContentInput (contentDigest jobBytes)
-          , ContentInput
-              (contentDigest (volumeRestoreReceiptBytes request))
+          , ContentInput (archiveReceiptDigest archive)
           ]
           VerifyBeforeRetry
           RestoreData
       overrides =
         Map.fromList
           [ ("volume-restore.id", restoreKey)
-          , ("volume-restore.backup.scope", scopeIdText (scopeId backup))
-          ,
-            ( "volume-restore.backup.revision"
-            , digestText
-                (revisionDigest (volumeRestoreBackupRevision request))
-            )
-          , ("volume-restore.backup.job", resourceIdText (backupJob ^. #identity))
-          ,
-            ( "volume-restore.backup.job.uid"
-            , physicalIdentityText
-                (volumeRestoreBackupJobUid request)
-            )
-          ,
-            ( "volume-restore.backup.receipt.digest"
-            , digestText
-                (contentDigest (volumeRestoreReceiptBytes request))
-            )
-          , ("volume-restore.backup.sha256", checksum)
           , ("volume-restore.target.scope", scopeIdText (scopeId target))
           ,
             ( "volume-restore.target.revision"
             , digestText
-                (revisionDigest (volumeRestoreTargetRevision request))
+                (revisionDigest (scratchTargetRevision scratchTarget))
             )
           , ("volume-restore.target.pvc", resourceIdText (targetPvc ^. #identity))
           ,
             ( "volume-restore.target.pvc.uid"
             , physicalIdentityText
-                (volumeRestoreTargetPvcUid request)
+                (scratchTargetPvcUid scratchTarget)
             )
           , ("volume-restore.scratch", scratchName)
           ]
-          <> Map.fromList
-            [ (field, value)
-            | pin <- maybe [] pure pins
-            , (field, value) <-
-                [ ("volume-restore.backup.object.version", pinnedObjectVersion pin)
-                , ("volume-restore.backup.object.length", T.pack (show (pinnedObjectLength pin)))
-                , ("volume-restore.backup.receipt.version", pinnedReceiptVersion pin)
-                , ("volume-restore.backup.receipt.length", T.pack (show (pinnedReceiptLength pin)))
-                ]
-            ]
+          <> archiveOverrides archive
   base <-
     mkScopeDeclaration
       owner

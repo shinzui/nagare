@@ -33,7 +33,7 @@ import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Types (mkServiceName)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
-import Nagare.Inventory.Lineage (RebuildSource (..), RecoveryPointKind (..))
+import Nagare.Inventory.Lineage (RebuildSource (..), RecoveryPointKind (..), VolumeRecoverySource (..))
 import Nagare.Inventory.LineageHistory (RebuildLineage (..))
 import Nagare.Inventory.RestoreNative (acceptedValue, sameCluster)
 import Nagare.Inventory.Store (ScopeRevision (..))
@@ -45,22 +45,6 @@ import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
 import Nagare.Storage.Discover (pvcName)
 import Nagare.Storage.Restore qualified as Volume
-
--- | What a verifier proved about one volume recovery point: its kind, the
--- exact stored archive and receipt, and the claim incarnation it was taken
--- from, as its receipt records.
-data VolumeRecoverySource = VolumeRecoverySource
-  { kind :: !RecoveryPointKind
-  , objectUrl :: !Text
-  , objectVersion :: !Text
-  , archiveSha256 :: !Text
-  , receiptUrl :: !Text
-  , receiptVersion :: !Text
-  , receiptDigest :: !ContentDigest
-  , sourcePvcUid :: !PhysicalIdentity
-  , expiryEpoch :: !(Maybe Integer)
-  }
-  deriving stock (Eq, Show, Generic)
 
 data VolumeRebuildRestoreRequest = VolumeRebuildRestoreRequest
   { app :: !Text

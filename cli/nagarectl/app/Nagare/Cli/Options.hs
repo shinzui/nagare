@@ -618,8 +618,8 @@ data StorageCommand
     StorageInspect StoreCommonOpts String
   | -- | VOLUME, --bucket, --expires-at, --snapshot-id, --save-plan, --dry-run
     StorageSnapshot StoreCommonOpts String (Maybe String) (Maybe String) (Maybe String) (Maybe FilePath) Bool
-  | -- | VOLUME, BACKUP_ID, --bucket, --into-live, --dry-run, --restore-id, --save-plan
-    StorageRestore StoreCommonOpts String String (Maybe String) Bool Bool (Maybe String) (Maybe FilePath)
+  | -- | VOLUME, BACKUP_ID, --bucket, --into-live, --dry-run, --restore-id, --save-plan, --scheduled-run (EP-183 M3)
+    StorageRestore StoreCommonOpts String String (Maybe String) Bool Bool (Maybe String) (Maybe FilePath) Bool
   | -- | VOLUME, BACKUP_ID, --bucket, --save-plan
     StoragePrune StoreCommonOpts String String (Maybe String) FilePath
   | -- | APP, VOLUME, --namespace, --restore-id, --bucket, --offline-object-store, --offline-credentials, --save-plan (EP-183 M4)

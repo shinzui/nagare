@@ -2,9 +2,12 @@
 -- rebuilt application volume from the manual snapshot its rebuild named. The
 -- snapshot is verified from the object store (or an offline copy) against the
 -- inventory's record of it, so the lost cluster's completed snapshot Pod is not
--- needed. Executable-private CLI boundary.
+-- needed. `storage restore --scheduled-run` (EP-183 M3) saves a scratch
+-- restore of an accepted scheduled volume run, verified the same way against
+-- its ingestion record. Executable-private CLI boundary.
 module Nagare.Cli.Data.VolumeRebuildRestore
   ( runVolumeRebuildRestorePlan
+  , runScheduledVolumeRestorePlan
   , recordedVolumeSnapshot
   , recordedVolumeRun
   )
@@ -34,6 +37,7 @@ import Nagare.Inventory.Plan qualified as InventoryPlan
 import Nagare.Inventory.Status qualified as InventoryStatus
 import Nagare.Inventory.Store qualified as InventoryStore
 import Nagare.Inventory.VolumeRebuildRestore (VolumeRebuildRestoreRequest (..), compileVolumeRebuildRestoreScope)
+import Nagare.Inventory.VolumeRestore (ScheduledVolumeRestoreRequest (..), compileScheduledVolumeRestoreScope)
 import Nagare.Inventory.VolumeRestoreSource (verifyIngestedVolumeRun, verifyRecordedVolumeSnapshot)
 import Nagare.Resource.Inventory qualified as ResourceInventory
 import Nagare.Resource.Types qualified as Resource
@@ -166,3 +170,89 @@ runVolumeRebuildRestorePlan mctx app volume namespaceName restoreKey bucketArg o
     candidate
     output
   TIO.putStrLn "Saved the reviewed volume rebuild restore. Apply it before the application serves from the volume."
+
+-- | A scratch restore of one accepted, unpruned scheduled volume run into a
+-- separate claim. The run's archive and receipt are re-read at the versions
+-- its ingestion recorded, so neither its producer nor its ingestion Job needs
+-- to exist.
+runScheduledVolumeRestorePlan :: Maybe String -> Text -> Text -> Text -> Text -> Text -> StoreBackend -> FilePath -> IO ()
+runScheduledVolumeRestorePlan mctx app volume namespaceName runId restoreKey backend output = do
+  active <- activeTarget mctx
+  (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+  snapshot <- Inventory.loadTargetSnapshot active
+  (cluster, _) <- either dieT pure (acceptedFoundationNamespace snapshot namespaceName)
+  pvcAddress <- either dieT pure (Resource.kubernetesAddress cluster "v1" "PersistentVolumeClaim" (Just namespaceName) (pvcName app volume))
+  (targetScope, pvc) <- case [ (scope, member)
+                             | (_, scope) <- Map.elems (ResourceInventory.snapshotScopes snapshot)
+                             , bundle <- ResourceInventory.scopeBundles scope
+                             , ResourceInventory.Managed member <- ResourceInventory.declarations bundle
+                             , member ^. #address == pvcAddress
+                             ] of
+    [single] -> pure single
+    _ -> dieT "reviewed volume restore requires one accepted target PVC"
+  runScope <- either dieT pure (recordedVolumeRun snapshot (pvc ^. #identity) ((== Just runId) . Map.lookup "scheduled.backup.id"))
+  credential <- case backend of
+    GcsBackend {} -> pure Nothing
+    MinioBackend ref -> do
+      address <- either dieT pure (Resource.kubernetesAddress cluster "v1" "Secret" (Just namespaceName) (ref ^. #secretName))
+      case [ member
+           | (_, scope) <- Map.elems (ResourceInventory.snapshotScopes snapshot)
+           , bundle <- ResourceInventory.scopeBundles scope
+           , ResourceInventory.Managed member <- ResourceInventory.declarations bundle
+           , member ^. #address == address
+           ] of
+        [single] -> pure (Just single)
+        _ -> dieT "reviewed local restore requires one accepted store credential Secret"
+  store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
+  history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
+  let acceptedRevision selected = case Map.lookup (ResourceInventory.scopeId selected) (InventoryPlan.historyAccepted history) of
+        Just (revision, accepted) | accepted == selected -> pure revision
+        _ -> dieT "volume restore target or scheduled run differs from accepted history"
+  targetRevision <- acceptedRevision targetScope
+  runRevision <- acceptedRevision runScope
+  inventory <- either (dieT . T.pack . show) pure (ResourceInventory.composeSnapshot snapshot)
+  (acceptedNative, _) <- InventoryStatus.loadAcceptedNative store history inventory >>= either dieT pure
+  let targetIds = pvc ^. #identity : [member ^. #identity | Just member <- [credential]]
+      targetNative = Map.restrictKeys acceptedNative (Set.fromList targetIds)
+  unless (Map.size targetNative == length targetIds) (dieT "volume restore target or credential lacks accepted private native evidence")
+  adapter <-
+    inventoryKubernetesAdapter
+      active
+      (ResourceInventory.snapshotBinding snapshot)
+      (\_ -> pure (Left "volume target observation does not use a cache key"))
+      targetNative
+  observed <- InventoryAdapter.adapterObserve adapter targetIds >>= either dieT pure
+  let live resource = case Map.lookup resource (InventoryAdapter.observationMap observed) of
+        Just (InventoryAdapter.ObservedPresent uid) -> pure uid
+        _ -> dieT "volume target or credential is absent, drifted, or not ready"
+  pvcUid <- live (pvc ^. #identity)
+  credentialPin <- traverse (\member -> (member,) <$> live (member ^. #identity)) credential
+  recovery <-
+    withRecoveryStore (contextNameText (active ^. #contextName)) backend Nothing (\reader -> verifyIngestedVolumeRun reader runScope)
+      >>= either dieT pure
+  let request =
+        ScheduledVolumeRestoreRequest
+          { scheduledRestoreApp = app
+          , scheduledRestoreName = volume
+          , scheduledRestoreNamespace = namespaceName
+          , scheduledRestoreId = restoreKey
+          , scheduledRestoreRun = runScope
+          , scheduledRestoreRunRevision = runRevision
+          , scheduledRestoreRecovery = recovery
+          , scheduledRestoreTargetRevision = targetRevision
+          , scheduledRestoreTargetPvcUid = pvcUid
+          , scheduledRestoreBackend = backend
+          , scheduledRestoreCredential = credentialPin
+          , scheduledRestoreSource = Resource.SourceLocation ("storage restore/" <> app <> "/" <> volume) restoreKey
+          }
+  (restoreScope, restoreNative) <- either (dieT . T.pack . show) pure (compileScheduledVolumeRestoreScope request targetScope acceptedNative)
+  case Map.lookup (ResourceInventory.scopeId restoreScope) (ResourceInventory.snapshotScopes snapshot) of
+    Just (_, prior) | prior /= restoreScope -> dieT "restore ID already has different accepted intent; choose a new ID"
+    _ -> pure ()
+  candidate <- either (dieT . T.pack . show) pure (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope restoreScope NE.:| []))
+  Inventory.planInventoryCandidateWith
+    (inventoryPlanRegistryWithNative active workspace (Map.union restoreNative targetNative))
+    active
+    candidate
+    output
+  TIO.putStrLn "Saved reviewed scratch volume restore of a scheduled run. Apply it to verify stored bytes and create a separate PVC."

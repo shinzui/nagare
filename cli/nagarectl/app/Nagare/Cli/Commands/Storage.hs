@@ -14,7 +14,7 @@ import Data.Time (UTCTime, getCurrentTime)
 import Data.Time.Format (defaultTimeLocale, parseTimeM)
 import Nagare.Cli.Application.Config (resolveStorageDep)
 import Nagare.Cli.Data.ScheduledReceipts (IngestSelection (..), runListVolumeReceipts, runReviewedVolumeReceiptPlan)
-import Nagare.Cli.Data.VolumeRebuildRestore (runVolumeRebuildRestorePlan)
+import Nagare.Cli.Data.VolumeRebuildRestore (runScheduledVolumeRestorePlan, runVolumeRebuildRestorePlan)
 import Nagare.Cli.Inventory.Adapters (inventoryKubernetesAdapter)
 import Nagare.Cli.Inventory.Planning
   ( inventoryPlanRegistryWithNative
@@ -146,18 +146,34 @@ runStorage mctx = \case
             (T.pack <$> expiry)
             directory
         _ -> dieT "live storage snapshot requires --snapshot-id ID and --save-plan DIR"
-  StorageRestore copts vol backupId bucket live dryRun restoreId output -> do
+  StorageRestore copts vol backupId bucket live dryRun restoreId output scheduledRun -> do
     when live (dieT "live volume overwrite is deferred; restore to a new PVC")
     if dryRun
       then do
         when
-          (isJust restoreId || isJust output)
+          (isJust restoreId || isJust output || scheduledRun)
           (dieT "storage restore --dry-run cannot save a reviewed restore")
         dep <- resolveStorageDep copts
         backend <- resolveStoreBackend mctx bucket
         previewStorageRestore dep (T.pack vol) (T.pack backupId) live backend
       else do
         case (restoreId, output) of
+          (Just stableId, Just directory)
+            | scheduledRun -> do
+                dep <- resolveStorageDep copts
+                backend <- resolveStoreBackend mctx bucket
+                unless
+                  (T.pack vol `elem` map (volumeNameText . (^. #name)) (dep ^. #volumes))
+                  (dieT ("app " <> serviceNameText (dep ^. #name) <> " declares no volume named '" <> T.pack vol <> "'"))
+                runScheduledVolumeRestorePlan
+                  mctx
+                  (serviceNameText (dep ^. #name))
+                  (T.pack vol)
+                  (namespaceText (dep ^. #namespace))
+                  (T.pack backupId)
+                  (T.pack stableId)
+                  backend
+                  directory
           (Just stableId, Just directory) -> do
             dep <- resolveStorageDep copts
             backend <- resolveStoreBackend mctx bucket

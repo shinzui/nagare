@@ -11,6 +11,7 @@ module Nagare.Inventory.Lineage
   , RecoveryPoint (..)
   , RebuildSource (..)
   , RebuildProof (..)
+  , VolumeRecoverySource (..)
   , renderRebuild
   )
 where
@@ -124,3 +125,20 @@ rebuildSourceFrom o = case (KM.lookup "recoveryPoint" o, KM.lookup "fresh" o, KM
   (Just point, Nothing, 1) -> FromRecoveryPoint <$> parseJSON point
   (Nothing, Just (Bool True), 1) -> pure Fresh
   _ -> fail "a rebuild names exactly one of a recovery point or fresh: true, and nothing else"
+
+-- | What a verifier proved about one volume recovery point: its kind, the
+-- exact stored archive and receipt, and the claim incarnation it was taken
+-- from, as its receipt records. A rebuild restore and a scratch restore of a
+-- scheduled run both load it.
+data VolumeRecoverySource = VolumeRecoverySource
+  { kind :: !RecoveryPointKind
+  , objectUrl :: !Text
+  , objectVersion :: !Text
+  , archiveSha256 :: !Text
+  , receiptUrl :: !Text
+  , receiptVersion :: !Text
+  , receiptDigest :: !ContentDigest
+  , sourcePvcUid :: !PhysicalIdentity
+  , expiryEpoch :: !(Maybe Integer)
+  }
+  deriving stock (Eq, Show, Generic)
