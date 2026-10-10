@@ -66,6 +66,7 @@ explicitScenarios =
     , Scenario "create a database, then ingest a scheduled receipt" [CreateDatabase, IngestReceipt] [] True plainShape
     , Scenario "create a database, then retire it" [CreateDatabase, RetireDatabase] [] True plainShape
     , Scenario "create a database, update its resources, update it again, then restart it" [CreateDatabase, UpdateDatabase, CreateDatabase, RestartDatabase] [] True plainShape
+    , Scenario "create a database, lose the cluster, then rebuild it (EP-183 M4)" [CreateDatabase, LoseCluster, RebuildDatabase] [] True plainShape
     ]
 
 data Step
@@ -86,6 +87,11 @@ data Step
     -- whose rollout is stuck submits its accepted scope unchanged, and the
     -- plan replaces the stuck pod; otherwise it stamps a restart token.
     RestartDatabase
+  | -- | EP-183 M4: the VM is lost and its cluster keeps no object.
+    LoseCluster
+  | -- | EP-183 M4: rebuild every missing durable member of the database
+    -- through reviewed rebuild decisions, and apply.
+    RebuildDatabase
   deriving stock (Eq, Show)
 
 stepText :: Step -> Text
@@ -97,3 +103,5 @@ stepText step = case step of
   RetireDatabase -> "retire database"
   UpdateDatabase -> "update database"
   RestartDatabase -> "restart database"
+  LoseCluster -> "lose the cluster"
+  RebuildDatabase -> "rebuild database"

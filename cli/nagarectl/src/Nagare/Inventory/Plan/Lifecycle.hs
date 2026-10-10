@@ -33,6 +33,7 @@ import Nagare.Inventory.CollectionPolicy
   ( supportsRetainedCollection
   )
 import Nagare.Inventory.Digest (contentDigest)
+import Nagare.Inventory.Lineage (RebuildProof, RebuildSource (Fresh, FromRecoveryPoint))
 import Nagare.Inventory.Migration.Types
   ( MigrationContract (DurableMigration, StatelessMigration)
   , ValidatedMigration
@@ -94,6 +95,7 @@ import Nagare.Resource.Reference
 import Nagare.Resource.Types
   ( ContentDigest
   , ContextBinding
+  , ProviderAddress (Kubernetes)
   , ResourceId
   , ScopeKind (Platform)
   , nameText
@@ -374,6 +376,23 @@ validateLifecycleDecisions candidate history observations proposals =
                 , Map.lookup resource (headIncarnations (historyHead history)) /= Just live ->
                     []
               _ -> issue "invalid-rebind" "rebind needs an accepted Kubernetes member that stays declared and a live owned object that is not its recorded incarnation"
+            -- EP-183 M4 (ADR 27 amendment): recreate an accepted durable
+            -- member whose recorded incarnation is confirmed absent. A volume
+            -- names the recovery point its data comes from; a Secret Nagare
+            -- generates is generated anew.
+            ApproveRebuild proof -> case (Map.lookup resource desired, Map.lookup resource historical, fact) of
+              (Just (Managed next), Just (Managed old), Just (ConfirmedAbsent _))
+                | next ^. #executor == KubernetesExecutor
+                , old ^. #executor == KubernetesExecutor
+                , next ^. #owner == old ^. #owner
+                , next ^. #address == old ^. #address
+                , Durable _ <- old ^. #dataPolicy
+                , next ^. #dataPolicy == old ^. #dataPolicy
+                , Map.notMember resource (headRetained (historyHead history))
+                , Map.lookup resource (headIncarnations (historyHead history)) == proof ^. #predecessor
+                , rebuildSourceFits (old ^. #address) proof ->
+                    []
+              _ -> issue "invalid-rebuild" "rebuild needs an accepted durable Kubernetes member that stays declared at its address and is confirmed absent, naming its recorded incarnation; a volume restores a recovery point of a recorded predecessor or starts fresh, and a Secret starts fresh"
        in evidence <> shape
     selectedScopes =
       Set.fromList
@@ -395,6 +414,15 @@ validateLifecycleDecisions candidate history observations proposals =
         <> [PlanError "unknown-lifecycle-resource" "lifecycle decision names an unknown resource" [resource] | resource <- Map.keys values, Set.notMember resource known]
         <> [PlanError "unobserved-lifecycle-resource" "lifecycle decision lacks an observation" [resource] | resource <- Map.keys values, Map.notMember resource observed]
         <> concatMap decisionError proposals
+
+-- | EP-183 M4: a claim's data comes from a recovery point of its recorded
+-- predecessor, or it starts empty by the operator's choice; a Secret's values
+-- are generated anew at create. No other durable kind is rebuilt.
+rebuildSourceFits :: ProviderAddress -> RebuildProof -> Bool
+rebuildSourceFits address proof = case (address, proof ^. #source) of
+  (Kubernetes _ "" kind _ _, FromRecoveryPoint _) -> nameText kind == "persistentvolumeclaim" && isJust (proof ^. #predecessor)
+  (Kubernetes _ "" kind _ _, Fresh) -> nameText kind `elem` ["persistentvolumeclaim", "secret"]
+  _ -> False
 
 -- | Whether an access grant's accepted declaration grants access.
 grantLive :: ManagedResource -> Bool

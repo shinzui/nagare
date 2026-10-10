@@ -24,6 +24,7 @@ import Nagare.Cli.Options
   , DbPruneScheduledBackupsOpts (..)
   , DbRecoverScheduledPruneOpts (..)
   , DbRestoreOpts (..)
+  , DbRestoreRebuiltOpts (..)
   , DbVerifyEscrowedBackupOpts (..)
   , StandaloneRetireOpts (..)
   , StorageCommand (..)
@@ -219,6 +220,16 @@ dbEscrowSigningKeyOptsParser =
     <$> dbNameArg
     <*> namespaceOpt
     <*> optional (strOption (long "output" <> metavar "FILE" <> help "sops-encrypted escrow path (default: the context's cluster-secrets backup-signing directory)"))
+
+dbRestoreRebuiltOptsParser :: Parser DbRestoreRebuiltOpts
+dbRestoreRebuiltOptsParser =
+  DbRestoreRebuiltOpts
+    <$> dbNameArg
+    <*> namespaceOpt
+    <*> strOption (long "restore-id" <> metavar "ID" <> help "Fixed ID of this restore review")
+    <*> optional (strOption (long "escrow" <> metavar "FILE" <> help "sops-encrypted escrow of the predecessor's signing key (default: the context's cluster-secrets backup-signing directory)"))
+    <*> dbBackupBucketOpt
+    <*> strOption (long "save-plan" <> metavar "DIR" <> help "Write the reviewed restore")
 
 dbVerifyEscrowedBackupOptsParser :: Parser DbVerifyEscrowedBackupOpts
 dbVerifyEscrowedBackupOptsParser =
@@ -580,6 +591,12 @@ dbSubparser =
           ( info
               (Db . DbVerifyEscrowedBackup <$> dbVerifyEscrowedBackupOptsParser <**> helper)
               (progDesc "Verify one scheduled backup with only the escrowed key and the object store")
+          )
+        <> command
+          "restore-rebuilt"
+          ( info
+              (Db . DbRestoreRebuilt <$> dbRestoreRebuiltOptsParser <**> helper)
+              (progDesc "Review loading a rebuilt database from the recovery point its rebuild named (EP-183)")
           )
         <> command
           "backup-receipt"

@@ -358,6 +358,52 @@ superseded incarnation no longer describe the member's object. Admission refuses
 live object changed after review. The member keeps its declaration; a rebind changes only the
 record.
 
+## Rebuilt members
+
+After the cluster is lost, an accepted durable member whose object is confirmed
+absent is refused at planning (`durable-resource-missing`). A reviewed **rebuild**
+recreates it as a new incarnation ([ADR 27 amendment](../adr/0027-physical-identity-is-recorded-at-creation-and-read-through-one-checked-accessor.md));
+the whole procedure is
+[Rebuild the service after losing the VM](disaster-recovery.md#rebuild-the-service-after-losing-the-vm).
+`inventory rebuild-decisions --out FILE` writes the input, and `inventory rebuild
+--input FILE --out DIR` reviews it:
+
+```json
+{
+  "version": 1,
+  "binding": { "context": "...", "project": "..." },
+  "rebuilds": [
+    {
+      "resource": "standalone:database-pg/pg/pvc",
+      "address": { "...": "the member's accepted address" },
+      "predecessor": "<the recorded incarnation's UID>",
+      "recoveryPoint": {
+        "kind": "scheduled",
+        "receipt": "gs://BUCKET/databases/pg/JOB_UID.sql.gz.receipt.json",
+        "receiptDigest": "<SHA-256 of the receipt bytes>"
+      }
+    },
+    {
+      "resource": "standalone:database-pg/pg/credential",
+      "address": { "...": "..." },
+      "predecessor": "<UID>",
+      "fresh": true
+    }
+  ]
+}
+```
+
+- `predecessor` is the member's recorded incarnation, and is omitted only when
+  none was ever recorded.
+- Each entry names exactly one source. A volume takes `recoveryPoint`, which needs
+  a recorded predecessor, or `fresh` (it starts empty and none of its data is
+  recovered). A generated Secret always takes `fresh`.
+- Admission refuses the review if a member reappeared after it was saved.
+- The review that converges records the lineage in the journal. Only the named
+  recovery point may then restore into the new incarnation, through `db
+  restore-rebuilt`; later recovery points of the predecessor need another
+  decision.
+
 ## A database volume claim deleted outside review (F77)
 
 This is a documented limit of MP-23 ([F77](../audits/mp23-findings.md#f77)). Nagare has no reviewed

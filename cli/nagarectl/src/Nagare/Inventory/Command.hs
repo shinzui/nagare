@@ -17,6 +17,7 @@ module Nagare.Inventory.Command
   , planInventoryCandidateWithPayloadIdentity
   , convergeInventoryCandidateWith
   , planInventoryCandidateAdoptionWith
+  , planInventoryCandidateWithDecider
   , planInventoryAdoptionWith
   , validateTarget
   , clientIdentity
@@ -70,6 +71,7 @@ import Nagare.Inventory.Digest
 import Nagare.Inventory.Execute hiding (withProcessLock)
 import Nagare.Inventory.Journal
 import Nagare.Inventory.Lifecycle
+import Nagare.Inventory.Lineage (renderRebuild)
 import Nagare.Inventory.Migration
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Store
@@ -430,6 +432,7 @@ planInventoryCandidateWithDeciderPayload registryFor decide payloadIdentity targ
   _ <- writeReviewBundle output bundle >>= either dieText pure
   TIO.putStrLn (digestText digest)
   mapM_ (TIO.putStrLn . uncurry renderRebind) (Map.toAscList (reviewRebinds (reviewBundleDocument bundle)))
+  mapM_ (TIO.putStrLn . uncurry renderRebuild) (Map.toAscList (reviewRebuilds (reviewBundleDocument bundle)))
 
 -- | Apply a standard create/update review in the same invocation. The review
 -- is published first, then reloaded so execution has only immutable evidence.

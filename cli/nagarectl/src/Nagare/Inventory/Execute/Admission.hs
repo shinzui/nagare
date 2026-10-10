@@ -80,6 +80,7 @@ import Nagare.Inventory.Plan
     , reviewMigrations
     , reviewOperations
     , reviewRebinds
+    , reviewRebuilds
     , reviewRetentions
     )
   , ReviewOperation (reviewPlannedOperation)
@@ -188,7 +189,8 @@ admit locked registry reviewed = do
                 ]
             -- ADR 27 §3: a rebind records the reviewed live object, so that
             -- object must still be the live one.
-            rebindRequests = Map.fromList [(KubernetesExecutor, Map.keys (reviewRebinds document)) | not (Map.null (reviewRebinds document))]
+            -- EP-183 M4: a rebuild recreates a member reviewed as absent.
+            rebindRequests = Map.fromList [(KubernetesExecutor, Map.keys (reviewRebinds document) <> Map.keys (reviewRebuilds document)) | not (Map.null (reviewRebinds document) && Map.null (reviewRebuilds document))]
             retainedRequests = Map.unionsWith (<>) [retentionRequests, collectionRequests, rebindRequests]
         migrationChecked <- migrationCoverage store document
         migrationSourceErrors <- case migrationChecked of
@@ -222,6 +224,10 @@ admit locked registry reviewed = do
                   unless
                     (Map.lookup resource (observationMap facts) == Just (ObservedPresent (rebindLive proof)))
                     (Left "the object a rebind records changed since review")
+                forM_ (Map.keys (reviewRebuilds document)) $ \resource ->
+                  case Map.lookup resource (observationMap facts) of
+                    Just (ConfirmedAbsent _) -> Right ()
+                    _ -> Left "a member a rebuild recreates is no longer confirmed absent"
                 forM_ (Map.keys (reviewAbsences document)) $ \resource ->
                   case Map.lookup resource (observationMap facts) of
                     Just (ConfirmedAbsent _) -> Right ()

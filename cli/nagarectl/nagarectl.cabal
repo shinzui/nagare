@@ -234,6 +234,8 @@ library
     Nagare.Inventory.KubernetesSources
     Nagare.Inventory.KubernetesTransport
     Nagare.Inventory.Lifecycle
+    Nagare.Inventory.Lineage
+    Nagare.Inventory.LineageHistory
     Nagare.Inventory.LiveRestore
     Nagare.Inventory.LiveRestoreAdapter
     Nagare.Inventory.LiveRestoreFence
@@ -254,6 +256,8 @@ library
     Nagare.Inventory.PreviewCleanup
     Nagare.Inventory.PreviewOwnership
     Nagare.Inventory.Prune
+    Nagare.Inventory.Rebuild
+    Nagare.Inventory.RebuildRestore
     Nagare.Inventory.RegistryCredentials
     Nagare.Inventory.ReleaseEvidence
     Nagare.Inventory.Restore
@@ -393,6 +397,7 @@ executable nagarectl
     Nagare.Cli.Data.DatabaseRename
     Nagare.Cli.Data.Lifecycle
     Nagare.Cli.Data.ManualReceipt
+    Nagare.Cli.Data.RebuildRestore
     Nagare.Cli.Data.Restore
     Nagare.Cli.Data.ScheduleObservation
     Nagare.Cli.Data.ScheduledPrune
@@ -411,6 +416,7 @@ executable nagarectl
     Nagare.Cli.Inventory.Planning
     Nagare.Cli.Inventory.PruneEvidence
     Nagare.Cli.Inventory.PublicEvidence
+    Nagare.Cli.Inventory.Rebuild
     Nagare.Cli.Inventory.SourceEvidence
     Nagare.Cli.Inventory.VmPower
     Nagare.Cli.Inventory.Workflow
@@ -554,6 +560,7 @@ test-suite nagarectl-test
     InventoryPreviewCleanupSpec
     InventoryPreviewRecoverySpec
     InventoryPublicationSpec
+    InventoryRebuildSpec
     InventoryRecoveryModelSpec
     InventoryRecoveryPointScanSpec
     InventoryRedisRestoreRecoverySpec
@@ -602,9 +609,11 @@ test-suite nagarectl-test
     Nagare.Test.Infrastructure
     Nagare.Test.Init
     Nagare.Test.Model.Fixtures
+    Nagare.Test.Model.Ingest
     Nagare.Test.Model.Invariants
     Nagare.Test.Model.KnownDefects
     Nagare.Test.Model.Pairs
+    Nagare.Test.Model.Rebuild
     Nagare.Test.Model.Run
     Nagare.Test.Model.Scenarios
     Nagare.Test.Model.Search

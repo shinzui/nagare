@@ -7,6 +7,8 @@ module Nagare.Cli.Data.SigningKeyEscrow
   ( defaultEscrowPath
   , runEscrowSigningKey
   , runVerifyEscrowedBackup
+  , decryptEscrow
+  , escrowedReceiptEvidence
   )
 where
 
@@ -44,7 +46,7 @@ import Nagare.Inventory.SigningKeyEscrow
   , parseSigningKeyEscrow
   , renderSigningKeyEscrow
   )
-import Nagare.Resource.Types (physicalIdentityText)
+import Nagare.Resource.Types (digestText, physicalIdentityText)
 import Nagare.Target (contextNameText, nagareConfigDir)
 import System.Directory (createDirectoryIfMissing, doesFileExist, makeAbsolute)
 import System.Environment (getEnvironment, lookupEnv)
@@ -118,7 +120,7 @@ runEscrowSigningKey mctx database namespaceName output = do
 runVerifyEscrowedBackup :: Maybe String -> Text -> Text -> FilePath -> Maybe String -> Text -> Maybe (String, FilePath) -> IO ()
 runVerifyEscrowedBackup mctx requestedDatabase requestedNamespace escrowPath bucketArg backupId offline = do
   active <- activeTarget mctx
-  escrow@(SigningKeyEscrow context namespaceName database format _ _ _ key) <- decryptEscrow escrowPath
+  escrow@(SigningKeyEscrow context namespaceName database _ _ _ _ _) <- decryptEscrow escrowPath
   unless
     (context == contextNameText (active ^. #contextName))
     (dieT "the escrow belongs to another context")
@@ -126,32 +128,15 @@ runVerifyEscrowedBackup mctx requestedDatabase requestedNamespace escrowPath buc
     (database == requestedDatabase && namespaceName == requestedNamespace)
     (dieT "the escrow belongs to another database or namespace")
   backend <- resolveStoreBackend mctx bucketArg
-  let prefix = storePrefixUrl backend (dbBackupKeyPrefix database)
-      receiptAddress = prefix <> backupId <> "." <> format <> ".receipt.json"
-  withStore <- case (offline, backend) of
-    (Nothing, _) -> pure (withScheduledObjectStore context backend)
-    (Just (endpoint, credentialFile), MinioBackend ref) -> do
-      origin <- either dieT pure (parseOfflineObjectStore (T.pack endpoint))
-      user <- readOfflineCredentials credentialFile >>= either dieT pure
-      pure (withOfflineObjectStore origin user ref)
-    (Just _, _) -> dieT "--offline-object-store applies only to a local MinIO object store"
-  checked <- withStore $ \reader ->
-    withSystemTempDirectory "nagare-escrowed-receipt" $ \scratch -> do
-      current <- readObjectToFile reader receiptAddress Nothing (scratch </> "receipt")
-      case current of
-        Left reason -> pure (Left reason)
-        Right _ -> do
-          bytes <- BS.readFile (scratch </> "receipt")
-          case escrowReceiptExpectation escrow prefix bytes of
-            Left reason -> pure (Left reason)
-            Right expectation -> inspectScheduledReceipt reader expectation backupId key
-  evidence <- either dieT pure (checked >>= id)
+  evidence <- escrowedReceiptEvidence escrow backend backupId offline >>= either dieT pure
   now <- getCurrentTime
   let receipt = scheduledReceipt evidence
   TIO.putStrLn ("Verified scheduled backup " <> backupId <> " of " <> namespaceName <> "/" <> database <> " with the escrowed signing key.")
   TIO.putStrLn ("  object:  " <> scheduledObjectAddress receipt <> " (version " <> scheduledObjectVersion evidence <> ")")
   TIO.putStrLn ("  receipt: version " <> scheduledReceiptVersion evidence)
   TIO.putStrLn ("  sha256:  " <> scheduledSha256 receipt)
+  -- EP-183 M4: what a rebuild decision names as this recovery point.
+  TIO.putStrLn ("  rebuild recovery point: " <> scheduledObjectAddress receipt <> ".receipt.json@" <> digestText (scheduledReceiptDigest evidence))
   case scheduledRecoveryPoint receipt of
     Just point ->
       TIO.putStrLn
@@ -163,6 +148,33 @@ runVerifyEscrowedBackup mctx requestedDatabase requestedNamespace escrowPath buc
         )
     Nothing -> TIO.putStrLn "  recovery point: none (version-4 receipt)"
   TIO.putStrLn "This is evidence only; restore requires reviewed ingestion of the receipt."
+
+-- | Read and verify one scheduled receipt and its archive with only the
+-- escrowed key and the object store, never the cluster or the inventory store.
+escrowedReceiptEvidence :: SigningKeyEscrow -> StoreBackend -> Text -> Maybe (String, FilePath) -> IO (Either Text ScheduledReceiptEvidence)
+escrowedReceiptEvidence escrow@(SigningKeyEscrow context _ database format _ _ _ key) backend backupId offline = do
+  let prefix = storePrefixUrl backend (dbBackupKeyPrefix database)
+      receiptAddress = prefix <> backupId <> "." <> format <> ".receipt.json"
+  withStore <- case (offline, backend) of
+    (Nothing, _) -> pure (Right (withScheduledObjectStore context backend))
+    (Just (endpoint, credentialFile), MinioBackend ref) -> do
+      user <- readOfflineCredentials credentialFile
+      pure (withOfflineObjectStore <$> parseOfflineObjectStore (T.pack endpoint) <*> user <*> pure ref)
+    (Just _, _) -> pure (Left "--offline-object-store applies only to a local MinIO object store")
+  case withStore of
+    Left reason -> pure (Left reason)
+    Right with -> do
+      checked <- with $ \reader ->
+        withSystemTempDirectory "nagare-escrowed-receipt" $ \scratch -> do
+          current <- readObjectToFile reader receiptAddress Nothing (scratch </> "receipt")
+          case current of
+            Left reason -> pure (Left reason)
+            Right _ -> do
+              bytes <- BS.readFile (scratch </> "receipt")
+              case escrowReceiptExpectation escrow prefix bytes of
+                Left reason -> pure (Left reason)
+                Right expectation -> inspectScheduledReceipt reader expectation backupId key
+      pure (checked >>= id)
 
 decryptEscrow :: FilePath -> IO SigningKeyEscrow
 decryptEscrow path = do

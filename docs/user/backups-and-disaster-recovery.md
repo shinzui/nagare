@@ -257,8 +257,9 @@ cluster. It rereads the exact receipt and archive versions, checks the signature
 source identities and archive hash, and prints the recovery point. It is evidence
 only and grants no restore authority. Recovering the data after total cluster
 loss is the procedure in [Total cluster loss: recover the data](#total-cluster-loss-recover-the-data).
-A reviewed rebuild of the same context with the service live again is not in this
-release.
+Its output also names the backup as a rebuild recovery point
+(`RECEIPT_URL@RECEIPT_SHA256`), for a reviewed rebuild of the same context
+([Rebuild the service after losing the VM](../runbooks/disaster-recovery.md#rebuild-the-service-after-losing-the-vm)).
 
 In local mode the object store is the in-cluster MinIO, so by default the command
 reads it through the cluster (its credential Secret and a port-forward). When the
@@ -409,12 +410,12 @@ and records how long that took. It reads only the backup bucket and the material
 in the private operator repository: no cluster, no inventory store, and no
 workstation state.
 
-**Known limit.** This release has no reviewed rebuild of the same context with
-the data restored into it and the service live again. After a rebuild, planning
-refuses to recreate an accepted durable member (`durable-resource-missing`), and
-a backup restores only into the incarnation it was taken from (ADR 27). That
-rebuild-in-place is the next MasterPlan's scope. Until then the drill proves the
-data is recoverable and how fast; it does not bring the service back.
+This drill proves the data is recoverable and how fast; it does not bring the
+service back. To rebuild the same context with its databases restored into
+service, follow
+[Rebuild the service after losing the VM](../runbooks/disaster-recovery.md#rebuild-the-service-after-losing-the-vm):
+a reviewed rebuild recreates each lost durable member as a new incarnation, and
+each database restores the one recovery point its rebuild named.
 
 ### Prerequisites, before you need them
 
@@ -545,8 +546,8 @@ If a step here stops matching the commands, fix the step.
 
 The host itself is disposable: [Provisioning with Pulumi](provisioning-with-pulumi.md),
 [Host image and first boot](host-image-and-boot.md), [Secrets](secrets.md) and
-[Cluster bootstrap](cluster-bootstrap.md) recreate it. A rebuilt cluster does not
-restore its databases into service in this release (see the known limit above).
+[Cluster bootstrap](cluster-bootstrap.md) recreate it. A rebuilt cluster's databases return to service through
+[Rebuild the service after losing the VM](../runbooks/disaster-recovery.md#rebuild-the-service-after-losing-the-vm).
 For an intentional replacement of a live VM, disable and apply
 `nagare:vmDeletionProtection` **before** changing the image self-link, preserve the
 protected data disk through the replacement, then re-enable VM protection. See

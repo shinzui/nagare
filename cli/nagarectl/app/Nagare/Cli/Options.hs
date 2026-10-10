@@ -29,6 +29,7 @@ module Nagare.Cli.Options
   , DbBackupReceiptsOpts (..)
   , DbEscrowSigningKeyOpts (..)
   , DbVerifyEscrowedBackupOpts (..)
+  , DbRestoreRebuiltOpts (..)
   , DbCommand (..)
   , DbCreateOpts (..)
   , DbListOpts (..)
@@ -339,6 +340,8 @@ data Command
   | InventoryCompile FilePath FilePath Bool
   | InventoryPlan FilePath [String] FilePath
   | InventoryAdopt FilePath FilePath
+  | InventoryRebuildDecisions [String] [String] FilePath
+  | InventoryRebuild FilePath FilePath
   | InventoryMigrate FilePath FilePath
   | InventoryRetire (NE.NonEmpty String) FilePath
   | InventoryGc FilePath
@@ -652,6 +655,8 @@ data DbCommand
     DbEscrowSigningKey DbEscrowSigningKeyOpts
   | -- | nagarectl db verify-escrowed-backup NAME --backup-id JOB_UID [-n NS] [--escrow FILE] [--bucket B]
     DbVerifyEscrowedBackup DbVerifyEscrowedBackupOpts
+  | -- | nagarectl db restore-rebuilt NAME --restore-id ID [-n NS] [--escrow FILE] [--bucket B] --save-plan DIR (EP-183 M4)
+    DbRestoreRebuilt DbRestoreRebuiltOpts
   | -- | nagarectl db disable-backup-prune NAME [-n NS] --save-plan DIR
     DbDisableBackupPrune DbNameOpts FilePath
   | -- | nagarectl db restore NAME BACKUP_ID [--into live] [--dry-run] (EP-47)
@@ -819,6 +824,16 @@ data DbEscrowSigningKeyOpts = DbEscrowSigningKeyOpts
   { name :: !String
   , namespace :: !(Maybe String)
   , output :: !(Maybe FilePath)
+  }
+  deriving stock (Generic, Show)
+
+data DbRestoreRebuiltOpts = DbRestoreRebuiltOpts
+  { name :: !String
+  , namespace :: !(Maybe String)
+  , restoreId :: !String
+  , escrow :: !(Maybe FilePath)
+  , bucket :: !(Maybe String)
+  , savePlan :: !FilePath
   }
   deriving stock (Generic, Show)
 

@@ -8,7 +8,7 @@ authority.
 <!-- managed-command-registry:start -->
 | Entrypoint | Registered routes | Unresolved routes |
 | --- | ---: | --- |
-| `Command` | 73 | none |
+| `Command` | 75 | none |
 | `HostCommand` | 10 | none |
 | `KubeconfigCommand` | 2 | none |
 | `ClusterCommand` | 2 | none |
@@ -17,7 +17,7 @@ authority.
 | `EnvCommand` | 4 | none |
 | `SecretCommand` | 4 | none |
 | `StorageCommand` | 5 | none |
-| `DbCommand` | 18 | none |
+| `DbCommand` | 19 | none |
 | `BrokerCommand` | 6 | none |
 | `TaskCommand` | 4 | none |
 | `WorkerCommand` | 2 | none |
@@ -26,7 +26,7 @@ authority.
 | `DomainsCommand` | 2 | none |
 | `CdnCommand` | 4 | none |
 | `justfile` | 46 |  |
-| `Inventory.Command` production calls | 35 | none |
+| `Inventory.Command` production calls | 36 | none |
 <!-- managed-command-registry:end -->
 
 Each row names the lifecycle-owning scope, declaration compiler, native executor,

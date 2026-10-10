@@ -105,11 +105,68 @@ material (escrowed signing keys, the age key, the context), restores each
 database's newest verified backup into a disposable engine, compares the content
 and records the recovery time.
 
-This release has no reviewed rebuild of the same context with the databases
-restored into service: planning refuses to recreate an accepted durable member,
-and a backup restores only into the incarnation it was taken from (ADR 27). That
-is the next MasterPlan's scope. Recreating the host itself follows
-[Rebuilding the host](../user/backups-and-disaster-recovery.md#rebuilding-the-host).
+To bring the same context back into service, follow
+[Rebuild the service after losing the VM](#rebuild-the-service-after-losing-the-vm).
+
+## Rebuild the service after losing the VM
+
+The VM and its cluster are gone; the inventory store, the backup bucket and the
+private operator material (context, escrowed signing keys, age key) remain. A
+rebuild recreates each lost durable member as a new incarnation through one
+reviewed decision, then restores each database's data from the one recovery
+point its decision names ([ADR 27 amendment](../adr/0027-physical-identity-is-recorded-at-creation-and-read-through-one-checked-accessor.md)).
+Note the start time; the recovery time runs to the service answering.
+
+1. **Recreate the host and the cluster.** Follow
+   [Rebuilding the host](../user/backups-and-disaster-recovery.md#rebuilding-the-host),
+   then run the reviewed bootstrap. In local mode, `just local-up` and
+   `just local-bootstrap` stand in for this.
+2. **Choose each database's recovery point.** For every managed database, verify
+   the newest scheduled backup with the escrow, as in
+   [Recover, from a fresh operator root](../user/backups-and-disaster-recovery.md#recover-from-a-fresh-operator-root)
+   step 1. The command prints the `rebuild recovery point` line,
+   `RECEIPT_URL@RECEIPT_SHA256`.
+3. **Write the rebuild decisions** (read-only):
+
+   ```bash
+   nagarectl --context "$CONTEXT" inventory rebuild-decisions \
+     --recovery-point standalone:database-pg/pg/pvc=RECEIPT_URL@RECEIPT_SHA256 \
+     --out reviews/rebuild.json
+   ```
+
+   One `--recovery-point RESOURCE_ID=...` per missing database volume. A volume
+   you choose to start empty takes `--fresh RESOURCE_ID` instead; nothing of its
+   data is then recovered. Generated Secrets (credentials, backup signing keys)
+   always start fresh. The command prints what each decision approves and refuses
+   a volume with neither choice. The input's shape is in
+   [Rebuilt members](inventory-operations.md#rebuilt-members).
+4. **Review and apply the rebuild.** It recreates the decided members and every
+   other missing member of their scopes from the accepted declarations:
+
+   ```bash
+   nagarectl --context "$CONTEXT" inventory rebuild --input reviews/rebuild.json --out reviews/rebuild
+   nagarectl --context "$CONTEXT" inventory apply reviews/rebuild --yes
+   ```
+
+   Admission refuses if a member reappeared after review. No application is
+   deployed yet, so nothing writes to the new, empty databases.
+5. **Restore each database** from the recovery point its rebuild named:
+
+   ```bash
+   nagarectl --context "$CONTEXT" db restore-rebuilt pg --restore-id rebuild-1 --save-plan reviews/restore-pg
+   nagarectl --context "$CONTEXT" inventory apply reviews/restore-pg --yes
+   ```
+
+   The command verifies the receipt with the predecessor's escrowed key. The Job
+   re-reads the receipt and archive at their pinned versions, refuses a database
+   that already holds any relation, and loads the dump in one transaction, so a
+   failed load leaves the database empty.
+6. **Escrow the new signing keys.** Each rebuilt database has a new signing key:
+   run `nagarectl db escrow-signing-key NAME` for each, and commit the escrow.
+7. **Deploy the applications** through their saved reviews, read back known rows,
+   and record the elapsed time against the recovery-time objective.
+
+The new incarnations' backups start from the first scheduled run after step 4.
 
 ## Power management (stop / start / full teardown)
 

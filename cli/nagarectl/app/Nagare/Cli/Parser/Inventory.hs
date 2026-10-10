@@ -58,6 +58,19 @@ inventoryCmd =
               "adopt"
               (info (InventoryAdopt <$> strOption (long "input" <> metavar "FILE") <*> strOption (long "out" <> metavar "DIRECTORY") <**> helper) (progDesc "Review exact adoption or known-owner transfer incarnations"))
             <> command
+              "rebuild-decisions"
+              ( info
+                  ( InventoryRebuildDecisions
+                      <$> many (strOption (long "recovery-point" <> metavar "RESOURCE_ID=RECEIPT_URL@RECEIPT_SHA256" <> help "The verified recovery point a missing volume restores from; repeat per volume"))
+                      <*> many (strOption (long "fresh" <> metavar "RESOURCE_ID" <> help "Start this missing volume empty, recovering none of its data; repeat as needed"))
+                      <*> strOption (long "out" <> metavar "FILE") <**> helper
+                  )
+                  (progDesc "Read-only: write one rebuild decision per accepted durable member whose object is gone")
+              )
+            <> command
+              "rebuild"
+              (info (InventoryRebuild <$> strOption (long "input" <> metavar "FILE") <*> strOption (long "out" <> metavar "DIRECTORY") <**> helper) (progDesc "Review recreating missing durable members as new incarnations from rebuild decisions"))
+            <> command
               "migrate"
               (info (InventoryMigrate <$> strOption (long "input" <> metavar "FILE") <*> strOption (long "out" <> metavar "DIRECTORY") <**> helper) (progDesc "Review exact source and destination migration incarnations"))
             <> command

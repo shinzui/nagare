@@ -53,6 +53,7 @@ module Nagare.Inventory.Plan
   , prepareReview
   , prepareReviewWithPayloadIdentity
   , reviewDigest
+  , duplicateValues
   , encodeReviewDocument
   , publishReview
   , publishObservationMembers
@@ -116,6 +117,7 @@ import Nagare.Inventory.Plan.Types
   , ReviewError (..)
   , ReviewOperation (..)
   , ReviewedPlan (..)
+  , duplicateValues
   , encodeReviewDocument
   , historyDeclarations
   , historyReservations

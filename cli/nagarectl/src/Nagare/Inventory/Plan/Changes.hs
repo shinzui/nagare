@@ -238,6 +238,7 @@ planChanges candidate decisions history observations = do
   collections <- buildCollectionProofs candidate checkedDecisions history observations
   let migrationProofs = buildMigrationProofs checkedDecisions
       rebinds = buildRebindProofs checkedDecisions history observations
+      rebuilds = Map.fromList [(resource, proof) | (resource, decision) <- Map.toList checked, ApproveRebuild proof <- [lifecycleDecision decision]]
   let desiredScopes = inventoryScopes (candidateInventory candidate)
       scopeMembers = Map.fromList [(contentDigest bytes, bytes) | declaration <- Map.elems desiredScopes, let bytes = encodeCanonicalScope declaration]
       desiredRevisions = candidateDesiredRevisions candidate
@@ -263,6 +264,7 @@ planChanges candidate decisions history observations = do
       , proposalMigrations = migrationProofs
       , proposalAbsences = absences
       , proposalRebinds = rebinds
+      , proposalRebuilds = rebuilds
       }
   where
     baseRevisions = fmap fst (historyAccepted history)
@@ -757,7 +759,8 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
               ([], Nothing)
         Stateless -> ([], Just (resourceOperation CreateResource resource))
         Durable _ ->
-          if Set.member resourceId (historyUnstartedCreates history)
+          -- EP-183 M4: a reviewed rebuild recreates it as a new incarnation.
+          if (Set.member resourceId (historyUnstartedCreates history) || rebuilding resourceId)
             && sameManaged old resource
             then ([], Just (resourceOperation CreateResource resource))
             else
@@ -806,6 +809,9 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
       | otherwise = Nothing
     retireOperation _ = Nothing
     decisionIs kind resource = maybe False ((== kind) . lifecycleDecision) (Map.lookup resource decisions)
+    rebuilding resource = case lifecycleDecision <$> Map.lookup resource decisions of
+      Just (ApproveRebuild _) -> True
+      _ -> False
     resourceOperation action resource =
       let digest = contentDigest (canonicalBytes (toJSON (Managed resource)))
           recovery = case (resource ^. #executor, resource ^. #dataPolicy) of

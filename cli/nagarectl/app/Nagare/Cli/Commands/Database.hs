@@ -19,6 +19,7 @@ import Nagare.Cli.Data.Lifecycle
   , runStandaloneRetirePlan
   )
 import Nagare.Cli.Data.ManualReceipt (runReviewedManualReceiptPlan)
+import Nagare.Cli.Data.RebuildRestore (runRebuildRestorePlan)
 import Nagare.Cli.Data.Restore (runReviewedDbRestorePlan)
 import Nagare.Cli.Data.ScheduledPrune
   ( runReviewedScheduledPruneRecoveryPlan
@@ -250,6 +251,14 @@ runDb mctx = \case
       (isJust (o ^. #offlineObjectStore) /= isJust (o ^. #offlineCredentials))
       (dieT "--offline-object-store and --offline-credentials are required together")
     runVerifyEscrowedBackup mctx (T.pack (o ^. #name)) (nsOf (o ^. #namespace)) path (o ^. #bucket) (T.pack (o ^. #backupId)) ((,) <$> (o ^. #offlineObjectStore) <*> (o ^. #offlineCredentials))
+  DbRestoreRebuilt o -> do
+    active <- activeTarget mctx
+    path <-
+      maybe
+        (defaultEscrowPath (contextNameText (active ^. #contextName)) (nsOf (o ^. #namespace)) (T.pack (o ^. #name)))
+        pure
+        (o ^. #escrow)
+    runRebuildRestorePlan mctx (T.pack (o ^. #name)) (nsOf (o ^. #namespace)) (T.pack (o ^. #restoreId)) path (o ^. #bucket) (o ^. #savePlan)
   DbManualReceipt o -> case (o ^. #backupId, o ^. #savePlan) of
     (Just selected, Just output) ->
       runReviewedManualReceiptPlan

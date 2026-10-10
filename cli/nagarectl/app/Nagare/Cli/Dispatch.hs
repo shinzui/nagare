@@ -75,6 +75,7 @@ import Nagare.Cli.Commands.Site
 import Nagare.Cli.Commands.Storage (runStorage)
 import Nagare.Cli.Commands.Task (runTask)
 import Nagare.Cli.Commands.Worker (runWorker)
+import Nagare.Cli.Inventory.Rebuild (runInventoryRebuild, runInventoryRebuildDecisions)
 import Nagare.Cli.Inventory.Workflow
   ( runInventoryAbandonMigration
   , runInventoryAdopt
@@ -172,6 +173,8 @@ dispatch (mctx, cmd0) = case cmd0 of
   InventoryCompile input output json -> Inventory.compileInventory input output json
   InventoryPlan input retained output -> runInventoryPlan mctx input retained output
   InventoryAdopt input output -> runInventoryAdopt mctx input output
+  InventoryRebuildDecisions points fresh output -> runInventoryRebuildDecisions mctx points fresh output
+  InventoryRebuild input output -> runInventoryRebuild mctx input output
   InventoryMigrate input output -> runInventoryMigrate mctx input output
   InventoryRetire owner output -> runInventoryRetire mctx owner output
   InventoryGc output -> runInventoryStatus mctx Nothing True (Just output)

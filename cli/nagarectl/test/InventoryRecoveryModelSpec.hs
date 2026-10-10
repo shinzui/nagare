@@ -49,9 +49,11 @@ import Nagare.Resource.Reference (Dependency (..))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
 import Nagare.Test.Model.Fixtures
+import Nagare.Test.Model.Ingest (ingestReceipt)
 import Nagare.Test.Model.Invariants
 import Nagare.Test.Model.KnownDefects (KnownViolation (..), judgeViolations, knownViolations)
 import Nagare.Test.Model.Pairs
+import Nagare.Test.Model.Rebuild (decideModelRebuild, loseCluster)
 import Nagare.Test.Model.Run
 import Nagare.Test.Model.Scenarios
 import Nagare.Test.Model.Search
@@ -481,14 +483,16 @@ drive scenario schedule onStop start resumed = do
       case checked of
         Left violation -> ended began run taken (Left (describe scenario schedule (stepText IngestReceipt) violation []))
         Right () -> go began run previous rest taken
+    go began run previous (LoseCluster : rest) taken = begin began run previous taken >> loseCluster run >> go began run previous rest taken
     go began run previous (step : rest) taken = begin began run previous taken >> attempt began False run previous step rest taken
     attempt began replanned run previous step rest taken = do
       let historyImage image' = if historyFollows scenario then image' else "v1"
           image = stepText step
       outcome <- case step of
         Retire -> retireAndApply run (shape scenario) previous (historyImage previous)
-        CreateDatabase -> databaseAndApply run (databaseScope, databaseNative) (shape scenario) previous (historyImage previous)
-        UpdateDatabase -> databaseAndApply run resizedDatabase (shape scenario) previous (historyImage previous)
+        CreateDatabase -> databaseAndApply run noDecisions (databaseScope, databaseNative) (shape scenario) previous (historyImage previous)
+        UpdateDatabase -> databaseAndApply run noDecisions resizedDatabase (shape scenario) previous (historyImage previous)
+        RebuildDatabase -> databaseAndApply run decideModelRebuild (databaseScope, databaseNative) (shape scenario) previous (historyImage previous)
         RestartDatabase -> restartAndApply run (shape scenario) previous (historyImage previous)
         RetireDatabase -> scopeRetireAndApply run databaseScopeId (shape scenario) previous (historyImage previous)
         _ -> reviewAndApply run (shape scenario) image (historyImage image)
@@ -646,11 +650,11 @@ planRetirement run volume image historyImage store =
   registryFor run volume image historyImage >>= \registry -> planWith store registry (RetireScope appScope RetainResources) decideRetirement
 
 -- | Review and apply the standalone database scope at one compiled revision.
-databaseAndApply :: Run -> (ScopeDeclaration, Map.Map ResourceId (ManagedResource, ByteString)) -> Shape -> Text -> Text -> IO (Either Text (AdapterRegistry, ReviewedPlan, Applied))
-databaseAndApply run (scope, native) volume image historyImage = do
+databaseAndApply :: Run -> (CompositionCandidate -> InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) LifecycleDecisions) -> (ScopeDeclaration, Map.Map ResourceId (ManagedResource, ByteString)) -> Shape -> Text -> Text -> IO (Either Text (AdapterRegistry, ReviewedPlan, Applied))
+databaseAndApply run decide (scope, native) volume image historyImage = do
   -- As production builds it: the reviewed revision's native specs.
   writeIORef (runDatabase run) native
-  planned <- asOperator run (\store -> registryFor run volume image historyImage >>= \registry -> planWith store registry (ReplaceScope scope) (\_ _ _ -> Right noLifecycleDecisions))
+  planned <- asOperator run (\store -> registryFor run volume image historyImage >>= \registry -> planWith store registry (ReplaceScope scope) decide)
   case planned of
     Left err -> pure (Left err)
     Right (registry, reviewed) -> do
@@ -684,91 +688,15 @@ restartAndApply run volume image historyImage = do
     -- E17: a pod not Ready at the update revision has a broken template; the
     -- restart plans nothing and tells the operator to correct the spec.
     Right (RestartNotPlanned _) -> pure (Left restartNotPlanned)
-    Right (RestartReview revised native _) -> databaseAndApply run (revised, native) volume image historyImage
+    Right (RestartReview revised native _) -> databaseAndApply run noDecisions (revised, native) volume image historyImage
+
+noDecisions :: CompositionCandidate -> InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) LifecycleDecisions
+noDecisions _ _ _ = Right noLifecycleDecisions
 
 -- | The refusal 'restartAndApply' answers when the restart plans nothing; the
 -- step then ends with no review.
 restartNotPlanned :: Text
 restartNotPlanned = "db restart planned nothing: the pod's current template doesn't become ready"
-
--- | I3: plan ingestion of a scheduled receipt from the live source, as `db
--- backup-receipts` plans it. A receipt whose source StatefulSet or PVC was
--- created outside review never compiles for ingestion. In a fault-free run the
--- receipt must compile, so the clause is never vacuous. A failed store read is
--- re-run, as an operator re-runs the command.
-ingestReceipt :: Run -> Bool -> IO (Either Text ())
-ingestReceipt run clean = do
-  loaded <- asOperator run $ \store -> do
-    history <- loadInventoryHistory store >>= orTrouble "load history"
-    case Map.lookup databaseScopeId (historyAccepted history) of
-      Nothing -> pure (Right Nothing)
-      Just (revision, accepted) -> do
-        let acceptedInventory = ok (composeSnapshot (ok (mkScopeSnapshot fixtureBinding (Map.map (\(revision', declared) -> (revisionGeneration revision', declared)) (historyAccepted history)) (historyReservations history))))
-        -- As the command does: the accepted members' native bytes come from
-        -- the store's review evidence, not from the compiler.
-        native <- Status.loadAcceptedNativeSelected (Set.fromList [statefulId, pvcId, cronId, signingId]) store history acceptedInventory >>= orTrouble "load accepted native"
-        pure (Right (Just (history, revision, accepted, fst native)))
-  case loaded of
-    Left refusal -> pure (refusedWhen refusal)
-    Right Nothing -> pure (refusedWhen "the database is not accepted")
-    Right (Just (history, revision, accepted, native)) -> do
-      registry <- registryFor run plainShape "v1" "v1"
-      observed <- observeWithRegistry registry (Map.singleton KubernetesExecutor [statefulId, pvcId, cronId, signingId])
-      world <- readIORef (runWorld run)
-      let live resource = case Map.lookup resource . observationMap =<< either (const Nothing) Just observed of
-            Just (ObservedPresent physical) -> Just physical
-            _ -> Nothing
-      pure $ case traverse live [statefulId, pvcId, cronId, signingId] of
-        Just [statefulUid, pvcUid, cronUid, signingUid] ->
-          let request expectation =
-                ScheduledIngestRequest
-                  { ingestDatabase = "pg"
-                  , ingestNamespace = "personal"
-                  , ingestBackupId = "job-1"
-                  , ingestSourceRevision = revision
-                  , ingestStatefulUid = statefulUid
-                  , ingestPvcUid = pvcUid
-                  , ingestScheduleUid = cronUid
-                  , ingestSigningUid = signingUid
-                  , ingestEvidence =
-                      ScheduledReceiptEvidence
-                        { scheduledReceipt =
-                            ScheduledBackupReceipt
-                              (ok (mkPhysicalIdentity "job-1"))
-                              (scheduledObjectPrefix expectation <> "job-1." <> scheduledFormat expectation)
-                              (T.replicate 64 "0")
-                              (scheduledPolicyRevision expectation)
-                              Nothing
-                        , scheduledObjectVersion = "1"
-                        , scheduledReceiptVersion = "1"
-                        , scheduledObjectLength = 1
-                        , scheduledReceiptLength = 1
-                        , scheduledReceiptDigest = contentDigest "receipt"
-                        }
-                  , ingestBackend = databaseBackend
-                  , ingestSource = SourceLocation "model" "ingest"
-                  , ingestAcceptedIncarnations = recorded
-                  }
-              recorded = headIncarnations (historyHead history)
-              -- ADR 27 (F60): the record is the identity the provider returned
-              -- for Nagare's own write, so every replacement must refuse.
-              replaced = [physical | physical <- [statefulUid, pvcUid], Set.member physical (replacedUids world)]
-              compiled =
-                maybe (Left "the accepted CronJob lacks native evidence") Right (Map.lookup cronId native)
-                  >>= \(_, cronBytes) ->
-                    first (T.pack . show) (scheduledReceiptExpectationFromCronJob databaseBackend "personal" "pg" statefulUid pvcUid cronBytes)
-                      >>= \expectation -> first (T.pack . show) (compileScheduledIngestScope (request expectation) accepted native)
-           in case compiled of
-                Right _
-                  | not (null replaced) ->
-                      Left ("I3: a scheduled receipt from " <> T.intercalate ", " (map physicalIdentityText replaced) <> ", created outside review, compiled for ingestion")
-                Left refusal | clean -> Left ("I3: the fault-free scheduled receipt was refused: " <> refusal)
-                _ -> Right ()
-        _ -> refusedWhen "the receipt source is not observed present"
-  where
-    refusedWhen why
-      | clean = Left ("I3: fault-free ingestion could not be planned: " <> why)
-      | otherwise = Right ()
 
 -- | B2: a planning refusal is the expected answer to a fault, not a wedge,
 -- when every error names at least one resource and each named resource has an
@@ -824,15 +752,6 @@ applyAsOperator run registry reviewed = do
     Right attempt -> attempt
     Left (CommandRefused refusal) -> Right (Left refusal)
     Left _ -> Left Interrupted
-
--- | Plan or read as an operator does, re-run while new faults fire.
-asOperator :: Run -> (InventoryStore -> IO (Either Text a)) -> IO (Either Text a)
-asOperator run command = first failureText <$> operatorAction run command
-  where
-    failureText = \case
-      CommandRefused refusal -> refusal
-      CommandCrashed -> "interrupted"
-      CommandTrouble trouble -> trouble
 
 headIdle :: Run -> IO Bool
 headIdle run = maybe True (isNothing . headActiveTransaction) <$> (inspectHead run >>= orFail "read head")

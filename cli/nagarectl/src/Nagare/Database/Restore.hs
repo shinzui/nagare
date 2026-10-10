@@ -11,6 +11,7 @@ module Nagare.Database.Restore
   , RestoreJobInputs (..)
   , VerifiedRestoreSource (..)
   , renderRestoreJob
+  , renderRebuildRestoreJob
   , renderRedisScratchService
   , renderRedisScratchStatefulSet
   , renderRedisScratchVerifyJob
@@ -92,7 +93,38 @@ data VerifiedRestoreSource = VerifiedRestoreSource
 
 -- | Render the two-container restore Job (download init + engine-restore main).
 renderRestoreJob :: RestoreJobInputs -> ByteString
-renderRestoreJob i =
+renderRestoreJob i = renderJobWith (restoreContainer i) i
+
+-- | EP-183 M4: load the verified PostgreSQL dump into the rebuilt database
+-- itself, never over data. The load refuses unless the database holds no
+-- relation, and runs as one transaction, so a failed load leaves it empty and
+-- a second run refuses rather than loading twice.
+renderRebuildRestoreJob :: RestoreJobInputs -> ByteString
+renderRebuildRestoreJob i =
+  renderJobWith
+    ( object
+        [ "name" .= ("restore" :: Text)
+        , "image" .= (i ^. #clientImage)
+        , "command" .= toJSON ["/bin/sh" :: Text, "-c"]
+        , "args" .= toJSON [rebuildRestoreShell (i ^. #serviceHost)]
+        , "env" .= toJSON (restoreEnv Postgres (i ^. #secretName))
+        , "volumeMounts" .= toJSON [dumpMount]
+        ]
+    )
+    i
+
+rebuildRestoreShell :: Text -> Text
+rebuildRestoreShell svc =
+  "set -e; relations=\"$(psql -tA -v ON_ERROR_STOP=1 -h "
+    <> svc
+    <> " -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\" -c \"select count(*) from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname not in ('pg_catalog', 'information_schema') and n.nspname not like 'pg_toast%' and n.nspname not like 'pg_temp%'\")\"; "
+    <> "test \"$relations\" = 0 || { echo \"the rebuilt database already holds $relations relations; refusing to restore over data\" >&2; exit 3; }; "
+    <> "psql -v ON_ERROR_STOP=1 --single-transaction -h "
+    <> svc
+    <> " -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\" -f /dump/backup.sql"
+
+renderJobWith :: Value -> RestoreJobInputs -> ByteString
+renderJobWith container i =
   Y.encode $
     object
       [ "apiVersion" .= ("batch/v1" :: Text)
@@ -116,7 +148,7 @@ renderRestoreJob i =
                       Just (clickHouseSourceAffinity (i ^. #namespace) (i ^. #name))
                     else Nothing
               , initContainers = [downloadContainer i]
-              , containers = [restoreContainer i]
+              , containers = [container]
               , volumes =
                   [object ["name" .= ("dump" :: Text), "emptyDir" .= object []]]
                     <> [ object

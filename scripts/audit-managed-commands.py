@@ -32,9 +32,9 @@ CATALOGUE_END = "<!-- managed-command-registry:end -->"
 # Each entry is an exact constructor name; there are no wildcard exemptions.
 ROUTES = {
     "Command": {
-        "read": "Version InventoryStatus InventoryLegacyGuard InventoryExplain InventoryStoreStatus PlatformRoot PlatformStatusCmd PlatformGuard PlatformUpgradeStatus SiteReleases SitePreviewList AppList AppGet AppLogs DeploymentsList DeploymentsLogs ServerStatus Doctor InventoryGc",
+        "read": "Version InventoryStatus InventoryLegacyGuard InventoryExplain InventoryStoreStatus InventoryRebuildDecisions PlatformRoot PlatformStatusCmd PlatformGuard PlatformUpgradeStatus SiteReleases SitePreviewList AppList AppGet AppLogs DeploymentsList DeploymentsLogs ServerStatus Doctor InventoryGc",
         "group": "Host Kubeconfig Cluster Env Secret Storage Broker Db Task Worker Access ContextCmdGroup Infra Domains CdnCmd",
-        "reviewed": "InventoryPlan InventoryAdopt InventoryMigrate InventoryRetire InventoryCollect InventoryApply InventoryResume InventoryRecover InventoryClose InventoryAbandonMigration InventoryRegistryRecoveryPlan InventoryStoreMigrate PlatformBootstrapPlan PlatformBootstrapApply Deploy SiteDeploy SiteRollback SitePreviewDeploy SitePreviewDelete AppRestart AppStop AppDelete AppDeploy AppImagePlan Cleanup",
+        "reviewed": "InventoryPlan InventoryAdopt InventoryRebuild InventoryMigrate InventoryRetire InventoryCollect InventoryApply InventoryResume InventoryRecover InventoryClose InventoryAbandonMigration InventoryRegistryRecoveryPlan InventoryStoreMigrate PlatformBootstrapPlan PlatformBootstrapApply Deploy SiteDeploy SiteRollback SitePreviewDeploy SitePreviewDelete AppRestart AppStop AppDelete AppDeploy AppImagePlan Cleanup",
         "local": "InventoryCompile AppCheck",
         "bounded": "InventoryStoreMaterializeNative InventoryExport InventoryRestore Init",
         "retired": "PlatformStamp",
@@ -69,7 +69,7 @@ ROUTES = {
     "DbCommand": {
         "read": "DbList DbGet DbVerifyEscrowedBackup",
         "local": "DbEscrowSigningKey",
-        "reviewed": "DbCreate DbRename DbRestart DbDelete DbRetire DbBackup DbPruneBackup DbBackupReceipts DbManualReceipt DbDisableBackupPrune DbRestore",
+        "reviewed": "DbCreate DbRename DbRestart DbDelete DbRetire DbBackup DbPruneBackup DbBackupReceipts DbManualReceipt DbDisableBackupPrune DbRestore DbRestoreRebuilt",
         "recovery": "DbRecoverScheduledPrune",
         "deferred": "DbShell DbPruneScheduledBackups",
     },
@@ -168,7 +168,7 @@ DEFAULT_FAMILY = {
 }
 
 FAMILY_ROUTES = {
-    "InventoryPlan InventoryAdopt InventoryMigrate InventoryApply InventoryResume InventoryRecover InventoryClose InventoryAbandonMigration InventoryRegistryRecoveryPlan": "Scoped review observation and operation selection",
+    "InventoryPlan InventoryAdopt InventoryRebuild InventoryMigrate InventoryApply InventoryResume InventoryRecover InventoryClose InventoryAbandonMigration InventoryRegistryRecoveryPlan": "Scoped review observation and operation selection",
     "InventoryRetire": "Partial scope member retirement",
     "InventoryCollect": "Retained stateless Kubernetes collection",
     "InventoryStoreMaterializeNative InventoryStoreMigrate InventoryExport InventoryRestore": "Inventory history export, restore, and store migration",
@@ -186,7 +186,7 @@ FAMILY_ROUTES = {
     "HostCommand.HostImagePlan": "NixOS image object and GCE image publication",
     "HostCommand.HostStart HostCommand.HostStop": "VM start/stop",
     "KubeconfigCommand.KubeconfigRecover": "Context kubeconfig fetch and accepted-history recovery",
-    "DbCommand.DbBackup DbCommand.DbPruneBackup DbCommand.DbBackupReceipts DbCommand.DbManualReceipt DbCommand.DbPruneScheduledBackups DbCommand.DbRecoverScheduledPrune DbCommand.DbDisableBackupPrune DbCommand.DbRestore": "Database backup and restore",
+    "DbCommand.DbBackup DbCommand.DbPruneBackup DbCommand.DbBackupReceipts DbCommand.DbManualReceipt DbCommand.DbPruneScheduledBackups DbCommand.DbRecoverScheduledPrune DbCommand.DbDisableBackupPrune DbCommand.DbRestore DbCommand.DbRestoreRebuilt": "Database backup and restore",
     "DbCommand.DbShell": "Interactive database maintenance",
     "DbCommand.DbRestart BrokerCommand.BrokerRestart": "Manual task run/delete and database/broker restart",
 }
@@ -232,7 +232,7 @@ RECIPE_FAMILY = {
 # Public library calls from production consumers are checked as an exact set.
 # Pure observations are included so a new write cannot hide as an unlisted call.
 LIBRARY_CALLS = {
-    "cli/nagarectl/app": "applyInventoryWithFactory compileInventory convergeInventoryCandidateWith executionBlockedAdapterFor exportInventory loadCandidate loadTargetSnapshot loadTargetSnapshotReadOnly manifestAdapterFor migrateTargetStore openTargetStore openTargetStoreReadOnly openProfileReviewStoreReadOnly planInventory planInventoryAdoptionWith planInventoryCandidateAdoptionWith planInventoryCandidateWith planInventoryCandidateWithPayloadIdentity planInventoryCandidateWithRetirements planInventoryCollectionWith planInventoryCollectionsWith planInventoryMigrationCandidateWith planInventoryMigrationWith planInventoryRetirementWith planInventoryRetirementsWith planInventoryWithRetirements prepareRegistryRecoveryWithFactory recoverInventoryWithFactory closeInventoryWithFactory rejectReentry restoreInventory resumeInventoryWithFactoryTakeover selectFoundationStore",
+    "cli/nagarectl/app": "applyInventoryWithFactory compileInventory convergeInventoryCandidateWith executionBlockedAdapterFor exportInventory loadCandidate loadTargetSnapshot loadTargetSnapshotReadOnly manifestAdapterFor migrateTargetStore openTargetStore openTargetStoreReadOnly openProfileReviewStoreReadOnly planInventory planInventoryAdoptionWith planInventoryCandidateAdoptionWith planInventoryCandidateWith planInventoryCandidateWithDecider planInventoryCandidateWithPayloadIdentity planInventoryCandidateWithRetirements planInventoryCollectionWith planInventoryCollectionsWith planInventoryMigrationCandidateWith planInventoryMigrationWith planInventoryRetirementWith planInventoryRetirementsWith planInventoryWithRetirements prepareRegistryRecoveryWithFactory recoverInventoryWithFactory closeInventoryWithFactory rejectReentry restoreInventory resumeInventoryWithFactoryTakeover selectFoundationStore",
     "cli/nagarectl/nagared/Main.hs": "loadTargetSnapshot openTargetStoreReadOnly",
 }
 

@@ -21,6 +21,7 @@ module Nagare.Test.Model.Run
   , restoreRun
   , Failure (..)
   , operatorAction
+  , asOperator
   , orTrouble
   , inspectHead
   , inspectJournal
@@ -197,6 +198,15 @@ newtype StoreTrouble = StoreTrouble Text
 instance Exception StoreTrouble
 
 -- | Inside an operator's command: a failed store call fails the command.
+-- | Plan or read as an operator does, re-run while new faults fire.
+asOperator :: Run -> (InventoryStore -> IO (Either Text a)) -> IO (Either Text a)
+asOperator run command = first failureText <$> operatorAction run command
+  where
+    failureText = \case
+      CommandRefused refusal -> refusal
+      CommandCrashed -> "interrupted"
+      CommandTrouble trouble -> trouble
+
 orTrouble :: (Show e) => Text -> Either e a -> IO a
 orTrouble context = either (\err -> throwIO (StoreTrouble (context <> ": " <> T.pack (show err)))) pure
 

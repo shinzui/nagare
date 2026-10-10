@@ -12,6 +12,7 @@ import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
+import InventoryRebuildSpec (inventoryRebuildTests)
 import InventoryTransactionSpec (fixtureBinding)
 import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.Dsl.Database.Render (dbPvcName)
@@ -150,6 +151,7 @@ inventoryIncarnationTests =
         -- N5: the HMAC key must come from the accepted signing Secret.
         assertBool "a replaced signing Secret must refuse" (attempt (Map.insert (databaseMember "signing") (uid "uid-accepted-signing") live))
         assertBool "an unrecorded source is refused, never read as a match (ADR 27)" (attempt Map.empty)
+    , inventoryRebuildTests
     ]
 
 -- Planning, review and application of one change against the accepted history.

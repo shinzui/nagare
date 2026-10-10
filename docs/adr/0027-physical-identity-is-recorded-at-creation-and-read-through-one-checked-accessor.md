@@ -75,3 +75,42 @@ without an exit refuses to retire a replaced database (N1).
 - Status reports `unrecorded` members explicitly. Operators of stores written before this change see
   them until they run a reviewed rebind.
 - The recovery model's F60 tolerance and the "admission refusal counts as done" shortcut are removed.
+
+
+## Amendment (2026-10-10): a reviewed rebuild recreates a lost durable member with an explicit lineage
+
+Made for [EP-183](../plans/183-close-the-intranet-gaps-left-by-v0-4-0-https-login-volume-backups-retention-and-service-rebuild.md)
+milestone 4, so that a context can be brought back into service after losing its VM. Before it,
+planning refused an accepted durable member whose object was gone (`durable-resource-missing`) and
+a backup restored only into the incarnation it was taken from, so the data was recoverable but the
+service was not.
+
+- **A rebuild is a reviewed lifecycle decision, not a tolerance.** `nagarectl inventory rebuild
+  --input FILE --out DIR` reviews one decision per member (`ApproveRebuild`). Each decision names:
+  - the member, at its accepted address, which must still be declared and be confirmed absent at
+    planning and again at admission;
+  - its predecessor: the recorded incarnation, or none when no incarnation was ever recorded;
+  - its data source: one exact recovery point of the predecessor (receipt object and receipt-bytes
+    digest), or `fresh`.
+- **Who may take which source.** A volume restores a recovery point only when it has a recorded
+  predecessor; it may start `fresh` only by the operator's explicit choice. A Secret Nagare
+  generates (credential, backup signing key) always starts fresh. No other durable kind is rebuilt.
+- **The new object is an ordinary incarnation.** The create's returned identity is recorded at
+  convergence, as for any create. The lineage is recorded in the journal: the review that created
+  the incarnation carries the decision under `rebuilds`, and `memberLineage` finds it from the
+  first journal event that returned the recorded identity.
+- **The single restore exception.** A backup may restore into an incarnation other than the one it
+  was taken from only when all of these hold (`compileRebuildRestoreScope`, `db restore-rebuilt`):
+  - the target volume's recorded, live incarnation is the one a converged rebuild created;
+  - the receipt is byte for byte the recovery point that rebuild named;
+  - the receipt verifies with the escrowed signing key bound to the rebuild's predecessor;
+  - the load runs only into an empty database, in one transaction.
+
+  Later recovery points of the predecessor are never restorable into the new incarnation without
+  another decision. Every other consumer still uses the checked accessor unchanged.
+- **Known limit.** A rebuild whose create loses its response leaves the new member unrecorded, as
+  any such create does; it then has no lineage, so its predecessor's recovery point cannot be
+  restored into it. A rebind records the object; the data needs a separate reviewed recovery.
+- **Compatibility.** Review documents gain an optional `rebuilds` field, so a binary from before
+  this change cannot read a rebuild review. The head and journal formats do not change. EP-172's
+  compatibility table carries the row.

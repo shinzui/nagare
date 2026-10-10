@@ -13,6 +13,7 @@ module Nagare.Inventory.Plan.Types
   , PlanError (..)
   , RebindProof (..)
   , renderRebind
+  , RebuildProof (..)
   , RetentionProof (..)
   , ReviewBundle (..)
   , ReviewDocument (..)
@@ -69,6 +70,7 @@ import Nagare.Inventory.Adapter
   )
 import Nagare.Inventory.DataFence (dataFenceIntentDigest)
 import Nagare.Inventory.Digest (contentDigest)
+import Nagare.Inventory.Lineage (RebuildProof (..))
 import Nagare.Inventory.Migration.Types
   ( MigrationContract
   , ValidatedMigration
@@ -121,7 +123,9 @@ data ObservationRequirements = ObservationRequirements
   }
   deriving stock (Eq, Show)
 
-data LifecycleDecisionKind = ApproveAdoption | ApproveTransfer | ApproveRetirement | ApproveMigration | ApproveCollection | ApproveRebind
+-- | EP-183 M4: 'ApproveRebuild' carries what the rebuild names, since its
+-- evidence is a confirmed absence that says nothing about the predecessor.
+data LifecycleDecisionKind = ApproveAdoption | ApproveTransfer | ApproveRetirement | ApproveMigration | ApproveCollection | ApproveRebind | ApproveRebuild !RebuildProof
   deriving stock (Eq, Ord, Show, Generic)
 
 data LifecycleProposal = LifecycleProposal
@@ -157,6 +161,7 @@ data ChangeProposal = ChangeProposal
   , proposalMigrations :: !(Map ResourceId MigrationProof)
   , proposalAbsences :: !(Map ResourceId AbsenceProof)
   , proposalRebinds :: !(Map ResourceId RebindProof)
+  , proposalRebuilds :: !(Map ResourceId RebuildProof)
   }
   deriving stock (Eq, Show)
 
@@ -220,6 +225,8 @@ data ReviewDocument = ReviewDocument
   , reviewMigrations :: !(Map ResourceId MigrationProof)
   , reviewAbsences :: !(Map ResourceId AbsenceProof)
   , reviewRebinds :: !(Map ResourceId RebindProof)
+  , reviewRebuilds :: !(Map ResourceId RebuildProof)
+  -- ^ EP-183 M4: the recovery lineage of each member this review recreates.
   }
   deriving stock (Eq, Show, Generic)
 
@@ -466,6 +473,9 @@ instance ToJSON ReviewDocument where
           <> [ "rebinds" .= [object ["resource" .= resource, "proof" .= proof] | (resource, proof) <- Map.toAscList (reviewRebinds document)]
              | not (Map.null (reviewRebinds document))
              ]
+          <> [ "rebuilds" .= [object ["resource" .= resource, "proof" .= proof] | (resource, proof) <- Map.toAscList (reviewRebuilds document)]
+             | not (Map.null (reviewRebuilds document))
+             ]
       )
     where
       retentionEntries entries =
@@ -479,7 +489,7 @@ instance ToJSON ReviewDocument where
 
 instance FromJSON ReviewDocument where
   parseJSON = withObject "ReviewDocument" $ \o -> do
-    let allowed = ["version", "context", "headGeneration", "headSequence", "baseRevisions", "desiredRevisions", "candidateDigest", "payloadIdentity", "policyVersion", "operations", "barriers", "retentions", "collections", "migrations", "absences", "rebinds"]
+    let allowed = ["version", "context", "headGeneration", "headSequence", "baseRevisions", "desiredRevisions", "candidateDigest", "payloadIdentity", "policyVersion", "operations", "barriers", "retentions", "collections", "migrations", "absences", "rebinds", "rebuilds"]
     unless (all (`elem` allowed) (KM.keys o)) (fail "review document has an unknown field")
     version <- o .: "version"
     unless (version == (1 :: Int)) (fail "unsupported review schema version")
@@ -488,6 +498,7 @@ instance FromJSON ReviewDocument where
     migrations <- parseMigrations =<< o .:? "migrations" .!= []
     absences <- parseAbsences =<< o .:? "absences" .!= []
     rebinds <- parseRebinds =<< o .:? "rebinds" .!= []
+    rebuilds <- parseRebinds =<< o .:? "rebuilds" .!= []
     ReviewDocument version
       <$> o .: "context"
       <*> o .: "headGeneration"
@@ -504,14 +515,16 @@ instance FromJSON ReviewDocument where
       <*> pure migrations
       <*> pure absences
       <*> pure rebinds
+      <*> pure rebuilds
     where
       parseRetentions values = do
         entries <- traverse (withObject "retention entry" (\v -> (,) <$> v .: "resource" <*> v .: "proof")) values
         unless (length entries == Map.size (Map.fromList entries)) (fail "duplicate retention proof")
         pure (Map.fromList entries)
+      parseRebinds :: (FromJSON proof) => [Value] -> Parser (Map ResourceId proof)
       parseRebinds values = do
-        entries <- traverse (withObject "rebind entry" (\v -> (,) <$> v .: "resource" <*> v .: "proof")) values
-        unless (length entries == Map.size (Map.fromList entries)) (fail "duplicate rebind proof")
+        entries <- traverse (withObject "identity entry" (\v -> (,) <$> v .: "resource" <*> v .: "proof")) values
+        unless (length entries == Map.size (Map.fromList entries)) (fail "duplicate rebind or rebuild proof")
         pure (Map.fromList entries)
       parseAbsences values = do
         entries <- traverse (withObject "absence entry" (\v -> (,) <$> v .: "resource" <*> v .: "proof")) values

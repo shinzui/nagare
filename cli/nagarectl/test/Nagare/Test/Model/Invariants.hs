@@ -31,6 +31,7 @@ import Nagare.Resource.Inventory
 import Nagare.Resource.Reference (Dependency (..))
 import Nagare.Resource.Types
 import Nagare.Test.Model.Fixtures
+import Nagare.Test.Model.Rebuild (rebuildLineageHolds)
 import Nagare.Test.Model.Run
 import Nagare.Test.Model.Scenarios
 import Nagare.Test.World.Adversary
@@ -88,21 +89,36 @@ correctionConverges scenario finalStart run = case finalScope of
             , bundle <- scopeBundles declared
             , Managed member <- declarations bundle
             ]
-        started = Set.fromList (concat [Map.findWithDefault [] operation (world ^. #reviewedOperations) | event <- events, eventState event == IntentRecorded, Just operation <- [eventOperation event]])
+        -- EP-183 M4: after the cluster is lost, what started before the loss
+        -- went with it; only the final step's transaction starts members.
+        startedIn = case reverse events of
+          lastEvent : _ | LoseCluster `elem` steps scenario -> filter ((== eventTransaction lastEvent) . eventTransaction) events
+          _ -> events
+        started = Set.fromList (concat [Map.findWithDefault [] operation (world ^. #reviewedOperations) | event <- startedIn, eventState event == IntentRecorded, Just operation <- [eventOperation event]])
         neverStarted = Set.fromList [resource | resource <- unproven, Map.notMember resource (objects world), Set.notMember resource started]
-    if any excuses (acted adversary) || faultedTemplateRecurs (acted adversary) (world ^. #server . #outcomes) (Map.restrictKeys finalMembers (Set.fromList unproven)) orderedAfter neverStarted
+        -- EP-183 M4: a rebuild re-applies the accepted templates in one
+        -- transaction, which stops at the first that never becomes Ready; the
+        -- members it never started are held back by that stop, not only by
+        -- their OrderedAfter edges.
+        heldBack
+          | LoseCluster `elem` steps scenario = Map.unionWith (<>) orderedAfter (Map.fromSet (const unproven) neverStarted)
+          | otherwise = orderedAfter
+    if any excuses (acted adversary) || faultedTemplateRecurs (acted adversary) (world ^. #server . #outcomes) (Map.restrictKeys finalMembers (Set.fromList unproven)) heldBack neverStarted
       then pure (Right ())
-      else pure $ case (accepted, unproven) of
-        (Nothing, _) -> Left ("I9: the final step's scope " <> T.pack (show scope) <> " has no accepted revision")
-        _ | accepted /= converged -> Left ("I9: the final step's scope " <> T.pack (show scope) <> " ended accepted but not converged")
-        (_, resource : _) -> Left ("I9: the final step's scope converged while " <> resourceIdText resource <> " is not its reviewed Ready object")
-        _ -> Right ()
+      else case (accepted, unproven) of
+        (Nothing, _) -> pure (Left ("I9: the final step's scope " <> T.pack (show scope) <> " has no accepted revision"))
+        _ | accepted /= converged -> pure (Left ("I9: the final step's scope " <> T.pack (show scope) <> " ended accepted but not converged"))
+        (_, resource : _) -> pure (Left ("I9: the final step's scope converged while " <> resourceIdText resource <> " is not its reviewed Ready object"))
+        -- EP-183 M4: a converged rebuild records each new incarnation.
+        _ | take 1 (reverse (steps scenario)) == [RebuildDatabase] -> rebuildLineageHolds run
+        _ -> pure (Right ())
   where
     finalScope = case reverse (steps scenario) of
       Deploy image : _ | image `notElem` unready scenario -> Just appScope
       CreateDatabase : _ -> Just databaseScopeId
       UpdateDatabase : _ -> Just databaseScopeId
       RestartDatabase : _ -> Just databaseScopeId
+      RebuildDatabase : _ -> Just databaseScopeId
       _ -> Nothing
     -- (a) a fault placed during the final step: the step's first call has
     -- ordinal one more than the count at its start; (b) faults whose effect
