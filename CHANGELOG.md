@@ -5,6 +5,16 @@ immutable `v<major>.<minor>.<patch>` Git tags.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-10
+
+- **Protected HTTPS login for every deploy.** The access enforcer re-reads its route map, so a
+  route protected after the bootstrap is served without a restart; `nagare-harness route-check`
+  checks a protected route over verified HTTPS.
+- **Scheduled volume backups.** Backup-included application volumes are backed up on the database
+  schedule with signed receipts, graded freshness, ingestion and scratch restore.
+- **Retention and prune.** Scheduled database and volume backups are kept for 48 hours, then daily
+  for 30 days, always keeping the newest; reviewed prunes with one recovery for a stopped prune.
+- **Rebuild of a lost durable member** from its verified recovery point, with recorded lineage.
 - **Unambiguous certificate-policy inventory.** `nagarectl cluster certificate-policy` now queries
   `certificates.cert-manager.io` explicitly, so clusters that also install Knative's distinct
   `Certificate` resource do not produce a false issuer-policy failure during bootstrap or upgrade.
