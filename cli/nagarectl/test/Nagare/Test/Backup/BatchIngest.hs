@@ -69,11 +69,10 @@ request :: ScopeRevision -> Text -> ScheduledIngestRequest
 request revision run =
   let (stateful, pvc, cron, signing) = uids
    in ScheduledIngestRequest
-        { ingestDatabase = "pg"
+        { ingestSourceKind = IngestDatabase "pg" (stateful)
         , ingestNamespace = "personal"
         , ingestBackupId = run
         , ingestSourceRevision = revision
-        , ingestStatefulUid = stateful
         , ingestPvcUid = pvc
         , ingestScheduleUid = cron
         , ingestSigningUid = signing

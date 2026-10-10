@@ -624,6 +624,8 @@ data StorageCommand
     StoragePrune StoreCommonOpts String String (Maybe String) FilePath
   | -- | APP, VOLUME, --namespace, --restore-id, --bucket, --offline-object-store, --offline-credentials, --save-plan (EP-183 M4)
     StorageRestoreRebuilt String String (Maybe String) String (Maybe String) (Maybe String) (Maybe FilePath) FilePath
+  | -- | APP, VOLUME, --namespace, --bucket, --backup-id, --all, --save-plan (EP-183 M3)
+    StorageBackupReceipts String String (Maybe String) (Maybe String) (Maybe String) Bool (Maybe FilePath)
   deriving stock (Generic, Show)
 
 -- | The @db@ subcommands (MasterPlan 9, EP-45, Integration Point IP4). One

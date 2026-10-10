@@ -379,6 +379,23 @@ storageSubparser =
               (progDesc "Review restoring a rebuilt volume from the snapshot its rebuild named (EP-183)")
           )
         <> command
+          "backup-receipts"
+          ( info
+              ( Storage
+                  <$> ( StorageBackupReceipts
+                          <$> strArgument (metavar "APP" <> help "Application that declares the volume")
+                          <*> strArgument (metavar "VOLUME" <> help "Backup-included volume name")
+                          <*> namespaceOpt
+                          <*> optional (strOption (long "bucket" <> metavar "BUCKET" <> help "GCS backup bucket (overrides the target profile)"))
+                          <*> optional (strOption (long "backup-id" <> metavar "ID" <> help "Ingest one scheduled run by its producer Job UID"))
+                          <*> switch (long "all" <> help "Ingest every verified, not-yet-ingested run in one review")
+                          <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save the reviewed ingestion"))
+                      )
+                    <**> helper
+              )
+              (progDesc "List a volume's scheduled backups, or review ingesting verified runs (EP-183)")
+          )
+        <> command
           "prune-snapshot"
           ( info
               ( Storage

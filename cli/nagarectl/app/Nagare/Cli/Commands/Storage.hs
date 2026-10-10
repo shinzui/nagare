@@ -13,6 +13,7 @@ import Data.Text.IO qualified as TIO
 import Data.Time (UTCTime, getCurrentTime)
 import Data.Time.Format (defaultTimeLocale, parseTimeM)
 import Nagare.Cli.Application.Config (resolveStorageDep)
+import Nagare.Cli.Data.ScheduledReceipts (IngestSelection (..), runListVolumeReceipts, runReviewedVolumeReceiptPlan)
 import Nagare.Cli.Data.VolumeRebuildRestore (runVolumeRebuildRestorePlan)
 import Nagare.Cli.Inventory.Adapters (inventoryKubernetesAdapter)
 import Nagare.Cli.Inventory.Planning
@@ -169,6 +170,15 @@ runStorage mctx = \case
               backend
               directory
           _ -> dieT "live storage restore requires --restore-id ID and --save-plan DIR"
+  StorageBackupReceipts app volume namespaceName bucket backupId allVerified savePlan -> do
+    let ns = maybe "personal" T.pack namespaceName
+    case (backupId, allVerified, savePlan) of
+      (Just selected, False, Just output) ->
+        runReviewedVolumeReceiptPlan mctx (T.pack app) (T.pack volume) ns bucket (IngestRun (T.pack selected)) output
+      (Nothing, True, Just output) ->
+        runReviewedVolumeReceiptPlan mctx (T.pack app) (T.pack volume) ns bucket IngestAllVerified output
+      (Nothing, False, Nothing) -> runListVolumeReceipts mctx (T.pack app) (T.pack volume) ns bucket
+      _ -> dieT "storage backup-receipts takes --backup-id ID or --all, with --save-plan DIR, or neither to list"
   StorageRestoreRebuilt app volume namespaceName restoreKey bucket store credentials output -> do
     offline <- offlineStore store credentials
     runVolumeRebuildRestorePlan mctx (T.pack app) (T.pack volume) (maybe "personal" T.pack namespaceName) (T.pack restoreKey) bucket offline output

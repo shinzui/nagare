@@ -524,7 +524,7 @@ loadReviewedScheduledIngestSourceNative store document proofs = do
             ]
             == 1
     unless
-      ( one (scheduledSourceStatefulId proof) "apps" "statefulset"
+      ( maybe True (\stateful -> one stateful "apps" "statefulset") (scheduledSourceStatefulId proof)
           && one (scheduledSourcePvcId proof) "" "persistentvolumeclaim"
           && one (scheduledSourceScheduleId proof) "batch" "cronjob"
           && one (scheduledSourceSigningId proof) "" "secret"
@@ -552,11 +552,11 @@ loadReviewedScheduledIngestSourceNative store document proofs = do
   let wanted =
         Set.fromList
           ( concat
-              [ [ scheduledSourceStatefulId proof
-                , scheduledSourcePvcId proof
-                , scheduledSourceScheduleId proof
-                , scheduledSourceSigningId proof
-                ]
+              [ maybe [] pure (scheduledSourceStatefulId proof)
+                  <> [ scheduledSourcePvcId proof
+                     , scheduledSourceScheduleId proof
+                     , scheduledSourceSigningId proof
+                     ]
               | proof <- proofs
               ]
           )

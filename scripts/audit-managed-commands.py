@@ -64,7 +64,7 @@ ROUTES = {
     "SecretCommand": {"read": "SecretList", "reviewed": "SecretSet SecretDelete SecretSync"},
     "StorageCommand": {
         "read": "StorageList StorageInspect",
-        "reviewed": "StorageSnapshot StorageRestore StoragePrune StorageRestoreRebuilt",
+        "reviewed": "StorageSnapshot StorageRestore StoragePrune StorageRestoreRebuilt StorageBackupReceipts",
     },
     "DbCommand": {
         "read": "DbList DbGet DbVerifyEscrowedBackup",

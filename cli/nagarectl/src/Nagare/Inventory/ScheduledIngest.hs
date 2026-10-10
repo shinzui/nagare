@@ -4,6 +4,8 @@
 -- scope is the durable reference that later restore and pruning can consume.
 module Nagare.Inventory.ScheduledIngest
   ( ScheduledIngestRequest (..)
+  , ScheduledIngestSource (..)
+  , scheduledIngestScheduleName
   , ScheduledIngestSourceProof (..)
   , scheduledIngestSourceProof
   , scheduledIngestEvidenceMatches
@@ -12,6 +14,7 @@ module Nagare.Inventory.ScheduledIngest
   , compileScheduledIngestBatch
   , scheduledIngestJobSourcePins
   , ingestScriptFor
+  , volumeIngestScriptFor
   )
 where
 
@@ -19,7 +22,7 @@ import Data.Aeson (Value (..), eitherDecodeStrict, object, toJSON, (.=))
 import Data.Aeson.Key qualified as K
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
-import Data.Foldable (toList)
+import Data.Foldable (forM_, toList)
 import Data.Generics.Labels ()
 import Data.List (sort)
 import Data.List.NonEmpty (NonEmpty (..))
@@ -32,7 +35,7 @@ import Data.Time.Format (defaultTimeLocale, formatTime)
 import Nagare.Cluster.GcsJob (MinioRef (..), StoreBackend (..), storeEnv, storeHostAliases, storeImage, storeObjectUrl)
 import Nagare.Dsl.Database.Render (dbPvcName)
 import Nagare.Dsl.Prelude hiding ((.=))
-import Nagare.Inventory.Backup (ScheduledBackupReceipt (..), ScheduledReceiptExpectation (..), scheduledReceiptExpectationFromCronJob)
+import Nagare.Inventory.Backup (ScheduledBackupReceipt (..), ScheduledReceiptExpectation (..), scheduledReceiptExpectationFromCronJob, scheduledVolumeReceiptExpectationFromCronJob)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Identity (checkedPhysical, requireAccepted)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
@@ -50,12 +53,27 @@ import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
 
+-- | What one scheduled run backs up. A database pins its StatefulSet as well
+-- as its claim; a volume (EP-183 M3) is named by its schedule, and its only
+-- source is the claim the accepted CronJob is ordered after. Verification,
+-- acceptance and restore authority are otherwise identical.
+data ScheduledIngestSource
+  = -- | database name, observed StatefulSet incarnation
+    IngestDatabase !Text !PhysicalIdentity
+  | -- | the volume schedule's CronJob name
+    IngestVolume !Text
+  deriving stock (Eq, Show)
+
+scheduledIngestScheduleName :: ScheduledIngestSource -> Text
+scheduledIngestScheduleName = \case
+  IngestDatabase database _ -> "nagare-dbbackup-" <> database
+  IngestVolume schedule -> schedule
+
 data ScheduledIngestRequest = ScheduledIngestRequest
-  { ingestDatabase :: !Text
+  { ingestSourceKind :: !ScheduledIngestSource
   , ingestNamespace :: !Text
   , ingestBackupId :: !Text
   , ingestSourceRevision :: !ScopeRevision
-  , ingestStatefulUid :: !PhysicalIdentity
   , ingestPvcUid :: !PhysicalIdentity
   , ingestScheduleUid :: !PhysicalIdentity
   , ingestSigningUid :: !PhysicalIdentity
@@ -71,7 +89,8 @@ data ScheduledIngestSourceProof = ScheduledIngestSourceProof
   { scheduledSourceScopeName :: !Text
   , scheduledSourceGeneration :: !Integer
   , scheduledSourceDigest :: !ContentDigest
-  , scheduledSourceStatefulId :: !ResourceId
+  , scheduledSourceStatefulId :: !(Maybe ResourceId)
+  -- ^ 'Nothing' for a volume's run, which has no StatefulSet (EP-183 M3)
   , scheduledSourcePvcId :: !ResourceId
   , scheduledSourceScheduleId :: !ResourceId
   , scheduledSourceSigningId :: !ResourceId
@@ -92,7 +111,13 @@ scheduledIngestSourceProof scope
           <$> required "scheduled.backup.source.scope"
           <*> pure generation
           <*> (required "scheduled.backup.source.revision" >>= mkContentDigest)
-          <*> (required "scheduled.backup.source.statefulset" >>= mkResourceId)
+          <*> ( if Map.lookup "scheduled.backup.source.kind" values == Just "volume"
+                  then
+                    if Map.member "scheduled.backup.source.statefulset" values
+                      then Left "scheduled volume ingestion names a StatefulSet"
+                      else Right Nothing
+                  else Just <$> (required "scheduled.backup.source.statefulset" >>= mkResourceId)
+              )
           <*> (required "scheduled.backup.source.pvc" >>= mkResourceId)
           <*> (required "scheduled.backup.schedule" >>= mkResourceId)
           <*> (required "scheduled.backup.signing" >>= mkResourceId)
@@ -162,10 +187,10 @@ compileScheduledIngestBatch requests@(first' :| _) accepted native = do
           .~ [ingestSource first']
           & (:| [])
       source request =
-        ( ingestDatabase request
+        ( ingestSourceKind request
         , ingestNamespace request
         , ingestSourceRevision request
-        , [ingestStatefulUid request, ingestPvcUid request, ingestScheduleUid request, ingestSigningUid request]
+        , [ingestPvcUid request, ingestScheduleUid request, ingestSigningUid request]
         , ingestBackend request
         , ingestAcceptedIncarnations request
         )
@@ -193,9 +218,8 @@ compileScheduledIngestScope request accepted native = do
           & #sources
           .~ [ingestSource request]
           & (:| [])
-      database = ingestDatabase request
       namespaceName = ingestNamespace request
-      scheduleName = "nagare-dbbackup-" <> database
+      scheduleName = scheduledIngestScheduleName (ingestSourceKind request)
       select kind name =
         [ member
         | bundle <- scopeBundles accepted
@@ -210,36 +234,60 @@ compileScheduledIngestScope request accepted native = do
         ]
       unique kind name = case select kind name of
         [member] -> Right member
-        _ -> Left (invalid ("accepted database lacks one " <> kind <> " " <> name))
+        _ -> Left (invalid ("accepted source lacks one " <> kind <> " " <> name))
       acceptedBytes member = case Map.lookup (member ^. #identity) native of
         Just (bound, bytes) | bound == member -> Right bytes
         _ -> Left (invalid "scheduled ingestion lacks matching accepted native bytes")
-  stateful <- unique "StatefulSet" database
-  pvc <- unique "PersistentVolumeClaim" (dbPvcName database)
   cron <- unique "CronJob" scheduleName
   signing <- unique "Secret" (scheduleName <> "-signing")
+  -- A database's sources are its StatefulSet and claim by name; a volume's only
+  -- source is the one claim the accepted CronJob is ordered after (EP-183 M3).
+  (statefulSource, pvc) <- case ingestSourceKind request of
+    IngestDatabase database statefulUid -> do
+      stateful <- unique "StatefulSet" database
+      claim <- unique "PersistentVolumeClaim" (dbPvcName database)
+      pure (Just (stateful, statefulUid), claim)
+    IngestVolume _ -> case [ member
+                           | bundle <- scopeBundles accepted
+                           , Managed member <- declarations bundle
+                           , OrderedAfter (member ^. #identity) `elem` (cron ^. #dependencies)
+                           , Kubernetes _ "" nativeKind (Just nativeNamespace) _ <- [member ^. #address]
+                           , nameText nativeKind == "persistentvolumeclaim"
+                           , nameText nativeNamespace == namespaceName
+                           ] of
+      [claim] -> pure (Nothing, claim)
+      _ -> Left (invalid "accepted volume schedule is not ordered after exactly one claim")
   -- A receipt from an object that replaced the accepted incarnation outside
   -- Nagare must not become a recovery point (F49).
   -- ADR 27: an unrecorded source is refused too, never read as a match.
   let acceptedSource what member uid = first (\reason -> invalid ("scheduled receipt source is not the accepted database incarnation: " <> reason)) (requireAccepted what (checkedPhysical (ingestAcceptedIncarnations request) (member ^. #identity) uid))
-  _ <- acceptedSource "the StatefulSet" stateful (ingestStatefulUid request)
+  forM_ statefulSource $ \(stateful, statefulUid) -> acceptedSource "the StatefulSet" stateful statefulUid
   _ <- acceptedSource "the PersistentVolumeClaim" pvc (ingestPvcUid request)
   -- N5: the HMAC key that authenticates the receipt is the accepted Secret's.
   _ <- acceptedSource "the signing Secret" signing (ingestSigningUid request)
   cronBytes <- acceptedBytes cron
-  _ <- acceptedBytes stateful
+  forM_ statefulSource (acceptedBytes . fst)
   _ <- acceptedBytes pvc
   _ <- acceptedBytes signing
   expectation <-
     first
       invalid
-      ( scheduledReceiptExpectationFromCronJob
-          (ingestBackend request)
-          namespaceName
-          database
-          (ingestStatefulUid request)
-          (ingestPvcUid request)
-          cronBytes
+      ( case ingestSourceKind request of
+          IngestDatabase database statefulUid ->
+            scheduledReceiptExpectationFromCronJob
+              (ingestBackend request)
+              namespaceName
+              database
+              statefulUid
+              (ingestPvcUid request)
+              cronBytes
+          IngestVolume schedule ->
+            scheduledVolumeReceiptExpectationFromCronJob
+              (ingestBackend request)
+              namespaceName
+              schedule
+              (ingestPvcUid request)
+              cronBytes
       )
   let evidence = ingestEvidence request
       receipt = scheduledReceipt evidence
@@ -263,9 +311,10 @@ compileScheduledIngestScope request accepted native = do
         && scheduledReceiptLength evidence > 0
     )
     (Left (invalid "scheduled receipt lacks exact provider versions and lengths"))
-  cluster <- case stateful ^. #address of
+  let anchor = maybe cron fst statefulSource
+  cluster <- case anchor ^. #address of
     Kubernetes clusterId _ _ _ _ -> Right clusterId
-    _ -> Left (invalid "accepted database StatefulSet has no Kubernetes address")
+    _ -> Left (invalid "accepted scheduled source has no Kubernetes address")
   unless
     (all (sameCluster cluster) [pvc, cron, signing])
     (Left (invalid "scheduled receipt sources use different clusters"))
@@ -274,10 +323,10 @@ compileScheduledIngestScope request accepted native = do
       invalid
       ( mkScopeId
           Standalone
-          ( "database-scheduled-receipt-"
-              <> namespaceName
-              <> "-"
-              <> database
+          ( ( case ingestSourceKind request of
+                IngestDatabase database _ -> "database-scheduled-receipt-" <> namespaceName <> "-" <> database
+                IngestVolume schedule -> "volume-scheduled-receipt-" <> namespaceName <> "-" <> schedule
+            )
               <> "-"
               <> ingestBackupId request
           )
@@ -301,7 +350,7 @@ compileScheduledIngestScope request accepted native = do
           jobName
           objectAddress
           receiptAddress
-          (stateful ^. #identity, ingestStatefulUid request)
+          (fmap (\(stateful, statefulUid) -> (stateful ^. #identity, statefulUid)) statefulSource)
           (pvc ^. #identity, ingestPvcUid request)
           (cron ^. #identity, ingestScheduleUid request)
           (signing ^. #identity, ingestSigningUid request)
@@ -336,7 +385,7 @@ compileScheduledIngestScope request accepted native = do
   unless
     (bound ^. #address == expectedAddress)
     (Left (invalid "scheduled ingestion Job has another native address"))
-  let sources = [stateful, pvc, cron, signing]
+  let sources = maybe [] (pure . fst) statefulSource <> [pvc, cron, signing]
       member = bound {dependencies = sort (map (OrderedAfter . (^. #identity)) sources)}
       proof =
         DeclaredOperation
@@ -350,7 +399,7 @@ compileScheduledIngestScope request accepted native = do
           VerifyBeforeRetry
           SnapshotData
       overrides =
-        Map.fromList
+        Map.fromList $
           [ ("scheduled.backup.id", ingestBackupId request)
           , ("scheduled.backup.object", objectAddress)
           , ("scheduled.backup.object.version", scheduledObjectVersion evidence)
@@ -380,11 +429,15 @@ compileScheduledIngestScope request accepted native = do
             , digestText
                 (revisionDigest (ingestSourceRevision request))
             )
-          , ("scheduled.backup.source.statefulset", resourceIdText (stateful ^. #identity))
-          , ("scheduled.backup.source.statefulset.uid", physicalIdentityText (ingestStatefulUid request))
           , ("scheduled.backup.source.pvc", resourceIdText (pvc ^. #identity))
           , ("scheduled.backup.source.pvc.uid", physicalIdentityText (ingestPvcUid request))
           ]
+            <> case statefulSource of
+              Just (stateful, statefulUid) ->
+                [ ("scheduled.backup.source.statefulset", resourceIdText (stateful ^. #identity))
+                , ("scheduled.backup.source.statefulset.uid", physicalIdentityText statefulUid)
+                ]
+              Nothing -> [("scheduled.backup.source.kind", "volume")]
   base <- mkScopeDeclaration owner [ResourceBundle [Managed member] [] [] [] [proof] []]
   let recoveryOverrides =
         maybe
@@ -405,7 +458,7 @@ renderIngestJob ::
   Text ->
   Text ->
   Text ->
-  (ResourceId, PhysicalIdentity) ->
+  Maybe (ResourceId, PhysicalIdentity) ->
   (ResourceId, PhysicalIdentity) ->
   (ResourceId, PhysicalIdentity) ->
   (ResourceId, PhysicalIdentity) ->
@@ -452,7 +505,7 @@ renderIngestJob
                 .= object
                   [ "secretKeyRef"
                       .= object
-                        [ "name" .= ("nagare-dbbackup-" <> ingestDatabase request <> "-signing")
+                        [ "name" .= (scheduledIngestScheduleName (ingestSourceKind request) <> "-signing")
                         , "key" .= ("HMAC_KEY" :: Text)
                         ]
                   ]
@@ -473,47 +526,55 @@ renderIngestJob
                , plain "RECEIPT_LENGTH" (T.pack (show (scheduledReceiptLength evidence)))
                , plain "OBJECT_ADDRESS" objectAddress
                , plain "BACKUP_RUN_ID" (ingestBackupId request)
-               , plain "STATEFUL_UID" (physicalIdentityText (ingestStatefulUid request))
-               , plain "PVC_UID" (physicalIdentityText (ingestPvcUid request))
+               ]
+            <> [plain "STATEFUL_UID" (physicalIdentityText uid) | Just (_, uid) <- [statefulPin]]
+            <> [ plain "PVC_UID" (physicalIdentityText (ingestPvcUid request))
                , plain "METADATA_SHA256" (digestText (scheduledMetadataDigest expectation))
                , plain "SCHEDULE_REVISION" (digestText (scheduledScheduleRevision receipt))
                , plain "RECOVERY_POINT" (maybe "" (T.pack . formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ") (scheduledRecoveryPoint receipt))
                , signingEnv
                ]
-        annotation =
-          object
-            [ "nagare.dev/scheduled-receipt-id" .= ingestBackupId request
-            , "nagare.dev/scheduled-receipt-source-statefulset"
-                .= resourceIdText
-                  (fst statefulPin)
-            , "nagare.dev/scheduled-receipt-source-statefulset-uid"
-                .= physicalIdentityText
-                  (snd statefulPin)
-            , "nagare.dev/scheduled-receipt-source-pvc"
-                .= resourceIdText
-                  (fst pvcPin)
-            , "nagare.dev/scheduled-receipt-source-pvc-uid"
-                .= physicalIdentityText
-                  (snd pvcPin)
-            , "nagare.dev/scheduled-receipt-schedule"
-                .= resourceIdText
-                  (fst schedulePin)
-            , "nagare.dev/scheduled-receipt-schedule-uid"
-                .= physicalIdentityText
-                  (snd schedulePin)
-            , "nagare.dev/scheduled-receipt-signing"
-                .= resourceIdText
-                  (fst signingPin)
-            , "nagare.dev/scheduled-receipt-signing-uid"
-                .= physicalIdentityText
-                  (snd signingPin)
+        -- A database's Job pins its StatefulSet; a volume's Job says it has
+        -- none, so the executor requires exactly three pins (EP-183 M3).
+        statefulAnnotations = case statefulPin of
+          Just (resource, uid) ->
+            [ "nagare.dev/scheduled-receipt-source-statefulset" .= resourceIdText resource
+            , "nagare.dev/scheduled-receipt-source-statefulset-uid" .= physicalIdentityText uid
             ]
+          Nothing -> ["nagare.dev/scheduled-receipt-source-kind" .= ("volume" :: Text)]
+        annotation =
+          object $
+            [ "nagare.dev/scheduled-receipt-id" .= ingestBackupId request
+            ]
+              <> statefulAnnotations
+              <> [ "nagare.dev/scheduled-receipt-source-pvc"
+                     .= resourceIdText
+                       (fst pvcPin)
+                 , "nagare.dev/scheduled-receipt-source-pvc-uid"
+                     .= physicalIdentityText
+                       (snd pvcPin)
+                 , "nagare.dev/scheduled-receipt-schedule"
+                     .= resourceIdText
+                       (fst schedulePin)
+                 , "nagare.dev/scheduled-receipt-schedule-uid"
+                     .= physicalIdentityText
+                       (snd schedulePin)
+                 , "nagare.dev/scheduled-receipt-signing"
+                     .= resourceIdText
+                       (fst signingPin)
+                 , "nagare.dev/scheduled-receipt-signing-uid"
+                     .= physicalIdentityText
+                       (snd signingPin)
+                 ]
         container =
           object
             [ "name" .= ("verify" :: Text)
             , "image" .= storeImage (ingestBackend request)
             , "command" .= toJSON (["/bin/sh", "-c"] :: [Text])
-            , "args" .= toJSON [ingestScriptFor backend]
+            , "args"
+                .= toJSON
+                  [ maybe volumeIngestScriptFor (const ingestScriptFor) statefulPin backend
+                  ]
             , "env" .= toJSON env
             , "volumeMounts"
                 .= toJSON
@@ -553,7 +614,15 @@ renderIngestJob
       )
 
 ingestScriptFor :: StoreBackend -> Text
-ingestScriptFor backend = T.intercalate "\n" (["set -eu"] <> downloads <> verification)
+ingestScriptFor = ingestScriptWith "assert payload[\"source\"]=={\"statefulSetUid\":e[\"STATEFUL_UID\"],\"pvcUid\":e[\"PVC_UID\"]}"
+
+-- | A volume run's receipt names exactly its claim (EP-183 M3); every other
+-- check is the database script's.
+volumeIngestScriptFor :: StoreBackend -> Text
+volumeIngestScriptFor = ingestScriptWith "assert payload[\"source\"]=={\"pvcUid\":e[\"PVC_UID\"]}"
+
+ingestScriptWith :: Text -> StoreBackend -> Text
+ingestScriptWith sourceCheck backend = T.intercalate "\n" (["set -eu"] <> downloads <> verification)
   where
     downloads = case backend of
       MinioBackend {} -> minioDownloads
@@ -597,15 +666,16 @@ ingestScriptFor backend = T.intercalate "\n" (["set -eu"] <> downloads <> verifi
       , "assert hmac.compare_digest(signature,envelope[\"hmacSha256\"])"
       , "assert payload[\"jobUid\"]==e[\"BACKUP_RUN_ID\"] and payload[\"object\"]==e[\"OBJECT_ADDRESS\"]"
       , "assert payload[\"sha256\"]==e[\"OBJECT_SHA256\"]"
-      , "assert payload[\"source\"]=={\"statefulSetUid\":e[\"STATEFUL_UID\"],\"pvcUid\":e[\"PVC_UID\"]}"
+      , sourceCheck
       , "metadata=json.dumps(payload[\"backup\"],sort_keys=True,separators=(\",\",\":\"),ensure_ascii=False).encode(\"utf-8\")"
       , "assert hashlib.sha256(metadata).hexdigest()==e[\"METADATA_SHA256\"]"
       , "assert payload[\"backup\"][\"scheduleRevision\"]==e[\"SCHEDULE_REVISION\"]"
       , "json.dump({\"objectVersion\":e[\"OBJECT_VERSION\"],\"receiptVersion\":e[\"RECEIPT_VERSION\"],\"sha256\":e[\"OBJECT_SHA256\"]},open(\"/dev/termination-log\",\"w\"),sort_keys=True)'"
       ]
 
--- | The executor must observe these four exact source incarnations before
--- submitting or resuming a reviewed ingestion Job.
+-- | The executor must observe these exact source incarnations before
+-- submitting or resuming a reviewed ingestion Job: four for a database, and
+-- three for a volume's run, whose Job declares it has no StatefulSet.
 scheduledIngestJobSourcePins ::
   ByteString -> Either Text (Maybe [(ResourceId, PhysicalIdentity)])
 scheduledIngestJobSourcePins bytes = do
@@ -624,5 +694,12 @@ scheduledIngestJobSourcePins bytes = do
                   Just (String field) -> mkPhysicalIdentity field
                   _ -> Left ("scheduled ingestion lacks " <> label <> " UID pin")
                 pure (resource, uid)
-          Just <$> traverse pin ["source-statefulset", "source-pvc", "schedule", "signing"]
+          labels <- case KM.lookup "nagare.dev/scheduled-receipt-source-kind" annotations of
+            Nothing -> Right ["source-statefulset", "source-pvc", "schedule", "signing"]
+            Just (String "volume")
+              | not (KM.member "nagare.dev/scheduled-receipt-source-statefulset" annotations)
+              , not (KM.member "nagare.dev/scheduled-receipt-source-statefulset-uid" annotations) ->
+                  Right ["source-pvc", "schedule", "signing"]
+            _ -> Left "scheduled ingestion has an invalid source kind"
+          Just <$> traverse pin labels
     _ -> Right Nothing

@@ -28,7 +28,7 @@ import Nagare.Inventory.Journal (operationIdText)
 import Nagare.Inventory.Lifecycle (AdoptionInput (..), AdoptionTarget (..), decideAdoption)
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Restore (restoreTargetPins)
-import Nagare.Inventory.ScheduledIngest (ScheduledIngestRequest (..), compileScheduledIngestScope)
+import Nagare.Inventory.ScheduledIngest (ScheduledIngestRequest (..), ScheduledIngestSource (..), compileScheduledIngestScope)
 import Nagare.Inventory.ScheduledReceipt (ScheduledReceiptEvidence (..))
 import Nagare.Inventory.Status qualified as Status
 import Nagare.Inventory.Store
@@ -326,11 +326,10 @@ databaseMember role = mintResourceId databaseOwner (expectOk (mkLogicalKey role)
 ingestRequest :: Map ResourceId PhysicalIdentity -> ScheduledIngestRequest
 ingestRequest recorded =
   ScheduledIngestRequest
-    { ingestDatabase = "pg"
+    { ingestSourceKind = IngestDatabase "pg" (uid "uid-live-sts")
     , ingestNamespace = "personal"
     , ingestBackupId = "job-1"
     , ingestSourceRevision = ScopeRevision (expectOk (mkScopeGeneration 1)) (contentDigest "source")
-    , ingestStatefulUid = uid "uid-live-sts"
     , ingestPvcUid = uid "uid-live-pvc"
     , ingestScheduleUid = uid "uid-cron"
     , ingestSigningUid = uid "uid-signing"

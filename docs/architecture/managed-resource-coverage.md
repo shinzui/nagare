@@ -16,7 +16,7 @@ authority.
 | `InfraCommand` | 4 | none |
 | `EnvCommand` | 4 | none |
 | `SecretCommand` | 4 | none |
-| `StorageCommand` | 6 | none |
+| `StorageCommand` | 7 | none |
 | `DbCommand` | 19 | none |
 | `BrokerCommand` | 6 | none |
 | `TaskCommand` | 4 | none |

@@ -5,6 +5,8 @@ module Nagare.Cli.Data.ScheduledReceipts
   , runListScheduledReceipts
   , IngestSelection (..)
   , runReviewedScheduledReceiptPlan
+  , runReviewedVolumeReceiptPlan
+  , runListVolumeReceipts
   , scheduledReceiptReport
   , scheduledRecoveryPointProbes
   , ScheduledSource (..)
@@ -38,6 +40,7 @@ import Nagare.Cluster.GcsJob
   ( StoreBackend
   , storeObjectUrl
   )
+import Nagare.Database.Backup (volumeBackupScheduleName)
 import Nagare.Dsl.Database.Render (dbPvcName)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter qualified as InventoryAdapter
@@ -73,16 +76,16 @@ import Nagare.Inventory.ScheduledIngest
       , ingestAcceptedIncarnations
       , ingestBackend
       , ingestBackupId
-      , ingestDatabase
       , ingestEvidence
       , ingestNamespace
       , ingestPvcUid
       , ingestScheduleUid
       , ingestSigningUid
       , ingestSource
+      , ingestSourceKind
       , ingestSourceRevision
-      , ingestStatefulUid
       )
+  , ScheduledIngestSource (IngestDatabase, IngestVolume)
   , compileScheduledIngestBatch
   , pendingScheduledRuns
   , scheduledIngestEvidenceMatches
@@ -602,9 +605,40 @@ data IngestSelection
     IngestAllVerified
   deriving stock (Eq, Show)
 
+-- | Whose scheduled runs one ingestion review names: a database, or an
+-- application volume's schedule (EP-183 M3). Both compile through the same
+-- ingestion; a volume's only source is the claim its CronJob is ordered after.
+data ReceiptSourceSelection
+  = ReceiptDatabase !Text
+  | -- | application, volume
+    ReceiptVolume !Text !Text
+  deriving stock (Eq, Show)
+
 runReviewedScheduledReceiptPlan ::
   Maybe String -> Text -> Text -> Maybe String -> IngestSelection -> FilePath -> IO ()
-runReviewedScheduledReceiptPlan mctx database namespaceName bucketArg selection output = do
+runReviewedScheduledReceiptPlan mctx database = runReviewedScheduledSourceReceiptPlan mctx (ReceiptDatabase database)
+
+-- | @storage backup-receipts APP VOLUME@: review the ingestion of a volume
+-- schedule's verified runs (EP-183 M3).
+runReviewedVolumeReceiptPlan ::
+  Maybe String -> Text -> Text -> Text -> Maybe String -> IngestSelection -> FilePath -> IO ()
+runReviewedVolumeReceiptPlan mctx app volume = runReviewedScheduledSourceReceiptPlan mctx (ReceiptVolume app volume)
+
+-- | @storage backup-receipts APP VOLUME@ without a review: list and verify the
+-- volume schedule's runs, exactly as @db backup-receipts@ lists a database's.
+runListVolumeReceipts :: Maybe String -> Text -> Text -> Text -> Maybe String -> IO ()
+runListVolumeReceipts mctx app volume namespaceName bucketArg = do
+  report <-
+    try (resolveVolumeScheduledSource mctx (volumeBackupScheduleName app volume) namespaceName bucketArg >>= scheduledReceiptScanSource FullListing)
+      >>= either (\(ReceiptReportError reason) -> dieT reason) pure
+  if null (report ^. #rows)
+    then TIO.putStrLn "No scheduled volume backup objects or accepted receipts."
+    else mapM_ TIO.putStrLn (report ^. #rows)
+  TIO.putStrLn (renderBackupFreshness (report ^. #freshness))
+
+runReviewedScheduledSourceReceiptPlan ::
+  Maybe String -> ReceiptSourceSelection -> Text -> Maybe String -> IngestSelection -> FilePath -> IO ()
+runReviewedScheduledSourceReceiptPlan mctx sourceSelection namespaceName bucketArg selection output = do
   active <- activeTarget mctx
   (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
   snapshot <- Inventory.loadTargetSnapshot active
@@ -620,30 +654,50 @@ runReviewedScheduledReceiptPlan mctx database namespaceName bucketArg selection 
         , ResourceInventory.Managed member <- ResourceInventory.declarations bundle
         , member ^. #address == address
         ]
-  statefulAddress <- findAddress "apps/v1" "StatefulSet" database
-  let sources =
+      everywhere address =
         [ (scope, member)
         | (_, scope) <-
             Map.elems
               (ResourceInventory.snapshotScopes snapshot)
-        , member <- members scope statefulAddress
+        , member <- members scope address
         ]
-  (sourceScope, stateful) <- case sources of
-    [single] -> pure single
-    _ -> dieT "scheduled receipt requires one accepted database StatefulSet"
-  pvcAddress <- findAddress "v1" "PersistentVolumeClaim" (dbPvcName database)
-  cronAddress <- findAddress "batch/v1" "CronJob" ("nagare-dbbackup-" <> database)
-  signingAddress <-
-    findAddress
-      "v1"
-      "Secret"
-      ("nagare-dbbackup-" <> database <> "-signing")
-  let unique label address = case members sourceScope address of
+      schedule = case sourceSelection of
+        ReceiptDatabase database -> "nagare-dbbackup-" <> database
+        ReceiptVolume app volume -> volumeBackupScheduleName app volume
+  cronAddress <- findAddress "batch/v1" "CronJob" schedule
+  signingAddress <- findAddress "v1" "Secret" (schedule <> "-signing")
+  -- A database's sources are its StatefulSet and claim; a volume's only source
+  -- is the one claim its accepted CronJob is ordered after (EP-183 M3).
+  (sourceScope, stateful, pvc, cron) <- case sourceSelection of
+    ReceiptDatabase database -> do
+      statefulAddress <- findAddress "apps/v1" "StatefulSet" database
+      (scope, member) <- case everywhere statefulAddress of
         [single] -> pure single
-        _ -> dieT ("scheduled receipt requires one accepted " <> label)
-  pvc <- unique "database PVC" pvcAddress
-  cron <- unique "backup CronJob" cronAddress
-  signing <- unique "backup signing Secret" signingAddress
+        _ -> dieT "scheduled receipt requires one accepted database StatefulSet"
+      pvcAddress <- findAddress "v1" "PersistentVolumeClaim" (dbPvcName database)
+      let unique label address = case members scope address of
+            [single] -> pure single
+            _ -> dieT ("scheduled receipt requires one accepted " <> label)
+      claim <- unique "database PVC" pvcAddress
+      schedule' <- unique "backup CronJob" cronAddress
+      pure (scope, Just member, claim, schedule')
+    ReceiptVolume _ _ -> do
+      (scope, schedule') <- case everywhere cronAddress of
+        [single] -> pure single
+        _ -> dieT "scheduled volume receipt requires one accepted backup CronJob"
+      claim <- case [ member
+                    | bundle <- ResourceInventory.scopeBundles scope
+                    , ResourceInventory.Managed member <- ResourceInventory.declarations bundle
+                    , OrderedAfter (member ^. #identity) `elem` (schedule' ^. #dependencies)
+                    , Resource.Kubernetes _ "" kind _ _ <- [member ^. #address]
+                    , Resource.nameText kind == "persistentvolumeclaim"
+                    ] of
+        [single] -> pure single
+        _ -> dieT "scheduled volume backup is not ordered after exactly one accepted claim"
+      pure (scope, Nothing, claim, schedule')
+  signing <- case members sourceScope signingAddress of
+    [single] -> pure single
+    _ -> dieT "scheduled receipt requires one accepted backup signing Secret"
   store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
   history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
   revision <- case Map.lookup
@@ -656,13 +710,13 @@ runReviewedScheduledReceiptPlan mctx database namespaceName bucketArg selection 
       (dieT . T.pack . show)
       pure
       (ResourceInventory.composeSnapshot snapshot)
-  let sourceIds = map (^. #identity) [stateful, pvc, cron, signing]
+  let sourceIds = map (^. #identity) (maybe [] pure stateful <> [pvc, cron, signing])
   (acceptedNative, _) <-
     InventoryStatus.loadAcceptedNativeSelected (Set.fromList sourceIds) store history acceptedInventory
       >>= either dieT pure
   let sourceNative = acceptedNative
   unless
-    (Map.size sourceNative == 4)
+    (Map.size sourceNative == length sourceIds)
     (dieT "scheduled receipt source lacks accepted private native evidence")
   sourceAdapter <-
     inventoryKubernetesAdapter
@@ -674,7 +728,7 @@ runReviewedScheduledReceiptPlan mctx database namespaceName bucketArg selection 
   let physical resource = case Map.lookup resource (InventoryAdapter.observationMap observed) of
         Just (InventoryAdapter.ObservedPresent uid) -> pure uid
         _ -> dieT "scheduled receipt source, schedule, or signing key is absent, drifted, or not ready"
-  statefulUid <- physical (stateful ^. #identity)
+  statefulUid <- traverse (physical . (^. #identity)) stateful
   pvcUid <- physical (pvc ^. #identity)
   cronUid <- physical (cron ^. #identity)
   signingUid <- physical (signing ^. #identity)
@@ -684,24 +738,24 @@ runReviewedScheduledReceiptPlan mctx database namespaceName bucketArg selection 
       pure
       (Map.lookup (cron ^. #identity) sourceNative)
   backend <- resolveStoreBackend mctx bucketArg
+  sourceKind <- case (sourceSelection, statefulUid) of
+    (ReceiptDatabase database, Just uid) -> pure (IngestDatabase database uid)
+    (ReceiptVolume _ _, Nothing) -> pure (IngestVolume schedule)
+    _ -> dieT "scheduled receipt source shape is inconsistent"
   expectation <-
     either
       dieT
       pure
-      ( scheduledReceiptExpectationFromCronJob
-          backend
-          namespaceName
-          database
-          statefulUid
-          pvcUid
-          cronBytes
+      ( case sourceKind of
+          IngestDatabase database uid -> scheduledReceiptExpectationFromCronJob backend namespaceName database uid pvcUid cronBytes
+          IngestVolume _ -> scheduledVolumeReceiptExpectationFromCronJob backend namespaceName schedule pvcUid cronBytes
       )
   let contextName = contextNameText (active ^. #contextName)
   signingResult <-
     readSecretField
       contextName
       namespaceName
-      ("nagare-dbbackup-" <> database <> "-signing")
+      (schedule <> "-signing")
       "HMAC_KEY"
   signingKey <- either dieT pure signingResult
   let acceptedRuns =
@@ -735,11 +789,10 @@ runReviewedScheduledReceiptPlan mctx database namespaceName bucketArg selection 
   selected <- maybe (dieT "no verified scheduled run awaits ingestion") pure (NE.nonEmpty verified)
   let request (backupId, evidence) =
         ScheduledIngestRequest
-          { ingestDatabase = database
+          { ingestSourceKind = sourceKind
           , ingestNamespace = namespaceName
           , ingestBackupId = backupId
           , ingestSourceRevision = revision
-          , ingestStatefulUid = statefulUid
           , ingestPvcUid = pvcUid
           , ingestScheduleUid = cronUid
           , ingestSigningUid = signingUid
@@ -747,7 +800,10 @@ runReviewedScheduledReceiptPlan mctx database namespaceName bucketArg selection 
           , ingestBackend = backend
           , ingestSource =
               Resource.SourceLocation
-                ("db backup-receipts/" <> database)
+                ( case sourceSelection of
+                    ReceiptDatabase database -> "db backup-receipts/" <> database
+                    ReceiptVolume app volume -> "storage backup-receipts/" <> app <> "/" <> volume
+                )
                 backupId
           , ingestAcceptedIncarnations = InventoryStore.headIncarnations (InventoryPlan.historyHead history)
           }

@@ -16,7 +16,7 @@ import Nagare.Inventory.Adapter
 import Nagare.Inventory.Backup (ScheduledBackupReceipt (..), ScheduledReceiptExpectation (..), scheduledReceiptExpectationFromCronJob)
 import Nagare.Inventory.Digest
 import Nagare.Inventory.Plan
-import Nagare.Inventory.ScheduledIngest (ScheduledIngestRequest (..), compileScheduledIngestScope)
+import Nagare.Inventory.ScheduledIngest (ScheduledIngestRequest (..), ScheduledIngestSource (..), compileScheduledIngestScope)
 import Nagare.Inventory.ScheduledReceipt (ScheduledReceiptEvidence (..))
 import Nagare.Inventory.Status qualified as Status
 import Nagare.Inventory.Store
@@ -57,11 +57,10 @@ ingestReceipt run clean = do
         Just [statefulUid, pvcUid, cronUid, signingUid] ->
           let request expectation =
                 ScheduledIngestRequest
-                  { ingestDatabase = "pg"
+                  { ingestSourceKind = IngestDatabase "pg" (statefulUid)
                   , ingestNamespace = "personal"
                   , ingestBackupId = "job-1"
                   , ingestSourceRevision = revision
-                  , ingestStatefulUid = statefulUid
                   , ingestPvcUid = pvcUid
                   , ingestScheduleUid = cronUid
                   , ingestSigningUid = signingUid
