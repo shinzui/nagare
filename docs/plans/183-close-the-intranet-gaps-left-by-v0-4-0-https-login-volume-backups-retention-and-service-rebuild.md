@@ -285,6 +285,12 @@ This plan only makes sure its changes are covered by that transition's compatibi
   platform-owned images. The exported `net-certmanager-controller` image carries the retired
   history's ownership stamp, and the bootstrap refused it (`unverified-owner`). The k3d registry
   refuses deletes, so the fresh context was discarded and rebuilt without that image.
+- Observation (2026-10-10, volume producer): the first scheduled volume backup on cp3 failed with
+  "tar: command not found". The dump container runs `amazon/aws-cli`, which ships neither tar nor
+  gzip, and only the database and restore Jobs installed them first. Every test checked the
+  rendered manifest, never which tools its image has. Fixed in b4950a69; e5078cd5 checks every
+  aws-cli container of every MinIO data-movement Job, and mutation record
+  `EP183-volume-dump-without-store-tools` proves the check.
 
 
 ## Decision Log
@@ -477,6 +483,20 @@ This plan only makes sure its changes are covered by that transition's compatibi
   on any other status.
   Rationale: the kubelet's ConfigMap sync (about a minute) plus the five-second re-read bound
   how long a just-deployed route can be unknown to the enforcer.
+  Date: 2026-10-10
+
+- Decision (operator, 2026-10-10): drop M2's native check of the retention WARN row and the
+  prune from this release; check it after the release.
+  Rationale: a backup becomes prunable only after 48 hours, no backup worth keeping exists yet,
+  and the prune is already proven by the recovery model and mutation records.
+  Date: 2026-10-10
+
+- Decision (operator, 2026-10-10): cut the next release from what has landed. The only native
+  runs are the ones the release process requires: one local and one cloud run on the candidate,
+  the cloud run including a deploy and a passkey sign-in. The cluster-delete rebuild rehearsal is
+  dropped from this release.
+  Rationale: the requirement is that developers can deploy and sign in, and the operator can
+  change and upgrade without losing data; the dropped checks add no evidence for it.
   Date: 2026-10-10
 
 
