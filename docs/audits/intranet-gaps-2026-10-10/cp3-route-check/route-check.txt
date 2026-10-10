@@ -1,0 +1,6 @@
+route a wrong trust anchor is refused ok
+route anonymous: 302 -> https://scenario-a.127-0-0-1.sslip.io/_nagare/login?rd=%2F ok
+route granted user_01m4kj7kncesy9687g2wvrbxm3 on scenario-a.127-0-0-1.sslip.io
+route login as route-check-107538160881@example.test: 200 ok
+route after revoke: 403 ok
+route check: ok

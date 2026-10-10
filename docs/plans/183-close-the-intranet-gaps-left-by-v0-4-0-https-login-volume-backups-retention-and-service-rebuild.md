@@ -79,7 +79,7 @@ This plan only makes sure its changes are covered by that transition's compatibi
     their exact patterns.
   - [ ] A fresh local bootstrap uses locally published MinIO images by default (Surprises,
     2026-10-10).
-  - [ ] Full gate and `gate-verify` at the landed revision. Then, on a fresh local context, the
+  - [x] (2026-10-10) Full gate and `gate-verify` at the landed revision. Then, on a fresh local context, the
     route-check run and its `--ca /dev/null` negative run.
     - [x] (2026-10-10) M1–M4 landed at d42913c9 (full gate green, mutation sweep 184 killed, 0
       survivors). A fresh local context on cp3 bootstrapped at d42913c9 and deployed scenario-a.
@@ -87,8 +87,11 @@ This plan only makes sure its changes are covered by that transition's compatibi
       the protected route (Surprises, 2026-10-10, enforcer).
     - [x] (2026-10-10) The enforcer re-reads its backend map, and route-check waits for a new
       route's 502 to clear (0212a55e).
-    - [ ] Roll the fixed enforcer image onto cp3 through a reviewed bootstrap, then rerun
-      route-check and its wrong-CA negative.
+    - [x] (2026-10-10) The fixed enforcer image rolled onto cp3 through a reviewed bootstrap
+      (two updates: the enforcer Service and the bootstrap stamp). route-check passed: wrong
+      CA refused, anonymous 302 to `/_nagare/login`, granted login 200, 403 after revoke. The
+      `--ca /dev/null` run failed with curl 77, a named certificate failure. Evidence and
+      drivers: [cp3-route-check](../audits/intranet-gaps-2026-10-10/cp3-route-check/).
 - [ ] M2. (Targets recorded 2026-10-10: UC-3, ADR 28.) The operator's recovery-time and retention targets are recorded (EP-162 M1, or this plan's
   proposed defaults confirmed). `server status` reports scheduled database backups past retention
   as WARN. `db prune-scheduled-backups --save-plan` reviews them, and applying the review removes

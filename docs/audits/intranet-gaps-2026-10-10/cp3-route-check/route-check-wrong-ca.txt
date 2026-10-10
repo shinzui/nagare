@@ -1,0 +1,2 @@
+route a wrong trust anchor is refused ok
+route check: failed: certificate verification failed: 77: curl: (77) error adding trust anchors from file: /dev/null
