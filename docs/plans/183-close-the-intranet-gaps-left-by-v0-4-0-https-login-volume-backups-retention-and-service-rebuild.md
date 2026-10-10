@@ -97,8 +97,10 @@ This plan only makes sure its changes are covered by that transition's compatibi
   - [x] (2026-10-10) PostgreSQL rebuild: `inventory rebuild-decisions`, `inventory rebuild`,
     `db restore-rebuilt`, a model scenario under every fault placement, five refusal mutations,
     the ADR 27 amendment and the runbook. `gate-fast` is green on the worker branch.
-  - [ ] ClickHouse and Redis restore, volume members from snapshot receipts, and an offline
-    object-store option for the local rehearsal.
+  - [x] (2026-10-10) ClickHouse and Redis restore from escrow-verified scheduled receipts,
+    application volumes from verified manual snapshots (`storage restore-rebuilt`), and an
+    offline object-store option for verification. Nine mutation records in all; `gate-fast` is
+    green on the worker branch.
   - [ ] Full gate and `gate-deep` (Admission changed), batched with M2; then the local
     cluster-delete rehearsal on cp3, timed.
 - [ ] M5. Native run N1 (local, cp3) and native run N2 (fresh cloud context, Let's Encrypt
@@ -121,8 +123,16 @@ This plan only makes sure its changes are covered by that transition's compatibi
   Ingestion moved to `Nagare.Test.Model.Ingest`, and the rebuild tests are nested under the
   incarnation group.
 - Observation (M4): in local mode the bucket is the in-cluster MinIO, which is lost with the
-  cluster. The rehearsal needs a preserved bucket copy and an offline object-store option for the
-  rebuild commands.
+  cluster. Verification can read an offline copy, but the restore Jobs download pinned versions.
+  The rehearsal must therefore copy MinIO's data directory (not `mc mirror`, which loses versions)
+  back into the new cluster's MinIO before restoring.
+- Observation (M4): an application scope owns its databases and volumes, so a rebuild recreates
+  the app's workloads before the restore runs. Nothing holds the app's writers off. Every restore
+  refuses a target that already holds data, so an early write makes the restore refuse instead of
+  mixing data. The runbook says to restore straight away and keep traffic away.
+- Observation (M4): manual volume snapshot receipts are not signed. A rebuild checks them against
+  the inventory's record of the snapshot and its exact object versions instead (ADR 27
+  amendment).
 
 - Observation: the inventory deploy reported a protected route as served while it answered only
   plain HTTP.
@@ -158,9 +168,17 @@ This plan only makes sure its changes are covered by that transition's compatibi
   Rationale: adopt needs a compiled candidate, and a rebuild after VM loss has none. The head
   format is unchanged, so EP-172 needs a row only for the review field.
   Date: 2026-10-10
-- Decision: The data restore is a second reviewed step (`db restore-rebuilt`). It checks the
-  receipt with the predecessor's escrowed key, pins exact object versions, and loads only into an
-  empty target in one transaction. Applications deploy only after it.
+- Decision: Data comes back through reviewed restore steps (`db restore-rebuilt`, `storage
+  restore-rebuilt`). Each checks its recovery point (an escrowed-key receipt, or for volumes the
+  inventory's snapshot record), pins exact object versions, and loads only into an empty target
+  as atomically as the engine allows:
+  - PostgreSQL in one transaction;
+  - ClickHouse through a staging database and a single `RENAME TABLE`;
+  - Redis through an atomic file rename and a restart without saving, checked against the RDB's
+    key count;
+  - volumes through a staging directory renamed into place.
+
+  `VolumeRecoverySource` is the seam M3's scheduled volume receipts fill.
   Rationale: a fenced restore inside the rebuild transaction would need a new executor operation
   per engine. An empty-target check plus an atomic load makes a retry safe, and nothing writes
   before the apps deploy.
