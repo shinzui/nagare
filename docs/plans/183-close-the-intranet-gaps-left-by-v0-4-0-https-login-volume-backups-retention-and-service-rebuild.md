@@ -112,8 +112,15 @@ This plan only makes sure its changes are covered by that transition's compatibi
   - [x] (2026-10-10) Producer (`nagare-volbackup-<app>-<volume>`), signed v5 volume receipts,
     graded status rows, removal of the legacy `volumes/` probe, and docs. `gate-fast` is green on
     the worker branch.
-  - [ ] Volume receipt ingestion, scheduled-receipt restore and `VolumeRecoverySource`,
-    key-kind-aware escrow, model scenarios, and retention for volume receipts (M2 step 6).
+  - [x] (2026-10-10) Volume receipt ingestion: the database ingestion with the StatefulSet pin
+    optional (three pins), `storage backup-receipts APP VOLUME (--backup-id ID | --all)`. Database
+    Job bytes are unchanged (19ea76b9, records bb799664).
+  - [x] (2026-10-10) Rebuild from an accepted scheduled volume run: recovery point kind
+    `scheduled-volume`, `verifyIngestedVolumeRun`, `inventory rebuild-decisions --volume-run`
+    (882ef5aa, records 3c5cd341).
+  - [ ] Scratch `storage restore` from a scheduled run, key-kind-aware escrow, CronJob model
+    scenarios, retention, prune and cleanup for volume runs (M2 step 6), and standalone services
+    and workers.
   - [ ] Full gate and land; local check (row within one period, degradation when the newest
     upload is deleted, byte-identical restore).
 - [ ] M4. A reviewed operation recreates a missing durable member from its predecessor's verified
@@ -145,6 +152,11 @@ This plan only makes sure its changes are covered by that transition's compatibi
   `nagare-volbackup-` prefix.
 - Observation (M3): retention for volume receipts (M2 step 6) depends on volume ingestion, because
   `BackupRetention` grades only accepted receipts.
+- Observation (M3): a rebuild from an ingested volume run needs no escrowed key. The ingestion
+  record pins the receipt digest, the archive checksum and their exact versions, the same trust
+  model as a manual snapshot. Escrow matters only for runs never ingested.
+- Observation (M3): the rebuild restore Job checks only digests and versions, so a scheduled
+  volume archive (tar.gz) restores through it unchanged.
 
 - Observation (M2): a run was accepted only through one review per run (`db backup-receipts NAME
   --backup-id JOB_UID`), and a prune refused while any listed run was un-ingested. At the hourly
@@ -347,6 +359,19 @@ This plan only makes sure its changes are covered by that transition's compatibi
   predecessor incarnation and the exact verified recovery point keeps every restore traceable. A
   tolerance in the identity check would let a backup reach an object nobody reviewed.
   Date: 2026-10-09
+
+- Decision: A volume run's ingestion is the database ingestion with the StatefulSet pin made
+  optional. Its Job declares `nagare.dev/scheduled-receipt-source-kind: volume`, so the executor
+  requires exactly three pins and refuses a StatefulSet pin.
+  Rationale: verification, acceptance and restore authority stay identical, and database Job bytes
+  are unchanged.
+  Date: 2026-10-10
+
+- Decision: A scheduled volume run is a rebuild recovery point (`scheduled-volume`) verified
+  against its ingestion record, not its HMAC.
+  Rationale: ingestion already verified the HMAC and pinned exact versions; this keeps the rebuild
+  independent of key escrow.
+  Date: 2026-10-10
 
 
 ## Outcomes & Retrospective
@@ -837,6 +862,8 @@ the rows are kept here until it does:
 | The local MinIO manifest (`cluster/local/minio/minio.yaml`) names locally published images, with a new manifest digest. | M1 | local contexts only | unverified for an existing local context; check before EP-172 M3 |
 | An application scope gains five members per retained volume: a ServiceAccount, a Role, a RoleBinding, a signing Secret and the CronJob `nagare-volbackup-<app>-<volume>`. The Secret carries the `nagare.dev/volume-backup` label, and the Job carries `nagare.dev/volume-claim`. | M3 | refuses the volume signing template ("lacks database label") | none; adds appear on the next reviewed deploy |
 | A new receipt kind: a v5 envelope with `source {pvcUid}`, stored under the `scheduled-volumes/` prefix. | M3 | does not parse it | none |
+| Volume ingestion scope `volume-scheduled-receipt-<ns>-<schedule>-<run>` with `scheduled.backup.source.kind=volume` and no StatefulSet keys; Job annotation `nagare.dev/scheduled-receipt-source-kind: volume` with three pins. | M3 | requires four pins and a StatefulSet key, so it refuses the scope | none; database scopes and Jobs unchanged |
+| Rebuild review `recoveryPoint.kind: "scheduled-volume"`. | M3 | refuses the unknown kind | none |
 
 The head and journal formats are unchanged. Database receipts and CronJob bytes are unchanged.
 
