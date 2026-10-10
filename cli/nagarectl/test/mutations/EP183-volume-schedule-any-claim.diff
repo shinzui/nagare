@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/BackupReceipt.hs b/cli/nagarectl/src/Nagare/Inventory/BackupReceipt.hs
+index f47f3252..d836f5c0 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/BackupReceipt.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/BackupReceipt.hs
+@@ -134,7 +134,7 @@ scheduledVolumeReceiptExpectationFromCronJob backend namespaceName schedule pvcU
+             (Left "accepted scheduled volume backup uses another object key space")
+           sourceName <- plain "BACKUP_SOURCE_NAME"
+           unless
+-            (sourceName == pvcName app volume)
++            (sourceName == pvcName app volume || not (T.null sourceName))
+             (Left "accepted scheduled volume backup probes another claim")
+           Right (prefix, volumeBackupFormat)
+     _ -> Left "accepted scheduled volume backup has invalid receipt metadata"

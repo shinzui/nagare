@@ -1012,5 +1012,17 @@
     "suite": "nagarectl",
     "pattern": "/cleanup retires/",
     "expect": "test-fails"
+  },
+  {
+    "record": "EP183-volume-receipt-any-claim",
+    "suite": "nagarectl",
+    "pattern": "/a volume schedule archives its claim read-only and uploads a signed version-5 receipt/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "EP183-volume-schedule-any-claim",
+    "suite": "nagarectl",
+    "pattern": "/a volume expectation comes only from the accepted CronJob's own app, volume and claim/",
+    "expect": "test-fails"
   }
 ]

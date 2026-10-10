@@ -121,8 +121,8 @@ opsTests =
       parseNewestBackupAge gsutilLs @?= Just "2026-06-09T03:00:01Z"
   , testCase "parseNewestBackupAge: empty prefix" $
       parseNewestBackupAge "" @?= Nothing
-  , testCase "backupPrefixes: managed databases are graded by receipts, not object age" $
-      backupPrefixes ["notes", "shop"] @?= ["litestream", "volumes"]
+  , testCase "backupPrefixes: databases and volumes are graded by receipts, not object age" $
+      backupPrefixes ["notes", "shop"] @?= ["litestream"]
   , testCase "recoveryPointProbe: fresh, warning, breach and unknown grades" $ do
       let hourly value = RecoveryPointGrade HourlyRecoveryPoint value False
       recoveryPointProbe "personal/notes" (Right (hourly (Fresh 120)))

@@ -280,9 +280,23 @@ objective. The hourly schedule leaves time for retries; it does not by itself
 establish the recovery guarantee, and monitoring must run often enough to act on
 the warning.
 
-Volumes are outside the recovery-point objective in this release: there is no
-scheduled volume backup, so volume data has only the manual snapshots described
-above. Status does not grade volumes.
+Backup-included application volumes (every volume with `retention = Retain`)
+have the same scheduled producer. An application's reviewed deploy adds, per
+volume, a CronJob `nagare-volbackup-<app>-<volume>` with its own reader account
+and signing Secret. It mounts the claim read-only, writes a gzipped `tar` under
+`scheduled-volumes/<namespace>/<app>/<volume>/<run>.tar.gz`, reads the stored
+bytes back, and uploads a signed version-5 receipt whose source is the claim's
+UID. `server status` shows one `recovery point` row per volume, labelled by the
+schedule name and graded against the same objective as the databases.
+
+A volume archive is consistent per file, not per volume: files an application
+writes while the archive runs may be captured mid-change, and two files may come
+from slightly different moments. An application that needs transactional
+consistency across its data belongs in a managed database. This is the same
+contract the manual snapshot has.
+
+Ingesting a scheduled volume receipt as restore authority, and restoring from
+one, are not available yet; restore a volume from a manual snapshot.
 
 #### Escrow the signing key off the cluster
 

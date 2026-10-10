@@ -262,11 +262,12 @@ parseNewestBackupAge out =
    in if null stamps then Nothing else Just (maximum stamps)
 
 -- | Object-store prefixes probed by @nagarectl server status@ by newest object
--- age. Managed databases are graded by 'recoveryPointProbe' from accepted
--- receipts instead, so their dump prefixes are no longer probed here. The
--- removed host-Postgres flow's legacy @postgres@ prefix is intentionally absent.
+-- age. Managed databases and scheduled application volumes (EP-183 M3) are
+-- graded by 'recoveryPointProbe' from signed receipts instead, so neither their
+-- dump prefixes nor the legacy @volumes/@ prefix, which nothing writes, are
+-- probed here. The removed host-Postgres flow's @postgres@ prefix is absent too.
 backupPrefixes :: [Text] -> [Text]
-backupPrefixes _ = ["litestream", "volumes"]
+backupPrefixes _ = ["litestream"]
 
 -- | One managed database's recovery point, graded from verified signed
 -- receipts (accepted, or verified and awaiting ingestion) against the accepted

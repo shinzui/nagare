@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/BackupReceipt.hs b/cli/nagarectl/src/Nagare/Inventory/BackupReceipt.hs
+index f47f3252..91ba6000 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/BackupReceipt.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/BackupReceipt.hs
+@@ -442,7 +442,7 @@ parseScheduledBackupReceipt expectation receiptAddress signingKeyHex bytes = do
+   pvcUid <- mkPhysicalIdentity pvcText
+   unless
+     ( statefulUid == scheduledStatefulUid expectation
+-        && pvcUid == scheduledPvcUid expectation
++        && (pvcUid == scheduledPvcUid expectation || isNothing statefulUid)
+     )
+     (Left "scheduled receipt source incarnation differs from accepted evidence")
+   metadataBytes <- canonicalValue metadata
