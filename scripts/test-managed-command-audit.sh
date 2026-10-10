@@ -46,6 +46,30 @@ print(f"managed command audit: {current['registeredRoutes']} routes, "
       f"{current['recipes']} recipes, {current['libraryCalls']} library calls; "
       "injected mutation refused")
 PY
+# Both release assemblers pin these lists. They must follow the live audit, or every release
+# assembly refuses with "mutation coverage is incomplete" (v0.5.0 candidate 42c0f0b3).
+PYTHONDONTWRITEBYTECODE=1 python3 - "$repo_root" "$fixture_root/current.json" <<'PY'
+import importlib.util
+import json
+import pathlib
+import re
+import sys
+
+root = pathlib.Path(sys.argv[1])
+current = json.loads(pathlib.Path(sys.argv[2]).read_text())
+spec = importlib.util.spec_from_file_location(
+    "release_index", root / "scripts/assemble-inventory-release-index.py")
+index = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(index)
+assert index.DEFERRED_ROUTES == current['deferredRoutes'], index.DEFERRED_ROUTES
+assert index.RECOVERY_ONLY_ROUTES == current['recoveryOnlyRoutes'], index.RECOVERY_ONLY_ROUTES
+shell = (root / "scripts/assemble-managed-resource-evidence.sh").read_text()
+for field in ('deferredRoutes', 'recoveryOnlyRoutes'):
+    match = re.search(r'\.' + field + r' == (\[[^\]]*\])', shell)
+    assert match, field
+    assert json.loads(match.group(1)) == current[field], (field, match.group(1))
+print("managed command audit: both assemblers pin the live deferred and recovery-only routes")
+PY
 
 python3 - "$repo_root" "$fixture_root" <<'PY'
 import json

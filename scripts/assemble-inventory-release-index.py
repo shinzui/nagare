@@ -13,7 +13,8 @@ from pathlib import Path
 HEX = re.compile(r"^[0-9a-f]{64}$")
 DEFERRED_ROUTES = ["DbCommand.DbRestore.--into-live",
                    "DbCommand.DbShell", "StorageCommand.StorageRestore.--into-live"]
-RECOVERY_ONLY_ROUTES = ["DbCommand.DbRecoverScheduledPrune"]
+RECOVERY_ONLY_ROUTES = ["DbCommand.DbRecoverScheduledPrune",
+                        "StorageCommand.StorageRecoverScheduledPrune"]
 COMMON_SCENARIO_CHECKS = {
     "collision-refusal", "adoption", "drift-classification", "convergence-noop-removal",
     "independent-scope-preservation", "secret-read-refusal", "interrupted-recovery",

@@ -77,7 +77,8 @@ with tempfile.TemporaryDirectory(prefix="nagare-inventory-index-test.") as tempo
            "incompleteCatalogueRows": [], "errors": [],
            "deferredRoutes": ["DbCommand.DbRestore.--into-live",
                               "DbCommand.DbShell", "StorageCommand.StorageRestore.--into-live"],
-           "recoveryOnlyRoutes": ["DbCommand.DbRecoverScheduledPrune"]})
+           "recoveryOnlyRoutes": ["DbCommand.DbRecoverScheduledPrune",
+                                  "StorageCommand.StorageRecoverScheduledPrune"]})
     for system in SYSTEMS:
         write(root / "native" / f"nix-output-{system}.json",
               {"version": VERSION, "revision": REVISION, "system": system,

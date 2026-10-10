@@ -100,7 +100,7 @@ jq -nS --arg digest "$candidate_digest" '{schemaVersion: 1, complete: true,
   deferredRoutes: [
     "DbCommand.DbRestore.--into-live", "DbCommand.DbShell",
     "StorageCommand.StorageRestore.--into-live"],
-  recoveryOnlyRoutes: ["DbCommand.DbRecoverScheduledPrune"],
+  recoveryOnlyRoutes: ["DbCommand.DbRecoverScheduledPrune", "StorageCommand.StorageRecoverScheduledPrune"],
   pending: [], pendingRecipes: [], incompleteCatalogueRows: [], errors: [],
   privateNote: "must-never-be-public"}' > "$test_root/coverage.json"
 cp "$test_root/coverage.json" "$test_root/coverage-complete.json"

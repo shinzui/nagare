@@ -112,7 +112,8 @@ jq -e '.schemaVersion == 1 and .complete == true and .dirty == false
   and .deferredRoutes == [
     "DbCommand.DbRestore.--into-live", "DbCommand.DbShell",
     "StorageCommand.StorageRestore.--into-live"]
-  and .recoveryOnlyRoutes == ["DbCommand.DbRecoverScheduledPrune"]
+  and .recoveryOnlyRoutes == [
+    "DbCommand.DbRecoverScheduledPrune", "StorageCommand.StorageRecoverScheduledPrune"]
   and .pending == [] and .pendingRecipes == [] and .incompleteCatalogueRows == []
   and .errors == []' "$coverage_result" >/dev/null \
   || die "mutation coverage is incomplete"
