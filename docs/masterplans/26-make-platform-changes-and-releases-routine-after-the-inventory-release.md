@@ -35,6 +35,11 @@ provenance:
       at: 2026-10-09T22:13:41Z
       mode: "update"
       note: "Fixed finish line with enumerated native runs; EP-172 owns release transitions; EP-168 ports archived drivers + preflight; lanes"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-10T14:04:49Z
+      mode: "update"
+      note: "Operator added item 9 and EP-184 (gate wall time, lost gate runs)"
 ---
 
 # Make platform changes and releases routine after the inventory release
@@ -106,6 +111,11 @@ apply here:
 - [ ] 8. The next release is cut this way: one candidate, classified, carrying only the evidence its
       class requires, and published locally through the release runbook (integration gate, all
       children).
+- [ ] 9. (Added by the operator, 2026-10-10.) The gates wait only for their slowest job and do not
+      lose runs to the builder. The suite runs in parallel with its slow model tests sharded, the
+      full gate runs each check once with local and remote work overlapping, a gcloud preflight,
+      keep-awake session and transport retry protect it, and the deep tier and mutation sweep run
+      inside it when needed. Before and after times are recorded (EP-184).
 
 No cloud run is required by this plan. If item 8's change class requires C3, the operator approves
 that one bounded sequence when it is reached. The sequence includes the human dependencies: builder
@@ -179,6 +189,7 @@ No cross-repository ADR applies.
 | 6 | Find recovery defects with adversarial provider interpreters | docs/plans/173-find-recovery-defects-with-adversarial-provider-interpreters.md | None | None | In Progress (M1–M2 accepted 2026-10-05; M3–M5 open) |
 | 7 | Gate every commit before any native run | docs/plans/174-gate-every-commit-before-any-native-run.md | None | EP-168 (shared `nagare-harness` package) | Complete (2026-10-05) |
 | 8 | Make the flake check build each Haskell package once | docs/plans/178-make-the-flake-check-build-each-haskell-package-once.md | None | EP-174 | Complete (2026-10-05) |
+| 9 | Make the gates wait only for their slowest job and stop losing gate runs to the builder | docs/plans/184-make-the-gates-wait-only-for-their-slowest-job-and-stop-losing-gate-runs-to-the-builder.md | None | EP-173 (shared recovery-model test files) | Not Started |
 
 Status values: Not Started, In Progress, Complete, Cancelled. EP-172 keeps its file path; its title
 changed with the 2026-10-09 re-scope.
@@ -188,6 +199,7 @@ changed with the 2026-10-09 re-scope.
 
 Two lanes, each one worktree session:
 - **Lane A (pure code, start now).**
+  - EP-184 first: it shortens every other plan's gates.
   - EP-173 M3, then M4, then M5.
   - EP-171.
   - EP-170 M1–M2; its M3 waits for EP-173 M5's coverage record.
@@ -274,6 +286,9 @@ Any stream that adds an adapter adds it there, with a world.
   no 20-minute gate (ADR 25 amendment).
 - **No item is ticked.**
 
+2026-10-10: the operator added item 9 (EP-184) after a 55-minute full gate and two gate runs lost
+to the builder in one night.
+
 
 ## Surprises & Discoveries
 
@@ -351,6 +366,15 @@ Any stream that adds an adapter adds it there, with a world.
   Rationale: Production use of v0.4.0 needs a path to the next release, and no plan owned one.
   Date: 2026-10-09
 
+- Decision (operator, 2026-10-10): Add finish-line item 9 and EP-184. The gates must wait only for
+  their slowest job and stop losing runs to the builder.
+  Rationale: a full gate took about 55 minutes because the same suite ran three times in sequence
+  (local cabal, then the darwin and Linux flake builds), on one thread, with seven model tests
+  taking about 1,090 of the suite's 1,168 seconds. Two more runs that night were lost to the
+  builder's idle watchdog, gcloud reauthentication and an IAP drop. The operator: "this is very
+  painful". The fixed-scope rule yields to the operator's own addition.
+  Date: 2026-10-10
+
 - Decision: EP-168 ports the driver set that passed on `83124396` stage for stage, rather than redesigning the run. It also owns the environment preflight.
   Rationale: That set is the only acceptance run known to pass unattended (C2 16/16, first try after scheduling). The overnight Tailscale and gcloud stalls were human dependencies that a preflight can refuse up front.
   Date: 2026-10-09
@@ -372,3 +396,6 @@ Any stream that adds an adapter adds it there, with a world.
 - corrected EP-173's registry status and removed history-only prose.
 
 The pre-2026-10-09 text is in git history.
+
+2026-10-10: added finish-line item 9 and EP-184 (gate wall time and lost gate runs) at the
+operator's request, first in lane A.
