@@ -68,7 +68,13 @@ for field in ('deferredRoutes', 'recoveryOnlyRoutes'):
     match = re.search(r'\.' + field + r' == (\[[^\]]*\])', shell)
     assert match, field
     assert json.loads(match.group(1)) == current[field], (field, match.group(1))
-print("managed command audit: both assemblers pin the live deferred and recovery-only routes")
+# The CLI's release-evidence check (the publisher's) pins the same two lists.
+cli = (root / "cli/nagarectl/src/Nagare/Inventory/ReleaseEvidence.hs").read_text()
+for name, field in (('deferred', 'deferredRoutes'), ('recovery', 'recoveryOnlyRoutes')):
+    match = re.search(r'\b' + name + r' == (\[[^\]]*\])', cli)
+    assert match, name
+    assert json.loads(match.group(1)) == current[field], (name, match.group(1))
+print("managed command audit: both assemblers and the CLI pin the live deferred and recovery-only routes")
 PY
 
 python3 - "$repo_root" "$fixture_root" <<'PY'
