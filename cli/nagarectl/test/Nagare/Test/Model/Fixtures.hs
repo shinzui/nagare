@@ -6,6 +6,7 @@ module Nagare.Test.Model.Fixtures
   , plainShape
   , volumeShape
   , workerShape
+  , volumeBackupShape
   , appScope
   , appCluster
   , serviceId
@@ -49,8 +50,10 @@ import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.Dsl.Database (Database (Database), Engine (Postgres), defaultEngineVersion, mkDatabaseName)
 import Nagare.Dsl.Database.Render (dbPvcName)
 import Nagare.Dsl.Prelude hiding ((.=))
+import Nagare.Dsl.Render (pvcName)
 import Nagare.Dsl.Types qualified as Dsl
-import Nagare.Inventory.BackupFreshness (RecoveryPointObjective (HourlyRecoveryPoint))
+import Nagare.Inventory.Application (compileVolumeBackups)
+import Nagare.Inventory.BackupFreshness (RecoveryPointObjective (DailyRecoveryPoint, HourlyRecoveryPoint))
 import Nagare.Inventory.DataService (compileStandaloneDatabase)
 import Nagare.Inventory.Database (DatabaseBackupTarget (DatabaseBackupTarget))
 import Nagare.Inventory.Digest
@@ -72,13 +75,19 @@ data Shape = Shape
   -- scenario only the worker's revision of an unready image fails readiness.
   , shapeExtra :: !(Maybe KindRow)
   -- ^ A generated scenario's member of the kind under test.
+  , shapeVolumeBackup :: !Bool
+  -- ^ EP-183 M3: the durable volume is backup-included, so the scope also
+  -- holds its namespace and the five members of its scheduled producer, as
+  -- 'compileVolumeBackups' compiles them. The "v2" release moves the
+  -- objective to daily, so its review updates the CronJob.
   }
   deriving stock (Eq, Show)
 
-plainShape, volumeShape, workerShape :: Shape
-plainShape = Shape False False Nothing
-volumeShape = Shape True False Nothing
-workerShape = Shape False True Nothing
+plainShape, volumeShape, workerShape, volumeBackupShape :: Shape
+plainShape = Shape False False Nothing False
+volumeShape = Shape True False Nothing False
+workerShape = Shape False True Nothing False
+volumeBackupShape = Shape True False Nothing True
 
 -- * The application scope
 
@@ -135,13 +144,38 @@ volumeValue =
 
 boundMembers :: Shape -> Text -> Text -> Map.Map ResourceId (ManagedResource, ByteString)
 boundMembers volume image historyImage =
-  Map.fromList $
-    [ (serviceId, bindMember serviceId (serviceValue image))
-    , (historyId, first (\history -> history {dependencies = [OrderedAfter serviceId]}) (bindMember historyId (historyValue historyImage)))
+  Map.fromList
+    ( [ (serviceId, bindMember serviceId (serviceValue image))
+      , (historyId, first (\history -> history {dependencies = [OrderedAfter serviceId]}) (bindMember historyId (historyValue historyImage)))
+      ]
+        <> [(volumeId, bindMemberWith volumePolicy volumeId volumeValue) | shapeVolume volume, not (shapeVolumeBackup volume)]
+        <> [(workerId, bindMember workerId (workerValue image)) | shapeWorker volume]
+        <> [(extraId, bindMember extraId (fixture image)) | Just row <- [shapeExtra volume], Just fixture <- [kindFixture row]]
+    )
+    <> if shapeVolumeBackup volume then backedUpVolume image else Map.empty
+
+-- | The labelled backup-included claim and its scheduled producer (EP-183
+-- M3). In production each producer member is ordered after the foundation's
+-- namespace, another scope; the model has no foundation scope, so that one
+-- edge is dropped and every other edge is kept as compiled.
+backedUpVolume :: Text -> Map.Map ResourceId (ManagedResource, ByteString)
+backedUpVolume image =
+  Map.insert volumeId claim (Map.map (first withoutNamespace) (Map.unions (map snd producers)))
+  where
+    claim = bindMemberWith volumePolicy volumeId labelledVolumeValue
+    objective = if image == "v2" then DailyRecoveryPoint else HourlyRecoveryPoint
+    producers = ok (compileVolumeBackups (DatabaseBackupTarget databaseBackend objective) foundationNamespace (SourceLocation "model" "web") (Map.singleton volumeId claim))
+    withoutNamespace member = member {dependencies = filter (/= OrderedAfter foundationNamespace) (member ^. #dependencies)}
+    foundationNamespace = mintResourceId appScope (ok (mkLogicalKey "namespace")) (ok (mkName "namespace"))
+
+labelledVolumeValue :: Value
+labelledVolumeValue =
+  object
+    [ "apiVersion" .= ("v1" :: Text)
+    , "kind" .= ("PersistentVolumeClaim" :: Text)
+    , "metadata" .= object ["name" .= pvcName "web" "uploads", "namespace" .= ("personal" :: Text), "labels" .= object ["nagare.dev/app" .= ("web" :: Text), "nagare.dev/volume" .= ("uploads" :: Text)]]
+    , "spec" .= object ["accessModes" .= ["ReadWriteOnce" :: Text], "resources" .= object ["requests" .= object ["storage" .= ("1Gi" :: Text)]]]
     ]
-      <> [(volumeId, bindMemberWith volumePolicy volumeId volumeValue) | shapeVolume volume]
-      <> [(workerId, bindMember workerId (workerValue image)) | shapeWorker volume]
-      <> [(extraId, bindMember extraId (fixture image)) | Just row <- [shapeExtra volume], Just fixture <- [kindFixture row]]
 
 boundDigests :: Shape -> Text -> Text -> Map.Map ResourceId ContentDigest
 boundDigests volume image historyImage = Map.map (contentDigest . snd) (boundMembers volume image historyImage)

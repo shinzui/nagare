@@ -81,6 +81,12 @@ inventoryRecoveryModelTests =
             <> " generated from the kind table (one placement per fault)"
         )
         (runTier False scenarios singleFaults)
+    , testCase "the backup-included volume shape holds the producer's five members and its v2 review updates only the CronJob beside the Service (EP-183 M3)" $ do
+        let v1 = boundDigests volumeBackupShape "v1" "v1"
+            v2 = boundDigests volumeBackupShape "v2" "v1"
+            changed = Map.keysSet (Map.filter id (Map.intersectionWith (/=) v1 v2))
+        Map.size v1 @?= Map.size (boundDigests volumeShape "v1" "v1") + 5
+        Set.map resourceIdText changed @?= Set.fromList [resourceIdText serviceId, "application:model-web/uploads/pvc-backup"]
     , testCase "I9's template excuse: the final revision declaring the faulted template is excused (EP-181)" $ do
         let faulted = contentDigest "faulted-template"
             placed = [(Boundary MutateCall 5, LandsUnready)]

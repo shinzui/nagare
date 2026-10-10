@@ -63,6 +63,7 @@ explicitScenarios =
     , Scenario "create, bad update, corrected update (history follows the release)" [Deploy "v1", Deploy "bad", Deploy "v3"] ["bad"] True plainShape
     , Scenario "create, bad update, corrected update (with a durable volume)" [Deploy "v1", Deploy "bad", Deploy "v3"] ["bad"] True volumeShape
     , Scenario "create with a durable volume, then retire" [Deploy "v1", Retire] [] True volumeShape
+    , Scenario "create with a backup-included volume, then update its schedule (EP-183 M3)" [Deploy "v1", Deploy "v2"] [] True volumeBackupShape
     , Scenario "create a database, then ingest a scheduled receipt" [CreateDatabase, IngestReceipt] [] True plainShape
     , Scenario "create a database, then retire it" [CreateDatabase, RetireDatabase] [] True plainShape
     , Scenario "create a database, update its resources, update it again, then restart it" [CreateDatabase, UpdateDatabase, CreateDatabase, RestartDatabase] [] True plainShape
