@@ -1006,5 +1006,11 @@
     "suite": "nagarectl",
     "pattern": "/uploaded between planning and apply/",
     "expect": "test-fails"
+  },
+  {
+    "record": "EP183-cleanup-retires-unconverged-prune",
+    "suite": "nagarectl",
+    "pattern": "/cleanup retires/",
+    "expect": "test-fails"
   }
 ]

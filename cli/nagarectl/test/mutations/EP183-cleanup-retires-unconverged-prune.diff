@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/ScheduledPrune.hs b/cli/nagarectl/src/Nagare/Inventory/ScheduledPrune.hs
+index 80cefc60..b6efedc0 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/ScheduledPrune.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/ScheduledPrune.hs
+@@ -378,7 +378,7 @@ scheduledPruneCleanup namespaceName database source accepted converged retained
+       , Just name <- [Map.lookup "scheduled.prune.backup.scope" (fields entry)]
+       , backup <- [candidate | candidate <- Set.toList sourceRuns, scopeIdText candidate == name]
+       ]
+-    done = Set.toList (Set.fromList [backup | (owner, backup, revision) <- pruning, Map.lookup owner converged == Just revision])
++    done = Set.toList (Set.fromList [backup | (owner, backup, revision) <- pruning, Map.lookup owner converged == Just revision || True])
+     namers backup = [owner | (owner, named, _) <- pruning, named == backup]
+     consumed =
+       Set.fromList
