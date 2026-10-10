@@ -67,9 +67,9 @@ K8up/restic is the primary candidate for volume and application-aware backup eva
   - The cluster was deleted. The operator then decided to skip the K8up prototype: K8up gets one only if EP-183 M3's slice checkpoint stops.
   - CloudNativePG was not prototyped: its drivers are prepared but unrun, and no cluster was allowed.
   - Record: [`docs/spikes/mp24-tooling-evaluation/README.md`](../spikes/mp24-tooling-evaluation/README.md).
-- [ ] M3: Score the surviving choices against EP-162 M1 requirements in a validated research record, distinguish recommendation from adoption, and record the operator's decision.
+- [x] M3 (2026-10-10): Score the surviving choices against EP-162 M1 requirements in a validated research record, distinguish recommendation from adoption, and record the operator's decision.
   - Done (2026-10-10): scored against UC-3's features and ADR 28 in RES-6, which validates and supersedes RES-3. The recommendation is to keep the native path for every boundary in scope, with K8up as the volume fallback and CloudNativePG as the candidate if the PostgreSQL objective tightens.
-  - Remaining: the operator's accept-or-reject decision, recorded in MasterPlan 24.
+  - (2026-10-10) The operator accepted the recommendation; recorded in MasterPlan 24's Decision Log.
 
 2026-09-28: This scope update records preliminary Velero desk findings and evaluation criteria only. No candidate has been installed, benchmarked, selected, or accepted; all milestones remain open.
 
@@ -126,6 +126,10 @@ The operator's concern about Velero is project direction. The precise upstream d
 Initial judgment: Velero may simplify Kubernetes resource/volume backup and recovery. Its value for the current local-path installation and database correctness is unresolved. It would not replace Pulumi/NixOS recovery or Nagare's cross-tool state/journal. If compatibility needs a new storage platform or a large custom database-consistency layer, record the added cost and prefer a narrower or rejected role rather than expanding MP-23.
 
 ## Decision Log
+
+- Decision: The operator accepted RES-6's recommendation on 2026-10-10: no established tool is adopted. K8up/restic stays EP-183 M3's fallback, and CloudNativePG/Barman is reconsidered only if ADR 28's PostgreSQL recovery point tightens below one hour. Velero is not recommended, on technical fit.
+  Rationale: recorded as the operator's decision in MasterPlan 24; this plan's evaluation is complete.
+  Date: 2026-10-10
 
 - Decision: Close M2 with the partial K8up evidence already gathered, and run no CloudNativePG
   prototype.

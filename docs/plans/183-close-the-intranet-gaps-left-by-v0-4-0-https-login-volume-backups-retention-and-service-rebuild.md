@@ -74,6 +74,13 @@ This plan only makes sure its changes are covered by that transition's compatibi
 
   The deploy waits for the route's certificate to be Ready. The docs no longer call local mode
   HTTP-only or show the refused direct `context create --force` form.
+  - [x] (2026-10-10) Code: the readiness fix, the `nagare-harness route-check` stage with docs, and
+    two mutation records. `just gate-fast` is green, and both records were proven locally with
+    their exact patterns.
+  - [ ] A fresh local bootstrap uses locally published MinIO images by default (Surprises,
+    2026-10-10).
+  - [ ] Full gate and `gate-verify` at the landed revision. Then, on a fresh local context, the
+    route-check run and its `--ca /dev/null` negative run.
 - [ ] M2. (Targets recorded 2026-10-10: UC-3, ADR 28.) The operator's recovery-time and retention targets are recorded (EP-162 M1, or this plan's
   proposed defaults confirmed). `server status` reports scheduled database backups past retention
   as WARN. `db prune-scheduled-backups --save-plan` reviews them, and applying the review removes
@@ -95,10 +102,50 @@ This plan only makes sure its changes are covered by that transition's compatibi
 
 ## Surprises & Discoveries
 
-(None yet.)
+- Observation: the inventory deploy reported a protected route as served while it answered only
+  plain HTTP.
+  Evidence: Knative 1.22's domainmapping reconciler (`knative-v1.22.0`,
+  `pkg/reconciler/domainmapping/reconciler.go`) runs with the default `http-protocol: Enabled`. It
+  marks a DomainMapping whose certificate is not Ready as `CertificateProvisioned=True`, reason
+  `HTTPDowngrade`, with `status.url` `http://`, so the mapping reads `Ready=True`. Both the
+  readiness wait (`kubectl wait --for=condition=ready`) and `knativeReady` passed. The new world
+  test failed on `0aed15ec`: the create completed and the object read Present while its
+  certificate was pending.
+- Observation: a Service's default `<name>.<namespace>.<base-domain>` host has the same downgrade.
+  The Knative Service object does not show it; only its Route does. Protected and custom-domain
+  routes are DomainMappings and are covered. Default hosts are not yet held to the certificate
+  wait.
+- Observation: the release fixture's protected route uses the enforcer's built-in form
+  (`/_nagare/login`, CSRF cookie `__Host-nagare_csrf`), not a portal. route-check drives that form
+  and reports a portal redirect as unsupported.
+- Observation (2026-10-10): the default local MinIO images (`quay.io/minio/minio` and
+  `quay.io/minio/mc` digests in `cluster/local/minio/minio.yaml` and
+  `cli/nagarectl/src/Nagare/Inventory/Components/LocalObjectStore.hs`) answer 401 to anonymous
+  pulls (`skopeo inspect` gives "unauthorized"). A fresh local bootstrap works only through
+  `scripts/publish-local-minio-images.sh` and the `NAGARE_LOCAL_MINIO_IMAGE` /
+  `NAGARE_LOCAL_MC_IMAGE` overrides. The operator chose to fix this here, as part of M1, because
+  N1 needs fresh local contexts.
 
 
 ## Decision Log
+
+- Decision: Put the certificate wait in the Kubernetes readiness adapter, not in the application
+  deploy through `Nagare.Domain.Tls`. The adapter gains `domainMappingReady` plus a wait for an
+  https `status.url` after an HTTP downgrade. `Nagare.Domain.Tls` stays test-only.
+  Rationale: the adapter is the single readiness authority for every inventory apply, resume and
+  health probe, and the recovery model drives it through the world (ADR 25). A context with TLS
+  off (`TLSNotEnabled`) stays ready, so HTTP-first contexts are unaffected.
+  Date: 2026-10-10
+- Decision: route-check uses curl with an explicit trust anchor, and first checks that a wrong
+  embedded CA is refused. In local mode it connects through a Kourier port-forward with
+  `--connect-to`, so the certificate is still verified for the real host.
+  Rationale: a stage that could skip verification would prove nothing; the v0.4.0 drivers used
+  `curl -k`. The loopback domain's port 443 can belong to a host proxy.
+  Date: 2026-10-10
+- Decision: Fix the dead MinIO image default in M1 instead of deferring it.
+  Rationale: the operator chose this on 2026-10-10. Every fresh local context, including N1, needs
+  it.
+  Date: 2026-10-10
 
 - Decision: M2's targets are the proposed defaults, confirmed by the operator on 2026-10-09: keep
   every scheduled recovery point for 48 hours and the newest point of each day for 30 days, always
@@ -329,7 +376,11 @@ only on the recovery model. M5 is the only place native runs happen.
       enforcer's 30-second decision cache (`cluster/bootstrap/nagare-access/service.yaml`).
 4. Give the stage a negative self-test: pointed at a context with TLS disabled, or at a
    deliberately wrong CA, it must fail with a named reason.
-5. Fix the stale docs:
+5. Make a fresh local bootstrap pull MinIO images that exist. Publish them with
+   `scripts/publish-local-minio-images.sh`, which builds them from digest-checked upstream release
+   binaries, and bind them by default. Refuse the dead `quay.io/minio/*` default with a message
+   that names the script.
+6. Fix the stale docs:
    - the recipe comment at `just cluster-enable-tls` and `cluster/bootstrap/cert-manager/README.md`
      should show the reviewed `--save-plan` form;
    - the two local-mode statements should be removed.

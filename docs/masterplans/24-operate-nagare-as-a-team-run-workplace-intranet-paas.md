@@ -155,7 +155,7 @@ found to apply.
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | 162 | Define team operating requirements and decide availability for the intranet PaaS | docs/plans/162-define-team-operating-requirements-and-decide-availability-for-the-intranet-paas.md | None | None | Complete (2026-10-10: UC-3 confirmed, ADR 28 accepted) |
-| 163 | Evaluate established tooling against Nagare's managed-resource layers | docs/plans/163-evaluate-established-tooling-against-nagare-s-managed-resource-layers.md | EP-162 M1 (before EP-163 M3) | EP-162 | In Progress (M1–M2 research and K8up prototype) |
+| 163 | Evaluate established tooling against Nagare's managed-resource layers | docs/plans/163-evaluate-established-tooling-against-nagare-s-managed-resource-layers.md | EP-162 M1 (before EP-163 M3) | EP-162 | Complete (2026-10-10: RES-6 accepted; M2 partial by operator decision) |
 | 183 | Close the intranet gaps left by v0.4.0: HTTPS login, volume backups, retention and service rebuild | docs/plans/183-close-the-intranet-gaps-left-by-v0-4-0-https-login-volume-backups-retention-and-service-rebuild.md | None | EP-162 M1 | In Progress (M1 and M4 under way; M2 targets confirmed) |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
@@ -217,6 +217,12 @@ operator decides, the tooling boundary between Nagare and established tools (aft
 
 ## Progress
 
+2026-10-10 (later): EP-163 is Complete. RES-6 supersedes RES-3, and the operator accepted its
+recommendation: keep the native backup path and adopt no tool. With EP-162 and EP-163 complete and
+no team stream required by UC-3, EP-183 is the last open child. EP-183 M1's code is done and its
+full gate is running; M2 and M4 are in their worktrees. cp3's stale claim is approved for release
+and the old local context for retirement.
+
 2026-10-10: Implementation started. EP-162: the operator answered the requirement questions; UC-3
 and ADR 28 (single node, one-hour recovery point, four-hour rebuild, 48 h / 30 day retention) are
 written, and the operator confirmed UC-3: EP-162 is Complete, which unblocks EP-163 M3. EP-183: M1 (HTTPS and login checks) and M4
@@ -236,6 +242,21 @@ streams listed in Decomposition Strategy are intentionally not yet planned.
 
 ## Surprises & Discoveries
 
+- 2026-10-10: The default local MinIO images (`quay.io/minio/minio` and `quay.io/minio/mc` digests
+  in `cluster/local/minio/minio.yaml`) now answer 401 to anonymous pulls, and Docker Hub's
+  `minio/*` repositories are gone. A fresh local bootstrap works only through
+  `scripts/publish-local-minio-images.sh` and its `NAGARE_LOCAL_MINIO_IMAGE` /
+  `NAGARE_LOCAL_MC_IMAGE` overrides. The operator chose to fix it in EP-183, since its fresh local
+  runs need it.
+- 2026-10-10: EP-163's K8up prototype ran in a second k3d cluster (`mp24-eval`) on cp3 without the
+  cp3 claim. The claim was held, stale, by `nagare-verify`. The prototype ran before the stop
+  instruction reached it and never touched `nagare-local`. The cluster is deleted. The cp3 VM's
+  `fs.inotify.max_user_instances` was raised to 1024 at runtime only. Parallel workers need the
+  claim rule stated before they start, not after.
+- 2026-10-10: RES-6 found no evidence for the operator's concern about Velero's direction; Velero
+  joined the CNCF with a broad maintainer base. It is excluded on technical fit instead. K8up's
+  CNCF health rating is "Critical", with one dominant maintainer.
+
 - 2026-10-10: The operator's answers (UC-3) remove the stated need for streams 1–3. The workplace
   installation has one operator and needs no second-person approval, so multi-operator writer
   exclusion, named-reviewer approval and shared deployment material have no requirement today.
@@ -250,6 +271,16 @@ streams listed in Decomposition Strategy are intentionally not yet planned.
 
 
 ## Decision Log
+
+- Decision: Accept RES-6 (EP-163). Adopt no established backup tool. Nagare's native path stays
+  for databases and volumes. K8up/restic is EP-183 M3's fallback if its slice checkpoint stops.
+  CloudNativePG/Barman is reconsidered only if ADR 28's PostgreSQL recovery point tightens below
+  one hour. Velero is not recommended: its file-system backup is beta, it needs a root node agent,
+  and its backups are not consistent.
+  Rationale: the operator accepted the recommendation on 2026-10-10. Every boundary scored against
+  UC-3 and ADR 28 is met by the native path or by EP-183's extension of it, and adopting K8up would
+  still need ingestion, grading, refusals, retention and escrow built in Nagare.
+  Date: 2026-10-10
 
 - Decision: Do not plan streams 1–3 (multi-operator writer exclusion, named-reviewer approval, team
   access) or stream 5 (availability) now. Each is planned when a UC-3 requirement asks for it,
