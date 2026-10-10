@@ -3,6 +3,7 @@ module Nagare.Cli.Data.ScheduledReceipts
   ( ScheduledReceiptReport (..)
   , ReceiptReportError (..)
   , runListScheduledReceipts
+  , IngestSelection (..)
   , runReviewedScheduledReceiptPlan
   , scheduledReceiptReport
   , scheduledRecoveryPointProbes
@@ -12,7 +13,8 @@ module Nagare.Cli.Data.ScheduledReceipts
 where
 
 import Control.Exception (Exception, Handler (..), catches, throwIO, try)
-import Control.Monad (forM)
+import Control.Monad (forM, forM_)
+import Data.Foldable (toList)
 import Data.Generics.Labels ()
 import Data.List.NonEmpty qualified as NE
 import Data.Map qualified as Map
@@ -80,7 +82,8 @@ import Nagare.Inventory.ScheduledIngest
       , ingestSourceRevision
       , ingestStatefulUid
       )
-  , compileScheduledIngestScope
+  , compileScheduledIngestBatch
+  , pendingScheduledRuns
   , scheduledIngestEvidenceMatches
   )
 import Nagare.Inventory.ScheduledPrune (acceptedPastPolicy)
@@ -470,9 +473,19 @@ scheduledReceiptScan scan mctx database namespaceName bucketArg = do
             latestPending
       }
 
+-- | Which scheduled runs one ingestion review names.
+data IngestSelection
+  = -- | One run, by its producer Job UID; it must verify.
+    IngestRun !Text
+  | -- | EP-183 M2 (ADR 22 amendment): every verified run that is listed with
+    -- its receipt and not yet ingested. A run that does not verify is reported
+    -- and left unresolved, never ingested.
+    IngestAllVerified
+  deriving stock (Eq, Show)
+
 runReviewedScheduledReceiptPlan ::
-  Maybe String -> Text -> Text -> Maybe String -> Text -> FilePath -> IO ()
-runReviewedScheduledReceiptPlan mctx database namespaceName bucketArg backupId output = do
+  Maybe String -> Text -> Text -> Maybe String -> IngestSelection -> FilePath -> IO ()
+runReviewedScheduledReceiptPlan mctx database namespaceName bucketArg selection output = do
   active <- activeTarget mctx
   (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
   snapshot <- Inventory.loadTargetSnapshot active
@@ -572,10 +585,36 @@ runReviewedScheduledReceiptPlan mctx database namespaceName bucketArg backupId o
       ("nagare-dbbackup-" <> database <> "-signing")
       "HMAC_KEY"
   signingKey <- either dieT pure signingResult
-  candidateResult <- withScheduledObjectStore contextName backend $ \reader ->
-    inspectScheduledReceipt reader expectation backupId signingKey
-  evidence <- either dieT pure candidateResult >>= either dieT pure
-  let request =
+  let acceptedRuns =
+        Map.fromList
+          [ (selected, scope)
+          | (_, scope) <- Map.elems (ResourceInventory.snapshotScopes snapshot)
+          , Map.lookup "scheduled.backup.source.scope" (ResourceInventory.scopeOverrides scope)
+              == Just (Resource.scopeIdText (ResourceInventory.scopeId sourceScope))
+          , Just selected <- [Map.lookup "scheduled.backup.id" (ResourceInventory.scopeOverrides scope)]
+          ]
+      bucketPrefix = storeObjectUrl backend ""
+  inspected <- withScheduledObjectStore contextName backend $ \reader -> case selection of
+    IngestRun backupId -> do
+      evidence <- inspectScheduledReceipt reader expectation backupId signingKey
+      pure (fmap (\checked -> ([(backupId, checked)], [])) evidence)
+    IngestAllVerified -> case T.stripPrefix bucketPrefix (scheduledObjectPrefix expectation) of
+      Nothing -> pure (Left "accepted schedule has another bucket")
+      Just keyPrefix -> do
+        entries <- listObjectEntries reader keyPrefix
+        case entries of
+          Left reason -> pure (Left reason)
+          Right listed -> do
+            let (recognized, _) =
+                  classifyScheduledListingKeys bucketPrefix keyPrefix (scheduledFormat expectation) acceptedRuns (map listedKey listed)
+            checked <- forM (pendingScheduledRuns acceptedRuns recognized) $ \run ->
+              (run,) <$> inspectScheduledReceipt reader expectation run signingKey
+            pure (Right ([(run, evidence) | (run, Right evidence) <- checked], [(run, reason) | (run, Left reason) <- checked]))
+  (verified, unverified) <- either dieT pure inspected >>= either dieT pure
+  forM_ unverified $ \(run, reason) ->
+    TIO.putStrLn ("Not ingested (unresolved): " <> run <> ": " <> reason)
+  selected <- maybe (dieT "no verified scheduled run awaits ingestion") pure (NE.nonEmpty verified)
+  let request (backupId, evidence) =
         ScheduledIngestRequest
           { ingestDatabase = database
           , ingestNamespace = namespaceName
@@ -593,84 +632,87 @@ runReviewedScheduledReceiptPlan mctx database namespaceName bucketArg backupId o
                 backupId
           , ingestAcceptedIncarnations = InventoryStore.headIncarnations (InventoryPlan.historyHead history)
           }
-  (receiptScope, receiptNative) <-
+  compiled <-
     either
       (dieT . T.pack . show)
       pure
-      (compileScheduledIngestScope request sourceScope acceptedNative)
-  case Map.lookup
-    (ResourceInventory.scopeId receiptScope)
-    (ResourceInventory.snapshotScopes snapshot) of
-    Just (_, prior) | prior /= receiptScope -> do
-      let keys =
-            Set.toList
-              ( Map.keysSet (ResourceInventory.scopeOverrides prior)
-                  `Set.union` Map.keysSet (ResourceInventory.scopeOverrides receiptScope)
-              )
-          changed =
-            [ key
-            | key <- keys
-            , Map.lookup key (ResourceInventory.scopeOverrides prior)
-                /= Map.lookup key (ResourceInventory.scopeOverrides receiptScope)
-            ]
-          beforeDeclarations =
-            concatMap
-              ResourceInventory.declarations
-              (ResourceInventory.scopeBundles prior)
-          afterDeclarations =
-            concatMap
-              ResourceInventory.declarations
-              (ResourceInventory.scopeBundles receiptScope)
-          beforeOperations =
-            concatMap
-              ResourceInventory.operations
-              (ResourceInventory.scopeBundles prior)
-          afterOperations =
-            concatMap
-              ResourceInventory.operations
-              (ResourceInventory.scopeBundles receiptScope)
-      dieT
-        ( "scheduled receipt ID already has another accepted intent; changed fields: "
-            <> T.intercalate "," changed
-            <> "; native bundle changed: "
-            <> T.pack
-              ( show
-                  (ResourceInventory.scopeBundles prior /= ResourceInventory.scopeBundles receiptScope)
-              )
-            <> "; declaration changed: "
-            <> T.pack
-              ( show
-                  (beforeDeclarations /= afterDeclarations)
-              )
-            <> "; operation changed: "
-            <> T.pack
-              ( show
-                  (beforeOperations /= afterOperations)
-              )
-            <> "; config digest changed: "
-            <> T.pack
-              ( show
-                  (ResourceInventory.scopeConfigDigest prior /= ResourceInventory.scopeConfigDigest receiptScope)
-              )
-        )
-    _ -> pure ()
+      (compileScheduledIngestBatch (fmap request selected) sourceScope acceptedNative)
+  forM_ compiled $ \(receiptScope', _) -> do
+    case Map.lookup
+      (ResourceInventory.scopeId receiptScope')
+      (ResourceInventory.snapshotScopes snapshot) of
+      Just (_, prior) | prior /= receiptScope' -> do
+        let keys =
+              Set.toList
+                ( Map.keysSet (ResourceInventory.scopeOverrides prior)
+                    `Set.union` Map.keysSet (ResourceInventory.scopeOverrides receiptScope')
+                )
+            changed =
+              [ key
+              | key <- keys
+              , Map.lookup key (ResourceInventory.scopeOverrides prior)
+                  /= Map.lookup key (ResourceInventory.scopeOverrides receiptScope')
+              ]
+            beforeDeclarations =
+              concatMap
+                ResourceInventory.declarations
+                (ResourceInventory.scopeBundles prior)
+            afterDeclarations =
+              concatMap
+                ResourceInventory.declarations
+                (ResourceInventory.scopeBundles receiptScope')
+            beforeOperations =
+              concatMap
+                ResourceInventory.operations
+                (ResourceInventory.scopeBundles prior)
+            afterOperations =
+              concatMap
+                ResourceInventory.operations
+                (ResourceInventory.scopeBundles receiptScope')
+        dieT
+          ( "scheduled receipt ID already has another accepted intent; changed fields: "
+              <> T.intercalate "," changed
+              <> "; native bundle changed: "
+              <> T.pack
+                ( show
+                    (ResourceInventory.scopeBundles prior /= ResourceInventory.scopeBundles receiptScope')
+                )
+              <> "; declaration changed: "
+              <> T.pack
+                ( show
+                    (beforeDeclarations /= afterDeclarations)
+                )
+              <> "; operation changed: "
+              <> T.pack
+                ( show
+                    (beforeOperations /= afterOperations)
+                )
+              <> "; config digest changed: "
+              <> T.pack
+                ( show
+                    (ResourceInventory.scopeConfigDigest prior /= ResourceInventory.scopeConfigDigest receiptScope')
+                )
+          )
+      _ -> pure ()
+
   candidate <-
     either
       (dieT . T.pack . show)
       pure
       ( ResourceInventory.composeInventory
           snapshot
-          (ResourceInventory.ReplaceScope receiptScope NE.:| [])
+          (fmap (ResourceInventory.ReplaceScope . fst) compiled)
       )
   Inventory.planInventoryCandidateWith
     ( inventoryPlanRegistryWithNative
         active
         workspace
-        (Map.union receiptNative sourceNative)
+        (Map.unions (sourceNative : map snd (toList compiled)))
     )
     active
     candidate
     output
+  TIO.putStrLn ("Reviewing the ingestion of " <> T.pack (show (length compiled)) <> " verified scheduled run(s) in one transaction.")
   TIO.putStrLn
     ( "Saved exact scheduled receipt ingestion review. Apply it to verify both stored versions. "
         <> "Scheduled retention: "

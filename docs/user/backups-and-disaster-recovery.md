@@ -175,9 +175,10 @@ generation (GCS), and proves each key has no live object before it succeeds.
 A prune stopped part way closes by per-operation proof. If its Job failed,
 whether before deleting anything or after deleting only the archive, `db
 recover-scheduled-prune` reviews a recovery Job that finishes the same
-deletion and nothing more. Every run must be ingested (`db backup-receipts`)
-before a prune, because the review refuses a listing that differs from the
-accepted receipts.
+deletion and nothing more. Every run must be ingested before a prune, because
+the review refuses a listing that differs from the accepted receipts:
+`db backup-receipts NAME --all --save-plan DIR` ingests every verified,
+not-yet-ingested run in one review.
 
 On GCS the backup bucket is versioned (EP-99), so a pruned generation becomes
 noncurrent and the bucket's lifecycle rule deletes it 30 days later. A pruned
@@ -207,6 +208,17 @@ List and accept a scheduled receipt after its producer Job has gone:
 nagarectl db backup-receipts pg-main
 nagarectl db backup-receipts pg-main --backup-id JOB_UID --save-plan ./scheduled-receipt
 nagarectl inventory apply ./scheduled-receipt --yes
+```
+
+Or ingest every verified run that is not yet accepted, in one review
+([ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md),
+2026-10-10 amendment). Each run is still verified on its own and keeps its own
+receipt scope, Job and proof; a run that does not verify is reported and left
+unresolved:
+
+```bash
+nagarectl db backup-receipts pg-main --all --save-plan ./scheduled-receipts
+nagarectl inventory apply ./scheduled-receipts --yes
 ```
 
 Listing distinguishes verified candidates, accepted receipts and unresolved

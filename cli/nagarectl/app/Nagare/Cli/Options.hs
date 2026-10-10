@@ -820,6 +820,8 @@ data DbBackupReceiptsOpts = DbBackupReceiptsOpts
   , backupId :: !(Maybe String)
   , savePlan :: !(Maybe FilePath)
   , checkFreshness :: !Bool
+  , allVerified :: !Bool
+  -- ^ EP-183 M2: ingest every verified, not-yet-ingested run in one review.
   }
   deriving stock (Generic, Show)
 

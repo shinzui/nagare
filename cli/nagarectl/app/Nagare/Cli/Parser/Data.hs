@@ -213,6 +213,7 @@ dbBackupReceiptsOptsParser =
     <*> optional (strOption (long "backup-id" <> metavar "JOB_UID" <> help "Physical scheduled backup Job UID to ingest"))
     <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save an exact scheduled receipt ingestion review"))
     <*> switch (long "check-freshness" <> help "Fail unless the newest verified recovery point is within the warning threshold of the schedule's accepted objective")
+    <*> switch (long "all" <> help "With --save-plan: review the ingestion of every verified, not-yet-ingested scheduled run in one transaction")
 
 dbEscrowSigningKeyOptsParser :: Parser DbEscrowSigningKeyOpts
 dbEscrowSigningKeyOptsParser =
@@ -252,6 +253,7 @@ dbManualReceiptOptsParser =
     <*> dbBackupBucketOpt
     <*> (Just <$> strOption (long "backup-id" <> metavar "ID" <> help "Accepted manual backup ID"))
     <*> (Just <$> strOption (long "save-plan" <> metavar "DIR" <> help "Save a reviewed manual receipt record"))
+    <*> pure False
     <*> pure False
 
 storageCmd :: ParserInfo Command

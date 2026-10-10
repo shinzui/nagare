@@ -1722,3 +1722,36 @@ lessons constrain later work on the inventory:
   data loss or makes the release unusable. Every other finding goes to the deferral ledger with a
   named home.
 
+## Amendment — 2026-10-10: one review may ingest every verified scheduled run
+
+Approved by the operator on 2026-10-10 for EP-183 M2.
+
+Before this amendment a scheduled backup run became accepted only through `db backup-receipts NAME
+--backup-id JOB_UID --save-plan DIR`: one review and one transaction per run. At the `hourly`
+objective the producer uploads every 15 minutes, which is 96 runs a day. Retention prunes only
+accepted runs, and a prune refuses while the listing holds a run that is not accepted, so
+hand-ingesting each run made retention unusable.
+
+- **`db backup-receipts NAME --all --save-plan DIR` reviews one transaction that ingests every
+  verified, not-yet-ingested run of one source.** A candidate is a run whose archive and receipt
+  are both listed under the schedule's prefix and which no accepted scope names. Each candidate is
+  verified on its own exactly as single ingestion verifies it: both exact provider versions, the
+  bytes and the HMAC against the accepted signing Secret. A run that does not verify is reported
+  and left unresolved; it is never ingested.
+- **Nothing else changes.** Each run still compiles into its own receipt scope, ingestion Job and
+  verification proof (`compileScheduledIngestBatch` is `compileScheduledIngestScope` per run). ADR
+  26 per-operation proof, acceptance and restore authority are therefore those of single ingestion.
+  A batch stopped at any operation leaves each run accepted or not on its own. Close keeps each scope
+  in which something took effect and reverts the rest, so the next batch names exactly the runs
+  left over.
+- **One source at one observation.** The batch refuses requests that mix databases, source
+  revisions, incarnations or backends, or that name a run twice.
+- **Still excluded:** ingestion without a review, a daemon or second writer that ingests (MasterPlan
+  23 decision D1), and any change to what acceptance or restore authority means. Each needs its
+  own decision.
+- **Open cost.** Every accepted run keeps its receipt scope and its completed ingestion Job, and every
+  pruned run also keeps its prune scope and Job. Restore needs the ingestion Job to be present
+  (`db restore` refuses without it). Inventory history and the namespace's Job count therefore
+  grow with each ingested run. Bounding that growth, for example by retiring the scopes of a run
+  once its prune converges, is separate work.
+

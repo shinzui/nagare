@@ -8,6 +8,8 @@ module Nagare.Inventory.ScheduledIngest
   , scheduledIngestSourceProof
   , scheduledIngestEvidenceMatches
   , compileScheduledIngestScope
+  , pendingScheduledRuns
+  , compileScheduledIngestBatch
   , scheduledIngestJobSourcePins
   , ingestScriptFor
   )
@@ -17,6 +19,7 @@ import Data.Aeson (Value (..), eitherDecodeStrict, object, toJSON, (.=))
 import Data.Aeson.Key qualified as K
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
+import Data.Foldable (toList)
 import Data.Generics.Labels ()
 import Data.List (sort)
 import Data.List.NonEmpty (NonEmpty (..))
@@ -122,6 +125,58 @@ scheduledIngestEvidenceMatches scope evidence =
       ]
   where
     receipt = scheduledReceipt evidence
+
+-- | EP-183 M2 (ADR 22 amendment): the runs one batch review may ingest. Both
+-- the archive and its receipt are listed under the schedule's prefix, and no
+-- accepted scope names the run. Accepted and pruned runs, and half-written
+-- pairs, are never candidates; each candidate is still verified on its own
+-- before it is compiled.
+pendingScheduledRuns :: Map Text ScopeDeclaration -> [(Text, Bool)] -> [Text]
+pendingScheduledRuns accepted recognized =
+  [ run
+  | run <- sort (Map.keys (Map.fromList [(selected, ()) | (selected, _) <- recognized]))
+  , Map.notMember run accepted
+  , (run, True) `elem` recognized
+  , (run, False) `elem` recognized
+  ]
+
+-- | EP-183 M2 (ADR 22 amendment): one reviewed transaction that ingests every
+-- verified run of one source. Each run compiles exactly as a single ingestion
+-- does, into its own scope, Job and proof, so per-receipt verification, ADR 26
+-- per-operation proof and restore authority are unchanged. The batch only
+-- refuses requests that are not one source at one accepted revision, or that
+-- name a run twice.
+compileScheduledIngestBatch ::
+  NonEmpty ScheduledIngestRequest ->
+  ScopeDeclaration ->
+  Map ResourceId (ManagedResource, ByteString) ->
+  Either
+    (NonEmpty InventoryError)
+    (NonEmpty (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString)))
+compileScheduledIngestBatch requests@(first' :| _) accepted native = do
+  let invalid message =
+        inventoryError "invalid-scheduled-ingest" message
+          & #scopes
+          .~ [scopeId accepted]
+          & #sources
+          .~ [ingestSource first']
+          & (:| [])
+      source request =
+        ( ingestDatabase request
+        , ingestNamespace request
+        , ingestSourceRevision request
+        , [ingestStatefulUid request, ingestPvcUid request, ingestScheduleUid request, ingestSigningUid request]
+        , ingestBackend request
+        , ingestAcceptedIncarnations request
+        )
+      runs = map ingestBackupId (toList requests)
+  unless
+    (all ((== source first') . source) requests)
+    (Left (invalid "a batch ingestion mixes sources, revisions or incarnations"))
+  unless
+    (length (Map.keys (Map.fromList [(run, ()) | run <- runs])) == length runs)
+    (Left (invalid "a batch ingestion names a run twice"))
+  traverse (\request -> compileScheduledIngestScope request accepted native) requests
 
 compileScheduledIngestScope ::
   ScheduledIngestRequest ->

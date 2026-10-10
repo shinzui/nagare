@@ -585,6 +585,7 @@ test-suite nagarectl-test
     InventoryWorldFaultsSpec
     Nagare.Test.Application
     Nagare.Test.Backend
+    Nagare.Test.Backup.BatchIngest
     Nagare.Test.Backup.Escrow
     Nagare.Test.Backup.Objective
     Nagare.Test.Backup.Paths

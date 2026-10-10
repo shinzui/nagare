@@ -561,7 +561,7 @@ the labels `nagare.dev/managed-by: nagarectl` + `nagare.dev/database=<name>` +
 | `nagarectl db delete NAME --save-plan DIR` | Save a reviewed retirement that retains provider resources; apply separately. |
 | `nagarectl db backup NAME --backup-id ID --save-plan DIR` | Save a reviewed manual backup Job and apply separately. |
 | `nagarectl db backup-receipt NAME --backup-id ID --save-plan DIR` | Verify one accepted completed manual backup against stored bytes and save a reviewed durable receipt record; apply separately, then review Job collection separately. |
-| `nagarectl db backup-receipts NAME` | List scheduled backup receipts; an exact `--backup-id ID --save-plan DIR` ingests a verified run for review and apply. |
+| `nagarectl db backup-receipts NAME` | List scheduled backup receipts; an exact `--backup-id ID --save-plan DIR` ingests a verified run for review and apply, and `--all --save-plan DIR` ingests every verified, not-yet-ingested run in one review. |
 | `nagarectl db escrow-signing-key NAME [--output FILE]` | Write the scheduled-backup signing key, bound to the observed Secret and source UIDs, to a create-only sops-encrypted escrow in operator material. |
 | `nagarectl db verify-escrowed-backup NAME --backup-id ID [--escrow FILE]` | Verify one scheduled backup's receipt, source identities and archive hash with only the escrow and the object store; grants no restore authority. |
 | `nagarectl db prune-scheduled-backups NAME --save-plan DIR` | Review the removal of accepted scheduled runs past the retention policy (every point 48 h, the newest per day 30 days, always the newest). Admission re-evaluates the policy. Deletes are pinned to the reviewed version or GCS generation. |

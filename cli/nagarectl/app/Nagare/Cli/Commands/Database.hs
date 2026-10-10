@@ -26,7 +26,8 @@ import Nagare.Cli.Data.ScheduledPrune
   , runReviewedScheduledPruneRecoveryPlan
   )
 import Nagare.Cli.Data.ScheduledReceipts
-  ( runListScheduledReceipts
+  ( IngestSelection (..)
+  , runListScheduledReceipts
   , runReviewedScheduledReceiptPlan
   )
 import Nagare.Cli.Data.SigningKeyEscrow
@@ -226,24 +227,33 @@ runDb mctx = \case
       (o ^. #bucket)
       (o ^. #failedReview)
       (o ^. #savePlan)
-  DbBackupReceipts o -> case (o ^. #backupId, o ^. #savePlan) of
-    (Just selected, Just output) -> do
+  DbBackupReceipts o -> case (o ^. #backupId, o ^. #savePlan, o ^. #allVerified) of
+    (Just selected, Just output, False) -> do
       when (o ^. #checkFreshness) (dieT "--check-freshness is a read-only listing check; omit ingestion options")
       runReviewedScheduledReceiptPlan
         mctx
         (T.pack (o ^. #name))
         (nsOf (o ^. #namespace))
         (o ^. #bucket)
-        (T.pack selected)
+        (IngestRun (T.pack selected))
         output
-    (Nothing, Nothing) ->
+    (Nothing, Just output, True) -> do
+      when (o ^. #checkFreshness) (dieT "--check-freshness is a read-only listing check; omit ingestion options")
+      runReviewedScheduledReceiptPlan
+        mctx
+        (T.pack (o ^. #name))
+        (nsOf (o ^. #namespace))
+        (o ^. #bucket)
+        IngestAllVerified
+        output
+    (Nothing, Nothing, False) ->
       runListScheduledReceipts
         mctx
         (T.pack (o ^. #name))
         (nsOf (o ^. #namespace))
         (o ^. #bucket)
         (o ^. #checkFreshness)
-    _ -> dieT "scheduled receipt ingestion requires both --backup-id and --save-plan"
+    _ -> dieT "scheduled receipt ingestion requires --save-plan with exactly one of --backup-id or --all"
   DbEscrowSigningKey o ->
     runEscrowSigningKey mctx (T.pack (o ^. #name)) (nsOf (o ^. #namespace)) (o ^. #output)
   DbVerifyEscrowedBackup o -> do
