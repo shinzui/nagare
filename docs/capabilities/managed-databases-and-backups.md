@@ -60,8 +60,9 @@ or on-demand backups, retention, and scratch-first restoration through GCS or Mi
 ## Limits
 
 - These databases are explicitly non-HA and single-replica. They are not suitable for workloads
-  requiring managed failover. Whether a team intranet installation needs more is an open decision
-  in [MasterPlan 24](../masterplans/24-operate-nagare-as-a-team-run-workplace-intranet-paas.md).
+  requiring managed failover. For the workplace intranet this is a decision, not a gap:
+  [ADR 28](../adr/0028-the-intranet-stays-single-node-with-hourly-recovery-points-and-a-four-hour-rebuild.md)
+  keeps one node and commits to a one-hour recovery point and a four-hour rebuild instead.
 - Nagare owns workload-level backup Jobs, not physical-volume snapshots or point-in-time recovery.
 - Restore defaults to a scratch database; an in-place restore requires an explicit opt-in.
 - Rendering and data movement are extensively tested, but no live matrix exercises every engine on

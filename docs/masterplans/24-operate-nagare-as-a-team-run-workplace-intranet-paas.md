@@ -154,9 +154,9 @@ found to apply.
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 162 | Define team operating requirements and decide availability for the intranet PaaS | docs/plans/162-define-team-operating-requirements-and-decide-availability-for-the-intranet-paas.md | None | None | Not Started |
-| 163 | Evaluate established tooling against Nagare's managed-resource layers | docs/plans/163-evaluate-established-tooling-against-nagare-s-managed-resource-layers.md | EP-162 M1 (before EP-163 M3) | EP-162 | Not Started |
-| 183 | Close the intranet gaps left by v0.4.0: HTTPS login, volume backups, retention and service rebuild | docs/plans/183-close-the-intranet-gaps-left-by-v0-4-0-https-login-volume-backups-retention-and-service-rebuild.md | None | EP-162 M1 | Not Started |
+| 162 | Define team operating requirements and decide availability for the intranet PaaS | docs/plans/162-define-team-operating-requirements-and-decide-availability-for-the-intranet-paas.md | None | None | In Progress (M2 accepted; M1 written, awaiting operator confirmation of UC-3) |
+| 163 | Evaluate established tooling against Nagare's managed-resource layers | docs/plans/163-evaluate-established-tooling-against-nagare-s-managed-resource-layers.md | EP-162 M1 (before EP-163 M3) | EP-162 | In Progress (M1–M2 research and K8up prototype) |
+| 183 | Close the intranet gaps left by v0.4.0: HTTPS login, volume backups, retention and service rebuild | docs/plans/183-close-the-intranet-gaps-left-by-v0-4-0-https-login-volume-backups-retention-and-service-rebuild.md | None | EP-162 M1 | In Progress (M1 and M4 under way; M2 targets confirmed) |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-162).
@@ -217,6 +217,12 @@ operator decides, the tooling boundary between Nagare and established tools (aft
 
 ## Progress
 
+2026-10-10: Implementation started. EP-162: the operator answered the requirement questions; UC-3
+and ADR 28 (single node, one-hour recovery point, four-hour rebuild, 48 h / 30 day retention) are
+written, and UC-3 awaits the operator's confirmation. EP-183: M1 (HTTPS and login checks) and M4
+(rebuild lineage) are being implemented in parallel worktrees; M2's targets are confirmed. EP-163:
+M1 desk research and the K8up prototype are running as research; M3 waits on EP-162 M1.
+
 2026-10-09: EP-183 added (Not Started). It closes D2, D3 and D4 for the single-operator intranet.
 EP-162 M1 now also asks for retention targets.
 
@@ -230,10 +236,29 @@ streams listed in Decomposition Strategy are intentionally not yet planned.
 
 ## Surprises & Discoveries
 
-(None yet.)
+- 2026-10-10: The operator's answers (UC-3) remove the stated need for streams 1–3. The workplace
+  installation has one operator and needs no second-person approval, so multi-operator writer
+  exclusion, named-reviewer approval and shared deployment material have no requirement today.
+  UC-3 records operator succession as an open question. That question, not EP-163's
+  recommendation alone, is what would justify stream 3. The binding requirements (personal data,
+  public HTTPS login, retention, rebuild) are all EP-183's.
+- 2026-10-10: ADR 28 keeps the single node, so stream 5 (availability implementation) is not
+  needed.
+- 2026-10-10: Two of EP-183's context citations are stale. The legacy volume probe is
+  `backupPrefixes` in `cli/nagarectl/src/Nagare/Ops/Probe.hs:267`, not `Ops/Status.hs`. The
+  receipt `keep` field is at `cli/nagarectl/src/Nagare/Database/Backup.hs:196`, not around line 708.
 
 
 ## Decision Log
+
+- Decision: Do not plan streams 1–3 (multi-operator writer exclusion, named-reviewer approval, team
+  access) or stream 5 (availability) now. Each is planned when a UC-3 requirement asks for it,
+  whatever EP-163 recommends. EP-163 still completes, because its scoring is the evidence for any
+  later tool adoption.
+  Rationale: the operator stated one operator and no second approval (UC-3), and ADR 28 keeps the
+  single node. Planning those streams now would build for requirements nobody stated, which this
+  MasterPlan's first decision rules out.
+  Date: 2026-10-10
 
 - Decision: Volume backups extend Nagare's scheduled database producer (EP-183 M3), not K8up. The
   operator's condition is that this stays small. EP-183 M3 starts with a vertical slice, and stops

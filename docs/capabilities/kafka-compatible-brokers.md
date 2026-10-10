@@ -58,6 +58,9 @@ the observability stack includes broker scrape and dashboard assets.
 
 - Only the Redpanda provider is implemented. The Tansu shape described in planning material is not a
   capability and is not claimed here.
-- The broker is single-node and non-HA, matching Nagare's current single-node platform shape.
+- The broker is single-node and non-HA, matching Nagare's single-node platform shape
+  ([ADR 28](../adr/0028-the-intranet-stays-single-node-with-hourly-recovery-points-and-a-four-hour-rebuild.md)).
+  Broker data is not backed up and has no recovery-point objective. A rebuild after losing the
+  data disk starts with empty topics, so keep authoritative data in a managed database.
 - Broker behavior is proven through rendering and fixture-based health parsing; a live failure and
   recovery drill is not part of the default CI suite.
