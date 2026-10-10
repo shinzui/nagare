@@ -223,6 +223,18 @@ refusals backend = withSystemTempDirectory "nagare-prune-world" $ \directory -> 
   assertBool "a reuploaded live version was recovered" (refused /= ExitSuccess)
   after <- readBucketState directory
   objects after @?= objects reuploaded
+  -- The same bytes uploaded again are still another version: only the pin
+  -- refuses them, since the hash matches.
+  let identical =
+        (initial backend)
+          { objects =
+              Map.insert dataKey [BucketVersion (objectVersion backend) archive False, BucketVersion "8" archive True] (objects (initial backend))
+          }
+  writeBucketState directory identical
+  refusedIdentical <- runShell directory backend (scheduledReceiptRecoveryShell (inputs backend)) Nothing
+  assertBool "an identical re-upload at another version was recovered" (refusedIdentical /= ExitSuccess)
+  identicalAfter <- readBucketState directory
+  objects identicalAfter @?= objects identical
   -- A receipt whose bytes changed is left in place, after the reviewed
   -- archive is gone.
   let changed =
