@@ -94,6 +94,13 @@ This plan only makes sure its changes are covered by that transition's compatibi
   recovery point, recording the lineage. It is proven in the recovery model under faults first.
   On a local context whose cluster was deleted, the documented rebuild brings the fixture back into
   service with its data, and the time is recorded.
+  - [x] (2026-10-10) PostgreSQL rebuild: `inventory rebuild-decisions`, `inventory rebuild`,
+    `db restore-rebuilt`, a model scenario under every fault placement, five refusal mutations,
+    the ADR 27 amendment and the runbook. `gate-fast` is green on the worker branch.
+  - [ ] ClickHouse and Redis restore, volume members from snapshot receipts, and an offline
+    object-store option for the local rehearsal.
+  - [ ] Full gate and `gate-deep` (Admission changed), batched with M2; then the local
+    cluster-delete rehearsal on cp3, timed.
 - [ ] M5. Native run N1 (local, cp3) and native run N2 (fresh cloud context, Let's Encrypt
   certificate) pass all M1–M4 checks. That includes a manual passkey login in a browser that trusts
   the certificate, and a VM-loss rebuild within the agreed recovery time. Evidence is under
@@ -101,6 +108,21 @@ This plan only makes sure its changes are covered by that transition's compatibi
 
 
 ## Surprises & Discoveries
+
+- Observation (M4): the model found 25 runs with no exit. In each, the cluster was lost while an
+  accepted durable member had never been recorded, because a create's response was lost or a
+  review was closed, so the rebuild could name no predecessor.
+  Evidence: the fast tier on the parent tree of the worker branch's first M4 commit.
+  Fix: such members rebuild `fresh` only; a recovery point needs a recorded predecessor.
+- Observation (M4): restoring into a live database is deferred in v0.4.0, so the rebuild's data
+  restore is a separate reviewed step (`db restore-rebuilt`). It loads only into an empty
+  database, in one transaction.
+- Observation (M4): `InventoryRecoveryModelSpec.hs` and `Suite.hs` were at their 1000-line caps.
+  Ingestion moved to `Nagare.Test.Model.Ingest`, and the rebuild tests are nested under the
+  incarnation group.
+- Observation (M4): in local mode the bucket is the in-cluster MinIO, which is lost with the
+  cluster. The rehearsal needs a preserved bucket copy and an offline object-store option for the
+  rebuild commands.
 
 - Observation: the inventory deploy reported a protected route as served while it answered only
   plain HTTP.
@@ -128,6 +150,21 @@ This plan only makes sure its changes are covered by that transition's compatibi
 
 
 ## Decision Log
+
+- Decision: The rebuild has its own input and commands (`inventory rebuild-decisions`, `inventory
+  rebuild`) instead of an `inventory adopt` field. Its candidate is the accepted scopes with their
+  stored native bytes. The lineage is recorded in the journal, not the head: a `rebuilds` field in
+  the review, found from the first event that returned the recorded UID.
+  Rationale: adopt needs a compiled candidate, and a rebuild after VM loss has none. The head
+  format is unchanged, so EP-172 needs a row only for the review field.
+  Date: 2026-10-10
+- Decision: The data restore is a second reviewed step (`db restore-rebuilt`). It checks the
+  receipt with the predecessor's escrowed key, pins exact object versions, and loads only into an
+  empty target in one transaction. Applications deploy only after it.
+  Rationale: a fenced restore inside the rebuild transaction would need a new executor operation
+  per engine. An empty-target check plus an atomic load makes a retry safe, and nothing writes
+  before the apps deploy.
+  Date: 2026-10-10
 
 - Decision: Put the certificate wait in the Kubernetes readiness adapter, not in the application
   deploy through `Nagare.Domain.Tls`. The adapter gains `domainMappingReady` plus a wait for an
