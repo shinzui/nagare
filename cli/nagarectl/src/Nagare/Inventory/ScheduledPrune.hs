@@ -17,6 +17,8 @@ module Nagare.Inventory.ScheduledPrune
   , classifyStoppedPrune
   , scheduledPruneProviderMatches
   , notYetIngestedRuns
+  , ScheduledCleanup (..)
+  , scheduledPruneCleanup
   )
 where
 
@@ -47,7 +49,7 @@ import Nagare.Inventory.BackupRetention (RetentionPolicy, RetentionSplit (..), r
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.ScheduledStore (ListedObject (..))
-import Nagare.Inventory.Store (ScopeRevision (..))
+import Nagare.Inventory.Store (RetainedIncarnation (..), ScopeRevision (..))
 import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes (KubernetesInput (..))
 import Nagare.Resource.Policy
@@ -56,7 +58,7 @@ import Nagare.Resource.Policy
   , RecoveryClass (OperatorRecovery)
   , Sensitivity (Private)
   )
-import Nagare.Resource.Reference (Dependency (OrderedAfter))
+import Nagare.Resource.Reference (Dependency (..), refSignature)
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
 import Text.Read (readMaybe)
@@ -322,6 +324,83 @@ notYetIngestedRuns keyPrefix format known expected listed = do
       let objectSuffix = "." <> format
       run <- maybe (T.stripSuffix objectSuffix leaf) Just (T.stripSuffix (objectSuffix <> ".receipt.json") leaf)
       if validUid run then Just run else Nothing
+
+-- | EP-183 M2 (decided 2026-10-10): the lagged cleanup each prune review
+-- carries for one source, so pruned runs leave nothing behind.
+data ScheduledCleanup = ScheduledCleanup
+  { retire :: ![ScopeId]
+  -- ^ Review k+1: the receipt scope of each run whose prune converged, with
+  -- every prune or recovery scope that names it, retired together so no
+  -- dependency dangles. Their Jobs become retained incarnations.
+  , collect :: ![ResourceId]
+  -- ^ Review k+2 and after: the retained Jobs an earlier accepted retirement
+  -- of this source's receipt, prune or recovery scopes left, each once nothing
+  -- accepted or retained still depends on it. Collection forbids a known
+  -- consumer, so prune and recovery Jobs go first and the ingestion Job they
+  -- ran after goes in the following review.
+  }
+  deriving stock (Eq, Show, Generic)
+
+-- | A run is done when a prune or receipt-recovery scope naming its receipt
+-- converged at its accepted revision. A prune that stopped and was closed
+-- keeps its scope accepted but never converged, so its run stays for `db
+-- recover-scheduled-prune` until that recovery converges. Pruned runs are not
+-- restorable, so retiring them changes no restore authority.
+scheduledPruneCleanup ::
+  Text ->
+  Text ->
+  ScopeId ->
+  Map.Map ScopeId (ScopeRevision, ScopeDeclaration) ->
+  Map.Map ScopeId ScopeRevision ->
+  Map.Map ResourceId (RetainedIncarnation, ManagedResource) ->
+  ScheduledCleanup
+scheduledPruneCleanup namespaceName database source accepted converged retained =
+  ScheduledCleanup
+    { retire = Set.toAscList (Set.fromList (concat [backup : namers backup | backup <- done]))
+    , collect =
+        [ resource
+        | (resource, (incarnation, _)) <- Map.toAscList retained
+        , any (`T.isPrefixOf` nameText (scopeName (retainedOwner incarnation))) ownerPrefixes
+        , Set.notMember resource consumed
+        ]
+    }
+  where
+    fields = scopeOverrides . snd
+    sourceRuns =
+      Set.fromList
+        [ owner
+        | (owner, entry) <- Map.toList accepted
+        , Map.lookup "scheduled.backup.source.scope" (fields entry) == Just (scopeIdText source)
+        ]
+    pruning =
+      [ (owner, backup, revision)
+      | (owner, entry@(revision, _)) <- Map.toList accepted
+      , Just name <- [Map.lookup "scheduled.prune.backup.scope" (fields entry)]
+      , backup <- [candidate | candidate <- Set.toList sourceRuns, scopeIdText candidate == name]
+      ]
+    done = Set.toList (Set.fromList [backup | (owner, backup, revision) <- pruning, Map.lookup owner converged == Just revision])
+    namers backup = [owner | (owner, named, _) <- pruning, named == backup]
+    consumed =
+      Set.fromList
+        ( map
+            producerOf
+            ( concat
+                [ declarationDependencies declared
+                | (_, scope) <- Map.elems accepted
+                , bundle <- scopeBundles scope
+                , declared <- declarations bundle
+                ]
+                <> concat [old ^. #dependencies | (_, old) <- Map.elems retained]
+            )
+        )
+    producerOf = \case
+      OrderedAfter resource -> resource
+      Consumes reference -> let (resource, _, _, _, _) = refSignature reference in resource
+      ReadyAfter reference -> let (resource, _, _, _, _) = refSignature reference in resource
+    ownerPrefixes =
+      [ prefix <> namespaceName <> "-" <> database <> "-"
+      | prefix <- ["database-scheduled-receipt-", "database-scheduled-prune-", "database-scheduled-prune-recovery-"]
+      ]
 
 -- | The signed recovery point an accepted receipt scope recorded at ingestion,
 -- if its receipt carried one (v5). A malformed value refuses.

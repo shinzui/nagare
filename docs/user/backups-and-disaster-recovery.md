@@ -181,6 +181,13 @@ review. A run uploaded later, strictly newer than every accepted run, does not
 refuse the prune: it is reported as not yet ingested and never pruned. An
 un-ingested run that is not newer refuses until it is ingested.
 
+Each prune review also cleans up runs pruned by earlier reviews. Once a run's
+prune has converged, the next review retires its receipt and prune scopes. The
+review after collects the retained prune Job, and the one after that collects
+the ingestion Job. A prune that stopped and was closed is left for `db
+recover-scheduled-prune`. When nothing new is past policy, `db
+prune-scheduled-backups` still offers a review that carries only this cleanup.
+
 On GCS the backup bucket is versioned (EP-99), so a pruned generation becomes
 noncurrent and the bucket's lifecycle rule deletes it 30 days later. A pruned
 copy of personal data therefore lingers for up to 30 more days, plus GCS's

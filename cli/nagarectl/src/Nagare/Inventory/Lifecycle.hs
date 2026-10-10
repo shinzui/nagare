@@ -8,6 +8,7 @@ module Nagare.Inventory.Lifecycle
   , decideAdoption
   , decideRetirement
   , decideCollection
+  , decideRetirementAndCollection
   )
 where
 
@@ -133,22 +134,22 @@ decideRetirement ::
   ObservationSet ->
   Either (NonEmpty PlanError) LifecycleDecisions
 decideRetirement candidate history observations =
-  validateLifecycleDecisions
-    candidate
-    history
-    observations
-    [ LifecycleProposal
-        resourceId
-        ApproveRetirement
-        (lifecycleObservationDigest binding resourceId fact)
-    | Managed resource <- historyDeclarations history
-    , Set.member (resource ^. #owner) retiring
-    , let resourceId = resource ^. #identity
-    , Just fact <- [Map.lookup resourceId (observationMap observations)]
-    , -- A confirmed-absent member has nothing to retain; planning either
-    -- drops it (no data) or refuses (missing data) (F58).
-    not (isAbsent fact)
-    ]
+  validateLifecycleDecisions candidate history observations (retirementProposals candidate history observations)
+
+retirementProposals :: CompositionCandidate -> InventoryHistory -> ObservationSet -> [LifecycleProposal]
+retirementProposals candidate history observations =
+  [ LifecycleProposal
+      resourceId
+      ApproveRetirement
+      (lifecycleObservationDigest binding resourceId fact)
+  | Managed resource <- historyDeclarations history
+  , Set.member (resource ^. #owner) retiring
+  , let resourceId = resource ^. #identity
+  , Just fact <- [Map.lookup resourceId (observationMap observations)]
+  , -- A confirmed-absent member has nothing to retain; planning either
+  -- drops it (no data) or refuses (missing data) (F58).
+  not (isAbsent fact)
+  ]
   where
     isAbsent (ConfirmedAbsent _) = True
     isAbsent _ = False
@@ -162,23 +163,38 @@ decideRetirement candidate history observations =
         , Map.member owner (historyAccepted history)
         ]
 
+-- | EP-183 M2: one review that retires scopes and collects incarnations an
+-- earlier review retained validates both kinds of proposal together, each by
+-- the rule its own command uses.
+decideRetirementAndCollection ::
+  CompositionCandidate ->
+  InventoryHistory ->
+  ObservationSet ->
+  Either (NonEmpty PlanError) LifecycleDecisions
+decideRetirementAndCollection candidate history observations =
+  validateLifecycleDecisions
+    candidate
+    history
+    observations
+    (retirementProposals candidate history observations <> collectionProposals candidate observations)
+
 decideCollection ::
   CompositionCandidate ->
   InventoryHistory ->
   ObservationSet ->
   Either (NonEmpty PlanError) LifecycleDecisions
 decideCollection candidate history observations =
-  validateLifecycleDecisions
-    candidate
-    history
-    observations
-    [ LifecycleProposal
-        resource
-        ApproveCollection
-        (lifecycleObservationDigest binding resource fact)
-    | CollectRetained resource <- NE.toList (candidateChanges candidate)
-    , Just fact <- [Map.lookup resource (observationMap observations)]
-    ]
+  validateLifecycleDecisions candidate history observations (collectionProposals candidate observations)
+
+collectionProposals :: CompositionCandidate -> ObservationSet -> [LifecycleProposal]
+collectionProposals candidate observations =
+  [ LifecycleProposal
+      resource
+      ApproveCollection
+      (lifecycleObservationDigest binding resource fact)
+  | CollectRetained resource <- NE.toList (candidateChanges candidate)
+  , Just fact <- [Map.lookup resource (observationMap observations)]
+  ]
   where
     binding = inventoryBinding (candidateInventory candidate)
 

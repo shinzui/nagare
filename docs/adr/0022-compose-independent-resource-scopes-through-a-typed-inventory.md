@@ -1749,9 +1749,24 @@ hand-ingesting each run made retention unusable.
 - **Still excluded:** ingestion without a review, a daemon or second writer that ingests (MasterPlan
   23 decision D1), and any change to what acceptance or restore authority means. Each needs its
   own decision.
-- **Open cost.** Every accepted run keeps its receipt scope and its completed ingestion Job, and every
-  pruned run also keeps its prune scope and Job. Restore needs the ingestion Job to be present
-  (`db restore` refuses without it). Inventory history and the namespace's Job count therefore
-  grow with each ingested run. Bounding that growth, for example by retiring the scopes of a run
-  once its prune converges, is separate work.
+- **Pruned runs leave nothing behind (decided 2026-10-10).** Every accepted run keeps its receipt
+  scope and its completed ingestion Job while it is retained, which is about 48 h × 4 + 30 ≈ 222
+  runs at steady state. Restore needs the ingestion Job present (`db restore` refuses without it).
+  A pruned run is not restorable, so its scopes are removed. Each `db prune-scheduled-backups`
+  review carries the earlier runs' cleanup, using only the existing retire and collect changes:
+  - **Review k** prunes the run.
+  - **Review k+1** retires the run's receipt scope together with every prune or recovery scope that
+    names it, once one of them converged at its accepted revision. Retiring them together leaves
+    no dependency dangling. A prune that stopped and was closed is accepted but never converged, so
+    it stays for `db recover-scheduled-prune` until that recovery converges.
+  - **Review k+2** collects the retained prune and recovery Jobs.
+  - **Review k+3** collects the ingestion Job they ran after, since collection refuses while any
+    accepted or retained resource depends on it.
+
+  The steps cannot share one transaction. Retiring the receipt scope beside its prune scope dangles
+  the prune Job's dependency. A scope cannot be replaced and retired in one review. Collection
+  needs a retained incarnation from an earlier accepted retirement. A review may carry only
+  cleanup, with nothing new to prune. The selection is `scheduledPruneCleanup`, and planning
+  validates it with the existing retirement and collection rules
+  (`decideRetirementAndCollection`).
 

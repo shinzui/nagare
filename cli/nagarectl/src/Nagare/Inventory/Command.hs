@@ -14,6 +14,7 @@ module Nagare.Inventory.Command
   , planInventoryWithRetirements
   , planInventoryCandidateWithRetirements
   , planInventoryCandidateWith
+  , planInventoryCandidateWithDecider
   , planInventoryCandidateWithPayloadIdentity
   , convergeInventoryCandidateWith
   , planInventoryCandidateAdoptionWith

@@ -57,16 +57,19 @@ import Nagare.Inventory.Digest qualified as InventoryDigest
 import Nagare.Inventory.KubernetesReview
   ( kubernetesSpecsFromReview
   )
+import Nagare.Inventory.Lifecycle (decideRetirementAndCollection)
 import Nagare.Inventory.Plan qualified as InventoryPlan
 import Nagare.Inventory.ScheduledGcs (withScheduledObjectStore)
 import Nagare.Inventory.ScheduledPrune
-  ( ScheduledPruneCandidate (..)
+  ( ScheduledCleanup (..)
+  , ScheduledPruneCandidate (..)
   , ScheduledPruneRequest (..)
   , classifyStoppedPrune
   , compileScheduledPruneRecoveryScope
   , compileScheduledPruneScope
   , notYetIngestedRuns
   , recoverScheduledPruneCandidate
+  , scheduledPruneCleanup
   , selectScheduledPruneCandidates
   )
 import Nagare.Inventory.ScheduledStore
@@ -81,6 +84,7 @@ import Nagare.Inventory.ScheduledStore
 import Nagare.Inventory.Status qualified as InventoryStatus
 import Nagare.Inventory.Store qualified as InventoryStore
 import Nagare.Resource.Inventory qualified as ResourceInventory
+import Nagare.Resource.Policy (RetirementIntent (RetainResources))
 import Nagare.Resource.Reference qualified as ResourceReference
 import Nagare.Resource.Types qualified as Resource
 import Nagare.Resource.Wire qualified as ResourceWire
@@ -241,7 +245,19 @@ runReviewedScheduledPrunePlan mctx database namespaceName bucketArg output = do
           ]
   pending <- either dieT pure (notYetIngestedRuns keyPrefix (scheduledFormat expectation) knownRuns expectedKeys listed)
   forM_ pending $ \run -> TIO.putStrLn ("Not yet ingested, newer than every accepted run, kept: " <> run)
-  when (null candidates) (dieT ("no accepted scheduled backup is past the retention policy (" <> retentionPolicyText standardRetention <> ")"))
+  -- EP-183 M2: each prune review also carries the lagged cleanup of runs
+  -- pruned by earlier reviews; a review may carry only that cleanup.
+  let cleanup =
+        scheduledPruneCleanup
+          namespaceName
+          database
+          (ResourceInventory.scopeId sourceScope)
+          (InventoryPlan.historyAccepted history)
+          (InventoryStore.headConverged (InventoryPlan.historyHead history))
+          (InventoryPlan.historyRetained history)
+  when
+    (null candidates && null (retire cleanup) && null (collect cleanup))
+    (dieT ("no accepted scheduled backup is past the retention policy (" <> retentionPolicyText standardRetention <> ") and nothing pruned earlier awaits cleanup"))
   let contextName = contextNameText (active ^. #contextName)
   context <- either dieT pure (Resource.mkContextId contextName)
   let config = KubernetesRuntimeConfig context contextName (fmap (fmap (const ())) (guardKubernetesContext active))
@@ -293,13 +309,31 @@ runReviewedScheduledPrunePlan mctx database namespaceName bucketArg output = do
     pure (pruneScope, Map.union pruneNative backupNative)
   replacements <-
     maybe
-      (dieT "no scheduled prune candidate")
+      (dieT "no scheduled prune or cleanup change")
       pure
-      (NE.nonEmpty [ResourceInventory.ReplaceScope scope | (scope, _) <- compiled])
+      ( NE.nonEmpty
+          ( [ResourceInventory.ReplaceScope scope | (scope, _) <- compiled]
+              <> [ResourceInventory.RetireScope owner RetainResources | owner <- retire cleanup]
+              <> [ResourceInventory.CollectRetained resource | resource <- collect cleanup]
+          )
+      )
   candidate <- either (dieT . T.pack . show) pure (ResourceInventory.composeInventory snapshot replacements)
   let native = Map.unions (sourceNative : map snd compiled)
-  Inventory.planInventoryCandidateWith (inventoryPlanRegistryWithNative active workspace native) active candidate output
-  TIO.putStrLn ("Saved exact scheduled pruning review for " <> T.pack (show (length candidates)) <> " run(s) past the retention policy.")
+  Inventory.planInventoryCandidateWithDecider
+    (inventoryPlanRegistryWithNative active workspace native)
+    (\planning observations -> decideRetirementAndCollection candidate planning observations)
+    active
+    candidate
+    output
+  TIO.putStrLn
+    ( "Saved exact scheduled pruning review: "
+        <> T.pack (show (length candidates))
+        <> " run(s) past the retention policy; retiring "
+        <> T.pack (show (length (retire cleanup)))
+        <> " scope(s) of runs pruned earlier; collecting "
+        <> T.pack (show (length (collect cleanup)))
+        <> " retained Job(s)."
+    )
 
 runReviewedScheduledPruneRecoveryPlan ::
   Maybe String ->
