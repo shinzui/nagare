@@ -8,7 +8,9 @@ This bundle catalogs what Nagare provides today to someone standing up or using 
 Every record names a mechanism a consumer can adopt and verify independently, carries a stable
 `CAP-N` handle, and points to evidence in this repository.
 
-The version 0.1.0 release manifest includes every capability below. Compatibility remains
+The catalog includes capabilities shipped through [Nagare 0.4.0](../releases/v0.4.0.md).
+Each record preserves the release in which its mechanism first shipped in `since`;
+CAP-21 through CAP-23 describe the inventory introduced in 0.4.0. Compatibility remains
 `experimental`: a later release may change an interface without a major-version bump. `shipped`
 means the implementation is packaged; it does not erase the live-verification limits recorded on
 individual pages. Confirm that a tag is published on the
@@ -49,6 +51,26 @@ individual pages. Confirm that a tag is published on the
 | [CAP-18](forward-auth-route-enforcement.md) | Forward-auth route enforcement | `nagare-access`, `nagarectl` |
 | [CAP-19](versioned-nix-distribution.md) | Versioned Nix distribution and clone-free operation | `nagarectl`, `nagare-platform` |
 | [CAP-20](rotating-forge-credentials.md) | Rotating role-scoped forge credentials | `nixos-hosts` |
+| [CAP-21](typed-resource-inventories.md) | Typed resource inventories | `nagare-dsl`, `nagarectl` |
+| [CAP-22](reviewed-operation-ledger.md) | Reviewed operation ledger | `nagarectl`, `nagare-dsl` |
+| [CAP-23](resource-identity-and-lifecycle.md) | Resource identity and reviewed lifecycle | `nagarectl`, `nagare-dsl` |
+
+## Inventory and operation ledger
+
+The inventory is the shared ownership and execution mechanism behind managed
+platform and application changes. [CAP-21](typed-resource-inventories.md) covers
+typed composition and independent scopes. [CAP-22](reviewed-operation-ledger.md)
+covers saved reviews, the durable cross-tool journal, conditional shared
+history, and recovery. [CAP-23](resource-identity-and-lifecycle.md) covers live
+observation, incarnation checks, retirement, and separately reviewed collection.
+
+Start with the [inventory explanation](../user/resource-inventory.md) for the
+model and the [inventory operations runbook](../runbooks/inventory-operations.md)
+for apply, resume, takeover, closure, and identity recovery. The 0.4.0 contract
+covers fresh inventory-backed contexts. Data retention and recovery limits
+remain explicit; consult the
+[production readiness checklist](../releases/production-readiness-checklist.md)
+for the accepted drills and remaining production boundaries.
 
 ## Validation
 

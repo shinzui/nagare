@@ -3,8 +3,8 @@ title: "Application and platform day-2 operations"
 type: Capability
 description: "Inspect and operate applications and the single-node platform without assembling raw kubectl and gcloud queries by hand."
 generated:
-  by: codex/gpt-5
-  at: "2026-08-25T20:51:44Z"
+  by: process:openai-codex
+  at: "2026-10-10T05:03:04Z"
 reviews:
   - kind: model
     reviewer: process:openai-codex
@@ -18,9 +18,6 @@ reviews:
     context: >-
       Reviewed the capability, compatibility promise, and repository evidence for inclusion in
       the version 0.1.0 Nix release.
-verified:
-  by: process:openai-codex
-  at: "2026-08-25T20:51:44Z"
 capabilityId: CAP-10
 provider: mori://shinzui/nagare
 status: shipped
@@ -45,6 +42,12 @@ evidence:
   - kind: guide
     resource: docs/user/troubleshooting.md
     proves: Diagnostic results are connected to concrete operator remediation.
+  - kind: test
+    resource: cli/nagarectl/test/InventoryCleanupSpec.hs
+    proves: Reviewed history cleanup preserves current releases and unrelated scopes and refuses stale bytes or missing ownership.
+  - kind: guide
+    resource: docs/user/resource-inventory.md
+    proves: Accepted ownership, live observation, retained resources, and reviewed lifecycle are explained.
 ---
 
 # Application and platform day-2 operations
@@ -55,11 +58,17 @@ report, graded health checks with repair hints, and bounded cleanup of images, p
 These commands share Nagare's target selection and output/parsing layer rather than exposing one
 thin wrapper per underlying tool invocation.
 
+In 0.4.0, managed mutations use the [reviewed operation ledger](reviewed-operation-ledger.md)
+(CAP-22). Application deletion saves a retirement review; applying it retains members. Physical
+collection requires its own eligible review. Inventory status and explain add ownership,
+incarnation, dependency, and lifecycle findings through
+[resource identity and reviewed lifecycle](resource-identity-and-lifecycle.md) (CAP-23).
+
 ## Limits
 
-- The CLI shells out to installed `kubectl`, `gcloud`, container, and Pulumi tools; it is not a
-  direct Kubernetes or cloud API client.
-- Parsers and decisions are covered by fixtures, but several live verbs remain pending a fresh
-  cloud-target exercise.
-- Cleanup is dry-run by default, but confirmed operation mutates cluster and host state and should be
-  reviewed before use.
+- Commands use native executors and provider transports; the inventory coordinates their evidence
+  rather than replacing Kubernetes reconciliation or Pulumi state.
+- Read-only inspection is not deletion authority. Legacy confirmed cleanup refuses after
+  substantive inventory history; current image, release, and preview cleanup uses saved reviews.
+- Durable members and retained consumers may block collection. Full-context physical teardown is
+  outside the 0.4.0 inventory contract.

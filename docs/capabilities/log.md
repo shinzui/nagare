@@ -1,5 +1,11 @@
 # Bundle Update Log
 
+## 2026-10-10
+
+* **Addition**: Add CAP-21 typed resource inventories, CAP-22 reviewed operation ledger, and CAP-23 resource identity and reviewed lifecycle, shipped in 0.4.0, with source, regression, native release, and operator evidence.
+* **Update**: Link inventory mechanisms from deployment, rollout, day-2 operations, volume, and database records; correct image publication, retirement, isolated restore, and unenforced scheduled retention claims while preserving their original `since` versions.
+* **Update**: Refresh the catalog's release scope and add inventory explanation and recovery runbook entrypoints.
+
 ## 2026-08-28
 * **Update**: Remove the pre-release limitation from CAP-6 for the 0.1.0 release candidate.
 
