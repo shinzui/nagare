@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/ScheduledPrune.hs b/cli/nagarectl/src/Nagare/Inventory/ScheduledPrune.hs
+index 1a0739ed..29cf3731 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/ScheduledPrune.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/ScheduledPrune.hs
+@@ -410,7 +410,7 @@ scheduledPruneCleanup namespaceName runSource source schedule accepted converged
+         [ owner
+         | (owner, entry) <- Map.toList accepted
+         , Map.lookup "scheduled.backup.source.scope" (fields entry) == Just (scopeIdText source)
+-        , runSchedule (snd entry) == Just (resourceIdText schedule)
++        , True
+         ]
+     pruning =
+       [ (owner, backup, revision)

@@ -1066,5 +1066,35 @@
     "suite": "nagarectl",
     "pattern": "/a restore Job naming a backup Job beside a recovery point without one is refused/",
     "expect": "test-fails"
+  },
+  {
+    "record": "EP183-volume-prune-selection-ignores-schedule",
+    "suite": "nagarectl",
+    "pattern": "/scheduled prune selects only accepted exact pairs past the retention policy/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "EP183-volume-cleanup-ignores-schedule",
+    "suite": "nagarectl",
+    "pattern": "/cleanup retires a run/&&/never after a closed failure/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "EP183-volume-retention-status-ignores-schedule",
+    "suite": "nagarectl",
+    "pattern": "/server status counts accepted unpruned runs past policy/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "EP183-volume-admission-ignores-schedule",
+    "suite": "nagarectl",
+    "pattern": "/admission checks only new prunes, under the release policy/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "EP183-volume-prune-prefix-ignores-volume",
+    "suite": "nagarectl",
+    "pattern": "/a volume's scheduled run is pruned only under its own volume's prefix/",
+    "expect": "test-fails"
   }
 ]

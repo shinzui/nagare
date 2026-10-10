@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/ScheduledPrune.hs b/cli/nagarectl/src/Nagare/Inventory/ScheduledPrune.hs
+index 1a0739ed..96d496ae 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/ScheduledPrune.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/ScheduledPrune.hs
+@@ -529,7 +529,7 @@ scheduledPruneRetentionAdmission policy now acceptedScopes reviewed = do
+           [ scope
+           | scope <- current
+           , Map.lookup "scheduled.backup.source.scope" (scopeOverrides scope) == Just policySource
+-          , runSchedule scope == Just schedule
++          , True
+           , Set.notMember (scopeIdText (scopeId scope)) alreadyPruned
+           ]
+     points <- traverse (\scope -> (scopeIdText (scopeId scope),) <$> acceptedRecoveryPoint scope) siblings

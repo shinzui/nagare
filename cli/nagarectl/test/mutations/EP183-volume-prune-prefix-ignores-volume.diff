@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/ScheduledPrune.hs b/cli/nagarectl/src/Nagare/Inventory/ScheduledPrune.hs
+index 1a0739ed..97062cb3 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/ScheduledPrune.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/ScheduledPrune.hs
+@@ -108,7 +108,7 @@ pruneSourceOwner role namespaceName source run =
+ pruneSourceKeyPrefix :: Text -> PruneSource -> Text
+ pruneSourceKeyPrefix namespaceName = \case
+   DatabasePruneSource database -> dbBackupKeyPrefix database
+-  VolumePruneSource app volume -> volumeBackupKeyPrefix namespaceName app volume
++  VolumePruneSource app volume -> "scheduled-volumes/"
+ 
+ -- | The schedule an accepted run was ingested under.
+ runSchedule :: ScopeDeclaration -> Maybe Text
