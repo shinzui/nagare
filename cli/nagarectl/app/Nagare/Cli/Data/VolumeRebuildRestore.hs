@@ -6,6 +6,7 @@
 module Nagare.Cli.Data.VolumeRebuildRestore
   ( runVolumeRebuildRestorePlan
   , recordedVolumeSnapshot
+  , recordedVolumeRun
   )
 where
 
@@ -27,13 +28,13 @@ import Nagare.Inventory.Adapter qualified as InventoryAdapter
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.DataService (acceptedFoundationNamespace)
 import Nagare.Inventory.Identity (checkedPhysical, requireAccepted)
-import Nagare.Inventory.Lineage (RebuildSource (FromRecoveryPoint), RecoveryPointKind (VolumeSnapshotRecoveryPoint))
+import Nagare.Inventory.Lineage (RebuildSource (FromRecoveryPoint), RecoveryPointKind (ScheduledVolumeRecoveryPoint, VolumeSnapshotRecoveryPoint))
 import Nagare.Inventory.LineageHistory (memberLineage)
 import Nagare.Inventory.Plan qualified as InventoryPlan
 import Nagare.Inventory.Status qualified as InventoryStatus
 import Nagare.Inventory.Store qualified as InventoryStore
 import Nagare.Inventory.VolumeRebuildRestore (VolumeRebuildRestoreRequest (..), compileVolumeRebuildRestoreScope)
-import Nagare.Inventory.VolumeRestoreSource (verifyRecordedVolumeSnapshot)
+import Nagare.Inventory.VolumeRestoreSource (verifyIngestedVolumeRun, verifyRecordedVolumeSnapshot)
 import Nagare.Resource.Inventory qualified as ResourceInventory
 import Nagare.Resource.Types qualified as Resource
 import Nagare.Storage.Discover (pvcName)
@@ -51,6 +52,24 @@ recordedVolumeSnapshot snapshot claim selected =
        ] of
     [single] -> Right single
     _ -> Left "the claim has no unique accepted manual snapshot with that receipt or ID"
+
+-- | The accepted, unpruned scheduled volume run of one claim (EP-183 M3), by
+-- the receipt its rebuild names or by its run ID.
+recordedVolumeRun :: ResourceInventory.ScopeSnapshot -> Resource.ResourceId -> (Map.Map Text Text -> Bool) -> Either Text ResourceInventory.ScopeDeclaration
+recordedVolumeRun snapshot claim selected =
+  case [ scope
+       | scope <- scopes
+       , let fields = ResourceInventory.scopeOverrides scope
+       , Map.lookup "scheduled.backup.source.kind" fields == Just "volume"
+       , Map.lookup "scheduled.backup.source.pvc" fields == Just (Resource.resourceIdText claim)
+       , selected fields
+       , Resource.scopeIdText (ResourceInventory.scopeId scope) `notElem` pruned
+       ] of
+    [single] -> Right single
+    _ -> Left "the claim has no unique accepted, unpruned scheduled volume run with that receipt or ID"
+  where
+    scopes = map snd (Map.elems (ResourceInventory.snapshotScopes snapshot))
+    pruned = [backup | scope <- scopes, Just backup <- [Map.lookup "scheduled.prune.backup.scope" (ResourceInventory.scopeOverrides scope)]]
 
 runVolumeRebuildRestorePlan :: Maybe String -> Text -> Text -> Text -> Text -> Maybe String -> Maybe (String, FilePath) -> FilePath -> IO ()
 runVolumeRebuildRestorePlan mctx app volume namespaceName restoreKey bucketArg offline output = do
@@ -75,9 +94,16 @@ runVolumeRebuildRestorePlan mctx app volume namespaceName restoreKey bucketArg o
       >>= either dieT pure
       >>= maybe (dieT "the claim's recorded incarnation was not created by a converged rebuild; a snapshot restores into it only through a scratch restore") pure
   point <- case lineage ^. #proof . #source of
-    FromRecoveryPoint selected | selected ^. #kind == VolumeSnapshotRecoveryPoint -> pure selected
-    _ -> dieT "the claim's rebuild names no volume snapshot recovery point"
-  snapshotScope <- either dieT pure (recordedVolumeSnapshot snapshot (pvc ^. #identity) ((== Just (point ^. #receipt)) . Map.lookup "volume-backup.receipt"))
+    FromRecoveryPoint selected
+      | selected ^. #kind `elem` [VolumeSnapshotRecoveryPoint, ScheduledVolumeRecoveryPoint] -> pure selected
+    _ -> dieT "the claim's rebuild names no volume recovery point"
+  -- A manual snapshot is checked against its snapshot record; a scheduled run
+  -- against its ingestion record (EP-183 M3).
+  (recoveryScope, verifyRecovery) <- either dieT pure $ case point ^. #kind of
+    ScheduledVolumeRecoveryPoint ->
+      (,verifyIngestedVolumeRun) <$> recordedVolumeRun snapshot (pvc ^. #identity) ((== Just (point ^. #receipt)) . Map.lookup "scheduled.backup.receipt")
+    _ ->
+      (,verifyRecordedVolumeSnapshot) <$> recordedVolumeSnapshot snapshot (pvc ^. #identity) ((== Just (point ^. #receipt)) . Map.lookup "volume-backup.receipt")
   targetRevision <- case Map.lookup (ResourceInventory.scopeId targetScope) (InventoryPlan.historyAccepted history) of
     Just (revision, accepted) | accepted == targetScope -> pure revision
     _ -> dieT "the claim's scope differs from accepted history"
@@ -113,7 +139,7 @@ runVolumeRebuildRestorePlan mctx app volume namespaceName restoreKey bucketArg o
   pvcUid <- either dieT pure (requireAccepted "the rebuilt claim" (checkedPhysical (InventoryStore.headIncarnations headValue) (pvc ^. #identity) pvcLive))
   credentialPin <- traverse (\member -> (member,) <$> live (member ^. #identity)) credential
   recovery <-
-    withRecoveryStore (contextNameText (active ^. #contextName)) backend offline (\reader -> verifyRecordedVolumeSnapshot reader snapshotScope)
+    withRecoveryStore (contextNameText (active ^. #contextName)) backend offline (\reader -> verifyRecovery reader recoveryScope)
       >>= either dieT pure
   let request =
         VolumeRebuildRestoreRequest

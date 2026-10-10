@@ -340,8 +340,8 @@ data Command
   | InventoryCompile FilePath FilePath Bool
   | InventoryPlan FilePath [String] FilePath
   | InventoryAdopt FilePath FilePath
-  | -- | --recovery-point, --volume-snapshot, --fresh, --bucket, --offline-object-store, --offline-credentials, --out (EP-183 M4)
-    InventoryRebuildDecisions [String] [String] [String] (Maybe String) (Maybe String) (Maybe FilePath) FilePath
+  | -- | --recovery-point, --volume-snapshot, --volume-run, --fresh, --bucket, --offline-object-store, --offline-credentials, --out (EP-183 M4, M3)
+    InventoryRebuildDecisions [String] [String] [String] [String] (Maybe String) (Maybe String) (Maybe FilePath) FilePath
   | InventoryRebuild FilePath FilePath
   | InventoryMigrate FilePath FilePath
   | InventoryRetire (NE.NonEmpty String) FilePath

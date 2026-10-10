@@ -22,7 +22,7 @@ import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Nagare.Cli.Data.SigningKeyEscrow (withRecoveryStore)
-import Nagare.Cli.Data.VolumeRebuildRestore (recordedVolumeSnapshot)
+import Nagare.Cli.Data.VolumeRebuildRestore (recordedVolumeRun, recordedVolumeSnapshot)
 import Nagare.Cli.Inventory.Planning (inventoryPlanRegistryWithNative)
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Cli.Runtime.ObjectStore (resolveStoreBackend)
@@ -30,11 +30,11 @@ import Nagare.Cli.Runtime.Target (activeTarget, resolvePlatformWorkspace)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter qualified as InventoryAdapter
 import Nagare.Inventory.Command qualified as Inventory
-import Nagare.Inventory.Lineage (RebuildSource (..), RecoveryPoint (..), RecoveryPointKind (ScheduledRecoveryPoint, VolumeSnapshotRecoveryPoint), renderRebuild)
+import Nagare.Inventory.Lineage (RebuildSource (..), RecoveryPoint (..), RecoveryPointKind (ScheduledRecoveryPoint, ScheduledVolumeRecoveryPoint, VolumeSnapshotRecoveryPoint), renderRebuild)
 import Nagare.Inventory.Plan qualified as InventoryPlan
 import Nagare.Inventory.Rebuild (RebuildInput (..), decideRebuild, decodeRebuildInput, rebuildTargets)
 import Nagare.Inventory.Status qualified as InventoryStatus
-import Nagare.Inventory.VolumeRestoreSource (verifyRecordedVolumeSnapshot)
+import Nagare.Inventory.VolumeRestoreSource (verifyIngestedVolumeRun, verifyRecordedVolumeSnapshot)
 import Nagare.Resource.Inventory qualified as ResourceInventory
 import Nagare.Resource.Policy (DataPolicy (Durable))
 import Nagare.Resource.Types qualified as Resource
@@ -54,8 +54,8 @@ offlineStore store credentials = case (store, credentials) of
 -- the scheduled recovery point given for it; an application volume names an
 -- accepted manual snapshot, verified here from the object store (or an
 -- offline copy); a volume starts fresh only when the operator says so.
-runInventoryRebuildDecisions :: Maybe String -> [String] -> [String] -> [String] -> Maybe String -> Maybe (String, FilePath) -> FilePath -> IO ()
-runInventoryRebuildDecisions mctx pointArgs snapshotArgs freshArgs bucketArg offline output = do
+runInventoryRebuildDecisions :: Maybe String -> [String] -> [String] -> [String] -> [String] -> Maybe String -> Maybe (String, FilePath) -> FilePath -> IO ()
+runInventoryRebuildDecisions mctx pointArgs snapshotArgs runArgs freshArgs bucketArg offline output = do
   active <- activeTarget mctx
   scheduled <- either dieT pure (traverse parsePoint pointArgs)
   fresh <- either dieT pure (traverse (Resource.mkResourceId . T.pack) freshArgs)
@@ -71,7 +71,19 @@ runInventoryRebuildDecisions mctx pointArgs snapshotArgs freshArgs bucketArg off
           withRecoveryStore (contextNameText (active ^. #contextName)) backend offline (\reader -> verifyRecordedVolumeSnapshot reader scope)
             >>= either dieT pure
         pure (member, (RecoveryPoint VolumeSnapshotRecoveryPoint (recovery ^. #receiptUrl) (recovery ^. #receiptDigest), Just (recovery ^. #sourcePvcUid)))
-  let points = [(member, (point, Nothing)) | (member, point) <- scheduled] <> snapshots
+  -- EP-183 M3: an application volume may also name an accepted scheduled run.
+  runs <- case runArgs of
+    [] -> pure []
+    _ -> do
+      backend <- resolveStoreBackend mctx bucketArg
+      forM runArgs $ \argument -> do
+        (member, runId) <- either dieT pure (parseMemberValue "--volume-run" "RUN_ID" argument)
+        scope <- either dieT pure (recordedVolumeRun snapshot member ((== Just runId) . Map.lookup "scheduled.backup.id"))
+        recovery <-
+          withRecoveryStore (contextNameText (active ^. #contextName)) backend offline (\reader -> verifyIngestedVolumeRun reader scope)
+            >>= either dieT pure
+        pure (member, (RecoveryPoint ScheduledVolumeRecoveryPoint (recovery ^. #receiptUrl) (recovery ^. #receiptDigest), Just (recovery ^. #sourcePvcUid)))
+  let points = [(member, (point, Nothing)) | (member, point) <- scheduled] <> snapshots <> runs
   observed <-
     InventoryAdapter.observeWithRegistry registry (InventoryPlan.requirementsByExecutor (InventoryPlan.observationRequirements candidate history))
       >>= either dieT pure
@@ -88,7 +100,7 @@ runInventoryRebuildDecisions mctx pointArgs snapshotArgs freshArgs bucketArg off
               ( InventoryPlan.PlanError
                   "rebuild-recovery-point"
                   ( "name the predecessor's newest verified recovery point with --recovery-point (db verify-escrowed-backup prints it)"
-                      <> " or --volume-snapshot, or start the volume empty with --fresh"
+                      <> ", --volume-snapshot or --volume-run, or start the volume empty with --fresh"
                   )
                   [member]
               )
@@ -182,12 +194,16 @@ parsePoint argument = case T.breakOn "=" (T.pack argument) of
 
 -- | RESOURCE_ID=SNAPSHOT_ID: an accepted manual snapshot of that claim.
 parseSnapshot :: String -> Either Text (Resource.ResourceId, Text)
-parseSnapshot argument = case T.breakOn "=" (T.pack argument) of
+parseSnapshot = parseMemberValue "--volume-snapshot" "SNAPSHOT_ID"
+
+-- | RESOURCE_ID=VALUE for the named option.
+parseMemberValue :: Text -> Text -> String -> Either Text (Resource.ResourceId, Text)
+parseMemberValue option valueName argument = case T.breakOn "=" (T.pack argument) of
   (member, rest)
-    | Just snapshotId <- T.stripPrefix "=" rest
-    , not (T.null snapshotId) ->
-        (,snapshotId) <$> Resource.mkResourceId member
-  _ -> Left "--volume-snapshot is RESOURCE_ID=SNAPSHOT_ID"
+    | Just value <- T.stripPrefix "=" rest
+    , not (T.null value) ->
+        (,value) <$> Resource.mkResourceId member
+  _ -> Left (option <> " is RESOURCE_ID=" <> valueName)
 
 renderError :: InventoryPlan.PlanError -> Text
 renderError err =

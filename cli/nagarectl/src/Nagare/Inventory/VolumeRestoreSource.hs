@@ -6,6 +6,7 @@
 module Nagare.Inventory.VolumeRestoreSource
   ( verifyVolumeBackupObjects
   , verifyRecordedVolumeSnapshot
+  , verifyIngestedVolumeRun
   )
 where
 
@@ -22,12 +23,12 @@ import Data.Time.Clock.POSIX (utcTimeToPOSIXSeconds)
 import Data.Time.Format (defaultTimeLocale, parseTimeM)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Digest (contentDigest)
-import Nagare.Inventory.Lineage (RecoveryPointKind (VolumeSnapshotRecoveryPoint))
+import Nagare.Inventory.Lineage (RecoveryPointKind (ScheduledVolumeRecoveryPoint, VolumeSnapshotRecoveryPoint))
 import Nagare.Inventory.ScheduledStore (ObjectReader (..), StoredObject (..))
 import Nagare.Inventory.VolumeRebuildRestore (VolumeRecoverySource (..))
 import Nagare.Inventory.VolumeRestore (VolumeObjectPins (..))
 import Nagare.Resource.Inventory (ScopeDeclaration, scopeOverrides)
-import Nagare.Resource.Types (mkPhysicalIdentity)
+import Nagare.Resource.Types (digestText, mkContentDigest, mkPhysicalIdentity)
 import System.Directory (getFileSize)
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
@@ -137,6 +138,60 @@ verifyRecordedVolumeSnapshot reader scope = case recorded of
               then Right checksum
               else Left "stored volume receipt names another snapshot, archive, scope or claim incarnation than the inventory recorded"
       _ -> Left "stored volume receipt is not a version-1 snapshot receipt"
+
+-- | EP-183 M3: verify an accepted scheduled volume run from the object store
+-- alone, for a scratch restore or a rebuild after the cluster is gone. Its
+-- ingestion review verified the receipt's HMAC and recorded the exact archive
+-- and receipt versions, the archive checksum and the receipt digest; the
+-- stored objects at those versions must still be exactly those bytes.
+verifyIngestedVolumeRun :: ObjectReader -> ScopeDeclaration -> IO (Either T.Text VolumeRecoverySource)
+verifyIngestedVolumeRun reader scope = case recorded of
+  Left reason -> pure (Left reason)
+  Right (archiveUrl, archiveVersion, checksum, receiptAddress, receiptAt, receiptHash, sourceUid) ->
+    withSystemTempDirectory "nagare-volume-run-source" $ \scratch -> do
+      receipt <- readObjectToFile reader receiptAddress (Just receiptAt) (scratch </> "receipt")
+      archive <- readObjectToFile reader archiveUrl (Just archiveVersion) (scratch </> "archive")
+      case (receipt, archive) of
+        (Left reason, _) -> pure (Left reason)
+        (_, Left reason) -> pure (Left reason)
+        (Right receiptInfo, Right archiveInfo) -> do
+          stored <- BS.readFile (scratch </> "receipt")
+          actual <- sha256File (scratch </> "archive")
+          pure $ do
+            unless
+              (storedVersion receiptInfo == receiptAt && storedVersion archiveInfo == archiveVersion)
+              (Left "the stored volume run is not at its accepted versions")
+            unless (digestText (contentDigest stored) == receiptHash) (Left "the stored volume run receipt differs from the accepted receipt")
+            unless (actual == checksum) (Left "the stored volume run archive differs from its accepted checksum")
+            physical <- mkPhysicalIdentity sourceUid
+            digest <- mkContentDigest receiptHash
+            Right
+              VolumeRecoverySource
+                { kind = ScheduledVolumeRecoveryPoint
+                , objectUrl = archiveUrl
+                , objectVersion = archiveVersion
+                , archiveSha256 = actual
+                , receiptUrl = receiptAddress
+                , receiptVersion = receiptAt
+                , receiptDigest = digest
+                , sourcePvcUid = physical
+                , expiryEpoch = Nothing
+                }
+  where
+    overrides = scopeOverrides scope
+    field key = maybe (Left ("the accepted volume run lacks " <> key)) Right (Map.lookup key overrides)
+    recorded = do
+      unless (Map.lookup "scheduled.backup.source.kind" overrides == Just "volume") (Left "the accepted run is not a scheduled volume run")
+      archiveUrl <- field "scheduled.backup.object"
+      archiveVersion <- field "scheduled.backup.object.version"
+      checksum <- field "scheduled.backup.object.sha256"
+      receiptAddress <- field "scheduled.backup.receipt"
+      receiptAt <- field "scheduled.backup.receipt.version"
+      receiptHash <- field "scheduled.backup.receipt.digest"
+      sourceUid <- field "scheduled.backup.source.pvc.uid"
+      unless (receiptAddress == archiveUrl <> ".receipt.json") (Left "the accepted volume run's receipt is not beside its archive")
+      unless (all (not . T.null) [archiveVersion, receiptAt]) (Left "the accepted volume run lacks exact stored versions")
+      pure (archiveUrl, archiveVersion, checksum, receiptAddress, receiptAt, receiptHash, sourceUid)
 
 -- | Read the current object, then the same version explicitly; both reads
 -- must agree on version, length and bytes.

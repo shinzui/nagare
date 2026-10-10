@@ -63,6 +63,7 @@ inventoryCmd =
                   ( InventoryRebuildDecisions
                       <$> many (strOption (long "recovery-point" <> metavar "RESOURCE_ID=RECEIPT_URL@RECEIPT_SHA256" <> help "The verified scheduled database backup a missing database volume restores from; repeat per volume"))
                       <*> many (strOption (long "volume-snapshot" <> metavar "RESOURCE_ID=SNAPSHOT_ID" <> help "The accepted manual snapshot a missing application volume restores from, verified now; repeat per volume"))
+                      <*> many (strOption (long "volume-run" <> metavar "RESOURCE_ID=RUN_ID" <> help "The accepted scheduled run a missing application volume restores from, verified now; repeat per volume"))
                       <*> many (strOption (long "fresh" <> metavar "RESOURCE_ID" <> help "Start this missing volume empty, recovering none of its data; repeat as needed"))
                       <*> optional (strOption (long "bucket" <> metavar "BUCKET" <> help "GCS backup bucket (overrides the target profile)"))
                       <*> optional (strOption (long "offline-object-store" <> metavar "URL" <> help "Local mode: verify snapshots against an offline copy of the object store at a loopback http://127.0.0.1:PORT"))

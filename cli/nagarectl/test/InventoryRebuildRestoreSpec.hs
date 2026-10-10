@@ -34,7 +34,7 @@ import Nagare.Inventory.ScheduledStore (ObjectReader (..), StoredObject (..))
 import Nagare.Inventory.Store (ScopeRevision (..))
 import Nagare.Inventory.VolumeRebuildRestore (VolumeRebuildRestoreRequest (..), VolumeRecoverySource (..), compileVolumeRebuildRestoreScope)
 import Nagare.Inventory.VolumeRestore (volumeRestoreJobSourcePins)
-import Nagare.Inventory.VolumeRestoreSource (verifyRecordedVolumeSnapshot)
+import Nagare.Inventory.VolumeRestoreSource (verifyIngestedVolumeRun, verifyRecordedVolumeSnapshot)
 import Nagare.Resource.Database (DatabaseDirectInput (..))
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
@@ -101,6 +101,24 @@ inventoryRebuildRestoreTests =
         verifyRecordedVolumeSnapshot altered snapshotScope >>= assertBool "an altered archive verified" . refusedWith "differs from its receipt checksum"
         moving <- movingReader [(snapshotReceipt, [("7", receiptBytes "uid-old-pvc" archiveSha)]), (snapshotObject, [("8", archiveBytes)])]
         verifyRecordedVolumeSnapshot moving snapshotScope >>= assertBool "an object that changed between reads verified" . refusedWith "changed while reading"
+    , testCase "an accepted scheduled volume run verifies from the object store against its ingestion record" $ do
+        good <- fakeReader [(runReceipt, [("5", runReceiptBytes)]), (runObject, [("6", archiveBytes)])]
+        verifyIngestedVolumeRun good runScope >>= (@?= Right runRecovery)
+        altered <- fakeReader [(runReceipt, [("5", runReceiptBytes)]), (runObject, [("6", "tampered")])]
+        verifyIngestedVolumeRun altered runScope >>= assertBool "an altered run archive verified" . refusedWith "differs from its accepted checksum"
+        swapped <- fakeReader [(runReceipt, [("5", "another receipt")]), (runObject, [("6", archiveBytes)])]
+        verifyIngestedVolumeRun swapped runScope >>= assertBool "another receipt verified" . refusedWith "differs from the accepted receipt"
+        verifyIngestedVolumeRun good (withScopeOverrides (Map.delete "scheduled.backup.source.kind" (scopeOverrides runScope)) runScope)
+          >>= assertBool "a database run verified as a volume run" . refusedWith "not a scheduled volume run"
+    , testCase "a volume rebuild restore also loads the scheduled run its rebuild named" $ do
+        let point = RecoveryPoint ScheduledVolumeRecoveryPoint runReceipt (contentDigest runReceiptBytes)
+            request = volumeRequest {lineage = volumeLineage & #proof . #source .~ FromRecoveryPoint point, recovery = runRecovery}
+            refusal = either (\errors -> T.intercalate "; " [err ^. #message | err <- NE.toList errors]) (const "")
+        (restoreScope, _) <- either (assertFailure . show) pure (volumeCompile request)
+        Map.lookup "volume-restore.rebuild.predecessor" (scopeOverrides restoreScope) @?= Just "uid-old-pvc"
+        assertBool
+          "a run restored in place of the snapshot the rebuild named"
+          ("not the recovery point the rebuild named" `T.isInfixOf` refusal (volumeCompile volumeRequest {recovery = runRecovery}))
     ]
   where
     refused text = either (any ((text `T.isInfixOf`) . (^. #message)) . NE.toList) (const False)
@@ -262,6 +280,46 @@ volumeRequest =
     , backend = testBackend
     , credential = Nothing
     , source = SourceLocation "test" "volume-rebuild-restore"
+    }
+
+runObject, runReceipt :: Text
+runObject = storeObjectUrl testBackend "scheduled-volumes/personal/web/uploads/run-1.tar.gz"
+runReceipt = runObject <> ".receipt.json"
+
+runReceiptBytes :: ByteString
+runReceiptBytes = "{\"version\":5}"
+
+-- | An accepted scheduled volume run's ingestion record (EP-183 M3).
+runScope :: ScopeDeclaration
+runScope =
+  withScopeOverrides
+    ( Map.fromList
+        [ ("scheduled.backup.id", "run-1")
+        , ("scheduled.backup.object", runObject)
+        , ("scheduled.backup.object.version", "6")
+        , ("scheduled.backup.object.sha256", archiveSha)
+        , ("scheduled.backup.receipt", runReceipt)
+        , ("scheduled.backup.receipt.version", "5")
+        , ("scheduled.backup.receipt.digest", digestText (contentDigest runReceiptBytes))
+        , ("scheduled.backup.source.kind", "volume")
+        , ("scheduled.backup.source.pvc", resourceIdText volumeClaim)
+        , ("scheduled.backup.source.pvc.uid", "uid-old-pvc")
+        ]
+    )
+    (Fixtures.ok (mkScopeDeclaration (Fixtures.ok (mkScopeId Standalone "volume-scheduled-receipt-personal-nagare-volbackup-web-uploads-run-1")) []))
+
+runRecovery :: VolumeRecoverySource
+runRecovery =
+  VolumeRecoverySource
+    { kind = ScheduledVolumeRecoveryPoint
+    , objectUrl = runObject
+    , objectVersion = "6"
+    , archiveSha256 = archiveSha
+    , receiptUrl = runReceipt
+    , receiptVersion = "5"
+    , receiptDigest = contentDigest runReceiptBytes
+    , sourcePvcUid = uid "uid-old-pvc"
+    , expiryEpoch = Nothing
     }
 
 -- | The accepted snapshot scope's record, as the snapshot compiler writes it.

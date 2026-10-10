@@ -114,7 +114,8 @@ compileVolumeRebuildRestoreScope request accepted native = do
     (lineage' ^. #resource == pvc ^. #identity && lineage' ^. #incarnation == request ^. #targetPvcUid)
     (Left (invalid "the target claim is not the incarnation a reviewed rebuild created; only that incarnation receives its predecessor's recovery point"))
   point <- case lineage' ^. #proof . #source of
-    FromRecoveryPoint selected | selected ^. #kind == VolumeSnapshotRecoveryPoint -> Right selected
+    FromRecoveryPoint selected
+      | selected ^. #kind `elem` [VolumeSnapshotRecoveryPoint, ScheduledVolumeRecoveryPoint] -> Right selected
     FromRecoveryPoint _ -> Left (invalid "the rebuild names another kind of recovery point; a volume rebuild restore loads a volume recovery point")
     Fresh -> Left (invalid "the rebuild started the volume fresh; it names no recovery point")
   unless

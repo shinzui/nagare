@@ -173,9 +173,9 @@ dispatch (mctx, cmd0) = case cmd0 of
   InventoryCompile input output json -> Inventory.compileInventory input output json
   InventoryPlan input retained output -> runInventoryPlan mctx input retained output
   InventoryAdopt input output -> runInventoryAdopt mctx input output
-  InventoryRebuildDecisions points snapshots fresh bucket store credentials output -> do
+  InventoryRebuildDecisions points snapshots runs fresh bucket store credentials output -> do
     offline <- offlineStore store credentials
-    runInventoryRebuildDecisions mctx points snapshots fresh bucket offline output
+    runInventoryRebuildDecisions mctx points snapshots runs fresh bucket offline output
   InventoryRebuild input output -> runInventoryRebuild mctx input output
   InventoryMigrate input output -> runInventoryMigrate mctx input output
   InventoryRetire owner output -> runInventoryRetire mctx owner output
