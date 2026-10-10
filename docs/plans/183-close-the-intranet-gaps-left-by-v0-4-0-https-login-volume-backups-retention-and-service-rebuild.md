@@ -95,8 +95,12 @@ This plan only makes sure its changes are covered by that transition's compatibi
     - one recovery Job for any stopped prune;
     - batch ingestion, `db backup-receipts --all` (ADR 22 amendment, operator-approved);
     - tolerance for runs uploaded after the newest accepted run.
-  - [ ] Bounded scope and Job growth: the lagged retire-then-collect steps, carried by later
-    prune reviews.
+  - [x] (2026-10-10) Bounded scope and Job growth. Review k+1 retires a converged run's receipt
+    scope and its prune or recovery scopes. Review k+2 collects the prune and recovery Jobs, and
+    k+3 the ingestion Job. Cleanup-only reviews are supported. `gate-fast` is green on the worker
+    branch.
+  - [ ] The operator's review of the 30-day noncurrent GCS window. The empty-GCS-prefix message
+    is deferred.
   - [ ] Full gate and land; then a local check of the WARN row and the prune.
 - [ ] M3. (Decision recorded 2026-10-09: extend the database producer.) Every backup-included
   volume of a context has a scheduled producer with signed receipts. Its
@@ -140,6 +144,9 @@ This plan only makes sure its changes are covered by that transition's compatibi
   (`dangling-reference`). A scope cannot be replaced and retired in one review. Collection needs a
   retirement accepted in an earlier review. Bounded growth therefore lags one or two prune
   reviews.
+- Observation (M2): a test provider that fixed its present set before apply recorded no
+  incarnations at convergence, so a retirement silently retained nothing. World observation must
+  read the store at call time.
 - Observation (M2): the forward scheduled prune already existed (keep-last-N, MinIO only) before
   it was deferred in `699ae909`. M2 restored it on the new policy.
 
@@ -215,8 +222,10 @@ This plan only makes sure its changes are covered by that transition's compatibi
   and keeping newer points only adds safety.
   Date: 2026-10-10
 - Decision: Bound scope and Job growth with lagged steps carried by each later prune review. The
-  next review retires the prune and receipt scopes of runs whose prune converged; the review after
-  that collects their retained Jobs. Prunes closed after a failure stay for recovery.
+  next review retires the prune and receipt scopes of runs whose prune converged. Collection then
+  takes two more reviews: the prune and recovery Jobs first, then the ingestion Job, because
+  collection refuses a Job that a retained resource still depends on. Prunes closed after a
+  failure stay for recovery.
   Rationale: only existing retire and collect semantics can be used. Pruned runs are not
   restorable, so restore authority is unchanged. At steady state about 222 retained runs keep
   their Jobs.
