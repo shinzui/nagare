@@ -51,7 +51,7 @@ validateInventoryReleaseEvidence version revision assets = do
   forM_ ["registeredRoutes", "recipes", "libraryCalls"] $ \key -> require (positive (field key coverage)) "command coverage lacks a mutation family"
   deferred <- strings (field "deferredRoutes" coverage)
   recovery <- strings (field "recoveryOnlyRoutes" coverage)
-  require (deferred == ["DbCommand.DbPruneScheduledBackups", "DbCommand.DbRestore.--into-live", "DbCommand.DbShell", "StorageCommand.StorageRestore.--into-live"] && recovery == ["DbCommand.DbRecoverScheduledPrune"]) "command coverage changes the supported contract"
+  require (deferred == ["DbCommand.DbRestore.--into-live", "DbCommand.DbShell", "StorageCommand.StorageRestore.--into-live"] && recovery == ["DbCommand.DbRecoverScheduledPrune"]) "command coverage changes the supported contract"
   native <- array (field "nativeSystems" index)
   nativeSystems <- traverse (text . field "system") native
   require (unique nativeSystems && Set.fromList nativeSystems == Set.fromList systems) "inventory index lacks exactly the supported native systems"

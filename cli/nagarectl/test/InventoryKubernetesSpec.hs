@@ -36,6 +36,7 @@ import Nagare.Inventory.Adapters.Kubernetes
 import Nagare.Inventory.Adapters.KubernetesRuntime (KubernetesRuntimeConfig (..), backupReceiptFromPodList, cacheClientDataMatches, certificateReady, collectionDeleteRequest, completedJobContainerMessageFromPodList, confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, crdEstablished, credentialDataMatches, deploymentSelectorReplacement, desiredFieldsMatch, generatedCredentialTemplate, jobCompleted, knativeReady, materializeCacheKey, materializeCredential, mkKubernetesRuntimeOps, observeCacheClientOutput, observeKubernetesBatchWithGuard, parseObserved, readinessForAddress, statefulSetImmutableReplacement, statefulSetReady, supportedUpdateAddress, withoutCacheClientData)
 import Nagare.Inventory.Backup (BackupReceiptExpectation (..), BackupSourceProof (..), ManualBackupRequest (..), VolumeSnapshotRequest (..), compileManualBackupScope, compileVolumeSnapshotScope, manualBackupJobReceiptExpectation, manualBackupJobSourcePins, manualBackupSourceIds, manualBackupSourceProof, parseBackupReceipt, parseManualBackupReceipt, volumeSnapshotJobSourcePins)
 import Nagare.Inventory.BackupFreshness (RecoveryPointObjective (..))
+import Nagare.Inventory.BackupRetention (retentionPolicyText, standardRetention)
 import Nagare.Inventory.CollectionPolicy (requiresControllerCollection, supportsRetainedCollection)
 import Nagare.Inventory.Components.Foundation (compileContributedNamespaces)
 import Nagare.Inventory.DataService (NativeDataKind (..), compileBackupPruneRemovalScope, compileStandaloneDatabase, compileStatefulSetRestartScope, standaloneStatefulSetOwned)
@@ -1280,7 +1281,7 @@ inventoryKubernetesTests =
                 , scheduledPruneBackupJobUid = pruneVolumeBackupUid pruneRequest
                 , scheduledPrunePolicyScope = scopeId sourceScope
                 , scheduledPrunePolicyRevision = volumeRestoreTargetRevision restoreRequest
-                , scheduledPruneKeep = 7
+                , scheduledPruneRetention = standardRetention
                 , scheduledPruneBackend = GcsBackend "project" "bucket"
                 , scheduledPruneSource = SourceLocation "scheduled prune" scheduledId
                 }
@@ -1290,8 +1291,7 @@ inventoryKubernetesTests =
             (scheduledJob, scheduledBytes) = case Map.elems scheduledNative of
               [entry] -> entry
               _ -> error "scheduled prune must bind one Job"
-        Map.lookup "scheduled.prune.policy.keep" (scopeOverrides scheduledScope)
-          @?= Just "7"
+        Map.lookup "scheduled.prune.policy.retention" (scopeOverrides scheduledScope) @?= Just (retentionPolicyText standardRetention)
         case manualPruneSourceProof scheduledScope of
           Right (Just proof) -> do
             pruneSourceScope proof @?= scopeIdText (scopeId acceptedScheduled)

@@ -13,6 +13,7 @@ import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
+import Data.Time (getCurrentTime)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter
   ( Adapter (adapterPreflight)
@@ -30,6 +31,7 @@ import Nagare.Inventory.Adapter
   , observationMap
   , observeWithRegistry
   )
+import Nagare.Inventory.BackupRetention (standardRetention)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Execute.Claims (observeCurrentHead)
 import Nagare.Inventory.Execute.Inputs
@@ -89,6 +91,7 @@ import Nagare.Inventory.Plan
   , loadUnstartedApplicationCreates
   , reviewedDocument
   )
+import Nagare.Inventory.ScheduledPrune (isNewScheduledPrune, scheduledPruneRetentionAdmission)
 import Nagare.Inventory.Store
   ( ExecutorClaim (ExecutorClaim)
   , HeadManifest
@@ -159,16 +162,10 @@ admit locked registry reviewed = do
       case staticErrors of
         firstError : rest -> pure (Left (firstError :| rest))
         [] -> do
-          deferred <- deferredScheduledPrune store headValue document
-          case deferred of
-            Left err -> pure (failure "deferred-operation" err)
-            Right True ->
-              pure
-                ( failure
-                    "deferred-operation"
-                    "new scheduled pruning is deferred; recover an already-admitted partial prune by its original review"
-                )
-            Right False -> do
+          retention <- scheduledPruneRetention store headValue document
+          case retention of
+            Left err -> pure (failure "retention-policy" err)
+            Right () -> do
               coverage <- retentionCoverage store document
               continueAdmission store document transaction observed headValue coverage
   where
@@ -281,15 +278,18 @@ admit locked registry reviewed = do
                     Left err -> failure "journal" (showText err)
                     Right _ -> Right (ExecutablePlan transaction reviewed)
 
--- Inspect the stored scope member, rather than trusting a public review's
--- operation summary. Receipt-only recovery carries a distinct accepted failed
--- review and stays available through the existing provider preflight.
-deferredScheduledPrune ::
+-- EP-183 M2: a new scheduled prune is admitted only while the retention
+-- policy, evaluated now against the accepted receipts, places every pruned run
+-- past policy. Inspect the stored scope member, rather than trusting a public
+-- review's operation summary. Receipt-only recovery carries a distinct
+-- accepted failed review and stays available through the existing provider
+-- preflight.
+scheduledPruneRetention ::
   InventoryStore ->
   HeadManifest ->
   ReviewDocument ->
-  IO (Either Text Bool)
-deferredScheduledPrune store headValue document = do
+  IO (Either Text ())
+scheduledPruneRetention store headValue document = do
   checked <- forM changed $ \(_, revision) -> do
     member <- readObject store (scopeKey (revisionDigest revision))
     pure $ do
@@ -298,13 +298,16 @@ deferredScheduledPrune store headValue document = do
           >>= maybe
             (Left "reviewed scope member is missing")
             Right
-      scope <- first showText (decodeScope bytes)
-      let fields = Resource.scopeOverrides scope
-      pure
-        ( Map.member "scheduled.prune.backup.scope" fields
-            && Map.notMember "scheduled.prune.recovery.review" fields
-        )
-  pure (or <$> sequence checked)
+      first showText (decodeScope bytes)
+  case filter isNewScheduledPrune <$> sequence checked of
+    Left err -> pure (Left err)
+    Right [] -> pure (Right ())
+    Right prunes -> do
+      historical <- loadInventoryHistory store
+      now <- getCurrentTime
+      pure $ do
+        history <- first showText historical
+        scheduledPruneRetentionAdmission standardRetention now (historyAccepted history) prunes
   where
     changed =
       [ (scope, revision)

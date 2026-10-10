@@ -586,7 +586,7 @@ dbSubparser =
           "prune-scheduled-backups"
           ( info
               (Db . DbPruneScheduledBackups <$> dbPruneScheduledBackupsOptsParser <**> helper)
-              (progDesc "Deferred: new scheduled pruning is unavailable; backups are retained")
+              (progDesc "Review accepted scheduled backups past the retention policy (every point 48 h, the newest per day 30 days)")
           )
         <> command
           "recover-scheduled-prune"

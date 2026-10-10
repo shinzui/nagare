@@ -97,7 +97,7 @@ jq -nS \
 jq -nS --arg digest "$candidate_digest" '{schemaVersion: 1, complete: true,
   sourceRevision: "fixture-revision", candidateDigest: $digest, dirty: false,
   registeredRoutes: 1, recipes: 1, libraryCalls: 1,
-  deferredRoutes: ["DbCommand.DbPruneScheduledBackups",
+  deferredRoutes: [
     "DbCommand.DbRestore.--into-live", "DbCommand.DbShell",
     "StorageCommand.StorageRestore.--into-live"],
   recoveryOnlyRoutes: ["DbCommand.DbRecoverScheduledPrune"],

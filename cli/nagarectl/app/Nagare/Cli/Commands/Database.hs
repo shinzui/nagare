@@ -22,7 +22,8 @@ import Nagare.Cli.Data.ManualReceipt (runReviewedManualReceiptPlan)
 import Nagare.Cli.Data.RebuildRestore (runRebuildRestorePlan)
 import Nagare.Cli.Data.Restore (runReviewedDbRestorePlan)
 import Nagare.Cli.Data.ScheduledPrune
-  ( runReviewedScheduledPruneRecoveryPlan
+  ( runReviewedScheduledPrunePlan
+  , runReviewedScheduledPruneRecoveryPlan
   )
 import Nagare.Cli.Data.ScheduledReceipts
   ( runListScheduledReceipts
@@ -209,9 +210,13 @@ runDb mctx = \case
       (T.pack (o ^. #backupId))
       (o ^. #bucket)
       (o ^. #savePlan)
-  DbPruneScheduledBackups _ ->
-    dieT
-      "new scheduled pruning is deferred; scheduled backups are retained"
+  DbPruneScheduledBackups o ->
+    runReviewedScheduledPrunePlan
+      mctx
+      (T.pack (o ^. #name))
+      (nsOf (o ^. #namespace))
+      (o ^. #bucket)
+      (o ^. #savePlan)
   DbRecoverScheduledPrune o ->
     runReviewedScheduledPruneRecoveryPlan
       mctx

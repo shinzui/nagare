@@ -58,6 +58,7 @@ import Nagare.Inventory.BackupFreshness
   , newestRecoveryPoint
   , renderBackupFreshness
   )
+import Nagare.Inventory.BackupRetention (retentionPolicyText, standardRetention)
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.DataService (acceptedFoundationNamespace)
 import Nagare.Inventory.Identity (checkedPhysical, requireAccepted)
@@ -82,6 +83,7 @@ import Nagare.Inventory.ScheduledIngest
   , compileScheduledIngestScope
   , scheduledIngestEvidenceMatches
   )
+import Nagare.Inventory.ScheduledPrune (acceptedPastPolicy)
 import Nagare.Inventory.ScheduledReceipt
   ( ScheduledReceiptEvidence (scheduledReceipt)
   , classifyScheduledListingKeys
@@ -95,7 +97,7 @@ import Nagare.Inventory.ScheduledStore
   )
 import Nagare.Inventory.Status qualified as InventoryStatus
 import Nagare.Inventory.Store qualified as InventoryStore
-import Nagare.Ops.Probe (Probe, recoveryPointProbe)
+import Nagare.Ops.Probe (Probe, recoveryPointProbe, retentionProbe)
 import Nagare.Resource.Inventory qualified as ResourceInventory
 import Nagare.Resource.Types qualified as Resource
 import Nagare.Target (ActiveTarget, contextNameText)
@@ -123,9 +125,9 @@ runListScheduledReceipts mctx database namespaceName bucketArg checkFreshness = 
     try (scheduledReceiptReport mctx database namespaceName bucketArg)
       >>= either (\(ReceiptReportError reason) -> dieT reason) pure
   TIO.putStrLn
-    ( "Scheduled retention: keep="
-        <> T.pack (show (report ^. #keep))
-        <> " and expiry are unenforced; backups are retained by default."
+    ( "Scheduled retention: "
+        <> retentionPolicyText standardRetention
+        <> "; runs past policy are removed only by a reviewed db prune-scheduled-backups."
     )
   if null (report ^. #rows)
     then TIO.putStrLn "No scheduled backup objects or accepted receipts."
@@ -142,10 +144,12 @@ scheduledRecoveryPointProbes :: Maybe String -> IO [Probe]
 scheduledRecoveryPointProbes mctx =
   ( do
       snapshot <- activeTarget mctx >>= Inventory.loadTargetSnapshotReadOnly
-      let sources =
+      now <- getCurrentTime
+      let current = map snd (Map.elems (ResourceInventory.snapshotScopes snapshot))
+          sources =
             Set.toAscList
               ( Set.fromList
-                  [ (Resource.nameText namespace, database)
+                  [ (Resource.nameText namespace, database, ResourceInventory.scopeId scope)
                   | (_, scope) <- Map.elems (ResourceInventory.snapshotScopes snapshot)
                   , bundle <- ResourceInventory.scopeBundles scope
                   , ResourceInventory.Managed member <- ResourceInventory.declarations bundle
@@ -154,11 +158,16 @@ scheduledRecoveryPointProbes mctx =
                   , Just database <- [T.stripPrefix "nagare-dbbackup-" (Resource.nameText name)]
                   ]
               )
-      forM sources $ \(namespaceName, database) ->
-        recoveryPointProbe (namespaceName <> "/" <> database)
-          <$> ( (Right . (^. #freshness) <$> scheduledReceiptScan NewestVerified mctx database namespaceName Nothing)
-                  `catches` unobservable
-              )
+      fmap concat . forM sources $ \(namespaceName, database, source) -> do
+        let label = namespaceName <> "/" <> database
+        point <-
+          recoveryPointProbe label
+            <$> ( (Right . (^. #freshness) <$> scheduledReceiptScan NewestVerified mctx database namespaceName Nothing)
+                    `catches` unobservable
+                )
+        -- EP-183 M2: graded from accepted receipts alone; no provider read.
+        let retention = retentionProbe label ((standardRetention,) . length <$> acceptedPastPolicy standardRetention now source current)
+        pure [point, retention]
   )
     `catches` [ Handler (\(_ :: ExitCode) -> pure [recoveryPointProbe "(context)" (Left "accepted inventory is unavailable")])
               ]
@@ -664,7 +673,7 @@ runReviewedScheduledReceiptPlan mctx database namespaceName bucketArg backupId o
     output
   TIO.putStrLn
     ( "Saved exact scheduled receipt ingestion review. Apply it to verify both stored versions. "
-        <> "Scheduled keep="
-        <> T.pack (show (scheduledKeep expectation))
-        <> " and expiry are unenforced; backups are retained by default."
+        <> "Scheduled retention: "
+        <> retentionPolicyText standardRetention
+        <> "; runs past policy are removed only by a reviewed db prune-scheduled-backups."
     )

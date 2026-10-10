@@ -860,7 +860,7 @@ instance ToJSON DriftFinding where
 
 -- | Scheduled database backup CronJobs among @selected@ whose owner also
 -- declares the matching signing Secret in @universe@. These report
--- retain-by-default with unenforced keep/expiry. Core-group addresses carry
+-- the release's retention policy, enforced by reviewed prune. Core-group addresses carry
 -- the empty API group, never @v1@.
 signedScheduledBackups :: [ManagedResource] -> [ManagedResource] -> [ResourceId]
 signedScheduledBackups universe selected =

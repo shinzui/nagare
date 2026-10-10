@@ -53,7 +53,7 @@ inventoryTransactionTests :: TestTree
 inventoryTransactionTests =
   testGroup
     "inventory transactions"
-    [ testCase "a saved scheduled prune refuses admission before adapter effects" $ do
+    [ testCase "a saved scheduled prune outside the retention policy refuses admission before adapter effects" $ do
         calls <- newIORef ([] :: [OperationId])
         let owner = ok (mkScopeId Standalone "deferred-prune-test")
             cluster =
@@ -128,8 +128,8 @@ inventoryTransactionTests =
         case refused of
           Left errors ->
             map admissionErrorCode (NE.toList errors)
-              @?= ["deferred-operation"]
-          Right _ -> assertFailure "deferred scheduled prune was admitted"
+              @?= ["retention-policy"]
+          Right _ -> assertFailure "an unreviewed-policy scheduled prune was admitted"
         readIORef calls >>= (@?= [])
     , testCase "interactive maintenance review requires a captured data fence" $ do
         let owner = ok (mkScopeId Standalone "maintenance-guard-test")

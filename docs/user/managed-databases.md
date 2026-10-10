@@ -531,8 +531,10 @@ preserves the database's other accepted members. An unfamiliar schedule needs a
 normal database review. Until the saved review is applied, the old CronJob can
 still prune. Jobs already started from the old template can finish and prune
 after the review is applied; inspect active backup Jobs before relying on the
-new policy. Scheduled backups retain their objects by default; generalized
-scheduled pruning is deferred, and keep-N/expiry are unenforced. Monitor storage
+new policy. Scheduled backups follow the retention policy of
+[ADR 28](../adr/0028-the-intranet-stays-single-node-with-hourly-recovery-points-and-a-four-hour-rebuild.md):
+`server status` warns about accepted runs past policy, and `db
+prune-scheduled-backups NAME --save-plan DIR` reviews their removal. Monitor storage
 usage and recovery-point freshness with `db backup-receipts NAME
 --check-freshness`, `server status` or `doctor`. Under `hourly` they warn at 30
 minutes and report a one-hour breach as unhealthy; under `daily` the thresholds
@@ -655,9 +657,9 @@ gsutil ls gs://tan-nb-exp-nagare-backups/databases/pg-main/   # cloud mode
 The dump is an engine-appropriate logical export (`pg_dump` for Postgres, an RDB
 dump for Redis, a native database backup ZIP for ClickHouse), gzipped, at
 `databases/<name>/<timestamp>.<ext>` in the active store for legacy schedules.
-Legacy scheduled backups keep the newest seven. Reviewed schedules retain
-backups by default: configured keep-N and expiry are unenforced, so storage
-grows until an explicitly supported disposal path is used. Reviewed manual
+Legacy scheduled backups keep the newest seven. Reviewed schedules never
+delete; runs past the retention policy are removed only by a reviewed
+`db prune-scheduled-backups`. Reviewed manual
 backups use stable IDs and separate exact pruning reviews. Live manual backup
 and isolated restore require saved reviews in every context;
 `--dry-run` only renders the older Job shape. The dump waits up to five minutes for the

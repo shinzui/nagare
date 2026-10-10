@@ -75,7 +75,7 @@ with tempfile.TemporaryDirectory(prefix="nagare-inventory-index-test.") as tempo
            "registeredRoutes": 1, "recipes": 1, "libraryCalls": 1,
            "pending": [], "pendingRecipes": [],
            "incompleteCatalogueRows": [], "errors": [],
-           "deferredRoutes": ["DbCommand.DbPruneScheduledBackups", "DbCommand.DbRestore.--into-live",
+           "deferredRoutes": ["DbCommand.DbRestore.--into-live",
                               "DbCommand.DbShell", "StorageCommand.StorageRestore.--into-live"],
            "recoveryOnlyRoutes": ["DbCommand.DbRecoverScheduledPrune"]})
     for system in SYSTEMS:

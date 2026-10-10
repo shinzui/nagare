@@ -109,7 +109,7 @@ jq -e '.schemaVersion == 1 and .complete == true and .dirty == false
   and (.recipes | type == "number" and . > 0)
   and (.libraryCalls | type == "number" and . > 0)
   and (.candidateDigest | type == "string" and test("^[0-9a-f]{64}$"))
-  and .deferredRoutes == ["DbCommand.DbPruneScheduledBackups",
+  and .deferredRoutes == [
     "DbCommand.DbRestore.--into-live", "DbCommand.DbShell",
     "StorageCommand.StorageRestore.--into-live"]
   and .recoveryOnlyRoutes == ["DbCommand.DbRecoverScheduledPrune"]

@@ -52,7 +52,7 @@ Most of Nagare is reproduced from Git; only a few things need real backup jobs.
 | Host Postgres | Restore from disk if data disk survives; use managed DBs for Nagare-owned backup tooling | 🟡 |
 | Whole data disk | Daily GCE snapshot at 08:00 UTC, retained seven days and kept if the source disk is deleted | 🟡 (declared; live apply/verification pending) |
 | App volumes (PVCs) | Reviewed fixed-key snapshot and separate scratch restore Jobs → GCS or MinIO (`manual-volumes/<namespace>/<app>/<volume>/`) | 🟡 (live provider proof, exact pruning, and live-target recovery pending) |
-| Managed databases | Reviewed CronJob every 15 minutes → GCS or MinIO (`databases/<name>/`); reviewed schedules verify stored bytes without pruning; accepted databases can save reviewed manual backup, expired manual pruning, PostgreSQL and ClickHouse scratch restore Jobs, and Redis scratch instances | 🟡 (scheduled pruning, live-target restore, and complete cloud provider proof pending) |
+| Managed databases | Reviewed CronJob every 15 minutes → GCS or MinIO (`databases/<name>/`); reviewed schedules verify stored bytes without pruning; accepted databases can save reviewed manual backup, expired manual pruning, PostgreSQL and ClickHouse scratch restore Jobs, and Redis scratch instances | 🟡 (cloud scheduled pruning, live-target restore, and complete cloud provider proof pending) |
 | Attic signing identity and metadata | Managed PostgreSQL `nix-cache` / reviewed `nagare-dbbackup-nix-cache` CronJob | 🟡 (provider implemented; live restore acceptance pending) |
 | Attic cache chunks | Reproducible producer inputs; optionally export the dedicated GCS bucket before retirement | Rebuildable |
 | Grafana dashboards | **Git** (dashboard JSON under `cluster/observability`) | ✅ |
@@ -148,9 +148,34 @@ an RDB dump (Redis), a ClickHouse database backup ZIP — gzips it, and uploads 
 `databases/<name>/<Job UID>.<ext>` in the active object store. Newly reviewed
 schedules read stored bytes back, compare SHA-256, and publish an authenticated
 per-object receipt bound to the source StatefulSet/PVC identities, accepted
-schedule template and the UTC time captured before the dump starts. They retain backups by default: keep-N and expiry are
-unenforced, and new scheduled pruning is deferred. Existing accepted schedules
-keep their earlier scripts until a review updates them.
+schedule template and the UTC time captured before the dump starts. The CronJob
+never deletes anything. Existing accepted schedules keep their earlier scripts
+until a review updates them.
+
+**Retention** ([ADR 28](../adr/0028-the-intranet-stays-single-node-with-hourly-recovery-points-and-a-four-hour-rebuild.md)).
+Nagare keeps every scheduled recovery point for 48 hours, the newest point of
+each UTC day for 30 days, and always the newest point. The release fixes the
+policy; no context value changes it. Only the signed recovery-point time of an
+accepted receipt counts. A receipt accepted without one (a v4 receipt) is kept
+and never selected. `server status` shows one `retention` row per database: OK
+when no accepted run is past policy, WARN with the count otherwise. Nothing
+removes those runs in the background. Review and apply their removal:
+
+```bash
+nagarectl db prune-scheduled-backups pg-main --save-plan ./scheduled-prune
+nagarectl inventory apply ./scheduled-prune --yes
+```
+
+The review names each run past policy as one exact prune scope, pinned to its
+provider versions. Admission evaluates the policy again against the accepted
+receipts and refuses the whole review if any named run is the newest, inside
+the 48-hour window, or the newest of a retained day. A prune stopped part way
+closes by per-operation proof; a Job that deleted the archive but not its
+receipt is finished with `db recover-scheduled-prune`. Every run must be
+ingested (`db backup-receipts`) before a prune, because the review refuses a
+listing that differs from the accepted receipts. Scheduled pruning is local
+(MinIO) only in this release; a cloud context refuses it until GCS
+exact-generation recovery exists, and `server status` still grades it.
 
 The schedule follows the context's recovery-point objective,
 `NAGARE_BACKUP_RECOVERY_POINT` (see [Contexts](contexts.md)):
@@ -185,7 +210,7 @@ without a receipt (an interrupted upload), a receipt without its archive, and an
 unrecognized key under the database prefix. Nagare never ingests such an object,
 never counts it toward freshness, and never restores from it. Nagare also never
 deletes it: no command resolves or removes it, a retry refuses to overwrite it,
-and scheduled pruning is deferred. These objects stay in the backup bucket, and
+and scheduled pruning removes only accepted runs. These objects stay in the backup bucket, and
 their storage cost is the operator's responsibility. If you remove one, you do
 it outside Nagare with the provider's own tools: `gcloud storage rm` on that
 exact generation, or `mc rm --version-id` on that exact version for local MinIO.

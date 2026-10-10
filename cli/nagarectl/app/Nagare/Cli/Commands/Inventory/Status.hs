@@ -57,6 +57,7 @@ import Nagare.Inventory.Adapters.KubernetesRuntime
   , observeKubernetesHealth
   )
 import Nagare.Inventory.Artifact qualified as InventoryArtifact
+import Nagare.Inventory.BackupRetention (retentionPolicyText, standardRetention)
 import Nagare.Inventory.Cloud qualified as InventoryCloud
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Host qualified as InventoryHost
@@ -478,8 +479,8 @@ runInventoryStatus mctx requested json gcOutput = do
         , "scheduledRetention"
             Aeson..= [ Aeson.object
                          [ "schedule" Aeson..= resource
-                         , "policy" Aeson..= ("retain-by-default" :: Text)
-                         , "keepAndExpiry" Aeson..= ("unenforced" :: Text)
+                         , "policy" Aeson..= retentionPolicyText standardRetention
+                         , "prune" Aeson..= ("reviewed" :: Text)
                          ]
                      | resource <- scheduledBackups
                      ]
@@ -516,7 +517,7 @@ runInventoryStatus mctx requested json gcOutput = do
                 <> ( if null scheduledBackups
                        then ""
                        else
-                         "; scheduled backup keep/expiry: unenforced (retained by default)"
+                         "; scheduled backup retention: " <> retentionPolicyText standardRetention <> " (reviewed prune)"
                    )
                 <> "; unavailable providers: "
                 <> T.pack (show unavailable)

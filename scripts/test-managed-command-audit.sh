@@ -36,7 +36,6 @@ import sys
 current, injected = [json.loads(pathlib.Path(path).read_text()) for path in sys.argv[1:]]
 assert current['errors'] == [], current['errors']
 assert current['deferredRoutes'] == [
-    'DbCommand.DbPruneScheduledBackups',
     'DbCommand.DbRestore.--into-live',
     'DbCommand.DbShell',
     'StorageCommand.StorageRestore.--into-live',

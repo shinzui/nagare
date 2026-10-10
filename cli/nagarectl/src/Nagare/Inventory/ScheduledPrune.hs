@@ -1,5 +1,6 @@
--- | Select exact scheduled backup versions for a reviewed keep-last-N prune.
--- The complete provider listing is compared with accepted receipt history;
+-- | Select exact scheduled backup versions for a reviewed retention prune
+-- (EP-183 M2, ADR 28). The complete provider listing is compared with accepted
+-- receipt history; only signed recovery-point times decide retention, and
 -- random Job UIDs and ingestion order never stand in for completion order.
 module Nagare.Inventory.ScheduledPrune
   ( ScheduledPruneCandidate (..)
@@ -8,6 +9,10 @@ module Nagare.Inventory.ScheduledPrune
   , recoverScheduledPruneCandidate
   , compileScheduledPruneScope
   , compileScheduledPruneRecoveryScope
+  , acceptedRecoveryPoint
+  , isNewScheduledPrune
+  , scheduledPruneRetentionAdmission
+  , acceptedPastPolicy
   )
 where
 
@@ -17,20 +22,23 @@ import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
 import Data.List (sortOn)
+import Data.List qualified as List
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
-import Data.Ord (Down (..))
+import Data.Ord (comparing)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
-import Data.Time (UTCTime)
+import Data.Time (UTCTime, defaultTimeLocale, parseTimeM)
 import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (StoreBackend (..), storeObjectUrl)
 import Nagare.Database.Prune (PruneJobInputs (..), renderScheduledPruneJob, renderScheduledReceiptRecoveryJob)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Types (mkServiceName)
+import Nagare.Inventory.BackupFreshness (RecoveryPointObjective, recoveryPointThresholds)
+import Nagare.Inventory.BackupRetention (RetentionPolicy, RetentionSplit (..), retentionPolicyText, splitByRetention)
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.ScheduledStore (ListedObject (..))
@@ -71,30 +79,30 @@ data ScheduledPruneRequest = ScheduledPruneRequest
   , scheduledPruneBackupJobUid :: !PhysicalIdentity
   , scheduledPrunePolicyScope :: !ScopeId
   , scheduledPrunePolicyRevision :: !ScopeRevision
-  , scheduledPruneKeep :: !Int
+  , scheduledPruneRetention :: !RetentionPolicy
   , scheduledPruneBackend :: !StoreBackend
   , scheduledPruneSource :: !SourceLocation
   }
   deriving stock (Eq, Show)
 
 -- | Refuse incomplete, unaccepted, already-pruned-but-visible, or unknown
--- provider objects. A tie across the retention boundary has no provable
--- newest-N ordering. Accepted restore dependencies retain their runs while
--- unrelated older runs may still become exact deletion candidates.
+-- provider objects. Only runs whose signed recovery point is past the policy
+-- are candidates; a run accepted without a signed time (a v4 receipt) is kept.
+-- Accepted restore dependencies retain their runs while unrelated older runs
+-- may still become exact deletion candidates.
 selectScheduledPruneCandidates ::
   ScopeId ->
   Text ->
   Text ->
   Text ->
-  Int ->
+  RetentionPolicy ->
+  RecoveryPointObjective ->
+  UTCTime ->
   Set Text ->
   [ScopeDeclaration] ->
   [ListedObject] ->
   Either Text [ScheduledPruneCandidate]
-selectScheduledPruneCandidates source bucketAddress prefix format keep protected scopes listed = do
-  unless
-    (keep > 0)
-    (Left "scheduled backup retention must keep at least one run")
+selectScheduledPruneCandidates source bucketAddress prefix format policy objective now protected scopes listed = do
   unless
     ( bucketAddress `T.isPrefixOf` prefix
         && not (T.null bucketAddress)
@@ -127,30 +135,25 @@ selectScheduledPruneCandidates source bucketAddress prefix format keep protected
           [ (bucketAddress <> listedKey item, listedModified item)
           | item <- listed
           ]
-  entries <- traverse (accepted prefix format visible) backups
-  let identifiers = map (scopeIdText . scheduledPruneScope) entries
+  entries <- traverse (\scope -> (,) <$> accepted prefix format visible scope <*> acceptedRecoveryPoint scope) backups
+  let identifiers = map (scopeIdText . scheduledPruneScope . fst) entries
   unless
     ( Set.size (Set.fromList identifiers) == length entries
-        && Set.size (Set.fromList (map scheduledPruneId entries)) == length entries
+        && Set.size (Set.fromList (map (scheduledPruneId . fst) entries)) == length entries
     )
     (Left "scheduled backup accepted history repeats a run")
   let expected =
         Set.fromList
           ( concat
               [ [scheduledPruneObject entry, scheduledPruneReceipt entry]
-              | entry <- entries
+              | (entry, _) <- entries
               ]
           )
   unless
     (Map.keysSet visible == expected)
     (Left "scheduled backup listing differs from accepted unpruned receipts")
-  let newest = sortOn (Down . scheduledPruneCompleted) entries
-      (retained, eligible) = splitAt keep newest
-  case (reverse retained, eligible) of
-    (boundary : _, next : _)
-      | scheduledPruneCompleted boundary == scheduledPruneCompleted next ->
-          Left "scheduled backup completion times tie across the retention boundary"
-    _ -> pure ()
+  split <- splitByRetention policy objective now [(entry, time) | (entry, Just time) <- entries]
+  let eligible = pastPolicy split
   pure
     ( sortOn
         scheduledPruneCompleted
@@ -239,6 +242,103 @@ accepted prefix format visible scope = do
       , scheduledPruneReceiptDigest = receiptDigest
       , scheduledPruneCompleted = receiptTime
       }
+
+-- | The signed recovery point an accepted receipt scope recorded at ingestion,
+-- if its receipt carried one (v5). A malformed value refuses.
+acceptedRecoveryPoint :: ScopeDeclaration -> Either Text (Maybe UTCTime)
+acceptedRecoveryPoint scope = case Map.lookup "scheduled.backup.recovery.point" (scopeOverrides scope) of
+  Nothing -> Right Nothing
+  Just raw ->
+    maybe
+      (Left "accepted scheduled receipt has an invalid recovery point")
+      (Right . Just)
+      (parseTimeM False defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ" (T.unpack raw))
+
+-- | A reviewed scope that prunes a scheduled run, as opposed to the receipt
+-- recovery of an already admitted partial prune.
+isNewScheduledPrune :: ScopeDeclaration -> Bool
+isNewScheduledPrune scope =
+  Map.member "scheduled.prune.backup.scope" fields
+    && Map.notMember "scheduled.prune.recovery.review" fields
+  where
+    fields = scopeOverrides scope
+
+-- | The accepted, unpruned scheduled runs of one source that the policy,
+-- evaluated now, places past policy, for @server status@. Runs accepted without
+-- a signed recovery point are kept and not counted. The breach window of the
+-- widest objective preset applies, as at admission.
+acceptedPastPolicy :: RetentionPolicy -> UTCTime -> ScopeId -> [ScopeDeclaration] -> Either Text [ScopeId]
+acceptedPastPolicy policy now source current = do
+  let pruned =
+        Set.fromList
+          [ selected
+          | scope <- current
+          , Just selected <- [Map.lookup "scheduled.prune.backup.scope" (scopeOverrides scope)]
+          ]
+      runs =
+        [ scope
+        | scope <- current
+        , Map.lookup "scheduled.backup.source.scope" (scopeOverrides scope) == Just (scopeIdText source)
+        , Set.notMember (scopeIdText (scopeId scope)) pruned
+        ]
+  points <- traverse (\scope -> (scopeId scope,) <$> acceptedRecoveryPoint scope) runs
+  pastPolicy <$> splitByRetention policy widestObjective now [(name, time) | (name, Just time) <- points]
+
+-- | The objective preset with the widest breach window.
+widestObjective :: RecoveryPointObjective
+widestObjective = List.maximumBy (comparing (snd . recoveryPointThresholds)) [minBound .. maxBound]
+
+-- | Admission's retention check (EP-183 M2, ADR 28). Re-read the accepted
+-- receipts of each pruned run's source and refuse unless every pruned run has
+-- a signed recovery point that the policy, evaluated now, places past policy.
+-- The newest point, every point inside the policy's keep-all window or any
+-- objective's breach window, and the newest point of each retained day are
+-- therefore never removable, whatever the review selected.
+scheduledPruneRetentionAdmission ::
+  RetentionPolicy ->
+  UTCTime ->
+  Map.Map ScopeId (ScopeRevision, ScopeDeclaration) ->
+  [ScopeDeclaration] ->
+  Either Text ()
+scheduledPruneRetentionAdmission policy now acceptedScopes reviewed = do
+  let current = map snd (Map.elems acceptedScopes)
+      byName = Map.fromList [(scopeIdText (scopeId scope), scope) | scope <- current]
+      alreadyPruned =
+        Set.fromList
+          [ selected
+          | scope <- current
+          , Just selected <- [Map.lookup "scheduled.prune.backup.scope" (scopeOverrides scope)]
+          ]
+  forM_ (filter isNewScheduledPrune reviewed) $ \prune -> do
+    let fields = scopeOverrides prune
+        required key = maybe (Left ("scheduled prune lacks " <> key)) Right (Map.lookup key fields)
+    recorded <- required "scheduled.prune.policy.retention"
+    unless
+      (recorded == retentionPolicyText policy)
+      (Left ("scheduled prune review records another retention policy: " <> recorded))
+    backupName <- required "scheduled.prune.backup.scope"
+    policySource <- required "scheduled.prune.policy.scope"
+    backup <- maybe (Left "pruned scheduled receipt is not accepted") Right (Map.lookup backupName byName)
+    unless
+      (Set.notMember backupName alreadyPruned)
+      (Left "pruned scheduled receipt was already pruned")
+    unless
+      (Map.lookup "scheduled.backup.source.scope" (scopeOverrides backup) == Just policySource)
+      (Left "pruned scheduled receipt belongs to another source")
+    let siblings =
+          [ scope
+          | scope <- current
+          , Map.lookup "scheduled.backup.source.scope" (scopeOverrides scope) == Just policySource
+          , Set.notMember (scopeIdText (scopeId scope)) alreadyPruned
+          ]
+    points <- traverse (\scope -> (scopeIdText (scopeId scope),) <$> acceptedRecoveryPoint scope) siblings
+    unless
+      (lookup backupName points /= Just Nothing)
+      (Left "pruned scheduled receipt has no signed recovery point")
+    split <- splitByRetention policy widestObjective now [(name, time) | (name, Just time) <- points]
+    unless
+      (backupName `elem` pastPolicy split)
+      (Left "scheduled prune would remove a recovery point the retention policy keeps (the newest, one inside the keep-all window, or the newest of its day)")
 
 lowerHex :: Char -> Bool
 lowerHex character =
@@ -370,9 +470,8 @@ compileScheduledPruneScopeWith recovery request backup native = do
   unless
     ( Map.lookup "scheduled.backup.source.scope" fields
         == Just (scopeIdText (scheduledPrunePolicyScope request))
-        && scheduledPruneKeep request > 0
     )
-    (Left (invalid "scheduled prune policy source or keep count is invalid"))
+    (Left (invalid "scheduled prune policy source is invalid"))
   case recovery of
     Nothing -> pure ()
     Just (failed, _, _) -> do
@@ -398,8 +497,8 @@ compileScheduledPruneScopeWith recovery request backup native = do
                         (scheduledPrunePolicyRevision request)
                     )
                 )
-            && Map.lookup "scheduled.prune.policy.keep" (scopeOverrides failed)
-              == Just (T.pack (show (scheduledPruneKeep request)))
+            && Map.lookup "scheduled.prune.policy.retention" (scopeOverrides failed)
+              == Just (retentionPolicyText (scheduledPruneRetention request))
         )
         (Left (invalid "scheduled recovery changes the failed retention candidate or policy"))
   let exact =
@@ -618,11 +717,8 @@ compileScheduledPruneScopeWith recovery request backup native = do
                 (revisionDigest (scheduledPrunePolicyRevision request))
             )
           ,
-            ( "scheduled.prune.policy.keep"
-            , T.pack
-                ( show
-                    (scheduledPruneKeep request)
-                )
+            ( "scheduled.prune.policy.retention"
+            , retentionPolicyText (scheduledPruneRetention request)
             )
           , ("scheduled.prune.object", scheduledPruneObject candidate)
           , ("scheduled.prune.object.version", scheduledPruneObjectVersion candidate)

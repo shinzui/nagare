@@ -91,8 +91,6 @@ refuse 'direct database shell' 'interactive database maintenance is deferred' \
   db shell fixture
 refuse 'reviewed database shell' 'interactive database maintenance is deferred' \
   db shell fixture --session-id new-session --recovery-backup backup-1 --save-plan "$fixture_root/session"
-refuse 'scheduled prune' 'new scheduled pruning is deferred' \
-  db prune-scheduled-backups fixture --save-plan "$fixture_root/prune"
 refuse 'live database restore' 'live database overwrite is deferred' \
   db restore fixture backup-1 --into-live --recovery-backup backup-2 \
   --restore-id live-1 --save-plan "$fixture_root/restore"

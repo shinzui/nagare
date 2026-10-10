@@ -11,7 +11,7 @@ from pathlib import Path
 
 
 HEX = re.compile(r"^[0-9a-f]{64}$")
-DEFERRED_ROUTES = ["DbCommand.DbPruneScheduledBackups", "DbCommand.DbRestore.--into-live",
+DEFERRED_ROUTES = ["DbCommand.DbRestore.--into-live",
                    "DbCommand.DbShell", "StorageCommand.StorageRestore.--into-live"]
 RECOVERY_ONLY_ROUTES = ["DbCommand.DbRecoverScheduledPrune"]
 COMMON_SCENARIO_CHECKS = {

@@ -43,6 +43,7 @@ module Nagare.Ops.Probe
   , parseNewestBackupAge
   , backupPrefixes
   , recoveryPointProbe
+  , retentionProbe
   , parseDfUsage
 
     -- * EP-4 doctor-correctness helpers (unit-tested)
@@ -69,6 +70,7 @@ import Data.Text.Encoding (decodeUtf8)
 import Data.Vector qualified as V
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.BackupFreshness (BackupFreshness (..), RecoveryPointGrade (RecoveryPointGrade), recoveryPointDetail)
+import Nagare.Inventory.BackupRetention (RetentionPolicy, retentionDetail)
 import System.Exit (ExitCode (..))
 
 -- ---------------------------------------------------------------------------
@@ -279,6 +281,19 @@ recoveryPointProbe database result = Probe "recovery point" grade (database <> "
       Right (RecoveryPointGrade _ (Deteriorating _) _) -> StatusWarn
       Right _ -> StatusFail
     detail = either ("receipts unobservable: " <>) recoveryPointDetail result
+
+-- | EP-183 M2: one source's accepted scheduled recovery points past the
+-- retention policy (ADR 28). Points past policy are a warning, not a failure:
+-- the reviewed prune is the operator's exit, and nothing deletes them in the
+-- background. A source whose accepted receipts cannot be read is unknown.
+retentionProbe :: Text -> Either Text (RetentionPolicy, Int) -> Probe
+retentionProbe database result = Probe "retention" grade (database <> ": " <> detail)
+  where
+    grade = case result of
+      Left _ -> StatusUnknown
+      Right (_, 0) -> StatusOk
+      Right _ -> StatusWarn
+    detail = either ("accepted receipts unreadable: " <>) (uncurry retentionDetail) result
 
 -- | Extract a @"<Use%> of <Size>"@ description for a given mountpoint from
 -- @df -h@ output. The standard six columns are

@@ -279,8 +279,9 @@ broker topics do not acquire deletion authority just because their application
 is gone. Supported stateless companions collect in dependency order, and
 retained consumers can block collection. Full-context physical teardown is
 outside the first inventory release; cloud perimeter cleanup is staged and
-bounded. Scheduled backup keep-N and expiry retention are also unenforced;
-an expiry timestamp does not prove that an archive was deleted.
+bounded. Scheduled backup retention is a graded target with a reviewed prune
+(see [Backups](backups-and-disaster-recovery.md)); an expiry timestamp does not
+prove that an archive was deleted.
 
 The ledger records backup and restore authority, but it does not contain the
 database contents or replace off-cluster backups. Restores use isolated

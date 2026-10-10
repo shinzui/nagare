@@ -169,6 +169,7 @@ library
     Nagare.Inventory.Backup
     Nagare.Inventory.BackupFreshness
     Nagare.Inventory.BackupReceipt
+    Nagare.Inventory.BackupRetention
     Nagare.Inventory.Bootstrap
     Nagare.Inventory.BootstrapRegistryRecovery
     Nagare.Inventory.BootstrapRegistryTransport
@@ -590,6 +591,7 @@ test-suite nagarectl-test
     Nagare.Test.Backup.Prune
     Nagare.Test.Backup.Rendering
     Nagare.Test.Backup.Restore
+    Nagare.Test.Backup.Retention
     Nagare.Test.Backup.Scheduled
     Nagare.Test.Backup.Upload
     Nagare.Test.BackupRestore

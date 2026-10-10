@@ -67,7 +67,6 @@ import Nagare.Inventory.ScheduledIngest
   )
 import Nagare.Inventory.ScheduledPrune
   ( ScheduledPruneCandidate (..)
-  , selectScheduledPruneCandidates
   )
 import Nagare.Inventory.ScheduledReceipt
   ( ScheduledReceiptEvidence (..)
@@ -633,118 +632,6 @@ scheduledReceiptTests =
                   evidence
               )
           )
-  , testCase "scheduled prune selects only older accepted exact pairs" $ do
-      let source = unsafe (Resource.mkScopeId Resource.Standalone "scheduled-prune-source")
-          oldId = "11111111-1111-1111-1111-111111111111"
-          newId = "22222222-2222-2222-2222-222222222222"
-          newestId = "33333333-3333-3333-3333-333333333333"
-          bucketAddress = "s3://backups/"
-          keyPrefix = "databases/mydb/"
-          objectPrefix = bucketAddress <> keyPrefix
-          objectKey runId = keyPrefix <> runId <> ".sql.gz"
-          receiptKey runId = objectKey runId <> ".receipt.json"
-          completedAt seconds =
-            UTCTime
-              (fromGregorian 2026 9 27)
-              (secondsToDiffTime seconds)
-          scope runId =
-            InventoryModel.withScopeOverrides
-              ( Map.fromList
-                  [ ("scheduled.backup.source.scope", Resource.scopeIdText source)
-                  , ("scheduled.backup.id", runId)
-                  , ("scheduled.backup.object", bucketAddress <> objectKey runId)
-                  , ("scheduled.backup.object.version", "object-version-" <> runId)
-                  , ("scheduled.backup.object.length", "123")
-                  , ("scheduled.backup.object.sha256", T.replicate 64 "a")
-                  , ("scheduled.backup.receipt", bucketAddress <> receiptKey runId)
-                  , ("scheduled.backup.receipt.version", "receipt-version-" <> runId)
-                  , ("scheduled.backup.receipt.length", "456")
-                  , ("scheduled.backup.receipt.digest", T.replicate 64 "b")
-                  ]
-              )
-              ( either
-                  (error . show)
-                  id
-                  ( InventoryModel.mkScopeDeclaration
-                      ( unsafe
-                          ( Resource.mkScopeId
-                              Resource.Standalone
-                              ("scheduled-receipt-" <> runId)
-                          )
-                      )
-                      []
-                  )
-              )
-          oldScope = scope oldId
-          newScope = scope newId
-          newestScope = scope newestId
-          listed =
-            [ ListedObject (objectKey oldId) (completedAt 1)
-            , ListedObject (receiptKey oldId) (completedAt 2)
-            , ListedObject (objectKey newId) (completedAt 3)
-            , ListedObject (receiptKey newId) (completedAt 4)
-            ]
-          select protected scopes entries =
-            selectScheduledPruneCandidates
-              source
-              bucketAddress
-              objectPrefix
-              "sql.gz"
-              1
-              protected
-              scopes
-              entries
-      case select Set.empty [oldScope, newScope] listed of
-        Right [candidate] -> do
-          scheduledPruneId candidate @?= oldId
-          scheduledPruneObjectVersion candidate @?= "object-version-" <> oldId
-          scheduledPruneReceiptVersion candidate @?= "receipt-version-" <> oldId
-        other -> assertFailure ("exact retention candidate was rejected: " <> show other)
-      assertBool
-        "an unknown object passed the complete-listing guard"
-        ( isLeft
-            ( select
-                Set.empty
-                [oldScope, newScope]
-                (listed <> [ListedObject (keyPrefix <> "stray") (completedAt 5)])
-            )
-        )
-      assertBool
-        "a missing receipt passed the complete-listing guard"
-        ( isLeft
-            (select Set.empty [oldScope, newScope] (init listed))
-        )
-      let protected =
-            Set.singleton
-              ( Resource.scopeIdText
-                  (InventoryModel.scopeId oldScope)
-              )
-      select protected [oldScope, newScope] listed @?= Right []
-      let third =
-            listed
-              <> [ ListedObject (objectKey newestId) (completedAt 5)
-                 , ListedObject (receiptKey newestId) (completedAt 6)
-                 ]
-      case select protected [oldScope, newScope, newestScope] third of
-        Right [candidate] -> scheduledPruneId candidate @?= newId
-        other ->
-          assertFailure
-            ( "protected run hid an independent candidate: "
-                <> show other
-            )
-      case select
-        Set.empty
-        [oldScope, newScope]
-        ( take 2 listed
-            <> [ ListedObject (objectKey newId) (completedAt 2)
-               , ListedObject (receiptKey newId) (completedAt 2)
-               ]
-        ) of
-        Left reason ->
-          assertBool
-            "tie failed for an unrelated reason"
-            ("tie across" `T.isInfixOf` reason)
-        Right _ -> assertFailure "equal completion times crossed the keep boundary"
   , testCase "scheduled backup ingestion requires all four source UID pins" $ do
       let sourceId = "application:demo/database/statefulset" :: Text
           sourceUid = "22222222-2222-2222-2222-222222222222" :: Text

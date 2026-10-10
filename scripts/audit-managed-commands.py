@@ -69,9 +69,9 @@ ROUTES = {
     "DbCommand": {
         "read": "DbList DbGet DbVerifyEscrowedBackup",
         "local": "DbEscrowSigningKey",
-        "reviewed": "DbCreate DbRename DbRestart DbDelete DbRetire DbBackup DbPruneBackup DbBackupReceipts DbManualReceipt DbDisableBackupPrune DbRestore DbRestoreRebuilt",
+        "reviewed": "DbCreate DbRename DbRestart DbDelete DbRetire DbBackup DbPruneBackup DbPruneScheduledBackups DbBackupReceipts DbManualReceipt DbDisableBackupPrune DbRestore DbRestoreRebuilt",
         "recovery": "DbRecoverScheduledPrune",
-        "deferred": "DbShell DbPruneScheduledBackups",
+        "deferred": "DbShell",
     },
     "BrokerCommand": {
         "read": "BrokerList BrokerGet",
@@ -97,9 +97,9 @@ ROUTES = {
 
 # The operator approved exactly these additional admission exclusions for this
 # release. Variants share a constructor with supported isolated restore.
+# Scheduled pruning left this set with EP-183 M2 (retention, ADR 28).
 AUTHORIZED_DEFERRED = {
     "DbCommand.DbShell",
-    "DbCommand.DbPruneScheduledBackups",
     "DbCommand.DbRestore.--into-live",
     "StorageCommand.StorageRestore.--into-live",
 }
