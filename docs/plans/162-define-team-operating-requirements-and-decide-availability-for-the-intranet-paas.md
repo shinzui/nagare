@@ -48,14 +48,14 @@ Nagare. The companion evaluation plan scores tools against this record.
 
 ## Progress
 
-- [ ] M1: The workplace operating requirements are recorded as a use case in `docs/use-cases/`,
+- [x] M1 (2026-10-10): The workplace operating requirements are recorded as a use case in `docs/use-cases/`,
   confirmed by the operator, and pass `okf validate`. Each requirement is mapped to Nagare's
   current behavior as supported, partial, or missing, with a file or command as evidence.
   - [x] (2026-10-10) Operator answered the questions (Surprises & Discoveries). UC-3
     (`docs/use-cases/003-operate-nagare-as-a-team-run-intranet-paas.md`) and the `team-operation`
     theme added; `okf validate docs/use-cases --profile docs/use-cases/profile.dhall --log-enforce`
     reports `OK: 5 concepts`. Mapping in "Current behavior mapping" below.
-  - [ ] Operator confirms the written UC-3 matches the workplace.
+  - [x] (2026-10-10) The operator confirmed UC-3 as written (commit `7812652b`).
 - [x] M2 (2026-10-10): [ADR 28](../adr/0028-the-intranet-stays-single-node-with-hourly-recovery-points-and-a-four-hour-rebuild.md)
   is accepted: single node, one-hour recovery point, four-hour rebuild, retention 48 h / 30 days,
   drill-tested restore. `docs/capabilities/managed-databases-and-backups.md` and
@@ -105,7 +105,11 @@ Nagare. The companion evaluation plan scores tools against this record.
 
 2026-10-10: Requirements recorded as UC-3 and the availability decided in ADR 28. The workplace
 installation is single-operator with personal data. Its open work is EP-183's, not
-multi-operator features. Remaining: the operator's confirmation of UC-3's wording.
+multi-operator features. The operator confirmed UC-3 on 2026-10-10, so both milestones are
+accepted and EP-163 M3 may score against UC-3's features.
+
+Lesson: asking the requirement questions as concrete choices took one exchange and removed four
+planned streams' worth of speculative scope. Requirements should come before any tool scoring.
 
 
 ## Current behavior mapping

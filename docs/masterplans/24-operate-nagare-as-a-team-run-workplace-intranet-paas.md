@@ -154,7 +154,7 @@ found to apply.
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 162 | Define team operating requirements and decide availability for the intranet PaaS | docs/plans/162-define-team-operating-requirements-and-decide-availability-for-the-intranet-paas.md | None | None | In Progress (M2 accepted; M1 written, awaiting operator confirmation of UC-3) |
+| 162 | Define team operating requirements and decide availability for the intranet PaaS | docs/plans/162-define-team-operating-requirements-and-decide-availability-for-the-intranet-paas.md | None | None | Complete (2026-10-10: UC-3 confirmed, ADR 28 accepted) |
 | 163 | Evaluate established tooling against Nagare's managed-resource layers | docs/plans/163-evaluate-established-tooling-against-nagare-s-managed-resource-layers.md | EP-162 M1 (before EP-163 M3) | EP-162 | In Progress (M1–M2 research and K8up prototype) |
 | 183 | Close the intranet gaps left by v0.4.0: HTTPS login, volume backups, retention and service rebuild | docs/plans/183-close-the-intranet-gaps-left-by-v0-4-0-https-login-volume-backups-retention-and-service-rebuild.md | None | EP-162 M1 | In Progress (M1 and M4 under way; M2 targets confirmed) |
 
@@ -219,7 +219,7 @@ operator decides, the tooling boundary between Nagare and established tools (aft
 
 2026-10-10: Implementation started. EP-162: the operator answered the requirement questions; UC-3
 and ADR 28 (single node, one-hour recovery point, four-hour rebuild, 48 h / 30 day retention) are
-written, and UC-3 awaits the operator's confirmation. EP-183: M1 (HTTPS and login checks) and M4
+written, and the operator confirmed UC-3: EP-162 is Complete, which unblocks EP-163 M3. EP-183: M1 (HTTPS and login checks) and M4
 (rebuild lineage) are being implemented in parallel worktrees; M2's targets are confirmed. EP-163:
 M1 desk research and the K8up prototype are running as research; M3 waits on EP-162 M1.
 
