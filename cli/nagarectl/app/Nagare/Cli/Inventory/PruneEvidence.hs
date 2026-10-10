@@ -38,14 +38,15 @@ import Nagare.Inventory.KubernetesReview
   )
 import Nagare.Inventory.Plan qualified as InventoryPlan
 import Nagare.Inventory.Prune
-  ( PruneSourceProof
-      ( pruneSourceCredential
-      , pruneSourceJob
-      , pruneSourcePolicy
-      , pruneSourceRevision
-      , pruneSourceScope
-      , pruneSourceUid
-      )
+  ( PolicyPinProof (..)
+  , PruneSourceProof
+    ( pruneSourceCredential
+    , pruneSourceJob
+    , pruneSourcePolicy
+    , pruneSourceRevision
+    , pruneSourceScope
+    , pruneSourceUid
+    )
   )
 import Nagare.Inventory.ScheduledGcs (withScheduledObjectStore)
 import Nagare.Inventory.ScheduledPrune (scheduledPruneProviderMatches)
@@ -336,9 +337,11 @@ verifyReviewedScheduledPruneRecovery mctx scopes selectedJobs = do
             , "scheduled.prune.receipt"
             , "scheduled.prune.receipt.version"
             , "scheduled.prune.policy.scope"
-            , "scheduled.prune.policy.revision"
             , "scheduled.prune.policy.retention"
             ]
+          -- Every policy pin (a database's revision, or a volume's claim and
+          -- schedule, EP-183 M3) is the failed prune's.
+          policyPins = Map.filterWithKey (\key _ -> "scheduled.prune.policy." `T.isPrefixOf` key)
       unless
         ( all
             ( \key ->
@@ -347,6 +350,7 @@ verifyReviewedScheduledPruneRecovery mctx scopes selectedJobs = do
                   && Map.member key failedFields
             )
             exactKeys
+            && policyPins recoveryFields == policyPins failedFields
         )
         (dieT "scheduled recovery differs from the published failed prune")
       failedJob <- case [ member
@@ -459,17 +463,28 @@ loadReviewedPruneSourceNative store document proofs = do
       when
         (any dependent (Map.elems (InventoryPlan.historyAccepted history)))
         (dieT "scheduled prune backup gained an accepted dependency after review")
-  forM_ (catMaybes (map pruneSourcePolicy proofs)) $ \(policyScope, policyRevision) -> do
+  forM_ (catMaybes (map pruneSourcePolicy proofs)) $ \(policyScope, pin) -> do
     let matches =
-          [ (owner, revision)
-          | (owner, (revision, _)) <-
+          [ (owner, revision, scope)
+          | (owner, (revision, scope)) <-
               Map.toAscList (InventoryPlan.historyAccepted history)
           , Resource.scopeIdText owner == policyScope
           ]
-    case matches of
-      [(owner, revision)]
+        incarnations = InventoryStore.headIncarnations (InventoryPlan.historyHead history)
+    case (matches, pin) of
+      ([(owner, revision, _)], PinnedRevision policyRevision)
         | InventoryStore.revisionDigest revision == policyRevision
             && Map.lookup owner (InventoryPlan.reviewDesiredRevisions document) == Just revision ->
+            pure ()
+      -- EP-183 M3: a volume's policy is its claim's recorded incarnation and
+      -- its schedule's accepted spec; the application scope may have moved.
+      ([(_, _, scope)], PinnedClaimSchedule claim incarnation schedule spec)
+        | Map.lookup claim incarnations == Just incarnation
+            && or
+              [ member ^. #identity == schedule && member ^. #spec == ResourceInventory.NativeObject spec
+              | bundle <- ResourceInventory.scopeBundles scope
+              , ResourceInventory.Managed member <- ResourceInventory.declarations bundle
+              ] ->
             pure ()
       _ -> dieT "scheduled prune retention policy changed after review"
   let credentials = catMaybes (map pruneSourceCredential proofs)

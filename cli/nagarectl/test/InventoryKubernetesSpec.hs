@@ -55,10 +55,11 @@ import Nagare.Inventory.Maintenance (MaintenanceRequest (..), MaintenanceSourceP
 import Nagare.Inventory.ManualReceipt (ManualReceiptEvidence (..), compileManualReceiptScope, manualReceiptRecord)
 import Nagare.Inventory.ManualReceiptSource (inspectManualReceipt, parseGcsManualMetadata)
 import Nagare.Inventory.Plan
-import Nagare.Inventory.Prune (ManualPruneRequest (..), PruneSourceProof (..), compileManualPruneScope, manualPruneJobBackupPin, manualPruneSourceProof)
+import Nagare.Inventory.Prune (ManualPruneRequest (..), PolicyPinProof (..), PruneSourceProof (..), compileManualPruneScope, manualPruneJobBackupPin, manualPruneSourceProof)
 import Nagare.Inventory.Restore (ManualRestoreRequest (..), VolumeRestoreRequest (..), compileManualRestoreScope, compileVolumeRestoreScope, manualRestoreJobTargetPins, manualRestoreTargetProof, volumeRestoreJobSourcePins)
 import Nagare.Inventory.ScheduledPrune
-  ( PruneSource (..)
+  ( PrunePolicyPin (..)
+  , PruneSource (..)
   , ScheduledPruneCandidate (..)
   , ScheduledPruneRequest (..)
   , compileScheduledPruneRecoveryScope
@@ -1281,7 +1282,7 @@ inventoryKubernetesTests =
                 , scheduledPruneBackupRevision = pruneVolumeBackupRevision pruneRequest
                 , scheduledPruneBackupJobUid = pruneVolumeBackupUid pruneRequest
                 , scheduledPrunePolicyScope = scopeId sourceScope
-                , scheduledPrunePolicyRevision = volumeRestoreTargetRevision restoreRequest
+                , scheduledPrunePolicyPin = PolicyRevisionPin (volumeRestoreTargetRevision restoreRequest)
                 , scheduledPruneRetention = standardRetention
                 , scheduledPruneBackend = GcsBackend "project" "bucket"
                 , scheduledPruneSource = SourceLocation "scheduled prune" scheduledId
@@ -1297,11 +1298,7 @@ inventoryKubernetesTests =
           Right (Just proof) -> do
             pruneSourceScope proof @?= scopeIdText (scopeId acceptedScheduled)
             pruneSourcePolicy proof
-              @?= Just
-                ( scopeIdText (scopeId sourceScope)
-                , revisionDigest
-                    (volumeRestoreTargetRevision restoreRequest)
-                )
+              @?= Just (scopeIdText (scopeId sourceScope), PinnedRevision (revisionDigest (volumeRestoreTargetRevision restoreRequest)))
           other -> assertFailure ("scheduled prune source pins were rejected: " <> show other)
         manualPruneJobBackupPin scheduledBytes
           @?= Right (Just (finiteJob ^. #identity, pruneVolumeBackupUid pruneRequest))

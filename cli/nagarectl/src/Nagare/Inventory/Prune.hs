@@ -4,6 +4,7 @@
 module Nagare.Inventory.Prune
   ( ManualPruneRequest (..)
   , PruneSourceProof (..)
+  , PolicyPinProof (..)
   , manualPruneSourceProof
   , manualPruneJobBackupPin
   , compileManualPruneScope
@@ -64,8 +65,16 @@ data PruneSourceProof = PruneSourceProof
   , pruneSourceJob :: !ResourceId
   , pruneSourceUid :: !PhysicalIdentity
   , pruneSourceCredential :: !(Maybe (ResourceId, PhysicalIdentity))
-  , pruneSourcePolicy :: !(Maybe (Text, ContentDigest))
+  , pruneSourcePolicy :: !(Maybe (Text, PolicyPinProof))
   }
+  deriving stock (Eq, Show)
+
+-- | A scheduled prune's retention-source pin: a database's scope revision, or
+-- a volume's claim incarnation and schedule spec (EP-183 M3).
+data PolicyPinProof
+  = PinnedRevision !ContentDigest
+  | -- | Claim, its incarnation, schedule, and the schedule's accepted spec.
+    PinnedClaimSchedule !ResourceId !PhysicalIdentity !ResourceId !ContentDigest
   deriving stock (Eq, Show)
 
 manualPruneSourceProof :: ScopeDeclaration -> Either Text (Maybe PruneSourceProof)
@@ -80,12 +89,14 @@ manualPruneSourceProof scope
           (Just resource, Just uid) ->
             Just <$> ((,) <$> mkResourceId resource <*> mkPhysicalIdentity uid)
           _ -> Left "manual prune scope has incomplete credential pins"
-        policy <- case ( Map.lookup "scheduled.prune.policy.scope" values
-                       , Map.lookup "scheduled.prune.policy.revision" values
-                       ) of
-          (Nothing, Nothing) -> Right Nothing
-          (Just owner, Just revision) ->
-            Just . (\digest -> (owner, digest)) <$> mkContentDigest revision
+        let pin key = Map.lookup ("scheduled.prune.policy." <> key) values
+        policy <- case (pin "scope", pin "revision", traverse pin ["claim", "claim.uid", "schedule", "schedule.spec"]) of
+          (Nothing, Nothing, Nothing) | all (isNothing . pin) ["claim", "claim.uid", "schedule", "schedule.spec"] -> Right Nothing
+          (Just owner, Just revision, Nothing)
+            | all (isNothing . pin) ["claim", "claim.uid", "schedule", "schedule.spec"] ->
+                Just . (owner,) . PinnedRevision <$> mkContentDigest revision
+          (Just owner, Nothing, Just [claim, uid, schedule, spec]) ->
+            Just . (owner,) <$> (PinnedClaimSchedule <$> mkResourceId claim <*> mkPhysicalIdentity uid <*> mkResourceId schedule <*> mkContentDigest spec)
           _ -> Left "scheduled prune scope has incomplete policy pins"
         PruneSourceProof
           <$> required "prune.backup.scope"

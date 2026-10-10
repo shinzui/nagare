@@ -50,6 +50,7 @@ backupRetentionTests =
   , testCase "admission checks only new prunes, under the release policy, of one source's unpruned runs" admissionScope
   , testCase "server status counts accepted unpruned runs past policy" statusCount
   , testCase "a volume's scheduled run is pruned only under its own volume's prefix" volumePruneCompiles
+  , testCase "a stopped volume prune stays recoverable after an application deploy (ADR 26)" volumeRecoveryAfterDeploy
   , testCase "a saved prune of an expired run is admitted and converges; pruning it again is refused" admittedPrune
   , testCase "a saved prune of the newest run refuses admission before any adapter effect" refusedNewest
   , testCase "a prune stopped at each operation closes by per-operation proof; its receipt recovery passes admission" stoppedPrunes
@@ -398,8 +399,8 @@ selection = do
   map scheduledPruneId candidates @?= map runId ["forty-days", "ten-days-morning"]
   -- Another schedule's runs (EP-183 M3: another volume) are neither listed
   -- under this prefix nor candidates.
-  beside <- expectRight (select Set.empty (receiptScopes <> [otherVolumeRun]) listed)
-  map scheduledPruneId beside @?= map scheduledPruneId candidates
+  withOther <- expectRight (select Set.empty (receiptScopes <> [otherVolumeRun]) listed)
+  map scheduledPruneId withOther @?= map scheduledPruneId candidates
   map scheduledPruneObjectVersion candidates @?= ["object-version-forty-days", "object-version-ten-days-morning"]
   assertBool
     "an unknown object passed the complete-listing guard"
@@ -494,20 +495,88 @@ volumePruneCompiles = do
         _ -> error "ingestion Job fixture is not managed"
       fields =
         Map.union
-          (Map.fromList [("scheduled.backup.object", volumeObject), ("scheduled.backup.receipt", volumeObject <> ".receipt.json"), ("scheduled.backup.source.kind", "volume")])
+          (Map.fromList [("scheduled.backup.object", volumeObject), ("scheduled.backup.receipt", volumeObject <> ".receipt.json"), ("scheduled.backup.source.kind", "volume"), ("scheduled.backup.source.pvc", resourceIdText claimId)])
           (receiptFields "volume-run" (Just (hoursAgo 1000)))
       backup = withScopeOverrides fields (scopeOf owner [Managed job])
       candidate =
         ScheduledPruneCandidate owner run volumeObject "object-version-volume-run" 123 (T.replicate 64 "a") (volumeObject <> ".receipt.json") "receipt-version-volume-run" 456 (T.replicate 64 "b") (hoursAgo 1000)
       revision = ScopeRevision (ok (mkScopeGeneration 1)) (contentDigest "revision")
-      request source =
-        ScheduledPruneRequest source "personal" candidate revision (ok (mkPhysicalIdentity "ingest-uid")) sourceScope revision standardRetention (GcsBackend "project" "bucket") (SourceLocation "test" run)
-      compiled source = compileScheduledPruneScope (request source) backup (Map.singleton (job ^. #identity) (job, jobBytes))
-  case compiled (VolumePruneSource "web" "uploads") of
-    Right (scope, _) -> scopeIdText (scopeId scope) @?= "standalone:volume-scheduled-prune-personal-nagare-volbackup-web-uploads-" <> run
-    Left errors -> assertFailure ("a volume run's prune was refused: " <> show errors)
-  assertBool "a volume run was pruned as a database run" (isLeft (compiled (DatabasePruneSource "web")))
-  assertBool "a volume run was pruned as another volume's" (isLeft (compiled (VolumePruneSource "web" "other")))
+      volumePin = ClaimSchedulePin claimId (ok (mkPhysicalIdentity "claim-uid")) scheduleId (contentDigest "schedule-spec")
+      request source pin =
+        ScheduledPruneRequest source "personal" candidate revision (ok (mkPhysicalIdentity "ingest-uid")) sourceScope pin standardRetention (GcsBackend "project" "bucket") (SourceLocation "test" run)
+      native = Map.singleton (job ^. #identity) (job, jobBytes)
+      compiled source pin = compileScheduledPruneScope (request source pin) backup native
+  failed <- case compiled (VolumePruneSource "web" "uploads") volumePin of
+    Right (scope, _) -> do
+      scopeIdText (scopeId scope) @?= "standalone:volume-scheduled-prune-personal-nagare-volbackup-web-uploads-" <> run
+      Map.lookup "scheduled.prune.policy.revision" (scopeOverrides scope) @?= Nothing
+      pure scope
+    Left errors -> assertFailure ("a volume run's prune was refused: " <> show errors) >> pure (error "unreachable")
+  assertBool "a volume run was pruned as a database run" (isLeft (compiled (DatabasePruneSource "web") (PolicyRevisionPin revision)))
+  assertBool "a volume run was pruned as another volume's" (isLeft (compiled (VolumePruneSource "web" "other") volumePin))
+  assertBool "a volume prune pinned a database's scope revision" (isLeft (compiled (VolumePruneSource "web" "uploads") (PolicyRevisionPin revision)))
+  assertBool "a volume prune pinned another claim" (isLeft (compiled (VolumePruneSource "web" "uploads") (ClaimSchedulePin scheduleId (ok (mkPhysicalIdentity "claim-uid")) scheduleId (contentDigest "schedule-spec"))))
+  -- ADR 26: its recovery pins the same claim and schedule, whatever the
+  -- application scope's revision is now, and refuses a changed schedule.
+  let recovery pin = compileScheduledPruneRecoveryScope (request (VolumePruneSource "web" "uploads") pin) backup native failed (ok (mkPhysicalIdentity "failed-uid")) (contentDigest "failed review")
+  assertBool "the recovery of a stopped volume prune was refused" (isRight (recovery volumePin))
+  assertBool "a recovery under a changed schedule was admitted" (isLeft (recovery (ClaimSchedulePin claimId (ok (mkPhysicalIdentity "claim-uid")) scheduleId (contentDigest "changed"))))
+  assertBool "a recovery after the claim was replaced was admitted" (isLeft (recovery (ClaimSchedulePin claimId (ok (mkPhysicalIdentity "new-claim")) scheduleId (contentDigest "schedule-spec"))))
+
+-- | EP-183 (ADR 26): a volume prune stopped by a failed Job is closed; an
+-- application deploy then moves its policy source's revision. Its recovery
+-- review is still available and closes the run by per-operation proof, and
+-- the deploy was refused only while the stopped transaction was open.
+volumeRecoveryAfterDeploy :: Assertion
+volumeRecoveryAfterDeploy = do
+  store <- seededStore
+  let pins = [("scheduled.prune.policy.claim", resourceIdText claimId), ("scheduled.prune.policy.claim.uid", "claim-uid"), ("scheduled.prune.policy.schedule", resourceIdText scheduleId), ("scheduled.prune.policy.schedule.spec", digestText (contentDigest "schedule-spec"))]
+      failedPrune = pruneScope "forty-days" pins
+      stopping = recordingRegistryWith (\_ _ -> pure (Right ())) (\_ _ -> pure (AdapterEffectAmbiguous "interrupted")) (\_ _ -> pure (RecoveryUnresolved "provider unreachable"))
+      failing = recordingRegistryWith (\_ _ -> pure (Right ())) (\_ _ -> pure AdapterEffectCompleted) (\_ _ -> pure (RecoveryTerminalFailure (ok (mkPhysicalIdentity "failed-prune-job"))))
+      deploy images = scopeOf sourceScope [member sourceScope image | image <- images]
+      deployed images =
+        reviewScope store completing (deploy images) >>= applyReviewed store completing >>= expectRight >>= \case
+          Converged _ -> pure ()
+          other -> assertFailure ("a deploy did not converge: " <> show other)
+  -- The application (the volume's policy source) exists when the prune is
+  -- reviewed.
+  deployed ["web-v1"]
+  reviewed <- reviewScope store stopping failedPrune
+  transaction <-
+    applyReviewed store stopping reviewed >>= expectRight >>= \case
+      StoppedAmbiguous tx _ -> pure tx
+      other -> assertFailure ("the volume prune did not stop: " <> show other) >> pure (error "unreachable")
+  -- While the stopped prune is open, no other review applies.
+  open <- loadInventoryHistory store >>= expectRight
+  let openAccepted = Map.map (\(revision, declared) -> (revisionGeneration revision, declared)) (historyAccepted open)
+      deployCandidate = ok (composeInventory (ok (mkScopeSnapshot fixtureBinding openAccepted (historyReservations open))) (ReplaceScope (deploy ["web-v1", "web-v2"]) :| []))
+  openPlanning <- loadInventoryPlanningHistory store deployCandidate >>= expectRight
+  case planChanges deployCandidate noLifecycleDecisions openPlanning (ok (observationSet [])) of
+    Left errors -> assertBool "planning beside an open prune did not refuse for the active transaction" ("active-transaction" `elem` map planErrorCode (NE.toList errors))
+    Right _ -> assertFailure "a deploy was planned while a stopped prune was open"
+  record <- closeTransaction store failing (CloseInput transaction (reviewDigestOf reviewed) False Nothing) >>= either (\errors -> assertFailure ("close refused: " <> show (NE.toList errors)) >> pure (error "unreachable")) pure
+  Map.elems (closedScopes record) @?= [KeepDesired]
+  -- Once closed, an application deploy applies and moves the policy
+  -- source's revision.
+  deployed ["web-v1", "web-v2"]
+  history <- loadInventoryHistory store >>= expectRight
+  let document = reviewedDocument reviewed
+      accepted = headAccepted (historyHead history)
+  assertBool "the deploy did not move the policy source's revision" (Map.lookup sourceScope accepted /= Map.lookup sourceScope (reviewBaseRevisions document) && Map.member sourceScope (reviewBaseRevisions document))
+  scheduledPruneRecoveryBasis (reviewBaseRevisions document) (reviewDesiredRevisions document) failedPrune accepted @?= Right ()
+  -- The recovery review is admitted and closes the run by per-operation proof.
+  wall <- getCurrentTime
+  let recovery = pruneScope "forty-days" (pins <> [("scheduled.prune.recovery.review", digestText (reviewDigestOf reviewed))])
+  scheduledPruneRetentionAdmission standardRetention wall (historyAccepted history) [recovery] @?= Right ()
+  recovered <- reviewScope store completing recovery
+  applyReviewed store completing recovered >>= expectRight >>= \case
+    Converged _ -> pure ()
+    other -> assertFailure ("the recovery did not converge: " <> show other)
+
+-- | The claim of the fixture's volume runs.
+claimId :: ResourceId
+claimId = mintResourceId sourceScope (ok (mkLogicalKey "uploads")) (ok (mkName "pvc"))
 
 -- | The only, 40-day-old run of a second schedule in the fixture scope.
 otherVolumeRun :: ScopeDeclaration

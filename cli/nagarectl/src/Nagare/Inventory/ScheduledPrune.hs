@@ -7,6 +7,9 @@ module Nagare.Inventory.ScheduledPrune
   , PruneSource (..)
   , pruneSourceOwner
   , ScheduledPruneRequest (..)
+  , PrunePolicyPin (..)
+  , prunePolicyPinFields
+  , scheduledPruneRecoveryBasis
   , selectScheduledPruneCandidates
   , recoverScheduledPruneCandidate
   , compileScheduledPruneScope
@@ -121,12 +124,59 @@ data ScheduledPruneRequest = ScheduledPruneRequest
   , scheduledPruneBackupRevision :: !ScopeRevision
   , scheduledPruneBackupJobUid :: !PhysicalIdentity
   , scheduledPrunePolicyScope :: !ScopeId
-  , scheduledPrunePolicyRevision :: !ScopeRevision
+  , scheduledPrunePolicyPin :: !PrunePolicyPin
   , scheduledPruneRetention :: !RetentionPolicy
   , scheduledPruneBackend :: !StoreBackend
   , scheduledPruneSource :: !SourceLocation
   }
   deriving stock (Eq, Show)
+
+-- | What a prune review pins of its retention source, and its recovery must
+-- find unchanged (ADR 26: a stopped prune keeps a reviewed exit). A database
+-- pins its scope revision. A volume (EP-183 M3) pins its claim's recorded
+-- incarnation and its schedule's accepted spec, not the application scope's
+-- revision, which every deploy moves.
+data PrunePolicyPin
+  = PolicyRevisionPin !ScopeRevision
+  | -- | Claim, its incarnation, schedule, and the schedule's accepted spec.
+    ClaimSchedulePin !ResourceId !PhysicalIdentity !ResourceId !ContentDigest
+  deriving stock (Eq, Show)
+
+-- | The fields a prune scope records for its pin.
+prunePolicyPinFields :: PrunePolicyPin -> [(Text, Text)]
+prunePolicyPinFields = \case
+  PolicyRevisionPin revision -> [("scheduled.prune.policy.revision", digestText (revisionDigest revision))]
+  ClaimSchedulePin claim incarnation schedule spec ->
+    [ ("scheduled.prune.policy.claim", resourceIdText claim)
+    , ("scheduled.prune.policy.claim.uid", physicalIdentityText incarnation)
+    , ("scheduled.prune.policy.schedule", resourceIdText schedule)
+    , ("scheduled.prune.policy.schedule.spec", digestText spec)
+    ]
+
+-- | EP-183 (ADR 26): a stopped prune's recovery is reviewable while the
+-- failed prune scope is still accepted at the revision its review desired and
+-- the pruned run's receipt scope at the revision that review saw. Any other
+-- scope, the policy source's included, may have moved since: the pin, checked
+-- when the recovery compiles, decides whether the policy still holds.
+scheduledPruneRecoveryBasis ::
+  Map.Map ScopeId ScopeRevision ->
+  Map.Map ScopeId ScopeRevision ->
+  ScopeDeclaration ->
+  Map.Map ScopeId ScopeRevision ->
+  Either Text ()
+scheduledPruneRecoveryBasis base desired failed current = do
+  backup <- maybe (Left "the failed prune names no run") Right (Map.lookup "scheduled.prune.backup.scope" (scopeOverrides failed))
+  let named name revisions = [revision | (owner, revision) <- Map.toList revisions, scopeIdText owner == name]
+      unchanged = [backup]
+  unless
+    (not (null (named failedName desired)) && named failedName current == named failedName desired)
+    (Left "the failed prune scope is no longer accepted as its review left it")
+  forM_ unchanged $ \name ->
+    unless
+      (not (null (named name base)) && named name current == named name base)
+      (Left ("scope " <> name <> " changed after the failed prune review"))
+  where
+    failedName = scopeIdText (scopeId failed)
 
 -- | Refuse incomplete, unaccepted, already-pruned-but-visible, or unknown
 -- provider objects. Only runs whose signed recovery point is past the policy
@@ -670,6 +720,17 @@ compileScheduledPruneScopeWith recovery request backup native = do
   unless
     (scopeId backup == scheduledPruneScope candidate && validUid backupId)
     (Left (invalid "selected candidate differs from the accepted receipt scope"))
+  -- A database pins its scope revision; a volume its run's own claim and
+  -- schedule.
+  unless
+    ( case (runSource, scheduledPrunePolicyPin request) of
+        (DatabasePruneSource _, PolicyRevisionPin _) -> True
+        (VolumePruneSource _ _, ClaimSchedulePin claim _ schedule _) ->
+          Map.lookup "scheduled.backup.source.pvc" fields == Just (resourceIdText claim)
+            && runSchedule backup == Just (resourceIdText schedule)
+        _ -> False
+    )
+    (Left (invalid "scheduled prune pins another retention source than its run's"))
   unless
     ( Map.lookup "scheduled.backup.source.scope" fields
         == Just (scopeIdText (scheduledPrunePolicyScope request))
@@ -690,13 +751,9 @@ compileScheduledPruneScopeWith recovery request backup native = do
         ( checked == candidate
             && Map.lookup "scheduled.prune.policy.scope" (scopeOverrides failed)
               == Just (scopeIdText (scheduledPrunePolicyScope request))
-            && Map.lookup "scheduled.prune.policy.revision" (scopeOverrides failed)
-              == Just
-                ( digestText
-                    ( revisionDigest
-                        (scheduledPrunePolicyRevision request)
-                    )
-                )
+            && all
+              (\(key, value) -> Map.lookup key (scopeOverrides failed) == Just value)
+              (prunePolicyPinFields (scheduledPrunePolicyPin request))
             && Map.lookup "scheduled.prune.policy.retention" (scopeOverrides failed)
               == Just (retentionPolicyText (scheduledPruneRetention request))
         )
@@ -912,11 +969,6 @@ compileScheduledPruneScopeWith recovery request backup native = do
                 (scheduledPrunePolicyScope request)
             )
           ,
-            ( "scheduled.prune.policy.revision"
-            , digestText
-                (revisionDigest (scheduledPrunePolicyRevision request))
-            )
-          ,
             ( "scheduled.prune.policy.retention"
             , retentionPolicyText (scheduledPruneRetention request)
             )
@@ -925,6 +977,7 @@ compileScheduledPruneScopeWith recovery request backup native = do
           , ("scheduled.prune.receipt", scheduledPruneReceipt candidate)
           , ("scheduled.prune.receipt.version", scheduledPruneReceiptVersion candidate)
           ]
+          `Map.union` Map.fromList (prunePolicyPinFields (scheduledPrunePolicyPin request))
           `Map.union` case recovery of
             Nothing -> Map.empty
             Just (failed, failedUid, reviewDigest) ->

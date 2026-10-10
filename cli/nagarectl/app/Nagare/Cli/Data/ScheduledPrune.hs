@@ -64,7 +64,8 @@ import Nagare.Inventory.Lifecycle (decideRetirementAndCollection)
 import Nagare.Inventory.Plan qualified as InventoryPlan
 import Nagare.Inventory.ScheduledGcs (withScheduledObjectStore)
 import Nagare.Inventory.ScheduledPrune
-  ( PruneSource (..)
+  ( PrunePolicyPin (..)
+  , PruneSource (..)
   , ScheduledCleanup (..)
   , ScheduledPruneCandidate (..)
   , ScheduledPruneRequest (..)
@@ -75,6 +76,7 @@ import Nagare.Inventory.ScheduledPrune
   , pruneSourceOwner
   , recoverScheduledPruneCandidate
   , scheduledPruneCleanup
+  , scheduledPruneRecoveryBasis
   , selectScheduledPruneCandidates
   )
 import Nagare.Inventory.ScheduledStore
@@ -298,6 +300,11 @@ runReviewedScheduledPrunePlan mctx runSource namespaceName bucketArg output = do
   when
     (null candidates && null (retire cleanup) && null (collect cleanup))
     (dieT ("no accepted scheduled backup is past the retention policy (" <> retentionPolicyText standardRetention <> ") and nothing pruned earlier awaits cleanup"))
+  policyPin <- case runSource of
+    DatabasePruneSource _ -> pure (PolicyRevisionPin sourceRevision)
+    VolumePruneSource _ _ -> case cron ^. #spec of
+      ResourceInventory.NativeObject spec -> pure (ClaimSchedulePin (pvc ^. #identity) pvcUid (cron ^. #identity) spec)
+      _ -> dieT "accepted volume backup CronJob has no native spec"
   let contextName = contextNameText (active ^. #contextName)
   context <- either dieT pure (Resource.mkContextId contextName)
   let config = KubernetesRuntimeConfig context contextName (fmap (fmap (const ())) (guardKubernetesContext active))
@@ -337,7 +344,7 @@ runReviewedScheduledPrunePlan mctx runSource namespaceName bucketArg output = do
             , scheduledPruneBackupRevision = backupRevision
             , scheduledPruneBackupJobUid = backupUid
             , scheduledPrunePolicyScope = ResourceInventory.scopeId sourceScope
-            , scheduledPrunePolicyRevision = sourceRevision
+            , scheduledPrunePolicyPin = policyPin
             , scheduledPruneRetention = standardRetention
             , scheduledPruneBackend = backend
             , scheduledPruneSource = Resource.SourceLocation (pruneCommand runSource) (scheduledPruneId selected)
@@ -435,11 +442,6 @@ runReviewedScheduledPruneRecoveryPlan
       )
       (dieT "failed scheduled prune review differs from its published members")
     let document = InventoryPlan.reviewBundleDocument published
-    unless
-      ( InventoryPlan.reviewBaseRevisions document
-          == InventoryStore.headAccepted (InventoryPlan.historyHead history)
-      )
-      (dieT "accepted inventory changed after the failed scheduled prune review")
     reviewedScopes <-
       traverse
         ( either (dieT . T.pack . show) pure
@@ -494,14 +496,44 @@ runReviewedScheduledPruneRecoveryPlan
                    ] of
       [single] -> pure single
       _ -> dieT "failed prune policy source is no longer uniquely accepted"
-    let (policyOwner, policyRevision, _) = policy
-    policyPin <- required "scheduled.prune.policy.revision"
-    unless
-      ( policyPin
-          == Resource.digestText
-            (InventoryStore.revisionDigest policyRevision)
+    let (policyOwner, policyRevision, policyScope) = policy
+    -- ADR 26: the failed prune stays recoverable after unrelated changes
+    -- (an application deploy); only its own scope and its run's receipt
+    -- scope must be as its review left them.
+    either
+      dieT
+      pure
+      ( scheduledPruneRecoveryBasis
+          (InventoryPlan.reviewBaseRevisions document)
+          (InventoryPlan.reviewDesiredRevisions document)
+          failedScope
+          (InventoryStore.headAccepted (InventoryPlan.historyHead history))
       )
-      (dieT "failed prune retention policy revision changed")
+    -- The pin the recovery must match: a database's scope revision, or a
+    -- volume's claim incarnation and schedule spec as accepted now.
+    policyPin <- case runSource of
+      DatabasePruneSource _ -> do
+        pinned <- required "scheduled.prune.policy.revision"
+        unless
+          (pinned == Resource.digestText (InventoryStore.revisionDigest policyRevision))
+          (dieT "failed prune retention policy revision changed")
+        pure (PolicyRevisionPin policyRevision)
+      VolumePruneSource _ _ -> do
+        claim <- required "scheduled.prune.policy.claim" >>= either dieT pure . Resource.mkResourceId
+        schedule <- required "scheduled.prune.policy.schedule" >>= either dieT pure . Resource.mkResourceId
+        incarnation <-
+          maybe
+            (dieT "the volume claim has no recorded incarnation")
+            pure
+            (Map.lookup claim (InventoryStore.headIncarnations (InventoryPlan.historyHead history)))
+        spec <- case [ member ^. #spec
+                     | bundle <- ResourceInventory.scopeBundles policyScope
+                     , ResourceInventory.Managed member <- ResourceInventory.declarations bundle
+                     , member ^. #identity == schedule
+                     ] of
+          [ResourceInventory.NativeObject digest] -> pure digest
+          _ -> dieT "failed prune's volume schedule is no longer accepted"
+        pure (ClaimSchedulePin claim incarnation schedule spec)
     retentionText <- required "scheduled.prune.policy.retention"
     unless
       (retentionText == retentionPolicyText standardRetention)
@@ -668,7 +700,7 @@ runReviewedScheduledPruneRecoveryPlan
             , scheduledPruneBackupRevision = backupRevision
             , scheduledPruneBackupJobUid = backupUid
             , scheduledPrunePolicyScope = policyOwner
-            , scheduledPrunePolicyRevision = policyRevision
+            , scheduledPrunePolicyPin = policyPin
             , scheduledPruneRetention = standardRetention
             , scheduledPruneBackend = backend
             , scheduledPruneSource =
