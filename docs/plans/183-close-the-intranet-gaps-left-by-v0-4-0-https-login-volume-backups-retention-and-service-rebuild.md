@@ -723,6 +723,20 @@ This plan adds the following interfaces:
 - `nagarectl inventory rebuild-decisions --out FILE`: read-only, prints lineage decisions for every
   durable member confirmed absent.
 
+Format changes EP-172's compatibility table must carry. EP-172 has not built the table yet, so
+the rows are kept here until it does:
+
+| Change | Milestone | An older binary | Migration |
+|---|---|---|---|
+| The review document gains an optional `rebuilds` field. Each entry has an optional `predecessor` and either `recoveryPoint{kind: scheduled, manual or volume-snapshot; receipt; receiptDigest}` or `fresh: true`. | M4 | refuses to read a review that has the field | none; old reviews read unchanged |
+| New standalone scope `database-rebuild-<ns>-<db>-<id>`, with `restore.*` and `restore.rebuild.*` keys. | M4 | does not know the scope kind | none |
+| New standalone scope `volume-rebuild-<ns>-<app>-<vol>-<id>`, with `volume-restore.*` and `volume-restore.rebuild.*` keys and the Job annotation `nagare.dev/volume-restore-rebuild-review`. | M4 | refuses the Job's pins | none |
+| Prune scope key `scheduled.prune.policy.keep` becomes `scheduled.prune.policy.retention`. | M2 | n/a: v0.4.0 admission refused every scheduled prune, so no v0.4.0 context holds one | none |
+| The command coverage `deferredRoutes` list loses `DbPruneScheduledBackups`. | M2 | evidence contract only | none |
+| The local MinIO manifest (`cluster/local/minio/minio.yaml`) names locally published images, with a new manifest digest. | M1 | local contexts only | a local context re-binds on its next bootstrap review |
+
+The head, journal and receipt formats are unchanged by M1, M2 (first slice) and M4.
+
 Dependencies on other plans:
 
 - M2's targets come from EP-162 M1
