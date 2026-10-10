@@ -1,0 +1,11 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/VolumeRestoreSource.hs b/cli/nagarectl/src/Nagare/Inventory/VolumeRestoreSource.hs
+--- a/cli/nagarectl/src/Nagare/Inventory/VolumeRestoreSource.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/VolumeRestoreSource.hs
+@@ -161,7 +161,6 @@
+             unless
+               (storedVersion receiptInfo == receiptAt && storedVersion archiveInfo == archiveVersion)
+               (Left "the stored volume run is not at its accepted versions")
+-            unless (digestText (contentDigest stored) == receiptHash) (Left "the stored volume run receipt differs from the accepted receipt")
+             unless (actual == checksum) (Left "the stored volume run archive differs from its accepted checksum")
+             physical <- mkPhysicalIdentity sourceUid
+             digest <- mkContentDigest receiptHash

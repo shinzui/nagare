@@ -1036,5 +1036,17 @@
     "suite": "nagarectl",
     "pattern": "/the rendered ingestion Job verifies a real volume receipt and the database script refuses it/",
     "expect": "test-fails"
+  },
+  {
+    "record": "EP183-volume-run-receipt-unchecked",
+    "suite": "nagarectl",
+    "pattern": "/an accepted scheduled volume run verifies from the object store against its ingestion record/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "EP183-volume-run-kind-unchecked",
+    "suite": "nagarectl",
+    "pattern": "/an accepted scheduled volume run verifies from the object store against its ingestion record/",
+    "expect": "test-fails"
   }
 ]

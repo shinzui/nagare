@@ -1,0 +1,11 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/VolumeRestoreSource.hs b/cli/nagarectl/src/Nagare/Inventory/VolumeRestoreSource.hs
+--- a/cli/nagarectl/src/Nagare/Inventory/VolumeRestoreSource.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/VolumeRestoreSource.hs
+@@ -181,7 +181,6 @@
+     overrides = scopeOverrides scope
+     field key = maybe (Left ("the accepted volume run lacks " <> key)) Right (Map.lookup key overrides)
+     recorded = do
+-      unless (Map.lookup "scheduled.backup.source.kind" overrides == Just "volume") (Left "the accepted run is not a scheduled volume run")
+       archiveUrl <- field "scheduled.backup.object"
+       archiveVersion <- field "scheduled.backup.object.version"
+       checksum <- field "scheduled.backup.object.sha256"
