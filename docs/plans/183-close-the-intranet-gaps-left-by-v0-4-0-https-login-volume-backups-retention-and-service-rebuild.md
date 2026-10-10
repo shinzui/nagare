@@ -74,7 +74,7 @@ This plan only makes sure its changes are covered by that transition's compatibi
 
   The deploy waits for the route's certificate to be Ready. The docs no longer call local mode
   HTTP-only or show the refused direct `context create --force` form.
-- [ ] M2. The operator's recovery-time and retention targets are recorded (EP-162 M1, or this plan's
+- [ ] M2. (Targets recorded 2026-10-10: UC-3, ADR 28.) The operator's recovery-time and retention targets are recorded (EP-162 M1, or this plan's
   proposed defaults confirmed). `server status` reports scheduled database backups past retention
   as WARN. `db prune-scheduled-backups --save-plan` reviews them, and applying the review removes
   them. Recovery-model scenarios prove that a prune stopped at any operation closes by
@@ -99,6 +99,14 @@ This plan only makes sure its changes are covered by that transition's compatibi
 
 
 ## Decision Log
+
+- Decision: M2's targets are the proposed defaults, confirmed by the operator on 2026-10-09: keep
+  every scheduled recovery point for 48 hours and the newest point of each day for 30 days, always
+  keep the newest verified point, and a 4-hour recovery-time objective. They are recorded in UC-3
+  (`docs/use-cases/003-operate-nagare-as-a-team-run-intranet-paas.md`) and
+  [ADR 28](../adr/0028-the-intranet-stays-single-node-with-hourly-recovery-points-and-a-four-hour-rebuild.md).
+  Rationale: the operator chose "Accept defaults" when EP-162's questions were asked.
+  Date: 2026-10-10
 
 - Decision: One ExecPlan under MasterPlan 24 covers D2, D3, D4 and the service rebuild. Team
   operation and the release transition are excluded.
@@ -235,7 +243,7 @@ The rest of this section covers each gap in turn.
   - `daily` warns at 25 hours and breaches at 26 hours.
 - `nagarectl server status` shows one "recovery point" row per database
   (`cli/nagarectl/app/Nagare/Cli/Data/ScheduledReceipts.hs`, `cli/nagarectl/src/Nagare/Ops/Probe.hs`).
-- Receipts already carry a `keep` value (`Backup.hs`, around line 708), but nothing enforces it:
+- Receipts already carry a `keep` value (`keep` field, `Backup.hs:196`), but nothing enforces it:
   - the receipt listing prints "keep and expiry are unenforced";
   - `nagarectl db prune-scheduled-backups` exits with "new scheduled pruning is deferred"
     (`cli/nagarectl/app/Nagare/Cli/Commands/Database.hs`, around lines 209–211);
@@ -257,8 +265,8 @@ The rest of this section covers each gap in turn.
 - `storage restore` restores into a new PVC; restoring into the live volume (`--into-live`) is
   refused.
 - No scheduler exists. The only volume line in `server status` is a legacy probe of the `volumes/`
-  prefix, which never sees `manual-volumes/` and printed `UNKNOWN backup volumes` in the v0.4.0
-  drills (`cli/nagarectl/src/Nagare/Ops/Status.hs`, around lines 276–292).
+  prefix (`backupPrefixes`, `cli/nagarectl/src/Nagare/Ops/Probe.hs:267`), which never sees
+  `manual-volumes/` and printed `UNKNOWN backup volumes` in the v0.4.0 drills.
 - The user guide is `docs/user/backups-and-disaster-recovery.md`, sections "App volumes" and
   "Managed databases".
 
@@ -400,7 +408,7 @@ result in Surprises & Discoveries either way.
      key-kind aware, or gains a `storage` twin).
 2. Extend `scheduledRecoveryPointProbes` (`cli/nagarectl/app/Nagare/Cli/Data/ScheduledReceipts.hs`)
    to return volume rows graded by `BackupFreshness` against the same context objective.
-3. Delete the legacy `backup volumes` probe in `cli/nagarectl/src/Nagare/Ops/Status.hs`. It grades
+3. Delete the legacy `backup volumes` probe (`backupPrefixes` in `cli/nagarectl/src/Nagare/Ops/Probe.hs`). It grades
    a prefix nothing writes.
 4. Restore of a scheduled volume receipt reuses `storage restore` into a new PVC. Add the receipt
    kind to `cli/nagarectl/src/Nagare/Inventory/VolumeRestoreSource.hs`.
