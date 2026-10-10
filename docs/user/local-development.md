@@ -120,6 +120,23 @@ cert-manager, Knative Serving, Kourier, net-certmanager, the `personal` and
 tag-resolution skip. `local-minio` installs MinIO and seeds the bucket/credentials
 used by local backup Jobs.
 
+The MinIO images come from your local registry. Once `local-up` has created the
+registry, publish them once:
+
+```bash
+scripts/publish-local-minio-images.sh
+```
+
+The script downloads MinIO's last upstream release binaries with `gh`, checks
+each by its exact digest, builds two small images and pushes them to
+`k3d-registry.localhost:5000` as `nagare-minio:release-2025-09-07-<arch>` and
+`nagare-mc:release-2025-08-13-<arch>`. Every platform bootstrap then binds the
+exact digests those tags name for `NAGARE_TARGET_PLATFORM`; the review shows
+them. To pin other images, set both `NAGARE_LOCAL_MINIO_IMAGE` and
+`NAGARE_LOCAL_MC_IMAGE` to local registry digests. The bootstrap refuses when
+the images are not published, and it refuses the former `quay.io/minio` images,
+which answer 401 to anonymous pulls.
+
 Verify:
 
 ```bash

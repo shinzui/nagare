@@ -71,5 +71,7 @@ docker push "$client_tag"
 export NAGARE_REGISTRY_HOST="$registry"
 server_digest="$(nagare_local_registry_digest "$server_tag")"
 client_digest="$(nagare_local_registry_digest "$client_tag")"
+# A platform bootstrap binds these digests by default, through the tags above;
+# the two lines also serve as explicit NAGARE_LOCAL_* overrides.
 printf 'NAGARE_LOCAL_MINIO_IMAGE=%s/nagare-minio@%s\n' "$registry" "$server_digest"
 printf 'NAGARE_LOCAL_MC_IMAGE=%s/nagare-mc@%s\n' "$registry" "$client_digest"

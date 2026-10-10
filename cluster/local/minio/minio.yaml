@@ -71,7 +71,10 @@ spec:
     spec:
       containers:
         - name: minio
-          image: quay.io/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+          # The review binds the exact digest that
+          # scripts/publish-local-minio-images.sh published (EP-183 M1); the
+          # former quay.io/minio images answer 401.
+          image: k3d-registry.localhost:5000/nagare-minio
           args: ["server", "/data", "--console-address", ":9001"]
           env:
             - name: MINIO_ROOT_USER
@@ -114,7 +117,7 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: mc
-          image: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          image: k3d-registry.localhost:5000/nagare-mc
           command: ["/bin/sh", "-c"]
           args:
             - >

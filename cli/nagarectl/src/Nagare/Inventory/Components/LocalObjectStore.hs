@@ -1,6 +1,16 @@
 -- | Pin the disposable local MinIO transport as a reviewed cluster scope.
+--
+-- EP-183 M1: the MinIO images are the ones
+-- @scripts/publish-local-minio-images.sh@ builds from digest-checked upstream
+-- release binaries and publishes to the context's k3d registry. A bootstrap
+-- binds them by default, by the exact digests their release tags name there;
+-- @NAGARE_LOCAL_MINIO_IMAGE@ and @NAGARE_LOCAL_MC_IMAGE@ override both. The
+-- former @quay.io/minio@ pins answer 401 and are refused.
 module Nagare.Inventory.Components.LocalObjectStore
-  ( compileLocalObjectStore
+  ( LocalMinioImages (..)
+  , compileLocalObjectStore
+  , selectLocalMinioImages
+  , readLocalRegistryDigest
   )
 where
 
@@ -26,26 +36,107 @@ import Nagare.Resource.Inventory
 import Nagare.Resource.Kubernetes (parseKubernetesManifest)
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
-import System.Environment (lookupEnv)
+import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
+import System.Process (readProcessWithExitCode)
+
+-- | Exact local-registry references of the MinIO server and client images.
+data LocalMinioImages = LocalMinioImages
+  { server :: !Text
+  , client :: !Text
+  }
+  deriving stock (Eq, Show, Generic)
+
+-- | The images a local bootstrap binds: both overrides, or by default the
+-- images the publish script pushed, looked up by their release tags for the
+-- context's target platform. The lookup answers a manifest digest, or
+-- 'Nothing' when the tag is absent.
+selectLocalMinioImages ::
+  (Text -> Text -> IO (Either Text (Maybe Text))) ->
+  Text ->
+  Maybe Text ->
+  Maybe Text ->
+  IO (Either Text LocalMinioImages)
+selectLocalMinioImages lookupDigest platform serverOverride clientOverride = case (serverOverride, clientOverride) of
+  (Just serverImage, Just clientImage) -> pure (validated serverImage clientImage)
+  (Nothing, Nothing) -> case T.stripPrefix "linux/" platform of
+    Just arch | arch `elem` ["arm64", "amd64"] -> do
+      serverDigest <- lookupDigest "nagare-minio" ("release-2025-09-07-" <> arch)
+      clientDigest <- lookupDigest "nagare-mc" ("release-2025-08-13-" <> arch)
+      pure $ case (serverDigest, clientDigest) of
+        (Left reason, _) -> Left ("cannot read the published MinIO server image: " <> reason)
+        (_, Left reason) -> Left ("cannot read the published MinIO client image: " <> reason)
+        (Right (Just serverAt), Right (Just clientAt)) ->
+          validated (registry <> "/nagare-minio@" <> serverAt) (registry <> "/nagare-mc@" <> clientAt)
+        _ ->
+          Left
+            ( "the local registry has no MinIO images for linux/"
+                <> arch
+                <> "; publish them with scripts/publish-local-minio-images.sh"
+            )
+    _ -> pure (Left ("local MinIO images support linux/arm64 or linux/amd64, not " <> platform))
+  _ -> pure (Left "local MinIO image overrides require both NAGARE_LOCAL_MINIO_IMAGE and NAGARE_LOCAL_MC_IMAGE")
+  where
+    registry = "k3d-registry.localhost:5000"
+    validated serverImage clientImage
+      | any ("quay.io/minio/" `T.isPrefixOf`) [serverImage, clientImage] =
+          Left "the quay.io/minio images answer 401; publish local images with scripts/publish-local-minio-images.sh"
+      | not (exactImage "nagare-minio" serverImage && exactImage "nagare-mc" clientImage) =
+          Left "local MinIO images must be exact local registry digests, as scripts/publish-local-minio-images.sh prints them"
+      | otherwise = Right (LocalMinioImages serverImage clientImage)
+    exactImage repository image = case T.stripPrefix (registry <> "/" <> repository <> "@sha256:") image of
+      Just digest -> T.length digest == 64 && T.all (\c -> (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) digest
+      Nothing -> False
+
+-- | A tag's manifest digest in the k3d registry, read through the registry
+-- container because macOS AirPlay can own the host's port 5000 (as
+-- @scripts/lib/local-registry.sh@ does). An absent tag is 'Nothing'.
+readLocalRegistryDigest :: Text -> Text -> IO (Either Text (Maybe Text))
+readLocalRegistryDigest repository tag = do
+  answer <-
+    try
+      ( readProcessWithExitCode
+          "docker"
+          [ "exec"
+          , "k3d-registry.localhost"
+          , "wget"
+          , "-S"
+          , "-O"
+          , "/dev/null"
+          , "--header=Accept: application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json"
+          , "http://localhost:5000/v2/" <> T.unpack repository <> "/manifests/" <> T.unpack tag
+          ]
+          ""
+      ) ::
+      IO (Either IOException (ExitCode, String, String))
+  pure $ case answer of
+    Left failure -> Left ("docker is unavailable: " <> T.pack (show failure))
+    Right (code, _, err)
+      | "404 Not Found" `T.isInfixOf` T.pack err -> Right Nothing
+      | code /= ExitSuccess -> Left (T.strip (T.pack err))
+      | otherwise -> case [ T.strip value
+                          | line <- T.lines (T.pack err)
+                          , Just value <- [T.stripPrefix "docker-content-digest:" (T.toLower (T.strip line))]
+                          ] of
+          digest : _ | "sha256:" `T.isPrefixOf` digest && T.length digest == 71 -> Right (Just digest)
+          _ -> Left "the local registry returned no manifest digest"
 
 compileLocalObjectStore ::
   FilePath ->
   FoundationInput ->
   MinioRef ->
+  LocalMinioImages ->
   IO
     ( Either
         (NonEmpty InventoryError)
         (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
     )
-compileLocalObjectStore root foundation store
+compileLocalObjectStore root foundation store images
   | store ^. #endpoint /= "http://minio.nagare-system.svc.cluster.local:9000"
       || store ^. #bucket /= "nagare-backups"
       || store ^. #secretName /= "nagare-minio-credentials" =
       pure (Left (invalid "local object-store profile differs from the pinned MinIO component" :| []))
   | otherwise = do
-      serverImage <- fmap T.pack <$> lookupEnv "NAGARE_LOCAL_MINIO_IMAGE"
-      clientImage <- fmap T.pack <$> lookupEnv "NAGARE_LOCAL_MC_IMAGE"
       loaded <- try (BS.readFile (root </> manifestPath)) :: IO (Either IOException ByteString)
       result <- case loaded of
         Left _ -> pure (Left (invalid "pinned MinIO manifest is unavailable" :| []))
@@ -58,7 +149,7 @@ compileLocalObjectStore root foundation store
           Left reason -> pure (Left (reason :| []))
           Right objects -> case traverse credentialTemplate objects of
             Left reason -> pure (Left (invalid reason :| []))
-            Right templates -> case configureImages serverImage clientImage templates of
+            Right templates -> case configureImages templates of
               Left reason -> pure (Left (invalid reason :| []))
               Right configured -> compileUpstream input {upstreamGenerated = configured}
       pure $ do
@@ -81,38 +172,19 @@ compileLocalObjectStore root foundation store
     service = address "v1" "Service" (Just "nagare-system") "minio"
     bucketJob = address "batch/v1" "Job" (Just "nagare-system") "minio-make-bucket"
     manifestPath = "cluster/local/minio/minio.yaml"
-    manifestDigest = known (mkContentDigest "3d6a394b5061f2290cccdb1a87b0a0f08bc70dc902fa667c3a6b611127cc18a9")
-    configureImages Nothing Nothing objects = Right objects
-    configureImages (Just serverImage) (Just clientImage) objects = do
-      unless
-        (validImage "nagare-minio" serverImage && validImage "nagare-mc" clientImage)
-        (Left "local MinIO image overrides require exact local registry digests")
+    manifestDigest = known (mkContentDigest "fa4fc7998952f3e767aff28848efc8323a3b62a4cc588843a1897a4cd418d8a3")
+    configureImages objects = do
       let (counts, configured) =
             unzip
               [ ((serverCount, clientCount), (location, clientValue))
               | (location, value) <- objects
-              , let (serverCount, serverValue) =
-                      replaceImage
-                        "quay.io/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e"
-                        serverImage
-                        value
-              , let (clientCount, clientValue) =
-                      replaceImage
-                        "quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727"
-                        clientImage
-                        serverValue
+              , let (serverCount, serverValue) = replaceImage "k3d-registry.localhost:5000/nagare-minio" (images ^. #server) value
+              , let (clientCount, clientValue) = replaceImage "k3d-registry.localhost:5000/nagare-mc" (images ^. #client) serverValue
               ]
       unless
         (sum (map fst counts) == 1 && sum (map snd counts) == 1)
         (Left "local MinIO manifest lacks unique server and client images")
       pure configured
-    configureImages _ _ _ = Left "local MinIO image overrides require both server and client"
-    validImage repository image = case T.stripPrefix
-      ("k3d-registry.localhost:5000/" <> repository <> "@sha256:")
-      image of
-      Just digest -> T.length digest == 64 && T.all lowerHex digest
-      Nothing -> False
-    lowerHex c = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')
     replaceImage :: Text -> Text -> Value -> (Int, Value)
     replaceImage old new = \case
       Object fields ->

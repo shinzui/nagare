@@ -152,6 +152,10 @@ case "$*" in
       printf '  HTTP/1.1 404 Not Found\n' >&2
       exit 1
     fi ;;
+  'exec k3d-registry.localhost wget -S -O /dev/null '*'/v2/nagare-minio/manifests/release-2025-09-07-'*)
+    printf '  HTTP/1.1 200 OK\n  Docker-Content-Digest: sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\n' >&2 ;;
+  'exec k3d-registry.localhost wget -S -O /dev/null '*'/v2/nagare-mc/manifests/release-2025-08-13-'*)
+    printf '  HTTP/1.1 200 OK\n  Docker-Content-Digest: sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\n' >&2 ;;
   'push k3d-registry.localhost:5000/net-certmanager-controller:v1.14.0-nagare.1')
     touch "$XDG_STATE_HOME/oci-published" ;;
   *) printf 'unexpected docker command: %s\n' "$*" >&2; exit 43 ;;

@@ -40,6 +40,8 @@ import Nagare.Inventory.Components.Foundation
   )
 import Nagare.Inventory.Components.LocalObjectStore
   ( compileLocalObjectStore
+  , readLocalRegistryDigest
+  , selectLocalMinioImages
   )
 import Nagare.Inventory.Components.Observability
   ( PackagedHelmInput (..)
@@ -238,9 +240,14 @@ buildPlatformCandidate active paths workspace snapshot = do
       pure (service, T.pack value)
   backupBackend <- either dieT pure (storeBackendFor profile (profile ^. #backupBucket))
   localStore <- case backupBackend of
-    MinioBackend store ->
+    MinioBackend store -> do
+      serverImage <- fmap T.pack <$> lookupEnv "NAGARE_LOCAL_MINIO_IMAGE"
+      clientImage <- fmap T.pack <$> lookupEnv "NAGARE_LOCAL_MC_IMAGE"
+      images <-
+        selectLocalMinioImages readLocalRegistryDigest (profile ^. #targetPlatform) serverImage clientImage
+          >>= either dieT pure
       Just
-        <$> ( compileLocalObjectStore root foundation store
+        <$> ( compileLocalObjectStore root foundation store images
                 >>= either (dieT . T.pack . show) pure
             )
     GcsBackend {} -> pure Nothing

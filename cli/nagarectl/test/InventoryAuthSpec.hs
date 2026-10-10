@@ -27,7 +27,7 @@ import Nagare.Inventory.Bootstrap (BootstrapInput (..), compileBootstrapStamp, c
 import Nagare.Inventory.Components.Auth
 import Nagare.Inventory.Components.ControllerImage (controllerImageDeclaration)
 import Nagare.Inventory.Components.Foundation (FoundationInput (..), foundationNamespaceId)
-import Nagare.Inventory.Components.LocalObjectStore (compileLocalObjectStore)
+import Nagare.Inventory.Components.LocalObjectStore (LocalMinioImages (..), compileLocalObjectStore, selectLocalMinioImages)
 import Nagare.Inventory.Components.Observability (PackagedHelmInput (..), compilePinnedObservability, pinnedObservabilityInputs)
 import Nagare.Inventory.Components.ObservabilityExtras (compileObservabilityExtras)
 import Nagare.Inventory.Components.ObservabilitySecrets (compileObservabilitySecrets)
@@ -422,7 +422,7 @@ inventoryAuthTests =
                 "http://minio.nagare-system.svc.cluster.local:9000"
                 "nagare-backups"
                 "nagare-minio-credentials"
-        (scope, native) <- compileLocalObjectStore "../.." foundation store >>= expectRight
+        (scope, native) <- compileLocalObjectStore "../.." foundation store fixtureMinioImages >>= expectRight
         Map.size native @?= 6
         -- F41: the bucket survives a pod or node restart on a local-path claim.
         let member kind name = [(resource, bytes) | (resource, bytes) <- Map.elems native, case resource ^. #address of Kubernetes _ _ k _ n -> nameText k == kind && nameText n == name; _ -> False]
@@ -432,12 +432,13 @@ inventoryAuthTests =
             assertBool "MinIO does not mount its claim" (BC.isInfixOf "\"claimName\":\"minio-data\"" serverBytes && not (BC.isInfixOf "emptyDir" serverBytes))
             assertBool "MinIO starts before its claim exists" (OrderedAfter (claim ^. #identity) `elem` (server ^. #dependencies))
           other -> assertFailure ("MinIO claim or Deployment missing: " <> show (length (fst other), length (snd other)))
-        serverImage <- lookupEnv "NAGARE_LOCAL_MINIO_IMAGE"
-        clientImage <- lookupEnv "NAGARE_LOCAL_MC_IMAGE"
-        forM_ [serverImage, clientImage] $ \selected -> forM_ selected $ \image ->
+        forM_ [fixtureMinioImages ^. #server, fixtureMinioImages ^. #client] $ \image ->
           assertBool
             "reviewed local object-store image differs from the selected digest"
-            (any (BC.isInfixOf (BC.pack image) . snd) (Map.elems native))
+            (any (BC.isInfixOf (TE.encodeUtf8 image) . snd) (Map.elems native))
+        assertBool
+          "a dead quay.io MinIO image reached the reviewed bytes"
+          (not (any (BC.isInfixOf "quay.io/minio" . snd) (Map.elems native)))
         let credentials =
               [ (resource, bytes)
               | (resource, bytes) <- Map.elems native
@@ -628,7 +629,38 @@ inventoryAuthTests =
             "../.."
             foundation
             (store {bucket = "wrong-bucket"})
+            fixtureMinioImages
         assertBool "local object-store profile mismatch was accepted" (case changed of Left _ -> True; Right _ -> False)
+    , testCase "a local bootstrap binds the published MinIO images by default and refuses the dead quay.io default (EP-183 M1)" $ do
+        let published repository tag = pure (Right (lookup (repository, tag) registry))
+            registry =
+              [ (("nagare-minio", "release-2025-09-07-arm64"), "sha256:" <> T.replicate 64 "1")
+              , (("nagare-mc", "release-2025-08-13-arm64"), "sha256:" <> T.replicate 64 "2")
+              ]
+            empty _ _ = pure (Right Nothing)
+            refusedNaming result = case result of
+              Left reason -> assertBool (T.unpack reason) ("scripts/publish-local-minio-images.sh" `T.isInfixOf` reason)
+              Right images -> assertFailure ("selected " <> show images)
+        selectLocalMinioImages published "linux/arm64" Nothing Nothing
+          >>= (@?= Right (LocalMinioImages ("k3d-registry.localhost:5000/nagare-minio@sha256:" <> T.replicate 64 "1") ("k3d-registry.localhost:5000/nagare-mc@sha256:" <> T.replicate 64 "2")))
+        selectLocalMinioImages empty "linux/arm64" Nothing Nothing >>= refusedNaming
+        selectLocalMinioImages published "linux/amd64" Nothing Nothing >>= refusedNaming
+        selectLocalMinioImages
+          empty
+          "linux/arm64"
+          (Just "quay.io/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e")
+          (Just "quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727")
+          >>= refusedNaming
+        selectLocalMinioImages empty "linux/arm64" (Just (fixtureMinioImages ^. #server)) (Just (fixtureMinioImages ^. #client))
+          >>= (@?= Right fixtureMinioImages)
+        selectLocalMinioImages empty "linux/arm64" (Just (fixtureMinioImages ^. #server)) Nothing
+          >>= \case
+            Left _ -> pure ()
+            Right images -> assertFailure ("one override selected " <> show images)
+        selectLocalMinioImages empty "linux/arm64" (Just "k3d-registry.localhost:5000/nagare-minio:latest") (Just (fixtureMinioImages ^. #client))
+          >>= \case
+            Left _ -> pure ()
+            Right images -> assertFailure ("a mutable tag was selected: " <> show images)
     , testCase "local auth backup waits for the owned MinIO bucket" $ do
         let observabilityInputs = pinnedObservabilityInputs fixtureCluster "../.." "v1.32.0"
             foundation =
@@ -666,7 +698,7 @@ inventoryAuthTests =
             pure
             (bindNetCertManagerControllerImage fixtureCluster controllerImage publication rawUpstream)
         let bootstrap = BootstrapInput foundation Nothing upstream [controllerScope]
-        (localScope, localNative) <- compileLocalObjectStore "../.." foundation store >>= expectRight
+        (localScope, localNative) <- compileLocalObjectStore "../.." foundation store fixtureMinioImages >>= expectRight
         let bucketJobs =
               [ resource ^. #identity
               | (resource, _) <- Map.elems localNative
@@ -839,3 +871,11 @@ ok = either (error . show) id
 
 expectRight :: (Show e) => Either e a -> IO a
 expectRight = either (\err -> assertFailure (show err) >> pure (error "unreachable")) pure
+
+-- | Local MinIO images as `scripts/publish-local-minio-images.sh` publishes
+-- them: exact digests in the context's k3d registry.
+fixtureMinioImages :: LocalMinioImages
+fixtureMinioImages =
+  LocalMinioImages
+    ("k3d-registry.localhost:5000/nagare-minio@sha256:" <> T.replicate 64 "a")
+    ("k3d-registry.localhost:5000/nagare-mc@sha256:" <> T.replicate 64 "b")
