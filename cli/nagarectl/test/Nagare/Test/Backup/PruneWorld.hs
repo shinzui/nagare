@@ -173,7 +173,7 @@ everyFault backend = withSystemTempDirectory "nagare-prune-world" $ \directory -
   total <- calls <$> readBucketState directory
   assertBool "the clean prune made no tool call" (total > 0)
   -- Every place the prune can stop, and the distinct states it leaves.
-  stops <- forM [BucketFault n after | n <- [1 .. total], after <- [False, True]] $ \selected -> do
+  stops <- forM [BucketFault n selected | n <- [1 .. total], selected <- [minBound .. maxBound]] $ \selected -> do
     let context = label backend <> " fault " <> show selected
     writeBucketState directory (initial backend)
     stopped <- runShell directory backend (scheduledPruneShell (inputs backend)) (Just selected)
@@ -192,7 +192,7 @@ everyFault backend = withSystemTempDirectory "nagare-prune-world" $ \directory -
     _ <- runShell directory backend (scheduledReceiptRecoveryShell (inputs backend)) Nothing
     readBucketState directory >>= converged backend
     recoveryCalls <- calls <$> readBucketState directory
-    forM_ [BucketFault m again | m <- [1 .. recoveryCalls], again <- [False, True]] $ \second -> do
+    forM_ [BucketFault m selected | m <- [1 .. recoveryCalls], selected <- [minBound .. maxBound]] $ \second -> do
       writeBucketState directory start
       _ <- runShell directory backend (scheduledReceiptRecoveryShell (inputs backend)) (Just second)
       interrupted <- readBucketState directory

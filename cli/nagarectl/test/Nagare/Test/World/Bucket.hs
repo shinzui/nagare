@@ -8,13 +8,15 @@
 -- answers 404 when no live generation exists. S3 (MinIO) semantics: a delete
 -- by version ID removes that version permanently.
 --
--- A fault fires at the n-th tool call: @before@ fails it with no effect,
--- @after@ applies its effect and then reports failure, as a lost
--- acknowledgement does.
+-- A fault fires at the n-th tool call: 'FailBefore' fails it with no effect,
+-- 'FailAfter' applies its effect and then reports failure, as a lost
+-- acknowledgement does, and 'ErrorStatus' makes an HTTP request succeed with
+-- a 503 answer (any other tool fails before effect).
 module Nagare.Test.World.Bucket
   ( BucketVersion (..)
   , BucketState (..)
   , BucketFault (..)
+  , FaultMode (..)
   , installBucketTools
   , writeBucketState
   , readBucketState
@@ -44,11 +46,20 @@ instance ToJSON BucketVersion where
 instance FromJSON BucketVersion where
   parseJSON = withObject "BucketVersion" $ \o -> BucketVersion <$> o .: "version" <*> o .: "data" <*> o .: "live"
 
+data FaultMode = FailBefore | FailAfter | ErrorStatus
+  deriving stock (Eq, Show, Bounded, Enum, Generic)
+
 data BucketFault = BucketFault
   { at :: !Int
-  , lostAcknowledgement :: !Bool
+  , mode :: !FaultMode
   }
   deriving stock (Eq, Show, Generic)
+
+modeName :: FaultMode -> Text
+modeName = \case
+  FailBefore -> "before"
+  FailAfter -> "after"
+  ErrorStatus -> "status"
 
 data BucketState = BucketState
   { calls :: !Int
@@ -61,7 +72,7 @@ instance ToJSON BucketState where
   toJSON (BucketState count selected keys) =
     object
       [ "calls" .= count
-      , "fault" .= fmap (\(BucketFault n after) -> object ["at" .= n, "mode" .= (if after then "after" else "before" :: Text)]) selected
+      , "fault" .= fmap (\(BucketFault n selectedMode) -> object ["at" .= n, "mode" .= modeName selectedMode]) selected
       , "objects" .= keys
       ]
 
@@ -71,7 +82,7 @@ instance FromJSON BucketState where
     raw <- o .: "fault"
     selected <- case raw of
       Aeson.Null -> pure Nothing
-      other -> Just <$> withObject "BucketFault" (\f -> BucketFault <$> f .: "at" <*> ((== ("after" :: Text)) <$> f .: "mode")) other
+      other -> Just <$> withObject "BucketFault" (\f -> BucketFault <$> f .: "at" <*> (f .: "mode" >>= \name -> maybe (fail "unknown fault mode") pure (lookup name [(modeName m, m) | m <- [minBound .. maxBound]]))) other
     BucketState count selected <$> o .: "objects"
 
 writeBucketState :: FilePath -> BucketState -> IO ()
@@ -114,7 +125,9 @@ program =
     , "    with open(STATE, 'w') as f: json.dump(state, f)"
     , "def fail(message, code=1):"
     , "    save(); sys.stderr.write(message + '\\n'); sys.exit(code)"
-    , "if firing and fault['mode'] == 'before': fail('injected failure before effect')"
+    , "if firing and fault['mode'] == 'status' and tool == 'curl':"
+    , "    save(); sys.stdout.write('503'); sys.exit(0)"
+    , "if firing and fault['mode'] in ('before', 'status'): fail('injected failure before effect')"
     , "objs = state['objects']"
     , "def live(key):"
     , "    found = [v for v in objs.get(key, []) if v['live']]"
@@ -178,7 +191,7 @@ program =
     , "        if not objs[key]: del objs[key]"
     , "    else: fail('unsupported aws call: ' + command, 2)"
     , "else: fail('unknown tool', 2)"
-    , "if firing: fail('injected failure after effect')"
+    , "if firing and fault['mode'] == 'after': fail('injected failure after effect')"
     , "save()"
     , "if raw is not None: sys.stdout.write(raw)"
     , "if out: sys.stdout.write('\\n'.join(out) + ('' if tool == 'curl' else '\\n'))"
