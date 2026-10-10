@@ -16,6 +16,11 @@ provenance:
       at: 2026-10-09T22:13:41Z
       mode: "update"
       note: "Cascade 2026-10-09 re-scope of MasterPlans 21/25/26"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-10T02:46:57Z
+      mode: "update"
+      note: "Reference EP-183 (v0.4.0 intranet gaps)"
 ---
 
 # Move an inventory context to the next release through a reviewed transition
@@ -243,4 +248,12 @@ context that EP-168 can rebuild.
   rehearsal evidence. MasterPlan 21 consumes the compatibility table for replacement pairs. ADR 6
   carries the 2026-10-09 ownership amendment.
 - **Hard dependency:** M3 needs EP-168 M1.
+- **Consumer of the table (2026-10-09):** [EP-183](183-close-the-intranet-gaps-left-by-v0-4-0-https-login-volume-backups-retention-and-service-rebuild.md)
+  (MasterPlan 24) changes receipt and journal formats:
+  - scheduled volume receipts;
+  - the `restoredFrom` lineage record;
+  - retention bound into schedule metadata.
+
+  Each change ships only with a compatibility row from v0.4.0, or with a reviewed migration step
+  that has its own model scenario.
 - **Soft dependencies:** EP-173 (model and worlds) and EP-170 (gate acceptance of the evidence).

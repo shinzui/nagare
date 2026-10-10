@@ -21,6 +21,11 @@ provenance:
       at: 2026-09-28T18:26:14Z
       mode: "update"
       note: "Prioritize K8up backup evaluation and assess the operator concern about Velero project direction"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-10T02:46:57Z
+      mode: "update"
+      note: "Add EP-183 for the v0.4.0 intranet gaps; EP-172 is the work-data upgrade path"
 ---
 
 # Operate Nagare as a team-run workplace intranet PaaS
@@ -103,12 +108,24 @@ ExecPlans for these planned streams, each shaped by the chosen tooling:
    places each installation's contexts, host flakes, sops secrets, and recipients in one
    operator's private repository. The stream defines how a team shares, rotates, and revokes that
    access.
-4. Upgrade path for contexts holding work data. MasterPlan 23's first release covers only fresh
+4. Upgrade path for contexts holding work data. Since 2026-10-09 this is MasterPlan 26's EP-172
+   (the reviewed release transition, ADR 6 amendment); this initiative consumes it and plans no
+   duplicate. Background: MasterPlan 23's first release covers only fresh
    contexts and treats existing data as disposable, and
    [MasterPlan 21](21-rehearsed-replacement-upgrades-with-bounded-downtime-for-nagare.md)
    (replacement upgrades) is independent. The stream defines the supported path once work data
    exists, coordinating with both rather than duplicating them.
 5. Availability implementation, only if EP-162's decision requires more than today's single node.
+6. The single-operator production gaps v0.4.0 left open. This is
+   [EP-183](../plans/183-close-the-intranet-gaps-left-by-v0-4-0-https-login-volume-backups-retention-and-service-rebuild.md),
+   planned on 2026-10-09 ahead of the evaluation. Its milestones close:
+   - D3: HTTPS routes and protected login;
+   - D4, half one: retention as a graded target with a reviewed prune;
+   - D2: volumes inside the recovery-point objective;
+   - D4, half two: a reviewed rebuild of the service after losing the VM, timed against a
+     recovery-time objective.
+
+   Only its volume milestone touches the tooling choice, and it waits for that decision.
 
 Alternatives considered: writing all implementation ExecPlans up front (rejected, because their
 content would be speculative until the tooling is chosen); a single ExecPlan for requirements and
@@ -138,6 +155,7 @@ found to apply.
 |---|-------|------|-----------|-----------|--------|
 | 162 | Define team operating requirements and decide availability for the intranet PaaS | docs/plans/162-define-team-operating-requirements-and-decide-availability-for-the-intranet-paas.md | None | None | Not Started |
 | 163 | Evaluate established tooling against Nagare's managed-resource layers | docs/plans/163-evaluate-established-tooling-against-nagare-s-managed-resource-layers.md | EP-162 M1 (before EP-163 M3) | EP-162 | Not Started |
+| 183 | Close the intranet gaps left by v0.4.0: HTTPS login, volume backups, retention and service rebuild | docs/plans/183-close-the-intranet-gaps-left-by-v0-4-0-https-login-volume-backups-retention-and-service-rebuild.md | Operator volume-backup decision (before EP-183 M3) | EP-162 M1, EP-163 M2 | Not Started |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-162).
@@ -154,6 +172,12 @@ record. Scoring tools against requirements that have not been stated would produ
 recommendation nobody can check. EP-162 M2, the availability decision, is a soft input to EP-163
 M3; if it is not yet accepted, EP-163 scores candidates under the current single-node assumption
 and says so.
+
+EP-183 can start at once. Its M1 (HTTPS and login) and M4 (rebuild) depend on no evaluation. Its
+M2 takes the retention and recovery-time targets from EP-162 M1, or from the operator's
+confirmation of the plan's proposed defaults. Its M3 (volumes) waits for the operator's
+volume-backup decision in this Decision Log. That decision is taken either directly or after
+EP-163 M2's K8up prototype.
 
 The planned implementation streams have a hard dependency on the operator's decision on EP-163's
 recommendation, recorded in this MasterPlan's Decision Log. They are added as ExecPlans at that
@@ -180,11 +204,20 @@ Prototype isolation. EP-163's prototypes run on a dedicated local k3d cluster th
 Nagare local context's cluster, so they cannot disturb MasterPlan 23's retained local fixtures.
 No cloud context is touched.
 
+EP-183 and the evaluation. EP-183's recommended volume backup extends Nagare's scheduled database
+producer. EP-163 scores that recommendation against K8up as a candidate. EP-183 does not start its
+volume milestone before the decision is recorded here. EP-183's release work reaches existing
+installations only through MasterPlan 26's EP-172, with a compatibility row for each format it
+changes.
+
 Cross-plan decisions that should become ADRs: the availability model (EP-162), and, once the
 operator decides, the tooling boundary between Nagare and established tools (after EP-163).
 
 
 ## Progress
+
+2026-10-09: EP-183 added (Not Started). It closes D2, D3 and D4 for the single-operator intranet.
+EP-162 M1 now also asks for retention targets.
 
 2026-09-28 candidate reprioritization: EP-163 now prioritizes K8up/restic and retains Velero as a secondary desk comparison. The operator's reason is Velero's project direction; M1/M3 must assess that concern using primary evidence for both projects. CloudNativePG/Barman remains the PostgreSQL comparison. No prototype or adoption begins; child statuses remain Not Started.
 
@@ -200,6 +233,19 @@ streams listed in Decomposition Strategy are intentionally not yet planned.
 
 
 ## Decision Log
+
+- Decision: Plan EP-183 now, ahead of EP-163's recommendation, for the v0.4.0 production gaps:
+  - HTTPS and login;
+  - retention;
+  - volume backups;
+  - service rebuild.
+
+  Hold only its volume milestone for the volume-backup decision. The plan recommends extending the
+  scheduled database producer rather than adopting K8up.
+  Rationale: the operator asked on 2026-10-09 for a plan to close the gaps between v0.4.0 and
+  intranet use. HTTPS and login, retention and rebuild extend machinery that already exists and
+  select no tool. Only volume backup overlaps with the evaluation this MasterPlan put first.
+  Date: 2026-10-09
 
 - Decision: Prioritize K8up/restic for volume/application backups; keep Velero as a secondary desk comparison with a prototype only for a concrete unresolved need after project-direction assessment. Keep CloudNativePG/Barman as the PostgreSQL comparison. This supersedes the earlier Velero-first evaluation order.
   Rationale: The operator prefers K8up because of concerns about Velero's project direction. Compare maintenance continuity and upstream direction explicitly without presenting the concern as a verified technical defect or an adoption decision.
@@ -232,6 +278,9 @@ streams listed in Decomposition Strategy are intentionally not yet planned.
 (To be filled during and after implementation.)
 
 ## Revision Notes
+
+2026-10-09: Add EP-183 for the v0.4.0 intranet gaps (D2, D3, D4, service rebuild). Name EP-172
+(MasterPlan 26) as the work-data upgrade path. Add retention to EP-162 M1's questions.
 
 2026-09-28: Prioritize K8up/restic, make Velero secondary, and require evidence on project direction and maintenance continuity in EP-163. Preserve the separate PostgreSQL comparison and MP-23 release boundary.
 

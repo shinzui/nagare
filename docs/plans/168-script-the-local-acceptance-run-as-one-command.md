@@ -21,6 +21,11 @@ provenance:
       at: 2026-10-09T22:13:41Z
       mode: "update"
       note: "Cascade 2026-10-09 re-scope of MasterPlans 21/25/26"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-10T02:46:57Z
+      mode: "update"
+      note: "Reference EP-183 (v0.4.0 intranet gaps)"
 ---
 
 # Script the local acceptance run as one command
@@ -134,5 +139,7 @@ Output layout (shared with EP-169, EP-170 and EP-172 through the MasterPlan):
 - `<root>/evidence/c2-<rev>/` is one self-contained directory, created by the runner's plan: `local-health.json`, `assertions/`, `checks/`, the runner rehearsal and `inventory-evidence.json`. It is what C5 places under `local/`.
 - `<root>/evidence/c2-<rev>-staging/` holds checks written before the runner's plan.
 - `<root>/evidence-private/` holds exports, escrow and credentials, and is never published.
+
+Later stage (2026-10-09): [EP-183](183-close-the-intranet-gaps-left-by-v0-4-0-https-login-volume-backups-retention-and-service-rebuild.md) (MasterPlan 24) adds a route stage, `Nagare.Harness.RouteCheck`, that runs after the fixture deploy. It checks the protected route over HTTPS with the context's certificate trusted: anonymous 302, login 200, revoked 403. It is not part of EP-168's acceptance, which reproduces C2 as it ran on `83124396`. Leave a stage slot it can register into, and do not write a second route driver.
 
 Depends on [ADR 24](../adr/0024-release-and-harness-tooling-follows-the-production-haskell-standard.md) for language and standards. Depends on the final MasterPlan 23 candidate's command surface and on the F41, F42 and F44 fixes being in that candidate.

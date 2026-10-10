@@ -11,6 +11,12 @@ provenance:
     model: "claude-opus-5-5"
     harness: "claude-code"
     at: 2026-09-28T14:26:34Z
+  revisions:
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-10T02:46:57Z
+      mode: "update"
+      note: "M1 also asks for retention targets and notes EP-183's login scope"
 ---
 
 # Define team operating requirements and decide availability for the intranet PaaS
@@ -123,8 +129,8 @@ whether changes need a second person's approval, and for which kinds of change; 
 audited and for how long; how operator access is granted and revoked, including when someone leaves;
 what data the intranet holds and how it is classified; the recovery point objective (how much
 recent data may be lost) and recovery time objective (how long the platform may be down) for
-platform and application data; how users reach the intranet (company network, VPN, identity
-provider); and any compliance or security-review constraints. Do not invent answers; an unanswered
+platform and application data; how long backups must be retained (for example every point for 48 hours and one a day for 30 days; EP-183 M2 enforces the answer); how users reach the intranet (company network, VPN, identity
+provider; EP-183 M1 proves Nagare's own login portal, so a company identity provider is a separate requirement); and any compliance or security-review constraints. Do not invent answers; an unanswered
 question is recorded as open.
 
 Create `docs/use-cases/003-operate-nagare-as-a-team-run-intranet-paas.md` with the next `UC-N`
