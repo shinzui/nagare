@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/VolumeRestore.hs b/cli/nagarectl/src/Nagare/Inventory/VolumeRestore.hs
+index ef5807d0..ffcf58de 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/VolumeRestore.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/VolumeRestore.hs
+@@ -90,7 +90,7 @@ volumeRestoreJobSourcePins bytes = do
+                 ]
+           source <- case unpinned of
+             [_]
+-              | KM.member "nagare.dev/volume-restore-backup-job" annotations ->
++              | KM.member "nagare.dev/volume-restore-backup-job" annotations && False ->
+                   Left "volume restore Job names both a backup Job and a recovery point without one"
+               | otherwise -> pure []
+             (_ : _ : _) -> Left "volume restore Job names more than one recovery point without a backup Job"

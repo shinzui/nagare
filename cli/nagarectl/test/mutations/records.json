@@ -1048,5 +1048,23 @@
     "suite": "nagarectl",
     "pattern": "/an accepted scheduled volume run verifies from the object store against its ingestion record/",
     "expect": "test-fails"
+  },
+  {
+    "record": "EP183-volume-scratch-run-other-incarnation",
+    "suite": "nagarectl",
+    "pattern": "/a scratch restore of a scheduled volume run downloads only its accepted versions into a new claim/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "EP183-volume-scratch-run-archive-unchecked",
+    "suite": "nagarectl",
+    "pattern": "/a scratch restore of a scheduled volume run downloads only its accepted versions into a new claim/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "EP183-volume-restore-dual-source-pins",
+    "suite": "nagarectl",
+    "pattern": "/a restore Job naming a backup Job beside a recovery point without one is refused/",
+    "expect": "test-fails"
   }
 ]
