@@ -126,8 +126,10 @@ This plan only makes sure its changes are covered by that transition's compatibi
     through `PruneSource`; a retention row per volume (0d8f21f2, records f9397612).
   - [x] (2026-10-10) Model scenario: a backup-included volume's producer created and its CronJob
     updated under every fault placement (ffa0b2df).
-  - [ ] Volume prune recovery must not pin the application scope's revision, or an app deploy
-    between a failed prune and its recovery leaves the prune with no reviewed exit.
+  - [x] (2026-10-10) A stopped volume prune keeps its reviewed exit after an application deploy:
+    the prune pins the claim incarnation and the schedule spec, not the app scope revision. The
+    recovery review requires only its own prune scope and the run's receipt scope unchanged
+    (ece0a769, record 1ccce070).
   - [ ] Deferred to the next release: key-kind-aware escrow and offline verification of volume
     runs (only runs never ingested need it), and volumes of standalone services and workers.
   - [ ] Full gate and land; local check (row within one period, degradation when the newest
@@ -177,8 +179,15 @@ This plan only makes sure its changes are covered by that transition's compatibi
 - Observation (M3): with a Namespace in the model's application scope, a namespace deleted outside
   Nagare refused planning with no exit. Production keeps the namespace in the foundation scope, so
   the model fixture drops that one edge instead.
-- Observation (M3): the first volume prune recovery still pinned the application scope's revision,
-  so an app deploy after a failed prune would leave it with no reviewed exit. Not deferred.
+- Observation (M3, coordinator review): the first volume prune pinned its application scope's
+  revision, so an ordinary deploy left a failed prune with no reviewed exit (ADR 26). Not deferred.
+- Observation (M2/M3): the recovery review required the whole accepted head to equal the failed
+  review's base, but closing that prune changes the head, so `db recover-scheduled-prune` could
+  never be reviewed. No test exercised that CLI check. Fixed for both source kinds by
+  `scheduledPruneRecoveryBasis`.
+- Observation (M3): while a stopped prune's transaction is open, planning any other review refuses
+  (`active-transaction`). After close, deploys and other volumes' prunes proceed; a failed prune
+  Job observes as present and is never retired by another schedule's cleanup.
 
 - Observation (M2): a run was accepted only through one review per run (`db backup-receipts NAME
   --backup-id JOB_UID`), and a prune refused while any listed run was un-ingested. At the hourly
@@ -409,6 +418,19 @@ This plan only makes sure its changes are covered by that transition's compatibi
 - Decision: A scratch restore of a scheduled run carries no backup-Job pin; the run's ingestion
   record authorizes it, as for a rebuild restore.
   Rationale: ingestion Jobs may be collected; pinned versions and digests carry the trust.
+  Date: 2026-10-10
+
+- Decision: A prune records a policy pin by source kind. A database pins its scope revision; a
+  volume pins its claim's recorded incarnation and its schedule's accepted spec, bound to the run's
+  own claim and schedule.
+  Rationale: the pin must survive changes that do not alter the retention source, or a stopped
+  prune loses its exit.
+  Date: 2026-10-10
+
+- Decision: A prune recovery is reviewable while the failed prune scope is accepted as its review
+  desired and the run's receipt scope as that review saw it; other scopes may move.
+  Rationale: the close of the failed prune itself moves the head; the pin decides whether the
+  policy still holds.
   Date: 2026-10-10
 
 - Decision: Defer key-kind-aware escrow and standalone services' and workers' volumes to the next
@@ -910,6 +932,8 @@ the rows are kept here until it does:
 | Restore Job annotation `nagare.dev/volume-restore-scheduled-run` (no backup-Job pins); scope keys `volume-restore.backup.kind: scheduled-volume` and `volume-restore.backup.{object,receipt}[.version]`. | M3 | requires backup-Job pins, so refuses | none |
 | Volume prune scopes `volume-scheduled-prune-<ns>-<schedule>-<run>` and `volume-scheduled-prune-recovery-…`. | M3 | refuses them (ranks by source scope only; expects `databases/`) | none; database scopes unchanged |
 | Admission and provider evidence key a run's siblings by `scheduled.backup.schedule`. | M3 | ranks by source scope only | none; every accepted run records its schedule |
+| Volume prune scopes record `scheduled.prune.policy.{claim,claim.uid,schedule,schedule.spec}` and no `scheduled.prune.policy.revision`. | M3 | refuses ("incomplete policy pins") | none; only volume prunes, new in this release |
+| A prune recovery is reviewable when only its own prune scope and the run's receipt scope are unchanged. | M3 | refuses every recovery after the close | none |
 
 The head and journal formats are unchanged. Database receipts and CronJob bytes are unchanged.
 
