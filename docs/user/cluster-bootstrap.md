@@ -221,9 +221,10 @@ nagare cluster-bootstrap
 ```
 
 `DomainMapping` (`serving.knative.dev/v1beta1`) is enabled by default — no
-feature flag — and maps a custom hostname onto a Knative service. Local mode is
-HTTP-first at `*.127-0-0-1.sslip.io`; local TLS for protected apps is tracked
-separately.
+feature flag — and maps a custom hostname onto a Knative service. Local mode
+serves `*.127-0-0-1.sslip.io` over HTTPS with certificates from the private
+`nagare-local-ca` that `just local-bootstrap` installs; see
+[Local development](local-development.md).
 
 ## Smoke test
 

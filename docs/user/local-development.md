@@ -29,10 +29,12 @@ It replaces the cloud substrate with local equivalents:
 
 The app-facing commands stay the same. In local mode, `nagarectl deploy` builds
 for `NAGARE_TARGET_PLATFORM`, skips `gcloud auth configure-docker`, pushes to the
-local registry, and serves apps at `<app>.127-0-0-1.sslip.io`. Apps are reachable
-over plain HTTP until you install the [optional auth plane](#optional-the-auth-plane);
-that step enables Knative auto-TLS against a locally-trusted CA, after which the
-deploy URL becomes `https://…` (the secure context WebAuthn requires).
+local registry, and serves apps at `<app>.127-0-0-1.sslip.io`. `just
+local-bootstrap` installs a private CA (`nagare-local-ca`) and enables Knative
+auto-TLS, so app routes are served over `https://…` with certificates that CA
+issues (the secure context WebAuthn requires). Trust that CA, or pass it to
+`curl --cacert`, to reach them without a certificate warning; `nagare-harness
+route-check --context NAME --reviews DIR` checks a protected route this way.
 
 For a hybrid workflow where one service runs on your workstation and calls
 dependencies deployed on Nagare, see

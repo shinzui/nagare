@@ -195,8 +195,9 @@ context-show:
     @kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}{"\n"}'
 
 # Enable automatic per-namespace wildcard HTTPS after the configured baseDomain
-# is delegated. Persist the desired policy first with
-# `nagarectl context create NAME --force --enable-external-tls`.
+# is delegated. Persist the desired policy first through review:
+# `nagarectl context create NAME --force --enable-external-tls --save-plan DIR`,
+# then `nagarectl context apply DIR --yes`.
 [group('cluster')]
 cluster-enable-tls:
     @if [ -z "${NAGARE_UPGRADE_APPLY:-}" ]; then nagarectl platform guard; fi

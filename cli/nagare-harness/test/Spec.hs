@@ -6,6 +6,7 @@ import Control.Exception (finally)
 import Data.Aeson (eitherDecode, eitherDecodeFileStrict)
 import Data.Either (isLeft, isRight)
 import Data.Generics.Labels ()
+import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.List (sort)
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
@@ -16,6 +17,7 @@ import Nagare.Harness.Mutation (Expectation (..), MutationRecord (..), Outcome (
 import Nagare.Harness.Prelude
 import Nagare.Harness.Realise (remainingPaths)
 import Nagare.Harness.Record
+import Nagare.Harness.RouteCheck
 import Nagare.Harness.Step
 import Nagare.Harness.Verify
 import System.Directory (createDirectoryIfMissing, listDirectory)
@@ -162,7 +164,86 @@ tests =
             assertBool "mixed difference accepted" (isLeft (carryForwardVerdict (const Nothing) ["docs/plans/1-x.md", "justfile"]))
         , testCase "gate verify carries a green record forward over inert documentation only" carryForwardRoundTrip
         ]
+    , testGroup
+        "route check (EP-183 M1)"
+        [ testCase "a protected route that redirects, logs in, serves and enforces a revoke passes" $
+            routeOutcome enforcing >>= (@?= Right ())
+        , testCase "a wrong trust anchor that is accepted fails: verification is not enforced" $
+            routeOutcome (enforcing {acceptsWrongCa = True}) >>= (@?= Left VerificationNotEnforced)
+        , testCase "a route whose certificate the context's CA does not verify fails with a named reason" $
+            routeOutcome (enforcing {verified = False}) >>= (@?= Left (CertificateNotTrusted "60: SSL certificate problem"))
+        , testCase "an unprotected route fails: no redirect to the login page" $
+            routeOutcome (enforcing {protected = False}) >>= (@?= Left (NotRedirectedToLogin 200 Nothing))
+        , testCase "a revoke the enforcer ignores fails" $
+            routeOutcome (enforcing {honoursRevoke = False}) >>= (@?= Left (RevokeNotEnforced 200))
+        , testCase "a wrong password is a rejected login" $
+            routeOutcome (enforcing {acceptsPassword = False}) >>= (@?= Left (LoginRejected 401))
+        , testCase "a redirect to an operator portal is named, not driven" $
+            loginTarget "a.example" (HttpResponse 302 [("location", "https://auth.example/login?return_to=x")] "")
+              @?= Left (PortalLoginUnsupported "https://auth.example/login?return_to=x")
+        , testCase "curl's last header block, its exit codes and shomei-admin's user id are read" $ do
+            parseHeaders "HTTP/1.1 100 Continue\r\n\r\nHTTP/2 302\r\nLocation: /_nagare/login?rd=%2F\r\nSet-Cookie: a=b; Path=/\r\n\r\n"
+              @?= [("location", "/_nagare/login?rd=%2F"), ("set-cookie", "a=b; Path=/")]
+            curlFailure 60 "x" @?= TlsRejected "60: x"
+            curlFailure 77 "x" @?= TlsRejected "77: x"
+            curlFailure 7 "x" @?= Unreachable "7: x"
+            parseCreatedUser "created user user_01k2abc <rc@example.test> (email verified)\n" @?= Right "user_01k2abc"
+            assertBool "garbage read as a user" (isLeft (parseCreatedUser "error"))
+        ]
     ]
+
+-- | A scripted protected route: the enforcer's built-in login, grants and the
+-- certificate, as switches the failure tests turn off one at a time.
+data Route = Route
+  { acceptsWrongCa :: !Bool
+  , verified :: !Bool
+  , protected :: !Bool
+  , honoursRevoke :: !Bool
+  , acceptsPassword :: !Bool
+  }
+  deriving stock (Generic)
+
+enforcing :: Route
+enforcing = Route False True True True True
+
+routeOutcome :: Route -> IO (Either RouteFailure ())
+routeOutcome route = do
+  granted <- newIORef False
+  password <- newIORef ""
+  let handshake trust'
+        | trust' == CaFile "wrong.pem" = if route ^. #acceptsWrongCa then Right () else Left (TlsRejected "60: SSL certificate problem")
+        | not (route ^. #verified) = Left (TlsRejected "60: SSL certificate problem")
+        | otherwise = Right ()
+      http' trust' req = do
+        isGranted <- readIORef granted
+        expected <- readIORef password
+        pure (handshake trust' >> Right (answer isGranted expected req))
+      answer isGranted expected req = case (req ^. #method, req ^. #url) of
+        ("GET", "https://a.example/")
+          | not (route ^. #protected) -> HttpResponse 200 [] "rows: 3\n"
+          | lookup "nagare_session" (req ^. #cookies) /= Just "s1" -> HttpResponse 302 [("location", "/_nagare/login?rd=%2F")] ""
+          | isGranted -> HttpResponse 200 [] "rows: 3\n"
+          | otherwise -> HttpResponse 403 [] "forbidden"
+        ("GET", "https://a.example/_nagare/login?rd=%2F") -> HttpResponse 200 [("set-cookie", "__Host-nagare_csrf=tok; Secure; Path=/")] "<input type=\"hidden\" name=\"csrf\" value=\"tok\">"
+        ("POST", "https://a.example/_nagare/login")
+          | lookup "csrf" (req ^. #form) == Just "tok"
+          , lookup "__Host-nagare_csrf" (req ^. #cookies) == Just "tok"
+          , route ^. #acceptsPassword
+          , lookup "password" (req ^. #form) == Just expected ->
+              HttpResponse 302 [("location", "/"), ("set-cookie", "nagare_session=s1; HttpOnly"), ("set-cookie", "nagare_refresh=r1; HttpOnly")] ""
+          | otherwise -> HttpResponse 401 [] "invalid login"
+        _ -> HttpResponse 404 [] ""
+      ops =
+        RouteOps
+          { http = http'
+          , createUser = \_ secret -> writeIORef password secret >> pure (Right "user_01route")
+          , grant = \_ -> writeIORef granted True >> pure (Right ())
+          , revoke = \_ -> when (route ^. #honoursRevoke) (writeIORef granted False) >> pure (Right ())
+          , newSecret = pure "0123456789abcdef"
+          , pause = pure ()
+          , progress = const (pure ())
+          }
+  runRouteCheck ops (RouteCheck "a.example" (CaFile "local-ca.pem") (CaFile "wrong.pem") "rows: " 3 3)
 
 -- | A throwaway repository and gate-record directory: a gated base commit,
 -- then documentation, fixture, code and red-record commits on top.

@@ -7,6 +7,7 @@ import Nagare.Harness.FixtureSmoke (runFixtureSmoke)
 import Nagare.Harness.Gate (GateRun (..), newLogDir, repositoryRoot, runFastGate, runFullGate, verifyRevision)
 import Nagare.Harness.Mutation (Outcome (..), checkPatterns, checkRecords, loadRecords, proveRecords, selectRecords, sweepRecords)
 import Nagare.Harness.Prelude
+import Nagare.Harness.RouteCheck (RouteCheckOptions (..), routeCheckMain)
 import Nagare.Harness.Step (stepSucceeded)
 import Options.Applicative
 import System.Exit (exitFailure)
@@ -22,6 +23,7 @@ data Command
   | MutationsPatterns
   | MutationsProve !Text !(Maybe Text) !Int ![Text]
   | MutationsSweep !Text !Int
+  | RouteCheck !RouteCheckOptions
   deriving stock (Eq, Show)
 
 commandParser :: Parser Command
@@ -30,7 +32,22 @@ commandParser =
     ( command "gate" (info gateParser (progDesc "Run or check the local gate (EP-174)"))
         <> command "fixture-smoke" (info smokeParser (progDesc "Run every fixture application locally with its declared bindings"))
         <> command "mutations" (info mutationsParser (progDesc "Check and prove the mutation records (EP-180 M8)"))
+        <> command "route-check" (info routeCheckParser (progDesc "Check a protected route over verified HTTPS: login, grant and revoke (EP-183 M1)"))
     )
+
+routeCheckParser :: Parser Command
+routeCheckParser =
+  fmap RouteCheck $
+    RouteCheckOptions
+      <$> (T.pack <$> strOption (long "context" <> metavar "NAME" <> help "Nagare context for the reviewed grant and revoke"))
+      <*> (T.pack <$> strOption (long "kube-context" <> metavar "NAME" <> value "k3d-nagare-local" <> showDefault <> help "kubectl context of the same cluster"))
+      <*> (T.pack <$> strOption (long "host" <> metavar "HOST" <> value "scenario-a.127-0-0-1.sslip.io" <> showDefault <> help "The protected route"))
+      <*> optional (strOption (long "ca" <> metavar "FILE" <> help "Trust only this PEM bundle (default: the local CA Secret)"))
+      <*> switch (long "system-trust" <> help "Trust the system store (a cloud context's public certificate)")
+      <*> optional (option auto (long "ingress-port-forward" <> metavar "PORT" <> help "Connect through a Kourier port-forward on this local port"))
+      <*> (T.pack <$> strOption (long "expect-body" <> metavar "TEXT" <> value "rows: " <> showDefault <> help "Text the app's page contains"))
+      <*> strOption (long "nagarectl" <> metavar "PATH" <> value "nagarectl" <> showDefault <> help "The nagarectl binary for reviewed commands")
+      <*> strOption (long "reviews" <> metavar "DIR" <> help "Directory for the saved grant and revoke reviews")
 
 mutationsParser :: Parser Command
 mutationsParser =
@@ -124,6 +141,9 @@ main = do
       let failed = [result | result <- results, result ^. #outcome /= Killed]
       TIO.putStrLn ("mutations sweep: " <> T.pack (show (length results - length failed)) <> " killed, " <> T.pack (show (length failed)) <> " not")
       unless (null failed) exitFailure
+    RouteCheck options -> do
+      green <- routeCheckMain options
+      unless green exitFailure
     FixtureSmoke manifest allowShared -> do
       green <- runFixtureSmoke (fromMaybe (root </> "fixtures/inventory-release/local/fixture-smoke.json") manifest) allowShared
       unless green exitFailure
