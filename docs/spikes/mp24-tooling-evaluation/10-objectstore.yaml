@@ -1,0 +1,74 @@
+# The prototype's own S3-compatible object store. Disposable: emptyDir, fixed
+# test credentials. MinIO was the first choice (Nagare's local mode pins
+# quay.io/minio/minio and quay.io/minio/mc digests), but on 2026-10-09 both
+# quay.io/minio/* and docker.io/minio/* returned 401 / "repository does not
+# exist" for anonymous pulls, so this prototype uses RustFS, the S3 store the
+# CloudNativePG barman-cloud plugin documentation uses in its own examples.
+# The service keeps the name "minio" so the candidate manifests read naturally.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: minio
+  labels: {nagare.dev/owner: ep-163}
+---
+apiVersion: v1
+kind: Secret
+metadata: {name: s3-root, namespace: minio}
+stringData:
+  RUSTFS_ACCESS_KEY: evalroot
+  RUSTFS_SECRET_KEY: eval-root-password
+  AWS_ACCESS_KEY_ID: evalroot
+  AWS_SECRET_ACCESS_KEY: eval-root-password
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: s3, namespace: minio}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: s3}}
+  template:
+    metadata: {labels: {app: s3}}
+    spec:
+      containers:
+        - name: rustfs
+          image: rustfs/rustfs:1.0.1
+          env:
+            - {name: RUSTFS_ADDRESS, value: ":9000"}
+            - {name: RUSTFS_VOLUMES, value: /data}
+            - name: RUSTFS_ACCESS_KEY
+              valueFrom: {secretKeyRef: {name: s3-root, key: RUSTFS_ACCESS_KEY}}
+            - name: RUSTFS_SECRET_KEY
+              valueFrom: {secretKeyRef: {name: s3-root, key: RUSTFS_SECRET_KEY}}
+          ports: [{containerPort: 9000}]
+          readinessProbe: {tcpSocket: {port: 9000}}
+          volumeMounts: [{name: data, mountPath: /data}]
+      volumes: [{name: data, emptyDir: {}}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: minio, namespace: minio}
+spec:
+  selector: {app: s3}
+  ports: [{port: 9000, targetPort: 9000}]
+---
+apiVersion: batch/v1
+kind: Job
+metadata: {name: make-buckets, namespace: minio}
+spec:
+  backoffLimit: 20
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: aws
+          image: amazon/aws-cli:2.31.13
+          envFrom: [{secretRef: {name: s3-root}}]
+          env: [{name: AWS_DEFAULT_REGION, value: us-east-1}]
+          command: [sh, -ec]
+          args:
+            - |
+              for b in k8up cnpg; do
+                aws --endpoint-url http://minio.minio:9000 s3api head-bucket --bucket "$b" 2>/dev/null \
+                  || aws --endpoint-url http://minio.minio:9000 s3 mb "s3://$b"
+              done
+              aws --endpoint-url http://minio.minio:9000 s3 ls

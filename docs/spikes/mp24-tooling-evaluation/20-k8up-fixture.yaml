@@ -1,0 +1,83 @@
+# K8up fixture: one application file volume and one PostgreSQL 18 database in
+# namespace `app`. The file volume is opted in (k8up.io/backup=true); the
+# database's raw data directory is opted out, and the database is backed up
+# through a backup-command annotation that streams an engine-native pg_dump.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app
+  labels: {nagare.dev/owner: ep-163}
+---
+apiVersion: v1
+kind: Secret
+metadata: {name: backup-repo, namespace: app}
+stringData: {password: eval-restic-repo-password}
+---
+apiVersion: v1
+kind: Secret
+metadata: {name: backup-credentials, namespace: app}
+stringData: {username: evalroot, password: eval-root-password}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: files
+  namespace: app
+  annotations: {k8up.io/backup: "true"}
+spec:
+  accessModes: [ReadWriteOnce]
+  resources: {requests: {storage: 1Gi}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: writer, namespace: app}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: writer}}
+  template:
+    metadata: {labels: {app: writer}}
+    spec:
+      securityContext: {runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000}
+      containers:
+        - name: writer
+          image: busybox:1.37
+          command: [sh, -c, "sleep infinity"]
+          volumeMounts: [{name: files, mountPath: /files}]
+      volumes: [{name: files, persistentVolumeClaim: {claimName: files}}]
+---
+apiVersion: v1
+kind: Secret
+metadata: {name: pg, namespace: app}
+stringData: {POSTGRES_PASSWORD: eval-pg-password}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: {name: pg, namespace: app}
+spec:
+  serviceName: pg
+  replicas: 1
+  selector: {matchLabels: {app: pg}}
+  template:
+    metadata:
+      labels: {app: pg}
+      annotations:
+        k8up.io/backup: "true"
+        k8up.io/backupcommand: sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" pg_dump -h 127.0.0.1 -U postgres -Fc appdb'
+        k8up.io/file-extension: .dump
+    spec:
+      containers:
+        - name: pg
+          image: postgres:18
+          envFrom: [{secretRef: {name: pg}}]
+          env:
+            - {name: POSTGRES_DB, value: appdb}
+            - {name: PGDATA, value: /var/lib/postgresql/data/pgdata}
+          readinessProbe: {exec: {command: [pg_isready, -U, postgres]}}
+          volumeMounts: [{name: pg-data, mountPath: /var/lib/postgresql/data}]
+  volumeClaimTemplates:
+    - metadata:
+        name: pg-data
+        annotations: {k8up.io/backup: "false"}
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources: {requests: {storage: 1Gi}}

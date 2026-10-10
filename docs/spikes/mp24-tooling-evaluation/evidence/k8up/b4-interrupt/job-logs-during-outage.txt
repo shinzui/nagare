@@ -1,0 +1,14 @@
+== pod/backup-b4-0-cshkh
+2026-10-10T03:34:26Z	INFO	k8up.restic	initializing
+2026-10-10T03:34:26Z	INFO	k8up.restic	setting up a signal handler
+2026-10-10T03:34:26Z	INFO	k8up.restic.restic.RepoInit.command	restic command	{"path": "/usr/local/bin/restic", "args": ["init"]}
+2026-10-10T03:34:26Z	INFO	k8up.restic.restic.RepoInit.command	Defining RESTIC_PROGRESS_FPS	{"frequency": 0.016666666666666666}
+2026-10-10T03:34:26Z	INFO	k8up.restic.restic.RepoInit.restic.stderr	Fatal: Fatal: create repository at s3:http://minio.minio:9000/k8up failed: client.BucketExists: Get "http://minio.minio:9000/k8up/?location=": dial tcp 10.43.114.0:9000: connect: connection refused
+2026/10/10 03:34:26 unable to start k8up: failed to initialise the restic repository: cmd.Wait() err: 1
+== pod/backup-b4-prebackup-wb5h5
+2026-10-10T03:34:47Z	INFO	k8up.restic	setting up a signal handler
+2026-10-10T03:34:47Z	INFO	k8up.restic	sleeping until init	{"duration": "10s"}
+2026-10-10T03:34:57Z	INFO	k8up.restic.restic.RepoInit.command	restic command	{"path": "/usr/local/bin/restic", "args": ["init"]}
+2026-10-10T03:34:57Z	INFO	k8up.restic.restic.RepoInit.command	Defining RESTIC_PROGRESS_FPS	{"frequency": 0.016666666666666666}
+2026-10-10T03:34:57Z	INFO	k8up.restic.restic.RepoInit.restic.stderr	Fatal: Fatal: create repository at s3:http://minio.minio:9000/k8up failed: client.BucketExists: Get "http://minio.minio:9000/k8up/?location=": dial tcp 10.43.114.0:9000: connect: connection refused
+2026/10/10 03:34:57 unable to start k8up: failed to initialise the restic repository: cmd.Wait() err: 1

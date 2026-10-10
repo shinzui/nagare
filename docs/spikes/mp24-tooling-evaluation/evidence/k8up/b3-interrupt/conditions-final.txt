@@ -1,0 +1,4 @@
+PreBackupPodReady=True NoPreBackupPodsFound: no container definitions found
+Progressing=False Finished: job 'backup_b3' completed successfully
+Completed=True Succeeded: "backup_b3" has 2 succeeded, 0 failed, and 0 started jobs
+Scrubbed=True Succeeded: Deleted 0 resources

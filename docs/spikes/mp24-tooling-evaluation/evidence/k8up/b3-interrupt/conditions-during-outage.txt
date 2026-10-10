@@ -1,0 +1,3 @@
+PreBackupPodReady=True NoPreBackupPodsFound: no container definitions found
+Ready=True Ready: "backup_b3" has 1 succeeded, 0 failed, and 1 started jobs
+Progressing=True Started: The job is progressing

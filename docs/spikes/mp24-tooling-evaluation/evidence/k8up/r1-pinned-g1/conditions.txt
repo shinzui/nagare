@@ -1,0 +1,3 @@
+Progressing=False Finished: job 'restore-r1-pinned-g1' completed successfully
+Completed=True Succeeded: job 'restore-r1-pinned-g1' has 0 active, 1 succeeded and 0 failed pods
+Scrubbed=True Succeeded: Deleted 0 resources

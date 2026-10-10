@@ -1,0 +1,32 @@
+== pod/backup-b4-0-cshkh
+	/opt/hostedtoolcache/go/1.26.5/x64/src/os/file.go:295
+os.(*File).WriteTo
+	/opt/hostedtoolcache/go/1.26.5/x64/src/os/file.go:273
+io.copyBuffer
+	/opt/hostedtoolcache/go/1.26.5/x64/src/io/io.go:411
+io.Copy
+	/opt/hostedtoolcache/go/1.26.5/x64/src/io/io.go:388
+os/exec.(*Cmd).writerDescriptor.func1
+	/opt/hostedtoolcache/go/1.26.5/x64/src/os/exec/exec.go:602
+os/exec.(*Cmd).Start.func2
+	/opt/hostedtoolcache/go/1.26.5/x64/src/os/exec/exec.go:757
+2026-10-10T03:35:27Z	INFO	k8up.restic.restic.backup	backup finished, sending snapshot list
+2026-10-10T03:35:27Z	INFO	k8up.restic.restic.snapshots	getting list of snapshots
+2026-10-10T03:35:27Z	INFO	k8up.restic.restic.snapshots.command	restic command	{"path": "/usr/local/bin/restic", "args": ["snapshots", "--json"]}
+2026-10-10T03:35:27Z	INFO	k8up.restic.restic.snapshots.command	Defining RESTIC_PROGRESS_FPS	{"frequency": 0.016666666666666666}
+== pod/backup-b4-prebackup-wb5h5
+	/opt/hostedtoolcache/go/1.26.5/x64/src/os/file.go:273
+io.copyBuffer
+	/opt/hostedtoolcache/go/1.26.5/x64/src/io/io.go:411
+io.Copy
+	/opt/hostedtoolcache/go/1.26.5/x64/src/io/io.go:388
+os/exec.(*Cmd).writerDescriptor.func1
+	/opt/hostedtoolcache/go/1.26.5/x64/src/os/exec/exec.go:602
+os/exec.(*Cmd).Start.func2
+	/opt/hostedtoolcache/go/1.26.5/x64/src/os/exec/exec.go:757
+2026-10-10T03:35:50Z	INFO	k8up.restic	backups of annotated jobs have finished successfully
+2026-10-10T03:35:50Z	INFO	k8up.restic.restic.backup	starting backup
+2026-10-10T03:35:50Z	INFO	k8up.restic.restic.backup	backupdir does not exist, skipping. Sending snapshot list	{"dirname": "/data"}
+2026-10-10T03:35:50Z	INFO	k8up.restic.restic.snapshots	getting list of snapshots
+2026-10-10T03:35:50Z	INFO	k8up.restic.restic.snapshots.command	restic command	{"path": "/usr/local/bin/restic", "args": ["snapshots", "--json"]}
+2026-10-10T03:35:50Z	INFO	k8up.restic.restic.snapshots.command	Defining RESTIC_PROGRESS_FPS	{"frequency": 0.016666666666666666}

@@ -1,0 +1,5 @@
+ID                                                                 PATHS            DATE                   REPO
+5c6b4b71705d8d77d3ef3707cf8fe3e2091c9a382df7ad9e528fc8d2c5749c0e   [/app-pg.dump]   2026-10-10T03:15:19Z   s3:http://minio.minio:9000/k8up
+6255280371b2b66dd689f246676bb502ab4448a419f6f86ecf690396cc2c4730   [/data/files]    2026-10-10T03:15:09Z   s3:http://minio.minio:9000/k8up
+a88ad5d5e2ea024843ff1e7c60541050e8983585244588b290e5a6efea5d1f5c   [/data/files]    2026-10-10T03:14:31Z   s3:http://minio.minio:9000/k8up
+f1f3675a9cd5ad47d4835a0a6722ea39b97c37ee92ac09aca3728afb9ad67900   [/app-pg.dump]   2026-10-10T03:14:38Z   s3:http://minio.minio:9000/k8up

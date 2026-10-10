@@ -1,5 +1,10 @@
 # Bundle Update Log
 
+## 2026-10-10
+
+* **Add**: Record RES-6, EP-163's evaluation of K8up/restic, Velero and CloudNativePG/Barman beneath Nagare's journal. It has partial K8up prototype evidence and is scored against UC-3 and ADR 28. It recommends keeping the native backup path for every boundary in scope, with K8up as the volume fallback and CloudNativePG as the candidate if the PostgreSQL recovery-point objective tightens.
+* **Update**: RES-3 is superseded by RES-6. Its findings are unchanged.
+
 ## 2026-10-07
 
 * **Update**: RES-4 adds rule U16 from the E4 and E5 traces: a controller's reaction to a write is its own, later write, so the catch-up a write causes never refuses that write (the 3d deep run's B1).

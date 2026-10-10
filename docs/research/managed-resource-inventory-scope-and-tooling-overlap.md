@@ -6,7 +6,8 @@ generated:
   by: process:claude-code
   at: "2026-09-28T14:23:24Z"
 researchId: RES-3
-status: active
+status: superseded
+supersededBy: RES-6
 scope: >-
   MasterPlan 23, IR-24, ADR 22, and EP-151 as of repository revision 7824fbd6 on 2026-09-28, plus
   source-size and commit measurements. Candidate external tools were identified from their official

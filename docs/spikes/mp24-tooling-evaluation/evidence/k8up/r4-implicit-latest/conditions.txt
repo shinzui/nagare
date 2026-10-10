@@ -1,0 +1,2 @@
+Progressing=False Finished: job 'restore-r4-implicit-latest' completed successfully
+Completed=True

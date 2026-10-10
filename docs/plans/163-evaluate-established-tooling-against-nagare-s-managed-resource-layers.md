@@ -27,6 +27,11 @@ provenance:
       at: 2026-10-10T02:57:51Z
       mode: "update"
       note: "Volume backups extend the DB producer (EP-183); K8up is the fallback"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-10T03:52:45Z
+      mode: "implement"
+      note: "M1 desk evaluation, M2 closed with partial K8up evidence (run outside cp3 claim), M3 record RES-6 supersedes RES-3"
 ---
 
 # Evaluate established tooling against Nagare's managed-resource layers
@@ -48,13 +53,60 @@ K8up/restic is the primary candidate for volume and application-aware backup eva
 
 2026-09-28 candidate reprioritization: evaluate K8up/restic first and retain Velero as a secondary desk comparison. Add project direction and maintenance continuity to M1/M3. This planning change accepts no candidate or milestone and starts no prototype.
 
-- [ ] M1: Evaluate the finite candidate boundaries below using current authoritative releases/docs; record coverage, limitations, and eliminations without requiring a replacement for every Nagare layer.
-- [ ] M2: Run bounded local prototypes for credible PostgreSQL and Kubernetes/volume-backup candidates, or record a decisive documented incompatibility; measure operational footprint and recovered content.
+- [x] M1 (2026-10-10): Evaluate the finite candidate boundaries below using current authoritative releases/docs; record coverage, limitations, and eliminations without requiring a replacement for every Nagare layer. Done in [RES-6](../research/established-backup-tooling-beneath-nagare-s-journal.md), sections "Candidate facts", "Project direction" and "Boundary findings". Sources are upstream tags and governance files read on 2026-10-09.
+- [x] M2 (closed 2026-10-10 by operator decision, partial): Run bounded local prototypes for credible PostgreSQL and Kubernetes/volume-backup candidates, or record a decisive documented incompatibility; measure operational footprint and recovered content.
+  - The K8up/restic prototype ran partly on a disposable k3d cluster on cp3, **outside the cp3 claim protocol**. That was a process error; see Surprises & Discoveries. Proven:
+    - a pinned restore into a new PVC;
+    - refusal of a wrong ID or path;
+    - silent implicit-latest restores;
+    - restore into an in-use PVC not refused;
+    - a pinned pg_dump into an isolated database;
+    - interruption with an object-store outage;
+    - footprint.
+  - The retention prune never ran, so `keepTags` protection is unproven.
+  - The cluster was deleted. The operator then decided to skip the K8up prototype: K8up gets one only if EP-183 M3's slice checkpoint stops.
+  - CloudNativePG was not prototyped: its drivers are prepared but unrun, and no cluster was allowed.
+  - Record: [`docs/spikes/mp24-tooling-evaluation/README.md`](../spikes/mp24-tooling-evaluation/README.md).
 - [ ] M3: Score the surviving choices against EP-162 M1 requirements in a validated research record, distinguish recommendation from adoption, and record the operator's decision.
+  - Done (2026-10-10): scored against UC-3's features and ADR 28 in RES-6, which validates and supersedes RES-3. The recommendation is to keep the native path for every boundary in scope, with K8up as the volume fallback and CloudNativePG as the candidate if the PostgreSQL objective tightens.
+  - Remaining: the operator's accept-or-reject decision, recorded in MasterPlan 24.
 
 2026-09-28: This scope update records preliminary Velero desk findings and evaluation criteria only. No candidate has been installed, benchmarked, selected, or accepted; all milestones remain open.
 
 ## Surprises & Discoveries
+
+2026-10-10, from M1–M2:
+
+- **The prototype ran outside the cp3 claim protocol.**
+  - The k3d cluster `mp24-eval` ran on the `nagare-mp23-cp3` Colima daemon from 03:01 to 03:48
+    UTC. No cp3 claim was taken (`docs/runbooks/native-verification-harness.md` section 3), and
+    cp3 was under a `nagare-verify` claim at the time.
+  - The session also raised the VM's runtime-only `fs.inotify.max_user_instances` from 128 to
+    1024, after the first create failed with `too many open files`: `nagare-local` had used up all
+    128.
+  - `nagare-local`, its context and the retained root were not touched.
+  - The coordinator stopped the run and the cluster was deleted by exact name.
+  - `env.sh` now refuses to run without an explicit operator-approved `EVAL_DOCKER_HOST`.
+- **Nagare's local MinIO images are no longer pullable.** The digests pinned in
+  `cluster/local/minio/minio.yaml` and `Nagare/Inventory/Components/LocalObjectStore.hs` return
+  401 from quay.io, and `docker.io/minio/*` reports that the repository does not exist. A fresh
+  local context without cached images cannot start its object store. The coordinator routes this
+  to EP-183. The prototype used RustFS 1.0.1.
+- K8up restores silently pick the latest snapshot when `snapshot` is omitted or when
+  `restoreTimeFilter` matches nothing. K8up also restores into a PVC a running pod is using,
+  merging into the live data. Pinning by ID together with `paths` refuses the wrong source.
+- A force-killed K8up backup left a restic lock that blocked `restic check` for at least 11
+  minutes. An object-store outage left the Backup `Progressing`, with crash-looping pods and no
+  failure condition.
+- Velero moved from VMware-Tanzu to the CNCF Sandbox (accepted 2026-03-11, now `velero-io`, with
+  maintainers from Broadcom, Red Hat and Microsoft). The evidence found does not support a decline
+  in direction. The concrete direction change is that restic backups and restores are disabled
+  from Velero 1.19.
+- K8up's continuity evidence is the weakest of the candidates:
+  - one maintainer wrote 26 of 47 commits in six months;
+  - GOVERNANCE.md says governance is still being set up;
+  - its CNCF health score is "Critical (19)".
+- On k3s v1.32.5 the local-path provisioner created `spec.local` PVs, not `hostPath`.
 
 2026-09-28 preliminary K8up findings, not prototype evidence:
 
@@ -74,6 +126,20 @@ The operator's concern about Velero is project direction. The precise upstream d
 Initial judgment: Velero may simplify Kubernetes resource/volume backup and recovery. Its value for the current local-path installation and database correctness is unresolved. It would not replace Pulumi/NixOS recovery or Nagare's cross-tool state/journal. If compatibility needs a new storage platform or a large custom database-consistency layer, record the added cost and prefer a narrower or rejected role rather than expanding MP-23.
 
 ## Decision Log
+
+- Decision: Close M2 with the partial K8up evidence already gathered, and run no CloudNativePG
+  prototype.
+  Rationale: on 2026-10-10 the operator decided to skip the K8up prototype. It runs only if EP-183
+  M3's slice checkpoint stops. No Colima profile other than cp3 may be started, and cp3 was under
+  another session's claim. CloudNativePG is not needed under ADR 28's objectives, and RES-6 names
+  the condition that would make it worth running.
+  Date: 2026-10-10
+
+- Decision: Score against UC-3 and ADR 28, and record the result as RES-6, superseding RES-3.
+  Rationale: EP-162 completed on 2026-10-10 with UC-3 confirmed and ADR 28 accepted, which
+  satisfies M3's hard dependency. RES-3's status changes to superseded; its findings stay as they
+  are.
+  Date: 2026-10-10
 
 - Decision: Volume backups for the intranet extend Nagare's scheduled database producer (EP-183 M3,
   MasterPlan 24 Decision Log). K8up stays the volume candidate here as research and as EP-183's
@@ -99,7 +165,22 @@ Initial judgment: Velero may simplify Kubernetes resource/volume backup and reco
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+2026-10-10, after M1–M3's record:
+
+- **Recommendation (RES-6): keep Nagare's native backup path for every boundary in scope.** No
+  candidate meets a UC-3 requirement that native code plus EP-183 does not already meet. Each one
+  that fits adds a second repository format, a second retention engine (whose scheduled form
+  breaks ADR 28 decision 4) and a second recovery-point catalogue beneath the journal. Nagare would
+  still need to build the refusals the intranet depends on.
+- K8up/restic is the volume fallback, with named gaps: implicit latest, no destination guard, no
+  keep-within retention, lock recovery after a hard kill, and the weakest continuity evidence.
+- CloudNativePG is the PostgreSQL candidate if the objective tightens below one hour.
+- Velero is not recommended, for technical-fit reasons. Its direction evidence is healthy.
+- Still open: the operator's decision on the recommendation, and the unproven K8up retention and
+  CloudNativePG steps listed in RES-6.
+- Lesson: before running anything that needs a Docker daemon, check the shared-host claim rules,
+  not only which daemon is running. The prototype session read the running Colima profile as
+  available and missed the cp3 claim protocol.
 
 
 ## Context and Orientation
@@ -224,6 +305,9 @@ single-node assumption, stated explicitly. Tools needed locally: k3d, kubectl, D
 and the candidate tools' own CLIs.
 
 ## Revision Notes
+
+2026-10-10: M1 done, M2 closed by operator decision with partial K8up evidence, and M3's research
+record (RES-6) written. M3 waits only for the operator's decision on the recommendation.
 
 2026-09-28: Promote K8up/restic to the primary backup evaluation and prototype, move Velero to a conditional secondary comparison because of the operator's project-direction concern, and align research, recovery criteria, and maintenance assessment. No adoption or MP-23 gate is added.
 

@@ -1,0 +1,46 @@
+# Recover the G1 pg_dump that K8up streamed into restic (snapshot pinned by ID
+# and path) into an isolated PostgreSQL in namespace `restore`. K8up's Restore
+# CR cannot restore stdin backups, so an initContainer runs `restic dump` with
+# the restic binary shipped in the K8up image, then pg_restore loads it.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: restore
+  labels: {nagare.dev/owner: ep-163}
+---
+apiVersion: v1
+kind: Secret
+metadata: {name: restic, namespace: restore}
+stringData:
+  RESTIC_REPOSITORY: s3:http://minio.minio:9000/k8up
+  RESTIC_PASSWORD: eval-restic-repo-password
+  AWS_ACCESS_KEY_ID: evalroot
+  AWS_SECRET_ACCESS_KEY: eval-root-password
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: pg-restore, namespace: restore}
+spec:
+  initContainers:
+    - name: fetch
+      image: ghcr.io/k8up-io/k8up:v2.16.0
+      envFrom: [{secretRef: {name: restic}}]
+      env: [{name: SNAPSHOT, value: f1f3675a9cd5ad47d4835a0a6722ea39b97c37ee92ac09aca3728afb9ad67900}]
+      command: [sh, -ec]
+      args:
+        - |
+          restic version
+          # Refuse unless the pinned snapshot exists and contains exactly the expected path.
+          restic snapshots --json "$SNAPSHOT" | grep -q '"paths":\["/app-pg.dump"\]'
+          restic dump "$SNAPSHOT" /app-pg.dump > /work/g1.dump
+          sha256sum /work/g1.dump
+      volumeMounts: [{name: work, mountPath: /work}]
+  containers:
+    - name: pg
+      image: postgres:18
+      env:
+        - {name: POSTGRES_PASSWORD, value: eval-restore-password}
+        - {name: POSTGRES_DB, value: appdb}
+      readinessProbe: {exec: {command: [pg_isready, -U, postgres]}}
+      volumeMounts: [{name: work, mountPath: /work}]
+  volumes: [{name: work, emptyDir: {}}]
