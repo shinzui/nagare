@@ -958,5 +958,17 @@
     "suite": "nagarectl",
     "pattern": "/rebuild restores of ClickHouse, Redis and volumes/&&/only a backup of the database's own engine/",
     "expect": "test-fails"
+  },
+  {
+    "record": "EP183-admission-admits-kept-run",
+    "suite": "nagarectl",
+    "pattern": "/admission refuses a prune of the newest/ || /prune of the newest run refuses admission/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "EP183-retention-drops-newest",
+    "suite": "nagarectl",
+    "pattern": "/retention keeps ties and the newest point however old/",
+    "expect": "test-fails"
   }
 ]

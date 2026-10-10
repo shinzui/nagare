@@ -1,0 +1,14 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/BackupRetention.hs b/cli/nagarectl/src/Nagare/Inventory/BackupRetention.hs
+index f74c3f46..eb6bbb7b 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/BackupRetention.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/BackupRetention.hs
+@@ -76,8 +76,7 @@ splitByRetention policy objective now points
+               max
+               [(utctDay time, time) | (_, time) <- points, age time < keepDailyFor policy]
+           keeps time =
+-            time == newest
+-              || age time < window
++            age time < window
+               || Map.lookup (utctDay time) dailyNewest == Just time
+           (keep, past) = partition (keeps . snd) points
+        in Right

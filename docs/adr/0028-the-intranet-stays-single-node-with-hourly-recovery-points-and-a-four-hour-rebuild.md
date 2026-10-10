@@ -67,3 +67,25 @@ of downtime after the VM is lost.
 - EP-183's milestones carry these objectives: retention (M2), volumes (M3), rebuild (M4) and the
   timed drill (M5).
 - Managed databases and the broker stay non-HA. Their capability pages cite this ADR.
+
+## Amendment (2026-10-10, EP-183 M2): how the retention policy is bound
+
+- **The release fixes the policy.** `Nagare.Inventory.BackupRetention.standardRetention` is the one
+  policy, as MasterPlan 23's decision D6 fixed the two objective presets. No context or environment
+  value selects another. The signed schedule metadata is unchanged: its `keep` field is the legacy
+  keep-last-N of unadmitted CronJobs, and no reviewed schedule uses it. Not adding a field means no
+  accepted CronJob changes bytes, so the upgrade rewrites no schedule. A second preset, if one is
+  ever needed, goes into the signed metadata the way `recoveryPoint` did: written only when it is
+  not the default, so existing bytes stay the same.
+- **Only signed times count.** The policy reads the recovery point that a v5 receipt signed and
+  ingestion recorded (`scheduled.backup.recovery.point`). A run accepted without one, a v4
+  receipt, is kept and never selected.
+- **Admission re-evaluates the policy.** A reviewed prune records its policy text
+  (`scheduled.prune.policy.retention`). Admission refuses unless every pruned run is past policy at
+  admission time against the accepted receipts. The check uses the widest objective's breach window,
+  so the newest point, any point inside the 48-hour or breach window, and each retained day's newest
+  point can never be removed.
+- **Cloud pruning waits.** The reviewed prune is local (MinIO) only. Receipt recovery after a
+  partial cloud prune needs GCS exact-generation listing, which does not exist yet. In a cloud
+  context, `server status` grades retention, but runs past policy stay in place until that
+  recovery exists.
