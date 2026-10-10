@@ -892,5 +892,17 @@
     "suite": "nagarectl",
     "pattern": "/F92/&&/the newest backup that verifies is the point/",
     "expect": "test-fails"
+  },
+  {
+    "record": "EP183-domainmapping-downgrade-ready",
+    "suite": "nagarectl",
+    "pattern": "/EP-183 M1/&&/DomainMapping/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "EP183-domainmapping-no-certificate-wait",
+    "suite": "nagarectl",
+    "pattern": "/EP-183 M1/&&/its create does not complete/",
+    "expect": "test-fails"
   }
 ]

@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesRuntime.hs b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesRuntime.hs
+index fbe1afe3..bce808aa 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesRuntime.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesRuntime.hs
+@@ -304,7 +304,7 @@ waitForReadiness config address = case address of
+     | nameText kind == "domainmapping" -> do
+         ready <- waitCondition "ready" "domainmapping.serving.knative.dev" namespace name "Knative DomainMapping"
+         case ready of
+-          AdapterEffectCompleted -> waitForCertificate namespace name
++          AdapterEffectCompleted -> pure AdapterEffectCompleted
+           other -> pure other
+   Kubernetes _ "apps" kind namespace name | nameText kind == "deployment" -> do
+     result <-

@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesReadiness.hs b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesReadiness.hs
+index cfefc582..f14751fe 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesReadiness.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesReadiness.hs
+@@ -89,7 +89,7 @@ hasCondition _ _ = False
+ -- @Ready@ is True. That downgrade is not readiness. TLS off
+ -- (@TLSNotEnabled@) is the context's choice and stays ready.
+ domainMappingReady :: Value -> Bool
+-domainMappingReady value = knativeReady value && not (httpDowngraded value)
++domainMappingReady value = knativeReady value
+ 
+ -- | The route is served over HTTP because its certificate is not Ready.
+ httpDowngraded :: Value -> Bool
