@@ -106,6 +106,16 @@ This plan only makes sure its changes are covered by that transition's compatibi
   volume of a context has a scheduled producer with signed receipts. Its
   freshness is graded against the context's objective in `server status`. A restore of the newest
   receipt into a new PVC matches the source.
+  - [x] (2026-10-10) Slice checkpoint PASSED. It needed only the dump container, the source kind,
+    a PVC-only source check and the status row, plus a name check in the signing-key template. It
+    needed no new ingestion, acceptance or restore-authority semantics.
+  - [x] (2026-10-10) Producer (`nagare-volbackup-<app>-<volume>`), signed v5 volume receipts,
+    graded status rows, removal of the legacy `volumes/` probe, and docs. `gate-fast` is green on
+    the worker branch.
+  - [ ] Volume receipt ingestion, scheduled-receipt restore and `VolumeRecoverySource`,
+    key-kind-aware escrow, model scenarios, and retention for volume receipts (M2 step 6).
+  - [ ] Full gate and land; local check (row within one period, degradation when the newest
+    upload is deleted, byte-identical restore).
 - [ ] M4. A reviewed operation recreates a missing durable member from its predecessor's verified
   recovery point, recording the lineage. It is proven in the recovery model under faults first.
   On a local context whose cluster was deleted, the documented rebuild brings the fixture back into
@@ -126,6 +136,15 @@ This plan only makes sure its changes are covered by that transition's compatibi
 
 
 ## Surprises & Discoveries
+
+- Observation (M3 slice checkpoint): passed. `server status` grades verified uploads still
+  awaiting ingestion (decision D1), so the slice needed no ingestion. The volume expectation is
+  derived from the accepted CronJob's bytes, exactly as for databases.
+- Observation (M3): the signing-key generator recognised only `nagare-dbbackup-<db>-signing`. A
+  volume schedule's Secret carries `nagare.dev/volume-backup` and is accepted only under the
+  `nagare-volbackup-` prefix.
+- Observation (M3): retention for volume receipts (M2 step 6) depends on volume ingestion, because
+  `BackupRetention` grades only accepted receipts.
 
 - Observation (M2): a run was accepted only through one review per run (`db backup-receipts NAME
   --backup-id JOB_UID`), and a prune refused while any listed run was un-ingested. At the hourly
@@ -199,6 +218,18 @@ This plan only makes sure its changes are covered by that transition's compatibi
 
 
 ## Decision Log
+
+- Decision: A volume's backup members share its claim's scope and logical key. Their roles extend
+  the claim's role (`<role>-backup`, `-backup-account`, `-backup-read-role`,
+  `-backup-read-binding`, `-backup-signing-key`), so service and worker volumes of the same name
+  never collide.
+  A volume receipt's source is exactly `{pvcUid}`. `ScheduledReceiptExpectation`'s StatefulSet UID
+  becomes optional, so a database-shaped expectation never accepts a volume receipt.
+  Schedule names over the CronJob's 52-character limit keep a readable prefix plus a
+  20-character digest.
+  Rationale: this reuses the database producer's upload, signing and grading unchanged. Database
+  CronJob bytes are unchanged.
+  Date: 2026-10-10
 
 - Decision: Bind the retention policy in the release code, as decision D6 bound the objective
   presets, not in the signed schedule metadata. Admission evaluates it against the widest
@@ -805,7 +836,10 @@ the rows are kept here until it does:
 | The command coverage `deferredRoutes` list loses `DbPruneScheduledBackups`. | M2 | evidence contract only | none |
 | The local MinIO manifest (`cluster/local/minio/minio.yaml`) names locally published images, with a new manifest digest. | M1 | local contexts only | unverified for an existing local context; check before EP-172 M3 |
 
-The head, journal and receipt formats are unchanged by M1, M2 (first slice) and M4.
+| An application scope gains five members per retained volume: a ServiceAccount, a Role, a RoleBinding, a signing Secret and the CronJob `nagare-volbackup-<app>-<volume>`. The Secret carries the `nagare.dev/volume-backup` label, and the Job carries `nagare.dev/volume-claim`. | M3 | refuses the volume signing template ("lacks database label") | none; adds appear on the next reviewed deploy |
+| A new receipt kind: a v5 envelope with `source {pvcUid}`, stored under the `scheduled-volumes/` prefix. | M3 | does not parse it | none |
+
+The head and journal formats are unchanged. Database receipts and CronJob bytes are unchanged.
 
 Dependencies on other plans:
 
