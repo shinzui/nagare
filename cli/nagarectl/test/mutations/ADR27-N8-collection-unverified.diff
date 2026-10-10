@@ -1,17 +1,17 @@
 diff --git a/cli/nagarectl/src/Nagare/Inventory/Execute/Admission.hs b/cli/nagarectl/src/Nagare/Inventory/Execute/Admission.hs
-index 7ffce4d4..641f1028 100644
+index 6a18e142..9f717c64 100644
 --- a/cli/nagarectl/src/Nagare/Inventory/Execute/Admission.hs
 +++ b/cli/nagarectl/src/Nagare/Inventory/Execute/Admission.hs
-@@ -189,7 +189,7 @@ admit locked registry reviewed = do
-             -- ADR 27 §3: a rebind records the reviewed live object, so that
+@@ -191,7 +191,7 @@ admit locked registry reviewed = do
              -- object must still be the live one.
-             rebindRequests = Map.fromList [(KubernetesExecutor, Map.keys (reviewRebinds document)) | not (Map.null (reviewRebinds document))]
+             -- EP-183 M4: a rebuild recreates a member reviewed as absent.
+             rebindRequests = Map.fromList [(KubernetesExecutor, Map.keys (reviewRebinds document) <> Map.keys (reviewRebuilds document)) | not (Map.null (reviewRebinds document) && Map.null (reviewRebuilds document))]
 -            retainedRequests = Map.unionsWith (<>) [retentionRequests, collectionRequests, rebindRequests]
 +            retainedRequests = Map.unionsWith (<>) [retentionRequests, Map.filter (const False) collectionRequests, rebindRequests]
          migrationChecked <- migrationCoverage store document
          migrationSourceErrors <- case migrationChecked of
            Left _ -> pure []
-@@ -212,7 +212,7 @@ admit locked registry reviewed = do
+@@ -214,7 +214,7 @@ admit locked registry reviewed = do
                          == Just (ObservedPresent (fromMaybe (retentionPhysical proof) (retentionReplacedBy proof)))
                      )
                      (Left "retained physical incarnation changed since review")

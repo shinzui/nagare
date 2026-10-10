@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Execute/Admission.hs b/cli/nagarectl/src/Nagare/Inventory/Execute/Admission.hs
+index 6a18e142..11071c0d 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/Execute/Admission.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Execute/Admission.hs
+@@ -224,7 +224,7 @@ admit locked registry reviewed = do
+                   unless
+                     (Map.lookup resource (observationMap facts) == Just (ObservedPresent (rebindLive proof)))
+                     (Left "the object a rebind records changed since review")
+-                forM_ (Map.keys (reviewRebuilds document)) $ \resource ->
++                forM_ (Map.keys (Map.filter (const False) (reviewRebuilds document))) $ \resource ->
+                   case Map.lookup resource (observationMap facts) of
+                     Just (ConfirmedAbsent _) -> Right ()
+                     _ -> Left "a member a rebuild recreates is no longer confirmed absent"

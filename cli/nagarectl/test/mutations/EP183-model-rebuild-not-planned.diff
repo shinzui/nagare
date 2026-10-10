@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/Plan/Changes.hs b/cli/nagarectl/src/Nagare/Inventory/Plan/Changes.hs
+index d97dca07..29eb790a 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/Plan/Changes.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/Plan/Changes.hs
+@@ -810,7 +810,7 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
+     retireOperation _ = Nothing
+     decisionIs kind resource = maybe False ((== kind) . lifecycleDecision) (Map.lookup resource decisions)
+     rebuilding resource = case lifecycleDecision <$> Map.lookup resource decisions of
+-      Just (ApproveRebuild _) -> True
++      Just (ApproveRebuild _) -> False
+       _ -> False
+     resourceOperation action resource =
+       let digest = contentDigest (canonicalBytes (toJSON (Managed resource)))

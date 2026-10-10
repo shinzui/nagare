@@ -1,8 +1,8 @@
 diff --git a/cli/nagarectl/src/Nagare/Inventory/Plan/Lifecycle.hs b/cli/nagarectl/src/Nagare/Inventory/Plan/Lifecycle.hs
-index 13e32a67..88579fdf 100644
+index aad1f74f..24e3b621 100644
 --- a/cli/nagarectl/src/Nagare/Inventory/Plan/Lifecycle.hs
 +++ b/cli/nagarectl/src/Nagare/Inventory/Plan/Lifecycle.hs
-@@ -362,7 +362,7 @@ validateLifecycleDecisions candidate history observations proposals =
+@@ -373,7 +373,7 @@ validateLifecycleDecisions candidate history observations proposals =
                  | next ^. #executor == KubernetesExecutor
                  , old ^. #executor == KubernetesExecutor
                  , next ^. #owner == old ^. #owner
@@ -10,4 +10,4 @@ index 13e32a67..88579fdf 100644
 +                , Map.lookup resource (headIncarnations (historyHead history)) /= Just live || True ->
                      []
                _ -> issue "invalid-rebind" "rebind needs an accepted Kubernetes member that stays declared and a live owned object that is not its recorded incarnation"
-        in evidence <> shape
+             -- EP-183 M4 (ADR 27 amendment): recreate an accepted durable

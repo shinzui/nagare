@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/RebuildRestore.hs b/cli/nagarectl/src/Nagare/Inventory/RebuildRestore.hs
+index 784ffee8..64f4dee6 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/RebuildRestore.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/RebuildRestore.hs
+@@ -118,7 +118,7 @@ compileRebuildRestoreScope request accepted native = do
+     (Just (request ^. #escrowPvcUid) == lineage' ^. #proof . #predecessor)
+     (Left (invalid "the receipt was verified with the escrow of another incarnation than the rebuild's predecessor"))
+   unless
+-    (point ^. #receipt == receiptUrl && point ^. #receiptDigest == receiptDigest)
++    (point ^. #receipt == receiptUrl)
+     (Left (invalid "the verified receipt is not the recovery point the rebuild named"))
+   unless
+     (storeObjectUrl (request ^. #backend) ("databases/" <> db <> "/") `T.isPrefixOf` objectUrl && ".sql.gz" `T.isSuffixOf` objectUrl)

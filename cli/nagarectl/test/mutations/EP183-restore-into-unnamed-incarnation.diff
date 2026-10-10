@@ -1,0 +1,13 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/RebuildRestore.hs b/cli/nagarectl/src/Nagare/Inventory/RebuildRestore.hs
+index 784ffee8..642d8e26 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/RebuildRestore.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/RebuildRestore.hs
+@@ -108,7 +108,7 @@ compileRebuildRestoreScope request accepted native = do
+   -- The lineage: the volume is the incarnation a converged rebuild created.
+   let lineage' = request ^. #lineage
+   unless
+-    (lineage' ^. #resource == pvc ^. #identity && lineage' ^. #incarnation == request ^. #targetPvcUid)
++    (lineage' ^. #resource == pvc ^. #identity || lineage' ^. #incarnation == request ^. #targetPvcUid)
+     (Left (invalid "the target volume is not the incarnation a reviewed rebuild created; only that incarnation receives its predecessor's recovery point"))
+   point <- case lineage' ^. #proof . #source of
+     FromRecoveryPoint selected | selected ^. #kind == ScheduledRecoveryPoint -> Right selected

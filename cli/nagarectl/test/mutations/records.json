@@ -904,5 +904,35 @@
     "suite": "nagarectl",
     "pattern": "/EP-183 M1/&&/its create does not complete/",
     "expect": "test-fails"
+  },
+  {
+    "record": "EP183-rebuild-predecessor-unchecked",
+    "suite": "nagarectl",
+    "pattern": "/reviewed rebuild/&&/names the recorded incarnation/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "EP183-rebuild-unverified-at-admission",
+    "suite": "nagarectl",
+    "pattern": "/reviewed rebuild/&&/reappeared after review/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "EP183-restore-into-unnamed-incarnation",
+    "suite": "nagarectl",
+    "pattern": "/reviewed rebuild/&&/rebuild restore loads only/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "EP183-restore-any-recovery-point",
+    "suite": "nagarectl",
+    "pattern": "/reviewed rebuild/&&/rebuild restore loads only/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "EP183-model-rebuild-not-planned",
+    "suite": "nagarectl",
+    "pattern": "/recovery model/&&/fast tier/",
+    "expect": "test-fails"
   }
 ]
