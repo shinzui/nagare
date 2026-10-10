@@ -835,7 +835,6 @@ the rows are kept here until it does:
 | Prune scope key `scheduled.prune.policy.keep` becomes `scheduled.prune.policy.retention`. | M2 | n/a: v0.4.0 admission refused every scheduled prune, so no v0.4.0 context holds one | none |
 | The command coverage `deferredRoutes` list loses `DbPruneScheduledBackups`. | M2 | evidence contract only | none |
 | The local MinIO manifest (`cluster/local/minio/minio.yaml`) names locally published images, with a new manifest digest. | M1 | local contexts only | unverified for an existing local context; check before EP-172 M3 |
-
 | An application scope gains five members per retained volume: a ServiceAccount, a Role, a RoleBinding, a signing Secret and the CronJob `nagare-volbackup-<app>-<volume>`. The Secret carries the `nagare.dev/volume-backup` label, and the Job carries `nagare.dev/volume-claim`. | M3 | refuses the volume signing template ("lacks database label") | none; adds appear on the next reviewed deploy |
 | A new receipt kind: a v5 envelope with `source {pvcUid}`, stored under the `scheduled-volumes/` prefix. | M3 | does not parse it | none |
 
