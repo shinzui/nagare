@@ -186,6 +186,9 @@ storeToolTests =
     | (name, rendered) <-
         [ ("volume backup CronJob", renderInventoryVolumeBackupCronJob HourlyRecoveryPoint "personal" "scenario-a" "uploads" localMinioBackend 7)
         , ("db backup Job", renderBackupJob (backupJobInputsPg & #backend .~ localMinioBackend))
+        , ("db restore Job", renderRestoreJob (restoreJobInputsPg & #backend .~ localMinioBackend))
+        , ("volume snapshot Job", renderSnapshotJob (snapshotJobInputs & #backend .~ localMinioBackend))
+        , ("volume restore Job", renderStorageRestoreJob (storageRestoreJobInputs & #backend .~ localMinioBackend))
         ]
           <> [ ("db backup CronJob " <> show engine, renderInventoryDbBackupCronJob HourlyRecoveryPoint "personal" "app-db" engine "app-db" localMinioBackend 7)
              | engine <- [Postgres, Redis, ClickHouse]
