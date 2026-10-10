@@ -1,0 +1,14 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/ScheduledIngest.hs b/cli/nagarectl/src/Nagare/Inventory/ScheduledIngest.hs
+index 9301d2e3..a6c01aac 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/ScheduledIngest.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/ScheduledIngest.hs
+@@ -170,9 +170,6 @@ compileScheduledIngestBatch requests@(first' :| _) accepted native = do
+         , ingestAcceptedIncarnations request
+         )
+       runs = map ingestBackupId (toList requests)
+-  unless
+-    (all ((== source first') . source) requests)
+-    (Left (invalid "a batch ingestion mixes sources, revisions or incarnations"))
+   unless
+     (length (Map.keys (Map.fromList [(run, ()) | run <- runs])) == length runs)
+     (Left (invalid "a batch ingestion names a run twice"))

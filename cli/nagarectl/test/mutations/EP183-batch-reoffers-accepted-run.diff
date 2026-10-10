@@ -1,0 +1,12 @@
+diff --git a/cli/nagarectl/src/Nagare/Inventory/ScheduledIngest.hs b/cli/nagarectl/src/Nagare/Inventory/ScheduledIngest.hs
+index 9301d2e3..ee3ef3be 100644
+--- a/cli/nagarectl/src/Nagare/Inventory/ScheduledIngest.hs
++++ b/cli/nagarectl/src/Nagare/Inventory/ScheduledIngest.hs
+@@ -135,7 +135,6 @@ pendingScheduledRuns :: Map Text ScopeDeclaration -> [(Text, Bool)] -> [Text]
+ pendingScheduledRuns accepted recognized =
+   [ run
+   | run <- sort (Map.keys (Map.fromList [(selected, ()) | (selected, _) <- recognized]))
+-  , Map.notMember run accepted
+   , (run, True) `elem` recognized
+   , (run, False) `elem` recognized
+   ]

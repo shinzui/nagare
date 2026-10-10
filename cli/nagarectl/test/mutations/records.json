@@ -988,5 +988,17 @@
     "suite": "nagarectl",
     "pattern": "/a GCS scheduled prune interrupted at every call/",
     "expect": "test-fails"
+  },
+  {
+    "record": "EP183-batch-reoffers-accepted-run",
+    "suite": "nagarectl",
+    "pattern": "/a batch ingestion stopped at each operation/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "EP183-batch-mixes-sources",
+    "suite": "nagarectl",
+    "pattern": "/refuses a repeat or a mixed source/",
+    "expect": "test-fails"
   }
 ]
