@@ -175,6 +175,12 @@ selection = do
     "an unknown object passed the complete-listing guard"
     (isLeft (select Set.empty receiptScopes (listed <> [ListedObject (keyPrefix <> "stray") now])))
   assertBool "a missing receipt passed the complete-listing guard" (isLeft (select Set.empty receiptScopes (drop 1 listed)))
+  -- A run uploaded after the newest accepted one is tolerated and never a
+  -- candidate; an older un-ingested run refuses until it is ingested.
+  let uningested time = [ListedObject (objectKey "uningested") time, ListedObject (receiptKey "uningested") time]
+  meanwhile <- expectRight (select Set.empty receiptScopes (listed <> uningested (addUTCTime 60 (hoursAgo 0))))
+  map scheduledPruneId meanwhile @?= map scheduledPruneId candidates
+  assertBool "an older un-ingested run was tolerated" (isLeft (select Set.empty receiptScopes (listed <> uningested (hoursAgo 1))))
   -- A run an accepted restore depends on stays, and an independent one goes.
   protectedOnly <- expectRight (select (Set.singleton (scopeIdText (receiptOwner "forty-days"))) receiptScopes listed)
   map scheduledPruneId protectedOnly @?= [runId "ten-days-morning"]

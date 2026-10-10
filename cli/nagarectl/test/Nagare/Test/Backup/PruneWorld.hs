@@ -11,6 +11,7 @@ where
 import Control.Monad (forM, forM_, when)
 import Data.Either (isLeft)
 import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Time (UTCTime (..), fromGregorian)
@@ -18,7 +19,7 @@ import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.Database.Prune (PruneJobInputs (PruneJobInputs), scheduledPruneShell, scheduledReceiptRecoveryShell)
 import Nagare.Dsl.Prelude hiding ((<.>))
 import Nagare.Inventory.ScheduledGcs (parseGcsObjectGenerations)
-import Nagare.Inventory.ScheduledPrune (StoppedPrune (..), classifyStoppedPrune, scheduledPruneProviderMatches)
+import Nagare.Inventory.ScheduledPrune (StoppedPrune (..), classifyStoppedPrune, notYetIngestedRuns, scheduledPruneProviderMatches)
 import Nagare.Inventory.ScheduledStore (ListedObject (..))
 import Nagare.Resource.Canonical (contentDigest)
 import Nagare.Resource.Types (digestText)
@@ -40,7 +41,42 @@ pruneWorldTests =
   , testCase "recovery planning accepts only the states a stopped prune leaves" stoppedStates
   , testCase "a saved prune's apply preflight needs the accepted listing and both reviewed versions" providerPreflight
   , testCase "a GCS listing yields each live object's generation and refuses an escape or a repeat" gcsGenerations
+  , testCase "a run uploaded between planning and apply does not refuse the prune; an older un-ingested run does" uploadedMeanwhile
   ]
+
+knownRuns :: Set.Set Text
+knownRuns = Set.fromList [runOf dataKey, runOf otherKey]
+
+runOf :: Text -> Text
+runOf key = T.takeWhile (/= '.') (T.drop (T.length "databases/mydb/") key)
+
+-- | EP-183 M2 (decided 2026-10-10): the producer keeps uploading while an
+-- operator ingests and prunes. A run no accepted scope names is tolerated,
+-- never a candidate, only while it is strictly newer than every accepted run.
+uploadedMeanwhile :: Assertion
+uploadedMeanwhile = do
+  let at hour key = ListedObject key (UTCTime (fromGregorian 2026 10 10) (hour * 3600))
+      accepted = [at 1 dataKey, at 1 receiptKey, at 2 otherKey, at 2 (otherKey <> ".receipt.json")]
+      expected = Set.fromList (map listedKey accepted)
+      newer = "databases/mydb/33333333-3333-3333-3333-333333333333.sql.gz"
+      older = "databases/mydb/44444444-4444-4444-4444-444444444444.sql.gz"
+      tolerate = notYetIngestedRuns "databases/mydb/" "sql.gz" knownRuns expected
+      archiveAt = (dataKey, "7")
+      receiptAt = (receiptKey, "9")
+      preflight listed = scheduledPruneProviderMatches "databases/mydb/" "sql.gz" knownRuns (Set.toList expected) listed archiveAt receiptAt [archiveAt, receiptAt]
+  tolerate accepted @?= Right []
+  -- A complete newer run, and one whose receipt is still uploading.
+  tolerate (accepted <> [at 3 newer, at 3 (newer <> ".receipt.json")]) @?= Right [runOf newer]
+  tolerate (accepted <> [at 3 newer]) @?= Right [runOf newer]
+  preflight (accepted <> [at 3 newer, at 3 (newer <> ".receipt.json")]) @?= Right ()
+  -- Not newer than the newest accepted run: ingest it first.
+  assertBool "an older un-ingested run was tolerated" (isLeft (tolerate (accepted <> [at 0 older, at 0 (older <> ".receipt.json")])))
+  assertBool "an un-ingested run as old as the newest accepted one was tolerated" (isLeft (tolerate (accepted <> [at 2 older])))
+  assertBool "the preflight tolerated an older un-ingested run" (isLeft (preflight (accepted <> [at 0 older])))
+  -- An accepted run's key listed again, or a key that is no run, refuses.
+  assertBool "an accepted run's extra key was tolerated" (isLeft (tolerate (accepted <> [at 3 (dataKey <> ".extra")])))
+  assertBool "a stray key was tolerated" (isLeft (tolerate (accepted <> [at 3 "databases/mydb/stray"])))
+  assertBool "a missing accepted key was tolerated" (isLeft (tolerate (drop 1 accepted)))
 
 stoppedStates :: Assertion
 stoppedStates = do
@@ -62,7 +98,7 @@ providerPreflight :: Assertion
 providerPreflight = do
   let listedAt keys = [ListedObject key (UTCTime (fromGregorian 2026 10 10) 0) | key <- keys]
       expected = [dataKey, receiptKey, otherKey]
-      check = scheduledPruneProviderMatches expected
+      check = scheduledPruneProviderMatches "databases/mydb/" "sql.gz" knownRuns expected
       archiveAt = (dataKey, "7")
       receiptAt = (receiptKey, "9")
   check (listedAt expected) archiveAt receiptAt [archiveAt, receiptAt] @?= Right ()

@@ -95,6 +95,12 @@ of downtime after the VM is lost.
   deletion. A key with no live object is done, the reviewed version is deleted, and anything else
   refuses. Before this, a Job that failed before deleting anything left the run marked pruned with
   both objects live. Nothing could recover it, and the listing check then refused every later prune.
+- **The producer may keep uploading.** A prune tolerates listed runs that no accepted scope names
+  while each is strictly newer, by every listed key, than every accepted unpruned run. They are
+  reported as not yet ingested and are never candidates. An older un-ingested run, a key that is no
+  run of the schedule, or an accepted run's key listed again still refuses. Planning and the
+  apply-time provider preflight check the same rule (`notYetIngestedRuns`); admission is
+  store-only and cannot read the provider.
 - **A cloud prune leaves a noncurrent copy for 30 days.** The GCS backup bucket is versioned (EP-99),
   so a pruned generation stays noncurrent until the bucket's lifecycle rule deletes it 30 days
   later, plus the GCS soft-delete window. This keeps EP-99's protection against a compromised node

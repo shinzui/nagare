@@ -239,10 +239,18 @@ verifyReviewedScheduledPruneProvider mctx scopes selectedJobs = do
         versions <- listObjectVersions reader objectKey
         pure ((,) <$> current <*> versions)
       (listed, versions) <- either dieT pure provider >>= either dieT pure
+      let format = T.drop 1 (T.dropWhile (/= '.') (snd (T.breakOnEnd "/" objectKey)))
+          known =
+            Set.fromList
+              [ run
+              | scope <- acceptedScopes
+              , Map.lookup "scheduled.backup.source.scope" (ResourceInventory.scopeOverrides scope) == Just policyName
+              , Just run <- [Map.lookup "scheduled.backup.id" (ResourceInventory.scopeOverrides scope)]
+              ]
       either
         dieT
         pure
-        (scheduledPruneProviderMatches expected listed (objectKey, objectVersion) (receiptKey, receiptVersion) versions)
+        (scheduledPruneProviderMatches keyPrefix format known expected listed (objectKey, objectVersion) (receiptKey, receiptVersion) versions)
 
 -- A saved receipt-only recovery must still refer to the exact failed Job and
 -- published prune review. Its Job rechecks complete provider version listings

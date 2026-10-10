@@ -16,10 +16,11 @@ module Nagare.Inventory.ScheduledPrune
   , StoppedPrune (..)
   , classifyStoppedPrune
   , scheduledPruneProviderMatches
+  , notYetIngestedRuns
   )
 where
 
-import Control.Monad (forM_, unless)
+import Control.Monad (forM, forM_, unless, when)
 import Data.Aeson (Value (..), eitherDecodeStrict, object, (.=))
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
@@ -28,6 +29,7 @@ import Data.List (sortOn)
 import Data.List qualified as List
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
+import Data.Maybe (mapMaybe)
 import Data.Ord (comparing)
 import Data.Set (Set)
 import Data.Set qualified as Set
@@ -152,9 +154,14 @@ selectScheduledPruneCandidates source bucketAddress prefix format policy objecti
               | (entry, _) <- entries
               ]
           )
-  unless
-    (Map.keysSet visible == expected)
-    (Left "scheduled backup listing differs from accepted unpruned receipts")
+  keyPrefix <- maybe (Left "scheduled backup prefix is outside the listed provider bucket") Right (T.stripPrefix bucketAddress prefix)
+  _ <-
+    notYetIngestedRuns
+      keyPrefix
+      format
+      (Set.fromList [run | scope <- scopes, sameSource scope, Just run <- [Map.lookup "scheduled.backup.id" (fields scope)]])
+      (Set.fromList (mapMaybe (T.stripPrefix bucketAddress) (Set.toList expected)))
+      listed
   split <- splitByRetention policy objective now [(entry, time) | (entry, Just time) <- entries]
   let eligible = pastPolicy split
   pure
@@ -270,18 +277,51 @@ classifyStoppedPrune archive receipt versions
       (True, False) -> Left "the receipt is gone while its archive is live; the bucket changed outside Nagare"
 
 -- | EP-183 M2: the apply-time preflight of a saved scheduled prune, for both
--- backends. The live keys under the source's prefix are exactly the accepted
--- unpruned receipts' objects, and the archive key's versions are exactly the
--- two reviewed ones.
-scheduledPruneProviderMatches :: [Text] -> [ListedObject] -> (Text, Text) -> (Text, Text) -> [(Text, Text)] -> Either Text ()
-scheduledPruneProviderMatches expected listed archive receipt versions =
+-- backends. Every accepted unpruned receipt's objects are still listed, any
+-- other run is one 'notYetIngestedRuns' tolerates, and the archive key's
+-- versions are exactly the two reviewed ones. A run the producer uploaded
+-- after planning therefore does not refuse the prune.
+scheduledPruneProviderMatches :: Text -> Text -> Set Text -> [Text] -> [ListedObject] -> (Text, Text) -> (Text, Text) -> [(Text, Text)] -> Either Text ()
+scheduledPruneProviderMatches keyPrefix format known expected listed archive receipt versions = do
+  _ <- notYetIngestedRuns keyPrefix format known (Set.fromList expected) listed
   unless
-    ( Set.fromList (map listedKey listed) == Set.fromList expected
-        && length listed == length expected
-        && Set.fromList versions == Set.fromList [archive, receipt]
+    ( Set.fromList versions == Set.fromList [archive, receipt]
         && length versions == 2
     )
     (Left "scheduled prune provider listing or exact versions changed after review")
+
+-- | EP-183 M2 (decided 2026-10-10): listed runs that no accepted scope names,
+-- which a prune tolerates instead of refusing. Each must be strictly newer, by
+-- every one of its listed keys, than every listed key of the accepted
+-- unpruned runs: the producer keeps uploading while an operator ingests and
+-- prunes, and such a run can never be a candidate. An un-ingested run that is
+-- not newer still refuses, as does a key that is not a run of this schedule,
+-- an accepted run's key reappearing, or an accepted key gone missing. The
+-- result is the runs to report as not yet ingested.
+notYetIngestedRuns :: Text -> Text -> Set Text -> Set Text -> [ListedObject] -> Either Text [Text]
+notYetIngestedRuns keyPrefix format known expected listed = do
+  let byKey = Map.fromList [(listedKey entry, listedModified entry) | entry <- listed]
+  unless
+    (Map.size byKey == length listed)
+    (Left "scheduled backup provider listing repeats a key")
+  unless
+    (all (`Map.member` byKey) (Set.toList expected))
+    (Left "scheduled backup listing lacks an accepted unpruned archive or receipt")
+  let acceptedTimes = [time | (key, time) <- Map.toList byKey, Set.member key expected]
+  runs <- forM [(key, time) | (key, time) <- Map.toList byKey, Set.notMember key expected] $ \(key, time) -> do
+    run <- maybe (Left ("unresolved provider key under the schedule: " <> key)) Right (scheduledRunOf key)
+    when (Set.member run known) (Left ("an accepted run's object is listed again: " <> key))
+    unless
+      (all (< time) acceptedTimes)
+      (Left ("run " <> run <> " is not ingested and not newer than the newest accepted run; ingest it first (db backup-receipts --all)"))
+    pure run
+  pure (Set.toAscList (Set.fromList runs))
+  where
+    scheduledRunOf key = do
+      leaf <- T.stripPrefix keyPrefix key
+      let objectSuffix = "." <> format
+      run <- maybe (T.stripSuffix objectSuffix leaf) Just (T.stripSuffix (objectSuffix <> ".receipt.json") leaf)
+      if validUid run then Just run else Nothing
 
 -- | The signed recovery point an accepted receipt scope recorded at ingestion,
 -- if its receipt carried one (v5). A malformed value refuses.

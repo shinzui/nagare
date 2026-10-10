@@ -175,10 +175,11 @@ generation (GCS), and proves each key has no live object before it succeeds.
 A prune stopped part way closes by per-operation proof. If its Job failed,
 whether before deleting anything or after deleting only the archive, `db
 recover-scheduled-prune` reviews a recovery Job that finishes the same
-deletion and nothing more. Every run must be ingested before a prune, because
-the review refuses a listing that differs from the accepted receipts:
-`db backup-receipts NAME --all --save-plan DIR` ingests every verified,
-not-yet-ingested run in one review.
+deletion and nothing more. Ingest first with `db backup-receipts NAME --all
+--save-plan DIR`, which ingests every verified, not-yet-ingested run in one
+review. A run uploaded later, strictly newer than every accepted run, does not
+refuse the prune: it is reported as not yet ingested and never pruned. An
+un-ingested run that is not newer refuses until it is ingested.
 
 On GCS the backup bucket is versioned (EP-99), so a pruned generation becomes
 noncurrent and the bucket's lifecycle rule deletes it 30 days later. A pruned

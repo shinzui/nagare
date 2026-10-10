@@ -65,6 +65,7 @@ import Nagare.Inventory.ScheduledPrune
   , classifyStoppedPrune
   , compileScheduledPruneRecoveryScope
   , compileScheduledPruneScope
+  , notYetIngestedRuns
   , recoverScheduledPruneCandidate
   , selectScheduledPruneCandidates
   )
@@ -225,6 +226,21 @@ runReviewedScheduledPrunePlan mctx database namespaceName bucketArg output = do
           scopes
           listed
       )
+  let knownRuns =
+        Set.fromList [run | scope <- receiptScopes, Just run <- [Map.lookup "scheduled.backup.id" (ResourceInventory.scopeOverrides scope)]]
+      prunedNames =
+        Set.fromList [selected | scope <- scopes, Just selected <- [Map.lookup "scheduled.prune.backup.scope" (ResourceInventory.scopeOverrides scope)]]
+      expectedKeys =
+        Set.fromList
+          [ key
+          | scope <- receiptScopes
+          , Set.notMember (Resource.scopeIdText (ResourceInventory.scopeId scope)) prunedNames
+          , field <- ["scheduled.backup.object", "scheduled.backup.receipt"]
+          , Just address <- [Map.lookup field (ResourceInventory.scopeOverrides scope)]
+          , Just key <- [T.stripPrefix bucketAddress address]
+          ]
+  pending <- either dieT pure (notYetIngestedRuns keyPrefix (scheduledFormat expectation) knownRuns expectedKeys listed)
+  forM_ pending $ \run -> TIO.putStrLn ("Not yet ingested, newer than every accepted run, kept: " <> run)
   when (null candidates) (dieT ("no accepted scheduled backup is past the retention policy (" <> retentionPolicyText standardRetention <> ")"))
   let contextName = contextNameText (active ^. #contextName)
   context <- either dieT pure (Resource.mkContextId contextName)
