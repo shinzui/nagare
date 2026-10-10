@@ -76,8 +76,9 @@ defaultEscrowPath context namespaceName database = do
 
 runEscrowSigningKey :: Maybe String -> Text -> Text -> Maybe FilePath -> IO ()
 runEscrowSigningKey mctx database namespaceName output = do
-  ScheduledSource active _ _ statefulUid pvcUid signingUid _ expectation <-
-    resolveScheduledSource mctx database namespaceName Nothing
+  source <- resolveScheduledSource mctx database namespaceName Nothing
+  let ScheduledSource active _ _ statefulSource pvcUid signingUid _ expectation _ _ = source
+  statefulUid <- maybe (dieT "a database backup source has no StatefulSet") pure statefulSource
   let context = contextNameText (active ^. #contextName)
   (secretUid, key) <-
     readSecretFieldWithUid context namespaceName ("nagare-dbbackup-" <> database <> "-signing") "HMAC_KEY"

@@ -52,6 +52,7 @@ import Nagare.Inventory.Backup
     , scheduledPolicyRevision
     )
   , scheduledReceiptExpectationFromCronJob
+  , scheduledVolumeReceiptExpectationFromCronJob
   )
 import Nagare.Inventory.BackupFreshness
   ( BackupFreshness (Fresh)
@@ -102,6 +103,7 @@ import Nagare.Inventory.Status qualified as InventoryStatus
 import Nagare.Inventory.Store qualified as InventoryStore
 import Nagare.Ops.Probe (Probe, recoveryPointProbe, retentionProbe)
 import Nagare.Resource.Inventory qualified as ResourceInventory
+import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types qualified as Resource
 import Nagare.Target (ActiveTarget, contextNameText)
 import System.Exit (ExitCode, exitFailure)
@@ -149,28 +151,40 @@ scheduledRecoveryPointProbes mctx =
       snapshot <- activeTarget mctx >>= Inventory.loadTargetSnapshotReadOnly
       now <- getCurrentTime
       let current = map snd (Map.elems (ResourceInventory.snapshotScopes snapshot))
-          sources =
+          schedules =
             Set.toAscList
               ( Set.fromList
-                  [ (Resource.nameText namespace, database, ResourceInventory.scopeId scope)
+                  [ (Resource.nameText namespace, Resource.nameText name, ResourceInventory.scopeId scope)
                   | (_, scope) <- Map.elems (ResourceInventory.snapshotScopes snapshot)
                   , bundle <- ResourceInventory.scopeBundles scope
                   , ResourceInventory.Managed member <- ResourceInventory.declarations bundle
                   , Resource.Kubernetes _ "batch" kind (Just namespace) name <- [member ^. #address]
                   , Resource.nameText kind == "cronjob"
-                  , Just database <- [T.stripPrefix "nagare-dbbackup-" (Resource.nameText name)]
+                  , any (`T.isPrefixOf` Resource.nameText name) ["nagare-dbbackup-", "nagare-volbackup-"]
                   ]
               )
-      fmap concat . forM sources $ \(namespaceName, database, source) -> do
-        let label = namespaceName <> "/" <> database
-        point <-
-          recoveryPointProbe label
-            <$> ( (Right . (^. #freshness) <$> scheduledReceiptScan NewestVerified mctx database namespaceName Nothing)
-                    `catches` unobservable
-                )
-        -- EP-183 M2: graded from accepted receipts alone; no provider read.
-        let retention = retentionProbe label ((standardRetention,) . length <$> acceptedPastPolicy standardRetention now source current)
-        pure [point, retention]
+      -- A database row is labelled by its name; a volume row (EP-183 M3) by
+      -- its schedule. Volume receipts are not ingested yet, so a volume has no
+      -- accepted receipts for a retention row to grade.
+      fmap concat . forM schedules $ \(namespaceName, schedule, source) ->
+        case T.stripPrefix "nagare-dbbackup-" schedule of
+          Just database -> do
+            let label = namespaceName <> "/" <> database
+            point <-
+              recoveryPointProbe label
+                <$> ( (Right . (^. #freshness) <$> scheduledReceiptScan NewestVerified mctx database namespaceName Nothing)
+                        `catches` unobservable
+                    )
+            -- EP-183 M2: graded from accepted receipts alone; no provider read.
+            let retention = retentionProbe label ((standardRetention,) . length <$> acceptedPastPolicy standardRetention now source current)
+            pure [point, retention]
+          Nothing -> do
+            point <-
+              recoveryPointProbe (namespaceName <> "/" <> schedule)
+                <$> ( (Right . (^. #freshness) <$> (resolveVolumeScheduledSource mctx schedule namespaceName Nothing >>= scheduledReceiptScanSource NewestVerified))
+                        `catches` unobservable
+                    )
+            pure [point]
   )
     `catches` [ Handler (\(_ :: ExitCode) -> pure [recoveryPointProbe "(context)" (Left "accepted inventory is unavailable")])
               ]
@@ -193,11 +207,14 @@ data ScheduledSource = ScheduledSource
   { active :: !ActiveTarget
   , snapshot :: !ResourceInventory.ScopeSnapshot
   , sourceScope :: !ResourceInventory.ScopeDeclaration
-  , statefulUid :: !Resource.PhysicalIdentity
+  , statefulUid :: !(Maybe Resource.PhysicalIdentity)
+  -- ^ a database's StatefulSet; 'Nothing' for a volume (EP-183 M3)
   , pvcUid :: !Resource.PhysicalIdentity
   , signingUid :: !Resource.PhysicalIdentity
   , backend :: !StoreBackend
   , expectation :: !ScheduledReceiptExpectation
+  , signingName :: !Text
+  , namespaceName :: !Text
   }
   deriving stock (Generic)
 
@@ -302,11 +319,109 @@ resolveScheduledSource mctx database namespaceName bucketArg = do
       { active = active
       , snapshot = snapshot
       , sourceScope = sourceScope
-      , statefulUid = statefulUid
+      , statefulUid = Just statefulUid
       , pvcUid = pvcUid
       , signingUid = signingUid
       , backend = backend
       , expectation = expectation
+      , signingName = "nagare-dbbackup-" <> database <> "-signing"
+      , namespaceName = namespaceName
+      }
+
+-- | The accepted source of one scheduled volume backup (EP-183 M3): the
+-- CronJob, its signing Secret, and the claim it is ordered after, all in one
+-- accepted scope and freshly observed as their recorded incarnations. The
+-- expectation comes from the accepted CronJob bytes, exactly as for a database.
+resolveVolumeScheduledSource :: Maybe String -> Text -> Text -> Maybe String -> IO ScheduledSource
+resolveVolumeScheduledSource mctx schedule namespaceName bucketArg = do
+  active <- activeTarget mctx
+  snapshot <- Inventory.loadTargetSnapshot active
+  (cluster, _) <- either reportFail pure (acceptedFoundationNamespace snapshot namespaceName)
+  let findAddress api kind name =
+        either
+          reportFail
+          pure
+          (Resource.kubernetesAddress cluster api kind (Just namespaceName) name)
+      members scope address =
+        [ member
+        | bundle <- ResourceInventory.scopeBundles scope
+        , ResourceInventory.Managed member <- ResourceInventory.declarations bundle
+        , member ^. #address == address
+        ]
+  cronAddress <- findAddress "batch/v1" "CronJob" schedule
+  signingAddress <- findAddress "v1" "Secret" (schedule <> "-signing")
+  (sourceScope, cron) <-
+    case [(scope, member) | (_, scope) <- Map.elems (ResourceInventory.snapshotScopes snapshot), member <- members scope cronAddress] of
+      [single] -> pure single
+      _ -> reportFail "scheduled volume receipt listing requires one accepted backup CronJob"
+  signing <- case members sourceScope signingAddress of
+    [single] -> pure single
+    _ -> reportFail "scheduled volume receipt listing requires one accepted backup signing Secret"
+  pvc <-
+    case [ member
+         | bundle <- ResourceInventory.scopeBundles sourceScope
+         , ResourceInventory.Managed member <- ResourceInventory.declarations bundle
+         , OrderedAfter (member ^. #identity) `elem` (cron ^. #dependencies)
+         , Resource.Kubernetes _ "" kind _ _ <- [member ^. #address]
+         , Resource.nameText kind == "persistentvolumeclaim"
+         ] of
+      [single] -> pure single
+      _ -> reportFail "scheduled volume backup is not ordered after exactly one accepted claim"
+  store <- Inventory.openTargetStoreReadOnly active >>= either (reportFail . T.pack . show) pure
+  history <- InventoryPlan.loadInventoryHistory store >>= either (reportFail . T.pack . show) pure
+  acceptedInventory <-
+    either
+      (reportFail . T.pack . show)
+      pure
+      (ResourceInventory.composeSnapshot snapshot)
+  let sourceIds = map (^. #identity) [pvc, cron, signing]
+  (sourceNative, _) <-
+    InventoryStatus.loadAcceptedNativeSelected (Set.fromList sourceIds) store history acceptedInventory
+      >>= either reportFail pure
+  unless
+    (Map.size sourceNative == 3)
+    (reportFail "scheduled volume receipt listing lacks accepted private native evidence")
+  sourceAdapter <-
+    inventoryKubernetesAdapter
+      active
+      (ResourceInventory.snapshotBinding snapshot)
+      (\_ -> pure (Left "scheduled receipt listing does not use a cache key"))
+      sourceNative
+  observed <- InventoryAdapter.adapterObserve sourceAdapter sourceIds >>= either reportFail pure
+  let physical resource = case Map.lookup resource (InventoryAdapter.observationMap observed) of
+        Just (InventoryAdapter.ObservedPresent uid) -> pure uid
+        _ -> reportFail "scheduled volume receipt listing claim, schedule, or signing key is absent or drifted"
+  pvcUid <- physical (pvc ^. #identity)
+  _ <- physical (cron ^. #identity)
+  signingUid <- physical (signing ^. #identity)
+  -- ADR 27: uploads count only from the recorded claim and signing key.
+  let incarnations = InventoryStore.headIncarnations (InventoryPlan.historyHead history)
+      acceptedSource what member uid = either (reportFail . ("scheduled receipt source is not the accepted volume incarnation: " <>)) pure (requireAccepted what (checkedPhysical incarnations (member ^. #identity) uid))
+  _ <- acceptedSource "the PersistentVolumeClaim" pvc pvcUid
+  _ <- acceptedSource "the signing Secret" signing signingUid
+  (_, cronBytes) <-
+    maybe
+      (reportFail "accepted CronJob lacks native bytes")
+      pure
+      (Map.lookup (cron ^. #identity) sourceNative)
+  backend <- resolveStoreBackend mctx bucketArg
+  expectation <-
+    either
+      reportFail
+      pure
+      (scheduledVolumeReceiptExpectationFromCronJob backend namespaceName schedule pvcUid cronBytes)
+  pure
+    ScheduledSource
+      { active = active
+      , snapshot = snapshot
+      , sourceScope = sourceScope
+      , statefulUid = Nothing
+      , pvcUid = pvcUid
+      , signingUid = signingUid
+      , backend = backend
+      , expectation = expectation
+      , signingName = schedule <> "-signing"
+      , namespaceName = namespaceName
       }
 
 -- | How much of a source's scheduled history a report verifies.
@@ -322,14 +437,18 @@ scheduledReceiptReport :: Maybe String -> Text -> Text -> Maybe String -> IO Sch
 scheduledReceiptReport = scheduledReceiptScan FullListing
 
 scheduledReceiptScan :: ReceiptScan -> Maybe String -> Text -> Text -> Maybe String -> IO ScheduledReceiptReport
-scheduledReceiptScan scan mctx database namespaceName bucketArg = do
-  ScheduledSource active snapshot sourceScope _ _ _ backend expectation <-
-    resolveScheduledSource mctx database namespaceName bucketArg
+scheduledReceiptScan scan mctx database namespaceName bucketArg =
+  resolveScheduledSource mctx database namespaceName bucketArg >>= scheduledReceiptScanSource scan
+
+-- | Verify one resolved source's scheduled objects and receipts (database or volume).
+scheduledReceiptScanSource :: ReceiptScan -> ScheduledSource -> IO ScheduledReceiptReport
+scheduledReceiptScanSource scan source = do
+  let ScheduledSource active snapshot sourceScope _ _ _ backend expectation signingName namespaceName = source
   signingKey <-
     readSecretField
       (contextNameText (active ^. #contextName))
       namespaceName
-      ("nagare-dbbackup-" <> database <> "-signing")
+      signingName
       "HMAC_KEY"
       >>= either reportFail pure
   let accepted =

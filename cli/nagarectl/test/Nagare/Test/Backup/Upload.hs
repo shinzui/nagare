@@ -656,7 +656,7 @@ backupUploadTests =
                 7
                 metadataDigest
                 metadataDigest
-                (sourceUid "22222222-2222-2222-2222-222222222222")
+                (Just (sourceUid "22222222-2222-2222-2222-222222222222"))
                 (sourceUid "11111111-1111-1111-1111-111111111111")
                 HourlyRecoveryPoint
             accepted =

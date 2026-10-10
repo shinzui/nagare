@@ -72,6 +72,7 @@ import Nagare.Inventory.Application.Types
   , GoogleCdnBinding (..)
   , ReviewedCdnBinding (..)
   )
+import Nagare.Inventory.Application.VolumeBackup (compileVolumeBackups)
 import Nagare.Inventory.Application.Worker
   ( compileApplicationWorkers
   )
@@ -608,9 +609,17 @@ compileApplicationScope input = do
       prior
       release
       source
-  let bundles = workloadBundles <> [fst releaseResult]
-      nativeMaps = workloadNativeMaps <> [snd releaseResult]
-      native = Map.union workloadNative (snd releaseResult)
+  -- EP-183 M3: each backup-included volume of the service and workers gets
+  -- its scheduled producer, ordered after its claim.
+  backupResults <-
+    compileVolumeBackups
+      (scopeDatabaseBackup input)
+      (scopeNamespace input)
+      source
+      (Map.unions (maybe [] (pure . snd) serviceResult <> [workerNative]))
+  let bundles = workloadBundles <> [fst releaseResult] <> map fst backupResults
+      nativeMaps = workloadNativeMaps <> [snd releaseResult] <> map snd backupResults
+      native = Map.unions (workloadNative : snd releaseResult : map snd backupResults)
       claims =
         [ claim
         | bundle <- bundles

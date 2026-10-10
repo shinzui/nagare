@@ -832,13 +832,17 @@ backupSigningCredentialKind value@(Object root) | KM.lookup "kind" root == Just 
   case textAt "nagare.dev/backup-signing-template" annotations of
     Nothing -> Right Nothing
     Just "v1" -> do
-      database <- case KM.lookup "labels" metadata of
-        Just (Object labels) -> fieldText "nagare.dev/database" labels
+      -- A database's schedule, or a volume's (EP-183 M3), names its own key.
+      schedule <- case KM.lookup "labels" metadata of
+        Just (Object labels)
+          | KM.member "nagare.dev/volume-backup" labels -> fieldText "nagare.dev/volume-backup" labels
+          | otherwise -> ("nagare-dbbackup-" <>) <$> fieldText "nagare.dev/database" labels
         _ -> Left "backup signing credential lacks database label"
       name <- fieldText "name" metadata
       _ <- fieldText "namespace" metadata
       unless
-        ( name == "nagare-dbbackup-" <> database <> "-signing"
+        ( name == schedule <> "-signing"
+            && ("nagare-dbbackup-" `T.isPrefixOf` name || "nagare-volbackup-" `T.isPrefixOf` name)
             && not (KM.member "data" root)
             && not (KM.member "stringData" root)
         )

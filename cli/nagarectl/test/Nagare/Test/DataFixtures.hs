@@ -16,6 +16,7 @@ import Nagare.Cluster.GcsJob
 import Nagare.Database.Backup
   ( BackupDest (BackupDestUrl)
   , BackupJobInputs (..)
+  , BackupSource (DatabaseSource)
   )
 import Nagare.Database.Restore (RestoreJobInputs (..))
 import Nagare.Dsl.Database (Engine (Postgres))
@@ -44,7 +45,7 @@ backupJobInputsPg =
   BackupJobInputs
     { namespace = "personal"
     , jobName = "nagare-dbbackup-mydb-20260610t141503z"
-    , engine = Postgres
+    , source = DatabaseSource Postgres
     , clientImage = "postgres:18"
     , serviceHost = "mydb"
     , secretName = "nagare-db-mydb"

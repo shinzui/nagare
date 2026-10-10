@@ -14,6 +14,7 @@ module Nagare.Inventory.Application
   , compileStandaloneServiceWithRelease
   , compileStandaloneServiceWithReleaseAndBuild
   , compileApplicationWorkers
+  , compileVolumeBackups
   , compileStandaloneWorker
   , compileStandaloneWorkerWithDependencies
   , compileStandaloneWorkerWithDependenciesAndBuild
@@ -112,6 +113,7 @@ import Nagare.Inventory.Application.Types
   , GoogleCdnBinding (..)
   , ReviewedCdnBinding (..)
   )
+import Nagare.Inventory.Application.VolumeBackup (compileVolumeBackups)
 import Nagare.Inventory.Application.Worker
   ( compileApplicationWorkers
   , compileStandaloneWorker

@@ -13,6 +13,7 @@ import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import Nagare.App.Deployments (appConfigMapName)
+import Nagare.Database.Backup (volumeBackupScheduleName)
 import Nagare.Dsl.Application (Application)
 import Nagare.Dsl.Database (Engine (ClickHouse), dbSecretName)
 import Nagare.Dsl.Database.Render (dbConfigMapName, dbPvcName)
@@ -106,6 +107,13 @@ applicationNativeOwned app = any matches
         <> [ ("batch", "cronjob", "nagare-dbbackup-" <> databaseNameText (database ^. #name))
            | database <- app ^. #databases
            , database ^. #retention /= Dsl.Delete
+           ]
+        <> [ ("batch", "cronjob", volumeBackupScheduleName (serviceNameText workload) (volumeNameText (volume ^. #name)))
+           | (workload, volumes) <-
+               [(service ^. #name, service ^. #volumes) | service <- maybe [] pure (app ^. #service)]
+                 <> [(worker ^. #name, worker ^. #volumes) | worker <- app ^. #workers]
+           , volume <- volumes
+           , volume ^. #retention == Dsl.Retain
            ]
         <> [ ("batch", "cronjob", taskResourceName (serviceNameText (task ^. #name)))
            | task <-

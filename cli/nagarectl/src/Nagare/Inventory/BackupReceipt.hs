@@ -4,6 +4,7 @@ module Nagare.Inventory.BackupReceipt
   , ScheduledReceiptExpectation (..)
   , ScheduledBackupReceipt (..)
   , scheduledReceiptExpectationFromCronJob
+  , scheduledVolumeReceiptExpectationFromCronJob
   , scheduleMetadataObjective
   , manualBackupJobReceiptExpectation
   , parseBackupReceipt
@@ -29,9 +30,10 @@ import Data.Time (UTCTime)
 import Data.Time.Format (defaultTimeLocale, parseTimeM)
 import Data.Vector qualified as V
 import Nagare.Cluster.GcsJob (StoreBackend, storePrefixUrl)
-import Nagare.Database.Backup (backupExt, dbBackupKeyPrefix)
+import Nagare.Database.Backup (backupExt, dbBackupKeyPrefix, volumeBackupFormat, volumeBackupKeyPrefix, volumeBackupScheduleName)
 import Nagare.Dsl.Database (parseEngine)
 import Nagare.Dsl.Prelude
+import Nagare.Dsl.Render (pvcName)
 import Nagare.Inventory.BackupFreshness
   ( RecoveryPointObjective (HourlyRecoveryPoint)
   , parseRecoveryPointObjective
@@ -59,7 +61,8 @@ data ScheduledReceiptExpectation = ScheduledReceiptExpectation
   , scheduledKeep :: !Int
   , scheduledPolicyRevision :: !ContentDigest
   , scheduledMetadataDigest :: !ContentDigest
-  , scheduledStatefulUid :: !PhysicalIdentity
+  , scheduledStatefulUid :: !(Maybe PhysicalIdentity)
+  -- ^ a database's StatefulSet; 'Nothing' for a volume, whose source is its claim alone
   , scheduledPvcUid :: !PhysicalIdentity
   , scheduledObjective :: !RecoveryPointObjective
   }
@@ -87,7 +90,68 @@ scheduledReceiptExpectationFromCronJob ::
   PhysicalIdentity ->
   ByteString ->
   Either T.Text ScheduledReceiptExpectation
-scheduledReceiptExpectationFromCronJob backend namespaceName database statefulUid pvcUid bytes = do
+scheduledReceiptExpectationFromCronJob backend namespaceName database statefulUid pvcUid =
+  scheduledExpectationWith ("nagare-dbbackup-" <> database) namespaceName (Just statefulUid) pvcUid $ \plain fields -> do
+    prefix <- plain "PREFIX"
+    unless
+      (prefix == storePrefixUrl backend (dbBackupKeyPrefix database))
+      (Left "accepted scheduled backup uses another object key space")
+    sourceName <- plain "BACKUP_SOURCE_NAME"
+    unless
+      (sourceName == database)
+      (Left "accepted scheduled backup probes another source")
+    case fields of
+      _
+        | KM.lookup "database" fields == Just (String database)
+        , Just (String engineName) <- KM.lookup "engine" fields
+        , Just (String extension) <- KM.lookup "format" fields
+        , Just engine <- parseEngine engineName
+        , extension == backupExt engine ->
+            Right (prefix, extension)
+      _ -> Left "accepted scheduled backup has invalid receipt metadata"
+
+-- | The volume form of 'scheduledReceiptExpectationFromCronJob' (EP-183 M3).
+-- The accepted CronJob's own metadata names its app and volume; the schedule
+-- name, key space and probed claim must all be the ones derived from them, so
+-- a receipt can no more choose its volume than its prefix.
+scheduledVolumeReceiptExpectationFromCronJob ::
+  StoreBackend ->
+  T.Text ->
+  T.Text ->
+  PhysicalIdentity ->
+  ByteString ->
+  Either T.Text ScheduledReceiptExpectation
+scheduledVolumeReceiptExpectationFromCronJob backend namespaceName schedule pvcUid =
+  scheduledExpectationWith schedule namespaceName Nothing pvcUid $ \plain fields -> case fields of
+    _
+      | Just (String app) <- KM.lookup "app" fields
+      , Just (String volume) <- KM.lookup "volume" fields
+      , KM.lookup "format" fields == Just (String volumeBackupFormat)
+      , volumeBackupScheduleName app volume == schedule -> do
+          prefix <- plain "PREFIX"
+          unless
+            (prefix == storePrefixUrl backend (volumeBackupKeyPrefix namespaceName app volume))
+            (Left "accepted scheduled volume backup uses another object key space")
+          sourceName <- plain "BACKUP_SOURCE_NAME"
+          unless
+            (sourceName == pvcName app volume)
+            (Left "accepted scheduled volume backup probes another claim")
+          Right (prefix, volumeBackupFormat)
+    _ -> Left "accepted scheduled volume backup has invalid receipt metadata"
+
+-- | The checks every reviewed schedule shares: identity, run UID, dedicated
+-- source reader, signing Secret, metadata shape and cadence. The source check
+-- receives the upload container's plain environment and the metadata fields
+-- and returns the exact key prefix and archive format.
+scheduledExpectationWith ::
+  T.Text ->
+  T.Text ->
+  Maybe PhysicalIdentity ->
+  PhysicalIdentity ->
+  ((T.Text -> Either T.Text T.Text) -> KM.KeyMap Value -> Either T.Text (T.Text, T.Text)) ->
+  ByteString ->
+  Either T.Text ScheduledReceiptExpectation
+scheduledExpectationWith schedule namespaceName statefulUid pvcUid checkSource bytes = do
   value <- first T.pack (eitherDecodeStrict bytes)
   unless
     ( lookupJsonPath ["kind"] value == Just (String "CronJob")
@@ -118,14 +182,6 @@ scheduledReceiptExpectationFromCronJob backend namespaceName database statefulUi
         case lookupJsonPath ["value"] field of
           Just (String result) -> Right result
           _ -> Left ("accepted scheduled backup has no plain " <> name <> " value")
-  prefix <- plain "PREFIX"
-  unless
-    (prefix == storePrefixUrl backend (dbBackupKeyPrefix database))
-    (Left "accepted scheduled backup uses another object key space")
-  sourceName <- plain "BACKUP_SOURCE_NAME"
-  unless
-    (sourceName == database)
-    (Left "accepted scheduled backup probes another source")
   runId <- env "BACKUP_RUN_ID"
   unless
     ( lookupJsonPath ["valueFrom", "fieldRef", "fieldPath"] runId
@@ -150,21 +206,20 @@ scheduledReceiptExpectationFromCronJob backend namespaceName database statefulUi
     (Left "accepted scheduled backup has another signing key field")
   metadataJson <- plain "BACKUP_RECEIPT_METADATA"
   metadata <- first T.pack (eitherDecodeStrict (TE.encodeUtf8 metadataJson))
-  (format, revision, keep, objective) <- case metadata of
-    Object fields
+  fields <- case metadata of
+    Object fields -> Right fields
+    _ -> Left "accepted scheduled backup has invalid receipt metadata"
+  (prefix, format) <- checkSource plain fields
+  (revision, keep, objective) <- case fields of
+    _
       | Just objective <- scheduleMetadataObjective fields
-      , KM.lookup "database" fields == Just (String database)
       , KM.lookup "namespace" fields == Just (String namespaceName)
       , KM.lookup "schedule" fields == Just (String schedule)
-      , Just (String engineName) <- KM.lookup "engine" fields
-      , Just (String extension) <- KM.lookup "format" fields
       , Just (String digest) <- KM.lookup "scheduleRevision" fields
       , Just keepValue <- KM.lookup "keep" fields
       , Success selectedKeep <- fromJSON keepValue
-      , selectedKeep > (0 :: Int)
-      , Just engine <- parseEngine engineName
-      , extension == backupExt engine ->
-          Right (extension, digest, selectedKeep, objective)
+      , selectedKeep > (0 :: Int) ->
+          Right (digest, selectedKeep, objective)
     _ -> Left "accepted scheduled backup has invalid receipt metadata"
   unless
     ( objective == HourlyRecoveryPoint
@@ -186,7 +241,6 @@ scheduledReceiptExpectationFromCronJob backend namespaceName database statefulUi
         objective
     )
   where
-    schedule = "nagare-dbbackup-" <> database
     lookupJsonPath [] current = Just current
     lookupJsonPath (key : rest) (Object fields) = KM.lookup key fields >>= lookupJsonPath rest
     lookupJsonPath _ _ = Nothing
@@ -372,14 +426,19 @@ parseScheduledBackupReceipt expectation receiptAddress signingKeyHex bytes = do
         && receiptAddress == objectAddress <> ".receipt.json"
     )
     (Left "scheduled receipt addresses another object or key space")
-  (statefulText, pvcText) <- case source of
-    Object fields
+  -- A database names its StatefulSet and claim; a volume exactly its claim.
+  (statefulText, pvcText) <- case (source, scheduledStatefulUid expectation) of
+    (Object fields, Just _)
       | KM.size fields == 2
       , Just (String stateful) <- KM.lookup "statefulSetUid" fields
       , Just (String pvc) <- KM.lookup "pvcUid" fields ->
-          Right (stateful, pvc)
+          Right (Just stateful, pvc)
+    (Object fields, Nothing)
+      | KM.size fields == 1
+      , Just (String pvc) <- KM.lookup "pvcUid" fields ->
+          Right (Nothing, pvc)
     _ -> Left "scheduled receipt source UIDs are incomplete"
-  statefulUid <- mkPhysicalIdentity statefulText
+  statefulUid <- traverse mkPhysicalIdentity statefulText
   pvcUid <- mkPhysicalIdentity pvcText
   unless
     ( statefulUid == scheduledStatefulUid expectation

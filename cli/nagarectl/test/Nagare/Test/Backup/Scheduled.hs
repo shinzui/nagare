@@ -354,7 +354,7 @@ scheduledReceiptTests =
               7
               (contentDigest (canonical metadata))
               (contentDigest (canonical metadata))
-              uid
+              (Just uid)
               uid
               HourlyRecoveryPoint
           reader changeExactReceipt changeExactObject =

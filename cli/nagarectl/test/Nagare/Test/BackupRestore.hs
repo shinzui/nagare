@@ -16,11 +16,12 @@ import Nagare.Test.Backup.Restore (restoreDownloadTests)
 import Nagare.Test.Backup.Retention (backupRetentionTests)
 import Nagare.Test.Backup.Scheduled (scheduledReceiptTests)
 import Nagare.Test.Backup.Upload (backupUploadTests)
+import Nagare.Test.Backup.VolumeSchedule (volumeScheduleTests)
 import Test.Tasty (TestTree, testGroup)
 
 backupRestoreTests :: [TestTree]
 backupRestoreTests =
   [ testGroup "pure path / extension / schedule" backupPathTests
-  , testGroup "Job / CronJob renderers" (backupRendererTests <> scheduledReceiptTests <> signingKeyEscrowTests <> backupObjectiveTests <> backupUploadTests <> backupPruneTests <> backupRetentionTests <> pruneWorldTests <> batchIngestTests)
+  , testGroup "Job / CronJob renderers" (backupRendererTests <> scheduledReceiptTests <> signingKeyEscrowTests <> backupObjectiveTests <> backupUploadTests <> volumeScheduleTests <> backupPruneTests <> backupRetentionTests <> pruneWorldTests <> batchIngestTests)
   , testGroup "restore" restoreDownloadTests
   ]

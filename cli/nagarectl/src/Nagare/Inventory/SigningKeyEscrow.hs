@@ -135,7 +135,7 @@ escrowReceiptExpectation escrow objectPrefix receiptBytes = do
       , scheduledKeep = keep
       , scheduledPolicyRevision = revision
       , scheduledMetadataDigest = contentDigest metadataBytes
-      , scheduledStatefulUid = statefulSetUid escrow
+      , scheduledStatefulUid = Just (statefulSetUid escrow)
       , scheduledPvcUid = pvcUid escrow
       , scheduledObjective = objective
       }

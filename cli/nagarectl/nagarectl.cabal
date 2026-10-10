@@ -47,6 +47,7 @@ library
     Nagare.Inventory.Application.Service
     Nagare.Inventory.Application.Tasks
     Nagare.Inventory.Application.Types
+    Nagare.Inventory.Application.VolumeBackup
     Nagare.Inventory.Application.Worker
     Nagare.Inventory.Execute.Abandon
     Nagare.Inventory.Execute.AdapterEnv
@@ -596,6 +597,7 @@ test-suite nagarectl-test
     Nagare.Test.Backup.Retention
     Nagare.Test.Backup.Scheduled
     Nagare.Test.Backup.Upload
+    Nagare.Test.Backup.VolumeSchedule
     Nagare.Test.BackupRestore
     Nagare.Test.Broker
     Nagare.Test.Build

@@ -16,6 +16,7 @@ module Nagare.Inventory.Backup
   , parseManualBackupReceipt
   , parseScheduledBackupReceipt
   , scheduledReceiptExpectationFromCronJob
+  , scheduledVolumeReceiptExpectationFromCronJob
   , compileManualBackupScope
   , manualBackupSourceIds
   , VolumeSnapshotRequest (..)
@@ -44,6 +45,7 @@ import Nagare.Database.Backup
   , BackupJobInputs (..)
   , BackupReceipt (..)
   , BackupReceiptTarget (..)
+  , BackupSource (..)
   , backupExt
   , manualBackupJobName
   , manualBackupKeyPrefix
@@ -63,6 +65,7 @@ import Nagare.Inventory.BackupReceipt
   , parseManualBackupReceipt
   , parseScheduledBackupReceipt
   , scheduledReceiptExpectationFromCronJob
+  , scheduledVolumeReceiptExpectationFromCronJob
   )
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Identity (checkedPhysical, requireAccepted)
@@ -314,7 +317,7 @@ compileManualBackupScope request accepted native = do
         BackupJobInputs
           { namespace = ns
           , jobName = jobName
-          , engine = engine
+          , source = DatabaseSource engine
           , clientImage = engineImage engine <> ":" <> version
           , serviceHost = database
           , secretName = dbSecretName database

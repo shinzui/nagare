@@ -23,12 +23,16 @@ module Nagare.Database.Backup
   , backupExt
   , backupRawExt
   , clickHouseSourceAffinity
+  , volumeBackupKeyPrefix
+  , volumeBackupScheduleName
+  , volumeBackupFormat
 
     -- * Schedule
   , defaultBackupSchedule
 
     -- * Job / CronJob rendering (pure)
   , BackupDest (..)
+  , BackupSource (..)
   , BackupReceipt (..)
   , BackupReceiptTarget (..)
   , BackupJobInputs (..)
@@ -41,6 +45,7 @@ module Nagare.Database.Backup
   , renderInventoryDbBackupCronJob
   , renderPreviousInventoryDbBackupCronJob
   , renderPreviousSignedInventoryDbBackupCronJob
+  , renderInventoryVolumeBackupCronJob
 
     -- * Read-only legacy preview
   , previewDbBackup
@@ -49,6 +54,7 @@ where
 
 import Data.Aeson (Value, object, toJSON, (.=))
 import Data.Aeson qualified as Aeson
+import Data.Aeson.Types (Pair)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
@@ -78,6 +84,7 @@ import Nagare.Database.Discover (DbRow (..), getDatabase)
 import Nagare.Dsl.Database (Engine (..), dbSecretName, engineImage, parseEngine)
 import Nagare.Dsl.Database.Render (dbPvcName)
 import Nagare.Dsl.Prelude hiding ((.=))
+import Nagare.Dsl.Render (pvcName)
 import Nagare.Inventory.BackupFreshness
   ( RecoveryPointObjective (HourlyRecoveryPoint)
   , recoveryPointObjectiveText
@@ -151,6 +158,37 @@ backupRawExt Postgres = "sql"
 backupRawExt Redis = "rdb"
 backupRawExt ClickHouse = "zip"
 
+-- | The stored and uncompressed extensions of one backup source.
+sourceExt :: BackupSource -> Text
+sourceExt (DatabaseSource engine) = backupExt engine
+sourceExt VolumeSource = volumeBackupFormat
+
+sourceRawExt :: BackupSource -> Text
+sourceRawExt (DatabaseSource engine) = backupRawExt engine
+sourceRawExt VolumeSource = "tar"
+
+-- | Scheduled application-volume archives (EP-183 M3) live outside the manual
+-- snapshot space, one prefix per volume:
+-- @scheduled-volumes/\<namespace\>/\<app\>/\<volume\>/@.
+volumeBackupKeyPrefix :: Text -> Text -> Text -> Text
+volumeBackupKeyPrefix namespaceName app volume =
+  "scheduled-volumes/" <> namespaceName <> "/" <> app <> "/" <> volume <> "/"
+
+-- | A volume archive is a gzipped tar of the whole claim, as @storage snapshot@ writes.
+volumeBackupFormat :: Text
+volumeBackupFormat = "tar.gz"
+
+-- | The volume's backup schedule, ServiceAccount and signing-Secret stem. A
+-- CronJob name has at most 52 characters; a longer pair keeps a readable
+-- prefix plus a digest of the full pair, so distinct volumes never collide.
+volumeBackupScheduleName :: Text -> Text -> Text
+volumeBackupScheduleName app volume
+  | T.length full <= 52 = full
+  | otherwise = prefix <> T.take (52 - T.length prefix - 21) (app <> "-" <> volume) <> "-" <> T.take 20 (digestText (contentDigest (TE.encodeUtf8 (app <> "/" <> volume))))
+  where
+    prefix = "nagare-volbackup-"
+    full = prefix <> app <> "-" <> volume
+
 -- | The default scheduled-backup cron expression: 03:17 UTC daily (a quiet,
 -- deterministic time; the odd minute avoids a top-of-hour thundering herd).
 defaultBackupSchedule :: Text
@@ -180,15 +218,21 @@ data BackupReceipt = BackupReceipt
   }
   deriving stock (Generic, Eq, Show)
 
+-- | What a backup Job dumps: a managed database through its engine client, or
+-- an application volume's claim (named by 'name'), mounted read-only and
+-- archived with @tar@.
+data BackupSource = DatabaseSource !Engine | VolumeSource
+  deriving stock (Generic, Eq, Show)
+
 data BackupJobInputs = BackupJobInputs
   { namespace :: !Text
   , jobName :: !Text
-  , engine :: !Engine
+  , source :: !BackupSource
   , clientImage :: !Text
   , serviceHost :: !Text
   , secretName :: !Text
   , name :: !Text
-  -- ^ the database name (for labels)
+  -- ^ the database name, or the volume's claim name
   , destination :: !BackupDest
   -- ^ the destination (Job: a fixed timestamped object; CronJob: stamped at run time)
   , prefix :: !Text
@@ -231,7 +275,7 @@ backupJobSpecValueWithRecoveryPoint timed i =
       , backoffLimit = 2
       , hostAliases = storeHostAliases (i ^. #backend)
       , affinity =
-          if i ^. #engine == ClickHouse
+          if i ^. #source == DatabaseSource ClickHouse
             then
               Just (clickHouseSourceAffinity (i ^. #namespace) (i ^. #name))
             else Nothing
@@ -243,7 +287,13 @@ backupJobSpecValueWithRecoveryPoint timed i =
                    [ "name" .= ("source-data" :: Text)
                    , "persistentVolumeClaim" .= object ["claimName" .= dbPvcName (i ^. #name)]
                    ]
-               | i ^. #engine == ClickHouse
+               | i ^. #source == DatabaseSource ClickHouse
+               ]
+            <> [ object
+                   [ "name" .= ("source-data" :: Text)
+                   , "persistentVolumeClaim" .= object ["claimName" .= (i ^. #name), "readOnly" .= True]
+                   ]
+               | i ^. #source == VolumeSource
                ]
       }
 
@@ -290,13 +340,23 @@ sourceProbeContainer timed i =
     [ "name" .= ("source" :: Text)
     , "image" .= storeImage (i ^. #backend)
     , "command" .= toJSON ["/bin/sh" :: Text, "-c"]
-    , "args" .= toJSON [(if timed then "set -eu; python3 -c 'import datetime; print(datetime.datetime.now(datetime.timezone.utc).strftime(\"%Y-%m-%dT%H:%M:%SZ\"))' > /dump/recovery-point; " else "") <> sourceProbeShell <> " > /dump/source.json"]
+    , "args" .= toJSON [(if timed then "set -eu; python3 -c 'import datetime; print(datetime.datetime.now(datetime.timezone.utc).strftime(\"%Y-%m-%dT%H:%M:%SZ\"))' > /dump/recovery-point; " else "") <> sourceProbeShell (i ^. #source) <> " > /dump/source.json"]
     , "env" .= toJSON [plainEnv "BACKUP_SOURCE_NAME" (i ^. #name)]
     , "volumeMounts" .= toJSON [dumpMount]
     ]
 
-sourceProbeShell :: Text
-sourceProbeShell =
+-- | A volume's source is its claim alone; a database's is its StatefulSet and
+-- data claim. The volume form names the claim through @BACKUP_SOURCE_NAME@.
+sourceProbeShell :: BackupSource -> Text
+sourceProbeShell VolumeSource = sourceProbeWith "paths={\"pvcUid\":\"/api/v1/namespaces/\"+ns+\"/persistentvolumeclaims/\"+name}; "
+sourceProbeShell (DatabaseSource _) =
+  sourceProbeWith
+    ( "paths={\"statefulSetUid\":\"/apis/apps/v1/namespaces/\"+ns+\"/statefulsets/\"+name,"
+        <> "\"pvcUid\":\"/api/v1/namespaces/\"+ns+\"/persistentvolumeclaims/nagare-db-\"+name+\"-data\"}; "
+    )
+
+sourceProbeWith :: Text -> Text
+sourceProbeWith paths =
   "python3 -c 'import json,os,ssl,urllib.request; "
     <> "p=\"/var/run/secrets/kubernetes.io/serviceaccount/\"; "
     <> "ns=open(p+\"namespace\").read().strip(); "
@@ -304,8 +364,7 @@ sourceProbeShell =
     <> "ctx=ssl.create_default_context(cafile=p+\"ca.crt\"); "
     <> "base=\"https://\"+os.environ[\"KUBERNETES_SERVICE_HOST\"]+\":\"+os.environ.get(\"KUBERNETES_SERVICE_PORT_HTTPS\",\"443\"); "
     <> "name=os.environ[\"BACKUP_SOURCE_NAME\"]; "
-    <> "paths={\"statefulSetUid\":\"/apis/apps/v1/namespaces/\"+ns+\"/statefulsets/\"+name,"
-    <> "\"pvcUid\":\"/api/v1/namespaces/\"+ns+\"/persistentvolumeclaims/nagare-db-\"+name+\"-data\"}; "
+    <> paths
     <> "result={key:json.load(urllib.request.urlopen(urllib.request.Request(base+path,headers={\"Authorization\":\"Bearer \"+token}),context=ctx,timeout=20))[\"metadata\"][\"uid\"] for key,path in paths.items()}; "
     <> "assert all(result.values()); print(json.dumps(result,sort_keys=True,separators=(\",\",\":\")))'"
 
@@ -321,22 +380,38 @@ labelsValue :: BackupJobInputs -> Value
 labelsValue i =
   object
     [ "nagare.dev/managed-by" .= ("nagarectl" :: Text)
-    , "nagare.dev/database" .= (i ^. #name)
+    , (if i ^. #source == VolumeSource then "nagare.dev/volume-claim" else "nagare.dev/database") .= (i ^. #name)
     ]
 
 -- | The dump initContainer: the engine client image, credentials from the
 -- managed Secret, writing the uncompressed dump to @\/dump\/backup.\<rawext\>@.
 dumpContainer :: BackupJobInputs -> Value
-dumpContainer i =
+dumpContainer i = case i ^. #source of
+  DatabaseSource engine -> databaseDumpContainer engine i
+  VolumeSource ->
+    object
+      [ "name" .= ("dump" :: Text)
+      , "image" .= storeImage (i ^. #backend)
+      , "command" .= toJSON ["/bin/sh" :: Text, "-c"]
+      , "args" .= toJSON ["set -e; tar -C /source-data -cf /dump/backup.tar ." :: Text]
+      , "volumeMounts"
+          .= toJSON
+            [ dumpMount
+            , object ["name" .= ("source-data" :: Text), "mountPath" .= ("/source-data" :: Text), "readOnly" .= True]
+            ]
+      ]
+
+databaseDumpContainer :: Engine -> BackupJobInputs -> Value
+databaseDumpContainer engine i =
   object
     [ "name" .= ("dump" :: Text)
     , "image" .= (i ^. #clientImage)
     , "command" .= toJSON ["/bin/sh" :: Text, "-c"]
-    , "args" .= toJSON ["set -e; " <> waitForServer (i ^. #engine) (i ^. #serviceHost) <> dumpShell (i ^. #engine) (i ^. #serviceHost)]
+    , "args" .= toJSON ["set -e; " <> waitForServer engine (i ^. #serviceHost) <> dumpShell engine (i ^. #serviceHost)]
     , "env"
         .= toJSON
-          ( dumpEnv (i ^. #engine) (i ^. #secretName)
-              <> [backupRunEnv i | i ^. #engine == ClickHouse]
+          ( dumpEnv engine (i ^. #secretName)
+              <> [backupRunEnv i | engine == ClickHouse]
           )
     , "volumeMounts"
         .= toJSON
@@ -345,7 +420,7 @@ dumpContainer i =
                     [ "name" .= ("source-data" :: Text)
                     , "mountPath" .= ("/source-data" :: Text)
                     ]
-                | i ^. #engine == ClickHouse
+                | engine == ClickHouse
                 ]
           )
     ]
@@ -487,17 +562,18 @@ uploadShellWithRecoveryPoint timed i =
   base <> if i ^. #selfPrune then "; " <> prune else ""
   where
     backend = i ^. #backend
-    raw = backupRawExt (i ^. #engine)
+    raw = sourceRawExt (i ^. #source)
+    ext = sourceExt (i ^. #source)
     stamp = case i ^. #destination of
       BackupDestUrl _ -> ""
       BackupDestStamped
         | i ^. #selfPrune ->
-            "DEST=\"${PREFIX}$(date -u +%Y%m%dT%H%M%SZ)." <> backupExt (i ^. #engine) <> "\"; "
+            "DEST=\"${PREFIX}$(date -u +%Y%m%dT%H%M%SZ)." <> ext <> "\"; "
         | otherwise ->
             "test -n \"$BACKUP_RUN_ID\"; "
               <> "case \"$BACKUP_RUN_ID\" in *[!a-f0-9-]* ) exit 1;; esac; "
               <> "DEST=\"${PREFIX}${BACKUP_RUN_ID}."
-              <> backupExt (i ^. #engine)
+              <> ext
               <> "\"; "
     base =
       "set -e; "
@@ -546,7 +622,7 @@ uploadShellWithRecoveryPoint timed i =
         <> ( if sourceAttested i
                then
                  "; "
-                   <> sourceProbeShell
+                   <> sourceProbeShell (i ^. #source)
                    <> " > /dump/source-after.json; "
                    <> "test \"$(sha256sum < /dump/source.json)\" = \"$(sha256sum < /dump/source-after.json)\"; "
                    <> "rm -f /dump/source-after.json"
@@ -665,6 +741,80 @@ renderPreviousSignedInventoryDbBackupCronJob = renderDbBackupCronJobWithOptions 
 
 renderDbBackupCronJobWithOptions :: RecoveryPointObjective -> Bool -> Bool -> Bool -> Text -> Text -> Engine -> Text -> StoreBackend -> Int -> ByteString
 renderDbBackupCronJobWithOptions objective shouldPrune shouldVerify timed ns name eng version backend keep =
+  renderScheduledCronJob objective shouldVerify timed baseInputs $ \revision ->
+    [ "database" .= name
+    , "namespace" .= ns
+    , "engine" .= T.toLower (T.pack (show eng))
+    , "format" .= backupExt eng
+    , "schedule" .= ("nagare-dbbackup-" <> name)
+    , "scheduleRevision" .= revision
+    , "keep" .= keep
+    ]
+  where
+    baseInputs =
+      BackupJobInputs
+        { namespace = ns
+        , jobName = "nagare-dbbackup-" <> name
+        , source = DatabaseSource eng
+        , clientImage = engineImage eng <> ":" <> version
+        , serviceHost = name
+        , secretName = dbSecretName name
+        , name = name
+        , destination = BackupDestStamped
+        , prefix = storePrefixUrl backend (dbBackupKeyPrefix name)
+        , keep = keep
+        , selfPrune = shouldPrune
+        , verifyStored = shouldVerify
+        , receipt = Nothing
+        , backend = backend
+        }
+
+-- | A backup-included application volume's reviewed schedule (EP-183 M3):
+-- the same signed, read-back producer as a database, dumping a @tar@ of the
+-- claim mounted read-only. The receipt's source is the claim's UID alone.
+renderInventoryVolumeBackupCronJob :: RecoveryPointObjective -> Text -> Text -> Text -> StoreBackend -> Int -> ByteString
+renderInventoryVolumeBackupCronJob objective ns app volume backend keep =
+  renderScheduledCronJob objective True True baseInputs $ \revision ->
+    [ "app" .= app
+    , "volume" .= volume
+    , "namespace" .= ns
+    , "format" .= volumeBackupFormat
+    , "schedule" .= schedule
+    , "scheduleRevision" .= revision
+    , "keep" .= keep
+    ]
+  where
+    schedule = volumeBackupScheduleName app volume
+    baseInputs =
+      BackupJobInputs
+        { namespace = ns
+        , jobName = schedule
+        , source = VolumeSource
+        , clientImage = storeImage backend
+        , serviceHost = ""
+        , secretName = ""
+        , name = pvcName app volume
+        , destination = BackupDestStamped
+        , prefix = storePrefixUrl backend (volumeBackupKeyPrefix ns app volume)
+        , keep = keep
+        , selfPrune = False
+        , verifyStored = True
+        , receipt = Nothing
+        , backend = backend
+        }
+
+-- | Wrap one source's Job body as a CronJob. A verified schedule signs its
+-- receipts; their metadata names the schedule revision, which is the digest of
+-- the same CronJob rendered with a zero revision. A non-hourly objective adds
+-- its name to the metadata so freshness is graded against the accepted cadence.
+renderScheduledCronJob ::
+  RecoveryPointObjective ->
+  Bool ->
+  Bool ->
+  BackupJobInputs ->
+  (Text -> [Pair]) ->
+  ByteString
+renderScheduledCronJob objective shouldVerify timed baseInputs metadataFields =
   Y.encode . backupCronJobValueWithRecoveryPoint timed $
     if shouldVerify
       then
@@ -681,34 +831,10 @@ renderDbBackupCronJobWithOptions objective shouldPrune shouldVerify timed ns nam
          in withReceipt revision
       else BackupCronInputs defaultBackupSchedule baseInputs
   where
-    baseInputs =
-      BackupJobInputs
-        { namespace = ns
-        , jobName = "nagare-dbbackup-" <> name
-        , engine = eng
-        , clientImage = engineImage eng <> ":" <> version
-        , serviceHost = name
-        , secretName = dbSecretName name
-        , name = name
-        , destination = BackupDestStamped
-        , prefix = storePrefixUrl backend (dbBackupKeyPrefix name)
-        , keep = keep
-        , selfPrune = shouldPrune
-        , verifyStored = shouldVerify
-        , receipt = Nothing
-        , backend = backend
-        }
     withReceipt revision =
       let metadata =
             object $
-              [ "database" .= name
-              , "namespace" .= ns
-              , "engine" .= T.toLower (T.pack (show eng))
-              , "format" .= backupExt eng
-              , "schedule" .= ("nagare-dbbackup-" <> name)
-              , "scheduleRevision" .= revision
-              , "keep" .= keep
-              ]
+              metadataFields revision
                 <> [ "recoveryPoint" .= recoveryPointObjectiveText objective
                    | timed && objective /= HourlyRecoveryPoint
                    ]
@@ -741,7 +867,7 @@ previewDbBackup ns databaseName backend keep = do
               BackupJobInputs
                 { namespace = ns
                 , jobName = manualBackupJobName databaseName ts
-                , engine = eng
+                , source = DatabaseSource eng
                 , clientImage = image
                 , serviceHost = databaseName
                 , secretName = dbSecretName databaseName

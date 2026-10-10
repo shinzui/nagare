@@ -14,9 +14,10 @@ import Nagare.Database.Backup
     ( backend
     , clientImage
     , destination
-    , engine
     , serviceHost
+    , source
     )
+  , BackupSource (DatabaseSource)
   , defaultBackupSchedule
   , renderBackupCronJob
   , renderBackupJob
@@ -46,7 +47,7 @@ backupRendererTests =
   , testCase "ClickHouse producer stages a database ZIP from its source PVC" $ do
       let inputs =
             backupJobInputsPg
-              { engine = ClickHouse
+              { source = DatabaseSource ClickHouse
               , clientImage = "clickhouse/clickhouse-server:25.8"
               , serviceHost = "mydb"
               , destination = BackupDestUrl "s3://nagare-backups/manual-databases/personal/mydb/one.zip.gz"
