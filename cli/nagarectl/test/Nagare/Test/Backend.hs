@@ -6,9 +6,13 @@ module Nagare.Test.Backend
   )
 where
 
+import Data.Aeson (Value (..))
+import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Generics.Labels ()
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
+import Data.Vector qualified as V
+import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob
   ( StoreBackend (GcsBackend, MinioBackend)
   , parseLocalObjectStore
@@ -16,9 +20,13 @@ import Nagare.Cluster.GcsJob
 import Nagare.Database.Backup
   ( BackupDest (BackupDestUrl)
   , renderBackupJob
+  , renderInventoryDbBackupCronJob
+  , renderInventoryVolumeBackupCronJob
   )
 import Nagare.Database.Restore (renderRestoreJob)
+import Nagare.Dsl.Database (Engine (ClickHouse, Postgres, Redis))
 import Nagare.Dsl.Prelude hiding ((<.>))
+import Nagare.Inventory.BackupFreshness (RecoveryPointObjective (HourlyRecoveryPoint))
 import Nagare.Storage.Restore (renderStorageRestoreJob)
 import Nagare.Storage.Snapshot (renderSnapshotJob)
 import Nagare.Test.DataFixtures
@@ -29,8 +37,8 @@ import Nagare.Test.DataFixtures
   , storageRestoreJobInputs
   , tnbGcsBackend
   )
-import Test.Tasty (TestTree)
-import Test.Tasty.HUnit (assertBool, testCase, (@?=))
+import Test.Tasty (TestTree, testGroup)
+import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
 -- ---------------------------------------------------------------------------
 -- EP-62: the rendered backup Job's CLOUDSDK_CORE_PROJECT follows the GCS
@@ -82,7 +90,7 @@ gcsJobHostAliasesTests =
 -- proven once per verb.
 storeBackendModeTests :: [TestTree]
 storeBackendModeTests =
-  parseTests <> renderTests
+  parseTests <> renderTests <> [storeToolTests]
   where
     parseTests =
       [ testCase "parseLocalObjectStore splits endpoint and bucket on the last /" $
@@ -160,3 +168,43 @@ storeBackendModeTests =
     -- DEST/SRC carries the right scheme for the backend under test.
     destFor (GcsBackend _ bucket) key = "gs://" <> bucket <> "/" <> key
     destFor (MinioBackend ref) key = "s3://" <> ref ^. #bucket <> "/" <> key
+
+-- | EP-183 M3 (found on cp3, 2026-10-10): @amazon/aws-cli@ ships neither @tar@
+-- nor @gzip@, so every container of a MinIO data-movement Job that runs either
+-- must install them first. The check is per container: the volume producer's
+-- dump step ran @tar@ without the install while its upload step had it, and a
+-- whole-document check passed.
+storeToolTests :: TestTree
+storeToolTests =
+  testGroup "aws-cli store tools (EP-183 M3)" $
+    [ testCase (name <> ": every aws-cli container installs tar and gzip before using them") $
+        case Yaml.decodeEither' rendered :: Either Yaml.ParseException Value of
+          Left err -> assertFailure (show err)
+          Right value -> case [script | (image, script) <- containerScripts value, "amazon/aws-cli" `T.isInfixOf` image, not (installsFirst script)] of
+            [] -> pure ()
+            bad -> assertFailure ("tar or gzip runs before it is installed: " <> show bad)
+    | (name, rendered) <-
+        [ ("volume backup CronJob", renderInventoryVolumeBackupCronJob HourlyRecoveryPoint "personal" "scenario-a" "uploads" localMinioBackend 7)
+        , ("db backup Job", renderBackupJob (backupJobInputsPg & #backend .~ localMinioBackend))
+        ]
+          <> [ ("db backup CronJob " <> show engine, renderInventoryDbBackupCronJob HourlyRecoveryPoint "personal" "app-db" engine "app-db" localMinioBackend 7)
+             | engine <- [Postgres, Redis, ClickHouse]
+             ]
+    ]
+  where
+    install = "dnf install -y -q tar gzip"
+    installsFirst script =
+      case [T.length before | tool <- ["tar ", "gzip "], let (before, after) = T.breakOn tool script, not (T.null after)] of
+        [] -> True
+        uses -> let (before, after) = T.breakOn install script in not (T.null after) && T.length before < minimum uses
+
+-- | Every container's image and shell scripts, wherever it sits in the object.
+containerScripts :: Value -> [(Text, Text)]
+containerScripts = \case
+  Object fields ->
+    let here = case (KeyMap.lookup "image" fields, KeyMap.lookup "args" fields) of
+          (Just (String image), Just (Array args)) -> [(image, script) | String script <- V.toList args]
+          _ -> []
+     in here <> concatMap containerScripts (KeyMap.elems fields)
+  Array values -> concatMap containerScripts (V.toList values)
+  _ -> []

@@ -393,7 +393,7 @@ dumpContainer i = case i ^. #source of
       [ "name" .= ("dump" :: Text)
       , "image" .= storeImage (i ^. #backend)
       , "command" .= toJSON ["/bin/sh" :: Text, "-c"]
-      , "args" .= toJSON ["set -e; tar -C /source-data -cf /dump/backup.tar ." :: Text]
+      , "args" .= toJSON ["set -e; " <> storeShellPreamble (i ^. #backend) <> "tar -C /source-data -cf /dump/backup.tar ."]
       , "volumeMounts"
           .= toJSON
             [ dumpMount
