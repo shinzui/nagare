@@ -86,6 +86,18 @@ This plan only makes sure its changes are covered by that transition's compatibi
   as WARN. `db prune-scheduled-backups --save-plan` reviews them, and applying the review removes
   them. Recovery-model scenarios prove that a prune stopped at any operation closes by
   per-operation proof and never removes the newest verified recovery point.
+  - [x] (2026-10-10) On the worker branch, `gate-fast` green:
+    - the retention policy (`Nagare.Inventory.BackupRetention`), bound in the release (ADR 28
+      amendment);
+    - the admission re-check (`retention-policy`) and the `server status` retention row;
+    - the reviewed prune on MinIO and GCS: generation-pinned deletes, absence proved only by the
+      JSON API's 404;
+    - one recovery Job for any stopped prune;
+    - batch ingestion, `db backup-receipts --all` (ADR 22 amendment, operator-approved);
+    - tolerance for runs uploaded after the newest accepted run.
+  - [ ] Bounded scope and Job growth: the lagged retire-then-collect steps, carried by later
+    prune reviews.
+  - [ ] Full gate and land; then a local check of the WARN row and the prune.
 - [ ] M3. (Decision recorded 2026-10-09: extend the database producer.) Every backup-included
   volume of a context has a scheduled producer with signed receipts. Its
   freshness is graded against the context's objective in `server status`. A restore of the newest
@@ -110,6 +122,26 @@ This plan only makes sure its changes are covered by that transition's compatibi
 
 
 ## Surprises & Discoveries
+
+- Observation (M2): a run was accepted only through one review per run (`db backup-receipts NAME
+  --backup-id JOB_UID`), and a prune refused while any listed run was un-ingested. At the hourly
+  objective that meant about 96 reviews a day by hand. Fixed by batch ingestion.
+- Observation (M2): a prune Job that failed before deleting anything left the run marked pruned
+  with both objects live. The old recovery accepted only "archive gone, receipt left", so every
+  later prune refused. This was pre-existing and wedged retention. The new recovery Job finishes
+  that state.
+- Observation (M2): the cloud prune was never supported. The CLI refused GCS, and the GCS receipt
+  recovery Job was `exit 1`.
+- Observation (M2): the backup bucket is versioned (EP-99), so a pruned generation stays
+  noncurrent for 30 days, plus GCS soft delete, before it is destroyed. For personal data, backup
+  copies can therefore outlive the 30-day retention by about a month. This is left for the
+  operator to review.
+- Observation (M2): a receipt scope cannot be retired in its prune's review
+  (`dangling-reference`). A scope cannot be replaced and retired in one review. Collection needs a
+  retirement accepted in an earlier review. Bounded growth therefore lags one or two prune
+  reviews.
+- Observation (M2): the forward scheduled prune already existed (keep-last-N, MinIO only) before
+  it was deferred in `699ae909`. M2 restored it on the new policy.
 
 - Observation (M4): the model found 25 runs with no exit. In each, the cluster was lost while an
   accepted durable member had never been recorded, because a create's response was lost or a
@@ -160,6 +192,35 @@ This plan only makes sure its changes are covered by that transition's compatibi
 
 
 ## Decision Log
+
+- Decision: Bind the retention policy in the release code, as decision D6 bound the objective
+  presets, not in the signed schedule metadata. Admission evaluates it against the widest
+  objective's breach window.
+  Rationale: no accepted CronJob changes bytes, and no environment value can select a policy. A
+  second preset would go into the signed metadata only if it ever differs (ADR 28 amendment).
+  Date: 2026-10-10
+- Decision: GCS prune deletes pin the reviewed generation and prove absence only by the JSON API's
+  404. One idempotent recovery Job handles any stopped prune on both backends, archive first.
+  Rationale: a failed request must never read as "absent", and a receipt must never go while its
+  archive is live.
+  Date: 2026-10-10
+- Decision: Batch ingestion is one review of per-run scopes, each compiled by the existing
+  single-run compiler. Verification, acceptance and restore authority are unchanged.
+  Rationale: the operator approved this form on 2026-10-10 (ADR 22 amendment).
+  Date: 2026-10-10
+- Decision: A prune tolerates un-ingested runs strictly newer than every accepted unpruned run.
+  It reports them as not yet ingested, never as candidates. The rule is checked at planning and
+  at the apply-time provider check.
+  Rationale: with uploads every 15 minutes, an exact-listing rule could never be met in practice,
+  and keeping newer points only adds safety.
+  Date: 2026-10-10
+- Decision: Bound scope and Job growth with lagged steps carried by each later prune review. The
+  next review retires the prune and receipt scopes of runs whose prune converged; the review after
+  that collects their retained Jobs. Prunes closed after a failure stay for recovery.
+  Rationale: only existing retire and collect semantics can be used. Pruned runs are not
+  restorable, so restore authority is unchanged. At steady state about 222 retained runs keep
+  their Jobs.
+  Date: 2026-10-10
 
 - Decision: The rebuild has its own input and commands (`inventory rebuild-decisions`, `inventory
   rebuild`) instead of an `inventory adopt` field. Its candidate is the accepted scopes with their
