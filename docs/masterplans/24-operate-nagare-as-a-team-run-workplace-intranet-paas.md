@@ -217,6 +217,15 @@ operator decides, the tooling boundary between Nagare and established tools (aft
 
 ## Progress
 
+2026-10-10 (overnight): EP-183 M1 is landed (`1e40d5c0`). The MinIO default fix, M2 (retention,
+GCS prune, batch ingestion, lagged cleanup) and M4 (rebuild with PostgreSQL, ClickHouse, Redis
+and volume restores) are combined on branch `integrate-ep183`, which is gate-fast green. The full
+gate, `gate-deep` and the mutation sweep need the remote builder, and the builder's IAP tunnel
+needs gcloud, whose `labs` credentials expired for interactive reauthentication at about 05:45Z.
+Landing, the local route-check and rebuild rehearsals (cp3 is claimed and its old context retired
+with exports kept), and N2 wait for the operator's `gcloud auth login`. M3's slice checkpoint is
+being built in a worktree.
+
 2026-10-10 (later): EP-163 is Complete. RES-6 supersedes RES-3, and the operator accepted its
 recommendation: keep the native backup path and adopt no tool. With EP-162 and EP-163 complete and
 no team stream required by UC-3, EP-183 is the last open child. EP-183 M1's code is done and its
@@ -241,6 +250,11 @@ streams listed in Decomposition Strategy are intentionally not yet planned.
 
 
 ## Surprises & Discoveries
+
+- 2026-10-10: The gcloud `labs` credentials needed interactive reauthentication mid-run, about an
+  hour after a token check passed (that check used a cached token). This blocked every
+  remote-builder gate overnight; it is the same failure the 10-09 unattended run hit. A check
+  before an unattended run must make a real API call, not `print-access-token`.
 
 - 2026-10-10: The default local MinIO images (`quay.io/minio/minio` and `quay.io/minio/mc` digests
   in `cluster/local/minio/minio.yaml`) now answer 401 to anonymous pulls, and Docker Hub's
