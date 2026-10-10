@@ -4,6 +4,8 @@
 -- random Job UIDs and ingestion order never stand in for completion order.
 module Nagare.Inventory.ScheduledPrune
   ( ScheduledPruneCandidate (..)
+  , PruneSource (..)
+  , pruneSourceOwner
   , ScheduledPruneRequest (..)
   , selectScheduledPruneCandidates
   , recoverScheduledPruneCandidate
@@ -22,10 +24,11 @@ module Nagare.Inventory.ScheduledPrune
   )
 where
 
-import Control.Monad (forM, forM_, unless, when)
+import Control.Monad (forM, forM_, unless, void, when)
 import Data.Aeson (Value (..), eitherDecodeStrict, object, (.=))
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
+import Data.Foldable (traverse_)
 import Data.Generics.Labels ()
 import Data.List (sortOn)
 import Data.List qualified as List
@@ -41,6 +44,7 @@ import Data.Text.Encoding qualified as TE
 import Data.Time (UTCTime, defaultTimeLocale, parseTimeM)
 import Data.Yaml qualified as Yaml
 import Nagare.Cluster.GcsJob (StoreBackend (..), storeObjectUrl)
+import Nagare.Database.Backup (dbBackupKeyPrefix, volumeBackupKeyPrefix, volumeBackupScheduleName)
 import Nagare.Database.Prune (PruneJobInputs (..), renderScheduledPruneJob, renderScheduledReceiptRecoveryJob)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Types (mkServiceName)
@@ -78,8 +82,40 @@ data ScheduledPruneCandidate = ScheduledPruneCandidate
   }
   deriving stock (Eq, Show)
 
+-- | Whose scheduled runs a prune reviews: one database, or one
+-- backup-included volume of an application (EP-183 M3). A run's siblings,
+-- which retention ranks it against, are the runs of the same schedule: an
+-- application scope holds one schedule per volume, so its scope alone does
+-- not name them.
+data PruneSource
+  = DatabasePruneSource !Text
+  | -- | Application and volume.
+    VolumePruneSource !Text !Text
+  deriving stock (Eq, Show)
+
+-- | The scope that ingests (@receipt@), prunes (@prune@) or finishes a stopped
+-- prune of (@prune-recovery@) one run of a source; with an empty run, the
+-- prefix every such scope of the source shares.
+pruneSourceOwner :: Text -> Text -> PruneSource -> Text -> Text
+pruneSourceOwner role namespaceName source run =
+  kind <> "-scheduled-" <> role <> "-" <> namespaceName <> "-" <> stem <> "-" <> run
+  where
+    (kind, stem) = case source of
+      DatabasePruneSource database -> ("database", database)
+      VolumePruneSource app volume -> ("volume", volumeBackupScheduleName app volume)
+
+-- | The object-key prefix the source's schedule uploads under.
+pruneSourceKeyPrefix :: Text -> PruneSource -> Text
+pruneSourceKeyPrefix namespaceName = \case
+  DatabasePruneSource database -> dbBackupKeyPrefix database
+  VolumePruneSource app volume -> volumeBackupKeyPrefix namespaceName app volume
+
+-- | The schedule an accepted run was ingested under.
+runSchedule :: ScopeDeclaration -> Maybe Text
+runSchedule = Map.lookup "scheduled.backup.schedule" . scopeOverrides
+
 data ScheduledPruneRequest = ScheduledPruneRequest
-  { scheduledPruneDatabase :: !Text
+  { scheduledPruneFrom :: !PruneSource
   , scheduledPruneNamespace :: !Text
   , scheduledPruneCandidate :: !ScheduledPruneCandidate
   , scheduledPruneBackupRevision :: !ScopeRevision
@@ -99,6 +135,7 @@ data ScheduledPruneRequest = ScheduledPruneRequest
 -- may still become exact deletion candidates.
 selectScheduledPruneCandidates ::
   ScopeId ->
+  ResourceId ->
   Text ->
   Text ->
   Text ->
@@ -109,7 +146,7 @@ selectScheduledPruneCandidates ::
   [ScopeDeclaration] ->
   [ListedObject] ->
   Either Text [ScheduledPruneCandidate]
-selectScheduledPruneCandidates source bucketAddress prefix format policy objective now protected scopes listed = do
+selectScheduledPruneCandidates source schedule bucketAddress prefix format policy objective now protected scopes listed = do
   unless
     ( bucketAddress `T.isPrefixOf` prefix
         && not (T.null bucketAddress)
@@ -124,6 +161,7 @@ selectScheduledPruneCandidates source bucketAddress prefix format policy objecti
       sameSource scope =
         Map.lookup "scheduled.backup.source.scope" (fields scope)
           == Just sourceName
+          && runSchedule scope == Just (resourceIdText schedule)
       pruned =
         Set.fromList
           [ selected
@@ -348,13 +386,14 @@ data ScheduledCleanup = ScheduledCleanup
 -- restorable, so retiring them changes no restore authority.
 scheduledPruneCleanup ::
   Text ->
-  Text ->
+  PruneSource ->
   ScopeId ->
+  ResourceId ->
   Map.Map ScopeId (ScopeRevision, ScopeDeclaration) ->
   Map.Map ScopeId ScopeRevision ->
   Map.Map ResourceId (RetainedIncarnation, ManagedResource) ->
   ScheduledCleanup
-scheduledPruneCleanup namespaceName database source accepted converged retained =
+scheduledPruneCleanup namespaceName runSource source schedule accepted converged retained =
   ScheduledCleanup
     { retire = Set.toAscList (Set.fromList (concat [backup : namers backup | backup <- done]))
     , collect =
@@ -371,6 +410,7 @@ scheduledPruneCleanup namespaceName database source accepted converged retained 
         [ owner
         | (owner, entry) <- Map.toList accepted
         , Map.lookup "scheduled.backup.source.scope" (fields entry) == Just (scopeIdText source)
+        , runSchedule (snd entry) == Just (resourceIdText schedule)
         ]
     pruning =
       [ (owner, backup, revision)
@@ -397,10 +437,7 @@ scheduledPruneCleanup namespaceName database source accepted converged retained 
       OrderedAfter resource -> resource
       Consumes reference -> let (resource, _, _, _, _) = refSignature reference in resource
       ReadyAfter reference -> let (resource, _, _, _, _) = refSignature reference in resource
-    ownerPrefixes =
-      [ prefix <> namespaceName <> "-" <> database <> "-"
-      | prefix <- ["database-scheduled-receipt-", "database-scheduled-prune-", "database-scheduled-prune-recovery-"]
-      ]
+    ownerPrefixes = [pruneSourceOwner role namespaceName runSource "" | role <- ["receipt", "prune", "prune-recovery"]]
 
 -- | The signed recovery point an accepted receipt scope recorded at ingestion,
 -- if its receipt carried one (v5). A malformed value refuses.
@@ -426,8 +463,8 @@ isNewScheduledPrune scope =
 -- evaluated now, places past policy, for @server status@. Runs accepted without
 -- a signed recovery point are kept and not counted. The breach window of the
 -- widest objective preset applies, as at admission.
-acceptedPastPolicy :: RetentionPolicy -> UTCTime -> ScopeId -> [ScopeDeclaration] -> Either Text [ScopeId]
-acceptedPastPolicy policy now source current = do
+acceptedPastPolicy :: RetentionPolicy -> UTCTime -> ScopeId -> ResourceId -> [ScopeDeclaration] -> Either Text [ScopeId]
+acceptedPastPolicy policy now source schedule current = do
   let pruned =
         Set.fromList
           [ selected
@@ -438,6 +475,7 @@ acceptedPastPolicy policy now source current = do
         [ scope
         | scope <- current
         , Map.lookup "scheduled.backup.source.scope" (scopeOverrides scope) == Just (scopeIdText source)
+        , runSchedule scope == Just (resourceIdText schedule)
         , Set.notMember (scopeIdText (scopeId scope)) pruned
         ]
   points <- traverse (\scope -> (scopeId scope,) <$> acceptedRecoveryPoint scope) runs
@@ -484,10 +522,14 @@ scheduledPruneRetentionAdmission policy now acceptedScopes reviewed = do
     unless
       (Map.lookup "scheduled.backup.source.scope" (scopeOverrides backup) == Just policySource)
       (Left "pruned scheduled receipt belongs to another source")
+    -- EP-183 M3: siblings share the run's schedule, not only its scope; an
+    -- application scope holds one schedule per backed-up volume.
+    schedule <- maybe (Left "pruned scheduled receipt names no schedule") Right (runSchedule backup)
     let siblings =
           [ scope
           | scope <- current
           , Map.lookup "scheduled.backup.source.scope" (scopeOverrides scope) == Just policySource
+          , runSchedule scope == Just schedule
           , Set.notMember (scopeIdText (scopeId scope)) alreadyPruned
           ]
     points <- traverse (\scope -> (scopeIdText (scopeId scope),) <$> acceptedRecoveryPoint scope) siblings
@@ -618,10 +660,12 @@ compileScheduledPruneScopeWith recovery request backup native = do
           (Left (invalid ("scheduled receipt lacks " <> key)))
           Right
           (Map.lookup key fields)
-      db = scheduledPruneDatabase request
+      runSource = scheduledPruneFrom request
       ns = scheduledPruneNamespace request
       backupId = scheduledPruneId candidate
-  _ <- first invalid (mkServiceName db)
+  case runSource of
+    DatabasePruneSource db -> void (first invalid (mkServiceName db))
+    VolumePruneSource app volume -> traverse_ (first invalid . mkServiceName) [app, volume]
   _ <- first invalid (mkServiceName ns)
   unless
     (scopeId backup == scheduledPruneScope candidate && validUid backupId)
@@ -688,13 +732,13 @@ compileScheduledPruneScopeWith recovery request backup native = do
   let objectPrefix =
         storeObjectUrl
           (scheduledPruneBackend request)
-          ("databases/" <> db <> "/" <> backupId <> ".")
+          (pruneSourceKeyPrefix ns runSource <> backupId <> ".")
   unless
     ( objectPrefix `T.isPrefixOf` scheduledPruneObject candidate
         && scheduledPruneReceipt candidate
           == scheduledPruneObject candidate <> ".receipt.json"
     )
-    (Left (invalid "scheduled prune candidate addresses another backend or database"))
+    (Left (invalid "scheduled prune candidate addresses another backend or source"))
   ingestionJob <- case [ member
                        | bundle <- scopeBundles backup
                        , Managed member <- declarations bundle
@@ -721,15 +765,15 @@ compileScheduledPruneScopeWith recovery request backup native = do
   cluster <- case ingestionJob ^. #address of
     Kubernetes clusterId _ _ _ _ -> Right clusterId
     _ -> Left (invalid "accepted ingestion Job has no Kubernetes address")
-  let ownerPrefix = case recovery of
-        Nothing -> "database-scheduled-prune-"
-        Just _ -> "database-scheduled-prune-recovery-"
+  let ownerRole = case recovery of
+        Nothing -> "prune"
+        Just _ -> "prune-recovery"
   owner <-
     first
       invalid
       ( mkScopeId
           Standalone
-          (ownerPrefix <> ns <> "-" <> db <> "-" <> backupId)
+          (pruneSourceOwner ownerRole ns runSource backupId)
       )
   key <- first invalid (mkLogicalKey backupId)
   jobRole <- first invalid (mkName "job")

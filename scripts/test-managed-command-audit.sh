@@ -40,7 +40,7 @@ assert current['deferredRoutes'] == [
     'DbCommand.DbShell',
     'StorageCommand.StorageRestore.--into-live',
 ]
-assert current['recoveryOnlyRoutes'] == ['DbCommand.DbRecoverScheduledPrune']
+assert current['recoveryOnlyRoutes'] == ['DbCommand.DbRecoverScheduledPrune', 'StorageCommand.StorageRecoverScheduledPrune']
 assert 'unregistered constructor Command.AuditInjectedMutation' in injected['errors']
 print(f"managed command audit: {current['registeredRoutes']} routes, "
       f"{current['recipes']} recipes, {current['libraryCalls']} library calls; "

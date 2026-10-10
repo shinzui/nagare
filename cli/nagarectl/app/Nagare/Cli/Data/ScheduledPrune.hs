@@ -30,8 +30,10 @@ import Nagare.Cli.Runtime.Target
   )
 import Nagare.Cluster.GcsJob (storeObjectUrl)
 import Nagare.Cluster.Kubeconfig (kubeconfigPath)
+import Nagare.Database.Backup (volumeBackupScheduleName)
 import Nagare.Dsl.Database.Render (dbPvcName)
 import Nagare.Dsl.Prelude
+import Nagare.Dsl.Render (pvcName)
 import Nagare.Inventory.Adapter qualified as InventoryAdapter
 import Nagare.Inventory.Adapters.Kubernetes
   ( KubernetesState (KubernetesFailed, KubernetesPresent)
@@ -49,6 +51,7 @@ import Nagare.Inventory.Backup
       , scheduledPolicyRevision
       )
   , scheduledReceiptExpectationFromCronJob
+  , scheduledVolumeReceiptExpectationFromCronJob
   )
 import Nagare.Inventory.BackupRetention (retentionPolicyText, standardRetention)
 import Nagare.Inventory.Command qualified as Inventory
@@ -61,13 +64,15 @@ import Nagare.Inventory.Lifecycle (decideRetirementAndCollection)
 import Nagare.Inventory.Plan qualified as InventoryPlan
 import Nagare.Inventory.ScheduledGcs (withScheduledObjectStore)
 import Nagare.Inventory.ScheduledPrune
-  ( ScheduledCleanup (..)
+  ( PruneSource (..)
+  , ScheduledCleanup (..)
   , ScheduledPruneCandidate (..)
   , ScheduledPruneRequest (..)
   , classifyStoppedPrune
   , compileScheduledPruneRecoveryScope
   , compileScheduledPruneScope
   , notYetIngestedRuns
+  , pruneSourceOwner
   , recoverScheduledPruneCandidate
   , scheduledPruneCleanup
   , selectScheduledPruneCandidates
@@ -97,9 +102,12 @@ import System.IO.Temp (withSystemTempDirectory)
 -- retention policy (ADR 28) places past policy, one exact prune scope each.
 -- Admission re-evaluates the policy against the accepted receipts before any
 -- effect. Both backends: GCS deletes are generation-pinned, and a failed Job
--- is finished by `db recover-scheduled-prune`.
-runReviewedScheduledPrunePlan :: Maybe String -> Text -> Text -> Maybe String -> FilePath -> IO ()
-runReviewedScheduledPrunePlan mctx database namespaceName bucketArg output = do
+-- is finished by `db recover-scheduled-prune`. EP-183 M3: the same review for
+-- one backup-included volume of an application (`storage
+-- prune-scheduled-backups`), whose runs are ranked only against the runs of
+-- that volume's schedule.
+runReviewedScheduledPrunePlan :: Maybe String -> PruneSource -> Text -> Maybe String -> FilePath -> IO ()
+runReviewedScheduledPrunePlan mctx runSource namespaceName bucketArg output = do
   active <- activeTarget mctx
   when (active ^. #profile . #mode == Local) $ do
     selectedKubeconfig <- kubeconfigPath (active ^. #contextName)
@@ -117,19 +125,33 @@ runReviewedScheduledPrunePlan mctx database namespaceName bucketArg output = do
         , member ^. #address == address
         ]
       scopes = map snd (Map.elems (ResourceInventory.snapshotScopes snapshot))
-  statefulAddress <- findAddress "apps/v1" "StatefulSet" database
-  (sourceScope, stateful) <- case [(scope, member) | scope <- scopes, member <- members scope statefulAddress] of
-    [single] -> pure single
-    _ -> dieT "scheduled prune requires one accepted database source"
-  pvcAddress <- findAddress "v1" "PersistentVolumeClaim" (dbPvcName database)
-  cronAddress <- findAddress "batch/v1" "CronJob" ("nagare-dbbackup-" <> database)
-  signingAddress <- findAddress "v1" "Secret" ("nagare-dbbackup-" <> database <> "-signing")
-  let unique label address = case members sourceScope address of
+      unique sourceScope label address = case members sourceScope address of
         [single] -> pure single
         _ -> dieT ("scheduled prune requires one accepted " <> label)
-  pvc <- unique "database PVC" pvcAddress
-  cron <- unique "backup CronJob" cronAddress
-  signing <- unique "backup signing Secret" signingAddress
+  -- A database's source is its StatefulSet's scope; a volume's is the scope of
+  -- its schedule, ordered after exactly the one claim it archives.
+  (sourceScope, stateful, pvc, cron, signing) <- case runSource of
+    DatabasePruneSource database -> do
+      statefulAddress <- findAddress "apps/v1" "StatefulSet" database
+      (sourceScope, stateful) <- case [(scope, member) | scope <- scopes, member <- members scope statefulAddress] of
+        [single] -> pure single
+        _ -> dieT "scheduled prune requires one accepted database source"
+      pvc <- unique sourceScope "database PVC" =<< findAddress "v1" "PersistentVolumeClaim" (dbPvcName database)
+      cron <- unique sourceScope "backup CronJob" =<< findAddress "batch/v1" "CronJob" ("nagare-dbbackup-" <> database)
+      signing <- unique sourceScope "backup signing Secret" =<< findAddress "v1" "Secret" ("nagare-dbbackup-" <> database <> "-signing")
+      pure (sourceScope, Just stateful, pvc, cron, signing)
+    VolumePruneSource app volume -> do
+      let schedule = volumeBackupScheduleName app volume
+      cronAddress <- findAddress "batch/v1" "CronJob" schedule
+      (sourceScope, cron) <- case [(scope, member) | scope <- scopes, member <- members scope cronAddress] of
+        [single] -> pure single
+        _ -> dieT "scheduled prune requires one accepted volume backup CronJob"
+      signing <- unique sourceScope "backup signing Secret" =<< findAddress "v1" "Secret" (schedule <> "-signing")
+      pvc <- unique sourceScope "volume claim" =<< findAddress "v1" "PersistentVolumeClaim" (pvcName app volume)
+      unless
+        (ResourceReference.OrderedAfter (pvc ^. #identity) `elem` (cron ^. #dependencies))
+        (dieT "scheduled volume backup is not ordered after the volume's accepted claim")
+      pure (sourceScope, Nothing, pvc, cron, signing)
   store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
   history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
   let acceptedRevision scope = case Map.lookup (ResourceInventory.scopeId scope) (InventoryPlan.historyAccepted history) of
@@ -138,9 +160,9 @@ runReviewedScheduledPrunePlan mctx database namespaceName bucketArg output = do
   sourceRevision <- acceptedRevision sourceScope
   acceptedInventory <- either (dieT . T.pack . show) pure (ResourceInventory.composeSnapshot snapshot)
   (acceptedNative, _) <- InventoryStatus.loadAcceptedNative store history acceptedInventory >>= either dieT pure
-  let sourceIds = map (^. #identity) [stateful, pvc, cron, signing]
+  let sourceIds = map (^. #identity) (maybe [] pure stateful <> [pvc, cron, signing])
       sourceNative = Map.restrictKeys acceptedNative (Set.fromList sourceIds)
-  unless (Map.size sourceNative == 4) (dieT "scheduled prune source lacks accepted private native evidence")
+  unless (Map.size sourceNative == length sourceIds) (dieT "scheduled prune source lacks accepted private native evidence")
   sourceAdapter <-
     inventoryKubernetesAdapter
       active
@@ -151,7 +173,7 @@ runReviewedScheduledPrunePlan mctx database namespaceName bucketArg output = do
   let physical resource = case Map.lookup resource (InventoryAdapter.observationMap observed) of
         Just (InventoryAdapter.ObservedPresent uid) -> pure uid
         _ -> dieT "scheduled prune source, schedule, or signing key is absent or drifted"
-  statefulUid <- physical (stateful ^. #identity)
+  statefulUid <- traverse (physical . (^. #identity)) stateful
   pvcUid <- physical (pvc ^. #identity)
   cronUid <- physical (cron ^. #identity)
   _ <- physical (signing ^. #identity)
@@ -159,7 +181,10 @@ runReviewedScheduledPrunePlan mctx database namespaceName bucketArg output = do
   when inFlight (dieT "scheduled backup producer has not completed successfully")
   (_, cronBytes) <- maybe (dieT "accepted CronJob lacks private native bytes") pure (Map.lookup (cron ^. #identity) sourceNative)
   backend <- resolveStoreBackend mctx bucketArg
-  expectation <- either dieT pure (scheduledReceiptExpectationFromCronJob backend namespaceName database statefulUid pvcUid cronBytes)
+  expectation <- either dieT pure $ case (runSource, statefulUid) of
+    (DatabasePruneSource database, Just uid) -> scheduledReceiptExpectationFromCronJob backend namespaceName database uid pvcUid cronBytes
+    (VolumePruneSource app volume, Nothing) -> scheduledVolumeReceiptExpectationFromCronJob backend namespaceName (volumeBackupScheduleName app volume) pvcUid cronBytes
+    _ -> Left "scheduled prune source has another shape than its kind"
   let bucketAddress = storeObjectUrl backend ""
       prefix = scheduledObjectPrefix expectation
   keyPrefix <- maybe (dieT "accepted schedule has another bucket") pure (T.stripPrefix bucketAddress prefix)
@@ -170,7 +195,11 @@ runReviewedScheduledPrunePlan mctx database namespaceName bucketArg output = do
         | scope <- scopes
         , Map.lookup "scheduled.backup.source.scope" (ResourceInventory.scopeOverrides scope)
             == Just (Resource.scopeIdText (ResourceInventory.scopeId sourceScope))
+        , Map.lookup "scheduled.backup.schedule" (ResourceInventory.scopeOverrides scope)
+            == Just (Resource.resourceIdText (cron ^. #identity))
         ]
+      -- A scope that records the run's scope or its receipt depends on it: a
+      -- scratch restore names the run's scope, a rebuild restore its receipt.
       dependsOn backup scope =
         let backupId = Resource.scopeIdText (ResourceInventory.scopeId backup)
             backupMembers =
@@ -181,6 +210,7 @@ runReviewedScheduledPrunePlan mctx database namespaceName bucketArg output = do
          in ResourceInventory.scopeId scope /= ResourceInventory.scopeId backup
               && Map.notMember "scheduled.prune.backup.scope" (ResourceInventory.scopeOverrides scope)
               && ( backupId `elem` Map.elems (ResourceInventory.scopeOverrides scope)
+                     || any (`elem` Map.elems (ResourceInventory.scopeOverrides scope)) (Map.lookup "scheduled.backup.receipt" (ResourceInventory.scopeOverrides backup))
                      || or
                        [ ResourceReference.OrderedAfter identity `elem` (member ^. #dependencies)
                        | bundle <- ResourceInventory.scopeBundles scope
@@ -204,10 +234,18 @@ runReviewedScheduledPrunePlan mctx database namespaceName bucketArg output = do
                   == Just (Resource.scopeIdText (ResourceInventory.scopeId receiptScope))
             )
             scopes
+        -- EP-183 M3: an application's scope revision moves with every
+        -- deploy, so a volume run is current while it was taken from the
+        -- current claim incarnation.
+        currentSource = case runSource of
+          DatabasePruneSource _ ->
+            Map.lookup "scheduled.backup.source.revision" fields
+              == Just (Resource.digestText (InventoryStore.revisionDigest sourceRevision))
+          VolumePruneSource _ _ ->
+            Map.lookup "scheduled.backup.source.pvc.uid" fields == Just (Resource.physicalIdentityText pvcUid)
     unless
       ( alreadyPruned
-          || ( Map.lookup "scheduled.backup.source.revision" fields
-                 == Just (Resource.digestText (InventoryStore.revisionDigest sourceRevision))
+          || ( currentSource
                  && Map.lookup "scheduled.backup.schedule.revision" fields
                    == Just (Resource.digestText (scheduledPolicyRevision expectation))
              )
@@ -220,6 +258,7 @@ runReviewedScheduledPrunePlan mctx database namespaceName bucketArg output = do
       pure
       ( selectScheduledPruneCandidates
           (ResourceInventory.scopeId sourceScope)
+          (cron ^. #identity)
           bucketAddress
           prefix
           (scheduledFormat expectation)
@@ -250,8 +289,9 @@ runReviewedScheduledPrunePlan mctx database namespaceName bucketArg output = do
   let cleanup =
         scheduledPruneCleanup
           namespaceName
-          database
+          runSource
           (ResourceInventory.scopeId sourceScope)
+          (cron ^. #identity)
           (InventoryPlan.historyAccepted history)
           (InventoryStore.headConverged (InventoryPlan.historyHead history))
           (InventoryPlan.historyRetained history)
@@ -291,7 +331,7 @@ runReviewedScheduledPrunePlan mctx database namespaceName bucketArg output = do
       _ -> dieT "scheduled receipt ingestion Job is absent, incomplete, or drifted"
     let request =
           ScheduledPruneRequest
-            { scheduledPruneDatabase = database
+            { scheduledPruneFrom = runSource
             , scheduledPruneNamespace = namespaceName
             , scheduledPruneCandidate = selected
             , scheduledPruneBackupRevision = backupRevision
@@ -300,7 +340,7 @@ runReviewedScheduledPrunePlan mctx database namespaceName bucketArg output = do
             , scheduledPrunePolicyRevision = sourceRevision
             , scheduledPruneRetention = standardRetention
             , scheduledPruneBackend = backend
-            , scheduledPruneSource = Resource.SourceLocation ("db prune-scheduled-backups/" <> database) (scheduledPruneId selected)
+            , scheduledPruneSource = Resource.SourceLocation (pruneCommand runSource) (scheduledPruneId selected)
             }
     (pruneScope, pruneNative) <- either (dieT . T.pack . show) pure (compileScheduledPruneScope request backup backupNative)
     case Map.lookup (ResourceInventory.scopeId pruneScope) (ResourceInventory.snapshotScopes snapshot) of
@@ -335,9 +375,18 @@ runReviewedScheduledPrunePlan mctx database namespaceName bucketArg output = do
         <> " retained Job(s)."
     )
 
+-- | Where a review came from: the command and its source.
+pruneCommand, recoverCommand :: PruneSource -> Text
+pruneCommand = \case
+  DatabasePruneSource database -> "db prune-scheduled-backups/" <> database
+  VolumePruneSource app volume -> "storage prune-scheduled-backups/" <> app <> "/" <> volume
+recoverCommand = \case
+  DatabasePruneSource database -> "db recover-scheduled-prune/" <> database
+  VolumePruneSource app volume -> "storage recover-scheduled-prune/" <> app <> "/" <> volume
+
 runReviewedScheduledPruneRecoveryPlan ::
   Maybe String ->
-  Text ->
+  PruneSource ->
   Text ->
   Text ->
   Maybe String ->
@@ -346,7 +395,7 @@ runReviewedScheduledPruneRecoveryPlan ::
   IO ()
 runReviewedScheduledPruneRecoveryPlan
   mctx
-  database
+  runSource
   namespaceName
   backupId
   bucketArg
@@ -401,30 +450,12 @@ runReviewedScheduledPruneRecoveryPlan
       either
         dieT
         pure
-        ( Resource.mkScopeId
-            Resource.Standalone
-            ( "database-scheduled-prune-"
-                <> namespaceName
-                <> "-"
-                <> database
-                <> "-"
-                <> backupId
-            )
-        )
+        (Resource.mkScopeId Resource.Standalone (pruneSourceOwner "prune" namespaceName runSource backupId))
     backupOwner <-
       either
         dieT
         pure
-        ( Resource.mkScopeId
-            Resource.Standalone
-            ( "database-scheduled-receipt-"
-                <> namespaceName
-                <> "-"
-                <> database
-                <> "-"
-                <> backupId
-            )
-        )
+        (Resource.mkScopeId Resource.Standalone (pruneSourceOwner "receipt" namespaceName runSource backupId))
     failedScope <- case [ scope
                         | scope <- reviewedScopes
                         , ResourceInventory.scopeId scope == failedOwner
@@ -631,7 +662,7 @@ runReviewedScheduledPruneRecoveryPlan
       (dieT "failed prune recovery changes the selected backup")
     let request =
           ScheduledPruneRequest
-            { scheduledPruneDatabase = database
+            { scheduledPruneFrom = runSource
             , scheduledPruneNamespace = namespaceName
             , scheduledPruneCandidate = selected
             , scheduledPruneBackupRevision = backupRevision
@@ -642,7 +673,7 @@ runReviewedScheduledPruneRecoveryPlan
             , scheduledPruneBackend = backend
             , scheduledPruneSource =
                 Resource.SourceLocation
-                  ("db recover-scheduled-prune/" <> database)
+                  (recoverCommand runSource)
                   backupId
             }
     (recoveryScope, recoveryNative) <-

@@ -7,7 +7,9 @@ module Nagare.Test.Backup.Retention
 where
 
 import Control.Monad (forM_, when)
+import Data.Aeson qualified as Aeson
 import Data.Either (isLeft, isRight)
+import Data.Generics.Labels ()
 import Data.IORef
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
@@ -17,6 +19,7 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Time (UTCTime (..), addDays, addUTCTime, defaultTimeLocale, formatTime, fromGregorian, getCurrentTime, secondsToDiffTime)
 import InventoryTransactionSpec (fixtureBinding, recordingRegistryWith)
+import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.BackupFreshness (RecoveryPointObjective (..), recoveryPointThresholds)
@@ -33,6 +36,7 @@ import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
+import Nagare.Resource.Wire (canonicalValue)
 import Test.Tasty (TestTree)
 import Test.Tasty.HUnit
 
@@ -45,6 +49,7 @@ backupRetentionTests =
   , testCase "admission refuses a prune of the newest, a recent, a day's newest, or an unsigned run" admissionRefuses
   , testCase "admission checks only new prunes, under the release policy, of one source's unpruned runs" admissionScope
   , testCase "server status counts accepted unpruned runs past policy" statusCount
+  , testCase "a volume's scheduled run is pruned only under its own volume's prefix" volumePruneCompiles
   , testCase "a saved prune of an expired run is admitted and converges; pruning it again is refused" admittedPrune
   , testCase "a saved prune of the newest run refuses admission before any adapter effect" refusedNewest
   , testCase "a prune stopped at each operation closes by per-operation proof; its receipt recovery passes admission" stoppedPrunes
@@ -60,7 +65,7 @@ cleanupSelection = do
       accepted scopes = Map.fromList [(scopeId scope, (revision 1, scope)) | scope <- scopes]
       prune = pruneScope "forty-days" []
       recovery = withScopeOverrides (Map.insert "scheduled.prune.recovery.review" "failed" (scopeOverrides prune)) (ok (mkScopeDeclaration (ok (mkScopeId Standalone "database-scheduled-prune-recovery-personal-mydb-forty-days")) []))
-      cleanupOf scopes converged retained = scheduledPruneCleanup "personal" "mydb" sourceScope (accepted scopes) converged retained
+      cleanupOf scopes converged retained = scheduledPruneCleanup "personal" (DatabasePruneSource "mydb") sourceScope scheduleId (accepted scopes) converged retained
       withPrune = receiptScopes <> [prune]
   -- Converged at its accepted revision: the receipt and its prune go together.
   retire (cleanupOf withPrune (Map.singleton (scopeId prune) (revision 1)) Map.empty)
@@ -73,7 +78,9 @@ cleanupSelection = do
   Set.fromList (retire (cleanupOf (withPrune <> [recovery]) (Map.singleton (scopeId recovery) (revision 1)) Map.empty))
     @?= Set.fromList [scopeId recovery, scopeId prune, receiptOwner "forty-days"]
   -- Another source's prunes are not this source's cleanup.
-  retire (scheduledPruneCleanup "personal" "mydb" (ok (mkScopeId Standalone "other-source")) (accepted withPrune) (Map.singleton (scopeId prune) (revision 1)) Map.empty) @?= []
+  retire (scheduledPruneCleanup "personal" (DatabasePruneSource "mydb") (ok (mkScopeId Standalone "other-source")) scheduleId (accepted withPrune) (Map.singleton (scopeId prune) (revision 1)) Map.empty) @?= []
+  -- Nor are another schedule's of the same scope (another volume, EP-183 M3).
+  retire (scheduledPruneCleanup "personal" (DatabasePruneSource "mydb") sourceScope otherSchedule (accepted withPrune) (Map.singleton (scopeId prune) (revision 1)) Map.empty) @?= []
   -- Only Jobs an accepted retirement of this source's scopes retained.
   let retainedBy owner =
         ( Nagare.Inventory.Store.RetainedIncarnation owner (revision 1) (ok (mkPhysicalIdentity "uid")) "t" Nothing Nothing
@@ -180,7 +187,7 @@ prunedStore = do
 cleanupNow :: InventoryStore -> IO ScheduledCleanup
 cleanupNow store = do
   history <- loadInventoryHistory store >>= expectRight
-  pure (scheduledPruneCleanup "personal" "mydb" sourceScope (historyAccepted history) (headConverged (historyHead history)) (historyRetained history))
+  pure (scheduledPruneCleanup "personal" (DatabasePruneSource "mydb") sourceScope scheduleId (historyAccepted history) (headConverged (historyHead history)) (historyRetained history))
 
 converge :: InventoryStore -> ReviewedPlan -> IO ()
 converge store reviewed = do
@@ -328,6 +335,12 @@ policyWindow = forM_ [minBound .. maxBound] $ \objective -> do
 sourceScope :: ScopeId
 sourceScope = ok (mkScopeId Standalone "scheduled-prune-source")
 
+-- | The schedule every fixture run was taken under, and another schedule of
+-- the same scope (an application's second backed-up volume).
+scheduleId, otherSchedule :: ResourceId
+scheduleId = mintResourceId sourceScope (ok (mkLogicalKey "backup")) (ok (mkName "cronjob"))
+otherSchedule = mintResourceId sourceScope (ok (mkLogicalKey "other")) (ok (mkName "cronjob"))
+
 -- | A run's Job UID: lower-case hex in UUID form.
 runId :: Text -> Text
 runId name = T.intercalate "-" [T.take 8 raw, T.take 4 (T.drop 8 raw), T.take 4 (T.drop 12 raw), T.take 4 (T.drop 16 raw), T.take 12 (T.drop 20 raw)]
@@ -349,6 +362,7 @@ receiptFields :: Text -> Maybe UTCTime -> Map.Map Text Text
 receiptFields name point =
   Map.fromList
     ( [ ("scheduled.backup.source.scope", scopeIdText sourceScope)
+      , ("scheduled.backup.schedule", resourceIdText scheduleId)
       , ("scheduled.backup.id", runId name)
       , ("scheduled.backup.object", bucketAddress <> objectKey name)
       , ("scheduled.backup.object.version", "object-version-" <> name)
@@ -379,9 +393,13 @@ selection = do
         ]
       listed = concatMap (\(name, _, _) -> listedFor name) runs
       select protected scopes entries =
-        selectScheduledPruneCandidates sourceScope bucketAddress (bucketAddress <> keyPrefix) "sql.gz" standardRetention HourlyRecoveryPoint now protected scopes entries
+        selectScheduledPruneCandidates sourceScope scheduleId bucketAddress (bucketAddress <> keyPrefix) "sql.gz" standardRetention HourlyRecoveryPoint now protected scopes entries
   candidates <- expectRight (select Set.empty receiptScopes listed)
   map scheduledPruneId candidates @?= map runId ["forty-days", "ten-days-morning"]
+  -- Another schedule's runs (EP-183 M3: another volume) are neither listed
+  -- under this prefix nor candidates.
+  beside <- expectRight (select Set.empty (receiptScopes <> [otherVolumeRun]) listed)
+  map scheduledPruneId beside @?= map scheduledPruneId candidates
   map scheduledPruneObjectVersion candidates @?= ["object-version-forty-days", "object-version-ten-days-morning"]
   assertBool
     "an unknown object passed the complete-listing guard"
@@ -456,13 +474,55 @@ admissionScope = do
   let prunedEvening = receiptScopes <> [pruneScope "ten-days-evening" []]
   assertBool "a pruned run was pruned again" (isLeft (admit' prunedEvening [pruneScope "ten-days-evening" []]))
   assertBool "a day's surviving newest run was prunable" (isLeft (admit' prunedEvening [pruneScope "ten-days-morning" []]))
+  -- EP-183 M3: a run is ranked only against its own schedule's runs. The
+  -- only run of a second volume's schedule is that schedule's newest, however
+  -- much newer the first volume's runs in the same scope are.
+  assertBool "another schedule's newest run was prunable" (isLeft (admit' (receiptScopes <> [otherVolumeRun]) [pruneScope "other-volume" []]))
+  admit' (receiptScopes <> [otherVolumeRun]) [pruneScope "forty-days" []] @?= Right ()
+
+-- | EP-183 M3: a volume's run is pruned under its own volume's prefix and
+-- scope names; a database's or another volume's prefix refuses.
+volumePruneCompiles :: Assertion
+volumePruneCompiles = do
+  let run = runId "volume-run"
+      volumeObject = "gs://bucket/scheduled-volumes/personal/web/uploads/" <> run <> ".tar.gz"
+      owner = ok (mkScopeId Standalone ("volume-scheduled-receipt-personal-nagare-volbackup-web-uploads-" <> run))
+      jobValue = Aeson.object ["apiVersion" Aeson..= ("batch/v1" :: Text), "kind" Aeson..= ("Job" :: Text), "metadata" Aeson..= Aeson.object ["name" Aeson..= ("ingest" :: Text), "namespace" Aeson..= ("personal" :: Text)]]
+      jobBytes = ok (canonicalValue jobValue)
+      job = case member owner "ingest" of
+        Managed declared -> declared & #spec .~ NativeObject (contentDigest jobBytes)
+        _ -> error "ingestion Job fixture is not managed"
+      fields =
+        Map.union
+          (Map.fromList [("scheduled.backup.object", volumeObject), ("scheduled.backup.receipt", volumeObject <> ".receipt.json"), ("scheduled.backup.source.kind", "volume")])
+          (receiptFields "volume-run" (Just (hoursAgo 1000)))
+      backup = withScopeOverrides fields (scopeOf owner [Managed job])
+      candidate =
+        ScheduledPruneCandidate owner run volumeObject "object-version-volume-run" 123 (T.replicate 64 "a") (volumeObject <> ".receipt.json") "receipt-version-volume-run" 456 (T.replicate 64 "b") (hoursAgo 1000)
+      revision = ScopeRevision (ok (mkScopeGeneration 1)) (contentDigest "revision")
+      request source =
+        ScheduledPruneRequest source "personal" candidate revision (ok (mkPhysicalIdentity "ingest-uid")) sourceScope revision standardRetention (GcsBackend "project" "bucket") (SourceLocation "test" run)
+      compiled source = compileScheduledPruneScope (request source) backup (Map.singleton (job ^. #identity) (job, jobBytes))
+  case compiled (VolumePruneSource "web" "uploads") of
+    Right (scope, _) -> scopeIdText (scopeId scope) @?= "standalone:volume-scheduled-prune-personal-nagare-volbackup-web-uploads-" <> run
+    Left errors -> assertFailure ("a volume run's prune was refused: " <> show errors)
+  assertBool "a volume run was pruned as a database run" (isLeft (compiled (DatabasePruneSource "web")))
+  assertBool "a volume run was pruned as another volume's" (isLeft (compiled (VolumePruneSource "web" "other")))
+
+-- | The only, 40-day-old run of a second schedule in the fixture scope.
+otherVolumeRun :: ScopeDeclaration
+otherVolumeRun =
+  withScopeOverrides
+    (Map.insert "scheduled.backup.schedule" (resourceIdText otherSchedule) (receiptFields "other-volume" (Just (hoursBefore now (40 * 24)))))
+    (scopeOf (receiptOwner "other-volume") [member (receiptOwner "other-volume") "receipt"])
 
 statusCount :: Assertion
 statusCount = do
-  acceptedPastPolicy standardRetention now sourceScope receiptScopes @?= Right (map receiptOwner ["forty-days", "ten-days-morning"])
-  acceptedPastPolicy standardRetention now sourceScope (receiptScopes <> [pruneScope "forty-days" []]) @?= Right [receiptOwner "ten-days-morning"]
-  acceptedPastPolicy standardRetention now (ok (mkScopeId Standalone "other-source")) receiptScopes @?= Right []
-  retentionDetail standardRetention 2 @?= "2 accepted scheduled recovery point(s) past policy (all-172800s,daily-2592000s,newest); review them with db prune-scheduled-backups"
+  acceptedPastPolicy standardRetention now sourceScope scheduleId receiptScopes @?= Right (map receiptOwner ["forty-days", "ten-days-morning"])
+  acceptedPastPolicy standardRetention now sourceScope scheduleId (receiptScopes <> [pruneScope "forty-days" []]) @?= Right [receiptOwner "ten-days-morning"]
+  acceptedPastPolicy standardRetention now (ok (mkScopeId Standalone "other-source")) scheduleId receiptScopes @?= Right []
+  acceptedPastPolicy standardRetention now sourceScope otherSchedule receiptScopes @?= Right []
+  retentionDetail "db prune-scheduled-backups" standardRetention 2 @?= "2 accepted scheduled recovery point(s) past policy (all-172800s,daily-2592000s,newest); review them with db prune-scheduled-backups"
 
 -- End to end through the shared admission, with a recording registry.
 

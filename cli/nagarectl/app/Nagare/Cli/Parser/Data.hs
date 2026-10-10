@@ -380,6 +380,38 @@ storageSubparser =
               (progDesc "Review restoring a rebuilt volume from the snapshot its rebuild named (EP-183)")
           )
         <> command
+          "prune-scheduled-backups"
+          ( info
+              ( Storage
+                  <$> ( StoragePruneScheduledBackups
+                          <$> strArgument (metavar "APP" <> help "Application that declares the volume")
+                          <*> strArgument (metavar "VOLUME" <> help "Declared backup-included volume name")
+                          <*> namespaceOpt
+                          <*> optional (strOption (long "bucket" <> metavar "BUCKET" <> help "GCS backup bucket (overrides the target profile)"))
+                          <*> strOption (long "save-plan" <> metavar "DIR" <> help "Write the reviewed prune")
+                      )
+                    <**> helper
+              )
+              (progDesc "Review the volume's accepted scheduled backups past the retention policy (every point 48 h, the newest per day 30 days)")
+          )
+        <> command
+          "recover-scheduled-prune"
+          ( info
+              ( Storage
+                  <$> ( StorageRecoverScheduledPrune
+                          <$> strArgument (metavar "APP" <> help "Application that declares the volume")
+                          <*> strArgument (metavar "VOLUME" <> help "Declared backup-included volume name")
+                          <*> namespaceOpt
+                          <*> strOption (long "backup-id" <> metavar "ID" <> help "Job UID of the run the abandoned prune named")
+                          <*> optional (strOption (long "bucket" <> metavar "BUCKET" <> help "GCS backup bucket (overrides the target profile)"))
+                          <*> strOption (long "failed-review" <> metavar "DIR" <> help "The abandoned prune's saved review")
+                          <*> strOption (long "save-plan" <> metavar "DIR" <> help "Write the reviewed recovery")
+                      )
+                    <**> helper
+              )
+              (progDesc "Review deletion of the exact receipt left by an abandoned partial scheduled volume prune")
+          )
+        <> command
           "backup-receipts"
           ( info
               ( Storage

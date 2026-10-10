@@ -58,7 +58,8 @@ import Nagare.Inventory.Plan
 import Nagare.Inventory.Prune (ManualPruneRequest (..), PruneSourceProof (..), compileManualPruneScope, manualPruneJobBackupPin, manualPruneSourceProof)
 import Nagare.Inventory.Restore (ManualRestoreRequest (..), VolumeRestoreRequest (..), compileManualRestoreScope, compileVolumeRestoreScope, manualRestoreJobTargetPins, manualRestoreTargetProof, volumeRestoreJobSourcePins)
 import Nagare.Inventory.ScheduledPrune
-  ( ScheduledPruneCandidate (..)
+  ( PruneSource (..)
+  , ScheduledPruneCandidate (..)
   , ScheduledPruneRequest (..)
   , compileScheduledPruneRecoveryScope
   , compileScheduledPruneScope
@@ -1274,7 +1275,7 @@ inventoryKubernetesTests =
             acceptedScheduled = withScopeOverrides scheduledFields finiteScope
             scheduledRequest =
               ScheduledPruneRequest
-                { scheduledPruneDatabase = "notes"
+                { scheduledPruneFrom = DatabasePruneSource "notes"
                 , scheduledPruneNamespace = "default"
                 , scheduledPruneCandidate = candidate
                 , scheduledPruneBackupRevision = pruneVolumeBackupRevision pruneRequest
@@ -1303,8 +1304,7 @@ inventoryKubernetesTests =
                 )
           other -> assertFailure ("scheduled prune source pins were rejected: " <> show other)
         manualPruneJobBackupPin scheduledBytes
-          @?= Right
-            (Just (finiteJob ^. #identity, pruneVolumeBackupUid pruneRequest))
+          @?= Right (Just (finiteJob ^. #identity, pruneVolumeBackupUid pruneRequest))
         assertBool
           "scheduled prune Job lacks exact version checks"
           ( BC.isInfixOf "EXPECTED_OBJECT_VERSION" scheduledBytes

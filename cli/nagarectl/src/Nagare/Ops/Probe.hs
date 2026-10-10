@@ -287,14 +287,14 @@ recoveryPointProbe database result = Probe "recovery point" grade (database <> "
 -- retention policy (ADR 28). Points past policy are a warning, not a failure:
 -- the reviewed prune is the operator's exit, and nothing deletes them in the
 -- background. A source whose accepted receipts cannot be read is unknown.
-retentionProbe :: Text -> Either Text (RetentionPolicy, Int) -> Probe
-retentionProbe database result = Probe "retention" grade (database <> ": " <> detail)
+retentionProbe :: Text -> Text -> Either Text (RetentionPolicy, Int) -> Probe
+retentionProbe command source result = Probe "retention" grade (source <> ": " <> detail)
   where
     grade = case result of
       Left _ -> StatusUnknown
       Right (_, 0) -> StatusOk
       Right _ -> StatusWarn
-    detail = either ("accepted receipts unreadable: " <>) (uncurry retentionDetail) result
+    detail = either ("accepted receipts unreadable: " <>) (uncurry (retentionDetail command)) result
 
 -- | Extract a @"<Use%> of <Size>"@ description for a given mountpoint from
 -- @df -h@ output. The standard six columns are

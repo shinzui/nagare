@@ -13,6 +13,7 @@ import Data.Text.IO qualified as TIO
 import Data.Time (UTCTime, getCurrentTime)
 import Data.Time.Format (defaultTimeLocale, parseTimeM)
 import Nagare.Cli.Application.Config (resolveStorageDep)
+import Nagare.Cli.Data.ScheduledPrune (runReviewedScheduledPrunePlan, runReviewedScheduledPruneRecoveryPlan)
 import Nagare.Cli.Data.ScheduledReceipts (IngestSelection (..), runListVolumeReceipts, runReviewedVolumeReceiptPlan)
 import Nagare.Cli.Data.VolumeRebuildRestore (runScheduledVolumeRestorePlan, runVolumeRebuildRestorePlan)
 import Nagare.Cli.Inventory.Adapters (inventoryKubernetesAdapter)
@@ -88,6 +89,7 @@ import Nagare.Inventory.Restore
       )
   )
 import Nagare.Inventory.ScheduledGcs (withScheduledObjectStore)
+import Nagare.Inventory.ScheduledPrune (PruneSource (VolumePruneSource))
 import Nagare.Inventory.Status qualified as InventoryStatus
 import Nagare.Inventory.Store qualified as InventoryStore
 import Nagare.Inventory.VolumePrune
@@ -195,6 +197,10 @@ runStorage mctx = \case
         runReviewedVolumeReceiptPlan mctx (T.pack app) (T.pack volume) ns bucket IngestAllVerified output
       (Nothing, False, Nothing) -> runListVolumeReceipts mctx (T.pack app) (T.pack volume) ns bucket
       _ -> dieT "storage backup-receipts takes --backup-id ID or --all, with --save-plan DIR, or neither to list"
+  StoragePruneScheduledBackups app volume namespaceName bucket output ->
+    runReviewedScheduledPrunePlan mctx (VolumePruneSource (T.pack app) (T.pack volume)) (maybe "personal" T.pack namespaceName) bucket output
+  StorageRecoverScheduledPrune app volume namespaceName backupId bucket failed output ->
+    runReviewedScheduledPruneRecoveryPlan mctx (VolumePruneSource (T.pack app) (T.pack volume)) (maybe "personal" T.pack namespaceName) (T.pack backupId) bucket failed output
   StorageRestoreRebuilt app volume namespaceName restoreKey bucket store credentials output -> do
     offline <- offlineStore store credentials
     runVolumeRebuildRestorePlan mctx (T.pack app) (T.pack volume) (maybe "personal" T.pack namespaceName) (T.pack restoreKey) bucket offline output

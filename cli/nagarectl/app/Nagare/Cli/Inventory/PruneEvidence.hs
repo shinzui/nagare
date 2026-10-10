@@ -141,16 +141,27 @@ verifyReviewedScheduledPruneProvider mctx scopes selectedJobs = do
                           ] of
         [single] -> pure single
         _ -> dieT "scheduled prune policy is no longer uniquely accepted"
+      -- EP-183 M3: the run's own schedule, since an application scope holds
+      -- one CronJob per backed-up volume besides any task CronJobs.
+      prunedName <- required "scheduled.prune.backup.scope"
+      schedule <- case [ named
+                       | scope <- acceptedScopes
+                       , Resource.scopeIdText (ResourceInventory.scopeId scope) == prunedName
+                       , Just named <- [Map.lookup "scheduled.backup.schedule" (ResourceInventory.scopeOverrides scope)]
+                       ] of
+        [single] -> pure single
+        _ -> dieT "scheduled prune backup names no accepted schedule"
       cron <- case [ member
                    | bundle <- ResourceInventory.scopeBundles policyScope
                    , ResourceInventory.Managed member <- ResourceInventory.declarations bundle
+                   , Resource.resourceIdText (member ^. #identity) == schedule
                    , case member ^. #address of
                        Resource.Kubernetes _ "batch" kind (Just _) _ ->
                          Resource.nameText kind == "cronjob"
                        _ -> False
                    ] of
         [single] -> pure single
-        _ -> dieT "scheduled prune policy lacks one accepted CronJob"
+        _ -> dieT "scheduled prune policy lacks the run's accepted CronJob"
       namespaceName <- case cron ^. #address of
         Resource.Kubernetes _ _ _ (Just ns) _ -> pure (Resource.nameText ns)
         _ -> dieT "scheduled prune CronJob lacks a namespace"
@@ -183,7 +194,6 @@ verifyReviewedScheduledPruneProvider mctx scopes selectedJobs = do
       receiptAddress <- required "scheduled.prune.receipt"
       objectVersion <- required "scheduled.prune.object.version"
       receiptVersion <- required "scheduled.prune.receipt.version"
-      backupScopeName <- required "scheduled.prune.backup.scope"
       objectKey <-
         maybe
           (dieT "scheduled prune object is outside the selected bucket")
@@ -205,6 +215,7 @@ verifyReviewedScheduledPruneProvider mctx scopes selectedJobs = do
                 "scheduled.backup.source.scope"
                 (ResourceInventory.scopeOverrides scope)
                 == Just policyName
+            , Map.lookup "scheduled.backup.schedule" (ResourceInventory.scopeOverrides scope) == Just schedule
             , Set.notMember
                 ( Resource.scopeIdText
                     (ResourceInventory.scopeId scope)
@@ -224,7 +235,7 @@ verifyReviewedScheduledPruneProvider mctx scopes selectedJobs = do
               backups
       unless
         ( not (T.null keyPrefix)
-            && backupScopeName
+            && prunedName
               `elem` map
                 ( Resource.scopeIdText
                     . ResourceInventory.scopeId
@@ -245,6 +256,7 @@ verifyReviewedScheduledPruneProvider mctx scopes selectedJobs = do
               [ run
               | scope <- acceptedScopes
               , Map.lookup "scheduled.backup.source.scope" (ResourceInventory.scopeOverrides scope) == Just policyName
+              , Map.lookup "scheduled.backup.schedule" (ResourceInventory.scopeOverrides scope) == Just schedule
               , Just run <- [Map.lookup "scheduled.backup.id" (ResourceInventory.scopeOverrides scope)]
               ]
       either

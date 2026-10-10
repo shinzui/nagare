@@ -64,7 +64,8 @@ ROUTES = {
     "SecretCommand": {"read": "SecretList", "reviewed": "SecretSet SecretDelete SecretSync"},
     "StorageCommand": {
         "read": "StorageList StorageInspect",
-        "reviewed": "StorageSnapshot StorageRestore StoragePrune StorageRestoreRebuilt StorageBackupReceipts",
+        "reviewed": "StorageSnapshot StorageRestore StoragePrune StorageRestoreRebuilt StorageBackupReceipts StoragePruneScheduledBackups",
+        "recovery": "StorageRecoverScheduledPrune",
     },
     "DbCommand": {
         "read": "DbList DbGet DbVerifyEscrowedBackup",
@@ -107,7 +108,7 @@ DEFERRED_VARIANTS = {
     "DbCommand.DbRestore.--into-live",
     "StorageCommand.StorageRestore.--into-live",
 }
-AUTHORIZED_RECOVERY_ONLY = {"DbCommand.DbRecoverScheduledPrune"}
+AUTHORIZED_RECOVERY_ONLY = {"DbCommand.DbRecoverScheduledPrune", "StorageCommand.StorageRecoverScheduledPrune"}
 
 # These are independently callable consumers of the CLI or provider transports.
 # A missing path or changed invocation is an audit failure, so packaged recipes

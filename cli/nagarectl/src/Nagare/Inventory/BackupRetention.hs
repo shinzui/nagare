@@ -86,11 +86,12 @@ splitByRetention policy objective now points
               , pastPolicy = map fst (sortOn snd past)
               }
 
--- | The @server status@ detail for one source.
-retentionDetail :: RetentionPolicy -> Int -> Text
-retentionDetail policy past =
+-- | The @server status@ detail for one source, naming the command that
+-- reviews its prune (@db@ or, for a volume, @storage prune-scheduled-backups@).
+retentionDetail :: Text -> RetentionPolicy -> Int -> Text
+retentionDetail command policy past =
   T.pack (show past)
     <> " accepted scheduled recovery point(s) past policy ("
     <> retentionPolicyText policy
     <> ")"
-    <> if past > 0 then "; review them with db prune-scheduled-backups" else ""
+    <> if past > 0 then "; review them with " <> command else ""

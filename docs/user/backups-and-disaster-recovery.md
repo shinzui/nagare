@@ -295,8 +295,35 @@ from slightly different moments. An application that needs transactional
 consistency across its data belongs in a managed database. This is the same
 contract the manual snapshot has.
 
-Ingesting a scheduled volume receipt as restore authority, and restoring from
-one, are not available yet; restore a volume from a manual snapshot.
+A volume's runs become restore authority the way a database's do, by an
+ingestion review:
+
+```bash
+nagarectl storage backup-receipts APP VOLUME --all --save-plan DIR
+nagarectl inventory apply DIR --yes
+```
+
+An accepted, unpruned run restores into a separate scratch claim. Its
+archive and receipt are reread at the versions its ingestion recorded, so
+neither the producer's nor the ingestion's Job needs to exist:
+
+```bash
+nagarectl storage restore APP VOLUME RUN_ID --scheduled-run --restore-id RESTORE_ID --save-plan DIR
+nagarectl inventory apply DIR --yes
+```
+
+Retention applies per volume, ranked only against that volume's own runs.
+`server status` shows one `retention` row per volume, and the same reviewed
+prune and recovery exist for a volume:
+
+```bash
+nagarectl storage prune-scheduled-backups APP VOLUME --save-plan DIR
+nagarectl storage recover-scheduled-prune APP VOLUME --backup-id RUN_ID --failed-review FAILED_DIR --save-plan DIR
+```
+
+A volume run is pruned while it was taken from the claim's current
+incarnation under the current schedule. An accepted scratch restore that names
+a run, or a rebuild restore that names its receipt, keeps that run.
 
 #### Escrow the signing key off the cluster
 

@@ -868,7 +868,7 @@ signedScheduledBackups universe selected =
   | resource <- selected
   , Kubernetes cluster "batch" kind (Just namespaceName) name <- [resource ^. #address]
   , nameText kind == "cronjob"
-  , "nagare-dbbackup-" `T.isPrefixOf` nameText name
+  , any (`T.isPrefixOf` nameText name) ["nagare-dbbackup-", "nagare-volbackup-"]
   , any
       ( \signing ->
           signing ^. #owner == resource ^. #owner

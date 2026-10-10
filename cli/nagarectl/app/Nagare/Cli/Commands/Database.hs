@@ -79,6 +79,7 @@ import Nagare.Inventory.DataService
   )
 import Nagare.Inventory.Database (DatabaseBackupTarget (DatabaseBackupTarget))
 import Nagare.Inventory.Plan qualified as InventoryPlan
+import Nagare.Inventory.ScheduledPrune (PruneSource (DatabasePruneSource))
 import Nagare.Inventory.Status qualified as InventoryStatus
 import Nagare.Resource.Database (DatabaseDirectInput (..))
 import Nagare.Resource.Inventory qualified as ResourceInventory
@@ -214,14 +215,14 @@ runDb mctx = \case
   DbPruneScheduledBackups o ->
     runReviewedScheduledPrunePlan
       mctx
-      (T.pack (o ^. #name))
+      (DatabasePruneSource (T.pack (o ^. #name)))
       (nsOf (o ^. #namespace))
       (o ^. #bucket)
       (o ^. #savePlan)
   DbRecoverScheduledPrune o ->
     runReviewedScheduledPruneRecoveryPlan
       mctx
-      (T.pack (o ^. #name))
+      (DatabasePruneSource (T.pack (o ^. #name)))
       (nsOf (o ^. #namespace))
       (T.pack (o ^. #backupId))
       (o ^. #bucket)

@@ -626,6 +626,10 @@ data StorageCommand
     StorageRestoreRebuilt String String (Maybe String) String (Maybe String) (Maybe String) (Maybe FilePath) FilePath
   | -- | APP, VOLUME, --namespace, --bucket, --backup-id, --all, --save-plan (EP-183 M3)
     StorageBackupReceipts String String (Maybe String) (Maybe String) (Maybe String) Bool (Maybe FilePath)
+  | -- | APP, VOLUME, --namespace, --bucket, --save-plan (EP-183 M3)
+    StoragePruneScheduledBackups String String (Maybe String) (Maybe String) FilePath
+  | -- | APP, VOLUME, --namespace, --backup-id, --bucket, --failed-review, --save-plan (EP-183 M3)
+    StorageRecoverScheduledPrune String String (Maybe String) String (Maybe String) FilePath FilePath
   deriving stock (Generic, Show)
 
 -- | The @db@ subcommands (MasterPlan 9, EP-45, Integration Point IP4). One

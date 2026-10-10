@@ -157,7 +157,7 @@ scheduledRecoveryPointProbes mctx =
           schedules =
             Set.toAscList
               ( Set.fromList
-                  [ (Resource.nameText namespace, Resource.nameText name, ResourceInventory.scopeId scope)
+                  [ (Resource.nameText namespace, Resource.nameText name, ResourceInventory.scopeId scope, member ^. #identity)
                   | (_, scope) <- Map.elems (ResourceInventory.snapshotScopes snapshot)
                   , bundle <- ResourceInventory.scopeBundles scope
                   , ResourceInventory.Managed member <- ResourceInventory.declarations bundle
@@ -167,9 +167,10 @@ scheduledRecoveryPointProbes mctx =
                   ]
               )
       -- A database row is labelled by its name; a volume row (EP-183 M3) by
-      -- its schedule. Volume receipts are not ingested yet, so a volume has no
-      -- accepted receipts for a retention row to grade.
-      fmap concat . forM schedules $ \(namespaceName, schedule, source) ->
+      -- its schedule. Retention is graded per schedule from accepted receipts
+      -- alone; no provider read.
+      fmap concat . forM schedules $ \(namespaceName, schedule, source, cron) -> do
+        let retention command label = retentionProbe command label ((standardRetention,) . length <$> acceptedPastPolicy standardRetention now source cron current)
         case T.stripPrefix "nagare-dbbackup-" schedule of
           Just database -> do
             let label = namespaceName <> "/" <> database
@@ -178,16 +179,15 @@ scheduledRecoveryPointProbes mctx =
                 <$> ( (Right . (^. #freshness) <$> scheduledReceiptScan NewestVerified mctx database namespaceName Nothing)
                         `catches` unobservable
                     )
-            -- EP-183 M2: graded from accepted receipts alone; no provider read.
-            let retention = retentionProbe label ((standardRetention,) . length <$> acceptedPastPolicy standardRetention now source current)
-            pure [point, retention]
+            pure [point, retention "db prune-scheduled-backups" label]
           Nothing -> do
+            let label = namespaceName <> "/" <> schedule
             point <-
-              recoveryPointProbe (namespaceName <> "/" <> schedule)
+              recoveryPointProbe label
                 <$> ( (Right . (^. #freshness) <$> (resolveVolumeScheduledSource mctx schedule namespaceName Nothing >>= scheduledReceiptScanSource NewestVerified))
                         `catches` unobservable
                     )
-            pure [point]
+            pure [point, retention "storage prune-scheduled-backups" label]
   )
     `catches` [ Handler (\(_ :: ExitCode) -> pure [recoveryPointProbe "(context)" (Left "accepted inventory is unavailable")])
               ]
