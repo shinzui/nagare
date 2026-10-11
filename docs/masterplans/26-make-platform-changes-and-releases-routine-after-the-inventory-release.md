@@ -189,7 +189,7 @@ No cross-repository ADR applies.
 | 6 | Find recovery defects with adversarial provider interpreters | docs/plans/173-find-recovery-defects-with-adversarial-provider-interpreters.md | None | None | Held (M1–M2 accepted 2026-10-05; M3–M5 held by the operator, 2026-10-10) |
 | 7 | Gate every commit before any native run | docs/plans/174-gate-every-commit-before-any-native-run.md | None | EP-168 (shared `nagare-harness` package) | Complete (2026-10-05) |
 | 8 | Make the flake check build each Haskell package once | docs/plans/178-make-the-flake-check-build-each-haskell-package-once.md | None | EP-174 | Complete (2026-10-05) |
-| 9 | Make the gates wait only for their slowest job and stop losing gate runs to the builder | docs/plans/184-make-the-gates-wait-only-for-their-slowest-job-and-stop-losing-gate-runs-to-the-builder.md | None | EP-173 (shared recovery-model test files) | In Progress (M1 and M2 built 2026-10-10) |
+| 9 | Make the gates wait only for their slowest job and stop losing gate runs to the builder | docs/plans/184-make-the-gates-wait-only-for-their-slowest-job-and-stop-losing-gate-runs-to-the-builder.md | None | EP-173 (shared recovery-model test files) | In Progress (M1 and M2 done 2026-10-11; M3 and M4 open) |
 
 Status values: Not Started, In Progress, Complete, Cancelled, Held. A held plan is not worked on
 until the operator reopens it. EP-172 keeps its file path; its title

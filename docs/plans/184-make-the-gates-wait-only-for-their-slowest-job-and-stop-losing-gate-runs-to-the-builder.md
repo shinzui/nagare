@@ -81,11 +81,18 @@ record still runs at the same gate it runs at today ([ADR 25](../adr/0025-defect
 
 ## Progress
 
-- [ ] M1. The suite runs in parallel. The tests that change process-global state run in one
+- [x] M1. The suite runs in parallel. The tests that change process-global state run in one
   sequential group, and each slow model test is split into shards that cover exactly its current
   runs. Measured before and after; the fast gate's test step is at most 5 minutes on the
   workstation.
-- [ ] M2. The full gate runs each check once and starts the remote work first, so local and
+  - [x] (2026-10-10) `08c5695e`: the suite runs as one process per core (`Nagare.Test.Shards`;
+    every count-th test in tree order, `NAGARE_SUITE_SHARDS` or `NIX_BUILD_CORES` sets the count)
+    instead of a sequential group, because the adapter environment sets process-wide variables and
+    in-process parallelism failed 177 tests with `StoreReentry`. F62 and the recovery-model tiers
+    are split into chunk groups that cover exactly their previous runs, and interpreted runtimes
+    no longer sleep. `nagarectl-test` step on the 10-core workstation: 1,311 s before; 262 s
+    (record `f8cf5eae`) and 280 s (record `3ec558cb`) after.
+- [x] M2. The full gate runs each check once and starts the remote work first, so local and
   remote work overlap. Measured before and after; its wall time is within 10% of its slowest
   single job.
   - [x] (2026-10-10) `nix flake check --all-systems --keep-going` starts right after the builder
@@ -96,12 +103,20 @@ record still runs at the same gate it runs at today ([ADR 25](../adr/0025-defect
     `gate verify` are unchanged. Eight harness tests (`FlakeCheckSpec`), green locally and in the
     `nagare-harness-build-test` sandbox on aarch64-darwin. Two of them were shown failing against
     a sequential gate and a gate without the log follower.
-  - [ ] Measure a green full gate's wall time and the time to a deliberately broken check's first
-    report, before and after. Derived from the red a07246bc record, but not yet measured: its
-    flake check started 1393 s in and failed 92 s later (first failure at about 24.7 minutes, every
-    other check cancelled); with this change the same failure would print at about 2 minutes.
-  - [ ] Drop the duplicate local suite if the measurement allows, and add step start and end
-    times to the record.
+  - [x] Measure a green full gate's wall time, before and after. Before: record `41df1ba4`,
+    sequential, 1,540 s of flake check after 473 s of suites (about 55 minutes with the builds);
+    record `f8cf5eae`, sequential, 1,000 s. After: record `00833b79`, 375 s wall, of which the
+    flake check (the slowest job) 332 s, builder probe 5 s, static checks 33 s, realisation
+    about 10 s; the suite builds and record patterns (106 s) ran alongside the flake check. That
+    run rebuilt only `nagare-harness`; for a `nagarectl` change the flake check is 681 s
+    (`f8cf5eae`) to 764 s (`3ec558cb`) uncontended, and the wall is that plus about 45 s, within
+    10%. The time to a deliberately broken check's first report was not measured; the follower
+    polls the flake log every 10 s.
+  - [x] (2026-10-11) `00833b79`: the full gate's check plan runs the static checks and the suite
+    builds (which the record patterns need and the fast gate has already built); the flake check
+    runs each suite once per system. The fast gate still runs both suites locally. Step start and
+    end times were not added: the gate prints `gate: wall N s`, and the record format is
+    unchanged.
 - [ ] M3. The full gate does not lose a run to the builder: a gcloud preflight that makes a real
   API call, a keep-awake session for the length of the run, and one retry of a remote step after a
   transport failure. Each is shown working against an injected failure.
