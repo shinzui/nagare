@@ -4,7 +4,8 @@
 -- differs between the two trees is documentation no check, test or payload
 -- reads. Re-running the gate for such a commit cannot change its result.
 --
--- A changed path is inert only when all three hold:
+-- The repository's top-level @README.md@ is inert: no check, test or payload
+-- reads it. Any other changed path is inert only when all three hold:
 --
 -- * it lies under one of 'inertPrefixes' (plans, MasterPlans, ADRs, audits);
 -- * it is not one of the 'shippedDocuments' the platform payload copies;
@@ -20,6 +21,7 @@ module Nagare.Harness.CarryForward
   ( PathVerdict (..)
   , carryForwardVerdict
   , classifyPath
+  , inertFiles
   , inertPrefixes
   , referenceNeedles
   , shippedDocuments
@@ -39,6 +41,10 @@ data PathVerdict
     -- directories.
     NamedByCode !Text
   deriving stock (Eq, Show, Generic)
+
+-- | Single documents that are neither shipped nor executed.
+inertFiles :: [Text]
+inertFiles = ["README.md"]
 
 -- | Documentation trees that are neither shipped nor executed.
 inertPrefixes :: [Text]
@@ -65,6 +71,7 @@ referenceNeedles path = case [prefix | prefix <- inertPrefixes, prefix `T.isPref
 -- if any, names a needle.
 classifyPath :: (Text -> Maybe Text) -> Text -> PathVerdict
 classifyPath namedBy path
+  | path `elem` inertFiles = Inert
   | not (any (`T.isPrefixOf` path) inertPrefixes) = OutsideInertDocumentation
   | path `elem` shippedDocuments = ShippedInPayload
   | otherwise = case mapMaybe namedBy (referenceNeedles path) of

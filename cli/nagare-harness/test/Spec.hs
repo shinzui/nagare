@@ -151,6 +151,9 @@ tests =
         , testCase "plans, MasterPlans, ADRs and audits nobody names are inert" $
             carryForwardVerdict (const Nothing) ["docs/plans/1-x.md", "docs/masterplans/2-y.md", "docs/adr/0001-z.md", "docs/audits/a/b.json"]
               @?= Right 4
+        , testCase "the top-level README is inert; nested READMEs are not" $
+            map (classifyPath (const Nothing)) ["README.md", "cluster/bootstrap/nix-cache/README.md"]
+              @?= [Inert, OutsideInertDocumentation]
         , testCase "an empty difference carries forward" $
             carryForwardVerdict (const Nothing) [] @?= Right 0
         , testCase "code, user guides, runbooks and release notes are not inert" $
