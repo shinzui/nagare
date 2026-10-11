@@ -115,8 +115,12 @@ correctionConverges scenario finalStart run = case finalScope of
         _ | take 1 (reverse (steps scenario)) == [RebuildApplication] -> rebuildLineageHolds [volumeId | shapeVolume (shape scenario)] run
         _ -> pure (Right ())
   where
-    finalScope = case reverse (steps scenario) of
+    finalScope = finalScopeOf (reverse (steps scenario))
+    finalScopeOf remaining = case remaining of
       Deploy image : _ | image `notElem` unready scenario -> Just appScope
+      TransitionDeploy image : _ | image `notElem` unready scenario -> Just appScope
+      -- EP-172: the commit reviews nothing; the stage before it is the final review.
+      CommitTransition : rest -> finalScopeOf rest
       CreateDatabase : _ -> Just databaseScopeId
       UpdateDatabase : _ -> Just databaseScopeId
       RestartDatabase : _ -> Just databaseScopeId

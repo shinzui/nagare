@@ -58,6 +58,7 @@ import Nagare.Test.Model.Run
 import Nagare.Test.Model.Scenarios
 import Nagare.Test.Model.Search
 import Nagare.Test.Model.Tier
+import Nagare.Test.Model.Transition (commitTransition, transitionIdentity)
 import Nagare.Test.World.Adversary
 import Nagare.Test.World.ApiServer (Outcome (Good, Unready))
 import Nagare.Test.World.ApiServer qualified as ApiServer
@@ -494,6 +495,7 @@ drive scenario schedule onStop start resumed = do
     -- The image the accepted application declares after a step.
     next previous step = case step of
       Deploy image -> image
+      TransitionDeploy image -> image
       _ -> previous
     -- Each step leaves a checkpoint, then records its call counts and head.
     begin (began, saved) run previous taken = do
@@ -511,7 +513,9 @@ drive scenario schedule onStop start resumed = do
       consistent <- storeConsistent run
       -- I9 needs the call counts at the final step's start: the most recent
       -- step began last.
-      finalStart <- maybe Map.empty fst . listToMaybe <$> readIORef (fst began)
+      -- EP-172: the transition's commit reviews nothing, so the final review
+      -- is the step before it.
+      finalStart <- maybe Map.empty fst . listToMaybe . drop (if take 1 (reverse (steps scenario)) == [CommitTransition] then 1 else 0) <$> readIORef (fst began)
       corrected <- correctionConverges scenario finalStart run
       ended began run taken $ case consistent *> corrected of
         Left violation -> Left (describe scenario schedule "(end)" violation [])
@@ -523,6 +527,17 @@ drive scenario schedule onStop start resumed = do
         Left violation -> ended began run taken (Left (describe scenario schedule (stepText IngestReceipt) violation []))
         Right () -> go began run previous rest taken
     go began run previous (LoseCluster : rest) taken = begin began run previous taken >> loseCluster run >> go began run previous rest taken
+    go began run previous (CommitTransition : rest) taken = do
+      begin began run previous taken
+      committed <- commitTransition run
+      case committed of
+        Left violation -> ended began run taken (Left (describe scenario schedule (stepText CommitTransition) violation []))
+        -- A stage that stopped and was closed without converging is reviewed
+        -- again before the commit; the commit's refusal ends the scenario.
+        Right (Just _) -> do
+          adversary <- readIORef (runAdversary run)
+          ended began run taken (Right (counts adversary))
+        Right Nothing -> go began run previous rest taken
     go began run previous (step : rest) taken = begin began run previous taken >> attempt began False run previous step rest taken
     attempt began replanned run previous step rest taken = do
       let historyImage image' = if historyFollows scenario then image' else "v1"
@@ -534,7 +549,8 @@ drive scenario schedule onStop start resumed = do
         RebuildDatabase -> databaseAndApply run decideModelRebuild (databaseScope, databaseNative) (shape scenario) previous (historyImage previous)
         RestartDatabase -> restartAndApply run (shape scenario) previous (historyImage previous)
         RetireDatabase -> scopeRetireAndApply run databaseScopeId (shape scenario) previous (historyImage previous)
-        RebuildApplication -> reviewAndApplyWith decideModelRebuild run (shape scenario) previous (historyImage previous)
+        RebuildApplication -> reviewAndApplyWith "operator-cli" decideModelRebuild run (shape scenario) previous (historyImage previous)
+        TransitionDeploy _ -> reviewAndApplyWith transitionIdentity noDecisions run (shape scenario) image (historyImage image)
         _ -> reviewAndApply run (shape scenario) image (historyImage image)
       excused <- either (excusedRefusal run) (const (pure False)) outcome
       absentScope <- either (absentScopeRetirement run) (const (pure False)) outcome
@@ -650,11 +666,13 @@ data Applied
 -- commands, re-run while new faults fire; an apply that stopped once its
 -- transaction started is ended by an exit, not re-run.
 reviewAndApply :: Run -> Shape -> Text -> Text -> IO (Either Text (AdapterRegistry, ReviewedPlan, Applied))
-reviewAndApply = reviewAndApplyWith noDecisions
+reviewAndApply = reviewAndApplyWith "operator-cli" noDecisions
 
-reviewAndApplyWith :: (CompositionCandidate -> InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) LifecycleDecisions) -> Run -> Shape -> Text -> Text -> IO (Either Text (AdapterRegistry, ReviewedPlan, Applied))
-reviewAndApplyWith decide run volume image historyImage = do
-  planned <- asOperator run (planReview decide run volume image historyImage)
+-- | A review under a payload identity: the operator's, or a release
+-- transition's (EP-172).
+reviewAndApplyWith :: Text -> (CompositionCandidate -> InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) LifecycleDecisions) -> Run -> Shape -> Text -> Text -> IO (Either Text (AdapterRegistry, ReviewedPlan, Applied))
+reviewAndApplyWith identity decide run volume image historyImage = do
+  planned <- asOperator run (planReview identity decide run volume image historyImage)
   case planned of
     Left err -> pure (Left err)
     Right (registry, reviewed) -> do
@@ -680,7 +698,7 @@ retireAndApply run volume image historyImage = do
 -- | Retire one scope, retaining its members, as `inventory retire` plans it.
 scopeRetireAndApply :: Run -> ScopeId -> Shape -> Text -> Text -> IO (Either Text (AdapterRegistry, ReviewedPlan, Applied))
 scopeRetireAndApply run scope volume image historyImage = do
-  planned <- asOperator run (\store -> registryFor run volume image historyImage >>= \registry -> planWith store registry (RetireScope scope RetainResources) decideRetirement)
+  planned <- asOperator run (\store -> registryFor run volume image historyImage >>= \registry -> planWith "operator-cli" store registry (RetireScope scope RetainResources) decideRetirement)
   case planned of
     Left err -> pure (Left err)
     Right (registry, reviewed) -> do
@@ -690,14 +708,14 @@ scopeRetireAndApply run scope volume image historyImage = do
 
 planRetirement :: Run -> Shape -> Text -> Text -> InventoryStore -> IO (Either Text (AdapterRegistry, ReviewedPlan))
 planRetirement run volume image historyImage store =
-  registryFor run volume image historyImage >>= \registry -> planWith store registry (RetireScope appScope RetainResources) decideRetirement
+  registryFor run volume image historyImage >>= \registry -> planWith "operator-cli" store registry (RetireScope appScope RetainResources) decideRetirement
 
 -- | Review and apply the standalone database scope at one compiled revision.
 databaseAndApply :: Run -> (CompositionCandidate -> InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) LifecycleDecisions) -> (ScopeDeclaration, Map.Map ResourceId (ManagedResource, ByteString)) -> Shape -> Text -> Text -> IO (Either Text (AdapterRegistry, ReviewedPlan, Applied))
 databaseAndApply run decide (scope, native) volume image historyImage = do
   -- As production builds it: the reviewed revision's native specs.
   writeIORef (runDatabase run) native
-  planned <- asOperator run (\store -> registryFor run volume image historyImage >>= \registry -> planWith store registry (ReplaceScope scope) decide)
+  planned <- asOperator run (\store -> registryFor run volume image historyImage >>= \registry -> planWith "operator-cli" store registry (ReplaceScope scope) decide)
   case planned of
     Left err -> pure (Left err)
     Right (registry, reviewed) -> do
@@ -799,17 +817,18 @@ applyAsOperator run registry reviewed = do
 headIdle :: Run -> IO Bool
 headIdle run = maybe True (isNothing . headActiveTransaction) <$> (inspectHead run >>= orFail "read head")
 
-planReview :: (CompositionCandidate -> InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) LifecycleDecisions) -> Run -> Shape -> Text -> Text -> InventoryStore -> IO (Either Text (AdapterRegistry, ReviewedPlan))
-planReview decide run volume image historyImage store =
-  registryFor run volume image historyImage >>= \registry -> planWith store registry (ReplaceScope (scopeFor volume image historyImage)) decide
+planReview :: Text -> (CompositionCandidate -> InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) LifecycleDecisions) -> Run -> Shape -> Text -> Text -> InventoryStore -> IO (Either Text (AdapterRegistry, ReviewedPlan))
+planReview identity decide run volume image historyImage store =
+  registryFor run volume image historyImage >>= \registry -> planWith identity store registry (ReplaceScope (scopeFor volume image historyImage)) decide
 
 planWith ::
+  Text ->
   InventoryStore ->
   AdapterRegistry ->
   ScopeChange ->
   (CompositionCandidate -> InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) LifecycleDecisions) ->
   IO (Either Text (AdapterRegistry, ReviewedPlan))
-planWith store registry change decide = do
+planWith identity store registry change decide = do
   loaded <- loadInventoryHistory store >>= orTrouble "load history"
   let accepted = historyAccepted loaded
       snapshot = ok (mkScopeSnapshot fixtureBinding (Map.map (\(revision, declared) -> (revisionGeneration revision, declared)) accepted) (historyReservations loaded))
@@ -823,7 +842,7 @@ planWith store registry change decide = do
         Left err -> pure (Left err)
         Right proposal -> do
           before <- readStoreSnapshot store >>= orTrouble "read snapshot"
-          prepared <- prepareReview registry before proposal
+          prepared <- prepareReviewWithPayloadIdentity identity registry before proposal
           case prepared of
             -- B6: the refused members, named only when every refused operation is a verify.
             Left err ->

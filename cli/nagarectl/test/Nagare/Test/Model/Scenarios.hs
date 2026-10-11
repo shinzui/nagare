@@ -69,6 +69,7 @@ explicitScenarios =
     , Scenario "create a database, update its resources, update it again, then restart it" [CreateDatabase, UpdateDatabase, CreateDatabase, RestartDatabase] [] True plainShape
     , Scenario "create a database, lose the cluster, then rebuild it (EP-183 M4)" [CreateDatabase, LoseCluster, RebuildDatabase] [] True plainShape
     , Scenario "create with a durable volume, lose the cluster, then rebuild the application (EP-183 M4)" [Deploy "v1", LoseCluster, RebuildApplication] [] True volumeShape
+    , Scenario "create, then a release transition stage, then commit (EP-172)" [Deploy "v1", TransitionDeploy "v2", CommitTransition] [] True plainShape
     ]
 
 data Step
@@ -97,6 +98,12 @@ data Step
   | -- | EP-183 M4: rebuild every missing durable member of the application
     -- (its volume) through reviewed rebuild decisions, and apply.
     RebuildApplication
+  | -- | EP-172: review and apply the application at this image under the
+    -- release transition's identity, as a transition stage is admitted.
+    TransitionDeploy !Text
+  | -- | EP-172: pin and close the transition as `platform transition commit`
+    -- does, which needs an idle head and the marker still open.
+    CommitTransition
   deriving stock (Eq, Show)
 
 stepText :: Step -> Text
@@ -111,3 +118,5 @@ stepText step = case step of
   LoseCluster -> "lose the cluster"
   RebuildDatabase -> "rebuild database"
   RebuildApplication -> "rebuild application"
+  TransitionDeploy image -> image
+  CommitTransition -> "commit transition"

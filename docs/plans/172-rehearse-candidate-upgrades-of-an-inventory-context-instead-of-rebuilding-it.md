@@ -90,8 +90,12 @@ status` reports T on the CLI, payload, context, host and cluster.
     a lock that leaves the payload (`hostLockRepin`); images are not rebuilt for an accepted host.
     `platform transition commit --yes` writes the pin last, after the store is idle and payload,
     host and cluster report T, then clears the marker.
-  - Run it in the [EP-173](173-find-recovery-defects-with-adversarial-provider-interpreters.md)
-    recovery model under every single fault at every boundary.
+  - [x] (2026-10-11) Run it in the [EP-173](173-find-recovery-defects-with-adversarial-provider-interpreters.md)
+    recovery model under every single fault at every boundary: the scenario "create, then a release
+    transition stage, then commit" reviews the application under the transition identity, takes
+    every exit the faults force, and its commit step (I10) refuses unless the head is idle with the
+    marker still open and the stage converged, then clears it idempotently. The host stage and the
+    pin write are CLI-side and stay with the native rehearsal.
   - Acceptance:
     - invariants I1–I6 hold;
     - mutation records show that removing the unsupported-pair refusal, or reordering the pin commit
