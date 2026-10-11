@@ -18,9 +18,14 @@ drill log. Nothing is ticked on an estimate.
   ledger, with the operator's approval, unless it risks losing data; only then is it fixed in place.
 - **Drills decide.** Each goal ends in an end-to-end drill the operator can watch pass. It is
   rehearsed locally (k3d) first, then run on the cloud VM.
-- **Release gates for every change.** `just land` with a green `just gate` record, a zero-survivor
-  `just mutation-sweep`, and the fast tier on the validated world. The deep tier is monitoring; each
-  of its classes is triaged into a fix or the ledger (ADR 25, 2026-10-07 amendment).
+- **Gates sized to the step (operator, 2026-10-10).** Every change lands through `just land` with a
+  green `just gate` record. The mutation sweep and the deep tier run once per release, not per
+  change; the deep tier is monitoring and each of its classes is triaged into a fix or the ledger
+  (ADR 25, 2026-10-07 amendment). A release after v0.5.0 proves the full gate, the EP-172 upgrade
+  rehearsal on a disposable local context, and the deploy-and-login check on the upgraded real
+  intranet; the per-release local and cloud evidence chain is not re-run.
+- **A release counts when the intranet runs on it.** The operator's requirement of 2026-10-10:
+  developers can deploy and log in, and the operator can change and upgrade without losing data.
 
 ## 1. The ledger is reliable day to day (MP-23)
 

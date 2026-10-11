@@ -117,6 +117,35 @@ recorded in that MasterPlan's Decision Log.
   bounded sequence rather than per command. No Claude Code hook enforces this; the agent guard was
   removed on 2026-09-13 (ADR 11 amendment).
 
+## Plans, evidence and gates (operator decision, 2026-10-10)
+
+The requirement, in the operator's words: developers can deploy and log in to the intranet, and the
+operator can change and upgrade Nagare without losing data. A release counts when the intranet runs
+on it, not when a tag exists. Work is judged by which of those two it moves.
+
+These rules override the defaults of the `exec-plan`, `master-plan` and `nagare-release` skills,
+which defer to the user's scope:
+
+- **A plan is a deliverable checklist plus a decision log.** Progress holds the deliverables with
+  pass/fail evidence. Decision Log holds decisions that change scope or design, dated. Do not write
+  Surprises & Discoveries entries, compatibility tables, per-commit progress narration, revision
+  notes or Outcomes prose, and do not run the provenance scripts. ADRs stay for real architecture
+  changes. The `MasterPlan:` and `ExecPlan:` trailers are optional; the `Intention:` trailer is not
+  used.
+- **Never answer a mistake with a new check, script, rule, runbook item or plan.** Fix it in one
+  line and keep working. Prefer removing a step to adding one.
+- **No time estimates.** Report what is done and what is next.
+- **Per Haskell commit:** `just haskell-style-check`, then `just gate-fast`. **Per landing:**
+  `just gate` and `just land`. **Per release only:** `just mutation-sweep` and the deep tier
+  (`just gate-deep`), triaged. A docs-only commit carries its gated ancestor's record forward.
+- **Releases after v0.5.0 prove three things:** the full gate is green, the EP-172 upgrade
+  rehearsal on a disposable local context reads the seeded data back unchanged, and the real
+  intranet context upgrades and passes the deploy-and-login check. No per-release local and cloud
+  evidence chain is re-run.
+- **Held plans are not worked on.** MasterPlan 25 and MasterPlan 26's EP-168, EP-170, EP-171 and
+  EP-173 M3–M5 are held. The open code items are EP-184 (gate time) and EP-172 (upgrade an
+  installed context), in that order.
+
 ## Git conventions
 
 - **Conventional Commits.** Every commit message follows the Conventional

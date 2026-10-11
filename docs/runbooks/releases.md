@@ -27,6 +27,15 @@ records a mutation-free reviewed preview. CI repeats the rehearsal natively on e
 
 ## Rehearse CI without publishing
 
+**Releases after v0.5.0 (operator, 2026-10-10).** A release proves three things: the full gate is
+green for the candidate (`just gate-verify`), the EP-172 upgrade rehearsal on a disposable local
+context reads the seeded data back unchanged, and the real intranet context upgrades to the
+candidate and passes `nagare-harness route-check`. The local and cloud evidence chain below was
+MasterPlan 23's acceptance for the inventory release and is not re-run per release. Until EP-172
+replaces the evidence requirement in `scripts/assemble-release.sh` and the publisher with the
+rehearsal record, those scripts still refuse a candidate without the evidence tree; that
+replacement is EP-172's first code step.
+
 Seal the candidate commit before collecting local/cloud inventory evidence. Save only public
 projected evidence under `docs/release-evidence/<candidate-40-character-revision>/`: `coverage.json`
 and `local/` plus `cloud/`, each containing `target.json`, `<mode>-health.json`, and

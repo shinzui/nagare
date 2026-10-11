@@ -181,17 +181,18 @@ No cross-repository ADR applies.
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 1 | Script the local acceptance run as one command | docs/plans/168-script-the-local-acceptance-run-as-one-command.md | None | EP-171; MP-25 EP-167 M3 (reviewed local teardown stage) | Not Started |
+| 1 | Script the local acceptance run as one command | docs/plans/168-script-the-local-acceptance-run-as-one-command.md | None | EP-171; MP-25 EP-167 M3 (reviewed local teardown stage) | Held (operator, 2026-10-10) |
 | 2 | Run the local acceptance in CI | docs/plans/169-run-the-local-acceptance-in-ci.md | EP-168 | EP-171 | Cancelled (operator, 2026-10-04: no GitHub Actions; EP-168 + EP-174 cover the need) |
-| 3 | Size the release gate to the change | docs/plans/170-size-the-release-gate-to-the-change.md | None; M3 needs EP-173 M5 | EP-168, EP-171 | Not Started |
-| 4 | Move release tooling out of the platform payload | docs/plans/171-move-release-tooling-out-of-the-platform-payload.md | None | None | Not Started |
-| 5 | Move an inventory context to the next release through a reviewed transition | docs/plans/172-rehearse-candidate-upgrades-of-an-inventory-context-instead-of-rebuilding-it.md | M3 needs EP-168 M1 | EP-170, EP-173 | Not Started |
-| 6 | Find recovery defects with adversarial provider interpreters | docs/plans/173-find-recovery-defects-with-adversarial-provider-interpreters.md | None | None | In Progress (M1–M2 accepted 2026-10-05; M3–M5 open) |
+| 3 | Size the release gate to the change | docs/plans/170-size-the-release-gate-to-the-change.md | None; M3 needs EP-173 M5 | EP-168, EP-171 | Held (operator, 2026-10-10; its first slice, carry-forward over docs, is landed) |
+| 4 | Move release tooling out of the platform payload | docs/plans/171-move-release-tooling-out-of-the-platform-payload.md | None | None | Held (operator, 2026-10-10) |
+| 5 | Move an inventory context to the next release through a reviewed transition | docs/plans/172-rehearse-candidate-upgrades-of-an-inventory-context-instead-of-rebuilding-it.md | None (M3 rehearses on a disposable local context without EP-168) | None | Not Started (next after EP-184) |
+| 6 | Find recovery defects with adversarial provider interpreters | docs/plans/173-find-recovery-defects-with-adversarial-provider-interpreters.md | None | None | Held (M1–M2 accepted 2026-10-05; M3–M5 held by the operator, 2026-10-10) |
 | 7 | Gate every commit before any native run | docs/plans/174-gate-every-commit-before-any-native-run.md | None | EP-168 (shared `nagare-harness` package) | Complete (2026-10-05) |
 | 8 | Make the flake check build each Haskell package once | docs/plans/178-make-the-flake-check-build-each-haskell-package-once.md | None | EP-174 | Complete (2026-10-05) |
-| 9 | Make the gates wait only for their slowest job and stop losing gate runs to the builder | docs/plans/184-make-the-gates-wait-only-for-their-slowest-job-and-stop-losing-gate-runs-to-the-builder.md | None | EP-173 (shared recovery-model test files) | Not Started |
+| 9 | Make the gates wait only for their slowest job and stop losing gate runs to the builder | docs/plans/184-make-the-gates-wait-only-for-their-slowest-job-and-stop-losing-gate-runs-to-the-builder.md | None | EP-173 (shared recovery-model test files) | In Progress (M1 and M2 built 2026-10-10) |
 
-Status values: Not Started, In Progress, Complete, Cancelled. EP-172 keeps its file path; its title
+Status values: Not Started, In Progress, Complete, Cancelled, Held. A held plan is not worked on
+until the operator reopens it. EP-172 keeps its file path; its title
 changed with the 2026-10-09 re-scope.
 
 
@@ -322,6 +323,18 @@ to the builder in one night.
 
 
 ## Decision Log
+
+- Decision (operator, 2026-10-10): Cut this plan to the critical path of the requirement
+  "developers deploy and log in; the operator changes and upgrades without losing data". EP-184
+  (gate time) and EP-172 (move an installed context to the next release) stay, in that order.
+  EP-168, EP-170, EP-171 and EP-173 M3–M5 are held. Item 8's release proof changes: the full gate,
+  EP-172's rehearsal on a disposable local context, and the deploy-and-login check on the upgraded
+  real intranet; the per-release local and cloud evidence chain is not re-run. The release scripts
+  still require that evidence tree until EP-172 replaces it with the rehearsal record.
+  Rationale: the review of the session logs on 2026-10-10. A 55-minute gate ran the suite three
+  times, hand-adapted release drivers failed late four times in one run, and since 2026-10-07
+  docs outpaced code four to one. The operator: "the current workflow is horribly broken".
+  Date: 2026-10-10
 
 - Decision: Decompose by the cost each stream removes (manual operation, workstation dependency, over-verification, tooling-driven candidate churn, rebuild-per-candidate), not by component.
   Rationale: Each removal is independently demonstrable, and the MasterPlan 23 native runs showed these five costs as separate sources of delay.

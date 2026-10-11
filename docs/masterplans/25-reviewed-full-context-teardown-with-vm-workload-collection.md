@@ -147,12 +147,13 @@ Relevant ADRs:
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 1 | Collect a retained VM together with the workloads it hosts | [docs/plans/164-collect-a-retained-vm-together-with-the-workloads-it-hosts.md](../plans/164-collect-a-retained-vm-together-with-the-workloads-it-hosts.md) | None | EP-165 | Not Started |
-| 2 | Observe retained cloud members and order cloud collection by real consumption | [docs/plans/165-observe-retained-cloud-members-and-order-cloud-collection-by-real-consumption.md](../plans/165-observe-retained-cloud-members-and-order-cloud-collection-by-real-consumption.md) | M1 needs MP-26 EP-173 M4 (Pulumi cloud-foundation world) | EP-164 | Not Started |
-| 3 | Review deletion of protected cloud data and context authority | [docs/plans/166-review-deletion-of-protected-cloud-data-and-context-authority.md](../plans/166-review-deletion-of-protected-cloud-data-and-context-authority.md) | M2–M3 need EP-164, EP-165 | None | Not Started |
-| 4 | Prove a full GCP and local context tears down to zero through reviews | [docs/plans/167-prove-a-full-gcp-and-local-context-tears-down-to-zero-through-reviews.md](../plans/167-prove-a-full-gcp-and-local-context-tears-down-to-zero-through-reviews.md) | M1: MP-26 EP-173 M4; M2: EP-164, EP-165, EP-166; M3: MP-26 EP-168 M1 | None | Not Started |
+| 1 | Collect a retained VM together with the workloads it hosts | [docs/plans/164-collect-a-retained-vm-together-with-the-workloads-it-hosts.md](../plans/164-collect-a-retained-vm-together-with-the-workloads-it-hosts.md) | None | EP-165 | Held (operator, 2026-10-10) |
+| 2 | Observe retained cloud members and order cloud collection by real consumption | [docs/plans/165-observe-retained-cloud-members-and-order-cloud-collection-by-real-consumption.md](../plans/165-observe-retained-cloud-members-and-order-cloud-collection-by-real-consumption.md) | M1 needs MP-26 EP-173 M4 (Pulumi cloud-foundation world) | EP-164 | Held (operator, 2026-10-10) |
+| 3 | Review deletion of protected cloud data and context authority | [docs/plans/166-review-deletion-of-protected-cloud-data-and-context-authority.md](../plans/166-review-deletion-of-protected-cloud-data-and-context-authority.md) | M2–M3 need EP-164, EP-165 | None | Held (operator, 2026-10-10) |
+| 4 | Prove a full GCP and local context tears down to zero through reviews | [docs/plans/167-prove-a-full-gcp-and-local-context-tears-down-to-zero-through-reviews.md](../plans/167-prove-a-full-gcp-and-local-context-tears-down-to-zero-through-reviews.md) | M1: MP-26 EP-173 M4; M2: EP-164, EP-165, EP-166; M3: MP-26 EP-168 M1 | None | Held (operator, 2026-10-10) |
 
-Status values: Not Started, In Progress, Complete, Cancelled.
+Status values: Not Started, In Progress, Complete, Cancelled, Held. A held plan is not worked on
+until the operator reopens it.
 
 
 ## Dependency Graph
@@ -229,6 +230,12 @@ resource list that G1 must reach through reviews.
 
 
 ## Decision Log
+
+- 2026-10-10 (operator): The whole plan is held. Nothing in it moves the requirement "developers
+  deploy and log in; the operator changes and upgrades without losing data". A disposable context is
+  still removed with bounded, operator-approved provider commands, as the MP-23 contexts were.
+  Rationale: the 2026-10-10 review of the session logs; the operator cut the open plans to EP-184 and
+  EP-172.
 
 - 2026-10-03 (operator, via MP-23): MP-23 ships perimeter-only exact cleanup plus full-context
   retirement. Full-context VM collection and protected-data destruction move here. Rationale: they
