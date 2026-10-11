@@ -113,6 +113,36 @@ status` reports T on the CLI, payload, context, host and cluster.
   Date: 2026-10-09
 
 
+- Decision (2026-10-10, after reading the code paths): the transition reuses the staged bootstrap
+  planner rather than a new planner, and is committed by an explicit pin step.
+  - Today `resolvePlatformWorkspace` always prepares the running CLI's own payload per context, and
+    `buildPlatformCandidate` refuses when the context pin differs from that payload. The transition
+    is therefore T's CLI planning the ordinary bootstrap stages against a context pinned to S, under
+    the identity `nagare-transition:<S>-><T payloadId>`, with that one pin check replaced by the
+    compatibility check. The planner already proposes updates only for scopes whose declarations
+    differ, and proposes the stamp update.
+  - The host stage gets a release-transition mode: the host flake's `nagare` input moves to T's
+    payload store path and the lock is re-pinned, which `hostLockRepin` refuses today by design.
+    It is the same reviewed self-reverting activation the section 3 drills proved.
+  - Because the stages are planned one review at a time, a transition is an ordered sequence of
+    saved reviews, not one. The store head carries a transition marker (from, to, started) written
+    at the first review's admission. A CLI whose payload is not the marker's target refuses every
+    platform mutation and names T; T's CLI requires the marker. This is the "which CLI resumes"
+    rule, and the marker is the only wire change, with a compatibility row.
+  - `platform transition --commit` writes the pin last. It refuses unless the head has no open
+    transaction, the marker's target is T, and `platform status` reports T on payload, host and
+    cluster. It then clears the marker.
+  - The compatibility table is a field of the payload manifest (`release.json`): accepted source
+    releases and the store schema versions. v0.4.0 to v0.5.0 needs no store migration (EP-183:
+    head and journal formats unchanged).
+  - The recovery model covers the platform scope updates, the stamp and the marker under every
+    fault. The host step is covered by the section 3 native drills, since the host world
+    (EP-173 M4) is held.
+  Rationale: the staged planner, the diff against the accepted snapshot, the stamp update and the
+  reviewed host activation already exist and are proven; the transition adds a compatibility check,
+  a marker, a host mode and a pin step, and nothing speculative.
+  Date: 2026-10-10
+
 ## Outcomes & Retrospective
 
 (To be filled during and after implementation.)
