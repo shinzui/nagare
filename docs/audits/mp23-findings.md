@@ -114,6 +114,22 @@ This is the authoritative list of implementation findings for [MP-23](../masterp
 | [F95](#f95) | P1 | A host upgrade that restarts `tailscaled` or the network ends its own activation session, never commits, and hangs the apply | Closed | nagare-fix |
 | [F77](#f77) | P1 | A database volume claim deleted outside review while its pod runs stays Terminating, and every review of the database refuses until it goes | Deferred | deferral ledger (operator, 2026-10-07); next MasterPlan |
 | [F78](#f78) | P2 | While a StatefulSet's own template never becomes Ready, every transaction stops at it, and independent members planned after it are never created until the template is corrected | Deferred | operator, 2026-10-07; next MasterPlan |
+| [F96](#v050-deferrals) | P2 | `access grant --user` takes any string, so a grant naming an email converges and the user still gets 403; it must name the Shomei `user_…` id | Deferred (next release) | deferral ledger (operator, 2026-10-10/11) |
+| [F97](#v050-deferrals) | P2 | A grant records the local en forward address it was made through, so managing it later needs that same local port, and the "ownership transition" the refusal suggests does not exist | Deferred (next release) | deferral ledger (operator, 2026-10-10/11) |
+| [F98](#v050-deferrals) | P3 | `env set` cannot override a variable the Config sets as a literal (`env` wins over `envFrom`), contradicting the auth-portal guide | Deferred (next release) | deferral ledger (operator, 2026-10-10/11) |
+| [F99](#v050-deferrals) | P3 | A preview hostname over 63 bytes is not refused and never gets a certificate under external TLS | Deferred (next release) | deferral ledger (operator, 2026-10-10/11) |
+| [F100](#v050-deferrals) | P3 | A preview DomainMapping that never becomes ready has no reviewed removal | Deferred (next release) | deferral ledger (operator, 2026-10-10/11) |
+| [F101](#v050-deferrals) | P3 | Preview cleanup stops at the first member it cannot collect, blocking every later cleanup | Deferred (next release) | deferral ledger (operator, 2026-10-10/11) |
+| [F102](#v050-deferrals) | P3 | Subzone delegation is not checked before external TLS is enabled | Deferred (next release) | deferral ledger (operator, 2026-10-10/11) |
+| [F103](#v050-deferrals) | P3 | `upload-images` trusts an unregistered local store path over the builder's copy | Deferred (next release) | deferral ledger (operator, 2026-10-10/11) |
+| [F104](#v050-deferrals) | P3 | route-check hard-codes local port 18082, and the acceptance drivers leak their en forwards | Deferred (next release) | deferral ledger (operator, 2026-10-10/11) |
+| [F105](#v050-deferrals) | P3 | Local MinIO volume backups install tar at run time and fail silently when that fails | Deferred (next release) | deferral ledger (operator, 2026-10-10/11) |
+| [F106](#v050-deferrals) | P3 | `test-host-key-recovery`'s 5 s subprocess timeout flakes under load | Deferred (next release) | deferral ledger (operator, 2026-10-10/11) |
+| [F107](#v050-deferrals) | P3 | An expired gcloud login surfaces as `StoreIoError`/`StoreConditionFailed` instead of a reauthentication message | Deferred (next release) | deferral ledger (operator, 2026-10-10/11) |
+| [F108](#v050-deferrals) | P3 | shomei-db logs a failed `root` login every 15 minutes, in step with its backup job; the backups verify | Deferred (next release) | deferral ledger (operator, 2026-10-10/11) |
+| [F109](#v050-deferrals) | P3 | `db backup-receipts` refuses a platform database without `-n nagare-system`, with an unhelpful message | Deferred (next release) | deferral ledger (operator, 2026-10-10/11) |
+| [F110](#v050-deferrals) | P3 | `infra destroy` on a context stopped partway through bootstrap refuses with `dangling-reference` instead of retiring dependent scopes together | Deferred (next release) | deferral ledger (operator, 2026-10-10/11) |
+| [F111](#v050-deferrals) | P3 | The scheduled-backup retention warning and prune are not yet checked on a running context | Deferred (next release) | deferral ledger (operator, 2026-10-10/11) |
 
 Closed findings keep their full text, location, implementation updates and verification in [the closed-findings archive](mp23-archive/mp23-findings-closed.md). F01 and F11 retain their [earlier independent closure](mp23-archive/mp23-verification.md). F02, F03, F04, F05, F06, F07, F08 and F20 now have [2026-10-02 independent closure](mp23-independent-verification-2026-10-02.md). F34, F35, F36, F37, F38, F41 and F42 have 2026-10-04 independent closure on candidate `7596632c`, and F49 and F50 on candidate `847543896d07` ([records](mp23-independent-results-2026-10-04/phase1-source-and-regressions-7596632c.md)). F51, F53, F55–F61, F63–F76 and F79 have 2026-10-07 independent closure on candidate `96c1da11`, all on source except F53 and F76, which close on the gate itself ([record](mp23-independent-results-2026-10-07/README.md)). Other entries retain their status shown above.
 
@@ -483,3 +499,10 @@ E16 verified steps 1, 2, 4 and 6 (and a file-level backup through the pod) on k3
 
 **For the next MasterPlan.** Let a transaction continue the operations that do not depend on a stopped one, so a broken workload no longer starves independent members.
 
+## v0.5.0 deferrals
+
+F96–F111 were found while cutting v0.5.0 on candidate 41df1ba4 (local run on cp3, cloud run on
+c3-1015). None risks data loss. The operator approved the preview-hostname, upload-images and
+native-retention deferrals directly (2026-10-10) and the rest under the overnight go-ahead to defer
+non-critical findings (2026-10-11). F96 and F97 bear directly on developers logging in and come
+first in the next release.
