@@ -4,6 +4,7 @@ import Data.Aeson (eitherDecode, encode)
 import Data.ByteString.Lazy (ByteString)
 import Nagare.Access.Grants
 import Nagare.Dsl.Prelude
+import ShomeiUserSpec (shomeiUserTests)
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -49,6 +50,7 @@ accessGrantsTests =
             Left err -> assertFailure ("failed to decode expand tree: " <> err)
             Right value -> pure value
         collectExpandedSubjects tree @?= ["alice", "bob", "carol"]
+    , shomeiUserTests
     ]
 
 compositeExpandTreeJson :: ByteString

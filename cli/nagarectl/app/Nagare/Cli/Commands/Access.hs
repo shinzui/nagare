@@ -22,6 +22,7 @@ import Nagare.Access.Resolve
   , publicHostText
   )
 import Nagare.Access.Reviewed qualified as ReviewedAccess
+import Nagare.Access.ShomeiUser (ShomeiUser (..), UserRef (..), lookupShomeiEmail, parseUserRef)
 import Nagare.Cli.Options (AccessCommand (..), PortalCommand (..))
 import Nagare.Cli.Runtime.Cluster (guardKubernetesContext)
 import Nagare.Cli.Runtime.Error (dieT)
@@ -35,6 +36,7 @@ import Nagare.Cli.Runtime.Target
   )
 import Nagare.Cluster.Kubeconfig (kubeconfigPath)
 import Nagare.Dsl.Prelude
+import Nagare.Target (contextNameText)
 import System.Directory (doesFileExist)
 import System.Environment (setEnv)
 
@@ -44,21 +46,23 @@ runAccess mctx = \case
   AccessRevoke o | Just output <- o ^. #savePlan -> runReviewed False o output
   AccessGrant o -> do
     refuseDirectLegacyOperationWhenManaged mctx "access grant" "save the grant with --save-plan DIR, then inventory apply DIR --yes"
+    user <- resolveUser (o ^. #user)
     runAccessGrant
       AccessGrantParams
         { enUrl = T.pack <$> o ^. #enUrl
         , enApiKey = T.pack <$> o ^. #enApiKey
         , host = T.pack (o ^. #host)
-        , user = T.pack (o ^. #user)
+        , user = user ^. #userId
         }
   AccessRevoke o -> do
     refuseDirectLegacyOperationWhenManaged mctx "access revoke" "save the revocation with --save-plan DIR, then inventory apply DIR --yes"
+    user <- resolveUser (o ^. #user)
     runAccessRevoke
       AccessGrantParams
         { enUrl = T.pack <$> o ^. #enUrl
         , enApiKey = T.pack <$> o ^. #enApiKey
         , host = T.pack (o ^. #host)
-        , user = T.pack (o ^. #user)
+        , user = user ^. #userId
         }
   AccessList o ->
     void $
@@ -97,6 +101,7 @@ runAccess mctx = \case
         TIO.putStrLn ("synchronized portal: " <> publicHostText portalHost)
   where
     runReviewed granted options output = do
+      user <- resolveUser (options ^. #user)
       active <- activeTarget mctx
       selected <- kubeconfigPath (active ^. #contextName)
       exists <- doesFileExist selected
@@ -106,8 +111,27 @@ runAccess mctx = \case
         active
         (fmap (fmap (const ())) (guardKubernetesContext active))
         (T.pack (options ^. #host))
-        (T.pack (options ^. #user))
+        user
         (T.pack <$> options ^. #enUrl)
         (T.pack <$> options ^. #enApiKey)
         granted
         output
+    -- The enforcer checks Shomei user ids; an email is resolved in the
+    -- selected context's Shomei before anything is planned (F96).
+    resolveUser raw = case parseUserRef (T.pack raw) of
+      Left reason -> dieT reason
+      Right (UserById userId) -> pure (ShomeiUser userId Nothing)
+      Right (UserByEmail address) -> do
+        active <- activeTarget mctx
+        selected <- kubeconfigPath (active ^. #contextName)
+        exists <- doesFileExist selected
+        unless exists (dieT "resolving an email requires the selected context kubeconfig")
+        setEnv "KUBECONFIG" selected
+        resolved <-
+          lookupShomeiEmail
+            (contextNameText (active ^. #contextName))
+            (fmap (fmap (const ())) (guardKubernetesContext active))
+            address
+        user <- either dieT pure resolved
+        TIO.putStrLn (address <> " is Shomei user " <> user ^. #userId)
+        pure user

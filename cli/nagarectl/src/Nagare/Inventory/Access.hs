@@ -24,6 +24,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
+import Nagare.Access.ShomeiUser (ShomeiUser, isShomeiUserId)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Digest (contentDigest)
@@ -155,11 +156,12 @@ data AccessOps = AccessOps
   , accessWrite :: !(AccessBinding -> AccessFact -> IO AdapterExecution)
   }
 
-compileAccessScope :: ScopeSnapshot -> Text -> Text -> Text -> Bool -> Either Text ScopeDeclaration
-compileAccessScope snapshot rawHost subject endpoint granted = do
+compileAccessScope :: ScopeSnapshot -> Text -> ShomeiUser -> Text -> Bool -> Either Text ScopeDeclaration
+compileAccessScope snapshot rawHost user endpoint granted = do
+  let subject = user ^. #userId
   host <- mkName (T.toLower (T.dropWhileEnd (== '.') (T.strip rawHost)))
   unless (validAccessEndpoint endpoint) (Left "access endpoint must be an HTTP(S) base URL without credentials, query, or fragment")
-  unless (not (T.null (T.strip subject)) && not (T.any (< ' ') subject)) (Left "invalid access subject")
+  unless (isShomeiUserId subject) (Left "access subject must be a Shomei user id (user_…)")
   inventory <- first (T.pack . show) (composeSnapshot snapshot)
   (auth, route) <- protectedOwner (inventoryDeclarations inventory) host
   let key =
@@ -188,7 +190,8 @@ compileAccessScope snapshot rawHost subject endpoint granted = do
           Private
           [OrderedAfter (auth ^. #identity), OrderedAfter (route ^. #identity)]
           []
-          (SourceLocation "access" "viewer")
+          -- The review names the email the operator gave alongside the id.
+          (SourceLocation "access" (fromMaybe "viewer" (user ^. #email)))
   -- A changed endpoint cannot silently move a previously owned relationship.
   forM_ (Map.lookup owner (snapshotScopes snapshot)) $ \(_, prior) ->
     forM_ [old | bundle <- scopeBundles prior, Managed old <- bundle ^. #declarations] $ \old ->
@@ -406,6 +409,10 @@ mkAccessAdapter accepted bindings ops =
       AccessTuple _ host subject ->
         (if wanted binding then "grant " else "revoke ")
           <> subject
+          <> emailNote (accessResource binding ^. #source)
           <> " viewer on "
           <> nameText host
       _ -> "invalid access tuple"
+    emailNote = \case
+      SourceLocation "access" label | label /= "viewer" -> " (" <> label <> ")"
+      _ -> ""

@@ -36,7 +36,7 @@ accessGrantOptsParser =
     <*> enUrlOpt
     <*> enApiKeyOpt
     <*> strOption (long "host" <> metavar "HOST" <> help "Protected site hostname, e.g. tools.apps.example.com")
-    <*> strOption (long "user" <> metavar "USER" <> help "Shomei user id to grant or revoke")
+    <*> strOption (long "user" <> metavar "EMAIL|USER_ID" <> help "The email the person signed up with, or their Shomei user id (user_…)")
 
 accessListOptsParser :: Parser AccessListOpts
 accessListOptsParser =

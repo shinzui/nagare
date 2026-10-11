@@ -142,7 +142,7 @@ In another shell:
 
 ```bash
 NAGARE_EN_URL=http://localhost:8090 \
-  nagarectl access grant --host "$GRAFANA_HOST" --user alice
+  nagarectl access grant --host "$GRAFANA_HOST" --user alice@example.com
 ```
 
 Open `https://grafana.${BASE_DOMAIN}/`. An unauthenticated browser request
@@ -198,7 +198,7 @@ Create the same kind of `DomainMapping`, replacing the metadata name with
 
 ```bash
 NAGARE_EN_URL=http://localhost:8090 \
-  nagarectl access grant --host "$TRACES_HOST" --user alice
+  nagarectl access grant --host "$TRACES_HOST" --user alice@example.com
 ```
 
 ## Remove public access
@@ -226,7 +226,7 @@ Revoke any grants that were added:
 
 ```bash
 NAGARE_EN_URL=http://localhost:8090 \
-  nagarectl access revoke --host "$GRAFANA_HOST" --user alice
+  nagarectl access revoke --host "$GRAFANA_HOST" --user alice@example.com
 ```
 
 ## Troubleshooting

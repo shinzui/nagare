@@ -16,6 +16,11 @@ import sys
 import tempfile
 import threading
 
+ALICE = "user_01h455vb4pex5vsknk084sn02q"
+SHOMEI_USERS = {"alice@example.test": ["01890a5d-ac96-774b-bcce-b302099a8057"],
+                "twin@example.test": ["01890a5d-ac96-774b-bcce-b302099a8057",
+                                      "00000000-0000-0000-0000-000000000000"]}
+
 
 def tuple_wire(host, user):
     return {"object": {"objectType": "app", "objectId": host}, "relation": "viewer",
@@ -65,6 +70,10 @@ assert os.environ['KUBECONFIG']==str(r/'config/nagare/kubeconfigs/access-test.ya
 a=[arg for arg in sys.argv[1:] if not arg.startswith('--request-timeout=')]
 assert a[:2]==['--context','access-test'],a
 a=a[2:]
+if 'exec' in a:
+ assert a[:11]==['--namespace','nagare-system','exec','-i','shomei-db-0','--container','postgres','--','sh','-c',a[10]] and a[11]=='sh',a
+ assert sys.stdin.read()=="SELECT user_id FROM shomei.shomei_users WHERE email = :'email';\\n"
+ print('\\n'.join(json.loads((r/'shomei-users.json').read_text()).get(a[12],[])));sys.exit(0)
 if a[0]=='rollout':
  assert a==['rollout','status','deployment/shomei','--namespace','nagare-system','--timeout=300s'],a
  print('fixture rollout available');sys.exit(0)
@@ -105,6 +114,7 @@ print(json.dumps({'metadata':{'uid':uid,'annotations':{
 'nagare.dev/spec-digest':o['digest']}}}))
 ''')
         kubectl.chmod(0o700)
+        (root / "shomei-users.json").write_text(json.dumps(SHOMEI_USERS))
         env["PATH"] = str(root / "bin") + os.pathsep + env["PATH"]
         state = {"tuples": {("one.example.test", "bob"), ("two.example.test", "bob")},
                  "writes": 0, "lose": False, "old": False, "caveat": False, "race": False}
@@ -133,8 +143,8 @@ print(json.dumps({'metadata':{'uid':uid,'annotations':{
                     assert self.headers["Authorization"] == "Bearer fixture-private-key"
                     request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
                     exact = {"objectType": "app", "objectId": "one.example.test", "relation": "viewer",
-                             "subjectType": "user", "subjectId": "alice", "subjectRelation": {"match": "none"}}
-                    selected = ("one.example.test", "alice")
+                             "subjectType": "user", "subjectId": ALICE, "subjectRelation": {"match": "none"}}
+                    selected = ("one.example.test", ALICE)
                     if self.path == "/v1/relationships/query?first=2":
                         assert request == {"consistency": {"mode": "fullyConsistent"}, "filter": exact}
                         nodes = [tuple_wire(*selected)] if selected in state["tuples"] else []
@@ -186,10 +196,10 @@ print(json.dumps({'metadata':{'uid':uid,'annotations':{
             assert not failures, failures
             return result
 
-        def plan(label, granted=True, succeeds=True, variables=None):
+        def plan(label, granted=True, succeeds=True, variables=None, user=ALICE):
             directory = root / label
             run("access", "grant" if granted else "revoke", "--host", "one.example.test",
-                "--user", "alice", "--save-plan", directory, succeeds=succeeds, variables=variables)
+                "--user", user, "--save-plan", directory, succeeds=succeeds, variables=variables)
             return directory
 
         original = head()
@@ -202,10 +212,14 @@ print(json.dumps({'metadata':{'uid':uid,'annotations':{
         state["caveat"] = True
         plan("foreign-caveat", succeeds=False)
         state["caveat"] = False
-        run("access", "grant", "--host", "foreign.example.test", "--user", "alice",
+        run("access", "grant", "--host", "foreign.example.test", "--user", ALICE,
             "--save-plan", root / "foreign-host", succeeds=False)
+        # F96: only a Shomei user id, or an email naming exactly one user, is a subject.
+        for user in ["alice", "nobody@example.test", "twin@example.test"]:
+            plan("refused-" + user, user=user, succeeds=False)
         assert head() == original and state["writes"] == 0
-        grant = plan("grant")
+        grant = plan("grant", user="Alice@Example.test")
+        assert f"{ALICE} (alice@example.test)".encode() in (grant / "review.json").read_bytes()
         document = json.loads((grant / "review.json").read_bytes())
         assert len(document["operations"]) == 1
         assert document["operations"][0]["operation"]["executor"] == "AccessExecutor"
@@ -214,7 +228,7 @@ print(json.dumps({'metadata':{'uid':uid,'annotations':{
         assert state["writes"] == 1 and head()["activeTransaction"] is not None, (interrupted.stdout + interrupted.stderr).decode()
         transaction = "tx-" + (grant / "review.sha256").read_text().strip()
         run("inventory", "resume", transaction, "--yes")
-        assert state["writes"] == 1 and state["tuples"] == neighbors | {("one.example.test", "alice")}
+        assert state["writes"] == 1 and state["tuples"] == neighbors | {("one.example.test", ALICE)}
         unchanged = plan("unchanged")
         run("inventory", "apply", unchanged, "--yes")
         assert state["writes"] == 1
@@ -224,9 +238,9 @@ print(json.dumps({'metadata':{'uid':uid,'annotations':{
         run("inventory", "apply", revoke, "--yes", succeeds=False)
         (root / "foreign-owner").unlink()
         assert head()["activeTransaction"] is not None and state["writes"] == 1
-        state["tuples"].remove(("one.example.test", "alice"))
+        state["tuples"].remove(("one.example.test", ALICE))
         run("inventory", "resume", revoke_transaction, "--yes", succeeds=False)
-        state["tuples"].add(("one.example.test", "alice"))
+        state["tuples"].add(("one.example.test", ALICE))
         assert head()["activeTransaction"] is not None and state["writes"] == 1
         run("inventory", "resume", revoke_transaction, "--yes")
         assert state["writes"] == 2 and state["tuples"] == neighbors

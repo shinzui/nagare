@@ -13,6 +13,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Nagare.Access.Grants (accessTuple)
+import Nagare.Access.ShomeiUser (ShomeiUser (..))
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Access
 import Nagare.Inventory.AccessRuntime
@@ -43,7 +44,7 @@ inventoryAccessTests =
   testGroup
     "reviewed access"
     [ testCase "compiler selects one tuple without altering accepted auth and neighboring apps" $ do
-        let scope = ok (compileAccessScope snapshot "ONE.EXAMPLE.TEST." "alice" "http://localhost:8090" True)
+        let scope = ok (compileAccessScope snapshot "ONE.EXAMPLE.TEST." alice "http://localhost:8090" True)
             candidate = ok (composeInventory snapshot (ReplaceScope scope :| []))
             originals = Map.map snd (snapshotScopes snapshot)
         Map.restrictKeys (inventoryScopes (candidateInventory candidate)) (Map.keysSet originals) @?= originals
@@ -71,14 +72,21 @@ inventoryAccessTests =
           ( either
               (const True)
               (const False)
-              (compileAccessScope snapshot "one.example.test" "alice" "https://key@secret.test" True)
+              (compileAccessScope snapshot "one.example.test" alice "https://key@secret.test" True)
           )
         assertBool
           "unknown protected hostname accepted"
           ( either
               (const True)
               (const False)
-              (compileAccessScope snapshot "foreign.example.test" "alice" "http://localhost:8090" True)
+              (compileAccessScope snapshot "foreign.example.test" alice "http://localhost:8090" True)
+          )
+        assertBool
+          "a subject that is not a Shomei user id accepted"
+          ( either
+              (const True)
+              (const False)
+              (compileAccessScope snapshot "one.example.test" (ShomeiUser "alice" Nothing) "http://localhost:8090" True)
           )
     , testCase "portal synchronization rolls exactly both accepted startup readers" $ do
         let owner = ok (mkScopeId Platform "auth")
@@ -110,7 +118,7 @@ inventoryAccessTests =
             ["consistency" .= object ["mode" .= ("fullyConsistent" :: Text)], "filter" .= exactFilter]
         accessMutation binding before
           @?= object
-            [ "tuples" .= [accessTuple "one.example.test" "alice"]
+            [ "tuples" .= [accessTuple "one.example.test" aliceId]
             , "deletes" .= ([] :: [Value])
             , "preconditions" .= [object ["kind" .= ("mustNotExist" :: Text), "filter" .= exactFilter]]
             ]
@@ -125,7 +133,7 @@ inventoryAccessTests =
                         ]
                     )
                 )
-            tuple = toJSON (accessTuple "one.example.test" "alice")
+            tuple = toJSON (accessTuple "one.example.test" aliceId)
         parseAccessPage binding (page [tuple] False) @?= Right True
         parseAccessPage binding (page ([] :: [Value]) False) @?= Right False
         forM_ [page [tuple] True, page [tuple, tuple] False, page [object []] False] $ \bytes ->
@@ -164,6 +172,7 @@ inventoryAccessTests =
                   }
             op = operation binding CreateResource
         prepared <- adapterPrepare adapter op >>= either (fail . show) pure
+        preparedPublicSummary prepared @?= "grant " <> aliceId <> " (alice@example.test) viewer on one.example.test"
         adapterExecute adapter op prepared >>= (@?= AdapterEffectAmbiguous "lost response")
         adapterRecover adapter op prepared >>= \case RecoveryProvedComplete _ -> pure (); other -> assertFailure (show other)
         readIORef effects >>= (@?= 1)
@@ -197,7 +206,7 @@ inventoryAccessTests =
         forM_ [False, True] $ \granted -> do
           store <- newMemoryStore
           _ <- initializeStore store context "access-retire" >>= either (fail . show) pure
-          let accessScope = ok (compileAccessScope snapshot "one.example.test" "alice" "http://localhost:8090" granted)
+          let accessScope = ok (compileAccessScope snapshot "one.example.test" alice "http://localhost:8090" granted)
               withAccess = ok (mkScopeSnapshot context (Map.insert (scopeId accessScope) (generation, accessScope) (snapshotScopes snapshot)) Map.empty)
               dummy = ok (mkScopeDeclaration (ok (mkScopeId Standalone "dummy")) [])
           _ <- seedInventoryHistory store (ok (composeInventory withAccess (ReplaceScope dummy :| []))) >>= either (fail . show) pure
@@ -242,7 +251,7 @@ inventoryAccessTests =
         , "objectId" .= ("one.example.test" :: Text)
         , "relation" .= ("viewer" :: Text)
         , "subjectType" .= ("user" :: Text)
-        , "subjectId" .= ("alice" :: Text)
+        , "subjectId" .= aliceId
         , "subjectRelation" .= object ["match" .= ("none" :: Text)]
         ]
     operation binding action =
@@ -255,9 +264,16 @@ inventoryAccessTests =
         []
         VerifyBeforeRetry
 
+-- The fixture subject as an email resolves it: the typed id and the address.
+alice :: ShomeiUser
+alice = ShomeiUser aliceId (Just "alice@example.test")
+
+aliceId :: Text
+aliceId = "user_01h455vb4pex5vsknk084sn02q"
+
 accessBinding :: Bool -> AccessBinding
 accessBinding granted =
-  let scope = ok (compileAccessScope snapshot "one.example.test" "alice" "http://localhost:8090" granted)
+  let scope = ok (compileAccessScope snapshot "one.example.test" alice "http://localhost:8090" granted)
       candidate = ok (composeInventory snapshot (ReplaceScope scope :| []))
    in head (Map.elems (ok (accessBindings (inventoryDeclarations (candidateInventory candidate)))))
 

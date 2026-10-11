@@ -10,6 +10,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Time (defaultTimeLocale, formatTime, getCurrentTime)
+import Nagare.Access.ShomeiUser (ShomeiUser)
 import Nagare.Cluster.Kubeconfig (kubeconfigPath)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Access
@@ -33,7 +34,7 @@ planAccess ::
   ActiveTarget ->
   IO (Either Text ()) ->
   Text ->
-  Text ->
+  ShomeiUser ->
   Maybe Text ->
   Maybe Text ->
   Bool ->

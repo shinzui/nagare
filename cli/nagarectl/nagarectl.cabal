@@ -81,6 +81,7 @@ library
     Nagare.Access.Grants
     Nagare.Access.Resolve
     Nagare.Access.Reviewed
+    Nagare.Access.ShomeiUser
     Nagare.App
     Nagare.App.Deploy
     Nagare.App.Deployments
@@ -671,6 +672,7 @@ test-suite nagarectl-test
     PlatformCutoverSpec
     PlatformSpec
     PlatformTransitionSpec
+    ShomeiUserSpec
 
   build-depends:
     aeson,

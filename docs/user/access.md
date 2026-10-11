@@ -186,8 +186,16 @@ token handling, Shomei synchronization, and safe removal procedure.
 Grant a shomei user access to one protected host:
 
 ```bash
-nagarectl access grant --host protected-hello.apps.example.com --user alice
+nagarectl access grant --host protected-hello.apps.example.com --user alice@example.com
 ```
+
+`--user` takes the email the person signed up with, or their Shomei user id
+(`user_01h455vb4pex5vsknk084sn02q`). The enforcer checks the user id, so the CLI
+looks an email up in the context's Shomei database (`shomei-db` in
+`nagare-system`, read-only through the selected kubeconfig) and prints the id
+it found. The person must sign up first. An email with no Shomei user, an email
+matching more than one, and anything that is neither an email nor a `user_…` id
+refuse before anything is planned.
 
 The host suffix comes from the active context's `NAGARE_BASE_DOMAIN`. A `labs`
 context with `labs.topagentnetwork.net` uses
@@ -202,7 +210,7 @@ nagarectl access list --host protected-hello.apps.example.com
 Revoke the grant:
 
 ```bash
-nagarectl access revoke --host protected-hello.apps.example.com --user alice
+nagarectl access revoke --host protected-hello.apps.example.com --user alice@example.com
 ```
 
 The commands talk to En and must use its read-write bearer key. Pass `--en-url URL`
@@ -219,14 +227,15 @@ export NAGARE_EN_API_KEY="$(kubectl -n nagare-system get secret nagare-en-api-ke
 For an inventory-backed context, save and apply each change:
 
 ```bash
-nagarectl --context "$CONTEXT" access grant --host "$HOST" --user alice --save-plan ./grant-review
+nagarectl --context "$CONTEXT" access grant --host "$HOST" --user alice@example.com --save-plan ./grant-review
 nagarectl --context "$CONTEXT" inventory apply ./grant-review --yes
-nagarectl --context "$CONTEXT" access revoke --host "$HOST" --user alice --save-plan ./revoke-review
+nagarectl --context "$CONTEXT" access revoke --host "$HOST" --user alice@example.com --save-plan ./revoke-review
 nagarectl --context "$CONTEXT" inventory apply ./revoke-review --yes
 ```
 
 Set `NAGARE_EN_URL` and private `NAGARE_EN_API_KEY` for planning, apply, and
-recovery. Reviews contain the endpoint and selected relationship, never the key.
+recovery. Reviews contain the endpoint and selected relationship, never the key;
+a grant named by email reads `grant user_… (alice@example.com) viewer on HOST`.
 The endpoint must remain the same for an accepted grant. The selected context's
 kubeconfig must be available; the CLI checks the accepted En Service and
 protected DomainMapping before the tuple write. En must support atomic
@@ -288,7 +297,7 @@ After signing in as a shomei user without a grant, the site should return
 `403`. After:
 
 ```bash
-nagarectl access grant --host protected-hello.apps.example.com --user alice
+nagarectl access grant --host protected-hello.apps.example.com --user alice@example.com
 ```
 
 the same authenticated user should receive `200` and the hello page body.

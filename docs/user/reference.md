@@ -459,7 +459,7 @@ no `nagarectl job` command. See [Scheduled tasks](scheduled-tasks.md),
 
 | Command | Does |
 | --- | --- |
-| `nagarectl access grant --host HOST --user USER --save-plan DIR` | Review one direct En viewer grant bound to the accepted protected host; apply with `inventory apply DIR --yes`. |
+| `nagarectl access grant --host HOST --user USER --save-plan DIR` | Review one direct En viewer grant bound to the accepted protected host; USER is the email the person signed up with (resolved to exactly one Shomei user id, or refused) or a `user_…` id; apply with `inventory apply DIR --yes`. |
 | `nagarectl access revoke --host HOST --user USER --save-plan DIR` | Review removal of that accepted grant, preserving other relationships and scopes. |
 | `nagarectl access list --host HOST` | List users whose relationships expand to the host's `access` permission. |
 | `nagarectl access portal sync --save-plan DIR` | Review the complete accepted backend/portal settings and a Shomei rollout; apply with `inventory apply DIR --yes`. |
