@@ -130,6 +130,7 @@ This is the authoritative list of implementation findings for [MP-23](../masterp
 | [F109](#v050-deferrals) | P3 | `db backup-receipts` refuses a platform database without `-n nagare-system`, with an unhelpful message | Deferred (next release) | deferral ledger (operator, 2026-10-10/11) |
 | [F110](#v050-deferrals) | P3 | `infra destroy` on a context stopped partway through bootstrap refuses with `dangling-reference` instead of retiring dependent scopes together | Deferred (next release) | deferral ledger (operator, 2026-10-10/11) |
 | [F111](#v050-deferrals) | P3 | The scheduled-backup retention warning and prune are not yet checked on a running context | Deferred (next release) | deferral ledger (operator, 2026-10-10/11) |
+| [F112](#v050-deferrals) | P3 | `scripts/test-access-reviewed-public.py` (in no gate) fails at the portal-sync `inventory apply`, which ends "ambiguous tx-… at op-…"; master fails identically and the cause (stale fake kubectl or a real portal-sync regression) is not yet diagnosed | Deferred (next release) | deferral ledger (operator, 2026-10-11) |
 
 Closed findings keep their full text, location, implementation updates and verification in [the closed-findings archive](mp23-archive/mp23-findings-closed.md). F01 and F11 retain their [earlier independent closure](mp23-archive/mp23-verification.md). F02, F03, F04, F05, F06, F07, F08 and F20 now have [2026-10-02 independent closure](mp23-independent-verification-2026-10-02.md). F34, F35, F36, F37, F38, F41 and F42 have 2026-10-04 independent closure on candidate `7596632c`, and F49 and F50 on candidate `847543896d07` ([records](mp23-independent-results-2026-10-04/phase1-source-and-regressions-7596632c.md)). F51, F53, F55–F61, F63–F76 and F79 have 2026-10-07 independent closure on candidate `96c1da11`, all on source except F53 and F76, which close on the gate itself ([record](mp23-independent-results-2026-10-07/README.md)). Other entries retain their status shown above.
 
@@ -506,3 +507,6 @@ c3-1015). None risks data loss. The operator approved the preview-hostname, uplo
 native-retention deferrals directly (2026-10-10) and the rest under the overnight go-ahead to defer
 non-critical findings (2026-10-11). F96 and F97 bear directly on developers logging in and come
 first in the next release.
+
+F112 was found after the release, on 2026-10-11, while F96 was being fixed. The operator deferred it
+the same day.
