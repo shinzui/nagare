@@ -16,11 +16,15 @@ import Data.Text.Lazy.Encoding qualified as TLE
 import InventoryTransactionSpec (preparedFixtureHead)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter (AdapterExecution (AdapterEffectCompleted), AdapterRegistry, RecoveryDecision (RecoveryUnresolved))
+import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Execute (AdmissionError (..), applyReviewed)
 import Nagare.Inventory.Plan (ReviewedPlan)
 import Nagare.Inventory.Store
 import Nagare.Platform.Transition
 import Nagare.Platform.Workspace (PayloadManifest)
+import Nagare.Resource.Inventory
+import Nagare.Resource.Policy
+import Nagare.Resource.Types
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -58,6 +62,28 @@ compatibilityTests =
         platformReviewExpectation manifest "nagare-bootstrap:p" @?= Just ("p", "0.5.0")
         platformReviewExpectation manifest (transitionReviewIdentity "0.4.0" "p") @?= Just ("p", "0.4.0")
         platformReviewExpectation manifest "operator-cli" @?= Nothing
+    , testCase "declarations that differ only in their members' source are the same scope to a transition" $ do
+        let owner = ok (mkScopeId Platform "local-substrate")
+            cluster = mintResourceId owner (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))
+            declared file digest =
+              Managed
+                ManagedResource
+                  { identity = mintResourceId owner (ok (mkLogicalKey "registry")) (ok (mkName "resource"))
+                  , owner = owner
+                  , executor = KubernetesExecutor
+                  , address = Kubernetes cluster "" (ok (mkName "configmap")) (Just (ok (mkName "system"))) (ok (mkName "registry"))
+                  , aliases = []
+                  , spec = NativeObject (contentDigest digest)
+                  , lifecycle = Retain
+                  , dataPolicy = Stateless
+                  , sensitivity = Public
+                  , dependencies = []
+                  , delegations = []
+                  , source = SourceLocation file "local-substrate-v1"
+                  }
+            scopeFrom file digest = ok (mkScopeDeclaration owner [ResourceBundle [declared file digest] [] [] [] [] []])
+        sameDeclarationsModuloSource (scopeFrom "/payload-s/spec.json" "spec") (scopeFrom "/payload-t/spec.json" "spec") @?= True
+        sameDeclarationsModuloSource (scopeFrom "/payload-s/spec.json" "spec") (scopeFrom "/payload-s/spec.json" "other") @?= False
     , testCase "only the target payload's nagarectl may continue an open transition" $ do
         let marker = TransitionMarker "0.4.0" "payload-t" "2026-10-11T00:00:00Z"
         transitionOwnerRefusal marker "payload-t" @?= Nothing
@@ -69,6 +95,8 @@ compatibilityTests =
     current = "{\"assetSchemaVersion\":1,\"payloadId\":\"p\",\"platformVersion\":\"0.5.0\",\"sourceRevision\":null,\"transitionsFrom\":[\"0.4.0\"]}"
     decoded :: ByteString -> IO PayloadManifest
     decoded = either assertFailure pure . eitherDecodeStrict'
+    ok :: (Show e) => Either e a -> a
+    ok = either (error . show) id
 
 markerTests :: TestTree
 markerTests =

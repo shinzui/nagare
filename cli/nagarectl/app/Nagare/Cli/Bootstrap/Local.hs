@@ -11,6 +11,7 @@ import Data.Generics.Labels ()
 import Data.List.NonEmpty qualified as NE
 import Data.Map qualified as Map
 import Data.Text qualified as T
+import Nagare.Cli.Bootstrap.Stage (StageMode (..))
 import Nagare.Cli.Inventory.Adapters (inventoryArtifactAdapter)
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Dsl.Prelude
@@ -38,6 +39,7 @@ import Nagare.Inventory.Artifact
   )
 import Nagare.Inventory.Artifact qualified as InventoryArtifact
 import Nagare.Inventory.Digest qualified as InventoryDigest
+import Nagare.Platform.Transition (sameDeclarationsModuloSource)
 import Nagare.Platform.Workspace (PlatformWorkspace)
 import Nagare.Resource.Inventory qualified as ResourceInventory
 import Nagare.Resource.Policy qualified as ResourcePolicy
@@ -74,11 +76,12 @@ instance Aeson.FromJSON LocalSubstrateSpec where
       <*> value Aeson..: "k3sArg"
 
 buildLocalSubstrateCandidate ::
+  StageMode ->
   ActiveTarget ->
   PlatformWorkspace ->
   ResourceInventory.ScopeSnapshot ->
   IO (Maybe ResourceInventory.CompositionCandidate)
-buildLocalSubstrateCandidate active workspace snapshot
+buildLocalSubstrateCandidate mode active workspace snapshot
   | active ^. #profile . #mode /= Local = pure Nothing
   | otherwise = do
       let source = workspace ^. #root </> "cluster/bootstrap/local-substrate.json"
@@ -136,7 +139,17 @@ buildLocalSubstrateCandidate active workspace snapshot
       case Map.lookup owner (ResourceInventory.snapshotScopes snapshot) of
         Just (_, prior)
           | ResourceWire.encodeCanonicalScope prior /= ResourceWire.encodeCanonicalScope scope ->
-              dieT "accepted local substrate differs from the selected specification"
+              -- EP-172: a release transition re-accepts the substrate declared from
+              -- the target payload; the cluster and registry themselves never change
+              -- in place.
+              if mode == ReleaseTransition && sameDeclarationsModuloSource prior scope
+                then
+                  Just
+                    <$> either
+                      (dieT . T.pack . show)
+                      pure
+                      (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
+                else dieT "accepted local substrate differs from the selected specification"
         Just _ -> do
           adapter <- inventoryArtifactAdapter active workspace (InventoryArtifact.artifactExecutionSpecs bundle)
           observed <- InventoryAdapter.adapterObserve adapter [registryId, clusterId]

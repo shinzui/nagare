@@ -44,7 +44,7 @@ planNextStage mode active paths workspace identity output = do
   when
     (active ^. #profile . #mode == Cloud)
     (void (selectReviewedPulumiForContext (active ^. #contextName) (active ^. #profile)))
-  localStage <- buildLocalSubstrateCandidate active workspace snapshot
+  localStage <- buildLocalSubstrateCandidate mode active workspace snapshot
   case localStage of
     Just candidate -> plan candidate
     Nothing -> do
