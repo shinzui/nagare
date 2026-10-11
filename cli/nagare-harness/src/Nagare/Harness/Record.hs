@@ -7,6 +7,7 @@ module Nagare.Harness.Record
   , GateRecord (..)
   , SystemRealisation (..)
   , readRecord
+  , recentRecordCommits
   , recordPath
   , writeRecord
   )
@@ -16,12 +17,14 @@ import Data.Aeson (FromJSON, ToJSON, eitherDecodeFileStrict)
 import Data.Aeson.Encode.Pretty (encodePretty)
 import Data.ByteString.Lazy qualified as BL
 import Data.Generics.Labels ()
+import Data.List (sortOn)
 import Data.Map.Strict (Map)
+import Data.Ord (Down (..))
 import Data.Text qualified as T
 import Nagare.Harness.Prelude
 import Nagare.Harness.Step (StepResult)
-import System.Directory (XdgDirectory (XdgState), createDirectoryIfMissing, doesFileExist, getXdgDirectory)
-import System.FilePath (takeDirectory, (</>))
+import System.Directory (XdgDirectory (XdgState), createDirectoryIfMissing, doesDirectoryExist, doesFileExist, getModificationTime, getXdgDirectory, listDirectory)
+import System.FilePath (dropExtension, takeDirectory, takeExtension, (</>))
 
 -- | Every check attribute of one system, and what a dry run says is still
 -- missing. @realised@ equals @checks@ only when @remaining@ is empty.
@@ -76,3 +79,15 @@ readRecord commitId = do
   if not present
     then pure (Right Nothing)
     else first (\err -> T.pack (path <> ": " <> err)) . fmap Just <$> eitherDecodeFileStrict path
+
+-- | The commits of the @limit@ most recently written records, newest first.
+recentRecordCommits :: Int -> IO [Text]
+recentRecordCommits limit = do
+  base <- takeDirectory <$> recordPath "x"
+  present <- doesDirectoryExist base
+  if not present
+    then pure []
+    else do
+      names <- filter ((== ".json") . takeExtension) <$> listDirectory base
+      stamped <- forM names $ \name -> (,name) <$> getModificationTime (base </> name)
+      pure [T.pack (dropExtension name) | (_, name) <- take limit (sortOn (Down . fst) stamped)]

@@ -169,7 +169,7 @@ tests =
             classifyPath namedBy "docs/audits/other/notes.md" @?= Inert
         , testCase "one blocking path refuses the whole difference" $
             assertBool "mixed difference accepted" (isLeft (carryForwardVerdict (const Nothing) ["docs/plans/1-x.md", "justfile"]))
-        , testCase "gate verify carries a green record forward over inert documentation only" carryForwardRoundTrip
+        , testCase "gate verify carries a green record forward over inert documentation only, including across a rebase" carryForwardRoundTrip
         ]
     , testGroup
         "route check (EP-183 M1)"
@@ -306,6 +306,20 @@ carryForwardRoundTrip =
       write "src/Spec.hs" "-- changed"
       code <- commitAll "code"
       assertBool "a code change carried forward" . isLeft =<< verifyRevision repo code
+      git ["reset", "-q", "--hard", T.unpack docsOnly]
+      write "src/Spec.hs" "-- gated before a rebase"
+      gatedCode <- commitAll "code to rebase"
+      recordFor gatedCode True
+      git ["reset", "-q", "--hard", T.unpack docsOnly]
+      write "docs/plans/2-plan.md" "landed meanwhile"
+      _ <- commitAll "docs landed meanwhile"
+      write "src/Spec.hs" "-- gated before a rebase"
+      rebased <- commitAll "code rebased over documentation"
+      verdictRebased <- verifyRevision repo rebased
+      assertBool ("a code commit rebased over documentation refused: " <> show verdictRebased) (isRight verdictRebased)
+      write "src/Spec.hs" "-- changed after the rebase"
+      rebasedThenChanged <- commitAll "code changed after the rebase"
+      assertBool "a code change after the rebase carried forward" . isLeft =<< verifyRevision repo rebasedThenChanged
       git ["reset", "-q", "--hard", T.unpack docsOnly]
       write "docs/plans/1-plan.md" "three"
       redOwn <- commitAll "red"

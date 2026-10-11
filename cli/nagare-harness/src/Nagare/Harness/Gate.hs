@@ -25,6 +25,7 @@ import Data.Aeson (Value (..), eitherDecodeStrict)
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString qualified as BS
 import Data.Containers.ListUtils (nubOrd)
+import Data.Either (isRight)
 import Data.Generics.Labels ()
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
@@ -381,8 +382,9 @@ runFullGate run = do
 
 -- | Refuse a revision without a green, clean, fully realised gate record for
 -- its exact tree. A revision with no record of its own may carry forward the
--- record of its nearest gated ancestor when every path between the two trees
--- is inert documentation ("Nagare.Harness.CarryForward"). A revision whose own
+-- record of its nearest gated ancestor, or of any recently gated commit, when
+-- every path between the two trees is inert documentation
+-- ("Nagare.Harness.CarryForward"). A revision whose own
 -- record is red never carries forward.
 verifyRevision :: FilePath -> Text -> IO (Either Text Text)
 verifyRevision workdir revision = do
@@ -429,21 +431,46 @@ verifyOwnRecord workdir commitId = do
 
 -- | The nearest ancestor (within 500 commits) whose own record verifies, and
 -- the verdict on the paths that differ between its tree and the commit's.
+-- When that ancestor's difference is blocked, any recently gated commit whose
+-- tree differs from this one only by inert documentation carries forward too:
+-- the gate's result depends on the tree alone, so a code commit rebased over
+-- documentation keeps the record it earned before the rebase.
 carryForwardRecord :: FilePath -> Text -> IO (Either Text (Text, Int, [Text]))
 carryForwardRecord workdir commitId = do
   (_, listed, _) <- capture workdir "git" ["rev-list", "--max-count=500", T.unpack commitId <> "^@"]
   ancestor <- firstGreen (T.lines listed)
-  case ancestor of
+  nearest <- case ancestor of
     Nothing -> pure (Left "no ancestor within 500 commits has a green gate record")
-    Just (ancestorId, systems) -> do
-      (_, diffed, _) <- capture workdir "git" ["diff", "-z", "--name-only", "--no-renames", T.unpack ancestorId, T.unpack commitId]
-      let changed = filter (not . T.null) (T.splitOn "\0" diffed)
+    Just (ancestorId, systems) ->
+      first (\blocked -> "nearest gated ancestor " <> ancestorId <> "; blocked by " <> blocked)
+        <$> verdictFrom ancestorId systems
+  case nearest of
+    Right carried -> pure (Right carried)
+    Left refusal -> maybe (Left refusal) Right <$> (firstSibling . filter (`notElem` (commitId : T.lines listed)) =<< recentRecordCommits 50)
+  where
+    verdictFrom gatedId systems = do
+      changed <- changedPaths gatedId
       named <- forM (nubOrd (concatMap referenceNeedles changed)) $ \needle -> (needle,) <$> namingFile needle
       let namedBy needle = join (lookup needle named)
-      pure $ case carryForwardVerdict namedBy changed of
-        Left blocked -> Left ("nearest gated ancestor " <> ancestorId <> "; blocked by " <> blocked)
-        Right count -> Right (ancestorId, count, systems)
-  where
+      pure ((gatedId,,systems) <$> carryForwardVerdict namedBy changed)
+    changedPaths gatedId = do
+      (_, diffed, _) <- capture workdir "git" ["diff", "-z", "--name-only", "--no-renames", T.unpack gatedId, T.unpack commitId]
+      pure (filter (not . T.null) (T.splitOn "\0" diffed))
+    -- A recently gated commit that is not an ancestor, such as this commit
+    -- before a rebase. Paths that are not inert on their face skip the
+    -- naming search.
+    firstSibling = \case
+      [] -> pure Nothing
+      candidate : rest -> do
+        (exists, _, _) <- capture workdir "git" ["cat-file", "-e", T.unpack candidate <> "^{commit}"]
+        own <- if exists == ExitSuccess then verifyOwnRecord workdir candidate else pure (Right Nothing)
+        case own of
+          Right (Just systems) -> do
+            changed <- changedPaths candidate
+            if isRight (carryForwardVerdict (const Nothing) changed)
+              then verdictFrom candidate systems >>= either (const (firstSibling rest)) (pure . Just)
+              else firstSibling rest
+          _ -> firstSibling rest
     firstGreen = \case
       [] -> pure Nothing
       candidate : rest -> do

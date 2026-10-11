@@ -437,7 +437,7 @@ land rev:
     target=$(git rev-parse --verify '{{rev}}^{commit}')
     just gate-verify "$target"
     git fetch origin master
-    git merge-base --is-ancestor origin/master "$target" || { echo "land: $target does not descend from origin/master; rebase it and gate it again" >&2; exit 1; }
+    git merge-base --is-ancestor origin/master "$target" || { echo "land: $target does not descend from origin/master; rebase it; a rebase over documentation keeps its gate record, anything else needs a new just gate" >&2; exit 1; }
     git push origin "$target:refs/heads/master"
 
 # EP-174: build and run every fixture application with only its declared
