@@ -18,12 +18,17 @@ entire system from scratch.
 > [MasterPlan 24](docs/masterplans/24-operate-nagare-as-a-team-run-workplace-intranet-paas.md).
 > Until that lands, treat a team installation as operated by one person at a time.
 
-> **Status:** [Nagare 0.4.0](https://github.com/shinzui/nagare/releases/tag/v0.4.0)
-> ships the typed resource inventory and resumable operation ledger completed in
+> **Status:** [Nagare 0.5.0](https://github.com/shinzui/nagare/releases/tag/v0.5.0)
+> adds protected HTTPS login for every deploy, scheduled volume backups, backup
+> retention with reviewed pruning, and rebuild of a lost database or volume from
+> its last verified backup ([release notes](docs/releases/v0.5.0.md)). It builds
+> on the typed resource inventory and resumable operation ledger from
 > [MasterPlan 23](docs/masterplans/23-make-managed-resources-first-class-through-typed-scoped-inventories.md).
 > Cloud mode runs on one GCP/NixOS/k3s host; local mode uses k3d, a local registry,
-> and MinIO. The release covers fresh inventory-backed contexts; supported
-> recovery and upgrade drills are recorded in the
+> and MinIO. Releases install on fresh contexts; moving an installed context to a
+> new release in place is not supported yet
+> ([EP-172](docs/plans/172-rehearse-candidate-upgrades-of-an-inventory-context-instead-of-rebuilding-it.md)).
+> Supported recovery and upgrade drills are recorded in the
 > [production readiness checklist](docs/releases/production-readiness-checklist.md).
 > Current operator docs start at
 > [`docs/user/README.md`](docs/user/README.md), goal-oriented walkthroughs start
@@ -138,7 +143,7 @@ typed `nagare/Config.hs`; no Cabal package environment or Nagare checkout is
 needed. Select a reviewed release explicitly:
 
 ```bash
-export NAGARE_VERSION=0.4.0
+export NAGARE_VERSION=0.5.0
 nix run "github:shinzui/nagare/v${NAGARE_VERSION}#nagarectl" -- version
 nix profile install "github:shinzui/nagare/v${NAGARE_VERSION}#nagarectl"
 ```
@@ -280,9 +285,12 @@ data, and operations vocabulary with stable `TERM-N` handles.
   persistent volumes, managed databases, scheduled tasks, workers, Redpanda
   brokers, and identity-aware access through `nagarectl`.
 - Back up managed databases and app volumes to GCS in cloud mode or MinIO in
-  local mode, with verified receipts and isolated restores. Scheduled database
-  backups report freshness against an hourly or daily recovery-point objective;
-  volumes use manual snapshots and are outside that objective.
+  local mode, on a schedule, with signed receipts and isolated restores.
+  Freshness is graded against an hourly or daily recovery-point objective.
+  Scheduled runs are kept for 48 hours, then one a day for 30 days, and pruned
+  through review; the newest verified run is always kept.
+- Protect a site behind passkey login over HTTPS, and grant or revoke each
+  user's access through review.
 - Apply reviewed, self-reverting NixOS/k3s host changes and follow the rehearsed
   side-by-side PostgreSQL major-upgrade procedure.
 
@@ -301,12 +309,11 @@ Optimize for: **cheap, rebuildable, simple, observable, fun to use.**
 
 ## Non-goals (v1)
 
-The 0.4.0 inventory contract covers fresh contexts. General in-place platform
-payload/schema upgrades, full-context physical collection, live database/PVC
-overwrite, new interactive mutating maintenance, and scheduled backup pruning
-remain outside that contract. Scheduled keep-N and expiry retention are
-unenforced. See [0.4.0 release notes](docs/releases/v0.4.0.md) for the supported
-boundaries and known limits, including the HTTP-only acceptance fixture.
+The 0.5.0 inventory contract covers fresh contexts. In-place upgrades of an
+installed context to a new release, full-context physical collection, live
+database/PVC overwrite, and new interactive mutating maintenance remain outside
+that contract. See [0.5.0 release notes](docs/releases/v0.5.0.md) for the
+supported boundaries and known limits.
 
 Multi-node Kubernetes, Istio / full service mesh, Argo CD, Flux, Crossplane,
 External Secrets Operator, complex autoscaling, multi-tenant auth, huge
