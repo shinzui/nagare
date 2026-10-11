@@ -602,8 +602,9 @@ route and En grant/revoke checks pass.
 
 The bounded native access proof uses the stable endpoint
 `http://127.0.0.1:19463`. Its fault-injection proxy has stopped; a direct local En
-port-forward can expose that same endpoint for ordinary inspection. Keep that URL
-for its accepted relationship scope. Use the context's private read-write key
+port-forward can expose that same endpoint for ordinary inspection. Reviewed
+access no longer depends on that URL: it reaches the context's En through its own
+port-forward (F97). Use the context's private read-write key
 through environment input, never in command arguments or a saved review.
 
 ## Known cloud timings

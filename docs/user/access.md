@@ -213,9 +213,10 @@ Revoke the grant:
 nagarectl access revoke --host protected-hello.apps.example.com --user alice@example.com
 ```
 
-The commands talk to En and must use its read-write bearer key. Pass `--en-url URL`
-and `--en-api-key KEY`, or set `NAGARE_EN_URL` and `NAGARE_EN_API_KEY`. From a
-workstation, a local port-forward keeps the service private while making the CLI usable:
+The commands talk to En and must use its read-write bearer key: pass `--en-api-key KEY`
+or set `NAGARE_EN_API_KEY`. `access list` and the direct grant and revoke forms also
+need En's address: pass `--en-url URL` or set `NAGARE_EN_URL`. From a workstation, a
+local port-forward keeps the service private while making the CLI usable:
 
 ```bash
 kubectl -n nagare-system port-forward svc/en 18082:80 &
@@ -233,10 +234,13 @@ nagarectl --context "$CONTEXT" access revoke --host "$HOST" --user alice@example
 nagarectl --context "$CONTEXT" inventory apply ./revoke-review --yes
 ```
 
-Set `NAGARE_EN_URL` and private `NAGARE_EN_API_KEY` for planning, apply, and
-recovery. Reviews contain the endpoint and selected relationship, never the key;
-a grant named by email reads `grant user_… (alice@example.com) viewer on HOST`.
-The endpoint must remain the same for an accepted grant. The selected context's
+Set private `NAGARE_EN_API_KEY` for planning, apply, recovery and `inventory status`.
+Reviewed grants reach the context's En themselves, through a private port-forward to
+its Service that lasts one call, so they need no `NAGARE_EN_URL` and refuse
+`--en-url`. A grant therefore does not depend on the local port it was made through;
+grants recorded through an older forward are observed and revoked the same way.
+Reviews contain the selected relationship, never the key; a grant named by email reads
+`grant user_… (alice@example.com) viewer on HOST`. The selected context's
 kubeconfig must be available; the CLI checks the accepted En Service and
 protected DomainMapping before the tuple write. En must support atomic
 relationship preconditions. Older services fail the capability check before a

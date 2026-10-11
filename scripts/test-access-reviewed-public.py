@@ -70,6 +70,11 @@ assert os.environ['KUBECONFIG']==str(r/'config/nagare/kubeconfigs/access-test.ya
 a=[arg for arg in sys.argv[1:] if not arg.startswith('--request-timeout=')]
 assert a[:2]==['--context','access-test'],a
 a=a[2:]
+if 'port-forward' in a:
+ assert a==['-n','nagare-system','port-forward','svc/en',':80','--address','127.0.0.1'],a
+ print('Forwarding from 127.0.0.1:'+(r/'en-port').read_text()+' -> 8080',flush=True)
+ import time
+ while True: time.sleep(60)
 if 'exec' in a:
  assert a[:11]==['--namespace','nagare-system','exec','-i','shomei-db-0','--container','postgres','--','sh','-c',a[10]] and a[11]=='sh',a
  assert sys.stdin.read()=="SELECT user_id FROM shomei.shomei_users WHERE email = :'email';\\n"
@@ -181,7 +186,9 @@ print(json.dumps({'metadata':{'uid':uid,'annotations':{
         server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
-        env["NAGARE_EN_URL"] = f"http://127.0.0.1:{server.server_port}"
+        # F97: reviewed access reaches en through its own forward; a stale URL is ignored.
+        (root / "en-port").write_text(str(server.server_port))
+        env["NAGARE_EN_URL"] = "http://127.0.0.1:9"
         head_path = root / "state/nagare/access-test/inventory/head.json"
 
         def head():
@@ -217,6 +224,8 @@ print(json.dumps({'metadata':{'uid':uid,'annotations':{
         # F96: only a Shomei user id, or an email naming exactly one user, is a subject.
         for user in ["alice", "nobody@example.test", "twin@example.test"]:
             plan("refused-" + user, user=user, succeeds=False)
+        run("access", "grant", "--host", "one.example.test", "--user", ALICE, "--en-url",
+            f"http://127.0.0.1:{server.server_port}", "--save-plan", root / "explicit-url", succeeds=False)
         assert head() == original and state["writes"] == 0
         grant = plan("grant", user="Alice@Example.test")
         assert f"{ALICE} (alice@example.test)".encode() in (grant / "review.json").read_bytes()

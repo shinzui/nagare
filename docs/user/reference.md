@@ -464,9 +464,11 @@ no `nagarectl job` command. See [Scheduled tasks](scheduled-tasks.md),
 | `nagarectl access list --host HOST` | List users whose relationships expand to the host's `access` permission. |
 | `nagarectl access portal sync --save-plan DIR` | Review the complete accepted backend/portal settings and a Shomei rollout; apply with `inventory apply DIR --yes`. |
 
-Grant, revoke, and list accept `--en-url URL`. Reviewed grants require that option
-or `NAGARE_EN_URL`, plus private `NAGARE_EN_API_KEY` for apply/recovery and an En
-service supporting atomic relationship preconditions. Direct forms refuse after
+`access list` and the direct grant and revoke forms take `--en-url URL` or
+`NAGARE_EN_URL`. Reviewed grants reach the context's En through their own
+port-forward and refuse `--en-url`; they need private `NAGARE_EN_API_KEY` for
+planning, apply, recovery and status, and an En service supporting atomic
+relationship preconditions. Direct forms refuse after
 inventory initialization. See [Identity-aware access](access.md).
 
 ## `nagarectl site` commands (static & full-stack hosting)

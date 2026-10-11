@@ -51,7 +51,7 @@ enUrlOpt =
     ( strOption
         ( long "en-url"
             <> metavar "URL"
-            <> help "en-server URL (default: NAGARE_EN_URL)"
+            <> help "en-server URL for list and the direct grant and revoke (default: NAGARE_EN_URL); reviewed grants reach en themselves"
         )
     )
 

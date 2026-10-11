@@ -101,6 +101,8 @@ runAccess mctx = \case
         TIO.putStrLn ("synchronized portal: " <> publicHostText portalHost)
   where
     runReviewed granted options output = do
+      -- Reviewed grants reach the context's en through their own port-forward (F97).
+      when (isJust (options ^. #enUrl)) (dieT "reviewed access reaches the context's en itself; drop --en-url")
       user <- resolveUser (options ^. #user)
       active <- activeTarget mctx
       selected <- kubeconfigPath (active ^. #contextName)
@@ -112,7 +114,6 @@ runAccess mctx = \case
         (fmap (fmap (const ())) (guardKubernetesContext active))
         (T.pack (options ^. #host))
         user
-        (T.pack <$> options ^. #enUrl)
         (T.pack <$> options ^. #enApiKey)
         granted
         output

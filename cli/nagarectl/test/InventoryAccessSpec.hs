@@ -44,7 +44,7 @@ inventoryAccessTests =
   testGroup
     "reviewed access"
     [ testCase "compiler selects one tuple without altering accepted auth and neighboring apps" $ do
-        let scope = ok (compileAccessScope snapshot "ONE.EXAMPLE.TEST." alice "http://localhost:8090" True)
+        let scope = ok (compileAccessScope snapshot "ONE.EXAMPLE.TEST." alice True)
             candidate = ok (composeInventory snapshot (ReplaceScope scope :| []))
             originals = Map.map snd (snapshotScopes snapshot)
         Map.restrictKeys (inventoryScopes (candidateInventory candidate)) (Map.keysSet originals) @?= originals
@@ -68,26 +68,37 @@ inventoryAccessTests =
           CandidateInput decodedSnapshot _ ->
             snapshotReservations decodedSnapshot @?= snapshotReservations reserved
         assertBool
-          "secret endpoint accepted"
-          ( either
-              (const True)
-              (const False)
-              (compileAccessScope snapshot "one.example.test" alice "https://key@secret.test" True)
-          )
-        assertBool
           "unknown protected hostname accepted"
           ( either
               (const True)
               (const False)
-              (compileAccessScope snapshot "foreign.example.test" alice "http://localhost:8090" True)
+              (compileAccessScope snapshot "foreign.example.test" alice True)
           )
         assertBool
           "a subject that is not a Shomei user id accepted"
           ( either
               (const True)
               (const False)
-              (compileAccessScope snapshot "one.example.test" (ShomeiUser "alice" Nothing) "http://localhost:8090" True)
+              (compileAccessScope snapshot "one.example.test" (ShomeiUser "alice" Nothing) True)
           )
+    , testCase "a grant accepted through a local en forward is revoked through the context's en (F97)" $ do
+        let granted = ok (compileAccessScope snapshot "one.example.test" alice True)
+            throughForward = \case
+              Managed resource -> Managed (resource & #spec .~ AccessGrantSpec "http://127.0.0.1:28382" True)
+              declaration -> declaration
+            accepted = ok (mkScopeDeclaration (scopeId granted) [bundle & #declarations %~ map throughForward | bundle <- scopeBundles granted])
+            withGrant = ok (mkScopeSnapshot context (Map.insert (scopeId accepted) (generation, accepted) (snapshotScopes snapshot)) Map.empty)
+            revoked = ok (compileAccessScope withGrant "one.example.test" alice False)
+        scopeId revoked @?= scopeId accepted
+        [r ^. #spec | bundle <- scopeBundles revoked, Managed r <- bundle ^. #declarations]
+          @?= [AccessGrantSpec "http://en.nagare-system.svc.cluster.local" False]
+        -- The old record still binds, so status and review can observe it.
+        Map.size (ok (accessBindings (inventoryDeclarations (ok (composeSnapshot withGrant))))) @?= 1
+    , testCase "the en forward port is read from kubectl's first forwarding line" $ do
+        parseEnForwardPort "Forwarding from 127.0.0.1:53817 -> 8080\n" @?= Just "53817"
+        parseEnForwardPort "Forwarding from [::1]:53817 -> 8080" @?= Nothing
+        parseEnForwardPort "Forwarding from 127.0.0.1: -> 8080" @?= Nothing
+        parseEnForwardPort "Forwarding from 127.0.0.1:53817" @?= Nothing
     , testCase "portal synchronization rolls exactly both accepted startup readers" $ do
         let owner = ok (mkScopeId Platform "auth")
             scope = maybe (error "auth fixture absent") snd (Map.lookup owner (snapshotScopes snapshot))
@@ -206,7 +217,7 @@ inventoryAccessTests =
         forM_ [False, True] $ \granted -> do
           store <- newMemoryStore
           _ <- initializeStore store context "access-retire" >>= either (fail . show) pure
-          let accessScope = ok (compileAccessScope snapshot "one.example.test" alice "http://localhost:8090" granted)
+          let accessScope = ok (compileAccessScope snapshot "one.example.test" alice granted)
               withAccess = ok (mkScopeSnapshot context (Map.insert (scopeId accessScope) (generation, accessScope) (snapshotScopes snapshot)) Map.empty)
               dummy = ok (mkScopeDeclaration (ok (mkScopeId Standalone "dummy")) [])
           _ <- seedInventoryHistory store (ok (composeInventory withAccess (ReplaceScope dummy :| []))) >>= either (fail . show) pure
@@ -273,7 +284,7 @@ aliceId = "user_01h455vb4pex5vsknk084sn02q"
 
 accessBinding :: Bool -> AccessBinding
 accessBinding granted =
-  let scope = ok (compileAccessScope snapshot "one.example.test" alice "http://localhost:8090" granted)
+  let scope = ok (compileAccessScope snapshot "one.example.test" alice granted)
       candidate = ok (composeInventory snapshot (ReplaceScope scope :| []))
    in head (Map.elems (ok (accessBindings (inventoryDeclarations (candidateInventory candidate)))))
 

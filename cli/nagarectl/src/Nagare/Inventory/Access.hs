@@ -156,11 +156,16 @@ data AccessOps = AccessOps
   , accessWrite :: !(AccessBinding -> AccessFact -> IO AdapterExecution)
   }
 
-compileAccessScope :: ScopeSnapshot -> Text -> ShomeiUser -> Text -> Bool -> Either Text ScopeDeclaration
-compileAccessScope snapshot rawHost user endpoint granted = do
+-- | The en a grant is written through is the context's en Service, reached
+-- through a private port-forward at run time. Older grants recorded the local
+-- address used then; that record no longer selects a transport (F97).
+enServiceEndpoint :: Text
+enServiceEndpoint = "http://en.nagare-system.svc.cluster.local"
+
+compileAccessScope :: ScopeSnapshot -> Text -> ShomeiUser -> Bool -> Either Text ScopeDeclaration
+compileAccessScope snapshot rawHost user granted = do
   let subject = user ^. #userId
   host <- mkName (T.toLower (T.dropWhileEnd (== '.') (T.strip rawHost)))
-  unless (validAccessEndpoint endpoint) (Left "access endpoint must be an HTTP(S) base URL without credentials, query, or fragment")
   unless (isShomeiUserId subject) (Left "access subject must be a Shomei user id (user_…)")
   inventory <- first (T.pack . show) (composeSnapshot snapshot)
   (auth, route) <- protectedOwner (inventoryDeclarations inventory) host
@@ -184,7 +189,7 @@ compileAccessScope snapshot rawHost user endpoint granted = do
           AccessExecutor
           (AccessTuple (auth ^. #identity) host subject)
           []
-          (AccessGrantSpec endpoint granted)
+          (AccessGrantSpec enServiceEndpoint granted)
           Retain
           Stateless
           Private
@@ -192,15 +197,11 @@ compileAccessScope snapshot rawHost user endpoint granted = do
           []
           -- The review names the email the operator gave alongside the id.
           (SourceLocation "access" (fromMaybe "viewer" (user ^. #email)))
-  -- A changed endpoint cannot silently move a previously owned relationship.
   forM_ (Map.lookup owner (snapshotScopes snapshot)) $ \(_, prior) ->
     forM_ [old | bundle <- scopeBundles prior, Managed old <- bundle ^. #declarations] $ \old ->
       unless
-        ( old ^. #identity == resource ^. #identity
-            && old ^. #address == resource ^. #address
-            && case old ^. #spec of AccessGrantSpec oldEndpoint _ -> oldEndpoint == endpoint; _ -> False
-        )
-        (Left "accepted access endpoint or tuple identity changed; use an explicit ownership transition")
+        (old ^. #identity == resource ^. #identity && old ^. #address == resource ^. #address)
+        (Left "accepted access tuple identity changed")
   first
     (T.pack . show)
     ( mkScopeDeclaration

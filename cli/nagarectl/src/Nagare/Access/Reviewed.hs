@@ -36,32 +36,12 @@ planAccess ::
   Text ->
   ShomeiUser ->
   Maybe Text ->
-  Maybe Text ->
   Bool ->
   FilePath ->
   IO ()
-planAccess active guard host user configuredUrl configuredKey granted output = do
-  endpoint <-
-    maybe
-      ( lookupEnv "NAGARE_EN_URL"
-          >>= maybe
-            (fail "reviewed access requires --en-url or NAGARE_EN_URL")
-            (pure . T.pack)
-      )
-      pure
-      configuredUrl
+planAccess active guard host user configuredKey granted output = do
   snapshot <- Command.loadTargetSnapshotReadOnly active
-  scope <-
-    either
-      (fail . T.unpack)
-      pure
-      ( compileAccessScope
-          snapshot
-          host
-          user
-          (T.dropWhileEnd (== '/') endpoint)
-          granted
-      )
+  scope <- either (fail . T.unpack) pure (compileAccessScope snapshot host user granted)
   candidate <- either (fail . show) pure (composeInventory snapshot (ReplaceScope scope :| []))
   withKey (Command.planInventoryCandidateWith (accessPlanRegistry active guard) active candidate output)
   where

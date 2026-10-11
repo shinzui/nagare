@@ -6,10 +6,12 @@ module Nagare.Inventory.AccessRuntime
   , parseAccessPage
   , accessReviewAdapter
   , parseAccessCapabilities
+  , parseEnForwardPort
   )
 where
 
-import Control.Exception (IOException, try)
+import Control.Exception (IOException, bracket, catch, try)
+import Control.Monad (join)
 import Data.Aeson
 import Data.Aeson.Types (Parser, parseEither)
 import Data.ByteString (ByteString)
@@ -36,7 +38,9 @@ import Network.HTTP.Client.TLS (newTlsManager)
 import Network.HTTP.Types.Status (statusCode)
 import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..))
-import System.Process (readProcessWithExitCode)
+import System.IO (Handle, hClose, hGetLine)
+import System.Process (CreateProcess (..), ProcessHandle, StdStream (..), createProcess, proc, readProcessWithExitCode, terminateProcess, waitForProcess)
+import System.Timeout (timeout)
 
 accessQuery :: AccessBinding -> Value
 accessQuery binding =
@@ -131,14 +135,14 @@ accessRuntimeOps context kubectlContext contextGuard =
         owner <- inspectOwners binding
         case owner of
           Left reason -> pure (Left reason)
-          Right physical -> do
-            capability <- request binding "GET" "/v1/openapi.json" Null
+          Right physical -> fmap join $ withEn $ \call -> do
+            capability <- call "GET" "/v1/openapi.json" Null
             case capability >>= \(code, bytes) -> do
               unless (code == 200) (Left "access API capability observation refused")
               parseAccessCapabilities bytes of
               Left reason -> pure (Left reason)
               Right () -> do
-                response <- request binding "POST" "/v1/relationships/query?first=2" (accessQuery binding)
+                response <- call "POST" "/v1/relationships/query?first=2" (accessQuery binding)
                 pure $ do
                   (code, bytes) <- response
                   unless (code == 200) (Left "access relationship query refused")
@@ -152,11 +156,13 @@ accessRuntimeOps context kubectlContext contextGuard =
             | owner /= accessPhysical before ->
                 pure (AdapterEffectFailed (KnownNoEffect "reviewed auth or route UID changed"))
           Right _ -> do
-            response <- request binding "POST" "/v1/relationships" (accessMutation binding before)
-            pure $ case response of
-              Left reason -> AdapterEffectAmbiguous reason
-              Right (412, _) -> AdapterEffectFailed (KnownNoEffect "atomic access tuple precondition refused")
-              Right (code, bytes) | code >= 200 && code < 300 ->
+            sent <- withEn (\call -> call "POST" "/v1/relationships" (accessMutation binding before))
+            pure $ case sent of
+              -- No request left this process without a ready forward and key.
+              Left reason -> AdapterEffectFailed (KnownNoEffect reason)
+              Right (Left reason) -> AdapterEffectAmbiguous reason
+              Right (Right (412, _)) -> AdapterEffectFailed (KnownNoEffect "atomic access tuple precondition refused")
+              Right (Right (code, bytes)) | code >= 200 && code < 300 ->
                 case eitherDecodeStrict bytes >>= parseEither (withObject "write token" (.: "token")) of
                   Right (token :: Text) | not (T.null token) -> AdapterEffectCompleted
                   _ -> AdapterEffectAmbiguous "access write response has no valid consistency token"
@@ -228,30 +234,64 @@ accessRuntimeOps context kubectlContext contextGuard =
               annotations
         )
         meta
-    request binding verb suffix body = do
+    -- Every grant reaches the context's en the same way, through a private
+    -- port-forward to its Service, so no accepted grant depends on the local
+    -- address an operator once used (F97). The forward lives for one call.
+    withEn :: ((ByteString -> Text -> Value -> IO (Either Text (Int, ByteString))) -> IO a) -> IO (Either Text a)
+    withEn action = do
       credential <- lookupEnv "NAGARE_EN_API_KEY"
       case credential of
-        Nothing -> pure (Left "reviewed access requires private NAGARE_EN_API_KEY")
-        Just key | null key -> pure (Left "reviewed access requires private NAGARE_EN_API_KEY")
-        Just key -> case accessResource binding ^. #spec of
-          AccessGrantSpec endpoint _ | validAccessEndpoint endpoint -> do
-            response <- try @HttpException $ do
-              manager <- newTlsManager
-              initial <- parseRequest (T.unpack (T.dropWhileEnd (== '/') endpoint <> suffix))
-              httpLbs
-                initial
-                  { method = verb
-                  , requestHeaders = [("Authorization", "Bearer " <> TE.encodeUtf8 (T.pack key)), ("Content-Type", "application/json")]
-                  , requestBody = RequestBodyLBS (if verb == "GET" then "" else encode body)
-                  , responseTimeout = responseTimeoutMicro 10000000
-                  , redirectCount = 0
-                  , checkResponse = \_ _ -> pure ()
-                  }
-                manager
-            pure $ case response of
-              Left _ -> Left "access transport failed; credentials and response body withheld"
-              Right result -> Right (statusCode (responseStatus result), LBS.toStrict (responseBody result))
-          _ -> pure (Left "invalid reviewed access endpoint")
+        Just key | not (null key) -> do
+          result <-
+            try @IOException $
+              bracket openEnForward closeEnForward $ \(output, _) -> do
+                ready <- timeout 15000000 (hGetLine output)
+                case ready >>= parseEnForwardPort . T.pack of
+                  Nothing -> pure (Left "en port-forward did not become ready")
+                  Just port -> Right <$> action (request key ("http://127.0.0.1:" <> port))
+          pure (either (const (Left "en port-forward failed")) id result)
+        _ -> pure (Left "reviewed access requires private NAGARE_EN_API_KEY")
+    openEnForward :: IO (Handle, ProcessHandle)
+    openEnForward = do
+      (_, output, _, process) <-
+        createProcess
+          ( proc
+              "kubectl"
+              ["--context", T.unpack kubectlContext, "-n", "nagare-system", "port-forward", "svc/en", ":80", "--address", "127.0.0.1"]
+          )
+            { std_out = CreatePipe
+            , std_err = NoStream
+            }
+      maybe (fail "kubectl port-forward has no output pipe") (\handle -> pure (handle, process)) output
+    closeEnForward (output, process) = do
+      terminateProcess process `catch` \(_ :: IOException) -> pure ()
+      _ <- waitForProcess process
+      hClose output `catch` \(_ :: IOException) -> pure ()
+    request key base verb suffix body = do
+      response <- try @HttpException $ do
+        manager <- newTlsManager
+        initial <- parseRequest (T.unpack (base <> suffix))
+        httpLbs
+          initial
+            { method = verb
+            , requestHeaders = [("Authorization", "Bearer " <> TE.encodeUtf8 (T.pack key)), ("Content-Type", "application/json")]
+            , requestBody = RequestBodyLBS (if verb == "GET" then "" else encode body)
+            , responseTimeout = responseTimeoutMicro 10000000
+            , redirectCount = 0
+            , checkResponse = \_ _ -> pure ()
+            }
+          manager
+      pure $ case response of
+        Left _ -> Left "access transport failed; credentials and response body withheld"
+        Right result -> Right (statusCode (responseStatus result), LBS.toStrict (responseBody result))
+
+-- | The local port from kubectl's first @Forwarding from 127.0.0.1:PORT -> N@ line.
+parseEnForwardPort :: Text -> Maybe Text
+parseEnForwardPort line = do
+  rest <- T.stripPrefix "Forwarding from 127.0.0.1:" (T.strip line)
+  let (port, target) = T.breakOn " -> " rest
+  unless (not (T.null port) && T.all (`elem` ['0' .. '9']) port && not (T.null (T.drop 4 target))) Nothing
+  pure port
 
 -- Select immutable desired/base members by digest; admitted state must not turn
 -- a new grant into prior ownership during recovery.
