@@ -1,0 +1,37 @@
+{
+  "database": "personal/scenario-pg",
+  "escrow": {
+    "command": "nagarectl db escrow-signing-key scenario-pg",
+    "fileSha256": "737c34bc9e7ed9cabbc9a9aad213b3824936543e296fde5a92844cf14c372561",
+    "mode": "0600",
+    "sopsEncrypted": true
+  },
+  "selection": {
+    "seedTime": "2026-10-11T05:05:28Z",
+    "rule": "newest verified scheduled backup created after the seed",
+    "candidates": 42,
+    "job": "71567c18-58e9-4d7c-8425-7dadcd782a70",
+    "generation": "1791732618935882",
+    "created": "2026-10-11T15:30:18+0000"
+  },
+  "verifyOnline": "verified with the escrowed key while the VM ran",
+  "sourceUnavailable": {
+    "command": "nagarectl host stop --operation-id c3i-source-unavailable-stop --save-plan DIR; inventory apply",
+    "result": "converged tx-54de7dcd95003fa7b0747bb7b8ecd35e2637df69712b7f4b14f1098e86d47e97",
+    "vmStatus": "TERMINATED"
+  },
+  "verifyOffline": "nagarectl db verify-escrowed-backup scenario-pg --backup-id JOB passed with the VM stopped (escrow + GCS only)",
+  "restore": {
+    "downloadedSha256": "1444ae7de9ad45cf1eddbbae0387834dd45b2e7d0e1b70f8b45c373c323df584",
+    "target": "disposable local nixpkgs postgres (PostgreSQL) 18.4",
+    "psqlErrors": 0,
+    "rows": "1|scenario-pg-row-1 2|scenario-pg-row-2 3|after-backup ",
+    "seedRowsPresent": true
+  },
+  "restart": {
+    "command": "nagarectl host start --operation-id c3i-source-unavailable-start --save-plan DIR; inventory apply",
+    "result": "converged tx-b38e0862099ce608f6f49423a6d929f4e176eaa3cdf5dcb5af96eacd02e42c46",
+    "podsReady": true,
+    "apiservicesAvailable": true
+  }
+}

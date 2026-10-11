@@ -1,0 +1,74 @@
+{
+ "stage": "database-readiness",
+ "within": "application A deploy, before scenario-pg reports ready",
+ "transaction": "tx-7b3c403c3fd25c8b03499fbe614f5bacc412ed023ca7a51c21466935adf585a8",
+ "killedOperation": [
+  "op-3ee25424a12a66c1d30e6a64"
+ ],
+ "uidsBefore": [
+  [
+   "StatefulSet",
+   "scenario-pg",
+   "c1fa2360-6014-4ab5-b3ce-17027e74fcd3"
+  ],
+  [
+   "PersistentVolumeClaim",
+   "nagare-db-scenario-pg-data",
+   "339046b6-ee7d-4e79-abb0-d6b636e9580f"
+  ],
+  [
+   "Secret",
+   "nagare-db-scenario-pg",
+   "6f0bdf7b-707d-410e-8029-78ced96a444b"
+  ],
+  [
+   "Secret",
+   "nagare-secret-scenario-a-runtime",
+   "63075fa7-79d3-493e-ac99-5aa9d6bc1d59"
+  ],
+  [
+   "Secret",
+   "nagare-volbackup-scenario-a-uploads-signing",
+   "8aa194b4-5a85-494a-84e0-2919a4a405e2"
+  ]
+ ],
+ "uidsAfter": [
+  [
+   "StatefulSet",
+   "scenario-pg",
+   "c1fa2360-6014-4ab5-b3ce-17027e74fcd3"
+  ],
+  [
+   "PersistentVolumeClaim",
+   "nagare-db-scenario-pg-data",
+   "339046b6-ee7d-4e79-abb0-d6b636e9580f"
+  ],
+  [
+   "PersistentVolumeClaim",
+   "nagare-vol-scenario-a-uploads",
+   "31889ec1-32de-43c0-a9f3-7ab5d0910e73"
+  ],
+  [
+   "Secret",
+   "nagare-db-scenario-pg",
+   "6f0bdf7b-707d-410e-8029-78ced96a444b"
+  ],
+  [
+   "Secret",
+   "nagare-dbbackup-scenario-pg-signing",
+   "37959378-4a81-4b32-9d7b-24d916a4862d"
+  ],
+  [
+   "Secret",
+   "nagare-secret-scenario-a-runtime",
+   "63075fa7-79d3-493e-ac99-5aa9d6bc1d59"
+  ],
+  [
+   "Secret",
+   "nagare-volbackup-scenario-a-uploads-signing",
+   "8aa194b4-5a85-494a-84e0-2919a4a405e2"
+  ]
+ ],
+ "preInterruptionUidsUnchanged": true,
+ "resumeResult": "converged tx-7b3c403c3fd25c8b03499fbe614f5bacc412ed023ca7a51c21466935adf585a8"
+}

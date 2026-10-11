@@ -1,0 +1,16 @@
+{
+ "object": {
+  "uid": "9ab146b1-e4ca-466d-89ed-8b0f1198f183",
+  "nagareOwnershipLabels": [],
+  "nagareOwnershipAnnotations": []
+ },
+ "statusFindings": 301,
+ "statusCategories": [
+  "converged",
+  "missing",
+  "unrecorded"
+ ],
+ "statusMatchesForObject": 0,
+ "activeTransaction": null,
+ "observation": "inventory status reports only accepted addresses ('unowned' means an accepted address observed without its owner stamp); an unowned object at an unaccepted address is reported by the planner refusal adoption-required"
+}

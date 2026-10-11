@@ -1,0 +1,8 @@
+{
+  "uid": "a0f6ef2f-dce0-4251-84ba-86f2bb7a8a5a",
+  "maxScale": "3",
+  "managers": [
+    "controller",
+    "nagare-inventory"
+  ]
+}

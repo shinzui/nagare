@@ -1,0 +1,94 @@
+{
+ "stage": "database-readiness",
+ "within": "application A deploy, before scenario-pg reports ready",
+ "transaction": "tx-9f65c60659ab7746b5efd8b91564e2e78e43e992068593b2a9718af008956ea3",
+ "killedOperation": [
+  "op-f12edb3c94ed2358cac30851"
+ ],
+ "uidsBefore": [
+  [
+   "StatefulSet",
+   "scenario-pg",
+   "21ec8840-2a5d-4276-bd1c-31a4be3fa9e6"
+  ],
+  [
+   "PersistentVolumeClaim",
+   "nagare-db-scenario-pg-data",
+   "6a76d046-8355-47ac-8550-2ccb8a0e3f2e"
+  ],
+  [
+   "PersistentVolumeClaim",
+   "nagare-vol-scenario-a-uploads",
+   "154fd55f-ec9f-46b3-8761-5c3067006c5d"
+  ],
+  [
+   "Secret",
+   "nagare-db-scenario-pg",
+   "ab015036-8eec-442e-875b-bd2206528bdf"
+  ],
+  [
+   "Secret",
+   "nagare-dbbackup-scenario-pg-signing",
+   "aca3b3ff-49da-4a93-98c0-20c01e76b23a"
+  ],
+  [
+   "Secret",
+   "nagare-secret-scenario-a-runtime",
+   "e8f5c67f-2684-4529-8d67-bd6d6f5da90c"
+  ],
+  [
+   "Secret",
+   "nagare-volbackup-scenario-a-uploads-signing",
+   "7546481a-12c8-4910-9f08-928d2f6b5b71"
+  ]
+ ],
+ "uidsAfter": [
+  [
+   "StatefulSet",
+   "scenario-pg",
+   "21ec8840-2a5d-4276-bd1c-31a4be3fa9e6"
+  ],
+  [
+   "PersistentVolumeClaim",
+   "nagare-db-scenario-pg-data",
+   "6a76d046-8355-47ac-8550-2ccb8a0e3f2e"
+  ],
+  [
+   "PersistentVolumeClaim",
+   "nagare-vol-scenario-a-uploads",
+   "154fd55f-ec9f-46b3-8761-5c3067006c5d"
+  ],
+  [
+   "Secret",
+   "nagare-db-scenario-pg",
+   "ab015036-8eec-442e-875b-bd2206528bdf"
+  ],
+  [
+   "Secret",
+   "nagare-dbbackup-scenario-pg-signing",
+   "aca3b3ff-49da-4a93-98c0-20c01e76b23a"
+  ],
+  [
+   "Secret",
+   "nagare-secret-scenario-a-runtime",
+   "e8f5c67f-2684-4529-8d67-bd6d6f5da90c"
+  ],
+  [
+   "Secret",
+   "nagare-volbackup-scenario-a-uploads-signing",
+   "7546481a-12c8-4910-9f08-928d2f6b5b71"
+  ]
+ ],
+ "journal": {
+  "events": 46,
+  "operations": 22,
+  "stateCounts": {
+   "IntentRecorded": 22,
+   "Completed": 22
+  },
+  "operationsWithRepeatedIntent": [],
+  "operationsWithRepeatedCompletion": []
+ },
+ "resumeResult": "converged tx-9f65c60659ab7746b5efd8b91564e2e78e43e992068593b2a9718af008956ea3",
+ "preInterruptionUidsUnchanged": true
+}

@@ -1,0 +1,5 @@
+Scheduled retention: all-172800s,daily-2592000s,newest; runs past policy are removed only by a reviewed db prune-scheduled-backups.
+0f58eb7e-2276-46a1-af59-29cec111c43d  verified; ingestion pending
+59bf39e3-226e-4010-ba4f-94b5c8b00d8b  verified; ingestion pending
+b2eb8a3f-2004-4da6-a449-eecf68460ee2  verified; ingestion pending
+Recovery-point freshness: healthy; age=679s; objective=hourly; newest point is verified and awaits reviewed ingestion

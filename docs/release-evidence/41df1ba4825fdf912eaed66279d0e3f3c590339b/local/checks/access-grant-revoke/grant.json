@@ -1,0 +1,14 @@
+{
+ "host": "scenario-a.127-0-0-1.sslip.io",
+ "subject": "0199a1c2-c2a0-7000-8000-00000000c2a1",
+ "subjectNote": "test subject id; grants are en relationship tuples, so no shomei account or browser is needed (D3 browser login remains a stated restriction)",
+ "review": "47dea2c71bf8ac98abfaac375407b582d6d5f60ea596f42d2a78d1fd6cd09f69",
+ "operations": [
+  "grant 0199a1c2-c2a0-7000-8000-00000000c2a1 viewer on scenario-a.127-0-0-1.sslip.io"
+ ],
+ "result": "converged tx-47dea2c71bf8ac98abfaac375407b582d6d5f60ea596f42d2a78d1fd6cd09f69",
+ "listBefore": "(none)",
+ "listAfterGrant": "0199a1c2-c2a0-7000-8000-00000000c2a1",
+ "subjectListedAfterGrant": true,
+ "note": "access list polled every 5 s past en's read cache"
+}

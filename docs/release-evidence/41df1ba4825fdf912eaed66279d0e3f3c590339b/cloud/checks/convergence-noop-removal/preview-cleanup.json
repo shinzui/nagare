@@ -1,0 +1,46 @@
+{
+ "after": [
+  "DomainMapping   scenario-cdn.c3-1015.labs.topagentnetwork.net",
+  "Service         auth-portal",
+  "Service         scenario-a",
+  "Service         scenario-b",
+  "Service         scenario-cdn",
+  "Service         scenario-site",
+  "Ingress         auth-portal",
+  "Ingress         scenario-a",
+  "Ingress         scenario-b",
+  "Ingress         scenario-cdn",
+  "Ingress         scenario-cdn.c3-1015.labs.topagentnetwork.net",
+  "Ingress         scenario-site",
+  "Certificate     personal.c3-1015.labs.topagentnetwork.net",
+  "Certificate     scenario-cdn.c3-1015.labs.topagentnetwork.net"
+ ],
+ "applies": [
+  "converged tx-283a07e842eebff2a33b22bd3845d0b1c5811d927cf3984997fab5b1f6bd838b",
+  "converged tx-d2558301dca013e8a80487dfbdad6b60335f5551b4cb373cd0b31033adc48bde",
+  "converged tx-c9ef0e761aa766f1f0d04cb5045aa1b7ea9727aa5694852ba9e422c03a424f5f"
+ ],
+ "before": [
+  "DomainMapping   pr1.scenario-site.preview.c3-1015.labs.topagentnetwork.net",
+  "DomainMapping   scenario-cdn.c3-1015.labs.topagentnetwork.net",
+  "Service         auth-portal",
+  "Service         scenario-a",
+  "Service         scenario-b",
+  "Service         scenario-cdn",
+  "Service         scenario-site",
+  "Service         scenario-site-pr-pr1",
+  "Ingress         auth-portal",
+  "Ingress         pr1.scenario-site.preview.c3-1015.labs.topagentnetwork.net",
+  "Ingress         scenario-a",
+  "Ingress         scenario-b",
+  "Ingress         scenario-cdn",
+  "Ingress         scenario-cdn.c3-1015.labs.topagentnetwork.net",
+  "Ingress         scenario-site",
+  "Ingress         scenario-site-pr-pr1",
+  "Certificate     personal.c3-1015.labs.topagentnetwork.net",
+  "Certificate     pr1.scenario-site.preview.c3-1015.labs.topagentnetwork.net",
+  "Certificate     scenario-cdn.c3-1015.labs.topagentnetwork.net"
+ ],
+ "command": "nagarectl preview cleanup (reviewed), repeated until no review remains",
+ "finalPlan": "No stale accepted previews or eligible retained preview members; no cleanup review created"
+}

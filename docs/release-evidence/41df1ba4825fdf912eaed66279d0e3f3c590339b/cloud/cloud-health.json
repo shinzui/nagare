@@ -1,0 +1,392 @@
+{
+  "assertions": [
+    {
+      "cluster": "nagare-c3-1015",
+      "context": "ep183-n4",
+      "evidence": [
+        {
+          "path": "checks/access-grant-revoke/result.json",
+          "sha256": "8a57c6fc5d4ebc20469b73d4b73684d807cd9f56bd79f9d5e7de6b89fc702fea"
+        }
+      ],
+      "fixtureDigest": "989cad5589fcd09d40a01902b4ffcf76cf405f70db91f658d8a8518697f93830",
+      "mode": "cloud",
+      "name": "access-grant-revoke",
+      "operatorRevision": "41df1ba4825fdf912eaed66279d0e3f3c590339b",
+      "passed": true,
+      "recordedAt": "2026-10-11T16:45:29Z",
+      "schemaVersion": 1,
+      "summary": "An access grant killed after its transaction began resumed to convergence and listed the subject; the reviewed revoke removed it"
+    },
+    {
+      "cluster": "nagare-c3-1015",
+      "context": "ep183-n4",
+      "evidence": [
+        {
+          "path": "checks/adoption/refusal.json",
+          "sha256": "c3ea0d465057bbb69439a2055c6e0ccaab2f204bb39d39972d0723411f0717a7"
+        }
+      ],
+      "fixtureDigest": "989cad5589fcd09d40a01902b4ffcf76cf405f70db91f658d8a8518697f93830",
+      "mode": "cloud",
+      "name": "adoption",
+      "operatorRevision": "41df1ba4825fdf912eaed66279d0e3f3c590339b",
+      "passed": true,
+      "recordedAt": "2026-10-11T16:45:28Z",
+      "schemaVersion": 1,
+      "summary": "A restore whose PersistentVolumeClaim already existed without inventory ownership was refused with adoption-required; no review was saved"
+    },
+    {
+      "cluster": "nagare-c3-1015",
+      "context": "ep183-n4",
+      "evidence": [
+        {
+          "path": "checks/backup-freshness/receipts.txt",
+          "sha256": "be0c94ac5346c55e83dad57ceb6635ad5786bf502bfa5394faa0fbbbd8235def"
+        },
+        {
+          "path": "checks/backup-freshness/result.json",
+          "sha256": "3183fdd7e1867b653ec7a25ad259088dee19e27c531b29e5e5a8d421593a53f9"
+        }
+      ],
+      "fixtureDigest": "989cad5589fcd09d40a01902b4ffcf76cf405f70db91f658d8a8518697f93830",
+      "mode": "cloud",
+      "name": "backup-freshness",
+      "operatorRevision": "41df1ba4825fdf912eaed66279d0e3f3c590339b",
+      "passed": true,
+      "recordedAt": "2026-10-11T16:45:28Z",
+      "schemaVersion": 1,
+      "summary": "Recovery-point freshness for scenario-pg reports healthy against the hourly objective"
+    },
+    {
+      "cluster": "nagare-c3-1015",
+      "context": "ep183-n4",
+      "evidence": [
+        {
+          "path": "checks/clickhouse-backup-restore/result.json",
+          "sha256": "25691fb64897e35f5a32934e3c3a0a8beed64da4f5f48382b764e78c765dc4a5"
+        }
+      ],
+      "fixtureDigest": "989cad5589fcd09d40a01902b4ffcf76cf405f70db91f658d8a8518697f93830",
+      "mode": "cloud",
+      "name": "clickhouse-backup-restore",
+      "operatorRevision": "41df1ba4825fdf912eaed66279d0e3f3c590339b",
+      "passed": true,
+      "recordedAt": "2026-10-11T16:45:28Z",
+      "schemaVersion": 1,
+      "summary": "A reviewed ClickHouse backup to GCS restored into a scratch database with the known rows"
+    },
+    {
+      "cluster": "nagare-c3-1015",
+      "context": "ep183-n4",
+      "evidence": [
+        {
+          "path": "checks/collision-refusal/plan.log",
+          "sha256": "1eb4998e06d096a063da1948e0e6b6a73640ddaa08c5d7715996252d5ed0c73e"
+        },
+        {
+          "path": "checks/collision-refusal/result.json",
+          "sha256": "70a2017e166a7f10bb2826a8593c0f8efa092a7dede3b16e5bb180b80afa7793"
+        }
+      ],
+      "fixtureDigest": "989cad5589fcd09d40a01902b4ffcf76cf405f70db91f658d8a8518697f93830",
+      "mode": "cloud",
+      "name": "collision-refusal",
+      "operatorRevision": "41df1ba4825fdf912eaed66279d0e3f3c590339b",
+      "passed": true,
+      "recordedAt": "2026-10-11T16:45:27Z",
+      "schemaVersion": 1,
+      "summary": "A second application claiming scenario-a's hostname was refused at planning with claim-conflict; no review was saved and the history head did not move"
+    },
+    {
+      "cluster": "nagare-c3-1015",
+      "context": "ep183-n4",
+      "evidence": [
+        {
+          "path": "checks/convergence-noop-removal/preview-cleanup.json",
+          "sha256": "6a3001936be23c404e84244b98b8bde730ca54f327c084ebd7b9d23a8d32ad66"
+        },
+        {
+          "path": "no-op-review/review.json",
+          "sha256": "bb21d60650f22652a33fcf4b29f092e4d1bb4da28b7752c23f6f2e320661dfcd"
+        }
+      ],
+      "fixtureDigest": "989cad5589fcd09d40a01902b4ffcf76cf405f70db91f658d8a8518697f93830",
+      "mode": "cloud",
+      "name": "convergence-noop-removal",
+      "operatorRevision": "41df1ba4825fdf912eaed66279d0e3f3c590339b",
+      "passed": true,
+      "recordedAt": "2026-10-11T16:53:23Z",
+      "schemaVersion": 1,
+      "summary": "The runner's verify replan of the unchanged platform candidate has zero operations, and reviewed preview cleanup retired pr1 and removed its DomainMapping, Service and route while the other routes stayed"
+    },
+    {
+      "cluster": "nagare-c3-1015",
+      "context": "ep183-n4",
+      "evidence": [
+        {
+          "path": "checks/drift-classification/decision.json",
+          "sha256": "5ebcf070873a215baf422a2f5b66df752214c1b6feda9a7f122e23b523747881"
+        },
+        {
+          "path": "checks/drift-classification/ksvc-after.json",
+          "sha256": "483c561afcff293f9652823da7b54cc23241b766afc722930bfe8260e4ecd382"
+        },
+        {
+          "path": "checks/drift-classification/ksvc-before.json",
+          "sha256": "26c582012d401eea25ef9195cf764812fb9cb52bf2e27baf8375601b5b326521"
+        },
+        {
+          "path": "checks/drift-classification/result.json",
+          "sha256": "bb5b3ac599fa7199d364c30e517b7b3706414e361f4116e660ec94f51bf2e1db"
+        }
+      ],
+      "fixtureDigest": "989cad5589fcd09d40a01902b4ffcf76cf405f70db91f658d8a8518697f93830",
+      "mode": "cloud",
+      "name": "drift-classification",
+      "operatorRevision": "41df1ba4825fdf912eaed66279d0e3f3c590339b",
+      "passed": true,
+      "recordedAt": "2026-10-11T16:45:28Z",
+      "schemaVersion": 1,
+      "summary": "Out-of-band drift on the scenario-a Service was refused by the strict apply as KnownNoEffect, closed with abandon-refused-operation, and repaired by a reviewed --take-over-fields replan"
+    },
+    {
+      "cluster": "nagare-c3-1015",
+      "context": "ep183-n4",
+      "evidence": [
+        {
+          "path": "checks/google-cdn/result.json",
+          "sha256": "6925ca66676ad201d7ee184e250deaf32fc93393ca2523e32814286e91412869"
+        }
+      ],
+      "fixtureDigest": "989cad5589fcd09d40a01902b4ffcf76cf405f70db91f658d8a8518697f93830",
+      "mode": "cloud",
+      "name": "google-cdn",
+      "operatorRevision": "41df1ba4825fdf912eaed66279d0e3f3c590339b",
+      "passed": true,
+      "recordedAt": "2026-10-11T16:45:29Z",
+      "schemaVersion": 1,
+      "summary": "Candidate 41df1ba4 moved a reviewed site's host record to the Google CDN, back to the VM origin on cdn disable, retained it on retirement and collected it, with exact zone listings after each step"
+    },
+    {
+      "cluster": "nagare-c3-1015",
+      "context": "ep183-n4",
+      "evidence": [
+        {
+          "path": "checks/independent-scope-preservation/result.json",
+          "sha256": "e6dbb61e10becf4b1dfed157a579cef5910b70259f7892e345c5cc42fed2032d"
+        }
+      ],
+      "fixtureDigest": "989cad5589fcd09d40a01902b4ffcf76cf405f70db91f658d8a8518697f93830",
+      "mode": "cloud",
+      "name": "independent-scope-preservation",
+      "operatorRevision": "41df1ba4825fdf912eaed66279d0e3f3c590339b",
+      "passed": true,
+      "recordedAt": "2026-10-11T16:45:28Z",
+      "schemaVersion": 1,
+      "summary": "A reviewed environment change to scenario-a left every other accepted scope, including scenario-b, at its prior revision"
+    },
+    {
+      "cluster": "nagare-c3-1015",
+      "context": "ep183-n4",
+      "evidence": [
+        {
+          "path": "checks/interrupted-recovery/access-grant.json",
+          "sha256": "317cd930a46795bd17b65a4cb2888ae3a853acc8046789d66ed4ad473990368e"
+        },
+        {
+          "path": "checks/interrupted-recovery/cluster-completion.json",
+          "sha256": "f6d223eadb05e8d9420a6e527f31172c81d130446d5f050a05d475f9228315e4"
+        },
+        {
+          "path": "checks/interrupted-recovery/database-readiness.json",
+          "sha256": "5e7f27efc95588a862d41882f217a3f468358dd71613327e5d6c6348f1188e2f"
+        },
+        {
+          "path": "checks/interrupted-recovery/final-marker.json",
+          "sha256": "60a7cf10c50ba8a8a555b8659a3f5e537c3dc7a6301df05b1ef490640873f5bc"
+        }
+      ],
+      "fixtureDigest": "989cad5589fcd09d40a01902b4ffcf76cf405f70db91f658d8a8518697f93830",
+      "mode": "cloud",
+      "name": "interrupted-recovery",
+      "operatorRevision": "41df1ba4825fdf912eaed66279d0e3f3c590339b",
+      "passed": true,
+      "recordedAt": "2026-10-11T16:53:23Z",
+      "schemaVersion": 1,
+      "summary": "Killed applies at database readiness, cluster completion (resumed from a second root by explicit takeover) and an access grant each converged through their recorded transaction with pre-interruption UIDs unchanged; verify killed before its marker re-ran to verified with the store head unchanged"
+    },
+    {
+      "cluster": "nagare-c3-1015",
+      "context": "ep183-n4",
+      "evidence": [
+        {
+          "path": "checks/postgresql-backup-restore/result.json",
+          "sha256": "77b839eb55a92325856a07efd013f9136936f58444f955a80cb8eecd1864df68"
+        }
+      ],
+      "fixtureDigest": "989cad5589fcd09d40a01902b4ffcf76cf405f70db91f658d8a8518697f93830",
+      "mode": "cloud",
+      "name": "postgresql-backup-restore",
+      "operatorRevision": "41df1ba4825fdf912eaed66279d0e3f3c590339b",
+      "passed": true,
+      "recordedAt": "2026-10-11T16:45:28Z",
+      "schemaVersion": 1,
+      "summary": "A reviewed PostgreSQL backup to GCS restored into a scratch database with exactly the two pre-backup rows, while the live database kept its later row"
+    },
+    {
+      "cluster": "nagare-c3-1015",
+      "context": "ep183-n4",
+      "evidence": [
+        {
+          "path": "checks/redis-backup-restore/result.json",
+          "sha256": "91e8209146aa22ef6f7dafcda86a668fde50df99d8b78ba0d82fa9e8321a04e4"
+        }
+      ],
+      "fixtureDigest": "989cad5589fcd09d40a01902b4ffcf76cf405f70db91f658d8a8518697f93830",
+      "mode": "cloud",
+      "name": "redis-backup-restore",
+      "operatorRevision": "41df1ba4825fdf912eaed66279d0e3f3c590339b",
+      "passed": true,
+      "recordedAt": "2026-10-11T16:45:28Z",
+      "schemaVersion": 1,
+      "summary": "A reviewed Redis backup to GCS restored into a scratch StatefulSet with the known keys"
+    },
+    {
+      "cluster": "nagare-c3-1015",
+      "context": "ep183-n4",
+      "evidence": [
+        {
+          "path": "checks/retained-data/collection.json",
+          "sha256": "bf35e4439ff30fc3dbe2916d7da0adfccaebf0a706640bac023d0a04ae1f672d"
+        },
+        {
+          "path": "checks/retained-data/history-restore.json",
+          "sha256": "9dff5435a7889babf0fa9a212ba2e56c88358b03247467103ccd1fc82fce31e8"
+        }
+      ],
+      "fixtureDigest": "989cad5589fcd09d40a01902b4ffcf76cf405f70db91f658d8a8518697f93830",
+      "mode": "cloud",
+      "name": "retained-data",
+      "operatorRevision": "41df1ba4825fdf912eaed66279d0e3f3c590339b",
+      "passed": true,
+      "recordedAt": "2026-10-11T16:45:29Z",
+      "schemaVersion": 1,
+      "summary": "scenario-retire's stateless companions were collected in dependency order, its PVC collection was refused, and the exported history restored identically into an isolated root"
+    },
+    {
+      "cluster": "nagare-c3-1015",
+      "context": "ep183-n4",
+      "evidence": [
+        {
+          "path": "checks/secret-read-refusal/scan.json",
+          "sha256": "55d9c5b8dbb10b60a6213296c31a4739742275465b3271360608248eb26ff881"
+        },
+        {
+          "path": "checks/secret-read-refusal/secret-list.txt",
+          "sha256": "0b05ab826441c4a207e1ed11faca94f887d8b58b9507430dff0cba4e757c9dfd"
+        }
+      ],
+      "fixtureDigest": "989cad5589fcd09d40a01902b4ffcf76cf405f70db91f658d8a8518697f93830",
+      "mode": "cloud",
+      "name": "secret-read-refusal",
+      "operatorRevision": "41df1ba4825fdf912eaed66279d0e3f3c590339b",
+      "passed": true,
+      "recordedAt": "2026-10-11T16:53:27Z",
+      "schemaVersion": 1,
+      "summary": "The run-time SCENARIO_API_TOKEN was passed only on stdin; secret list prints names only and a scan of 3357 evidence, review and status files found zero raw or base64 matches (value recorded by SHA-256 only)"
+    },
+    {
+      "cluster": "nagare-c3-1015",
+      "context": "ep183-n4",
+      "evidence": [
+        {
+          "path": "checks/shared-history-takeover/result.json",
+          "sha256": "aba528819cecd03c1485c358c1b3d8e7fb31319f2affa8a05e9faae2db959338"
+        }
+      ],
+      "fixtureDigest": "989cad5589fcd09d40a01902b4ffcf76cf405f70db91f658d8a8518697f93830",
+      "mode": "cloud",
+      "name": "shared-history-takeover",
+      "operatorRevision": "41df1ba4825fdf912eaed66279d0e3f3c590339b",
+      "passed": true,
+      "recordedAt": "2026-10-11T16:45:29Z",
+      "schemaVersion": 1,
+      "summary": "An application deploy interrupted in root A could not be planned over or plainly resumed from root B; an explicit takeover from root B converged the same transaction"
+    },
+    {
+      "cluster": "nagare-c3-1015",
+      "context": "ep183-n4",
+      "evidence": [
+        {
+          "path": "checks/source-unavailable-recovery/result.json",
+          "sha256": "7ad0de3857bf530049903ae9a59af69132dfc2259282a694ab1bb44a6f91d7ed"
+        }
+      ],
+      "fixtureDigest": "989cad5589fcd09d40a01902b4ffcf76cf405f70db91f658d8a8518697f93830",
+      "mode": "cloud",
+      "name": "source-unavailable-recovery",
+      "operatorRevision": "41df1ba4825fdf912eaed66279d0e3f3c590339b",
+      "passed": true,
+      "recordedAt": "2026-10-11T16:45:28Z",
+      "schemaVersion": 1,
+      "summary": "With the signing key escrowed and the VM stopped through a reviewed host stop, the newest verified scheduled PostgreSQL backup taken after the seed verified from escrow and GCS alone and restored into a disposable PostgreSQL 18 with its known rows"
+    },
+    {
+      "cluster": "nagare-c3-1015",
+      "context": "ep183-n4",
+      "evidence": [
+        {
+          "path": "checks/volume-backup-restore/result.json",
+          "sha256": "6c59ba5c13cbadbdc26179e2b4a521622eb963615cc846f89b771e6e840a9914"
+        }
+      ],
+      "fixtureDigest": "989cad5589fcd09d40a01902b4ffcf76cf405f70db91f658d8a8518697f93830",
+      "mode": "cloud",
+      "name": "volume-backup-restore",
+      "operatorRevision": "41df1ba4825fdf912eaed66279d0e3f3c590339b",
+      "passed": true,
+      "recordedAt": "2026-10-11T16:45:28Z",
+      "schemaVersion": 1,
+      "summary": "A reviewed service-volume snapshot restored the snapshot-time file after the live file was changed"
+    }
+  ],
+  "checks": [
+    "access-grant-revoke",
+    "adoption",
+    "backup-freshness",
+    "clickhouse-backup-restore",
+    "collision-refusal",
+    "convergence-noop-removal",
+    "drift-classification",
+    "gcp-project",
+    "google-cdn",
+    "independent-scope-preservation",
+    "interrupted-recovery",
+    "inventory-store",
+    "knative-webhook",
+    "kubernetes-api",
+    "postgresql-backup-restore",
+    "ready-node",
+    "redis-backup-restore",
+    "retained-data",
+    "secret-read-refusal",
+    "shared-history-takeover",
+    "source-unavailable-recovery",
+    "volume-backup-restore"
+  ],
+  "cluster": "nagare-c3-1015",
+  "context": "ep183-n4",
+  "fixtureDigest": "989cad5589fcd09d40a01902b4ffcf76cf405f70db91f658d8a8518697f93830",
+  "healthy": true,
+  "mode": "cloud",
+  "operatorRevision": "41df1ba4825fdf912eaed66279d0e3f3c590339b",
+  "preflightChecks": [
+    "gcp-project",
+    "kubernetes-api",
+    "ready-node",
+    "knative-webhook",
+    "inventory-store"
+  ],
+  "schemaVersion": 1
+}

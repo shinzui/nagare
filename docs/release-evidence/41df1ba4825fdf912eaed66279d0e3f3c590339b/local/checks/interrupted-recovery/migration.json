@@ -1,0 +1,120 @@
+{
+ "stage": "migration",
+ "within": "rename TransferState, after the copy Job is created",
+ "transaction": "tx-68e264b101e2793cacdfe575723327f0cf1d79c6b99bd96efb127ec728f87f4f",
+ "killedOperation": [
+  "op-b908e23542298fa22f1d11fb"
+ ],
+ "uidsBefore": [
+  [
+   "a29409db-1f2c-4198-9cb3-0f054e4f5c00",
+   "2026-10-11T03:22:52Z"
+  ]
+ ],
+ "uidsAfter": [
+  [
+   "a29409db-1f2c-4198-9cb3-0f054e4f5c00",
+   "2026-10-11T03:22:52Z"
+  ]
+ ],
+ "journal": {
+  "events": 147,
+  "operations": 72,
+  "stateCounts": {
+   "IntentRecorded": 73,
+   "Completed": 72
+  },
+  "operationsWithRepeatedIntent": [
+   "op-b908e23542298fa22f1d11fb"
+  ],
+  "operationsWithRepeatedCompletion": []
+ },
+ "resumeResult": "converged tx-68e264b101e2793cacdfe575723327f0cf1d79c6b99bd96efb127ec728f87f4f",
+ "copyJobEvents": [
+  {
+   "object": "Pod/nagare-migrate-8fa22f1d11fb-copy-hdgsc",
+   "uid": "a35ab3e6-57e6-4947-bc92-2cc6d2be4420",
+   "reason": "Scheduled",
+   "count": null,
+   "message": "Successfully assigned personal/nagare-migrate-8fa22f1d11fb-copy-hdgsc to k3d-nagare-local-server-0"
+  },
+  {
+   "object": "Pod/nagare-migrate-8fa22f1d11fb-copy-hdgsc",
+   "uid": "a35ab3e6-57e6-4947-bc92-2cc6d2be4420",
+   "reason": "Pulled",
+   "count": 1,
+   "message": "Container image \"postgres:18\" already present on machine"
+  },
+  {
+   "object": "Pod/nagare-migrate-8fa22f1d11fb-copy-hdgsc",
+   "uid": "a35ab3e6-57e6-4947-bc92-2cc6d2be4420",
+   "reason": "Created",
+   "count": 1,
+   "message": "Created container: transfer"
+  },
+  {
+   "object": "Pod/nagare-migrate-8fa22f1d11fb-copy-hdgsc",
+   "uid": "a35ab3e6-57e6-4947-bc92-2cc6d2be4420",
+   "reason": "Started",
+   "count": 1,
+   "message": "Started container transfer"
+  },
+  {
+   "object": "Job/nagare-migrate-8fa22f1d11fb-copy",
+   "uid": "a29409db-1f2c-4198-9cb3-0f054e4f5c00",
+   "reason": "SuccessfulCreate",
+   "count": 1,
+   "message": "Created pod: nagare-migrate-8fa22f1d11fb-copy-hdgsc"
+  },
+  {
+   "object": "Job/nagare-migrate-8fa22f1d11fb-copy",
+   "uid": "a29409db-1f2c-4198-9cb3-0f054e4f5c00",
+   "reason": "Completed",
+   "count": 1,
+   "message": "Job completed"
+  },
+  {
+   "object": "Pod/nagare-migrate-8fa22f1d11fb-verify-ttnkl",
+   "uid": "17310393-0fa8-4982-80f0-5e1f2c3f35f2",
+   "reason": "Scheduled",
+   "count": null,
+   "message": "Successfully assigned personal/nagare-migrate-8fa22f1d11fb-verify-ttnkl to k3d-nagare-local-server-0"
+  },
+  {
+   "object": "Pod/nagare-migrate-8fa22f1d11fb-verify-ttnkl",
+   "uid": "17310393-0fa8-4982-80f0-5e1f2c3f35f2",
+   "reason": "Pulled",
+   "count": 1,
+   "message": "Container image \"postgres:18\" already present on machine"
+  },
+  {
+   "object": "Pod/nagare-migrate-8fa22f1d11fb-verify-ttnkl",
+   "uid": "17310393-0fa8-4982-80f0-5e1f2c3f35f2",
+   "reason": "Created",
+   "count": 1,
+   "message": "Created container: transfer"
+  },
+  {
+   "object": "Pod/nagare-migrate-8fa22f1d11fb-verify-ttnkl",
+   "uid": "17310393-0fa8-4982-80f0-5e1f2c3f35f2",
+   "reason": "Started",
+   "count": 1,
+   "message": "Started container transfer"
+  },
+  {
+   "object": "Job/nagare-migrate-8fa22f1d11fb-verify",
+   "uid": "421adf8a-d430-4980-a334-f8cbee54834f",
+   "reason": "SuccessfulCreate",
+   "count": 1,
+   "message": "Created pod: nagare-migrate-8fa22f1d11fb-verify-ttnkl"
+  },
+  {
+   "object": "Job/nagare-migrate-8fa22f1d11fb-verify",
+   "uid": "421adf8a-d430-4980-a334-f8cbee54834f",
+   "reason": "Completed",
+   "count": 1,
+   "message": "Job completed"
+  }
+ ],
+ "preInterruptionUidsUnchanged": true
+}

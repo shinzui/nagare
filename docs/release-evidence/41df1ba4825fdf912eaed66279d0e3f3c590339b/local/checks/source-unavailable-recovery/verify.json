@@ -1,0 +1,39 @@
+{
+ "backupId": "511b5355-3feb-490f-a743-07200bb0052e",
+ "sourceClusterInaccessible": {
+  "serverStoppedAt": "2026-10-11T03:44:16Z",
+  "apiWhileStopped": "Unable to connect to the server: EOF",
+  "serverStartedAt": "2026-10-11T03:44:34Z"
+ },
+ "offlineCopy": "live tar of the minio-data local-path volume taken from the running node before the stop, served by a disposable MinIO (pinned nagare-minio image) on loopback 127.0.0.1:19000",
+ "onlineVerifyBeforeStop": [
+  "Verified scheduled backup 511b5355-3feb-490f-a743-07200bb0052e of personal/scenario-pg with the escrowed signing key.",
+  "  object:  s3://nagare-backups/databases/scenario-pg/511b5355-3feb-490f-a743-07200bb0052e.sql.gz (version 094c1f26-0cb3-43ff-824c-4a79910840f4)",
+  "  receipt: version 56a81ab3-6613-4296-8b97-3929e06025cd",
+  "  sha256:  558332c83aca216cb84016d99c73019d1f040d9831b45aefef03a8243c8a28d3",
+  "  rebuild recovery point: s3://nagare-backups/databases/scenario-pg/511b5355-3feb-490f-a743-07200bb0052e.sql.gz.receipt.json@928a571e3291955e70ab262f82c93ff86bd1d848e7d44c635615727282ed3e10",
+  "  recovery point: 2026-10-11 03:30:01 UTC (age 854s)",
+  "This is evidence only; restore requires reviewed ingestion of the receipt."
+ ],
+ "offlineVerify": {
+  "command": "nagarectl db verify-escrowed-backup scenario-pg --backup-id JOB_UID --escrow FILE --offline-object-store http://127.0.0.1:19000 --offline-credentials PRIVATE_FILE",
+  "output": [
+   "Verified scheduled backup 511b5355-3feb-490f-a743-07200bb0052e of personal/scenario-pg with the escrowed signing key.",
+   "  object:  s3://nagare-backups/databases/scenario-pg/511b5355-3feb-490f-a743-07200bb0052e.sql.gz (version 094c1f26-0cb3-43ff-824c-4a79910840f4)",
+   "  receipt: version 56a81ab3-6613-4296-8b97-3929e06025cd",
+   "  sha256:  558332c83aca216cb84016d99c73019d1f040d9831b45aefef03a8243c8a28d3",
+   "  rebuild recovery point: s3://nagare-backups/databases/scenario-pg/511b5355-3feb-490f-a743-07200bb0052e.sql.gz.receipt.json@928a571e3291955e70ab262f82c93ff86bd1d848e7d44c635615727282ed3e10",
+   "  recovery point: 2026-10-11 03:30:01 UTC (age 870s)",
+   "This is evidence only; restore requires reviewed ingestion of the receipt."
+  ]
+ },
+ "onlineVerifyAfterRestart": [
+  "Verified scheduled backup 511b5355-3feb-490f-a743-07200bb0052e of personal/scenario-pg with the escrowed signing key.",
+  "  object:  s3://nagare-backups/databases/scenario-pg/511b5355-3feb-490f-a743-07200bb0052e.sql.gz (version 094c1f26-0cb3-43ff-824c-4a79910840f4)",
+  "  receipt: version 56a81ab3-6613-4296-8b97-3929e06025cd",
+  "  sha256:  558332c83aca216cb84016d99c73019d1f040d9831b45aefef03a8243c8a28d3",
+  "  rebuild recovery point: s3://nagare-backups/databases/scenario-pg/511b5355-3feb-490f-a743-07200bb0052e.sql.gz.receipt.json@928a571e3291955e70ab262f82c93ff86bd1d848e7d44c635615727282ed3e10",
+  "  recovery point: 2026-10-11 03:30:01 UTC (age 889s)",
+  "This is evidence only; restore requires reviewed ingestion of the receipt."
+ ]
+}

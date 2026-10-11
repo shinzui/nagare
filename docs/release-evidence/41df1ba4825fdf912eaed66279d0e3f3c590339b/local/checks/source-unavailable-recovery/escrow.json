@@ -1,0 +1,8 @@
+{
+ "database": "personal/scenario-pg",
+ "escrowFileSha256": "909c8a68668b85ecac968bcdb72ab3afbd4b2e7149f2ed8bfe7a8c9a71797b7d",
+ "escrowFileMode": "0o600",
+ "sopsEncrypted": true,
+ "command": "nagarectl db escrow-signing-key scenario-pg --output SCRATCH_SOPS_DIR/personal-scenario-pg.sops.yaml",
+ "result": "Escrowed the scheduled-backup signing key for personal/scenario-pg at /Users/shinzui/.local/state/nagare-b9/c2/root.gZD7ff/escrow/personal-scenario-pg.sops.yaml"
+}

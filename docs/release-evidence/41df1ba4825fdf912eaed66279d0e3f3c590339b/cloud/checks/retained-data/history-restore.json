@@ -1,0 +1,13 @@
+{
+  "command": "nagarectl inventory export, then inventory restore --from DIR --yes into an isolated local root",
+  "identical": {
+    "accepted": true,
+    "converged": true,
+    "retained": true,
+    "collected": true,
+    "binding": true
+  },
+  "acceptedScopes": 49,
+  "retained": 3,
+  "collected": 6
+}

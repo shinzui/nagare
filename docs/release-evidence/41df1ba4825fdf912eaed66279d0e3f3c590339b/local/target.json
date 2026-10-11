@@ -1,0 +1,9 @@
+{
+  "context": "local",
+  "expectedCluster": "k3d-nagare-local",
+  "expectedProject": null,
+  "kubeCluster": "local",
+  "kubeContext": "local",
+  "mode": "local",
+  "schemaVersion": 1
+}

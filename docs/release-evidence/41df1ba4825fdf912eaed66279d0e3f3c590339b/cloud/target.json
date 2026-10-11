@@ -1,0 +1,9 @@
+{
+  "context": "ep183-n4",
+  "expectedCluster": "nagare-c3-1015",
+  "expectedProject": "tan-ng-labs",
+  "kubeCluster": "ep183-n4",
+  "kubeContext": "ep183-n4",
+  "mode": "cloud",
+  "schemaVersion": 1
+}
