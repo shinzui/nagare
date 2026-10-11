@@ -142,6 +142,7 @@ import Nagare.Test.Version (versionTests)
 import Nagare.Test.Webhook (webhookTests)
 import PlatformCutoverSpec (platformCutoverTests)
 import PlatformSpec (platformTests)
+import PlatformTransitionSpec (platformTransitionTests)
 import System.Environment (lookupEnv)
 import System.Exit (exitWith)
 import Test.Tasty (localOption, testGroup)
@@ -236,6 +237,7 @@ main = do
             , inventoryIntegrationTests
             , platformTests
             , platformCutoverTests
+            , platformTransitionTests
             , testGroup "Nagare.Static.Build" prepareTests
             , testGroup "Nagare.Static.Release" releaseTests
             , testGroup "Nagare.Inventory.Site" staticInventoryTests

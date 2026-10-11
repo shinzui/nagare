@@ -304,6 +304,7 @@ library
     Nagare.Platform.StackConfig
     Nagare.Platform.StateTransfer
     Nagare.Platform.Status
+    Nagare.Platform.Transition
     Nagare.Platform.Upgrade
     Nagare.Platform.Workspace
     Nagare.Server.Build
@@ -664,6 +665,7 @@ test-suite nagarectl-test
     Nagare.Test.World.Validation
     PlatformCutoverSpec
     PlatformSpec
+    PlatformTransitionSpec
 
   build-depends:
     aeson,

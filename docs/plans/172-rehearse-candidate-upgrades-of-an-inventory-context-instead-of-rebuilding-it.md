@@ -70,6 +70,10 @@ status` reports T on the CLI, payload, context, host and cluster.
     and journal wire), each with the operation that moves it or the reason it refuses. A test asserts
     the table matches what the fixture observes.
 - [ ] M2 (code and model; lane A): implement the reviewed transition and its compatibility table.
+  - [x] (2026-10-10) The compatibility table: `transitionsFrom` in the payload manifest (0.5.0 lists
+    0.4.0) and the pure check `Nagare.Platform.Transition.checkTransition`, which refuses an unpinned
+    context, the target itself, an unlisted source, and a head wire version the payload does not
+    read. Tests in `PlatformTransitionSpec`.
   - Run it in the [EP-173](173-find-recovery-defects-with-adversarial-provider-interpreters.md)
     recovery model under every single fault at every boundary.
   - Acceptance:

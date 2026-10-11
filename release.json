@@ -11,5 +11,8 @@
     "x86_64-linux",
     "aarch64-darwin"
   ],
-  "rollbackSupportedFrom": []
+  "rollbackSupportedFrom": [],
+  "transitionsFrom": [
+    "0.4.0"
+  ]
 }

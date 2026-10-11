@@ -49,6 +49,9 @@ data PayloadManifest = PayloadManifest
   , platformVersion :: !Text
   , sourceRevision :: !(Maybe Text)
   , rollbackSupportedFrom :: ![Text]
+  , transitionsFrom :: ![Text]
+  -- ^ The source releases an admitted context may move from to this payload
+  -- through the reviewed transition (EP-172). Absent in payloads before 0.5.0.
   }
   deriving stock (Generic, Eq, Show)
 
@@ -62,6 +65,7 @@ instance Aeson.FromJSON PayloadManifest where
       <*> o .: "platformVersion"
       <*> o .: "sourceRevision"
       <*> o Aeson..:? "rollbackSupportedFrom" Aeson..!= []
+      <*> o Aeson..:? "transitionsFrom" Aeson..!= []
 
 data PlatformWorkspace = PlatformWorkspace
   { root :: !FilePath
