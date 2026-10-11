@@ -18,9 +18,11 @@ module Nagare.Inventory.KubernetesTransport
   , KubernetesRuntimeConfig (KubernetesRuntimeConfig, runtimeContext, runtimeKubectlContext, runtimeGuard)
   , withKubectlInterpreter
   , invokeKubectl
+  , runtimePause
   )
 where
 
+import Control.Concurrent (threadDelay)
 import Control.Exception (IOException, try)
 import Data.Generics.Labels ()
 import Data.Text (Text)
@@ -97,6 +99,13 @@ withKubectlInterpreter interpreter config =
     (runtimeKubectlContext config)
     (runtimeGuard config)
     interpreter
+
+-- | Wait between polls of the live cluster. An interpreted runtime answers
+-- from memory, so waiting between its answers only costs time (EP-184).
+runtimePause :: KubernetesRuntimeConfig -> Int -> IO ()
+runtimePause config microseconds = case config of
+  KubernetesRuntimeConfig {} -> threadDelay microseconds
+  InterpretedRuntime {} -> pure ()
 
 invokeKubectl :: KubernetesRuntimeConfig -> [String] -> String -> IO KubectlResult
 invokeKubectl config arguments input =

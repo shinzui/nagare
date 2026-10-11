@@ -90,11 +90,7 @@ import Nagare.Test.Cdn
   , cdnStatusTests
   , cloudflareTests
   )
-import Nagare.Test.Cluster
-  ( certificatePolicyTests
-  , clusterGuardTests
-  , namespaceTests
-  )
+import Nagare.Test.Cluster (certificatePolicyTests, clusterGuardTests, namespaceTests)
 import Nagare.Test.Context
   ( contextGuardTests
   , contextResolutionTests
@@ -124,6 +120,7 @@ import Nagare.Test.Operations
   )
 import Nagare.Test.Pulumi (pulumiBackendBootstrapTests)
 import Nagare.Test.Server (serverBuildTests)
+import Nagare.Test.Shards (runSharded)
 import Nagare.Test.SiteInventory (staticInventoryTests)
 import Nagare.Test.Static
   ( dockerfileTests
@@ -147,7 +144,7 @@ import PlatformCutoverSpec (platformCutoverTests)
 import PlatformSpec (platformTests)
 import System.Environment (lookupEnv)
 import System.Exit (exitWith)
-import Test.Tasty (defaultMain, localOption, testGroup)
+import Test.Tasty (localOption, testGroup)
 import Test.Tasty.Runners (NumThreads (..))
 
 main :: IO ()
@@ -173,7 +170,7 @@ main = do
     (_, _, Just root) -> runInventoryLockProbe root >>= exitWith
     _ -> do
       taskFixture <- BS.readFile "test/fixtures/cronjob-list.json"
-      defaultMain $
+      runSharded $
         localOption (NumThreads 1) $
           testGroup "nagarectl" $
             [ inventoryAccessTests

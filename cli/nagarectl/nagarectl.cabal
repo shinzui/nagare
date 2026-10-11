@@ -631,6 +631,7 @@ test-suite nagarectl-test
     Nagare.Test.Operations
     Nagare.Test.Pulumi
     Nagare.Test.Server
+    Nagare.Test.Shards
     Nagare.Test.SiteInventory
     Nagare.Test.SiteInventory.Preview
     Nagare.Test.SiteInventory.Server

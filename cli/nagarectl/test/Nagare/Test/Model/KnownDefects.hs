@@ -8,6 +8,7 @@
 module Nagare.Test.Model.KnownDefects
   ( KnownViolation (..)
   , knownViolations
+  , knownViolationsFor
   , judgeViolations
   )
 where
@@ -79,6 +80,11 @@ knownViolations =
   where
     deferral = "deferral ledger (operator, 2026-10-07)"
     nextMasterPlan = "next MasterPlan: let a transaction continue independent operations past a stop (operator, 2026-10-07)"
+
+-- | The ledger entries of the given scenario labels. A chunk of the fast tier
+-- judges only its own scenarios' entries, so every count stays exact (EP-184).
+knownViolationsFor :: [Text] -> [KnownViolation]
+knownViolationsFor labels = [entry | entry <- knownViolations, entry ^. #scenario `elem` labels]
 
 -- | The violations that fail the tier: every one no entry matches, and one
 -- line per entry whose count differs from what was found.

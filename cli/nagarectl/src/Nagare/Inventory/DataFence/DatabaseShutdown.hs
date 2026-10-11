@@ -10,7 +10,6 @@ module Nagare.Inventory.DataFence.DatabaseShutdown
   )
 where
 
-import Control.Concurrent (threadDelay)
 import Control.Exception (IOException, try)
 import Control.Monad (forM, unless)
 import Data.Aeson (Result (..), Value (..), eitherDecodeStrict', fromJSON)
@@ -36,6 +35,7 @@ import Nagare.Inventory.DataFence.StatefulWriter
 import Nagare.Inventory.DataFence.VolumeState
   ( VolumeTransport (..)
   )
+import Nagare.Inventory.KubernetesTransport (runtimePause)
 import System.Exit (ExitCode (..))
 import System.Process (readProcessWithExitCode)
 
@@ -259,7 +259,7 @@ kubectlDatabaseShutdownTransport config = DatabaseShutdownTransport send
           | remaining <= 0 ->
               pure (Left "engine-native database shutdown did not finish cleanly")
         _ -> do
-          threadDelay 250000
+          runtimePause config 250000
           awaitExit namespace pod uid engine acceptedImage initial (remaining - 1)
 
     invoke namespace arguments = do

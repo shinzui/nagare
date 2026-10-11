@@ -14,7 +14,6 @@ module Nagare.Inventory.Adapters.KubernetesMigration
   )
 where
 
-import Control.Concurrent (threadDelay)
 import Data.Aeson
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KM
@@ -38,7 +37,7 @@ import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Execute.Abandon (MigrationExit (..))
 import Nagare.Inventory.Identity (IdentityCheck (..), checkedPhysical, requireAccepted)
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect), OperationId, operationIdText)
-import Nagare.Inventory.KubernetesTransport (KubernetesRuntimeConfig (..), invokeKubectl)
+import Nagare.Inventory.KubernetesTransport (KubernetesRuntimeConfig (..), invokeKubectl, runtimePause)
 import Nagare.Inventory.Migration (MigrationInput (..), MigrationTarget (..))
 import Nagare.Inventory.Migration.PostgresRename
 import Nagare.Inventory.Migration.Types (ValidatedMigration (..), migrationStageDigest)
@@ -616,7 +615,7 @@ kubernetesMigrationAdapter config planning base =
       done <- check
       if done || attempts <= 0
         then pure done
-        else threadDelay 2000000 >> poll (attempts - 1) check
+        else runtimePause config 2000000 >> poll (attempts - 1) check
 
 -- | Build the reviewed proposal from the exact paired observations: every
 -- member of the database migrates, from its observed owned source to its

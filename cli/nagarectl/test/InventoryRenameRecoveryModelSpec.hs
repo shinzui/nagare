@@ -17,6 +17,7 @@ import Control.Exception (SomeException, displayException, throwIO, try)
 import Control.Monad (forM)
 import Data.Generics.Labels ()
 import Data.IORef
+import Data.List (sort)
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Maybe (listToMaybe)
@@ -75,24 +76,59 @@ inventoryRenameRecoveryModelTests =
           fmap concat . forM ((0, PartialCopy) : [(boundary, fault) | boundary <- [1 .. writes], fault <- [RefusedWrite, LostAcknowledgement, InterruptedAfterWrite]]) $ \schedule ->
             either (: []) (const []) <$> runRename (Just schedule)
         report violations
-    , testCase "a source replaced outside review at any read of it is never copied unreviewed, and rebind then rename is its exit (F62)" $ do
-        clean <- runRename Nothing
-        _ <- either (assertFailure . T.unpack . ("the fault-free rename violates the model: " <>)) pure clean
-        sourceReads <- sourceReadCount
-        assertBool "the rename reads its source" (sourceReads > 0)
-        outcomes <- forM [(boundary, ReplacedSource content) | boundary <- [1 .. sourceReads], content <- ["", replacementRow]] $ \schedule ->
-          (schedule,) <$> runRename (Just schedule)
-        let leftovers = [schedule | (schedule, Left violation) <- outcomes, d1Marker `T.isInfixOf` violation]
-        report [violation | (_, Left violation) <- outcomes, not (d1Marker `T.isInfixOf` violation)]
-        -- D1, on the deferral ledger: destination objects an abandoned or
-        -- reverted rename created block the next rename of that database,
-        -- whose data and service are intact. Pinned, so a new case surfaces.
-        leftovers @?= d1Schedules
+    , -- EP-184: the source reads are split into shards that tasty runs on
+      -- separate cores. The first case proves the shards cover every read
+      -- exactly once, so the split exercises the same schedules as one case.
+      testGroup
+        "a source replaced outside review at any read of it is never copied unreviewed, and rebind then rename is its exit (F62)"
+        ( testCase
+            "the shards cover every source read exactly once"
+            ( do
+                sourceReads <- sourceReadCount
+                assertBool "the rename reads its source" (sourceReads > 0)
+                sort (concatMap (replacedSourceShard sourceReads) [0 .. replacedSourceShards - 1]) @?= replacedSourceSchedules sourceReads
+            )
+            : [testCase ("source reads " <> show shard <> " of " <> show replacedSourceShards) (replacedSourceAtEveryRead shard) | shard <- [0 .. replacedSourceShards - 1]]
+        )
     ]
-  where
-    report violations = case violations of
-      [] -> pure ()
-      _ -> assertFailure (T.unpack (T.intercalate "\n" (map (T.take 300 . T.replace "\n" " | ") violations)) <> "\n\n" <> show (length violations) <> " violation(s)")
+
+-- | Fail with every violation, one per line.
+report :: [Text] -> Assertion
+report violations = case violations of
+  [] -> pure ()
+  _ -> assertFailure (T.unpack (T.intercalate "\n" (map (T.take 300 . T.replace "\n" " | ") violations)) <> "\n\n" <> show (length violations) <> " violation(s)")
+
+-- | How many shards the replaced-source schedules are split into.
+replacedSourceShards :: Int
+replacedSourceShards = 16
+
+-- | Every replaced-source schedule: each source read of the fault-free
+-- rename, with both replacement contents.
+replacedSourceSchedules :: Int -> [(Int, RenameFault)]
+replacedSourceSchedules sourceReads = [(boundary, ReplacedSource content) | boundary <- [1 .. sourceReads], content <- ["", replacementRow]]
+
+-- | One shard's schedules: the source reads whose number has this remainder
+-- modulo the shard count.
+replacedSourceShard :: Int -> Int -> [(Int, RenameFault)]
+replacedSourceShard sourceReads shard = [schedule | schedule@(boundary, _) <- replacedSourceSchedules sourceReads, boundary `mod` replacedSourceShards == shard]
+
+-- | F62 for one shard of the source reads: a source replaced outside review
+-- at any of them is never copied unreviewed, and rebind then rename is its
+-- exit.
+replacedSourceAtEveryRead :: Int -> Assertion
+replacedSourceAtEveryRead shard = do
+  clean <- runRename Nothing
+  _ <- either (assertFailure . T.unpack . ("the fault-free rename violates the model: " <>)) pure clean
+  sourceReads <- sourceReadCount
+  assertBool "the rename reads its source" (sourceReads > 0)
+  outcomes <- forM (replacedSourceShard sourceReads shard) $ \schedule ->
+    (schedule,) <$> runRename (Just schedule)
+  let leftovers = [schedule | (schedule, Left violation) <- outcomes, d1Marker `T.isInfixOf` violation]
+  report [violation | (_, Left violation) <- outcomes, not (d1Marker `T.isInfixOf` violation)]
+  -- D1, on the deferral ledger: destination objects an abandoned or
+  -- reverted rename created block the next rename of that database,
+  -- whose data and service are intact. Pinned, so a new case surfaces.
+  leftovers @?= [schedule | schedule@(boundary, _) <- d1Schedules, boundary `mod` replacedSourceShards == shard]
 
 d1Marker :: Text
 d1Marker = "D1: "
@@ -118,7 +154,7 @@ data RenameFault
     -- data: none (a newly provisioned volume) or other data (a claim bound to
     -- another volume).
     ReplacedSource !Text
-  deriving stock (Eq, Show)
+  deriving stock (Eq, Ord, Show)
 
 -- | The data a claim replaced onto another volume holds.
 replacementRow :: Text

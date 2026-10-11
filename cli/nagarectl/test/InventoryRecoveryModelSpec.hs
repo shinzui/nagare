@@ -11,7 +11,7 @@ import Data.Aeson (Value, object, (.=))
 import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
 import Data.IORef
-import Data.List (partition)
+import Data.List (partition, sort)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
@@ -51,7 +51,7 @@ import Nagare.Resource.Wire (canonicalValue)
 import Nagare.Test.Model.Fixtures
 import Nagare.Test.Model.Ingest (ingestReceipt)
 import Nagare.Test.Model.Invariants
-import Nagare.Test.Model.KnownDefects (KnownViolation (..), judgeViolations, knownViolations)
+import Nagare.Test.Model.KnownDefects (KnownViolation (..), judgeViolations, knownViolationsFor)
 import Nagare.Test.Model.Pairs
 import Nagare.Test.Model.Rebuild (decideModelRebuild, loseCluster)
 import Nagare.Test.Model.Run
@@ -73,14 +73,19 @@ inventoryRecoveryModelTests :: TestTree
 inventoryRecoveryModelTests =
   testGroup
     "recovery model"
-    [ testCase
+    [ -- EP-184: the scenarios are split into chunks that the suite's shards
+      -- run on separate cores. The first case proves the chunks cover every
+      -- scenario exactly once.
+      testGroup
         ( "fast tier: every fault has an exit across "
             <> show (length explicitScenarios)
             <> " explicit scenarios (every boundary) and "
             <> show (length generatedScenarios)
             <> " generated from the kind table (one placement per fault)"
         )
-        (runTier False scenarios singleFaults)
+        ( testCase "the chunks cover every scenario exactly once" (sort (map label (concatMap (\chunk -> chunkOf tierChunks chunk scenarios) [0 .. tierChunks - 1])) @?= sort (map label scenarios))
+            : [testCase ("scenarios " <> show chunk <> " of " <> show tierChunks) (runTier False (chunkOf tierChunks chunk scenarios) singleFaults) | chunk <- [0 .. tierChunks - 1]]
+        )
     , testCase "the backup-included volume shape holds the producer's five members and its v2 review updates only the CronJob beside the Service (EP-183 M3)" $ do
         let v1 = boundDigests volumeBackupShape "v1" "v1"
             v2 = boundDigests volumeBackupShape "v2" "v1"
@@ -234,23 +239,19 @@ inventoryRecoveryModelTests =
     , testCase "every harness-owned placement the self-test skips, the fast tier runs (EP-177)" $
         forM_ scenarios $ \scenario ->
           runScenario scenario [] >>= either (assertFailure . T.unpack) (\finished -> let (_, skipped) = harnessPlacements scenario finished in assertBool (T.unpack (label scenario)) (all (`elem` singleFaults scenario finished) skipped))
-    , testCase "harness self-test: every harness-owned fault in every scenario ends in a result or a named violation (EP-177)" $ do
-        started <- getMonotonicTime
-        outcomes <- fmap concat . forM scenarios $ \scenario ->
-          harnessRun scenario [] >>= \case
-            Left failure -> pure [Left failure]
-            Right finished -> forM (fst (harnessPlacements scenario finished)) (harnessRun scenario)
-        ended <- getMonotonicTime
-        let violations = [violation | Left violation <- outcomes]
-            named violation = any (\i -> ("violation: I" <> T.pack (show i) <> ":") `T.isInfixOf` violation) [1 .. 8 :: Int]
-        hPutStrLn stderr ("recovery-model self-test: " <> show (length outcomes) <> " runs in " <> show (round (ended - started) :: Int) <> "s, " <> show (length violations) <> " named violation(s)")
-        mapM_ (hPutStrLn stderr . T.unpack) (take 5 violations)
-        assertBool (T.unpack (T.unlines (filter (not . named) violations))) (all named violations)
-        -- A crash before admission's head write once let the step pass unapplied;
-        -- re-run, the create writes both members (no stop).
-        pinned (Scenario "create" [Deploy "v1"] [] True plainShape False) [(Boundary StorePutCall 7, CrashBeforeStorePut)] []
-          >> runScenario (Scenario "create" [Deploy "v1"] [] True plainShape False) [(Boundary StorePutCall 7, CrashBeforeStorePut)]
-          >>= either (assertFailure . T.unpack) (\finished -> Map.lookup MutateCall (finishedCalls finished) @?= Just 2)
+    , testGroup
+        "harness self-test: every harness-owned fault in every scenario ends in a result or a named violation (EP-177)"
+        ( testCase
+            "a crash before admission's head write is re-run, and the create writes both members"
+            ( do
+                -- A crash before admission's head write once let the step pass unapplied;
+                -- re-run, the create writes both members (no stop).
+                pinned (Scenario "create" [Deploy "v1"] [] True plainShape False) [(Boundary StorePutCall 7, CrashBeforeStorePut)] []
+                  >> runScenario (Scenario "create" [Deploy "v1"] [] True plainShape False) [(Boundary StorePutCall 7, CrashBeforeStorePut)]
+                  >>= either (assertFailure . T.unpack) (\finished -> Map.lookup MutateCall (finishedCalls finished) @?= Just 2)
+            )
+            : [testCase ("scenarios " <> show chunk <> " of " <> show tierChunks) (selfTest (chunkOf tierChunks chunk scenarios)) | chunk <- [0 .. tierChunks - 1]]
+        )
     , testCase "a snapshot taken at a stop restores the head, journal, world and adversary (EP-179)" $ do
         run <- newRun plainShape [] [(Boundary MutateCall 1, Interrupt)]
         let state = do
@@ -265,11 +266,15 @@ inventoryRecoveryModelTests =
             restoreRun run snapshot
             state >>= assertBool "the restored run differs from the stop" . (== atStop)
           _ -> assertFailure "an interrupted create did not stop"
-    , testCase "the snapshot search finds what the replay search finds, on every 25th single fault and every 5000th fault pair of the explicit scenarios (EP-179)" $
-        checkTier False label (`runScenario` []) explicitScenarios equivalenceSample $ \scenario schedule -> do
-          snapshot <- runScenarioWith FromSnapshot scenario schedule
-          replayed <- runScenarioWith ByReplay scenario schedule
-          pure ["strategies disagree under " <> T.pack (show schedule) <> ":\n" <> T.pack (show snapshot) <> "\n" <> T.pack (show replayed) | snapshot /= replayed]
+    , testGroup
+        "the snapshot search finds what the replay search finds, on every 25th single fault and every 5000th fault pair of the explicit scenarios (EP-179)"
+        [ testCase ("explicit scenarios " <> show chunk <> " of " <> show equivalenceChunks) $
+            checkTier False label (`runScenario` []) (chunkOf equivalenceChunks chunk explicitScenarios) equivalenceSample $ \scenario schedule -> do
+              snapshot <- runScenarioWith FromSnapshot scenario schedule
+              replayed <- runScenarioWith ByReplay scenario schedule
+              pure ["strategies disagree under " <> T.pack (show schedule) <> ":\n" <> T.pack (show snapshot) <> "\n" <> T.pack (show replayed) | snapshot /= replayed]
+        | chunk <- [0 .. equivalenceChunks - 1]
+        ]
     , testCase "the model retries a refused head write three times, without waiting (EP-179)" $ do
         let scenario = Scenario "create" [Deploy "v1"] [] True plainShape False
             refused n = [(Boundary StorePutCall k, PutRefused) | k <- [n .. n + 2]]
@@ -326,9 +331,37 @@ equivalenceSample scenario finished = every 25 (singleFaults scenario finished) 
   where
     every n schedules = [schedule | (k, schedule) <- zip [0 :: Int ..] schedules, k `mod` n == 0]
 
--- | Every scenario under every schedule must pass.
+-- | Every scenario under every schedule must pass, judged against the known
+-- defects of exactly these scenarios.
 runTier :: Bool -> [Scenario] -> (Scenario -> Finished -> [Schedule]) -> Assertion
-runTier progress selected schedulesFor = checkTierWith (judgeViolations knownViolations) progress label (`runScenario` []) selected schedulesFor (\scenario schedule -> either pure (const []) <$> runScenario scenario schedule)
+runTier progress selected schedulesFor = checkTierWith (judgeViolations (knownViolationsFor (map label selected))) progress label (`runScenario` []) selected schedulesFor (\scenario schedule -> either pure (const []) <$> runScenario scenario schedule)
+
+-- | How many chunks the fast tier and the harness self-test are split into,
+-- and how many the snapshot-against-replay check is (EP-184).
+tierChunks, equivalenceChunks :: Int
+tierChunks = 8
+equivalenceChunks = 6
+
+-- | Every @count@-th item starting at @index@, so consecutive heavy scenarios
+-- land in different chunks.
+chunkOf :: Int -> Int -> [a] -> [a]
+chunkOf count slot items = [item | (position, item) <- zip [0 :: Int ..] items, position `mod` count == slot]
+
+-- | The harness self-test over the given scenarios: every harness-owned fault
+-- ends in a result or a named violation (EP-177).
+selfTest :: [Scenario] -> Assertion
+selfTest selected = do
+  started <- getMonotonicTime
+  outcomes <- fmap concat . forM selected $ \scenario ->
+    harnessRun scenario [] >>= \case
+      Left failure -> pure [Left failure]
+      Right finished -> forM (fst (harnessPlacements scenario finished)) (harnessRun scenario)
+  ended <- getMonotonicTime
+  let violations = [violation | Left violation <- outcomes]
+      named violation = any (\i -> ("violation: I" <> T.pack (show i) <> ":") `T.isInfixOf` violation) [1 .. 8 :: Int]
+  hPutStrLn stderr ("recovery-model self-test: " <> show (length outcomes) <> " runs in " <> show (round (ended - started) :: Int) <> "s, " <> show (length violations) <> " named violation(s)")
+  mapM_ (hPutStrLn stderr . T.unpack) (take 5 violations)
+  assertBool (T.unpack (T.unlines (filter (not . named) violations))) (all named violations)
 
 -- | A pinned regression: every scheduled fault fired and acted (EP-182: it
 -- changed the world or the answer its caller got), and the run exits along
