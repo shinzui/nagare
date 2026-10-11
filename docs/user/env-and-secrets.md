@@ -104,8 +104,12 @@ rule, top wins:
 2. Managed store (`nagare-env-<app>-runtime` / `nagare-secret-<app>-runtime`) via
    `envFrom`.
 
-So "my managed variable isn't taking effect" almost always means a `Config.hs` variable
-of the same name is shadowing it — see [Troubleshooting](#troubleshooting).
+For that reason a reviewed `env set`, `env sync` or `secret set` of a Runtime key that
+the app's accepted Service sets inline refuses and names the key: the change would
+converge and never reach the app. Change that value in `Config.hs`, or remove it there
+to manage it with `env set`. A key shadowed some other way, such as a generated
+`NAGARE_*` name, still shows up as "my managed variable isn't taking effect" — see
+[Troubleshooting](#troubleshooting).
 
 ## The CLI
 

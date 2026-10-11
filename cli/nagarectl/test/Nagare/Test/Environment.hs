@@ -23,6 +23,7 @@ import Data.Generics.Labels ()
 import Data.Map qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
+import Data.Yaml qualified as Yaml
 import Nagare.Broker.Connection (BrokerConn (..))
 import Nagare.Dsl.Broker
   ( BrokerBinding (..)
@@ -67,6 +68,13 @@ import Nagare.Env.Store
   , renderEnvSecret
   , renderEnvSecretPreview
   )
+import Nagare.Inventory.Digest (contentDigest)
+import Nagare.Inventory.Environment (refuseShadowedEnv, shadowedEnvKeys)
+import Nagare.Inventory.Kubernetes (bindKubernetesObject)
+import Nagare.Resource.Kubernetes (KubernetesInput (..))
+import Nagare.Resource.Policy (DataPolicy (Stateless), LifecyclePolicy (Protect), Sensitivity (Public))
+import Nagare.Resource.Types (ScopeKind (Application), SourceLocation (..), mkResourceId, mkScopeId)
+import Nagare.Resource.Wire (canonicalValue)
 import Nagare.Test.Application (staticServiceYaml)
 import Nagare.Test.Support.Assertions
   ( assertBefore
@@ -288,6 +296,35 @@ renderDemonstrationTests =
           dep' = mkDemoDep (mergeGenerated (generatedEnv gctx) demoEnv)
           yaml = renderService dep' "20260602-120000"
       assertBool "NAGARE_SOURCE absent" (not ("NAGARE_SOURCE" `BC.isInfixOf` yaml))
+  , testCase "env set refuses a key the Config sets inline, which envFrom cannot override (F98)" $ do
+      value <- either (assertFailure . show) pure (Yaml.decodeEither' (renderService (mkDemoDep demoEnv) "20260602-120000"))
+      let bytes = unsafe (canonicalValue value)
+          service =
+            either
+              (error . show)
+              id
+              ( bindKubernetesObject
+                  KubernetesInput
+                    { resourceId = unsafe (mkResourceId "application:notes/service/notes")
+                    , ownerScope = unsafe (mkScopeId Application "notes")
+                    , clusterId = unsafe (mkResourceId "platform:cluster/cluster/local")
+                    , inputObject = value
+                    , objectDigest = contentDigest bytes
+                    , lifecyclePolicy = Protect
+                    , inputDataPolicy = Stateless
+                    , inputSensitivity = Public
+                    , sourceLocation = SourceLocation "fixture" "notes"
+                    }
+              )
+          native = Map.singleton ((fst service) ^. #identity) service
+          shadowed = shadowedEnvKeys "notes" "personal" native
+      assertBool "the inline literal is not seen" (Set.member "API_BASE" shadowed)
+      shadowedEnvKeys "notes" "other" native @?= Set.empty
+      refuseShadowedEnv shadowed Map.empty (Map.fromList [("LOG_LEVEL", "debug")]) @?= Right ()
+      refuseShadowedEnv shadowed (Map.fromList [("API_BASE", "x")]) (Map.fromList [("API_BASE", "x")]) @?= Right ()
+      assertBool
+        "a shadowed key was accepted"
+        (either (T.isPrefixOf "API_BASE is set as a literal") (const False) (refuseShadowedEnv shadowed Map.empty (Map.fromList [("API_BASE", "y")])))
   ]
 
 -- ---------------------------------------------------------------------------

@@ -7,13 +7,14 @@ cookies. Copy it to change the HTML, CSS, title, or logo while keeping the paths
 headers described in the auth portal user guide.
 
 The typed config deploys `auth-portal` in `personal` at
-`auth.<NAGARE_BASE_DOMAIN>`, marks it with `access = Just authPortal`, and defaults to:
+`auth.<NAGARE_BASE_DOMAIN>` and marks it with `access = Just authPortal`. It sets no
+environment, so the app's defaults apply:
 
 - `SHOMEI_URL=http://shomei.nagare-system.svc.cluster.local`
 - `PORTAL_TITLE=Nagare`
 - `PORTAL_ALLOW_SIGNUP=false`
 
-Set `PORTAL_LOGO_URL` as a managed environment variable if desired. Sign-up is a UI
+Change any of them, or set `PORTAL_LOGO_URL`, with `nagarectl env set`. Sign-up is a UI
 policy only; Shomei remains cluster-internal and its API behavior is unchanged.
 
 Run the offline contract tests:

@@ -24,9 +24,6 @@ mkDeployment baseDomain = do
   port' <- first show (mkPort 8080)
   scale' <- first show (mkScale 0 3)
   health' <- first show (httpHealthCheck "/healthz")
-  shomeiUrl <- first show (mkEnvName "SHOMEI_URL")
-  portalTitle <- first show (mkEnvName "PORTAL_TITLE")
-  allowSignup <- first show (mkEnvName "PORTAL_ALLOW_SIGNUP")
   Right
     Deployment
       { name = name'
@@ -36,12 +33,9 @@ mkDeployment baseDomain = do
       , build = DockerfileBuild {dockerfile = dockerfile', context = context', buildArgs = Map.empty}
       , domains = domains'
       , port = port'
-      , env =
-          Map.fromList
-            [ (shomeiUrl, runtimeScoped (EnvLiteral "http://shomei.nagare-system.svc.cluster.local"))
-            , (portalTitle, runtimeScoped (EnvLiteral "Nagare"))
-            , (allowSignup, runtimeScoped (EnvLiteral "false"))
-            ]
+      -- No literals: the portal's own defaults apply, and `env set` can
+      -- change them (a Config literal would shadow the managed value).
+      , env = Map.empty
       , resources = Nothing
       , scale = Just scale'
       , healthCheck = Just health'

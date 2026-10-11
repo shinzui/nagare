@@ -75,7 +75,9 @@ The reference app reads these environment variables:
 | `PORTAL_LOGO_URL` | empty | Optional logo URL. |
 | `PORTAL_ALLOW_SIGNUP` | `false` | Whether the portal offers its sign-up page. |
 
-Use `nagarectl env set` to customize these without changing the contract. The sign-up
+The reference Config leaves them unset, so the app's defaults apply. Use
+`nagarectl env set` to customize them without changing the contract; a key your own
+Config sets as a literal cannot be changed that way, and `env set` refuses it. The sign-up
 switch controls only the portal UI. Shomei remains cluster-internal and keeps its own
 API policy.
 

@@ -10,6 +10,8 @@ module Nagare.Inventory.Environment
   , compilePreviewSecretChannel
   , validateSecretRotation
   , acceptedEnvChannelValues
+  , refuseShadowedEnv
+  , shadowedEnvKeys
   , acceptedSecretChannelValues
   , acceptedBuildChannelMember
   )
@@ -19,10 +21,13 @@ import Data.Aeson (Value (..))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
+import Data.Foldable (toList)
 import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Set (Set)
+import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Yaml qualified as Yaml
 import Nagare.Dsl.Prelude
@@ -455,3 +460,39 @@ compileChannel
           & #sources
           .~ [source]
           & (:| [])
+
+-- | The keys the app's accepted Service sets inline. Kubernetes applies the
+-- managed channels through @envFrom@ first, so an inline value always wins and
+-- a channel value under the same key never reaches the app (F98).
+shadowedEnvKeys :: T.Text -> T.Text -> Map ResourceId (ManagedResource, ByteString) -> Set T.Text
+shadowedEnvKeys app namespace native =
+  Set.fromList
+    [ name
+    | (resource, bytes) <- Map.elems native
+    , Kubernetes _ "serving.knative.dev" kind (Just ns) service <- [resource ^. #address]
+    , nameText kind == "service" && nameText ns == namespace && nameText service == app
+    , Right value <- [Yaml.decodeEither' bytes :: Either Yaml.ParseException Value]
+    , Object container <- under ["spec", "template", "spec", "containers"] value
+    , Just (Array entries) <- [KM.lookup "env" container]
+    , Object entry <- toList entries
+    , Just (String name) <- [KM.lookup "name" entry]
+    ]
+  where
+    under [] value = [value]
+    under ["containers"] (Object fields) = case KM.lookup "containers" fields of
+      Just (Array containers) -> toList containers
+      _ -> []
+    under (field : rest) (Object fields) = maybe [] (under rest) (KM.lookup field fields)
+    under _ _ = []
+
+-- | Refuse a channel change whose new or changed keys the Config sets inline.
+refuseShadowedEnv :: Set T.Text -> Map T.Text T.Text -> Map T.Text T.Text -> Either T.Text ()
+refuseShadowedEnv shadowed existing desired =
+  case [key | (key, value) <- Map.toList desired, Map.lookup key existing /= Just value, Set.member key shadowed] of
+    [] -> Right ()
+    keys ->
+      Left
+        ( T.intercalate ", " keys
+            <> " is set as a literal in the app's Config, which overrides env set, env sync and secret set;"
+            <> " change it in the Config, or remove it there to manage it here"
+        )

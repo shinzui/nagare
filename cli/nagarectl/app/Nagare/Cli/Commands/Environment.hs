@@ -59,6 +59,8 @@ import Nagare.Inventory.Environment
   , compilePreviewSecretChannel
   , compileRuntimeEnvChannel
   , compileRuntimeSecretChannel
+  , refuseShadowedEnv
+  , shadowedEnvKeys
   , validateSecretRotation
   )
 import Nagare.Inventory.Plan qualified as InventoryPlan
@@ -188,6 +190,8 @@ saveReviewedEnvChange mctx name ns selection dry sourceName change output = do
       >>= either dieT pure
   existing <- either dieT pure (acceptedEnvChannelValues snapshot acceptedNative initial)
   desired <- either dieT pure (change existing)
+  when (selectedScopes selection == [Runtime]) $
+    either dieT pure (refuseShadowedEnv (shadowedEnvKeys name ns acceptedNative) existing desired)
   (channel, native) <-
     either
       (dieT . T.pack . show)
@@ -332,6 +336,8 @@ saveReviewedSecretChange mctx name ns selection sourceName version change output
       >>= either dieT pure
   existing <- either dieT pure (acceptedSecretChannelValues snapshot acceptedNative initial)
   desired <- either dieT pure (change existing)
+  when (selectedScopes selection == [Runtime]) $
+    either dieT pure (refuseShadowedEnv (shadowedEnvKeys name ns acceptedNative) existing desired)
   (channel, native) <-
     either
       (dieT . T.pack . show)
