@@ -101,12 +101,22 @@ status` reports T on the CLI, payload, context, host and cluster.
     - mutation records show that removing the unsupported-pair refusal, or reordering the pin commit
       before a scope update, fails a named model test;
     - every suite passes.
-- [ ] M3 (native run L2 on cp3; lane B): script the rehearsal on top of
-  [EP-168](168-script-the-local-acceptance-run-as-one-command.md).
-  - Converge a fresh local context on the published v0.4.0 package, transition it to the candidate,
-    then run EP-168's data checks, scope preservation and runner verify.
-  - Acceptance: one green run from v0.4.0 to the next candidate, with seeded content intact and a
-    zero-operation replan.
+- [x] (2026-10-11) M3 (native run on a disposable Docker daemon, never cp3; lane B):
+  `just transition-rehearsal` (`scripts/transition-rehearsal.sh`) bootstraps a fresh local context on
+  the source release's nix-built nagarectl, seeds a PostgreSQL row, runs `platform transition plan`
+  and `inventory apply` with the candidate until a review has no operation and re-declares no
+  scope but the plan-time stamp, commits, and reads the row back. EP-168 is held, so the driver is
+  its own; it resumes ambiguous stops, scrubs the ambient context and payload variables, seeds the
+  auth and MinIO images from another daemon's store, and forwards the registry on a free loopback
+  port because host port 5000 is AirPlay.
+  - Observed 2026-10-11, v0.4.0 (831243962c6b) to 37d8d45d on Colima profile `nagare-mp23`: the
+    0.4.0 bootstrap converged in three stages (2, 1 and 218 operations, two resumes); the transition
+    took three reviews: the local substrate re-declared with no operation, the platform stage with
+    one operation (the stamp update) and six scopes re-declared (foundation and the five
+    observability scopes, whose declarations embed the payload path), then no operation;
+    `platform transition commit` pinned the context to 0.5.0 and cleared the marker; `platform
+    status` reported 0.5.0 at 37d8d45d on CLI, payload, context and cluster; the head ended idle
+    at generation 2213; the sentinel row read back unchanged; a replan had no operation.
 
 
 ## Surprises & Discoveries

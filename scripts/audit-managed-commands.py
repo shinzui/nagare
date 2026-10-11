@@ -119,6 +119,7 @@ ENTRYPOINTS = {
     "scripts/live-smoke.sh": ("nagarectl app image-plan", "--image-resource", "nagarectl storage snapshot", "--snapshot-id", "nagarectl storage restore", "--restore-id", "nagarectl inventory apply", "verify_restored_sentinel"),
     "scripts/lib/smoke-readback.sh": ("NAGARE_VOLUME_RESTORE_FILE", "NAGARE_VOLUME_RESTORE_MANIFEST", "logs \"job/${job}\" -c restore"),
     "scripts/run-reviewed-bootstrap.sh": ("platform bootstrap plan", "platform bootstrap apply"),
+    "scripts/transition-rehearsal.sh": ("platform bootstrap plan", "platform bootstrap apply", "transition plan", "inventory apply", "platform transition commit", "transition_sentinel"),
     "scripts/host-switch.sh": ("NAGARE_INVENTORY_ADAPTER_CHILD",),
     "scripts/upload-images.sh": ("NAGARE_INVENTORY_ADAPTER_CHILD", "inventory guard-legacy upload-images"),
     "scripts/install-net-certmanager-controller.sh": ("inventory guard-legacy install-net-certmanager-controller",),
@@ -147,6 +148,7 @@ RECIPE_SCRIPTS = {
     "scripts/live-smoke.sh",
     "scripts/live-test.sh",
     "scripts/local-smoke.sh",
+    "scripts/transition-rehearsal.sh",
     "scripts/run-reviewed-bootstrap.sh",
 }
 
@@ -204,7 +206,7 @@ RECIPES = {
     "read": "default docs-validate terminology-validate reviews-validate user-documentation-validate nixos-registry-host nix-cache-status job-runs-status context-show status live-test test-inventory-effects haskell-style-check gate-fast gate-deep deep-tier-required gate gate-verify test-remote mutation-check mutation-sweep",
     "reviewed": "infra-up infra-preview infra-destroy cluster-bootstrap nix-cache-publish nix-cache-bootstrap job-runs-bootstrap cluster-enable-tls local-bootstrap local-minio observability deploy-hello host-switch host-image vm-start vm-stop smoke local-smoke",
     "bounded": "iap-ssh",
-    "local": "local-up local-down nix-cache-secret-init install-hooks fixture-smoke land",
+    "local": "local-up local-down nix-cache-secret-init install-hooks fixture-smoke land transition-rehearsal",
     "pending": "",
 }
 

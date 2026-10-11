@@ -475,3 +475,13 @@ smoke:
 [group('test')]
 local-smoke:
     scripts/local-smoke.sh
+
+# EP-172 M3: rehearse the reviewed release transition of a local context from a published
+# source release to this candidate on a disposable Docker daemon (never cp3): bootstrap on
+# the source, seed a database row, run `platform transition plan` / `inventory apply` until a
+# review has no operations, `platform transition commit`, then read the row back unchanged.
+# Needs NAGARE_REHEARSAL_SOURCE and NAGARE_REHEARSAL_TARGET (nix-built nagarectl paths),
+# DOCKER_HOST and NAGARE_REHEARSAL_IMAGE_DAEMON; see the script header.
+[group('test')]
+transition-rehearsal:
+    scripts/transition-rehearsal.sh
