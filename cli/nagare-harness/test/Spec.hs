@@ -13,7 +13,7 @@ import Data.Text qualified as T
 import FlakeCheckSpec (flakeCheckTests)
 import Nagare.Harness.CarryForward
 import Nagare.Harness.FixtureSmoke
-import Nagare.Harness.Gate (fastSteps, verifyRevision)
+import Nagare.Harness.Gate (fastSteps, fullCheckPlan, verifyRevision)
 import Nagare.Harness.Mutation (Expectation (..), MutationRecord (..), Outcome (..), Suite (..), classifyProof, readSweepResults)
 import Nagare.Harness.Prelude
 import Nagare.Harness.Realise (remainingPaths)
@@ -84,6 +84,8 @@ tests =
     , testCase "the fast gate runs the static checks, which take seconds, then both builds and the record patterns, before both suites" $
         map (^. #name) fastSteps
           @?= ["haskell-style-check", "architecture-and-command-audit", "registry-credential-delegation", "mutation-records", "nagarectl-build", "nagare-dsl-build", "mutation-patterns", "nagarectl-test", "nagare-dsl-test"]
+    , testCase "the full gate builds both suites for the record patterns and runs each suite once, in the flake check (EP-184 M2)" $
+        map (^. #name) (fullCheckPlan ^. #suite) @?= ["nagarectl-build", "nagare-dsl-build", "mutation-patterns"]
     , testGroup
         "dry-run realisation"
         [ testCase "nothing to build or fetch leaves nothing remaining" $

@@ -59,9 +59,9 @@ scenario-b image, which needs `REDIS_URL`, with a PostgreSQL binding.
 - Every candidate: on a clean checkout of the exact revision, run `just gate`. It first builds a
   salted probe derivation on every remote system (so a stopped Linux builder fails at once instead
   of after the fast steps; the builder idles off after about nine minutes), then runs the fast
-  gate's static checks, then its builds and suites alongside `nix flake check --all-systems
-  --keep-going` (each failing check is printed as it appears, and all are listed at the end;
-  EP-184 M2), then dry-runs every
+  gate's static checks, then its suite builds alongside `nix flake check --all-systems
+  --keep-going`, which runs each suite once per system (each failing check is printed as it
+  appears, and all are listed at the end; EP-184 M2), then dry-runs every
   check of every supported system and requires nothing left to build or fetch. It writes
   `${XDG_STATE_HOME:-~/.local/state}/nagare/gates/<commit>.json`.
 - Before any native step: `just gate-verify <rev>` must print `green`. It refuses a missing, red or

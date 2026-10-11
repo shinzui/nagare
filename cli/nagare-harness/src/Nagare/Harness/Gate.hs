@@ -30,7 +30,7 @@ import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
-import Data.Time.Clock (getCurrentTime)
+import Data.Time.Clock (diffUTCTime, getCurrentTime)
 import Data.Time.Format (defaultTimeLocale, formatTime)
 import Data.Vector qualified as Vector
 import Nagare.Harness.CarryForward (carryForwardVerdict, referenceNeedles)
@@ -86,13 +86,22 @@ staticSteps =
   , harness "mutation-records" ["mutations", "check"]
   ]
 
--- | Both builds, the record patterns, and both suites: tens of minutes.
+-- | Both builds, the record patterns, and both suites: minutes.
 suiteSteps :: [Step]
-suiteSteps =
+suiteSteps = buildSteps <> testSteps
+
+-- | Both suite builds and the record patterns, which need the built suites.
+buildSteps :: [Step]
+buildSteps =
   [ Step "nagarectl-build" "cli/nagarectl" "cabal" ["build", "nagarectl-test"]
   , Step "nagare-dsl-build" "cli/nagare-dsl" "cabal" ["build", "nagare-dsl-test"]
   , harness "mutation-patterns" ["mutations", "patterns"]
-  , Step "nagarectl-test" "cli/nagarectl" "cabal" ["test", "nagarectl-test"]
+  ]
+
+-- | Both suites, each one process per core ("Nagare.Test.Shards").
+testSteps :: [Step]
+testSteps =
+  [ Step "nagarectl-test" "cli/nagarectl" "cabal" ["test", "nagarectl-test"]
   , Step "nagare-dsl-test" "cli/nagare-dsl" "cabal" ["test", "nagare-dsl-test"]
   ]
 
@@ -207,8 +216,16 @@ data CheckPlan = CheckPlan
   }
   deriving stock (Eq, Show, Generic)
 
+-- | The full gate runs each suite once: the flake check's @aarch64-darwin@
+-- and @x86_64-linux@ derivations run both suites, built hermetically, so the
+-- local @cabal test@ steps are not repeated here. The local builds stay for
+-- the record patterns, and are already built when the fast gate ran.
 fullCheckPlan :: CheckPlan
-fullCheckPlan = CheckPlan {static = staticSteps, suite = suiteSteps, flake = flakeCheckStep, pollMicroseconds = 10000000}
+fullCheckPlan = CheckPlan {static = staticSteps, suite = buildSteps, flake = flakeCheckStep, pollMicroseconds = 10000000}
+
+-- | Every step 'runCheckPlan' runs for the full gate, in order.
+fullCheckSteps :: [Step]
+fullCheckSteps = fullCheckPlan ^. #static <> fullCheckPlan ^. #suite
 
 -- | Run the static checks; when they pass, run the suite and the flake check
 -- at the same time. Each flake failure is reported as soon as its log shows
@@ -268,12 +285,13 @@ realise workdir system = do
     lastLines = T.unlines . reverse . take 5 . reverse . T.lines
 
 -- | The full gate: clean tree, builder probe for every remote system, the
--- static checks, then the suites and @nix flake check --all-systems@ at the
--- same time ('runCheckPlan'), a realisation proof per system, and a record.
--- Returns the record (green or red) when one was written.
+-- static checks, then the suite builds and @nix flake check --all-systems@
+-- at the same time ('runCheckPlan'), a realisation proof per system, and a
+-- record. Returns the record (green or red) when one was written.
 runFullGate :: GateRun -> IO (Either Text GateRecord)
 runFullGate run = do
   let workdir = run ^. #root
+  started <- getCurrentTime
   status <- captureLine workdir "git" ["status", "--porcelain"]
   if not (T.null status)
     then pure (Left "the full gate needs a clean tree (git status --porcelain is not empty)")
@@ -304,7 +322,7 @@ runFullGate run = do
             if probesGreen
               then runCheckPlan say workdir (run ^. #logDir) fullCheckPlan
               else pure ([], [])
-          let fastGreen = probesGreen && length fast == length fastSteps && all stepSucceeded fast
+          let fastGreen = probesGreen && length fast == length fullCheckSteps && all stepSucceeded fast
               flakeGreen = fastGreen && all stepSucceeded flake && not (null flake)
           realisations <-
             if flakeGreen
@@ -356,6 +374,8 @@ runFullGate run = do
           after <- captureLine workdir "git" ["status", "--porcelain"]
           let final = if T.null after then record else record & #clean .~ False & #green .~ False
           path <- writeRecord final
+          finished <- getCurrentTime
+          printf "gate: wall %.0f s\n" (realToFrac (diffUTCTime finished started) :: Double)
           putStrLn ("gate: record " <> path <> (if final ^. #green then " (green)" else " (RED)"))
           pure (Right final)
 
