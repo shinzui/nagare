@@ -39,6 +39,8 @@ flakeCheckTests =
         summaryFailures (flakeFailures running) @?= [FailedDerivation "broken-one", FailedDerivation "broken-two"]
         summaryFailures (flakeFailures (running <> summary)) @?= [FailedCheck "checks.aarch64-darwin.broken-one"]
         flakeFailures "error: 1 dependencies of derivation '/nix/store/ccc-dependent.drv' failed to build\n" @?= []
+        flakeFailures "error: build of '/nix/store/ddd-remote.drv' on 'ssh://builder@host' failed: Cannot build '/nix/store/ddd-remote.drv'.\n"
+          @?= [FailedDerivation "remote"]
     , testCase "a log follower reports each new failure once, across a line split between reads" $
         withSystemTempDirectory "flake" $ \dir -> do
           let path = dir </> "flake.log"

@@ -58,7 +58,7 @@ flakeFailures = nubOrd . mapMaybe (failure . stripEscapes) . T.lines
       _ -> Nothing
     builderFailed line =
       FailedDerivation . derivationName
-        <$> (quotedAfter "error: Cannot build '" line <|> quotedAfter "error: builder for '" line)
+        <$> (quotedAfter "Cannot build '" line <|> quotedAfter "error: builder for '" line)
     quotedAfter marker line = case T.breakOn marker line of
       (_, rest) | not (T.null rest) -> Just (T.takeWhile (/= '\'') (T.drop (T.length marker) rest))
       _ -> Nothing
