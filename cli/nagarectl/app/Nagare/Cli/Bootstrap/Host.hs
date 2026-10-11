@@ -20,6 +20,7 @@ import Data.Maybe (listToMaybe)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Nagare.Cli.Bootstrap.Local (LocalSubstrateSpec (..))
+import Nagare.Cli.Bootstrap.Stage (StageMode (..))
 import Nagare.Cli.Runtime.Error (dieT)
 import Nagare.Cluster.Kubeconfig
   ( KubeconfigIdentity (..)
@@ -30,7 +31,7 @@ import Nagare.Cluster.Kubeconfig
   )
 import Nagare.Dsl.Prelude
 import Nagare.Host.AgeKey qualified as HostAgeKey
-import Nagare.Host.Config (hostConfigDir, readContextHostName)
+import Nagare.Host.Config (commitStagedHostFlake, hostConfigDir, readContextHostName, stageHostFlake)
 import Nagare.Inventory.Artifact
   ( ArtifactDeclarationBundle (ArtifactDeclarationBundle)
   , ArtifactResourceSpec
@@ -57,6 +58,7 @@ import Nagare.Inventory.Digest qualified as InventoryDigest
 import Nagare.Inventory.Host qualified as InventoryHost
 import Nagare.Inventory.HostLock qualified as HostLock
 import Nagare.Inventory.RegistryCredentials qualified as RegistryCredentials
+import Nagare.Platform.Paths (PlatformPaths)
 import Nagare.Platform.Workspace (PlatformWorkspace)
 import Nagare.Resource.Inventory qualified as ResourceInventory
 import Nagare.Resource.Policy qualified as ResourcePolicy
@@ -69,9 +71,11 @@ import Nagare.Target
   , contextNameText
   , nagareStateDir
   )
+import Nagare.Version (BuildVersion (BuildVersion))
 import System.Directory
   ( createDirectoryIfMissing
   , doesFileExist
+  , makeAbsolute
   , pathIsSymbolicLink
   )
 import System.Environment (lookupEnv)
@@ -83,32 +87,51 @@ import System.Posix.Files (createLink, setFileMode)
 import System.Process (readProcessWithExitCode)
 
 buildHostStageCandidate ::
+  StageMode ->
+  PlatformPaths ->
   ActiveTarget ->
   PlatformWorkspace ->
   ResourceInventory.ScopeSnapshot ->
   IO (Maybe ResourceInventory.CompositionCandidate)
-buildHostStageCandidate = buildHostCandidate False
+buildHostStageCandidate mode = buildHostCandidate mode False
 
 -- | An explicit host review can replace the accepted same-payload inputs.
 -- Bootstrap retains its strict unchanged-host prerequisite behavior.
 buildHostTransitionCandidate ::
+  PlatformPaths ->
   ActiveTarget ->
   PlatformWorkspace ->
   ResourceInventory.ScopeSnapshot ->
   IO (Maybe ResourceInventory.CompositionCandidate)
-buildHostTransitionCandidate = buildHostCandidate True
+buildHostTransitionCandidate = buildHostCandidate FreshBootstrap True
 
 buildHostCandidate ::
+  StageMode ->
   Bool ->
+  PlatformPaths ->
   ActiveTarget ->
   PlatformWorkspace ->
   ResourceInventory.ScopeSnapshot ->
   IO (Maybe ResourceInventory.CompositionCandidate)
-buildHostCandidate transition active _ snapshot
+buildHostCandidate mode transition paths active workspace snapshot
   | active ^. #profile . #mode /= Cloud = pure Nothing
   | otherwise = do
       hostRoot <- hostConfigDir (active ^. #contextName)
       hostName <- readContextHostName (active ^. #contextName) >>= either dieT pure
+      when (mode == ReleaseTransition) $ do
+        -- EP-172: move the generated flake's nagare input to the target payload's
+        -- NixOS source and re-lock it. host.nix and secrets.yaml stay as accepted;
+        -- the lock must keep the payload as the flake's only input.
+        nixosSource <- makeAbsolute (paths ^. #nixosDir)
+        stateRoot <- nagareStateDir
+        let staged = stateRoot </> T.unpack (contextNameText (active ^. #contextName)) </> "transition-host"
+        _ <- stageHostFlake hostRoot staged nixosSource (BuildVersion (workspace ^. #platformVersion) (workspace ^. #sourceRevision)) >>= either dieT pure
+        (code, _, err) <- readProcessWithExitCode "nix" ["flake", "lock", "path:" <> staged] ""
+        unless (code == ExitSuccess) (dieT ("could not re-lock the host flake for the release transition: " <> T.pack err))
+        stagedFlake <- BS.readFile (staged </> "flake.nix")
+        stagedLock <- BS.readFile (staged </> "flake.lock")
+        either (dieT . ("the re-locked host flake is not the target payload's: " <>)) pure (HostLock.hostLockRepin stagedFlake stagedLock)
+        commitStagedHostFlake staged hostRoot >>= either dieT pure
       flake <- BS.readFile (hostRoot </> "flake.nix")
       hostModule <- BS.readFile (hostRoot </> "host.nix")
       registryCredentials <-
@@ -156,7 +179,7 @@ buildHostCandidate transition active _ snapshot
                       [] -> pure Nothing
                       [digest] -> pure (Just digest)
                       _ -> dieT "accepted host has invalid credential input binding"
-              Just reviewed | transition && length reviewed == 2 -> pure Nothing
+              Just reviewed | (transition || mode == ReleaseTransition) && length reviewed == 2 -> pure Nothing
               _ -> dieT "accepted host configuration differs from the selected context; use a reviewed host transition with the accepted age-key file when credentials are bound"
       let specDigest =
             InventoryDigest.contentDigest
@@ -217,9 +240,11 @@ buildHostCandidate transition active _ snapshot
           )
       case Map.lookup owner (ResourceInventory.snapshotScopes snapshot) of
         Just (_, prior)
-          | not transition && ResourceWire.encodeCanonicalScope prior /= ResourceWire.encodeCanonicalScope scope ->
+          | not transition
+          , ResourceWire.encodeCanonicalScope prior == ResourceWire.encodeCanonicalScope scope ->
+              pure Nothing
+          | not transition && mode /= ReleaseTransition ->
               dieT "accepted host configuration differs from the selected context; use a reviewed host transition"
-        Just _ | not transition -> pure Nothing
         _ ->
           Just
             <$> either

@@ -164,6 +164,7 @@ headValue =
     Nothing
     Nothing
     Map.empty
+    Nothing
 
 right :: (Show e) => Either e a -> IO a
 right = either (\err -> assertFailure (show err) >> error "unreachable") pure

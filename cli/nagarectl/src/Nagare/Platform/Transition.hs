@@ -6,7 +6,9 @@ module Nagare.Platform.Transition
   , TransitionRefusal (..)
   , inventorySchemaVersion
   , checkTransition
+  , platformReviewExpectation
   , renderTransitionRefusal
+  , transitionOwnerRefusal
   )
 where
 
@@ -14,6 +16,7 @@ import Control.Monad (unless, when)
 import Data.Generics.Labels ()
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude
+import Nagare.Inventory.Store (TransitionMarker (..), parseTransitionReviewIdentity)
 import Nagare.Platform.Workspace (PayloadManifest)
 
 -- | An accepted move: the context's pinned release and this payload's.
@@ -51,6 +54,33 @@ checkTransition manifest pin headVersion = do
   unless (source `elem` accepted) (Left (UnsupportedSource source target accepted))
   unless (headVersion >= oldest && headVersion <= inventorySchemaVersion) (Left (UnsupportedStoreVersion headVersion oldest inventorySchemaVersion))
   pure (TransitionPair source target)
+
+-- | While a transition is open, only the target payload's CLI may mutate the
+-- context: any other refuses and names the payload that finishes the move.
+transitionOwnerRefusal :: TransitionMarker -> Text -> Maybe Text
+transitionOwnerRefusal marker payload
+  | payload == transitionTarget marker = Nothing
+  | otherwise =
+      Just
+        ( "a release transition from "
+            <> transitionSource marker
+            <> " to payload "
+            <> transitionTarget marker
+            <> " is open since "
+            <> transitionStartedAt marker
+            <> "; this nagarectl carries payload "
+            <> payload
+            <> ", so only the target release's nagarectl applies, resumes, recovers or closes until platform transition commit ends it"
+        )
+
+-- | What a platform review's payload identity requires at apply: the payload
+-- that planned it and the context pin it expects. A bootstrap review was
+-- planned by this payload against a context pinned to its release; a
+-- transition review (EP-172) by the target payload against the source release.
+platformReviewExpectation :: PayloadManifest -> Text -> Maybe (Text, Text)
+platformReviewExpectation manifest identity = case T.stripPrefix "nagare-bootstrap:" identity of
+  Just payload -> Just (payload, manifest ^. #platformVersion)
+  Nothing -> (\(source, payload) -> (payload, source)) <$> parseTransitionReviewIdentity identity
 
 renderTransitionRefusal :: TransitionRefusal -> Text
 renderTransitionRefusal = \case

@@ -229,8 +229,9 @@ idle headValue =
         && isNothing (headExecutorClaim headValue)
         && isNothing (headMigration headValue)
         && isNothing (headDataFence headValue)
+        && isNothing (headTransition headValue)
     )
-    (Left "context control requires idle history without an executor claim, data fence or migration")
+    (Left "context control requires idle history without an executor claim, data fence, migration or open release transition")
 
 profileRemovalMarker :: FilePath -> FilePath
 profileRemovalMarker location = location <> ".removed"

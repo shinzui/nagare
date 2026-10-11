@@ -21,6 +21,7 @@ import Nagare.Cli.Bootstrap.Host
   , buildHostTransitionCandidate
   , buildKubeconfigStageCandidateWithRecovery
   )
+import Nagare.Cli.Bootstrap.Stage (StageMode (FreshBootstrap))
 import Nagare.Cli.Inventory.Planning (inventoryPlanRegistry)
 import Nagare.Cli.Inventory.Workflow (runInventoryApply)
 import Nagare.Cli.Options
@@ -221,8 +222,8 @@ runKubeconfig globalContext = \case
     active <- activeTarget globalContext
     selected <- foundationStageTarget active
     snapshot <- Inventory.loadTargetSnapshotReadOnly selected
-    (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
-    host <- buildHostStageCandidate active workspace snapshot
+    (paths, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+    host <- buildHostStageCandidate FreshBootstrap paths active workspace snapshot
     when (isJust host) (dieT "kubeconfig recovery requires an accepted host configuration")
     recovered <- buildKubeconfigStageCandidateWithRecovery True active workspace snapshot
     when (isJust recovered) (dieT "kubeconfig recovery requires an accepted credential scope")
@@ -297,7 +298,7 @@ runHostReview selected output keyFile replace = do
   let selectedKey = keyFile <|> inheritedKey
   when (replace && isNothing selectedKey) $
     dieT "replacing an age key requires an explicit local key file"
-  (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+  (paths, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
   snapshot <- Inventory.loadTargetSnapshot active
   let additions =
         [("NAGARE_HOST_REPLACE_AGE_KEY", if replace then "1" else "0"), ("NAGARE_HOST_REVIEW_CREDENTIAL", if isJust selectedKey then "1" else "0")]
@@ -306,7 +307,7 @@ runHostReview selected output keyFile replace = do
   bracket (mapM (\(key, _) -> (\value -> (key, value)) <$> lookupEnv key) additions) restore $ \_ -> do
     for_ additions (uncurry setEnv)
     candidate <-
-      buildHostTransitionCandidate active workspace snapshot
+      buildHostTransitionCandidate paths active workspace snapshot
         >>= maybe (dieT "selected context has no NixOS host transition") pure
     Inventory.planInventoryCandidateWith (inventoryPlanRegistry active workspace) active candidate output
   TIO.putStrLn "Host review saved; use inventory apply with this directory. Credential reviews require the same NAGARE_HOST_AGE_KEY_FILE at apply/resume."

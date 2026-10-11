@@ -143,6 +143,7 @@ import Nagare.Inventory.Status qualified as InventoryStatus
 import Nagare.Inventory.Store qualified as InventoryStore
 import Nagare.Inventory.VmPower (vmPowerOnly)
 import Nagare.Platform.Status (identityFromPayload)
+import Nagare.Platform.Transition (platformReviewExpectation)
 import Nagare.Platform.Workspace
   ( PlatformWorkspace
   , readPayloadManifest
@@ -199,18 +200,20 @@ inventoryExecutionRegistry mctx store bundle = do
           , resource <- NE.toList (InventoryAdapter.plannedResources operation)
           ]
       declarations = [declaration | scopeDeclaration <- scopes, resourceBundle <- ResourceInventory.scopeBundles scopeDeclaration, declaration <- ResourceInventory.declarations resourceBundle]
-  forM_ (T.stripPrefix "nagare-bootstrap:" (InventoryPlan.reviewPayloadIdentity document)) $ \reviewedPayloadId -> do
+  let reviewIdentity = InventoryPlan.reviewPayloadIdentity document
+  when ("nagare-bootstrap:" `T.isPrefixOf` reviewIdentity || "nagare-transition:" `T.isPrefixOf` reviewIdentity) $ do
     active <- activeTarget mctx
     (paths, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
     manifest <- readPayloadManifest paths >>= either (dieT . renderWorkspaceError) pure
+    (reviewedPayloadId, expectedPin) <- maybe (dieT "reviewed platform stage has an invalid payload identity") pure (platformReviewExpectation manifest reviewIdentity)
     unless
       ( not (T.null reviewedPayloadId)
           && reviewedPayloadId == manifest ^. #payloadId
           && manifest ^. #payloadId == workspace ^. #payloadId
           && manifest ^. #platformVersion == workspace ^. #platformVersion
-          && active ^. #profile . #platformVersion == Just (manifest ^. #platformVersion)
+          && active ^. #profile . #platformVersion == Just expectedPin
       )
-      (dieT "reviewed bootstrap stage requires the selected immutable payload and context pin")
+      (dieT "reviewed platform stage requires the payload that planned it and the context pin it expects")
   cloudHistory <-
     if Set.null (selected ResourceInventory.PulumiExecutor)
       && not (any ((\owner -> Resource.scopeKind owner == Resource.Platform && Resource.nameText (Resource.scopeName owner) == "cloud") . InventoryPlan.retentionOwner) (Map.elems (InventoryPlan.reviewRetentions document)))
@@ -292,9 +295,9 @@ inventoryExecutionRegistry mctx store bundle = do
     unless
       ( manifest ^. #payloadId == workspace ^. #payloadId
           && manifest ^. #platformVersion == workspace ^. #platformVersion
-          && active ^. #profile . #platformVersion == Just (manifest ^. #platformVersion)
+          && active ^. #profile . #platformVersion == Just (maybe (manifest ^. #platformVersion) snd (platformReviewExpectation manifest (InventoryPlan.reviewPayloadIdentity document)))
       )
-      (dieT "reviewed bootstrap marker requires the selected payload and context pin")
+      (dieT "reviewed bootstrap marker requires the selected payload and the context pin its review expects")
     let vectorDigest = bootstrapScopeVectorDigest (InventoryPlan.reviewDesiredRevisions document)
     either
       dieT

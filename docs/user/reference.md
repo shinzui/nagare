@@ -103,6 +103,8 @@ platform version upgrade.
 | --- | --- |
 | `nagarectl platform status [--json]` | Compare CLI, payload, context, host, and cluster release identities. |
 | `nagarectl platform adopt --version VERSION --yes` | Confirm observations and assign the first explicit release to a legacy context. |
+| `nagarectl platform transition plan --out DIR` | Review the next stage that moves an admitted context from its pinned release to this payload's (EP-172). Apply it with `inventory apply DIR --yes` and plan again until the review has no operations. The first admitted stage opens a transition marker in the store head; until the commit, only this payload's `nagarectl` applies, resumes, recovers or closes. |
+| `nagarectl platform transition commit --yes` | Pin the context to this release after the payload, host and cluster report it, and close the transition. |
 | `nagarectl platform upgrade --to VERSION --dry-run [--json]` | Persist Nix, Pulumi, and Kubernetes preflight results without mutating the target. |
 | `nagarectl platform upgrade --apply --resume ID --yes` | Apply or resume a reviewed transaction; advance the context pin last. |
 | `nagarectl platform upgrade status [ID] [--json]` | Inspect a selected or latest context-owned transaction. |

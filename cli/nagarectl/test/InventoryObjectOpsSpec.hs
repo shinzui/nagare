@@ -23,6 +23,7 @@ import Nagare.Inventory.Journal
 import Nagare.Inventory.Status (loadActiveTransactionStatus)
 import Nagare.Inventory.Store
 import Nagare.Inventory.Store.Discovery
+import Nagare.Inventory.Store.Migrate (migrateStore)
 import Nagare.Inventory.Store.ObjectOps
 import Nagare.Ops.PulumiBackend (GcloudOps (..), bucketOwnershipVerdict, bucketProjectNumberArgs, gcsBucketOfUrl, projectNumberArgs, realGcloudOps)
 import Nagare.Resource.Types
@@ -696,15 +697,9 @@ inventoryObjectOpsTests =
         source <-
           newObjectStore sourceOps fixtureBinding "client-a" Nothing
             >>= either (assertFailure . show) pure
-        destination <-
-          newObjectStore destinationOps fixtureBinding "client-b" Nothing
-            >>= either (assertFailure . show) pure
-        original <-
-          initializeStore source fixtureBinding "client-a"
-            >>= either (assertFailure . show) pure
-        _ <-
-          publishIfAbsent source "objects/sample.json" "sample"
-            >>= either (assertFailure . show) pure
+        destination <- newObjectStore destinationOps fixtureBinding "client-b" Nothing >>= either (assertFailure . show) pure
+        original <- initializeStore source fixtureBinding "client-a" >>= either (assertFailure . show) pure
+        _ <- publishIfAbsent source "objects/sample.json" "sample" >>= either (assertFailure . show) pure
         migrateStore source destination "local" "gs://state/inventory" >>= (@?= Right ())
         migrated <- readHead source >>= either (assertFailure . show) pure
         assertBool "source has a migration marker" (maybe False (isJust . headMigration) migrated)
@@ -811,15 +806,9 @@ inventoryObjectOpsTests =
         source <-
           newObjectStore sourceOps fixtureBinding "client-a" Nothing
             >>= either (assertFailure . show) pure
-        destination <-
-          newObjectStore destinationOps fixtureBinding "client-b" Nothing
-            >>= either (assertFailure . show) pure
-        original <-
-          initializeStore source fixtureBinding "client-a"
-            >>= either (assertFailure . show) pure
-        _ <-
-          publishIfAbsent source "objects/sample.json" "sample"
-            >>= either (assertFailure . show) pure
+        destination <- newObjectStore destinationOps fixtureBinding "client-b" Nothing >>= either (assertFailure . show) pure
+        original <- initializeStore source fixtureBinding "client-a" >>= either (assertFailure . show) pure
+        _ <- publishIfAbsent source "objects/sample.json" "sample" >>= either (assertFailure . show) pure
         migrateStore source destination "local" "gs://state/inventory" >>= \result ->
           assertBool "activation failure leaves a resumable handoff" (isLeft result)
         sourceHead <- readHead source >>= either (assertFailure . show) pure

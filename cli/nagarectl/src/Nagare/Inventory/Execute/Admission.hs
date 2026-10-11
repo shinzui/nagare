@@ -81,6 +81,7 @@ import Nagare.Inventory.Plan
     , reviewHeadSequence
     , reviewMigrations
     , reviewOperations
+    , reviewPayloadIdentity
     , reviewRebinds
     , reviewRebuilds
     , reviewRetentions
@@ -105,12 +106,15 @@ import Nagare.Inventory.Store
     , headGeneration
     , headRetained
     , headSequence
+    , headTransition
     )
   , InventoryStore
   , LockedStore
   , RetainedIncarnation (RetainedIncarnation)
   , ScopeRevision (revisionDigest)
+  , TransitionMarker (..)
   , lockedStore
+  , parseTransitionReviewIdentity
   , readObject
   , replaceObservedHead
   , scopeKey
@@ -159,6 +163,7 @@ admit locked registry reviewed = do
                      || Map.member resource (headCollected headValue)
                  ]
               <> validateOperationInputs registry reviewed Map.empty
+              <> transitionAdmission (headTransition headValue) (reviewPayloadIdentity document)
       case staticErrors of
         firstError : rest -> pure (Left (firstError :| rest))
         [] -> do
@@ -268,7 +273,10 @@ admit locked registry reviewed = do
                       , headRetained = Map.unions [retained, migrated, headRetained headValue]
                       , headActiveTransaction = Just (transactionIdText transaction)
                       , headExecutorClaim = Just claim
+                      , headTransition = headTransition headValue <|> opened
                       }
+                  -- EP-172: the first review of a release transition opens its marker.
+                  opened = (\(source, target) -> TransitionMarker source target now) <$> parseTransitionReviewIdentity (reviewPayloadIdentity document)
               activation <- replaceObservedHead observed activated
               case activation of
                 Left err -> pure (failure "head-condition" (showText err))
@@ -277,6 +285,27 @@ admit locked registry reviewed = do
                   pure $ case event of
                     Left err -> failure "journal" (showText err)
                     Right _ -> Right (ExecutablePlan transaction reviewed)
+
+-- | EP-172: while a release transition is open only its own reviews are
+-- admitted, and a transition review opens or continues only the transition
+-- it names. The refusal names the target payload, whose CLI finishes the move.
+transitionAdmission :: Maybe TransitionMarker -> Text -> [AdmissionError]
+transitionAdmission open identity = case (open, parseTransitionReviewIdentity identity) of
+  (Nothing, _) -> []
+  (Just marker, Just (source, target))
+    | source == transitionSource marker && target == transitionTarget marker -> []
+  (Just marker, _) ->
+    [ AdmissionError
+        "open-transition"
+        ( "a release transition from "
+            <> transitionSource marker
+            <> " to payload "
+            <> transitionTarget marker
+            <> " is open since "
+            <> transitionStartedAt marker
+            <> "; only that payload's nagarectl applies, resumes, recovers or closes it, and platform transition commit ends it"
+        )
+    ]
 
 -- EP-183 M2: a new scheduled prune is admitted only while the retention
 -- policy, evaluated now against the accepted receipts, places every pruned run

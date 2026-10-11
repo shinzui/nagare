@@ -135,6 +135,9 @@ platformCmd =
                   (progDesc "Re-pin a versioned context whose GCE host has never been deployed")
               )
             <> command
+              "transition"
+              (info (transitionCommandParser <**> helper) (progDesc "Move an admitted context to this payload's release through reviewed stages (EP-172)"))
+            <> command
               "upgrade"
               (info (upgradeCommandParser <**> helper) (progDesc "Plan, apply, resume, or inspect a per-context platform upgrade"))
         )
@@ -159,6 +162,23 @@ bootstrapCommandParser =
                   <*> switch (long "yes") <**> helper
               )
               (progDesc "Apply a published bootstrap review")
+          )
+    )
+
+transitionCommandParser :: Parser Command
+transitionCommandParser =
+  subparser
+    ( command
+        "plan"
+        ( info
+            (PlatformTransitionPlan <$> strOption (long "out" <> metavar "DIRECTORY") <**> helper)
+            (progDesc "Compile and publish the next transition stage; apply it with inventory apply")
+        )
+        <> command
+          "commit"
+          ( info
+              (PlatformTransitionCommit <$> switch (long "yes" <> help "Pin the context after reviewing the status") <**> helper)
+              (progDesc "Pin the context to this release once every stage is accepted, and close the transition")
           )
     )
 

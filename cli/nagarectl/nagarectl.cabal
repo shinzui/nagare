@@ -246,6 +246,7 @@ library
     Nagare.Inventory.Maintenance
     Nagare.Inventory.MaintenanceAdapter
     Nagare.Inventory.MaintenanceFence
+    Nagare.Inventory.ManifestAdapter
     Nagare.Inventory.ManualReceipt
     Nagare.Inventory.ManualReceiptSource
     Nagare.Inventory.Migration
@@ -277,6 +278,7 @@ library
     Nagare.Inventory.Store.FileIO
     Nagare.Inventory.Store.GcloudAuth
     Nagare.Inventory.Store.Gogol
+    Nagare.Inventory.Store.Migrate
     Nagare.Inventory.Store.ObjectOps
     Nagare.Inventory.Store.Remote
     Nagare.Inventory.TaskLifecycle
@@ -375,6 +377,8 @@ executable nagarectl
     Nagare.Cli.Bootstrap.Image
     Nagare.Cli.Bootstrap.Local
     Nagare.Cli.Bootstrap.Platform
+    Nagare.Cli.Bootstrap.Sequence
+    Nagare.Cli.Bootstrap.Stage
     Nagare.Cli.Commands.Access
     Nagare.Cli.Commands.Application
     Nagare.Cli.Commands.Bootstrap
@@ -396,6 +400,7 @@ executable nagarectl
     Nagare.Cli.Commands.Site
     Nagare.Cli.Commands.Storage
     Nagare.Cli.Commands.Task
+    Nagare.Cli.Commands.Transition
     Nagare.Cli.Commands.Worker
     Nagare.Cli.Data.Backup
     Nagare.Cli.Data.DatabaseRename

@@ -73,14 +73,19 @@ import Nagare.Inventory.Execute hiding (withProcessLock)
 import Nagare.Inventory.Journal
 import Nagare.Inventory.Lifecycle
 import Nagare.Inventory.Lineage (renderRebuild)
+import Nagare.Inventory.ManifestAdapter (manifestAdapterFor, manifestOnlyRegistry)
 import Nagare.Inventory.Migration
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Store
 import Nagare.Inventory.Store.Discovery
+import Nagare.Inventory.Store.Migrate (migrateStore)
 import Nagare.Inventory.Store.Remote (remoteObjectOps)
 import Nagare.Inventory.Store.Remote qualified as Remote
 import Nagare.Inventory.Store.Target (openProfileReviewStoreReadOnly, openRemoteStore, openTargetStoreReadOnly, remoteInventoryUrl)
 import Nagare.Ops.PulumiBackend (gcsBucketOfUrl)
+import Nagare.Platform.Paths (renderPlatformPathError, resolvePlatformPaths)
+import Nagare.Platform.Transition (transitionOwnerRefusal)
+import Nagare.Platform.Workspace (readPayloadManifest, renderWorkspaceError)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
 import Nagare.Resource.Types
@@ -451,6 +456,7 @@ convergeInventoryCandidateWith planningRegistry executionRegistry target candida
       (\_ _ -> Right noLifecycleDecisions)
       target
       candidate
+  requireTransitionOwner store
   bundle <- loadPublishedReview store digest >>= either (dieText . showText) pure
   validateReviewTarget target (reviewContextBinding (reviewBundleDocument bundle))
   TIO.putStrLn ("Published review " <> digestText digest)
@@ -517,6 +523,7 @@ applyInventoryWithFactory registryFor target reviewDirectory yes = do
   publicBundle <- loadReviewBundle reviewDirectory >>= either dieText pure
   validateReviewTarget target (reviewContextBinding (reviewBundleDocument publicBundle))
   store <- openTargetStore target
+  requireTransitionOwner store
   bundle <- loadPublishedReview store (reviewDigest publicBundle) >>= either (dieText . showText) pure
   unless
     ( reviewBundleDocument bundle == reviewBundleDocument publicBundle
@@ -548,6 +555,7 @@ resumeInventoryWithFactoryTakeover registryFor target transactionToken yes takeO
   unless yes (dieText "inventory resume requires --yes")
   transaction <- either dieText pure (mkTransactionId transactionToken)
   store <- openTargetStore target
+  requireTransitionOwner store
   current <- readHead store >>= either (dieText . showText) pure
   registry <- case current of
     Just headValue | headActiveTransaction headValue == Just (transactionIdText transaction) -> do
@@ -619,6 +627,7 @@ recoverInventoryWithFactory registryFor target transactionToken operationToken d
     (recoveryTransaction input == transaction && recoveryOperation input == operation)
     (dieText "recovery decision file does not match the requested transaction and operation")
   store <- openTargetStore target
+  requireTransitionOwner store
   bundle <- loadPublishedReview store (recoveryReview input) >>= either (dieText . showText) pure
   registry <- registryFor store bundle
   if recoveryAction input `elem` closeAliases
@@ -647,6 +656,7 @@ closeInventoryWithFactory registryFor target transactionToken reviewToken attest
     bytes <- try (BS.readFile file) :: IO (Either IOException ByteString)
     either (dieText . showText) (either (dieText . ("attestation: " <>)) pure . decodeAttestation) bytes
   store <- openTargetStore target
+  requireTransitionOwner store
   bundle <- loadPublishedReview store review >>= either (dieText . showText) pure
   registry <- registryFor store bundle
   record <- closeTransaction store registry (CloseInput transaction review takeOver attestation) >>= either (dieText . T.intercalate "\n" . map admissionErrorMessage . NE.toList) pure
@@ -966,37 +976,20 @@ validateReviewTarget target binding = do
   unless (nameText (binding ^. #project) == expectedProject) $
     dieText ("inventory review targets project " <> nameText (binding ^. #project) <> ", active context targets " <> expectedProject)
 
+-- | EP-172: while a release transition is open, only the target payload's
+-- nagarectl applies, resumes, recovers or closes; any other refuses and
+-- names it. The running payload is read only when a transition is open.
+requireTransitionOwner :: InventoryStore -> IO ()
+requireTransitionOwner store = do
+  current <- readHead store >>= either (dieText . showText) pure
+  forM_ (current >>= headTransition) $ \marker -> do
+    paths <- resolvePlatformPaths Nothing >>= either (dieText . renderPlatformPathError) pure
+    manifest <- readPayloadManifest paths >>= either (dieText . renderWorkspaceError) pure
+    forM_ (transitionOwnerRefusal marker (manifest ^. #payloadId)) dieText
+
 clientIdentity :: ActiveTarget -> Text
 clientIdentity target =
   "client-" <> T.take 24 (digestText (contentDigest (TE.encodeUtf8 (contextNameText (target ^. #contextName)))))
-
-manifestOnlyRegistry :: InventoryHistory -> AdapterRegistry
-manifestOnlyRegistry history =
-  either (error . T.unpack) id (mkAdapterRegistry (map (manifestAdapterFor history) executors))
-  where
-    executors = [KubernetesExecutor, PulumiExecutor, CloudFoundationExecutor, HostExecutor, ArtifactExecutor, CacheExecutor, BrokerExecutor, HelmExecutor, CdnExecutor, AccessExecutor]
-
-manifestAdapterFor :: InventoryHistory -> Executor -> Adapter
-manifestAdapterFor history executor =
-  Adapter
-    { adapterExecutor = executor
-    , adapterIdentity = "manifest-only"
-    , adapterVersion = "1"
-    , adapterObserve = \resources -> pure (observationSet [(resource, observation resource) | resource <- resources])
-    , adapterPrepare = \operation -> pure (Right (PreparedNative (canonicalOperation operation) "manifest-only review; a provider adapter is required before apply"))
-    , adapterPreflight = \_ _ -> pure (Left "manifest-only reviews are not executable; install the provider adapter delivered by a later inventory plan")
-    , adapterExecute = \_ _ -> pure (AdapterEffectFailed (KnownNoEffect "manifest-only adapter cannot execute"))
-    , adapterVerify = \_ _ -> pure (Left "manifest-only adapter cannot verify provider state")
-    , adapterSettle = Nothing
-    , adapterRecover = \_ _ -> pure (RecoveryUnresolved "manifest-only adapter cannot recover provider state")
-    }
-  where
-    acceptedIds = Set.fromList [declarationId declaration | (_, (_, scope)) <- Map.toAscList (historyAccepted history), bundle <- scopeBundles scope, declaration <- bundle ^. #declarations]
-    observation resource
-      | Set.member resource acceptedIds = ObservedPresent (physical ("accepted:" <> resourceIdText resource))
-      | otherwise = ConfirmedAbsent (contentDigest (TE.encodeUtf8 ("manifest-only-absence:" <> resourceIdText resource)))
-    physical value = either (error . T.unpack) id (mkPhysicalIdentity value)
-    canonicalOperation = either (error . T.unpack) id . canonicalValue . toJSON
 
 executionBlockedRegistry :: AdapterRegistry
 executionBlockedRegistry =

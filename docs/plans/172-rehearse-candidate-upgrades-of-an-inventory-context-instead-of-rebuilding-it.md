@@ -74,6 +74,22 @@ status` reports T on the CLI, payload, context, host and cluster.
     0.4.0) and the pure check `Nagare.Platform.Transition.checkTransition`, which refuses an unpinned
     context, the target itself, an unlisted source, and a head wire version the payload does not
     read. Tests in `PlatformTransitionSpec`.
+  - [x] (2026-10-11) The transition marker: an optional `transition` field (from, to, startedAt) in
+    the store head, written by admission for the first review whose payload identity is
+    `nagare-transition:<S>-><T payloadId>` and kept by the later ones. While it is open, admission
+    refuses every other review, and `inventory apply|resume|recover|close` refuse under a CLI
+    whose payload is not T, naming T. The head wire version stays 1; a v0.4.0 CLI refuses the
+    head as unknown while the marker is present, which is the intended S-side refusal. Tests in
+    `PlatformTransitionSpec`.
+  - [x] (2026-10-11) The commands: `platform transition plan --out DIR` checks the compatibility
+    table and the marker's owner, then plans the ordinary bootstrap stages (shared with bootstrap
+    in `Nagare.Cli.Bootstrap.Sequence`) as if the context were pinned to T, under the transition
+    identity; each stage is applied with `inventory apply DIR --yes`, whose execution registry
+    accepts a transition review against the source pin. The host stage in transition mode
+    re-targets the generated flake's `nagare` input to T's NixOS source, re-locks it and refuses
+    a lock that leaves the payload (`hostLockRepin`); images are not rebuilt for an accepted host.
+    `platform transition commit --yes` writes the pin last, after the store is idle and payload,
+    host and cluster report T, then clears the marker.
   - Run it in the [EP-173](173-find-recovery-defects-with-adversarial-provider-interpreters.md)
     recovery model under every single fault at every boundary.
   - Acceptance:

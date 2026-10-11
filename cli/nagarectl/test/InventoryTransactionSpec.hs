@@ -1,4 +1,4 @@
-module InventoryTransactionSpec (inventoryTransactionTests, exerciseStore, fixtureBinding, preparedFixtureRecording, preparedFixtureWith, preparedFixtureWithRegistry, recordingRegistryWith, runInventoryLockHoldProbe, runInventoryLockProbe) where
+module InventoryTransactionSpec (inventoryTransactionTests, exerciseStore, fixtureBinding, preparedFixtureHead, preparedFixtureRecording, preparedFixtureWith, preparedFixtureWithRegistry, recordingRegistryWith, runInventoryLockHoldProbe, runInventoryLockProbe) where
 
 import Control.Concurrent (threadDelay)
 import Control.Monad (forM_)
@@ -3238,13 +3238,19 @@ preparedFixtureWithRegistry = preparedFixtureRecording Map.empty
 
 -- | The same fixture on a store that records the given incarnations (ADR 27).
 preparedFixtureRecording :: Map.Map ResourceId PhysicalIdentity -> InventoryStore -> (PlannedOperation -> PreparedNative -> IO AdapterExecution) -> (PlannedOperation -> PreparedNative -> IO RecoveryDecision) -> (Map.Map ScopeId ScopeRevision -> AdapterRegistry -> AdapterRegistry) -> IO (ReviewedPlan, AdapterRegistry)
-preparedFixtureRecording recorded store execution recovery customize = do
+preparedFixtureRecording recorded = preparedFixtureHead "operator-cli" (\seeded -> if Map.null recorded then seeded else seeded {headIncarnations = recorded})
+
+-- | The fixture with the review's payload identity and a head adjustment
+-- written before the review is prepared (EP-172).
+preparedFixtureHead :: Text -> (HeadManifest -> HeadManifest) -> InventoryStore -> (PlannedOperation -> PreparedNative -> IO AdapterExecution) -> (PlannedOperation -> PreparedNative -> IO RecoveryDecision) -> (Map.Map ScopeId ScopeRevision -> AdapterRegistry -> AdapterRegistry) -> IO (ReviewedPlan, AdapterRegistry)
+preparedFixtureHead payloadIdentity adjust store execution recovery customize = do
   bytes <- BS.readFile "test/fixtures/inventory/valid.json"
   let CandidateInput snapshot changes = ok (decodeCandidateInput bytes)
       candidate = ok (composeInventory snapshot changes)
   _ <- initializeStore store (inventoryBinding (candidateInventory candidate)) "client-test" >>= expectRight
   seeded <- seedInventoryHistory store candidate >>= expectRight
-  unless (Map.null recorded) $ replaceHeadIfGenerationMatches store (Just (headGeneration seeded)) seeded {headGeneration = headGeneration seeded + 1, headIncarnations = recorded} >>= expectRight
+  let adjusted = adjust seeded
+  unless (adjusted == seeded) $ replaceHeadIfGenerationMatches store (Just (headGeneration seeded)) adjusted {headGeneration = headGeneration seeded + 1} >>= expectRight
   history <- loadInventoryHistory store >>= expectRight
   let acceptedIds = Set.fromList [declarationId declaration | (_, (_, scope)) <- Map.toAscList (historyAccepted history), bundle <- scopeBundles scope, declaration <- bundle ^. #declarations]
       requirements = observationRequirements candidate history
@@ -3257,7 +3263,7 @@ preparedFixtureRecording recorded store execution recovery customize = do
       proposal = ok (planChanges candidate noLifecycleDecisions history observations)
       registry = customize (proposalDesired proposal) (recordingRegistry execution recovery)
   snapshotBefore <- readStoreSnapshot store >>= expectRight
-  bundle <- prepareReview registry snapshotBefore proposal >>= expectRight
+  bundle <- prepareReviewWithPayloadIdentity payloadIdentity registry snapshotBefore proposal >>= expectRight
   _ <- publishReview store bundle >>= expectRight
   snapshotAfter <- readStoreSnapshot store >>= expectRight
   reviewed <- either (assertFailure . show . NE.toList) pure (verifyReview snapshotAfter bundle)

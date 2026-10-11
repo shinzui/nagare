@@ -13,7 +13,10 @@ module Nagare.Inventory.Store
   , DataFencePhase (..)
   , DataFenceRecord (..)
   , HeadManifest (..)
+  , TransitionMarker (..)
   , hasSubstantiveHistory
+  , transitionReviewIdentity
+  , parseTransitionReviewIdentity
   , StoreSnapshot (..)
   , openFilesystemStore
   , openFilesystemStoreReadOnly
@@ -46,7 +49,12 @@ module Nagare.Inventory.Store
   , exportStore
   , restoreStore
   , restoreStoreFor
-  , migrateStore
+  , publishMigrationMember
+  , installMigrationHead
+  , activateMigrationHead
+  , listObjectKeys
+  , immutableKeyDigest
+  , decodeHead
   , objectKeyFor
   , reviewKey
   , scopeKey
@@ -170,6 +178,18 @@ data DataFenceRecord = DataFenceRecord
   }
   deriving stock (Eq, Show, Generic)
 
+-- | An open release transition (EP-172): the pinned source release, the
+-- target payload, and when its first review was admitted. While it is open,
+-- only reviews carrying 'transitionReviewIdentity' are admitted, and only the
+-- target payload's CLI applies, resumes, recovers or closes; the pin step
+-- clears it.
+data TransitionMarker = TransitionMarker
+  { transitionSource :: !Text
+  , transitionTarget :: !Text
+  , transitionStartedAt :: !Text
+  }
+  deriving stock (Eq, Show, Generic)
+
 data HeadManifest = HeadManifest
   { headSchemaVersion :: !Int
   , headGeneration :: !Integer
@@ -187,6 +207,8 @@ data HeadManifest = HeadManifest
   , headIncarnations :: !(Map ResourceId PhysicalIdentity)
   -- ^ Physical identity of each accepted durable member, recorded when its
   -- transaction converges and never silently replaced (F49).
+  , headTransition :: !(Maybe TransitionMarker)
+  -- ^ The open release transition, if any (EP-172).
   }
   deriving stock (Eq, Show, Generic)
 
@@ -206,6 +228,19 @@ hasSubstantiveHistory headValue =
     || isJust (headExecutorClaim headValue)
     || isJust (headMigration headValue)
     || isJust (headDataFence headValue)
+    || isJust (headTransition headValue)
+
+-- | The payload identity of a release transition's reviews (EP-172): the
+-- pinned source release and the target payload.
+transitionReviewIdentity :: Text -> Text -> Text
+transitionReviewIdentity source target = "nagare-transition:" <> source <> "->" <> target
+
+parseTransitionReviewIdentity :: Text -> Maybe (Text, Text)
+parseTransitionReviewIdentity identity = do
+  pair <- T.stripPrefix "nagare-transition:" identity
+  let (source, rest) = T.breakOn "->" pair
+  target <- T.stripPrefix "->" rest
+  if T.null source || T.null target then Nothing else Just (source, target)
 
 data StoreSnapshot = StoreSnapshot
   { storeSnapshotHead :: !HeadManifest
@@ -254,6 +289,14 @@ instance ToJSON MigrationTombstone where
 instance FromJSON MigrationTombstone where
   parseJSON = withObject "MigrationTombstone" $ \o ->
     MigrationTombstone <$> o .: "destination" <*> o .: "headDigest"
+
+instance ToJSON TransitionMarker where
+  toJSON marker = object ["from" .= transitionSource marker, "to" .= transitionTarget marker, "startedAt" .= transitionStartedAt marker]
+
+instance FromJSON TransitionMarker where
+  parseJSON = withObject "TransitionMarker" $ \o -> do
+    unless (all (`elem` ["from", "to", "startedAt"]) (KM.keys o)) (fail "transition marker has an unknown field")
+    TransitionMarker <$> o .: "from" <*> o .: "to" <*> o .: "startedAt"
 
 instance ToJSON RetainedIncarnation where
   toJSON retained =
@@ -449,6 +492,7 @@ instance ToJSON HeadManifest where
           <> ["collected" .= collectedValue (headCollected headValue) | not (Map.null (headCollected headValue))]
           <> maybe [] (\marker -> ["migration" .= marker]) (headMigration headValue)
           <> maybe [] (\fence -> ["dataFence" .= fence]) (headDataFence headValue)
+          <> maybe [] (\marker -> ["transition" .= marker]) (headTransition headValue)
           <> ["incarnations" .= [object ["resource" .= r, "physical" .= p] | (r, p) <- Map.toAscList (headIncarnations headValue)] | not (Map.null (headIncarnations headValue))]
       )
     where
@@ -464,7 +508,7 @@ instance ToJSON HeadManifest where
 
 instance FromJSON HeadManifest where
   parseJSON = withObject "HeadManifest" $ \o -> do
-    let allowed = ["version", "generation", "sequence", "binding", "clientIdentity", "accepted", "converged", "retained", "collected", "activeTransaction", "executorClaim", "migration", "dataFence", "incarnations"]
+    let allowed = ["version", "generation", "sequence", "binding", "clientIdentity", "accepted", "converged", "retained", "collected", "activeTransaction", "executorClaim", "migration", "dataFence", "incarnations", "transition"]
     unless (all (`elem` allowed) (KM.keys o)) (fail "head manifest has an unknown field")
     version <- o .: "version"
     unless (version == 1) (fail "unsupported inventory head schema version")
@@ -486,6 +530,7 @@ instance FromJSON HeadManifest where
       (fail "converged scopes must also be accepted when no transaction is active")
     binding <- o .: "binding"
     fence <- o .:? "dataFence"
+    transition <- o .:? "transition"
     unless
       ( maybe
           True
@@ -512,6 +557,7 @@ instance FromJSON HeadManifest where
       <*> o .:? "migration"
       <*> pure fence
       <*> pure (Map.fromList incarnations)
+      <*> pure transition
     where
       parseRevisions values = do
         revisions <- traverse (withObject "scope revision" (\v -> (,) <$> v .: "scope" <*> v .: "revision")) values
@@ -621,7 +667,7 @@ initializeStore store binding clientIdentity = do
       | headBinding headValue == binding -> pure (Right headValue)
       | otherwise -> pure (Left (StoreConditionFailed "inventory store is bound to a different context or provider target"))
     Right Nothing -> do
-      let initial = HeadManifest 1 0 0 binding clientIdentity Map.empty Map.empty Map.empty Map.empty Nothing Nothing Nothing Nothing Map.empty
+      let initial = HeadManifest 1 0 0 binding clientIdentity Map.empty Map.empty Map.empty Map.empty Nothing Nothing Nothing Nothing Map.empty Nothing
       replaced <- replaceHeadIfGenerationMatches store Nothing initial
       pure (initial <$ replaced)
 
@@ -948,137 +994,6 @@ restoreStoreChecked store backup expectedBinding = withBackendGuard store $ do
     writeValues values = do
       writes <- traverse (uncurry (writeObjectUnlocked store False)) values
       pure (void (sequence writes))
-
--- | Copy a quiescent catalogue with an inactive destination head. Disable the
--- source before activating the destination, so interruption cannot leave two
--- writable stores. Re-running completes either side of the handoff.
-migrateStore :: InventoryStore -> InventoryStore -> Text -> Text -> IO (Either StoreError ())
-migrateStore source destination sourceLabel label = do
-  sourceLock <- withProcessLock source $ \_ ->
-    withProcessLock destination $ \_ -> migrateLocked
-  pure (sourceLock >>= id >>= id)
-  where
-    migrateLocked = do
-      sourceHead <- readHead source
-      case sourceHead of
-        Left err -> pure (Left err)
-        Right Nothing -> pure (Left (StoreConditionFailed "source inventory store is not initialized"))
-        Right (Just oldHead)
-          | isJust (headActiveTransaction oldHead)
-              || isJust (headExecutorClaim oldHead)
-              || isJust (headDataFence oldHead) ->
-              pure (Left (StoreConditionFailed "source inventory store has an unresolved transaction or executor claim"))
-          | otherwise -> do
-              keysResult <- listObjectKeys source
-              case keysResult of
-                Left err -> pure (Left err)
-                Right keys -> do
-                  let members = filter (/= "format.json") keys
-                  loaded <- traverse (\key -> fmap ((key,) <$>) (readObject source key)) members
-                  case sequence loaded >>= traverse requireMember of
-                    Left err -> pure (Left err)
-                    Right values -> do
-                      let oldDigest = case headMigration oldHead of
-                            Just marker -> migrationHeadDigest marker
-                            Nothing -> maybe (contentDigest BS.empty) contentDigest (lookup "head.json" values)
-                      case headMigration oldHead of
-                        Just marker
-                          | migrationDestination marker /= label ->
-                              pure (Left (StoreConditionFailed "source inventory store migrated to a different destination"))
-                        Just _ -> do
-                          activated <- activateMigrationHead destination sourceLabel oldDigest
-                          case activated of
-                            Left err -> pure (Left err)
-                            Right () -> verifyCopy members oldDigest
-                        Nothing -> do
-                          destinationHead <- readHead destination
-                          case destinationHead of
-                            Left err -> pure (Left err)
-                            Right (Just current)
-                              | headMigration current == Nothing ->
-                                  pure (Left (StoreConditionFailed "destination inventory head is already active"))
-                            Right (Just current)
-                              | Just marker <- headMigration current
-                              , migrationDestination marker /= sourceLabel ->
-                                  pure (Left (StoreConditionFailed "destination tombstone points to another store"))
-                            Right _ -> copyAndCommit values members oldDigest oldHead
-    copyAndCommit values members oldDigest oldHead = do
-      copied <-
-        traverse
-          ( \(key, bytes) ->
-              if key == "head.json"
-                then pure (Right ())
-                else publishMigrationMember destination key bytes
-          )
-          values
-      case sequence copied of
-        Left err -> pure (Left err)
-        Right _ -> case lookup "head.json" values of
-          Nothing -> pure (Left (StoreConditionFailed "source inventory head disappeared"))
-          Just headBytes -> do
-            installed <- installMigrationHead destination sourceLabel label headBytes
-            case installed of
-              Left err -> pure (Left err)
-              Right _ -> do
-                verified <- verifyStagedCopy members oldDigest
-                case verified of
-                  Left err -> pure (Left err)
-                  Right () -> do
-                    disabled <-
-                      replaceHeadIfGenerationMatches
-                        source
-                        (Just (headGeneration oldHead))
-                        oldHead
-                          { headGeneration = headGeneration oldHead + 1
-                          , headMigration = Just (MigrationTombstone label oldDigest)
-                          }
-                    case disabled of
-                      Left err -> pure (Left err)
-                      Right () -> do
-                        activated <- activateMigrationHead destination sourceLabel oldDigest
-                        case activated of
-                          Left err -> pure (Left err)
-                          Right () -> verifyCopy members oldDigest
-    requireMember (_, Nothing) = Left (StoreConditionFailed "store changed while migration was reading it")
-    requireMember (key, Just bytes) = do
-      case immutableKeyDigest key of
-        Just expected
-          | contentDigest bytes /= expected ->
-              Left (StoreInvalidObject key "immutable member digest mismatch during migration")
-        _ -> Right ()
-      Right (key, bytes)
-    verifyStagedCopy members expectedDigest = verifyMembers members (Just expectedDigest)
-    verifyCopy members expectedDigest = verifyMembers members (Just expectedDigest)
-    verifyMembers members expectedDigest = do
-      sourceKeys <- listObjectKeys source
-      destKeys <- listObjectKeys destination
-      case (sourceKeys, destKeys) of
-        (Right currentSource, Right currentDest)
-          | filter (/= "format.json") currentSource == members
-          , filter (/= "format.json") currentDest == members -> do
-              comparisons <- traverse (compareMember expectedDigest) members
-              pure (void (sequence comparisons) >> Right ())
-        (Left err, _) -> pure (Left err)
-        (_, Left err) -> pure (Left err)
-        _ -> pure (Left (StoreConditionFailed "inventory members changed during migration"))
-      where
-        compareMember expected key = do
-          left <- readObject source key
-          right <- readObject destination key
-          pure $ do
-            src <- left >>= maybe (Left (StoreConditionFailed "source member disappeared")) Right
-            dst <- right >>= maybe (Left (StoreConditionFailed "destination member disappeared")) Right
-            if key == "head.json"
-              then do
-                destinationHead <- decodeHead dst
-                let actualDigest = maybe (contentDigest dst) migrationHeadDigest (headMigration destinationHead)
-                unless
-                  (Just actualDigest == expected)
-                  (Left (StoreConditionFailed "destination inventory head digest differs"))
-              else
-                unless
-                  (src == dst)
-                  (Left (StoreConditionFailed "destination inventory member differs"))
 
 publishMigrationMember :: InventoryStore -> FilePath -> ByteString -> IO (Either StoreError ())
 publishMigrationMember destination key bytes = withBackendGuard destination $ do

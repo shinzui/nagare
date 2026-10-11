@@ -288,6 +288,7 @@ assessCollections history inventory observations =
               <> ["exact-incarnation-not-present" | retainedObservation finding /= "present"]
               <> ["active-transaction" | isJust (headActiveTransaction (historyHead history))]
               <> ["active-data-fence" | isJust (headDataFence (historyHead history))]
+              <> ["open-transition" | isJust (headTransition (historyHead history))]
        in CollectionAssessment
             resource
             (null reasons)

@@ -1,0 +1,123 @@
+-- | Commands / Transition. Executable-private CLI boundary.
+--
+-- The reviewed release transition of an admitted inventory context (EP-172):
+-- this payload's CLI plans the ordinary bootstrap stages against a context
+-- pinned to an accepted source release, each stage is applied with inventory
+-- apply, and the pin is written last.
+module Nagare.Cli.Commands.Transition
+  ( runPlatformTransitionCommit
+  , runPlatformTransitionPlan
+  )
+where
+
+import Data.Foldable (for_)
+import Data.Generics.Labels ()
+import Data.Map qualified as Map
+import Data.Text qualified as T
+import Data.Text.IO qualified as TIO
+import Nagare.Cli.Bootstrap.Sequence (planNextStage)
+import Nagare.Cli.Bootstrap.Stage (StageMode (ReleaseTransition))
+import Nagare.Cli.Runtime.Error (dieT)
+import Nagare.Cli.Runtime.PlatformStatus (gatherPlatformStatus)
+import Nagare.Cli.Runtime.Target (activeTarget, resolvePlatformWorkspace)
+import Nagare.Dsl.Prelude
+import Nagare.Inventory.Command qualified as Inventory
+import Nagare.Inventory.Store
+  ( HeadManifest (headActiveTransaction, headExecutorClaim, headGeneration, headSchemaVersion, headTransition)
+  , InventoryStore
+  , TransitionMarker (transitionSource)
+  , observeHead
+  , observedHeadManifest
+  , readHead
+  , replaceObservedHead
+  , transitionReviewIdentity
+  , withProcessLock
+  )
+import Nagare.Platform.Deployment (DeploymentState (NotDeployed))
+import Nagare.Platform.Status (renderPlatformStatus)
+import Nagare.Platform.Transition (checkTransition, renderTransitionRefusal, transitionOwnerRefusal)
+import Nagare.Platform.Workspace (readPayloadManifest, renderWorkspaceError)
+import Nagare.Resource.Inventory qualified as ResourceInventory
+import Nagare.Resource.Types qualified as Resource
+import Nagare.Target (Mode (Cloud), contextNameText, writeContextPlatformVersion)
+
+-- | Review the next stage that moves the context to this payload's release.
+-- Planning is read-only apart from the saved review; the first admitted stage
+-- opens the head's transition marker.
+runPlatformTransitionPlan :: Maybe String -> FilePath -> IO ()
+runPlatformTransitionPlan mctx output = do
+  active <- activeTarget mctx
+  (paths, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
+  manifest <- readPayloadManifest paths >>= either (dieT . renderWorkspaceError) pure
+  store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
+  headValue <- currentHead store
+  pair <-
+    either
+      (dieT . renderTransitionRefusal)
+      pure
+      (checkTransition manifest (active ^. #profile . #platformVersion) (headSchemaVersion headValue))
+  for_ (headTransition headValue) $ \marker -> for_ (transitionOwnerRefusal marker (manifest ^. #payloadId)) dieT
+  snapshot <- Inventory.loadTargetSnapshotReadOnly active
+  foundationOwner <- either dieT pure (Resource.mkScopeId Resource.Platform "cloud-foundation")
+  when
+    (active ^. #profile . #mode == Cloud && not (Map.member foundationOwner (ResourceInventory.snapshotScopes snapshot)))
+    (dieT "a release transition moves an admitted context; this context's cloud foundation is not accepted, so bootstrap it on its pinned release first")
+  -- The stages are planned as if the context were already pinned to the
+  -- target; the pin itself is written by the commit, last.
+  let moved = active & #profile . #platformVersion .~ Just (manifest ^. #platformVersion)
+  planNextStage ReleaseTransition moved paths workspace (transitionReviewIdentity (pair ^. #source) (manifest ^. #payloadId)) output
+  TIO.putStrLn
+    ( "Saved the next transition stage ("
+        <> pair ^. #source
+        <> " -> "
+        <> pair ^. #target
+        <> "). Apply it with inventory apply, then plan again until the review has no operations; platform transition commit then pins the context."
+    )
+
+-- | Pin the context to this release and close the transition. Refuses unless
+-- the store is idle, the marker names this payload, and the payload, host and
+-- cluster all report the target release.
+runPlatformTransitionCommit :: Maybe String -> Bool -> IO ()
+runPlatformTransitionCommit mctx yes = do
+  (active, status) <- gatherPlatformStatus mctx
+  (paths, _) <- resolvePlatformWorkspace (active ^. #contextName)
+  manifest <- readPayloadManifest paths >>= either (dieT . renderWorkspaceError) pure
+  store <- Inventory.openTargetStore active
+  headValue <- currentHead store
+  marker <- maybe (dieT "no release transition is open; review one with platform transition plan") pure (headTransition headValue)
+  for_ (transitionOwnerRefusal marker (manifest ^. #payloadId)) dieT
+  when
+    (isJust (headActiveTransaction headValue) || isJust (headExecutorClaim headValue))
+    (dieT "the transition has an unresolved transaction; resume or close it before committing")
+  let target = manifest ^. #platformVersion
+      reports identity = identity ^. #version == Just target
+  TIO.putStr (renderPlatformStatus (contextNameText (active ^. #contextName)) status)
+  unless (reports (status ^. #payload)) (dieT ("the running payload does not report " <> target))
+  unless
+    (active ^. #profile . #mode /= Cloud || status ^. #hostDeployment == NotDeployed || reports (status ^. #host))
+    (dieT ("the host flake does not report " <> target <> "; apply the transition's host stage first"))
+  unless
+    (status ^. #clusterDeployment == NotDeployed || reports (status ^. #cluster))
+    (dieT ("the cluster marker does not report " <> target <> "; apply the transition's platform stage first"))
+  unless yes (dieT "platform transition commit requires --yes after reviewing the status above")
+  writeContextPlatformVersion (active ^. #contextName) target >>= either dieT pure
+  closed <- withProcessLock store $ \_ -> do
+    observed <- observeHead store >>= either (dieT . T.pack . show) pure
+    current <- maybe (dieT "inventory store is not initialized") pure (observedHeadManifest observed)
+    replaceObservedHead observed current {headGeneration = headGeneration current + 1, headTransition = Nothing}
+  either (dieT . T.pack . show) (either (dieT . T.pack . show) pure) closed
+  TIO.putStrLn
+    ( "context "
+        <> contextNameText (active ^. #contextName)
+        <> " pinned to "
+        <> target
+        <> "; the transition from "
+        <> transitionSource marker
+        <> " is closed"
+    )
+
+currentHead :: InventoryStore -> IO HeadManifest
+currentHead store =
+  readHead store
+    >>= either (dieT . T.pack . show) pure
+    >>= maybe (dieT "inventory store is not initialized") pure

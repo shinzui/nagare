@@ -18,10 +18,7 @@ import Nagare.Cli.Commands.Application
   , runDeploymentsList
   , runDeploymentsLogs
   )
-import Nagare.Cli.Commands.Bootstrap
-  ( runPlatformBootstrapApply
-  , runPlatformBootstrapPlan
-  )
+import Nagare.Cli.Commands.Bootstrap (runPlatformBootstrapApply, runPlatformBootstrapPlan)
 import Nagare.Cli.Commands.Broker (runBroker)
 import Nagare.Cli.Commands.Cdn (runCdn)
 import Nagare.Cli.Commands.Context (runContext)
@@ -74,6 +71,7 @@ import Nagare.Cli.Commands.Site
   )
 import Nagare.Cli.Commands.Storage (runStorage)
 import Nagare.Cli.Commands.Task (runTask)
+import Nagare.Cli.Commands.Transition (runPlatformTransitionCommit, runPlatformTransitionPlan)
 import Nagare.Cli.Commands.Worker (runWorker)
 import Nagare.Cli.Inventory.Rebuild (offlineStore, runInventoryRebuild, runInventoryRebuildDecisions)
 import Nagare.Cli.Inventory.Workflow
@@ -123,6 +121,8 @@ dispatch (mctx, cmd0) = case cmd0 of
   PlatformStamp -> runPlatformStamp mctx
   PlatformBootstrapPlan output -> runPlatformBootstrapPlan mctx output
   PlatformBootstrapApply review yes -> runPlatformBootstrapApply mctx review yes
+  PlatformTransitionPlan output -> runPlatformTransitionPlan mctx output
+  PlatformTransitionCommit yes -> runPlatformTransitionCommit mctx yes
   PlatformAdopt version yes asJson -> runPlatformAdopt mctx version yes asJson
   PlatformRepin version yes -> runPlatformRepin mctx version yes
   PlatformUpgrade options -> runPlatformUpgrade mctx options
