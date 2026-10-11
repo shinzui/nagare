@@ -39,7 +39,7 @@ knownViolations :: [KnownViolation]
 knownViolations =
   -- F77: a mounted database claim deleted outside review stays Terminating
   -- while its pod runs, and planning waits for it to go. A documented limit
-  -- for MP-23 (docs/audits/mp23-findings.md#f77); the reviewed exit is the
+  -- for MP-23 (F77 in the MP-23 findings tracker); the reviewed exit is the
   -- next MasterPlan's.
   [ KnownViolation
       "F77"
@@ -61,7 +61,7 @@ knownViolations =
     -- transaction stops at it, and independent members planned after it
     -- (backup-account, backup-read-binding) are starved until the template is
     -- corrected. Here the create's template is faulted and the correction
-    -- re-applies it. A documented limit (docs/audits/mp23-findings.md#f78).
+    -- re-applies it. A documented limit (F78 in the MP-23 findings tracker).
     KnownViolation
       "F78"
       nextMasterPlan
