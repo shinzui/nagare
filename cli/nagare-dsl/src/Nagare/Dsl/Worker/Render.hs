@@ -31,6 +31,7 @@ import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Dsl.Render
   ( envField
   , envFromField
+  , initialDelayPair
   , renderPersistentVolumeClaims
   , volumeMountsField
   , volumesField
@@ -167,14 +168,16 @@ checkPair (HttpProbe path mport scheme _) =
       HTTPS -> "HTTPS"
 
 -- | The shared timing keys, rendered exactly as the app renderer renders them
--- (Knative's @httpGet@ probe asserts no status, so no @expectedStatus@).
+-- (Knative's @httpGet@ probe asserts no status, so no @expectedStatus@). A zero
+-- @initialDelaySeconds@ is omitted, as 'Nagare.Dsl.Render.initialDelayPair' does:
+-- the API server drops it from the stored object.
 timingPairs :: ProbeTiming -> [Pair]
 timingPairs t =
-  [ "initialDelaySeconds" .= (t ^. #initialDelay)
-  , "periodSeconds" .= (t ^. #period)
-  , "timeoutSeconds" .= (t ^. #timeout)
-  , "failureThreshold" .= (t ^. #failureThreshold)
-  ]
+  initialDelayPair (t ^. #initialDelay)
+    <> [ "periodSeconds" .= (t ^. #period)
+       , "timeoutSeconds" .= (t ^. #timeout)
+       , "failureThreshold" .= (t ^. #failureThreshold)
+       ]
 
 -- | The container @command:@ block, emitted only when the worker overrides the
 -- image's entrypoint. Rendered as a YAML list of the @argv@ strings.

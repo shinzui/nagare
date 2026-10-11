@@ -15,6 +15,9 @@ immutable `v<major>.<minor>.<patch>` Git tags.
 - **Retention and prune.** Scheduled database and volume backups are kept for 48 hours, then daily
   for 30 days, always keeping the newest; reviewed prunes with one recovery for a stopped prune.
 - **Rebuild of a lost durable member** from its verified recovery point, with recorded lineage.
+- **Health-checked services deploy through review.** A zero probe `initialDelaySeconds` (the
+  `httpHealthCheck` default) is no longer rendered, so a reviewed deploy no longer reads it back as
+  drift and stops ambiguous.
 - **Unambiguous certificate-policy inventory.** `nagarectl cluster certificate-policy` now queries
   `certificates.cert-manager.io` explicitly, so clusters that also install Knative's distinct
   `Certificate` resource do not produce a false issuer-policy failure during bootstrap or upgrade.

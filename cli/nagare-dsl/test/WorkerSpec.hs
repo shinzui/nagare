@@ -20,6 +20,8 @@ import Nagare.Dsl.Config (encodeDeployment, encodeWorker)
 import Nagare.Dsl.Load (LoadError (..), decodeDeployment, decodeWorker, loadWorker)
 import Nagare.Dsl.Path (mkFilePathText)
 import Nagare.Dsl.Prelude
+import Nagare.Dsl.Presets (webService)
+import Nagare.Dsl.Render (renderService)
 import Nagare.Dsl.Types
 import Nagare.Dsl.Worker
 import Nagare.Dsl.Worker.Render (renderWorker, renderWorkerDeployment)
@@ -40,6 +42,7 @@ workerTests =
     , testGroup "renderer goldens" renderTests
     , testGroup "JSON round-trip and kind discrimination" roundTripTests
     , testGroup "loadWorker (config-as-program)" loadTests
+    , testGroup "probe initialDelaySeconds (EP-183)" initialDelayTests
     ]
 
 replicasTests :: [TestTree]
@@ -213,6 +216,36 @@ httpProbeWorker =
 startupTiming :: ProbeTiming
 startupTiming =
   ProbeTiming {initialDelay = 0, period = 10, timeout = 1, failureThreshold = 3, asStartup = True}
+
+-- | The API server and Knative's webhook drop a zero @initialDelaySeconds@ from
+-- the stored object, so a rendered zero reads back as drift and every reviewed
+-- create with a default health check stops ambiguous. Zero is omitted; any other
+-- value is rendered.
+initialDelayTests :: [TestTree]
+initialDelayTests =
+  [ testCase "a service's default health check renders no initialDelaySeconds" $
+      assertBool "no initialDelaySeconds" (not (BS.isInfixOf "initialDelaySeconds" (serviceWithDelay 0)))
+  , testCase "a service's non-zero initial delay is rendered" $
+      assertBool "initialDelaySeconds: 5" (BS.isInfixOf "initialDelaySeconds: 5" (serviceWithDelay 5))
+  , testCase "a worker probe's default timing renders no initialDelaySeconds" $
+      assertBool "no initialDelaySeconds" (not (BS.isInfixOf "initialDelaySeconds" (workerWithDelay 0)))
+  , testCase "a worker probe's non-zero initial delay is rendered" $
+      assertBool "initialDelaySeconds: 5" (BS.isInfixOf "initialDelaySeconds: 5" (workerWithDelay 5))
+  ]
+  where
+    serviceWithDelay delay =
+      renderService
+        ( unsafe (webService "hello" "gcr.io/knative-samples/helloworld-go")
+            & #healthCheck .~ Just (unsafe (httpHealthCheck "/healthz") & #initialDelay .~ delay)
+        )
+        "20260602-120000"
+    workerWithDelay delay =
+      renderWorkerDeployment
+        ( minimalWorker
+            & #liveness
+              .~ Just (unsafe (mkHttpProbe "/healthz" (Just (unsafe (mkPort 8080))) HTTP (defaultProbeTiming & #initialDelay .~ delay)))
+        )
+        "20260602-120000"
 
 startupProbeWorker :: Worker
 startupProbeWorker = minimalWorker & #liveness .~ Just (unsafe (mkExecProbe ["/app/healthcheck"] startupTiming))

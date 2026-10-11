@@ -37,6 +37,9 @@ module Nagare.Dsl.Render
     -- * Container env rendering (reused by "Nagare.Dsl.Worker.Render", IP3)
   , envField
   , envFromField
+
+    -- * Probe timing (reused by "Nagare.Dsl.Worker.Render")
+  , initialDelayPair
   )
 where
 
@@ -426,17 +429,27 @@ probesField (Just hc) containerPort =
       HTTPS -> "HTTPS"
     probe =
       object
-        [ "httpGet"
-            .= object
-              [ "path" .= (hc ^. #path)
-              , "port" .= probePort
-              , "scheme" .= schemeStr
-              ]
-        , "initialDelaySeconds" .= (hc ^. #initialDelay)
-        , "periodSeconds" .= (hc ^. #period)
-        , "timeoutSeconds" .= (hc ^. #timeout)
-        , "failureThreshold" .= (hc ^. #failureThreshold)
-        ]
+        ( [ "httpGet"
+              .= object
+                [ "path" .= (hc ^. #path)
+                , "port" .= probePort
+                , "scheme" .= schemeStr
+                ]
+          ]
+            <> initialDelayPair (hc ^. #initialDelay)
+            <> [ "periodSeconds" .= (hc ^. #period)
+               , "timeoutSeconds" .= (hc ^. #timeout)
+               , "failureThreshold" .= (hc ^. #failureThreshold)
+               ]
+        )
+
+-- | A probe's @initialDelaySeconds@, omitted when zero. Zero is the Kubernetes
+-- default, and the API server and Knative's webhook drop a zero value from the
+-- stored object, so rendering it makes every reviewed create read back as drift
+-- (EP-183, the auth portal on a cloud context).
+initialDelayPair :: Int -> [Pair]
+initialDelayPair 0 = []
+initialDelayPair delay = ["initialDelaySeconds" .= delay]
 
 domainMappingValue :: Deployment -> DomainSpec -> Value
 domainMappingValue dep domainSpec =
