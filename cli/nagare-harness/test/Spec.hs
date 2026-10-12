@@ -165,9 +165,9 @@ tests =
         [ testCase "needles are the path and each directory below its inert prefix" $
             referenceNeedles "docs/audits/run/c2/chain.sh"
               @?= ["docs/audits/run", "docs/audits/run/c2", "docs/audits/run/c2/chain.sh"]
-        , testCase "plans, MasterPlans, ADRs and audits nobody names are inert" $
-            carryForwardVerdict (const Nothing) ["docs/plans/1-x.md", "docs/masterplans/2-y.md", "docs/adr/0001-z.md", "docs/audits/a/b.json"]
-              @?= Right 4
+        , testCase "plans, MasterPlans, ADRs, audits and release evidence nobody names are inert" $
+            carryForwardVerdict (const Nothing) ["docs/plans/1-x.md", "docs/masterplans/2-y.md", "docs/adr/0001-z.md", "docs/audits/a/b.json", "docs/release-evidence/r/transition-rehearsal.json"]
+              @?= Right 5
         , testCase "the top-level README is inert; nested READMEs are not" $
             map (classifyPath (const Nothing)) ["README.md", "cluster/bootstrap/nix-cache/README.md"]
               @?= [Inert, OutsideInertDocumentation]

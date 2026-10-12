@@ -232,7 +232,8 @@ The operator decided that documentation which no check reads does not need its o
 `nagare-harness gate verify` accepts a commit that has no record of its own when two conditions
 hold. First, its nearest ancestor has a green record. Second, every path that differs between the
 two trees is inert documentation (`Nagare.Harness.CarryForward`). An inert path:
-- lies under `docs/plans`, `docs/masterplans`, `docs/adr` or `docs/audits`;
+- lies under `docs/plans`, `docs/masterplans`, `docs/adr`, `docs/audits` or `docs/release-evidence`
+  (added 2026-10-12: no check reads a committed transition rehearsal record);
 - is not a plan the payload ships (66 and 67);
 - is not named, together with every directory between it and that prefix, by any non-Markdown file
   outside `docs/`. Tests read fixtures under `docs/audits` by naming them, so a named fixture blocks

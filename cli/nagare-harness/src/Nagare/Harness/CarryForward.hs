@@ -7,7 +7,8 @@
 -- The repository's top-level @README.md@ is inert: no check, test or payload
 -- reads it. Any other changed path is inert only when all three hold:
 --
--- * it lies under one of 'inertPrefixes' (plans, MasterPlans, ADRs, audits);
+-- * it lies under one of 'inertPrefixes' (plans, MasterPlans, ADRs, audits,
+--   release evidence);
 -- * it is not one of the 'shippedDocuments' the platform payload copies;
 -- * no file outside @docs/@, other than Markdown, names the path or any
 --   directory between it and its inert prefix. Tests read fixtures under
@@ -48,7 +49,7 @@ inertFiles = ["README.md"]
 
 -- | Documentation trees that are neither shipped nor executed.
 inertPrefixes :: [Text]
-inertPrefixes = ["docs/plans/", "docs/masterplans/", "docs/adr/", "docs/audits/"]
+inertPrefixes = ["docs/plans/", "docs/masterplans/", "docs/adr/", "docs/audits/", "docs/release-evidence/"]
 
 -- | Plans the payload copies (@nix/platform-package.nix@ and
 -- @Nagare.Platform.Workspace.workspaceAssets@).
@@ -89,7 +90,7 @@ carryForwardVerdict namedBy paths =
     render (path, verdict) = path <> " (" <> reason verdict <> ")"
     reason = \case
       Inert -> "inert"
-      OutsideInertDocumentation -> "not plan, ADR or audit documentation"
+      OutsideInertDocumentation -> "not plan, ADR, audit or release-evidence documentation"
       ShippedInPayload -> "shipped in the platform payload"
       NamedByCode file -> "named by " <> file
     more blocked

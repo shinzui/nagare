@@ -10,103 +10,112 @@ and describes an existing tag but never creates a version commit, moves a tag, o
    README status, and `docs/releases/vX.Y.Z.md` in one Conventional Commit,
    `chore(release): prepare vX.Y.Z`.
 2. Check the compatibility claims. `transitionsFrom` lists the releases an installed context may move
-   from. Do not claim rollback from a version unless the reverse transaction is tested and listed in
+   from; it must include the release the intranet runs, and its newest entry is the release the
+   upgrade rehearsal starts from. Do not claim rollback from a version unless the reverse transaction is tested and listed in
    `rollbackSupportedFrom`.
 3. Run `./scripts/check-release.sh --version X.Y.Z --source-only` and `just docs-validate`, then
    `just gate-fast` and `just land <candidate>`. The land starts the candidate's full gate in the
    background.
 
-## Prove the candidate
+## Prove and assemble the candidate
 
 A release proves three things (operator, 2026-10-10): the release gate is green, the EP-172 upgrade
 rehearsal on a disposable local context reads its seeded data back unchanged, and the real intranet
 context upgrades to the candidate and passes the deploy-and-login check. A release counts when the
 intranet runs it, not when a tag exists.
 
-1. **Release gate.** When the candidate's full gate is green, run `just gate-release <candidate>`. It
-   runs the mutation sweep, then, if recovery-related code changed since the last green deep run, the
-   deep tier, on the builder. The deep tier fails only on a violation class the known-defect ledger
-   does not list. Triage each one into a fix or a ledger entry before going on.
-2. **Upgrade rehearsal.** Build the candidate's CLI (`nix build --no-link --print-out-paths
-   .#nagarectl`) and the previous release's (`nix build --no-link --print-out-paths
-   github:shinzui/nagare/vPREVIOUS#nagarectl`). Then run
-   [`scripts/transition-rehearsal.sh`](../../scripts/transition-rehearsal.sh) inside
-   `nix develop` with `NAGARE_REHEARSAL_SOURCE` and `NAGARE_REHEARSAL_TARGET` set to their
-   `bin/nagarectl`, `DOCKER_HOST` and `NAGARE_REHEARSAL_IMAGE_DAEMON` set to a Docker daemon whose
-   VM can resolve public names, `NAGARE_REHEARSAL_RESET=1` and a fresh `NAGARE_REHEARSAL_ROOT`.
-   It writes `evidence/transition-rehearsal.json` under that root. Commit that one file as
-   `docs/release-evidence/<candidate-40-character-revision>/transition-rehearsal.json` after the
-   candidate, and land it. Never change the candidate to embed evidence about itself.
-3. **The intranet.** In the operator repository (`mori://tan/tan-ng-labs`), pin the Nagare flake
-   input to the candidate's exact revision. Then follow the release notes' upgrade steps:
-   `platform transition plan --out DIR`, `inventory apply DIR --yes`, and a new plan until the
-   review has no operations, then `platform transition commit --yes`. Check `platform status` is exact, that protected sites
-   still require login, and that the operator's passkey login works. The open transition binds the
-   candidate's payload, which is derived from its revision. So once the intranet starts, the tag
-   must go on that same commit; a fix found mid-transition goes into the next release.
-
-## Build and assemble the attachments
-
-Each system in `release.json` builds its own attachments from the candidate with
-[`scripts/release-native.sh`](../../scripts/release-native.sh) `X.Y.Z OUTPUT_DIR`. The script runs
-the release gate's built checks (`check-release.sh`), records the native output identities, and runs
-the clone-free rehearsal from an exact `git+file` revision in an isolated home.
-
-- **aarch64-darwin:** in a clean worktree of the candidate, run
-  `scripts/release-native.sh X.Y.Z native/aarch64-darwin`.
-- **x86_64-linux:** run the same script natively in an amd64 `nixos/nix` container, on a Colima
-  profile with Rosetta and 16 GiB of memory whose VM can resolve public names. Prepare a work
-  directory first: build the x86 outputs on the builder with `nix build --no-link
-  --print-out-paths --max-jobs 0 .#packages.x86_64-linux.{nagarectl,nagare,nagare-platform,release-tools}`,
-  copy them into a file cache with `nix copy --to file://WORK/cache`, and write the candidate to
-  `WORK/candidate.bundle` with `git bundle create`. Then run:
-
-  ```bash
-  docker run --rm --platform linux/amd64 -v WORK:/work -v "$PWD/scripts:/scripts" nixos/nix:2.35.2 \
-    bash /scripts/release-native-container.sh CANDIDATE_REVISION X.Y.Z
-  ```
-
-  Its attachments land in `WORK/out/x86_64-linux`.
-
-Put both systems' outputs under one input root and assemble twice:
+When the candidate's full gate is green, run on the aarch64-darwin workstation, with the builder up:
 
 ```bash
-./scripts/assemble-release.sh \
-  --version X.Y.Z \
-  --input-root native \
-  --transition-rehearsal docs/release-evidence/CANDIDATE_REVISION/transition-rehearsal.json \
-  --output-dir dist
+just release-candidate X.Y.Z            # the candidate is HEAD; --revision REV names another
 ```
 
-The two assemblies must be byte-identical, and `shasum -a 256 -c SHA256SUMS` must pass from inside
-`dist`. Assembly and the publisher require every supported system's native output and clone-free
-rehearsal, the platform metadata, and a rehearsal record bound to this candidate's version and
-revision. That record must show a move from a release in `transitionsFrom`, the seeded row read back
-unchanged, at least one transition review applied, and the CLI, payload, context and cluster ending
-on the candidate with no open transaction. A record for another candidate or a changed outcome fails
-even when the checksums were recomputed.
+It runs unattended up to the tag. Each step stops at its first failure and nothing is retried:
+
+1. **Preflight.** `release.json` at the candidate says `X.Y.Z` and names both systems, the candidate
+   is on `origin/master`, `vX.Y.Z` is not tagged, and the newest version in `transitionsFrom` is a
+   published tag. That version is the rehearsal's source.
+2. **Release gate.** `just gate-release <candidate>`: the gate record, the mutation sweep, then the
+   deep tier if recovery-related code changed since the last green deep run. The deep tier fails
+   only on a violation class the known-defect ledger does not list. Triage each one into a fix or a
+   ledger entry, then run the command again.
+3. **Upgrade rehearsal.** `just release-rehearse <candidate> <previous>` writes
+   `docs/release-evidence/<candidate-40-character-revision>/transition-rehearsal.json`. Until
+   MasterPlan 26 item 12 lands, the recipe only accepts a record that is already there: build the
+   candidate's CLI (`nix build --no-link --print-out-paths .#nagarectl`) and the previous
+   release's (`github:shinzui/nagare/vPREVIOUS#nagarectl`), run
+   [`scripts/transition-rehearsal.sh`](../../scripts/transition-rehearsal.sh) inside `nix develop`
+   with `NAGARE_REHEARSAL_SOURCE` and `NAGARE_REHEARSAL_TARGET` set to their `bin/nagarectl`,
+   `DOCKER_HOST` and `NAGARE_REHEARSAL_IMAGE_DAEMON` set to a Docker daemon whose VM can resolve
+   public names, `NAGARE_REHEARSAL_RESET=1` and a fresh `NAGARE_REHEARSAL_ROOT`, and copy its
+   `evidence/transition-rehearsal.json` to that path.
+4. **aarch64-darwin attachments.** [`scripts/release-native.sh`](../../scripts/release-native.sh)
+   in a clean worktree of the candidate: the release gate's built checks (`check-release.sh`), the
+   native output identities, and the clone-free rehearsal from an exact `git+file` revision in an
+   isolated home.
+5. **x86_64-linux attachments.** The x86 outputs are built on the builder and copied into a file
+   cache under `~/.local/state/nagare/releases/x86-work`, which persists across releases. The
+   Colima profile `nagare-c4-amd64` is started with 4 CPUs, 16 GiB, Rosetta and that directory as
+   its only mount, and those settings are read back, because a restart can rewrite `colima.yaml`.
+   The VM's resolver is set to public servers and checked. Then
+   [`scripts/release-native-container.sh`](../../scripts/release-native-container.sh) runs the
+   same native script in an amd64 `nixos/nix:2.35.2` container. If the profile is already running
+   with other settings, the command refuses: stop the profile and run it again.
+6. **Assembly.** [`scripts/assemble-release.sh`](../../scripts/assemble-release.sh) runs twice. The
+   two outputs must be byte-identical, and `SHA256SUMS` must verify. Assembly requires every
+   supported system's native output and clone-free rehearsal, the platform metadata, and a
+   rehearsal record bound to this candidate's version and revision. That record must show a move
+   from a release in `transitionsFrom`, the seeded row read back unchanged, at least one transition
+   review applied, and the CLI, payload, context and cluster ending on the candidate with no open
+   transaction. A record for another candidate, or a changed outcome, fails even when the checksums
+   were recomputed.
+7. **Evidence.** The rehearsal record is committed on top of `origin/master` and landed with
+   `just land`. It is inert documentation, so it carries the gated ancestor's record. The candidate
+   never embeds evidence about itself.
+
+Each run lives in `~/.local/state/nagare/releases/vX.Y.Z/<time>/`, with the attachments in `dist/`;
+`latest` points to the last completed run. `--rehearsal` runs every step for a tagged or unreleased
+revision, lands nothing and never moves `latest`, so `release-publish` cannot use it.
+
+## The intranet
+
+Choosing when the intranet upgrades stays manual. In the operator repository
+(`mori://tan/tan-ng-labs`), pin the Nagare flake input to the candidate's exact revision. Then follow
+the release notes' upgrade steps: `platform transition plan --out DIR`, `inventory apply DIR --yes`,
+and a new plan until the review has no operations, then `platform transition commit --yes`. Check
+`platform status` is exact, that protected sites still require login, and that the operator's
+passkey login works. The open transition binds the candidate's payload, which is derived from its
+revision. So once the intranet starts, the tag must go on that same commit; a fix found
+mid-transition goes into the next release.
 
 ## Publish
 
-Create the signed annotated tag on the candidate commit, verify it, and push only the tag:
-
 ```bash
-git tag -s vX.Y.Z -m 'Nagare vX.Y.Z' CANDIDATE_REVISION
-git push origin vX.Y.Z
+just release-publish X.Y.Z
 ```
 
-When OpenPGP is unavailable but the maintainer already has a usable SSH signing key, use Git's SSH
-backend: `git -c gpg.format=ssh -c user.signingkey=/path/to/key.pub tag -s ...`. Before pushing,
-check that the ref is an annotated `tag`, resolves to the candidate, and has a good signature. SSH
-verification needs an allowed-signers file outside the repository that maps the maintainer's email to
-the public key, passed with `-c gpg.ssh.allowedSignersFile=...`. Never generate or register
-credentials during a release, and never fall back to an unsigned tag.
+It publishes the `latest` run of `just release-candidate X.Y.Z`. Each step stops at its first
+failure:
 
-From a checkout of the tag, publish with the candidate's own CLI:
+1. **Preflight.** `SHA256SUMS` verifies in the run's `dist/`, and the landed rehearsal record on
+   `origin/master` is byte-identical to the assembled one.
+2. **Tag.** An annotated tag `vX.Y.Z` on the candidate, signed with Git's SSH backend and the
+   maintainer's key (`~/.ssh/id_ed25519.pub`, or `NAGARE_RELEASE_SIGNING_KEY`). Signing stays with
+   the maintainer: the key's passphrase or agent is theirs. The tag must resolve to the candidate and
+   verify against a throwaway allowed-signers file that maps `git config user.email` to that key.
+   Never generate or register credentials during a release, and never fall back to an unsigned tag.
+3. **Push.** Only the tag goes to `origin`.
+4. **Publication.** From a checkout of the tag, the candidate's own CLI runs
+   `nagarectl release publish --repo shinzui/nagare --version X.Y.Z --assets DIST --yes`. When it
+   stops with "created draft is not yet visible", it is run again, up to five times: a rerun
+   completes the draft, and it accepts an existing release only when every attachment is
+   byte-identical. Any other failure stops.
+5. **Public flake.** `nix run github:shinzui/nagare/vX.Y.Z#nagarectl -- version --json` must report
+   `X.Y.Z` at the candidate revision.
 
-```bash
-nagarectl release publish --repo shinzui/nagare --version X.Y.Z --assets dist --yes
-```
+A rerun after a failure accepts the tag it already made, locally and on `origin`, as long as it is
+the same signed object on the candidate. Afterwards, switch the operator repository's flake input
+from the revision to the tag, which resolves to the same commit.
 
 The publisher checks the tag and every attachment, creates the GitHub release from the reviewed
 notes, and attaches:
@@ -119,12 +128,6 @@ notes, and attaches:
 - `nagare-platform-metadata-vX.Y.Z.json`, the candidate's `release.json`;
 - `SHA256SUMS`.
 
-If it stops with "created draft is not yet visible", run the same command again: a rerun completes
-the draft, and it accepts an existing release only when every attachment is byte-identical. Then
-verify the release page and the documented command
-`nix run github:shinzui/nagare/vX.Y.Z#nagarectl -- version --json`, and switch the operator
-repository's flake input from the revision to the tag, which resolves to the same commit.
-
 ## Broken release or failed publication
 
 Never move, delete, or reuse a published tag, and never overwrite its attachments. These are the
@@ -132,7 +135,7 @@ reproducible identities of existing operator pins.
 
 - If a gate fails before publication because the source is inconsistent, fix the source and choose a
   new version. Do not move the candidate tag after others may have fetched it.
-- If only publication failed and the tagged source is unchanged, rerun `nagarectl release publish`.
+- If only publication failed and the tagged source is unchanged, rerun `just release-publish X.Y.Z`.
 - If a published release is unsafe, edit its GitHub release description to lead with
   **Deprecated**, explain the impact, and point to the retained prior version or a fixed later
   release. Do not describe this as deleting or yanking the Nix input.

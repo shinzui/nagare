@@ -548,3 +548,38 @@ local-smoke:
 [group('test')]
 transition-rehearsal:
     scripts/transition-rehearsal.sh
+
+# MP-26 item 11: a release is two commands (docs/runbooks/releases.md). This one
+# runs everything up to the tag, unattended: `just gate-release`, the transition
+# rehearsal from the newest release the candidate accepts, the native attachments
+# on aarch64-darwin and in an amd64 container on Colima nagare-c4-amd64, two
+# byte-identical assemblies, then the rehearsal record landed on master. Runs live
+# in ${XDG_STATE_HOME:-~/.local/state}/nagare/releases/vVERSION/. Takes
+# --revision REV (default HEAD) and --rehearsal (lands nothing, never published).
+# Prepare a release candidate up to the tag.
+[group('release')]
+release-candidate version *args:
+    scripts/release-candidate.sh {{version}} {{args}}
+
+# MP-26 item 11: sign the tag with the maintainer's SSH key, push only the tag,
+# publish with the candidate's CLI (retrying only a draft that is not yet
+# visible), and check the public flake reports VERSION.
+# Sign, push and publish a prepared release candidate.
+[group('release')]
+release-publish version:
+    scripts/release-publish.sh {{version}}
+
+# MP-26 item 12 stub until the packaged rehearsal lands: accept the transition
+# rehearsal record for REV from PREVIOUS when it already exists in this checkout,
+# otherwise refuse with the runbook's manual steps.
+# Rehearse the transition from a published release to a candidate.
+[group('release')]
+release-rehearse rev previous:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    rev=$(git rev-parse --verify '{{rev}}^{commit}')
+    record="docs/release-evidence/$rev/transition-rehearsal.json"
+    [ -f "$record" ] || { echo "release-rehearse: no $record; until MP-26 item 12 lands, run the upgrade rehearsal from v{{previous}} by hand (docs/runbooks/releases.md) and write it there" >&2; exit 1; }
+    jq -e --arg rev "$rev" --arg previous '{{previous}}' '.candidate.revision == $rev and .source.version == $previous' "$record" >/dev/null \
+      || { echo "release-rehearse: $record does not record a move from {{previous}} to $rev" >&2; exit 1; }
+    echo "release-rehearse: $record moves a context from {{previous}} to $rev"

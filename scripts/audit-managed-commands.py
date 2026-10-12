@@ -120,6 +120,7 @@ ENTRYPOINTS = {
     "scripts/lib/smoke-readback.sh": ("NAGARE_VOLUME_RESTORE_FILE", "NAGARE_VOLUME_RESTORE_MANIFEST", "logs \"job/${job}\" -c restore"),
     "scripts/run-reviewed-bootstrap.sh": ("platform bootstrap plan", "platform bootstrap apply"),
     "scripts/transition-rehearsal.sh": ("platform bootstrap plan", "platform bootstrap apply", "transition plan", "inventory apply", "platform transition commit", "transition_sentinel"),
+    "scripts/release-publish.sh": ("release publish", "--yes", "created draft is not yet visible"),
     "scripts/host-switch.sh": ("NAGARE_INVENTORY_ADAPTER_CHILD",),
     "scripts/upload-images.sh": ("NAGARE_INVENTORY_ADAPTER_CHILD", "inventory guard-legacy upload-images"),
     "scripts/install-net-certmanager-controller.sh": ("inventory guard-legacy install-net-certmanager-controller",),
@@ -150,6 +151,8 @@ RECIPE_SCRIPTS = {
     "scripts/local-smoke.sh",
     "scripts/transition-rehearsal.sh",
     "scripts/run-reviewed-bootstrap.sh",
+    "scripts/release-candidate.sh",
+    "scripts/release-publish.sh",
 }
 
 # Each effectful command resolves to a detailed row in the existing catalogue.
@@ -204,9 +207,9 @@ def family_assignments() -> dict[str, str]:
 
 RECIPES = {
     "read": "default docs-validate terminology-validate reviews-validate user-documentation-validate nixos-registry-host nix-cache-status job-runs-status context-show status live-test test-inventory-effects haskell-style-check gate-fast gate-deep deep-tier-required gate gate-verify gate-landable gate-release test-remote mutation-check mutation-sweep",
-    "reviewed": "infra-up infra-preview infra-destroy cluster-bootstrap nix-cache-publish nix-cache-bootstrap job-runs-bootstrap cluster-enable-tls local-bootstrap local-minio observability deploy-hello host-switch host-image vm-start vm-stop smoke local-smoke",
+    "reviewed": "infra-up infra-preview infra-destroy cluster-bootstrap nix-cache-publish nix-cache-bootstrap job-runs-bootstrap cluster-enable-tls local-bootstrap local-minio observability deploy-hello host-switch host-image vm-start vm-stop smoke local-smoke release-publish",
     "bounded": "iap-ssh",
-    "local": "local-up local-down nix-cache-secret-init install-hooks fixture-smoke land gate-post-land transition-rehearsal",
+    "local": "local-up local-down nix-cache-secret-init install-hooks fixture-smoke land gate-post-land transition-rehearsal release-candidate release-rehearse",
     "pending": "",
 }
 
@@ -230,6 +233,7 @@ RECIPE_FAMILY = {
     "deploy-hello": "Application Knative Service, databases, attached PVCs",
     "smoke": "Application volume snapshot and restore",
     "local-smoke": "Application volume snapshot and restore",
+    "release-publish": "Global release payload publication",
 }
 
 # Public library calls from production consumers are checked as an exact set.
