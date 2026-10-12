@@ -397,3 +397,19 @@ This plan has no hard dependency on another child of MasterPlan 26. It touches t
 test files that EP-173 (`docs/plans/173-find-recovery-defects-with-adversarial-provider-interpreters.md`)
 also changes, so whoever lands second rebases. It should go first among the remaining lane A work,
 because it shortens every other plan's gates.
+
+- Decision: M3 is dropped. The full gate gets no gcloud preflight, keep-awake session or remote
+  retry.
+  Rationale: of about 70 gate records from 2026-10-09 to 2026-10-12, one (`1955dc0d`) was lost to
+  the builder; every other red record was a real failure. Three mechanisms against a rare failure
+  add steps, and the builder probe already stops a gate at once when the builder is unreachable.
+  Date: 2026-10-12
+
+- Decision: M4 shrinks to one release recipe, `just gate-release REV`. It runs the mutation
+  sweep, then the deep tier, on the builder for a fully gated revision. The runs stay sequential
+  and are not recorded in the gate record.
+  Rationale: the sweep alone takes all 16 builder cores (`mutation sweep 080ae60a: 187 records,
+  4 workers, -j4 each, 16 cores`), so running it alongside the flake check would slow both.
+  v0.6.0 and v0.6.1 were published without either run because they were separate manual steps;
+  one recipe makes the release gate a single command.
+  Date: 2026-10-12

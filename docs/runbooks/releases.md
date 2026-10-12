@@ -28,7 +28,7 @@ records a mutation-free reviewed preview. CI repeats the rehearsal natively on e
 ## Rehearse CI without publishing
 
 **Releases after v0.5.0 (operator, 2026-10-10).** A release proves three things: the full gate is
-green for the candidate (`just gate-verify`), the EP-172 upgrade rehearsal on a disposable local
+green for the candidate and so are the mutation sweep and deep tier (`just gate-release REV`), the EP-172 upgrade rehearsal on a disposable local
 context reads the seeded data back unchanged, and the real intranet context upgrades to the
 candidate and passes `nagare-harness route-check`. The local and cloud evidence chain was
 MasterPlan 23's acceptance for the inventory release and is not re-run per release.
