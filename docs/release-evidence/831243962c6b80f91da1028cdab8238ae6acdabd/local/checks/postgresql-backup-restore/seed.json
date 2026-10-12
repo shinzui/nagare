@@ -1,7 +1,0 @@
-{
-  "database": "scenario-pg",
-  "seed": [
-    "1|scenario-pg-row-1",
-    "2|scenario-pg-row-2"
-  ]
-}

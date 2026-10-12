@@ -3,7 +3,7 @@
 Run this checklist before any mutation on cp3 (the shared local cluster) or on a cloud context, and
 before asking the operator to approve a cloud sequence. It applies to implementers and reviewers alike.
 Every item comes from a defect or a lost run in MasterPlan 23; the
-[2026-10-04 retrospective](../audits/mp23-engineering-retrospective-2026-10-04.md) has the data, and
+[2026-10-04 retrospective](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-engineering-retrospective-2026-10-04.md) has the data, and
 [ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md) is the rule
 behind it. A native run confirms that the interpreters match reality. It must never be the first
 execution of a path.

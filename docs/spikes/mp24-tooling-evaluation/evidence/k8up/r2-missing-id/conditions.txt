@@ -1,2 +1,0 @@
-Ready=True Ready: job 'restore-r2-missing-id' has 1 active, 0 succeeded and 0 failed pods
-Progressing=True Started: The job is progressing

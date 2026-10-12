@@ -293,7 +293,7 @@ MasterPlan, not by this plan.
 
 **Status (2026-10-09): Complete.**
 - **Shipped.** v0.4.0 (`83124396`) carries every rule below. The production-readiness checklist ticks "Kubernetes proof rules derived from validated API semantics" on `c3755ad7` and `aaa96eaf`, both ancestors of the final candidate.
-- **Acceptance.** The mutation sweep on `83124396` killed 149 of 149 records, including this plan's F67, F69, F70, G6, G7 and M9 records ([sweep](../audits/mp23-independent-results-2026-10-07/mutation-sweep-83124396.tsv)). The gate is green ([gate](../audits/mp23-independent-results-2026-10-07/gate-83124396.json)).
+- **Acceptance.** The mutation sweep on `83124396` killed 149 of 149 records, including this plan's F67, F69, F70, G6, G7 and M9 records ([sweep](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-07/mutation-sweep-83124396.tsv)). The gate is green ([gate](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-07/gate-83124396.json)).
 - **Deep tier.** This plan never owned the deep-tier run. By the 2026-10-07 decision, that run is per-release monitoring (EP-179).
 
 **Outcome (2026-10-07).** The Kubernetes adapter's proof rules now follow RES-4's validated API semantics, and every

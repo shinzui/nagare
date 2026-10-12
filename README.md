@@ -33,7 +33,7 @@ entire system from scratch.
 > Current operator docs start at
 > [`docs/user/README.md`](docs/user/README.md), goal-oriented walkthroughs start
 > at [`docs/guides/README.md`](docs/guides/README.md), and the full design
-> rationale is in [`docs/initial-spec.md`](docs/initial-spec.md).
+> rationale is in [`docs/initial-spec.md`](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/initial-spec.md).
 
 ---
 

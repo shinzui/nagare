@@ -27,7 +27,7 @@ intranet. Nagare's tooling still assumes one operator acts at a time; see
 > else here is about standing up and operating the platform itself.
 
 For the design rationale behind any choice documented here, see the
-[full spec](../initial-spec.md) and the
+[full spec](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/initial-spec.md) and the
 [MasterPlan](../masterplans/1-bootstrap-nagare-personal-paas.md). This guide is
 the operational "how," not the "why."
 

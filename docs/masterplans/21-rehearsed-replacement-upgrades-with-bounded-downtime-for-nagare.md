@@ -275,9 +275,9 @@ Accepted inputs to reuse, rather than rebuild:
 | Existing result | Evidence | Remaining replacement delta |
 |---|---|---|
 | Typed inventory, reviewed effects, identity and conditional history | MP-23 and ADRs 22, 26, 27 | Candidate ownership, replacement phases and coordinated promotion |
-| NixOS/k3s upgrades, reboot and failed-activation reversion | [Section 3, candidate 83124396](../audits/mp23-independent-results-2026-10-07/section3-83124396/README.md) | Independent target machine and cluster rehearsal |
-| PostgreSQL 17 → 18 copy, reviewed switch-over, pre-write rollback and retain-only retirement | [Section 4, candidate 3b59bcb7](../audits/mp23-independent-results-2026-10-07/section4-3b59bcb7/README.md) | Measured, resumable cross-cluster transfer under the global deadline |
-| Off-cluster database recovery after source destruction | [Section 2 result](../audits/mp23-independent-results-2026-10-07/section2-drill-3ae20f8c/result.json) | Complete replacement service/access rebuild; the 20-second scratch restore is not service recovery time |
+| NixOS/k3s upgrades, reboot and failed-activation reversion | [Section 3, candidate 83124396](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-07/section3-83124396/README.md) | Independent target machine and cluster rehearsal |
+| PostgreSQL 17 → 18 copy, reviewed switch-over, pre-write rollback and retain-only retirement | [Section 4, candidate 3b59bcb7](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-07/section4-3b59bcb7/README.md) | Measured, resumable cross-cluster transfer under the global deadline |
+| Off-cluster database recovery after source destruction | [Section 2 result](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-07/section2-drill-3ae20f8c/result.json) | Complete replacement service/access rebuild; the 20-second scratch restore is not service recovery time |
 | Replacement model and injected deadline/cutover/cleanup core | `Platform/Replacement.hs`, `StateTransfer.hs`, `Cutover.hs`, `test/PlatformCutoverSpec.hs` under `cli/nagarectl/` | Shared-store binding, concrete adapters and live drills |
 
 No new implementation or native proof is claimed by this refresh. Child status remains separate

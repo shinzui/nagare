@@ -19,14 +19,14 @@ related:
 ## Status
 
 Accepted by the operator on 2026-10-05 ("approve all six"), as decisions D1 and D5 of
-[the exhaustive review's proposal](../audits/mp23-exhaustive-review-2026-10-05/PROPOSAL.md).
+[the exhaustive review's proposal](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-exhaustive-review-2026-10-05/PROPOSAL.md).
 
 ## Context
 
 A stopped or ambiguous inventory transaction blocks every later plan on its context until a reviewed
 exit ends it. Until now, exits were special cases. The review counted 23 of them, about ten
 predicates with about 35 hard-coded allowlist entries
-([B](../audits/mp23-exhaustive-review-2026-10-05/B-exit-rules.md)):
+([B](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-exhaustive-review-2026-10-05/B-exit-rules.md)):
 - `incompleteApplicationOnlyReview` in `Plan/History.hs`;
 - the review-shape abandon predicates in `Execute/RecoveryPolicy.hs`;
 - the per-kind recovery classification in `Adapters/Kubernetes.hs`.
@@ -37,13 +37,13 @@ pending at a stall is effectively arbitrary. Every finding from F16 to F65 added
 entry, and each review found the next sibling.
 
 The enumerated recovery matrix
-([A](../audits/mp23-exhaustive-review-2026-10-05/A-recovery-matrix.md)) has 748 reachable cells. 281
+([A](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-exhaustive-review-2026-10-05/A-recovery-matrix.md)) has 748 reachable cells. 281
 of them wedge the store and 21 leave a scope stuck idle; 266 of those were untracked. The abort path
 also had hazards:
 - it reset every scope's accepted revision;
 - it kept retained entries that admission had added;
 - its separate head release could fail and leave no re-entry
-  ([E](../audits/mp23-exhaustive-review-2026-10-05/E-crash-points.md) U1, U3).
+  ([E](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-exhaustive-review-2026-10-05/E-crash-points.md) U1, U3).
 
 ## Decision
 

@@ -43,7 +43,7 @@ After [EP-168](168-script-the-local-acceptance-run-as-one-command.md), the local
 
 ## Surprises & Discoveries
 
-- GitHub Actions has been disabled for the repository since 2026-09-22, so this plan's assumption that a workflow can run is false ([retrospective](../audits/mp23-engineering-retrospective-2026-10-04.md)).
+- GitHub Actions has been disabled for the repository since 2026-09-22, so this plan's assumption that a workflow can run is false ([retrospective](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-engineering-retrospective-2026-10-04.md)).
 
 
 ## Decision Log

@@ -19,7 +19,7 @@ related:
 ## Status
 
 Accepted, 2026-10-04, by operator decision on
-[the engineering retrospective](../audits/mp23-engineering-retrospective-2026-10-04.md), after
+[the engineering retrospective](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-engineering-retrospective-2026-10-04.md), after
 MasterPlan 23's native verification day.
 
 ## Context
@@ -32,7 +32,7 @@ per-provider operation records such as `KubernetesAdapterOps`, `GcloudRunner` an
 real adapters can run against in-memory interpreters in seconds.
 
 MasterPlan 23 did not use them that way.
-[The 2026-10-04 retrospective](../audits/mp23-engineering-retrospective-2026-10-04.md) classifies all
+[The 2026-10-04 retrospective](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-engineering-retrospective-2026-10-04.md) classifies all
 54 findings:
 - 35 were found by native runs (cp3 or cloud).
 - 26 of those could have been found by a type check, a fake-adapter test or a model test.
@@ -133,10 +133,10 @@ builder fails, the gate records RED; it never reports a false green.
 
 ## Amendment (2026-10-05): coverage is generated, and reviews verify against a line
 
-Accepted by the operator as decisions D3 and D6 of [the exhaustive review's proposal](../audits/mp23-exhaustive-review-2026-10-05/PROPOSAL.md).
+Accepted by the operator as decisions D3 and D6 of [the exhaustive review's proposal](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-exhaustive-review-2026-10-05/PROPOSAL.md).
 Seven review rounds on MasterPlan 23 found about ten defects a day without converging. Each round
 found the next instance of a class, because model coverage was sampled: 17% of reachable fault
-cells, all on Kubernetes ([D](../audits/mp23-exhaustive-review-2026-10-05/D-model-coverage.md)).
+cells, all on Kubernetes ([D](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-exhaustive-review-2026-10-05/D-model-coverage.md)).
 
 - **Coverage is generated from a kind table.**
   - Each resource kind declares its world behaviour in one test-harness table: actions, readiness,

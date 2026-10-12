@@ -386,7 +386,7 @@ provenance:
 
 # Make managed resources first-class through typed scoped inventories
 
-This MasterPlan is a living document. Keep Progress, Surprises & Discoveries, Decision Log, and Outcomes & Retrospective current, and promote durable decisions into `docs/adr/` in the same change. It was consolidated on 2026-10-02: the previous text (dated entrypoints, finish sequences, gate tables and the full decision and revision history) is preserved verbatim in [the pre-consolidation snapshot](../audits/mp23-archive/plan-history/mp23-before-consolidation-2026-10-02.md). Nothing in that snapshot overrides this file.
+This MasterPlan is a living document. Keep Progress, Surprises & Discoveries, Decision Log, and Outcomes & Retrospective current, and promote durable decisions into `docs/adr/` in the same change. It was consolidated on 2026-10-02: the previous text (dated entrypoints, finish sequences, gate tables and the full decision and revision history) is preserved verbatim in [the pre-consolidation snapshot](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-archive/plan-history/mp23-before-consolidation-2026-10-02.md). Nothing in that snapshot overrides this file.
 
 
 ## Vision & Scope
@@ -410,7 +410,7 @@ State lives in a private, context-owned store with one writer, immutable snapsho
 | Maintenance | Statically declared reviewed hooks; read-only inspection; recovery of already-recorded sessions and fences | New interactive mutating maintenance (EP-161 cancelled) |
 | Validation | Full coverage of the supported contract with explicit guarded exclusions, every supported native system, real local and GCP runs, immutable evidence | No reduction |
 
-**Release boundary.** The first release claim covers fresh inventory-backed contexts only. It excludes in-place platform-version upgrade of an admitted context, automatic adoption of foreign resources, generic schema rollback, a daemon or distributed coordinator, and production rollout. Existing pre-inventory contexts are disposable. The failed development fixture `f15-preview` is retired from acceptance by [the fixture disposition](../audits/mp23-prerelease-fixture-disposition.md); its history is preserved, but it is not revived or counted as success.
+**Release boundary.** The first release claim covers fresh inventory-backed contexts only. It excludes in-place platform-version upgrade of an admitted context, automatic adoption of foreign resources, generic schema rollback, a daemon or distributed coordinator, and production rollout. Existing pre-inventory contexts are disposable. The failed development fixture `f15-preview` is retired from acceptance by [the fixture disposition](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-prerelease-fixture-disposition.md); its history is preserved, but it is not revived or counted as success.
 
 **Production readiness follows the current checklist.** On 2026-10-07 the operator made safe production use MP-23's goal (Decision Log), so checklist sections 2–4 became MP-23 scope. The operator's fixed goal and accepted
 upgrade/data-protection evidence are in [the production readiness checklist](../releases/production-readiness-checklist.md).
@@ -518,19 +518,19 @@ Feature children produce code and focused local proof; the native children (EP-1
 
   | Gate | Result | Evidence |
   |---|---|---|
-  | `just gate` and `just gate-verify` | green, 36/36 x86_64-linux and 37/37 aarch64-darwin | [gate](../audits/mp23-independent-results-2026-10-07/gate-83124396.json) |
-  | `just mutation-sweep` | 149 of 149 killed | [sweep](../audits/mp23-independent-results-2026-10-07/mutation-sweep-83124396.tsv) |
-  | C1 | 214 `VerifyResource`, zero provider mutations | [proof](../audits/mp23-independent-results-2026-10-07/c2-acceptance-83124396/c1-proof.json) |
-  | C2 (EP-155) | fresh local context, 16/16, assembler accepted | [C2](../audits/mp23-independent-results-2026-10-07/c2-acceptance-83124396/) |
-  | C3 (EP-156) | fresh cloud context `mp23-c3m`, 17/17, assembler accepted | [C3](../audits/mp23-independent-results-2026-10-07/c3-acceptance-83124396/) |
-  | C4 (EP-154) | clone-free installed rehearsal on both systems, 11/11 checks each; `check-release.sh` consistent | [C4](../audits/mp23-independent-results-2026-10-07/c4-83124396/) |
-  | C5 (EP-157) | non-publishing assembly, twice, byte-identical; IR-24 cases mapped | [C5](../audits/mp23-independent-results-2026-10-07/c5-83124396/), [release evidence](../release-evidence/831243962c6b80f91da1028cdab8238ae6acdabd/) |
+  | `just gate` and `just gate-verify` | green, 36/36 x86_64-linux and 37/37 aarch64-darwin | [gate](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-07/gate-83124396.json) |
+  | `just mutation-sweep` | 149 of 149 killed | [sweep](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-07/mutation-sweep-83124396.tsv) |
+  | C1 | 214 `VerifyResource`, zero provider mutations | [proof](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-07/c2-acceptance-83124396/c1-proof.json) |
+  | C2 (EP-155) | fresh local context, 16/16, assembler accepted | [C2](https://github.com/shinzui/nagare/tree/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-07/c2-acceptance-83124396) |
+  | C3 (EP-156) | fresh cloud context `mp23-c3m`, 17/17, assembler accepted | [C3](https://github.com/shinzui/nagare/tree/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-07/c3-acceptance-83124396) |
+  | C4 (EP-154) | clone-free installed rehearsal on both systems, 11/11 checks each; `check-release.sh` consistent | [C4](https://github.com/shinzui/nagare/tree/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-07/c4-83124396) |
+  | C5 (EP-157) | non-publishing assembly, twice, byte-identical; IR-24 cases mapped | [C5](https://github.com/shinzui/nagare/tree/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-07/c5-83124396), [release evidence](https://github.com/shinzui/nagare/tree/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/release-evidence/831243962c6b80f91da1028cdab8238ae6acdabd) |
 
 - **The operator's goal sections** (checklist §2–§4, added to MP-23 on 2026-10-07):
   - **Data protection:** the destroy-and-restore drill passed ([drill](../audits/mp23-independent-results-2026-10-07/section2-drill-3ae20f8c/)).
-  - **Node upgrades on `83124396`:** NixOS with a reboot, and k3s 1.35 → 1.36.4 with a reboot, committed with the data hash unchanged. An induced failed upgrade reverted ([drills](../audits/mp23-independent-results-2026-10-07/section3-83124396/)). On `3b59bcb7`, a real failed k3s upgrade reverted with no data loss ([earlier](../audits/mp23-independent-results-2026-10-07/section3-3b59bcb7/)).
-  - **PostgreSQL 17 → 18:** a side-by-side upgrade with both failure drills passed on `3b59bcb7` ([drill](../audits/mp23-independent-results-2026-10-07/section4-3b59bcb7/)). It counts for `83124396` because the final candidate changes no Haskell ([diff stat](../audits/mp23-independent-results-2026-10-07/diffstat-3b59bcb7-83124396.txt)).
-- **Independent verification** was done by session nagare-verify, which implemented none of the work ([record](../audits/mp23-independent-results-2026-10-07/README.md)). It also executed [the operations runbook](../audits/mp23-independent-results-2026-10-07/runbook-execution-3ae20f8c/) end to end.
+  - **Node upgrades on `83124396`:** NixOS with a reboot, and k3s 1.35 → 1.36.4 with a reboot, committed with the data hash unchanged. An induced failed upgrade reverted ([drills](https://github.com/shinzui/nagare/tree/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-07/section3-83124396)). On `3b59bcb7`, a real failed k3s upgrade reverted with no data loss ([earlier](https://github.com/shinzui/nagare/tree/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-07/section3-3b59bcb7)).
+  - **PostgreSQL 17 → 18:** a side-by-side upgrade with both failure drills passed on `3b59bcb7` ([drill](https://github.com/shinzui/nagare/tree/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-07/section4-3b59bcb7)). It counts for `83124396` because the final candidate changes no Haskell ([diff stat](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-07/diffstat-3b59bcb7-83124396.txt)).
+- **Independent verification** was done by session nagare-verify, which implemented none of the work ([record](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-07/README.md)). It also executed [the operations runbook](../audits/mp23-independent-results-2026-10-07/runbook-execution-3ae20f8c/) end to end.
 - **Findings at close** ([tracker](../audits/mp23-findings.md)), F01–F95:
   - 84 Closed.
   - F33, F84, F85 and F88 are Verifying. Their fixes ship in 0.4.0:
@@ -550,7 +550,7 @@ Feature children produce code and focused local proof; the native children (EP-1
 
 ### Release line (b) and the structural plan (operator decision, 2026-10-05)
 
-The operator approved all six decisions of [the exhaustive review's proposal](../audits/mp23-exhaustive-review-2026-10-05/PROPOSAL.md) and chose **release line (b)**. It superseded the 2026-10-04 finish line (now in History below), whose gates C1–C5 still applied, on a **new** candidate.
+The operator approved all six decisions of [the exhaustive review's proposal](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-exhaustive-review-2026-10-05/PROPOSAL.md) and chose **release line (b)**. It superseded the 2026-10-04 finish line (now in History below), whose gates C1–C5 still applied, on a **new** candidate.
 
 **In the release line.** MP-23 guarantees reviewed, recoverable changes with a supported exit from every stopped state (ADR 26) and identity respect (ADR 27) for:
 - Kubernetes application scopes: Knative Service, worker Deployment, scheduled tasks (CronJob), DomainMapping, release history, application databases and attached volumes;
@@ -579,9 +579,9 @@ The operator approved all six decisions of [the exhaustive review's proposal](..
 
 ### History
 
-The 2026-10-04 finish line (candidate `b74b7e49`), the dated phase checkpoints from 2026-10-02 to 2026-10-05, the Phase A–D work list and the cross-plan gates are kept verbatim in [the pre-close snapshot](../audits/mp23-archive/plan-history/mp23-progress-before-close-2026-10-09.md). The final status above supersedes them.
+The 2026-10-04 finish line (candidate `b74b7e49`), the dated phase checkpoints from 2026-10-02 to 2026-10-05, the Phase A–D work list and the cross-plan gates are kept verbatim in [the pre-close snapshot](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-archive/plan-history/mp23-progress-before-close-2026-10-09.md). The final status above supersedes them.
 
-**IR-24 verification cases** (final, 2026-10-09). Each case is proven by named assertions in the 0.4.0 inventory evidence, which binds C2 and C3 to one source revision and payload digest ([release evidence](../release-evidence/831243962c6b80f91da1028cdab8238ae6acdabd/)).
+**IR-24 verification cases** (final, 2026-10-09). Each case is proven by named assertions in the 0.4.0 inventory evidence, which binds C2 and C3 to one source revision and payload digest ([release evidence](https://github.com/shinzui/nagare/tree/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/release-evidence/831243962c6b80f91da1028cdab8238ae6acdabd)).
 
 | Case | Evidence (assertion, scenario) |
 |---|---|
@@ -611,7 +611,7 @@ On `mp23-c3m`, k3s 1.35 → 1.36.4 then committed in 5 minutes.
 - A transient systemd unit's PATH has no coreutils. The first version wrote the rc with `mv`, so no activation could ever have committed. It now writes with the shell's builtin `printf`.
 - `switch-to-configuration` restarts changed units but does not start a unit that is new under an already-active target, so the test's network-cutting unit never ran until it existed in every generation.
 
-2026-10-09 (C3 on `mp23-c3m`): The tailnet's default SSH rule is `check` for `autogroup:self`. Test hosts joined with untagged auth keys, so the host transport's mandatory fresh login waited for a browser approval, and the overnight run stalled for 3 h 40 m. Test-context keys now carry `tag:nagare-test`, and the tailnet policy has an `accept` rule for it ([C3](../audits/mp23-independent-results-2026-10-07/c3-acceptance-83124396/)).
+2026-10-09 (C3 on `mp23-c3m`): The tailnet's default SSH rule is `check` for `autogroup:self`. Test hosts joined with untagged auth keys, so the host transport's mandatory fresh login waited for a browser approval, and the overnight run stalled for 3 h 40 m. Test-context keys now carry `tag:nagare-test`, and the tailnet policy has an `accept` rule for it ([C3](https://github.com/shinzui/nagare/tree/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-07/c3-acceptance-83124396)).
 
 2026-10-08 (checklist §3): A k3s minor upgrade is a lock-only re-pin of nixpkgs. sops-nix must be re-pinned with it, because its pinned nixpkgs input had rotted (`buildGo125Module` was removed). The upgrade is finished only by a reboot through reviewed VM power. Each of these surfaced only when a drill reached it.
 
@@ -649,9 +649,9 @@ Earlier discoveries (derived controller claims, explicit candidate changes, nati
 ## Decision Log
 
 
-Decisions still in force, condensed. Full verbatim entries are in [the snapshot](../audits/mp23-archive/plan-history/mp23-before-consolidation-2026-10-02.md).
+Decisions still in force, condensed. Full verbatim entries are in [the snapshot](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-archive/plan-history/mp23-before-consolidation-2026-10-02.md).
 
-2026-10-09 (sessions nagare-fix and nagare-verify, under the operator's delegation): **section 4 counts from the `3b59bcb7` cloud pass for `83124396`.** The final candidate changes no Haskell, only host-switch scripts, their tests and docs, and the section 4 driver runs no host activation ([diff stat](../audits/mp23-independent-results-2026-10-07/diffstat-3b59bcb7-83124396.txt)). C3 and section 3, which go through the changed code, ran in full on `83124396`.
+2026-10-09 (sessions nagare-fix and nagare-verify, under the operator's delegation): **section 4 counts from the `3b59bcb7` cloud pass for `83124396`.** The final candidate changes no Haskell, only host-switch scripts, their tests and docs, and the section 4 driver runs no host activation ([diff stat](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-07/diffstat-3b59bcb7-83124396.txt)). C3 and section 3, which go through the changed code, ran in full on `83124396`.
 
 2026-10-09 (operator): **publish v0.4.0.** GitHub Actions stays disabled (2026-10-04), so the release was published from the local C5 assembly with `gh release create`, after a signed annotated tag at `83124396`. Moving the release runbook to this local path belongs to [MasterPlan 26](26-make-platform-changes-and-releases-routine-after-the-inventory-release.md).
 
@@ -684,7 +684,7 @@ Decisions still in force, condensed. Full verbatim entries are in [the snapshot]
   - It is the F49 fail-open-recording item already on the retrospective's deferral ledger.
   - The question recommended the deferral and did not show the ledger. That departs from ADR 25 §7, which says only the operator proposes a deferral, with the ledger shown. Recorded here so the operator can revisit it.
 
-2026-10-04 (operator, on [the engineering retrospective](../audits/mp23-engineering-retrospective-2026-10-04.md)): The operator made four decisions:
+2026-10-04 (operator, on [the engineering retrospective](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-engineering-retrospective-2026-10-04.md)): The operator made four decisions:
 - **No native runs until the model exists.** The remaining native work waits for [EP-173](../plans/173-find-recovery-defects-with-adversarial-provider-interpreters.md) M1–M2: the Kubernetes application world and the stuck-state invariant model, extended with incarnation, store and transient faults. Until then there is no cp3 or cloud run. That covers phase 3b, the native F54 verification and any new candidate.
 - **The F54 fix is verified in the model first.** It is checked at source and interpreter level and must pass the model before it goes native.
 - **F51 and F52 are un-deferred.** Both are fixed in MP-23, and the release no longer ships them as known limitations.
@@ -746,7 +746,7 @@ MP-21 refresh): Production use requires the data-protection gate (one-hour recov
 - Decision (operator's condition applied, 2026-10-05): F60 stays deferred. The implementer estimated 4–6 hours (journal schema change, adapter result type, create-identity binding), above the operator's "unless it's going to take hours" limit. The design is recorded in the tracker's F60 entry, and the model's tolerance remains.
   Date: 2026-10-05
 
-- Decision request (2026-10-05, pending operator): replace finding-by-finding work with the structural plan in [the exhaustive review's proposal](../audits/mp23-exhaustive-review-2026-10-05/PROPOSAL.md): one proof-based close rule (ADR 26), identity through one checked accessor plus a create-identity record, coverage generated from a kind table, one release line, an operator-attested last-resort exit, and no new review rounds until a final verification. Seven review rounds produced 65 findings at about ten a day without converging, and the review enumerated 266 untracked wedge or stuck cells. Implementation holds after nagare's current checkpoint until the operator decides.
+- Decision request (2026-10-05, pending operator): replace finding-by-finding work with the structural plan in [the exhaustive review's proposal](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-exhaustive-review-2026-10-05/PROPOSAL.md): one proof-based close rule (ADR 26), identity through one checked accessor plus a create-identity record, coverage generated from a kind table, one release line, an operator-attested last-resort exit, and no new review rounds until a final verification. Seven review rounds produced 65 findings at about ten a day without converging, and the review enumerated 266 untracked wedge or stuck cells. Implementation holds after nagare's current checkpoint until the operator decides.
 
 - Decision (operator, 2026-10-05): "approve all six, go with release line b". The structural plan replaces finding-by-finding work:
   - [ADR 26](../adr/0026-stopped-transactions-close-by-per-operation-proof.md): a proof-based close rule and the attested last-resort exit;
@@ -798,6 +798,6 @@ unsupported general payload/schema transitions; no child status or acceptance ev
 - marked the registry;
 - finalized the IR-24 table;
 - added the 2026-10-07 goal amendment, the 2026-10-07 to 2026-10-09 decisions and surprises, and the Outcomes & Retrospective.
-The superseded 2026-10-04 finish line and the dated checkpoints moved verbatim to [the pre-close snapshot](../audits/mp23-archive/plan-history/mp23-progress-before-close-2026-10-09.md).
+The superseded 2026-10-04 finish line and the dated checkpoints moved verbatim to [the pre-close snapshot](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-archive/plan-history/mp23-progress-before-close-2026-10-09.md).
 
 2026-10-02: Consolidated the plan into a single current-state document after an implementation assessment: replaced dated entrypoints and finish sequences with one ordered remaining-work list (Phases A–D), pending operator decisions D1–D5 and three explicit gates; recorded newly found release-path and recovery-point gaps; archived history unchanged. Earlier revision notes are in the snapshot.

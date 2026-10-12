@@ -58,7 +58,7 @@ passes. The same holds for reverted guards from F16, F30, F35, F37, F38, F49 and
 This implements decisions 1–4 of
 [ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md). The data
 behind it is in
-[the 2026-10-04 retrospective](../audits/mp23-engineering-retrospective-2026-10-04.md).
+[the 2026-10-04 retrospective](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-engineering-retrospective-2026-10-04.md).
 
 
 ## Progress

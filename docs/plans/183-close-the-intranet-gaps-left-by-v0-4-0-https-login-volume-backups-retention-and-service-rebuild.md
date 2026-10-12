@@ -91,7 +91,7 @@ This plan only makes sure its changes are covered by that transition's compatibi
       (two updates: the enforcer Service and the bootstrap stamp). route-check passed: wrong
       CA refused, anonymous 302 to `/_nagare/login`, granted login 200, 403 after revoke. The
       `--ca /dev/null` run failed with curl 77, a named certificate failure. Evidence and
-      drivers: [cp3-route-check](../audits/intranet-gaps-2026-10-10/cp3-route-check/).
+      drivers: [cp3-route-check](https://github.com/shinzui/nagare/tree/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/intranet-gaps-2026-10-10/cp3-route-check).
 - [ ] M2. (Targets recorded 2026-10-10: UC-3, ADR 28.) The operator's recovery-time and retention targets are recorded (EP-162 M1, or this plan's
   proposed defaults confirmed). `server status` reports scheduled database backups past retention
   as WARN. `db prune-scheduled-backups --save-plan` reviews them, and applying the review removes

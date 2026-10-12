@@ -57,7 +57,7 @@ The operator decided on 2026-10-04 that gating does not use GitHub Actions ("so 
 here runs on the maintainer's machine and the existing remote Nix builder. This plan implements
 decisions 5 and 6 of
 [ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md). The data is
-in [the 2026-10-04 retrospective](../audits/mp23-engineering-retrospective-2026-10-04.md).
+in [the 2026-10-04 retrospective](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-engineering-retrospective-2026-10-04.md).
 
 
 ## Progress

@@ -66,7 +66,7 @@ K8up/restic is the primary candidate for volume and application-aware backup eva
   - The retention prune never ran, so `keepTags` protection is unproven.
   - The cluster was deleted. The operator then decided to skip the K8up prototype: K8up gets one only if EP-183 M3's slice checkpoint stops.
   - CloudNativePG was not prototyped: its drivers are prepared but unrun, and no cluster was allowed.
-  - Record: [`docs/spikes/mp24-tooling-evaluation/README.md`](../spikes/mp24-tooling-evaluation/README.md).
+  - Record: [`docs/spikes/mp24-tooling-evaluation/README.md`](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/spikes/mp24-tooling-evaluation/README.md).
 - [x] M3 (2026-10-10): Score the surviving choices against EP-162 M1 requirements in a validated research record, distinguish recommendation from adoption, and record the operator's decision.
   - Done (2026-10-10): scored against UC-3's features and ADR 28 in RES-6, which validates and supersedes RES-3. The recommendation is to keep the native path for every boundary in scope, with K8up as the volume fallback and CloudNativePG as the candidate if the PostgreSQL objective tightens.
   - (2026-10-10) The operator accepted the recommendation; recorded in MasterPlan 24's Decision Log.

@@ -170,7 +170,7 @@ and certificate policy all converge.
 
 > This is a deliberate override of the spec's "start with host-level Caddy"
 > suggestion: Nagare chose the Kubernetes-native cert-manager + Kourier path.
-> See the [spec corrections](../initial-spec.md#spec-accuracy-corrections-2026-06-02).
+> See the [spec corrections](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/initial-spec.md#spec-accuracy-corrections-2026-06-02).
 
 ### Where the issuer's identity comes from
 

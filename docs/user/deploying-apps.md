@@ -665,7 +665,7 @@ from a smart constructor inside `Config.hs`, surfaced when you build or run it.
 ## Choosing a data tier
 
 Pick the lightest tier that fits the app (full detail in the
-[spec](../initial-spec.md#data-strategy)):
+[spec](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/initial-spec.md#data-strategy)):
 
 | Tier | Use when | How |
 | --- | --- | --- |

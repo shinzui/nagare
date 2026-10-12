@@ -651,7 +651,7 @@ the public CA certificate and use `curl --cacert`.
 
 ## Related docs
 
-- Design rationale: [`../initial-spec.md`](../initial-spec.md) (and its
+- Design rationale: [`../initial-spec.md`](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/initial-spec.md) (and its
   **Spec Accuracy Corrections** appendix — the corrections win over the prose).
 - Build coordination + live status:
   [`../masterplans/1-bootstrap-nagare-personal-paas.md`](../masterplans/1-bootstrap-nagare-personal-paas.md).

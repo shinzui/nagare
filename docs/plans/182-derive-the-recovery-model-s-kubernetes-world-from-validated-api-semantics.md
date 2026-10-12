@@ -129,7 +129,7 @@ How to see it working:
   - Landed (2026-10-09 reconciliation): the model runs on the fake API server and the two-sided ledger `Nagare/Test/Model/KnownDefects.hs` is in `83124396`; the remote run is covered by M5.
 - [x] M5: acceptance evidence. The fast tier, self-test, conformance and pins are green on the remote
   builder through `just test-remote`, `just gate` passes, and the coordinator lands it.
-  - Done (2026-10-09 reconciliation): landed through `just land` (`356e7f18`). The fast tier, self-test, conformance and pins run in `nagarectl-test`, a step of the final candidate's green gate ([gate](../audits/mp23-independent-results-2026-10-07/gate-83124396.json)); the mutation sweep killed 149 of 149. The deep-tier confirmation became monitoring on 2026-10-07.
+  - Done (2026-10-09 reconciliation): landed through `just land` (`356e7f18`). The fast tier, self-test, conformance and pins run in `nagarectl-test`, a step of the final candidate's green gate ([gate](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-07/gate-83124396.json)); the mutation sweep killed 149 of 149. The deep-tier confirmation became monitoring on 2026-10-07.
 
 
 ## Surprises & Discoveries

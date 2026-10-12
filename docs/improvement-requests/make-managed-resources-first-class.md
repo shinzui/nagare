@@ -22,7 +22,7 @@ origin: mori://shinzui/nagare
 and released in Nagare 0.4.0 on 2026-10-09. Every acceptance case (1–7) is proven by named
 assertions in the 0.4.0 inventory evidence, which binds the local (C2) and cloud (C3) runs to one
 source revision and payload digest
-([evidence](../release-evidence/831243962c6b80f91da1028cdab8238ae6acdabd/);
+([evidence](https://github.com/shinzui/nagare/tree/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/release-evidence/831243962c6b80f91da1028cdab8238ae6acdabd);
 [case map](../releases/v0.4.0.md)). The durable architecture is
 [ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md). Full-context
 VM collection is [MasterPlan 25](../masterplans/25-reviewed-full-context-teardown-with-vm-workload-collection.md).

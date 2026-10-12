@@ -16,14 +16,14 @@ related:
 ## Status
 
 Accepted by the operator on 2026-10-05, as decision D2 of
-[the exhaustive review's proposal](../audits/mp23-exhaustive-review-2026-10-05/PROPOSAL.md). This
+[the exhaustive review's proposal](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-exhaustive-review-2026-10-05/PROPOSAL.md). This
 un-defers F60's design.
 
 ## Context
 
 Nagare tells an object it created apart from an out-of-band replacement at the same address by its
 physical identity: the Kubernetes UID or the provider ID. The review found three things
-([C](../audits/mp23-exhaustive-review-2026-10-05/C-identity.md)):
+([C](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-exhaustive-review-2026-10-05/C-identity.md)):
 - **No create path keeps the identity the provider returns.** The only writer of the incarnation
   record is a fresh observation at convergence (F60).
 - **Four readers trust the record, and all pass when it is missing.**

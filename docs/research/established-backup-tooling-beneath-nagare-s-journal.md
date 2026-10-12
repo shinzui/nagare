@@ -166,7 +166,7 @@ availability.
   governance, maintainer and security files, CNCF project pages, and versioned documentation, all
   on 2026-10-09. Commit counts cover 2026-04-09 to 2026-10-09 on the default branch.
 - **Prototype (M2), K8up only, partial.** The run is described in the
-  [prototype record](../spikes/mp24-tooling-evaluation/README.md). It ran on a disposable k3d
+  [prototype record](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/spikes/mp24-tooling-evaluation/README.md). It ran on a disposable k3d
   cluster on the cp3 Colima daemon **outside the cp3 claim protocol**, which was a process error.
   It was stopped and the cluster deleted. The operator then decided to skip the K8up prototype, so
   its retention step never ran.

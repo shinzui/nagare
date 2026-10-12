@@ -87,7 +87,7 @@ equivalence report for each reduction, and every mutation record still failing.
     - Violations stream as they are found: the stopped 3d run kept all 4,944 schedules.
     - The mutation records still fail: the sweep on `83124396` killed 149 of 149, including
       `EP179-restore-skips-adversary` and `EP179-head-retry-count`
-      ([sweep](../audits/mp23-independent-results-2026-10-07/mutation-sweep-83124396.tsv)).
+      ([sweep](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-07/mutation-sweep-83124396.tsv)).
   - Superseded/Moved (2026-10-09): the one-hour budget. On EP-182's world, the slowest shards of
     the 3d run at `341b01bc` spent 4,637 s on scenarios 1–8 alone, so the budget is not met.
     The 2026-10-07 amendment to ADR 25 made the deep tier per-release monitoring, not a gate. It

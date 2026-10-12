@@ -88,7 +88,7 @@ MasterPlan 23's release line (b).
 - [x] M2 (code in 2026-10-05; acceptance waits for `just gate-deep`): the generated product.
   (2026-10-09: accepted for v1 on the fast tier. The generated scenarios and the harness self-test
   run in `nagarectl-test`, green in the final candidate's gate,
-  [gate](../audits/mp23-independent-results-2026-10-07/gate-83124396.json).
+  [gate](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-07/gate-83124396.json).
   Superseded (2026-10-07 amendment to ADR 25): a passing `just gate-deep` is no longer acceptance.
   The deep tier is per-release monitoring; see Outcomes.)
   - **Scenarios.** Each in-line row with a fixture yields scenarios: create, update (where the
@@ -109,7 +109,7 @@ MasterPlan 23's release line (b).
 - [x] M3 (code in 2026-10-05; acceptance waits for `just gate-deep`): the faults and harness fixes.
   (2026-10-09: accepted for v1 on the fast tier, the self-test and the mutation sweep. The sweep on
   `83124396` killed 149 of 149 records, including this plan's `ADR25-model-*` records,
-  [sweep](../audits/mp23-independent-results-2026-10-07/mutation-sweep-83124396.tsv). The deep-tier
+  [sweep](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-07/mutation-sweep-83124396.tsv). The deep-tier
   half is superseded by the 2026-10-07 amendment, as for M2. The deferred `ReplacementRequired`
   fault and the dedicated corrected-review move stay deferred.)
   - **New faults.** `CrashBeforeStorePut`, `CrashAfterStorePut` and `ClaimLost`. `ClaimLost` lands

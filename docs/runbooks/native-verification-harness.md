@@ -173,7 +173,7 @@ Both live in the **same** evidence directory, which the runner creates. The proc
 section: the rules, inputs and step table below.
 
 The shell drivers that ran the passing `7d486457` acceptance are archived as a frozen record in
-[`c2-drivers/`](../audits/mp23-implementer-results-2026-10-03/c2-drivers/README.md). They are
+[`c2-drivers/`](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-implementer-results-2026-10-03/c2-drivers/README.md). They are
 evidence of what ran, not tooling. The tested replacement is
 [EP-168](../plans/168-script-the-local-acceptance-run-as-one-command.md), in Haskell per
 [ADR 24](../adr/0024-release-and-harness-tooling-follows-the-production-haskell-standard.md).

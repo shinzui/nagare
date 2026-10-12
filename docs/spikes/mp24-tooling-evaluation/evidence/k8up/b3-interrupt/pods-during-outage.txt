@@ -1,1 +1,0 @@
-backup-b3-prebackup-rksqb             1/1     Running     0          56s

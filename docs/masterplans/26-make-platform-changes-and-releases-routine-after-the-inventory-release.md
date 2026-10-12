@@ -70,7 +70,7 @@ After this initiative:
 
 Why this order. MasterPlan 23's time went mostly to native runs used as defect finders (about 13
 candidate loops before `83124396`; 26 of 35 native findings were catchable by a cheap layer, per
-[the 2026-10-04 retrospective](../audits/mp23-engineering-retrospective-2026-10-04.md)), to sessions
+[the 2026-10-04 retrospective](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-engineering-retrospective-2026-10-04.md)), to sessions
 waiting on one another, and to hand-written evidence documents. The items below remove those costs
 before MasterPlan 25 adds new native work.
 
@@ -221,7 +221,7 @@ milestone: a scripted fresh-context bootstrap and scenario that leaves a converg
   directory, and the assembled `inventory-evidence.json`.
 - **Starting point:** EP-168 ports the driver set that passed on `83124396`, stage for stage. The set
   is archived, frozen, in
-  [`drivers-83124396/`](../audits/mp23-independent-results-2026-10-07/drivers-83124396/README.md).
+  [`drivers-83124396/`](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-07/drivers-83124396/README.md).
 - **Consumers:** EP-170 reads the output as gate input. EP-172 reuses its stages against a moved
   context instead of a fresh one.
 
@@ -296,7 +296,7 @@ to the builder in one night.
 - The "one-time cost" assumption in the original Vision was wrong. On 2026-10-04, six more findings
   were found natively, all cheap-layer (F49–F54). Across MasterPlan 23, 26 of 35 natively found
   findings could have been found by a type check, a fake adapter or a model test
-  ([retrospective](../audits/mp23-engineering-retrospective-2026-10-04.md)).
+  ([retrospective](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-engineering-retrospective-2026-10-04.md)).
 - GitHub Actions has been disabled since 2026-09-22, and no local per-commit gate existed. 785
   commits landed unchecked, which produced F53. EP-174 closed this.
 - The EP-153 in-memory driver model only ever recovered with `RecoveryProvedComplete`, so it could

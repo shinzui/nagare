@@ -42,7 +42,7 @@ independent copy, and obtain measured evidence that a final copy after productio
 the requested replacement budget. Unknown or inconsistent state blocks cutover while old still serves.
 
 MP-23 already supplies typed resource ownership, verified database/volume backups and isolated restore.
-Its [PostgreSQL major-upgrade drill](../audits/mp23-independent-results-2026-10-07/section4-3b59bcb7/README.md)
+Its [PostgreSQL major-upgrade drill](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-07/section4-3b59bcb7/README.md)
 proves a side-by-side 17 → 18 procedure with manual fencing/copy, reviewed binding switch and
 pre-write rollback. Credit that outcome; this plan does not reinvent basic backup, restore or major
 migration. The missing capability is resumable, measured transfer between two explicit clusters
@@ -68,7 +68,7 @@ Credit for the procedure does not mark an automated adapter or global downtime g
 
 The September plan's statement that PostgreSQL majors and all concrete data behavior were absent is
 obsolete. MP-23 proved the operator procedure and backup recovery, but `StateTransfer.hs` still only
-holds the cutover-facing contract. The [source-destruction recovery result](../audits/mp23-independent-results-2026-10-07/section2-drill-3ae20f8c/result.json)
+holds the cutover-facing contract. The [source-destruction recovery result](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-07/section2-drill-3ae20f8c/result.json)
 measures a 20-second scratch database restore, not reconstruction of a complete live application.
 Volumes remain outside MP-23's hourly recovery-point objective; no replacement claim may count a
 manual archive as an unattended data-protection guarantee.
