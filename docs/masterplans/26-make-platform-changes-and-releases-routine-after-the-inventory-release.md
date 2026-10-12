@@ -79,7 +79,10 @@ installations ([MasterPlan 24](24-operate-nagare-as-a-team-run-workplace-intrane
 replacement onto fresh infrastructure (MasterPlan 21); full-context teardown (MasterPlan 25); GKE;
 mutating a real operator context; weakening any MasterPlan 23 guarantee.
 
-### Finish line (fixed 2026-10-09)
+### Finish line (fixed 2026-10-09; re-scoped by the operator 2026-10-12)
+
+**2026-10-12:** releases are the priority. Items 10–12 are the open work, in that order. Items 1–5
+stay held. See the Decision Log.
 
 The rules of the [production readiness checklist](../releases/production-readiness-checklist.md)
 apply here:
@@ -102,20 +105,42 @@ apply here:
 - [ ] 5. **Native run L1 (cp3).** `nagare-harness local-acceptance` reproduces C2 on `83124396`
       unattended: 16/16 assertions, evidence assembled. A deliberately injected fault stops it at the
       named stage (EP-168).
-- [ ] 6. An admitted inventory context moves to a new release through a reviewed transition that
+- [x] 6. An admitted inventory context moves to a new release through a reviewed transition that
       binds the source and target releases and refuses unsupported pairs. The recovery model proves
-      it under faults first (EP-172 M1–M2).
+      it under faults first (EP-172 M1–M2). Evidence: `1ae43c34`, `61368b61`.
 - [ ] 7. **Native run L2 (cp3).** A disposable local context converged on v0.4.0 moves to the next
       candidate through that transition. The seeded data reads back unchanged, and an unchanged
-      replan has zero operations (EP-172 M3).
-- [ ] 8. The next release is cut this way: one candidate, classified, carrying only the evidence its
+      replan has zero operations (EP-172 M3). The seeded row read back unchanged for 0.5.0 → 0.6.0
+      (`f59c42a4`) and 0.5.0 → 0.6.1 (`3504325b`). Open: a converged replan still re-emits its
+      verifications (F124); its fix ticks this box.
+- [x] 8. The next release is cut this way: one candidate, classified, carrying only the evidence its
       class requires, and published locally through the release runbook (integration gate, all
-      children).
-- [ ] 9. (Added by the operator, 2026-10-10.) The gates wait only for their slowest job and do not
+      children). Evidence: v0.6.1 under the 2026-10-10 release proof. Full gate on `080ae60a`,
+      rehearsal record `3504325b`, and the intranet upgraded in place with login working. The
+      change classification (EP-170) is not part of it.
+- [x] 9. (Added by the operator, 2026-10-10.) The gates wait only for their slowest job and do not
       lose runs to the builder. The suite runs in parallel with its slow model tests sharded, the
       full gate runs each check once with local and remote work overlapping, a gcloud preflight,
       keep-awake session and transport retry protect it, and the deep tier and mutation sweep run
-      inside it when needed. Before and after times are recorded (EP-184).
+      inside it when needed. Before and after times are recorded (EP-184). Evidence: `7e78de52`,
+      `9200626d`, `b588b03d`. M3 was dropped and M4 reduced to `just gate-release` (EP-184 Decision
+      Log).
+- [ ] 10. (Added by the operator, 2026-10-12.) The deep tier is worth running once per release.
+      - It reads the known-defect ledger, so only an unlisted class fails it.
+      - It reports each class once, with a count.
+      - `just gate-release` runs it only when recovery-related code changed since the revision
+        of the last deep run.
+- [ ] 11. (Added by the operator, 2026-10-12.) A release is two commands.
+      - `just release-candidate VERSION` runs everything up to the tag, unattended: the release
+        gate, the transition rehearsal, both native builds and the assembly.
+      - `just release-publish VERSION` signs the tag, pushes it and publishes, retrying a draft
+        that is not yet visible.
+      - What stays manual: signing the tag, and choosing when the intranet upgrades.
+- [ ] 12. (Added by the operator, 2026-10-12.) The transition rehearsal catches what the intranet
+      upgrade caught.
+      - It runs the packaged nagarectl with every guard.
+      - It sets up its own Colima environment (DNS, registry forward, clean environment).
+      - F122 (the skew guard) and F123 (the Helm version) would each have stopped it.
 
 No cloud run is required by this plan. If item 8's change class requires C3, the operator approves
 that one bounded sequence when it is reached. The sequence includes the human dependencies: builder
@@ -183,14 +208,14 @@ No cross-repository ADR applies.
 |---|-------|------|-----------|-----------|--------|
 | 1 | Script the local acceptance run as one command | docs/plans/168-script-the-local-acceptance-run-as-one-command.md | None | EP-171; MP-25 EP-167 M3 (reviewed local teardown stage) | Held (operator, 2026-10-10) |
 | 2 | Run the local acceptance in CI | docs/plans/169-run-the-local-acceptance-in-ci.md | EP-168 | EP-171 | Cancelled (operator, 2026-10-04: no GitHub Actions; EP-168 + EP-174 cover the need) |
-| 3 | Size the release gate to the change | docs/plans/170-size-the-release-gate-to-the-change.md | None; M3 needs EP-173 M5 | EP-168, EP-171 | Held (operator, 2026-10-10; its first slice, carry-forward over docs, is landed) |
+| 3 | Size the release gate to the change | docs/plans/170-size-the-release-gate-to-the-change.md | None; M3 needs EP-173 M5 | EP-168, EP-171 | In Progress (operator, 2026-10-12: the deep-tier slice, item 10; the rest stays held. Its first slice, carry-forward over docs, is landed) |
 | 4 | Move release tooling out of the platform payload | docs/plans/171-move-release-tooling-out-of-the-platform-payload.md | None | None | Held (operator, 2026-10-10) |
-| 5 | Move an inventory context to the next release through a reviewed transition | docs/plans/172-rehearse-candidate-upgrades-of-an-inventory-context-instead-of-rebuilding-it.md | None (M3 rehearses on a disposable local context without EP-168) | None | In Progress (M2 and M3 done 2026-10-11: marker, `platform transition plan\|commit`, model scenario, first green v0.4.0 → candidate rehearsal; release assembly and `release publish` bind the rehearsal record; M1 open) |
+| 5 | Move an inventory context to the next release through a reviewed transition | docs/plans/172-rehearse-candidate-upgrades-of-an-inventory-context-instead-of-rebuilding-it.md | None (M3 rehearses on a disposable local context without EP-168) | None | Complete (2026-10-12: v0.6.0 and v0.6.1 moved the intranet; F124's zero-operation replan lands separately). Earlier: (M2 and M3 done 2026-10-11: marker, `platform transition plan\|commit`, model scenario, first green v0.4.0 → candidate rehearsal; release assembly and `release publish` bind the rehearsal record; M1 open) |
 | 6 | Find recovery defects with adversarial provider interpreters | docs/plans/173-find-recovery-defects-with-adversarial-provider-interpreters.md | None | None | Held (M1–M2 accepted 2026-10-05; M3–M5 held by the operator, 2026-10-10) |
 | 7 | Gate every commit before any native run | docs/plans/174-gate-every-commit-before-any-native-run.md | None | EP-168 (shared `nagare-harness` package) | Complete (2026-10-05) |
 | 8 | Make the flake check build each Haskell package once | docs/plans/178-make-the-flake-check-build-each-haskell-package-once.md | None | EP-174 | Complete (2026-10-05) |
-| 9 | Make the gates wait only for their slowest job and stop losing gate runs to the builder | docs/plans/184-make-the-gates-wait-only-for-their-slowest-job-and-stop-losing-gate-runs-to-the-builder.md | None | EP-173 (shared recovery-model test files) | In Progress (M1 and M2 done 2026-10-11; M3 and M4 open) |
-| 10 | Make inventory status answer in seconds | docs/plans/185-make-inventory-status-answer-in-seconds.md | None | None | Not Started (operator, 2026-10-12: F119, next release) |
+| 9 | Make the gates wait only for their slowest job and stop losing gate runs to the builder | docs/plans/184-make-the-gates-wait-only-for-their-slowest-job-and-stop-losing-gate-runs-to-the-builder.md | None | EP-173 (shared recovery-model test files) | Complete (2026-10-12: M3 dropped, M4 reduced to `just gate-release`) |
+| 10 | Make inventory status answer in seconds | docs/plans/185-make-inventory-status-answer-in-seconds.md | None | None | Complete (2026-10-12: `inventory status` from 139 s to 23–28 s, `894b58b7`, `90370d07`) |
 
 Status values: Not Started, In Progress, Complete, Cancelled, Held. A held plan is not worked on
 until the operator reopens it. EP-172 keeps its file path; its title
@@ -198,6 +223,9 @@ changed with the 2026-10-09 re-scope.
 
 
 ## Dependency Graph
+
+**2026-10-12:** item 10, then 11, then 12, in one lane. Item 12's rehearsal becomes a step of item
+11's `release-candidate`. The lanes below describe the held items.
 
 Two lanes, each one worktree session:
 - **Lane A (pure code, start now).**
@@ -291,6 +319,9 @@ Any stream that adds an adapter adds it there, with a world.
 2026-10-10: the operator added item 9 (EP-184) after a 55-minute full gate and two gate runs lost
 to the builder in one night.
 
+2026-10-12: items 6, 8 and 9 are ticked; item 7 waits on F124. The operator re-scoped the plan to
+items 10–12.
+
 
 ## Surprises & Discoveries
 
@@ -324,6 +355,21 @@ to the builder in one night.
 
 
 ## Decision Log
+
+- Decision (operator, 2026-10-12): Releases come first, "so I don't have to dread them". Add items
+  10–12, in that order:
+  - the deep tier reads the ledger and runs only after a recovery change;
+  - a release is two commands;
+  - the rehearsal runs the packaged nagarectl with every guard, on an environment it sets up.
+
+  EP-168, EP-171 and EP-173 M3–M5 stay held. Of EP-170, only the deep-tier slice is reopened.
+  Rationale: v0.6.0 and v0.6.1 cost these:
+  - about ten manual release steps;
+  - a hand-built rehearsal environment;
+  - a deep tier that took 6.2 hours on 2026-10-10 and failed every shard on known ledger classes;
+  - two upgrade defects (F122, F123) the rehearsal could not catch, which surfaced only on the
+    intranet.
+  Date: 2026-10-12
 
 - Decision (operator, 2026-10-10): Cut this plan to the critical path of the requirement
   "developers deploy and log in; the operator changes and upgrades without losing data". EP-184
