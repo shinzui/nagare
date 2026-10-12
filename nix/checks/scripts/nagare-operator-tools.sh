@@ -27,6 +27,7 @@ test ! -e "$cli_package/lib/links"
 "$jq_bin" -e '.tools.socat | startswith("/nix/store/")' tools.json >/dev/null
 "$jq_bin" -e '.tools.attic | startswith("/nix/store/")' tools.json >/dev/null
 "$jq_bin" -e '.tools.skopeo | startswith("/nix/store/")' tools.json >/dev/null
+"$jq_bin" -e '.tools.helm | startswith("/nix/store/")' tools.json >/dev/null
 "$operator_package/bin/attic" --version >/dev/null
 "$operator_package/bin/skopeo" --version >/dev/null
 pulumi_bin="$("$jq_bin" -er '.tools.pulumi' tools.json)"

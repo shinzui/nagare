@@ -82,7 +82,7 @@ runVersion :: VersionOpts -> IO ()
 runVersion options = do
   resolvedTools <-
     if options ^. #tools
-      then traverse resolveTool ["pulumi", "pulumi-language-nodejs", "socat", "attic", "skopeo", "gcloud", "npm"]
+      then traverse resolveTool ["pulumi", "pulumi-language-nodejs", "socat", "attic", "skopeo", "helm", "gcloud", "npm"]
       else pure []
   if options ^. #json
     then

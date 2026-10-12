@@ -190,7 +190,7 @@ let
     nativeBuildInputs = [ pkgs.makeWrapper ];
     postBuild = ''
       wrapProgram "$out/bin/nagarectl" \
-        --prefix PATH : ${lib.makeBinPath [ typedConfigRuntime pkgs.bind.dnsutils ]} \
+        --prefix PATH : ${lib.makeBinPath [ typedConfigRuntime pkgs.bind.dnsutils pkgs.kubernetes-helm ]} \
         --set-default NAGARE_PLATFORM_ROOT ${platformPackage}/share/nagare \
         ${lib.optionalString (sourceRevision != null) "--set NAGARE_SOURCE_REVISION ${sourceRevision}"}
     '';
