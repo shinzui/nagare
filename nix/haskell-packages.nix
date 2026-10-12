@@ -33,6 +33,15 @@ let
     patchShebangs "$out/cluster"
   '';
 
+  # The v0.4.0 payload extract the transition table test compiles (EP-172 M1),
+  # with its scripts' shebangs patched like sourceForTests'. The test still checks
+  # the digests of the untouched extract in the package source.
+  transitionFixtureForTests = pkgs.runCommand "nagare-transition-fixture-for-tests" { } ''
+    cp -R ${../cli/nagarectl/test/fixtures/transition-0.4.0/payload} "$out"
+    chmod -R u+w "$out"
+    patchShebangs "$out/cluster"
+  '';
+
   haskellPackages = pkgs.haskell.packages.ghc9124.override {
     overrides = hfinal: _hprev: {
       generic-lens = hfinal.callHackage "generic-lens" "2.3.0.0" { };
@@ -124,6 +133,8 @@ let
                 test/InventoryCacheSpec.hs test/InventoryAuthSpec.hs \
                 test/PlatformTransitionTableSpec.hs \
                 --replace-fail '"../.."' '"${sourceForTests}"'
+              substituteInPlace test/PlatformTransitionTableSpec.hs \
+                --replace-fail 'sourceCompileRoot = sourceRoot' 'sourceCompileRoot = "${transitionFixtureForTests}"'
             '';
             preCheck = ''
               export GHC_ENVIRONMENT=-

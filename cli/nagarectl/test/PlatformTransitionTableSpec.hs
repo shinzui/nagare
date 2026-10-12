@@ -98,11 +98,11 @@ observeFixture = do
   -- This release pins the digest of its own MinIO manifest (F41) and refuses
   -- the source payload's, which is why the workspace moves with the CLI; the
   -- source side takes its object store from this tree.
-  refused <- compileLocalObjectStore sourceRoot (sourceFoundation sourceRoot) localStore minioImages
+  refused <- compileLocalObjectStore sourceCompileRoot (sourceFoundation sourceCompileRoot) localStore minioImages
   case refused of
     Left errors | any ((== "invalid-local-object-store") . (^. #code)) errors -> pure ()
     other -> assertFailure ("this release compiled the v0.4.0 MinIO manifest: " <> either show (const "accepted") other)
-  sourceScopes <- compileLocalPlatform sourceRoot targetRoot source
+  sourceScopes <- compileLocalPlatform sourceCompileRoot targetRoot source
   targetScopes <- compileLocalPlatform targetRoot targetRoot target
   recorded <- recordedPairs
   compiled <-
@@ -255,6 +255,12 @@ minioImages =
   LocalMinioImages
     ("k3d-registry.localhost:5000/nagare-minio@sha256:" <> T.replicate 64 "a")
     ("k3d-registry.localhost:5000/nagare-mc@sha256:" <> T.replicate 64 "b")
+
+-- | The extract the compiles read. The Nix build points it at a copy whose
+-- scripts run in the Linux sandbox (patched shebangs); the digest check reads
+-- 'sourceRoot' itself.
+sourceCompileRoot :: FilePath
+sourceCompileRoot = sourceRoot
 
 fixtureRoot, sourceRoot, storeRoot, targetRoot :: FilePath
 fixtureRoot = "test/fixtures/transition-0.4.0"
