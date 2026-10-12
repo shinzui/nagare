@@ -29,6 +29,8 @@ done
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/target.sh
 source "${script_dir}/lib/target.sh"
+# shellcheck source=lib/builder.sh
+source "${script_dir}/lib/builder.sh"
 [ "${context}" = "${NAGARE_CONTEXT}" ] || { echo "reviewed host context differs from active context" >&2; exit 2; }
 [ "${project}" = "${TARGET_PROJECT}" ] || { echo "reviewed host project differs from active project" >&2; exit 2; }
 [ "${zone}" = "${TARGET_ZONE}" ] || { echo "reviewed host zone differs from active zone" >&2; exit 2; }
@@ -127,6 +129,22 @@ observe() {
   emit_prepared "${physical}" "unobserved" "unobserved"
 }
 
+# F121: the host closure builds on the context's builder, never on the operator
+# machine's default builders.
+host_build() {
+  local out rc=0
+  [ "${NAGARE_BUILDER_PROJECT}" = "${TARGET_PROJECT}" ] || {
+    echo "refusing host build on builder project '${NAGARE_BUILDER_PROJECT}': context '${NAGARE_CONTEXT}' targets '${TARGET_PROJECT}'; set NAGARE_BUILDER_* to a builder in that project" >&2
+    return 2
+  }
+  _nagare_builder_open "${NAGARE_BUILDER_PROJECT}" "${NAGARE_BUILDER_ZONE}" "${NAGARE_BUILDER_INSTANCE}" \
+    "${NIX_BUILDER_SSH_KEY:-/etc/nix/builder_ed25519}" || return $?
+  out="$(NIX_SSHOPTS= nix build --builders "${NAGARE_BUILDER_SPEC}" --no-link --no-update-lock-file --print-out-paths "$1" | tail -n 1)" || rc=$?
+  _nagare_builder_close
+  [ "${rc}" -eq 0 ] || return "${rc}"
+  printf '%s' "${out}"
+}
+
 prepare() {
   local physical rc=0 old new config_ref key_status remote_digest previous=""
   check_host_inputs
@@ -135,7 +153,7 @@ prepare() {
   if [ "${rc}" -eq 3 ]; then emit_missing; return; fi
   [ "${rc}" -eq 0 ] || return "${rc}"
   config_ref="${NAGARE_HOST_FLAKE}#nixosConfigurations.${attribute}.config.system.build.toplevel"
-  new="$(nix build --no-link --no-update-lock-file --print-out-paths "${config_ref}" | tail -n 1)"
+  new="$(host_build "${config_ref}")"
   old="$(host_ssh 'readlink -f /run/current-system' | tail -n 1)"
   [ -n "${new}" ] && [ -n "${old}" ] || { echo "host preparation returned an empty closure" >&2; return 1; }
   if [ -n "${age_key_digest}" ]; then

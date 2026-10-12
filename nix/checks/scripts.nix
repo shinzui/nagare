@@ -66,7 +66,7 @@
   # refuses a foreign project by default, and records an explicit exception.
   upload-images-builder-confinement = pkgs.runCommand "nagare-upload-images-builder-confinement-test"
     {
-      nativeBuildInputs = [ pkgs.bash pkgs.coreutils pkgs.findutils pkgs.gnugrep pkgs.gzip pkgs.perl ];
+      nativeBuildInputs = [ pkgs.bash pkgs.coreutils pkgs.findutils pkgs.gnugrep pkgs.gzip pkgs.jq pkgs.perl ];
       inherit src;
     }
     ''

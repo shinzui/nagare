@@ -24,6 +24,8 @@ set -eu
 printf 'nix NIX_SSHOPTS=%s argv=%s\n' "${NIX_SSHOPTS:-}" "$*" >>"$NAGARE_TEST_LOG"
 if [ "${1:-}" = config ]; then
   printf '%s\n' 'system = aarch64-darwin'
+elif [ "${1:-}" = store ]; then
+  printf '%s\n' '{"trusted":true}'
 elif [ "${1:-}" = build ]; then
   printf '%s\n' "$NAGARE_TEST_STORE_PATH"
 elif [ "${1:-}" = eval ]; then

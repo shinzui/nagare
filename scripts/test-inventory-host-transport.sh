@@ -106,4 +106,43 @@ second="$(receipt_for "$(plan_for op-declared 2222 /nix/store/new "${age_key_dig
   || { echo "a different closure shares the credential receipt" >&2; exit 1; }
 [ "${first}" != "$(receipt_for "$(plan_for op-update 1111 /nix/store/new bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb)")" ] \
   || { echo "a different key shares the credential receipt" >&2; exit 1; }
-printf 'host transport identity, key refusal, interrupted activation retry, fresh login, and one receipt per reviewed activation: OK\n'
+# F121: the host closure builds on the context's builder through a pinned
+# tunnel, never on the machine's default builders.
+# activate's RETURN trap outlives it here; production calls nothing after it.
+trap - RETURN
+# shellcheck source=lib/builder.sh
+source "${script_dir}/lib/builder.sh"
+eval "$(sed -n '/^host_build() {/,/^}/p' "${script_dir}/inventory-host-transport.sh")"
+NIX_TRUSTED=true
+nix() {
+  printf 'nix %s\n' "$*" >> "${AUDIT_CALLS}"
+  case "$1" in
+    store) printf '{"trusted":%s}\n' "${NIX_TRUSTED}" ;;
+    build) printf '/nix/store/host-closure\n' ;;
+    *) return 98 ;;
+  esac
+}
+TARGET_PROJECT=labs-project NAGARE_CONTEXT=labs NAGARE_BUILDER_ZONE=us-west1-a NAGARE_BUILDER_INSTANCE=labs-builder
+NIX_BUILDER_SSH_KEY="${temporary}/builder-key" NIX_BUILDER_TUNNEL_PORT=28157
+NIX_BUILDER_HOST_KEY_B64="$(printf 'ssh-ed25519 fixture-key\n' | base64 | tr -d '\n')"
+NAGARE_BUILDER_PROJECT=shared-project
+: > "${AUDIT_CALLS}"
+if host_build ref > "${temporary}/shared.out" 2>&1; then
+  echo "a builder in another project was accepted" >&2; exit 1
+fi
+if grep -q '^nix ' "${AUDIT_CALLS}"; then
+  echo "a builder in another project reached nix" >&2; exit 1
+fi
+NAGARE_BUILDER_PROJECT=labs-project
+NIX_TRUSTED=false
+if host_build ref > "${temporary}/untrusted.out" 2>&1; then
+  echo "an untrusted daemon was accepted" >&2; exit 1
+fi
+if grep -q '^nix build' "${AUDIT_CALLS}"; then
+  echo "an untrusted daemon reached a build" >&2; exit 1
+fi
+NIX_TRUSTED=true
+: > "${AUDIT_CALLS}"
+[ "$(host_build ref)" = /nix/store/host-closure ]
+grep -q "^nix build --builders ssh-ng://builder@localhost:28157 x86_64-linux ${NIX_BUILDER_SSH_KEY} .* - ${NIX_BUILDER_HOST_KEY_B64} --no-link --no-update-lock-file --print-out-paths ref$" "${AUDIT_CALLS}"
+printf 'host transport identity, key refusal, interrupted activation retry, fresh login, one receipt per reviewed activation, and context-builder host builds: OK\n'
