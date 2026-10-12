@@ -31,11 +31,12 @@ import Nagare.Platform.Workspace (PayloadManifest)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
 import Nagare.Resource.Types
+import PlatformTransitionTableSpec (platformTransitionTableTests)
 import Test.Tasty
 import Test.Tasty.HUnit
 
 platformTransitionTests :: TestTree
-platformTransitionTests = testGroup "release transition (EP-172)" [compatibilityTests, markerTests, releaseEvidenceTests]
+platformTransitionTests = testGroup "release transition (EP-172)" [compatibilityTests, markerTests, releaseEvidenceTests, platformTransitionTableTests]
 
 -- | The publisher's proof: the rehearsal record binds the candidate and
 -- reports the outcome the release rule asks for.

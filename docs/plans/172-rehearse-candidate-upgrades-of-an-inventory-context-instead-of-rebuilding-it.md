@@ -4,6 +4,7 @@ slug: rehearse-candidate-upgrades-of-an-inventory-context-instead-of-rebuilding-
 title: "Move an inventory context to the next release through a reviewed transition"
 kind: exec-plan
 created_at: 2026-10-04T04:49:45Z
+intention: intention_01m4q3c0mde4jvy5tgva4h9cvk
 master_plan: "docs/masterplans/26-make-platform-changes-and-releases-routine-after-the-inventory-release.md"
 provenance:
   created_by:
@@ -21,6 +22,11 @@ provenance:
       at: 2026-10-10T02:46:57Z
       mode: "update"
       note: "Reference EP-183 (v0.4.0 intranet gaps)"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-12T04:00:08Z
+      mode: "implement"
+      note: "M1 transition table and two-release fixture; M2 open acceptance"
 ---
 
 # Move an inventory context to the next release through a reviewed transition
@@ -62,13 +68,26 @@ status` reports T on the CLI, payload, context, host and cluster.
 
 ## Progress
 
-- [ ] M1 (pure; MasterPlan 26 lane A): characterise the transition.
+- [x] (2026-10-11) M1 (pure; MasterPlan 26 lane A): characterise the transition.
   - The two-release fixture builds each scope from S's payload and from T's.
   - A recorded v0.4.0 store reads back under T's codecs.
   - Acceptance: a checked-in table of every state the transition must move (pin, workspace,
     platform scope declarations, host closure, cluster stamp `nagare-platform-version`, store head
     and journal wire), each with the operation that moves it or the reason it refuses. A test asserts
     the table matches what the fixture observes.
+  - Done: `Nagare.Platform.Transition.transitionTable` (rendered under Context and Orientation),
+    the fixture `cli/nagarectl/test/fixtures/transition-0.4.0/` written by
+    `scripts/record-transition-fixture.sh`, and `PlatformTransitionTableSpec`. The spec has five
+    cases, all green, under `-p '/transition table/'`:
+    - the extract's 120 files match `payload.sha256`;
+    - both v0.4.0 heads and the journal sample decode and re-encode byte for byte under T's codecs,
+      and pass `checkTransition`;
+    - each row's `observed` equals the fixture's, and per scope, T compiling both payloads agrees
+      with the S-accepted and T-accepted revisions the rehearsal recorded;
+    - the pin moves last and the stamp after every scope;
+    - the rendering has one line per row.
+
+    Flipping `foundation` to `Unchanged` fails the third case.
 - [ ] M2 (code and model; lane A): implement the reviewed transition and its compatibility table.
   - [x] (2026-10-10) The compatibility table: `transitionsFrom` in the payload manifest (0.5.0 lists
     0.4.0) and the pure check `Nagare.Platform.Transition.checkTransition`, which refuses an unpinned
@@ -135,6 +154,21 @@ status` reports T on the CLI, payload, context, host and cluster.
   refusal.
 
 
+- 2026-10-11 (M1): T's code refuses to compile S's local object store: "pinned MinIO manifest
+  digest changed" (F41). Compiling S's payload with T's code is therefore not something a
+  transition ever does; T's CLI always plans from T's workspace. The fixture asserts the refusal,
+  and the table's workspace row names it as the reason the workspace moves with the CLI.
+- 2026-10-11 (M1): with no marker open, v0.4.0's `inventory export` and `inventory restore`
+  rewrite the post-transition head byte for byte. A fresh v0.4.0 head has no `incarnations` key
+  and still decodes canonically under T. The head wire is unchanged in both directions until the
+  marker opens.
+- 2026-10-11 (M1): two methods agree on every platform scope they both see. One is T's code
+  compiling both payloads; the other is the revisions each release accepted in the M3 rehearsal.
+  Eight scopes differ only in their payload path (local-substrate, foundation and the five
+  observability scopes), and the stamp changes. `kubeconfig` and the other platform scopes are
+  unchanged, and so is the host's NixOS source.
+
+
 ## Decision Log
 
 - Decision: Prove upgrade mechanics only on disposable rehearsal contexts; leave work-data upgrade policy to MasterPlan 24 and MasterPlan 21.
@@ -185,6 +219,18 @@ status` reports T on the CLI, payload, context, host and cluster.
   a marker, a host mode and a pin step, and nothing speculative.
   Date: 2026-10-10
 
+- Decision (2026-10-11, M1): the recorded v0.4.0 store is bytes the v0.4.0 nagarectl wrote,
+  taken without a new native run:
+  - a fresh head from planning a scratch context;
+  - the M3 head as v0.4.0's own export and restore rewrite it;
+  - journal events from before the first transition review;
+  - both releases' revisions of every scope the transition re-declared.
+
+  Rationale: a fresh v0.4.0 bootstrap needs a Docker daemon whose k3d cluster name collides with
+  the kept M3 rehearsal. The M3 store already holds v0.4.0's journal and scope bytes; the fixture
+  test checks each recorded file's digest, so nothing in it was edited by hand.
+  Date: 2026-10-11
+
 ## Outcomes & Retrospective
 
 (To be filled during and after implementation.)
@@ -221,6 +267,39 @@ status` reports T on the CLI, payload, context, host and cluster.
   list the guards a transition must keep.
 - **Recovery model.** The EP-173 model (`cli/nagarectl/test/Nagare/Test/World/`, the recovery model
   specs) runs the real planner, driver and adapters under faults.
+
+**The transition table (M1).** `Nagare.Platform.Transition.transitionTable`, rendered by
+`renderTransitionTable`. The last column is what `PlatformTransitionTableSpec` observes from v0.4.0
+to the working tree. The test fails when that differs, so a release that changes a state updates
+its row:
+
+| Step | State | Source of truth | Moved by | Refuses | Recovery | v0.4.0 to this payload |
+|---|---|---|---|---|---|---|
+| 1 | PayloadWorkspace | ${XDG_STATE_HOME}/nagare/<context>/platform/<payloadId>-<digest>, selected by payload digest | platform transition plan prepares the target payload's workspace beside the source's; local and outside the store | a workspace whose manifest disagrees with the payload refuses before planning; this release refuses the source payload's MinIO manifest (F41), so the workspace moves with the CLI | prepared again from the immutable payload; the source workspace is kept | Changed |
+| 2 | StoreHead | head.json in the inventory store: wire version and transition marker | admission of the first transition review opens the marker (source, target payload, start); later transition reviews keep it; the commit clears it after the pin | planning refuses a head wire version outside the payload's minimumInventorySchemaVersion to inventorySchemaVersion; while the marker is open, admission refuses any other review and apply, resume, recover and close refuse under a CLI whose payload is not the target | the marker survives every stop; resume, recover and close with the target's nagarectl | Unchanged |
+| - | JournalWire | journal/<sequence>.json in the inventory store | nothing: the target reads the source's events and appends at the same wire version | a release that changes the journal wire ships a reviewed migration step with a model scenario, or does not ship the change | none needed | Unchanged |
+| 3 | platform scope local-substrate | accepted scope platform:local-substrate | re-accepted at a new revision with no operation; only its members' payload path differs | admission refuses a review whose base revisions are not the head's accepted ones | inventory resume, recover and close of the stage's transaction | SourcePathsOnly |
+| 4 | CloudScopes | accepted cloud-foundation, cloud, host-image-build, host-image, cache and cache-image scopes | the cloud stages are planned again from the target payload; an accepted host is re-pinned, never re-imaged | planning refuses a cloud context whose cloud foundation is not accepted | inventory resume, recover and close of the stage's transaction | NotInLocalContext |
+| 5 | HostClosure | the host flake's nagare input, the payload's NixOS source (scope host) | the host stage re-targets the input to the target payload's NixOS source, re-locks it, and applies the reviewed self-reverting activation (ADR 11) | hostLockRepin refuses a lock that leaves the payload; a local context has no host | the activation reverts itself unless confirmed; resume or recover the host operation | Unchanged |
+| 6 | platform scope kubeconfig | accepted scope platform:kubeconfig | nothing: the planner keeps the accepted revision | admission refuses a review whose base revisions are not the head's accepted ones | inventory resume, recover and close of the stage's transaction | Unchanged |
+| 7 | platform scope auth | accepted scope platform:auth | nothing: the planner keeps the accepted revision | admission refuses a review whose base revisions are not the head's accepted ones | inventory resume, recover and close of the stage's transaction | Unchanged |
+| 7 | platform scope cert-manager | accepted scope platform:cert-manager | nothing: the planner keeps the accepted revision | admission refuses a review whose base revisions are not the head's accepted ones | inventory resume, recover and close of the stage's transaction | Unchanged |
+| 7 | platform scope certificate-issuer | accepted scope platform:certificate-issuer | nothing: the planner keeps the accepted revision | admission refuses a review whose base revisions are not the head's accepted ones | inventory resume, recover and close of the stage's transaction | Unchanged |
+| 7 | platform scope foundation | accepted scope platform:foundation | re-accepted at a new revision with no operation; only its members' payload path differs | admission refuses a review whose base revisions are not the head's accepted ones | inventory resume, recover and close of the stage's transaction | SourcePathsOnly |
+| 7 | platform scope kourier | accepted scope platform:kourier | nothing: the planner keeps the accepted revision | admission refuses a review whose base revisions are not the head's accepted ones | inventory resume, recover and close of the stage's transaction | Unchanged |
+| 7 | platform scope local-object-store | accepted scope platform:local-object-store | nothing: the planner keeps the accepted revision | admission refuses a review whose base revisions are not the head's accepted ones | inventory resume, recover and close of the stage's transaction | Unchanged |
+| 7 | platform scope net-certmanager | accepted scope platform:net-certmanager | nothing: the planner keeps the accepted revision | admission refuses a review whose base revisions are not the head's accepted ones | inventory resume, recover and close of the stage's transaction | Unchanged |
+| 7 | platform scope net-controller-image | accepted scope platform:net-controller-image | nothing: the planner keeps the accepted revision | admission refuses a review whose base revisions are not the head's accepted ones | inventory resume, recover and close of the stage's transaction | Unchanged |
+| 7 | platform scope observability-extra | accepted scope platform:observability-extra | nothing: the planner keeps the accepted revision | admission refuses a review whose base revisions are not the head's accepted ones | inventory resume, recover and close of the stage's transaction | Unchanged |
+| 7 | platform scope observability-otel-collector | accepted scope platform:observability-otel-collector | re-accepted at a new revision with no operation; only its members' payload path differs | admission refuses a review whose base revisions are not the head's accepted ones | inventory resume, recover and close of the stage's transaction | SourcePathsOnly |
+| 7 | platform scope observability-secrets | accepted scope platform:observability-secrets | nothing: the planner keeps the accepted revision | admission refuses a review whose base revisions are not the head's accepted ones | inventory resume, recover and close of the stage's transaction | Unchanged |
+| 7 | platform scope observability-victoria-logs | accepted scope platform:observability-victoria-logs | re-accepted at a new revision with no operation; only its members' payload path differs | admission refuses a review whose base revisions are not the head's accepted ones | inventory resume, recover and close of the stage's transaction | SourcePathsOnly |
+| 7 | platform scope observability-victoria-logs-collector | accepted scope platform:observability-victoria-logs-collector | re-accepted at a new revision with no operation; only its members' payload path differs | admission refuses a review whose base revisions are not the head's accepted ones | inventory resume, recover and close of the stage's transaction | SourcePathsOnly |
+| 7 | platform scope observability-victoria-traces | accepted scope platform:observability-victoria-traces | re-accepted at a new revision with no operation; only its members' payload path differs | admission refuses a review whose base revisions are not the head's accepted ones | inventory resume, recover and close of the stage's transaction | SourcePathsOnly |
+| 7 | platform scope observability-vmks | accepted scope platform:observability-vmks | re-accepted at a new revision with no operation; only its members' payload path differs | admission refuses a review whose base revisions are not the head's accepted ones | inventory resume, recover and close of the stage's transaction | SourcePathsOnly |
+| 7 | platform scope serving | accepted scope platform:serving | nothing: the planner keeps the accepted revision | admission refuses a review whose base revisions are not the head's accepted ones | inventory resume, recover and close of the stage's transaction | Unchanged |
+| 8 | ClusterStamp | ConfigMap nagare-platform-version in nagare-system, accepted as scope bootstrap-stamp | one reviewed update in the platform stage, ordered after every other member of that review | platform transition commit refuses while the cluster marker does not report the target | inventory resume, recover and close; plan the stage again | Changed |
+| 9 | ContextPin | NAGARE_PLATFORM_VERSION in ${XDG_CONFIG_HOME}/nagare/contexts/<context>.env | platform transition commit writes it last, then clears the marker | planning refuses an unpinned context, a pin equal to the target, and a pin the payload's transitionsFrom does not list; the commit refuses unless the head is idle, the marker names this payload, and payload, host and cluster report the target | until the commit, the context is still pinned to the source and the target's nagarectl owns completion | Changed |
 
 **What MasterPlan 23 learned that bears on this.**
 - A candidate CLI pointed at an older payload workspace can refuse at planning. After F41 the CLI

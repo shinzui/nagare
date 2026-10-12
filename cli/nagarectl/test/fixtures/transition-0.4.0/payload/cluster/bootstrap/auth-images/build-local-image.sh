@@ -1,0 +1,437 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat >&2 <<'USAGE'
+Usage: cluster/bootstrap/auth-images/build-local-image.sh <nagare-access|shomei|en> [tag]
+
+Builds one auth-plane image from local source checkouts instead of fetching the
+private shomei/en repositories during Docker build.
+
+Relevant environment variables:
+  NAGARE_AUTH_PUSH=0             Build locally without pushing.
+  NAGARE_AUTH_BUILDER=docker     Builder: docker, cloud-build, or k3s-import.
+  NAGARE_AUTH_TAG=<tag>          Default tag when [tag] is omitted.
+  NAGARE_AUTH_IMAGE=<image>      Exact image reference override.
+  NAGARE_ACCESS_IMAGE=<image>    Exact image override for nagare-access.
+  SHOMEI_IMAGE=<image>           Exact image override for shomei.
+  EN_IMAGE=<image>               Exact image override for en.
+  NAGARE_REGISTRY_HOST=<host>    Default: us-west1-docker.pkg.dev
+  NAGARE_ARTIFACT_REGISTRY_ID=<repo>  Default: nagare
+  NAGARE_CONTAINER_PLATFORM=<platform> Default: linux/amd64
+  NAGARE_AUTH_CABAL_BUILD_FLAGS=<flags> Default: --jobs=1
+  NAGARE_AUTH_CLOUD_BUILD_REGION=<region> Default: us-west1
+  NAGARE_AUTH_CLOUD_BUILD_MACHINE_TYPE=<type> Default: e2-highcpu-32
+  NAGARE_AUTH_CLOUD_BUILD_TIMEOUT=<duration> Default: 2h
+  NAGARE_AUTH_REMOTE_INSTANCE=<instance> Default: nagare-01
+  NAGARE_AUTH_K3S_IMAGE_PREFIX=<prefix> Default: dev.local/nagare-auth
+  SHOMEI_SRC=<path>              Default: ../shomei sibling checkout.
+  EN_SRC=<path>                  Default: ../en sibling checkout.
+USAGE
+}
+
+fail() {
+  echo "error: $*" >&2
+  exit 1
+}
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+root="$(cd "$script_dir/../../.." && pwd)"
+# shellcheck source=scripts/lib/release.sh
+source "$root/scripts/lib/release.sh"
+# Resolve the active target context and make the configurable, fail-closed
+# guardrail available (EP-113). Sourcing exports CLOUDSDK_* / NAGARE_* and
+# TARGET_PROJECT; it does NOT itself refuse — `_require_target_project` does,
+# and this script calls it before every cloud mutation.
+# shellcheck source=scripts/lib/target.sh
+source "$root/scripts/lib/target.sh"
+service="${1:-}"
+[[ -n "$service" ]] || { usage; exit 2; }
+shift || true
+
+case "$service" in
+  nagare-access|shomei|en) ;;
+  *) usage; exit 2 ;;
+esac
+
+tag="${1:-${NAGARE_AUTH_TAG:-$(nagare_release_source_tag "$root")}}"
+registry_host="${NAGARE_REGISTRY_HOST:-us-west1-docker.pkg.dev}"
+artifact_repository="${NAGARE_ARTIFACT_REGISTRY_ID:-nagare}"
+# Local mode (NAGARE_MODE=local, MasterPlan 16 Integration Point 1) builds for
+# the host architecture so the image runs on the local k3d node; default the
+# container platform to NAGARE_TARGET_PLATFORM from the profile when set.
+platform="${NAGARE_CONTAINER_PLATFORM:-${NAGARE_TARGET_PLATFORM:-linux/amd64}}"
+push="${NAGARE_AUTH_PUSH:-1}"
+builder="${NAGARE_AUTH_BUILDER:-docker}"
+mode="${NAGARE_MODE:-cloud}"
+
+case "$builder" in
+  docker|cloud-build|k3s-import) ;;
+  *) fail "unsupported NAGARE_AUTH_BUILDER=$builder; expected docker, cloud-build, or k3s-import" ;;
+esac
+
+if [[ "$builder" == "cloud-build" && "$push" != "1" ]]; then
+  fail "NAGARE_AUTH_BUILDER=cloud-build requires NAGARE_AUTH_PUSH=1 because the image is produced remotely"
+fi
+
+# The project comes ONLY from the resolved context (EP-113). There is deliberately
+# no `gcloud config get-value project` fallback: an ambient gcloud default is not
+# the Nagare target, and reading it is how a build lands in a production project.
+# In local mode there is no project at all, and gcloud must never be invoked
+# (MasterPlan 16 Integration Point 2).
+project=""
+if [[ "$mode" != "local" ]]; then
+  project="${CLOUDSDK_CORE_PROJECT:-}"
+fi
+
+if [[ "$builder" == "cloud-build" && ( -z "$project" || "$project" == "(unset)" ) ]]; then
+  fail "NAGARE_AUTH_BUILDER=cloud-build requires an active cloud context that declares a project (see 'nagarectl context use')"
+fi
+
+image_override="${NAGARE_AUTH_IMAGE:-}"
+case "$service" in
+  nagare-access) image_override="${NAGARE_ACCESS_IMAGE:-$image_override}" ;;
+  shomei) image_override="${SHOMEI_IMAGE:-$image_override}" ;;
+  en) image_override="${EN_IMAGE:-$image_override}" ;;
+esac
+
+if [[ -n "$image_override" ]]; then
+  image="$image_override"
+elif [[ "$mode" == "local" ]]; then
+  # Local registry name: <registry-host>/<service>:<tag>, no GCP project segment.
+  image="${NAGARE_REGISTRY_HOST:?NAGARE_REGISTRY_HOST must be set in local mode}/${service}:${tag}"
+elif [[ "$builder" == "k3s-import" ]]; then
+  image="${NAGARE_AUTH_K3S_IMAGE_PREFIX:-dev.local/nagare-auth}/${service}:${tag}"
+elif [[ -n "$project" && "$project" != "(unset)" ]]; then
+  image="${registry_host}/${project}/${artifact_repository}/${service}:${tag}"
+elif [[ "$push" == "1" ]]; then
+  fail "the active context declares no project; pushing needs one (see 'nagarectl context use')."
+else
+  image="nagare-auth/${service}:${tag}"
+fi
+
+shomei_src="${SHOMEI_SRC:-/Users/shinzui/Keikaku/bokuno/shomei}"
+en_src="${EN_SRC:-/Users/shinzui/Keikaku/bokuno/en}"
+
+required_sources=()
+case "$service" in
+  nagare-access) required_sources+=("$shomei_src" "$en_src") ;;
+  shomei) required_sources+=("$shomei_src") ;;
+  en) required_sources+=("$en_src") ;;
+esac
+for path in "${required_sources[@]}"; do
+  [[ -d "$path" ]] || fail "required source directory does not exist: $path"
+done
+
+tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/nagare-auth-image.XXXXXX")"
+cleanup() {
+  rm -rf "$tmpdir"
+}
+trap cleanup EXIT
+
+copy_tree() {
+  local src="$1"
+  local dst="$2"
+  mkdir -p "$(dirname "$dst")"
+  rsync -a \
+    --exclude '.git' \
+    --exclude '.direnv' \
+    --exclude '.dev' \
+    --exclude '.stack-work' \
+    --exclude 'db' \
+    --exclude 'dist-newstyle' \
+    --exclude 'node_modules' \
+    --exclude 'result' \
+    --exclude 'result-*' \
+    --exclude '.ghc.environment.*' \
+    --exclude '.live-test' \
+    --exclude '*.sock' \
+    --exclude '.s.PGSQL.*' \
+    "$src"/ "$dst"/
+}
+
+dependency_tag_from_project() {
+  local location="$1"
+  local project_file="$2"
+  awk -v location="$location" '
+    $1 == "location:" && $2 == location { matching = 1; next }
+    matching && $1 == "tag:" { print $2; exit }
+    matching && $1 == "source-repository-package" { matching = 0 }
+  ' "$project_file"
+}
+
+copy_tree_at_ref() {
+  local src="$1"
+  local ref="$2"
+  local dst="$3"
+  [[ -n "$ref" ]] || fail "dependency pin is empty for $src"
+  git -C "$src" cat-file -e "${ref}^{commit}" 2>/dev/null \
+    || fail "dependency pin $ref is unavailable in $src; refresh the Mori source checkout"
+  mkdir -p "$dst"
+  git -C "$src" archive "$ref" | tar -x -C "$dst"
+}
+
+mkdir -p "$tmpdir/workspace/deps" "$tmpdir/runtime/usr/local/bin"
+cp "$script_dir/Dockerfile.local-haskell" "$tmpdir/Dockerfile.local-haskell"
+copy_tree "$root" "$tmpdir/workspace/nagare"
+case "$service" in
+  nagare-access)
+    # Build the enforcer against the exact API revisions selected by its
+    # standalone Cabal project. The sibling checkouts are Mori source mirrors,
+    # but their working-tree HEADs can legitimately be newer than Nagare's pins.
+    # See mori://shinzui/en and mori://shinzui/shomei.
+    access_project="$root/cli/nagare-access/cabal.project"
+    en_ref="$(dependency_tag_from_project "https://github.com/shinzui/en.git" "$access_project")"
+    shomei_ref="$(dependency_tag_from_project "https://github.com/shinzui/shomei.git" "$access_project")"
+    copy_tree_at_ref "$en_src" "$en_ref" "$tmpdir/workspace/en"
+    copy_tree_at_ref "$shomei_src" "$shomei_ref" "$tmpdir/workspace/shomei"
+    ;;
+  en) copy_tree "$en_src" "$tmpdir/workspace/en" ;;
+  shomei) copy_tree "$shomei_src" "$tmpdir/workspace/shomei" ;;
+esac
+
+write_common_cabal_tail() {
+  cat <<'EOF'
+source-repository-package
+  type: git
+  location: https://github.com/shinzui/webauthn.git
+  tag: c274e23a5e31aac8932bac6398b65e8bca584a99
+
+package webauthn
+  tests: False
+  benchmarks: False
+
+allow-newer:
+  webauthn:*
+EOF
+}
+
+write_shomei_packages() {
+  cat <<'EOF'
+  shomei/shomei-core
+  shomei/shomei-jwt
+  shomei/shomei-webauthn
+  shomei/shomei-postgres
+  shomei/shomei-migrations
+  shomei/shomei-servant
+  shomei/shomei-server
+  shomei/shomei-client
+EOF
+}
+
+write_en_packages() {
+  cat <<'EOF'
+  en/en-core
+  en/en-biscuit
+  en/en-migrations
+  en/en-postgres
+  en/en-servant
+  en/en-server
+  en/en-client
+EOF
+}
+
+write_en_cabal_tail() {
+  cat <<'EOF'
+
+-- mori://shinzui/biscuit-haskell
+source-repository-package
+  type: git
+  location: https://github.com/shinzui/biscuit-haskell.git
+  tag: 8c0b3c5a13ce4a310737c0336f2ae167a1597588
+  subdir: biscuit
+
+-- mori://shinzui/hs-opentelemetry-instrumentation-servant
+source-repository-package
+  type: git
+  location: https://github.com/shinzui/hs-opentelemetry-instrumentation-servant.git
+  tag: 7a6f692e85295f965cd1827f9354c28af9e62742
+EOF
+}
+
+cabal_targets=()
+cabal_binaries=()
+case "$service" in
+  nagare-access)
+    cabal_targets=(exe:nagare-access)
+    cabal_binaries=(exe:nagare-access)
+    {
+      cat <<'EOF'
+with-compiler: ghc-9.12.4
+write-ghc-environment-files: never
+
+constraints:
+  time ==1.14,
+  crypton-x509-validation >=1.9.1,
+  crypton >=1.1
+
+packages:
+  nagare/cli/nagare-access
+  nagare/cli/nagare-dsl
+EOF
+      write_shomei_packages
+      write_en_packages
+      write_common_cabal_tail
+      write_en_cabal_tail
+    } > "$tmpdir/workspace/cabal.project"
+    cat > "$tmpdir/runtime/usr/local/bin/auth-entrypoint" <<'EOF'
+#!/usr/bin/env sh
+set -eu
+exec /usr/local/bin/nagare-access "$@"
+EOF
+    ;;
+  shomei)
+    cabal_targets=(exe:shomei-server exe:shomei-admin exe:shomei-migrate)
+    cabal_binaries=(exe:shomei-server exe:shomei-admin exe:shomei-migrate)
+    {
+      cat <<'EOF'
+with-compiler: ghc-9.12.4
+write-ghc-environment-files: never
+
+constraints:
+  crypton-x509-validation >=1.9.1,
+  crypton >=1.1
+
+packages:
+EOF
+      write_shomei_packages
+      write_common_cabal_tail
+    } > "$tmpdir/workspace/cabal.project"
+    cp "$shomei_src/deploy/entrypoint.sh" "$tmpdir/runtime/usr/local/bin/auth-entrypoint"
+    ;;
+  en)
+    cabal_targets=(exe:en-server exe:en-migrate)
+    cabal_binaries=(exe:en-server exe:en-migrate)
+    {
+      cat <<'EOF'
+with-compiler: ghc-9.12.4
+write-ghc-environment-files: never
+
+constraints:
+  crypton >=1.1
+
+packages:
+EOF
+      write_en_packages
+      write_en_cabal_tail
+    } > "$tmpdir/workspace/cabal.project"
+    cat > "$tmpdir/runtime/usr/local/bin/auth-entrypoint" <<'EOF'
+#!/usr/bin/env sh
+set -eu
+exec /usr/local/bin/en-server "$@"
+EOF
+    ;;
+esac
+
+chmod 0555 "$tmpdir/runtime/usr/local/bin/auth-entrypoint"
+
+if [[ "$builder" == "cloud-build" ]]; then
+  region="${NAGARE_AUTH_CLOUD_BUILD_REGION:-us-west1}"
+  machine_type="${NAGARE_AUTH_CLOUD_BUILD_MACHINE_TYPE:-e2-highcpu-32}"
+  timeout="${NAGARE_AUTH_CLOUD_BUILD_TIMEOUT:-2h}"
+  cat > "$tmpdir/cloudbuild.yaml" <<EOF
+steps:
+  - name: gcr.io/cloud-builders/docker
+    env:
+      - DOCKER_BUILDKIT=1
+    args:
+      - build
+      - --platform
+      - "$platform"
+      - --build-arg
+      - "CABAL_TARGETS=${cabal_targets[*]}"
+      - --build-arg
+      - "CABAL_BINARIES=${cabal_binaries[*]}"
+      - --build-arg
+      - "CABAL_BUILD_FLAGS=${NAGARE_AUTH_CABAL_BUILD_FLAGS:---jobs=1}"
+      - -f
+      - Dockerfile.local-haskell
+      - -t
+      - "$image"
+      - .
+images:
+  - "$image"
+EOF
+  # Cloud mutation: refuse unless the effective project agrees with the active
+  # context (EP-113). This must run BEFORE the submit, not after it.
+  _require_target_project
+  gcloud builds submit "$tmpdir" \
+    --config "$tmpdir/cloudbuild.yaml" \
+    --project "$project" \
+    --region "$region" \
+    --machine-type "$machine_type" \
+    --timeout "$timeout"
+elif [[ "$builder" == "k3s-import" ]]; then
+  remote_instance="${NAGARE_AUTH_REMOTE_INSTANCE:-nagare-01}"
+  safe_tag="${tag//[^A-Za-z0-9_.-]/-}"
+  archive="${TMPDIR:-/tmp}/nagare-auth-image-${service}-${safe_tag}-$$.tar.gz"
+  remote_archive="/tmp/nagare-auth-image-${service}-${safe_tag}-$$.tar.gz"
+  rm -f "$archive"
+  trap 'cleanup; rm -f "$archive"' EXIT
+  tar -C "$tmpdir" -czf "$archive" .
+  "$root/scripts/iap-ssh.sh" scp "$archive" "${remote_instance}:${remote_archive}"
+  remote_script=$(cat <<EOF
+set -euo pipefail
+remote_archive=$(printf '%q' "$remote_archive")
+image=$(printf '%q' "$image")
+platform=$(printf '%q' "$platform")
+cabal_targets=$(printf '%q' "${cabal_targets[*]}")
+cabal_binaries=$(printf '%q' "${cabal_binaries[*]}")
+cabal_build_flags=$(printf '%q' "${NAGARE_AUTH_CABAL_BUILD_FLAGS:---jobs=1}")
+workdir=\$(mktemp -d /tmp/nagare-auth-build.XXXXXX)
+cleanup() {
+  set +e
+  if [ -n "\${workdir:-}" ] && [ -d "\$workdir" ]; then
+    HOME="\$workdir/home" nix shell nixpkgs#podman -c podman image rm "\$image" >/dev/null 2>&1 || true
+    HOME="\$workdir/home" nix shell nixpkgs#podman -c podman system reset -f >/dev/null 2>&1 || true
+    HOME="\$workdir/home" nix shell nixpkgs#podman -c podman unshare rm -rf "\$workdir/home/.local/share/containers" >/dev/null 2>&1 || true
+    rm -rf "\$workdir"
+  fi
+  rm -f "\$remote_archive"
+}
+trap cleanup EXIT
+tar -xzf "\$remote_archive" -C "\$workdir"
+mkdir -p "\$workdir/home/.config/containers"
+printf '%s\n' '{"default":[{"type":"insecureAcceptAnything"}]}' > "\$workdir/home/.config/containers/policy.json"
+HOME="\$workdir/home" nix shell nixpkgs#podman -c podman build \
+  --platform "\$platform" \
+  --build-arg "CABAL_TARGETS=\$cabal_targets" \
+  --build-arg "CABAL_BINARIES=\$cabal_binaries" \
+  --build-arg "CABAL_BUILD_FLAGS=\$cabal_build_flags" \
+  -f "\$workdir/Dockerfile.local-haskell" \
+  -t "\$image" \
+  "\$workdir"
+HOME="\$workdir/home" nix shell nixpkgs#podman -c podman save -o "\$workdir/image.tar" "\$image"
+sudo k3s ctr images import "\$workdir/image.tar" >/dev/null
+sudo k3s ctr images list name=="\$image"
+EOF
+)
+  "$root/scripts/iap-ssh.sh" ssh "$remote_instance" -- "$remote_script"
+else
+  docker build \
+    --platform "$platform" \
+    --build-arg "CABAL_TARGETS=${cabal_targets[*]}" \
+    --build-arg "CABAL_BINARIES=${cabal_binaries[*]}" \
+    --build-arg "CABAL_BUILD_FLAGS=${NAGARE_AUTH_CABAL_BUILD_FLAGS:---jobs=1}" \
+    -f "$tmpdir/Dockerfile.local-haskell" \
+    -t "$image" \
+    "$tmpdir"
+
+  if [[ "$push" == "1" ]]; then
+    if [[ "$mode" == "local" ]]; then
+      # Local registry is plain HTTP and unauthenticated; push straight to it
+      # without gcloud (MasterPlan 16 Integration Point 2). The host-side
+      # insecure-registries prerequisite is documented in nagare.local.env.example.
+      docker push "$image"
+    else
+      # Cloud mutation: the pushed image name embeds the project, so refuse
+      # unless the effective project agrees with the active context (EP-113).
+      # The call sits inside the cloud arm so local mode stays gcloud-free.
+      _require_target_project
+      gcloud auth configure-docker "$registry_host" --quiet
+      docker push "$image"
+    fi
+  fi
+fi
+
+echo "$image"

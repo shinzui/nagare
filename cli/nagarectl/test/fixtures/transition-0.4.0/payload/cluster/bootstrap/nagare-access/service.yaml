@@ -1,0 +1,82 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: nagare-access
+  namespace: nagare-system
+  labels:
+    app.kubernetes.io/name: nagare-access
+    app.kubernetes.io/part-of: nagare-auth-plane
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/min-scale: "1"
+        autoscaling.knative.dev/max-scale: "1"
+    spec:
+      containers:
+        - image: ${NAGARE_REGISTRY_PREFIX}/nagare-access:${NAGARE_AUTH_TAG}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            seccompProfile:
+              type: RuntimeDefault
+          # Floor + memory cap (no CPU limit). Stateless proxy; its only cache
+          # is the 30s decision TTL below.
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+          ports:
+            - containerPort: 8080
+          env:
+            - name: NAGARE_ACCESS_LISTEN
+              value: ":8080"
+            - name: NAGARE_ACCESS_SHOMEI_URL
+              value: "http://shomei.nagare-system.svc.cluster.local"
+            - name: NAGARE_ACCESS_SHOMEI_ISSUER
+              value: "nagare-shomei"
+            - name: NAGARE_ACCESS_SHOMEI_AUDIENCE
+              value: "nagare-access"
+            - name: NAGARE_ACCESS_EN_URL
+              value: "http://en.nagare-system.svc.cluster.local"
+            - name: NAGARE_ACCESS_COOKIE_DOMAIN
+              value: "${NAGARE_ACCESS_COOKIE_DOMAIN}"
+            - name: NAGARE_ACCESS_COOKIE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: nagare-access
+                  key: cookie-key
+            - name: NAGARE_ACCESS_BACKENDS
+              value: "/etc/nagare-access/backends/backends.json"
+            - name: NAGARE_ACCESS_DECISION_TTL
+              value: "30"
+            # Keep this appended: local-auth/install.sh patches the cookie
+            # domain by its stable env index (5).
+            - name: NAGARE_ACCESS_EN_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: nagare-en-api-keys
+                  key: read-only
+          readinessProbe:
+            httpGet:
+              path: /_nagare/healthz
+              port: 8080
+          livenessProbe:
+            httpGet:
+              path: /_nagare/healthz
+              port: 8080
+          volumeMounts:
+            - name: backends
+              mountPath: /etc/nagare-access/backends
+              readOnly: true
+      volumes:
+        - name: backends
+          configMap:
+            name: nagare-access-backends

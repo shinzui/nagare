@@ -674,6 +674,7 @@ test-suite nagarectl-test
     PlatformCutoverSpec
     PlatformSpec
     PlatformTransitionSpec
+    PlatformTransitionTableSpec
     ShomeiUserSpec
 
   build-depends:

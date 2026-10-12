@@ -1,0 +1,24 @@
+# Patch body for the knative-serving `config-features` ConfigMap.
+#
+# Enables PersistentVolumeClaim (PVC) volumes on Knative Services so Nagare apps
+# can mount durable storage (the `local-path` data disk at
+# /var/lib/nagare/local-path). Verified by EP-33's spike: a ksvc mounting a
+# local-path ReadWriteOnce PVC keeps its data across a revision roll and a
+# scale-to-zero cycle.
+#
+#   - kubernetes.podspec-persistent-volume-claim: enabled
+#       Allow a Service pod template to declare a `persistentVolumeClaim` volume.
+#   - kubernetes.podspec-persistent-volume-write: enabled
+#       Allow that PVC volume to be mounted READ-WRITE (without this, Knative
+#       forces PVC mounts read-only). Both are required for SQLite / uploads.
+#
+# Applied as a merge patch onto the upstream-installed ConfigMap, like the other
+# files here (it does NOT replace the whole ConfigMap or its release labels):
+#   kubectl -n knative-serving patch configmap config-features \
+#     --type merge --patch "$(cat cluster/bootstrap/knative-serving/config-features.yaml)"
+#
+# Knative re-reconciles config-features live; no controller restart is needed.
+# A Service must be (re)deployed to pick up volume support.
+data:
+  kubernetes.podspec-persistent-volume-claim: "enabled"
+  kubernetes.podspec-persistent-volume-write: "enabled"

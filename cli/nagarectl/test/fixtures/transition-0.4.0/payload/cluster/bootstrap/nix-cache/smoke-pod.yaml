@@ -1,0 +1,116 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nagare-nix-cache-smoke-source
+  namespace: personal
+data:
+  flake.nix: |
+    {
+      description = "Deterministic Nagare Attic substitution smoke path";
+
+      inputs.nixpkgs.url = "github:NixOS/nixpkgs/9b008d60392981ad674e04016d25619281550a9d";
+
+      outputs = { nixpkgs, ... }:
+        let
+          forSystem = system: nixpkgs.legacyPackages.${system}.writeText "nagare-attic-smoke" ''
+            nagare-attic-smoke-v1
+          '';
+          linuxSmoke = forSystem "x86_64-linux";
+        in
+        {
+          packages.x86_64-linux.default = linuxSmoke;
+          packages.aarch64-linux.default = linuxSmoke;
+          packages.aarch64-darwin.default = linuxSmoke;
+          packages.x86_64-darwin.default = linuxSmoke;
+        };
+    }
+  flake.lock: |
+    {
+      "nodes": {
+        "nixpkgs": {
+          "locked": {
+            "lastModified": 1751949589,
+            "narHash": "sha256-mgFxAPLWw0Kq+C8P3dRrZrOYEQXOtKuYVlo9xvPntt8=",
+            "owner": "NixOS",
+            "repo": "nixpkgs",
+            "rev": "9b008d60392981ad674e04016d25619281550a9d",
+            "type": "github"
+          },
+          "original": {
+            "owner": "NixOS",
+            "repo": "nixpkgs",
+            "rev": "9b008d60392981ad674e04016d25619281550a9d",
+            "type": "github"
+          }
+        },
+        "root": {"inputs": {"nixpkgs": "nixpkgs"}}
+      },
+      "root": "root",
+      "version": 7
+    }
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nix-cache-smoke
+  namespace: personal
+  labels: {nagare.dev/nix-cache-client: "true"}
+spec:
+  restartPolicy: Never
+  automountServiceAccountToken: false
+  securityContext: {seccompProfile: {type: RuntimeDefault}}
+  containers:
+    - name: nix
+      image: nixos/nix@sha256:85169a7ff4ac6928b70b15ced20c74770e07e8fbc7f97e92f64c1fca47ea9486
+      command: ["sh", "-ceu"]
+      args:
+        - |
+          smoke_path=/nix/store/1rp5453vmy2839v1frykkx9wa578gsam-nagare-attic-smoke
+          out="$(nix-store --realise "$smoke_path" --option max-jobs 0 --option fallback false)"
+          test "$(cat "$out")" = nagare-attic-smoke-v1
+          echo "substituted $out from http://nix-cache-internal.nagare-system.svc.cluster.local:8080/nagare-cache"
+      securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: ["ALL"], add: ["CHOWN"]}}
+      volumeMounts:
+        - {name: nix-config, mountPath: /etc/nix/nix.conf, subPath: nix.conf, readOnly: true}
+        - {name: source, mountPath: /source, readOnly: true}
+  volumes:
+    - name: nix-config
+      configMap: {name: nagare-nix-cache-client}
+    - name: source
+      configMap: {name: nagare-nix-cache-smoke-source}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nix-cache-smoke-wrong-key
+  namespace: personal
+  labels: {nagare.dev/nix-cache-client: "true"}
+spec:
+  restartPolicy: Never
+  automountServiceAccountToken: false
+  securityContext: {seccompProfile: {type: RuntimeDefault}}
+  containers:
+    - name: nix
+      image: nixos/nix@sha256:85169a7ff4ac6928b70b15ced20c74770e07e8fbc7f97e92f64c1fca47ea9486
+      command: ["sh", "-ceu"]
+      args:
+        - |
+          smoke_path=/nix/store/1rp5453vmy2839v1frykkx9wa578gsam-nagare-attic-smoke
+          if output="$(nix-store --realise "$smoke_path" --option max-jobs 0 --option fallback false 2>&1)"; then
+            echo "unexpectedly trusted the wrong key" >&2
+            exit 1
+          fi
+          printf '%s\n' "$output"
+          printf '%s\n' "$output" | grep -Eiq 'signature|signed by.*key|trusted-public-key'
+          echo "wrong key rejected as expected"
+      env:
+        - name: NIX_CONFIG
+          value: |
+            substituters = http://nix-cache-internal.nagare-system.svc.cluster.local:8080/nagare-cache
+            trusted-public-keys = nagare-cache-1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: ["ALL"], add: ["CHOWN"]}}
+      volumeMounts:
+        - {name: source, mountPath: /source, readOnly: true}
+  volumes:
+    - name: source
+      configMap: {name: nagare-nix-cache-smoke-source}

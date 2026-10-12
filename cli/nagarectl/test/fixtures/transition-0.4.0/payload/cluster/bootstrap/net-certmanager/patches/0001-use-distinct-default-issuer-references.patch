@@ -1,0 +1,86 @@
+From: Nagare maintainers
+Subject: [PATCH] fix(config): keep certificate issuer defaults independent
+
+Each issuer role must start with its own ObjectReference. Reusing one pointer
+causes unmarshalling a later role to overwrite every earlier role, collapsing
+external, cluster-local, and system-internal certificate policy to one issuer.
+
+Add a combined configuration case because the existing tests cover each key in
+isolation and therefore miss the aliasing.
+---
+ pkg/reconciler/certificate/config/cert_manager.go      |  9 ++++++---
+ pkg/reconciler/certificate/config/cert_manager_test.go | 30 +++++++++++++++++++++++++++++-
+ 2 files changed, 35 insertions(+), 4 deletions(-)
+
+diff --git a/pkg/reconciler/certificate/config/cert_manager.go b/pkg/reconciler/certificate/config/cert_manager.go
+index ab021e4..37dbf30 100644
+--- a/pkg/reconciler/certificate/config/cert_manager.go
++++ b/pkg/reconciler/certificate/config/cert_manager.go
+@@ -49,11 +49,14 @@ type CertManagerConfig struct {
+ 
+ // NewCertManagerConfigFromConfigMap creates an CertManagerConfig from the supplied ConfigMap
+ func NewCertManagerConfigFromConfigMap(configMap *corev1.ConfigMap) (*CertManagerConfig, error) {
+ 	// Use Knative self-signed ClusterIssuer as default
++	defaultIssuerRef := *knativeSelfSignedIssuer
++	defaultClusterLocalIssuerRef := *knativeSelfSignedIssuer
++	defaultSystemInternalIssuerRef := *knativeSelfSignedIssuer
+ 	config := &CertManagerConfig{
+-		IssuerRef:               knativeSelfSignedIssuer,
+-		ClusterLocalIssuerRef:   knativeSelfSignedIssuer,
+-		SystemInternalIssuerRef: knativeSelfSignedIssuer,
++		IssuerRef:               &defaultIssuerRef,
++		ClusterLocalIssuerRef:   &defaultClusterLocalIssuerRef,
++		SystemInternalIssuerRef: &defaultSystemInternalIssuerRef,
+ 	}
+ 
+ 	if v, ok := configMap.Data[issuerRefKey]; ok {
+diff --git a/pkg/reconciler/certificate/config/cert_manager_test.go b/pkg/reconciler/certificate/config/cert_manager_test.go
+index 2ac3f20..7f490b8 100644
+--- a/pkg/reconciler/certificate/config/cert_manager_test.go
++++ b/pkg/reconciler/certificate/config/cert_manager_test.go
+@@ -61,6 +61,34 @@ func TestIssuerRef(t *testing.T) {
+ 				systemInternalIssuerRef:  "wrong format",
+ 			},
+ 		},
++	}, {
++		name:    "valid distinct IssuerRefs",
++		wantErr: false,
++		wantConfig: &CertManagerConfig{
++			IssuerRef: &cmmeta.ObjectReference{
++				Name: "letsencrypt-issuer",
++				Kind: "ClusterIssuer",
++			},
++			ClusterLocalIssuerRef: &cmmeta.ObjectReference{
++				Name: "cluster-local-issuer",
++				Kind: "ClusterIssuer",
++			},
++			SystemInternalIssuerRef: &cmmeta.ObjectReference{
++				Name: "system-internal-issuer",
++				Kind: "ClusterIssuer",
++			},
++		},
++		config: &corev1.ConfigMap{
++			ObjectMeta: metav1.ObjectMeta{
++				Namespace: system.Namespace(),
++				Name:      CertManagerConfigName,
++			},
++			Data: map[string]string{
++				issuerRefKey:             "kind: ClusterIssuer\nname: letsencrypt-issuer",
++				clusterLocalIssuerRefKey: "kind: ClusterIssuer\nname: cluster-local-issuer",
++				systemInternalIssuerRef:  "kind: ClusterIssuer\nname: system-internal-issuer",
++			},
++		},
+ 	}, {
+ 		name:    "valid IssuerRef",
+ 		wantErr: false,
+@@ -118,7 +146,7 @@ func TestIssuerRef(t *testing.T) {
+ 				Name:      CertManagerConfigName,
+ 			},
+ 			Data: map[string]string{
+-				clusterLocalIssuerRefKey: "kind: ClusterIssuer\nname: system-internal-issuer",
++				systemInternalIssuerRef: "kind: ClusterIssuer\nname: system-internal-issuer",
+ 			},
+ 		},
+ 	}}
+-- 
+2.51.0

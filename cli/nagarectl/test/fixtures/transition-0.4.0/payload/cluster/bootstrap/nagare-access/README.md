@@ -1,0 +1,85 @@
+# nagare-access auth enforcer
+
+`nagare-access` is the shared identity-aware reverse proxy for protected Nagare
+sites. The reviewed auth bootstrap component installs it when the cluster
+supports `access = requireLogin`.
+
+## Build the image
+
+From the repository root:
+
+```bash
+cluster/bootstrap/nagare-access/build-image.sh
+```
+
+The script builds `cli/nagare-access/Dockerfile` for `linux/amd64`, tags it as
+`$NAGARE_REGISTRY_HOST/$CLOUDSDK_CORE_PROJECT/$NAGARE_ARTIFACT_REGISTRY_ID/nagare-access:<git-sha>`,
+pushes it by default, and prints the image reference. Set
+`NAGARE_ACCESS_PUSH=0` to build locally without pushing. Because the Cabal
+workspace pins private `shinzui/shomei` and `shinzui/en` source repositories,
+set `GITHUB_TOKEN` when building in a fresh Docker environment; the Dockerfile
+consumes it as a BuildKit secret and removes the temporary Git rewrite before
+committing the build layer. Set `NAGARE_AUTH_ACCESS_IMAGE` to the resulting
+immutable reference before publishing a bootstrap review.
+
+To avoid private GitHub fetches during Docker build, set
+`NAGARE_ACCESS_LOCAL_SOURCES=1` or `NAGARE_AUTH_LOCAL_SOURCES=1`. That path
+delegates to `cluster/bootstrap/auth-images/build-local-image.sh`, assembling a
+temporary context from the local Nagare, Shomei, and En checkouts. The generated
+Cabal project mirrors their current closure: the reviewed WebAuthn and Biscuit forks
+remain Git-pinned, OpenAPI and JOSE resolve from Hackage, and the cryptographic
+compatibility floors remain explicit before building the same `nagare-access`
+executable.
+
+On Apple Silicon or another non-amd64 local Docker host, combine the local-source
+path with Cloud Build for the real amd64 image:
+
+```bash
+NAGARE_ACCESS_LOCAL_SOURCES=1 NAGARE_AUTH_BUILDER=cloud-build cluster/bootstrap/nagare-access/build-image.sh
+```
+
+For the single-node `nagare-01` cluster, combine the local-source path with the
+k3s import builder to build on the amd64 VM with Nix-provided podman and import
+the image into k3s containerd:
+
+```bash
+NAGARE_ACCESS_LOCAL_SOURCES=1 NAGARE_AUTH_BUILDER=k3s-import cluster/bootstrap/nagare-access/build-image.sh
+```
+
+This prints an image such as `dev.local/nagare-auth/nagare-access:<git-sha>`.
+Use the printed image in `NAGARE_AUTH_ACCESS_IMAGE`; `dev.local` is already skipped by
+Knative's controller-side tag resolver, and the non-`latest` tag lets kubelet use
+the locally imported image.
+
+shomei and en now have matching local-source image helpers at
+`cluster/bootstrap/shomei/build-image.sh` and `cluster/bootstrap/en/build-image.sh`.
+Their manifests expect managed PostgreSQL databases named `shomei-db` and
+`en-db` in the `nagare-system` namespace, created by the same reviewed auth
+component.
+
+Every En request carries the read-only bearer value from
+`nagare-en-api-keys`. The installers generate and preserve that Secret; the CLI uses
+its separate read-write value for relationship mutations.
+
+## Install
+
+The reviewed auth component generates the cookie key only after confirming
+Secret absence and binds the cookie domain as `.${NAGARE_BASE_DOMAIN}`:
+
+```bash
+review_dir="$(mktemp -d)"
+nagarectl platform bootstrap plan --out "$review_dir"
+nagarectl platform bootstrap apply "$review_dir" --yes
+```
+
+The Knative Service is always-on (`min-scale=1`) because protected-site traffic
+flows through it on every request. `nagarectl` checks for both the Knative
+Service and the generated Kubernetes Service named `nagare-access` in
+`nagare-system` before it will wire a protected site.
+
+The `backends.json` value in `nagare-access-backends` remains backward compatible:
+protected hosts are plain `"host":"upstream"` entries. At most one entry may instead
+be an object with `{"upstream":"...","role":"portal"}`. `nagarectl deploy` owns this
+map, its reload annotation, and the portal's Shomei environment; inspect or reapply the
+registration with `nagarectl access portal show` and `nagarectl access portal sync`.
+Do not edit the ConfigMap by hand.

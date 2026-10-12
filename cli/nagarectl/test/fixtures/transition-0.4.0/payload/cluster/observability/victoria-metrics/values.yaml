@@ -1,0 +1,188 @@
+# Helm values for vm/victoria-metrics-k8s-stack (chart 0.81.0), installed in the
+# `monitoring` namespace as release `vmks`. This bundles: VictoriaMetrics single
+# (VMSingle), VMAgent (scraper), prometheus-node-exporter, kube-state-metrics, the
+# victoria-metrics-operator, and Grafana.
+#
+# EP-5 (docs/plans/5-victoria-observability-stack-and-grafana.md), Milestone M1.
+# Storage: every PVC leaves storageClassName unset so it binds to the cluster
+# default StorageClass `local-path`, which EP-3 pointed at /var/lib/nagare/local-path
+# on the attached data disk (MasterPlan Integration Point 3).
+
+# --- Metrics store: VMSingle (one process holds all metrics). ---
+vmsingle:
+  enabled: true
+  spec:
+    # CPU/memory requests sized for the 2-vCPU node (EP-2 M4). The chart default
+    # reserves 150m CPU for VMSingle; on a 2000m node that — plus VMAgent, otel,
+    # and the Knative/cert-manager platform — left too little unreserved CPU for an
+    # app (~250m) plus a database (~300m) to co-schedule (FailedScheduling /
+    # Insufficient cpu). 50m is the guaranteed floor; with no CPU limit VMSingle
+    # still bursts above it. The memory limit guards the small node against OOM.
+    resources:
+      requests:
+        cpu: 50m
+        memory: 200Mi
+      limits:
+        memory: 512Mi
+    # The default 60% cache budget left only 204.8Mi of this 512Mi cgroup for
+    # Go/runtime and startup allocations. Labs hit the cgroup ceiling three
+    # times during an empty-store start. Keep the hard cap and leave 60% to
+    # non-cache work; VictoriaMetrics documents this flag as a cache budget,
+    # not a total-process limit.
+    extraArgs:
+      memory.allowedPercent: "40"
+    # Keep metrics 30 days (Decision Log: metrics 30d / logs 7d / traces 3d).
+    retentionPeriod: "30d"
+    # Pin the HTTP port to 8429. Chart 0.81.0 defaults to "8428"; pinning keeps the
+    # Grafana datasource URL stable and avoids an unexpected VMSingle restart on a
+    # future chart upgrade that changes the default. Confirm with
+    # `kubectl get svc -n monitoring` after install.
+    port: "8429"
+    storage:
+      accessModes:
+        - ReadWriteOnce
+      resources:
+        requests:
+          storage: 20Gi
+
+# VMSingle and VMCluster are mutually exclusive; single only on an 8 GB box.
+vmcluster:
+  enabled: false
+
+# VMAgent scrapes node-exporter, kube-state-metrics, Knative (EP-4), and any
+# annotated app endpoints, then writes samples into VMSingle.
+vmagent:
+  enabled: true
+  spec:
+    # Pick up Nagare-owned VMServiceScrape objects such as
+    # cluster/observability/brokers/vmservicescrape.yaml. The stack chart already
+    # creates the standard Kubernetes scrape objects; selecting all scrape
+    # objects keeps custom Nagare surfaces discoverable without another chart
+    # value edit per component.
+    selectAllByDefault: true
+    # CPU request trimmed from the chart default (50m) to 25m for the 2-vCPU node
+    # (EP-2 M4); the config-reloader sidecar keeps its own small request. No CPU
+    # limit, so scraping can still burst; the memory limit guards the node.
+    resources:
+      requests:
+        cpu: 25m
+        memory: 96Mi
+      limits:
+        memory: 256Mi
+
+# EP-101 M1's Pushover delivery channel remains operator-gated, so
+# Alertmanager stays disabled until its sops-managed credential Secret exists.
+alertmanager:
+  enabled: false
+
+# Evaluate Nagare's curated VMRule even before a delivery channel is configured.
+# When EP-101 M1 enables Alertmanager, this VMAlert automatically discovers it.
+vmalert:
+  enabled: true
+  spec:
+    selectAllByDefault: true
+    evaluationInterval: 30s
+    # Required by chart 0.81.0 while Alertmanager remains operator-gated. EP-101
+    # M1 removes this once the real notifier is enabled.
+    extraArgs:
+      notifier.blackhole: "true"
+    resources:
+      requests:
+        cpu: 25m
+        memory: 64Mi
+      limits:
+        memory: 128Mi
+
+# The bundled rules assume a full multi-node Kubernetes control plane and are
+# noisy on k3s. Nagare owns the focused set under observability/vmrules/.
+defaultRules:
+  enabled: false
+
+# Host-level metrics (CPU, memory, disk, network) for nagare-01.
+prometheus-node-exporter:
+  enabled: true
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 128Mi
+
+# Kubernetes object state (deployments, pods, nodes) as metrics.
+kube-state-metrics:
+  enabled: true
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 128Mi
+
+# Bound the controller and the sidecars it creates. These operator defaults
+# cover both VMAgent and VMAlert without changing EP-101's notifier settings.
+# The reloaders used 6–7Mi in the labs sample; retain their existing CPU floor.
+victoria-metrics-operator:
+  admissionWebhooks:
+    # cert-manager owns this identity; generated chart certificates change on
+    # every render and fail the reviewed Helm post-renderer digest check.
+    certManager:
+      enabled: true
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+  env:
+    - name: VM_CONFIG_RELOADER_REQUEST_CPU
+      value: "10m"
+    - name: VM_CONFIG_RELOADER_REQUEST_MEMORY
+      value: "25Mi"
+    - name: VM_CONFIG_RELOADER_LIMIT_MEMORY
+      value: "128Mi"
+
+# --- Grafana (the dashboard UI). Values pass through to the upstream grafana chart. ---
+grafana:
+  enabled: true
+  # Initial floors/caps from the labs sample (172Mi Grafana, 74–77Mi per
+  # sidecar). Keep burst headroom; recheck peaks after seven days of use.
+  resources:
+    requests:
+      cpu: 50m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+  # Admin credentials come from the sops-managed Secret `grafana-admin`, read
+  # from the active context's operator-owned cluster-secret directory and
+  # applied by install.sh BEFORE the chart so the Grafana Deployment can mount
+  # it. Grafana persistence is not enabled, so credentials re-seed from the
+  # Secret on every pod start.
+  admin:
+    existingSecret: grafana-admin
+    userKey: admin-user
+    passwordKey: admin-password
+  service:
+    type: ClusterIP
+    port: 80
+  # Datasources beyond the chart-provisioned VictoriaMetrics one are declared
+  # ONCE, as files under cluster/observability/grafana/datasources/, applied by
+  # install.sh as ConfigMaps labelled grafana_datasource=1 for the sidecar
+  # below (same mechanism the chart itself uses).
+  # Install the VictoriaLogs datasource plugin at a verified immutable version.
+  # This chart uses GF_PLUGINS_PREINSTALL_SYNC: pins use id@version, not the
+  # legacy CLI's space-separated syntax. Grafana fetches it at boot.
+  plugins:
+    - victoriametrics-logs-datasource@0.31.0
+  # Load dashboard JSON committed under cluster/observability/grafana/dashboards/
+  # via the sidecar (ConfigMaps labelled grafana_dashboard). EP-7 backs these up.
+  sidecar:
+    resources:
+      requests:
+        cpu: 10m
+        memory: 96Mi
+      limits:
+        memory: 256Mi
+    dashboards:
+      enabled: true
+    datasources:
+      enabled: true

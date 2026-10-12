@@ -1,0 +1,10 @@
+# Grafana datasource provisioning file (Grafana "provisioning/datasources" format).
+# This is the single source of truth, applied by install.sh as a ConfigMap labelled
+# grafana_datasource=1 for Grafana's datasource sidecar.
+apiVersion: 1
+datasources:
+  - name: VictoriaLogs
+    type: victoriametrics-logs-datasource
+    access: proxy
+    url: http://victoria-logs-victoria-logs-single-server.logging.svc:9428
+    editable: true

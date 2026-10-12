@@ -1,0 +1,129 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: nagare-system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: en
+  namespace: nagare-system
+  labels:
+    app.kubernetes.io/name: en
+    app.kubernetes.io/part-of: nagare-auth-plane
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: en
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: en
+        app.kubernetes.io/part-of: nagare-auth-plane
+    spec:
+      containers:
+        - name: en
+          image: ${NAGARE_REGISTRY_PREFIX}/en:${NAGARE_AUTH_TAG}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            seccompProfile:
+              type: RuntimeDefault
+          # CPU request is a floor, not a cap (no CPU limit, so en can burst);
+          # the memory limit guards the 8 GB node. 384Mi (not 256Mi) because en
+          # holds two 10,000-entry in-memory caches (EN_DECISION_CACHE_* and
+          # EN_TUPLE_READ_CACHE_* below) on top of its RTS baseline.
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 384Mi
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8080
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 8080
+          env:
+            - name: PGHOST
+              value: en-db.nagare-system.svc.cluster.local
+            - name: PGPORT
+              value: "5432"
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: nagare-db-en-db
+                  key: POSTGRES_USER
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: nagare-db-en-db
+                  key: POSTGRES_PASSWORD
+            - name: PGDATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: nagare-db-en-db
+                  key: POSTGRES_DB
+            - name: EN_DATABASE_URL
+              value: "host=$(PGHOST) port=$(PGPORT) dbname=$(PGDATABASE) user=$(PGUSER) password=$(PGPASSWORD)"
+            - name: EN_PORT
+              value: "8080"
+            - name: EN_SCHEMA_PATH
+              value: /etc/en/schema/app.en
+            - name: EN_DECISION_CACHE_MAX_ENTRIES
+              value: "10000"
+            - name: EN_TUPLE_READ_CACHE_MAX_ENTRIES
+              value: "10000"
+            - name: EN_OPTIMIZED_REVISION_CACHE_TTL_MS
+              value: "5000"
+            # Keep raw bearer secrets reusable by callers; En's parser requires
+            # each configured entry to carry a distinct caller name.
+            - name: NAGARE_EN_API_KEY_READ_WRITE
+              valueFrom:
+                secretKeyRef:
+                  name: nagare-en-api-keys
+                  key: read-write
+            - name: NAGARE_EN_API_KEY_READ_ONLY
+              valueFrom:
+                secretKeyRef:
+                  name: nagare-en-api-keys
+                  key: read-only
+            - name: EN_API_KEYS_READ_WRITE
+              value: "nagarectl:$(NAGARE_EN_API_KEY_READ_WRITE)"
+            - name: EN_API_KEYS_READ_ONLY
+              value: "nagare-access:$(NAGARE_EN_API_KEY_READ_ONLY)"
+          volumeMounts:
+            - name: schema
+              mountPath: /etc/en/schema
+              readOnly: true
+      volumes:
+        - name: schema
+          configMap:
+            name: en-schema
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: en
+  namespace: nagare-system
+  labels:
+    app.kubernetes.io/name: en
+    app.kubernetes.io/part-of: nagare-auth-plane
+spec:
+  selector:
+    app.kubernetes.io/name: en
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080

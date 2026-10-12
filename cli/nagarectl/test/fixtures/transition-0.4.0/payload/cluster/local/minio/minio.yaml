@@ -1,0 +1,129 @@
+# Local MinIO object store (EP-84, MasterPlan 16) — the S3-compatible stand-in
+# for GCS used by `db backup`/`db restore` and `storage snapshot`/`storage
+# restore` in local mode. Applied by `just local-minio` AFTER `just
+# local-bootstrap`. Lives under cluster/local/ (a local-only path) so it is never
+# applied to the cloud cluster. In-cluster the S3 endpoint is
+# http://minio.nagare-system.svc.cluster.local:9000 with bucket nagare-backups —
+# the NAGARE_LOCAL_OBJECT_STORE contract value from nagare.local.env.example.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: nagare-system
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: nagare-minio-credentials
+  namespace: nagare-system
+type: Opaque
+stringData:
+  AWS_ACCESS_KEY_ID: minioadmin
+  AWS_SECRET_ACCESS_KEY: minioadmin
+---
+# The data-movement Job (db backup/restore, storage snapshot/restore) runs in the
+# app/db namespace (default `personal`) and references this Secret by name via
+# secretKeyRef, which is namespace-local — so the credentials must also exist in
+# that namespace. We seed `personal` (the default). Apps/databases in a different
+# namespace need this Secret copied there too (see the EP-84 runbook / nagarectl
+# docs). `personal` is created by `just local-bootstrap`, which `just local-minio`
+# runs after.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: nagare-minio-credentials
+  namespace: personal
+type: Opaque
+stringData:
+  AWS_ACCESS_KEY_ID: minioadmin
+  AWS_SECRET_ACCESS_KEY: minioadmin
+---
+# The bucket lives on a k3d local-path volume (F41, superseding the EP-100
+# emptyDir choice). The volume is stored on the k3d node container's
+# filesystem, so local backups, receipts and snapshots survive a MinIO pod
+# restart and a node `docker stop`/`docker start`. Deleting the k3d cluster
+# (`k3d cluster delete`, `just local-down`) still removes it with the node.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minio-data
+  namespace: nagare-system
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minio
+  namespace: nagare-system
+  labels: { app: minio }
+spec:
+  replicas: 1
+  # One writer on a ReadWriteOnce volume: stop the old pod before the new one.
+  strategy: { type: Recreate }
+  selector: { matchLabels: { app: minio } }
+  template:
+    metadata:
+      labels: { app: minio }
+    spec:
+      containers:
+        - name: minio
+          image: quay.io/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+          args: ["server", "/data", "--console-address", ":9001"]
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom: { secretKeyRef: { name: nagare-minio-credentials, key: AWS_ACCESS_KEY_ID } }
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom: { secretKeyRef: { name: nagare-minio-credentials, key: AWS_SECRET_ACCESS_KEY } }
+          ports:
+            - { name: s3, containerPort: 9000 }
+            - { name: console, containerPort: 9001 }
+          readinessProbe:
+            httpGet: { path: /minio/health/ready, port: 9000 }
+            periodSeconds: 5
+          volumeMounts:
+            - { name: data, mountPath: /data }
+      volumes:
+        - name: data
+          persistentVolumeClaim: { claimName: minio-data }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  namespace: nagare-system
+spec:
+  type: ClusterIP
+  selector: { app: minio }
+  ports:
+    - { name: s3, port: 9000, targetPort: s3 }
+    - { name: console, port: 9001, targetPort: console }
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-make-bucket
+  namespace: nagare-system
+spec:
+  backoffLimit: 6
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: mc
+          image: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          command: ["/bin/sh", "-c"]
+          args:
+            - >
+              until mc alias set local http://minio:9000 "$AWS_ACCESS_KEY_ID" "$AWS_SECRET_ACCESS_KEY";
+              do echo waiting for minio; sleep 2; done;
+              mc mb --ignore-existing local/nagare-backups;
+              mc ls local
+          env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom: { secretKeyRef: { name: nagare-minio-credentials, key: AWS_ACCESS_KEY_ID } }
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom: { secretKeyRef: { name: nagare-minio-credentials, key: AWS_SECRET_ACCESS_KEY } }

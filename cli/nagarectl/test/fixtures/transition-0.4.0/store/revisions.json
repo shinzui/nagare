@@ -1,0 +1,100 @@
+{
+  "scopes": [
+    {
+      "scope": "auth",
+      "source": "9e8c7c0cfc34c2522140179d98678adfe9913804c2ec5a1171fe05612f226c62",
+      "target": "9e8c7c0cfc34c2522140179d98678adfe9913804c2ec5a1171fe05612f226c62"
+    },
+    {
+      "scope": "bootstrap-stamp",
+      "source": "a57eb50e2d2f35eb0621ace4253519b7952a36dceaeb83914a1808781f73cef8",
+      "target": "da3b18e71d99ff219d4f3dcda887348b21ba0114aa24dc653dd0d151aaf5ffda"
+    },
+    {
+      "scope": "cert-manager",
+      "source": "8c09c047e000d10569e218de7f11b924b4b43add895d6b78d6cba0a73fa4f82f",
+      "target": "8c09c047e000d10569e218de7f11b924b4b43add895d6b78d6cba0a73fa4f82f"
+    },
+    {
+      "scope": "certificate-issuer",
+      "source": "1fe04a0e913bfc5680dcd569979586540ef807ee6846ac5c199c91ee32c394ec",
+      "target": "1fe04a0e913bfc5680dcd569979586540ef807ee6846ac5c199c91ee32c394ec"
+    },
+    {
+      "scope": "foundation",
+      "source": "751e4b427f7353161bcc98b0e9b34506cd6daef7fc0c0754a574875fab88bf7c",
+      "target": "19dd0b08267a6b409b52ff6e5642e655cb4540d7fdde9131a981976660148c47"
+    },
+    {
+      "scope": "kourier",
+      "source": "37bd7f93bdf029815328e38a8e2fb0442d906f5658fa60e4c1c15750273d9886",
+      "target": "37bd7f93bdf029815328e38a8e2fb0442d906f5658fa60e4c1c15750273d9886"
+    },
+    {
+      "scope": "kubeconfig",
+      "source": "a16562d4979941274ff7be25fad59151b3d340b0762fe48c707fbacda19759a6",
+      "target": "a16562d4979941274ff7be25fad59151b3d340b0762fe48c707fbacda19759a6"
+    },
+    {
+      "scope": "local-object-store",
+      "source": "e84e7cde393130c6183b47d32cf87cc9c2947c8ea738c1b91ee556701f872809",
+      "target": "e84e7cde393130c6183b47d32cf87cc9c2947c8ea738c1b91ee556701f872809"
+    },
+    {
+      "scope": "local-substrate",
+      "source": "af1e529367ca7768a5843da830be35536284e8eeac447ec2b891a8e16833447c",
+      "target": "3b0105974e517550db1d7d769b392d5c25a4cfa7ab643bba6cfbaa68d0e8e524"
+    },
+    {
+      "scope": "net-certmanager",
+      "source": "89620bd0f7e5f119aa140e71c7c3d158ef7d16b365cb359fdf8b55e08e3f9291",
+      "target": "89620bd0f7e5f119aa140e71c7c3d158ef7d16b365cb359fdf8b55e08e3f9291"
+    },
+    {
+      "scope": "net-controller-image",
+      "source": "821654a713fd8c5206bf29f2e8d1b7433b1686a804ce0d8ce5e890283262b400",
+      "target": "821654a713fd8c5206bf29f2e8d1b7433b1686a804ce0d8ce5e890283262b400"
+    },
+    {
+      "scope": "observability-extra",
+      "source": "faf116a45f488e0f4b6aabf4aeab4b9d5b49a9ebe792a965c1b8352041e476e4",
+      "target": "faf116a45f488e0f4b6aabf4aeab4b9d5b49a9ebe792a965c1b8352041e476e4"
+    },
+    {
+      "scope": "observability-otel-collector",
+      "source": "9c2117c9a8ab15489f859e3d4851920c0f7cb48009a5ec6a0b1be3262138f08d",
+      "target": "71ab536743c11d884f93e9bcb7b05f7d07d42b1b02aed47994cc2d93b5b75880"
+    },
+    {
+      "scope": "observability-secrets",
+      "source": "00c45d3651f8797bbadb8c871dbc1c9d5e91f428896f69af62124216c4614015",
+      "target": "00c45d3651f8797bbadb8c871dbc1c9d5e91f428896f69af62124216c4614015"
+    },
+    {
+      "scope": "observability-victoria-logs",
+      "source": "754badc284ad19a14c26dc43f2ac141181953c2f6e5f2ff4621ad28266ca89f8",
+      "target": "486e0149c2d42c49399da000fce0428308a80310d0719dda398d8c0cfbfb59cc"
+    },
+    {
+      "scope": "observability-victoria-logs-collector",
+      "source": "f6a1b8caf1f2bc3360574f3a6a3d4c85630fecc6231f910d75bf64c1bfdbf4a5",
+      "target": "121319064ef3efe8c97eb062530f96388948cc194814f9521ef5a078fce7f3aa"
+    },
+    {
+      "scope": "observability-victoria-traces",
+      "source": "cb38f1cc52145229b3820fac2d22be5f44497245deddacf092b8348945215a59",
+      "target": "578d1e961bf39e7eabf95c5e8656b5644e100a786c66413b4847120f74276fe7"
+    },
+    {
+      "scope": "observability-vmks",
+      "source": "16b3a3deb8afee47c9652b9165c683981ca559035214bc940d05a8a8bc753478",
+      "target": "e8e2bfbf32d438e0dfc58e001025258f2fdb480b3985e3a0f3ec578304aee2b6"
+    },
+    {
+      "scope": "serving",
+      "source": "b69592fff4d8fd8ec704df3cf7e6b7f8c41ddf517fa1e51af3d54bbbc12ed314",
+      "target": "b69592fff4d8fd8ec704df3cf7e6b7f8c41ddf517fa1e51af3d54bbbc12ed314"
+    }
+  ],
+  "sourceEvents": 1759
+}

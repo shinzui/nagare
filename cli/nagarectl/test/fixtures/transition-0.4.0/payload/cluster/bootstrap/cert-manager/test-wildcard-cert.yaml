@@ -1,0 +1,27 @@
+# Proof-of-issuance test certificate (MasterPlan EP-4 Milestone 1).
+#
+# This is a THROWAWAY artifact: it proves that DNS-01 against Cloud DNS,
+# authorized by the VM's ambient service account, can obtain a *wildcard*
+# certificate. Knative creates the real per-namespace wildcards in M3; delete
+# this one after it reaches READY=True.
+#
+# DEFERRED: this cannot succeed against the placeholder base domain
+# `apps.example.com` — Let's Encrypt validates DNS-01 against the *real* public
+# authoritative nameservers for the domain, which for example.com are not this
+# Cloud DNS zone's. Apply this only after a real domain is set as Pulumi
+# `baseDomain` and delegated to the zone's nameservers. Render the real domain
+# in before applying:
+#   sed "s/apps.example.com/${BASE_DOMAIN}/g" \
+#     cluster/bootstrap/cert-manager/test-wildcard-cert.yaml | kubectl apply -f -
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: test-wildcard
+  namespace: cert-manager
+spec:
+  secretName: test-wildcard-tls
+  dnsNames:
+    - "*.apps.example.com"
+  issuerRef:
+    name: letsencrypt-dns
+    kind: ClusterIssuer
