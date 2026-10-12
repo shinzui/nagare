@@ -289,6 +289,11 @@ in-place version transition (its install section and the `minor-upgrade-required
 
 ADR 6 carries the 2026-10-11 amendment describing the transition as built.
 
+Evidence: `just gate-fast` is green at `8d064057` (M1) and at `c60b740f` (M2). At `c60b740f`, style,
+architecture, mutation records and patterns, the nagarectl suite (219 s) and the nagare-dsl suite
+all pass. The mutation records await the next `just mutation-sweep`; they were proved locally as
+recorded under M2.
+
 
 ## Context and Orientation
 
