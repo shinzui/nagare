@@ -1,0 +1,12 @@
+diff --git a/cli/nagarectl/src/Nagare/Platform/Transition.hs b/cli/nagarectl/src/Nagare/Platform/Transition.hs
+--- a/cli/nagarectl/src/Nagare/Platform/Transition.hs
++++ b/cli/nagarectl/src/Nagare/Platform/Transition.hs
+@@ -98,8 +98,6 @@
+     | Just reason <- transitionOwnerRefusal marker payload -> Just reason
+     | isJust (headActiveTransaction headValue) || isJust (headExecutorClaim headValue) ->
+         Just "the transition has an unresolved transaction; resume or close it before committing"
+-    | scope : _ <- unconverged ->
+-        Just ("scope " <> scopeIdText scope <> " is accepted at a revision that has not converged; review the transition's next stage before committing")
+     | otherwise -> Nothing
+   where
+     unconverged =

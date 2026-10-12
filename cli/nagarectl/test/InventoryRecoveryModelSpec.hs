@@ -58,7 +58,7 @@ import Nagare.Test.Model.Run
 import Nagare.Test.Model.Scenarios
 import Nagare.Test.Model.Search
 import Nagare.Test.Model.Tier
-import Nagare.Test.Model.Transition (commitTransition, transitionIdentity)
+import Nagare.Test.Model.Transition (commitTransition, planTransition, transitionIdentity)
 import Nagare.Test.World.Adversary
 import Nagare.Test.World.ApiServer (Outcome (Good, Unready))
 import Nagare.Test.World.ApiServer qualified as ApiServer
@@ -515,7 +515,7 @@ drive scenario schedule onStop start resumed = do
       -- step began last.
       -- EP-172: the transition's commit reviews nothing, so the final review
       -- is the step before it.
-      finalStart <- maybe Map.empty fst . listToMaybe . drop (if take 1 (reverse (steps scenario)) == [CommitTransition] then 1 else 0) <$> readIORef (fst began)
+      finalStart <- maybe Map.empty fst . listToMaybe . drop (if any reviewsNothing (take 1 (reverse (steps scenario))) then 1 else 0) <$> readIORef (fst began)
       corrected <- correctionConverges scenario finalStart run
       ended began run taken $ case consistent *> corrected of
         Left violation -> Left (describe scenario schedule "(end)" violation [])
@@ -538,6 +538,20 @@ drive scenario schedule onStop start resumed = do
           adversary <- readIORef (runAdversary run)
           ended began run taken (Right (counts adversary))
         Right Nothing -> go began run previous rest taken
+    -- EP-172: planning a transition is checked before any write; a refusal
+    -- the payload's table calls for ends the step with nothing reviewed.
+    go began run previous (step@(PlanTransitionFrom source) : rest) taken = do
+      begin began run previous taken
+      planned <- planTransition run source
+      case planned of
+        Left violation -> ended began run taken (Left (describe scenario schedule (stepText step) violation []))
+        Right () -> go began run previous rest taken
+    go began run previous (step@(TransitionDeploy _) : rest) taken = do
+      begin began run previous taken
+      planned <- planTransition run "0.4.0"
+      case planned of
+        Left violation -> ended began run taken (Left (describe scenario schedule (stepText step) violation []))
+        Right () -> attempt began False run previous step rest taken
     go began run previous (step : rest) taken = begin began run previous taken >> attempt began False run previous step rest taken
     attempt began replanned run previous step rest taken = do
       let historyImage image' = if historyFollows scenario then image' else "v1"

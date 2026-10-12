@@ -5,6 +5,7 @@ module Nagare.Test.Model.Scenarios
   ( Scenario (..)
   , Step (..)
   , stepText
+  , reviewsNothing
   , scenarios
   , explicitScenarios
   , generatedScenarios
@@ -70,6 +71,7 @@ explicitScenarios =
     , Scenario "create a database, lose the cluster, then rebuild it (EP-183 M4)" [CreateDatabase, LoseCluster, RebuildDatabase] [] True plainShape
     , Scenario "create with a durable volume, lose the cluster, then rebuild the application (EP-183 M4)" [Deploy "v1", LoseCluster, RebuildApplication] [] True volumeShape
     , Scenario "create, then a release transition stage, then commit (EP-172)" [Deploy "v1", TransitionDeploy "v2", CommitTransition] [] True plainShape
+    , Scenario "create, then plan a transition from a release the payload does not list (EP-172)" [Deploy "v1", PlanTransitionFrom "0.3.0"] [] True plainShape
     ]
 
 data Step
@@ -104,6 +106,10 @@ data Step
   | -- | EP-172: pin and close the transition as `platform transition commit`
     -- does, which needs an idle head and the marker still open.
     CommitTransition
+  | -- | EP-172: plan a transition of a context pinned to this release, as
+    -- `platform transition plan` does; one the payload does not list refuses
+    -- before any write.
+    PlanTransitionFrom !Text
   deriving stock (Eq, Show)
 
 stepText :: Step -> Text
@@ -120,3 +126,12 @@ stepText step = case step of
   RebuildApplication -> "rebuild application"
   TransitionDeploy image -> image
   CommitTransition -> "commit transition"
+  PlanTransitionFrom source -> "plan a transition from " <> source
+
+-- | EP-172: a step that reviews nothing, so the final review is the step
+-- before it.
+reviewsNothing :: Step -> Bool
+reviewsNothing = \case
+  CommitTransition -> True
+  PlanTransitionFrom _ -> True
+  _ -> False

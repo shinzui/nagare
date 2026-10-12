@@ -1108,5 +1108,17 @@
     "suite": "nagarectl",
     "pattern": "/volume backup CronJob: every aws-cli container installs tar and gzip before using them/",
     "expect": "test-fails"
+  },
+  {
+    "record": "EP172-unlisted-source-accepted",
+    "suite": "nagarectl",
+    "pattern": "/fast tier/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "EP172-pin-before-stage-converged",
+    "suite": "nagarectl",
+    "pattern": "/fast tier/",
+    "expect": "test-fails"
   }
 ]

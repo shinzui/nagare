@@ -23,7 +23,7 @@ import Nagare.Cli.Runtime.Target (activeTarget, resolvePlatformWorkspace)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Store
-  ( HeadManifest (headActiveTransaction, headExecutorClaim, headGeneration, headSchemaVersion, headTransition)
+  ( HeadManifest (headGeneration, headSchemaVersion, headTransition)
   , InventoryStore
   , TransitionMarker (transitionSource)
   , observeHead
@@ -35,7 +35,7 @@ import Nagare.Inventory.Store
   )
 import Nagare.Platform.Deployment (DeploymentState (NotDeployed))
 import Nagare.Platform.Status (renderPlatformStatus)
-import Nagare.Platform.Transition (checkTransition, renderTransitionRefusal, transitionOwnerRefusal)
+import Nagare.Platform.Transition (checkTransition, renderTransitionRefusal, transitionCommitRefusal, transitionOwnerRefusal)
 import Nagare.Platform.Workspace (readPayloadManifest, renderWorkspaceError)
 import Nagare.Resource.Inventory qualified as ResourceInventory
 import Nagare.Resource.Types qualified as Resource
@@ -84,11 +84,10 @@ runPlatformTransitionCommit mctx yes = do
   manifest <- readPayloadManifest paths >>= either (dieT . renderWorkspaceError) pure
   store <- Inventory.openTargetStore active
   headValue <- currentHead store
+  -- The pin is written last: the marker must be this payload's, the store
+  -- idle, and every platform scope converged at its accepted revision.
+  for_ (transitionCommitRefusal (manifest ^. #payloadId) ((== Resource.Platform) . Resource.scopeKind) headValue) dieT
   marker <- maybe (dieT "no release transition is open; review one with platform transition plan") pure (headTransition headValue)
-  for_ (transitionOwnerRefusal marker (manifest ^. #payloadId)) dieT
-  when
-    (isJust (headActiveTransaction headValue) || isJust (headExecutorClaim headValue))
-    (dieT "the transition has an unresolved transaction; resume or close it before committing")
   let target = manifest ^. #platformVersion
       reports identity = identity ^. #version == Just target
   TIO.putStr (renderPlatformStatus (contextNameText (active ^. #contextName)) status)

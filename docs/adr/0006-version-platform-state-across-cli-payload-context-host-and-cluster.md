@@ -177,3 +177,29 @@ T's CLI resumes or recovers the transaction.
 The legacy coarse `platform upgrade` runner stays blocked for inventory contexts. MasterPlan 21
 remains the owner only of replacement onto fresh infrastructure, and it consumes the same
 compatibility table. Until ExecPlan 172 is accepted, the 2026-09-26 restriction still holds.
+
+
+## Amendment — 2026-10-11: the reviewed transition as built
+
+[ExecPlan 172](../plans/172-rehearse-candidate-upgrades-of-an-inventory-context-instead-of-rebuilding-it.md)
+implemented the transition the amendment above assigned. It refines that amendment in four ways:
+
+- **Staged reviews.** The transition is an ordered sequence of saved reviews under the payload identity
+  `nagare-transition:<S>-><T payloadId>`, not one review. Admitting the first opens a marker in the
+  store head (source, target payload, start). While the marker is open, admission refuses every other
+  review, and only T's nagarectl applies, resumes, recovers or closes. With no marker open, the head
+  wire is unchanged in both directions.
+- **Pin last.** `platform transition commit` writes the pin last. It refuses unless the marker is this
+  payload's, the head is idle, and every platform scope has converged at its accepted revision
+  (`transitionCommitRefusal`). The payload, host and cluster must also report T. It then clears the
+  marker.
+- **The table is a release contract.** `Nagare.Platform.Transition.transitionTable` lists every state
+  a transition moves. `PlatformTransitionTableSpec` holds each row to the v0.4.0 fixture. A release
+  whose change alters what the fixture shows must update the row.
+- **Wire changes and code compatibility.** A release that changes the head or journal wire adds a
+  reviewed migration step, its model scenario and its row; otherwise it does not ship the change.
+  T's code is not required to read S's payload; it already refuses v0.4.0's MinIO manifest. So T
+  always plans from T's own workspace, and the workspace moves with the CLI.
+
+The 2026-09-26 restriction no longer applies to a pair in T's `transitionsFrom`. It still holds for
+every other pair, and for the legacy runner.

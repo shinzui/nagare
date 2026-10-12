@@ -10,6 +10,7 @@ module Nagare.Platform.Transition
   , renderTransitionRefusal
   , sameDeclarationsModuloSource
   , transitionOwnerRefusal
+  , transitionCommitRefusal
   , TransitionState (..)
   , TransitionDelta (..)
   , TransitionRow (..)
@@ -22,11 +23,13 @@ import Control.Monad (unless, when)
 import Data.Aeson qualified as Aeson
 import Data.Aeson.KeyMap qualified as KM
 import Data.Generics.Labels ()
+import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude
-import Nagare.Inventory.Store (TransitionMarker (..), parseTransitionReviewIdentity)
+import Nagare.Inventory.Store (HeadManifest (..), TransitionMarker (..), parseTransitionReviewIdentity)
 import Nagare.Platform.Workspace (PayloadManifest)
 import Nagare.Resource.Inventory (ScopeDeclaration)
+import Nagare.Resource.Types (ScopeId, scopeIdText)
 import Nagare.Resource.Wire (encodeCanonicalScope)
 
 -- | An accepted move: the context's pinned release and this payload's.
@@ -82,6 +85,29 @@ transitionOwnerRefusal marker payload
             <> payload
             <> ", so only the target release's nagarectl applies, resumes, recovers or closes until platform transition commit ends it"
         )
+
+-- | Why `platform transition commit` may not write the pin yet, if anything:
+-- no transition is open, another payload's is, a transaction is unresolved, or
+-- a scope the transition moves (@moved@) is accepted at a revision that has
+-- not converged. The pin is the transition's last write (ADR 6), so it waits
+-- for every such scope update to land.
+transitionCommitRefusal :: Text -> (ScopeId -> Bool) -> HeadManifest -> Maybe Text
+transitionCommitRefusal payload moved headValue = case headTransition headValue of
+  Nothing -> Just "no release transition is open; review one with platform transition plan"
+  Just marker
+    | Just reason <- transitionOwnerRefusal marker payload -> Just reason
+    | isJust (headActiveTransaction headValue) || isJust (headExecutorClaim headValue) ->
+        Just "the transition has an unresolved transaction; resume or close it before committing"
+    | scope : _ <- unconverged ->
+        Just ("scope " <> scopeIdText scope <> " is accepted at a revision that has not converged; review the transition's next stage before committing")
+    | otherwise -> Nothing
+  where
+    unconverged =
+      [ scope
+      | (scope, revision) <- Map.toList (headAccepted headValue)
+      , moved scope
+      , Map.lookup scope (headConverged headValue) /= Just revision
+      ]
 
 -- | What a platform review's payload identity requires at apply: the payload
 -- that planned it and the context pin it expects. A bootstrap review was

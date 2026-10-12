@@ -119,8 +119,9 @@ correctionConverges scenario finalStart run = case finalScope of
     finalScopeOf remaining = case remaining of
       Deploy image : _ | image `notElem` unready scenario -> Just appScope
       TransitionDeploy image : _ | image `notElem` unready scenario -> Just appScope
-      -- EP-172: the commit reviews nothing; the stage before it is the final review.
-      CommitTransition : rest -> finalScopeOf rest
+      -- EP-172: the commit and a refused planning review nothing; the step
+      -- before them is the final review.
+      step : rest | reviewsNothing step -> finalScopeOf rest
       CreateDatabase : _ -> Just databaseScopeId
       UpdateDatabase : _ -> Just databaseScopeId
       RestartDatabase : _ -> Just databaseScopeId

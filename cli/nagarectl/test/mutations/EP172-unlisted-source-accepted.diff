@@ -1,0 +1,14 @@
+diff --git a/cli/nagarectl/src/Nagare/Platform/Transition.hs b/cli/nagarectl/src/Nagare/Platform/Transition.hs
+--- a/cli/nagarectl/src/Nagare/Platform/Transition.hs
++++ b/cli/nagarectl/src/Nagare/Platform/Transition.hs
+@@ -61,10 +61,8 @@
+ checkTransition manifest pin headVersion = do
+   source <- maybe (Left UnpinnedContext) Right pin
+   let target = manifest ^. #platformVersion
+-      accepted = manifest ^. #transitionsFrom
+       oldest = manifest ^. #minimumInventorySchemaVersion
+   when (source == target) (Left (AlreadyAtTarget target))
+-  unless (source `elem` accepted) (Left (UnsupportedSource source target accepted))
+   unless (headVersion >= oldest && headVersion <= inventorySchemaVersion) (Left (UnsupportedStoreVersion headVersion oldest inventorySchemaVersion))
+   pure (TransitionPair source target)
+ 

@@ -9,6 +9,7 @@ import Data.Aeson qualified as Aeson
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
 import Data.Generics.Labels ()
 import Data.List.NonEmpty qualified as NE
@@ -156,6 +157,24 @@ compatibilityTests =
             scopeFrom file digest = ok (mkScopeDeclaration owner [ResourceBundle [declared file digest] [] [] [] [] []])
         sameDeclarationsModuloSource (scopeFrom "/payload-s/spec.json" "spec") (scopeFrom "/payload-t/spec.json" "spec") @?= True
         sameDeclarationsModuloSource (scopeFrom "/payload-s/spec.json" "spec") (scopeFrom "/payload-s/spec.json" "other") @?= False
+    , testCase "the commit waits for its own open marker, an idle head and every moved scope converged" $ do
+        recorded <- BS.readFile "test/fixtures/transition-0.4.0/store/head.json" >>= either (assertFailure . show) pure . decodeHead
+        let marker = TransitionMarker "0.4.0" "payload-t" "2026-10-11T00:00:00Z"
+            opened = recorded {headTransition = Just marker}
+            platform = (== Platform) . scopeKind
+            refuses headValue needle = case transitionCommitRefusal "payload-t" platform headValue of
+              Just reason -> assertBool (T.unpack reason) (needle `T.isInfixOf` reason)
+              Nothing -> assertFailure ("the commit went ahead; expected a refusal naming " <> T.unpack needle)
+        transitionCommitRefusal "payload-t" platform opened @?= Nothing
+        refuses recorded "no release transition is open"
+        refuses opened {headActiveTransaction = Just "tx-1"} "unresolved transaction"
+        case transitionCommitRefusal "payload-s" platform opened of
+          Just reason -> assertBool (T.unpack reason) ("payload-t" `T.isInfixOf` reason)
+          Nothing -> assertFailure "another payload committed the transition"
+        let foundation = ok (mkScopeId Platform "foundation")
+            unconverged = opened {headConverged = Map.delete foundation (headConverged opened)}
+        refuses unconverged "platform:foundation"
+        transitionCommitRefusal "payload-t" (const False) unconverged @?= Nothing
     , testCase "only the target payload's nagarectl may continue an open transition" $ do
         let marker = TransitionMarker "0.4.0" "payload-t" "2026-10-11T00:00:00Z"
         transitionOwnerRefusal marker "payload-t" @?= Nothing

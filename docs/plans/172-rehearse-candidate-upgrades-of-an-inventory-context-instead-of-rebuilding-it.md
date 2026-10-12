@@ -88,7 +88,7 @@ status` reports T on the CLI, payload, context, host and cluster.
     - the rendering has one line per row.
 
     Flipping `foundation` to `Unchanged` fails the third case.
-- [ ] M2 (code and model; lane A): implement the reviewed transition and its compatibility table.
+- [x] (2026-10-11) M2 (code and model; lane A): implement the reviewed transition and its compatibility table.
   - [x] (2026-10-10) The compatibility table: `transitionsFrom` in the payload manifest (0.5.0 lists
     0.4.0) and the pure check `Nagare.Platform.Transition.checkTransition`, which refuses an unpinned
     context, the target itself, an unlisted source, and a head wire version the payload does not
@@ -120,6 +120,25 @@ status` reports T on the CLI, payload, context, host and cluster.
     - mutation records show that removing the unsupported-pair refusal, or reordering the pin commit
       before a scope update, fails a named model test;
     - every suite passes.
+  - [x] (2026-10-11) Acceptance met.
+    - Both guards now run in code the model executes. `platform transition commit`'s head checks moved
+      into `Nagare.Platform.Transition.transitionCommitRefusal`: own marker, idle head, every moved
+      scope converged at its accepted revision. The CLI passes the platform scopes; the model passes
+      every scope.
+    - The model now plans a transition as `platform transition plan` does (`checkTransition` against
+      the head) and holds the verdict to its own reading of the table. A `TransitionDeploy` must be
+      accepted from 0.4.0. The new scenario "create, then plan a transition from a release the payload
+      does not list (EP-172)" must refuse from 0.3.0.
+    - The commit step goes through the library guard, then checks its own oracle: the pin never lands
+      before the stage converged.
+    - The fast tier, which checks I1–I5 and I8–I10 on every scenario and placement, is green
+      (`-p '/fast tier/'`, 53 s).
+    - Two mutation records, proved in a scratch worktree:
+      - `EP172-unlisted-source-accepted` fails the fast tier with "I10: planning accepted a transition
+        from 0.3.0, which the payload does not list".
+      - `EP172-pin-before-stage-converged` fails it on the transition scenario with "I10: the pin was
+        committed before the transition stage converged", under 17 single faults.
+    - Every suite passes: see the fast gate record in Outcomes & Retrospective.
 - [x] (2026-10-11) M3 (native run on a disposable Docker daemon, never cp3; lane B):
   `just transition-rehearsal` (`scripts/transition-rehearsal.sh`) bootstraps a fresh local context on
   the source release's nix-built nagarectl, seeds a PostgreSQL row, runs `platform transition plan`
@@ -167,6 +186,11 @@ status` reports T on the CLI, payload, context, host and cluster.
   Eight scopes differ only in their payload path (local-substrate, foundation and the five
   observability scopes), and the stamp changes. `kubeconfig` and the other platform scopes are
   unchanged, and so is the host's NixOS source.
+
+
+- 2026-10-11 (M2): no invariant I6 exists. EP-173 defined I1, I2 and I4. The model has since added
+  I3, I5 and I7–I10, and the transition scenarios are checked against all of them. M2's "I1–I6" is
+  read as the invariants the fast tier checks.
 
 
 ## Decision Log
@@ -231,9 +255,39 @@ status` reports T on the CLI, payload, context, host and cluster.
   test checks each recorded file's digest, so nothing in it was edited by hand.
   Date: 2026-10-11
 
+- Decision (2026-10-11, M2): `platform transition commit` also refuses while any platform scope is
+  accepted at a revision that has not converged. The check is one library function
+  (`transitionCommitRefusal`) shared by the CLI and the recovery model.
+  Rationale: the pin is the transition's last write. Before this, the CLI checked only that the
+  cluster stamp reported T, and the model's own check guarded nothing in production. Sharing the
+  function lets a mutation of the guard fail a model test. Application scopes are not required to
+  converge, so an unhealthy application does not block a platform pin.
+  Date: 2026-10-11
+
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+(2026-10-11) Every milestone is complete. An admitted v0.4.0 context moves to the next release
+through staged reviews under a head marker, and the pin is committed last:
+- M2 implemented it, and the recovery model checks it under every single fault.
+- M3 rehearsed it natively, and releases bind that rehearsal's record.
+- M1 checked in the table of every state the transition moves, held to a two-release fixture.
+
+The M1 fixture found what M3 had shown natively: eight scopes differ only in the payload path, and
+the stamp is the one change. It also showed that the target's code refuses the source's payload, so
+the transition plans only from the target's workspace.
+
+Lessons:
+- **Production code must own each guard.** A guard the model re-implements in test code proves
+  nothing about production. M2's commit check lived only in the model until it moved into the
+  library.
+- **Record native bytes when the run happens.** A fixture recorded from a native run's kept root
+  avoids a second native run. Here only the head had to be re-derived, through v0.4.0's own export
+  and restore.
+
+Follow-up outside this plan: `docs/user/upgrades.md` still says an inventory-backed context has no
+in-place version transition (its install section and the `minor-upgrade-required` row).
+
+ADR 6 carries the 2026-10-11 amendment describing the transition as built.
 
 
 ## Context and Orientation
