@@ -38,9 +38,8 @@ intranet runs it, not when a tag exists.
    candidate, and land it. Never change the candidate to embed evidence about itself.
 3. **The intranet.** In the operator repository (`mori://tan/tan-ng-labs`), pin the Nagare flake
    input to the candidate's exact revision. Then follow the release notes' upgrade steps:
-   `platform transition plan --out DIR`, `inventory apply DIR --yes`, and a new plan until it holds
-   only verifications and re-accepts only `bootstrap-stamp` (F124), then
-   `platform transition commit --yes`. Check `platform status` is exact, that protected sites
+   `platform transition plan --out DIR`, `inventory apply DIR --yes`, and a new plan until the
+   review has no operations, then `platform transition commit --yes`. Check `platform status` is exact, that protected sites
    still require login, and that the operator's passkey login works. The open transition binds the
    candidate's payload, which is derived from its revision. So once the intranet starts, the tag
    must go on that same commit; a fix found mid-transition goes into the next release.

@@ -489,11 +489,30 @@ inventoryObservabilityTests =
                       | resource <- Set.toAscList replayRequired
                       ]
                   )
-          replayProposal <-
+          settledProposal <-
             either
               (assertFailure . show)
               pure
               (planChanges replay noLifecycleDecisions convergedHistory replayObserved)
+          -- F124: an unchanged marker over converged scopes whose members all
+          -- observe as accepted publishes nothing, so the replan is empty.
+          map plannedAction (proposalOperations settledProposal) @?= []
+          -- With any covered scope unconverged, the marker again waits for a
+          -- native check of every accepted member.
+          unconvergedScope <-
+            case [owner | owner <- Map.keys (historyConverged convergedHistory), owner /= scopeId stampScope] of
+              owner : _ -> pure owner
+              [] -> assertFailure "converged bootstrap has no covered scope" >> error "unreachable"
+          replayProposal <-
+            either
+              (assertFailure . show)
+              pure
+              ( planChanges
+                  replay
+                  noLifecycleDecisions
+                  convergedHistory {historyConverged = Map.delete unconvergedScope (historyConverged convergedHistory)}
+                  replayObserved
+              )
           let oldMarker =
                 [ value
                 | (_, scoped) <- Map.elems (historyAccepted convergedHistory)

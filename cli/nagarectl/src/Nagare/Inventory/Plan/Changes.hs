@@ -171,6 +171,7 @@ import Nagare.Resource.Types
   , SourceLocation (SourceLocation)
   , digestText
   , nameText
+  , scopeKind
   )
 import Nagare.Resource.Wire
   ( canonicalValue
@@ -446,17 +447,34 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
     desiredDeclarations = Map.fromList [(declarationId declaration, declaration) | declaration <- inventoryDeclarations (candidateInventory candidate)]
     -- Accepted markers remain in the composed inventory during ordinary
     -- application/access reviews. Only selecting a marker requests the
-    -- bootstrap-wide verification needed before publishing that marker.
+    -- bootstrap-wide verification needed before publishing that marker. A
+    -- marker already published over converged scopes, whose members all
+    -- observe as accepted, publishes nothing, so its replan is empty (F124).
     bootstrapReview =
       any
-        isBootstrapMarker
-        [ declaration
+        (not . markerSettled)
+        [ resource
         | ReplaceScope scope <- NE.toList (candidateChanges candidate)
         , bundle <- scopeBundles scope
-        , declaration <- bundle ^. #declarations
+        , Managed resource <- bundle ^. #declarations
+        , resource ^. #source . #file == "generated:bootstrap"
         ]
-    isBootstrapMarker (Managed resource) = resource ^. #source . #file == "generated:bootstrap"
-    isBootstrapMarker _ = False
+    markerSettled marker =
+      maybe False (`sameManaged` marker) (Map.lookup (marker ^. #identity) oldDeclarations)
+        && all
+          scopeConverged
+          [ scopeId scope
+          | scope <- Map.elems (inventoryScopes (candidateInventory candidate))
+          , scopeKind (scopeId scope) == scopeKind (marker ^. #owner)
+          ]
+        && all memberAsAccepted desiredManaged
+    scopeConverged owner = case Map.lookup owner (historyAccepted history) of
+      Just (revision, _) -> Map.lookup owner (historyConverged history) == Just revision
+      Nothing -> False
+    memberAsAccepted = \case
+      (resourceId, resource, Just old, Just (ObservedPresent _)) ->
+        sameManaged old resource && Map.notMember resourceId (observationStuck observations)
+      _ -> False
     oldDeclarations = Map.fromList [(declarationId declaration, declaration) | declaration <- historyDeclarations history]
     oldOperations =
       Map.fromList
@@ -476,11 +494,16 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
         , Map.lookup scope (historyConverged history) == Just revision
         , bundle <- scopeBundles declaration
         , operation <- bundle ^. #operations
-        , forwardOnly operation
+        , convergedOnly operation
         ]
     operationIsProven operation =
-      forwardOnly operation
+      convergedOnly operation
         && Map.lookup (operation ^. #identity) provenOperations == Just operation
+    -- A logical cache is observed as its own resource, so an absent or
+    -- drifted cache plans its create or update; an unchanged configure on a
+    -- converged scope has nothing left to do (F124).
+    convergedOnly operation =
+      forwardOnly operation || operation ^. #operationKind == CreateLogicalCache
     forwardOnly operation =
       operation ^. #operationKind
         `elem` [SchemaMigration, PreDeployHook, ActivateHost, MaintainData, RestoreLiveData, PurgeCdnCache, PurgeCdnZone, StartVm, StopVm, PruneHostImage]

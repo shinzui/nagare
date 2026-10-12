@@ -34,11 +34,14 @@ T() {
     "$NAGARE_REHEARSAL_TARGET" --context "$CTX" "$@"
   fi
 }
-# Mutating operations of a review; a review with none that also re-accepts no scope revision
-# is the converged state. A review that only re-accepts declarations (a transition re-declares
-# every scope from the target payload) is applied, so that the next plan sees them accepted.
-operations() { python3 -I -c 'import json,sys; ops=json.load(open(sys.argv[1]))["operations"]; print(sum(1 for o in ops if (o.get("operation", o).get("action") or {}).get("tag") != "VerifyResource"))' "$1/review.json"; }
-# The bootstrap stamp carries the plan time, so every replan re-declares it; it does not count.
+# Operations of a review; a review with none that also re-accepts no scope revision is the
+# converged state. A review that only re-accepts declarations (a transition re-declares every
+# scope from the target payload) is applied, so that the next plan sees them accepted. A source
+# release before F124's fix plans a check of every member on each replan, so its bootstrap loop
+# does not count VerifyResource; the candidate's loops count every operation.
+operations() { python3 -I -c 'import json,sys; ops=json.load(open(sys.argv[1]))["operations"]; print(sum(1 for o in ops if sys.argv[2] == "all" or (o.get("operation", o).get("action") or {}).get("tag") != "VerifyResource"))' "$1/review.json" "${2:-all}"; }
+# Every platform replan selects the bootstrap stamp, so it is re-accepted at a new generation
+# with the same declaration; it does not count.
 reaccepts() { python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); base={json.dumps(e["scope"],sort_keys=True): e["revision"] for e in d["baseRevisions"]}; print(sum(1 for e in d["desiredRevisions"] if e["scope"].get("name") != "bootstrap-stamp" and base.get(json.dumps(e["scope"],sort_keys=True)) != e["revision"]))' "$1/review.json"; }
 
 # --- 3. the images the platform stages pin, copied once the registry exists ---
@@ -96,7 +99,7 @@ reviewed_loop() { # bin-fn plan-words... -- apply-words...
   for n in $(seq 1 "$STAGES_MAX"); do
     review="$ROOT/reviews/$label-$n"
     "$fn" platform "${PLAN_CMD[@]}" --out "$review" > "$review.plan.log" 2>&1 || { echo "$label plan $n refused: $(tail -2 "$review.plan.log")" >&2; exit 1; }
-    ops="$(operations "$review")"; moves="$(reaccepts "$review")"
+    ops="$(operations "$review" "$([ "$label" = bootstrap ] && echo mutating || echo all)")"; moves="$(reaccepts "$review")"
     log "$label stage $n: $ops operations, re-accepts scopes: $moves"
     [ "$ops" != 0 ] || [ "$moves" != 0 ] || return 0
     "$fn" "${APPLY_CMD[@]}" "$review" --yes > "$review.apply.log" 2>&1 || resume_ambiguous "$fn" "$review.apply.log" || { echo "$label apply $n failed: $(tail -3 "$review.apply.log")" >&2; exit 1; }
