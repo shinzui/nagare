@@ -12,6 +12,7 @@ intention: "intention_01kwb012h6ebgs5qjn5r12nyda"
 This MasterPlan is a living document. The sections Progress, Surprises & Discoveries,
 Decision Log, and Outcomes & Retrospective must be kept up to date as work proceeds.
 
+Full plan before trimming: [16-local-development-and-testing-for-nagare.md](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/masterplans/16-local-development-and-testing-for-nagare.md). This copy keeps the purpose, progress, discoveries, decisions and outcomes.
 
 ## Vision & Scope
 
@@ -77,7 +78,6 @@ exists only to satisfy the WebAuthn secure-context requirement and browser trust
 machine, not to be publicly valid. Finally, this initiative does not change *what* nagare deploys (the
 Knative Service shape, the DSL, the database engines); it changes only *where* and *how* an operator can
 run it for testing.
-
 
 ## Decomposition Strategy
 
@@ -145,7 +145,6 @@ images, manifests, TLS, and cookie-domain story, and bundling it would unbalance
 need is modeled as a soft dependency instead. **Doing local TLS as a sixth plan**: rejected — local TLS
 exists *for* the auth plane (WebAuthn secure context) and is meaningless without it, so it lives in EP-85.
 
-
 ## Exec-Plan Registry
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
@@ -172,117 +171,6 @@ Implementation waves (phases):
 - **Wave 4 — Harness + docs:** EP-86. A local end-to-end smoke test and the developer runbook; drafted from
   Wave 1 onward, finalized after EP-85 so the docs match shipped behavior.
 
-
-## Dependency Graph
-
-EP-82 (local cluster + contract) has no dependencies. It is the foundation: it creates the k3d cluster
-and local registry, the `nagare.local.env.example` + `NAGARE_MODE=local` switch, the local-mode bootstrap
-of Knative/Kourier (Integration Point 4), and the local-mode-aware guardrail (Integration Point 6). Every
-other plan needs either the cluster it stands up, the contract variables it fixes, or both.
-
-EP-83 (CLI decoupling) **hard-depends on EP-82** because its acceptance is "`nagarectl deploy` works in
-local mode against the cluster," which requires EP-82's cluster, local registry, and the
-`NAGARE_REGISTRY_HOST`/`NAGARE_BASE_DOMAIN`/`NAGARE_MODE` values EP-82's contract defines. EP-83 owns the
-Haskell mode-resolution type and the conditional Docker auth (Integration Point 2), which the later plans
-reuse.
-
-EP-84 (data services + GCS-free backups) **hard-depends on EP-83** and **soft-depends on EP-82**. The hard
-dependency is on EP-83's local-mode resolution in `Nagare.Target`: EP-84 generalizes
-`Nagare.Cluster.GcsJob` to emit a GCS Job in cloud mode and a local-object-store Job in local mode
-(Integration Point 3), and that branch is driven by the same `tpMode` EP-83 introduces. It soft-depends on
-EP-82 because the data subsystems (databases, broker, tasks, volumes) need the EP-82 cluster to run on, but
-their *manifests* are unchanged and could be unit-rendered without it — the dependency is "needs a cluster
-to demonstrate," which EP-82 provides.
-
-EP-85 (auth plane + local TLS) **hard-depends on EP-82 and EP-83** and **soft-depends on EP-84**. It hard
-needs EP-82 (the cluster and its local-mode bootstrap, onto which it layers the auth-plane manifests and a
-local TLS issuer — Integration Points 4 and 5) and EP-83 (to *build and push* the Shomei, en, and
-nagare-access images into the local registry, which is exactly EP-83's decoupled build/push path). It soft
-needs EP-84 because Shomei and en require a managed Postgres; that Postgres comes from `nagarectl db
-create postgres`, whose create path runs on the EP-82 cluster without EP-84, but EP-84 is where running
-managed databases locally is verified and documented, so EP-85 benefits from it being done first.
-
-EP-86 (smoke + docs) **hard-depends on EP-82** (the smoke test drives the cluster EP-82 stands up) and
-**soft-depends on EP-83, EP-84, EP-85** because the end-to-end scenario and the runbook exercise and
-describe their behavior. Its prose can be drafted from Wave 1 onward and is finalized after EP-85.
-
-Parallelism: after EP-82, EP-83 is the single Wave-2 plan. After EP-83, EP-84 and EP-85 run in parallel
-(disjoint files; EP-85's only tie to EP-84 is soft). EP-86 begins once EP-82 exists and is finalized after
-EP-85.
-
-
-## Integration Points
-
-**1. The local-target contract (defined by EP-82; consumed by EP-83, EP-84, EP-85, EP-86).** EP-82 is the
-single source of truth for the local target. The contract is a git-ignored file `nagare.local.env` at the
-repo root (a sequence of `export VAR=value` lines), with a tracked `nagare.local.env.example` carrying the
-schema and worked example, mirroring the existing `nagare.target.env` from MasterPlan 12. The canonical
-variables every consumer reads are: `NAGARE_MODE` (the switch; `local` selects local mode, unset/`cloud`
-preserves today's behavior), `NAGARE_REGISTRY_HOST` (the local registry, e.g. `k3d-registry.localhost:5000`
-— a value that resolves both from the host doing `docker push` and from in-cluster containerd doing the
-pull; EP-82 fixes the exact string and documents the host/etc-hosts setup it needs), `NAGARE_BASE_DOMAIN`
-(a wildcard-loopback domain such as `127-0-0-1.sslip.io` so `<app>.<base>` resolves to `127.0.0.1` with no
-DNS setup), `NAGARE_TARGET_PLATFORM` (the developer's host architecture, e.g. `linux/arm64` on Apple
-Silicon, so locally-built images run on the local node), and `NAGARE_LOCAL_OBJECT_STORE` (the in-cluster
-MinIO endpoint + bucket used for backups, consumed by EP-84). EP-82 owns this list; a later plan needing a
-new local field adds it to EP-82's `.example` and this section and notifies the other consumers. Precedence
-matches MasterPlan 12: environment > profile > built-in default.
-
-**2. The Haskell mode resolution and conditional Docker auth (defined by EP-83; consumed by EP-84, EP-85).**
-EP-83 extends `cli/nagarectl/src/Nagare/Target.hs`'s `TargetProfile` record with a resolved *mode* (read
-from `NAGARE_MODE`; the new field, e.g. `tpMode :: Mode` with `data Mode = Cloud | Local`) and makes
-`cli/nagarectl/src/Nagare/Image.hs`'s `configureDockerAuth` a no-op (or a local-registry `docker login`)
-when the mode is `Local` instead of unconditionally calling `gcloud auth configure-docker`
-(`Nagare/Image.hs:96-106`, called from `Nagare/App/Deploy.hs:440`). EP-84 and EP-85 must read this same
-`tpMode` to branch their own behavior (EP-84 the backup backend, EP-85 nothing GCP-specific but it reuses
-the local registry host derivation). EP-83 owns the `Mode` type and its resolution; later plans import it,
-never re-derive the mode from the environment themselves.
-
-**3. The data-movement Job backend (defined by EP-84; affects EP-86).** `cli/nagarectl/src/Nagare/Cluster/
-GcsJob.hs` renders the one canonical Kubernetes Job that `db backup`, `db restore`, `storage snapshot`, and
-`storage restore` all use to move data to/from GCS, authenticating via the GCE metadata server with the
-`google/cloud-sdk:slim` image (`GcsJob.hs:47-69`). EP-84 generalizes this single module so that in local
-mode it instead targets the MinIO object store from Integration Point 1 — swapping the container image and
-the move commands (e.g. `mc`/`aws s3` against the MinIO endpoint) and dropping the metadata `hostAliases`/
-env, while leaving the cloud path byte-for-byte unchanged. Because all four data-movement verbs render
-through this one module, EP-84 changes exactly one rendering point. EP-86's smoke test exercises the local
-branch (a snapshot/restore round-trip) as its acceptance.
-
-**4. The local-mode cluster bootstrap (defined by EP-82; consumed/extended by EP-85).** The cloud bootstrap
-is the `just cluster-bootstrap` recipe (`justfile:82-101`) plus the manifests under `cluster/bootstrap/`.
-EP-82 produces a local-mode bootstrap — a new recipe (e.g. `just local-bootstrap`) or a parameterized form
-of the existing one — that installs cert-manager, Knative Serving, Kourier, and net-certmanager but: skips
-the Cloud-DNS DNS-01 `ClusterIssuer` (`cluster/bootstrap/cert-manager/letsencrypt-dns.yaml`, which hard-
-codes a GCP project and uses ambient GCE credentials); sets `config-domain` to `NAGARE_BASE_DOMAIN` from
-the profile instead of `pulumi stack output baseDomain` (`justfile:93`); and points
-`registriesSkippingTagResolving` at the local registry instead of the Artifact Registry host
-(`justfile:99-101`, `cluster/bootstrap/knative-serving/config-deployment.yaml:30`). EP-85 extends this same
-local bootstrap by adding the auth-plane namespaces/manifests and the local TLS issuer (Integration Point
-5) on top; it must apply *after* EP-82's bootstrap and reuse its namespace/ConfigMap conventions, not fork
-them.
-
-**5. The local TLS issuer (defined by EP-85; depends on EP-82's cert-manager install).** The cloud path
-gets browser-trusted wildcard TLS from Let's Encrypt via DNS-01 (the issuer EP-82's local bootstrap skips).
-EP-85 introduces a local `ClusterIssuer` — a self-signed/`mkcert`-rooted issuer whose CA the developer
-trusts on their machine — so that apps and the auth plane are reachable over HTTPS locally. This is
-required specifically because WebAuthn (the second factor Shomei uses) only works in a browser "secure
-context" (HTTPS, or `localhost`); a loopback wildcard domain like `127-0-0-1.sslip.io` is *not* `localhost`,
-so plain HTTP would block the login flow. EP-85 owns this issuer; it consumes the cert-manager installation
-that EP-82's bootstrap performs. Apps that do not require login still work over plain HTTP, so this issuer
-is needed only when EP-85's auth path is exercised.
-
-**6. The local-mode-aware guardrail (defined by EP-82; consumed by EP-86).** Today `scripts/lib/target.sh`
-exposes `_require_target_project`, which refuses to run unless `gcloud`'s active project equals the
-configured GCP target (`scripts/lib/target.sh:45-54`); `scripts/live-test.sh` and `scripts/live-smoke.sh`
-call it (`live-smoke.sh:21`). A local run has no GCP project, so this check would block it. EP-82 makes the
-helper mode-aware: when `NAGARE_MODE=local`, `_require_target_project` short-circuits to success (it is a
-*GCP* guardrail and there is no GCP target to protect), while a complementary check ensures local mode is
-genuinely not pointed at real cloud resources. The cloud guardrail remains fail-closed when
-`NAGARE_MODE` is unset/`cloud` — local mode must never weaken the existing protection, only step aside when
-there is nothing to protect. EP-86's `just local-smoke` sources the same helper and relies on this behavior;
-no plan may make the cloud branch anything but fail-closed.
-
-
 ## Progress
 
 Track milestone-level progress across all child plans. Each entry names the child plan
@@ -298,7 +186,6 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [x] EP-85: an app marked "require login" (`protected-hello`, public host derived from `NAGARE_BASE_DOMAIN` → `protected-hello.127-0-0-1.sslip.io`) is fronted by the local auth plane and the full progression 302 → 403 → (`access grant`) 200 → (`revoke`) 403 was observed over the local-CA HTTPS origin; `access list` reflects the viewer. The WebAuthn *passkey* ceremony is a documented interactive operator hand-off (needs a browser + authenticator + the CA trusted) — the no-passkey password login over HTTPS exercises the full enforcer/Shomei/en chain and the `__Host-` cookie round-trip proves the secure context. (Done 2026-06-29.)
 - [x] EP-86: `just local-smoke` runs deploy → snapshot/restore → HTTP 200 → teardown locally with zero cloud dependencies. (Done 2026-06-30 — exit 0, snapshot `s3://` MinIO not `gs://`, transcript free of `gcloud`/`gsutil`/`gs://`/IAP; teardown removed the app, restore-scratch PVC, and the MinIO object; cloud guardrail still fail-closes with `NAGARE_MODE` unset.)
 - [x] EP-86: `docs/user/local-development.md` documents the full local workflow (auth-plane + smoke + troubleshooting sections completed, status → 🟢); `docs/user/getting-started.md` and `CLAUDE.md` reconciled (local mode blessed as a by-design guardrail bypass). (Done 2026-06-30.)
-
 
 ## Surprises & Discoveries
 
@@ -396,7 +283,6 @@ interactions between child plans. Provide concise evidence.
   future parity test: verify against the *running* CLI and a *real* run, not the twin script. Date:
   2026-06-30.
 
-
 ## Decision Log
 
 Record every decomposition or coordination decision made while working on the master
@@ -447,7 +333,6 @@ plan.
   harness; separating the GCS-free backup work from the data plan; folding auth into the data plan; a sixth
   TLS-only plan).
   Date: 2026-06-29
-
 
 ## Outcomes & Retrospective
 

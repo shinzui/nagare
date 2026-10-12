@@ -38,6 +38,7 @@ provenance:
 
 This ExecPlan owns unfinished work transferred from EP-148. Keep its living sections current.
 
+Full plan before trimming: [161-provide-scoped-interactive-maintenance-with-durable-recovery.md](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/plans/161-provide-scoped-interactive-maintenance-with-durable-recovery.md). This copy keeps the purpose, progress, discoveries, decisions and outcomes.
 
 ## Purpose / Big Picture
 
@@ -49,12 +50,10 @@ This ExecPlan owns unfinished work transferred from EP-148. Keep its living sect
 
 Status is Cancelled in the parent registry. The unchecked original milestones below are historical uncompleted outcomes, not active work or claims of completion.
 
-
 - [-] M1: Reviewed database shells and supported exec/migration entrypoints use an exact scoped maintenance receipt and the shared exclusion contract, preserving private credentials and rejecting concurrent mutation. {disposition=declined}
 - [-] M2: Normal exit, nonzero exit, terminal loss, and operator-process death produce durable outcomes, re-observation, and explicit recovery of unresolved sessions without automatic replay. {disposition=declined}
 
 Inherited: aggregate hooks already declare affected resources and reviewed per-tag Jobs. Database shell currently uses an imperative kubectl exec client and refuses after inventory initialization. The original proposal would replace that refusal with a supported reviewed session; that release obligation is now deferred. Recorded implementations below remain evidence, not a promise to admit new sessions.
-
 
 ## Surprises & Discoveries
 
@@ -104,10 +103,6 @@ ClickHouse online-session checkpoint (2026-09-27): the local 25.8 source `mp23-c
 
 ClickHouse terminal-loss recovery (2026-09-27): review `81687470c44b6c975e3ded0ab7141e2434e2df14caff86334d21d13059198ce5` opened session `chloss` on the same accepted source and backup. Its terminal wrote and read `(230162, clickhouse-maintenance-loss-v1)`. HUP to only the local `kubectl exec` child left a marked `clickhouse-clie` process in the source Pod; apply recorded `ambiguous tx-81687470c44b6c975e3ded0ab7141e2434e2df14caff86334d21d13059198ce5 at op-5abc24176925036752b19877`. Public status showed an unresolved fence and ordinary resume refused `active-data-fence`. Exact `verify-fenced-effect` recovery from `/tmp/nagare-mp23-ch-maint-loss-recovery.json` terminated that marked process, re-observed the server's client count, and released the fence. `inventory resume --yes` converged; the inserted row persisted and no marked process or fence remained. This completes native normal-exit and terminal-loss session probes for all three engines, while ClickHouse nonzero/process-death, credential drift, supported exec/migration entrypoints, remaining competing-operation probes, and M1/M2 acceptance remain open.
 
-
-
-
-
 The Redis checkpoint passed the 907-test `nagarectl-test` suite, two focused maintenance tests, executable build, Haskell style gate, and strict user-documentation validation.
 
 The ClickHouse checkpoint passed the 908-test `nagarectl-test` suite, executable build, Haskell style gate, strict user-documentation validation, and `git diff --check`.
@@ -118,62 +113,9 @@ The ClickHouse checkpoint passed the 908-test `nagarectl-test` suite, executable
 
 2026-09-27: Consume EP-160’s corrected finite M1 contract without waiting for M2/M3 or EP-156. Preserve the operator’s explicit no-GKE boundary.
 
-
 2026-09-26: Transfer a bounded unfinished EP-148 outcome into its own plan. Preserve delivered behavior and all release gates; no feature is dropped and no prior work is reset.
-
 
 ## Outcomes & Retrospective
 
 2026-09-28: Cancelled, not Complete. Prior experiments demonstrated parts of native maintenance but do not require completing a general session manager. Recovery compatibility is retained explicitly rather than discarding unresolved state.
 
-
-
-
-
-## Context and Orientation
-
-
-This plan takes only unfinished work from [EP-148](148-route-application-and-data-lifecycles-through-independent-resource-scopes.md). Its completed application compilers, image builds/publication, environment and Secret channels, task lifecycle, manual backup/pruning, PostgreSQL scratch restore, and volume snapshot/scratch restore/pruning are inherited working code. A scope is one owner's desired resource set. An immutable review fixes the intended effects and native inputs; the private journal records execution and recovery evidence. Logical resource identity survives renames; a physical identity, such as a Kubernetes UID or storage-object version, identifies one actual incarnation. Names or labels alone do not authorize mutation.
-
-cli/nagarectl/src/Nagare/Inventory/Command.hs supplies the command service; cli/nagarectl/src/Nagare/Inventory/Plan.hs, cli/nagarectl/src/Nagare/Inventory/Execute.hs, cli/nagarectl/src/Nagare/Inventory/Journal.hs, and cli/nagarectl/src/Nagare/Inventory/Store.hs own review, execution, receipts, and history. cli/nagarectl/app/Main.hs is the shared command registration surface. Keep behavior in named modules and preserve concurrent changes to registration and tests. Public output must not contain credentials or private native bundles.
-
-[ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md), including its 2026-09-28 scope amendment, requires independent ownership, exact reviewed effects, and full evidence for the revised supported contract. [ADR 4](../adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md) keeps private history outside immutable payloads. These plans do not relax the existing fresh-context release boundary or the accepted offline-only Cloudflare proof. A supported feature cannot close through refusal alone; an explicitly deferred route requires a tested admission guard and recovery compatibility, not a claim of implementation.
-
-cli/nagarectl/src/Nagare/Database/Shell.hs contains runDbShell and per-engine client commands. cli/nagarectl/app/Main.hs guards DbShell and registers operational entrypoints. cli/nagarectl/src/Nagare/Inventory/Application.hs and cli/nagarectl/src/Nagare/Inventory/TaskRun.hs provide existing affected-resource and one-off execution patterns. cli/nagarectl/src/Nagare/Inventory/Execute.hs and cli/nagarectl/src/Nagare/Inventory/Store/Object.hs supply durable execution and remote writer ownership. New cli/nagarectl/src/Nagare/Inventory/Maintenance.hs owns session handling; cli/nagarectl/src/Nagare/Inventory/DataFence.hs, implemented by EP-160, owns the shared exclusion state machine.
-
-A maintenance receipt states who/what was authorized to open a session, the exact accepted resource and provider identities, start/end or unresolved state, exit status, recovery references, and subsequent observations. It does not claim the contents of an interactive shell were statically reviewed. Do not record keystrokes, passwords, or raw terminal output in public evidence.
-
-
-## Plan of Work
-
-No new implementation is scheduled under this cancelled child. Do not continue all-engine session expansion, terminal tooling, or process-policy generalization to close MP-23.
-
-[EP-153](153-close-managed-command-coverage-for-the-inventory-release.md) owns the finite withdrawal work: mark new custom interactive mutating maintenance and unscoped exec/migration routes deferred, reject their command/library/recipe and unexecuted saved-review admission before effects, and document that boundary. Preserve existing reviewed static hooks. No unsupported route may silently fall back to imperative exec.
-
-Keep inspection and evidence-bound recovery of already-admitted sessions. A surviving client must still be observed/terminated under the existing reviewed protocol before writer claims or fences are released; never replay arbitrary interactive commands or clear an unresolved record because this child was cancelled. [EP-160](160-complete-fenced-live-data-restore-across-supported-engines-and-volumes.md)'s accepted shared fence remains authoritative. EP-155/156 cover retained recovery compatibility as applicable, without requiring a new maintenance session for every engine or provider.
-
-Any future maintenance feature needs an explicit product decision and bounded native authority/recovery contract. External-tool evaluation in EP-163 may examine available native controls; it neither reactivates this child nor promises a generic interactive session manager.
-
-## Concrete Steps
-
-There are no new feature steps under this cancelled child. EP-153 must add/refine admission-refusal and previously admitted session-recovery fixtures through the existing command test harness. Use retained private reviews and disposable historical session fixtures; do not launch new live sessions merely to complete this historical plan. Record resulting proof in EP-153 and the integrated evidence owners. Preserve all earlier observations in Surprises & Discoveries.
-
-## Validation and Acceptance
-
-Cancellation is a scope decision, not implementation acceptance. EP-153's release acceptance requires that new deferred sessions refuse before effects, static reviewed hooks and read-only inspection still work, and existing sessions cannot be stranded or automatically replayed. An unresolved surviving process continues to block conflicting mutation until evidence-bound recovery succeeds. Existing native tests and receipts may prove these regressions where their inputs still apply. No all-engine new-session or terminal-loss feature matrix is required from this child.
-
-## Idempotence and Recovery
-
-
-Use isolated test state and exact disposable resource identities. Retain the saved review, private native members, and journal after failure. Reuse an operation ID only with identical accepted intent; changed input requires a new review. Unknown provider results remain unresolved until observation proves what happened. No blind replay, broad prefix cleanup, history reset, or automatic data rollback is allowed. This plan authorizes implementation and its bounded verification, not a real release publication. Use Mori to locate dependency sources before relying on APIs, and verify authoritative releases before changing pins. Never inspect /nix/store.
-
-
-## Interfaces and Dependencies
-
-This child is Cancelled and no active MP-23 child depends on its completion. EP-153 owns deferred-admission guards and retained session-recovery compatibility; EP-160 owns the accepted shared fence; EP-155/156 supply relevant local/GCS recovery evidence; EP-157 verifies the declared release boundary. Preserve private history and existing backup references. No GKE, new messaging engine, new session store, or external tool is introduced by this decision.
-
-## Revision Notes
-
-2026-09-28: Cancel new interactive-maintenance delivery; transfer only deferred-route guards and existing recovery compatibility to EP-153.
-
-2026-09-27: Apply the execution-log diagnosis to the existing outcome: drive implementation through its production command/recovery fixture, make handoffs and known ownership explicit, and prevent new requirements from entering through an open-ended audit. Existing functionality and final release acceptance remain required.

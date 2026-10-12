@@ -13,6 +13,7 @@ master_plan: "docs/masterplans/3-static-hosting-for-nagare.md"
 This ExecPlan is a living document. The sections Progress, Surprises & Discoveries,
 Decision Log, and Outcomes & Retrospective must be kept up to date as work proceeds.
 
+Full plan before trimming: [14-static-build-packaging-and-deploy-pipeline.md](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/plans/14-static-build-packaging-and-deploy-pipeline.md). This copy keeps the purpose, progress, discoveries, decisions and outcomes.
 
 ## Purpose / Big Picture
 
@@ -26,7 +27,6 @@ The proof is a local example under `cluster/examples/static-site/`: `nagarectl s
 prints the generated Nginx config and manifests, and the non-dry-run path builds the static image and
 would apply the service using the same `kubectl` helpers as the existing app deploy command.
 
-
 ## Progress
 
 - [x] Add `nagarectl site deploy` CLI options and route them separately from the existing `nagarectl deploy`. (2026-06-09: top-level `Command = Deploy | SiteDeploy`; `site` subparser nests `deploy` with `--file/--tag/--base-domain/--project-dir/--ghc-env/--dry-run/--skip-build`.)
@@ -36,7 +36,6 @@ would apply the service using the same `kubectl` helpers as the existing app dep
 - [x] Implement dry-run output for static deploys. (2026-06-09: prints generated nginx.conf, Service manifest, any DomainMappings, and the URL with no side effects.)
 - [x] Implement non-dry-run build, push, `kubectl apply`, wait, and URL printing. (2026-06-09: prepare → context → build → push → apply → wait → `Deployed static site: <url>`.)
 - [x] Add unit/integration-style tests where practical and a static site example fixture. (2026-06-09: `nagarectl-test` covers the Dockerfile and `prepareStaticOutput` state machine; `cluster/examples/static-site/` is the worked example.)
-
 
 ## Surprises & Discoveries
 
@@ -62,7 +61,6 @@ would apply the service using the same `kubectl` helpers as the existing app dep
   A `--project-dir` (`-C`, default `.`) option was added beyond the original
   option list so the build command's working directory and the output-directory
   resolution are explicit and testable.
-
 
 ## Decision Log
 
@@ -91,7 +89,6 @@ would apply the service using the same `kubectl` helpers as the existing app dep
   wait helpers. The CLI options defined here (`--file`, `--tag`, `--base-domain`, `--ghc-env`,
   `--dry-run`, `--skip-build`) are reused unchanged by the server path.
   Date: 2026-06-09
-
 
 ## Outcomes & Retrospective
 
@@ -133,170 +130,3 @@ Handoffs:
   `runSiteDeploy` and a Node image-context generator beside
   `withStaticImageContext`, reusing every other helper.
 
-
-## Context and Orientation
-
-The existing CLI package is `cli/nagarectl/`. The current executable entrypoint is
-`cli/nagarectl/app/Main.hs`. It has one subcommand, `deploy`, which loads `nagare/Config.hs`, computes
-an image tag, builds and pushes an image through `cli/nagarectl/src/Nagare/Image.hs`, renders
-Knative manifests through `nagare-dsl`, applies them through `cli/nagarectl/src/Nagare/Deploy.hs`,
-waits for readiness, and prints a URL.
-
-This plan adds a sibling CLI namespace, `nagarectl site deploy`. A "build pipeline" here is a
-sequence of local operations: optionally run a shell command such as `npm run build`, verify the
-configured output directory exists, copy that directory into a temporary image context, write a
-generated Nginx config, write a generated Dockerfile, then run `docker build` and `docker push`.
-
-This plan hard-depends on `docs/plans/13-typed-static-site-model-and-renderer.md`. That plan defines
-the `StaticSite` type, `loadStaticSite`, `renderNginxConfig`, `renderStaticService`, and
-`renderStaticDomainMappings` interfaces that this plan consumes.
-
-
-## Plan of Work
-
-Milestone 1 adds the CLI surface. In `cli/nagarectl/app/Main.hs`, extend the parser so the program
-has both the existing `deploy` command and a new nested `site deploy` command. Keep the existing
-`deploy` behavior unchanged. The static deploy options should include:
-
-```text
---file FILE              default: nagare/Config.hs
---tag TAG                default: computed timestamp
---base-domain DOMAIN     default: NAGARE_BASE_DOMAIN or apps.example.com
---ghc-env FILE           same behavior as existing deploy
---dry-run
---skip-build             for fixtures where output already exists
-```
-
-Milestone 2 adds static build execution. Create `cli/nagarectl/src/Nagare/Static/Build.hs`. It should
-expose a function like:
-
-```haskell
-prepareStaticOutput :: StaticSite -> FilePath -> IO PreparedStaticOutput
-```
-
-The second argument is the project root or build context. For `NoBuild outputDir`, the function only
-validates that the directory exists. For `BuildCommand command outputDir`, it runs the command in the
-project root, then validates the output directory. It should fail clearly if the command exits
-non-zero or the output directory is missing.
-
-Milestone 3 adds image-context generation. In the same module or a sibling module
-`Nagare.Static.Image`, create a temporary directory containing:
-
-```text
-Dockerfile
-nginx.conf
-site/
-```
-
-Copy the prepared static output into `site/`. Write `nginx.conf` from `renderNginxConfig`. Write a
-Dockerfile equivalent to:
-
-```dockerfile
-FROM nginx:1.27-alpine
-COPY nginx.conf /etc/nginx/conf.d/default.conf
-COPY site/ /usr/share/nginx/html/
-EXPOSE 8080
-```
-
-The generated Nginx config from EP-13 must listen on port 8080 because Knative will route traffic to
-that container port.
-
-Milestone 4 wires deploy. Reuse `computeTag`, `configureDockerAuth`, `buildImage`, `pushImage`, and
-`imageRef` from `Nagare.Image` when possible. If `imageRef` is too `Deployment`-specific, add a more
-general helper such as `taggedImageRef :: ImageRef -> Text -> Text` while preserving the old API.
-Render static manifests using `renderStaticService` and `renderStaticDomainMappings`, apply them
-with `applyManifests`, wait for the Knative service with `waitForReady`, and print the service URL.
-The URL rule should be: first configured custom domain if present; otherwise
-`https://<site>.<namespace>.<baseDomain>` for production deploys.
-
-Milestone 5 adds examples and tests. Add `cluster/examples/static-site/` with a small `public/`
-directory, a `nagare/Config.hs`, and README notes. Add Haskell tests for pure helper logic where
-reasonable. Full Docker and cluster execution can be documented as manual validation because it
-depends on Docker and a live cluster.
-
-
-## Concrete Steps
-
-Work from the repository root:
-
-```bash
-cd /Users/shinzui/Keikaku/bokuno/nagare
-```
-
-Inspect current CLI behavior:
-
-```bash
-sed -n '1,280p' cli/nagarectl/app/Main.hs
-sed -n '1,220p' cli/nagarectl/src/Nagare/Image.hs
-sed -n '1,180p' cli/nagarectl/src/Nagare/Deploy.hs
-```
-
-After editing, build and test both packages:
-
-```bash
-cd /Users/shinzui/Keikaku/bokuno/nagare/cli/nagarectl
-cabal build
-cabal test
-```
-
-Run the dry-run example:
-
-```bash
-cd /Users/shinzui/Keikaku/bokuno/nagare/cluster/examples/static-site
-nagarectl site deploy --dry-run --ghc-env /path/to/ghc-environment
-```
-
-The exact `--ghc-env` path depends on how the executable is run. Follow the current deployment docs
-for `NAGARE_GHC_ENVIRONMENT` if `runghc` cannot find `nagare-dsl`.
-
-
-## Validation and Acceptance
-
-This plan is accepted when the existing `nagarectl deploy --dry-run` path still works for the bundled
-Knative examples, and `nagarectl site deploy --dry-run` for `cluster/examples/static-site` prints:
-
-- a generated Nginx config,
-- a generated Knative Service manifest with the static site image and port 8080,
-- any configured DomainMapping manifests,
-- and the URL that would be deployed.
-
-For non-dry-run validation on a machine with Docker and cluster access, the command should build an
-image, push it, apply the manifests, wait for the Knative Service to become Ready, and print
-`Deployed static site: <url>`. A follow-up `kubectl get ksvc -n personal` should show the static site
-service as Ready.
-
-
-## Idempotence and Recovery
-
-Dry runs have no side effects. Non-dry-run deployment is safe to repeat because Docker tags are
-timestamped unless overridden, and `kubectl apply` is declarative. Temporary image contexts should be
-created with `withSystemTempDirectory` so partial failures clean up automatically. If Docker build
-fails, no cluster resources should be applied. If apply fails after an image push, rerun with the
-same `--tag` to retry the cluster leg without changing the artifact.
-
-
-## Interfaces and Dependencies
-
-This plan consumes these interfaces from EP-13:
-
-```haskell
-loadStaticSite :: FilePath -> IO (Either LoadError StaticSite)
-renderNginxConfig :: StaticSite -> ByteString
-renderStaticService :: StaticSite -> StaticDeployContext -> ByteString
-renderStaticDomainMappings :: StaticSite -> StaticDeployContext -> [ByteString]
-```
-
-It should add modules under `cli/nagarectl/src/Nagare/Static/` and expose them in
-`cli/nagarectl/nagarectl.cabal` if tests import them. External command dependencies are `docker`,
-`gcloud`, and `kubectl`, matching the existing deploy command's assumptions.
-
-
-## Revision Notes
-
-- 2026-06-09: Recorded that `nagarectl site deploy` is a kind-dispatching command shared with
-  `docs/plans/18-full-stack-server-runtime-hosting-for-static-sites.md` (EP-18). The static path
-  described here is the `SiteStatic` branch; EP-18 adds the `SiteServer` branch (Node image for
-  TanStack Start and similar) reusing the same CLI options and image/deploy helpers. The image-context
-  helper should be factored so EP-18 can add a parallel Node generator. No change to this plan's static
-  build, packaging, or example; the amendment only clarifies the extension seam. Reason: the parent
-  MasterPlan was extended to support full-stack server-runtime hosting.

@@ -78,6 +78,7 @@ provenance:
 
 This ExecPlan is a living document under [MP-23](../masterplans/23-make-managed-resources-first-class-through-typed-scoped-inventories.md). Keep Progress, Surprises & Discoveries, Decision Log and Outcomes & Retrospective current. It was consolidated on 2026-10-02: the earlier dated checkpoints, transaction and object identifiers, and full decision history are preserved verbatim in [the pre-consolidation snapshot](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-archive/plan-history/ep159-before-consolidation-2026-10-02.md). Nothing in that snapshot overrides this file. The file slug predates the current title and is kept so existing links resolve.
 
+Full plan before trimming: [159-complete-scheduled-backup-receipts-and-exact-retention-pruning.md](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/plans/159-complete-scheduled-backup-receipts-and-exact-retention-pruning.md). This copy keeps the purpose, progress, discoveries, decisions and outcomes.
 
 ## Purpose / Big Picture
 
@@ -86,7 +87,6 @@ After this plan, a Nagare operator can rely on scheduled database backups as fir
 This matters because the operator intends to host critical company intranet tooling on Nagare. MP-23's data-protection gate, which governs production use and is separate from MP-23 completion, requires off-cluster backups that meet a one-hour recovery-point objective (RPO) after total cluster loss. The RPO is the maximum tolerated data loss, measured from the latest usable off-cluster recovery point and including upload, verification and retry delays. This plan supplies the producer side and the freshness measurement. Three questions are pending operator decisions in MP-23 and are not decided here: D1, whether and how the RPO must hold without an operator accepting receipts; D2, whether volumes get a scheduled producer or are scoped out of the RPO; and D4, the recovery-time and retention targets.
 
 Scope follows MP-23's supported release contract. Required: native backup formats, exact verified manual and scheduled receipts, survival after Job cleanup, and real MinIO (local) and GCS (cloud) proof. Deferred: scheduled keep-N pruning and automatic expiry. Retention must be visibly reported as unenforced, new scheduled-prune admission must refuse before any effect, and partial prunes admitted before the reduction must stay recoverable.
-
 
 ## Progress
 
@@ -113,7 +113,6 @@ Scope follows MP-23's supported release contract. Required: native backup format
   - **Checklist section 2.** On `3ae20f8c` it covers the rest: key escrow for all five databases, warning and breach grading, refusal of corrupt and incomplete uploads by tests in the green gate, and the destroy-and-restore drill ([drill](../audits/mp23-independent-results-2026-10-07/section2-drill-3ae20f8c/), [tests](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-07/test-evidence-section2-3ae20f8c.txt)).
   - **Superseded (2026-10-09).** The following were not re-run natively on `83124396`: source replacement (independent on `847543896d07`, above), new-prune refusal and interrupted upload (earlier independent evidence and gate tests), and a `daily`-objective schedule review. The daily review has tests only and no native run on any candidate. The 2026-10-07 operator decision made the production-readiness checklist MP-23's fixed acceptance, and it requires none of these on the final candidate. Its objective is `hourly`.
 
-
 ## Coverage Matrix
 
 Status per engine and path. "I" means independently proved on a native system, "M" means implementer evidence only (in the snapshot unless linked), and "O" means open. Restore-side coverage is in EP-160.
@@ -126,7 +125,6 @@ Status per engine and path. "I" means independently proved on a native system, "
 | Volume (snapshot) | I [local] | O — no scheduled volume producer (D2) | I [vol] | O (D2) | none | archive SHA-256 checked; provider-version pins not claimed; tamper O |
 
 Evidence keys: [mgcs] [manual GCS recovery](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-02/manual-gcs-recovery-e6255e6f.json); [ingest] [GCS ingestion](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-02/scheduled-gcs-ingestion-a027d1f6.json); [v5] [automatic v5 and freshness](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-02/scheduled-v5-freshness-ec2e1cd4.json); [local] [local engine and volume recovery](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-02/local-engine-recovery-ec2e1cd4.json); [cloud] [cloud engine recovery](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-02/cloud-engine-recovery-e6255e6f.json); [vol] [cloud volume recovery](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-02/cloud-volume-recovery-ec2e1cd4.json); [tests] [scheduled GCS tests](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-02/scheduled-gcs-tests.txt); [upload] [interrupted upload](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-02/interrupted-upload-regression.txt). Independent evidence spans candidates `a027d1f6`, `76628094`, `ec2e1cd4` and `e6255e6f`. None of it is final-candidate acceptance yet. The first cloud Redis receipt is excluded from all claims because its seed failed authentication (see Surprises).
-
 
 ## Surprises & Discoveries
 
@@ -141,7 +139,6 @@ Earlier and superseded discoveries are in [the snapshot](https://github.com/shin
 2026-09-28: A retention prune Job mistook the sibling receipt key for the backup key and stopped after deleting only the backup version. The immutable failed review could not be replayed with the fix. A reviewed receipt-only recovery (`db recover-scheduled-prune`) bound to the original transaction was needed. This is why recovery of already-admitted partial prunes stays supported while new pruning is deferred.
 
 2026-09-27: The old renderer named objects by second-resolution timestamp, so concurrent or retried Jobs could collide. Kubernetes projects the Job controller UID onto its Pods as label `batch.kubernetes.io/controller-uid`, which the downward API exposes to the upload container. The MinIO upload image lacks `cmp`, so byte comparison uses SHA-256.
-
 
 ## Decision Log
 
@@ -167,7 +164,6 @@ In-force decisions, condensed. Full verbatim entries are in [the snapshot](https
 
 2026-09-26: This plan took over an unfinished outcome of [EP-148](148-route-application-and-data-lifecycles-through-independent-resource-scopes.md). Delivered behavior is preserved.
 
-
 ## Outcomes & Retrospective
 
 **Status (2026-10-09): Complete.** v0.4.0 (`83124396`) ships signed scheduled receipts, ingestion after Job cleanup, and freshness that counts verified pending uploads (D1). It also ships signing-key escrow with offline verification, the per-context `hourly|daily` objective (D6), and retain-by-default retention.
@@ -180,67 +176,3 @@ Earlier, as of 2026-10-02: the scheduled producer, signed receipts with recovery
 
 Lesson: the plan accumulated dated checkpoints faster than they were reconciled, so it kept describing GCS, monitoring and source-unavailable recovery as unproved after independent evidence existed. Record each result once, as a Progress item with its evidence link.
 
-
-## Context and Orientation
-
-A *scope* is one owner's declared set of resources with its own revision. A *review* is an immutable saved plan (`--save-plan DIR`) of exact intended effects; `nagarectl inventory apply DIR --yes` executes it. The private *journal* records execution, and accepted history lives in the context's inventory store: the filesystem locally, or the context's GCS state bucket in the cloud. A *physical identity* is one real incarnation, such as a Kubernetes UID or a storage object version (MinIO) or generation (GCS); names alone never authorize anything. A *receipt* is a small JSON document written beside a backup archive that names the producing Job UID, object address, checksum, source UIDs and, from version 5, the recovery-point timestamp, all wrapped in an HMAC-SHA-256 envelope. A receipt is *accepted* only after a reviewed ingestion scope has pinned its exact object and receipt versions. *Freshness* is the age of the newest accepted, freshly re-verified recovery point.
-
-Database declarations are in `cli/nagare-dsl/src/Nagare/Resource/Database.hs`. Backup Job and CronJob shell scripts are rendered by `cli/nagarectl/src/Nagare/Database/Backup.hs`, and object-store transport by `cli/nagarectl/src/Nagare/Cluster/GcsJob.hs`. Receipt parsing and verification are in `cli/nagarectl/src/Nagare/Inventory/Backup.hs` and `cli/nagarectl/src/Nagare/Inventory/BackupReceipt.hs`. The freshness rule is `cli/nagarectl/src/Nagare/Inventory/BackupFreshness.hs`. The public commands are `cli/nagarectl/app/Nagare/Cli/Data/ScheduledReceipts.hs` (listing, `--check-freshness`, ingestion review), `ScheduleObservation.hs`, `ManualReceipt.hs` and `ScheduledPrune.hs` in the same directory. Deferred-operation admission refusal is in `cli/nagarectl/src/Nagare/Inventory/Execute/Admission.hs`, and `scripts/audit-managed-commands.py` pins which routes are deferred or recovery-only. The `scheduledRetention` status field is emitted by `cli/nagarectl/app/Nagare/Cli/Commands/Inventory/Status.hs`. The old backup probe used by `server status` and `doctor` is in `cli/nagarectl/src/Nagare/Ops/Probe.hs` and `cli/nagarectl/src/Nagare/Ops/Doctor.hs`; it reads object timestamps, not accepted receipts. Tests are in `cli/nagarectl/test/Nagare/Test/Backup/` (`Scheduled.hs`, `Prune.hs`, `Upload.hs`). User documentation is `docs/user/backups-and-disaster-recovery.md`.
-
-[ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md) requires independent scopes, exact reviewed effects and immutable history, and records the 2026-09-28 scope reduction. [ADR 4](../adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md) keeps private history outside immutable payloads. [ADR 9](../adr/0009-assert-the-active-context-project-on-every-cloud-mutating-path.md) requires the active-context project guard on every cloud path. Nagare never uses GKE: the supported targets are local k3d/k3s and k3s on a NixOS VM in Compute Engine. Local checks use only the `nagare-mp23-cp3` Colima profile, run one at a time.
-
-
-## Plan of Work
-
-**M1 — Scheduled receipts.** The producer, ingestion, historical-receipt and interrupted-upload behavior is in place (see Progress). The remaining M1 work starts with source replacement. Using a disposable database, replace its StatefulSet through a reviewed change and confirm that unaccepted old-incarnation runs stay unresolved. Then confirm that previously accepted runs still restore through their accepted digest and that new runs ingest under the new UIDs. Next, give orphaned objects a public disposition. Prefer a reviewed exact-version resolution that reuses the conditional-deletion pattern of `db recover-scheduled-prune`, never a prefix cleanup. If the operator prefers to leave orphans in place, document them as permanently unresolved instead.
-
-**M2 — Explicit retention limits.** Pruning stays deferred. The only remaining M2 assertion is public: run `inventory status` on a candidate whose workspace matches its payload and observe `scheduledRetention`. Do not add new pruning, lifecycle rules or keep-N selection.
-
-**B1 recovery-point work (not a numbered milestone).** D1, D2 and D6 are implemented, and the public `scheduledRetention` check is fixed (see Progress). What remains is source-replacement ingestion and native proof on the frozen candidate: a daily-objective schedule review, pending-point freshness, and an escrowed verification against GCS.
-
-
-## Concrete Steps
-
-Run from the repository root. A test pattern must select at least one test; zero selected tests is not a pass.
-
-```bash
-(cd cli/nagarectl && cabal test nagarectl-test --test-options='-p backup' --test-show-details=failures)
-(cd cli/nagarectl && cabal test nagarectl-test --test-options='-p freshness' --test-show-details=failures)
-(cd cli/nagarectl && cabal test nagarectl-test --test-options='-p prune' --test-show-details=failures)
-(cd cli/nagarectl && cabal build exe:nagarectl)
-nagarectl_bin="$(cd cli/nagarectl && cabal list-bin exe:nagarectl)"
-bash scripts/test-application-entrypoint-guards.sh "$nagarectl_bin"
-python3 scripts/audit-managed-commands.py
-```
-
-Public operator path against an explicitly selected disposable context (cloud contexts pass the ADR 9 guard first):
-
-```bash
-nagarectl db backup-receipts "$DB"                                  # accepted / verified-pending / unresolved
-nagarectl db backup-receipts "$DB" --backup-id "$JOB_UID" --save-plan "$REVIEW"
-nagarectl inventory apply "$REVIEW" --yes
-nagarectl db backup-receipts "$DB" --check-freshness                # exit 0 only when healthy
-nagarectl db prune-scheduled-backups "$DB" --save-plan "$PRUNE_DIR" # must refuse, no effects
-```
-
-Each review directory is new. At a milestone boundary, also run the full `nagarectl-test` suite, then `just haskell-style-check`, then, if user docs changed, `okf validate docs/user --strict --profile mori/user-documentation-profile.dhall --profile-enforce --log-enforce`. Run the two Haskell suites one after the other, never in parallel.
-
-
-## Validation and Acceptance
-
-M1 is accepted when, on one candidate and for every engine, two genuine automatic runs of one reviewed schedule each produce a distinct Job UID, object and receipt. Both must survive Job cleanup, ingest through review and feed an EP-160 content-checked restore. Changed, foreign or receipt-less objects must never be listed as accepted, and the source-replacement case must behave as described in Plan of Work. M2 is accepted when listing, review confirmation, `inventory status` and the user docs all report retention as unenforced; when new scheduled-prune commands and saved reviews refuse before effects; and when existing partial-prune recovery regressions still pass. The B1 items are accepted when an unattended context behaves as D1 specifies for at least one hour, and when `server status` shows a warning before the hour and unhealthy at breach. Record the candidate revision, review and transaction IDs, and the evidence location. Recording-provider tests do not substitute for native evidence.
-
-
-## Idempotence and Recovery
-
-All reviews are immutable, so re-running a listing or a plan never mutates anything. Reuse an operation ID only with identical intent; changed input needs a new review. An unknown provider result stays unresolved until observation proves what happened. Never blindly replay, prefix-delete, reset history or manually patch an object to manufacture a result; recover an admitted transaction through its recorded identity (`inventory resume`, `inventory recover`). Cloud mutations need the operator's go-ahead as one rehearsed, bounded sequence. Use `mori` to locate dependency sources, and never search `/nix/store`.
-
-
-## Interfaces and Dependencies
-
-Prerequisites [EP-146](146-reconcile-cloud-host-and-artifact-resources-through-inventory-adapters.md), [EP-147](147-compile-cluster-bootstrap-into-owned-resource-components.md), [EP-149](149-explain-drift-and-execute-reviewed-adoption-migration-and-retirement.md) and [EP-151](151-store-inventory-history-in-the-context-state-bucket-with-conditional-writes.md) are complete. This plan owns the receipt envelope (v4 and v5), the scheduled producer and its delegation, the ingestion commands, freshness, and retention reporting. [EP-160](160-complete-fenced-live-data-restore-across-supported-engines-and-volumes.md) consumes accepted receipts and must not invent another format. [EP-153](153-close-managed-command-coverage-for-the-inventory-release.md) owns deferred-route guards and the coverage catalogue. [EP-155](155-prove-local-application-and-data-recovery-end-to-end.md) and [EP-156](156-prove-fresh-gcp-convergence-and-shared-history-recovery.md) re-prove this on the frozen candidate, and [EP-157](157-gate-the-inventory-release-on-complete-immutable-evidence.md) assembles the evidence. Stable public interfaces: `db backup-receipts NAME [--check-freshness]`, `db backup-receipts NAME --backup-id ID --save-plan DIR`, `db disable-backup-prune NAME --save-plan DIR`, `db recover-scheduled-prune` (recovery only), and the `scheduledRetention` field of `inventory status`.
-
-
-## Revision Notes
-
-2026-10-02: Consolidated with MP-23; title aligned with registry; history in the snapshot.

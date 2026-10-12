@@ -31,6 +31,7 @@ turns each red line into an actionable remediation hint, `nagarectl domains list
 configured domains and their DNS/TLS readiness, and `nagarectl cleanup` reclaims disk and
 prunes stale previews and releases.
 
+Full plan before trimming: [8-server-inventory-and-operations-ux-for-nagare.md](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/masterplans/8-server-inventory-and-operations-ux-for-nagare.md). This copy keeps the purpose, progress, discoveries, decisions and outcomes.
 
 ## Vision & Scope
 
@@ -106,7 +107,6 @@ What is **out of scope** (deferred to later roadmap phases or follow-up plans):
 - Continuous monitoring or alerting. These are point-in-time, operator-invoked commands,
   not daemons. Grafana/VictoriaMetrics remain the time-series story.
 
-
 ## Decomposition Strategy
 
 The initiative is decomposed into **five child ExecPlans**. The guiding seam is the same
@@ -156,7 +156,6 @@ by EP-39 — so the split does not create the "two plans editing the same functi
 stream produce a demonstrable behavior. Folding `server status` into the foundations plan
 solves this while keeping the foundation as the dependency root.
 
-
 ## Exec-Plan Registry
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
@@ -174,104 +173,6 @@ the child plan's file number in `docs/plans/` (matching the repository conventio
 numbering; the most recent existing plan before this initiative is EP-37 (a child of
 MasterPlan 7).
 
-
-## Dependency Graph
-
-EP-38 is the root. It has no dependencies and defines the shared `Nagare.Ops` probe
-layer — the typed check/status model, the external-tool wrappers (`gcloud`, `pulumi`,
-`gsutil`, `kubectl`, `iap-ssh`), and the pure parsers/formatters — while delivering
-`nagarectl server status` as its first consumer.
-
-EP-39 (`doctor`) has a **hard dependency** on EP-38. `doctor` cannot compile or make sense
-without EP-38's probe result types: it consumes the very same probe values and re-grades
-them as `OK`/`WARN`/`FAIL` with remediation hints. Building `doctor` before the probes
-exist would mean inventing throwaway probe code, so it waits for EP-38.
-
-EP-40 (`domains list`) and EP-41 (`cleanup`) have **soft dependencies** on EP-38. Each
-could technically be written against raw `kubectl`/`gcloud` calls, but both benefit from
-EP-38's shared table formatter, base-domain resolver, and external-tool wrappers, and
-should reuse them rather than duplicate them. They do not need EP-38's probe *grading*
-logic. If EP-38 is complete they should consume its helpers; if work is parallelized, they
-may begin against stubs of those helpers and reconcile against the real signatures (see
-Integration Points). Neither blocks the other — `domains list` reads DomainMappings and
-Certificates; `cleanup` reads the node image store and release/preview history — so they
-can be implemented concurrently.
-
-EP-42 (docs) softly depends on all four implementation plans: it documents whatever
-commands exist. It can be drafted incrementally as each command lands and finalized once
-all four are complete.
-
-**Parallelism.** After EP-38 is complete, EP-39, EP-40, and EP-41 can all proceed in
-parallel; they touch disjoint data sources and disjoint new modules, coordinating only
-through the shared command registration in `cli/nagarectl/app/Main.hs` (Integration Point
-IP3). EP-42 can be written alongside them and finalized last.
-
-
-## Integration Points
-
-**IP1 — The `Nagare.Ops` probe layer: typed check/status model and pure
-formatters.** Defined by **EP-38** in new modules under
-`cli/nagarectl/src/Nagare/Ops/` (for example `Nagare.Ops.Probe` and
-`Nagare.Ops.Status`). Consumed by **EP-39** (re-grades probe results into remediation
-checks), and reused by **EP-40** and **EP-41** for their table formatting. EP-38 owns the
-result types. The shape EP-39 depends on is, conceptually:
-
-```haskell
--- A single inspected platform facet and its observed state.
-data ProbeStatus = StatusOk | StatusWarn | StatusUnknown | StatusFail
-  deriving stock (Eq, Show)
-
-data Probe = Probe
-  { probeName    :: !Text         -- e.g. "VM", "k3s node", "Kourier ingress"
-  , probeStatus  :: !ProbeStatus
-  , probeDetail  :: !Text         -- e.g. "RUNNING", "EXTERNAL-IP 34.x = publicIp"
-  } deriving stock (Show)
-
--- The full inventory gathered by `server status`.
-gatherInventory :: InventoryOpts -> IO [Probe]
-```
-
-EP-39 must consume `Probe`/`ProbeStatus` as published by EP-38; if EP-39 needs an extra
-field (such as a stable machine key to attach a remediation hint to), it adds that field
-to EP-38's type in coordination, and EP-38's `server status` continues to render
-correctly. Exact field names are finalized in EP-38 and EP-39 reads them back from the
-committed module — neither plan should assume names not present in EP-38's source.
-
-**IP2 — Base-domain resolution from Pulumi.** Today `resolveBaseDomain` in
-`cli/nagarectl/app/Main.hs` (around line 1446) reads the `--base-domain` flag, then
-`$NAGARE_BASE_DOMAIN`, then falls back to the literal `"apps.example.com"`; it does **not**
-read Pulumi. **EP-38** adds a probe that reads the authoritative base domain via `pulumi
--C infra/pulumi stack output baseDomain` and cross-checks it against the in-cluster
-`config-domain` ConfigMap in the `knative-serving` namespace. **EP-40** (`domains list`)
-consumes the same resolved base domain to compute each domain's expected wildcard DNS
-record. EP-38 owns the Pulumi-reading helper (for example `Nagare.Ops.Pulumi.stackOutput`);
-EP-40 calls it rather than re-implementing it. The existing `resolveBaseDomain` flag/env
-fallback is left in place for the deploy path and is not removed by this initiative.
-
-**IP3 — Top-level command registration in `cli/nagarectl/app/Main.hs`.** All four
-implementation plans add new top-level commands to the single `subparser` block (around
-line 549) and new constructors to the `Command` sum type (around line 232), plus a
-dispatch arm in `main`. EP-38 adds `server` (a command group whose first subcommand is
-`status`), EP-39 adds `doctor`, EP-40 adds `domains` (group with subcommand `list`), and
-EP-41 adds `cleanup`. Because all four edit the same file, the owning plan for the file's
-*structure* is EP-38 (it establishes the `server` group and the pattern); later plans
-append their command in the same style and must resolve textual merge conflicts in the
-`subparser` block and the `Command`/`main` `case` by following EP-38's precedent. No plan
-removes or renames another plan's command.
-
-**IP4 — External-tool access model and graceful degradation.** **EP-38** establishes how
-probes reach each data source and what happens when a source is unreachable: `kubectl`
-runs against the operator's ambient context exactly as every existing `nagarectl` command
-assumes (the operator has a working/tunnelled kubeconfig); `gcloud`, `pulumi`, and
-`gsutil` run locally; the VM disk-usage probe is best-effort over `scripts/iap-ssh.sh`
-(invoked with `SSH_USER=deploy SSH_KEY=~/.ssh/id_ed25519` per
-`docs/runbooks/cluster-access.md`) and is reported as `Unknown` rather than failing the
-whole command when SSH is not set up. EP-39, EP-40, and EP-41 inherit this model: any
-probe whose source is unreachable yields a `StatusUnknown`/`WARN` line with a hint, never
-an uncaught exception. EP-38 owns the wrapper functions and the degradation convention;
-later plans reuse them.
-
-
 ## Progress
 
 - [x] EP-38: `Nagare.Ops` probe types, external-tool wrappers, and pure parsers/formatters with unit tests.
@@ -284,7 +185,6 @@ later plans reuse them.
 - [x] EP-41: Reclaimable-image, stale-preview, and old-release detection with pure selectors tested.
 - [x] EP-41: `nagarectl cleanup` command with `--dry-run` default and `--confirm` to act.
 - [x] EP-42: Runbooks updated to invoke the new commands; end-to-end operator walkthrough documented.
-
 
 ## Surprises & Discoveries
 
@@ -303,7 +203,6 @@ later plans reuse them.
   roadmap-specified names (`nagarectl server status`, etc.); only the internal Haskell
   module namespace changed.
 
-
 - 2026-06-10 (EP-38 complete, affects EP-39/40/41): The IP1/IP2/IP3/IP4 surfaces
   are now committed and stable. Concrete signatures the later plans read back:
   `Nagare.Ops.Probe` exports `ProbeStatus(StatusOk|StatusWarn|StatusUnknown|StatusFail)`,
@@ -320,7 +219,6 @@ later plans reuse them.
   CHECK column is 25 wide (not the sketch's 22) so the longest probe name fits —
   EP-40/EP-41 should reuse `renderInventory`/`statusLabel` rather than re-deriving
   widths.
-
 
 ## Decision Log
 
@@ -388,7 +286,6 @@ later plans reuse them.
   Rationale: 7 is the highest existing MasterPlan and 37 the highest existing ExecPlan;
   these continue the repository's single global sequential numbering for both.
   Date: 2026-06-09
-
 
 ## Outcomes & Retrospective
 

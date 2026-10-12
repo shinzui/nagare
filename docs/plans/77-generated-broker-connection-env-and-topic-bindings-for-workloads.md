@@ -13,6 +13,7 @@ master_plan: "docs/masterplans/15-cluster-messaging-broker-for-nagare.md"
 This ExecPlan is a living document. The sections Progress, Surprises & Discoveries,
 Decision Log, and Outcomes & Retrospective must be kept up to date as work proceeds.
 
+Full plan before trimming: [77-generated-broker-connection-env-and-topic-bindings-for-workloads.md](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/plans/77-generated-broker-connection-env-and-topic-bindings-for-workloads.md). This copy keeps the purpose, progress, discoveries, decisions and outcomes.
 
 ## Purpose / Big Picture
 
@@ -25,7 +26,6 @@ resolve the broker and inject runtime environment variables such as `KAFKA_BOOTS
 The goal is a provider-neutral workload contract. App code should depend on Kafka-compatible client
 settings and topic names, not on Redpanda. When Tansu becomes the provider, these env names remain
 stable.
-
 
 ## Progress
 
@@ -101,7 +101,6 @@ PATH=/tmp/nagare-kubectl-ep77:$PATH cabal run exe:nagarectl -- worker deploy -f 
 - `nix fmt cli/nagare-dsl cli/nagarectl` failed because the flake does not provide
   `formatter.aarch64-darwin`.
 
-
 ## Surprises & Discoveries
 
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
@@ -118,7 +117,6 @@ implementation. Provide concise evidence.
 - Live M5 validation used the same temporary `kubectl` wrapper approach as EP-78 because the local
   kubectl context is `sennari`; Nagare cluster operations must go through the VM's
   `sudo k3s kubectl`.
-
 
 ## Decision Log
 
@@ -142,7 +140,6 @@ Record every decision made while working on the plan.
   management surface.
   Date: 2026-06-21
 
-
 ## Outcomes & Retrospective
 
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
@@ -155,151 +152,3 @@ single-service deploys, worker deploys, and application deploys. The broker-work
 dry-run prove the user-visible behavior. The remaining formatter caveat is repository-level:
 `nix fmt` cannot run on this host until the flake provides `formatter.aarch64-darwin`.
 
-
-## Context and Orientation
-
-Workload types live in `cli/nagare-dsl/src/Nagare/Dsl/Types.hs` (`Deployment`),
-`cli/nagare-dsl/src/Nagare/Dsl/Worker.hs` (`Worker`), and
-`cli/nagare-dsl/src/Nagare/Dsl/Application.hs` (`Application`). Their JSON wire shape is in
-`cli/nagare-dsl/src/Nagare/Dsl/Config.hs`, and decoding is in `cli/nagare-dsl/src/Nagare/Dsl/Load.hs`.
-
-Generated environment variables already exist. `cli/nagarectl/src/Nagare/Env/Generated.hs` builds
-`NAGARE_*` identity env, and `cli/nagarectl/src/Nagare/Database/Connection.hs` plus
-`cli/nagarectl/src/Nagare/Deploy/Resolve.hs` resolve database references into runtime env maps. This
-plan should mirror the database approach: typed references in DSL, cluster lookup at deploy time, then
-merge generated env into the workload env before rendering.
-
-A **binding** in this plan means "this workload consumes this logical broker/topic." A binding is not
-a client library and does not create application code. It gives app code the connection settings and
-topic names it needs.
-
-
-## Plan of Work
-
-M1 adds type fields. Define `BrokerBinding` in `Nagare.Dsl.Broker` or a small
-`Nagare.Dsl.Broker.Binding` module:
-
-```haskell
-data BrokerBinding = BrokerBinding
-  { name :: BrokerName
-  , topics :: [TopicName]
-  }
-```
-
-Add `brokers :: [BrokerBinding]` to `Deployment` and `Worker`. For `Application`, decide whether the
-aggregate declares broker bindings once and fans them down, or each embedded workload carries its own
-bindings. Prefer a shared application field if it matches the existing `appDatabases` pattern.
-
-M2 updates JSON emit/load. Existing configs must remain source-compatible except for full record
-literals in tests, which need `brokers = []`. Omitted JSON fields must decode as empty lists.
-
-M3 adds `cli/nagarectl/src/Nagare/Broker/Discover.hs` and `Connection.hs`. Discovery should read
-labeled broker resources and return a provider-neutral identity: provider, namespace, bootstrap
-servers, and known topics. Generated env for a binding must include:
-
-```text
-KAFKA_BOOTSTRAP_SERVERS=<internal-service>:9092
-KAFKA_SECURITY_PROTOCOL=PLAINTEXT
-NAGARE_BROKER_NAME=<broker>
-NAGARE_TOPIC_<NORMALIZED_TOPIC>=<topic>
-```
-
-M4 wires env into existing deploy paths. Update `Nagare.Deploy.Resolve` with a broker resolver similar
-to `resolveConnectionEnv`. Update single-service deploy in `Main.hs`, worker deploy in
-`Nagare.Worker.Deploy`, and app deploy in `Nagare.App.Deploy`.
-
-M5 tests conflicts and dry-run output. Two bindings that attempt to set incompatible
-`KAFKA_BOOTSTRAP_SERVERS` should fail with a clear error unless the plan intentionally supports only
-one broker per workload in v1.
-
-
-## Concrete Steps
-
-Run:
-
-```bash
-cd /Users/shinzui/Keikaku/bokuno/nagare
-mori show --full
-cabal test nagare-dsl-test
-cabal test nagarectl-test
-```
-
-After implementation:
-
-```bash
-nix fmt cli/nagare-dsl cli/nagarectl
-cabal test nagare-dsl-test
-cabal test nagarectl-test
-```
-
-Dry-run validation should resemble:
-
-```bash
-nagarectl worker deploy -f cluster/examples/broker-worker/nagare/Config.hs --dry-run
-```
-
-Expected rendered env excerpt:
-
-```yaml
-env:
-  - name: KAFKA_BOOTSTRAP_SERVERS
-    value: events.personal.svc.cluster.local:9092
-  - name: NAGARE_TOPIC_JOBS
-    value: jobs
-```
-
-
-## Validation and Acceptance
-
-Acceptance requires:
-
-- `Deployment`, `Worker`, and `Application` config fixtures round-trip broker bindings;
-- old fixtures with no broker binding decode to empty bindings;
-- generated env uses stable Kafka-compatible names;
-- deploy fails with a clear error when the referenced broker or topic does not exist;
-- dry-run output for a worker with a topic binding contains the bootstrap and topic env variables;
-- all existing golden tests either remain unchanged or change only where this plan explicitly adds
-  `brokers = []` / env output.
-
-
-## Idempotence and Recovery
-
-This plan does not create broker resources. Deploy commands remain idempotent: resolving broker state
-and injecting env can be repeated safely. If generated env conflicts with user-specified env, fail
-before applying any manifests and tell the user which variable conflicts.
-
-
-## Interfaces and Dependencies
-
-Expected new or changed modules:
-
-- `Nagare.Dsl.Broker` or `Nagare.Dsl.Broker.Binding` for `BrokerBinding`
-- `Nagare.Broker.Discover`
-- `Nagare.Broker.Connection`
-- `Nagare.Deploy.Resolve`
-- `Nagare.Worker.Deploy`
-- `Nagare.App.Deploy`
-
-Expected signatures:
-
-```haskell
-data BrokerBinding = BrokerBinding { name :: BrokerName, topics :: [TopicName] }
-
-data BrokerConn = BrokerConn
-  { brokerProvider :: BrokerProvider
-  , brokerBootstrapServers :: Text
-  , brokerTopics :: [TopicName]
-  }
-
-lookupBrokerConnection :: Text -> Text -> IO (Either Text BrokerConn)
-brokerConnectionEnv :: BrokerBinding -> BrokerConn -> Either Text (Map EnvName ScopedEnvVar)
-mergeBrokerConnectionEnvs :: [Map EnvName ScopedEnvVar] -> Either Text (Map EnvName ScopedEnvVar)
-resolveBrokerEnv :: Namespace -> [BrokerBinding] -> IO (Map EnvName ScopedEnvVar)
-```
-
-
-## Revision Notes
-
-2026-06-21: Completed EP-77 by adding the broker-worker example, validating it through
-`nagare-dsl-test`, running a live broker-bound worker dry-run against a temporary Redpanda broker, and
-recording the generated Kafka-compatible env and cleanup evidence.

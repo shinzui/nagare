@@ -24,6 +24,7 @@ This ExecPlan is a living document. The sections Progress, Surprises & Discoveri
 Decision Log, and Outcomes & Retrospective must be kept up to date as work proceeds.
 If durable project context changes, update or create ADRs in docs/adr/ in the same change.
 
+Full plan before trimming: [178-make-the-flake-check-build-each-haskell-package-once.md](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/plans/178-make-the-flake-check-build-each-haskell-package-once.md). This copy keeps the purpose, progress, discoveries, decisions and outcomes.
 
 ## Purpose / Big Picture
 
@@ -39,7 +40,6 @@ The operator decided on 2026-10-05 that compile-time revision stamping stays off
 24, 25 and 26 are finished. Meanwhile the shipped wrapper reports the revision, so `nagarectl version
 --json` still names the exact commit and release tooling keeps working.
 
-
 ## Progress
 
 - [x] (2026-10-05) M1, observed: `packages.nagarectl` and `checks.nagarectl-build-test` reference one
@@ -54,7 +54,6 @@ The operator decided on 2026-10-05 that compile-time revision stamping stays off
   already state the ADR 25 split. Agents now run `just gate-fast` per commit, and `nix flake check` or
   `just gate` per push batch and candidate, one at a time. Original acceptance: per-commit guidance follows ADR 25 decision 5: `just gate-fast` on every commit, and the full
   `nix flake check --all-systems` or `just gate` per push batch and candidate.
-
 
 ## Surprises & Discoveries
 
@@ -74,7 +73,6 @@ The operator decided on 2026-10-05 that compile-time revision stamping stays off
   which already have their own narrow path.
   Date: 2026-10-05
 
-
 ## Decision Log
 
 - Decision: `nagare-dsl` keeps a separate tested derivation.
@@ -93,7 +91,6 @@ The operator decided on 2026-10-05 that compile-time revision stamping stays off
   changing the release scripts. The release scripts read `version --json` from the wrapped package,
   so they work unchanged. No flake check asserts the revision.
   Date: 2026-10-05
-
 
 ## Outcomes & Retrospective
 
@@ -118,56 +115,3 @@ input is the whole source tree. Further options, not taken here:
 The policy change in M2 matters more: per-commit feedback is `just gate-fast`, which takes about 4
 minutes incrementally.
 
-
-## Context and Orientation
-
-- **`nix/haskell-packages.nix`** builds the Haskell package set:
-  - `nagare-dsl`, `nagarectl` and `nagare-harness`;
-  - `checkedNagareDsl` and `checkedNagarectl`, used by `nix/checks/haskell.nix` as
-    `nagare-dsl-build-test` and `nagarectl-build-test`;
-  - `sourceForTests`;
-  - the wrappers `nagarectl`, `operatorNagarectl` and `nagare`.
-- **`sourceRevision`** comes from `flake.nix` (`self.rev` or `self.dirtyRev`). `postPatch` wrote it
-  into `cli/nagarectl/src/Nagare/Version.hs`.
-
-
-## Plan of Work
-
-1. Add `stampRevision` and a `nagarePackage` helper that disables Haddock and library profiling.
-2. Make `haskellPackages.nagarectl` the tested derivation, with the test-path substitutions and
-   `preCheck`, and alias `checkedNagarectl` to it.
-3. Narrow `sourceForTests` to `cluster/`.
-4. Keep `checkedNagareDsl` as a separate tested build of the profiling-free `nagare-dsl`.
-5. Make `Nagare.Version` fall back to `NAGARE_SOURCE_REVISION`, have the `nagarectl` wrapper set it,
-   and point the runbook at the wrapped binary.
-
-
-## Concrete Steps
-
-```bash
-nix flake check -L     # aarch64-darwin, from a clean worktree; compare with the baseline log
-```
-
-Baseline: the same commit before this change, plus a one-line Haskell comment change, timed with
-`time nix flake check -L`. After: the same probe on top of this change.
-
-
-## Validation and Acceptance
-
-- `nix flake check` passes with the same number of checks.
-- `nix-store -q --references` of the shipped `packages.aarch64-darwin.nagarectl` derivation names the
-  same nagarectl `.drv` as `checks.aarch64-darwin.nagarectl-build-test`.
-- `nix derivation show` of that `.drv` contains `--disable-library-profiling`.
-- Timings for the baseline and the change are recorded in Outcomes.
-
-
-## Idempotence and Recovery
-
-The change is in Nix expressions only. Reverting the commit restores the old derivations. Setting
-`stampRevision = true` restores the stamped revision.
-
-
-## Interfaces and Dependencies
-
-No interface changes. `nagarectl version --json` from the shipped wrapper still reports the revision.
-The unwrapped binary reports none while compile-time stamping is off.

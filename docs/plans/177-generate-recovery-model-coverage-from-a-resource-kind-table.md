@@ -35,6 +35,7 @@ This ExecPlan is a living document. The sections Progress, Surprises & Discoveri
 Decision Log, and Outcomes & Retrospective must be kept up to date as work proceeds.
 If durable project context changes, update or create ADRs in docs/adr/ in the same change.
 
+Full plan before trimming: [177-generate-recovery-model-coverage-from-a-resource-kind-table.md](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/plans/177-generate-recovery-model-coverage-from-a-resource-kind-table.md). This copy keeps the purpose, progress, discoveries, decisions and outcomes.
 
 ## Purpose / Big Picture
 
@@ -67,7 +68,6 @@ A reader sees it working in three ways:
 This plan implements the 2026-10-05 amendment of
 [ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md), step 3 of
 MasterPlan 23's release line (b).
-
 
 ## Progress
 
@@ -144,7 +144,6 @@ MasterPlan 23's release line (b).
   - every in-line action exercised under every applicable fault.
 
   The fast tier and deep tier pass.
-
 
 ## Surprises & Discoveries
 
@@ -235,7 +234,6 @@ MasterPlan 23's release line (b).
     unexcused planning refusal: F63's open worker-Deployment half, under `LandsUnready` on the
     Deployment update.
 
-
 - **A regression in item 6, found by the five-scenario reruns (2026-10-06).** The reruns ran on the
   remote builder at `9b9e9d40`, which carries the same test code as `9ac3a484`. They reported
   429, 429, 713, 715 and 813 violations, against 92, 92, 144, 152 and 154 at `a4d84543`. Of the
@@ -257,7 +255,6 @@ MasterPlan 23's release line (b).
     `ADR25-model-move-without-progress-not-rerun`.
   - The remaining 3–25 printed violations per shard are classified after a rerun with the fix.
 
-
 - **World fidelity: status churn only on kinds with status (2026-10-06, operator ruling).** Class
   B of the rerun triage was an I8 on the release-history ConfigMap. The world's `StatusChurn` had
   bumped its resourceVersion, but a ConfigMap has no status subresource. In production its
@@ -267,7 +264,6 @@ MasterPlan 23's release line (b).
     the effect. "create then good update" went from 1 B-class I8 (the ConfigMap) to 0.
   - The real cases remain. The database StatefulSet update has 2, at (10, 72) and (11, 84). The
     generated Deployment update has 1, at (5, 44). F67 fixes them.
-
 
 ## Decision Log
 
@@ -286,7 +282,6 @@ MasterPlan 23's release line (b).
   today no gate runs.
   Date: 2026-10-05
 
-
 - Decision (operator, 2026-10-06): the deep tier gates changes to recovery-related code, not
   releases, and must finish within an hour (ADR 25 amendment of 2026-10-06). This plan's own
   acceptance run is the one exception, run once at 7–9 hours on eight shards.
@@ -294,7 +289,6 @@ MasterPlan 23's release line (b).
   not touch recovery code learns nothing from repeating them, and an hours-long gate would not be
   run. Plan 179 brings the tier within budget.
   Date: 2026-10-06
-
 
 - Decision: The model's exit moves include close with take-over (`CloseTakeOver`), and its progress
   check includes the world's live objects (identity, content, readiness).
@@ -312,7 +306,6 @@ MasterPlan 23's release line (b).
   nothing.
   Date: 2026-10-06
 
-
 - Decision (operator, 2026-10-06): the model's checks read a separate, read-only store type, and
   every operator command goes through one retry policy, `operatorAction`. The fast tier
   self-tests the harness on the faults it owns.
@@ -320,7 +313,6 @@ MasterPlan 23's release line (b).
   retries per call site. A module boundary lets the compiler enforce the separation, and a
   self-test turns the next harness error into a fast-tier failure, not a lost deep shard.
   Date: 2026-10-06
-
 
 - Decision (operator, 2026-10-06): a planning refusal of a reviewed step that no rule excuses is
   reported as "I1: planning refused (…) with no supported exit". The rules that excuse one are a
@@ -332,14 +324,12 @@ MasterPlan 23's release line (b).
   fix lands.
   Date: 2026-10-06
 
-
 - Decision (operator, 2026-10-07; recorded here 2026-10-09): for v1 the deep tier is monitoring,
   not a gate (ADR 25 amendment of 2026-10-07). This plan's "Deep tier: `just gate-deep` passes"
   acceptance no longer applies. M2 and M3 are accepted on the fast tier, the self-test and the
   mutation sweep, and each class a deep run reports is triaged into a fix or the ledger.
   Rationale: the operator chose to ship the proved single-fault guarantee and widen it per release.
   Date: 2026-10-09
-
 
 ## Outcomes & Retrospective
 
@@ -361,183 +351,3 @@ In the explicit scenarios, the run found 4,944 distinct violating schedules in n
 
 The class table, per-shard seconds and pair counts are in [EP-179's Outcomes](179-bring-the-recovery-model-deep-tier-within-an-hour.md#outcomes--retrospective). The next per-release deep run is the first to cover the generated scenarios' pairs.
 
-
-## Context and Orientation
-
-All paths are relative to the repository root. The test suite is `nagarectl-test` in
-`cli/nagarectl/test`; the recovery model and its worlds are described below. The production Haskell
-standard of [ADR 16](../adr/0016-adopt-haskell-jitsurei-for-production-haskell.md) applies to test
-code too.
-
-**The model today.**
-- `cli/nagarectl/test/InventoryRecoveryModelSpec.hs` defines scenarios as a list of `Step`s. The
-  steps are deploys of an application image, retire, create, update and retire of a standalone
-  database, and receipt ingestion, and each scenario has a `Shape` (durable volume, worker).
-- `runTier` replays each scenario under every fault placement (`singleFaults`), and under every
-  ordered pair (`faultPairs`) when `NAGARE_RECOVERY_MODEL_DEEP=1`.
-- After a stop, `searchExit` explores exit moves depth-first by replaying from scratch. After plan 175
-  the moves are `Resume` and `Close`.
-- **The invariants:**
-  - I1: every stop has an exit;
-  - I2: nothing unreviewed is converged;
-  - I3: incarnations are respected (status, retention, receipt ingestion);
-  - I4: no write is repeated within a transaction;
-  - I5: the store ends idle with a valid journal chain;
-  - I7: status churn alone needs no exit.
-
-**The worlds.**
-- `test/Nagare/Test/World/Kubernetes.hs` implements the Kubernetes adapter's provider operations
-  (`KubernetesAdapterOps`) in memory.
-- `test/Nagare/Test/World/Adversary.hs` schedules faults at the n-th call of a provider operation. The
-  faults are `LostAcknowledgement`, `RefusedBeforeEffect`, `LandsUnready`, `LandsFailed`,
-  `StatusChurn`, `ForeignManager`, `Interrupt`, `ChurnAlways`, `ForeignObject`, `Replaced`,
-  `Deleted`, `TransientReadFailure`, `PutRefused`, `PutLandedUnacknowledged` and `GetFailedOnce`.
-- `test/Nagare/Test/World/Store.hs` injects store faults.
-- The rename model (`InventoryRenameRecoveryModelSpec.hs`) drives the real `kubectl` runtime over
-  the rename world in `InventoryPostgresRenameSpec.hs`.
-
-**Gaps D found that this plan closes for the in-line kinds** (D §1.7, §2.4, §4):
-- `LandsFailed` does nothing, because no scenario has a Job.
-- A `ForeignObject` anywhere in a schedule masks every planning refusal in it.
-- The corrected-review exit is never explored.
-- Store faults are swept on one scenario only.
-- The deep tier runs in no gate.
-- No fault crashes at a store boundary or steals the executor claim.
-- Worker Deployments, DomainMappings, CronJobs, Jobs, adoption and collection are not exercised under
-  the exit search.
-
-`docs/audits/mp23-held-work/f63-worker-deployment.patch` shows what a hand-added worker scenario
-found (nine wedges). The generated product must reach those cells. Plan 175's close rule, not
-per-kind fixes, is what must make them pass.
-
-**The release line** (MasterPlan 23, Progress, "Release line (b) and the structural plan") puts these
-kinds in scope:
-- Kubernetes application scopes: Knative Service, worker Deployment, CronJob tasks, DomainMapping,
-  release-history ConfigMap, application databases and attached volumes;
-- standalone PostgreSQL and Redis databases, with their backups, receipts, restores and the reviewed
-  PostgreSQL rename;
-- static sites and previews.
-
-Each is covered for create, update, verify, retire, collect, adopt and migrate.
-
-**Relevant ADRs.**
-- [ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md) and its
-  2026-10-05 amendment are the decision: coverage generated from a kind table, a totality test, and
-  no refusal counted as an exit.
-- [ADR 26](../adr/0026-stopped-transactions-close-by-per-operation-proof.md) gives the universal exit
-  (`close`).
-- [ADR 27](../adr/0027-physical-identity-is-recorded-at-creation-and-read-through-one-checked-accessor.md)
-  defines the identity each row declares.
-
-
-## Plan of Work
-
-### Milestone 1: the kind table and the totality test
-
-Add `cli/nagarectl/test/Nagare/Test/World/Kinds.hs`. Each `KindRow` declares:
-- its executor and Kubernetes group and kind;
-- its supported actions, cross-checked against the adapter's allowlist (`Adapters/Kubernetes.hs`,
-  `Collection/Adapter.hs` and `Adapters/KubernetesMigration.hs`);
-- its readiness: `NoReadiness`, `CanBeUnready` or `CanFail`;
-- its atomicity: `Atomic` or `Steps n`;
-- its identity: `ProviderUid` or `NameOnly`;
-- a fixture function that produces a minimal scope containing that kind;
-- its status: `InLine` or `DocumentedLimit reason`.
-
-Add `cli/nagarectl/test/InventoryKindTotalitySpec.hs`. It enumerates every `Executor` constructor
-(the type derives `Enum` and `Bounded` in `cli/nagare-dsl/src/Nagare/Resource/Inventory.hs`), and
-every action each in-line adapter admits. It fails naming any (executor, kind, action) without a row.
-Prove it by deleting one row and watching it fail.
-
-### Milestone 2: the generated product
-
-Derive `applicable :: KindRow -> OperationAction -> Fault -> Bool` from the table. For example,
-`LandsUnready` applies only to `CanBeUnready`, and a partial effect only to `Steps n`.
-
-Generate scenarios from each row and action. Each one is a setup review, the action's review, then a
-follow-up review: a correction, or a retirement and collection where the kind supports them. Add one
-combined scope per in-line application shape (Service, worker, CronJob, DomainMapping, volume,
-database), so cross-kind ordering is exercised.
-
-Replace the hand-written `scenarios` list with the generated set. Keep the specific scenarios that
-exercise receipt ingestion, the rename and the database update as explicit additions.
-
-Tier the product:
-- **Fast tier:** one representative placement per (kind, action, fault), within about two minutes.
-- **Deep tier:** every placement and every ordered pair. Add a `just gate-deep` recipe that runs it
-  with `NAGARE_RECOVERY_MODEL_DEEP=1`, and register the recipe in `scripts/audit-managed-commands.py`
-  (regenerate its catalogue with `--update-catalogue`).
-
-### Milestone 3: the remaining faults and harness fixes
-
-Add the faults:
-- `CrashAtStore`: throw `Interrupted` at a store put boundary, before or after the write lands;
-- `ClaimLost`: a second client takes the executor claim between two operations;
-- `ReplacementRequired`: the provider answers that an update needs replacement.
-
-Make `LandsFailed` live with Job fixtures (backup, restore and prune Jobs). Scope the `ForeignObject`
-refusal exemption in `InventoryRecoveryModelSpec.hs` to the step and resource the fault touched. Add
-"a corrected review planned from current history" as an exit move.
-
-Run the fast tier. Every new violation is either a gap in plan 175's close obligations (an adapter's
-`adapterSettle` answers `Unknown` where it should prove), which goes back to plan 175's owner; a gap
-in plan 176's identity accessor; or a new finding recorded in `docs/audits/mp23-findings.md`.
-
-
-## Concrete Steps
-
-From `cli/nagarectl`:
-
-```bash
-cabal build nagarectl-test
-cabal test nagarectl-test --test-options='-p "/kind totality/ || /fast tier/"'
-```
-
-Expected output names the number of generated cases, for example:
-
-```text
-recovery model
-  fast tier: every generated (kind, action, fault) case has an exit: OK (… s)
-kind totality
-  every executor and admitted action has a kind row:                   OK
-```
-
-Before each commit, from the repository root: `just gate-fast`, `nix flake check`, and
-`git diff --numstat`. Run `just gate-deep` before declaring M2 or M3 accepted.
-
-
-## Validation and Acceptance
-
-Required acceptance:
-- **Totality.** The totality test passes, and fails when any row is deleted.
-- **Fast tier.** It passes over the generated product within about two minutes, and its output
-  states the case count.
-- **Deep tier.** `just gate-deep` passes.
-- **Reaches the held cells.** The generated product contains the worker-Deployment cells in the held
-  patch, and plan 175's close passes them without per-kind code.
-- **Faults are live.** `LandsFailed`, `CrashAtStore` and `ClaimLost` each have an effect in some
-  generated case, checked by a test that counts faults that fired.
-- **No hidden refusals.** A planning or admission refusal in a generated case is a violation unless
-  the case declares it expected.
-
-
-## Idempotence and Recovery
-
-The kind table and generator are test-only code. Replacing the scenario list is one commit, and
-reverting it restores the hand-written model. The deep-tier recipe only reads the repository and runs
-tests on the builder.
-
-
-## Interfaces and Dependencies
-
-This plan depends on
-`docs/plans/175-close-stopped-inventory-transactions-by-per-operation-proof.md`, which provides
-`close` as the universal exit move and the refusal-is-not-success harness change. It also depends on
-`docs/plans/176-record-physical-identity-at-creation-and-read-it-through-one-checked-accessor.md`,
-which provides each kind's identity. Start M1 at any time; M2 and M3 need both plans accepted.
-
-It provides `Nagare.Test.World.Kinds` (the kind table), the totality test and the `just gate-deep`
-recipe. MasterPlan 23's step 5 verification replays the fast tier, which includes the generated product
-with one placement per fault, and every mutation record on the final candidate. Under the ADR 25
-amendment of 2026-10-06, it runs the deep tier only if recovery-related code changed after the
-deep tier's last passing run.

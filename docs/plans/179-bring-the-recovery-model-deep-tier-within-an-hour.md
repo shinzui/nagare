@@ -29,6 +29,7 @@ This ExecPlan is a living document. The sections Progress, Surprises & Discoveri
 Decision Log, and Outcomes & Retrospective must be kept up to date as work proceeds.
 If durable project context changes, update or create ADRs in docs/adr/ in the same change.
 
+Full plan before trimming: [179-bring-the-recovery-model-deep-tier-within-an-hour.md](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/plans/179-bring-the-recovery-model-deep-tier-within-an-hour.md). This copy keeps the purpose, progress, discoveries, decisions and outcomes.
 
 ## Purpose / Big Picture
 
@@ -53,7 +54,6 @@ a verdict:
 
 A reader sees it working in three ways: the timings `just gate-deep` prints per scenario, an
 equivalence report for each reduction, and every mutation record still failing.
-
 
 ## Progress
 
@@ -110,7 +110,6 @@ replay check costing 33.9 s of the fast tier. The three records EP-179 touches f
 README rows say. M2's exhaustive equivalence run (every fast-tier schedule of all 52 scenarios
 and every 500th fault pair, both strategies) and M5's 16-shard timing on an idle builder follow.
 M3 is not adopted: its sampled check failed (see the Decision Log).
-
 
 ## Surprises & Discoveries
 
@@ -196,7 +195,6 @@ M3 is not adopted: its sampled check failed (see the Decision Log).
   into a fresh run must use the registry of that run, not the one from the original stop. The
   reference strategy carries the replayed run's registry for this reason. (M2.)
 
-
 ## Decision Log
 
 - Decision: The budget is one hour wall-clock on the operator's workstation with `just gate-deep`'s
@@ -214,7 +212,6 @@ M3 is not adopted: its sampled check failed (see the Decision Log).
   Rationale: a faster model that proves less is worse than a slow one. The reductions change what
   is run, not what is proved, and each must show it.
   Date: 2026-10-06
-
 
 - Decision: The snapshot code and the exit search live in new modules, `Nagare.Test.Model.Run`
   (the `Run`, its snapshot and restore) and `Nagare.Test.Model.Search` (a depth-first search over
@@ -404,173 +401,3 @@ The run found 4,944 distinct violating schedules, in nine classes. Each class wa
 
 Only one class, F79, was a product defect. The five harness classes and F79 have mutation records that fail without their fixes. Under the new rule, the next per-release deep run is the place to see whether the fixed classes stay gone and whether scenarios 9–52 hold new ones.
 
-
-## Context and Orientation
-
-**The model.** `cli/nagarectl/test/InventoryRecoveryModelSpec.hs` runs Nagare's real planner,
-driver, recovery and close code against in-memory providers:
-- the Kubernetes world in `test/Nagare/Test/World/Kubernetes.hs`, an `IORef KubeWorld`;
-- the fault adversary in `test/Nagare/Test/World/Adversary.hs`, an `IORef Adversary` that fires
-  a fault at the n-th call of one provider operation (a boundary);
-- an object-store inventory over `fakeObjectOps` from `test/InventoryObjectOpsSpec.hs`, wrapped by
-  `test/Nagare/Test/World/Store.hs` for store faults.
-
-A `Run` holds the store, a clean inspection view of it, the world, the adversary, and `IORef`s the
-invariants use (`runBound`, `runImages`, `runIncarnations`, `runDatabase`, `runConverged`). The
-scopes are in `test/Nagare/Test/Model/Fixtures.hs`.
-
-**Scenarios, placements and tiers.**
-- A scenario is a list of steps (reviews), explicit or generated from the kind table
-  (`test/Nagare/Test/World/Kinds.hs`).
-- A fault-free run counts each call. A placement is a (call number, fault) pair, and every fault
-  kind is tried at every call number of its call.
-- The fast tier tries each placement alone. The deep tier (`faultPairs`) tries every ordered pair.
-- `just gate-deep` runs the deep tier as parallel shards of the scenario list
-  (`NAGARE_RECOVERY_MODEL_SHARD=i/n`, eight by default). Each shard prints `recovery-model:` lines
-  with schedule counts, heartbeats, and per-scenario time and violations.
-
-**Measured size (2026-10-06, before this plan).**
-- Pairs per explicit scenario:
-  - 19,758 (create);
-  - 81,531 (create then update);
-  - 164,656 to 274,407 (bad update then correction);
-  - 62,232 (retire with a volume);
-  - 260,427 (receipt ingestion);
-  - 351,711 (database retire).
-- About 600–850 pairs a minute per shard process.
-
-**Where the time goes.**
-1. **Exit search by replay.** On a stop, `searchExit` explores moves (`Resume`, `Close`,
-   `TakeOver`), and every probe calls `replay`. That builds a new `Run` and re-executes every step
-   and every exit already taken. Pairs stop more often than single faults, and a stop costs several
-   full replays.
-2. **Placement granularity.** A planning pass observes each member, so a scenario has dozens of
-   observe boundaries. Many of them are the same kind of moment: the same operation, in the same
-   step, on a member of the same role. The pair count grows with the square of the placements.
-3. **Pairs that cannot interact.** A transient fault whose effect is fully resolved before the
-   second fault's boundary, for example both inside different converged steps, makes a pair that
-   is two independent single faults.
-
-**Relevant ADRs.**
-- [ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md), with its
-  amendments of 2026-10-05 and 2026-10-06. It makes the model the defect finder, defines the
-  change-scoped deep tier and the list of recovery-related paths, and sets the one-hour budget.
-- [ADR 26](../adr/0026-stopped-transactions-close-by-per-operation-proof.md) defines the exits the
-  search explores.
-
-
-## Plan of Work
-
-### Milestone 1: snapshot and restore
-
-Give the fake object store a way to read and replace its whole state. `fakeObjectOps` keeps its
-objects in an `IORef`, so expose that as `fakeObjectState`. Add `snapshotRun :: Run -> IO
-RunSnapshot` and `restoreRun :: Run -> RunSnapshot -> IO ()`, which copy and write back:
-- the object map;
-- the `KubeWorld`;
-- the `Adversary`, including counts, so later faults fire at the same ordinals;
-- every model `IORef`.
-
-Confirm in `cli/nagarectl/src/Nagare/Inventory/Store.hs` that the store keeps no in-process cache
-or lock between commands, and record what you find. If it does keep one, snapshot it or open a new
-handle on restore.
-
-Acceptance: a test takes a snapshot at a stop, runs a move that changes state, restores, and finds
-the head, journal, world and adversary equal to the snapshot.
-
-### Milestone 2: search from the snapshot
-
-`searchExit` takes the snapshot at the stop, and each probe restores it and applies its moves.
-Keep `replay` as the reference behind a flag. Add an equivalence test that runs every fast-tier
-schedule under both strategies and requires identical results: the same violation text, or the
-same exit path. The replay search then stays as the reference for a sampled fast-tier check (see
-the Decision Log).
-
-### Milestone 3: placement classes
-
-During the fault-free run, label each boundary with its class: the call, the scenario step, the
-provider operation, and the member's role (for an observation, the member observed; for a write,
-the reviewed operation). The deep tier pairs one representative per class. Choose the first
-boundary of the class, and record the choice.
-
-Add a sampled check. For a fixed-seed sample of classes, every member of the class, paired with a
-fixed set of second faults, must give the representative's outcome. A mismatch splits the class,
-which means the labelling was too coarse, so refine it. Run the check in the deep tier itself,
-not the fast tier.
-
-### Milestone 4: interaction pruning
-
-State the rule and implement it in `faultPairs`. A pair (f1, f2) at boundaries (b1, b2), b1
-before b2, is kept when any of these holds:
-- f1 is persistent (`faultPersistence`);
-- b2 falls in the step b1 falls in;
-- b2 falls in the exit search or recovery of a stop that f1 caused;
-- b2 falls in the step after that.
-
-A pair is dropped only when f1 is transient and its step converged with an idle head before b2's
-step began.
-
-Add a sampled check against unpruned pairs for a fixed-seed sample of dropped pairs. Each one's
-outcome must equal the outcome of f2 alone after f1's step, so that it is already covered by the
-fast tier. A mismatch means the rule is unsound: tighten it, and record the reason.
-
-### Milestone 5: within budget, and a change check
-
-Measure `just gate-deep` end to end and record the per-scenario timings here. If it is still over
-an hour, rebalance the shards by measured cost instead of round-robin before reducing anything
-further.
-
-Add `just deep-tier-required base=<ref>`. It lists the files changed since `base` that fall under
-the recovery-related paths named in ADR 25's 2026-10-06 amendment, and exits non-zero when there
-are any. Register the recipe in `scripts/audit-managed-commands.py` and regenerate its catalogue.
-
-
-## Concrete Steps
-
-From the repository root:
-
-```bash
-cabal test nagarectl-test --project-dir=cli/nagarectl --test-options='-p "/recovery model/"'
-time just gate-deep
-just deep-tier-required base=origin/master
-```
-
-Expected `gate-deep` output ends with each shard passing:
-
-```text
-shard 0/8: passed
-…
-shard 7/8: passed
-```
-
-Before each commit: `just gate-fast`, then `git diff --numstat`. Mutation proofs run in a scratch
-worktree.
-
-
-## Validation and Acceptance
-
-- **Budget.** `time just gate-deep` finishes within an hour with default shards, and every shard
-  passes.
-- **No lost verdicts.**
-  - The snapshot equivalence test passes.
-  - The class and pruning sampled checks pass.
-  - Every mutation record whose README row names the recovery model still fails.
-- **Change check.** `just deep-tier-required` names the recovery-related files changed since its
-  base, and exits non-zero only when there are any.
-
-
-## Idempotence and Recovery
-
-Everything is test-only except the new recipe. Each milestone is one commit. Reverting a milestone
-restores the slower but unreduced behaviour. The flags that keep the replay search and the full
-pair set can be removed once their checks have passed in one deep-tier run.
-
-
-## Interfaces and Dependencies
-
-Production changes: the injectable retry pause (`Store/ObjectOps.hs`, `Store/Gogol.hs`,
-`Store.hs`, `Execute/Journal.hs`, `Execute/Close.hs`). Test modules touched:
-- `test/InventoryRecoveryModelSpec.hs`;
-- `test/InventoryObjectOpsSpec.hs` (`fakeObjectState`);
-- `test/Nagare/Test/World/Kubernetes.hs` and `Adversary.hs`, if snapshots need accessors;
-- `justfile` and `scripts/audit-managed-commands.py`, for `deep-tier-required`.

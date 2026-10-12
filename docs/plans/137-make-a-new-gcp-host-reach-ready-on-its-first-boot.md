@@ -30,6 +30,7 @@ This ExecPlan is a living document. The sections Progress, Surprises & Discoveri
 Decision Log, and Outcomes & Retrospective must be kept up to date as work proceeds.
 If durable project context changes, update or create ADRs in docs/adr/ in the same change.
 
+Full plan before trimming: [137-make-a-new-gcp-host-reach-ready-on-its-first-boot.md](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/plans/137-make-a-new-gcp-host-reach-ready-on-its-first-boot.md). This copy keeps the purpose, progress, discoveries, decisions and outcomes.
 
 ## Purpose / Big Picture
 
@@ -38,7 +39,6 @@ systemd-fsck can open it, creates the required data layout, and starts k3s succe
 boot. No reboot or manual unit restart is needed. Evaluation checks lock the systemd ordering, and
 a repeated NixOS VM test proves the race is gone and the node becomes Ready. This plan implements
 IR-19 and integrates—but does not duplicate—the age-key handoff in independent ExecPlan 133.
-
 
 ## Progress
 
@@ -60,7 +60,6 @@ This section must always reflect the actual current state of the work.
 - [x] (2026-09-14T15:22:49Z) Update the storage/Ready portions of the host boot docs, complete
   IR-19, and run nested plus root flake gates. Keep the age-key instructions unchanged until
   ExecPlan 133 supplies its post-boot handoff.
-
 
 ## Surprises & Discoveries
 
@@ -86,7 +85,6 @@ implementation. Provide concise evidence.
   Evidence: the composed check restored the evaluated shipped `/var/lib/nagare` definition and
   attached a blank `/dev/vdb`; the resulting VM formatted ext4, reached one Ready k3s node before
   age-key delivery, and completed Tailscale recovery under the same boot ID in 73.32 seconds.
-
 
 ## Decision Log
 
@@ -131,7 +129,6 @@ Record every decision made while working on the plan.
   before delivery proves the integration boundary without duplicating either subsystem's fixture.
   Date: 2026-09-14.
 
-
 ## Outcomes & Retrospective
 
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
@@ -156,156 +153,3 @@ did not change; the test composition adds evidence rather than a new durable arc
 closing pass also completed nested Nix evaluation, documentation profiles, strict improvement-
 request validation, all 527 Haskell tests, and all 29 buildable native flake checks.
 
-
-## Context and Orientation
-
-[IR-19](../improvement-requests/first-boot-data-disk-format-races-fsck.md) contains the observed
-journal: `format-nagare-data` and `systemd-fsck@...` started within milliseconds, `mkfs.ext4`
-reported `Device or resource busy`, the mount failed, and k3s remained dependency-failed even though
-a later mount retry succeeded.
-
-`nixos/hosts/nagare-01/storage.nix` defines the device path
-`/dev/disk/by-id/google-nagare-data`, `format-nagare-data.service`, the `/var/lib/nagare` mount, and
-`nagare-data-layout.service`. Formatting runs only when `blkid` finds no filesystem. The format unit
-has `DefaultDependencies=false`, follows the device and `local-fs-pre.target`, and precedes the
-mount, but it does not precede the systemd-fsck instance generated for that mount.
-
-`nixos/hosts/nagare-01/k3s.nix` orders and requires k3s after both
-`var-lib-nagare.mount` and `nagare-data-layout.service`. This correctly prevents state from falling
-through to the boot disk, but a one-time dependency failure is not automatically retried after the
-mount later succeeds. `nixos/flake.nix` has `data-disk-auto-grow` evaluation assertions and a
-`data-disk-online-grow` VM test. That test exercises one successful blank format and later growth;
-it does not repeatedly exercise the boot race or require Kubernetes node readiness.
-
-Independent [ExecPlan 133](133-deliver-the-host-age-key-after-first-boot.md) changes the same host
-boot surface so sops secrets and Tailscale can recover after post-boot age-key delivery. This plan
-must preserve its service ordering and run a composed test after both changes. It must not reparent
-or change that plan's intention.
-
-[ADR 5](../adr/0005-use-context-owned-host-flakes-for-operator-nixos-inputs.md) governs the generated
-host. [ADR 11](../adr/0011-host-activation-is-guarded-and-self-reverting.md) governs activation
-safety. [ADR 12](../adr/0012-platform-data-disk-capacity-is-forward-only-and-grows-itself.md) requires the ext4 data
-disk to grow forward-only and online. No cross-repository dependency or ADR is needed.
-
-
-## Plan of Work
-
-### Milestone 1: serialize blank-disk consumers
-
-In `nixos/hosts/nagare-01/storage.nix`, compute the fsck unit with
-`utils.escapeSystemdPath dataDiskDevice` and add it to `format-nagare-data.before` alongside the
-mount. Preserve the current device requirement, local-fs-pre ordering, blank-device check,
-idempotent existing-filesystem path, and `DefaultDependencies=false`. Do not add an fsck bypass or
-format a nonblank device.
-
-Review the generated unit graph with `systemd-analyze verify` in the VM. Make
-`nagare-data-layout.service` restartable after a transient dependency failure and ensure k3s is
-started or restarted only after the mount and layout are active. A small path-triggered recovery
-unit may start the layout and k3s after `var-lib-nagare.mount` becomes active; alternatively encode
-`Restart=on-failure` where systemd applies it reliably to the oneshot. The accepted design must keep
-hard `Requires`/`RequiresMountsFor` protection so k3s cannot use an unmounted directory.
-
-### Milestone 2: lock the graph and reproduce first boot repeatedly
-
-Extend `data-disk-auto-grow` in `nixos/flake.nix` to assert the exact escaped fsck unit appears in
-the format unit's `before`, the mount remains ordered after formatting, and k3s still requires the
-mount/layout. Add `nixos/tests/data-disk-first-boot.nix` as a parameterized
-`pkgs.testers.runNixOSTest`. Each test instance starts with a separate blank disk, boots once, waits
-for the mount and k3s, and runs `kubectl get nodes` until the only node is Ready. Assert filesystem
-type ext4, expected mount source, required directories on that mount, no `Device or resource busy`
-or failed format/fsck unit in the journal, and no reboot.
-
-Instantiate at least five uniquely named test derivations in `nixos/flake.nix` so Nix cannot reuse
-one execution as five samples. Add one aggregate check that depends on them. Also preserve the
-existing online-growth test and its data canary.
-
-### Milestone 3: integrate the complete host sequence
-
-After ExecPlan 133 is implemented, run its age-key delivery VM check alongside the new storage
-checks and add one composed assertion if service overrides would otherwise hide an ordering issue.
-The composed lifecycle is: blank disk formats and mounts, layout becomes ready, k3s reaches active,
-the missing age key is reported without interactive Tailscale login, the key is delivered, secrets
-activate, and Tailscale can start. Storage readiness must not depend on the secret handoff.
-
-### Milestone 4: publish and close
-
-Update `docs/user/host-image-and-boot.md`, `docs/user/provisioning-with-pulumi.md`, and the focused
-onboarding section to state that the first boot formats the data disk and reaches k3s Ready without
-a reboot, while Tailscale readiness follows the age-key handoff. Update `CHANGELOG.md`, complete
-IR-19 with observed evidence, append the bundle log, and run nested and root flake gates. Revisit
-ADRs 11 and 12 only if the final unit design changes their durable claims.
-
-
-## Concrete Steps
-
-Work from `/Users/shinzui/Keikaku/bokuno/nagare`.
-
-```bash
-nix flake check ./nixos --no-build --all-systems
-nix build ./nixos#checks.x86_64-linux.data-disk-first-boot --print-build-logs
-nix build ./nixos#checks.x86_64-linux.data-disk-online-grow --print-build-logs
-```
-
-If the aggregate check uses a different generated attribute, list it with
-`nix flake show ./nixos` and record the exact name here. The VM log must show one boot, an active
-mount and k3s, and a Ready node; it must not contain `Device or resource busy`.
-
-```bash
-nix build ./nixos#checks.x86_64-linux.host-age-key-delivery --print-build-logs
-okf validate docs/improvement-requests --profile docs/improvement-requests/profile.dhall --profile-enforce --log-enforce
-nix flake check --print-build-logs
-```
-
-
-## Validation and Acceptance
-
-Evaluation must show `format-nagare-data.service` before both the escaped fsck unit and
-`var-lib-nagare.mount`, with k3s still requiring the mount and layout. Each of at least five
-independent blank-disk VMs must boot once, create ext4 on the intended device, mount it at
-`/var/lib/nagare`, create the layout on that filesystem, start k3s, and report exactly one Ready
-node. Journals must contain neither the original busy error nor a failed format/fsck/mount/layout/k3s
-unit. The existing growth test must retain its canary across resize.
-
-The composed ExecPlan 133 test must prove that storage and k3s do not wait for a not-yet-delivered
-age key, while secret/Tailscale recovery succeeds after delivery. On the next authorized fresh GCP
-host, `kubectl get nodes` must reach Ready during the first boot ID with no operator reboot.
-
-
-## Idempotence and Recovery
-
-Formatting remains guarded by `blkid`: after a filesystem exists, rerunning the service is a no-op.
-Mount, layout, and k3s starts are convergent. Never retry formatting by forcing `mkfs`; inspect
-`lsblk`, `blkid`, unit status, and the journal first. If a transient mount failure occurs despite the
-ordering, starting the mount should trigger the bounded recovery path for layout/k3s without a
-reboot. If the device contains an unexpected filesystem or data, stop and recover manually rather
-than changing the blank-disk predicate.
-
-
-## Interfaces and Dependencies
-
-The primary interface is the NixOS systemd graph in `nixos/hosts/nagare-01/storage.nix` and
-`nixos/hosts/nagare-01/k3s.nix`:
-
-```text
-format-nagare-data.service
-  Before=systemd-fsck@<escaped-device>.service var-lib-nagare.mount
-var-lib-nagare.mount
-  before/requires nagare-data-layout.service and k3s.service
-```
-
-Use NixOS `utils.escapeSystemdPath`, systemd unit relationships, e2fsprogs, k3s, and the existing
-NixOS test framework. Do not add another filesystem or external service. ExecPlan 133 is an external
-integration dependency; EP-6 consumes the Ready-node behavior.
-
-
-Revision note (2026-09-14): Added the format-before-fsck edge, declarative mount-triggered k3s
-recovery, exact graph assertions, and a five-sample first-boot VM aggregate. Nested flake evaluation
-passes; executing the Linux VM checks awaits an available x86_64-linux builder.
-
-Revision note (2026-09-14): Completed the isolated storage and k3s work, closed IR-19, and passed
-five blank-disk first-boot samples, the online-growth regression, strict OKF validation, and nested
-plus root flake gates. The plan remains open solely for composition with external ExecPlan 133.
-
-Revision note (2026-09-14): Completed EP-4 after ExecPlan 133 landed. Strengthened its age-key VM
-into the composed first-boot proof and verified storage, k3s, sops, and Tailscale recovery in one
-unchanged boot ID.

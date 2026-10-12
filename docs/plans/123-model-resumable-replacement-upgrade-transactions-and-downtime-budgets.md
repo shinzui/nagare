@@ -35,6 +35,7 @@ This ExecPlan is a living document. Keep its living sections current and promote
 into ADRs. It implements the model/authority boundary of the refreshed MP-21; it does not enable
 cloud mutation or restore the coarse legacy upgrade runner for inventory-backed contexts.
 
+Full plan before trimming: [123-model-resumable-replacement-upgrade-transactions-and-downtime-budgets.md](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/plans/123-model-resumable-replacement-upgrade-transactions-and-downtime-budgets.md). This copy keeps the purpose, progress, discoveries, decisions and outcomes.
 
 ## Purpose / Big Picture
 
@@ -51,7 +52,6 @@ do not build another inventory, writable journal or lock. The future commands ar
 `nagarectl platform replacement status TRANSACTION_ID --json`. They are proposed, not available.
 Ordinary reviewed node upgrades and the supported PostgreSQL procedure remain separate.
 
-
 ## Progress
 
 - [x] (2026-09-13) Minimal version-1 transaction, readiness/deadline arithmetic, persistence and
@@ -64,14 +64,12 @@ Ordinary reviewed node upgrades and the supported PostgreSQL procedure remain se
 
 The historical atomic JSON writer is partial progress, not the final authority for real operations.
 
-
 ## Surprises & Discoveries
 
 The existing core predates MP-23. `Nagare.Inventory.Plan`, `Execute`, `Journal`, `Store` and `Command`
 now provide reviewed admission, conditional history and proof-based recovery. A second writable
 transaction directory would split authority, especially on fresh-root recovery or another machine.
 The live address sequence need not block pure model and store work; it still blocks provider enablement.
-
 
 ## Decision Log
 
@@ -91,150 +89,8 @@ source/target identity binding and observed candidate write admission as the irr
   Rationale: Replacement has the largest cloud surface of the follow-up plans, and its downtime budget's feasibility is unmeasured.
   Date: 2026-10-09
 
-
 ## Outcomes & Retrospective
 
 Only the minimal cutover-facing model exists. Full preparation/evidence, store authority, CLI and
 provider reconciliation remain. This refresh claims no new implementation and preserves In Progress.
 
-
-## Context and Orientation
-
-Work in `cli/nagarectl/src/Nagare/Platform/Replacement.hs`, with consumers `Platform/Cutover.hs`
-and `Platform/StateTransfer.hs`. `Platform/Paths.hs` and `Platform/Workspace.hs` organize private
-context material. The current command owner is
-`cli/nagarectl/app/Nagare/Cli/Commands/Platform.hs`; parser and dispatch ownership is in
-`app/Nagare/Cli/Parser/Platform.hs` and `app/Nagare/Cli/Dispatch.hs`. The legacy coarse runner is
-`app/Nagare/Cli/Platform/Upgrade.hs`; do not bypass its inventory guard or put new orchestration in
-`app/Main.hs`.
-
-`Nagare.Inventory.Command` owns apply/resume/recover/close entrypoints, `Plan` owns digest-bound
-reviews, `Execute` owns admission and execution, `Journal` owns durable operation history, and `Store`
-plus `Store/ObjectOps.hs` own conditional publication/head replacement. Inspect these contracts before
-selecting representation. A replacement control record describes workflow and evidence, not authority
-to mutate. Any necessary store/journal extension is versioned and retains current single-writer,
-conditional-head and fresh-root semantics.
-
-[ADR 19](../adr/0019-replacement-cutovers-reserve-rollback-before-write-admission.md) defines the
-rollback threshold and write-admission boundary. [ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md)
-requires owned declarations, reviewed effects and one conditional history. [ADR 6](../adr/0006-version-platform-state-across-cli-payload-context-host-and-cluster.md)
-requires release identity and refuses unsupported admitted-context transitions. ADRs
-[25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md),
-[26](../adr/0026-stopped-transactions-close-by-per-operation-proof.md) and
-[27](../adr/0027-physical-identity-is-recorded-at-creation-and-read-through-one-checked-accessor.md)
-require interpreter-first tests, proof-based recovery and creation-bound identity. These are local
-contracts; this plan chooses no dependency version or new external API.
-
-
-## Plan of Work
-
-### M1: Complete the pure model
-
-Add preparation/rehearsal/ready/terminal transitions, evidence references and exact source/target
-release, payload, inventory-wire and transaction-schema compatibility to `Replacement.hs`.
-Evidence includes canonical content digest, producer, source and candidate incarnation, scope/base
-binding, observation time, expiry and drift inputs. Unknown schemas or unsupported release pairs
-produce explicit blockers. No decoded boolean or edited `ready` field grants authority.
-
-Compute readiness from conservative final-transfer, handoff and public-verification predictions plus
-rollback reserve and margin. Exactly 900 seconds fits a 900-second request; 901 is refused. Missing,
-expired or mismatched evidence blocks readiness. Preserve existing JSON tokens/fixtures where
-compatible; incompatible fields require an explicit version and migration. Add model tests beside
-`PlatformCutoverSpec.hs`, and keep its existing safety cases.
-
-### M2: Prove the store/admission boundary before provider variants
-
-Represent replacement control in the context-owned conditional history using existing content/member
-and journal conventions. Any externally mutating phase requires a reviewed inventory operation and
-admission under its writer lock. Bind native completion and phase progress to that admitted operation;
-never invoke an entrypoint that reacquires the same lock from an adapter. Extend the common protocol
-only where the workflow cannot be represented, with explicit versioned readers and regression fixtures.
-
-Implement one representative prepare-phase effect with an injected provider and run real review,
-admission, interruption after effect, fresh-root reload, observed recovery and resume. Verify exact
-identity, no replay of proven completion, refusal of a second writer/stale head, and no active-context
-promotion from a derived file. This is the required producer/consumer check before EP-124 expands
-provider variants. Specify old standalone JSON import as an explicit action or read-only inspection;
-conflicting control records fail closed and cannot be selected by newest timestamp.
-
-### M3: Plan and status
-
-Add the proposed command group through `Nagare.Cli.Commands.Platform` and its parser. Plan resolves
-source and immutable target metadata, validates compatibility and budget, and creates/reuses one
-nonterminal replacement control record. It can publish control intent under the store lock but
-invokes no mutating Pulumi, host, Kubernetes or GCP operation. Status reads authoritative history and
-reports source/candidate identities, missing evidence, scope revisions, budget/headroom, temporary
-cost and rollback eligibility. Stored reports never substitute for current authority.
-
-### M4: Prove the provider-evidence consumer contract
-
-Define the abstract handoff-evidence schema and test its producer/consumer boundary, including
-forward/reverse timing, topology, exact resource identities, observation time and expiry. Consume
-EP-122's report when available; otherwise use clearly marked interpreter fixtures that cannot make
-a real transaction ready. This child can complete its model/store/CLI contract without a native
-run. EP-124's first milestone joins both completed children, binds the actual measured sequence to
-the model and rejects another topology or missing reverse timing before candidate effects. Update
-user documentation only for commands that actually exist, preserving the distinction between node
-configuration and Nagare release transitions.
-
-
-## Concrete Steps
-
-For implementation, run from the repository root; REV is the exact implementation commit:
-
-```bash
-just test-remote REV Platform
-just gate
-just mutation-sweep
-```
-
-Follow current ADR 25 for the validated-world fast tier and deep monitoring/triage. Verify the
-new CLI against local fixture stores with fake provider operations and capture argv to prove no
-external mutation. The anticipated command surface after implementation is:
-
-```bash
-nagarectl platform replacement plan --to VERSION --downtime-budget 15m --json
-nagarectl platform replacement status TRANSACTION_ID --json
-```
-
-Use an actually supported release pair; VERSION is not a promise that any historical release works.
-No native/cloud run is required to accept M1–M3.
-
-
-## Validation and Acceptance
-
-Planning defaults to 900 seconds and causes no external effects. A duplicate plan returns the same
-nonterminal workflow. Status explains every readiness blocker, including schema incompatibility.
-The real inventory admission/store path survives an interrupted injected operation and fresh-root
-reload, refuses stale heads and second writers, and skips completion only with valid evidence.
-Old JSON remains inspectable or explicitly migrated; it cannot bypass inventory authority. Invalid
-phase transitions fail before effects. Post-admission state never becomes eligible for automatic
-rollback. EP-122 evidence is a required input before provider readiness, not a fake default timing.
-
-
-## Idempotence and Recovery
-
-Control members/evidence are immutable and published conditionally; head/progress changes follow the
-same writer protocol as other inventory operations. Local material may be regenerated from history.
-On interruption, inspect admitted operation proof and actual provider state; use existing resume,
-proof-based close and explicit takeover policy. An unknown effect is not assumed absent. A restarted
-monotonic clock cannot inherit a serialized number as remaining time: reconcile conservatively and
-choose pre-write recovery when a trustworthy budget cannot be established.
-
-
-## Interfaces and Dependencies
-
-EP-123 owns replacement states, budget, evidence references, release/schema compatibility and store
-binding. EP-124 owns concrete candidate resources; EP-125/126 attach fence/state evidence; EP-127
-executes production deadline and terminal effects. Preserve existing `ReplacementTransaction`,
-`readiness`, `beginDeadline` and cutover consumers through compatible extension or explicit migration.
-Use existing canonical inventory encoding/digests; add no competing digest implementation. Before
-using a dependency API or changing bounds, locate its source/docs with Mori and verify release
-versions against registry/tags as required by repository instructions.
-
-
-## Revision Notes
-
-2026-10-09: Replaced the pre-inventory persistence design with one conditional authority, retained
-minimal-core compatibility credit, updated command ownership and validation, and made live feasibility
-a soft model dependency with an explicit join before candidate provisioning.

@@ -30,6 +30,7 @@ This ExecPlan is a living document. The sections Progress, Surprises & Discoveri
 Decision Log, and Outcomes & Retrospective must be kept up to date as work proceeds.
 If durable project context changes, update or create ADRs in docs/adr/ in the same change.
 
+Full plan before trimming: [138-keep-bootstrap-tls-issuance-within-intended-names.md](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/plans/138-keep-bootstrap-tls-issuance-within-intended-names.md). This copy keeps the purpose, progress, discoveries, decisions and outcomes.
 
 ## Purpose / Big Picture
 
@@ -39,7 +40,6 @@ namespaces. Enabling TLS no longer creates rejected orders for internal names or
 certificates for Kubernetes system namespaces. A diagnostic fails before stamping success if an
 ACME-backed certificate contains a non-public name. This plan implements IR-22 and IR-23 and
 integrates with independent ExecPlan 132's webhook readiness work.
-
 
 ## Progress
 
@@ -60,7 +60,6 @@ This section must always reflect the actual current state of the work.
 - [x] (2026-09-14T22:23:30Z) Repair the importer fixture's pure-Nix Linux execution by invoking
   the repository script through the check's Bash and giving generated fake executables exact Bash
   store-path shebangs; the focused Nix derivation and standalone fixture pass.
-
 
 ## Surprises & Discoveries
 
@@ -124,7 +123,6 @@ implementation. Provide concise evidence.
   `net-certmanager-controller-install` with `bad interpreter: No such file or directory`. The
   fixture now invokes the repository installer through the check-provided Bash and renders exact
   Bash store paths into only its generated fakes; the same derivation passes locally.
-
 
 ## Decision Log
 
@@ -190,7 +188,6 @@ Record every decision made while working on the plan.
   `runAsNonRoot` before process start.
   Date: 2026-09-14.
 
-
 ## Outcomes & Retrospective
 
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
@@ -214,190 +211,3 @@ pure Linux builders do not provide `/usr/bin/env`. This changed test execution o
 installer or controller payload. The focused Nix check and direct fixture both pass after pinning
 their interpreter to the Bash already supplied by the check.
 
-
-## Context and Orientation
-
-[IR-22](../improvement-requests/system-internal-cert-sent-to-acme.md) records that
-`cluster/bootstrap/knative-serving/config-certmanager.yaml` sets only `issuerRef` to
-`letsencrypt-dns`. On the observed cluster, Knative's `routing-serving-certs` then requested an ACME
-certificate for `kn-routing` and `data-plane.knative.dev`; the first name is not public and the order
-was rejected. The ConfigMap's `_example` mentions `systemInternalIssuerRef` and
-`clusterLocalIssuerRef`, but those keys are not active configuration.
-
-[IR-23](../improvement-requests/wildcard-certs-for-system-namespaces.md) records that
-`cluster/bootstrap/knative-serving/config-network-tls.yaml` sets
-`namespace-wildcard-cert-selector: "{}"`. That selector matches every namespace, including
-`kube-system`, `cert-manager`, and `knative-serving`. Public wildcard requests consume a shared
-registered-domain rate budget and expose namespace names through Certificate Transparency.
-
-`justfile` creates fixed bootstrap namespaces, creates/updates `personal`, applies Knative and
-net-certmanager, patches these ConfigMaps, and later enables TLS. Independent
-[ExecPlan 132](132-make-cluster-bootstrap-wait-for-knative-webhooks.md) adds readiness gates and
-bounded ConfigMap patch retries in this same sequence. Reconcile with its helper and keep the final
-platform stamp after all configuration and diagnostics. EP-1 adds `nagarectl cluster guard`; consume
-it before mutation when available.
-
-Application deployment is implemented in `cli/nagarectl/src/Nagare/App/Deploy.hs`, worker deploy in
-`cli/nagarectl/src/Nagare/Worker/Deploy.hs`, and other resource paths are dispatched from
-`cli/nagarectl/app/Main.hs`. They currently assume a namespace exists or use `personal`; there is no
-shared app-namespace reconciler. Add one owner so deploying an app, worker, database, broker, task,
-or static site into a new namespace creates/labels it before namespaced resources. Do not label
-observability or control-plane namespaces merely because Nagare manages resources there.
-
-The pinned versions are Knative Serving `knative-v1.22.0` and net-certmanager `v1.14.0`, with the
-skew noted in `cluster/bootstrap/net-certmanager/README.md`. Before choosing any compatibility pin
-change, use Mori to locate registered dependency source and verify current release tags and
-published matching guidance upstream. If the present keys behave correctly with explicit values,
-prefer no version change.
-
-[ADR 10](../adr/0010-the-active-context-owns-the-acme-identity.md) owns the context-specific public
-ACME identity. [ADR 6](../adr/0006-version-platform-state-across-cli-payload-context-host-and-cluster.md)
-requires the cluster stamp to represent completed bootstrap. No cross-repository ADR currently
-governs Knative certificate selection.
-
-
-## Plan of Work
-
-### Milestone 1: make issuer roles explicit
-
-Verify the active Knative/net-certmanager configuration schema against the registered sources or
-authoritative release artifacts before editing. In
-`cluster/bootstrap/knative-serving/config-certmanager.yaml`, keep `issuerRef` on the context-owned
-`letsencrypt-dns` ClusterIssuer and set `systemInternalIssuerRef` and `clusterLocalIssuerRef` to the
-ClusterIssuer `knative-selfsigned-issuer`. Use the exact structured YAML expected by the installed
-controller. Update `cluster/bootstrap/knative-serving/README.md` with the three roles.
-
-Add a render/config check under `nix/checks/scripts.nix` that parses the ConfigMap and asserts all
-three values, rather than grepping comments. In a disposable cluster, enable external-domain TLS and
-assert certificates labeled `networking.knative.dev/certificate-type=system-internal` or serving
-cluster-local names reference the self-signed issuer and become Ready.
-
-### Milestone 2: opt app namespaces into public wildcards
-
-Replace the empty selector in `config-network-tls.yaml` with a `matchLabels` selector for
-`nagare.dev/app-namespace: "true"`. Make `cluster-bootstrap` create/apply `personal` with this label.
-Create a shared namespace reconciler in a module such as
-`cli/nagarectl/src/Nagare/Cluster/Namespace.hs`; call it before each application workload path
-creates namespaced objects. It should create a missing namespace with managed labels or add the
-opt-in label to an existing requested app namespace without deleting unrelated labels. Dry-run must
-render the namespace action. Never label system/observability namespaces through this helper.
-
-Add pure manifest tests and fake-kubectl command tests covering `personal`, a new app namespace, an
-existing labeled namespace, preserved labels, and a system namespace refusal. Add a bootstrap
-selector check to `nix/checks/scripts.nix`.
-
-### Milestone 3: detect leaked ACME names and prove behavior
-
-Add certificate policy inspection to `nagarectl doctor` or a focused bootstrap validation module in
-`cli/nagarectl/src/Nagare/Ops/Doctor.hs`. Query Certificates across namespaces as JSON, identify
-those using `letsencrypt-dns`, inspect every `spec.dnsNames`, and fail for a short or cluster-local
-name. Also fail when a public wildcard certificate exists in a namespace lacking the opt-in label.
-Return structured evidence and a remediation that points to bootstrap configuration; do not delete
-orders or certificates automatically.
-
-Build a disposable kind/k3d verification that installs the pinned stack, applies a fake or staging
-issuer where necessary, creates one labeled app namespace and several unlabeled system fixtures,
-enables TLS, and proves only the app namespace receives a public wildcard. Prove internal/cluster
-local certificates select self-signed. Use fake ACME resources for deterministic CI; reserve real
-staging/production issuance for an explicitly authorized cloud rehearsal.
-
-### Milestone 4: integrate bootstrap and publish policy
-
-Reconcile `justfile` with ExecPlan 132 so cluster guard, webhook waits, patches, certificate policy
-check, and platform stamp remain in that order. Update `docs/user/cluster-bootstrap.md`,
-`docs/user/onboarding-bring-your-own-project.md`, and `docs/user/reference.md` with the opt-in label,
-rate-limit cost, Certificate Transparency exposure, and diagnostic. Amend ADR 10, update
-`CHANGELOG.md`, complete IR-22 and IR-23, append the bundle log, and run gates.
-
-
-## Concrete Steps
-
-Work from `/Users/shinzui/Keikaku/bokuno/nagare`.
-
-```bash
-cabal test nagarectl-test
-nix build .#checks.aarch64-darwin.cluster-bootstrap-defaults --print-build-logs
-nix build .#checks.aarch64-darwin.knative-bootstrap-readiness --print-build-logs
-```
-
-For a disposable cluster selected by an explicit `KUBECONFIG`:
-
-```bash
-NAGARE_CONTEXT=tls-test nagare cluster-bootstrap
-NAGARE_CONTEXT=tls-test nagare cluster-enable-tls
-kubectl get certificate -A -o json
-nagarectl doctor --context tls-test
-```
-
-Expected evidence: internal and cluster-local certificate objects name
-`knative-selfsigned-issuer`; only namespaces labeled `nagare.dev/app-namespace=true` have
-`*.<namespace>.<baseDomain>` public certificates; doctor exits zero and no ACME Order contains a
-short or cluster-local name. Finish with strict OKF validation and `nix flake check --print-build-logs`.
-
-
-## Validation and Acceptance
-
-Parsed manifest checks must prove all issuer roles and the opt-in selector. Namespace tests must
-prove every Nagare app-workload creation path labels its requested namespace, preserves unrelated
-labels, and never opts fixed system/observability namespaces into public issuance. Diagnostic tests
-must reject an ACME certificate for `kn-routing`, `.svc`/cluster-local names, and a wildcard in an
-unlabeled namespace.
-
-On a fresh disposable cluster, one bootstrap plus TLS enable produces Ready internal certificates
-on the self-signed issuer and public wildcards only for `personal` and any additional labeled app
-namespace. `kubectl get certificate -A` shows none for `kube-system`, `kube-node-lease`,
-`cert-manager`, `knative-serving`, `kourier-system`, or `nagare-system`. No ACME Order contains a
-non-public name. Bootstrap stamps the platform only after this policy passes.
-
-
-## Idempotence and Recovery
-
-ConfigMap patches and namespace label reconciliation are convergent and preserve unrelated labels.
-Rerunning bootstrap or TLS enable is safe after correcting readiness. Changing the selector does
-not necessarily delete certificates already created under the old selector; document and test an
-explicit review-and-delete procedure that lists exact Certificate, CertificateRequest, Order, and
-Secret targets before removal. Never automate bulk deletion or switch to production ACME during
-tests. If rate limits may already be affected, keep staging configured until the inventory is clean.
-
-
-## Interfaces and Dependencies
-
-The namespace owner should expose a small interface equivalent to:
-
-```haskell
-data NamespacePurpose = ApplicationNamespace
-ensureNamespace :: NamespaceOps -> NamespacePurpose -> Text -> IO ()
-```
-
-The certificate policy should separate JSON parsing from Kubernetes IO:
-
-```haskell
-certificatePolicyViolations :: Set Text -> [CertificateObservation] -> [CertificateViolation]
-```
-
-Depend on the pinned Knative Serving/net-certmanager manifests, cert-manager CRDs, kubectl, existing
-Aeson/process helpers, the context-owned `letsencrypt-dns` issuer, and
-`knative-selfsigned-issuer`. ExecPlan 132 owns webhook readiness; EP-1 owns cluster identity guard;
-EP-6 owns the final live rehearsal.
-
-
-Revision note (2026-09-14): Verified the pinned controller schema, made issuer roles and wildcard
-namespace eligibility explicit, reconciled the app-namespace label across workload creation paths,
-and added fail-closed parsed certificate diagnostics. Disposable-controller verification and final
-publication remain.
-
-Revision note (2026-09-14): The disposable k3d proof exposed shared issuer pointers in the latest
-released and upstream-main net-certmanager config parser. Strengthened diagnostics to reject the
-resulting self-signed public wildcard and paused final publication pending a controller-delivery
-scope decision.
-
-Revision note (2026-09-14): Selected a repository-owned source patch with a Nix-built Linux/amd64
-controller archive embedded in the immutable platform payload. The native upstream regression and
-fresh disposable-cluster acceptance now pass; final bundle updates and aggregate gates remain.
-
-Revision note (2026-09-14): Completed EP-5, IR-22, and IR-23 after all 520 Haskell tests, strict
-documentation and IR validation, the native flake gate, native upstream regression, and exact
-payload archive disposable-cluster proof passed. ADR 10 owns the durable certificate boundary.
-
-Revision note (2026-09-14): Recorded and repaired the 0.3.0 release CI portability failure in the
-net-certmanager importer fixture; the shipped installer contract is unchanged.

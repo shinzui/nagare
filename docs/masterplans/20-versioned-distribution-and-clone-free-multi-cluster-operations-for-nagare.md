@@ -13,6 +13,7 @@ This MasterPlan is a living document. The sections Progress, Surprises & Discove
 Decision Log, and Outcomes & Retrospective must be kept up to date as work proceeds.
 If durable project context changes, update or create ADRs in docs/adr/ in the same change.
 
+Full plan before trimming: [20-versioned-distribution-and-clone-free-multi-cluster-operations-for-nagare.md](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/masterplans/20-versioned-distribution-and-clone-free-multi-cluster-operations-for-nagare.md). This copy keeps the purpose, progress, discoveries, decisions and outcomes.
 
 ## Vision & Scope
 
@@ -55,7 +56,6 @@ migration, but it ceases to be the required end-user installation method. The in
 remove external credentials or tools that necessarily belong to the operator, such as GCP
 authentication, Docker access, kubeconfig, age private keys, or Tailscale enrollment secrets.
 
-
 ## Decomposition Strategy
 
 The work is split by independently observable user behavior rather than by file type. EP-105 makes
@@ -96,7 +96,6 @@ workspace contract. Shipping Helm as the distribution was rejected because Helm 
 cluster layer, not GCP provisioning or the NixOS host. Homebrew and portable archives are deferred
 until the Nix-first path proves that the program is actually checkout-independent.
 
-
 ## Exec-Plan Registry
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
@@ -109,88 +108,6 @@ until the Nix-first path proves that the program is actually checkout-independen
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-1, EP-3).
-
-
-## Dependency Graph
-
-EP-105 has no child-plan dependency. It establishes the root flake's supported systems, hermetic
-Haskell package set, wrapped typed-config runtime, and `packages`/`apps` names that every later release
-surface uses.
-
-EP-106 hard-depends on EP-105 because the platform payload and operator launcher extend the same root
-flake outputs and wrappers. It defines the payload manifest, resource-root precedence, per-context
-writable workspace, and checkout compatibility fallback. Those are required before host configuration
-or upgrades can identify which immutable release they consume.
-
-After EP-106, EP-107 and EP-108 can proceed in parallel. EP-107 hard-depends on EP-106 because the
-generated host flake must import the packaged NixOS module and live beside the context-owned workspace
-rather than a checkout. EP-108 hard-depends on EP-106 because it compares and switches concrete
-payload manifests and stamps the bootstrap resources shipped by that payload. EP-108 only
-soft-depends on EP-107: upgrade work can use a fixture host flake before the generator lands, but its
-final integration test must prove that upgrading preserves operator-owned host configuration.
-
-EP-109 hard-depends on EP-107 and EP-108, which transitively require EP-105 and EP-106. A release
-cannot truthfully promise clone-free onboarding until the installable CLI, payload resolution,
-external host configuration, and version/upgrade checks all work together. EP-109 owns the release
-workflow and end-to-end documentation rather than changing their underlying contracts.
-
-The implementation waves are therefore: Wave 1, EP-105; Wave 2, EP-106; Wave 3, EP-107 and EP-108 in
-parallel; Wave 4, EP-109.
-
-
-## Integration Points
-
-**1. Root flake output names and supported systems (defined by EP-105; consumed by EP-106 and
-EP-109).** `flake.nix` exposes `packages.<system>.nagarectl`, `apps.<system>.nagarectl`, and
-`apps.<system>.default`. EP-106 adds `packages.<system>.nagare-platform` and
-`apps.<system>.nagare` without renaming EP-105's outputs. The initial supported systems remain the
-existing `x86_64-linux` and `aarch64-darwin`; another system is added only when CI can build and test
-the complete closure. EP-109's install commands and release matrix use these names verbatim.
-
-**2. Typed-config runtime (defined by EP-105; consumed by all deploy-class commands and EP-109).** The
-installed wrapper must put a `runghc` capable of importing `Nagare.Dsl.*` on `PATH`, without a
-`.ghc.environment.*` from `cli/nagarectl`. `Nagare.GhcEnv` retains explicit `--ghc-env` and
-`NAGARE_GHC_ENVIRONMENT` overrides and the checkout fallback for contributors, but the installed
-package environment is the default for the Nix app. The exact implementation must be proved with an
-isolated `nagare/Config.hs` test before it is fixed in an ADR.
-
-**3. Payload manifest and platform path resolver (defined by EP-106; consumed by EP-107, EP-108, and
-EP-109).** A packaged payload contains a machine-readable `release.json` and the repository-owned
-`infra/pulumi`, `cluster`, `nixos`, `scripts`, `justfile`, and required documentation under one root.
-`Nagare.Platform.Paths` is the only Haskell producer of absolute paths to these assets. Resolution
-precedence is an explicit test override, an installed wrapper's payload root, then a validated source
-checkout fallback. Later plans never concatenate `infra/pulumi` or `scripts/...` against `$PWD`.
-
-**4. Immutable payload versus mutable per-context workspace (defined by EP-106; consumed by EP-107
-and EP-108).** Nix-store payloads are read-only. When Pulumi, npm, Nix, or generated projections need
-write access, Nagare materializes a versioned workspace below
-`${XDG_STATE_HOME:-$HOME/.local/state}/nagare/<context>/platform/<payload-id>/` by staging and atomic
-rename. A manifest records the source payload digest. Re-running preparation is idempotent; a different
-digest never overwrites an existing workspace. Context configuration remains under XDG config and
-credentials remain outside both payload and workspace.
-
-**5. Exported NixOS module and generated host flake (defined by EP-107; consumed by EP-108 and
-EP-109).** The nested `nixos/flake.nix` exports a reusable Nagare host module with explicit options for
-operator SSH keys, host/instance identity, registry host, sops file, and age key path. A generated
-per-context host flake below the Nagare config tree pins the Nagare release and supplies those options.
-Host image and day-2 scripts accept this flake path rather than mutating
-`nixos/hosts/nagare-01/registry-host.nix`. EP-108 changes only the pinned release reference; it must
-preserve the operator module verbatim.
-
-**6. Platform version and compatibility contract (defined by EP-108; consumed by EP-109).** One
-semantic version and release revision appear in `nagarectl version --json`, the payload
-`release.json`, `NAGARE_PLATFORM_VERSION` in a named context, the generated host flake input, and a
-`nagare-platform-version` ConfigMap in namespace `nagare-system`. A missing value denotes a legacy
-source-managed context and produces a warning, not an invented release. Major-version incompatibility
-blocks mutating platform operations; read-only inspection remains available. EP-109 verifies and
-publishes this exact contract.
-
-**7. Release ownership (defined by EP-109).** Git tags matching `v<major>.<minor>.<patch>` are the
-release identity. Cabal package versions, the Nix/payload version, release metadata, and the tag must
-agree. The GitHub workflow validates and publishes an already-created tag; it does not decide a
-version or mutate operator clusters. This distinction and Integration Points 3–6 are durable project
-decisions that should become ADRs during implementation.
-
 
 ## Progress
 
@@ -207,7 +124,6 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [x] (2026-08-25T20:14:24Z) EP-108: `nagarectl platform upgrade` stages, previews, applies, records, and safely retries a per-context version transition.
 - [x] (2026-08-25T20:46:56Z) EP-109: A tag-driven workflow validates release consistency and publishes release metadata, checksums, and notes for supported Nix systems.
 - [x] (2026-08-25T20:51:44Z) EP-109: README, onboarding, upgrades, multi-cluster guidance, and capability evidence demonstrate installation and operation without cloning.
-
 
 ## Surprises & Discoveries
 
@@ -248,7 +164,6 @@ interactions between child plans. Provide concise evidence.
   supported-system proof therefore belongs to native CI matrix runners, while local release checks
   inspect only native store identities and compare foreign output names lazily. Date: 2026-08-25.
 
-
 ## Decision Log
 
 Record every decomposition or coordination decision made while working on the master
@@ -282,7 +197,6 @@ plan.
   Rationale: incremental compatibility keeps existing development and live operations usable while
   each checkout assumption is removed and gives every milestone a safe rollback path.
   Date: 2026-08-25.
-
 
 ## Outcomes & Retrospective
 

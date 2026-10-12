@@ -12,6 +12,7 @@ intention: "intention_01kwdepj5gey18qqy0pjjx3mep"
 This MasterPlan is a living document. The sections Progress, Surprises & Discoveries,
 Decision Log, and Outcomes & Retrospective must be kept up to date as work proceeds.
 
+Full plan before trimming: [17-first-class-target-contexts-for-nagare.md](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/masterplans/17-first-class-target-contexts-for-nagare.md). This copy keeps the purpose, progress, discoveries, decisions and outcomes.
 
 ## Vision & Scope
 
@@ -71,7 +72,6 @@ shape, the database engines, and the cloud/local runtime
 behavior are unchanged; this initiative changes only *how the target is selected and resolved*. Test
 fixtures and golden files that pin the `tan-nb-exp` worked example are intentional and stay (they assert
 the default-reproduces-tan-nb-exp guarantee); they are not "hardcodes to fix".
-
 
 ## Decomposition Strategy
 
@@ -145,7 +145,6 @@ hardcodes are different in kind (state/stack layout, not apply-time templating) 
 the other shell consumers, so it belongs with EP-89, not the Haskell resolver. **kubeconfig-style
 normalized contexts**: rejected for v1 as over-engineering (see Scope); flat bundles ship first.
 
-
 ## Exec-Plan Registry
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
@@ -177,134 +176,6 @@ Implementation waves (phases):
 - **Follow-up — Remote Pulumi state:** EP-93. Optional GCS-backed Pulumi state for cloud contexts,
   layered after EP-90's per-context local state and config projection.
 
-
-## Dependency Graph
-
-EP-87 (context model + store + resolver) has no dependencies. It is the foundation: it defines the
-context model, the store layout and `current-context` pointer (Integration Point 1), the
-`--context`/`NAGARE_CONTEXT`/pointer/in-repo precedence (Integration Point 2), and the context-aware
-`Nagare.Target` resolver. Every other plan needs the contract it fixes.
-
-EP-88 (CLI) and EP-89 (shell + guardrail) each **hard-depend on EP-87** because they are the two
-consumers of the resolver and the store. EP-88 adds the `nagarectl context` commands and the `--context`
-flag — both call EP-87's resolver and read/write EP-87's store. EP-89 makes bash read the same store and
-reworks the guardrail (Integration Point 4) over EP-87's resolved context. They are independent of each
-other (Haskell vs bash, disjoint files) and run in parallel.
-
-EP-90 (Pulumi) **hard-depends on EP-87** and **soft-depends on EP-88**. The hard dependency is the
-context model: EP-90 derives each context's Pulumi state location and config projection (Integration
-Point 5) from the context EP-87 defines. The soft dependency is on EP-88's `nagarectl init`, which is the
-natural place to *write* the per-context Pulumi config — EP-90 can land its backend-relocation and
-projection logic against EP-87 alone, but the end-to-end "`init` seeds a context's stack" story is best
-demonstrated once EP-88 exists.
-
-EP-91 (de-hardcode manifests + NixOS) **hard-depends on EP-87** and **soft-depends on EP-89**. The hard
-dependency is the resolved context whose values (project, registry prefix, base domain) get templated
-into the manifests at apply time (Integration Point 6). The soft dependency is on EP-89 because the
-`cluster-bootstrap` (and related) recipes resolve the active context through the shell layer EP-89
-provides; EP-91's rendering can be unit-verified against EP-87, but the live `just cluster-bootstrap`
-path reads the context via EP-89.
-
-EP-92 (docs + migration) **soft-depends on all five** because it documents and migrates their delivered
-behavior. Its prose can be drafted from Wave 1 onward and is finalized after EP-91/EP-90 so the runbook
-matches what shipped. It has no hard dependency — docs can be written against the contract even before
-the consumers land — but it is sequenced last.
-
-EP-93 (remote GCS Pulumi backends) **hard-depends on EP-90** because it extends the per-context stack and
-config projection EP-90 establishes. It soft-depends on EP-88/EP-89 because its CLI flags and shell
-exports should reuse the existing context command and resolver surfaces, and on EP-92 so operator docs
-can be reconciled in one place. EP-93 is deliberately after the core context work: it is an opt-in
-remote-state extension, not a prerequisite for first-class contexts.
-
-Parallelism: after EP-87, EP-88 and EP-89 run in parallel (Wave 2); then EP-90 and EP-91 run in parallel
-(Wave 3). EP-92 begins once EP-87 exists and is finalized after Wave 3. EP-93 can begin once EP-90 lands.
-
-
-## Integration Points
-
-**1. The context model and store layout (defined by EP-87; consumed by EP-88, EP-89, EP-90, EP-91,
-EP-92).** EP-87 is the single source of truth for what a context is and where it lives. A **context** is
-the existing `Nagare.Target.TargetProfile` bundle (`tpProject`, `tpRegion`, `tpZone`, `tpRegistryHost`,
-`tpArtifactRegistryId`, `tpImageBucket`, `tpBackupBucket`, `tpBaseDomain`, `tpInstanceName`,
-`tpTargetPlatform`, `tpMode`, `tpLocalObjectStore`) plus its Pulumi-state location (Integration Point 5).
-The **store** is a user-level directory — `${XDG_CONFIG_HOME:-$HOME/.config}/nagare/contexts/<name>.env`
-— each file in the same flat `export VAR=value` schema as today's `nagare.target.env` (so bash sources it
-directly, no YAML parser), plus a `${XDG_CONFIG_HOME:-$HOME/.config}/nagare/current-context` file naming
-the default. EP-87 owns this layout and the exact paths; a later plan needing a new context field adds it
-to the `TargetProfile` record, the `.env` schema, and this section, and notifies the consumers.
-
-**2. The active-context selection mechanism (defined by EP-87; the `--context` flag added by EP-88;
-consumed by EP-88, EP-89).** Precedence, highest first: an explicit `--context <name>` (EP-88's global
-flag) or the `NAGARE_CONTEXT` environment variable > the `current-context` pointer > an in-repo
-`nagare.target.env`/`nagare.local.env` (back-compat with MasterPlan 12/16) > the built-in `tan-nb-exp`
-default. Independently, per-field environment variables still override the chosen context's values
-(`env > context > default`), preserving today's "environment wins" semantics. EP-87 defines the
-precedence and the `NAGARE_CONTEXT` semantics; EP-88 adds the `--context` flag that feeds the same
-resolver; EP-89 implements the identical precedence in bash. No consumer re-derives this order
-independently. **Flag-name reconciliation:** `deploy`/`site`/`app deploy` already use `--context`/`-c` for
-the *build-context directory* (Docker-style); to give the global target selector the kubectl-faithful name
-`--context`, EP-88 **renames that pre-existing flag to `--build-context`** (keeping its `-c` short form).
-This is a deliberate breaking change to `nagarectl deploy --context <dir>`; EP-92's docs and any justfile
-recipes/examples using `deploy --context`/`-c` for a build dir are updated to `--build-context`.
-
-**3. The bash resolution contract (defined by EP-89; consumed by the justfile, scripts, EP-90, EP-91).**
-EP-89 makes `scripts/lib/target.sh` and `.envrc` resolve the active context from the EP-87 store using the
-Integration Point 2 precedence, then export the contract variables (`CLOUDSDK_*`, `NAGARE_*`) exactly as
-today — so the justfile recipes, `scripts/*.sh`, and EP-91's bootstrap rendering consume the active
-context with no change to how they read the environment. This keeps a single resolution behavior across
-Haskell and bash without a shared parser: both read the same flat files with the same precedence. EP-89
-**additionally exports two derived variables the de-hardcoding plans consume**, so there is one canonical
-producer: (a) `NAGARE_CONTEXT` re-exported as the **resolved active-context name** — always populated
-(`"default"` when neither a context nor an in-repo profile is selected). Because `NAGARE_CONTEXT` is also
-the top-precedence *selector*, EP-89 makes re-entry safe with a companion `NAGARE_RESOLVED_CONTEXT` marker
-(recording that the exported value came from resolution, not an explicit selection), so a later
-`nagarectl context use` / current-context change is not defeated by a stale exported value; a readable
-mirror `NAGARE_ACTIVE_CONTEXT` is also exported. EP-90 keys the per-context Pulumi backend directory and
-stack name off `NAGARE_CONTEXT` (Integration Point 5). And (b) `NAGARE_REGISTRY_PREFIX`, the mode-aware
-image-name prefix (cloud: `<registryHost>/<project>/<artifactRegistryId>`; local: the flat local-registry
-prefix), which EP-91 substitutes into the auth-plane/`nagared` Service image refs (Integration Point 6).
-No consumer recomputes these independently; EP-89 (bash) and EP-90 (Pulumi) agree on `NAGARE_CONTEXT` as
-the resolved-name key.
-
-**4. The context-aware fail-closed guardrail (defined by EP-89; consumed by all scripts).** EP-89 reworks
-`scripts/lib/target.sh`'s `_require_target_project` to assert against the **active context's** project: in
-a `mode=cloud` context it fails closed unless gcloud's active project equals the context project (today's
-behavior, now context-driven); in a `mode=local` context it steps aside after asserting the loopback
-invariants — replacing MasterPlan 16's `NAGARE_MODE=local` special-case with a context-`mode` branch. The
-cloud branch must never become anything but fail-closed; the only change is that the compared project now
-comes from the active context.
-
-**5. Per-context Pulumi state and config projection (defined by EP-90; relates to EP-88, EP-91).** Today
-Pulumi state is a single in-repo file backend (`file://./infra/pulumi/.pulumi-state`, stack `dev`) and the
-tracked `infra/pulumi/Pulumi.dev.yaml` pins `tan-nb-exp`/`us-west1`/`tan-nb-exp-nagare-images` plus a
-project-specific `nagareImageSelfLink`. EP-90 segregates state per context by **mapping each context to
-its own Pulumi stack** (stack name = context name, so `Pulumi.<context>.yaml` config files coexist in the
-project dir and switching a context never overwrites another's config) **backed by a per-context file
-backend directory** (e.g. `file://${XDG_STATE_HOME:-$HOME/.local/state}/nagare/<context>/state`, with a
-matching per-context `PULUMI_HOME`) for hard state-tree isolation. `nagarectl context use` repoints
-`PULUMI_BACKEND_URL`/`PULUMI_HOME` and selects the stack; each context's config is a **per-context
-projection** that `nagarectl init`/`nagarectl context use` regenerate from the active context — so the
-tracked `Pulumi.dev.yaml` (pinned to `tan-nb-exp`) is removed and its values stop being a tracked default.
-EP-88's `init` writes this projection; EP-91 does not touch Pulumi. EP-90 owns the stack-naming,
-backend-path, and projection scheme. (The alternative — one shared backend keyed only by stack, or keeping
-a single stack `dev` and relocating just the backend — was rejected: stack-per-context plus a per-context
-backend gives both a legible `pulumi stack ls` and hard filesystem isolation. See Decision Log.)
-Follow-up EP-93 extends this integration point with an optional `NAGARE_PULUMI_BACKEND=gcs` mode for
-cloud contexts; it does not change EP-90's local default.
-
-**6. The manifest templating seam (defined by EP-91; relates to EP-89).** EP-91 enumerates and removes
-every hardcode still *applied to a real target*: `cluster/bootstrap/cert-manager/letsencrypt-dns.yaml`
-(`project: tan-nb-exp`), the Service image refs in `cluster/bootstrap/{nagare-access,en,shomei,nagared}/
-service.yaml` (`us-west1-docker.pkg.dev/tan-nb-exp/nagare/<svc>:…`), and `nixos/hosts/nagare-01/
-registries.nix` (`registryHost = "us-west1-docker.pkg.dev"`). Each is rendered from the active context at
-apply time — the issuer project from `tpProject`, the image refs from `registryPrefix`, the NixOS host
-from `tpRegistryHost` — mirroring how `cluster-bootstrap` already patches `config-domain` (from
-`baseDomain`) and `registriesSkippingTagResolving` (from `NAGARE_REGISTRY_HOST`). The bootstrap recipes
-read the active context through EP-89's bash layer (Integration Point 3). Test/golden fixtures pinning
-`tan-nb-exp` are intentional and are **not** in this seam. EP-91 owns the list; if a later change adds a
-new applied hardcode, it is added here and to EP-91.
-
-
 ## Progress
 
 Track milestone-level progress across all child plans. Each entry names the child plan
@@ -320,7 +191,6 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [x] EP-91: the DNS-01 issuer project, the auth-plane + `nagared` Service image refs, and the NixOS `registries.nix` host all render from the active context; a non-`tan-nb-exp` context renders clean (no `tan-nb-exp`/`us-west1-docker.pkg.dev` leaks); cloud and local behavior for `tan-nb-exp`/local contexts unchanged.
 - [x] EP-92: `docs/user/contexts.md` runbook written; `CLAUDE.md`/getting-started/onboarding/local-development reconciled; the `nagare.target.env`/`nagare.local.env` → context migration documented.
 - [x] EP-93: cloud contexts can opt into a GCS Pulumi backend (`NAGARE_PULUMI_BACKEND=gcs` + optional URL); local file state remains the default and the only local-mode option; `nagarectl init`/`context create` bootstrap the state bucket; migration from EP-90 local state to GCS uses `pulumi stack export` / `pulumi stack import` via `scripts/migrate-pulumi-backend.sh`. Live GCS validation is manual/deferred (no live-project changes were made).
-
 
 ## Surprises & Discoveries
 
@@ -391,7 +261,6 @@ interactions between child plans. Provide concise evidence.
   branch. Implementation follows the MasterPlan correction and EP-87 behavior instead: the shell exports
   the historic `tan-nb-exp`/`us-west1` defaults, so unqualified `gcloud` and scripts see the same target
   bundle as `nagarectl`. Date: 2026-07-01.
-
 
 ## Decision Log
 
@@ -475,7 +344,6 @@ plan.
   dependency boundary and migration plan.
   Date: 2026-07-01
 
-
 ## Outcomes & Retrospective
 
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
@@ -495,12 +363,3 @@ Compare the result against the original vision.
   selectable target contexts with per-context state and zero tracked-file edits for a second instance —
   is delivered. Only live-GCP validation of the GCS path remains as a manual step.
 
-
-## Revision Notes
-
-- 2026-07-01: Added follow-up EP-93 for optional GCS-backed Pulumi state after EP-90. The original
-  MasterPlan scope still keeps remote state out of the core context delivery; the registry, dependency
-  graph, integration point 5, progress, and decision log now point to the follow-up plan.
-- 2026-07-01: EP-93 implemented and marked Complete. The registry row, the EP-93 progress line, and
-  Outcomes are updated. All child plans (EP-87–EP-93) are now complete; only live-GCP validation of the
-  GCS backend path remains as a manual step.

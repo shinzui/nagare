@@ -24,6 +24,7 @@ This ExecPlan is a living document. The sections Progress, Surprises & Discoveri
 Decision Log, and Outcomes & Retrospective must be kept up to date as work proceeds.
 If durable project context changes, update or create ADRs in docs/adr/ in the same change.
 
+Full plan before trimming: [116-move-operator-private-deployment-material-into-a-private-development-repository.md](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/plans/116-move-operator-private-deployment-material-into-a-private-development-repository.md). This copy keeps the purpose, progress, discoveries, decisions and outcomes.
 
 ## Purpose / Big Picture
 
@@ -50,7 +51,6 @@ This plan was requested by the operator on 2026-09-12, during
 Their direction: this repository is only for open-source development of Nagare, and a new private
 repository holds operator development material from now on, including the Pulumi state.
 
-
 ## Progress
 
 - [x] Milestone 0: confirm the inventory below against the working tree, and get the operator's explicit answers to the three confirmation questions (repository name and visibility, backend choice, which tracked files leave the public repository). (2026-09-12T21:42Z — inventory matched; all answers recorded in the Decision Log, plus the secrets-provider choice.)
@@ -64,7 +64,6 @@ repository holds operator development material from now on, including the Pulumi
 - [x] Milestone 4 (2026-09-13T00:05Z): fresh clones of both repositories in the session scratchpad, scratch `XDG_CONFIG_HOME`/`XDG_STATE_HOME`, wired per the private `README.md`. Target check OK; backend `gs://tan-nb-exp-nagare-pulumi-state/nagare/tan-nb-exp`; `pulumi preview --refresh` = `31 unchanged`; `scripts/host-switch.sh --dry-run` resolves the scratch host flake into the `nagare-ops` clone; cluster secrets resolve into the clone. Private repo PRIVATE, with no keys, passphrases, or state tracked. ADR 13 written.
 - [x] Documentation pass (2026-09-13): `docs/user/contexts.md` (passphrase file, reload after migration, private operator repositories), `docs/user/provisioning-with-pulumi.md`, `docs/runbooks/disaster-recovery.md`, ADR 9 amendment (`--raw`), `docs/guides/running-multiple-clusters.md`, `CLAUDE.md` (GCS backend, operator material rule), and the `nagare-ops` README (`3407dbb`).
 - [ ] Deferred to the operator: delete `~/.local/state/nagare/tan-nb-exp/state.migrated-to-gcs-20260912T233425Z` and the rotation/private-repo backups once satisfied (kept for now).
-
 
 ## Surprises & Discoveries
 
@@ -129,7 +128,6 @@ were not printed):
   silently targets the old local state. The first post-migration preview in this session did exactly
   that. Renaming the old `state/` directory makes such a shell see an empty stack instead of stale
   state; operators must reload direnv (or open a new shell) after a backend migration.
-
 
 ## Decision Log
 
@@ -204,7 +202,6 @@ were not printed):
   cluster secrets path needs no code change.
   Date: 2026-09-12
 
-
 ## Outcomes & Retrospective
 
 Completed 2026-09-13. The purpose holds: a private `shinzui/nagare-ops` repository plus the public
@@ -240,214 +237,3 @@ Not done:
 - The old local state and backups await operator confirmation before deletion.
 - The 8 `AppDeploySpec` failures (duplicate `nagare-dsl` package registration) predate this plan.
 
-
-## Context and Orientation
-
-Nagare is a single-node personal platform-as-a-service. One Google Compute Engine VM, `nagare-01`,
-runs NixOS and k3s in Google Cloud project `tan-nb-exp`, zone `us-west1-a`. Pulumi, a TypeScript
-infrastructure-as-code tool in `infra/pulumi/`, manages the cloud resources. NixOS host
-configuration is built from a **context-owned host flake** that `nagarectl host init` generates.
-
-A **context** is a file of `export VAR=value` lines at
-`${XDG_CONFIG_HOME:-$HOME/.config}/nagare/contexts/<name>.env`. The pointer
-`~/.config/nagare/current-context` selects the active one. `scripts/lib/target.sh` resolves it and
-exports the project, zone, and derived names, plus `PULUMI_BACKEND_URL` and `PULUMI_HOME`. The
-backend defaults to a per-context local file backend at
-`~/.local/state/nagare/<context>/state`. A cloud context may set `NAGARE_PULUMI_BACKEND=gcs`
-instead (`scripts/lib/target.sh`, the "EP-93" block). The repository's `CLAUDE.md` requires every
-cloud command to act only on the active context's project, and it requires human approval for
-each cloud-mutating command.
-
-**sops** encrypts YAML files so that only holders of listed **age** private keys can decrypt them.
-The encrypted file can be committed; the public "recipient" keys that may decrypt each path are
-listed in `.sops.yaml` files. **Pulumi state** is the JSON record of every managed resource. With
-the file backend it is a directory of JSON files, and resource outputs in it are plaintext unless
-marked secret.
-
-### Inventory of operator-private material (2026-09-12, names only)
-
-Outside the repository, on the operator's workstation:
-
-- `~/.config/nagare/contexts/tan-nb-exp.env` — the context (project, zone, bucket names, domain, instance name).
-- `~/.config/nagare/current-context` — the pointer (`tan-nb-exp`).
-- `~/.config/nagare/hosts/tan-nb-exp/` — generated host flake: `flake.nix`, `flake.lock`, `host.nix` (operator SSH public key), `secrets.yaml` (sops-encrypted host secrets).
-- `~/.config/nagare/nagare-01-age-key.txt` — an age **private** key (see Surprises). This must never enter any git repository, private or not.
-- `~/.local/state/nagare/tan-nb-exp/state` — Pulumi file-backend state for stack `tan-nb-exp` (22 resources in state, 31 in previews).
-- `~/.local/state/nagare/tan-nb-exp/home/` — `PULUMI_HOME`, including the empty `passphrase` file.
-- `~/.local/state/nagare/tan-nb-exp/legacy-in-repo-state-20260912T174602Z` — archive of the pre-migration in-repo state (stack `dev`) and old `Pulumi.dev.yaml`.
-- `~/.local/state/nagare/default/` — state for a `default` context; inspect it and ask the operator whether it is live.
-- `~/.config/sops/age/keys.txt` — the workstation age private key (named in `.sops.yaml`); stays only on the workstation.
-
-Inside this repository, git-ignored (not published, but in the working tree):
-
-- `infra/pulumi/Pulumi.tan-nb-exp.yaml` — stack config, including `nagare:bootDiskType: pd-standard`, the pinned `nagare:nagareImageSelfLink`, `nagare:dataDiskSizeGb: "110"`, and the `encryptionsalt`.
-- `infra/pulumi/Pulumi.{acme-demo,default,prod,ep90-*}.yaml` — leftover stack configs from earlier plans; probably disposable, confirm with the operator.
-- `nagare.local.env` — a local-mode profile (lower precedence than contexts).
-
-Tracked in this public repository (published):
-
-- `nixos/hosts/nagare-01/secrets/nagare-01.yaml` — sops-encrypted host secrets for the operator's host.
-- `cluster/secrets/grafana-admin.yaml`, `cluster/secrets/notes-db-url.yaml` — sops-encrypted cluster secrets for the operator's cluster.
-- `.sops.yaml` and `nixos/.sops.yaml` — the operator's workstation and host **age recipients** (public keys). They are not secret, but they are operator-specific.
-- Documentation naming `tan-nb-exp`: 60 matching lines under `docs/user/`, many of them deliberate "default example" text (see `CLAUDE.md`). Classify each; do not blanket-replace.
-
-### Relevant ADRs
-
-[ADR 4](../adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md) and
-[ADR 5](../adr/0005-use-context-owned-host-flakes-for-operator-nixos-inputs.md) establish that
-operator inputs live in context-owned workspaces and generated host flakes, outside the platform
-payload. This plan extends that separation from "outside the payload" to "outside the public
-repository, in a versioned private one".
-[ADR 9](../adr/0009-assert-the-active-context-project-on-every-cloud-mutating-path.md) requires
-every cloud-mutating path to assert the active context's project; the state migration in
-Milestone 2 runs through such a path.
-[ADR 11](../adr/0011-host-activation-is-guarded-and-self-reverting.md) governs any host switch done
-while proving Milestone 4 (only `just host-switch`).
-
-
-## Plan of Work
-
-### Milestone 0 — Confirm the inventory and the decisions
-
-Changes nothing. Re-run the read-only inventory commands in Concrete Steps and update the inventory
-above with anything new, recording only file names, sizes, and modes. Check whether
-`~/.config/nagare/nagare-01-age-key.txt` is the host key by deriving its public key with
-`age-keygen -y` and comparing it with the host recipient in `nixos/.sops.yaml`. Print only the
-public key. Then ask the operator, and record the answers in the Decision Log: the private
-repository's name and that it is **private**; whether they accept the `gcs` backend decision or
-still want state inside the repository (if so, stop and revise this plan's Decision Log before
-continuing); and which tracked files (the three encrypted secret files and the two `.sops.yaml`
-files) leave the public repository. Gate: all three answers are recorded.
-
-### Milestone 1 — Create and populate the private repository
-
-Only after Milestone 0's confirmation, create the repository with `gh repo create <name> --private`
-and clone it to a sibling directory, for example `/Users/shinzui/Keikaku/bokuno/nagare-ops`. Lay it
-out as `contexts/tan-nb-exp.env`, `hosts/tan-nb-exp/` (the whole generated flake),
-`pulumi/Pulumi.tan-nb-exp.yaml`, `sops/.sops.yaml` (recipients for its own secret paths), and
-`cluster-secrets/` (the two encrypted cluster secrets). Add a `.gitignore` that refuses `*age-key*`,
-`keys.txt`, `passphrase`, and `.pulumi/`. Add a `README.md` that explains how to wire it up on a new
-machine. Then point Nagare at it: replace `~/.config/nagare/contexts/tan-nb-exp.env` and
-`~/.config/nagare/hosts/tan-nb-exp` with symlinks into the clone, and replace
-`infra/pulumi/Pulumi.tan-nb-exp.yaml` with a symlink as well. Keep dated backups of the originals
-under `~/.local/state/nagare/tan-nb-exp/pre-private-repo-<timestamp>/`. Gate:
-`nagarectl context current` prints `tan-nb-exp`; `scripts/host-switch.sh --dry-run` prints
-`host flake: /Users/shinzui/.config/nagare/hosts/tan-nb-exp`, which resolves into the clone; and
-`pulumi preview` (local backend, still unchanged) reports no changes. Commit and push only after the
-operator confirms the staged file list (`git -C <clone> status`).
-
-### Milestone 2 — Move Pulumi state to the chosen backend and fix its secrets
-
-First, rotate the stack's secrets provider away from the empty passphrase. Use
-`pulumi stack change-secrets-provider` with a non-empty passphrase stored outside every repository,
-for example in the operator's password manager and exported as `PULUMI_CONFIG_PASSPHRASE`, or
-with a Google Cloud KMS key (`gcpkms://...`). Choosing a KMS key creates a cloud resource and needs
-approval. Then set `NAGARE_PULUMI_BACKEND=gcs` in the private context file and run
-`scripts/migrate-pulumi-backend.sh --context tan-nb-exp`. It exports a rollback artifact, creates the
-versioned state bucket, imports, verifies outputs, and flips the context only on a match. Gate:
-`pulumi preview --refresh` for `tan-nb-exp` reports `31 unchanged` (or the current count) against
-the GCS backend. Keep the local `state/` directory until Milestone 4 passes.
-
-### Milestone 3 — Remove operator material from the public repository
-
-Move `nixos/hosts/nagare-01/secrets/nagare-01.yaml` and `cluster/secrets/*.yaml` into the private
-repository (already copied in Milestone 1). Replace them in the public repository with clearly
-labeled examples, or remove them where nothing public reads them: `grep -rn` for each path first,
-and fix every reader, including `nagarectl host init --sops-file` defaults and any `just` recipe.
-Replace the operator's recipients in `.sops.yaml` and `nixos/.sops.yaml` with documented
-placeholders, keeping the file shape. Classify each `tan-nb-exp` mention in `docs/user/`: keep
-"default example" wording, and change anything that instructs an operator to target that specific
-project. Note in the Decision Log that git **history** still contains these files. Recipients and
-encrypted blobs are not secret by design, but if any host secret must be treated as exposed,
-rotate it (that is a follow-up plan, not a history rewrite). Gate: `just docs-validate` passes,
-`nix flake check` for `nixos/` still evaluates, and `git grep -n 'age1rc26869\|age1pqfv2y3'`
-returns nothing.
-
-### Milestone 4 — Prove it from a clean checkout
-
-In a scratch directory, clone both repositories fresh. Wire the symlinks as the private `README.md`
-says, with `XDG_CONFIG_HOME` pointed at a scratch config root so the real one is untouched. Run the
-target check, `pulumi preview --refresh`, and `scripts/host-switch.sh --dry-run`. Gate: the preview
-shows no changes against GCS, and the dry run resolves the scratch host flake. Then delete the local
-file-backend `state/` only with operator confirmation, write Outcomes & Retrospective, and add an
-ADR recording that operator deployment material lives in a private repository with remote state.
-
-
-## Concrete Steps
-
-Working directory `/Users/shinzui/Keikaku/bokuno/nagare` unless stated. Every cloud command begins
-with the target check:
-
-```bash
-source scripts/lib/target.sh
-test "$CLOUDSDK_CORE_PROJECT" = tan-nb-exp && test "$NAGARE_MODE" = cloud || { echo "WRONG TARGET"; exit 1; }
-```
-
-Milestone 0 inventory, read-only, names and sizes only:
-
-```bash
-ls -la ~/.config/nagare ~/.config/nagare/contexts ~/.config/nagare/hosts/tan-nb-exp
-ls -la ~/.local/state/nagare ~/.local/state/nagare/*/
-ls -la infra/pulumi/Pulumi.*.yaml nagare.local.env
-git ls-files | grep -E 'secrets/|\.sops\.yaml$'
-git grep -n 'tan-nb-exp' -- docs/user | wc -l
-age-keygen -y ~/.config/nagare/nagare-01-age-key.txt      # prints the PUBLIC key only
-grep -n age1 nixos/.sops.yaml
-```
-
-Milestone 1, after confirmation:
-
-```bash
-gh repo create shinzui/nagare-ops --private --description "Operator deployment material for Nagare (private)"
-git clone git@github.com:shinzui/nagare-ops.git /Users/shinzui/Keikaku/bokuno/nagare-ops
-```
-
-Milestone 2:
-
-```bash
-source scripts/lib/target.sh
-test "$CLOUDSDK_CORE_PROJECT" = tan-nb-exp && test "$NAGARE_MODE" = cloud || { echo "WRONG TARGET"; exit 1; }
-pulumi -C infra/pulumi stack change-secrets-provider passphrase --stack "$NAGARE_CONTEXT"
-nagarectl init --dry-run --pulumi-backend gcs     # review the bucket commands first
-scripts/migrate-pulumi-backend.sh --context tan-nb-exp
-pulumi -C infra/pulumi preview --refresh --stack "$NAGARE_CONTEXT" 2>&1 | tail -4
-```
-
-Commit public-repository changes with Conventional Commits, staging by explicit path, with the
-trailers `ExecPlan: docs/plans/116-move-operator-private-deployment-material-into-a-private-development-repository.md`
-and `Intention: intention_01m2av9m0ge8sbwjy4arw5svf9`.
-
-
-## Validation and Acceptance
-
-From a fresh clone of both repositories with a scratch `XDG_CONFIG_HOME`:
-`pulumi preview --refresh --stack tan-nb-exp` reports only `unchanged` resources against the GCS
-backend, and `scripts/host-switch.sh --dry-run` prints a host flake that resolves inside the private
-clone. In the public repository, `git grep -n 'age1rc26869\|age1pqfv2y3'` prints nothing,
-`git ls-files | grep -E '^(cluster/secrets|nixos/hosts/nagare-01/secrets)/'` lists only example
-files, and `just docs-validate` passes. The private repository is private
-(`gh repo view shinzui/nagare-ops --json visibility` prints `PRIVATE`) and contains no private key,
-no passphrase, and no `.pulumi/` state.
-
-
-## Idempotence and Recovery
-
-Milestone 0 is read-only. In Milestone 1, symlink replacement keeps dated backups; restore by
-moving them back. The migration script writes a rollback artifact, and
-`scripts/migrate-pulumi-backend.sh --rollback --context tan-nb-exp` returns to the local backend
-without deleting the bucket. The local `state/` directory is kept until Milestone 4 passes.
-Changing the secrets provider is recoverable only with the new passphrase or KMS key, so store it
-before running the command. Milestone 3 is ordinary git changes that can be reverted. Nothing in
-this plan touches the host or rewrites git history.
-
-
-## Interfaces and Dependencies
-
-Tools: `gh` (repository creation), `git`, `pulumi` (secrets provider change and backend),
-`scripts/migrate-pulumi-backend.sh`, `nagarectl` (context and host path resolution), `sops` and
-`age-keygen` (recipient verification only), `okf` via `just docs-validate`. Files: the private
-repository layout from Milestone 1; `scripts/lib/target.sh` (read-only; resolution already
-supports `gcs`); `.sops.yaml`, `nixos/.sops.yaml`, `nixos/hosts/nagare-01/secrets/nagare-01.yaml`,
-and `cluster/secrets/*.yaml` in the public repository. Cloud resources, in project `tan-nb-exp` only:
-the Pulumi state bucket `tan-nb-exp-nagare-pulumi-state` (created by the migration) and, if chosen,
-a KMS key for the secrets provider.

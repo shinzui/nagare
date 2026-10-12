@@ -40,6 +40,7 @@ This ExecPlan is a living document. The sections Progress, Surprises & Discoveri
 Decision Log, and Outcomes & Retrospective must be kept up to date as work proceeds.
 If durable project context changes, update or create ADRs in docs/adr/ in the same change.
 
+Full plan before trimming: [127-execute-deadline-bound-cutover-rollback-cleanup-and-operator-drills.md](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/plans/127-execute-deadline-bound-cutover-rollback-cleanup-and-operator-drills.md). This copy keeps the purpose, progress, discoveries, decisions and outcomes.
 
 ## Purpose / Big Picture
 
@@ -63,7 +64,6 @@ The operator runs `nagarectl platform replacement cutover <transaction-id> --con
 hard forward-work cutoff, rollback eligibility, and final observed outage. `rollback` is
 available until candidate writes are admitted; `finalize` removes only recorded former-active
 resources after the retention gate and returns steady state to one VM.
-
 
 ## Progress
 
@@ -123,7 +123,6 @@ This section must always reflect the actual current state of the work.
   concepts, and the full native-system flake gate passed, including all 568 Haskell tests.
 ```
 
-
 ## Surprises & Discoveries
 
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
@@ -172,7 +171,6 @@ implementation. Provide concise evidence.
   `Nagare.Cluster.Kubeconfig` provides explicit context-safe cluster identity, and
   `Nagare.Cluster.CertificatePolicy` rejects unintended public certificate issuance. The
   replacement executor still has only injected operations and exposes no mutating CLI command.
-
 
 ## Decision Log
 
@@ -226,7 +224,6 @@ Record every decision made while working on the plan.
   Rationale: Single owners for collection, destruction and release compatibility.
   Date: 2026-10-09
 
-
 ## Outcomes & Retrospective
 
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
@@ -249,333 +246,3 @@ cutover command is advertised as available. A fresh 2026-09-15 validation pass p
 focused cutover tests and passed the current Pulumi TypeScript build, strict validation of 37 user
 documentation concepts, and the full native-system flake gate with all 568 Haskell tests.
 
-
-## Context and Orientation
-
-`Nagare.Platform.Cutover` already exists; extend its injected executor rather than create a second
-engine. EP-123 owns its binding to `Nagare.Inventory.Plan`, `Execute`, `Journal`, `Store` and `Command`.
-Each concrete operation must be declared, prepared, reviewed and admitted by that common path,
-retaining native Pulumi/host/Kubernetes guard evidence underneath. The replacement control record
-coordinates progress; standalone JSON is not permission to move the address, release a writer or
-delete storage. Reuse proof-based close/recovery; an unknown outcome is not assumed absent.
-
-Promotion binds inventory head/scope references, active slot, host-flake and kubeconfig, target
-payload/context pin and cluster marker through recoverable steps. Do not promise atomic commit
-across remote history, local files and providers. Bind the reviewed source/target release/schema pair
-and prove interrupted promotion before expanding variants; unsupported schema/payload transitions
-refuse while old serves. Ordinary host pin changes do not establish every Nagare release transition.
-
-Finalize uses exact provider/Kubernetes incarnations recorded by EP-124 and reviewed collection,
-with explicit ownership, retention, backup and dependent checks. Exclude shared perimeter and ordinary
-backups; do not widen MP-23's deferred durable-data collection/pruning or take over MP-25 full-context
-teardown. If the existing collection cannot represent an exact replacement member, add only that
-reviewed adapter with interpreter proof and its stated support boundary.
-
-Follow ADRs
-[22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md),
-[25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md),
-[26](../adr/0026-stopped-transactions-close-by-per-operation-proof.md) and
-[27](../adr/0027-physical-identity-is-recorded-at-creation-and-read-through-one-checked-accessor.md).
-Native confirmation covers a successful promotion and a forced post-handoff/pre-write rollback with
-public TLS/auth/routing/data probes. Include candidate-only writes in a post-admission interruption
-fixture: automatic rollback must refuse, and recovery must preserve those writes. The retained old
-disks are not a license to discard new data. Local/source-destruction scratch restore evidence is
-input, not a replacement-service recovery-time measurement.
-
-The legacy coarse in-place executor is in `cli/nagarectl/app/Nagare/Cli/Platform/Upgrade.hs` and modeled by
-`Nagare.Platform.Upgrade`. It previews infrastructure and Kubernetes, applies Pulumi, runs
-`scripts/host-switch.sh` on the active instance, applies cluster objects, stamps the cluster,
-and commits the context last. It does not manage two hosts or a downtime deadline.
-
-Since this plan's implementation slice, ordinary upgrades gained retained reviewed Pulumi plans in
-`Nagare.Infra.Plan`, apply and ambiguous-recovery receipts in `Nagare.Platform.PulumiReceipt`, staged
-host identity checks in `Nagare.Host.Config`, explicit context kubeconfigs in
-`Nagare.Cluster.Kubeconfig`, and retained certificate-migration evidence. Concrete replacement
-operations must reuse these current boundaries and add replacement transaction/slot bindings.
-
-ExecPlan 123 supplies the `ReplacementTransaction`, budget arithmetic, and legal transitions.
-ExecPlan 124 supplies two Pulumi host slots and authoritative resource IDs. ExecPlan 125
-supplies expiring fenced-rehearsal evidence and explicit candidate targeting. ExecPlan 126
-supplies the complete state plan and deadline-aware final-transfer operations. This plan is
-the sole owner of production quiesce, GCE address mutation, public verification, active-slot
-promotion, rollback, and former-active cleanup.
-
-Quiesce means the public ingress presents maintenance for ordinary requests, every declared
-writer is stopped or in a verified read-only mode, CronJobs and hooks are suspended, database
-connections drain, and a write-fence token is observed. The downtime clock starts when the
-first successful quiesce action denies a production write. The candidate also remains behind
-a write gate. Verification traffic uses an explicit transaction-scoped bypass to exercise
-the candidate internally and through the reserved public IP without opening ordinary writes.
-
-The commit point is the ordered conjunction of successful public verification, atomic context
-promotion, and removal of the candidate write gate. Before it, rollback restores the old
-address and unquiesces old writers. After it, automatic rollback is disabled because candidate
-writes may exist; recovery requires a new planned state transfer or application-specific
-reverse adapter.
-
-Relevant decisions are [ADR 0004](../adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md),
-[ADR 0006](../adr/0006-version-platform-state-across-cli-payload-context-host-and-cluster.md),
-[ADR 0009](../adr/0009-assert-the-active-context-project-on-every-cloud-mutating-path.md),
-[ADR 0011](../adr/0011-host-activation-is-guarded-and-self-reverting.md),
-[ADR 0012](../adr/0012-platform-data-disk-capacity-is-forward-only-and-grows-itself.md),
-[ADR 0013](../adr/0013-operator-deployment-material-lives-in-a-private-repository-with-remote-state.md),
-[ADR 0014](../adr/0014-the-active-context-owns-the-vm-shape.md), and
-[ADR 0018](../adr/0018-the-upgrade-transaction-is-as-guarded-as-the-recipes-it-replaces.md).
-ADR 19, amended by ExecPlan 122, must be updated at completion with the actual deadline and
-commit semantics. Mori found no applicable cross-repository ADR.
-
-
-## Plan of Work
-
-### Milestone 1: Arm and revalidate without downtime
-
-Extend the existing `Nagare.Platform.Cutover` and wire CLI parsers through `Nagare.Cli.Commands.Platform`. `cutover` first resolves actual
-GCP/Pulumi/Kubernetes state, checks project/zone/resource IDs, recomputes the drift token and
-state sizes, requires fresh successful evidence, and evaluates the budget again. While the
-old platform serves, switch the candidate from reader identity/local TLS to its production
-identity and TLS material, restart it if GCE requires that change, remove its ephemeral
-access config, and rerun every check affected by arming. It remains tagged candidate and
-write-fenced. Print the exact planned sequence, predicted forward time, rollback threshold,
-retention cost/time, and require the context/transaction confirmation token. No downtime
-begins in this milestone.
-
-### Milestone 2: Quiesce and final state transfer
-
-Install/activate the maintenance gate on old and candidate. Execute each declared source
-quiesce contract, suspend schedules, drain active requests/connections, and verify the global
-write-fence token. Start the injected monotonic deadline on the first write denial. Invoke
-ExecPlan 126 final-transfer adapters in their planned order or safe parallel groups, enforcing
-their individual timeouts and recording commit tokens. Reverify candidate state and remaining
-headroom. If any step fails or the rollback threshold is reached, immediately enter rollback;
-do not move the public address.
-
-### Milestone 3: Address handoff, public verification, and commit
-
-Apply the candidate's `nagare-active` tag while it has no external address. Detach the named
-reserved access config from old and attach that same reserved address to candidate using the
-exact commands and polling rules proven in ExecPlan 122. Verify the address resource and both
-instance network interfaces rather than trusting command success. Probe DNS resolution (which
-must be unchanged), TCP 80/443, certificate chain/name, maintenance response, authentication,
-Knative routing, and transaction-bypassed read-only application/database sentinels through
-the public IP. If all pass with rollback headroom, recoverably commit the inventory bindings and context's active slot,
-instance, host flake, kubeconfig, payload/platform version, and cluster stamp; reconcile
-Pulumi ownership; then remove the candidate write gate. Record that instant as the irreversible
-write-admission commit point. Stop the old VM only after commit and verify it is terminated
-but not deleted.
-
-### Milestone 4: Reconcile every failure into rollback
-
-Implement `rollback <transaction-id>` plus automatic rollback entry from every pre-commit
-phase. Cancel forward jobs and fence candidate writes. If the address moved, detach it from
-candidate, restore old's active tag/access config, and poll authoritative attachment. Ensure
-old is running, restore its prior Kubernetes scale/schedules/write mode from captured state,
-remove maintenance, and probe the public path. Persist before and after each substep so a
-process crash can resume by inspecting actual address/tag/instance state. If GCP remains
-unavailable beyond the measured reserve, continue recovery and clearly mark the SLO breach;
-no single-node design can absolutely bound a provider control-plane outage.
-
-### Milestone 5: Retention and guarded finalization
-
-After commit, status reports the former-active VM stopped, its protected disks, rollback
-expiry, and estimated temporary storage cost. `finalize` requires an explicit confirmation,
-no active transaction references to the old resources, current public health, current backup
-and replacement evidence retention, and elapsed configured retention unless `--now` is given.
-It removes only resources whose exact IDs and transaction/slot roles match the transaction,
-preserves ordinary backups and the reserved IP, converges Pulumi to active-only, prunes
-transaction-specific seed artifacts, and marks the transaction complete. A scheduled/operator
-invoked cleanup reminder prevents the old slot from becoming permanent; deletion itself is
-never silent.
-
-### Milestone 6: Fault injection, live drills, docs, and ADR distillation
-
-Build a deterministic fake executor with an injected monotonic clock and failpoints before
-and after every external operation. Prove restart/reconcile, rollback threshold selection,
-no write admission before commit, and cleanup ownership. Run local integrated state drills,
-then use the disposable GCP environment for one successful promotion and one forced
-post-handoff rollback. Both must restore a healthy public endpoint within the requested 900
-seconds using the same reserved IP and no DNS update. Update upgrade, provisioning, database,
-storage, context, troubleshooting, and disaster-recovery docs plus an operator drill runbook.
-Perform the final Decision Log/Surprises distillation into the replacement ADR.
-
-
-## Concrete Steps
-
-Run validation from the repository root. REV is the exact implementation commit; heavy tests run
-on the builder. Follow current ADR 25: full gate, zero-survivor mutation sweep, validated-world fast
-tier and deep monitoring with triage. Native examples below require the native-run preflight and
-bounded operator approval before any cloud mutation.
-
-
-```bash
-just test-remote REV Platform
-npm --prefix infra/pulumi run build
-just gate
-```
-
-Focused output must include failures at every boundary, for example:
-
-```text
-PlatformCutover
-  starts deadline on first successful write fence: OK
-  rolls back before reserved threshold: OK
-  reconciles crash after old address detach: OK
-  never admits candidate writes before context commit: OK
-  cleanup rejects an unrecorded resource: OK
-```
-
-Before a real drill, inspect without mutation:
-
-```bash
-nagarectl platform replacement status <transaction-id> --json
-nagarectl platform replacement cutover <transaction-id> --dry-run
-```
-
-The transaction must be `ready`, blockers empty, evidence fresh, prediction at or below 900
-seconds, and rollback reserve nonzero. Then execute in the explicitly disposable environment:
-
-```bash
-nagarectl platform replacement cutover <transaction-id> \
-  --confirm <context>/<transaction-suffix> --json
-```
-
-Expected terminal fields include `"state":"committed"`,
-`"dnsChanged":false`, `"activeSlot":"<candidate-slot>"`, and
-`"observedDowntimeSeconds":<value-at-most-900>`. Check the public sentinel and confirm the
-new value written between seed and final transfer is present.
-
-For the rollback drill, create a fresh replacement, inject failure immediately after address
-attachment, and run the same cutover. It must finish in state `rolled-back`, restore the old
-public sentinel within 900 seconds, accept writes only on old, and leave candidate writes
-fenced. Finally, after the chosen retention:
-
-```bash
-nagarectl platform replacement finalize <transaction-id> \
-  --confirm <context>/<transaction-suffix> --json
-pulumi -C <context-infra-workspace> preview --diff
-```
-
-The preview reports no pending change and stack outputs show one active VM, no candidate,
-one active data disk, and the unchanged reserved IP/DNS record.
-
-
-## Validation and Acceptance
-
-Acceptance requires:
-
-* Cutover cannot start without exact confirmation, fresh rehearsal/state evidence, matching
-  actual resource identities and drift token, a complete quiesce contract, and a budget with
-  measured rollback reserve.
-* Arming occurs while old serves. Candidate has no ordinary public ingress and accepts no
-  production writes before commit.
-* The downtime clock starts with the first denied production write. Forward work stops at the
-  rollback threshold; it does not consume reserved recovery time.
-* DNS records and TTL are byte-for-byte unchanged. The existing reserved IP is observed first
-  on old, then on candidate for success, or back on old for rollback. No load balancer exists.
-* A successful cutover includes final post-seed state, passes public TLS/auth/routing/data
-  probes, commits all context identities, admits candidate writes exactly once, and stops but
-  does not delete old.
-* Every injected pre-commit failure converges to either safe pre-handoff old service or a
-  verified rollback. A process restart reconciles actual state without double-detaching,
-  double-attaching, or unquiescing both clusters.
-* Forward and forced-rollback live drills each restore healthy public service within the
-  selected 900-second budget under the provider behavior measured by ExecPlan 122. A provider
-  control-plane outage is reported as an SLO breach, not mislabeled success.
-* Finalize refuses mismatched/unrecorded resources, preserves backups/IP/DNS, deletes the
-  former slot and transaction-only artifacts, and returns to one-VM steady state.
-
-
-## Idempotence and Recovery
-
-Preflight, arming checks, and dry-run are repeatable while the candidate remains fenced. Each
-cutover phase persists intent before mutation and observation after mutation. On restart,
-reconcile GCE address users, instance access configs/tags/status, Pulumi outputs, Kubernetes
-write fences, and context commit record before selecting the next legal transition. Never
-blindly rerun a mutating command.
-
-Before commit, rollback is always the recovery path. Keep old data and context commit backup
-untouched, cancel candidate operations, restore the address and old workload snapshot, and
-verify public health. After write admission, do not run automatic rollback; fence further
-writes and require a new state-transfer/recovery decision so accepted candidate writes are
-not silently lost. `finalize` writes a resource manifest and preview first; if deletion
-partially fails, reconcile only remaining manifest IDs. Protected disk deletion requires the
-normal explicit unprotect step after every ownership and backup guard passes.
-
-
-## Interfaces and Dependencies
-
-Use existing Haskell dependencies and command wrappers. Use GCE CLI/provider operations only
-as selected by ExecPlan 122, Kubernetes scale/patch/wait APIs through explicit kubeconfigs,
-and Pulumi reconciliation through the context-owned stack. Do not add DNS APIs, a load
-balancer, a daemon, or a new always-on service. A monotonic clock and cancellable timeout
-interface must be injectable in tests; UTC is recorded only for audit.
-
-`Nagare.Platform.Cutover` owns interfaces equivalent to:
-
-```haskell
-data CutoverPhase
-  = ArmCandidate | Revalidate | QuiesceOld | FinalizeState
-  | PrepareCandidateIngress | DetachOldAddress | AttachCandidateAddress
-  | VerifyPublic | CommitContext | AdmitCandidateWrites | StopOld
-  | RestoreOldAddress | RestoreOldWorkloads
-
-data CutoverOps = CutoverOps
-  { monotonicNow :: IO MonotonicTime
-  , armCandidate :: CandidateTarget -> IO ArmEvidence
-  , quiesceOld :: ActiveTarget -> IO QuiesceSnapshot
-  , finalizeState :: Deadline -> StateTransferPlan -> IO FinalStateEvidence
-  , observeAddress :: IO AddressObservation
-  , detachAddress :: HostIdentity -> IO ()
-  , attachAddress :: HostIdentity -> IO ()
-  , verifyPublic :: VerificationMode -> IO PublicEvidence
-  , commitContext :: Promotion -> IO ()
-  , setWriteGate :: ClusterTarget -> WriteGate -> IO ()
-  , setInstancePower :: HostIdentity -> PowerState -> IO ()
-  , restoreOldWorkloads :: QuiesceSnapshot -> IO ()
-  }
-
-runCutover :: CutoverOps -> ReplacementTransaction
-           -> IO (Either CutoverError ReplacementTransaction)
-runRollback :: CutoverOps -> ReplacementTransaction
-            -> IO (Either CutoverError ReplacementTransaction)
-reconcileCutover :: CutoverOps -> ReplacementTransaction
-                 -> IO (Either CutoverError Reconciliation)
-finalizeReplacement :: CleanupOps -> ReplacementTransaction
-                    -> IO (Either CleanupError ReplacementTransaction)
-```
-
-The executor uses `Deadline { hardStop, rollbackAt }` from ExecPlan 123 and the
-`StateTransferPlan` from ExecPlan 126. ExecPlan 124 is the authority for resource IDs and
-Pulumi slot config; ExecPlan 125 is the authority for candidate/fence evidence. No later plan
-may independently mutate the reserved address or admit writes. This plan closes the MasterPlan
-only after updating all child outcomes, the master outcome, and the replacement ADR.
-
-
-Revision note (2026-09-13): Recorded the missing prerequisite implementation discovered at the
-start of execution and the scoped decision to supply only the pure contracts needed by cutover.
-
-Revision note (2026-09-13): Recorded completion of the prerequisite contract slice and the focused
-11-test cutover/rollback/cleanup validation, including the observed write-admission commit rule.
-
-Revision note (2026-09-13): Expanded the deterministic suite to exercise both sides of every
-pre-commit mutation boundary and separated that completed local proof from the blocked live drills.
-
-Revision note (2026-09-13): Recorded completion of the provider-independent executor, documentation,
-and ADR distillation, and made the remaining adapter/live-drill dependency explicit and fail closed.
-
-Revision note (2026-09-13): Captured the final recovery audit fixes for pre-rollback admission
-observation and resumable partial cleanup; the focused suite now contains 14 passing tests.
-
-Revision note (2026-09-13): Recorded the flake-only custom-prelude style discovery and applied the
-required imports before rerunning repository validation.
-
-Revision note (2026-09-13): Recorded the successful full validation pass and retained the two
-provider-dependent adapter and live-drill items as explicit incomplete work.
-
-Revision note (2026-09-15): Refreshed the remaining adapter work against Nagare 0.3.0's guarded
-Pulumi, host, kubeconfig, and certificate boundaries and recorded a second successful focused plus
-full native validation pass; provider-dependent adapters and live drills remain incomplete.
-
-
-Revision note (2026-10-09): Aligned this replacement-specific child with MP-23's accepted upgrade
-inputs and single inventory authority, current identity/recovery/validation contracts and the
-optional scope in the refreshed MasterPlan. No implementation milestone is newly accepted.

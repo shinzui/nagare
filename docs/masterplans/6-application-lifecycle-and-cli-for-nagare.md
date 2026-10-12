@@ -20,6 +20,7 @@ typed build modes — already shipped as its own initiative
 (`docs/masterplans/4-application-build-modes-for-nagare.md`), so it is out of scope here. Environment
 and secret management is Phase 2 and lives in `docs/masterplans/5-environment-and-secret-management-for-nagare.md`.
 
+Full plan before trimming: [6-application-lifecycle-and-cli-for-nagare.md](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/masterplans/6-application-lifecycle-and-cli-for-nagare.md). This copy keeps the purpose, progress, discoveries, decisions and outcomes.
 
 ## Vision & Scope
 
@@ -73,7 +74,6 @@ the existing `cradle` library; and any multi-cluster or context model. Hard HTTP
 between non-canonical and canonical domains is explicitly deferred: this initiative renders a
 DomainMapping for every domain and records which is canonical for URL display, but does not install a
 redirect; that is noted as future work in EP-29.
-
 
 ## Decomposition Strategy
 
@@ -131,7 +131,6 @@ verify the model *are* renderer tests. The proven precedent (EP-19, EP-23) keeps
 in one plan. **Including build modes or env scopes here**: rejected because both already have their
 own MasterPlans (4 and 5); this plan implements only the Phase 1 remainder.
 
-
 ## Exec-Plan Registry
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
@@ -144,135 +143,6 @@ own MasterPlans (4 and 5); this plan implements only the Phase 1 remainder.
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-29). The numbers continue the
 repository's sequential plan numbering; the most recent existing plan is EP-28 (a child of MasterPlan 5).
-
-
-## Dependency Graph
-
-There are no hard dependencies between the child plans — every one is independently implementable
-against the current working tree — and this is deliberate, to maximize parallelism. The relationships
-are soft and integration dependencies that govern *coordination*, not *blocking*.
-
-**EP-29** (the model) has no dependencies and is the natural starting point. It edits only the
-`cli/nagare-dsl` package plus the deploy call sites in `cli/nagarectl` that the `domain → domains`
-change forces to update (`renderDomainMapping` becomes plural, and `Nagare.Deploy.serviceUrl` must
-pick the canonical domain). Nothing precedes it, and it can ship a complete, golden-tested model
-without either CLI plan existing.
-
-**EP-30** (the `app` commands) *soft-depends* on EP-29 for two reasons, but can proceed without it.
-First, `nagarectl app list` filters Knative Services by the `nagare.dev/managed-by: nagarectl` label
-that EP-29's renderer stamps; until EP-29 lands, `app list` lists every Knative Service in the
-namespace and notes (in `--help` and output) that it is unfiltered. Second, `nagarectl app get` can
-enrich its output with the configured health check, domains, and limits from EP-29's model; until
-then it reports only what `kubectl get ksvc -o json` provides. Because the live-cluster operations
-(list/get/logs/restart/stop/delete) read Knative state rather than the new DSL fields, EP-30 is fully
-implementable and demonstrable before EP-29 — the dependency is about *completeness of output*, not
-*compilation*.
-
-**EP-31** (deployment history) *soft-depends* on EP-30 only so that `deployments logs NAME [ID]` can
-reuse the `kubectl logs` helper and the app-identity loader that EP-30 places in the new `Nagare.App`
-module (Integration Point IP2). If EP-31 is implemented first, it introduces those helpers itself and
-EP-30 reuses them — the owning plan is whichever lands first, and the Integration Points section
-records EP-30 as the intended owner. EP-31's deploy-time recording (the change to `runDeploy` in
-`cli/nagarectl/app/Main.hs`) and `deployments list` are independent of EP-30 entirely.
-
-**EP-32** (docs) *hard-depends* on EP-30 and EP-31 because a docs-and-examples plan must describe and
-exercise commands that actually work end-to-end, exactly as
-`docs/plans/17-static-hosting-docs-and-end-to-end-examples.md` waited on the static commands. It
-*soft-depends* on EP-29 so the config-reference section can document the new health-check, limits, and
-multiple-domain fields accurately; if EP-29 is not yet merged, EP-32 documents the commands and defers
-the model-field reference to a follow-up note.
-
-**Parallelism.** EP-29 and EP-30 can be implemented fully in parallel from day one (different
-packages, no shared compile-time artifact). EP-31 is best started after EP-30 so it can reuse the
-`Nagare.App` helpers, but its recording and `deployments list` halves can begin immediately. EP-32 is
-last and gates on EP-30 and EP-31. The recommended order is EP-29 → EP-30 → EP-31 → EP-32, but
-EP-29/EP-30 may overlap and only EP-32 is genuinely gated.
-
-
-## Integration Points
-
-These are the artifacts more than one child plan touches. Each is defined by one owning plan; later
-plans consume it exactly as described and must not re-derive it.
-
-**IP1 — The `Deployment` record shape and the managed-by label.** Owned by **EP-29** in
-`cli/nagare-dsl/src/Nagare/Dsl/Types.hs` and `cli/nagare-dsl/src/Nagare/Dsl/Render.hs`. EP-29 changes
-the record in three ways and adds one renderer behavior:
-
-```haskell
-data Deployment = Deployment
-  { name        :: !ServiceName
-  , namespace   :: !Namespace
-  , image       :: !ImageRef
-  , build       :: !BuildSpec          -- unchanged (from EP-19)
-  , domains     :: ![DomainSpec]        -- was:  domain :: !(Maybe Domain)
-  , port        :: !Port
-  , env         :: !(Map EnvName EnvVar)
-  , resources   :: !(Maybe Resources)   -- now carries requests AND optional limits (see EP-29)
-  , scale       :: !(Maybe Scale)
-  , healthCheck :: !(Maybe HealthCheck)  -- new
-  }
-```
-
-`DomainSpec` pairs a `Domain` with a `canonical :: Bool` flag (exactly one canonical when the list is
-non-empty; EP-29 provides a smart constructor enforcing this). The renderer (`Nagare.Dsl.Render`)
-emits one `DomainMapping` per domain (so `renderDomainMapping :: Deployment -> Maybe ByteString`
-becomes `renderDomainMappings :: Deployment -> [ByteString]`), emits the probe and `resources.limits`
-blocks, and adds `metadata.labels."nagare.dev/managed-by" = "nagarectl"` to every Service.
-`Nagare.Deploy.serviceUrl` (in `cli/nagarectl/src/Nagare/Deploy.hs`) changes to select the canonical
-domain (or the wildcard URL when there are no domains). EP-30 reads the label name from this contract
-for `app list`; EP-30's `app get` may read `healthCheck`/`domains`/`resources` for enriched output;
-EP-31 is unaffected by the model change but its `deployments` table reuses the same identity. **The
-label string `nagare.dev/managed-by: nagarectl` is the contract**: EP-30 must match it exactly.
-
-**IP2 — The `Nagare.App` kubectl/identity helper module.** Owned by **EP-30** in a new
-`cli/nagarectl/src/Nagare/App.hs` (added to the library's exposed-modules in
-`cli/nagarectl/nagarectl.cabal`). It exports the shared building blocks both CLI plans need:
-
-```haskell
--- Load a Deployment config and return its (name, namespace), mirroring the existing
--- siteIdentityOrDie in cli/nagarectl/app/Main.hs but for the app (Deployment) path.
-appIdentityOrDie :: FilePath -> IO (Text, Text)
-
--- Tail (or print) a Knative service's user-container logs:
---   kubectl logs -l serving.knative.dev/service=<name> -n <ns> [-f] -c user-container --tail=<n>
--- When a revision is given, the label selector also pins serving.knative.dev/revision=<rev>.
-streamServiceLogs :: LogTarget -> IO ()
-```
-
-EP-31's `deployments logs NAME [DEPLOYMENT_ID]` consumes `streamServiceLogs` (passing a revision
-target) and `appIdentityOrDie`. If EP-31 is implemented before EP-30, EP-31 creates `Nagare.App` with
-these exact signatures and EP-30 reuses them. The signatures are the contract; whichever plan lands
-first writes them.
-
-**IP3 — The per-app deployment-history ConfigMap and record schema.** Owned by **EP-31**. EP-31
-generalizes the pure layer of `cli/nagarectl/src/Nagare/Static/Release.hs` (the `StaticRelease`/
-`StaticReleaseLog` types, `addRelease`, `findRelease`, `formatReleasesTable`, ConfigMap render/extract,
-and the `readReleaseLog`/`writeReleaseLog`/`recordReleaseFor` IO) so the same machinery can store app
-deployments under a distinct ConfigMap name (e.g. `nagare-app-deployments-<app>` rather than
-`nagare-static-releases-<site>`). EP-31 decides whether to parameterize the existing module by a name
-prefix or introduce a thin `Nagare.App.Deployments` wrapper around the shared pure core; the Decision
-Log below records the recommendation (parameterize/reuse, do not copy). EP-30's `app delete` consumes
-this: when deleting an app it must also delete the history ConfigMap, so EP-30 imports the
-`configMapName`/equivalent from EP-31's module (or, if EP-30 lands first, deletes by the documented
-name and EP-31 confirms the name matches). EP-32 documents the record fields.
-
-**IP4 — The `cli/nagarectl/app/Main.hs` command parser.** Both EP-30 and EP-31 add a top-level
-subcommand here using the existing `optparse-applicative` `subparser` structure (which today has
-`deploy` and `site`). EP-30 adds the `app` subparser (with `list/get/logs/restart/stop/delete`); EP-31
-adds the `deployments` subparser (with `list/logs`) and modifies `runDeploy` to record a deployment on
-success. These are additive and touch different regions of the file, so conflict risk is low; each
-plan adds its own `Command` constructors and `runX` handlers. The owning concern is shared — each plan
-owns the constructors it adds.
-
-**IP5 — Cross-MasterPlan coordination with EP-23 (env scopes).** EP-29 edits the same files
-(`Types.hs`, `Config.hs`, `Load.hs`, `Render.hs`) that
-`docs/plans/23-scoped-env-model-and-scoped-knative-renderer.md` (a child of MasterPlan 5) will edit.
-Both add fields to `Deployment` and change the renderer and loader. They do not conflict semantically
-(env scopes vs. health/limits/domains are orthogonal), but whichever lands second must rebase its
-record-literal and JSON changes onto the first. The roadmap order puts this initiative (Phase 1)
-before Phase 2, so the expectation is EP-29 lands first; EP-23 then extends the already-pluralized
-`domains` model. This is recorded so the EP-23 implementer is not surprised.
-
 
 ## Progress
 
@@ -290,7 +160,6 @@ Track milestone-level progress across all child plans. Each entry names the chil
 - [x] EP-31: pure-layer unit tests (store name, `revisionForTag`) green; static-release tests unchanged. (2026-06-10)
 - [x] EP-32: `docs/user/app-lifecycle.md` written and linked from `deploying-apps.md`/`README.md`; `config-reference.md` updated for health check, limits, multiple domains; stale `deploying-apps.md` config/YAML corrected. (2026-06-09)
 - [x] EP-32: runnable example `cluster/examples/app-lifecycle-demo/` verified by `nagarectl deploy --dry-run` (probes, limits, two DomainMappings, managed-by label, canonical URL); live walk-through captured in the example README. **End-to-end run VERIFIED 2026-06-10**: with `nagare-01` up, a real `nagarectl deploy` served HTTP 200 and the full `app`/`deployments` verb set was exercised live (see EP-30/EP-31 entries above). (2026-06-09; live 2026-06-10)
-
 
 ## Surprises & Discoveries
 
@@ -361,7 +230,6 @@ Track milestone-level progress across all child plans. Each entry names the chil
 `deployments list`) ran against the live cluster, evidence in the EP-30/EP-31 checklist entries above.
 (EP-32, 2026-06-09; live verbs 2026-06-10)
 
-
 ## Decision Log
 
 - Decision: Scope this MasterPlan to the Phase 1 remainder — application-model extensions (health
@@ -418,7 +286,6 @@ Track milestone-level progress across all child plans. Each entry names the chil
   reversal (`nagarectl deploy`/`app restart` brings it back). The MasterPlan fixes the *semantics*
   (offline but recoverable, history preserved); EP-30's Decision Log records the exact mechanism.
   Date: 2026-06-10
-
 
 ## Outcomes & Retrospective
 

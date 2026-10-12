@@ -7,7 +7,6 @@ created_at: 2026-06-03T03:43:59Z
 intention: "intention_01kt5s3j2zedh8ew1yp9qdp6c7"
 ---
 
-
 # Type-Safe Haskell Deployment DSL for nagarectl
 
 This MasterPlan is a living document. The sections Progress, Surprises & Discoveries,
@@ -49,6 +48,7 @@ illegal configurations fail to compile or type-check rather than merely being va
 time. Both decisions raise the stakes of the substrate choice, which is exactly why the spike comes
 first.
 
+Full plan before trimming: [2-type-safe-haskell-deployment-dsl-for-nagarectl.md](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/masterplans/2-type-safe-haskell-deployment-dsl-for-nagarectl.md). This copy keeps the purpose, progress, discoveries, decisions and outcomes.
 
 ## Vision & Scope
 
@@ -94,7 +94,6 @@ or web configuration editor; and multi-cluster or multi-environment *deployment 
 beyond letting a config express environment overlays (the tool still deploys to the one Nagare
 cluster). Backwards compatibility with `nagare.yaml` is explicitly a non-goal: per the user's
 decision the YAML path is removed, not preserved.
-
 
 ## Decomposition Strategy
 
@@ -146,7 +145,6 @@ rejected because they live in the same `nagare-dsl` library, the renderer import
 pervasively, and two plans modifying the same modules in lockstep is exactly the high-coupling
 shape the decomposition principles say to merge.
 
-
 ## Exec-Plan Registry
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
@@ -179,172 +177,6 @@ Implementation waves (phases):
 - **Wave 3 — Reuse and ship:** EP-11 (the preset/composition library, after a working surface
   exists) and EP-12 (wire into `nagarectl`, delete the YAML path, migrate the example). EP-12 can
   start once EP-9 and EP-10 are complete; EP-11 sharpens the reuse story EP-12 then showcases.
-
-
-## Dependency Graph
-
-EP-8 (substrate spike) has no dependencies. It soft-depends on EP-6 only as a *reference*: it reuses
-EP-6's `nagare.yaml` schema (Integration Point 6 of the bootstrap MasterPlan) and EP-6's exact
-rendered Knative `Service` YAML as the **fixed target** that all three prototypes must reproduce, so
-that the comparison is apples-to-apples. EP-8 produces two artifacts the rest of the initiative
-consumes: a written substrate decision (recorded in both this MasterPlan's Decision Log and EP-8's),
-and three throwaway prototypes plus a scoring of them on type-safety, error-message quality, reuse
-ergonomics, build/eval latency, and operational complexity. EP-8 also owns a toolchain prerequisite
-(its **M0** milestone): it pins **GHC 9.12** in the repository Nix flake (Integration Point 6),
-which every downstream Haskell plan inherits.
-
-EP-9 (typed core model + renderer) has **no hard dependency** and can be authored and even
-implemented in parallel with EP-8, because the canonical `Deployment` type and the rendering of that
-type to Knative manifests do not depend on which surface syntax wins — all three surfaces target the
-same type. It soft-depends on EP-8 because the spike's prototypes will surface ergonomic lessons
-(which constructors are pleasant, which type-level tricks are worth their weight) that should inform
-the final public API before it is frozen, and on EP-6 because the renderer must reproduce EP-6's
-exact Knative output (the golden contract). EP-9 is the single most depended-upon plan: it defines
-the `Deployment` type and the renderer that EP-10, EP-11, and EP-12 all build on (Integration
-Point 1 and 2).
-
-EP-10 (config surface and loading) **hard-depends on EP-8** (it implements whichever substrate the
-spike chose — its entire content is conditional on that decision) and **hard-depends on EP-9** (it
-must marshal a config file into EP-9's `Deployment` type; without that type there is nothing to load
-into). It produces the loader `loadDeployment :: FilePath -> IO (Either LoadError Deployment)`
-(Integration Point 3) that EP-12 calls.
-
-EP-11 (reuse and presets) **hard-depends on EP-10**: reusable presets are written *in* the chosen
-surface substrate, so the surface and its loader must exist first. It soft-depends on EP-9 because
-presets are ultimately typed constructors over the core model. It produces a `nagare-presets`
-library and a second example app proving composition, plus property tests that composing valid
-presets yields a valid `Deployment` (Integration Point 1).
-
-EP-12 (nagarectl integration + YAML cutover) **hard-depends on EP-9 and EP-10**: it wires the loader
-(EP-10) and renderer (EP-9) into the `nagarectl deploy` command and then *deletes* the `nagare.yaml`
-parsing path. It soft-depends on EP-11 (a richer reuse story makes a better end-to-end demo, but the
-cutover does not require it) and on EP-6 (it modifies EP-6's `cli/nagarectl` package, removing
-`Nagare.Config`'s YAML parser and `Nagare.Render`'s YAML renderer and rewiring `Main.hs`).
-
-Parallelism: EP-8 and EP-9 can proceed concurrently (different concerns, no shared code), and a
-single implementer should let EP-8's findings settle EP-9's public constructor names before freezing
-them. After EP-8 and EP-9 are complete, EP-10 proceeds; EP-11 follows EP-10; EP-12 can begin as soon
-as EP-9 and EP-10 are both complete and finalizes after EP-11 if the richer demo is wanted.
-
-
-## Integration Points
-
-**1. The canonical `Deployment` type and the maximal-safety constructors (defined by EP-9;
-consumed by EP-10, EP-11, EP-12).** EP-9 is the single source of truth for what a Nagare deployment
-*is*, as Haskell types, in a new library at `cli/nagare-dsl/` (a sibling of EP-6's
-`cli/nagarectl/`). The canonical type is `Nagare.Dsl.Types.Deployment`, with field types that make
-illegal states unrepresentable: a `ServiceName` newtype that can only be constructed from a
-DNS-safe string (RFC 1123 label: lowercase alphanumerics and hyphens, not starting/ending with a
-hyphen, length-bounded), an `EnvVar` modeled as a sum type `EnvLiteral Text | EnvSecretRef SecretName`
-so that "value" and "secretRef" are mutually exclusive *by construction* (the YAML bug where both
-appear becomes unrepresentable), a `Scale` smart constructor that rejects `max < min`, a `Quantity`
-newtype validated against Kubernetes quantity syntax for CPU/memory, and a `Port` newtype bounded to
-1–65535. The exact module layout, every constructor's name and signature, and the failure mode of
-each (a total `Either`-returning smart constructor, a refined type, or a compile-time error) are
-specified in EP-9 and reproduced in the consuming plans. EP-10 marshals into these constructors;
-EP-11 builds presets as functions returning these types; EP-12 renders them. If EP-9 renames or
-re-shapes a constructor, it updates this section and the consuming plans.
-
-**2. The Knative manifest renderer and its golden contract (defined by EP-9; consumed by EP-12;
-contract shared with EP-6).** EP-9 owns `Nagare.Dsl.Render.renderService :: Deployment -> Text ->
-ByteString` (the `Text` is the resolved image tag) and `renderDomainMapping :: Deployment -> Maybe
-ByteString`, producing the exact same Knative `serving.knative.dev/v1` `Service` and
-`serving.knative.dev/v1beta1` `DomainMapping` YAML that EP-6's `Nagare.Render` produces. The
-authoritative byte-for-byte target is the example rendering reproduced verbatim in EP-6
-(`docs/plans/6-nagarectl-deploy-cli-in-haskell.md`, "What the renderer must produce") and, once
-EP-4's example lands, `cluster/examples/hello-knative-service/`. EP-9 ships a golden test asserting
-this equality. The rendering rules that must be preserved exactly: env entries sorted by variable
-name for determinism; autoscaling annotation *values* quoted as strings; sub-objects (`env`,
-`resources`, the annotations block) omitted entirely when their source field is absent; `secretRef`
-rendering `valueFrom.secretKeyRef` with `name` = the secret and `key` = the env var's own name.
-EP-12 calls this renderer and removes EP-6's duplicate.
-
-**3. The loader entry point (defined by EP-10; consumed by EP-12).** EP-10 owns the single function
-`Nagare.Dsl.Load.loadDeployment :: FilePath -> IO (Either LoadError Deployment)` and the
-`LoadError` type that enumerates the failure modes of the chosen substrate (for the native-eDSL
-outcome: "config file not found", "compilation failed" with the GHC/interpreter diagnostic, "config
-did not bind `deployment`"; for the Dhall outcome: "Dhall parse/type error", "marshalling error").
-EP-12 calls exactly this function and maps a `Left` to a clear one-line CLI error and non-zero exit.
-The signature is fixed here so EP-12 can be authored against it before EP-10 picks the internal
-mechanism. If the spike's outcome forces a different signature (for example, a config that needs an
-explicit search path), EP-10 updates this section and notifies EP-12.
-
-**4. Supersession of EP-6's `nagare.yaml` contract (owned jointly by EP-12 and this MasterPlan;
-affects the bootstrap MasterPlan's Integration Point 6 and EP-6).** This initiative **replaces** the
-YAML contract that the bootstrap MasterPlan (`docs/masterplans/1-bootstrap-nagare-personal-paas.md`)
-documents as its Integration Point 6 and that EP-6 owns. Because EP-6 is currently *Not Started*,
-nothing is yet built to remove; but EP-6's plan text, its `cli/nagarectl` skeleton (modules
-`Nagare.Config` and `Nagare.Render`), and the example app's `nagare.yaml` are the surfaces EP-12
-must reconcile. When EP-12 completes, it deletes the YAML parser/renderer, replaces the example
-app's `nagare.yaml` with the chosen typed config, and records the cutover; at that point the
-bootstrap MasterPlan's Integration Point 6 must be amended to point at this initiative. **Until the
-user decides to *adopt* this initiative, the bootstrap MasterPlan and EP-6 are left unmodified** —
-this MasterPlan documents the intended supersession but does not edit the other plan. The decision
-to begin EP-12's cutover is the decision to adopt.
-
-**5. The `nagare-dsl` library and the `nagarectl` package boundary (established by EP-9; consumed by
-EP-10, EP-11, EP-12).** All new typed-model code lives in a new Cabal library package
-`cli/nagare-dsl/` (package name `nagare-dsl`) so that the model, renderer, loader, and presets are
-reusable independently of the CLI executable and testable offline. The `nagarectl` executable
-(EP-6's `cli/nagarectl/`) depends on `nagare-dsl`. Whether the two packages share one
-`cabal.project` at `cli/cabal.project` or each carry their own is decided in EP-9 and documented
-there; EP-10, EP-11, and EP-12 must add their modules and dependencies within this package layout.
-The local `mori` corpus supplies the Haskell dependencies (see Surprises for the inventory):
-`dhall-haskell` (packages `dhall`, `dhall-json`/`dhall-yaml`) for the Dhall outcome at
-`/Users/shinzui/Keikaku/hub/haskell/dhall-haskell-project`; `garnix-io/cradle` for shelling out;
-`pcapriotti/optparse-applicative` for the CLI; `yaml`/`aeson` for rendering Knative YAML. There is
-**no `hint` package in the corpus**, which directly shapes the feasibility of the interpreter
-candidate in EP-8.
-
-**6. The Haskell toolchain (GHC 9.12 via Nix) and house code standards (the flake pin is
-established by EP-8 as a prerequisite milestone; the `common` stanza and `Nagare.Dsl.Prelude` are
-established by EP-9; binding on EP-9, EP-10, EP-11, and EP-12).** Every Haskell artifact in this
-initiative — the `nagare-dsl` library and the EP-12 changes to `nagarectl` — is built with **GHC
-9.12** pinned through the repository's Nix flake (`flake.nix` at the repo root) and follows the
-house Haskell standards recorded in `/Users/shinzui/Keikaku/bokuno/haskell-jitsurei`
-(`core/standards.md`, `core/custom-prelude.md`, `core/record-patterns.md`,
-`core/multiline-strings.md`). Concretely:
-
-- **GHC 9.12 via Nix.** EP-8 (the earliest plan, whose prototypes need a compiler) replaces the
-  unpinned `pkgs.ghc` / `pkgs.cabal-install` in the dev-shell `packages` list with the pinned 9.12
-  toolchain — `pkgs.haskell.compiler.ghc912`, `pkgs.cabal-install`,
-  `pkgs.haskell.packages.ghc912.{haskell-language-server,fourmolu,cabal-gild}`, plus `pkgs.zlib`
-  and `pkgs.pkg-config`. The pattern mirrors the canonical template at
-  `bokuno/nix/nix-flake-templates/haskell-9_12/flake.nix` (the sibling project `bokuno/mina` is a
-  working real-world example). Bumping the flake's Haskell tools is a deliberate, recorded
-  modification of shared infrastructure; it is safe because the bootstrap flake's Haskell entries
-  are labelled "for nagarectl — EP-6", EP-6 is Not Started so nothing yet depends on the old
-  version, and GHC 9.12 is forward-compatible with EP-6's `Haskell2010` package when it lands.
-- **Language edition & extensions.** Every Cabal stanza uses `default-language: GHC2024` and
-  `import: common`, where a single `common` stanza enables `DeriveAnyClass`,
-  `DuplicateRecordFields`, `OverloadedLabels`, and `OverloadedStrings` (and `MultilineStrings`
-  where embedded YAML/text literals benefit). GHC2024 already provides `DataKinds`,
-  `DerivingStrategies`, `LambdaCase`, and `ImportQualifiedPost`, so those are not listed.
-- **Custom prelude.** `nagare-dsl` exposes `Nagare.Dsl.Prelude` (created in EP-9) re-exporting the
-  common imports — `Generic`, `Text`, the aeson classes, and the lens operators via
-  `Control.Lens`. Every module imports it instead of repeating imports. The prelude deliberately
-  does **not** re-export `Data.Generics.Labels`; modules that use generic-lens `#label` access
-  import `"generic-lens" Data.Generics.Labels ()` themselves (per `core/custom-prelude.md`, this
-  avoids forcing the orphan `IsLabel` instance on every module).
-- **Records.** No field prefixes (rely on `DuplicateRecordFields`): `Deployment`'s fields are
-  `name`, `namespace`, `image`, `domain`, `port`, `env`, `resources`, `scale` — not `depName`,
-  `depImage`, etc.; `Resources` has `cpu`/`memory`; `Scale` has `minScale`/`maxScale` (avoiding a
-  clash with `Prelude.min`/`max`). All fields are strict (`!`). All deriving is explicit
-  (`deriving stock (Generic, Eq, Ord, Show)`, `deriving newtype (...)`, `deriving anyclass
-  (...)`). Field access and update use generic-lens `#label` with lens operators (`^.`, `.~`,
-  `?~`, `%~`, `at`, `ix`) rather than record selectors or record-update syntax.
-- **Imports.** Qualified imports are postpositive (`import Data.Text qualified as Text`).
-- **Formatting.** `fourmolu` and `cabal-gild`, wired through `treefmt` (pattern from the
-  `haskell-9_12` flake template).
-
-These standards govern *how* the Haskell is written; they do **not** change the canonical types of
-Integration Point 1 or the exact bytes of Integration Point 2. The maximal-safety surface of
-Integration Point 1 is expressed in these conventions: a `ServiceName` newtype still hides its
-constructor and derives `deriving stock (Generic, Eq, Ord, Show)`; `EnvVar` is still the sum type
-`EnvLiteral Text | EnvSecretRef SecretName`; `Deployment` simply uses strict, unprefixed fields
-that consumers read via `#label`. If EP-9 adjusts a field name to satisfy these conventions it
-updates Integration Point 1 and the consuming plans accordingly.
-
 
 ## Progress
 
@@ -384,7 +216,6 @@ Milestone-level progress across all child plans. Updated as each child plan's mi
   through the kourier gateway returned **HTTP 200 `Hello World!`**. The deferred validation milestone
   is closed.)_
 
-
 ## Surprises & Discoveries
 
 - Dependency inventory from the local `mori` corpus (run `mori registry list` / `mori registry
@@ -414,7 +245,6 @@ Milestone-level progress across all child plans. Updated as each child plan's mi
   `/Users/shinzui/Keikaku/bokuno/haskell-jitsurei` require GHC 9.12+, GHC2024, the `common`-stanza
   extensions, a custom prelude, generic-lens `#label` records, strict unprefixed fields, explicit
   deriving strategies, and postpositive qualified imports. (2026-06-03)
-
 
 ## Decision Log
 
@@ -502,7 +332,6 @@ Milestone-level progress across all child plans. Updated as each child plan's mi
   See Integration Point 6.
   Date: 2026-06-03
 
-
 ## Surprises & Discoveries (continued)
 
 - EP-8 substrate decision (2026-06-03): all three prototypes were built and each rendered the
@@ -513,7 +342,6 @@ Milestone-level progress across all child plans. Updated as each child plan's mi
   eDSL in the config-as-program model**, honoring the binding maximal-type-safety priority. See
   EP-8's Decision Log for the full table, evidence, and the downstream consequences for EP-10's
   loader (it implements compile-and-run of the app's `Config.hs`).
-
 
 ## Decision Log (continued)
 
@@ -530,7 +358,6 @@ Milestone-level progress across all child plans. Updated as each child plan's mi
   "compilation failed" (GHC diagnostic), and "did not bind `deployment`" (Integration Point 3,
   native-eDSL outcome). EP-9/EP-11/EP-12 are unaffected (substrate-independent `Deployment` type).
   Date: 2026-06-03
-
 
 ## Outcomes & Retrospective
 
@@ -572,22 +399,3 @@ house `common` stanza, `Nagare.Dsl.Prelude`, strict unprefixed `#label` fields, 
 `cli/fourmolu.yaml`. (Caveat recorded in EP-12: the pinned fourmolu 0.19 is not clean against the
 pre-existing leading-comma style, so a full treefmt gate remains a follow-up.)
 
-
-## Revision Notes
-
-- 2026-06-03 — Adopted the house Haskell standards
-  (`/Users/shinzui/Keikaku/bokuno/haskell-jitsurei`) and a Nix-pinned **GHC 9.12** toolchain across
-  the whole initiative. Added **Integration Point 6** (toolchain + code standards), two Decision
-  Log entries (adopt the standards; pin GHC 9.12 via the flake), a Surprises entry pointing at the
-  `haskell-9_12` flake template and the `mina` reference project, and a toolchain milestone in
-  Progress. Assigned the flake pin to EP-8 as its **M0** milestone (earliest plan; prototypes need
-  a compiler). Cascaded the binding standards note and the GHC2024/9.12 conventions into all five
-  child plans (EP-8–EP-12): every Cabal stanza now uses `default-language: GHC2024` with a shared
-  `common` stanza; `nagare-dsl` gains a `Nagare.Dsl.Prelude` custom prelude; record types use
-  strict, unprefixed fields (`Deployment.{name,namespace,image,domain,port,env,resources,scale}`,
-  `Resources.{cpu,memory}`, `Scale.{minScale,maxScale}`) with explicit deriving strategies and
-  generic-lens `#label` access; imports are postpositive-qualified; formatting is `fourmolu` +
-  `cabal-gild` via `treefmt`. These changes affect *how* the Haskell is written, not the canonical
-  types (Integration Point 1) or the rendered bytes (Integration Point 2).
-</content>
-</invoke>

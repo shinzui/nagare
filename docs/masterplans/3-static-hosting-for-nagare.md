@@ -29,6 +29,7 @@ that runs the framework's server build, doing server-side rendering, server func
 at request time. Both are deployed as ordinary Knative Services through one `nagarectl site deploy`
 command that auto-detects which runtime a project needs from its typed config.
 
+Full plan before trimming: [3-static-hosting-for-nagare.md](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/masterplans/3-static-hosting-for-nagare.md). This copy keeps the purpose, progress, discoveries, decisions and outcomes.
 
 ## Vision & Scope
 
@@ -72,7 +73,6 @@ names one exact image, and rollback is a patch back to a prior image tag. The se
 Knative especially well — a request-driven Node server is exactly what Knative's scale-to-zero model
 is designed for.
 
-
 ## Decomposition Strategy
 
 The initiative is decomposed by functional concern. The first work stream defines what a static site
@@ -105,7 +105,6 @@ deploy command that EP-18 plugs into. The lifecycle, webhook, and documentation 
 EP-17) are runtime-agnostic: a release is an image tag, a rollback is a tag patch, and a webhook
 triggers the same deploy path regardless of which runtime the project uses.
 
-
 ## Exec-Plan Registry
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
@@ -137,107 +136,6 @@ Implementation waves:
   in parallel with EP-15/16, then folded into the lifecycle and documentation: EP-17 soft-depends on
   EP-18 so the full-stack flow is documented alongside the static flow.
 
-
-## Dependency Graph
-
-EP-13 has no hard dependency because it can be implemented in `cli/nagare-dsl/` as a library change
-and tested offline. It soft-depends on EP-12 because it extends the typed config-as-program model
-that EP-12 wired into `nagarectl`; its public API should match the existing modules
-`Nagare.Dsl.Types`, `Nagare.Dsl.Config`, `Nagare.Dsl.Load`, and `Nagare.Dsl.Render`.
-
-EP-14 hard-depends on EP-13 because the CLI cannot load or render a static site until the typed
-static model exists. It soft-depends on EP-12 for the existing Haskell CLI patterns: `Options.Applicative`
-subcommands in `cli/nagarectl/app/Main.hs`, image build/push helpers in `cli/nagarectl/src/Nagare/Image.hs`,
-and `kubectl` apply/wait helpers in `cli/nagarectl/src/Nagare/Deploy.hs`.
-
-EP-15 hard-depends on EP-14 because releases and previews are lifecycle features on top of a working
-manual static deploy. Rollback needs prior deploy metadata and a known image-tagging scheme; preview
-deployments need the same build and apply path with a different service name and domain.
-
-EP-16 hard-depends on EP-15 because webhook automation must trigger the same production and preview
-deploy behaviors that EP-15 defines. It soft-depends on EP-3 and EP-4 from
-`docs/masterplans/1-bootstrap-nagare-personal-paas.md` because it adds a long-running Nagare service
-inside the cluster and exposes it through the existing Knative/Kourier ingress.
-
-EP-17 hard-depends on EP-15 because the documentation must describe deploy, release listing,
-rollback, and previews. It soft-depends on EP-16 because webhook documentation and validation can be
-added once automation exists, but the CLI-driven static hosting documentation is already valuable
-after EP-15. It also soft-depends on EP-18 so the full-stack server-runtime workflow (TanStack Start)
-is documented alongside the static workflow; the static documentation does not block on EP-18.
-
-EP-18 hard-depends on EP-14 because it extends the same `nagarectl site deploy` pipeline — local
-build, image-context generation, image build/push, manifest apply, and readiness wait — with a Node
-runtime instead of an Nginx one. It soft-depends on EP-13 because it reuses EP-13's shared leaf types
-(`SiteName`, `FilePathText`) and the `kind` discriminator convention, adding a `ServerSite` model
-beside `StaticSite`. It does not depend on EP-15, EP-16, or EP-17: those plans are runtime-agnostic
-and absorb the server runtime through the shared release record, deploy path, and docs without code
-changes specific to EP-18.
-
-Parallelism is limited until EP-13 completes because it defines the shared static-site contract. Once
-EP-13 is complete, EP-14 is the next hard gate. After EP-14, three streams open in parallel: EP-15
-(lifecycle) and EP-18 (server runtime) both build directly on EP-14, and once EP-15 lands EP-16 and
-EP-17 follow. EP-17 can document the manual static flow and leave the webhook and full-stack chapters
-pending while EP-16 and EP-18 implement automation and the server runtime respectively.
-
-
-## Integration Points
-
-**1. Static-site DSL types and JSON transport (defined by EP-13; consumed by EP-14, EP-15, EP-17).**
-EP-13 owns the public static-site types in `cli/nagare-dsl/src/Nagare/Dsl/Static/Types.hs` and the
-JSON transport shape emitted by `Nagare.Dsl.Config`. Later plans must not parse an app's
-`nagare/Config.hs` themselves; they call the loader that EP-13 extends. The core type is
-`StaticSite`, with smart constructors for static site names, output directories, build commands,
-redirect rules, header rules, cache policies, and domain lists.
-
-**2. Static rendering interfaces (defined by EP-13; consumed by EP-14 and EP-15).** EP-13 owns
-renderers for the Kubernetes resources and generated Nginx configuration. The expected functions are
-`renderStaticService :: StaticSite -> StaticDeployContext -> ByteString`,
-`renderStaticDomainMappings :: StaticSite -> StaticDeployContext -> [ByteString]`, and
-`renderNginxConfig :: StaticSite -> ByteString`. EP-14 writes the generated Nginx config into the
-image build context; EP-15 uses the same renderers for preview deploys and rollback patches.
-
-**3. Static image contract (defined by EP-14; consumed by EP-15 and EP-17).** EP-14 defines the image
-shape used for every static site release: an Nginx-based image listening on port 8080, serving files
-from `/usr/share/nginx/html`, with the generated config copied into Nginx's config directory. EP-15
-records image tags as release ids and uses those tags for rollback. EP-17's examples and docs must
-describe this image contract only at the user-visible level; users should not need to hand-write it.
-
-**4. Release metadata (defined by EP-15; consumed by EP-16 and EP-17).** EP-15 owns the release record
-schema and storage mechanism. The selected storage is a Kubernetes ConfigMap per static site, in the
-application namespace, containing compact JSON release records keyed by deploy id. EP-16 appends
-records when webhook-triggered deploys complete. EP-17 documents release listing and rollback using
-this schema.
-
-**5. Static CLI namespace (defined by EP-14; extended by EP-15 and EP-16).** The CLI surface is under
-`nagarectl site ...`. EP-14 owns `nagarectl site deploy` and `nagarectl site dry-run` behavior. EP-15
-adds `nagarectl site releases`, `nagarectl site rollback`, and `nagarectl site preview ...`. EP-16
-adds webhook-related setup or status commands only if needed, and must not overload the existing
-application `deploy` command.
-
-**6. Git webhook service (defined by EP-16; documented by EP-17).** EP-16 owns any new long-running
-service, its manifests, secrets, and webhook verification behavior. The service is named `nagared`
-if no better existing daemon name emerges during implementation. It must trigger the same CLI/library
-deployment path as manual static deploys rather than defining a second deployment engine. Because that
-path is kind-dispatching (see point 7), the same webhook trigger deploys a static site or a full-stack
-server site with no webhook-side branching.
-
-**7. Server-site model, runtime, and Node image contract (defined by EP-18; consumed by EP-15, EP-17;
-extends points 1, 2, 3, 5).** EP-18 owns the `ServerSite` type in
-`cli/nagare-dsl/src/Nagare/Dsl/Server/Types.hs`, its `"kind":"ServerSite"` JSON transport, and the
-renderers `renderServerDockerfile`, `renderServerService`, and `renderServerDomainMappings` in
-`cli/nagare-dsl/src/Nagare/Dsl/Server/Render.hs`. The CLI deploy command from EP-14 dispatches on kind
-through a `loadSite :: FilePath -> IO (Either LoadError SiteConfig)` loader (where
-`SiteConfig = SiteStatic StaticSite | SiteServer ServerSite`) that EP-18 adds to `Nagare.Dsl.Load`;
-EP-14's `nagarectl site deploy` calls it and runs the static path for `SiteStatic` and EP-18's Node
-path for `SiteServer`. The server image contract parallels the static one (point 3): a Node base image
-(default `node:22-alpine`) listening on container port 8080, with the framework's self-contained server
-build copied into `/app` and started by the configured start command (default
-`node .output/server/index.mjs` for TanStack Start); Knative injects `PORT=8080` so the server binds
-the right port. EP-15's release records (point 4) store the image tag and runtime kind but are
-otherwise unchanged, so release listing and rollback work identically for server sites. EP-17's docs
-describe the server image only at the user-visible level; users never hand-write the Dockerfile.
-
-
 ## Progress
 
 - [x] EP-13: Define the static-site model, smart constructors, JSON transport, and renderer API. (2026-06-09)
@@ -248,7 +146,6 @@ describe the server image only at the user-visible level; users never hand-write
 - [x] EP-17: Write user docs, examples, and an end-to-end validation path for manual and automated static and full-stack hosting. (2026-06-09; live validation deferred until `nagare-01` is up). **Static end-to-end validation EXECUTED and VERIFIED live 2026-06-10** (deploy → 200 + redirect, releases, rollback, preview — see EP-14/EP-15). The full-stack `ServerSite` deploy (EP-18) uses the identical build→push→apply path, now proven; its stale example config was also fixed to the current DSL (`ServerSite.env` is now `ScopedEnvVar`). Note the private-image pull required configuring node→Artifact Registry auth — see MasterPlan 4's live-verification note.
 - [x] EP-18: Add the `ServerSite` model, Node renderers, and kind-dispatching loader in `nagare-dsl`. (2026-06-09)
 - [x] EP-18: Make `nagarectl site deploy` build, package, and deploy a TanStack Start app as a Node image, with a worked example and end-to-end validation. (2026-06-09; live Docker/cluster deploy is manual)
-
 
 ## Surprises & Discoveries
 
@@ -314,7 +211,6 @@ describe the server image only at the user-visible level; users never hand-write
   precise wrong-kind error on a `ServerSite`); server `deploy`/`releases`/`rollback`
   are kind-agnostic. Knative injects `PORT=8080`, so the Dockerfile sets no
   `ENV PORT=`.
-
 
 ## Decision Log
 
@@ -431,7 +327,6 @@ describe the server image only at the user-visible level; users never hand-write
   design calls for.
   Date: 2026-06-10
 
-
 ## Outcomes & Retrospective
 
 All six child plans (EP-13 … EP-18) are Complete as of 2026-06-09. Nagare now has
@@ -478,32 +373,3 @@ previews work today); teaching `nagared` the `loadSite` dispatcher so webhooks c
 also deploy server sites; and the optional Nix-native image-building path noted in
 the Decision Log if the in-cluster Docker daemon proves painful.
 
-
-## Revision Notes
-
-- 2026-06-09: Extended the initiative from static-only hosting to also host full-stack JavaScript apps
-  such as TanStack Start, per a request to "support something like tanstack start." Added child plan
-  EP-18 (`docs/plans/18-full-stack-server-runtime-hosting-for-static-sites.md`), a general
-  Node/Nitro server runtime with TanStack Start defaults deployed through a kind-dispatching
-  `nagarectl site deploy`. Updated the intro, Vision & Scope, Decomposition Strategy, Exec-Plan
-  Registry (added EP-18; EP-17 now soft-depends on EP-18), Dependency Graph, Integration Points (new
-  point 7; amended point 6), Progress, and Decision Log. Lightly amended EP-13 (shared leaf types and
-  open `kind` discriminator) and EP-14 (kind-dispatching `site deploy`, factored image-context helper)
-  with revision notes of their own. The static plans' scope and tests are unchanged. A related question
-  raised in the same session — whether image building should be Nix-native — was resolved in favor of
-  generated Dockerfile + `docker build` (see Decision Log, 2026-06-09); the JS build stays
-  framework-native regardless.
-
-- 2026-06-10: Recorded the rationale for the per-release Nginx origin versus the cluster's Envoy
-  ingress (Kourier), after a request to revisit "why Nginx when we already have Envoy?". No design or
-  code change: Kourier (Envoy) is the shared ingress and the Nginx image is the per-release origin —
-  they sit in series, not as substitutes. The in-container file server (Nginx) is a swappable detail,
-  and the "does pure-static need an origin at all?" question is folded into
-  `docs/masterplans/11-cdn-integration-for-nagare.md` (CDN), which fronts the Nginx origin with an
-  edge cache. See the Decision Log entry of the same date.
-
-- 2026-06-10: Evaluated switching the static origin server from Nginx to Caddy while the change is
-  still cheap; decided to keep Nginx (see Decision Log, 2026-06-10). Caddy's automatic-HTTPS feature
-  is moot here because TLS terminates upstream and the origin is an immutable HTTP-only port-8080
-  container, and the machine-generated config users never see does not justify churning the shipped,
-  golden-tested renderer. No code change. Mirrored in EP-13's Decision Log.

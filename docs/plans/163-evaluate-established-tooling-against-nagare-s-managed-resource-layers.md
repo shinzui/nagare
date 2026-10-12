@@ -40,6 +40,7 @@ This ExecPlan is a living document. The sections Progress, Surprises & Discoveri
 Decision Log, and Outcomes & Retrospective must be kept up to date as work proceeds.
 If durable project context changes, update or create ADRs in docs/adr/ in the same change.
 
+Full plan before trimming: [163-evaluate-established-tooling-against-nagare-s-managed-resource-layers.md](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/plans/163-evaluate-established-tooling-against-nagare-s-managed-resource-layers.md). This copy keeps the purpose, progress, discoveries, decisions and outcomes.
 
 ## Purpose / Big Picture
 
@@ -166,7 +167,6 @@ Initial judgment: Velero may simplify Kubernetes resource/volume backup and reco
   operator's go-ahead. Evaluation must not disturb either.
   Date: 2026-09-28
 
-
 ## Outcomes & Retrospective
 
 2026-10-10, after M1–M3's record:
@@ -186,133 +186,3 @@ Initial judgment: Velero may simplify Kubernetes resource/volume backup and reco
   not only which daemon is running. The prototype session read the running Colima profile as
   available and missed the cp3 claim protocol.
 
-
-## Context and Orientation
-
-Nagare is a platform-as-a-service that runs on one GCP Compute Engine virtual machine with NixOS
-and k3s (a small Kubernetes distribution), or locally on k3d (k3s in Docker). Pulumi (an
-infrastructure-as-code tool) provisions the cloud resources in `infra/pulumi/`; NixOS configures the
-host; `nagarectl` (Haskell, `cli/nagarectl/`) deploys applications and platform components.
-
-MasterPlan 23 (`docs/masterplans/23-make-managed-resources-first-class-through-typed-scoped-inventories.md`)
-adds a *typed inventory*: every managed resource is declared in Haskell with a stable identifier
-and an owner, owners' declarations are composed, and conflicting claims are refused before any
-change. That core lives in `cli/nagare-dsl/src/Nagare/Resource/` and is not in question here. The
-implementation surfaces to account for are in `cli/nagarectl/src/Nagare/Inventory/`; listing a
-surface does not authorize replacing it:
-
-- State, review, and execution: `Store.hs`, `Store/` (including the GCS store from EP-151),
-  `Plan.hs`, `Journal.hs`, `Execute.hs`, `Adapter.hs`. A *journal* is the durable log of which
-  reviewed operations ran and how they ended, so an interrupted change can be resumed.
-- Kubernetes execution, ownership, adoption, and pruning: `Adapters/Kubernetes.hs`,
-  `Adapters/KubernetesRuntime.hs`, `KubernetesReview.hs`, `Lifecycle.hs`, `Migration.hs`.
-- Backup receipts and retention: `Backup.hs`, `ScheduledReceipt.hs`, `ScheduledIngest.hs`,
-  `ScheduledPrune.hs`, `Prune.hs`, `VolumePrune.hs`. A *receipt* is a signed record that a specific
-  backup object was produced from a specific database.
-- Data fencing and restore: `DataFence.hs`, `DataFence/`, `Restore.hs`, `LiveRestore*.hs`. A *fence*
-  blocks ordinary writers from a database while a restore or maintenance session has exclusive
-  access.
-- Fenced interactive maintenance: `Maintenance.hs`, `MaintenanceAdapter.hs`, `MaintenanceFence.hs`.
-- Release evidence: `scripts/assemble-managed-resource-evidence.sh`, `scripts/assemble-release.sh`,
-  `.github/workflows/release.yml`.
-
-The managed databases are PostgreSQL, Redis, and ClickHouse, run as single-replica StatefulSets;
-backups go to GCS in the cloud and MinIO locally. A candidate must identify the exact engines and
-object stores it covers. A PostgreSQL-only tool can be useful; it need not become a universal
-backup framework. Every adoption proposal must state the remaining native paths.
-
-The finite candidate set and questions are:
-
-| Boundary | Candidate comparison | Scope of decision |
-|---|---|---|
-| Cross-tool identity/review/history | Existing Nagare plus native Pulumi/NixOS/Kubernetes state | Retain; examine adapter interfaces and coordination cost, not wholesale replacement. |
-| PostgreSQL backup/recovery | Current native dump/restore versus CloudNativePG with Barman Cloud | Source consistency, separate-target recovery, GCS/MinIO, controller lifecycle, single-node overhead, and code retired. No HA mandate. |
-| Volume and application backups | Current native/archive paths versus K8up/restic (primary); Velero as a secondary desk comparison | Actual local-path PVC access and scheduling, native dump integration, isolated restore, exact snapshot identity, retention, permissions, and footprint. Nagare retains resource declarations and ownership. |
-| Redis/ClickHouse backups | Current native engine formats and existing reviewed transport | Keep as baseline; assess only concrete backup deficiencies. No exhaustive operator search or additional engine. |
-| Project direction and maintenance continuity | K8up/restic and Velero, with the same criteria applied to CloudNativePG/Barman | Primary evidence for governance, maintainer continuity, release/support policy, roadmap/deprecations, security response, and exit cost. Record uncertainties and the operator's concern separately from verified findings. |
-| Kubernetes apply | Existing native executor; optional kapp comparison if a concrete retirement case emerges | Lower priority; not a mandatory migration or prototype. No GitOps-platform substitution. |
-| Release evidence | Existing native/local/cloud proof and immutable evidence | Retain. Artifact attestations may complement provenance; they do not replace behavior proof or create a new project. |
-
-Preserve the single lifecycle-owner rule. A prospective operator owns its generated children through explicit delegation; Nagare declares the parent/interface and records external operation identities and verified results without reproducing a second tool's internal scheduler or backup catalogue. Evaluate whether this actually removes maintenance rather than merely adding another layer.
-
-Relevant ADRs:
-[ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md) (the inventory
-design and its single-writer store);
-[ADR 13](../adr/0013-operator-deployment-material-lives-in-a-private-repository-with-remote-state.md)
-(remote Pulumi state in the context bucket);
-[ADR 9](../adr/0009-assert-the-active-context-project-on-every-cloud-mutating-path.md) (any tool that
-mutates cloud resources must be confined to the active context's project);
-[ADR 11](../adr/0011-host-activation-is-guarded-and-self-reverting.md) (host changes only through the
-guarded switch); [ADR 7](../adr/0007-publish-immutable-nix-releases-from-validated-tags.md) (immutable
-Nix releases, relevant to release evidence).
-
-
-## Plan of Work
-
-M1 evaluates the finite boundaries in Context and Orientation. Use Mori first for local dependency sources, then current authoritative release tags/registries and documentation. Record versions/licences, covered data/provider modes, ownership and recovery semantics, single-node footprint, credential needs, and exact Nagare code/test obligations removed versus retained. Existing journal/state is a fixed constraint. A partial tool match is acceptable if its narrower role has value. Do not require every layer to acquire a new tool or expand the candidate list without a concrete question.
-
-For K8up/restic, answer these bounded backup questions before selecting a prototype. Use the same applicable criteria for the secondary Velero desk comparison:
-
-1. Can a K8up Job mount the actual local-path PVC with its access mode, node affinity, and permissions? Verify explicit backup inclusion, required RBAC (including backup-command execution), and security contexts. For Velero, inspect actual PV type and kubelet/node-agent requirements. Do not install CSI or change the storage platform merely to make a trial pass; report that as a separate cost/decision.
-2. Does the backup capture recoverable application data? Distinguish PVC file copies from engine-native dumps. For each claimed engine, state the consistency mechanism, command or PreBackupPod integration, and any pause required. Account for streamed dumps needing Restic retrieval and engine-specific restore instead of the ordinary PVC restore path. A successful upload or Backup status is insufficient.
-3. Can restoration use a separate destination/new PVC, recover known files/rows, preserve the source, and avoid two controllers owning the same object? Pin the exact repository/snapshot and source paths, reject mismatches, and prove a missing selection cannot silently restore latest. Nagare recreates its declared resources; identify any remaining configuration or credential recovery obligation. For Velero, also explain replay of Kubernetes objects and generated resources.
-4. How are backup completion, external IDs, interruption, and deletion represented in Nagare's existing journal? Can retention avoid deleting objects still needed by accepted or unresolved recovery without a second custom retention engine? Distinguish Restic snapshot/repository retention from Nagare recovery references and native backup objects; object-store expiry must not erase referenced recovery data.
-5. What resource and maintenance costs remain: idle/backup/restore CPU, memory, temporary disk, object-store traffic, controller/plugin upgrades, credentials, and a fresh-operator recovery procedure? Compare with today's native commands on the same bounded dataset.
-6. Does current upstream evidence support relying on the project over Nagare's expected lifetime? Compare governance and maintainers, recent releases and support policy, announced roadmap/deprecations, security response, and backup-format portability/exit cost. Record dated primary sources and unknowns. The operator's concern about Velero's direction is not itself evidence of a specific upstream change.
-
-M2 prototypes only candidates that survive those questions, on a dedicated disposable local k3d cluster with its own MinIO. Prioritize at most two primary prototypes: K8up/restic for volume/application backups, and CloudNativePG/Barman for PostgreSQL. A documented hard incompatibility may eliminate a candidate before installation; record the exact reason rather than designing a new platform to satisfy it. State pass/fail criteria and fixture identity before each run. PostgreSQL must recover known rows into a separate destination after source changes. K8up must recover known files into a new PVC and at least one native database dump into an isolated database, preserve sources, reject a wrong snapshot/source or foreign destination, exercise an interrupted backup/restore, and make any incomplete result visible. Record exact external operation and snapshot identities for Nagare's journal and demonstrate that recovery references can be protected from pruning. Prove any additional claimed engine separately. Claim database backup coverage only after an engine-native content/consistency test; a PVC-file test is not database proof. Measure idle and active memory/CPU/disk for both the tool and required agents/operators. Capture deletion/retention semantics on disposable backups without enabling production expiry.
-
-Check GCS plugin/configuration and credential support against upstream docs during M1; this local prototype is not GCS proof. A future adoption requires actual Compute Engine/NixOS/k3s/GCS validation under a separately reviewed implementation plan. Never use GKE or touch MP-23's retained local fixtures. Keep prototype scripts/notes under `docs/spikes/mp24-tooling-evaluation/`; remove only this plan's proven-owned disposable resources when finished. An optional kapp or secondary Velero prototype needs a concrete unresolved question; Velero must also pass the project-direction assessment before a prototype is justified. Neither is a prerequisite for reporting the two primary results.
-
-M3 begins after EP-162 M1 is accepted. Create the next research record using `docs/research/profile.dhall`, scoring survivors against canonical use-case handles, current single-node constraints, DX, recovery reliability, and net maintenance. Include a responsibility map, retained code, retired code, adoption/migration cost, unresolved provider evidence, project-direction and maintenance-continuity findings, and promote/reject criteria. Recommend keep, combine, or adopt only for each tested boundary; no tool is selected by this plan update. Mark RES-3 superseded and update the research bundle log/index only when the validated replacement exists. Present the recommendation and record the operator's decision in MP-24; production adoption and any further MP-23 change require a separate decision.
-
-## Concrete Steps
-
-All future prototype commands run with an explicit isolated cluster identity. First list local clusters and refuse to reuse an existing `mp24-eval` without proof it belongs to this plan. Verify current k3d options before creation; do not switch the operator's global kube context. Use an isolated kubeconfig and explicit context in prototype scripts.
-
-```bash
-k3d cluster list
-mori registry search k8up
-mori registry search restic
-mori registry search cloudnative
-mori registry search velero
-```
-
-Record exact create, install, backup, restore, inspection, and cleanup commands with versions under `docs/spikes/mp24-tooling-evaluation/` before accepting M2. No cluster creation or installation is performed by this planning update. Validate the eventual research record through its existing profile:
-
-```bash
-okf id next docs/research --profile docs/research/profile.dhall RES
-okf validate docs/research --profile docs/research/profile.dhall
-```
-
-Stage only this plan's files by explicit path; preserve concurrent MP-23 implementation and private provider material.
-
-## Validation and Acceptance
-
-M1 requires a sourced comparison for each finite boundary above, current release/licence checks for concrete candidates, clear fixed/optional/deferred responsibilities, and documented eliminations. It does not require replacing the journal or finding a new tool for every layer. The K8up result must explicitly state backup scope, actual PVC compatibility/permissions, native dump retrieval and restore responsibilities, exact snapshot selection, retention integration, GCS evidence level, and whether it reduces net maintenance. Compare project direction and maintenance continuity using dated primary evidence for K8up/restic and Velero; the secondary Velero result can remain a desk comparison with unresolved claims clearly marked.
-
-M2 requires pass/fail against predeclared criteria, observed restored content/source preservation, recorded failure behavior and measured footprint for each primary survivor; a decisive incompatibility can be accepted as elimination evidence instead of forcing installation. Account for and remove only the disposable resources created by this evaluation. Kubernetes object success alone is neither volume recovery nor database consistency proof.
-
-M3 requires a validating research record with EP-162 requirement references, justified keep/combine/adopt recommendations, RES-3 supersession metadata/log/index, and a recorded operator decision. No production adoption, new MP-23 release dependency, or unperformed cloud proof may be implied. A recommendation to retain current native tools is a valid outcome.
-
-## Idempotence and Recovery
-
-Keep prototypes in their own kubeconfig/cluster/object-store identities. Record ownership before creation and verify it before cleanup; a pre-existing cluster with the same name is not disposable by assumption. Preserve failed-run evidence privately before removing this plan's resources. Do not reset MP-23 fixtures, cloud contexts, inventory state, or existing backups. Documentation steps are repeatable; candidate versions must be rechecked before any later installation.
-
-## Interfaces and Dependencies
-
-M1 and M2 have no prerequisites. M3 has a hard dependency on EP-162 M1, the accepted requirements
-use case in `docs/use-cases/` from
-`docs/plans/162-define-team-operating-requirements-and-decide-availability-for-the-intranet-paas.md`;
-EP-162 M2's availability ADR is a soft input, and without it candidates are scored under the
-single-node assumption, stated explicitly. Tools needed locally: k3d, kubectl, Docker (or Colima),
-and the candidate tools' own CLIs.
-
-## Revision Notes
-
-2026-10-10: M1 done, M2 closed by operator decision with partial K8up evidence, and M3's research
-record (RES-6) written. M3 waits only for the operator's decision on the recommendation.
-
-2026-09-28: Promote K8up/restic to the primary backup evaluation and prototype, move Velero to a conditional secondary comparison because of the operator's project-direction concern, and align research, recovery criteria, and maintenance assessment. No adoption or MP-23 gate is added.
-
-2026-09-28: Bound tool research beneath the retained journal/state; prioritize existing database backup and Velero backup evaluation, exclude Flux/new messaging, and separate preliminary findings from prototypes and adoption.

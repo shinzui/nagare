@@ -17,6 +17,7 @@ capability roadmap at `docs/roadmaps/paas-gap-roadmap.md`. It is the third initi
 the roadmap's recommended order, following static hosting (`docs/masterplans/3-static-hosting-for-nagare.md`)
 and application build modes (`docs/masterplans/4-application-build-modes-for-nagare.md`).
 
+Full plan before trimming: [5-environment-and-secret-management-for-nagare.md](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/masterplans/5-environment-and-secret-management-for-nagare.md). This copy keeps the purpose, progress, discoveries, decisions and outcomes.
 
 ## Vision & Scope
 
@@ -65,7 +66,6 @@ already provides; and a web UI for env management (Phase 10). Build-time *builde
 beyond the current `docker build` (e.g. Nixpacks from `docs/plans/21-nixpacks-zero-dockerfile-builder.md`)
 is acknowledged as an integration point but its env wiring is left to that builder's own plan.
 
-
 ## Decomposition Strategy
 
 The initiative was decomposed into six child ExecPlans grouped into four phases. The guiding
@@ -101,7 +101,6 @@ at a non-runtime phase," so they are combined into EP-27 with two milestones to 
 count at six and the scopes coherent; the plan notes they could be split if either milestone
 grows.
 
-
 ## Exec-Plan Registry
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
@@ -116,141 +115,6 @@ grows.
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-23).
 
-
-## Dependency Graph
-
-EP-23 (the scoped env model and renderer) is the root: it defines the `EnvScope` type, the
-scope-aware env map on `Deployment` and `ServerSite`, the JSON round-trip, the scope-filtered
-inline render, the `envFrom` wiring to the managed store, and the resource-naming helpers
-that every other plan imports. Nothing precedes it.
-
-EP-24 (the store) hard-depends on EP-23 because it imports `EnvScope`, `EnvName`, `SecretName`,
-and the naming helpers (`managedConfigMapName`, `managedSecretName`) from the DSL, and renders
-ConfigMaps/Secrets whose names must match the `envFrom` references EP-23 emits. Without EP-23's
-naming helpers the store cannot name the resources the Service will look for.
-
-EP-25 (the CLI) hard-depends on EP-24 because the `env`/`secret` commands are thin parsers over
-the store's pure reconcile functions and kubectl IO. It soft-depends on EP-23 for the `EnvScope`
-values used by `--runtime/--build/--preview` flags; those are available transitively through
-EP-24, so the hard dependency on EP-24 already covers it.
-
-EP-26 (generated variables) hard-depends on EP-23 because it injects generated entries into the
-scope-aware env map before render. It is otherwise independent and can proceed in parallel with
-EP-24 and EP-25 the moment EP-23 lands.
-
-EP-27 (build-time and preview env) hard-depends on EP-23 (scopes) and EP-24 (it reads the
-build-scoped and preview-scoped stores). It soft-depends on EP-25 only so that an operator has a
-way to populate those stores from the CLI for a live demonstration; EP-27 can be implemented and
-unit-tested against stores written by hand if EP-25 is not yet done.
-
-EP-28 (docs and example) hard-depends on EP-25 and EP-27 because it documents their command and
-behavior surfaces and exercises them end-to-end; it soft-depends on EP-26 to document the
-generated-variable table accurately.
-
-**Parallelism.** After EP-23 completes, EP-24 and EP-26 can run concurrently. After EP-24
-completes, EP-25 and EP-27 can run concurrently (EP-27 also wanting EP-25 only for the live demo).
-EP-28 is last and gates on EP-25 and EP-27.
-
-
-## Integration Points
-
-**IP1 — The `EnvScope` type and the scope-aware env map.** Defined by **EP-23** in
-`cli/nagare-dsl/src/Nagare/Dsl/Types.hs`. The shared contract:
-
-```haskell
--- | When an environment variable applies.
-data EnvScope = Runtime | Build | Preview
-  deriving stock (Generic, Eq, Ord, Show, Enum, Bounded)
-
--- | An env value (literal or secret reference) plus the non-empty set of scopes
--- it applies to. A bare variable defaults to the single scope {Runtime}.
-data ScopedEnvVar = ScopedEnvVar
-  { value  :: !EnvVar          -- ^ existing sum type: EnvLiteral | EnvSecretRef
-  , scopes :: !(Set EnvScope)  -- ^ invariant: non-empty
-  }
-  deriving stock (Generic, Eq, Show)
-```
-
-The `env` field of both `Deployment` (`Nagare.Dsl.Types`) and `ServerSite`
-(`Nagare.Dsl.Server.Types`) changes from `Map EnvName EnvVar` to `Map EnvName ScopedEnvVar`.
-EP-24, EP-25, EP-26, and EP-27 all import `EnvScope` and must treat `Runtime` as the default
-when a scope is unspecified. EP-23 must provide a backward-compatible preset/helper so existing
-example configs (`cluster/examples/*/nagare/Config.hs`, `cli/nagare-dsl/test/fixtures/`) compile
-with the default `{Runtime}` scope.
-
-**IP2 — The managed-resource naming helpers.** Defined by **EP-23** in
-`cli/nagare-dsl/src/Nagare/Dsl/Render.hs` (exported from the `nagare-dsl` library). The shared
-contract — managed env lives in **scope-suffixed** per-app resources so each scope is a separate
-ConfigMap/Secret:
-
-```haskell
--- | Non-secret managed env for one app and scope, e.g.
--- managedConfigMapName "notes" Runtime == "nagare-env-notes-runtime".
-managedConfigMapName :: Text -> EnvScope -> Text
-
--- | Secret managed env for one app and scope, e.g.
--- managedSecretName "notes" Runtime == "nagare-secret-notes-runtime".
-managedSecretName :: Text -> EnvScope -> Text
-
--- | The lowercased scope token used in the names: Runtime->"runtime",
--- Build->"build", Preview->"preview".
-scopeToken :: EnvScope -> Text
-```
-
-EP-24 (store), EP-25 (CLI), and EP-27 (build/preview) all import these so that the resources they
-create or read carry exactly the names the rendered Service references. The string format is owned
-by EP-23; later plans must call the helpers, never re-derive the names by hand.
-
-**IP3 — The `envFrom` wiring contract.** Defined by **EP-23** in the renderer. Every rendered
-Knative Service (`Nagare.Dsl.Render.renderService` for apps,
-`Nagare.Dsl.Server.Render.renderServerService` for server sites) emits, in the container spec, an
-`envFrom` list that references the **Runtime**-scoped managed ConfigMap and Secret with
-`optional: true`:
-
-```yaml
-envFrom:
-  - configMapRef:
-      name: nagare-env-<app>-runtime
-      optional: true
-  - secretRef:
-      name: nagare-secret-<app>-runtime
-      optional: true
-```
-
-`optional: true` means an app whose store has never been written still deploys. Kubernetes
-applies `envFrom` first and then the explicit `env:` list, so **inline DSL env and generated
-variables override managed env of the same key**; this precedence is part of the contract and
-EP-25/EP-26/EP-28 must document it. EP-27's preview path renders an additional preview `envFrom`
-pair (runtime then preview, so preview overrides runtime). Static sites
-(`Nagare.Dsl.Static.Render`) carry no env and are unaffected.
-
-**IP4 — The reconcile function and store schema.** Defined by **EP-24** in a new
-`cli/nagarectl/src/Nagare/Env/Store.hs`. The pure core:
-
-```haskell
-data ReconcileMode = Merge | ReconcileExact
-
--- | Compute the desired key/value map from the existing one, the incoming
--- entries, and the mode. Merge keeps existing keys not mentioned; ReconcileExact
--- drops them. Pure and unit-testable, mirroring Nagare.Static.Release.addRelease.
-reconcile :: ReconcileMode -> Map Text Text -> Map Text Text -> Map Text Text
-```
-
-EP-25 (CLI) calls `reconcile` for `env set`/`env sync`/`env delete` and the secret equivalents.
-EP-24 owns the ConfigMap/Secret manifest rendering (reusing the JSON-as-YAML approach of
-`Nagare.Static.Release.renderReleaseConfigMap`) and the kubectl read/write IO (mirroring
-`readReleaseLog`/`writeReleaseLog`). Secret values are base64-encoded into the Secret's `data`
-field; ConfigMap values go in plaintext `data`. EP-27 reads the build/preview stores through
-EP-24's read functions.
-
-**IP5 — The generated-variable set.** Defined by **EP-26** in a new
-`cli/nagarectl/src/Nagare/Env/Generated.hs`. The names are reserved (`NAGARE_*`) and injected as
-inline Runtime env at deploy time, computed from the deploy context (service name, namespace,
-resolved URL, base domain, release id = image tag, source = `--source`). EP-26 wires them into the
-deploy call sites in `cli/nagarectl/app/Main.hs` (and the static/server deploy paths). EP-28
-documents the table. Because they are injected as inline `env:`, they override managed env per IP3.
-
-
 ## Progress
 
 - [x] EP-23: `EnvScope`/`ScopedEnvVar` types added; existing configs compile with default Runtime scope. (2026-06-09)
@@ -264,7 +128,6 @@ documents the table. Because they are injected as inline `env:`, they override m
 - [x] EP-27: Build-scoped env flows into `docker build`; demonstrated end to end. (2026-06-09)
 - [x] EP-27: Preview-scoped env overlays runtime in preview deploys; render test shows the overlay. (2026-06-09)
 - [x] EP-28: User guide written; end-to-end example deploys with managed env and a secret. (2026-06-09)
-
 
 ## Surprises & Discoveries
 
@@ -301,7 +164,6 @@ documents the table. Because they are injected as inline `env:`, they override m
   qualified as Gen`; `Gen.GeneratedContext { Gen.serviceUrl = ... }`) and update env via
   the generic-lens form `x & #env %~ f` — is the pattern **EP-28** should reuse when it
   exercises generated vars in code/examples.
-
 
 ## Decision Log
 
@@ -344,7 +206,6 @@ documents the table. Because they are injected as inline `env:`, they override m
   sequential numbers; the init scripts assign them, accounting for the build-modes plans EP-19–EP-22).
   Rationale: follows the repository's sequential numbering with no manual renumbering.
   Date: 2026-06-09
-
 
 ## Outcomes & Retrospective
 

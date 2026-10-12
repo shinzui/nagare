@@ -30,6 +30,7 @@ This ExecPlan is a living document. The sections Progress, Surprises & Discoveri
 Decision Log, and Outcomes & Retrospective must be kept up to date as work proceeds.
 If durable project context changes, update or create ADRs in docs/adr/ in the same change.
 
+Full plan before trimming: [176-record-physical-identity-at-creation-and-read-it-through-one-checked-accessor.md](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/plans/176-record-physical-identity-at-creation-and-read-it-through-one-checked-accessor.md). This copy keeps the purpose, progress, discoveries, decisions and outcomes.
 
 ## Purpose / Big Picture
 
@@ -64,7 +65,6 @@ A reader sees it working in three places:
 This plan implements
 [ADR 27](../adr/0027-physical-identity-is-recorded-at-creation-and-read-through-one-checked-accessor.md),
 step 2 of MasterPlan 23's release line (b).
-
 
 ## Progress
 
@@ -134,11 +134,9 @@ step 2 of MasterPlan 23's release line (b).
   or rebound through review; status reports `unrecorded` and `replaced-incarnation` members
   explicitly.
 
-
 ## Surprises & Discoveries
 
 (None yet.)
-
 
 ## Decision Log
 
@@ -157,7 +155,6 @@ step 2 of MasterPlan 23's release line (b).
   Rationale: ADR 27 §2 forbids treating "no record" as matching. Refusing only where data is at stake
   keeps ordinary updates of stateless members working.
   Date: 2026-10-05
-
 
 - Decision: The identity is a wrapper constructor, not a field on `AdapterEffectCompleted`.
   Rationale: 256 constructions in 70 files build `AdapterEffectCompleted`, almost all in fakes. A
@@ -187,7 +184,6 @@ step 2 of MasterPlan 23's release line (b).
   convergence. M2's accessor handles it as `unrecorded`; reading earlier transactions' completions
   is not done.
   Date: 2026-10-05
-
 
 ## Outcomes & Retrospective
 
@@ -220,203 +216,3 @@ Completed 2026-10-05: release line (b) step 2.
 - **Release consequence.** Stores written before this plan have no records. Data operations on
   their members refuse until each member is rebound through review. The runbook section says how.
 
-
-## Context and Orientation
-
-All paths are relative to the repository root; the package is `cli/nagarectl`. The production Haskell
-standard of [ADR 16](../adr/0016-adopt-haskell-jitsurei-for-production-haskell.md) applies, and
-incomplete patterns are compile errors.
-
-**Terms.**
-- A **member** is one managed resource in a scope (for example a database's PVC).
-- Its **incarnation** is the physical identity of the object Nagare accepted for it: a Kubernetes
-  UID, or a provider ID.
-- **Laundering** is a path where an out-of-band replacement's identity becomes accepted, retained,
-  backed up, restored from or into, ingested, or fenced. **Fail-open** is a path where a missing
-  record lets anything pass.
-
-**Where identity lives today.**
-- **The record.** `headIncarnations` in the store head (`cli/nagarectl/src/Nagare/Inventory/Store.hs`)
-  is the accepted-incarnation record. Retained and collected members carry identities in
-  `headRetained` and `headCollected`.
-- **Its only writer.** `convergedIncarnations` in
-  `cli/nagarectl/src/Nagare/Inventory/Execute/Incarnations.hs` observes members at convergence. It is
-  called from `Execute/Transaction.hs` and bound by `releaseClaimWith` in `Execute/Claims.hs`. It
-  records only Kubernetes members that are durable or StatefulSets. An unavailable observation records
-  nothing.
-- **What creates return.** `AdapterExecution` (`cli/nagarectl/src/Nagare/Inventory/Adapter.hs`)
-  carries no identity, and the journal's `Completed` event (`Journal.hs`) carries only a digest. The
-  runtime discards `kubectl create` output (`Adapters/KubernetesRuntime.hs`). The rename's
-  `copySecret` (`Adapters/KubernetesMigration.hs`) is a second create path that also discards it.
-- **The readers.**
-  - status (`Status.hs`, `statusIncarnations` and `classifyDriftWith`);
-  - retention proofs (`Plan/Changes.hs`, `buildRetentionProofs`);
-  - receipt listing and freshness
-    (`cli/nagarectl/app/Nagare/Cli/Data/ScheduledReceipts.hs`);
-  - ingestion (`ScheduledIngest.hs`).
-
-  All four pass when there is no record.
-
-**C's inventory.** `docs/audits/mp23-exhaustive-review-2026-10-05/C-identity.md` lists every
-identity-bearing site with file and line, and the untracked paths N1–N22. For this plan's in-line
-kinds the consumers to route through the accessor are:
-- migration sources (F62, the rename planner `Plan/Migration.hs` and `Plan/Lifecycle.hs`, and the
-  writer StatefulSet pin in `KubernetesMigration.hs`);
-- manual backup sources (N3, `app/Nagare/Cli/Data/Backup.hs`, `Backup.hs`);
-- volume snapshot sources (N4);
-- the backup signing Secret (N5);
-- restore targets, scratch and live (N6, `app/Nagare/Cli/Data/Restore.hs`, `LiveRestore.hs`);
-- data-fence capture (N7, `DataFence/KubernetesCapture.hs`, `DataFence.hs`);
-- the Kubernetes collection DELETE precondition (N8, `KubernetesRuntime.hs`, `Collection/Adapter.hs`);
-- adopt and update verification (N9);
-- stopped applications' unrecorded durable members (N10);
-- `copySecret` (N11);
-- restore source-to-target comparison (N12);
-- caller-supplied maintenance UIDs (N13);
-- the PVC and credential of `retention = Delete` databases (N14);
-- status replacement-required and health (N21);
-- the scheduled-prune in-flight check (N22).
-
-N1 is the retirement of a replaced recorded member. Since F51's fix it is always refused at admission
-(`Execute/Admission.hs`), and nothing offers another way forward.
-
-**Out of scope by the release line** (documented limits, ADR 27 §4): non-Kubernetes kinds without
-provider identities. These are the host VM, GCS buckets, Pulumi resources, broker topics, the cache
-key and artifacts (N15–N20).
-
-**Relevant ADRs.**
-- [ADR 27](../adr/0027-physical-identity-is-recorded-at-creation-and-read-through-one-checked-accessor.md)
-  is the decision.
-- [ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md) documents
-  the incarnation record and its "Known limits" (fail-open recording, unrecorded members pass), which
-  this plan removes. Amend it.
-- [ADR 26](../adr/0026-stopped-transactions-close-by-per-operation-proof.md) defines `TargetGone` and
-  close, which must bind nothing.
-- [ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md) requires a
-  failing-without-fix regression for each guard.
-
-
-## Plan of Work
-
-### Milestone 1: identity at the source
-
-Extend `AdapterExecution` with the identity of the object the effect produced or changed
-(`AdapterEffectCompleted (Maybe PhysicalIdentity)` or an equivalent field). Thread it through every
-adapter. Non-Kubernetes adapters answer `Nothing`.
-
-In `Adapters/KubernetesRuntime.hs`, capture the UID from the API server's response:
-- run `kubectl create`, `apply` and `replace` with `-o json` and parse `metadata.uid`;
-- capture it from `copySecret` in `KubernetesMigration.hs`;
-- capture it from the adoption patch.
-
-Extend the journal's `Completed` event with an optional identity in a compatible JSON encoding, so
-older journals decode as "no creation record". Have the driver (`Execute/Driver.hs`) record it.
-
-Rewrite `convergedIncarnations` to bind from the journal's completion identities for creates, adopts,
-updates and migration destinations, not from a fresh observation. Widen the set of recorded members
-to every Kubernetes member Nagare creates, not only durable members and StatefulSets. Also bind at a
-close's head release (N10): a close binds nothing new, so it must not call this path. Instead, a
-member completed in a closed transaction keeps its completion record in the journal for the next
-convergence to read.
-
-At convergence, an observed object that differs from the journal record is not bound. Report it
-through `adapterSettle` as `SettledTargetGone`, defined in
-`docs/plans/175-close-stopped-inventory-transactions-by-per-operation-proof.md`.
-
-In the recovery model (`cli/nagarectl/test/InventoryRecoveryModelSpec.hs`), remove the F60 tolerance
-in `ingestReceipt` and make the world (`test/Nagare/Test/World/Kubernetes.hs`) return the UID from
-its writes. The scenario "create a database, then ingest a scheduled receipt" must pass with no
-tolerance. Record a mutation that restores observation-based binding, and show that it fails.
-
-### Milestone 2: one checked accessor
-
-Add `Nagare.Inventory.Identity` (new module, `cli/nagarectl/src/Nagare/Inventory/Identity.hs`). Its
-function `checkedIncarnation :: HeadManifest -> ResourceId -> ResourceObservation -> IdentityCheck`
-answers one of:
-- `IdentityMatches physical`;
-- `IdentityReplaced recorded live`;
-- `IdentityUnrecorded live`;
-- `IdentityAbsent`.
-
-Route every consumer listed in Context and Orientation through it, and delete each consumer's own
-comparison. In particular:
-- F62's migration-source path: the rename planner refuses a source whose live UID is not the record;
-- the writer StatefulSet pin;
-- data-fence capture. Comparing there closes the fence-based restore and maintenance paths together
-  (N7 is the cheapest single point for N6 and maintenance);
-- the collection DELETE precondition, taken from the retained record (N8).
-
-For each consumer, add a test that fails when the consumer bypasses the accessor. In the rename
-model (`InventoryRenameRecoveryModelSpec.hs`), add a `Replaced` fault on the rename source and
-expect a refusal at planning, not I3.
-
-### Milestone 3: reviewed rebind and replaced retirement
-
-Add a reviewed rebind lifecycle decision. It records the current live object as a member's
-incarnation and shows the old and new identities and the data consequence ("the recovery points of
-the old incarnation no longer describe this object"). It is planned like an adoption and admitted
-under the same review discipline.
-
-Change retirement of a replaced member to retain the record marked `replaced` (N1), instead of
-refusing at admission.
-
-Status gains explicit `unrecorded` and `replaced-incarnation` categories for every recorded kind,
-including the replacement-required case (N21). The model's retire scenario then retires a replaced
-database successfully; today it is counted as `Done` only because admission refused it. That needs
-the model to stop counting refusals as success, which
-`docs/plans/175-close-stopped-inventory-transactions-by-per-operation-proof.md` M2 does.
-
-
-## Concrete Steps
-
-From `cli/nagarectl`:
-
-```bash
-cabal build nagarectl-test
-cabal test nagarectl-test --test-options='-p "/fast tier/ || /rename recovery model/ || /accepted incarnations/"'
-```
-
-Before each commit, from the repository root: `just gate-fast`, then `nix flake check`, then
-`git diff --numstat`. Mutation proofs go in a scratch worktree, with the applied diff checked before
-the run.
-
-
-## Validation and Acceptance
-
-Required acceptance:
-- **Recovery model.** The fast tier passes without the F60 tolerance. A mutation restoring
-  observation-based binding fails it.
-- **Rename model.** It refuses a replaced source at planning.
-- **Consumers.** Every in-line consumer listed above refuses a replaced member through the accessor,
-  each with a test that fails when that consumer bypasses the accessor.
-- **Rebind.** A rebind review records a replacement, after which ingestion accepts its receipts.
-- **Replaced retirement.** Retiring a replaced database converges, with the record retained as
-  replaced.
-- **Old journals.** Journals and heads written before this plan still decode, and their members
-  report `unrecorded`.
-- **Gates.** `just gate-fast` and `nix flake check` pass at each commit.
-
-
-## Idempotence and Recovery
-
-The journal and head changes are compatible extensions, so a binary from before this plan reading a
-newer store ignores the new optional fields. Each milestone lands behind passing tests; if one breaks
-the model, revert that commit. Rebind is a reviewed operation and never edits the store by hand.
-
-
-## Interfaces and Dependencies
-
-This plan depends on
-`docs/plans/175-close-stopped-inventory-transactions-by-per-operation-proof.md`. It needs that plan's
-`Settlement` type (`SettledTargetGone`) and its change that stops the model counting refusals as
-exits. Start once 175's M2 is accepted.
-
-It provides:
-- `Nagare.Inventory.Identity.checkedIncarnation`;
-- the identity field on `AdapterExecution`;
-- the optional identity on the journal's `Completed` event.
-
-Plan 177 (`docs/plans/177-generate-recovery-model-coverage-from-a-resource-kind-table.md`) declares
-each kind's identity in its kind table from these.
-
-The design reference is `docs/audits/mp23-exhaustive-review-2026-10-05/C-identity.md`.

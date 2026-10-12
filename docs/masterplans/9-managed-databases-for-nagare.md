@@ -7,12 +7,10 @@ created_at: 2026-06-10T14:25:04Z
 intention: "intention_01ktryacjaezzbezmkt5j93abq"
 ---
 
-
 # Managed Databases for Nagare
 
 This MasterPlan is a living document. The sections Progress, Surprises & Discoveries,
 Decision Log, and Outcomes & Retrospective must be kept up to date as work proceeds.
-
 
 This initiative implements **Phase 4 (Managed Databases and Backups)** of the PaaS capability roadmap
 at `docs/roadmaps/paas-gap-roadmap.md`. It is the sixth initiative in the roadmap's recommended order
@@ -29,6 +27,7 @@ shipped, so this work builds the database layer directly on top of the typed `Vo
 The user-requested scope for this initiative is **three engines: PostgreSQL, Redis, and ClickHouse**
 (the roadmap's Phase 4 names PostgreSQL and Redis; ClickHouse is added here as an analytical store).
 
+Full plan before trimming: [9-managed-databases-for-nagare.md](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/masterplans/9-managed-databases-for-nagare.md). This copy keeps the purpose, progress, discoveries, decisions and outcomes.
 
 ## Vision & Scope
 
@@ -116,7 +115,6 @@ exposing a database to the public internet (databases are ClusterIP-only); a web
 extended, and the managed Secret store from MasterPlan 5 is *reused conceptually* for the
 Nagare-managed labelling and naming conventions rather than driven through `nagarectl secret`.
 
-
 ## Decomposition Strategy
 
 The initiative is decomposed into six child ExecPlans (EP-43 through EP-48). The guiding principle is
@@ -187,7 +185,6 @@ into "schedule" and "restore" plans**: rejected to keep the plan count at six �
 the retention logic, and the CronJob/Job substrate, so they are one plan with per-engine and
 schedule/restore milestones.
 
-
 ## Exec-Plan Registry
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
@@ -203,150 +200,6 @@ Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-43, EP-45). The numbers
 continue the repository's sequential plan numbering; the most recent existing plan is EP-42 (a child
 of MasterPlan 8).
-
-
-## Dependency Graph
-
-EP-43 (the substrate spike) has no dependencies and is the practical root: it runs each engine on the
-live single-node cluster from raw manifests, proves data survives a pod restart, confirms in-cluster
-reachability, and answers the open architectural questions — StatefulSet versus plain Deployment, how
-the credential Secret is generated and named, what resource limits ClickHouse needs to be viable on an
-`e2-standard-2`, and what backup command each engine uses. It produces the *verified rendered shapes*
-(the exact StatefulSet/Service/PVC/Secret stanzas per engine) and the *credential and naming contract*
-that the rest of the initiative relies on.
-
-EP-44 (the typed model and renderer) has no *hard* dependency because it is pure DSL work: the
-`Database` type, the engine enum, the JSON round-trip, and the renderer can be written and
-golden-tested without a cluster. It *soft*-depends on EP-43 because the YAML it renders must match the
-shapes EP-43 proved the cluster accepts (Integration Point IP2); if EP-44 ran first, its goldens would
-encode an unverified guess. The recommended order is EP-43 then EP-44, but EP-44 can begin in parallel
-as soon as EP-43's spike has produced the verified stanzas.
-
-EP-45 (CLI lifecycle + provisioning) hard-depends on EP-44: it applies the manifests EP-44 renders and
-operates on the typed `Database` EP-44 defines. It soft-depends on EP-43 because a *live* end-to-end
-provision needs the engines validated on the cluster; its pure logic (the subparser, the credential
-generation, the apply ordering, the table formatters) is testable without the cluster via `--dry-run`.
-
-EP-46 (app env injection) hard-depends on EP-44 for the `Database` name type and the app→database
-reference field it adds to `Deployment`, and on the credential-Secret naming/keys contract (IP3). It
-soft-depends on EP-45 because the env-injection logic can be rendered and unit-tested against the known
-Secret-name contract via `--dry-run` before EP-45's live `db create` exists; a real end-to-end "app
-reads a live database" demonstration wants EP-45 done.
-
-EP-47 (backups + restore) hard-depends on EP-44 (the engine and retention live in the typed model) and
-EP-45 (it extends the `db` command group EP-45 introduces and needs a running database with its
-credential Secret to back up). It soft-depends on EP-43 because an actual backup of live data needs a
-running engine; the GCS layout, retention pruning, and CronJob/Job rendering are unit-testable
-offline.
-
-EP-48 (docs and examples) hard-depends on EP-45, EP-46, and EP-47 because it documents and exercises
-their command surfaces end to end, and soft-depends on EP-44 to document the typed `Database` fields
-accurately.
-
-**Parallelism.** EP-43 and the non-rendering parts of EP-44 (the `Database` type, engine enum, smart
-constructors, JSON round-trip) can proceed concurrently; EP-44's renderer goldens should be finalized
-only once EP-43's verified shapes exist. After EP-44 completes, EP-45 and the rendering/unit parts of
-EP-46 can proceed in parallel (EP-46 gates on EP-45 only for the live end-to-end leg). EP-47 begins its
-GCS-layout and CronJob-rendering work in parallel with EP-45 but gates on EP-45 for the shared `db`
-command plumbing and a live database to back up. EP-48 is last.
-
-
-## Integration Points
-
-**IP1 — The typed `Database` model and its JSON shape.** Defined by **EP-44** in a new module
-`cli/nagare-dsl/src/Nagare/Dsl/Database.hs` (or an extension of
-`cli/nagare-dsl/src/Nagare/Dsl/Types.hs`), serialized via the emit path in
-`cli/nagare-dsl/src/Nagare/Dsl/Config.hs` and decoded in `cli/nagare-dsl/src/Nagare/Dsl/Load.hs` as a
-new config *kind* alongside the existing `Deployment`/`StaticSite`/`ServerSite` discriminator (the
-`SiteConfig` discriminator pattern in `Load.hs`). The shared contract is a validated record:
-
-```haskell
--- | A managed database. All fields are validated by smart constructors; the
--- data constructor is not exported, so an illegal Database cannot be built
--- (mirrors mkServiceName / mkQuantity / Volume in Nagare.Dsl.Types).
-data Engine = Postgres | Redis | ClickHouse
-  deriving stock (Generic, Eq, Ord, Show, Enum, Bounded)
-
-data Database = Database
-  { dbName    :: !DatabaseName    -- ^ DNS-label name, unique within the namespace
-  , engine    :: !Engine          -- ^ Postgres | Redis | ClickHouse
-  , version   :: !EngineVersion   -- ^ pinned image tag, validated per engine
-  , namespace :: !Namespace       -- ^ reuses the existing Namespace newtype
-  , size      :: !Quantity        -- ^ data volume size, reuses Quantity ("10Gi")
-  , resources :: !(Maybe Resources) -- ^ reuses the existing Resources record
-  , retention :: !RetentionPolicy -- ^ reuses MasterPlan 7's Retain | Delete
-  }
-  deriving stock (Generic, Eq, Show)
-```
-
-EP-45, EP-46, EP-47, and EP-48 import these types and the accessors. The JSON field names are owned by
-EP-44; later plans read the loaded `Database`, never the raw JSON. EP-44 must reuse the existing
-`Namespace`, `Quantity`, `Resources`, and `RetentionPolicy` types from `Nagare.Dsl.Types` rather than
-introduce parallel ones, and must keep every existing config compiling unchanged.
-
-**IP2 — The rendered stateful resource shapes (per engine).** *Verified* by **EP-43** (as raw YAML
-applied by hand on the live cluster) and *produced* by **EP-44** in a new renderer
-`cli/nagare-dsl/src/Nagare/Dsl/Database/Render.hs`. The two must agree exactly. The contract is: each
-`Database` renders (a) a **StatefulSet** running the engine's official image at the pinned version,
-with one replica, the data PVC mounted at the engine's data path (`/var/lib/postgresql/data`,
-`/data`, `/var/lib/clickhouse` respectively), resource limits, and the credential env wired from the
-managed Secret; (b) a **ClusterIP Service** giving stable in-cluster DNS; (c) a **PVC** with
-`storageClassName: local-path` and `accessModes: [ReadWriteOnce]` reusing the MasterPlan 7 size/quantity
-convention (or a StatefulSet `volumeClaimTemplates` entry — EP-43 decides which); and (d) the
-*structure* of the managed credential **Secret** (its keys; the values are filled by EP-45 at create
-time, not by the pure renderer). EP-43 owns the *facts* about what each engine needs (image, port,
-data path, required env vars like `POSTGRES_PASSWORD`/`POSTGRES_USER`/`POSTGRES_DB`, ClickHouse memory
-limits); EP-44 encodes those facts into the renderer and golden files. The renderer's YAML key
-ordering must extend the deterministic-ordering table the existing `Render.hs` uses.
-
-**IP3 — The managed credential Secret: naming, keys, and labels.** Defined jointly by **EP-44** (which
-owns the Secret *name* and *key* contract and the labels, so the renderer can reference them) and
-**EP-45** (which *generates the values* — a strong password — at create time and writes the Secret).
-Consumed by **EP-46** (which reads the Secret name/keys to inject connection env into apps) and
-**EP-47** (which reads it for backup/restore authentication). The contract: the Secret is named
-deterministically from the database name, e.g. `nagare-db-<name>`; it carries the labels
-`nagare.dev/managed-by: nagarectl`, `nagare.dev/database: <name>`, and `nagare.dev/engine: <engine>`
-(aligning with the `nagare.dev/managed-by` convention MasterPlan 6 stamps on Services and MasterPlan 7
-stamps on PVCs); and its keys are engine-specific but fixed — for Postgres `POSTGRES_PASSWORD`,
-`POSTGRES_USER`, `POSTGRES_DB`, and a composed `DATABASE_URL`; for Redis `REDIS_PASSWORD` and
-`REDIS_URL`; for ClickHouse `CLICKHOUSE_PASSWORD`, `CLICKHOUSE_USER`, and `CLICKHOUSE_URL`. **The
-password is never stored in `Config.hs`** (the DSL is pure and deterministic and cannot generate
-randomness); it is generated once by `nagarectl db create` and lives only in the Secret. EP-46 and
-EP-47 must query the Secret by name/label, never re-derive credentials.
-
-**IP4 — The `nagarectl db` command-group plumbing.** Introduced by **EP-45** in
-`cli/nagarectl/app/Main.hs` (a new `db` subparser following the existing `storage`/`secret` subparser
-pattern) and a new module namespace `cli/nagarectl/src/Nagare/Database/`. **EP-47** extends the same
-subparser with the `backup` and `restore` subcommands and adds modules under the same namespace,
-reusing EP-45's resource-discovery helpers (which query by the IP3 labels) and the `Cradle`-based
-`kubectl`/`gcloud` shell-out conventions used across `cli/nagarectl/src/Nagare/`. EP-45 owns the
-subparser wiring and the shared discovery helper; EP-47 must extend, not fork, them.
-
-**IP5 — The app→database connection-env contract.** Defined by **EP-46**: it adds an app→database
-reference to the `Deployment` model (a `databases :: [DatabaseName]` field, or equivalent, on the
-record in `cli/nagare-dsl/src/Nagare/Dsl/Types.hs`) and an injection function that, at deploy time,
-resolves each referenced database to its stable in-cluster DNS name and its managed Secret (IP3) and
-merges connection variables into the app's runtime env via the existing
-`cli/nagarectl/src/Nagare/Env/Generated.hs` / `mergeGenerated` mechanism. The contract fixes which
-variables are emitted per engine and which are *literals* (host, port, user, db name — injected
-inline) versus *Secret references* (the composed `DATABASE_URL`/`REDIS_URL`/`CLICKHOUSE_URL` and any
-`*_PASSWORD`, which embed the password and so must render as `valueFrom.secretKeyRef` pointing at the
-IP3 Secret). EP-44 owns the `databases` field on `Deployment` (so it round-trips through the same
-emit/decode path as the rest of the app model); EP-46 owns the injection function and the variable
-contract. EP-48 documents the exact variable names.
-
-**IP6 — The backup GCS layout and retention, reusing MasterPlan 7.** Defined by **EP-47**, building on
-the `RetentionPolicy` field EP-44 places in the model (IP1) and reusing the GCS bucket and pruning
-logic MasterPlan 7 established. The contract: `nagarectl db backup NAME` writes an engine-appropriate
-logical dump to `gs://tan-nb-exp-nagare-backups/databases/<name>/<timestamp>.<ext>` (the same bucket
-`scripts/backup-postgres.sh`, the Litestream example, and MasterPlan 7's volume snapshots use), with
-keep-last-N retention that reuses the pure `snapshotsToPrune` helper from
-`cli/nagarectl/src/Nagare/Storage/Snapshot.hs`. The scheduled CronJob writes to the same path. The
-disaster-recovery runbook (`docs/runbooks/disaster-recovery.md`) and user backup guide
-(`docs/user/backups-and-disaster-recovery.md`) are updated by EP-47 and referenced by EP-48. The GCS
-bucket name and the project-isolation rule (`tan-nb-exp` only, per the repository `CLAUDE.md`) are
-fixed constraints every plan must respect.
-
 
 ## Progress
 
@@ -364,7 +217,6 @@ milestone. This section provides an at-a-glance view of the entire initiative.
 - [x] EP-47 (2026-06-10): `nagarectl db backup NAME` renders+applies a two-container dump Job to the GCS layout `databases/<name>/<ts>.<ext>`; keep-last-N retention reuses `snapshotsToPrune`; daily self-pruning CronJob renders and is provisioned at `db create` (unless `retention = Delete`). **Live upload VERIFIED 2026-06-10** — `db backup auditpg` ran the dump Job and wrote `gs://tan-nb-exp-nagare-backups/databases/auditpg/20260610T230713Z.sql.gz` (confirmed via `gsutil ls`). _The EP-43 flannel/metadata routing regression that previously blocked this no longer reproduces on the current cluster (see Decision Log / Surprises)._
 - [x] EP-47 (2026-06-10): `nagarectl db restore NAME BACKUP_ID` renders a scratch-first restore Job (`--into-live` opt-in); restore drill documented; disaster-recovery runbook + user backup guide updated (incl. the routing caveat). 207 nagarectl tests pass. **Restore drill VERIFIED live 2026-06-10**: restoring `20260610T230713Z` into the scratch target `auditpg_restore_scratch` recreated the `audit_probe` table with `COPY 1` (the exact row written before the backup), proving the round-trip and the scratch-first/promote-manually flow.
 - [x] EP-48 (2026-06-10): User guide `docs/user/managed-databases.md` written + cross-linked; one end-to-end example per engine (`postgres-app`, `redis-cache`, `clickhouse-analytics`) renders via `db create --dry-run` (configs emit valid JSON; ClickHouse shows its memory limit + dual ports). **Live deploy + restore drill EXECUTED and VERIFIED 2026-06-10** (see EP-45/46/47 entries above): all three engines created and queried live, connection-env injection proven against a live Secret, a real GCS backup written, and a scratch restore round-tripped the data. The flannel/metadata routing regression no longer reproduces.
-
 
 ## Surprises & Discoveries
 
@@ -406,7 +258,6 @@ between child plans. Provide concise evidence.
   should emit a per-engine readinessProbe, and/or EP-45's "wait for ready" must poll the engine
   (`pg_isready` / `redis-cli ping` / ClickHouse `SELECT 1`), not just the StatefulSet rollout.
   Evidence: EP-43 Surprises & Discoveries.
-
 
 ## Decision Log
 
@@ -499,7 +350,6 @@ Record every decomposition or coordination decision made while working on the ma
   MasterPlan 8).
   Rationale: follows the repository's sequential numbering with no manual renumbering.
   Date: 2026-06-10
-
 
 ## Outcomes & Retrospective
 

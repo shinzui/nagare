@@ -48,13 +48,13 @@ provenance:
 
 This ExecPlan is a living document and a child of [MasterPlan 23](../masterplans/23-make-managed-resources-first-class-through-typed-scoped-inventories.md). Keep Progress, Surprises & Discoveries, Decision Log and Outcomes & Retrospective current. It was consolidated on 2026-10-02; the earlier dated checkpoints, native handoffs and full decision history are preserved verbatim in [the pre-consolidation snapshot](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-archive/plan-history/ep158-before-consolidation-2026-10-02.md). Nothing in that snapshot overrides this file.
 
+Full plan before trimming: [158-complete-reviewed-access-and-cdn-operations.md](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/plans/158-complete-reviewed-access-and-cdn-operations.md). This copy keeps the purpose, progress, discoveries, decisions and outcomes.
 
 ## Purpose / Big Picture
 
 An operator of an inventory-backed Nagare context can admit a person to a protected application, remove them again, keep the login portal in step with every protected application, and purge, disable or retire an application's CDN routing — each through a saved review that is inspected, applied and, if interrupted, resumed. Each command changes only its selected grant, hostname or authorized contribution; other applications, other users and every platform scope revision stay byte-identical. A lost provider response is recovered by observation, never by resending the write.
 
 To see it working: `nagarectl access grant --host HOST --user SUBJECT --save-plan DIR` followed by `nagarectl inventory apply DIR --yes` makes the protected host return the application to that user and leaves a neighbor host unchanged; `nagarectl cdn disable HOST --save-plan DIR` produces a review with exactly one DNS update from the CDN address to the origin address.
-
 
 ## Progress
 
@@ -65,7 +65,6 @@ To see it working: `nagarectl access grant --host HOST --user SUBJECT --save-pla
 - [x] On the final candidate's fresh cloud context, a Google CDN host record is created by reviewed application deploy, disabled, retired and collected with exact identities and neighbors preserved, and an independent reviewer records the lifecycle result (MP-23 B3, run under EP-156 in C3). (2026-10-09: nagare-verify, `83124396` on `mp23-c3m`. Four converged transactions moved `scenario-cdn`'s record to the CDN address, back to the VM origin on `cdn disable`, kept it on retirement and collected it. Each step recorded the exact zone listing (value and TTL 300), [google-cdn](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/release-evidence/831243962c6b80f91da1028cdab8238ae6acdabd/cloud/checks/google-cdn/result.json). Neighbor scopes kept their revisions, [independent-scope-preservation](https://github.com/shinzui/nagare/tree/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/release-evidence/831243962c6b80f91da1028cdab8238ae6acdabd/cloud/checks/independent-scope-preservation).)
 - [x] Access grant/revoke with lost-acknowledgement recovery and portal sync re-proven natively on the final candidate (MP-23 C3; safe-use gate). (2026-10-09: on `83124396`, C3 killed an access grant after its transaction began. `inventory resume` converged the same transaction, the subject was listed, and the reviewed revoke removed it, [access-grant-revoke](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/release-evidence/831243962c6b80f91da1028cdab8238ae6acdabd/cloud/checks/access-grant-revoke/result.json). C2 showed the same locally. Grants are checked through `access list`, not a browser, because D3 keeps browser login a restriction. Portal sync converged natively on the earlier candidate `3ae20f8c` (`mp23-c3j`, [runbook execution](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-07/runbook-execution-3ae20f8c/synchronize-protected-backend/result.json)). The only later access change, `b171712a`, concerns retiring a revoked grant, not portal sync.)
 - [x] The HTTPS and protected-browser-login disposition is recorded (2026-10-03, operator decision D3): it is a stated restriction of this release, not an acceptance criterion. The fixture is HTTP-only and protected browser login has not been accepted; EP-157's release notes list both as unmet production targets (MP-23 B3).
-
 
 ## Surprises & Discoveries
 
@@ -80,7 +79,6 @@ Native runs exposed three routing facts. Protected backend Services must be clus
 The public CDN tests found missing retirement observations, missing historical collection bindings, rejection of a valid same-owner DNS/route hostname pair, generated-namespace overlap in disable, and a runtime guard that wrongly required the desired target to equal the CDN address. All are fixed in `8bcd84f0`/`71068ad0`. Last-contributor retirement now carries the unchanged Retain namespace to its surviving platform owner.
 
 `cli/nagarectl/src/Nagare/Cdn/Cloudflare.hs` maps an empty purge path list to a whole-zone purge; the reviewed host command never passes an empty list, and whole-zone purge requires `--whole-zone`.
-
 
 ## Decision Log
 
@@ -100,7 +98,6 @@ Decisions still in force, condensed. Verbatim entries are in [the snapshot](http
 
 2026-09-26: this plan takes the unfinished access/CDN outcome from EP-148 without dropping features or resetting delivered work.
 
-
 ## Outcomes & Retrospective
 
 **Status (2026-10-09): Complete.** v0.4.0 (`83124396`) ships reviewed access grant, revoke and portal sync, CDN purge and disable, and exact retained DNS collection.
@@ -110,66 +107,3 @@ Decisions still in force, condensed. Verbatim entries are in [the snapshot](http
 
 Earlier (2026-10-03): all four reviewed operations — access grant/revoke, portal sync, CDN purge and disable, and exact retained DNS collection — exist and pass public-command tests against bounded or recording providers, and their source fixes are independently verified. Native access was demonstrated, but only on a retired fixture. Remaining: native Google CDN lifecycle and native access on the final candidate. D3 is decided: HTTPS/browser login is a stated release restriction. Lesson: public-command tests with realistic composed scopes found integration defects that unit tests over single scopes missed; run them before any native attempt.
 
-
-## Context and Orientation
-
-A *scope* is one owner's complete declared resource set; the *inventory* composes all scopes and checks shared claims. A *review* is an immutable, digest-named plan of native effects saved with `--save-plan DIR`; `nagarectl inventory apply DIR --yes` admits and executes it, and `nagarectl inventory resume tx-<digest> --yes` continues an interrupted one from the private *journal*. A *physical identity* (Kubernetes UID, DNS record value and TTL, provider rule version) names one actual incarnation; names alone never authorize a write. An *access tuple* is one (protected host, user, relation) entry in the En authorization service. The *portal* is the Shomei login service; the *enforcer* is the proxy that checks tuples in front of protected backends ([ADR 15](../adr/0015-the-auth-portal-hands-sessions-to-nagare-access-through-response-headers.md)).
-
-Access: `cli/nagarectl/src/Nagare/Inventory/Access.hs` and `AccessRuntime.hs` compile and execute tuple and portal reviews; `cli/nagarectl/src/Nagare/Access/Reviewed.hs` and `Grants.hs` hold the command and tuple wire; `cli/nagarectl/src/Nagare/Inventory/Components/Auth.hs` and `Application.hs` supply owner grants and application contributions. CDN: `cli/nagarectl/src/Nagare/Inventory/Adapters/Cdn.hs`, `CdnRuntime.hs`, `Cloudflare.hs` and `CloudflareRuntime.hs`, plus `cli/nagarectl/src/Nagare/Cdn/CdnPurge.hs`. A Google host record is created by the application's reviewed deploy and requires an accepted platform BackendService (see the Google CDN row of `docs/architecture/managed-resource-coverage.md`). Tests: `cli/nagarectl/test/AccessGrantsSpec.hs`, `AccessResolveSpec.hs`, `InventoryCdnSpec.hs` and the three public scripts named in Progress.
-
-[ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md) requires independent ownership and exact reviewed effects. [ADR 20](../adr/0020-domain-routing-and-tls-ownership-are-explicit.md) reserves hostname ownership and separates routing from TLS readiness. [ADR 9](../adr/0009-assert-the-active-context-project-on-every-cloud-mutating-path.md) requires the active context's project on every cloud mutation. [ADR 4](../adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md) keeps private history and credentials out of payloads and public output.
-
-
-## Plan of Work
-
-Source work is complete. What remains is native proof on the final candidate, executed inside EP-156's bounded, operator-approved cloud sequence (MasterPlan C3) rather than as a separate cloud run. On the fresh cloud context with the platform CDN backend enabled: deploy an application whose scope declares a Google CDN host, then `cdn disable` it, retire the application scope, and collect the retained DNS record, checking at each step the exact record value and TTL, the preserved apex and neighbor records, and unchanged unrelated scope revisions. In the same sequence, grant one user to one of two protected hosts, interrupt the acknowledgement, resume, revoke, and run portal sync, checking that the second host and other users are untouched. An independent reviewer records the result in this plan and [the findings tracker](../audits/mp23-findings.md).
-
-
-## Concrete Steps
-
-Run from the repository root in the development shell. These checks use recording or bounded providers and mutate nothing.
-
-```bash
-(cd cli/nagarectl && cabal test nagarectl-test --test-options='-p access' --test-show-details=failures)
-(cd cli/nagarectl && cabal test nagarectl-test --test-options='-p CDN' --test-show-details=failures)
-NAGARECTL="$(cd cli/nagarectl && cabal list-bin exe:nagarectl)"
-python3 scripts/test-access-reviewed-public.py "$NAGARECTL" "$(cd cli/nagarectl && cabal list-bin test:nagarectl-test)"
-python3 scripts/test-cdn-disable-public.py --nagarectl "$NAGARECTL"
-python3 scripts/test-cdn-purge-public.py --nagarectl "$NAGARECTL" --ambiguous-response redirect
-python3 scripts/test-cdn-purge-public.py --nagarectl "$NAGARECTL" --collection --last-contributor
-python3 scripts/test-cdn-purge-public.py --nagarectl "$NAGARECTL" --google-dns --last-contributor
-just haskell-style-check
-```
-
-Expected: every command exits zero; the disable script ends with `Public CDN-disable contribution regression passed`. A selected test group that runs zero tests is a failure. The public command forms used natively (each with a fresh review directory, applied one at a time) are:
-
-```bash
-nagarectl access grant --host "$HOST" --user "$SUBJECT" --save-plan "$REVIEW"
-nagarectl access revoke --host "$HOST" --user "$SUBJECT" --save-plan "$REVIEW"
-nagarectl access portal sync --save-plan "$REVIEW"
-nagarectl cdn purge "$HOST" --path /selected --purge-id "$ID" --save-plan "$REVIEW"
-nagarectl cdn disable "$HOST" --save-plan "$REVIEW"
-nagarectl inventory retire --scope "application:$APP" --out "$REVIEW"
-nagarectl inventory collect --resource "$DNS_RESOURCE_ID" --out "$REVIEW"
-nagarectl inventory apply "$REVIEW" --yes
-```
-
-
-## Validation and Acceptance
-
-Access is accepted when, on the final candidate, a granted user reaches the protected host, a revoked user does not, the second host and other users are unchanged, a lost acknowledgement resumes without a second write, and no secret appears in reviews, errors or evidence. CDN is accepted when the Google record's create, disable, retire and collect each show only the reviewed target, preserve the apex, backend and neighbor records, and refuse a changed record; Cloudflare's offline recorder proof stands. Record the candidate revision, review and transaction IDs, commands, results and evidence location, and keep recording-provider proof distinct from native provider proof.
-
-
-## Idempotence and Recovery
-
-Each review directory is single-use; reuse a purge ID only with identical intent, and changed input requires a new review. An unknown provider result stays unresolved until observation proves it; resume the original transaction rather than re-planning. No blind replay, prefix-based cleanup or history reset. Cloud steps run only inside EP-156's approved sequence under the active context's guardrail. Use Mori for dependency sources and never search `/nix/store`.
-
-
-## Interfaces and Dependencies
-
-Hard prerequisites [EP-146](146-reconcile-cloud-host-and-artifact-resources-through-inventory-adapters.md), [EP-147](147-compile-cluster-bootstrap-into-owned-resource-components.md), [EP-149](149-explain-drift-and-execute-reviewed-adoption-migration-and-retirement.md) and [EP-151](151-store-inventory-history-in-the-context-state-bucket-with-conditional-writes.md) are complete. [EP-153](153-close-managed-command-coverage-for-the-inventory-release.md) consumes the command registration and coverage rows; [EP-156](156-prove-fresh-gcp-convergence-and-shared-history-recovery.md) runs the native Google and access proof; [EP-155](155-prove-local-application-and-data-recovery-end-to-end.md) exercises protected routing locally; [EP-157](157-gate-the-inventory-release-on-complete-immutable-evidence.md) checks the complete release.
-
-
-## Revision Notes
-
-2026-10-02: Consolidated with MP-23; history in the snapshot.

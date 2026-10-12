@@ -128,13 +128,13 @@ provenance:
 
 This ExecPlan is a living document. It was consolidated with [MasterPlan 23](../masterplans/23-make-managed-resources-first-class-through-typed-scoped-inventories.md) on 2026-10-02; the previous text, including every dated checkpoint, handoff and superseded instruction, is preserved verbatim in [the pre-consolidation snapshot](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-archive/plan-history/ep153-before-consolidation-2026-10-02.md). Nothing in that snapshot overrides this file.
 
+Full plan before trimming: [153-close-managed-command-coverage-for-the-inventory-release.md](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/plans/153-close-managed-command-coverage-for-the-inventory-release.md). This copy keeps the purpose, progress, discoveries, decisions and outcomes.
 
 ## Purpose / Big Picture
 
 After this plan, every command an operator can run that changes a Nagare-managed resource — each `nagarectl` subcommand, each `just` recipe, and each production call into the inventory library — either goes through the reviewed inventory path (compile, review, apply, resume with a durable journal) or refuses with an explicit, tested guard. No supported command reaches cloud, host or cluster state through an older imperative path that bypasses review. The operator-approved exclusions (interactive `db shell`, scheduled keep-N pruning, live database/volume overwrite) refuse new work but still let already-admitted work be observed and recovered.
 
 To see it working, run the command audit (`scripts/audit-managed-commands.py`, see Concrete Steps). Today it reports registration complete but coverage incomplete: two routes and three recipes are still `pending`, and 26 catalogue rows are gaps. When this plan is done, the same audit run against the release candidate emits a coverage result with `complete: true`, empty pending and error lists and the candidate's source revision, which the release gate ([EP-157](157-gate-the-inventory-release-on-complete-immutable-evidence.md)) consumes as `coverage.json`. This plan also owns the open MP-23 findings F30, F32 and F33 (with EP-156) and the repository-wide Haskell style gate.
-
 
 ## Progress
 
@@ -153,7 +153,6 @@ Full dated history is in [the snapshot](https://github.com/shinzui/nagare/blob/0
 - [x] (MP-23 A6) `just haskell-style-check` (structural checks, Fourmolu over every tracked `cli/**/*.hs` file, Cabal Gild) passes (2026-10-02). Formatting-only commit `d4aa7168` reformatted 167 files and rebased `scripts/haskell-size-allowances.json` on formatted line counts. The gate exits 0 on that tree and on every later commit this session; all 1,129 `nagarectl` and the `nagare-dsl` tests pass, and `nagare-access` builds. (2026-10-09: the style check is a step of the green gate record on the final candidate `83124396`; [gate](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-07/gate-83124396.json).)
 - [x] F35 closed: an admitted transaction stopped by a later operation's refused preflight has a reviewed exit. Source and native implementer proof (2026-10-03, `570467f0`): new decision `abandon-refused-operation`, four regression variants, and a native cp3 race that ended without deleting the foreign object (tracker F35). Independent verification remains. (2026-10-09: F35 Closed by the independent reviewer on candidate `7596632c`, which re-ran the native race on the C2 context; [phase-1 record](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-04/phase1-source-and-regressions-7596632c.md), [tracker](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-archive/mp23-findings-closed.md#f35). ADR 26 later replaced the decision with `inventory close`.)
 - [x] (MP-23 B4) The `Cleanup` and `InfraDestroy` routes and the `infra-destroy`, `smoke` and `local-smoke` recipes are promoted from `pending` with public review → apply → observe/recover proof; each of the 26 gap rows (`partial` or `adapter-ready`) in `docs/architecture/managed-resource-coverage.md` is migrated or an explicit guarded exclusion; the audit emits `complete: true` for the candidate revision for EP-157 (MP-23 C5). Progress (2026-10-03, implementer, `ae1f26ee` and `5abc56f5`): all 26 gap rows were rechecked against the code. Now 24 are `migrated`, each naming its guarded exclusions and C-phase proof owner; the Nix builder is `delegated`; and two rows that relied on an audit title exemption are `excluded`. The remaining direct paths now refuse after admission: the net-certmanager controller import, `just local-down` and the legacy `upload-images.sh` publish. Named `init` no longer runs gcloud for local contexts. Stale access, Cloudflare and local auth docs are fixed. `smoke` and `local-smoke` read back the restored sentinel from the pinned restore manifest (`fc8cba5b`), and the audit now registers them as reviewed. Remaining: one gap row (cleanup, waiting on F32) and three pending items (`Cleanup`, `InfraDestroy`, `infra-destroy`), each waiting on the independent F32/F33 closure and its native proof. (2026-10-09: the audit result for the final candidate is generated with `complete: true`, `dirty: false`, `sourceRevision` `83124396`, empty `pending`, `pendingRecipes`, `incompleteCatalogueRows` and `errors`, and the exact deferred and recovery-only sets; [coverage.json](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/release-evidence/831243962c6b80f91da1028cdab8238ae6acdabd/coverage.json). C5 consumed it. Native proofs on the release line: preview cleanup in C2 and C3 on `83124396` ([C2](https://github.com/shinzui/nagare/tree/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-07/c2-acceptance-83124396), [C3](https://github.com/shinzui/nagare/tree/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-07/c3-acceptance-83124396)), image cleanup (F32 above), and staged teardown stage 1 on `mp23-c3i`, which closed F39 ([c3i teardown](../audits/mp23-independent-results-2026-10-07/c3i-teardown/)). Later teardown stages are blocked by F84; see A1.)
-
 
 ## Surprises & Discoveries
 
@@ -177,7 +176,6 @@ Only entries that still shape the work are kept; the rest are in [the snapshot](
 
 2026-10-02: The native preview cleanup run also removed one uninventoried, ownerless `Endpoints` object that shared a reviewed descendant Service's name. Kubernetes garbage collection gives no atomic namespace UID boundary, so reviewed descendant collection must not claim one.
 
-
 ## Decision Log
 
 Decisions still in force, condensed. Full entries are in [the snapshot](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-archive/plan-history/ep153-before-consolidation-2026-10-02.md).
@@ -200,7 +198,6 @@ Decisions still in force, condensed. Full entries are in [the snapshot](https://
 
 2026-09-26: Coverage proof is the generated, revision-bound audit result, never a hand-written flag ([ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md)). This plan owns command/consumer cutover (including EP-148 M4's smoke and webhook consumers); access/CDN, backups and restore belong to EP-158–160, packaging to EP-154, and native scenarios to EP-155/156.
 
-
 ## Outcomes & Retrospective
 
 **Status: Complete (2026-10-09).** Every required item is met on the final candidate `83124396` or explicitly moved.
@@ -213,65 +210,3 @@ Non-gating hardening noted by the 2026-09-30 review remains: partial functions o
 
 Lesson: checkpoint narration inside Progress grew faster than it was reconciled and hid which families were actually open. Record one line per outcome with evidence, and keep raw output in the dated results directories.
 
-
-## Context and Orientation
-
-Terms used here. A *scope* is one owner's complete desired resource set (a platform component, an application, a context). The *inventory* composes all scopes and validates shared claims. A *review* is an immutable saved plan binding exact native inputs; *admission* turns a published review into executable authority under the store lock; the *journal* records each operation's intent and verified receipt so `inventory resume` never repeats a completed effect. A *route* is one typed `nagarectl` command variant, a *recipe* is a `justfile` target, and a *library call* is a production call into `Nagare.Inventory.Command`. A *deferred* route refuses new admission by operator decision; a *recovery-only* route exists only to finish already-admitted work. In the coverage catalogue, a *gap row* is a mutation family with status `partial` or `adapter-ready`; `partial` means some promised behavior or proof is missing, `adapter-ready` means the adapter exists but no production command uses it.
-
-Key files. `scripts/audit-managed-commands.py` holds the registry (route states `reviewed`, `pending`, `deferred`, `recovery`, recipe lists, library calls), regenerates `docs/architecture/managed-resource-coverage.md` between its `managed-command-registry` markers, and emits the coverage JSON. `scripts/test-managed-command-audit.sh` runs it with injected-mutation and architecture fixtures. Command handlers are in `cli/nagarectl/app/Nagare/Cli/Commands/` (for example `Host.hs`, `Infrastructure.hs`, `Context.hs`) and inventory factories in `cli/nagarectl/app/Nagare/Cli/Inventory/` (`ImagePrune.hs`, `VmPower.hs`, `Execution.hs`); ownership is documented in `cli/nagarectl/app/README.md` and `cli/nagarectl/src/Nagare/Inventory/README.md`. The library protocol is `cli/nagarectl/src/Nagare/Inventory/{Command,Plan,Execute,OperationStep,Store}.hs`; cloud collection is `CloudCollection.hs` with `Adapters/Pulumi.hs` and `Adapters/PulumiRuntime.hs`. Entry-point guards are `scripts/test-inventory-entrypoint-guards.sh` and `scripts/test-application-entrypoint-guards.sh`. Smoke consumers are `scripts/local-smoke.sh` and `scripts/live-smoke.sh`. The operator procedure is [the inventory operations runbook](../runbooks/inventory-operations.md). Finding IDs and status live in [the findings tracker](../audits/mp23-findings.md); only an independent verifier closes a finding.
-
-Relevant ADRs: [ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md) (composed scopes, reviewed effects, revision-bound evidence, descendant collection limits); [ADR 6](../adr/0006-version-platform-state-across-cli-payload-context-host-and-cluster.md) (fresh contexts only; no in-place platform version change after admission); [ADR 4](../adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md) (operator state outside payloads); [ADR 9](../adr/0009-assert-the-active-context-project-on-every-cloud-mutating-path.md) and [ADR 11](../adr/0011-host-activation-is-guarded-and-self-reverting.md) (cloud and host mutation guards); [ADR 16](../adr/0016-adopt-haskell-jitsurei-for-production-haskell.md) (Haskell style and module boundaries).
-
-
-## Plan of Work
-
-M1 (complete) made the command surface finite: every route, recipe and library call is registered, an unregistered mutation fails CI, and the catalogue is generated from the registry rather than written by hand.
-
-M2 makes that surface complete for the supported release contract. Work it in MasterPlan order. First the Phase A blockers. For F33 (A1), extend the checkpoint in `CloudCollection.hs`/`Adapters/PulumiRuntime.hs` so preparation records the selected stack entry, physical ID and protection taken from the original retained inventory incarnation, and both preflight and the step immediately before `pulumi up --plan` re-read and compare them; add a regression that changes the entry between preflight and execution. For F32 (A2), make the image-prune script observe pod sandboxes (`crictl pods`/`inspectp`) and the configured sandbox image, protect every referenced image ID, and refuse when those observations fail; exercise the actual script through `scripts/test-image-prune-protocol.py`. For F30 (A4), resume the preserved transaction through the public path only, then hand the identities and row check to the independent verifier together with F16. For A6, fix Fourmolu drift across all tracked Haskell files in formatting-only commits and record a green `just haskell-style-check`.
-
-Then B4: promote the remaining families. `Cleanup` becomes `reviewed` once preview, release-history and image cleanup all have candidate-bound proof; `InfraDestroy` and `infra-destroy` once staged teardown passes with F33 closed; `smoke` and `local-smoke` once their scripts use only reviewed routes and include an explicit restored-sentinel readback. Walk the 26 gap rows and assign each failure to its owning child (EP-155/158/159/160 for feature and native bindings); repair concrete omissions within promised families, and record any requested new exclusion as a MasterPlan decision instead of inventing behavior. Update `docs/user` with the exact supported commands and recovery limits. The result is an audit run at the candidate revision with `complete: true`.
-
-
-## Concrete Steps
-
-Run from the repository root in the project development shell. Run the two Haskell suites one after the other, never concurrently (the DSL loader tests read the shared `.ghc.environment.*` file).
-
-```bash
-python3 scripts/audit-managed-commands.py --coverage-result "${TMPDIR:-/tmp}/nagare-command-coverage.json"
-bash scripts/test-managed-command-audit.sh
-(cd cli/nagarectl && cabal test nagarectl-test --test-show-details=failures)
-(cd cli/nagare-dsl && cabal test nagare-dsl-test --test-show-details=failures)
-just test-inventory-effects
-just haskell-style-check
-nagarectl_bin="$(cd cli/nagarectl && cabal list-bin exe:nagarectl)"
-bash scripts/test-inventory-entrypoint-guards.sh "$nagarectl_bin"
-bash scripts/test-application-entrypoint-guards.sh "$nagarectl_bin"
-python3 scripts/test-image-prune-protocol.py
-okf validate docs/user --strict --profile mori/user-documentation-profile.dhall --profile-enforce --log-enforce
-```
-
-The audit exits nonzero only for registration errors. Until B4 is done, expect `"complete": false` with `"pending": ["Command.Cleanup", "InfraCommand.InfraDestroy"]`, `"pendingRecipes": ["infra-destroy", "local-smoke", "smoke"]` and 26 entries in `"incompleteCatalogueRows"`; `complete` is also false whenever the working tree is dirty, so acceptance runs use a clean checkout of the candidate. The audit test injects an unregistered mutation, which must make the inner audit fail while the test script itself exits zero.
-
-
-## Validation and Acceptance
-
-The plan is accepted when, at the final candidate revision: the coverage result is generated (not edited) with `complete: true`, `dirty: false`, the candidate's `sourceRevision`, empty `pending`, `pendingRecipes`, `incompleteCatalogueRows` and `errors`, and the exact deferred and recovery-only sets; every deferred variant refuses before provider access at both the CLI and saved-review admission while admitted work can still be resumed by its original identity; each promoted family has a public review → apply → observe/recover proof showing protected data, retained history and unselected scopes unchanged; F30, F32 and F33 are Closed and F16 is no longer Verifying in the tracker by independent verification; and `just haskell-style-check` passes. Passing inherited suites is regression evidence, not proof of a new outcome. Native evidence must name the candidate revision and target context.
-
-
-## Idempotence and Recovery
-
-All audit and test commands are read-only or use isolated temporary state and can be rerun. Native work uses exact named disposable contexts under the active-context guardrail. After interruption, inspect and resume the same transaction (`nagarectl inventory resume`) instead of regenerating a changed review; an unknown provider result is never treated as absence. Never delete by broad project, namespace or prefix, never apply the known-unsafe F32 review, and do not run cloud teardown until F33 is closed. Cloud-mutating sequences need one rehearsed, operator-approved bounded batch. Nothing here publishes a release.
-
-
-## Interfaces and Dependencies
-
-The coverage producer emits `schemaVersion: 1` with `sourceRevision`, `candidateDigest` (a hash over every executable module), `dirty`, `registeredRoutes`, `recipes`, `libraryCalls`, `entrypoints`, `pending`, `pendingRecipes`, `deferredRoutes`, `recoveryOnlyRoutes`, `incompleteCatalogueRows`, `errors` and `complete`. Its readers are `scripts/assemble-managed-resource-evidence.sh` (`--coverage-result`), `scripts/assemble-inventory-release-index.py` and `cli/nagarectl/src/Nagare/Inventory/ReleaseEvidence.hs`; change producer and readers together if the schema changes, and never add an ignore list or override flag.
-
-Dependencies: completed EP-146/147/149/151/152 supply the adapters and bootstrap. [EP-158](158-complete-reviewed-access-and-cdn-operations.md), [EP-159](159-complete-scheduled-backup-receipts-and-exact-retention-pruning.md) and [EP-160](160-complete-fenced-live-data-restore-across-supported-engines-and-volumes.md) own the access/CDN, backup and restore rows. [EP-156](156-prove-fresh-gcp-convergence-and-shared-history-recovery.md) co-owns F30–F33 native verification and the F30 resume; [EP-155](155-prove-local-application-and-data-recovery-end-to-end.md) owns native local collection/migration bindings. [EP-154](154-validate-installed-inventory-packages-on-every-supported-system.md) packages the result and [EP-157](157-gate-the-inventory-release-on-complete-immutable-evidence.md) consumes `coverage.json`.
-
-
-## Revision Notes
-
-2026-10-02: Consolidated with MP-23; history in the snapshot.
-
-2026-10-09: Reconciled at MP-23 close against the final candidate `83124396`: A2, A4, F35 and B4 ticked with evidence; A1 (F33) moved to the next release; status Complete.

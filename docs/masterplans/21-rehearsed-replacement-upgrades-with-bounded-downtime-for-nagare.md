@@ -38,6 +38,7 @@ provenance:
 This MasterPlan is a living document. Keep Progress, Surprises & Discoveries, Decision Log,
 and Outcomes & Retrospective current. The registry owns child status; children own milestones.
 
+Full plan before trimming: [21-rehearsed-replacement-upgrades-with-bounded-downtime-for-nagare.md](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/masterplans/21-rehearsed-replacement-upgrades-with-bounded-downtime-for-nagare.md). This copy keeps the purpose, progress, discoveries, decisions and outcomes.
 
 ## Vision & Scope
 
@@ -117,7 +118,6 @@ schema rollback, scheduled pruning, volume recovery-point guarantees and broad g
 are not silently imported from MP-23's deferrals. Full-context teardown remains
 [MP-25](25-reviewed-full-context-teardown-with-vm-workload-collection.md)'s responsibility.
 
-
 ## Decomposition Strategy
 
 Retain the six child identities and useful partial code, but make each responsible only for the
@@ -153,7 +153,6 @@ protected-disk and explicit VM-shape rules from ADRs 9, 13, 12 and 14. No new de
 chosen by this refresh. Implementers must use Mori for dependency source/docs and verify registries
 and upstream tags before changing bounds or pins; never traverse `/nix/store`.
 
-
 ## Exec-Plan Registry
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
@@ -167,96 +166,6 @@ and upstream tags before changing bounds or pins; never traverse `/nix/store`.
 
 No child becomes Complete merely because an overlapping MP-23 primitive or drill exists.
 EP-123, EP-126 and EP-127 retain credit for their partial provider-independent contracts.
-
-
-## Dependency Graph
-
-**Current phase (2026-10-09):** only EP-122 runs, with M2 (the measured spike) before M1. M1's
-fake-`gcloud` contract tests are deferred until the operator resumes the plan, because the spike
-exercises provider behaviour, not Nagare code: it is a first-principles measurement, not a native
-run of an unmodelled Nagare path
-([ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md)). The graph
-below applies if the plan resumes.
-
-EP-122 and EP-123 may proceed independently. EP-122 owns measured provider feasibility;
-EP-123 owns the pure model, store binding and non-mutating plan/status surface. EP-123 can describe
-abstract address movement without assuming a live sequence. It cannot authorize readiness without
-accepted provider evidence. EP-124 owns reconciliation of their concrete phase/evidence contracts
-at the join before any candidate mutation.
-
-EP-124 requires both children complete and accepts that reconciliation in its first milestone. It must first prove an
-existing active-only stack can adopt slots without replacement/deletion. EP-125 and EP-126 then
-build against the same candidate identity. Their implementations can proceed independently, but
-final rehearsal evidence requires matching fence, seed and verification reports from both.
-
-EP-127 requires EP-125 and EP-126 complete. Its existing injected executor may be tested earlier,
-but concrete cutover and live drills remain gated on the complete candidate, fence and state
-contracts. All native runs follow `docs/runbooks/before-a-native-run.md`; cloud mutations require a
-bounded operator-approved sequence. This document refresh authorizes no infrastructure mutation.
-
-
-## Integration Points
-
-**1. Replacement control record and inventory authority — EP-123.**
-`cli/nagarectl/src/Nagare/Platform/Replacement.hs` owns phases, budget, evidence references and
-source/target release/schema bindings. `Nagare.Inventory.Store`, `Plan`, `Execute`, `Journal` and
-`Command` remain the authority for admission and effects. A replacement record describes workflow;
-it never grants mutation authority by itself. Derived private workspace files are caches/evidence,
-not an alternate head. EP-123 owns the producer/consumer test through real inventory admission,
-interruption, fresh-root reload and resume before EP-124 expands provider effects.
-
-**2. Candidate resources and identities — EP-124.** Cloud physical identity recorded at creation
-(VM, disks, address) is built once by MasterPlan 25's EP-165 as an ADR 27 §4 amendment. EP-124 reuses
-it rather than building its own binding. Release and schema compatibility pairs come from MasterPlan
-26 EP-172's compatibility table. Cleanup (EP-127) reuses MasterPlan 25's reviewed collection and
-destruction intent.
-`infra/pulumi/src/components/NagareHostSlot.ts` is proposed, not implemented. The current
-`NagareInstance.ts`, `NagarePerimeter.ts` and `NagareNetwork.ts` supply the singleton baseline.
-EP-124 extends typed cloud/host declarations and native registration parity together. Candidate
-resources are declared and reviewed before creation; returned creation identities bind their
-incarnations. MP-23's ADR 27 guarantee is Kubernetes-only; exact GCE VM/disk identity binding is
-remaining replacement work, not an inherited claim. Address claims include cluster/provider identity so active and candidate objects do
-not collide accidentally. Exact old and candidate resource manifests, protected-disk policy and
-shared-perimeter exclusions are consumed by EP-127.
-
-**3. Candidate scope composition and targeting — EP-124/125.**
-EP-124 owns host-flake, instance and kubeconfig identity; EP-125 consumes it for all operations.
-Candidate declarations derive from accepted scopes and the exact target payload. They have
-explicit candidate addresses and ownership; rehearsal overlays are inputs to reviewed inventory,
-not mutations of a rendered bundle after review. Existing application scope revisions remain
-unchanged unless an explicit reviewed migration selects them. No candidate action implicitly
-rewrites the active context or uses ambient kubeconfig selection.
-
-**4. Fence and rehearsal report — EP-125.**
-One digest-bound, expiring report records exact target identities, policy, component checks,
-application probes and state seed. EP-126 attaches state verification to it; EP-127 revalidates
-it and any checks affected by production credential/TLS arming. Undeclared side effects and
-unknown pod-bearing kinds block execution rather than escaping through a permissive overlay.
-
-**5. Transfer coverage and evidence — EP-126.**
-`Nagare.Platform.StateTransfer` derives transfer items from accepted inventory plus live
-observations. Existing `Nagare.Inventory.Backup`, `Restore`, `VolumeRestore`, receipt, escrow and
-freshness modules supply reusable primitives. Logical ownership, physical incarnation, consistency,
-source and candidate location, measurement and support are recorded per item. Unmatched retained
-state is a blocker. Seed, final copy and verification stay inside reviewed effects; ordinary backups
-are independent and never pruned by replacement cleanup.
-
-**6. Deadline, promotion and recovery — EP-127.**
-`Nagare.Platform.Cutover` keeps an injected monotonic clock and the ADR 19 write-admission boundary.
-The native adapters reconcile observed address, gate, host, store and context state after
-interruption. Promotion coordinates accepted inventory bindings with context host/kubeconfig,
-release identity and cluster stamp through recoverable reviewed steps; it never claims an atomic
-cross-tool update. Post-admission recovery preserves all acknowledged writes. Cleanup uses exact
-incarnations and reviewed collection, refusing unresolved dependents and shared resources.
-
-**7. Validation and durable decisions — all children, final integration EP-127.**
-Each child adds meaningful effect-interpreter regressions for its owned failure classes before
-native confirmation. Follow current ADR 25 and release gates (`just gate`, zero-survivor
-`just mutation-sweep`, validated-world fast tier, deep monitoring with triage). EP-122 supplies
-provider measurements; EP-127 supplies forward and forced-rollback drills with public TLS/auth/data
-verification and finalizes ADR 19. MP-23 HTTP-only fixture evidence is not substituted for these
-replacement-specific public-path checks.
-
 
 ## Progress
 
@@ -284,7 +193,6 @@ No new implementation or native proof is claimed by this refresh. Child status r
 from evidence credited as an input. General payload/schema upgrades and complete service rebuild
 after disaster remain outside the accepted ordinary node/database drills.
 
-
 ## Surprises & Discoveries
 
 2026-10-09: The October 8–9 MP-23 drills invalidated the October 2 assumption that safe node and
@@ -300,7 +208,6 @@ provider-specific recovery must be brought under current authority before real e
 The k3s datastore and application PVC bytes have different homes. A surviving data disk is not a
 complete cluster backup. A fresh candidate must reconstruct declarations and restore explicit state;
 cloning or moving the active disk would consume the independent rollback anchor.
-
 
 ## Decision Log
 
@@ -330,7 +237,6 @@ before downtime; old authoritative state untouched until commit; observed write 
 automatic rollback; explicit, guarded retention/finalization. Candidate native operations extend
 existing project, Pulumi, host and Kubernetes guards instead of bypassing them.
 
-
 ## Outcomes & Retrospective
 
 The plan now describes the remaining capability rather than treating all safe upgrades as new work.
@@ -340,15 +246,3 @@ inventory-authorized candidate/rehearsal/transfer adapters and successful forwar
 public drills meet the requested budget. At completion reconcile every child outcome and distill
 replacement decisions into ADR 19; do not reopen the fixed production checklist.
 
-
-## Revision Notes
-
-2026-10-09 (second revision): Put the plan on hold except EP-122's spike, with a three-item finish
-line and an operator decision gate. Redirected cloud identity to MasterPlan 25 EP-165, release
-compatibility to MasterPlan 26 EP-172, and cleanup to MasterPlan 25's collection.
-
-2026-10-09: Rewrote coordination around optional replacement after MP-23, credited October upgrade
-and recovery evidence, removed duplicate foundations and the stale production prerequisite, relaxed
-only the model's spike dependency, and made inventory authority, release/schema limits, interpreter
-validation and exact promotion/cleanup ownership explicit. Earlier implementation evidence remains
-in child plans and git history.

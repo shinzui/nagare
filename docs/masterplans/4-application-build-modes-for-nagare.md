@@ -12,6 +12,7 @@ intention: "intention_01ktqcgfx8end8kwp5ejmy0k6q"
 This MasterPlan is a living document. The sections Progress, Surprises & Discoveries,
 Decision Log, and Outcomes & Retrospective must be kept up to date as work proceeds.
 
+Full plan before trimming: [4-application-build-modes-for-nagare.md](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/masterplans/4-application-build-modes-for-nagare.md). This copy keeps the purpose, progress, discoveries, decisions and outcomes.
 
 ## Vision & Scope
 
@@ -48,7 +49,6 @@ builds run wherever the CLI runs, exactly as today); and the broader Phase 1 app
 (`app list/get/logs/restart`), health checks, multiple-domain support, and resource limits from
 the roadmap — those are separate initiatives. This MasterPlan implements only the "Application
 build modes" row of `docs/roadmaps/paas-gap-roadmap.md`.
-
 
 ## Decomposition Strategy
 
@@ -93,7 +93,6 @@ roadmap. That was rejected because zero-Dockerfile deploys are the single highes
 mode for a personal PaaS, and a spike-first isolated plan captures that value without endangering
 the rest of the initiative.
 
-
 ## Exec-Plan Registry
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
@@ -109,120 +108,6 @@ child plans by their `EP-<#>` prefix, where the number is the file number in `do
 plan that integrated the typed Haskell deployment DSL into `nagarectl`; it is a soft dependency
 because both EP-19 and EP-20 extend the model and pipeline it established, but no new code from it
 is required.
-
-
-## Dependency Graph
-
-EP-19 has no hard dependencies. It builds on the already-complete typed-DSL plans (EP-9 through
-EP-12) but requires no unfinished work, so it can start immediately. It is the foundation: it
-defines the `BuildSpec` type, adds the `build` field to `Deployment`, and ships the renderer and
-JSON changes that every later plan relies on.
-
-EP-20 hard-depends on EP-19 because the CLI cannot dispatch on a build mode that does not yet
-exist as a type, cannot read the new `build` field off a loaded `Deployment`, and reuses the
-`resolveImageTag` and `requiresBuild` helpers that EP-19 exports from the new
-`Nagare.Dsl.Build` module. Until EP-19 is complete, EP-20 has nothing to call. Once EP-19 is
-done, EP-20 can proceed on its own.
-
-EP-21 hard-depends on both EP-19 and EP-20. It needs the `NixpacksBuild` variant from EP-19, and
-it replaces the "not yet supported" branch that EP-20 writes into the `Nagare.Build` dispatch
-module in `cli/nagarectl` — so the module it edits must exist first. EP-21 also begins with a
-feasibility spike that is independent of the other plans (it can be run at any time to de-risk
-the approach), but the production implementation cannot land until EP-20's dispatch scaffold is
-in place.
-
-EP-22 hard-depends on EP-20 because its prebuilt-image and Dockerfile-build examples must
-actually deploy before they can be documented as working, and it soft-depends on EP-21 because
-its Nixpacks example only fully works once the Nixpacks builder is real. EP-22 can therefore be
-started in parallel with EP-21 — the prebuilt and Dockerfile sections of the guide and their
-examples can be written and verified as soon as EP-20 lands — with the Nixpacks section finished
-once EP-21 is complete.
-
-In practice the initiative is a mostly-linear chain (EP-19 → EP-20 → EP-21) with EP-22 able to
-overlap EP-21. The only meaningful parallelism is the EP-21 spike (runnable early) and the
-prebuilt/Dockerfile portions of EP-22 (writable as soon as EP-20 is done).
-
-
-## Integration Points
-
-These are the shared artifacts that more than one child plan touches. Each is defined by the
-earliest plan in dependency order; later plans consume it exactly as described here.
-
-1. **The `BuildSpec` type and the `Nagare.Dsl.Build` module.** Defined by EP-19 in a new module
-   `cli/nagare-dsl/src/Nagare/Dsl/Build.hs` and exposed from `cli/nagare-dsl/nagare-dsl.cabal`.
-   The canonical shape is:
-
-   ```haskell
-   data BuildSpec
-     = -- | Deploy an image that already exists in a registry. Carries the tag to
-       -- deploy; nothing is built or pushed. The repository path is the
-       -- 'Deployment' \'s 'ImageRef'; the full reference is @imageRef:tag@.
-       PrebuiltImage Tag
-     | -- | Build from a Dockerfile and push to the deployment\'s 'ImageRef'.
-       DockerfileBuild
-         { dockerfile :: !FilePathText
-         , context :: !FilePathText
-         , buildArgs :: !(Map Text Text)
-         }
-     | -- | Build from source with Nixpacks (no Dockerfile) and push to the
-       -- deployment\'s 'ImageRef'. Execution lands in EP-21.
-       NixpacksBuild
-         { context :: !FilePathText
-         , buildArgs :: !(Map Text Text)
-         }
-     deriving stock (Generic, Eq, Show)
-   ```
-
-   `Tag` is a newtype defined alongside it (non-empty, no whitespace, restricted to the Docker
-   tag character set; digests are out of scope). `FilePathText` is the existing relative-path
-   newtype from `Nagare.Dsl.Static.Types` (rejects empty, absolute, and `..` paths); EP-19
-   reuses it and must confirm `"."` is an acceptable context. The module also exports two helpers
-   that EP-20, EP-21, and the renderer all use:
-
-   ```haskell
-   -- | The tag to deploy: a prebuilt image carries its own; built images use the
-   -- deploy tag computed by the CLI.
-   resolveImageTag :: BuildSpec -> Text -> Text
-
-   -- | Whether the CLI must build and push an image. False only for 'PrebuiltImage'.
-   requiresBuild :: BuildSpec -> Bool
-   ```
-
-   EP-20 consumes `requiresBuild` to decide whether to run `configureDockerAuth`/build/push, and
-   `resolveImageTag` to compute the reference. EP-21 pattern-matches the `NixpacksBuild` variant.
-
-2. **The `build` field on `Deployment`.** EP-19 adds `build :: !BuildSpec` to the `Deployment`
-   record in `cli/nagare-dsl/src/Nagare/Dsl/Types.hs`. This is a breaking change to the record
-   literal that every `Config.hs` writes, so EP-19 also updates the `webService` preset
-   (`cli/nagare-dsl/src/Nagare/Dsl/Presets.hs`) to default `build` to a Dockerfile build
-   (`dockerfile = "Dockerfile"`, `context = "."`, empty build args) that reproduces today's
-   behavior, and updates every in-repo fixture and example config. EP-20 reads this field via
-   `dep ^. #build`; EP-22's example configs set it explicitly per mode.
-
-3. **The JSON wire format for `build`.** EP-19 owns the contract between
-   `Nagare.Dsl.Config.emitDeployment` (emission) and `Nagare.Dsl.Load.decodeDeployment`
-   (loading), both in `cli/nagare-dsl`. The `build` value is a JSON object with a `"kind"`
-   discriminator of `"PrebuiltImage"`, `"DockerfileBuild"`, or `"NixpacksBuild"`, mirroring the
-   existing `StaticBuild` encoding in `Nagare.Dsl.Config`. EP-19 implements emission and decoding
-   for all three kinds (including `NixpacksBuild`) so EP-21 changes no marshalling code — it only
-   implements execution.
-
-4. **The renderer's image string.** EP-19 changes `containerValue` in
-   `cli/nagare-dsl/src/Nagare/Dsl/Render.hs` so the rendered Knative container image is
-   `imageRefText (dep ^. #image) <> ":" <> resolveImageTag (dep ^. #build) tag` instead of always
-   appending the passed tag. This means a prebuilt image renders with its own embedded tag while
-   built images render with the CLI-computed deploy tag. EP-20's `runDeploy` passes the same
-   deploy tag it has always passed; the renderer and the CLI agree on the effective tag because
-   both call `resolveImageTag`.
-
-5. **The `Nagare.Build` dispatch module in the CLI.** EP-20 creates
-   `cli/nagarectl/src/Nagare/Build.hs` (note: a different module from `Nagare.Image`), which takes
-   a `BuildSpec`, the image reference, and a project directory and performs the build. EP-20
-   writes the `PrebuiltImage` and `DockerfileBuild` branches and a `NixpacksBuild` branch that
-   dies with "not yet supported". EP-21 replaces that branch with a real `nixpacks build`
-   invocation. The module's exported function signature is owned by EP-20; EP-21 must not change
-   it, only fill in the Nixpacks branch.
-
 
 ## Progress
 
@@ -240,7 +125,6 @@ earliest plan in dependency order; later plans consume it exactly as described h
 - [x] EP-22: `docs/user/build-modes.md` guide written
 - [x] EP-22: runnable example projects for prebuilt, Dockerfile, and Nixpacks modes
 - [x] EP-22: `docs/user/config-reference.md` and `docs/user/deploying-apps.md` updated
-
 
 ## Surprises & Discoveries
 
@@ -264,7 +148,6 @@ earliest plan in dependency order; later plans consume it exactly as described h
   (`base {build = PrebuiltImage t}`) or declare `{-# LANGUAGE OverloadedLabels #-}`
   itself — the `#build` lens is not available by default. EP-22's prebuilt example
   must follow this.
-
 
 ## Decision Log
 
@@ -308,7 +191,6 @@ earliest plan in dependency order; later plans consume it exactly as described h
   docs should describe working behavior. Four plans keep each independently verifiable and within
   the MasterPlan size guidance.
   Date: 2026-06-09
-
 
 ## Outcomes & Retrospective
 

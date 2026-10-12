@@ -7,7 +7,6 @@ created_at: 2026-06-10T18:57:26Z
 intention: "intention_01ktsdz4s8er09txy9afce3hn4"
 ---
 
-
 # CDN Integration for Nagare
 
 This MasterPlan is a living document. The sections Progress, Surprises & Discoveries,
@@ -34,6 +33,7 @@ YAML, no manual DNS edits. Generic container apps (the `Deployment` model) gain 
 so the capability is uniform, but static sites and TanStack Start are the headline cases the
 initiative must prove end to end.
 
+Full plan before trimming: [11-cdn-integration-for-nagare.md](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/masterplans/11-cdn-integration-for-nagare.md). This copy keeps the purpose, progress, discoveries, decisions and outcomes.
 
 ## Vision & Scope
 
@@ -104,7 +104,6 @@ static-asset long-cache toggle (e.g. Cloudflare Transform Rules, signed URLs, im
 these can be added by later plans without changing the typed `cdn` contract; and changing how
 the origin itself serves traffic — Kourier on the VM remains the origin for both CDNs.
 
-
 ## Decomposition Strategy
 
 The initiative is decomposed by functional concern into six child plans grouped into four
@@ -174,7 +173,6 @@ this repo has repeatedly de-risked with a spike before committing a typed contra
 them. **A seventh "purge/invalidation" plan** was rejected because purge is a thin per-provider
 call that belongs with the rest of the provider capability and the `cdn` command surface.
 
-
 ## Exec-Plan Registry
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
@@ -210,192 +208,6 @@ Implementation waves:
 - **Wave 4 — Proof (EP-59).** Document the workflow and validate the two headline cases
   (static + Cloudflare, TanStack Start + Google Cloud CDN) end to end.
 
-
-## Dependency Graph
-
-EP-54 (spike) has no hard dependency. It soft-depends on the bootstrap infrastructure plans
-EP-2 (`docs/plans/2-pulumi-gcp-infrastructure.md`) and EP-4
-(`docs/plans/4-knative-serving-kourier-ingress-and-cert-manager-tls.md`) because it experiments
-in front of the existing VM, static IP, Cloud DNS zone, and Kourier ingress those plans created.
-The VM (`nagare-01`) is currently powered off to save cost, so the spike's live legs are
-environment-gated and will be recorded as deferred/manual where the box is required, matching
-how EP-43, EP-47, and EP-49 handled the same constraint.
-
-EP-55 (typed model) hard-depends on EP-54 because the spike fixes the shape of the contract: the
-provider set (`Cloudflare`, `GcpCloudCdn`), the cache semantics (default TTL, per-path overrides,
-the static-asset toggle), and whether origin-TLS mode needs to be expressible in the model are
-all spike outputs. It soft-depends on EP-13 and EP-18 because it edits the `StaticSite` and
-`ServerSite` records those plans defined; the edit is purely additive (one optional field).
-
-EP-56 (Google Cloud CDN infra) and EP-57 (Cloudflare provisioner) each hard-depend on EP-54
-because they implement, as production code, the exact topology the spike validated — EP-56 the
-load-balancer/backend/cache-policy shape, EP-57 the proxied-DNS/cache-rule/origin-TLS API
-sequence. They soft-depend on EP-55 because they should name their provisioning inputs to match
-the typed model's fields (provider token, default TTL, per-path rules) even though the model and
-the capabilities are wired together only in EP-58. EP-56 and EP-57 share no code and run in
-parallel.
-
-EP-58 (deploy wiring + `cdn` command) hard-depends on all three Wave-2 plans. It needs EP-55's
-loaded `Cdn` value to dispatch on, EP-56's stack outputs and the `gcloud` operations that target
-the load balancer and Cloud DNS, and EP-57's Cloudflare module functions. It is the single
-convergence point; nothing downstream of it can begin until the model and both capabilities
-exist.
-
-EP-59 (docs + examples) hard-depends on EP-58 because the documentation describes the
-`nagarectl site deploy` CDN flow and the `nagarectl cdn` commands that EP-58 ships. It soft-
-depends on EP-56 and EP-57 so the provider-specific runbook chapters (Google Cloud CDN setup,
-Cloudflare API-token setup) can cite the exact resources and credentials those plans introduce.
-
-Parallelism. Wave 1 is a single gate. After EP-54, three streams open at once (EP-55, EP-56,
-EP-57) in three different subsystems (Haskell DSL, Pulumi TypeScript, Haskell CLI), so they can
-be implemented by three contributors or sessions without touching each other's files. Wave 3
-(EP-58) is the join; Wave 4 (EP-59) follows it. The critical path is
-EP-54 → {EP-55} → EP-58 → EP-59, with EP-56 and EP-57 off the critical path as long as they
-finish before EP-58 starts.
-
-
-## Integration Points
-
-**1. Typed CDN model and JSON transport (defined by EP-55; consumed by EP-58; semantics honoured
-by EP-56 and EP-57).** EP-55 owns a new module `cli/nagare-dsl/src/Nagare/Dsl/Cdn/Types.hs` and
-the JSON encoding/decoding in `Nagare.Dsl.Config` and `Nagare.Dsl.Load`. The contract is:
-
-```haskell
-data CdnProvider = CloudflareCdn | GcpCloudCdn
-  deriving stock (Generic, Eq, Show)
-
--- A per-path edge cache rule. Requests whose path begins with @pathPrefix@ get
--- @edgeTtlSeconds@ as their edge time-to-live; @Nothing@ means "never cache this
--- path" (bypass the edge cache). Construct with 'mkCdnCacheRule'.
-data CdnCacheRule = CdnCacheRule
-  { pathPrefix     :: !Text
-  , edgeTtlSeconds :: !(Maybe Int)
-  }
-  deriving stock (Generic, Eq, Show)
-
--- The CDN configuration attached to a site or app. @defaultTtlSeconds@ is the
--- edge TTL for cacheable responses with no matching rule; @cacheStaticAssets@
--- turns on a long-cache rule for fingerprinted assets (js/css/fonts/images);
--- @cacheRules@ are per-path overrides applied in order. Construct via
--- 'cloudflareCdn' / 'gcpCloudCdn' and the @with*@ combinators.
-data Cdn = Cdn
-  { provider          :: !CdnProvider
-  , defaultTtlSeconds :: !(Maybe Int)
-  , cacheStaticAssets :: !Bool
-  , cacheRules        :: ![CdnCacheRule]
-  }
-  deriving stock (Generic, Eq, Show)
-```
-
-The field added to `StaticSite`, `ServerSite`, and `Deployment` is `cdn :: !(Maybe Cdn)`, where
-`Nothing` means "no CDN" (the current behaviour, unchanged). The JSON transport is a nested
-`"cdn"` object on each of those three resources:
-
-```json
-"cdn": {
-  "provider": "Cloudflare",
-  "defaultTtlSeconds": 3600,
-  "cacheStaticAssets": true,
-  "cacheRules": [
-    { "pathPrefix": "/assets/", "edgeTtlSeconds": 31536000 },
-    { "pathPrefix": "/api/",    "edgeTtlSeconds": null }
-  ]
-}
-```
-
-The provider token strings are exactly `"Cloudflare"` and `"GcpCloudCdn"`; `edgeTtlSeconds: null`
-encodes the `Nothing` ("never cache") case. EP-58 reads this value through the existing
-`loadSite`/`loadDeployment` loaders (whose signatures do not change — the `Cdn` rides inside the
-already-returned `StaticSite`/`ServerSite`/`Deployment`). EP-56 and EP-57 must translate the same
-fields into, respectively, Cloud CDN cache-policy/URL-map settings and Cloudflare cache-rule API
-payloads; the field names above are the single source of truth for what each setting means.
-
-**2. Google Cloud CDN standing infrastructure and stack outputs (defined by EP-56; consumed by
-EP-58; documented by EP-59).** EP-56 owns the new Pulumi resources (a `NagareCdn` component under
-`infra/pulumi/src/components/` instantiated by `NagarePerimeter`) and three new stack outputs that
-EP-58 reads via `pulumi stack output` exactly as `Nagare.Ops.Pulumi.stackOutput` already reads
-`publicIp`/`baseDomain`/`artifactRegistry`:
-
-- `cdnGlobalIp` — the global anycast IPv4 of the Cloud CDN load balancer. CDN-enabled hostnames
-  using the Google provider get a Cloud DNS A record pointing here (written by EP-58), instead of
-  the VM's regional IP that the existing `*.<baseDomain>` wildcard uses.
-- `cdnBackendService` — the name of the CDN-enabled backend service, so EP-58 can apply per-site
-  cache policy with `gcloud compute backend-services update`.
-- `cdnUrlMap` — the name of the URL map, so EP-58 can add per-path cache behaviour / path matchers
-  at deploy time.
-
-EP-56 sets the standing capability (load balancer, backend, default cache policy, Google-managed
-cert, firewall allowances for the Google health-check ranges `130.211.0.0/22` and
-`35.191.0.0/16`); EP-58 applies per-site/per-path cache behaviour on top through `gcloud`. The
-division between "standing infra in Pulumi" vs "per-deploy cache settings via `gcloud`" is a
-decision EP-54 confirms and EP-56 records.
-
-**3. Cloudflare provisioner module API (defined by EP-57; consumed by EP-58).** EP-57 owns a new
-`nagarectl` library module `cli/nagarectl/src/Nagare/Cdn/Cloudflare.hs` exposing IO functions
-that EP-58 calls. The expected surface (final signatures fixed by EP-57, but EP-58 depends on this
-shape):
-
-```haskell
--- Credentials are read from the environment: CF_API_TOKEN (required) and an
--- optional CF_ZONE_ID; when absent the zone is discovered from the hostname's
--- registrable domain via the Cloudflare API.
-data CloudflareCreds = CloudflareCreds { cfApiToken :: !Text, cfZoneId :: !(Maybe Text) }
-
-loadCloudflareCreds :: IO (Either Text CloudflareCreds)
-upsertProxiedRecord :: CloudflareCreds -> Text -> Text -> IO (Either Text ())   -- hostname -> origin IP, proxied=true
-applyCacheRules     :: CloudflareCreds -> Text -> Cdn -> IO (Either Text ())     -- hostname -> typed cache config
-setOriginTlsMode    :: CloudflareCreds -> Text -> OriginTlsMode -> IO (Either Text ())
-purgeHostname       :: CloudflareCreds -> Text -> [Text] -> IO (Either Text ())  -- hostname -> paths ([] = purge all)
-```
-
-`OriginTlsMode` (e.g. `Flexible | Full | FullStrict`) is owned by EP-57 and chosen per EP-54's
-origin-TLS decision; EP-58 passes whichever mode the spike selected as the deploy-time default.
-EP-57 introduces the HTTP-client dependency (`http-client` + `http-client-tls`) to `nagarectl.cabal`;
-all outbound Cloudflare calls flow through this module so no other CLI module gains an HTTP
-dependency.
-
-**4. Deploy-engine CDN seam (defined by EP-58; extends MasterPlan 3's deploy engine).** EP-58 owns
-a provider-dispatching function — working name `provisionCdn :: Cdn -> CdnTarget -> IO (Either Text CdnResult)`
-in a new module `cli/nagarectl/src/Nagare/Cdn/Provision.hs` — where `CdnTarget` carries the
-resolved hostname(s), the origin IP (`publicIp` stack output), and the namespace/service. It is
-called from the existing static, server, and app deploy paths (`Nagare.Static.Deploy`,
-`Nagare.Server.Deploy`, and the app `runDeploy` in `cli/nagarectl/app/Main.hs`) **after** the
-Service and DomainMappings are applied and Ready, mirroring how MasterPlan 3 calls
-`recordRelease` at the end of a deploy. The branch is `case provider cdn of CloudflareCdn -> ...
-(EP-57); GcpCloudCdn -> ... (EP-56 outputs + gcloud)`. When `cdn` is `Nothing`, the deploy path is
-byte-for-byte unchanged.
-
-**5. `nagarectl cdn` CLI namespace (defined by EP-58).** EP-58 adds a top-level `cdn` command group
-to the `Options.Applicative` parser in `cli/nagarectl/app/Main.hs`, alongside the existing
-`deploy`, `site`, `app`, `env`, `secret`, `db`, `task`, `storage`, `server`, `doctor`, `domains`,
-and `cleanup` groups: `nagarectl cdn list`, `nagarectl cdn status <host>`, `nagarectl cdn purge
-<host> [--path P]...`, and `nagarectl cdn disable <host>`. The `status` command is the CDN analogue
-of the existing `nagarectl domains list` (`Nagare.Ops.Domains`); it reuses that module's
-DomainMapping/Certificate discovery and adds the provider's edge/DNS readiness.
-
-**6. CDN-hostname DNS records (Cloud DNS zone shared with EP-2 and cert-manager; written by
-EP-58 for the Google provider).** The Cloud DNS managed zone created by EP-2 (surfaced as the
-`dnsZoneName` stack output) currently holds only the `*.<baseDomain>` wildcard A record pointing
-at the VM. For a Google-Cloud-CDN-enabled hostname, EP-58 writes a more-specific A record for that
-exact hostname pointing at `cdnGlobalIp` (a more-specific record wins over the wildcard), using
-`gcloud dns record-sets`. For the Cloudflare provider, the hostname's authoritative DNS is
-Cloudflare, so EP-57's `upsertProxiedRecord` manages the record instead — EP-54 records how the
-two DNS authorities coexist (e.g. Cloudflare hosts the zone and `_acme-challenge` is delegated
-back to Cloud DNS, or cert-manager's DNS-01 solver moves to a Cloudflare token). `disable` reverts
-the Google record back to the wildcard/VM IP.
-
-**7. Origin-TLS model (decided by EP-54; implemented by EP-56 and EP-57; documented by EP-59).**
-The origin (Kourier on the VM) presents a cert-manager-issued Let's Encrypt wildcard today (TLS
-currently deferred until a real `baseDomain` is delegated — see
-`docs/plans/4-knative-serving-kourier-ingress-and-cert-manager-tls.md`). EP-54 decides, per
-provider, how the edge connects to the origin: for Cloudflare, the SSL mode (`Flexible` works
-immediately against the HTTP-first origin, `Full`/`Full (strict)` once the origin serves the LE
-wildcard) and whether cert-manager's DNS-01 challenge must move to Cloudflare; for Google Cloud
-CDN, whether the load balancer talks to the origin over HTTP or HTTPS and which managed/origin
-certificate terminates client TLS at the edge. EP-56 and EP-57 implement the chosen modes;
-`OriginTlsMode` (Integration Point 3) is the typed handle for the Cloudflare side.
-
-
 ## Progress
 
 - [x] EP-54: Stand up a minimal Google Cloud CDN load balancer in front of the VM and validate host-routing, edge TLS, and a cache hit. *(Scripts delivered in `cluster/examples/cdn-spike/gcp-cdn-up.sh`; live `curl` evidence deferred until `nagare-01` is powered on.)*
@@ -410,7 +222,6 @@ certificate terminates client TLS at the edge. EP-56 and EP-57 implement the cho
 - [x] EP-59: Write the CDN user guide and the DNS/origin-TLS runbook. *(`docs/user/cdn.md`, linked from the operator-guide index + status table.)*
 - [x] EP-59: Add and validate the worked examples (static site behind Cloudflare; TanStack Start behind Google Cloud CDN), including a cache-purge demonstration. *(`cluster/examples/static-cdn-site/`, `tanstack-start-cdn/`; both dry-run clean; live cache-HIT curls deferred.)*
 
-
 ## Surprises & Discoveries
 
 - EP-54 (2026-06-10): The spike's live legs (M0–M2) stay deferred because `nagare-01` is
@@ -423,7 +234,6 @@ certificate terminates client TLS at the edge. EP-56 and EP-57 implement the cho
   hands EP-55 is a confirmation, not an amendment — the typed `Cdn` contract is sufficient as
   proposed, and origin-TLS mode stays out of the model as a deploy-time default (`Full (strict)`
   for Cloudflare).
-
 
 ## Decision Log
 
@@ -501,7 +311,6 @@ certificate terminates client TLS at the edge. EP-56 and EP-57 implement the cho
   CDNs" — and adds caching in front rather than removing the origin. Cross-references
   `docs/masterplans/3-static-hosting-for-nagare.md` (Decision Log, 2026-06-10).
   Date: 2026-06-10
-
 
 ## Outcomes & Retrospective
 

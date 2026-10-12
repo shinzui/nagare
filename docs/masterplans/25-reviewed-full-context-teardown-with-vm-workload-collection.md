@@ -23,6 +23,7 @@ This MasterPlan is a living document. The sections Progress, Surprises & Discove
 Decision Log, and Outcomes & Retrospective must be kept up to date as work proceeds.
 If durable project context changes, update or create ADRs in docs/adr/ in the same change.
 
+Full plan before trimming: [25-reviewed-full-context-teardown-with-vm-workload-collection.md](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/masterplans/25-reviewed-full-context-teardown-with-vm-workload-collection.md). This copy keeps the purpose, progress, discoveries, decisions and outcomes.
 
 ## Vision & Scope
 
@@ -98,7 +99,6 @@ G1 is the only cloud sequence. The operator approves it once, when item 8 is rea
 preflight (MasterPlan 26 EP-168) has passed. The project is `tan-ng-labs` unless the operator names
 another disposable project.
 
-
 ## Decomposition Strategy
 
 The MP-23 C3 checkpoint teardown (`mp23-c3`, project `tan-ng-labs`) found three independent
@@ -142,7 +142,6 @@ Relevant ADRs:
 - [0006](../adr/0006-version-platform-state-across-cli-payload-context-host-and-cluster.md): acceptance
   uses a fresh context.
 
-
 ## Exec-Plan Registry
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
@@ -155,60 +154,6 @@ Relevant ADRs:
 Status values: Not Started, In Progress, Complete, Cancelled, Held. A held plan is not worked on
 until the operator reopens it.
 
-
-## Dependency Graph
-
-- **Pure, no world needed (may start any time):** EP-165 M2 (consumption edges), EP-164 M1–M2
-  (hosted relation, planning and admission), EP-166 M1 (the destruction intent type and its
-  refusals).
-- **After MasterPlan 26 EP-173 M4 delivers the Pulumi cloud-foundation world:**
-  - EP-165 M1 (cloud identity at creation, retained observation);
-  - EP-167 M1 (the teardown-to-zero model, red until EP-164 to EP-166 land);
-  - EP-164 M3 and EP-166 M2–M3, against that model.
-- **Local stage:** EP-167 M3 (reviewed local teardown) needs MasterPlan 26 EP-168 M1. It then becomes
-  EP-168's final stage.
-- **Cloud, last:** EP-167 M2 (run G1) needs EP-164, EP-165, EP-166 and EP-167 M1 green, plus the
-  runbook section.
-
-EP-164 and EP-165 both change teardown eligibility (`Runtime/CloudTeardown.hs`,
-`Status.consumersOf`). One shared regression comes first: a VM whose only consumers are hosted
-members, and an apex record with no consumers.
-
-
-## Integration Points
-
-**Teardown eligibility.** The code is `cli/nagarectl/app/Nagare/Cli/Runtime/CloudTeardown.hs` and
-`Nagare.Inventory.Status.consumersOf`, which today treats `Consumes`, `ReadyAfter` and
-`OrderedAfter` alike. EP-165 owns the consumption contract; EP-164 consumes it.
-
-**Cloud physical identity.** EP-165 owns it:
-- The provider identity returned at create for the VM, disks, address, buckets and images is
-  recorded in the journal, as ADR 27 §1 does for Kubernetes.
-- It is read through the one checked accessor (§2).
-- EP-164 and EP-166 use it for delete preconditions; F33 is that recheck.
-- MasterPlan 21 EP-124 reuses it for candidate slots and does not build another.
-
-**The Pulumi cloud-foundation world.** MasterPlan 26 EP-173 M4 owns its design: observation from a
-stack export, deletion by exact physical identity. EP-165 adds retained members, and EP-167 adds
-teardown faults and the zero invariant.
-
-**Collection proof and tombstones.** The code is `Nagare.Inventory.Plan.Changes.buildCollectionProofs`,
-the journal, and `RetainedIncarnation`. EP-164 defines hosted-member tombstones, and EP-166 reuses
-the same proof for destruction stages. This is a candidate for an ADR 22 amendment.
-
-**Cloud registration bundle.** The code is `infra/pulumi/src/resourceDeclarations.ts` and
-`Nagare.Inventory.Cloud`. EP-165 owns the edge-kind change.
-
-**Destruction intent input.** EP-166 owns it, with a new ADR, because it is the only path by which
-Nagare deletes durable data.
-
-**Teardown runner and preflight.** EP-167 owns the teardown runner, as a `nagare-harness` command
-beside MasterPlan 26 EP-168's `local-acceptance`. It shares EP-168's environment preflight and
-evidence layout. The archived `mp23-c3m` disposal script
-(`docs/audits/mp23-independent-results-2026-10-07/drivers-83124396/disposal/`) gives the exact
-resource list that G1 must reach through reviews.
-
-
 ## Progress
 
 2026-10-09: re-scoped around the fixed finish line. No child has started.
@@ -218,7 +163,6 @@ resource list that G1 must reach through reviews.
   `24320d82`–`07d203ad`): policy, retirement of every platform scope, and cloud-scope retirement.
   F84's fix (`b171712a`, in v0.4.0) unblocks retiring a context that holds a revoked access grant.
 
-
 ## Surprises & Discoveries
 
 - 2026-10-09: All five MP-23 acceptance contexts (`mp23-c3i` to `mp23-c3m`) were disposed by
@@ -227,7 +171,6 @@ resource list that G1 must reach through reviews.
 - 2026-10-09: ADR 27 §4 leaves the host VM, GCS buckets and Pulumi resources without recorded
   provider identity. Both this plan (delete preconditions) and MasterPlan 21 (candidate slots) need
   that identity, so it is built once, here.
-
 
 ## Decision Log
 
@@ -255,17 +198,7 @@ resource list that G1 must reach through reviews.
   re-execution of the runbook is dropped. Rationale: one cloud sequence proves both the capability
   and the procedure. A second execution would only repeat it.
 
-
 ## Outcomes & Retrospective
 
 (Not started.)
 
-
-## Revision Notes
-
-2026-10-09: Re-scoped:
-- added the fixed finish line with its native runs (L3 as a stage, G1 as the only cloud sequence);
-- set the order after MasterPlan 26 lane A;
-- assigned cloud physical identity to EP-165 and the shared Pulumi world to MasterPlan 26 EP-173 M4;
-- made EP-167's model milestone dependency-free and its local stage part of EP-168;
-- recorded F33's and F84's native proof as owed by G1.

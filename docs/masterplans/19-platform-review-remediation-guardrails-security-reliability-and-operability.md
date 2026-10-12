@@ -44,6 +44,7 @@ provenance:
 This MasterPlan is a living document. The sections Progress, Surprises & Discoveries,
 Decision Log, and Outcomes & Retrospective must be kept up to date as work proceeds.
 
+Full plan before trimming: [19-platform-review-remediation-guardrails-security-reliability-and-operability.md](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/masterplans/19-platform-review-remediation-guardrails-security-reliability-and-operability.md). This copy keeps the purpose, progress, discoveries, decisions and outcomes.
 
 ## Vision & Scope
 
@@ -95,7 +96,6 @@ plane), multi-node or high-availability work, replacing any major component
 itself — the drill becomes practical once EP-3 and EP-7 land, and should be run as
 its own follow-up exercise against a scratch context.
 
-
 ## Decomposition Strategy
 
 The forty-five findings were grouped by functional concern — the subsystem an
@@ -132,7 +132,6 @@ health probes pointing at URLs the upstream service no longer serves, and Git pi
 release's checksum-breaking migration correction. It remains grouped into Phase 3
 (hygiene).
 
-
 ## Exec-Plan Registry
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
@@ -151,118 +150,6 @@ Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-1, EP-3
 
 Phases: Phase 1 (promise-breaking holes) = EP-1, EP-2, EP-3. Phase 2 (keep the box
 alive) = EP-4, EP-5. Phase 3 (hygiene) = EP-6, EP-7, EP-8.
-
-
-## Dependency Graph
-
-There are no hard dependencies: every plan compiles and verifies on its own. The
-original four soft dependencies shaped implementation order; EP-2, EP-4's repository
-work, EP-6, and EP-8 have now landed, so the remaining work is operational and can
-proceed in parallel when its required credentials, secrets, or live workload are
-available.
-
-EP-5 (alerting) benefits from EP-4 (cluster workloads) landing first because both
-edit `cluster/observability/victoria-metrics/values.yaml` and EP-4 establishes the
-sops-managed-Secret pattern (for the Grafana admin password) that EP-5 reuses for
-the alert notification channel credential. EP-5 remains implementable standalone —
-its plan states what to create if EP-4 has not landed — but doing EP-4 first avoids
-a merge conflict in one Helm values file and a duplicated pattern.
-
-EP-6 (nagarectl correctness) soft-depends on EP-2 (auth-plane security) only in the
-sense that both touch the `cli/` tree and it is easier to review them serially;
-they own disjoint module sets (see Integration Points), so parallel work is safe if
-desired.
-
-EP-7 (host tuning and docs) soft-depends on EP-3 (infra protection) because EP-3
-rewrites the age-key section of `docs/runbooks/disaster-recovery.md` while EP-7
-fixes the rest of that runbook; landing EP-3's key-model change first means EP-7
-documents the final two-recipient reality rather than the current fragile one.
-
-EP-8 (upgrade shomei and en) soft-depended on EP-4 (cluster workloads) because both
-edit the four auth-plane manifests under `cluster/bootstrap/` and the shared image
-build script `cluster/bootstrap/auth-images/build-local-image.sh`. EP-4 established
-the resource bounds, `securityContext` blocks and the migration-Job-per-service
-shape those files now carry; EP-8 changes the probe paths, adds en's API-key
-environment and adds a second migration Job on top of that shape. Landing EP-4
-first avoided conflicting edits to the same five files. EP-8 also touched
-`cli/nagare-access/` and `cli/nagarectl/src/Nagare/Access/Grants.hs`, which EP-2
-and EP-6 own respectively — see Integration Points. EP-8 is complete; EP-4's remaining
-rollout must deploy the current combined manifests rather than reconstruct its older
-pre-EP-8 probe or migration shape.
-
-Within Phase 1 the three plans are fully parallel: EP-1 is pure bash/justfile, EP-2
-is pure Haskell, EP-3 is Pulumi TypeScript plus sops configuration.
-
-
-## Integration Points
-
-`cluster/observability/victoria-metrics/values.yaml` — shared by EP-4 and EP-5.
-EP-4 owns the `grafana` block (admin `existingSecret`, plugin pinning, datasource
-deduplication), exporter/controller resource blocks, and global operator reloader
-resource defaults and defines the repository's sops-managed-Secret pattern for cluster
-credentials. EP-5 owns the `vmalert` and `alertmanager` blocks and consumes the
-sops pattern for the push-channel credential. Neither plan edits the other's block.
-
-The sops-managed-Secret pattern is now context-owned operator configuration, as
-defined by [ADR 4](../adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md),
-[ADR 5](../adr/0005-use-context-owned-host-flakes-for-operator-nixos-inputs.md), and
-[ADR 13](../adr/0013-operator-deployment-material-lives-in-a-private-repository-with-remote-state.md).
-Cluster secrets live under
-`${XDG_CONFIG_HOME:-$HOME/.config}/nagare/cluster-secrets/<context>/` (or
-`NAGARE_CLUSTER_SECRETS_DIR`); host secrets live in the generated context host flake.
-A source checkout's resolver retains `cluster/secrets/` compatibility, but ADR 13
-removed this operator's ciphertext and recipients from the public repository. Its
-current example policies and discarded-key fixture are excluded from recovery-key
-work. Released payloads/workspaces exclude cluster secrets. EP-4 established the Grafana Secret consumer,
-EP-5's installer now resolves the context-owned directory fail-closed, and EP-3 owns
-adding the recovery recipient and re-keying every actual context-owned ciphertext.
-
-`scripts/lib/target.sh` and the guardrail-adjacent `justfile` recipes (`vm-stop`,
-`vm-start`, `cluster-bootstrap`) — owned exclusively by EP-1. EP-3 may change which
-Pulumi backend cloud contexts default to, and EP-7 edits the justfile header
-comment and component version pins, but neither touches guardrail logic or those
-three recipes.
-
-The `cli/` Haskell tree — split by module ownership. EP-2 owns
-`cli/nagarectl/nagared/Main.hs`, `cli/nagarectl/src/Nagare/Static/Webhook.hs`, the
-`runghc` timeout in `cli/nagare-dsl/src/Nagare/Dsl/Load.hs`, and everything under
-`cli/nagare-access/`. EP-6 owns `cli/nagarectl/src/Nagare/Deploy.hs`,
-`App/Deploy.hs`, `Database/Create.hs`, `Database/Secret.hs`, `Env/Store.hs`, and
-any `Dsl/Render.hs` change needed for structural label stamping. EP-5 owns
-`cli/nagarectl/src/Nagare/Ops/Status.hs` (backup-freshness probing). EP-8 owns
-`cli/nagare-access/cabal.project` and the three shomei/en adapter modules
-(`Nagare/Access/Shomei.hs`, `ShomeiClient.hs`, `En.hs`), plus
-`cli/nagarectl/src/Nagare/Access/Grants.hs`. That last file is the one genuine
-overlap: EP-2 owns everything under `cli/nagare-access/` for its security fixes,
-and EP-8 rewrites those same adapters for upstream compatibility. EP-2's three
-milestones are complete as of 2026-08-05, so EP-8 rebases on them rather than
-racing them; EP-8 must preserve EP-2's unavailable-vs-denied distinction, which is
-exactly the invariant its `EnResult` mapping restates.
-
-`cluster/bootstrap/` auth-plane manifests and
-`cluster/bootstrap/auth-images/build-local-image.sh` — shared by EP-4 and EP-8.
-EP-4 owns the resource bounds, `securityContext` blocks, and the pattern of running
-each service's migrations from its own release image. EP-8 owns the probe paths,
-en's API-key Secret and environment, the new shomei migration Job, and the
-generated cabal-project tails. Both repository changes have landed. EP-4's remaining
-live validation consumes the resulting combined manifests, including EP-8's current
-health endpoints and both dependency-owned migration Jobs.
-
-`docs/runbooks/disaster-recovery.md` — EP-3 owns the age-key/root-of-trust
-section and completed it with labs re-keying on 2026-09-16. EP-7's
-reality-sync work for every other section is complete; EP-5 also corrected the managed
-database backup prefixes.
-
-`scripts/local-smoke.sh` — EP-1 owns the cleanup-trap safety changes; EP-5 appends
-the managed-DB backup/restore round-trip steps. Appending test steps does not
-conflict with trap hardening, but EP-5 should rebase on EP-1's version if both are
-in flight.
-
-Image and registry handling — EP-4 pins auth-plane image tags
-(`NAGARE_AUTH_TAG` defaulting to a git SHA), while EP-7 replaces the k3s-restart
-registry-credential hack in `nixos/hosts/nagare-01/registries.nix`. These touch
-different layers (manifest tags vs pull credentials) and interact only in docs.
-
 
 ## Progress
 
@@ -418,7 +305,6 @@ complete; the child plans hold the granular checklists.
 - [x] EP-8 M6: Recreate the auth databases and prove access end to end (2026-08-25)
 - [x] EP-8 M7: Documentation and ADR distillation (2026-08-25 — ADRs 1 and 2 record dependency-plan and schema ownership)
 - [x] EP-8 M8: Refresh Shomei to the official 0.2.0.0 release (2026-08-28 — builds, 104 focused tests, native image build, migration reset proof, and native flake checks pass)
-
 
 ## Surprises & Discoveries
 
@@ -647,7 +533,6 @@ Discoveries from implementation:
   encryption provider from datastore creation, and stage `start` is normal while encryption is
   Enabled.
 
-
 ## Decision Log
 
 - Decision: retain EP-4's registry-backed Cloud Build path and stop at the first
@@ -845,7 +730,6 @@ Discoveries from implementation:
   custody. Serializing them by the old phases would hide available work without
   protecting a shared artifact.
   Date: 2026-09-15
-
 
 ## Outcomes & Retrospective
 

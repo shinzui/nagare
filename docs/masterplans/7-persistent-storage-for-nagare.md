@@ -12,7 +12,6 @@ intention: "intention_01ktqfjpdqewga3t0rm9crehxx"
 This MasterPlan is a living document. The sections Progress, Surprises & Discoveries,
 Decision Log, and Outcomes & Retrospective must be kept up to date as work proceeds.
 
-
 This initiative implements **Phase 3 (Persistent Storage)** of the PaaS capability roadmap at
 `docs/roadmaps/paas-gap-roadmap.md`. It is the fourth initiative in the roadmap's recommended order,
 following static hosting (`docs/masterplans/3-static-hosting-for-nagare.md`), application build modes
@@ -22,6 +21,7 @@ following static hosting (`docs/masterplans/3-static-hosting-for-nagare.md`), ap
 roadmap, "a prerequisite for many 'service' and 'database' templates" and for the managed-database
 work of Phase 4, so it is sequenced before them.
 
+Full plan before trimming: [7-persistent-storage-for-nagare.md](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/masterplans/7-persistent-storage-for-nagare.md). This copy keeps the purpose, progress, discoveries, decisions and outcomes.
 
 ## Vision & Scope
 
@@ -87,7 +87,6 @@ support); and a web UI for storage (Phase 10). The env/secret store from
 `docs/masterplans/5-environment-and-secret-management-for-nagare.md` is reused conceptually for the
 "Nagare-managed" labelling convention but its ConfigMap/Secret machinery is not extended here.
 
-
 ## Decomposition Strategy
 
 The initiative is decomposed into five child ExecPlans. The guiding principle is the same seam the
@@ -139,7 +138,6 @@ read-only `list`/`inspect`. **Splitting backup into "snapshot" and "runbook/poli
 to keep the plan count at five — they share the same precondition and are both "make app volumes part
 of the backup story," so they are one plan with two milestones.
 
-
 ## Exec-Plan Registry
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
@@ -154,114 +152,6 @@ Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-33, EP-35). The numbers
 continue the repository's sequential plan numbering; the most recent existing plan is EP-32 (a child
 of MasterPlan 6).
-
-
-## Dependency Graph
-
-EP-33 (the enablement spike) has no dependencies and is the root in practice: it enables PVC volumes
-on the Knative cluster and verifies, with raw YAML, that a Knative Service can durably mount a
-`local-path` `ReadWriteOnce` PVC across a revision roll. It produces two artifacts the rest of the
-initiative relies on: the committed `config-features` change under `cluster/bootstrap/knative-serving/`,
-and the *verified rendered shape* (the exact `volumes`/`volumeMounts` stanza plus whatever rollout
-annotation the single-node RWO constraint requires).
-
-EP-34 (the typed model and renderer) has no *hard* dependency because it is pure DSL work: the
-`Volume` type, the JSON round-trip, and the renderer can be written and golden-tested without a
-cluster. It *soft*-depends on EP-33 because the YAML it renders must match the shape EP-33 proved the
-cluster accepts (Integration Point IP2); if EP-34 ran first, its goldens would encode an unverified
-guess. The recommended order is therefore EP-33 then EP-34, but EP-34 can begin in parallel as soon
-as EP-33's spike has produced the verified YAML stanza, even before the config commit lands.
-
-EP-35 (deploy-time provisioning + `storage list`/`inspect`) hard-depends on EP-34: it applies the PVC
-manifests EP-34 renders and enumerates the typed volumes EP-34 defines on a loaded `Deployment`. It
-soft-depends on EP-33 only because a *live* end-to-end deploy needs the feature flags enabled on the
-cluster; its pure logic (rendering the apply order, formatting the list/inspect tables) is testable
-without the cluster via `--dry-run`.
-
-EP-36 (backup ownership + `storage snapshot`) hard-depends on EP-34 (the retention policy and volume
-identity live in the typed model) and on EP-35 (it extends the `storage` command group EP-35
-introduces and reuses its PVC-discovery helpers). It soft-depends on EP-33 because an actual snapshot
-of live data needs a mounted PVC.
-
-EP-37 (docs and examples) hard-depends on EP-35 and EP-36 because it documents and exercises their
-command surfaces end to end, and soft-depends on EP-34 to document the typed `Volume` fields
-accurately.
-
-**Parallelism.** EP-33 and the non-rendering parts of EP-34 (the `Volume` type, smart constructors,
-JSON round-trip) can proceed concurrently; EP-34's renderer goldens should be finalized only once
-EP-33's verified YAML shape exists. After EP-34 completes, EP-35 proceeds; EP-36 can begin its model
-and snapshot-format work in parallel with EP-35 but gates on EP-35 for the shared `storage` command
-plumbing. EP-37 is last.
-
-
-## Integration Points
-
-**IP1 — The typed `Volume` model and its JSON shape.** Defined by **EP-34** in
-`cli/nagare-dsl/src/Nagare/Dsl/Types.hs` and serialized in
-`cli/nagare-dsl/src/Nagare/Dsl/Config.hs` / decoded in `cli/nagare-dsl/src/Nagare/Dsl/Load.hs`. The
-shared contract is a validated record placed in a new `volumes` field on both `Deployment` and
-`ServerSite` (`cli/nagare-dsl/src/Nagare/Dsl/Server/Types.hs`):
-
-```haskell
--- | A durable disk attached to an app. All fields are validated by smart
--- constructors; the data constructor is not exported, so an illegal Volume
--- cannot be built (mirrors mkServiceName/mkQuantity in Nagare.Dsl.Types).
-data Volume = Volume
-  { volName    :: !VolumeName   -- ^ DNS-label name, unique within the app
-  , size       :: !Quantity     -- ^ reuses the existing Quantity newtype, e.g. "1Gi"
-  , mountPath  :: !MountPath    -- ^ absolute, non-colliding in-container path
-  , accessMode :: !AccessMode   -- ^ ReadWriteOnce (single-node default)
-  , readOnly   :: !Bool         -- ^ mount read-only
-  , retention  :: !RetentionPolicy -- ^ Retain | Delete on app deletion
-  }
-```
-
-EP-35, EP-36, and EP-37 all import these types and the accessors (`volumeNameText`, `mountPathText`,
-etc.). The JSON field names are owned by EP-34; later plans read the loaded `Deployment`, never the
-raw JSON. EP-34 must provide a backward-compatible default (an empty `volumes` list) so every existing
-config (`cluster/examples/*/nagare/Config.hs`, `cli/nagare-dsl/test/fixtures/`) compiles unchanged.
-
-**IP2 — The rendered PVC / volume / volumeMount YAML shape.** *Verified* by **EP-33** (as raw YAML
-applied by hand) and *produced* by **EP-34** in `cli/nagare-dsl/src/Nagare/Dsl/Render.hs` (and
-`cli/nagare-dsl/src/Nagare/Dsl/Server/Render.hs`). The two must agree exactly. The contract is:
-each volume renders (a) a standalone `PersistentVolumeClaim` manifest with `storageClassName:
-local-path`, the requested size, and `accessModes: [ReadWriteOnce]`; (b) a `spec.template.spec.volumes`
-entry of kind `persistentVolumeClaim` referencing that PVC by name; and (c) a container
-`volumeMounts` entry with the mount path and read-only flag. EP-33 owns the *facts* about what
-Knative accepts (the required feature flags and the rollout annotation needed so a single-node RWO
-PVC survives a revision roll); EP-34 encodes those facts into the renderer and its golden files. The
-renderer's YAML key ordering must be extended in `Render.hs`'s `knativeConfig`/`ranks` table to place
-`volumeMounts` and `volumes` deterministically (the existing pattern for `env`/`resources`).
-
-**IP3 — The PVC naming convention and Nagare-managed labels.** Defined by **EP-34** (the renderer
-must name PVCs deterministically from the app and volume names, e.g. `nagare-vol-<app>-<volume>`, and
-stamp a managed-by label) and consumed by **EP-35** (to discover an app's PVCs for `storage list`/
-`inspect` via `kubectl get pvc -l <label>`) and **EP-36** (to discover which PVCs to snapshot and how
-to honor retention). The label convention should align with the `nagare.dev/managed-by: nagarectl`
-label that MasterPlan 6 (`docs/masterplans/6-application-lifecycle-and-cli-for-nagare.md`, EP-29)
-stamps on Services, extended with a per-volume label so `storage` commands can join a PVC back to its
-app and volume name. EP-34 owns the exact label keys/values; EP-35 and EP-36 must query by them, never
-re-derive names by hand.
-
-**IP4 — The backup-ownership policy: retention, labels, and the GCS layout.** Defined by **EP-36**,
-building on the `RetentionPolicy` field EP-34 places in the model (IP1) and the labels EP-34 stamps
-(IP3). The contract: `nagarectl storage snapshot APP VOLUME` writes a tar of the volume's contents to
-`gs://tan-nb-exp-nagare-backups/volumes/<app>/<volume>/<timestamp>.tar.gz` (the same bucket the
-existing `scripts/backup-postgres.sh` and Litestream example use), and the deploy path emits a warning
-for any volume whose policy marks it excluded from backups. EP-37 documents this layout and the
-restore procedure; the disaster-recovery runbook (`docs/runbooks/disaster-recovery.md`) and user
-backup guide (`docs/user/backups-and-disaster-recovery.md`) are updated by EP-36 and referenced by
-EP-37. The GCS bucket name and project-isolation rules (`tan-nb-exp` only, per the repository
-`CLAUDE.md`) are fixed constraints both plans must respect.
-
-**IP5 — The `nagarectl storage` command group plumbing.** Introduced by **EP-35** in
-`cli/nagarectl/app/Main.hs` (a new `storage` subparser following the existing `site` subparser
-pattern) and a new module namespace `cli/nagarectl/src/Nagare/Storage/`. **EP-36** extends the same
-subparser with the `snapshot` subcommand and adds modules under the same namespace, reusing EP-35's
-PVC-discovery helper (which queries by the IP3 labels) and the `kubectl` shell-out conventions from
-`cli/nagarectl/src/Nagare/Deploy.hs`. EP-35 owns the subparser wiring and the shared discovery helper;
-EP-36 must extend, not fork, them.
-
 
 ## Progress
 
@@ -278,7 +168,6 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [x] EP-36: `nagarectl storage snapshot APP VOLUME` writes a tar to the GCS backup bucket; retention honored. (2026-06-09; in-cluster Job renderer + keep-last-N pruning; pure logic unit-tested, live `→ gsutil ls` deferred to EP-37.) **Live `→ gsutil ls` VERIFIED 2026-06-10** — after writing `durable-payload-2026` into the volume, `storage snapshot` wrote `gs://tan-nb-exp-nagare-backups/volumes/uploads-live/uploads/20260610T232042Z.tar.gz` (confirmed via `gsutil ls`). _Bug found+fixed by this live audit: the snapshot Job set `GCE_METADATA_HOST` but lacked the `hostAliases` mapping for `metadata.google.internal`, so its first run got ADC-anonymous → 401 on GCS; added the same `hostAliases` the proven db-backup Job uses (`Nagare.Storage.Snapshot`), and the retry succeeded._
 - [x] EP-36: Backup-ownership policy: deploy warns on backup-excluded volumes (`retention = Delete`, verified via real CLI); disaster-recovery runbook + user guide updated; `scripts/restore-volume.sh` scratch-first restore added (live restore drill deferred to EP-37). **Restore drill VERIFIED live 2026-06-10**: `scripts/restore-volume.sh gs://…/20260610T232042Z.tar.gz` created the scratch PVC `vol-restore-scratch`, the restore Job untarred the snapshot into it (`/restore/probe.txt` listed), and the restored file's content matched the original (`durable-payload-2026`) — the live volume was never touched. _Same `hostAliases` metadata fix applied to the script's restore Job (it had the identical 401 latent bug)._ (2026-06-09; live 2026-06-10)
 - [x] EP-37: User guide written (`docs/user/persistent-storage.md` + config/reference/README/deploying-apps cross-links); SQLite-on-PVC and uploaded-files examples render durable storage (dry-run verified; live deploy deferred to a running cluster). **Live deploy VERIFIED 2026-06-10**: a durable-storage app deployed to `nagare-01` provisioned and bound its `1Gi` `local-path` PVC, served, and round-tripped a file through snapshot+restore (see EP-35/EP-36 entries). (2026-06-09; live 2026-06-10)
-
 
 ## Surprises & Discoveries
 
@@ -348,7 +237,6 @@ interactions between child plans. Provide concise evidence.
   jsonpath='{.spec.local.path}'`; host dir naming `pvc-<uid>_<ns>_<pvc>` (feeds EP-35
   `storage list`/`inspect` node-path column).
 
-
 ## Decision Log
 
 Record every decomposition or coordination decision made while working on the master
@@ -402,7 +290,6 @@ plan.
   MasterPlan 6).
   Rationale: follows the repository's sequential numbering with no manual renumbering.
   Date: 2026-06-09
-
 
 ## Outcomes & Retrospective
 

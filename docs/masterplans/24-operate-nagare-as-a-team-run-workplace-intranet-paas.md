@@ -34,6 +34,7 @@ This MasterPlan is a living document. The sections Progress, Surprises & Discove
 Decision Log, and Outcomes & Retrospective must be kept up to date as work proceeds.
 If durable project context changes, update or create ADRs in docs/adr/ in the same change.
 
+Full plan before trimming: [24-operate-nagare-as-a-team-run-workplace-intranet-paas.md](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/masterplans/24-operate-nagare-as-a-team-run-workplace-intranet-paas.md). This copy keeps the purpose, progress, discoveries, decisions and outcomes.
 
 ## Vision & Scope
 
@@ -75,7 +76,6 @@ or its children. This initiative produces evidence and a recommendation; any cha
 of scope: GKE (MasterPlan 23's operator boundary applies here too), mutating any cloud context
 during evaluation, and multi-node or managed-database high availability unless EP-162's
 availability decision explicitly requires it.
-
 
 ## Decomposition Strategy
 
@@ -149,7 +149,6 @@ this); [ADR 6](../adr/0006-version-platform-state-across-cli-payload-context-hos
 (version and upgrade semantics the upgrade-path stream must honour). No cross-repository ADR was
 found to apply.
 
-
 ## Exec-Plan Registry
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
@@ -162,58 +161,6 @@ Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-162).
 A whole-child hard dependency requires that child to be Complete. If only a milestone's
 accepted output is needed, it is named explicitly and explained below.
-
-
-## Dependency Graph
-
-EP-162 and EP-163 start in parallel. EP-163's first two milestones (candidate research and local
-prototypes) need only RES-3's criteria and do not depend on EP-162. EP-163 M3, the scored
-comparison and recommendation, has a hard dependency on EP-162 M1: the accepted team requirements
-record. Scoring tools against requirements that have not been stated would produce a
-recommendation nobody can check. EP-162 M2, the availability decision, is a soft input to EP-163
-M3; if it is not yet accepted, EP-163 scores candidates under the current single-node assumption
-and says so.
-
-EP-183 can start at once. Its M1 (HTTPS and login) and M4 (rebuild) depend on no evaluation. Its
-M2 takes the retention and recovery-time targets from EP-162 M1, or from the operator's
-confirmation of the plan's proposed defaults. Its M3 (volumes) has its decision (extend the
-database producer, 2026-10-09) and starts with a slice checkpoint. EP-163 is its fallback only if
-the slice stops.
-
-The planned implementation streams have a hard dependency on the operator's decision on EP-163's
-recommendation, recorded in this MasterPlan's Decision Log. They are added as ExecPlans at that
-point.
-
-
-## Integration Points
-
-Evaluation criteria. EP-162 owns the requirements record (use-case concepts in `docs/use-cases/`)
-and the availability ADR. EP-163 consumes both as its scoring criteria and must cite each
-requirement it scores by its use-case handle. If EP-163 finds a requirement that EP-162 did not
-state, it proposes it to EP-162 rather than scoring against an unrecorded requirement.
-
-Research records. EP-163 owns the research record that supersedes RES-3 in `docs/research/`. It
-sets RES-3's `status` to `superseded` with `supersededBy` pointing at the new handle; it must not
-rewrite RES-3's findings.
-
-MasterPlan 23. Neither child edits MasterPlan 23, ADR 22, or MasterPlan 23's child plans. EP-163's
-recommendation is written so the operator can apply it to MasterPlan 23 in a separate change.
-Concurrent MasterPlan 23 sessions are active in this repository; stage only this initiative's
-files by explicit path.
-
-Prototype isolation. EP-163's prototypes run on a dedicated local k3d cluster that is not the
-Nagare local context's cluster, so they cannot disturb MasterPlan 23's retained local fixtures.
-No cloud context is touched.
-
-EP-183 and the evaluation. EP-183's volume backup extends Nagare's scheduled database producer
-(decided 2026-10-09). EP-163 may score the result as Nagare's existing option. It no longer
-gates EP-183 unless EP-183 M3's slice checkpoint stops. EP-183's release work reaches existing
-installations only through MasterPlan 26's EP-172, with a compatibility row for each format it
-changes.
-
-Cross-plan decisions that should become ADRs: the availability model (EP-162), and, once the
-operator decides, the tooling boundary between Nagare and established tools (after EP-163).
-
 
 ## Progress
 
@@ -248,7 +195,6 @@ EP-162 M1 now also asks for retention targets.
 2026-09-28: MasterPlan created with EP-162 and EP-163. No child plan started. The implementation
 streams listed in Decomposition Strategy are intentionally not yet planned.
 
-
 ## Surprises & Discoveries
 
 - 2026-10-10: The gcloud `labs` credentials needed interactive reauthentication mid-run, about an
@@ -282,7 +228,6 @@ streams listed in Decomposition Strategy are intentionally not yet planned.
 - 2026-10-10: Two of EP-183's context citations are stale. The legacy volume probe is
   `backupPrefixes` in `cli/nagarectl/src/Nagare/Ops/Probe.hs:267`, not `Ops/Status.hs`. The
   receipt `keep` field is at `cli/nagarectl/src/Nagare/Database/Backup.hs:196`, not around line 708.
-
 
 ## Decision Log
 
@@ -352,16 +297,6 @@ streams listed in Decomposition Strategy are intentionally not yet planned.
   23 has active concurrent implementation sessions.
   Date: 2026-09-28
 
-
 ## Outcomes & Retrospective
 
 (To be filled during and after implementation.)
-
-## Revision Notes
-
-2026-10-09: Add EP-183 for the v0.4.0 intranet gaps (D2, D3, D4, service rebuild). Name EP-172
-(MasterPlan 26) as the work-data upgrade path. Add retention to EP-162 M1's questions.
-
-2026-09-28: Prioritize K8up/restic, make Velero secondary, and require evidence on project direction and maintenance continuity in EP-163. Preserve the separate PostgreSQL comparison and MP-23 release boundary.
-
-2026-09-28: Align evaluation with the operator-approved MP-23 scope and retained journal/state; exclude Flux/new messaging engines and keep Velero as a backup candidate only.

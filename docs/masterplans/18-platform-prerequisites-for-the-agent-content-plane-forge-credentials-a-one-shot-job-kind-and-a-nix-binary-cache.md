@@ -12,6 +12,7 @@ intention: "intention_01kx3qz212e989078m6ssetr2b"
 This MasterPlan is a living document. The sections Progress, Surprises & Discoveries,
 Decision Log, and Outcomes & Retrospective must be kept up to date as work proceeds.
 
+Full plan before trimming: [18-platform-prerequisites-for-the-agent-content-plane-forge-credentials-a-one-shot-job-kind-and-a-nix-binary-cache.md](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/masterplans/18-platform-prerequisites-for-the-agent-content-plane-forge-credentials-a-one-shot-job-kind-and-a-nix-binary-cache.md). This copy keeps the purpose, progress, discoveries, decisions and outcomes.
 
 ## Vision & Scope
 
@@ -42,7 +43,6 @@ intent in that repository: a repository identity is a Mori repository ID plus a 
 one mirror workload talks to the forge. Implementers must reconcile the completed
 Nagare interfaces with C16 before Kikan consumes them.
 
-
 ## Decomposition Strategy
 
 The initiative is split on ownership and failure boundaries. EP-1 owns forge identity,
@@ -59,7 +59,6 @@ type and its ResourceQuota/NetworkPolicy policy form one behavioral contract. Th
 child plans deliberately avoid making either Kikan or Kotei a build dependency of
 Nagare.
 
-
 ## Exec-Plan Registry
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
@@ -70,34 +69,6 @@ Nagare.
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-1, EP-3).
-
-
-## Dependency Graph
-
-There are no hard child-to-child dependencies. EP-1 publishes Secrets that Kikan's
-future mirror and publishing workloads consume, but neither other Nagare child needs
-those tokens. EP-2 can add and test the `Job` API using a named optional ConfigMap
-without a live cache. EP-3 can deploy and test Attic with `nix copy` from a temporary
-Pod without the new DSL kind.
-
-EP-2 and EP-3 meet at one soft integration edge. EP-3 owns the ConfigMap named
-`nagare-nix-cache-client`; EP-2 owns the optional Job field that mounts its `nix.conf`
-key at `/etc/nix/nix.conf`. Whichever finishes second must run the combined live test:
-render a Job with that ConfigMap selected, apply it, and observe the Job substitute a
-previously uploaded path from Attic. This edge changes final validation order, not
-implementation order.
-
-
-## Integration Points
-
-| Plans | Shared artifact | Owner and contract |
-|---|---|---|
-| EP-1 and downstream Kikan work | Secrets `nagare-forge-read` and `nagare-forge-write` in `personal` | EP-1 owns creation and rotation. Each Secret has `token` for direct consumers and `GITHUB_TOKEN` for Nagare's `EnvSecretRef`; consumers select a role name and never know GitHub App credentials. |
-| EP-2 and EP-3 | ConfigMap `nagare-nix-cache-client` and label `nagare.dev/nix-cache-client: "true"` | EP-3 owns the `nix.conf` data, cache public key, and additive cache/DNS egress policy. EP-2 treats the ConfigMap as an optional input, owns the read-only mount at `/etc/nix/nix.conf`, and adds the opt-in label only when that input is present. |
-| EP-2 and cluster bootstrap | ResourceQuota `nagare-terminating-jobs` and the k3s NetworkPolicy dataplane | EP-2 owns the quota and base default-deny manifest. The quota scopes the two-Pod cap to `Terminating` Pods, which are Pods whose own `spec.activeDeadlineSeconds` is present; the Job renderer copies its validated deadline to both Job and Pod template because the controller does not do that. The quota is not label-selective. Live kube-router probes proved steady-state deny and narrow additive allow, but also an asynchronous new-Pod startup window; production untrusted workloads need a dataplane or admission-time mechanism that closes that gap. |
-| EP-3 and existing database machinery | Database `nix-cache` and Secret `nagare-db-nix-cache` | EP-3 consumes the current `nagarectl db create postgres` interface and maps `DATABASE_URL` to Attic. The existing database renderer remains authoritative. |
-| All three and Kikan C16 | Immutable repository coordinate | Nagare does not define C16. Plans use `(Mori repository ID, full 40-character Git SHA)` as the provisional boundary and must record any reconciliation when Kikan's C16 plan lands. |
-
 
 ## Progress
 
@@ -113,7 +84,6 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [ ] EP-3: provision durable cache storage and pin/build the Attic server image.
 - [ ] EP-3: bootstrap Attic, Postgres, secrets, garbage collection, and the Nix client ConfigMap.
 - [ ] EP-3: prove laptop push, cluster substitution, restart durability, and key rotation.
-
 
 ## Surprises & Discoveries
 
@@ -135,7 +105,6 @@ interactions between child plans. Provide concise evidence.
 - Discovery: The aggregate `nix flake check` currently fails in the unrelated
   `nagare-access` derivation because a sandboxed Cabal dependency clone needs GitHub
   credentials. EP-2's 381-test suite and focused DSL, example, and shell Nix checks pass.
-
 
 ## Decision Log
 
@@ -202,7 +171,6 @@ plan.
   apply order alone.
   Date: 2026-07-14
 
-
 ## Outcomes & Retrospective
 
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
@@ -219,14 +187,3 @@ them downstream: Kikan must create and reconcile its conformance fixture, and pr
 untrusted workloads require startup-fail-closed network isolation beyond the current
 asynchronous kube-router behavior.
 
-
-## Revision Notes
-
-2026-07-14: Audited the MasterPlan and all three child ExecPlans against the shared
-formatting specification. The MasterPlan contains no command or code excerpts requiring
-fences; every such excerpt in the children now uses a language-tagged fenced block.
-
-2026-08-23: Registered this initiative's cross-project lineage in `docs/plan-registry.md`
-and replaced the repository-relative Kikan origin with its canonical `mori://` plan URI.
-The current Mori release does not yet resolve that artifact-level URI; the intended URI
-remains authoritative while registry coverage catches up.

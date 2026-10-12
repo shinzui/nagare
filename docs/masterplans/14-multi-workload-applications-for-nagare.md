@@ -34,6 +34,7 @@ files repeating the same name prefix, namespace, image repository, and database 
 deployed by 4+ separate commands with no shared identity, no ordering, and no unit of
 rollback. This MasterPlan adds the missing layer *above* the workload.
 
+Full plan before trimming: [14-multi-workload-applications-for-nagare.md](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/masterplans/14-multi-workload-applications-for-nagare.md). This copy keeps the purpose, progress, discoveries, decisions and outcomes.
 
 ## Vision & Scope
 
@@ -87,7 +88,6 @@ databases before serving workloads — not arbitrary inter-worker ordering); and
 to how images are built (the `BuildSpec` from
 `docs/masterplans/4-application-build-modes-for-nagare.md` is reused as-is).
 
-
 ## Decomposition Strategy
 
 The work splits into three streams by functional concern, chosen to minimize hard
@@ -123,7 +123,6 @@ dependency DAG* — rejected as over-engineering for a single-node personal PaaS
 ordering anyone needs is "migrations and databases before serving workloads," which a fixed
 phase ordering expresses without a scheduler.
 
-
 ## Exec-Plan Registry
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
@@ -134,61 +133,6 @@ phase ordering expresses without a scheduler.
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 
-
-## Dependency Graph
-
-EP-1 has no dependencies and must land first among the type-bearing work: it defines the
-`Application` record, its JSON encoding, its loader (`emitApplication`/`loadApplication`),
-and the shared-binding validation. EP-2 has a **hard** dependency on EP-1 because `nagarectl
-app deploy` loads and renders an `Application`; it cannot be written against a type that does
-not exist. EP-2 has a **soft** dependency on EP-3: if EP-3 has landed, the workers rendered
-by the aggregate automatically gain liveness probes; if not, EP-2 still ships and renders
-workers without them (the field is optional). EP-3 has no hard dependency and can be
-implemented in parallel with EP-1; its **soft** dependency on EP-1 is only that, once both
-land, the `Worker` carried inside an `Application` must expose the same liveness field — a
-one-line wiring concern, not a blocker.
-
-Parallelism: EP-1 and EP-3 can proceed simultaneously. EP-2 starts once EP-1 is Complete.
-
-
-## Integration Points
-
-- **The `Application` record** (`cli/nagare-dsl/src/Nagare/Dsl/Application.hs`, new).
-  Defined by **EP-1**. Consumed by **EP-2** (renders and deploys it) and referenced by
-  **EP-3** (the `Worker` it embeds gains the liveness field). EP-1 owns the field set,
-  the smart constructor, the JSON round-trip, and the shared-binding validation rules.
-  Later plans must not add fields without updating EP-1's encoder/decoder and golden tests.
-  The declared-database field is **`appDatabases :: [Database]`** — full `Database` specs,
-  not bare `DatabaseName`s — because **EP-2**'s database rollout phase calls `runDbCreate`,
-  which needs `engine`/`version`/`size`. EP-2 consumes the field under that exact name and
-  type (reconciled during the validation pass — see Decision Log).
-
-- **The shared identity label `nagare.dev/app: <name>`.** Introduced by **EP-1** (decided)
-  and applied by **EP-2**'s renderer to every object an `Application` produces, in addition
-  to the existing `nagare.dev/managed-by: nagarectl`, `nagare.dev/worker`, and
-  `nagare.dev/database` labels. This label is the contract the kotei integration relies on
-  to discover and reconcile an app's resources as a unit.
-
-- **The `Worker` liveness field** (`cli/nagare-dsl/src/Nagare/Dsl/Worker.hs`). Defined by
-  **EP-3** as an optional field on the existing `Worker` record and rendered into the
-  `apps/v1` Deployment's `livenessProbe`. **EP-1**'s `Application` embeds `Worker` values,
-  so the field is automatically available on aggregated workers; **EP-2** renders it. The
-  three plans must agree on the field's name and shape; EP-3 is the definer.
-
-- **External / cross-repo: `nagarectl app deploy` and the Application aggregate are
-  consumed by kotei.** `shinzui/kotei`
-  (`docs/masterplans/7-full-stack-nagare-deployment-management.md`, its EP-1
-  `docs/plans/22-workload-aware-nagare-deployment-backend-worker-db-and-task.md`) drives
-  Nagare as its deployment backend. Today kotei shells out to `nagarectl deploy` only.
-  Once `nagarectl app deploy` exists and emits a stable, machine-readable result (the
-  rendered object list with their `nagare.dev/app` labels, ideally as JSON on `--dry-run`),
-  kotei can deploy and track an entire multi-workload app in one call. EP-2 should treat
-  "a non-interactive, parseable deploy result" as an explicit requirement so the kotei
-  backend is not forced to scrape human prose. This is the seam between the two
-  MasterPlans; neither blocks the other, but EP-2's output contract should be designed with
-  kotei's consumption in mind.
-
-
 ## Progress
 
 - [x] EP-1 (2026-06-18): `Application` record, smart constructor, and shared-binding validation in `nagare-dsl`
@@ -198,7 +142,6 @@ Parallelism: EP-1 and EP-3 can proceed simultaneously. EP-2 starts once EP-1 is 
 - [x] EP-2 (2026-06-18): machine-readable `--dry-run --json` output contract for external consumers (kotei) (M3)
 - [x] EP-3 (2026-06-18): optional liveness/health probe field on `Worker` (`WorkerProbe` exec/TCP/HTTP + `ProbeTiming`), with JSON round-trip
 - [x] EP-3 (2026-06-18): renderer emits `livenessProbe` (and `startupProbe`) on the `apps/v1` Deployment; golden test + no-probe byte-identity proven
-
 
 ## Surprises & Discoveries
 
@@ -274,7 +217,6 @@ Parallelism: EP-1 and EP-3 can proceed simultaneously. EP-2 starts once EP-1 is 
   rank is integer-typed (no fractional `5.5`), EP-1's cabal module-slot note, and an EP-2 test
   command that named the wrong suite.
 
-
 ## Decision Log
 
 - Decision: Decompose into three streams — Application aggregate (EP-1), orchestrated
@@ -322,7 +264,6 @@ Parallelism: EP-1 and EP-3 can proceed simultaneously. EP-2 starts once EP-1 is 
   references against the declared `appDatabases` set.
   Date: 2026-06-18
 
-
 ## Outcomes & Retrospective
 
 **Outcome (2026-06-18 — initiative complete).** All three Exec-Plans are Complete. Nagare now has
@@ -364,23 +305,3 @@ cluster lookup; documented in EP-2). (3) An optional refinement to force every w
 built image tag (today prebuilt workers render `:latest`). (4) The kotei backend (`shinzui/kotei`)
 can now adopt the `app deploy --dry-run --json` contract.
 
-
-## Revision Notes
-
-- 2026-06-18 — **Initiative implemented; all three Exec-Plans Complete.** EP-1 (Application aggregate),
-  EP-3 (worker liveness probes), and EP-2 (orchestrated `nagarectl app deploy`, M0–M4) all landed and
-  are recorded Complete in the Exec-Plan Registry and Progress. EP-3 was implemented before EP-2 (both
-  unblocked once EP-1 completed) so EP-2's aggregated workers render liveness probes for free.
-  Offline test suites green (`nagare-dsl-test` 319, `nagarectl-test` 291); EP-2's live-apply
-  acceptance is the single deferred item (no cluster). See each child plan's Outcomes & Retrospective
-  and this document's Outcomes & Retrospective / Surprises & Discoveries for detail.
-
-- 2026-06-18 — Validation pass (no implementation yet). Fact-checked every concrete code claim
-  in EP-1/EP-2/EP-3 against the source and reconciled cross-plan drift. Changes: (1) EP-2 gained
-  milestone **M0** (extract `resolveTag`/`resolveBuildSpec`/`resolveConnectionEnv` from `Main.hs`
-  into `Nagare.Deploy.Resolve`) to fix a library-cannot-import-executable boundary;
-  (2) EP-1↔EP-2 reconciled on `appDatabases :: [Database]` (full specs, needed by `runDbCreate`);
-  (3) EP-2 M1 test command corrected to `nagarectl-test`; (4) EP-1 cabal module-slot note fixed;
-  (5) EP-3 `keyCompare` rank guidance corrected to integer ranks. Recorded in Surprises &
-  Discoveries, the Decision Log, the Integration Points, and each child plan's own Revision
-  Notes. No Exec-Plan Registry status changes (all remain Not Started).

@@ -12,6 +12,7 @@ intention: "intention_01kts6qyg4ezsbj500ksjr90r1"
 This MasterPlan is a living document. The sections Progress, Surprises & Discoveries,
 Decision Log, and Outcomes & Retrospective must be kept up to date as work proceeds.
 
+Full plan before trimming: [10-scheduled-tasks-for-nagare.md](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/masterplans/10-scheduled-tasks-for-nagare.md). This copy keeps the purpose, progress, discoveries, decisions and outcomes.
 
 ## Vision & Scope
 
@@ -88,7 +89,6 @@ The user-visible win is that the most common "cron job" need — the thing every
 offers — becomes a typed, validated, one-line declaration plus a four-verb CLI, with the
 same safety and determinism guarantees as the rest of Nagare's surface.
 
-
 ## Decomposition Strategy
 
 The initiative is decomposed into five child plans that separate *substrate feasibility*
@@ -142,7 +142,6 @@ Alternatives considered and rejected:
   (part of the CLI plan, EP-51) plus a documented Grafana walkthrough (part of the docs
   plan, EP-53), not a standalone build.
 
-
 ## Exec-Plan Registry
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
@@ -155,139 +154,6 @@ Alternatives considered and rejected:
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-49, EP-51).
-
-
-## Dependency Graph
-
-EP-49 (the spike) has no dependencies and gates nothing *hard*. It exists to verify the
-substrate on the live `tan-nb-exp` cluster and to record the exact CronJob/Job YAML shapes,
-the one-off-run command, and the env-inheritance mechanism that the later plans encode. Its
-output is a verified contract, not shipped code, so every later plan *soft*-depends on it:
-they can begin against the spike's documented findings, and reconcile if the spike surfaces
-a surprise.
-
-EP-50 (typed model and renderer) is pure work inside the `cli/nagare-dsl/` package. It has
-no hard dependency — it introduces a new `Nagare.Dsl.Task` module and a new
-`Nagare.Dsl.Task.Render` module, neither of which any existing code imports. It
-soft-depends on EP-49 so the rendered CronJob/Job matches the shapes the spike proved on a
-real cluster. EP-50 is the keystone: it defines the typed `Task` model and its JSON shape
-(Integration Point IP1), the rendered CronJob/Job manifests (IP2), and the task
-naming/label contract (IP3).
-
-EP-51 (the `nagarectl task` CLI and deploy-time provisioning) hard-depends on EP-50: its
-commands discover, run, and delete the CronJobs that EP-50's renderer produces, and its
-deploy-time provisioning applies them. It cannot compile or behave meaningfully without
-EP-50's `Task` type, renderer, and label contract. It soft-depends on EP-49 for the exact
-one-off-run command and log-retrieval approach. EP-51 owns the CLI command-group plumbing
-(IP4) and the one-off-run + logs contract (IP6).
-
-EP-52 (app↔task association and inheritance) hard-depends on EP-50: it extends the
-`Deployment` type and the renderer to resolve an app's image and managed env/secret into the
-task. It soft-depends on EP-51 because the most natural way to exercise the association
-end-to-end is through the `task` CLI, but the association can be implemented and tested via
-the renderer and `nagarectl deploy` alone. EP-52 owns the app↔task association contract
-(IP5).
-
-EP-53 (docs and examples) hard-depends on EP-50 (it documents the typed model and must show
-real config) and soft-depends on EP-51 and EP-52 because it documents the CLI surface and
-the app-inheritance behavior and should describe *what actually shipped*. It is always last.
-
-Parallelism: EP-50 can start immediately (alongside or just after EP-49's findings land).
-Once EP-50 is Complete, EP-51 and EP-52 can proceed **in parallel** — they touch largely
-different code (EP-51 the `Nagare.Task.*` CLI modules and the `task` subparser; EP-52 the
-`Deployment` type, the app deploy path, and the renderer's env/image resolution) and share
-only the EP-50 contracts and a small reconciliation at IP5/IP6. EP-53 begins once at least
-one of EP-51/EP-52 is far enough along to document.
-
-
-## Integration Points
-
-**IP1 — The typed `Task` model and its JSON shape.** Defined by **EP-50** in a new module
-`cli/nagare-dsl/src/Nagare/Dsl/Task.hs`, exporting a validated `Task` record with hidden
-constructors and smart constructors that match the house pattern in
-`cli/nagare-dsl/src/Nagare/Dsl/Database.hs` (e.g. `mkDatabaseName`, `mkEngineVersion`). The
-`Task` value is serialized to JSON by an `emitTask :: Task -> IO ()` function in
-`cli/nagare-dsl/src/Nagare/Dsl/Config.hs` and decoded back by a `decodeTask`/`toTask` path
-in `cli/nagare-dsl/src/Nagare/Dsl/Load.hs`, exactly mirroring `emitDatabase`/`decodeDatabase`.
-The JSON object carries a `"kind": "Task"` discriminator (databases use `"kind": "Database"`;
-plain deployments carry no `kind`). The contract is: a config file calls `emitTask task` and
-the loader re-runs every smart constructor so an invalid task fails at load with a precise
-`MarshalError "<field>" "<message>"`. Consumed by EP-51 (the CLI loads tasks from config to
-provision them) and EP-52 (the app deploy path loads tasks associated with an app). The
-exact field set is owned by EP-50; the cron-schedule validation rule it introduces (a new
-`Schedule` newtype with `mkSchedule`) is part of this contract.
-
-**IP2 — The rendered CronJob and embedded Job-template shapes.** Verified on the live cluster
-by **EP-49** and produced by **EP-50** in `cli/nagare-dsl/src/Nagare/Dsl/Task/Render.hs`. The
-contract is a single `batch/v1` CronJob document whose `spec.jobTemplate.spec` is the Job
-template, structured to match the proven backup machinery in
-`cli/nagarectl/src/Nagare/Database/Backup.hs` (`renderBackupCronJob`, lines ~283–298):
-`spec.schedule`, `spec.concurrencyPolicy`, `spec.successfulJobsHistoryLimit`,
-`spec.failedJobsHistoryLimit`, `spec.startingDeadlineSeconds`, and
-`spec.jobTemplate.spec.{backoffLimit,activeDeadlineSeconds,template.spec.{restartPolicy,
-containers,...}}`. Rendering uses the same Aeson `object`/`.=` → `Data.Yaml.Pretty.encodePretty`
-pipeline and deterministic key-ordering comparator that `Nagare/Dsl/Database/Render.hs` uses,
-so golden files are byte-stable. The renderer also exposes the bare Job `.spec` so a one-off
-run can reuse it. Consumed by EP-51 (applies the CronJob; derives the one-off Job) and EP-52
-(injects the app's `envFrom` and resolved image into the same template).
-
-**IP3 — The task naming and label contract.** Defined by **EP-50**. The CronJob is named
-`nagare-task-<taskName>` (mirroring the backup CronJob's `nagare-dbbackup-<dbName>` and the
-managed-resource `nagare-<kind>-<name>` convention used throughout the renderer). Every
-rendered object carries the labels `nagare.dev/managed-by: nagarectl`, `nagare.dev/task:
-<taskName>`, and — when the task is associated with an app — `nagare.dev/app: <appName>`.
-This is the discovery contract: EP-51's `nagarectl task list/run/logs/delete` find tasks by
-the label selector `nagare.dev/managed-by=nagarectl,nagare.dev/task` (optionally
-`,nagare.dev/app=<app>` to scope to one app), exactly as
-`cli/nagarectl/src/Nagare/Database/Discover.hs` finds databases by
-`nagare.dev/managed-by=nagarectl,nagare.dev/database`. EP-50 owns the names and label keys;
-EP-51 consumes them for discovery; EP-52 sets `nagare.dev/app` when an app reference is
-present.
-
-**IP4 — The `nagarectl task` command-group plumbing.** Introduced by **EP-51** in
-`cli/nagarectl/app/Main.hs` (a new `TaskCommand` ADT added to the top-level `Command` ADT, a
-`taskCmd`/`taskSubparser` block mirroring `dbCmd`/`dbSubparser` at lines ~1098–1159, and a
-`runTask` dispatcher mirroring `runDb` at lines ~1844–1880) and in new modules under
-`cli/nagarectl/src/Nagare/Task/` (`Discover.hs`, `List.hs`, `Run.hs`, `Logs.hs`,
-`Delete.hs`), registered in `cli/nagarectl/nagarectl.cabal`. Shared discovery helpers
-(label-selector query + defensive JSON parsing, modelled on
-`Nagare/Database/Discover.hs`) live in `Nagare/Task/Discover.hs`. The contract is that this
-subparser and these helpers are *extension points*: EP-52 may add an app-scoped flag or
-positional, but must extend, not fork, this command group. Process invocation uses the
-existing `Cradle` wrapper (`cmd "kubectl" & addArgs [...] & run`/`run_`) used everywhere in
-the CLI.
-
-**IP5 — The app↔task association and inheritance contract.** Defined by **EP-52**. A task may
-reference an app by its `ServiceName`; the association is expressed in the typed model (a
-field carried on `Task` — e.g. `taskApp :: Maybe ServiceName` — defined in EP-50's IP1 so the
-model compiles, with EP-52 owning the *semantics* and the deploy-time resolution). When an
-app reference is present and the task opts into inheritance, the rendered Job template (1)
-uses the app's deployed image tag instead of an explicit image, resolved at deploy time in
-`cli/nagarectl/src/Nagare/Deploy.hs` the same way `Nagare.Image`/`resolveImageTag` resolves an
-app's tag today, and (2) gains `envFrom` references to the app's managed runtime resources
-`nagare-env-<app>-runtime` (ConfigMap) and `nagare-secret-<app>-runtime` (Secret), each with
-`optional: true`, exactly as `cli/nagare-dsl/src/Nagare/Dsl/Render.hs` (`envFromField`,
-lines ~368–375) wires them into the app's own container. EP-52 also defines the predefined
-task variables injected into every task run (at minimum `NAGARE_TASK_NAME` and a per-run
-`NAGARE_RUN_ID`), following the generated-variable pattern in
-`cli/nagarectl/src/Nagare/Env/Generated.hs`. Consumed by EP-50's renderer (which emits the
-`envFrom` block and the `nagare.dev/app` label), EP-51 (whose `task list <app>` scopes by the
-`nagare.dev/app` label), and EP-53 (which documents the inherited-variable table).
-
-**IP6 — The one-off run and logs/observability contract.** Defined by **EP-51**. `nagarectl
-task run <app> <task>` creates a single Job from the deployed CronJob via `kubectl create
-job <generated-name> --from=cronjob/nagare-task-<task> -n <ns>`, waits with `kubectl wait
---for=condition=complete --timeout=...`, and streams logs — mirroring the
-apply→`kubectl wait --for=condition=complete`→logs flow in
-`cli/nagarectl/src/Nagare/Database/Backup.hs` (`waitForJob`, lines ~392–404). `nagarectl
-task logs <app> <task>` follows pod logs by the IP3 label selector with `kubectl logs -l
-nagare.dev/task=<task> ...`, mirroring `streamServiceLogs`/`logArgs` in
-`cli/nagarectl/src/Nagare/App.hs` (lines ~103–125). Task pod logs are scraped by the existing
-cluster VictoriaLogs stack with no new wiring; the contract here is that EP-51 surfaces a
-Grafana/VictoriaLogs query hint and EP-53 documents the full history walkthrough. Consumed by
-EP-53 (docs) and exercised by the spike EP-49 (which proves both `--from=cronjob` and log
-retrieval on the live cluster).
-
 
 ## Progress
 
@@ -303,7 +169,6 @@ the milestone. This section provides an at-a-glance view of the entire initiativ
 - [x] EP-51: `nagarectl task run` fires a one-off Job and waits; `nagarectl task logs` streams pod logs; deploy-time provisioning of declared CronJobs is implemented in EP-52 (which owns the `Deployment.tasks` field — see Surprises).
 - [x] EP-52: `Deployment`/`Task` carry the app association; deploy-time resolution injects the app's image tag and `envFrom` managed env/secret; predefined task vars injected.
 - [x] EP-53: `docs/user/scheduled-tasks.md` written and cross-linked; runnable `cluster/examples/` task examples (heartbeat-task, app-cleanup-task); VictoriaLogs/Grafana logs walkthrough with the EP-49-verified query; runbook deliberately untouched (host-ops only).
-
 
 ## Surprises & Discoveries
 
@@ -359,7 +224,6 @@ interactions between child plans. Provide concise evidence.
   EP-52 would immediately rewrite. EP-51 stays In Progress until EP-52's provisioning lands;
   then both complete together. This mirrors the EP-50/EP-52 "shape vs. semantics" split already
   recorded in the Decision Log.
-
 
 ## Decision Log
 
@@ -417,7 +281,6 @@ interactions between child plans. Provide concise evidence.
   cluster-aware resolution live in the plan that owns the app deploy path. Documented as IP1
   (shape) versus IP5 (semantics) so the two plans cannot drift.
   Date: 2026-06-10
-
 
 ## Outcomes & Retrospective
 

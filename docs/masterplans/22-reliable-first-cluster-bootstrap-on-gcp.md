@@ -64,6 +64,7 @@ This MasterPlan is a living document. The sections Progress, Surprises & Discove
 Decision Log, and Outcomes & Retrospective must be kept up to date as work proceeds.
 If durable project context changes, update or create ADRs in docs/adr/ in the same change.
 
+Full plan before trimming: [22-reliable-first-cluster-bootstrap-on-gcp.md](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/masterplans/22-reliable-first-cluster-bootstrap-on-gcp.md). This copy keeps the purpose, progress, discoveries, decisions and outcomes.
 
 ## Vision & Scope
 
@@ -93,7 +94,6 @@ Completed bootstrap requests remain completed, and every request unrelated to fi
 bootstrap—including cross-cluster diagnostics and Apple Container local mode—is explicitly out of
 scope. This initiative does not redesign Nagare's application platform, add another cloud, replace
 Pulumi or the remote-builder model, or make boot-disk growth in-place.
-
 
 ## Decomposition Strategy
 
@@ -127,7 +127,6 @@ shape. [ADR 18](../adr/0018-the-upgrade-transaction-is-as-guarded-as-the-recipes
 upgrade-time Pulumi application. Child plans must amend the owning ADR when implementation makes a
 durable decision; this planning pass creates no ADR merely for task decomposition.
 
-
 ## Exec-Plan Registry
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
@@ -141,57 +140,6 @@ durable decision; this planning pass creates no ADR merely for task decompositio
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-1, EP-3).
-
-
-## Dependency Graph
-
-EP-1, EP-2, EP-3, EP-4, and EP-5 can begin in parallel. EP-3 has a soft dependency on EP-2 because
-its apply-time guard should consume EP-2's Application Default Credentials evidence when available;
-it can initially build against the current context-guard interface and reconcile before completion.
-EP-5 has a soft dependency on EP-1 because cluster-mutating recipes should eventually call EP-1's
-cluster identity guard, but its issuer and selector changes are independently testable.
-
-EP-4 has an external integration dependency on ExecPlan 133: a Ready node is not a complete usable
-host until the age key can be placed and Tailscale can join. EP-5 has an external integration
-dependency on ExecPlan 132 because both edit `justfile` bootstrap ordering and Knative ConfigMaps.
-Those external plans do not block isolated implementation, but their changes must be reconciled
-before the live rehearsal.
-
-EP-6 has hard dependencies on all five children because it validates their public commands and
-documents one linear path. Its live cloud acceptance also requires ExecPlans 132 and 133 complete.
-The hard dependency does not mean all work must merge serially; it means EP-6 cannot claim the
-one-pass outcome until each upstream behavior exists.
-
-
-## Integration Points
-
-`cli/nagarectl/app/Main.hs` and `justfile` are shared command surfaces. EP-1 owns the cluster guard,
-kubeconfig-fetch command, and launcher exposure. EP-2 owns ADC observations and undeployed-context
-state. EP-3 owns saved-plan preview/apply commands and builder selection. EP-5 may only consume the
-cluster guard from EP-1; it must not define a second cluster identity check. EP-6 edits command help
-or recipes only to align documentation and tests with the interfaces their owning plans established.
-
-The selected context is the shared identity root. EP-2 extends `ProjectGuardInputs` with ADC
-evidence. EP-3 consumes that verdict before Pulumi or builder-related GCP operations, and EP-1
-derives the expected Kubernetes node name from the same context-owned host configuration. Any
-change that makes saved Pulumi plans context-bound execution artifacts should amend ADR 18; builder
-project ownership should amend ADR 9. EP-2 owns any ADR 6 amendment for the explicit `not-deployed`
-state.
-
-The installed Nix package is shared by EP-1 and EP-3. EP-1 owns filtering user-facing outputs to
-`bin`, required `share`, and `nix-support`, and adds `socat`. EP-3 may add a builder proxy/helper but
-must use that package boundary rather than reintroducing build-only link farms.
-
-The Knative ConfigMaps and `personal` namespace are shared by EP-5, ExecPlan 132, and EP-6. EP-5
-owns the issuer references, the label key `nagare.dev/app-namespace=true`, and the selector that
-consumes it. ExecPlan 132 owns webhook readiness and patch retries. EP-6 only verifies their composed
-order. If implementation changes the durable rule that public ACME issuers receive only public app
-names, EP-5 should amend ADR 10 or create a narrowly scoped successor ADR.
-
-`docs/user/onboarding-bring-your-own-project.md` is the final integrated narrative. Child plans may
-update focused reference pages, but EP-6 owns the final ordering and removes contradictory legacy
-steps. This prevents parallel plans from each inventing a different end-to-end sequence.
-
 
 ## Progress
 
@@ -208,7 +156,6 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [ ] EP-6: boot-disk guidance, IR-11, hermetic rehearsal, and repository gates pass; the explicitly
   authorized disposable-project rehearsal remains outstanding.
 - [x] (2026-09-14T18:55:31Z) External: ExecPlans 132 and 133 are complete and reconciled for EP-6.
-
 
 ## Surprises & Discoveries
 
@@ -286,7 +233,6 @@ interactions between child plans. Provide concise evidence.
   no disposable project, delegated domain, protected-project list, secrets, acknowledgement, or
   interactive authorization has been supplied for the billable live run.
 
-
 ## Decision Log
 
 Record every decomposition or coordination decision made while working on the master
@@ -336,7 +282,6 @@ plan.
   EP-4 integration boundary without duplicating fixtures, and all five EP-6 hard dependencies are
   satisfied.
   Date: 2026-09-14.
-
 
 ## Outcomes & Retrospective
 
@@ -396,7 +341,6 @@ and all 527 Haskell tests plus all 29 buildable native checks pass. The live run
 installed release, disposable project/domain, protected-project denylist, secret inputs, exact
 acknowledgement, and interactive creation/teardown confirmations. None of those authorizations were
 supplied, so neither EP-6 nor this MasterPlan claims the final live outcome.
-
 
 Revision note (2026-09-14): Completed EP-1, closed IR-10 and IR-20, recorded the durable package
 and kubeconfig boundaries in ADRs 7 and 4, and identified EP-2 as the next implementable child.

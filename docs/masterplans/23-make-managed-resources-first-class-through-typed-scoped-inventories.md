@@ -388,6 +388,7 @@ provenance:
 
 This MasterPlan is a living document. Keep Progress, Surprises & Discoveries, Decision Log, and Outcomes & Retrospective current, and promote durable decisions into `docs/adr/` in the same change. It was consolidated on 2026-10-02: the previous text (dated entrypoints, finish sequences, gate tables and the full decision and revision history) is preserved verbatim in [the pre-consolidation snapshot](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-archive/plan-history/mp23-before-consolidation-2026-10-02.md). Nothing in that snapshot overrides this file.
 
+Full plan before trimming: [23-make-managed-resources-first-class-through-typed-scoped-inventories.md](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/masterplans/23-make-managed-resources-first-class-through-typed-scoped-inventories.md). This copy keeps the purpose, progress, discoveries, decisions and outcomes.
 
 ## Vision & Scope
 
@@ -423,9 +424,7 @@ or inventory-schema transitions, and scratch backup restore does not establish c
 rebuild. EP-157 reports actual supported paths and remaining limits; final production go/no-go remains
 the operator's. Volumes remain outside the hourly recovery-point objective by D2.
 
-
 **Standing operator constraints.** No GKE: Nagare targets local k3d/k3s and k3s on a NixOS VM in Compute Engine, and no child may create, select or depend on a GKE cluster. Local checks use only the `nagare-mp23-cp3` Colima profile and run sequentially. Cloud work uses the active context's guardrails (ADR 9) and the repository's host and cloud mutation rules in `CLAUDE.md`. External tool evaluation (K8up/restic first, CloudNativePG/Barman for PostgreSQL, Velero as a secondary comparison) lives in MP-24/[EP-163](../plans/163-evaluate-established-tooling-against-nagare-s-managed-resource-layers.md) and does not gate MP-23.
-
 
 ## Decomposition Strategy
 
@@ -434,7 +433,6 @@ The foundation children (EP-144 typed scopes, EP-145 reviewed plans and journal,
 Relevant ADRs: [ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md) records this architecture and its durable constraints. [ADR 4](../adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md) (payloads vs private workspaces), [ADR 6](../adr/0006-version-platform-state-across-cli-payload-context-host-and-cluster.md) (version transactions), [ADR 7](../adr/0007-publish-immutable-nix-releases-from-validated-tags.md) (immutable release evidence), [ADR 9](../adr/0009-assert-the-active-context-project-on-every-cloud-mutating-path.md) (cloud guardrail), [ADR 11](../adr/0011-host-activation-is-guarded-and-self-reverting.md) (self-reverting host activation), [ADR 12](../adr/0012-platform-data-disk-capacity-is-forward-only-and-grows-itself.md) (forward-only data disk), [ADR 13](../adr/0013-operator-deployment-material-lives-in-a-private-repository-with-remote-state.md) (private operator material), [ADR 14](../adr/0014-the-active-context-owns-the-vm-shape.md) (VM shape), [ADR 16](../adr/0016-adopt-haskell-jitsurei-for-production-haskell.md) (Haskell style), [ADR 18](../adr/0018-the-upgrade-transaction-is-as-guarded-as-the-recipes-it-replaces.md) (guarded native review), [ADR 19](../adr/0019-replacement-cutovers-reserve-rollback-before-write-admission.md) (cutover rollback), [ADR 20](../adr/0020-domain-routing-and-tls-ownership-are-explicit.md) (route/TLS ownership) and [ADR 21](../adr/0021-nagare-owns-an-optional-context-local-nix-cache-provider.md) (cache provider) constrain the children that touch those areas. No cross-repository ADR applies.
 
 Rejected alternatives: isolated platform/application inventories without shared conflict checks; one global release coupling applications to platform upgrades; a handwritten resource list beside imperative scripts; replacing native reconcilers; and an always-on control plane before the operator-driven protocol is proven.
-
 
 ## Exec-Plan Registry
 
@@ -467,43 +465,6 @@ Rejected alternatives: isolated platform/application inventories without shared 
 | 182 | Derive the recovery model's Kubernetes world from validated API semantics (RES-4 G11; step 3c) | docs/plans/182-derive-the-recovery-model-s-kubernetes-world-from-validated-api-semantics.md | EP-179 | EP-180 | Complete |
 
 Hard dependencies must be Complete before starting the dependent child; soft dependencies supply real-adapter coverage but allow fixture-backed work to proceed. EP-157's gate code is already implemented; its final assembly additionally needs every other active child's accepted outcome (see Dependency Graph). File slugs for EP-159 and EP-160 predate their current titles and are kept so existing links stay valid.
-
-
-## Dependency Graph
-
-**Complete (2026-10-09):** every child's outcome is accepted on final candidate `83124396` (Progress). The rest of this section is the order the work followed. All hard prerequisites of the eight active children are complete, so every active child can be worked now. The remaining order is set by producer/consumer flow rather than by plan number:
-
-```text
-feature + blocker work           one frozen candidate                 release
-EP-153 (commands, F30–F33) ─┐
-EP-158 (access, CDN)        ├─► local gate ─► EP-155 local scenario ─┐
-EP-159 (receipts, RPO)      │                 EP-156 cloud scenario ─┼─► EP-157 assembly
-EP-160 (restore)            ┘                 EP-154 both systems  ─┘
-```
-
-Feature children produce code and focused local proof; the native children (EP-154/155/156) then prove one frozen candidate that contains all of it; EP-157 assembles only that candidate's evidence. A native child may pull a feature fix forward when its scenario needs it, but evidence recorded against an earlier candidate counts toward final acceptance only where its recorded inputs still match the final candidate. Cloud integration (EP-156) keeps scheduling priority over the full local scenario (EP-155) because the operator needs a maintainable cloud cluster first; both remain required for release.
-
-
-## Integration Points
-
-**Typed domain contract — EP-144, consumed by every child.** `cli/nagare-dsl/src/Nagare/Resource/{Types,Reference,Policy,Inventory,Compile,Wire}.hs` and `schemas/resource-inventory-v1.json` define ContextId/ScopeId/ResourceId, provider claims, physical identity, typed exports, owner contributions and delegation, lifecycle/data/sensitivity policy, and canonical serialization. `composeInventory` is the only route to a validated inventory; there is no decoder from bytes to a validated inventory. Types with hidden constructors never derive Generic, public setters, unchecked FromJSON or coercible roles. Content digests follow composed content and never scope revisions. The canonical SHA-256 digest lives in nagare-dsl (`Nagare/Resource/Canonical.hs`, re-exported by nagarectl's `Nagare/Inventory/Digest.hs`); the operator confirmed this on 2026-10-03 (D5, ADR 22 amendment), and it remains the only inventory digest function.
-
-**State, review and operation protocol — EP-145.** `cli/nagarectl/src/Nagare/Inventory/{Store,Plan,Journal,Execute,Adapter}.hs` own heads, scope revision vectors, incarnations, review bundles, operation identity, adapter capabilities and recovery states. The pipeline is compile → observe → plan → prepare review (adapter-native bundles) → publish by digest → verify → admit under the store lock → execute. Only admission yields executable authority. The store contract is three conditional writes (publish-if-absent, append-at-sequence, replace-head-if-generation-matches), tested against an in-memory store. Apply and resume share one serial operation driver (EP-153). Adapters never call a command that takes the context lock.
-
-**GCS store — EP-151.** `cli/nagarectl/src/Nagare/Inventory/Store/{ObjectOps,Remote,Discovery,Gogol,GcloudAuth}.hs` and `nagarectl inventory store status|migrate` implement the EP-145 store unchanged in the context state bucket, selected by `NAGARE_INVENTORY_STORE`/`NAGARE_INVENTORY_STORE_URL`. Local contexts always use the filesystem store.
-
-**Native execution — EP-146 (cloud/host/artifact) and EP-147 (cluster).** Pulumi saved plans, rendered Kubernetes/Helm objects and host closures are retained before mutation and must agree with validated membership; any native plan, config or output change requires a new review. Shared owners (namespace, auth, shared configuration) compose validated consumer contributions; database builders emit the whole database bundle including credentials and backup operations.
-
-**Lifecycle and observation — EP-149.** `cli/nagarectl/src/Nagare/Inventory/{Lifecycle,Migration,Status}.hs` own drift categories, adoption/transfer proofs, retained incarnations, migration and collection decisions. Every deletion is bound to exact identity and history. An adapter may report that a change requires replacement; the planner then refuses an ordinary update.
-
-**Command surface and coverage — EP-153.** `cli/nagarectl/app/Main.hs` is a 16-line entrypoint and the dispatcher only routes; behavior lives in named modules. `docs/architecture/managed-resource-coverage.md` lists every supported mutation family with owner, compiler, executor, evidence and legacy disposition; it is a traceability aid, not a second authority. `scripts/audit-managed-commands.py` enforces that deferred routes refuse and recovery-only routes stay available. Shared Cabal, `Spec.hs` and Nix test registrations preserve every child's modules.
-
-**Backup, restore and tool boundary — EP-159 and EP-160.** Native engines own backup/restore semantics; Nagare owns source identity, declared membership, review and durable outcomes. EP-159's receipts (v5: signed timestamp taken before the dump) feed EP-160's restores; only accepted receipts authorize restore. Freshness is computed by `cli/nagarectl/src/Nagare/Inventory/BackupFreshness.hs` against the accepted schedule's objective (`hourly`: warning at 30 minutes, breach at one hour; `daily`: 25 and 26 hours), counting accepted receipts and verified pending uploads. `DatabaseBackupTarget` (`Nagare/Inventory/Database.hs`) carries the store backend and objective to every database compiler; the escrow format lives in `Nagare/Inventory/SigningKeyEscrow.hs`.
-
-**Release evidence — EP-157, supplied by EP-153/154/155/156.** `scripts/assemble-release.sh`, `scripts/assemble-inventory-release-index.py`, `cli/nagarectl/src/Nagare/Inventory/ReleaseEvidence.hs` and `.github/workflows/release.yml` require, for one candidate: native build outputs and clone-free rehearsals for both supported systems (EP-154), `coverage.json` (EP-153), and local and cloud `fixture`, `target`, health and inventory-evidence files (EP-155, EP-156) under `docs/release-evidence/<revision>/`. Producers must emit exactly the check names the gate requires (see Surprises, 2026-10-02). Private secrets and native bundles never enter public evidence; publication itself is outside this initiative's authorization.
-
-**Findings tracker — shared.** [`docs/audits/mp23-findings.md`](../audits/mp23-findings.md) owns finding IDs and status. Implementers record fixes there; only an independent verifier closes a finding. New evidence goes into the owning child plan and, for raw native output, the existing dated results directory — not into new standalone audit documents.
-
 
 ## Progress
 
@@ -597,7 +558,6 @@ The 2026-10-04 finish line (candidate `b74b7e49`), the dated phase checkpoints f
 
 **Working rules for remaining work.** Name the assertion, expected progress and time budget before any costly run; an unmeasured path gets a diagnostic checkpoint after 15 minutes, and a second identical failure stops dependent work until the cause is identified. Retry only after an input, implementation or observed condition changes. Never reset history or patch a provider to manufacture a result; recover already-admitted transactions through their recorded identity. Batch cloud mutations into one rehearsed, bounded sequence approved once. Record outcomes in the owning child plan and the tracker; do not create new standalone audit documents, competing entrypoint paragraphs or dated finish sequences in this file.
 
-
 ## Surprises & Discoveries
 
 2026-10-09 (F95, drill C on `3b59bcb7`): A node upgrade that restarts `tailscaled` or the network kills the SSH session that started its activation. Piped through `systemd-run --pipe --wait`, the Rust `switch-to-configuration` exited 101 when its stdout went away. A client on a dead network never saw the session end, so the apply hung until the rollback timer reverted the host. In the milder case of drill B, a cut-off activation was committed. The fix is in `83124396`, and an [ADR 11](../adr/0011-host-activation-is-guarded-and-self-reverting.md) amendment records it:
@@ -645,9 +605,7 @@ On `mp23-c3m`, k3s 1.35 → 1.36.4 then committed in 5 minutes.
 
 Earlier discoveries (derived controller claims, explicit candidate changes, native preparation before review, admission under lock, recovery before obsolete preflight, exact incarnations, conditional shared history) are recorded in ADR 22 and the snapshot.
 
-
 ## Decision Log
-
 
 Decisions still in force, condensed. Full verbatim entries are in [the snapshot](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-archive/plan-history/mp23-before-consolidation-2026-10-02.md).
 
@@ -785,19 +743,3 @@ The operator's production goal (checklist sections 2–4) was also met on the fi
 - **Rehearse release mechanics early.** The notes are bound to the candidate, so the x86_64 C4 harness, the evidence assembler and the publication path without Actions each cost a re-cut or a late detour.
 - **Unattended native runs need their human dependencies settled first,** such as the Tailscale check approval and gcloud re-authentication, or they stall overnight.
 
-
-## Revision Notes
-
-2026-10-09: Reconciled production-readiness wording with the current accepted node/database drills
-and MP-21's optional replacement scope. Preserved the distinction between node configuration and
-unsupported general payload/schema transitions; no child status or acceptance evidence changed.
-
-2026-10-09: Closed out the plan:
-- recorded the final status (candidate `83124396`, gates, checklist sections 2–4, findings at close, v0.4.0 publication);
-- ticked steps 3, 3a, 3b, 3d and 5;
-- marked the registry;
-- finalized the IR-24 table;
-- added the 2026-10-07 goal amendment, the 2026-10-07 to 2026-10-09 decisions and surprises, and the Outcomes & Retrospective.
-The superseded 2026-10-04 finish line and the dated checkpoints moved verbatim to [the pre-close snapshot](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-archive/plan-history/mp23-progress-before-close-2026-10-09.md).
-
-2026-10-02: Consolidated the plan into a single current-state document after an implementation assessment: replaced dated entrypoints and finish sequences with one ordered remaining-work list (Phases A–D), pending operator decisions D1–D5 and three explicit gates; recorded newly found release-path and recovery-point gaps; archived history unchanged. Earlier revision notes are in the snapshot.

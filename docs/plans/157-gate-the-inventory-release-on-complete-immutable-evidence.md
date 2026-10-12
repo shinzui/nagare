@@ -78,13 +78,13 @@ provenance:
 
 This ExecPlan is a living document and a child of [MasterPlan 23](../masterplans/23-make-managed-resources-first-class-through-typed-scoped-inventories.md). Keep Progress, Surprises & Discoveries, Decision Log and Outcomes & Retrospective current. It was consolidated on 2026-10-02; the earlier dated narrative, superseded handoffs and full decision history are preserved verbatim in [the pre-consolidation snapshot](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-archive/plan-history/ep157-before-consolidation-2026-10-02.md). Nothing in that snapshot overrides this file.
 
+Full plan before trimming: [157-gate-the-inventory-release-on-complete-immutable-evidence.md](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/plans/157-gate-the-inventory-release-on-complete-immutable-evidence.md). This copy keeps the purpose, progress, discoveries, decisions and outcomes.
 
 ## Purpose / Big Picture
 
 A Nagare release that claims the managed-resource inventory feature must be backed by proof, not by a checkbox. After this plan, release assembly accepts only one *candidate* (an exact commit whose Nix payload is built and tested) whose evidence is complete, matching and secret-free: native build outputs and clone-free installed rehearsals for every system in `release.json`, a complete command-coverage result, and one local and one GCP scenario run. Any missing, stale, altered or narrowed input refuses before any GitHub request. The observable result is a checked-in `docs/release-evidence/<revision>/` directory, a non-publishing release workflow run that assembles checksummed attachments including `nagare-inventory-evidence-v<version>.json`, and a `nagarectl release publish` review that reports "Review only" without contacting the forge.
 
 This plan does not publish a release; publication is a separate, explicitly authorized action. It also does not make Nagare production-ready. MasterPlan 23 separates release acceptance from production readiness: production use additionally needs the data-protection gate (off-cluster backups within a one-hour recovery-point objective after total cluster loss, verified restored content, a documented recovery procedure) and [MP-21](../masterplans/21-rehearsed-replacement-upgrades-with-bounded-downtime-for-nagare.md)'s rehearsed upgrade on an inventory-backed context. The release notes this plan produces must state every unmet production target explicitly.
-
 
 ## Progress
 
@@ -102,7 +102,6 @@ This plan does not publish a release; publication is a separate, explicitly auth
   - Superseded (2026-10-09): the data-protection gate and the MP-21 upgrade gate are no longer unmet. The 2026-10-07 operator decision made them MP-23 scope through [the production-readiness checklist](../releases/production-readiness-checklist.md): section 2's destroy-and-restore drill passed, and sections 3 and 4 replaced the MP-21 gate with the in-place, self-reverting node upgrade and the side-by-side PostgreSQL upgrade, both drilled. MP-21 stays a later improvement.
   - Moved (2026-10-09): the D6 statement goes to the next release's notes. The 0.4.0 notes name the `hourly|daily` preset but do not say that a `daily` context is weaker than the one-hour production target, and the published notes are bound to the tag, so they are not edited. Documentation and ADR consistency rests on the green gate and `check-release.sh`.
 
-
 ## Surprises & Discoveries
 
 Full history is in [the snapshot](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-archive/plan-history/ep157-before-consolidation-2026-10-02.md).
@@ -116,7 +115,6 @@ Full history is in [the snapshot](https://github.com/shinzui/nagare/blob/0c00498
 2026-09-27: the existing one-run projector (`inventory-evidence.json`) cannot stand for both scenarios. The index therefore consumes one projector result per scenario and binds each to its own target and health record instead of redesigning the private export.
 
 2026-10-02: the health record's `fixtureDigest` (hash of the shipped fixture definition) and the projector's canonical target digest intentionally differ; both are checked, and neither substitutes for the other.
-
 
 ## Decision Log
 
@@ -140,7 +138,6 @@ Decisions still in force, condensed. Verbatim entries are in [the snapshot](http
 
 2026-09-26: this plan takes the release-gate outcome from EP-150 and reuses its publisher (`1891b34c`) and projector (`432dad9a`, `cbd7c3cf`) rather than reimplementing them.
 
-
 ## Outcomes & Retrospective
 
 **Status (2026-10-09): Complete.** The checked publisher's review-only run passed on the published attachments. The D6 sentence moves to the next release's notes (see Progress).
@@ -151,70 +148,3 @@ Decisions still in force, condensed. Verbatim entries are in [the snapshot](http
 
 Earlier (2026-10-03): the gate is implemented and independently tested: assembly, index, publisher and workflow refuse incomplete or dishonest evidence before any provider call. No real candidate evidence exists yet, so IR-24 case 7 is unproven. Remaining: the A5 producer fixes, the stale user documentation, and final C5 assembly once EP-153/154/155/156 deliver matching inputs. Lesson: gate tests built from synthetic producers hid a contract mismatch with the real producer; every evidence schema needs one test that runs the real producer's output through the gate.
 
-
-## Context and Orientation
-
-A *scope* is one owner's complete declared resource set; the *inventory* composes all scopes. A *review* is an immutable, digest-named plan of native effects; the private *journal* records execution receipts. The *projector* turns one run's private history into the public, secret-free `inventory-evidence.json`. A *clone-free rehearsal* installs `nagarectl` from the built Nix output, without a source checkout, and runs named checks. The *fixture definition* (`fixture.json`) describes the scenario environment; the *target* (`target.json`) is the saved-review target whose canonical digest the projector binds; the *health record* (`<mode>-health.json`) carries `schemaVersion`, `mode`, `context`, `cluster`, `operatorRevision`, `fixtureDigest`, `healthy` and `checks`.
-
-The gate lives in four places. `scripts/assemble-release.sh --version V --input-root DIR --inventory-evidence DIR --output-dir DIR` combines native artifacts with the evidence directory, calls `scripts/assemble-inventory-release-index.py`, and copies every public input as `inventory-*.json` with `SHA256SUMS`. `cli/nagarectl/src/Nagare/Inventory/ReleaseEvidence.hs` re-checks the same contract inside `nagarectl release publish` (publisher modules `cli/nagarectl/src/Nagare/Inventory/Adapters/GitHubRelease.hs` and `GitHubReleaseRuntime.hs`). `.github/workflows/release.yml` builds each system in `release.json` (`x86_64-linux`, `aarch64-darwin`), runs the clone-free rehearsal there, and on `workflow_dispatch` assembles without publishing; a tag push publishes. Coverage comes from `scripts/audit-managed-commands.py --coverage-result FILE` (EP-153); local scenario inputs from `scripts/rehearse-local-inventory-release.sh` (EP-155); cloud inputs from `scripts/rehearse-gcp-inventory-release.sh` (EP-156).
-
-The evidence directory, committed at `evidence_revision`, has this shape; native files come from the workflow's build jobs, not from the repository:
-
-```text
-docs/release-evidence/<candidate-revision>/
-  coverage.json
-  local/  fixture.json  target.json  local-health.json  inventory-evidence.json
-  cloud/  fixture.json  target.json  cloud-health.json  inventory-evidence.json
-native artifacts (per system): nix-output-<system>.json  clone-free-<system>.json
-```
-
-[ADR 7](../adr/0007-publish-immutable-nix-releases-from-validated-tags.md) requires immutable release evidence from validated tags. [ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md) defines scopes, reviews and the reduced supported contract. [ADR 6](../adr/0006-version-platform-state-across-cli-payload-context-host-and-cluster.md) limits this first release to fresh inventory-backed contexts. [ADR 4](../adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md) keeps private state out of payloads and public evidence. [ADR 9](../adr/0009-assert-the-active-context-project-on-every-cloud-mutating-path.md) governs the cloud scenario's project guardrail.
-
-
-## Plan of Work
-
-Milestone 1 — align the real producers with the gate (MasterPlan A5). In `scripts/rehearse-clone-free-release.sh`, report the typed-configuration check as `typed-config` in the full clone-free record (and, for consistency, in the installed-smoke record) so the clone-free record contains `version`, `context`, `typed-config`, `payload` and `operator-recipe`. Add a checked-in GCP fixture definition for the fresh cloud context EP-156 uses in C3 and make `scripts/rehearse-gcp-inventory-release.sh` copy it to `cloud/fixture.json` and write `cloud/cloud-health.json` with the same identity fields as the local record and cloud-specific checks, following the pattern in `scripts/rehearse-local-inventory-release.sh`. Add one test that feeds actual producer output (not a synthetic fixture) through the index. Correct `docs/user/upgrades.md` so inventory evidence is described as a mandatory part of assembly. Done when the index accepts real producer output and the existing refusal tests still pass.
-
-Milestone 2 — final non-publishing assembly (MasterPlan C5). After C1–C4 on one frozen candidate, commit the produced inputs under `docs/release-evidence/<candidate>/` in a separate evidence commit. Dispatch the release workflow with `version`, `candidate_revision` and `evidence_revision`; it must assemble without refusal. Run `nagarectl release publish --repo shinzui/nagare --version V --assets dist` without `--yes` on the assembled attachments and observe "Review only". Map each IR-24 verification case to the evidence file that proves it, update the release notes with unmet production targets, then record results here, in MasterPlan 23 and in IR-24. Evidence from an earlier candidate counts only where its recorded inputs match the final candidate.
-
-
-## Concrete Steps
-
-Run from the repository root in the development shell. None of these publishes or touches a cloud project.
-
-```bash
-python3 scripts/test-inventory-release-index.py
-python3 scripts/test-release-evidence-public.py --nagarectl "$(cd cli/nagarectl && cabal list-bin exe:nagarectl)"
-bash scripts/test-release.sh
-bash scripts/test-managed-resource-evidence.sh
-(cd cli/nagarectl && cabal test nagarectl-test --test-options='-p publication' --test-show-details=failures)
-grep -n 'typed-config' scripts/rehearse-clone-free-release.sh
-okf validate docs/user --strict --profile mori/user-documentation-profile.dhall --profile-enforce --log-enforce
-```
-
-Expected: every test exits zero and the public evidence test prints `public release review accepts complete proof and refuses missing, stale and narrowed evidence`. After Milestone 1 the `grep` finds `typed-config` in the clone-free check list. For Milestone 2, with downloaded native artifacts in `native/` and the evidence directory checked out:
-
-```bash
-bash scripts/assemble-release.sh --version "$VERSION" --input-root native \
-  --inventory-evidence "docs/release-evidence/$CANDIDATE" --output-dir dist
-```
-
-
-## Validation and Acceptance
-
-A complete candidate assembles reproducibly: the same inputs produce the same attachment bytes and `SHA256SUMS`. Removing either scenario, either native system, a receipt or a coverage entry, changing a source, payload or fixture binding, or widening the deferred set refuses before any publication call. No private archive, native bundle or Secret value appears in any attachment. The checked publisher still recovers exact already-verified assets after a fresh checkout. Acceptance is the Milestone 2 workflow run plus the "Review only" result plus the IR-24 mapping, all bound to one candidate revision. No release-ready claim is made while any supported assertion, deferred-route guard or finding in [the tracker](../audits/mp23-findings.md) is unresolved.
-
-
-## Idempotence and Recovery
-
-The index, assembly and review steps are pure checks over files and can be rerun freely. Never relabel cached artifacts or earlier-candidate evidence as final-candidate evidence; a changed input needs a new evidence commit. Same-tag retries must keep exact bytes and provider asset IDs. Do not search `/nix/store`; inspect sources in the checkout and use Mori for dependencies.
-
-
-## Interfaces and Dependencies
-
-Index interface: `python3 scripts/assemble-inventory-release-index.py --release-metadata release.json --release-manifest FILE --native-dir DIR --coverage-result FILE --local-dir DIR --cloud-dir DIR --output FILE`. Workflow inputs: `version`, `candidate_revision`, `evidence_revision` (40-hex commits). Producers: [EP-153](153-close-managed-command-coverage-for-the-inventory-release.md) coverage, [EP-154](154-validate-installed-inventory-packages-on-every-supported-system.md) native artifacts on both systems, [EP-155](155-prove-local-application-and-data-recovery-end-to-end.md) local scenario, [EP-156](156-prove-fresh-gcp-convergence-and-shared-history-recovery.md) cloud scenario. [EP-158](158-complete-reviewed-access-and-cdn-operations.md), [EP-159](159-complete-scheduled-backup-receipts-and-exact-retention-pruning.md) and [EP-160](160-complete-fenced-live-data-restore-across-supported-engines-and-volumes.md) must be accepted for MasterPlan closure. Hard prerequisites EP-146, EP-147, EP-149 and EP-151 are complete.
-
-
-## Revision Notes
-
-2026-10-02: Consolidated with MP-23; history in the snapshot.

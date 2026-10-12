@@ -12,6 +12,7 @@ intention: "intention_01kvncmnzweearjz953y6besqc"
 This MasterPlan is a living document. The sections Progress, Surprises & Discoveries,
 Decision Log, and Outcomes & Retrospective must be kept up to date as work proceeds.
 
+Full plan before trimming: [15-cluster-messaging-broker-for-nagare.md](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/masterplans/15-cluster-messaging-broker-for-nagare.md). This copy keeps the purpose, progress, discoveries, decisions and outcomes.
 
 ## Vision & Scope
 
@@ -60,7 +61,6 @@ exposure for brokers, a general event schema registry product, exactly-once appl
 Tansu production migration in v1, and a UI beyond Grafana dashboards and CLI commands. Tansu support
 is planned as a compatibility target and migration-ready interface, not as the initial provider.
 
-
 ## Decomposition Strategy
 
 The initiative is split into six child ExecPlans by functional concern. The split mirrors previous
@@ -100,7 +100,6 @@ and Tansu later when it is mature. A provider-specific observability dashboard w
 would not create the abstraction the user asked for; provider-specific metrics can feed a common
 dashboard contract, but the contract must be Nagare-owned.
 
-
 ## Exec-Plan Registry
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
@@ -114,64 +113,6 @@ dashboard contract, but the contract must be Nagare-owned.
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-1, EP-3).
-
-
-## Dependency Graph
-
-EP-75 has no dependencies and is the root evidence plan. It proves which Kubernetes shapes,
-listeners, storage settings, resource limits, topic operations, and metrics endpoints are valid on
-the live single-node cluster. EP-76 can start without EP-75 as pure design work, but it has a soft
-dependency because its rendered shapes must reconcile with the spike evidence before it is complete.
-
-EP-78 has a hard dependency on EP-76 because the CLI provisions `Broker` values and calls the renderer
-and naming helpers defined there. EP-77 has a hard dependency on EP-76 because workload records need a
-typed field for broker/topic bindings and generated env must use the type names and secret/service
-helpers from the model. EP-77 has only a soft dependency on EP-78 because its tests can stub broker
-discovery, but live acceptance needs a broker created by `nagarectl broker create`.
-
-EP-79 has a hard dependency on EP-76 because the observability abstraction must use the broker labels,
-names, and provider capability fields defined by the model. It has soft dependencies on EP-75 and
-EP-78: the spike discovers real metrics and the lifecycle command installs the provider, but the
-dashboard and scrape contract can be developed against static fixtures. EP-80 comes last because docs
-and examples need the CLI, binding, and observability behavior to be settled.
-
-Parallelism: EP-75 and EP-76 can proceed together if EP-76 treats its renderer as provisional until
-the spike settles the exact shapes. EP-77 and EP-79 can proceed in parallel once EP-76 is complete.
-EP-80 should wait for EP-77, EP-78, and EP-79.
-
-
-## Integration Points
-
-- **Provider-neutral broker model.** Defined by EP-76 in new modules under
-  `cli/nagare-dsl/src/Nagare/Dsl/Broker.hs` and `cli/nagare-dsl/src/Nagare/Dsl/Broker/Render.hs`.
-  Consumed by EP-78, EP-77, EP-79, and EP-80. It must include provider (`Redpanda` now,
-  `Tansu` reserved), broker name, namespace, version, storage size, resource settings, listener
-  contract, provider sizing options, and topics.
-
-- **Resource labels and names.** Defined by EP-76 and consumed everywhere:
-  `nagare.dev/managed-by: nagarectl`, `nagare.dev/broker: <name>`,
-  `nagare.dev/broker-provider: <provider>`, and topic labels where Kubernetes resources represent
-  topics. Later plans must discover resources by labels first and only use helper functions for
-  deterministic names.
-
-- **Connection environment contract.** Defined by EP-77 and consumed by docs/examples. The stable v1
-  variables are `KAFKA_BOOTSTRAP_SERVERS`, `KAFKA_SECURITY_PROTOCOL`, `NAGARE_BROKER_NAME`, and
-  generated per-topic env names such as `NAGARE_TOPIC_JOBS`. These are intentionally Kafka-protocol
-  names, not Redpanda names.
-
-- **Topic ownership contract.** EP-76 defines typed topic declarations; EP-78 creates topics for the
-  provider; EP-77 injects topic names into workloads. Topic names must be deterministic and safe for
-  Kafka-compatible providers. A later Tansu provider must be able to create the same logical topics.
-
-- **Broker observability abstraction.** EP-79 owns the provider-neutral scrape and dashboard contract
-  in `cluster/observability/` and docs. EP-78 may install provider-specific metrics endpoints, but it
-  must label them so EP-79 can scrape them through the shared contract.
-
-- **Tansu migration contract.** EP-80 records what must remain provider-neutral for a future Tansu
-  implementation: Kafka bootstrap env, topic declarations, internal-only listener, metrics health, and
-  storage durability expectations. No v1 user config should need a Redpanda-specific field unless it
-  is explicitly namespaced as provider options.
-
 
 ## Progress
 
@@ -187,7 +128,6 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [x] EP-77: Add workload broker/topic bindings and generated runtime env injection.
 - [x] EP-79: Add scrape configuration, Grafana dashboard assets, and health checks through a provider-neutral abstraction.
 - [x] EP-80: Add docs, examples, and a Tansu migration readiness note.
-
 
 ## Surprises & Discoveries
 
@@ -262,7 +202,6 @@ interactions between child plans. Provide concise evidence.
   the worker consuming it, and cleaned up Deployment, StatefulSet, Service, and PVC. Validation:
   `cabal test nagare-dsl-test` passed with 343 tests.
 
-
 ## Decision Log
 
 Record every decomposition or coordination decision made while working on the master
@@ -314,7 +253,6 @@ plan.
   the same field style.
   Date: 2026-06-21
 
-
 ## Outcomes & Retrospective
 
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
@@ -346,21 +284,3 @@ Redpanda lifecycle operations, workload topic bindings with generated env, provi
 observability, a working producer/consumer example, and docs that preserve the future Tansu migration
 contract.
 
-
-## Revision Notes
-
-2026-06-21: Marked EP-75 complete, recorded the live Redpanda substrate findings, and updated the
-coordination decision for EP-76 to render the verified raw Kubernetes shape rather than wrapping the
-Redpanda Helm chart.
-
-2026-06-21: Marked EP-78 complete after topic reconciliation, dry-run verification, and live
-`broker-live` acceptance passed on the Nagare k3s cluster.
-
-2026-06-21: Marked EP-77 complete after DSL/load coverage, nagarectl resolver tests, and live
-broker-bound worker dry-run acceptance passed; recorded the temporary broker cleanup.
-
-2026-06-21: Marked EP-79 complete after VMServiceScrape/dashboard wiring, `broker get` health checks,
-and live Redpanda scrape validation passed; recorded the temporary broker cleanup.
-
-2026-06-21: Marked EP-80 complete after messaging broker docs, troubleshooting, reference links, Tansu
-readiness notes, and the live broker-worker example validation passed.

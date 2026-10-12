@@ -24,6 +24,7 @@ This ExecPlan is a living document. The sections Progress, Surprises & Discoveri
 Decision Log, and Outcomes & Retrospective must be kept up to date as work proceeds.
 If durable project context changes, update or create ADRs in docs/adr/ in the same change.
 
+Full plan before trimming: [143-skip-proven-pulumi-apply-work-when-resuming-upgrades.md](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/plans/143-skip-proven-pulumi-apply-work-when-resuming-upgrades.md). This copy keeps the purpose, progress, discoveries, decisions and outcomes.
 
 ## Purpose / Big Picture
 
@@ -40,7 +41,6 @@ transaction records its receipt, and all later resumes make zero additional Pulu
 eventually completing. If the process dies during the unobservable instant between starting Pulumi
 and durably recording its result, resume refuses and offers an explicit audited recovery command
 instead of guessing whether to rerun cloud mutations.
-
 
 ## Progress
 
@@ -60,7 +60,6 @@ This section must always reflect the actual current state of the work.
 - [x] (2026-09-16T03:36:10Z) Refreshed the plan against the current transaction runner, saved-plan
   bundle loader, CLI parser, test fixture, ADR corpus, and installed clone-free regression before
   implementation.
-
 
 ## Surprises & Discoveries
 
@@ -93,7 +92,6 @@ implementation. Provide concise evidence.
   operator-attested skip and before the injected host failure. Upgrade apply now scopes
   `NAGARE_SKIP_PULUMI_STACK_SELECT=1` across the runner, and the same regression observes zero Pulumi
   commands before that host failure.
-
 
 ## Decision Log
 
@@ -159,7 +157,6 @@ Record every decision made while working on the plan.
   commands that actually use Pulumi retain the existing selection behavior.
   Date: 2026-09-15.
 
-
 ## Outcomes & Retrospective
 
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
@@ -188,219 +185,3 @@ checks; it reported `x86_64-linux` as an incompatible non-native system, as expe
 upgrade was performed because the hermetic installed regression supplies the required call-count
 and crash-boundary evidence without mutating provider state.
 
-
-## Context and Orientation
-
-An upgrade transaction is JSON under the selected context's XDG state directory.
-`cli/nagarectl/src/Nagare/Platform/Upgrade.hs` defines ordered apply phases `PulumiApply`,
-`HostApply`, `KubernetesApply`, `ClusterStamp`, and `ContextCommit`. `runPhases` saves a successful
-phase after its operation returns. On resume it skips a recorded success only if the operational
-`upgradePhaseSatisfied` callback returns `True`; otherwise it reruns the phase.
-
-`cli/nagarectl/app/Main.hs` constructs that callback in `upgradeOps`. `phaseSatisfied PulumiApply`
-is currently `pure False`, so every resume after a later failure verifies and invokes the retained
-Pulumi plan again. The live report observed 33 unchanged resources twice. Host and context phases
-already have observable postconditions; Kubernetes apply is deliberately convergent but currently
-reruns. This plan changes only Pulumi's evidence and the generic decision surface needed to express
-an ambiguous result.
-
-The reviewed infrastructure plan lives in `<transaction>/pulumi-plan/`.
-`cli/nagarectl/src/Nagare/Infra/Plan.hs` defines `SavedPlanMetadata`, whose bindings include context,
-project, stack, backend, payload ID/digest, Pulumi program/config digests, Pulumi version, and the
-SHA-256 digests of `pulumi-plan.json` and `review.json`. `verifyReviewedPlanBundle` in
-`cli/nagarectl/app/Main.hs` validates private file modes, exact bundle members, current bindings,
-digests, and protected-replacement acknowledgement before `applyReviewedPlan` calls `pulumi up
---plan ... --yes --non-interactive`. Reuse those decoded saved bindings and digests in the receipt;
-do not store provider output or secrets.
-
-`cli/nagarectl/test/PlatformSpec.hs` has pure transaction tests, including one where an injected host
-failure resumes with a synthetic `PulumiApply` postcondition. However, the production callback is
-not exercised and the failure-at-every-phase test deliberately uses an always-false postcondition,
-so it masks BUG-4. `nix/checks/scripts/nagare-clone-free-platform.sh` supplies recording fake Pulumi,
-Nix, gcloud, and Kubernetes tools and is the right installed-command boundary for exact process-call
-counts.
-
-[ADR 6](../adr/0006-version-platform-state-across-cli-payload-context-host-and-cluster.md) says each
-successful phase is persisted and resume rechecks a postcondition before skipping it.
-[ADR 18](../adr/0018-the-upgrade-transaction-is-as-guarded-as-the-recipes-it-replaces.md) binds apply
-to the retained reviewed Pulumi plan and describes partial-provider recovery. Preserve both rules
-and amend them with the durable receipt/ambiguity contract. No cross-repository ADR governs this
-fix. The live evidence originates at
-`mori://tan/tan-ng-labs/docs/validate-the-labs-nagare-cluster-before-real-use`.
-
-
-## Plan of Work
-
-Milestone 1 adds structured evidence and resume semantics. In
-`cli/nagarectl/src/Nagare/Platform/Upgrade.hs`, replace the Boolean-only resume callback with a
-decision type that can say run, skip with evidence, or refuse with a diagnostic. On resume, ask for
-a decision for every phase that the runner reaches: production returns `RunPhase` for a pending
-ordinary phase, while Pulumi can skip or refuse from a receipt even when its generic phase journal
-is still pending. A skip persists the phase as succeeded before moving on; a refusal persists the
-transaction as failed without invoking the phase. Keep completed transactions no-ops.
-
-Add `cli/nagarectl/src/Nagare/Platform/PulumiReceipt.hs`. Its versioned JSON record contains
-transaction ID, context, target version, payload ID/digest, saved-plan and review digests, project,
-stack, backend, Pulumi version, state (`started`, `succeeded`, `failed`, or `operator-attested`),
-timestamp, and optional recovery outcome (`applied` or `retry`). Derive the fixed receipt path as
-`<upgrade transaction directory>/<transaction ID>/pulumi-apply-receipt.json`. Publish mode `0600`
-through `openBinaryTempFile`, `hFlush`, `hClose`, and atomic rename, matching the repository's
-existing transaction-write convention. Validate that the receipt is a regular non-symlink private
-file and that every binding matches the transaction and retained `SavedPlanMetadata`. Add
-round-trip, tamper, stale-binding, and state-transition tests. This milestone is accepted when the
-pure runner skips only a verified success, recovers a success receipt that beat the phase journal,
-and refuses a `started` receipt with no known outcome.
-
-Milestone 2 wires the real Pulumi boundary and explicit recovery. Refactor `loadPlanBundle` and
-`verifyReviewedPlanBundle` just enough to expose locally digest-verified `SavedPlanMetadata` to the
-upgrade caller without weakening the standalone `nagarectl infra apply` path. In the upgrade
-`PulumiApply` branch, atomically persist `started`, invoke the exact retained plan once, persist
-`failed` on a known nonzero/launch error or `succeeded` on exit zero, and only then return to the
-generic journal writer. The production resume callback verifies a `succeeded` receipt entirely from
-private local transaction evidence: transaction JSON plus the security- and digest-verified bundle
-metadata. It skips without running `pulumi version`, stack probes, plan verification against mutable
-current config, or any provider command. Later phases cannot change the reviewed Pulumi inputs, and
-a changed plan bundle must fail receipt verification.
-
-Extend the upgrade command parser and handler in `cli/nagarectl/app/Main.hs` with
-`platform upgrade recover-pulumi TRANSACTION --outcome applied|retry --yes`. It is available only
-for a selected non-completed transaction whose Pulumi outcome is ambiguous or whose old successful
-journal predates receipts. It re-runs the normal platform, ADC, project, transaction,
-bundle-security, digest, and current stack-identity reads, prints the transaction and reviewed/current
-bindings, and requires `--yes`. Outcome `applied` writes an operator-attested success receipt;
-outcome `retry` writes an operator-attested retry authorization that causes the next normal resume
-to enter `PulumiApply` once and replace the receipt with the automatic result. Never infer `applied`
-from an empty preview. This milestone is accepted when normal later-phase resumes need no Pulumi
-executable or credentials, while ambiguous and legacy cases cannot proceed without the separate
-recovery record.
-
-Milestone 3 makes every boundary observable. Expand `cli/nagarectl/test/PlatformSpec.hs` so failures
-in each of `HostApply`, `KubernetesApply`, `ClusterStamp`, and `ContextCommit` leave one successful
-Pulumi receipt and every resume makes no new Pulumi call. Cover a crash after the `started` write, a
-success receipt before journal persistence, a known Pulumi failure, tampered/foreign receipts,
-legacy succeeded phases without receipts, both audited recovery outcomes, repeated resume, and a
-completed no-op. Extend the installed clone-free fixture to count `preview`, `up`, `version`, and
-config/stack probes separately and prove later recovery is provider-independent. Update
-`docs/user/upgrades.md`, `docs/user/reference.md`, `[Unreleased]` in `CHANGELOG.md`, and ADRs 6 and 18
-with the receipt and crash-window contract. Record final evidence in Outcomes & Retrospective.
-
-
-## Concrete Steps
-
-Run from `/Users/shinzui/Keikaku/bokuno/nagare` and inspect the current transaction and plan
-interfaces before editing:
-
-```bash
-git status --short
-sed -n '30,280p' cli/nagarectl/src/Nagare/Platform/Upgrade.hs
-sed -n '2960,3060p' cli/nagarectl/app/Main.hs
-sed -n '3450,3640p' cli/nagarectl/app/Main.hs
-sed -n '230,330p' cli/nagarectl/test/PlatformSpec.hs
-```
-
-After each Haskell milestone, format and run the focused package tests:
-
-```bash
-nix develop -c fourmolu -i cli/nagarectl/src/Nagare/Platform/Upgrade.hs cli/nagarectl/src/Nagare/Platform/PulumiReceipt.hs cli/nagarectl/app/Main.hs cli/nagarectl/test/PlatformSpec.hs
-(cd cli/nagarectl && nix develop ../.. -c cabal test nagarectl-test --test-options='--pattern Platform')
-nix develop -c ./scripts/check-haskell-style.sh
-```
-
-Run the installed regression and inspect the fake tool log. For each injected later failure, the
-expected count is:
-
-```text
-first apply:  pulumi up = 1
-first resume: pulumi up = 0, pulumi version = 0, pulumi config/stack = 0
-all resumes:  total pulumi up = 1
-final state:  completed
-```
-
-Then run:
-
-```bash
-nix build .#checks.$(nix eval --raw --impure --expr builtins.currentSystem).nagare-clone-free-platform
-just user-documentation-validate
-nix flake check --print-build-logs
-```
-
-Every implementation commit must be a Conventional Commit and include:
-
-```text
-ExecPlan: docs/plans/143-skip-proven-pulumi-apply-work-when-resuming-upgrades.md
-Intention: intention_01m2jp3698e4182nkgpabaw3gp
-```
-
-
-## Validation and Acceptance
-
-Plan one cloud upgrade with a recording Pulumi double and apply it four times, injecting the first
-failure separately at host apply, Kubernetes apply, cluster stamp, and context commit. Each scenario
-must retain the same reviewed-plan bundle, make exactly one total `pulumi up --plan` call across all
-attempts, perform no Pulumi executable or provider probe during later resumes, complete the remaining
-phases in order, and preserve context commit as the final write. The receipt and journal must name
-the same transaction, context, target, payload, stack/backend, and plan/review digests.
-
-Kill or inject failure after writing `started` but before writing a result. A normal resume must exit
-nonzero before Pulumi or later phases, show the ambiguity and exact `recover-pulumi` command, and
-leave the old context pin. A success receipt written before journal persistence must instead repair
-the journal and continue without Pulumi. A recorded nonzero Pulumi result may rerun the unchanged
-retained plan on explicit normal resume under ADR 18. A legacy 0.3.0 transaction with a succeeded
-free-text phase but no receipt must require audited recovery, not silently rerun.
-
-Tampering with the receipt, plan, review, metadata, transaction identity, or private file mode must
-refuse. `recover-pulumi --outcome applied` and `--outcome retry` must both require current context and
-project guards, display the reviewed bindings, require `--yes`, and append durable recovery evidence.
-All focused Haskell tests, installed process-count regression, documentation validation, and native
-flake checks must pass.
-
-
-## Idempotence and Recovery
-
-Receipt writes are atomic and replace only the fixed private file inside one transaction. Re-reading
-a verified success is idempotent and makes no external call. Reapplying a completed transaction
-remains a no-op. A known Pulumi failure retains the unchanged reviewed bundle and may be retried
-according to ADR 18; a changed binding requires a new upgrade plan.
-
-A `started` receipt with no result is intentionally a hard stop because the provider may have
-changed state. The operator inspects the selected Pulumi stack and chooses the explicit recovery
-outcome. `applied` allows later phases without rerunning cloud updates; `retry` allows exactly the
-next normal resume to consume the retained plan. Repeating the same recovery decision is a no-op;
-attempting to reverse an established automatic success or choose conflicting outcomes refuses. Do
-not delete receipts as a recovery technique, and never make rollback infer that Pulumi resources
-were reversed.
-
-
-## Interfaces and Dependencies
-
-`Nagare.Platform.Upgrade` should replace the Boolean callback with this explicit result shape:
-
-```haskell
-data ResumeDecision
-  = RunPhase
-  | SkipPhase !Text
-  | RefusePhase !Text
-
-data UpgradeOps = UpgradeOps
-  { runUpgradePhase :: UpgradePhase -> IO (Either Text Text)
-  , upgradeResumeDecision :: UpgradePhase -> PhaseState -> IO ResumeDecision
-  , saveUpgradeTransaction :: UpgradeTransaction -> IO ()
-  , upgradeNow :: IO Text
-  }
-```
-
-The exact signature may avoid overloaded record-label conflicts, but it must let the generic runner
-persist evidence when a receipt recovers a phase and refuse without invoking it when the result is
-ambiguous. `Nagare.Platform.PulumiReceipt` should expose constructors/parsers and operations
-equivalent to `writeStartedReceipt`, `writeResultReceipt`, and `verifySuccessReceipt`, all taking the
-current `UpgradeTransaction` plus decoded `SavedPlanMetadata`/digests. Keep provider process
-execution in `Main.hs`/the existing infra operations, and reuse Aeson, cryptonite SHA-256, POSIX mode
-checks, and atomic filesystem helpers already present. No new external library or service is needed.
-
-
-Revision note (2026-09-15): Refreshed the plan immediately before implementation. The revision
-anchors receipt storage to the existing per-transaction directory, matches the repository's actual
-flush/close/rename durability convention, makes resume decisions apply to every reached phase so a
-pre-journal Pulumi receipt can be handled, separates provider-free local bundle verification from
-the stronger execution/recovery check, spells out the recovery command grammar, and adds the active
-Intention trailer required by the plan frontmatter.

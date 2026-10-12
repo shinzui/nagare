@@ -138,13 +138,13 @@ provenance:
 
 This ExecPlan is a living document. Keep Progress, Surprises & Discoveries, Decision Log and Outcomes & Retrospective current as work proceeds. It is a child of [MasterPlan 23](../masterplans/23-make-managed-resources-first-class-through-typed-scoped-inventories.md) (MP-23), which owns the supported release contract, the remaining-work phase IDs (A1–C5), the pending operator decisions (D1–D5) and the safe-use and data-protection gates; this plan must agree with it. The plan was consolidated on 2026-10-02. Its earlier text, including every dated checkpoint, superseded handoff and implementation detail of the store and fresh-root repairs, is preserved verbatim in [the pre-consolidation snapshot](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-archive/plan-history/ep156-before-consolidation-2026-10-02.md); nothing in the snapshot overrides this file.
 
+Full plan before trimming: [156-prove-fresh-gcp-convergence-and-shared-history-recovery.md](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/plans/156-prove-fresh-gcp-convergence-and-shared-history-recovery.md). This copy keeps the purpose, progress, discoveries, decisions and outcomes.
 
 ## Purpose / Big Picture
 
 After this plan, an operator can create a fresh, production-shaped Nagare context in a GCP project and, once the safe-use gate passes, use it for low-risk work: the installed release candidate converges the cloud foundation, a NixOS virtual machine running k3s, the cluster platform and applications through reviewed public `nagarectl` commands, with inventory history stored in the context's GCS state bucket. On that context the plan proves the six operational checks the safe-use gate needs — an application change that leaves other owners untouched plus an unchanged replay, a GCS backup restored into an isolated target with checked content, recovery of an interrupted operation, recovery from a clean operator root, refusal of a second writer followed by explicit takeover, and exact cleanup including reviewed cloud teardown — together with automatic registry-credential refresh (F15) and native Google CDN. It writes redacted cloud evidence that the release gate ([EP-157](157-gate-the-inventory-release-on-complete-immutable-evidence.md)) accepts for the final candidate.
 
 To see it working: on the fresh context, the GCP runner writes `target.json`, `fixture.json`, `cloud-health.json` and `inventory-evidence.json`, `scripts/assemble-inventory-release-index.py` accepts them for the candidate revision, and an independent reviewer has executed [the operations runbook](../runbooks/inventory-operations.md) end to end on the same context. **No GKE: this plan never creates, selects, authenticates to or depends on a GKE cluster.** Completing it does not make Nagare production-ready; MP-23's data-protection gate and MP-21's upgrade gate are separate.
-
 
 ## Progress
 
@@ -171,7 +171,6 @@ Evidence counts toward final acceptance only where its recorded inputs (operator
 - [x] (MP-23 C3) An independent reviewer executes the runbook end to end on that context for the safe-use gate and records F14–F18 in the tracker. (2026-10-09: nagare-verify executed the operations runbook on `mp23-c3j` for candidate `3ae20f8c`, the accepted C3 context at the time; every section exercised passed, and staged teardown was blocked by F84 ([runbook execution](../audits/mp23-independent-results-2026-10-07/runbook-execution-3ae20f8c/), [summary](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-07/README.md)). F14–F18 are Closed in [the tracker](../audits/mp23-findings.md). The final candidate's C3 on `mp23-c3m` repeated the runbook's resume, takeover and collection paths as assertions; the runbook was not re-executed section by section on that context.)
 - [-] Non-blocking: scoped teardown of the retired `f15-preview` fixture against exact identities after preserving its private diagnostic history; disposal is not evidence of managed collection. (2026-10-09: no record of this disposal was found in the repository; it remains an open, non-blocking cleanup task outside the release.) Closed (2026-10-09): the fixture's development context was disposed, and disposal is not evidence of managed collection. {disposition=out-of-scope}
 
-
 ## Surprises & Discoveries
 
 Condensed in-force findings; dated detail is in [the snapshot](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-archive/plan-history/ep156-before-consolidation-2026-10-02.md).
@@ -193,7 +192,6 @@ F30 was first observed and remains interrupted on the local `nagare-mp23-cp3` st
 2026-10-08 (F84): Staged teardown of a full acceptance context cannot get past scope retirement. Retiring the application scopes refuses with `dangling-reference` because the accepted access grant is a dependency producer, and retiring every scope together refuses with `access resource is not declared`. `mp23-c3i` and `mp23-c3j` were therefore removed by exact-name deletes from their own stack exports. F84's fix (`b171712a`, 2026-10-08) ships in 0.4.0, but `mp23-c3k` to `mp23-c3m` were removed the same way, so its native proof is pending ([F84](../audits/mp23-findings.md#f84), [disposals](https://github.com/shinzui/nagare/tree/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-07/context-disposals)).
 
 2026-10-09 (C3 on `83124396`): Bootstrap stage 7, the first host activation, stopped ambiguous because the context's Tailscale key carried no tag, so the host fell under the tailnet's default SSH `check` rule and the transport's fresh login waited for a browser approval. After the operator approved it, `inventory resume` converged the same transaction. Test-context keys now carry `tag:nagare-test` with an SSH `accept` rule ([C3](https://github.com/shinzui/nagare/tree/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-07/c3-acceptance-83124396)).
-
 
 ## Decision Log
 
@@ -235,7 +233,6 @@ Condensed decisions still in force; the full entries are in [the snapshot](https
 
 2026-09-26: This plan takes over the cloud obligations of EP-150; EP-150 is superseded history, not a pending gate.
 
-
 ## Outcomes & Retrospective
 
 **Status: Complete (2026-10-09).** Every required item is met or explicitly moved; the one open item, the retired `f15-preview` teardown, is non-blocking.
@@ -244,98 +241,3 @@ Final outcome (2026-10-09): v0.4.0 carries a passing cloud end-to-end proof. On 
 
 Earlier state (2026-10-03). Delivered so far: fresh cloud convergence through the cluster, the application/data path with unchanged replay, interruption recovery and same-workstation takeover, native controller collection, scheduled and manual GCS recovery for all engines and a volume, source-unavailable drills, clean-root recovery, VM power transitions and a fresh host with typed credential delegation. Many native defects were found, fixed and independently closed on the way; the tracker lists them. Remaining: F31, F30/F16 terminal verification, the cloud evidence producer, different-client takeover, native Google CDN, and the final-candidate C3 run with credential refresh, teardown and the independent runbook. Lessons: multi-hour cloud runs found Kubernetes defects that local k3d reproduces in minutes; evidence spread across many candidates and a legacy host must be rebound to one fresh candidate context.
 
-
-## Context and Orientation
-
-Nagare's typed *scopes* each hold one owner's desired resources; the *inventory* composes them and refuses conflicting claims. `nagarectl` saves an immutable *review* binding exact native inputs (Pulumi plans, NixOS closures, Kubernetes objects), `apply` executes only a saved review while recording a *journal*, and an interrupted *transaction* is continued by `inventory resume`. For a cloud context the history lives in the context's GCS state bucket with conditional writes: one executor holds a *writer claim*; another client is refused until it requests explicit *takeover*. A *clean root* is a never-used operator config/state/cache directory given only the context and host declarations. *Typed host credential delegation* means the fresh host owns three registry pull Secrets and holds a narrow refresh grant on the Knative Serving controller's account, refreshed by a host timer, so private platform images keep pulling after the VM's *boot credential* expires. A *candidate* is one source revision installed as an immutable CLI plus its platform payload. The design is [ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md); [ADR 9](../adr/0009-assert-the-active-context-project-on-every-cloud-mutating-path.md) requires every cloud-mutating path to assert the active context's project (`scripts/lib/target.sh`); [ADR 11](../adr/0011-host-activation-is-guarded-and-self-reverting.md) makes host activation guarded and self-reverting; [ADR 13](../adr/0013-operator-deployment-material-lives-in-a-private-repository-with-remote-state.md) keeps operator material out of this repository; [ADR 6](../adr/0006-version-platform-state-across-cli-payload-context-host-and-cluster.md) forbids changing an admitted context's platform version; [ADR 12](../adr/0012-platform-data-disk-capacity-is-forward-only-and-grows-itself.md), [ADR 14](../adr/0014-the-active-context-owns-the-vm-shape.md) and [ADR 20](../adr/0020-domain-routing-and-tls-ownership-are-explicit.md) govern disks, VM shape and routes.
-
-The fixtures live in project `tan-ng-labs`, whose standing resources (VM `nagare-01`, account `nagare-node`, the `nagare` registry, standing buckets and the `labs.topagentnetwork.net.` zone) must remain untouched; each disposable context uses its own names and a delegated child zone. Cloud-mutating commands need the operator's go-ahead as one rehearsed, bounded sequence; host changes go only through reviewed host commands. Local checks use only the Colima profile `nagare-mp23-cp3`.
-
-Key files: `scripts/rehearse-gcp-inventory-release.sh` (bootstrap stages, then the generic `scripts/rehearse-managed-resources.sh` runner) with `fixtures/inventory-release/gcp/ep150-target.json`; `scripts/inventory-candidate-preflight.sh`; `scripts/upload-images.sh`; `scripts/iap-ssh.sh`; `infra/pulumi/index.ts`; `nixos/hosts/nagare-01/registries.nix` (refresh timer) and `cli/nagarectl/src/Nagare/Inventory/RegistryCredentials.hs`; `cli/nagarectl/src/Nagare/Inventory/{Cloud,Host,Command,Store,CloudCollection,ImagePruneScript}.hs`; `cli/nagarectl/src/Nagare/Inventory/Store/{ObjectOps,Remote,Gogol}.hs`; `cli/nagarectl/app/Nagare/Cli/Runtime/CloudTeardown.hs` (staged teardown, commit `3fb92136`). Procedures are in [the operations runbook](../runbooks/inventory-operations.md) (including "Staged cloud teardown acceptance") and [the GCS transport runbook](../runbooks/inventory-gcs-transport.md). Finding status is in [the tracker](../audits/mp23-findings.md).
-
-
-## Plan of Work
-
-**Milestone 1 — close the cloud blockers (MP-23 A3, A4, A5, B3, B6).** Fix F31 in the host timer and credential validation so a refresh always lands before expiry; prove it with a rendered-timer regression rather than a manual unit start. With EP-153, bring the F30 transaction to a terminal state through supported resume and have F30/F16 verified independently. Make the GCP runner accept the candidate's target file and emit `fixture.json` and `cloud-health.json` with the required check names, agreeing the shape with EP-157. Prove takeover from a second machine or distinct client identity. With EP-158, run native Google DNS/CDN create, disable, retire and collect on a context whose platform CDN backend is enabled, and record the D3 outcome for HTTPS/browser login. Each step is verified by a focused test plus at most one bounded native run.
-
-**Milestone 2 — final-candidate cloud run (MP-23 C3).** After the candidate passes the local cp3 gate (C1), create a fresh cloud context with a new target file, isolated operator root and its own names, and converge it with typed credential delegation. Run the six operational checks through the runner and public commands, reusing the scenario definitions from EP-155: application change with owner isolation and unchanged replay; GCS backup and isolated restore with content checks; interrupted-operation recovery; clean-root recovery; writer refusal and takeover; exact cleanup, ending with the staged teardown — each stage saved by `nagarectl infra destroy --save-plan DIR` and applied with `nagarectl inventory apply` (policy verification, retained retirement, then exact leaf collection) — once F32 and F33 are fixed. Observe a genuine automatic credential refresh and an expired-boot-credential private pull for F15. Hand the context to the independent reviewer for the runbook. Retired-fixture teardown can happen at any time and blocks nothing.
-
-
-## C3 bounded cloud sequence (prepared 2026-10-03; awaiting one operator approval)
-
-This is the single approval request for MP-23's cloud work. It folds in B3 (Google DNS/CDN lifecycle), B6 (takeover from a distinct client), the manual cloud Redis/ClickHouse receipts (EP-160 B2), and the native F32/F33 proofs, so the release's cloud evidence comes from one candidate and one run.
-
-**Candidate and target.** Operator CLI from candidate `db808a74`, built with `nix build .#nagarectl`, used only after it passes C1 on cp3. Target: the new disposable fixture [`fixtures/inventory-release/gcp/c3-target.json`](../../fixtures/inventory-release/gcp/c3-target.json). It defines context `mp23-c3` in project `tan-ng-labs` (gcloud configuration `labs`), with every resource named `*-c3-1003*`, DNS under `c3-1003.labs.topagentnetwork.net`, and reuse of the existing `nix-builder-ep150` builder without replacement or resize. The run uses an isolated operator root (`XDG_CONFIG_HOME`/`XDG_STATE_HOME` under `/tmp/nagare-mp23-c3-db808a74`) and a clean `env -i` shell; the kube server and node are asserted before any kubectl. No other context, standing project resource, or the parent DNS zone outside the `c3-1003` records is written. Reads of `tan-ng-labs` stay within this context's guard (ADR 9).
-
-**Stages.** Each stage saves one review into a new evidence directory, then applies it. Times come from the runbook's known cloud timings.
-
-| Stage | Effect | Budget |
-| --- | --- | ---: |
-| S1 foundation | context create; reviewed foundation (APIs, GCS state bucket, inventory store on GCS) | 10 min |
-| S2 host image | reviewed artifact build on the existing builder (powers it on, then idle-stops), image upload, GCE image | 10 min |
-| S3 VM and host | Pulumi saved plan for network, SA, VM (`e2-standard-4`) and DNS; guarded host operations with self-reverting activation (ADR 11) | 10 min |
-| S4 platform | fresh platform convergence with typed host credential delegation; platform CDN backend enabled for B3 | 30 min |
-| S5 scenario | apps A and B with owner isolation and unchanged replay; PostgreSQL hourly schedule, GCS ingestion and isolated restore with content check; manual Redis and ClickHouse receipts plus restores; volume snapshot, restore and smoke manifest readback; interrupted apply then resume without duplicate effect; clean-root recovery from the GCS store; writer refusal and explicit takeover from a second operator root with a distinct client identity (B6); Google CDN create, disable, retire, collect (B3) | 60 min |
-| S6 F15 | wait for the boot registry token to expire (at least 60 min after boot, overlapping S5), then observe an automatic refresh before expiry and an uncached private controller pull; no manual unit start | overlaps S5 |
-| S7 cleanup proofs | F32: reviewed image cleanup protects sandbox images and deletes one unused image, with one-shot replay. F33: collection rechecks the retained incarnation | 15 min |
-| S8 evidence | record each cloud assertion with `scripts/scenario-assertions.py record --mode cloud`, run verify, `finalize`, assemble the public evidence | 10 min |
-| S9 teardown | staged `infra destroy --save-plan` then `inventory apply` (policy verify, retained retirement, exact leaf collection) until only policy-retained data remains | 30 min |
-
-The independent runbook execution (safe-use gate) needs this context. It runs between S8 and S9 if a reviewer is available; otherwise S9 waits up to 24 h with the VM stopped through a reviewed VM-power stage.
-
-**Cost.** The VM, disks, load balancer/CDN backend, Artifact Registry, GCS objects and builder minutes come to an expected 5 USD or less for about 4 h of wall time, plus about 2 USD per extra day if the context is kept for the reviewer.
-
-**Stop rules.** Any guard refusal, an unexpected planned resource, or a review naming a standing resource stops the sequence for a report. There are no workarounds and no speculative recovery (CLAUDE.md). An unmeasured step gets a diagnostic checkpoint at 15 minutes; a second identical failure stops dependent work. Interrupted transactions are recovered only through their recorded identity.
-
-**What remains after S9.** Policy-retained data (backup objects, protected disks, the state bucket and its inventory history) is kept and listed in the stage report. Deleting it needs a separate explicit confirmation.
-
-**Approval requested.** One go-ahead covering stages S1–S9 exactly as bounded above, in `tan-ng-labs`, for resources named in `c3-target.json`, including builder power-on, VM power transitions, DNS records under `c3-1003`, the CDN backend, and the staged teardown.
-
-## Concrete Steps
-
-Run from the repository root inside its development shell. Focused checks:
-
-```bash
-cabal test nagarectl-test --project-dir=cli/nagarectl --test-options=-pobject --test-show-details=direct
-cabal test nagarectl-test --project-dir=cli/nagarectl --test-option=-p --test-option='/reviewed cloud collection/' --test-show-details=direct
-cabal test nagarectl-test --project-dir=cli/nagarectl --test-option=-p --test-option='/reviewed host image cleanup/' --test-show-details=direct
-just test-inventory-effects
-python3 scripts/test-host-fresh-login.py
-bash scripts/test-inventory-host-transport.sh
-python3 scripts/test-inventory-release-index.py
-```
-
-Native stages run in a clean environment with an isolated operator root, one new evidence directory per stage, and only after the operator approves the bounded sequence:
-
-```bash
-: "${NAGARE_TEST_CONTEXT:?exact disposable cloud context}"
-: "${NAGARE_TEST_PROJECT:?exact authorized project}"
-: "${NAGARE_TEST_CLUSTER:?exact expected cluster}"
-: "${NAGARE_TEST_EVIDENCE:?new evidence directory}"
-bash scripts/rehearse-gcp-inventory-release.sh --phase plan --context "$NAGARE_TEST_CONTEXT" --expected-project "$NAGARE_TEST_PROJECT" --expected-cluster "$NAGARE_TEST_CLUSTER" --evidence-dir "$NAGARE_TEST_EVIDENCE"
-bash scripts/rehearse-gcp-inventory-release.sh --phase apply --context "$NAGARE_TEST_CONTEXT" --expected-project "$NAGARE_TEST_PROJECT" --expected-cluster "$NAGARE_TEST_CLUSTER" --evidence-dir "$NAGARE_TEST_EVIDENCE" --yes
-```
-
-Expected: focused checks exit zero; plan saves a review naming only the context's disposable resources and refuses if a standing resource appears; apply refuses without the saved stage and `--yes`. Before each costly run, name the assertion, expected progress and time budget; an unmeasured path gets a diagnostic checkpoint after 15 minutes, and a second identical failure stops dependent work until the cause is known.
-
-
-## Validation and Acceptance
-
-The plan is accepted when, for the final candidate on a fresh cloud context, `cloud-health.json` reports healthy with the candidate's operator revision and a fixture digest matching `fixture.json`, and lists every common check the gate requires — `collision-refusal`, `adoption`, `drift-classification`, `convergence-noop-removal`, `independent-scope-preservation`, `secret-read-refusal`, `interrupted-recovery`, `postgresql-backup-restore`, `redis-backup-restore`, `clickhouse-backup-restore`, `volume-backup-restore`, `source-unavailable-recovery`, `backup-freshness`, `retained-data`, `access-grant-revoke` — plus the cloud-only `shared-history-takeover` and `google-cdn`; `scripts/assemble-inventory-release-index.py` accepts the directory; F15 has its automatic refresh and expired-credential pull evidence; and the tracker records the independent runbook result. Behaviorally: before/after standing-resource identities are unchanged; GCS history read from a second client is authoritative and lost local files never reconstruct ownership from labels; restored content matches while sources keep later changes; cleanup deletes only selected disposable objects and the matching delegation and reports the retained set. Public evidence holds digests and observations only; native plans, credentials and private exports stay private.
-
-
-## Idempotence and Recovery
-
-Use isolated operator roots and exact named contexts. Preserve immutable reviews and journals after interruption; resume or explicitly recover the same transaction rather than regenerating a changed review or retrying effects blindly. An unknown provider result is not absence. Never delete by project, namespace, prefix or fixture name; teardown follows exact reviewed identities. When a guard or script refuses, stop and report rather than working around it. Never reset history, patch a provider or start a timer by hand to manufacture a result. This plan authorizes no release publication or change to operator deployments. Do not search or read `/nix/store`; inspect sources through the checkout and Mori.
-
-
-## Interfaces and Dependencies
-
-Hard prerequisites EP-146, EP-147, EP-149 and EP-151 are complete. [EP-152](152-complete-fresh-platform-bootstrap-through-reviewed-components.md) supplies fresh bootstrap; [EP-154](154-validate-installed-inventory-packages-on-every-supported-system.md) supplies installed candidates and shares F31; [EP-153](153-close-managed-command-coverage-for-the-inventory-release.md) supplies command coverage and the F30, F32 and F33 fixes; [EP-155](155-prove-local-application-and-data-recovery-end-to-end.md) supplies the scenario definitions and the local cp3 gate; [EP-158](158-complete-reviewed-access-and-cdn-operations.md), [EP-159](159-complete-scheduled-backup-receipts-and-exact-retention-pruning.md) and [EP-160](160-complete-fenced-live-data-restore-across-supported-engines-and-volumes.md) supply access/CDN, receipts/freshness and isolated restore. Their working commands, not administrative closure, are what this plan needs. EP-157 consumes the cloud evidence directory, passed to `scripts/assemble-inventory-release-index.py` as `--cloud-dir`, containing `target.json` (with `expectedProject`), `fixture.json`, `cloud-health.json` and `inventory-evidence.json`.
-
-
-## Revision Notes
-
-2026-10-02: Consolidated with MP-23; history in the snapshot.
-
-2026-10-09: Reconciled at MP-23 close against the final candidate `83124396`: A4, A5, B3, B6, the C3 checks, F15 and the runbook execution ticked with evidence; staged teardown moved to the next release and MasterPlan 25; status Complete.

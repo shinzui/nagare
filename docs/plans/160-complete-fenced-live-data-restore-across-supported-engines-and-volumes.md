@@ -98,6 +98,7 @@ provenance:
 
 This ExecPlan is a living document under [MP-23](../masterplans/23-make-managed-resources-first-class-through-typed-scoped-inventories.md). Keep Progress, Surprises & Discoveries, Decision Log and Outcomes & Retrospective current. It was consolidated on 2026-10-02: the earlier dated checkpoints (including the full M1 data-fence construction history, native probe identifiers and the retired live-overwrite experiments) are preserved verbatim in [the pre-consolidation snapshot](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-archive/plan-history/ep160-before-consolidation-2026-10-02.md). Nothing in that snapshot overrides this file. The file slug predates the current title and is kept so existing links resolve.
 
+Full plan before trimming: [160-complete-fenced-live-data-restore-across-supported-engines-and-volumes.md](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/plans/160-complete-fenced-live-data-restore-across-supported-engines-and-volumes.md). This copy keeps the purpose, progress, discoveries, decisions and outcomes.
 
 ## Purpose / Big Picture
 
@@ -106,7 +107,6 @@ After this plan, a Nagare operator can take an accepted backup of a PostgreSQL, 
 Scope follows MP-23's supported release contract. Required: verified isolated restore for all three engines, volume restore to a new PVC, and the source preserved. Deferred: overwriting a live database or PVC, and automatic promotion or cutover. The `--into-live` routes refuse new admission. Live fences and live restores admitted before the 2026-09-28 reduction must remain recoverable through their recorded identity. Pointing an application at a restored destination is a separate, documented operator step, not part of this plan. Recovery-time targets are operator decision D4 in MP-23 and are not decided here.
 
 To see it working, follow the public path in Concrete Steps. Back up a disposable database, change the source, restore with `db restore NAME BACKUP_ID --restore-id ID --save-plan DIR`, apply the review, and query the new destination. It returns the backed-up rows while the source still returns its changed rows.
-
 
 ## Progress
 
@@ -135,7 +135,6 @@ To see it working, follow the public path in Concrete Steps. Back up a disposabl
   - Superseded (2026-10-09): native tamper refusal and the interruption cases were not re-run on `83124396`. They rest on the implementer's cp3 runs and the independent evidence above, and on tests in the green gate ([gate](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-07/gate-83124396.json)). The 2026-10-07 operator decision made the production-readiness checklist MP-23's fixed acceptance. For data, that checklist requires the section 2 drill, which passed.
 - [x] For the data-protection gate (production use, not MP-23 completion): a documented, timed recovery procedure after source-cluster loss, measured against recovery-time targets once D4 sets them. (2026-10-09: covered by checklist section 2's drill on `mp23-c3j`. The procedure is documented (F82 Closed). The VM, data disk and snapshots were deleted, and the newest post-seed backup was verified with only escrow and GCS. It was restored into PostgreSQL 18 with 4 of 4 rows matching; recovery took 20 s ([drill](../audits/mp23-independent-results-2026-10-07/section2-drill-3ae20f8c/)). D4 has set no recovery-time target, so the time is recorded, not graded. The release notes list D4 as unmet.)
 
-
 ## Coverage Matrix
 
 Status per engine and path. "I" means independently proved on a native system, "M" means implementer evidence only (in the snapshot unless linked), and "O" means open. Producer-side coverage is in EP-159.
@@ -148,7 +147,6 @@ Status per engine and path. "I" means independently proved on a native system, "
 | Volume (new PVC) | I [local] | I [vol] | O (M native unsafe-archive refusal) | M adapter test; native O | M at destination creation, mid-extraction and lost verification acknowledgement | I [sueng] |
 
 Evidence keys: [sgcs] [scheduled GCS restore](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-02/scheduled-gcs-restore-76628094.json); [hist] [historical receipt restore](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-02/scheduled-historical-restore-ec2e1cd4.json); [mgcs] [manual GCS recovery](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-02/manual-gcs-recovery-e6255e6f.json); [local] [local engine and volume recovery](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-02/local-engine-recovery-ec2e1cd4.json); [cloud] [cloud engine recovery](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-02/cloud-engine-recovery-e6255e6f.json); [vol] [cloud volume recovery](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-02/cloud-volume-recovery-ec2e1cd4.json); [chterm] [ClickHouse terminal recovery](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-02/cloud-clickhouse-terminal-verification-ec2e1cd4.json); [supg] [PostgreSQL source-unavailable](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-02/source-unavailable-content-ec2e1cd4.json); [sueng] [engines and volume source-unavailable](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-02/source-unavailable-engines-e6255e6f.json). The model and pilot evidence is the narrative in [the independent verification](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-verification-2026-10-02.md). Independent evidence spans candidates `76628094`, `ec2e1cd4` and `e6255e6f`, so none of it is final-candidate acceptance yet. Volume content is bound to accepted archive hashes; observed generations are not accepted provider-version pins.
-
 
 ## Surprises & Discoveries
 
@@ -171,7 +169,6 @@ Earlier discoveries, including the full data-fence design findings, are in [the 
 2026-09-26: The legacy ClickHouse backup concatenated `FORMAT Native` streams without table identity, and the legacy Redis restore piped an RDB file through `redis-cli --pipe`. Neither could restore data. Restores now use ClickHouse's `BACKUP DATABASE … TO File` ZIP and an offline RDB load into a separate Redis instance.
 
 2026-09-26/27 (M1): A `ReadWriteOnce` claim admitted a second Pod on the same node. Namespace deletion bypassed a PVC-only guard. ValidatingAdmissionPolicies cannot protect their own policy objects. Engine shutdown commands and settings such as `default_transaction_read_only` and `CLIENT PAUSE` do not by themselves prove exclusion. These findings shaped the fence and remain constraints on any future live-restore work.
-
 
 ## Decision Log
 
@@ -197,7 +194,6 @@ In-force decisions, condensed. Full verbatim entries are in [the snapshot](https
 
 2026-09-26: This plan took over an unfinished outcome of [EP-148](148-route-application-and-data-lifecycles-through-independent-resource-scopes.md). Delivered behavior is preserved.
 
-
 ## Outcomes & Retrospective
 
 **Status (2026-10-09): Complete.** v0.4.0 (`83124396`) ships verified isolated restore for PostgreSQL, Redis and ClickHouse and new-PVC volume restore, from manual and scheduled receipts on MinIO and GCS.
@@ -211,79 +207,3 @@ Earlier, as of 2026-10-02: the shared data fence (M1) is accepted, and live over
 
 Lesson: the plan kept live-overwrite requirements and "F19/F22 open" statements long after the scope reduction and the independent closures, which made the remaining work look larger and different from what it was. Reconcile Progress against the findings tracker at every handoff.
 
-
-## Context and Orientation
-
-An *isolated destination* is a newly declared target that cannot be the source: a scratch PostgreSQL or ClickHouse database with a reviewed name, a separate Redis Service/StatefulSet/PVC, or a new PVC. A *receipt* is the signed record of one backup's exact object and checksum; it is *accepted* once a reviewed scope has pinned its exact object versions (MinIO) or generations (GCS). EP-159 produces accepted scheduled receipts, and manual backups produce `verified-v1` receipts. PostgreSQL and ClickHouse scratch databases are created on the source's own database server under a distinct reviewed name, so the source server keeps serving throughout; Redis restores into a separate Service, StatefulSet and PVC. A *wrong-incarnation* destination is one whose physical identity (Kubernetes UID) differs from what the review declared or observed. A *data fence* (M1) is durable state in the inventory head, plus observed Kubernetes controls, that stops every writer to a live target during a live-data operation. In this release it protects only operations admitted before the reduction. A *review*, *scope* and *journal* are as in EP-159: an immutable saved plan, one owner's declared resources, and the private execution record.
-
-The public restore planner is in `cli/nagarectl/app/Nagare/Cli/Data/Restore.hs`, reached from `cli/nagarectl/app/Nagare/Cli/Commands/Database.hs` (`db restore`) and `cli/nagarectl/app/Nagare/Cli/Commands/Storage.hs` (`storage restore`). Scopes are compiled by `compileManualRestoreScope` and `compileVolumeRestoreScope` in `cli/nagarectl/src/Nagare/Inventory/Restore.hs`. The native Jobs are rendered by `cli/nagarectl/src/Nagare/Database/Restore.hs` and `cli/nagarectl/src/Nagare/Storage/Restore.hs`. UID and receipt checks are enforced by `cli/nagarectl/src/Nagare/Inventory/Adapters/Kubernetes.hs` and `KubernetesRuntime.hs`. Recovery decisions are parsed in `cli/nagarectl/src/Nagare/Inventory/Execute/Types.hs`, and deferred admission is refused in `Execute/Admission.hs`. The M1 fence is `cli/nagarectl/src/Nagare/Inventory/DataFence.hs` and `cli/nagarectl/src/Nagare/Inventory/DataFence/`. The retained live-restore recovery code is `cli/nagarectl/src/Nagare/Inventory/LiveRestore*.hs`. Supported engines are declared in `cli/nagare-dsl/src/Nagare/Dsl/Database.hs`. Tests: `cli/nagarectl/test/DataFenceSpec.hs`, `cli/nagarectl/test/InventoryEffectfulSpec.hs` (restore pilot) and `cli/nagarectl/test/Nagare/Test/Backup/Restore.hs`. Native fence probes: `scripts/probe-ep160-native-exclusion.sh` and `scripts/probe-ep160-engine-shutdown.sh`.
-
-[ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md) requires exact reviewed effects, separate desired, observed and historical state, and retained data by default, and it records the scope reduction. [ADR 19](../adr/0019-replacement-cutovers-reserve-rollback-before-write-admission.md) forbids pretending a data change has automatic rollback; that is why partial restores are abandoned rather than undone. [ADR 4](../adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md) keeps private history out of payloads, and [ADR 9](../adr/0009-assert-the-active-context-project-on-every-cloud-mutating-path.md) guards every cloud path. Supported targets are local k3d/k3s (Colima profile `nagare-mp23-cp3`, one check at a time) and k3s on a NixOS VM in Compute Engine, never GKE.
-
-
-## Plan of Work
-
-**M1 — Shared data fence (accepted).** No further work. Keep its regressions green, and keep admitted-fence recovery reachable while new live admission is refused.
-
-**M2 — Isolated database restore.** The normal path is proved for all three engines. To finish, first add native tamper refusal. In a disposable context, accept a receipt, then replace the stored object with different bytes at the same key. For MinIO, write a new version; for GCS, write a new generation, cloud only with the operator's go-ahead. Show that `db restore` refuses at planning or in the download container before the destination is created, with history unchanged. Second, add native wrong-incarnation refusal. Pre-create a destination with the reviewed name but a foreign UID between planning and apply, and show that both preflight and execution refuse with zero writes. Third, for Redis, kill the init container mid-load, then show that resume or abandonment never accepts a half-loaded instance. For ClickHouse, find an injection point that leaves a genuinely partial scratch database without disturbing the source server, which hosts the scratch database; killing only the client is known not to work. If either case is impractical, write the coverage argument in Decision Log and have the independent reviewer accept or reject it. Fourth, either prove manual cloud receipts for Redis and ClickHouse or state scheduled-only coverage in the user docs and the coverage catalogue.
-
-**M3 — New-PVC volume restore.** The normal and interruption paths are proved. To finish, add native tamper refusal (a changed snapshot archive object) and native wrong-incarnation refusal (a foreign scratch PVC). Do not add live PVC overwrite or mount cutover.
-
-For each new behavior, first add an effectful model scenario on the production path, then run the native check.
-
-
-## Concrete Steps
-
-Run from the repository root. A test pattern must select at least one test.
-
-```bash
-just test-inventory-effects
-(cd cli/nagarectl && cabal test nagarectl-test --test-options='-p restore' --test-show-details=failures)
-(cd cli/nagarectl && cabal test nagarectl-test --test-options='-p "data fence"' --test-show-details=failures)
-(cd cli/nagarectl && cabal test nagarectl-test --test-options='-p incarnation' --test-show-details=failures)
-(cd cli/nagarectl && cabal build exe:nagarectl)
-python3 scripts/audit-managed-commands.py
-```
-
-Public path against an explicitly selected disposable context:
-
-```bash
-nagarectl db restore "$DB" "$BACKUP_ID" --restore-id "$RID" --save-plan "$REVIEW"
-nagarectl inventory apply "$REVIEW" --yes
-nagarectl storage restore "$APP" "$VOLUME" "$SNAPSHOT_ID" --restore-id "$RID" --save-plan "$VOLUME_REVIEW"
-nagarectl inventory apply "$VOLUME_REVIEW" --yes
-nagarectl db restore "$DB" "$BACKUP_ID" --into-live --restore-id "$RID" --save-plan "$UNUSED_DIR"   # must refuse before any review
-```
-
-To recover an interrupted restore, resume the original transaction. If its Job failed terminally, use an exact decision file instead:
-
-```json
-{"version":1,"transaction":"tx-…","operation":"op-…","review":"<review digest>","action":"abandon-partial-database-restore"}
-```
-
-```bash
-nagarectl inventory resume "$TRANSACTION" --yes
-nagarectl inventory recover "$TRANSACTION" --operation "$OPERATION" --decision "$DECISION_FILE"
-```
-
-At a milestone boundary, also run the full suite, `just haskell-style-check` and, if docs changed, `okf validate docs/user --strict --profile mori/user-documentation-profile.dhall --profile-enforce --log-enforce`, one after another.
-
-
-## Validation and Acceptance
-
-M2 and M3 are accepted when, on one candidate, each engine and the volume path shows the following. Seed known content and back it up. Change the source, then restore into a reviewed isolated destination. The destination matches the backup while the source keeps its changed content and identity, and unrelated scope revisions stay fixed. Both manual and scheduled receipts must be exercised, or scheduled-only coverage must be stated, as the B2 item requires. Tampered archives, wrong-incarnation destinations, and missing or foreign receipts must refuse natively before destination writes. Interruption at destination creation, during restoration, and before recorded verification must recover or abandon from a fresh process without destructive replay. A zero exit code without a content query does not count. New `--into-live` admission must refuse at every route, and an admitted-fence recovery regression must still pass. Record the candidate revision, review and transaction IDs, source and destination UIDs, and the content observations.
-
-
-## Idempotence and Recovery
-
-Reviews are immutable, and a review whose Job already completed replays as verification only. Use a fresh restore ID and destination for every new attempt; never resume extraction or loading into a destination that was abandoned. Unknown provider results stay unresolved until observed. No blind replay, history reset, raw patch or source deletion is allowed. Failed destinations are retired through a separate reviewed change. Cloud mutations need the operator's go-ahead as one rehearsed, bounded sequence. Use `mori` for dependency sources, and never search `/nix/store`.
-
-
-## Interfaces and Dependencies
-
-Prerequisites [EP-146](146-reconcile-cloud-host-and-artifact-resources-through-inventory-adapters.md), [EP-147](147-compile-cluster-bootstrap-into-owned-resource-components.md), [EP-149](149-explain-drift-and-execute-reviewed-adoption-migration-and-retirement.md) and [EP-151](151-store-inventory-history-in-the-context-state-bucket-with-conditional-writes.md) are complete. [EP-159](159-complete-scheduled-backup-receipts-and-exact-retention-pruning.md) produces the receipts this plan consumes, and manual receipts let restore work proceed independently. [EP-153](153-close-managed-command-coverage-for-the-inventory-release.md) owns the deferred-route guards. EP-161 is Cancelled; its already-recorded maintenance sessions and fences stay recoverable, but no new maintenance consumer is needed. [EP-155](155-prove-local-application-and-data-recovery-end-to-end.md) and [EP-156](156-prove-fresh-gcp-convergence-and-shared-history-recovery.md) re-prove restore on the frozen candidate, and [EP-157](157-gate-the-inventory-release-on-complete-immutable-evidence.md) assembles the evidence. Stable public interfaces: `db restore NAME BACKUP_ID --restore-id ID --save-plan DIR`, `storage restore APP VOLUME SNAPSHOT_ID --restore-id ID --save-plan DIR`, and the `inventory recover` decisions `abandon-partial-database-restore`, `abandon-partial-volume-restore`, `accept-adapter-proof` and the four fenced-operation decisions listed under M1.
-
-
-## Revision Notes
-
-2026-10-02: Consolidated with MP-23; title aligned with registry; history in the snapshot.

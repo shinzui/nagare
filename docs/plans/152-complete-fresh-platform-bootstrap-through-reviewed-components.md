@@ -38,15 +38,13 @@ provenance:
 
 This ExecPlan is a living document for remaining work transferred from EP-150.
 
+Full plan before trimming: [152-complete-fresh-platform-bootstrap-through-reviewed-components.md](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/plans/152-complete-fresh-platform-bootstrap-through-reviewed-components.md). This copy keeps the purpose, progress, discoveries, decisions and outcomes.
 
 ## Purpose / Big Picture
 
-
 A fresh context selected from one immutable payload can be planned, applied, resumed, and reported as converged through the reviewed component engine. The final cluster marker appears only after all required receipts and readiness checks. This completes production bootstrap wiring; the full application/data and provider rehearsals are separate mandatory release gates.
 
-
 ## Progress
-
 
 - [x] M1: Fresh local/cloud bootstrap produces complete platform-only reviewed stages, including foundation and host prerequisites, without requiring an already-created target cluster.
 - [x] M2: Public bootstrap apply/resume preserves completed receipts, emits the final inventory-bound marker only after convergence, and rejects changed payload intent after admission.
@@ -93,9 +91,7 @@ Inherited baseline: commits `9c308390`, `28e05b72`, and `09d83188` supplied expl
 
 2026-09-26 continuation at `cdce1534`: M2 is complete. The public local fixture applies its 209-operation cluster review through `platform bootstrap apply` and retains a transaction after a lost Kubernetes acknowledgement. `inventory resume --yes` observes the completed write and does not repeat it. With observation unavailable, resume refuses without another write or a marker; after observation returns, the same transaction converges. A separate run interrupts immediately before marker creation and proves the marker is absent until resume. The retained cluster review refuses a changed platform pin before Kubernetes mutation. After convergence, the fixture verifies one marker write, accepted and converged revisions, the payload ID, and a SHA-256 scope vector recalculated from accepted platform revisions. An unchanged public bootstrap plan contains verification operations only, with neither a marker update nor repeated artifact publication. The focused native run creates a disposable k3d cluster on random ports, sends the reviewed final ConfigMap operation through the real Kubernetes API after recorded component effects, reads back the marker, verifies the same accepted vector, and deletes that exact disposable cluster. This is native marker smoke, not a full native local or GCP workload convergence claim. Evidence is reproducible in `scripts/test-bootstrap-local-public.sh` and `scripts/test-bootstrap-kubectl-fixture.py`; its transient journals and command logs were removed by the fixture. `cabal build exe:nagarectl -v0`, `cabal test nagarectl-test --test-show-details=failures -v0`, `bash scripts/test-bootstrap-foundation-public.sh <built nagarectl>`, four local fixture modes (`cluster`, `unresolved`, `marker`, `native-marker`), Haskell style, shell/Python syntax, and `git diff --check` passed. EP-155 and EP-156 retain their separate full native application/data and GCP acceptance gates.
 
-
 ## Surprises & Discoveries
-
 
 2026-09-26: A published inventory review preserves exact native bytes, but the generic apply/resume route did not compare a bootstrap marker's retained payload identity with the operator's current selection. The marker previously omitted `payloadId`, so distinct immutable payloads with the same version and source revision could not be distinguished at execution. The marker now records that ID and the execution factory refuses a mismatch before adapter construction. This does not yet bind prerequisite-only reviews; their stage contract remains to be built in M1.
 
@@ -121,11 +117,9 @@ Inherited baseline: commits `9c308390`, `28e05b72`, and `09d83188` supplied expl
 
 2026-09-26: Replacing an identical accepted cluster scope increments its generation even when its canonical declaration is unchanged. The rerun therefore changed the marker's accepted scope vector and tried to update the marker solely because of a new planning timestamp. Bootstrap now preserves generations for identical scopes and omits those replacements from the final candidate. The composed accepted declaration also has canonical dependency ordering; generated native members must bind to that declaration before review validation. A converged artifact publication operation retains its proof so bootstrap verification does not republish it on every rerun.
 
-
 ## Decision Log
 
 2026-09-26: Redirect unfinished EP-148 dependencies to EP-158–161 and preserve this plan’s assigned integration, package, or release obligations. EP-148 is superseded history, not a pending completion gate.
-
 
 2026-09-26: Carry forward completed EP-150 implementation and give this remaining outcome its own acceptance boundary. The split changes ownership and tracking, not the required functionality or proof.
 
@@ -135,61 +129,7 @@ Inherited baseline: commits `9c308390`, `28e05b72`, and `09d83188` supplied expl
 
 2026-09-26: Use one public review per admitted Pulumi dependency layer. Keep the full native registration set visible to the TypeScript guard as managed or explicit bookkeeping, while journal operations target only resources in the admitted layer. Read-only stack export selects a repair layer when a previously accepted URN is absent.
 
-
 ## Outcomes & Retrospective
-
 
 Both milestones are complete. Fresh cloud and local contexts reach complete reviewed platform candidates without an existing target Kubernetes API. Public apply/resume evidence covers cloud foundation, Pulumi, image, host, kubeconfig, cluster components, unresolved writes, and the last marker boundary. A disposable native k3d smoke confirms the final reviewed marker operation and its accepted scope vector on a real Kubernetes API while recording the other component effects. Full native local application/data recovery and fresh GCP convergence remain the separate acceptance work assigned to EP-155 and EP-156. Inherited capabilities are credited in Progress rather than presented as new work.
 
-
-## Context and Orientation
-
-
-This plan replaces part of [EP-150](150-integrate-resource-inventories-into-upgrades-and-release-verification.md); its 2026-09-25 implementation is already present. A scope is one owner's desired resource set. The inventory composes all scopes; an immutable review binds exact native inputs, and a private journal records verified operation receipts. Completion of one scope must not change another owner's revision. cli/nagarectl/src/Nagare/Inventory/Command.hs supplies the shared command service; Plan.hs, Execute.hs, and Store.hs in that directory own review, execution, and history. Public evidence must exclude reusable credentials and private native plans.
-
-[ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md) requires complete ownership and reviewed effects. [ADR 6](../adr/0006-version-platform-state-across-cli-payload-context-host-and-cluster.md) permits this first release to start with fresh contexts while rejecting in-place platform version changes after admission. [ADR 4](../adr/0004-separate-immutable-platform-payloads-from-context-workspaces.md) keeps operator state outside immutable payloads. [ADR 7](../adr/0007-publish-immutable-nix-releases-from-validated-tags.md) requires immutable release evidence. The operator requested decomposition without reduced functionality or validation; temporary refusal of promised behavior is not completion.
-
-cli/nagarectl/app/Main.hs contains runPlatformBootstrapPlan and buildPlatformCandidate. The builder currently reads a Kubernetes version before assembling cluster components, accepts immutable auth images, compiles local object store/auth/observability/cache resources, and calls composePlatformChanges. This is substantial cluster composition, not yet proof that a cloud context can create its foundation and host before Kubernetes exists. cli/nagarectl/src/Nagare/Inventory/Bootstrap.hs enforces platform-only composition; Cloud.hs, Host.hs, and their adapters supply existing provider contracts. compileBootstrapStamp in cli/nagarectl/src/Nagare/Inventory/Bootstrap.hs owns the final marker. Preserve the existing selected-payload and retained-workspace checks.
-
-
-## Plan of Work
-
-
-M1 connects existing cloud/host/artifact builders to fresh bootstrap, with the state bucket and other prerequisites represented explicitly. Separate bounded preparation reviews where an IP, registry, credential, or kubeconfig must exist before the next native plan can be prepared; each stage declares its full membership before mutation. Do not call cluster observations before the cluster exists. A source fixture for both modes must assert exact producer/consumer edges, platform-only scope changes, context binding, and preservation of unrelated app/standalone/publication generations. Keep the generic registry and journal; no bootstrap-specific second store.
-
-M2 drives the existing public `platform bootstrap plan --out` and `platform bootstrap apply` routes through those stages. Test lost acknowledgement after foundation, host, cluster components, and just before the marker. Proven completed work is not reapplied, an unresolved write refuses, and a final marker binds the accepted scope vector and payload. A second unchanged bootstrap does not create updates merely because a timestamp changed. Changed context/payload version after admission refuses before provider effects. Retain inspection of old transactions and compatibility refusals; do not revive in-place platform upgrade work.
-
-
-## Concrete Steps
-
-
-Run from the repository root in its existing development environment. Commands for a new runner are explicitly marked as a required interface; implement them before running.
-
-```bash
-(cd cli/nagarectl && cabal test nagarectl-test --test-options='-p inventory' --test-show-details=failures)
-(cd cli/nagarectl && cabal build exe:nagarectl)
-bash scripts/test-inventory-entrypoint-guards.sh
-bash scripts/check-haskell-style.sh
-```
-
-Expected result: relevant checks exit zero; refused negative fixtures exit nonzero before effects. Native evidence must name the exact candidate and target.
-
-
-## Validation and Acceptance
-
-
-A recording public-command fixture begins with no cloud objects, host, or Kubernetes API, yet can plan only the prerequisite stage instead of failing on a premature Kubernetes read. Subsequent stages use exact accepted outputs. Every write has a reviewed resource and journal operation. Wrong project, changed pin, changed native bytes, and foreign scope mutations refuse without effects. Failure before the last dependency leaves no success marker; resume after a proven write does not repeat it. A disposable native bootstrap command smoke must exercise the final marker; its run can be shared with EP-155 rather than repeated. Full local/GCP application and recovery scenarios are not claimed by that smoke.
-
-Use focused checks during implementation and one relevant full acceptance gate for the coherent outcome; repeat broad checks only after a relevant change or failure. Record candidate source revision, command, fixture identity, observed result, and evidence location. Passing inherited tests is regression evidence, not proof that a newly required outcome exists. Keep Progress checkboxes directly under the Progress heading so Mina can read them. Use partial markers for actual unfinished implementation, never mark a milestone complete merely to improve a percentage.
-
-
-## Idempotence and Recovery
-
-
-Work against isolated test state and exact named contexts. Preserve immutable reviews and private journals after interruption; inspect/resume the same transaction rather than regenerate a changed review or blindly retry effects. An unknown provider result is not absence. Never clean a resource by broad project, namespace, or prefix merely because a test failed. No plan here authorizes publication of a real Nagare release. Do not search or read /nix/store; Nix may execute its normal builds, but source inspection uses the checkout and Mori.
-
-
-## Interfaces and Dependencies
-
-
-Hard prerequisites [EP-146](146-reconcile-cloud-host-and-artifact-resources-through-inventory-adapters.md), [EP-147](147-compile-cluster-bootstrap-into-owned-resource-components.md), [EP-149](149-explain-drift-and-execute-reviewed-adoption-migration-and-retirement.md), and [EP-151](151-store-inventory-history-in-the-context-state-bucket-with-conditional-writes.md) are Complete. [EP-155](155-prove-local-application-and-data-recovery-end-to-end.md) and [EP-156](156-prove-fresh-gcp-convergence-and-shared-history-recovery.md) consume these bootstrap stages; they do not redefine them. Own bootstrap dispatch and the platform candidate, while [EP-153](153-close-managed-command-coverage-for-the-inventory-release.md) owns the complete command audit. Share Main.hs edits carefully. Neither superseded EP-148 closure nor completion of its feature successors EP-158–161 is required to implement bootstrap. Initial estimate: 8–16 active hours, low confidence; reforecast after the first fresh cloud preparation reaches a saved plan without an existing cluster.

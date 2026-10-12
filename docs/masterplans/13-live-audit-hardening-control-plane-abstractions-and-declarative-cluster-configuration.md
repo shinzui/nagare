@@ -12,6 +12,7 @@ intention: "intention_01ktt8he4vepkb0gbp2k9z5fc3"
 This MasterPlan is a living document. The sections Progress, Surprises & Discoveries,
 Decision Log, and Outcomes & Retrospective must be kept up to date as work proceeds.
 
+Full plan before trimming: [13-live-audit-hardening-control-plane-abstractions-and-declarative-cluster-configuration.md](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/masterplans/13-live-audit-hardening-control-plane-abstractions-and-declarative-cluster-configuration.md). This copy keeps the purpose, progress, discoveries, decisions and outcomes.
 
 ## Vision & Scope
 
@@ -80,7 +81,6 @@ which require a real delegated domain, a Cloudflare API token, and a deliberate 
 — external dependencies that the running VM did not and this initiative does not supply. Those
 remain recorded as deferred in MasterPlans 1 and 11.
 
-
 ## Decomposition Strategy
 
 The initiative is decomposed by **functional concern and altitude**, not by file. Two concerns are
@@ -138,7 +138,6 @@ directly. *A single mega-plan:* rejected — the work touches the DSL/CLI, the N
 bootstrap, and CI across far more than ten files in unrelated modules, which is exactly the
 MasterPlan threshold.
 
-
 ## Exec-Plan Registry
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
@@ -152,81 +151,6 @@ MasterPlan threshold.
 
 Phases: **Phase 1** = EP-1, EP-2, EP-3 (parallelizable). **Phase 2** = EP-4, EP-5, EP-6.
 EP-3↔EP-6 share an integration point (the target-profile schema); EP-4↔EP-2/EP-3 and EP-5↔EP-1/EP-2/EP-3 are soft. See Dependency Graph and Integration Points.
-
-
-## Dependency Graph
-
-The three Phase-1 plans — EP-1 (GCS-Job abstraction), EP-2 (declarative cluster config), EP-3
-(cross-arch build) — have **no hard dependencies** and may be implemented fully in parallel. They
-touch disjoint primary surfaces: EP-1 lives in `cli/nagarectl/src/Nagare/{Database,Storage}` and the
-scripts/runbook; EP-2 in `nixos/hosts/nagare-01/` and `cluster/bootstrap/`; EP-3 in
-`cli/nagarectl/src/Nagare/{Target,Build}.hs` and the profile schema.
-
-The Phase-2 plans take only **soft** or **integration** dependencies, so none is ever hard-blocked:
-
-- **EP-4 (`doctor`)** has a soft dependency on **EP-2** and **EP-3**: the Kourier-ingress fix is
-  fully independent and can land first, but the two *new* checks (private-image pullability;
-  build/node architecture mismatch) describe behaviors that EP-2 and EP-3 establish, so they are most
-  meaningful once those land. EP-4 can implement the Kourier fix immediately and add the new checks
-  as EP-2/EP-3 complete.
-
-- **EP-5 (CI & smoke)** has a soft dependency on **EP-1, EP-2, EP-3**: the offline CI (flake checks,
-  example-config compile, cabal tests) is independent and valuable immediately; the *live* smoke test
-  is only meaningful once private-image pull (EP-2), cross-arch build (EP-3), and the unified
-  restore verb (EP-1) exist, since the smoke scenario deploys a private build-mode app and
-  snapshots/restores a volume.
-
-- **EP-6 (ergonomics)** has an **integration** dependency on **EP-3**: both extend the target-profile
-  schema and `Nagare.Target` (EP-3 adds the architecture field; EP-6 adds the SSH-user field). They
-  do not block each other, but they must agree on the record shape, the `nagare.target.env` schema,
-  and the precedence rule. See Integration Points.
-
-Recommended order when implementing serially: EP-1, EP-3, EP-2 (Phase 1), then EP-6, EP-4, EP-5
-(Phase 2) — so the profile-schema integration (EP-3↔EP-6) is settled before EP-4's arch check and
-EP-5's smoke depend on it. Parallel implementation is fully supported with the Integration Points
-honored.
-
-
-## Integration Points
-
-1. **The shared GCS data-movement Job module (new).** Owned and defined by **EP-1** (proposed
-   `cli/nagarectl/src/Nagare/Cluster/GcsJob.hs`, name to be finalized in EP-1). It exports the
-   canonical pod-spec scaffolding for a Job that moves data to/from GCS using the node service
-   account's Application Default Credentials: the `google/cloud-sdk:slim` container, the
-   `metadata.google.internal` → `169.254.169.254` `hostAliases`, the
-   `GCE_METADATA_HOST`/`CLOUDSDK_CORE_PROJECT` env, and the `restartPolicy: Never`/`backoffLimit: 0`
-   shape. `Nagare.Database.Backup`, `Nagare.Database.Restore`, `Nagare.Storage.Snapshot`, and the new
-   `Nagare.Storage.Restore` all consume it. Placing it *below* both `Database` and `Storage` in the
-   module graph is what breaks the current `Backup`↔`Snapshot` import cycle. **EP-5** consumes it
-   only indirectly (its live smoke exercises the rendered Jobs). No other plan edits it.
-
-2. **The target-profile schema: `Nagare.Target.TargetProfile`, `nagare.target.env(.example)`, and
-   `scripts/lib/target.sh`.** This record and the environment-file schema are extended by **two**
-   plans and must agree. **EP-3** is the *first writer*: it adds the target **architecture** field
-   `NAGARE_TARGET_PLATFORM` (Haskell field `tpTargetPlatform`, default `linux/amd64`) to the
-   `TargetProfile` record, `nagare.target.env.example`, and the shell mirror `scripts/lib/target.sh`.
-   **EP-6** then adds the **SSH user** field `NAGARE_SSH_USER` (default `deploy`) — but, per EP-6's
-   design decision, **shell-side only** (`nagare.target.env.example` + `scripts/lib/target.sh`),
-   *not* the Haskell `TargetProfile` record, because no Haskell code reads it (only `iap-ssh.sh` does);
-   adding it to the record would be dead code. Both fields follow the precedence rule from `CLAUDE.md`
-   and EP-60: environment variable > profile file > built-in default. EP-3 owns the example-file
-   ordering and establishes the append-only convention; EP-6 appends its env line below EP-3's. The
-   two plans must not both insert at the same anchor in `nagare.target.env.example`/`target.sh` — EP-6
-   appends after EP-3's line regardless of merge order.
-
-3. **The `doctor` check set: `Nagare.Ops.Doctor` and `Nagare.Ops.Probe`.** **EP-4** is the *single
-   writer*. The Kourier-ingress check (currently asserting the LoadBalancer `EXTERNAL-IP` equals the
-   Pulumi `publicIp`) is corrected by EP-4. EP-4 also adds two new checks whose *semantics* come from
-   sibling plans: a private-image-pull readiness check (the cluster capability EP-2 makes declarative)
-   and a build/node architecture-mismatch check (the field EP-3 adds to the profile). EP-2 and EP-3
-   do **not** edit `Doctor.hs`/`Probe.hs`; they provide the underlying capability/field and EP-4
-   implements the probe. This keeps one writer on the check table.
-
-4. **The Knative/k3s cluster configuration: `cluster/bootstrap/knative-serving/` and
-   `nixos/hosts/nagare-01/k3s.nix`.** Owned by **EP-2** (adds `config-deployment.yaml` with
-   `registriesSkippingTagResolving` and the `registries.yaml` host declaration). **EP-5**'s live smoke
-   test depends on these being applied to the cluster under test but does not edit them.
-
 
 ## Progress
 
@@ -248,7 +172,6 @@ at-a-glance roll-up.
 - [x] EP-5: Periodic/manual live smoke test (private-image deploy + volume snapshot/restore + teardown)
 - [x] EP-6: `nagarectl` resolves the loader GHC environment itself (no hand-captured `--ghc-env`)
 - [x] EP-6: `iap-ssh.sh` reads SSH user from the target profile (default `deploy`); `just live-test` harness
-
 
 ## Surprises & Discoveries
 
@@ -337,7 +260,6 @@ interactions between child plans. Provide concise evidence.
   the initiative's thesis: behaviours never exercised in a clean environment rot in the dark. **All six
   child ExecPlans are now Complete.**
 
-
 ## Decision Log
 
 Record every decomposition or coordination decision made while working on the master
@@ -373,7 +295,6 @@ plan.
   without the `Backup`↔`Snapshot` import cycle that already exists (discovered during the live audit
   when importing `metadataHostAliases` from `Database.Backup` into `Storage.Snapshot` failed to
   compile).
-
 
 ## Outcomes & Retrospective
 

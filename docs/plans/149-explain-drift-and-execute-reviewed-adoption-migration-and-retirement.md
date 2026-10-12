@@ -78,13 +78,13 @@ provenance:
 
 This ExecPlan is a living document. Keep its living sections current and promote durable decisions into docs/adr/.
 
+Full plan before trimming: [149-explain-drift-and-execute-reviewed-adoption-migration-and-retirement.md](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/plans/149-explain-drift-and-execute-reviewed-adoption-migration-and-retirement.md). This copy keeps the purpose, progress, discoveries, decisions and outcomes.
 
 ## Purpose / Big Picture
 
 Operators can ask what owns a resource, why it exists, whether it drifted, and why Nagare will or will not change it. Existing installations enter inventory management through explicit adoption. Renames and owner transfers preserve identity and durable data, while cleanup can delete only historically owned resources whose exact current incarnation and policy permit it.
 
 This plan delivers provider-independent lifecycle planning plus inventory status/explain commands. It verifies semantics using recording adapters. Final real-provider coverage comes from the adapter children and EP-150.
-
 
 ## Progress
 
@@ -144,7 +144,6 @@ This plan delivers provider-independent lifecycle planning plus inventory status
 - [x] (2026-09-24) M3: Provider-independent migration, retained history, conservative collection, and recovery contracts are implemented with recording proofs. Exact stateless namespaced ConfigMap collection is the only production delete route; durable, controller-child, and migrated-source collection remain refused until their provider and incarnation-specific contracts are available.
 - [x] (2026-09-24) M4: Lifecycle proposal/status/recovery commands and decision, execution, interruption, tamper, and command-path fixtures are delivered. Production migration stages remain assigned to adapter-specific work and EP-150, as stated in this plan's purpose.
 
-
 ## Surprises & Discoveries
 
 The platform workspace resolver materialized an immutable payload copy, so status needed a separate existing-workspace lookup to keep its read-only contract. Provider observation errors may include command output; status collapses these to a generic unavailable reason and names the missing provider scope.
@@ -172,7 +171,6 @@ After a migration, read-only status had the same single-valued problem: merging 
 The initial migration operation map associated a migrating ResourceId with its final `RetainSource` stage. Ordinary dependent updates would then run after source retention, while the graph's `SwitchConsumers` stage had no edge to wait for them. The graph now exposes destination verification as the dependency target and makes the switch wait for those updates.
 
 A conditional Service DELETE can return success while the object is still visible with a deletion timestamp. Immediate final verification treated this as an unresolved collection. The native transport now waits up to 30 seconds for the address to disappear; final adapter verification still rejects a replacement incarnation. The disposable Service and CronJob test also forces resourceVersion churn between preparation and preflight and proves refusal before collection.
-
 
 ## Decision Log
 
@@ -214,168 +212,7 @@ A conditional Service DELETE can return success while the object is still visibl
 
 2026-09-24: Treat the existing `DeleteWhenUnreferenced` stateless policy as having no minimum hold time; the domain policy has no retention-age field. `Retain` and `Protect` do not authorize collection, and every durable or age-sensitive case stays retained until a typed policy and provider evidence can express its release condition. This avoids inventing a hidden duration in the command layer.
 
-
 ## Outcomes & Retrospective
 
 M1-M4 are complete for this plan's provider-independent scope. Status and explain report accepted and retained identity, drift, provider coverage, health, dependency traces, collection screening, and active recovery state without mutation. Versioned lifecycle proposals feed one planner; a reviewed migration binds two incarnations and an ordered graph, preserves source data in a recording model, and recovers at every interruption boundary. The production lifecycle routes proved here are Kubernetes adoption, Kubernetes/Helm unchanged scope transfer and direct retention, exact stateless ConfigMap collection, and adapter-proved operator recovery. Production migration stages, other-provider imports, durable/age-sensitive collection, controller-child retention, and migrated-source collection refuse until adapter-specific or later typed-policy work supplies their evidence. The final real-provider inventory coverage belongs to the adapter children and EP-150.
 
-
-## Context and Orientation
-
-Hard dependencies are [typed resource inventory](144-define-typed-resource-scopes-and-validate-composed-inventories.md) and [durable planning/execution](145-persist-reviewed-resource-plans-and-resumable-execution-receipts.md). The foundation supplies stable logical identity, explicit owners, typed dependencies, data/sensitivity policies, physical incarnations, and independent scopes. The executor supplies private immutable history, reviewed operation graphs, writer exclusion, and recovery decisions. This plan owns cli/nagarectl/src/Nagare/Inventory/Lifecycle.hs, Migration.hs, Status.hs, and Explain.hs and extends the generic Plan/Command interfaces through their existing ownership.
-
-Platform/Status.hs already distinguishes release identities; Platform/Deployment.hs distinguishes confirmed absence from unknown deployment. Domain/Binding.hs and Domain/Tls.hs expose ownership/readiness facts. Database/Delete.hs and Broker/Delete.hs presently derive native names/retention from live labels and annotations. Ops/Cleanup.hs performs broader cleanup. Platform/Replacement.hs, Cutover.hs, and StateTransfer.hs contain a separate safety model for candidate-host replacement, deadlines, retained resources, and irreversible writes.
-
-[ADR 6](../adr/0006-version-platform-state-across-cli-payload-context-host-and-cluster.md) requires explicit adoption and truthful partial upgrades. [ADR 12](../adr/0012-platform-data-disk-capacity-is-forward-only-and-grows-itself.md) forbids treating shrink as ordinary update. [ADR 19](../adr/0019-replacement-cutovers-reserve-rollback-before-write-admission.md) prohibits rollback after candidate write admission. [ADR 20](../adr/0020-domain-routing-and-tls-ownership-are-explicit.md) separates route/TLS ownership. [ADR 21](../adr/0021-nagare-owns-an-optional-context-local-nix-cache-provider.md) retains disabled cache data. [ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md) defines lifecycle authority.
-
-Real adapters from EP-146/147 are soft dependencies for this plan's deterministic tests. Do not mark live-provider acceptance complete from those tests; EP-150 combines them. EP-148 hard-depends on this policy so application deletes/restores do not create a temporary unsafe path.
-
-
-## Plan of Work
-
-### M1 — Status without side effects
-
-Implement typed observation outcomes and drift findings: converged, configuration drift, missing, unowned, foreign owner, immutable replacement required, retained orphan, collection candidate, and unknown/unavailable. Report health independently from configuration drift and from historical operation completion. A read error never becomes NotFound; an old receipt does not prove current health.
-
-Expose `nagarectl inventory status --json` and `inventory explain RESOURCE_ID --json` with context/provider identity, selected desired and converged revision vectors, observation time/freshness, owner, executor, address aliases, physical identity, consumers, required conditions, delegation, retention policy, and unfinished transaction/recovery reason. Explain traces dependencies to the owning declaration without leaking secret values or private command output. Observations may be partial; output names the missing provider scopes rather than claiming complete coverage. Read-only status can report unmanaged discoveries but never stamps/adopts them.
-
-Compare only authoritative desired fields; adapter-owned projection rules exclude controller-generated/defaulted fields and explicitly delegated rotations. A policy change that affects comparison is versioned and makes relevant reviews stale.
-
-### M2 — Adoption and transfer
-
-An adoption proposal maps each chosen logical resource to an observed native address and physical incarnation, the expected owner absence or explicit previous owner, and evidence. It does not restate the proposed owner, desired spec, lifecycle or data classification, or dependencies: those are already fixed by the resource's declaration in the composed candidate, and a proposal that could disagree with the declaration would be a second source of truth. Require exact candidate/target binding and per-resource decisions. Missing metadata is a decision to review, not permission to update.
-
-Observe all declared candidates before mutation; provider scope/account/cluster identity is part of the review. At apply, re-observe and require conditional updates/imports that reject incarnation or owner changes. Already-stamped metadata may be reused only when the private authoritative history verifies it. Conflicting legacy helpers are surfaced as alternatives, not silently merged.
-
-Transfer between known scopes selects both scopes in one reviewed transaction, preserves ResourceId, records the prior owner, and verifies dependent capability contracts. Ownership change must not be inferred from a resource moving between files. Partially applied stamping/import remains recoverable through journaled operations; do not advance the accepted ownership head as if every object had been adopted successfully. EP-145's desired/converged distinction must report partial adoption honestly.
-
-Support an explicit migration path for existing platform version adoption: version stamping alone does not adopt every resource. Keep old adoption inspection compatible while directing inventory management through the stronger per-resource review.
-
-### M3 — Migration, retained resources, and collection
-
-Define MigrationSpec as explicit operations: prepare destination, back up or seed, fence writers where needed, transfer state, verify, switch consumers, admit writes/commit, and retire old resources. Conditions and physical bindings determine ordering. A rename can create a second physical incarnation under one stable ResourceId, so history must represent active, candidate, and retained incarnations without declaring duplicate logical resources. Address claims cover all live incarnations until retirement.
-
-Require a declared data compatibility/recovery contract. Before irreversible admission the adapter may compensate where proven safe; afterward it reports forward-recovery requirements. Retain old data and its recovery credentials/keys until verification and policy permit deletion. A database migration is not satisfied merely because its Kubernetes Job exited zero; its adapter supplies the required schema/data evidence.
-
-Compute retirement from the RetireScope change and RetirementIntent carried by EP-144's CompositionCandidate, together with historical ownership. `inventory retire` builds that change and runs composeInventory like any other command, so a consumer in another scope that still references the retiring scope's exports is rejected by the composer, and this plan adds the history-based checks the composer cannot see. Do not define a second retirement intent here. Retained resources remain in the context catalogue with their last owner and physical identity after active declarations disappear. Garbage collection requires exact current identity/owner, completed dependency/cutover gates, policy permission, retention age, and backup/restore evidence when required. Active consumers, controller children with retained data, unknown observations, incomplete history, or unproven global artifact consumer coverage block collection. Do not recursively delete a namespace or broad storage prefix because its top-level object was owned.
-
-Integrate replacement-upgrade resources through the existing Replacement/Cutover contract, not generic delete/recreate. Candidate write admission remains the irreversible boundary, and reserved addresses/DNS/backups retain their special protection. This plan defines the bridge and deterministic tests; it does not enable currently unfinished replacement infrastructure.
-
-### M4 — Commands and evidence
-
-Add `inventory adopt --input FILE --out DIRECTORY`, `inventory migrate --input FILE --out DIRECTORY`, and `inventory retire --scope SCOPE --out DIRECTORY` as proposal/review commands only. Each validates its proposal into LifecycleDecisions against the composed candidate and passes them to EP-145's single planChanges, so one reviewed change can adopt most of an existing installation's resources while updating a few, which is what the first adoption of a real context will need. Their outputs are normal EP-145 reviewed bundles; `inventory apply DIRECTORY --yes` executes them after live preconditions. Add `inventory gc --plan --out DIRECTORY` to list collection candidates and reasons for retained entries. There is no implicit prune-on-apply.
-
-The input file formats are versioned proposal DTOs, not editable proof objects. Ship small examples in test/fixtures/inventory/lifecycle and docs/architecture/managed-resource-lifecycle.md, including legacy cache resources, a database Service rename, and app retirement. Extend the same public schema contract rather than inventing a parallel lifecycle config language. Define generic reviewed operator recovery through `inventory recover TRANSACTION --operation OPERATION --decision FILE`; the file names an exact permitted adapter recovery action and evidence, and --yes cannot override an unsupported recovery.
-
-Add InventoryLifecycleSpec.hs and InventoryMigrationSpec.hs. Use table-driven pure decisions and injected adapter outcomes for every condition; retain integration tests where native preconditions need proof.
-
-
-## Concrete Steps
-
-Run from repository root with the development toolchain. The following tests and fixtures are delivered here.
-
-```bash
-(cd cli/nagarectl && cabal test nagarectl-test --test-show-details=direct)
-(cd cli/nagarectl && cabal run nagarectl -- inventory status --json)
-bash scripts/check-haskell-style.sh
-```
-
-Tests use isolated temporary context/state roots with an installed fixture adapter registry. Production status requires a configured context; it exits nonzero for invalid context and emits a typed partial report for unavailable provider observations. No test discovers/deletes objects in a real project. EP-150 runs the live disposal case with explicit target identity.
-
-
-## Validation and Acceptance
-
-Fixtures distinguish all drift categories and separate unreadable from absent. Adoption of a same-name foreign object is refused unless an explicit allowed transfer is reviewed with both owners; a missing owner requires explicit adoption. Changing UID/provider incarnation after review refuses before mutation. A bad/missing history digest prevents collection.
-
-A rename fixture visibly orders create/seed/verify/switch/retire, preserves logical identity and data, and retains the old incarnation until policy permits cleanup. Interrupt each boundary and show safe resume or explicit forward recovery. A dependent consumer blocks retirement; deleting its scope does not erase the dependency history of retained data.
-
-Garbage collection deletes only exact reviewed candidates, with a recording adapter proving no unrelated object was touched. Unknown/global consumer coverage retains artifacts. A proposed namespace delete with undeclared or retained descendants refuses. Replacement tests preserve existing write-admission and rollback rules. Status and explain record zero mutation calls and no private values.
-
-
-## Idempotence and Recovery
-
-Read-only proposals/status are repeatable. Reviewed adoption/migration/retirement uses the same immutable receipts and context lock as ordinary apply. An interrupted operation cannot be reclassified as harmless solely from exit status. History loss requires verified backup restoration or explicit conservative re-enrollment; it never enables garbage collection. Finalize deletion only after observing exact removal and retain a tombstone.
-
-
-## Interfaces and Dependencies
-
-```haskell
-classifyDrift
-  :: ValidatedInventory -> InventoryHistory -> ObservationSet
-  -> [DriftFinding]
-
-decideAdoption
-  :: CompositionCandidate -> AdoptionProposal -> InventoryHistory -> ObservationSet
-  -> Either (NonEmpty LifecycleError) LifecycleDecisions
-
-decideMigration
-  :: CompositionCandidate -> MigrationSpec -> InventoryHistory -> ObservationSet
-  -> Either (NonEmpty LifecycleError) LifecycleDecisions
-
-decideRetirement
-  :: CompositionCandidate -> InventoryHistory -> ObservationSet
-  -> Either (NonEmpty LifecycleError) LifecycleDecisions
-
-decideCollection
-  :: CompositionCandidate -> CollectionRequest -> InventoryHistory -> ObservationSet
-  -> Either (NonEmpty LifecycleError) LifecycleDecisions
-
-combineDecisions
-  :: LifecycleDecisions -> LifecycleDecisions
-  -> Either (NonEmpty LifecycleError) LifecycleDecisions
-```
-
-LifecycleDecisions is the opaque type that EP-145's planChanges consumes. EP-145 exports only noLifecycleDecisions; this plan is the only place a non-empty value can be built, through an internal module that is not in nagarectl's exposed-modules list. Every function here takes the CompositionCandidate, so a decision is always checked against the declaration it concerns, and none of them returns a ChangeProposal: planning stays in one place. combineDecisions refuses two decisions about one resource. These signatures were type-checked as stubs with EP-144's and EP-145's under GHC 9.10.3 on 2026-09-16.
-
-Support types are explicit alternatives in Lifecycle/Migration; identity and policy primitives remain owned by EP-144, operation/journal types by EP-145. Adapters provide conditional mutation and data-specific verification; pure functions do not assert live success. Use existing libraries. Find dependency APIs through Mori and verify releases before changing bounds; never search/read /nix/store.
-
-
-## Revision Notes
-
-2026-09-16: Revised before implementation after an API validation pass requested by the operator. The separate lifecycle planners became decision validators over EP-144's CompositionCandidate that feed EP-145's single planChanges; AdoptionProposal no longer restates what the declaration fixes; RetirementIntent is consumed from EP-144 rather than redefined. The reason is one source of truth per fact and a planner that can express a mixed adopt-and-update change.
-
-2026-09-23: Recorded the narrow retained ConfigMap collection and adapter-proved operator recovery implementation. The remaining migration and provider coverage stays explicit in Progress.
-
-2026-09-23: Added Kubernetes condition health reporting to read-only status while retaining unknown health for unsupported kinds and failed observations.
-
-2026-09-23: Aligned read-only collection candidate screening and lifecycle validation with the Kubernetes executor's conditional deletion support; unsupported kinds and providers report a blocker before review.
-
-2026-09-24: Added retained collection assessments to status and declaration detail parity to retained explain; M1 remains open for provider and replacement coverage.
-
-2026-09-24: Added an explicit replacement-required observation and fail-closed planning rule. Provider classification and execution remain future EP-149 work.
-
-2026-09-24: Classified explicit immutable Deployment selector changes in the production Kubernetes observer, preserving physical identity and the existing ownership priority. This is one proved provider case; no replacement execution authority was added.
-
-2026-09-23: Recorded the precise source/destination observation gap for migration after tracing the current head, planner, and adapter registry contracts; the migration refusal remains in force.
-
-2026-09-23: Clarified the existing legacy platform-adoption command boundary so release identity stamping cannot be mistaken for managed resource enrollment.
-
-2026-09-24: Added retained Kubernetes health to read-only reports. The probe is bound to the retained historical UID so a replacement at the same address cannot lend its readiness to the old incarnation.
-
-2026-09-24: Updated the operator lifecycle guide to describe the proved Deployment selector classification and retained UID-bound health; its previous statement that no production adapter emitted replacement-required status had become stale.
-
-2026-09-24: Extended the existing reviewed owner transfer boundary to unchanged Helm releases after checking the adapter's stamped revision and contract verification path. No Helm mutation is permitted by this handoff.
-
-2026-09-24: Closed the ordinary planner's same-ResourceId address/executor change path before implementing migration. The refusal preserves the source incarnation until a dual-observation and phased recovery protocol can replace it.
-
-2026-09-24: Extended production immutable-change classification to the four StatefulSet fields rejected by Kubernetes update validation. This advances M1 only; it does not authorize replacement execution.
-
-2026-09-24: Kept controller readiness separate from object readability. A failed condition no longer erases UID, ownership, or configuration facts from status, but it still cannot complete a reviewed Kubernetes operation.
-
-2026-09-24: Added a bounded StatefulSet readiness contract based on its controller generation and ready/updated replicas, alongside the earlier immutable field classification. This is workload health evidence, not application data or schema verification.
-
-2026-09-24: Extended no-delete retirement to stamped Helm releases. Both planning and admission reconstruct the original immutable native contract and require the same exact release Secret UID before recording retained history.
-
-2026-09-24: Extended the existing reviewed collection transport to stateless namespaced Services and CronJobs after a disposable create/collect proof for both kinds. The same historical UID, current resourceVersion, consumer check, and review-bound tombstone apply. StatefulSets remain outside the proved deletion policy.
-
-2026-09-24: Fixed executor-change observation routing so a cross-provider candidate reaches the explicit migration-review guard. The single-valued ordinary observation map now selects only the desired executor for each ResourceId; separate source/destination observation remains part of the unfinished migration protocol.
-
-2026-09-24: Added the separate source observation requests and exact source/destination pairing contract, with a recording test for a cross-executor move. This is read-only foundation for a later migration review and does not grant mutation authority.
-
-2026-09-24: Added a strict version 1 migration proposal DTO and pure old/new validator with stateless and durable contract shapes. The validated value does not yet enter `LifecycleDecisions`, so ordinary planning continues to refuse migration until the operation graph and history protocol are implemented.
-
-2026-09-24: Connected migration validation to opaque decisions, review proof, eight ordered stages, retained source history, and stage-by-stage recording recovery. Added the CLI proposal route and kept active/retained native evidence separate in status. Production adapter stage contracts remain explicit acceptance work; their refusal prevents the generic graph from being mistaken for verified live data migration.
-
-2026-09-24: Corrected mixed-change migration ordering so a declared consumer update follows destination verification and precedes the consumer switch stage. Added a fixture that would fail with the earlier final-stage dependency mapping.
-
-2026-09-24: Completed the provider-independent lifecycle command path and recording migration protocol, including a compiled proposal fixture, data-preservation state model, and example files. Marked M2-M4 complete within the plan's stated boundary and recorded the conservative provider and policy exclusions above.
