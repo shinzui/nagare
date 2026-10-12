@@ -190,6 +190,7 @@ No cross-repository ADR applies.
 | 7 | Gate every commit before any native run | docs/plans/174-gate-every-commit-before-any-native-run.md | None | EP-168 (shared `nagare-harness` package) | Complete (2026-10-05) |
 | 8 | Make the flake check build each Haskell package once | docs/plans/178-make-the-flake-check-build-each-haskell-package-once.md | None | EP-174 | Complete (2026-10-05) |
 | 9 | Make the gates wait only for their slowest job and stop losing gate runs to the builder | docs/plans/184-make-the-gates-wait-only-for-their-slowest-job-and-stop-losing-gate-runs-to-the-builder.md | None | EP-173 (shared recovery-model test files) | In Progress (M1 and M2 done 2026-10-11; M3 and M4 open) |
+| 10 | Make inventory status answer in seconds | docs/plans/185-make-inventory-status-answer-in-seconds.md | None | None | Not Started (operator, 2026-10-12: F119, next release) |
 
 Status values: Not Started, In Progress, Complete, Cancelled, Held. A held plan is not worked on
 until the operator reopens it. EP-172 keeps its file path; its title

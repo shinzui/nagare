@@ -137,6 +137,7 @@ This is the authoritative list of implementation findings for [MP-23](../masterp
 | [F116](#v050-deferrals) | P2 | A reviewed deploy of a prebuilt image needs the Config's own tag to equal the published tag; `deploy --tag` does not override it, and the refusal does not say so. A developer hits this on a first deploy | Deferred (next release) | deferral ledger (operator go-ahead, 2026-10-11) |
 | [F117](#v050-deferrals) | P3 | `nagare-harness route-check` cannot drive a login through an operator portal, so it cannot prove a full login on a context that has one (the intranet) | Deferred (next release) | deferral ledger (operator go-ahead, 2026-10-11) |
 | [F118](#v050-deferrals) | P3 | `inventory status` from a CLI whose platform workspace was never prepared for the context reports "existing Nagare platform workspace has a mismatched manifest" for a directory that does not exist, instead of saying the workspace is not prepared | Deferred (next release) | deferral ledger (operator, 2026-10-11) |
+| [F119](#v050-deferrals) | P3 | `inventory status` takes about 2–3 minutes on the intranet because it re-observes every accepted resource live and serially (one `kubectl get` process per Kubernetes object, about 207 of 248), even when the caller only needs to know whether a transaction is open | Deferred (next release) | deferral ledger (operator, 2026-10-12); work in [EP-185](../plans/185-make-inventory-status-answer-in-seconds.md) |
 
 Closed findings keep their full text, location, implementation updates and verification in [the closed-findings archive](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-archive/mp23-findings-closed.md). F01 and F11 retain their [earlier independent closure](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-archive/mp23-verification.md). F02, F03, F04, F05, F06, F07, F08 and F20 now have [2026-10-02 independent closure](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-verification-2026-10-02.md). F34, F35, F36, F37, F38, F41 and F42 have 2026-10-04 independent closure on candidate `7596632c`, and F49 and F50 on candidate `847543896d07` ([records](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-04/phase1-source-and-regressions-7596632c.md)). F51, F53, F55–F61, F63–F76 and F79 have 2026-10-07 independent closure on candidate `96c1da11`, all on source except F53 and F76, which close on the gate itself ([record](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-07/README.md)). Other entries retain their status shown above.
 
@@ -535,3 +536,11 @@ the intranet is proven by the operator's own passkey sign-in instead of route-ch
 F118 was found on 2026-10-11 running a master CLI's read-only `inventory status` against the
 intranet, whose payload is v0.5.0. Status never prepares a workspace, so the refusal is correct;
 only its wording is wrong.
+
+F119 was measured on 2026-10-12 from the operator repository with the v0.5.0 CLI: 109 s wall, of
+which observation took 104 s (`observationStartedAt` to `observedAt`); another run took about 3
+minutes. Reading the store is not the cost (1,231 objects, 9.4 MB). The runbook's "before any
+change" check only needs `activeTransaction`, so every operator change starts with minutes of
+cluster observation. Twelve resources also report "provider observation is unavailable" (the access
+grant, image artifacts and five observability Helm charts), so `observationComplete` is false on a
+healthy context.
