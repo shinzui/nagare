@@ -6,10 +6,8 @@ module Main (main) where
 import BackendMapSpec (backendMapTests, backendSourceTests)
 import Control.Concurrent (threadDelay)
 import Control.Exception (SomeException (..), bracket)
-import Control.Monad (forM_)
 import Crypto.JOSE.JWK (JWKSet (..))
 import Data.Aeson (ToJSON, Value, decode, eitherDecode, encode, object, (.=))
-import Data.Aeson.Types (parseEither, withObject, (.:))
 import Data.ByteArray.Encoding (Base (Base64URLUnpadded), convertToBase)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
@@ -45,10 +43,10 @@ import En.Reachability (ReachabilityGraph, compileSchema)
 import En.Schema qualified as EnRaw
 import En.Schema.Builder qualified as EnBuilder
 import En.Servant.API qualified as EnApi
-import En.Servant.Problem (ProblemDetails (..))
 import En.Servant.Seam (ActiveSchema (..), Env (..))
 import En.Tuple qualified as EnTuple
 import En.Watch (watchUnsupported)
+import EnContractSpec (enContractTests)
 import GHC.Stack (HasCallStack)
 import Hasql.Pool qualified as HasqlPool
 import Nagare.Access.App (app, appWithBackends, appWithRuntime, textResponse)
@@ -73,7 +71,7 @@ import Nagare.Access.Proxy
 import Nagare.Access.Shomei
 import Nagare.Access.ShomeiClient
 import Network.HTTP.Client qualified as HC
-import Network.HTTP.Types (HeaderName, Status, hAccept, hAuthorization, hHost, hLocation, mkStatus, status200, status204, status302, status303, status400, status401, status403, status404, status502, status503)
+import Network.HTTP.Types (HeaderName, Status, hAccept, hAuthorization, hHost, hLocation, status200, status204, status302, status303, status400, status401, status403, status404, status502, status503)
 import Network.Socket qualified as Socket
 import Network.Socket.ByteString qualified as SocketBS
 import Network.Wai (Request, rawQueryString, requestHeaders, requestMethod)
@@ -425,10 +423,6 @@ enTests =
         req.subject @?= SubjectIdWire ObjectRefWire {objectType = "user", objectId = "alice"}
         req.permission @?= "access"
         req.object @?= ObjectRefWire {objectType = "app", objectId = "tools.example.com"}
-    , testCase "maps en decisions into access decisions" $ do
-        checkResponseToDecision (CheckResponseWire AllowedWire "checked-at" Nothing) @?= AccessAllowed
-        checkResponseToDecision (CheckResponseWire DeniedWire "checked-at" Nothing) @?= AccessDenied
-        checkResponseToDecision (CheckResponseWire (ConditionalWire []) "checked-at" Nothing) @?= AccessConditional
     , testCase "rejects malformed en base URLs when constructing the client env" $ do
         manager <- HC.newManager HC.defaultManagerSettings
         cfg <- completeAuthConfig
@@ -470,48 +464,7 @@ enTests =
         case authorizationFromClientResult (Left (ConnectionError (SomeException (userError "connection refused")))) of
           AuthorizationUnavailable _ -> pure ()
           other -> assertFailure ("expected AuthorizationUnavailable, got: " <> show other)
-    , testCase "all En Problem Details responses remain unavailable" $
-        forM_ [400, 412, 422, 500, 503] $ \code -> do
-          let problem = ProblemDetails "urn:en:test" "Test refusal" code "bounded diagnostic" "test_refusal" False
-              problemApp _ respond = respond (Wai.responseLBS (mkStatus code "") [("Content-Type", "application/problem+json")] (encode problem))
-          testWithApplication (pure problemApp) $ \port -> do
-            manager <- HC.newManager HC.defaultManagerSettings
-            cfg <- completeAuthConfig
-            clientEnv <- assertRight =<< enClientEnvFromAuthPlane manager (cfg & #enUrl .~ localUrl port)
-            authorizeWithEn clientEnv AuthenticatedUser {subject = "alice"} "tools.example.com"
-              >>= (@?= AuthorizationUnavailable "test_refusal: bounded diagnostic")
-    , testCase "reviewed exact-tuple queries receive Relay pages from En" $ do
-        -- The HTTP contract used by Inventory.AccessRuntime: exact filters,
-        -- first=2, and a complete zero-or-one-node Relay response.
-        let query =
-              object
-                [ "consistency" .= object ["mode" .= ("fullyConsistent" :: Text)]
-                , "filter"
-                    .= object
-                      [ "objectType" .= ("app" :: Text)
-                      , "objectId" .= ("tools.example.com" :: Text)
-                      , "relation" .= ("viewer" :: Text)
-                      , "subjectType" .= ("user" :: Text)
-                      , "subjectId" .= ("alice" :: Text)
-                      , "subjectRelation" .= object ["match" .= ("none" :: Text)]
-                      ]
-                ]
-            page = withObject "page" $ \o -> do
-              edges <- o .: "edges"
-              nodes <- traverse (withObject "edge" (.: "node")) edges
-              info <- o .: "pageInfo"
-              more <- withObject "page info" (.: "hasNextPage") info
-              pure (nodes :: [Value], more :: Bool)
-        forM_ [[], [grantAppAccessTuple "tools.example.com" "alice"]] $ \tuples -> do
-          response <-
-            runSession
-              (srequest (SRequest ((setPath defaultRequest "/v1/relationships/query?first=2") {Wai.requestMethod = "POST", Wai.requestHeaders = [("Content-Type", "application/json")]}) (encode query)))
-              (enAccessApp tuples)
-          simpleStatus response @?= status200
-          value <- assertRight (eitherDecode (simpleBody response))
-          (nodes, more) <- assertRight (parseEither page value)
-          length nodes @?= length tuples
-          more @?= False
+    , enContractTests completeAuthConfig (enAccessApp [grantAppAccessTuple "tools.example.com" "alice"])
     , -- The end-to-end version of the same thing: point the client at a port
       -- nothing is listening on and confirm the result is unavailability, not
       -- a denial that would then be cached.
