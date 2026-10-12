@@ -18,16 +18,16 @@ entire system from scratch.
 > [MasterPlan 24](docs/masterplans/24-operate-nagare-as-a-team-run-workplace-intranet-paas.md).
 > Until that lands, treat a team installation as operated by one person at a time.
 
-> **Status:** [Nagare 0.5.0](https://github.com/shinzui/nagare/releases/tag/v0.5.0)
-> adds protected HTTPS login for every deploy, scheduled volume backups, backup
-> retention with reviewed pruning, and rebuild of a lost database or volume from
-> its last verified backup ([release notes](docs/releases/v0.5.0.md)). It builds
-> on the typed resource inventory and resumable operation ledger from
+> **Status:** [Nagare 0.6.0](https://github.com/shinzui/nagare/releases/tag/v0.6.0)
+> upgrades an installed context in place through a reviewed transition, grants
+> access by email, and fixes the first-deploy and recovery findings from the
+> intranet's 0.5.0 bootstrap ([release notes](docs/releases/v0.6.0.md)). 0.5.0 added
+> protected HTTPS login for every deploy, scheduled volume backups, retention with
+> reviewed pruning, and rebuild of a lost database or volume. It builds on the typed
+> resource inventory and resumable operation ledger from
 > [MasterPlan 23](docs/masterplans/23-make-managed-resources-first-class-through-typed-scoped-inventories.md).
 > Cloud mode runs on one GCP/NixOS/k3s host; local mode uses k3d, a local registry,
-> and MinIO. Releases install on fresh contexts; moving an installed context to a
-> new release in place is not supported yet
-> ([EP-172](docs/plans/172-rehearse-candidate-upgrades-of-an-inventory-context-instead-of-rebuilding-it.md)).
+> and MinIO.
 > Supported recovery and upgrade drills are recorded in the
 > [production readiness checklist](docs/releases/production-readiness-checklist.md).
 > Current operator docs start at
@@ -143,7 +143,7 @@ typed `nagare/Config.hs`; no Cabal package environment or Nagare checkout is
 needed. Select a reviewed release explicitly:
 
 ```bash
-export NAGARE_VERSION=0.5.0
+export NAGARE_VERSION=0.6.0
 nix run "github:shinzui/nagare/v${NAGARE_VERSION}#nagarectl" -- version
 nix profile install "github:shinzui/nagare/v${NAGARE_VERSION}#nagarectl"
 ```
@@ -309,11 +309,10 @@ Optimize for: **cheap, rebuildable, simple, observable, fun to use.**
 
 ## Non-goals (v1)
 
-The 0.5.0 inventory contract covers fresh contexts. In-place upgrades of an
-installed context to a new release, full-context physical collection, live
-database/PVC overwrite, and new interactive mutating maintenance remain outside
-that contract. See [0.5.0 release notes](docs/releases/v0.5.0.md) for the
-supported boundaries and known limits.
+Full-context physical collection, live database/PVC overwrite, and new
+interactive mutating maintenance remain outside the 0.6.0 inventory contract. See
+[0.6.0 release notes](docs/releases/v0.6.0.md) for the supported boundaries and
+known limits.
 
 Multi-node Kubernetes, Istio / full service mesh, Argo CD, Flux, Crossplane,
 External Secrets Operator, complex autoscaling, multi-tenant auth, huge

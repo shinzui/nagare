@@ -5,6 +5,24 @@ immutable `v<major>.<minor>.<patch>` Git tags.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-12
+
+- **Upgrade an installed context in place.** `nagarectl platform transition plan --out DIR` reviews
+  each stage that moves an admitted context from its pinned release to this one, and
+  `platform transition commit --yes` pins it once every scope has converged. A transition marker in
+  the store head keeps other reviews out until the commit, and every stop resumes with this
+  release's `nagarectl`. This release accepts contexts on 0.4.0 and 0.5.0.
+- **Grant access by email.** `access grant --user` accepts a Shomei user's email and resolves it to
+  exactly one user id (F96).
+- **Access changes reach en through a private port-forward**, not the address a grant was first
+  recorded through; grants made by 0.5.0 still bind (F97).
+- **`env set` refuses a key the Config sets inline**, which would otherwise silently win (F98).
+- **A partially applied Pulumi stage closes by proof.** `inventory close` settles a create the
+  provider refused partway from the stack export, and the replan no longer hits a dependency cycle
+  (F113, F114).
+- **A clearer prebuilt-image refusal.** A reviewed deploy whose image differs from its publication
+  names both images and says a PrebuiltImage takes its tag from the Config; `--tag` help says the
+  same (F116).
 - **Releases bind the upgrade rehearsal.** Release assembly and `nagarectl release publish` require
   the EP-172 transition rehearsal record (a disposable local context moved from the previous release
   to the candidate, its seeded row read back unchanged) and the platform metadata, in place of the
