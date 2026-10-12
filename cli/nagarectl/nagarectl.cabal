@@ -234,6 +234,7 @@ library
     Nagare.Inventory.Kubernetes
     Nagare.Inventory.KubernetesConfiguration
     Nagare.Inventory.KubernetesReview
+    Nagare.Inventory.KubernetesSnapshot
     Nagare.Inventory.KubernetesSources
     Nagare.Inventory.KubernetesTransport
     Nagare.Inventory.Lifecycle
@@ -557,6 +558,7 @@ test-suite nagarectl-test
     InventoryKubernetesLifecycleSpec
     InventoryKubernetesReadinessSpec
     InventoryKubernetesRecoverySpec
+    InventoryKubernetesSnapshotSpec
     InventoryKubernetesSpec
     InventoryKubernetesTerminatingSpec
     InventoryLandedUpdateStopSpec

@@ -10,6 +10,7 @@ import Control.Monad (forM_)
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Lazy.Char8 qualified as LBC
 import Data.Generics.Labels ()
+import Data.Map qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
@@ -138,7 +139,14 @@ runInventoryStoreStatus mctx json = do
               , "dataFence" Aeson..= fmap publicDataFence (InventoryStore.headDataFence headValue)
               , "executorClaim" Aeson..= InventoryStore.headExecutorClaim headValue
               , "migration" Aeson..= InventoryStore.headMigration headValue
+              , "transition" Aeson..= InventoryStore.headTransition headValue
+              , "accepted" Aeson..= revisions (InventoryStore.headAccepted headValue)
+              , "converged" Aeson..= revisions (InventoryStore.headConverged headValue)
               ]
+          revisions values =
+            [ Aeson.object ["scope" Aeson..= scope, "revision" Aeson..= revision]
+            | (scope, revision) <- Map.toAscList values
+            ]
       if json
         then LBC.putStrLn (Aeson.encode report)
         else
@@ -149,6 +157,8 @@ runInventoryStoreStatus mctx json = do
                 <> url
                 <> ", generation "
                 <> T.pack (show (InventoryStore.headGeneration headValue))
+                <> ", active transaction: "
+                <> fromMaybe "none" (InventoryStore.headActiveTransaction headValue)
                 <> ", data fence: "
                 <> maybe
                   "none"

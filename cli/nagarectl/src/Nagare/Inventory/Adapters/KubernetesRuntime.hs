@@ -43,6 +43,7 @@ module Nagare.Inventory.Adapters.KubernetesRuntime
   , statefulSetReady
   , readinessForAddress
   , observeKubernetesHealth
+  , objectReadArguments
   , materializeCacheKey
   , cacheClientDataMatches
   , withoutCacheClientData
@@ -124,14 +125,7 @@ mkKubernetesRuntimeOpsAndBatchWithCacheKey config resolveCacheKey specs =
       Nothing -> pure (KubernetesUnknown "Kubernetes resource has no native binding", Nothing)
       Just (declaration, native) -> case address declaration of
         Kubernetes _ group kind namespace name -> do
-          result <-
-            invoke
-              config
-              ( ["get", kindToken group kind, T.unpack (nameText name)]
-                  <> namespaceArgs namespace
-                  <> ["-o", "json", "--ignore-not-found"]
-              )
-              ""
+          result <- invoke config (objectRead group kind namespace name) ""
           case result of
             Left reason -> pure (KubernetesUnknown reason, Nothing)
             -- Before bootstrap installs a CRD, the API server can prove
@@ -366,14 +360,7 @@ observeKubernetesHealth config address physical = case address of
         case guarded of
           Left _ -> pure Nothing
           Right () -> do
-            result <-
-              invoke
-                config
-                ( ["get", kindToken group kind, T.unpack (nameText name)]
-                    <> namespaceArgs namespace
-                    <> ["-o", "json", "--ignore-not-found"]
-                )
-                ""
+            result <- invoke config (objectRead group kind namespace name) ""
             pure $ case result of
               Right (ExitSuccess, output, _) | not (null output) -> do
                 value <- either (const Nothing) Just (eitherDecodeStrict' (TE.encodeUtf8 (T.pack output)))
@@ -1165,6 +1152,19 @@ readLiveManagedObject config target = case target of
       Right (ExitSuccess, output, _) -> first (T.pack . show) (eitherDecodeStrict (TE.encodeUtf8 (T.pack output)))
       _ -> Left "could not read Kubernetes field ownership"
   _ -> pure (Left "Kubernetes mutation has no Kubernetes address")
+
+-- | The one read of a Kubernetes object that observation and the readiness
+-- probe issue; a status run's snapshot answers exactly these (EP-185).
+objectReadArguments :: ProviderAddress -> Maybe [String]
+objectReadArguments = \case
+  Kubernetes _ group kind namespace name -> Just (objectRead group kind namespace name)
+  _ -> Nothing
+
+objectRead :: Text -> Name -> Maybe Name -> Name -> [String]
+objectRead group kind namespace name =
+  ["get", kindToken group kind, T.unpack (nameText name)]
+    <> namespaceArgs namespace
+    <> ["-o", "json", "--ignore-not-found"]
 
 kindToken :: Text -> Name -> String
 kindToken group kind = T.unpack (nameText kind <> if T.null group then "" else "." <> group)

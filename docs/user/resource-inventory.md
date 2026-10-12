@@ -178,7 +178,9 @@ nagarectl --context "$CONTEXT" inventory explain "$RESOURCE_ID" --json
 ```
 
 `store status` shows the history binding, head digest and generation, active
-transaction, and executor claim. `status` reports accepted and converged
+transaction, executor claim, open release transition, and accepted and converged
+scope revisions. It reads only the store head and observes no provider, so it is
+the quick check that no transaction is open before a change. `status` reports accepted and converged
 revisions, live findings, retained members, and collection assessments.
 `explain` narrows observation to one resource and exposes its owner,
 dependencies, consumers, and lifecycle information. Copy `RESOURCE_ID` from

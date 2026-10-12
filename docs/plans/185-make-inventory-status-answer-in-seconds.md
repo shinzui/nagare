@@ -43,17 +43,25 @@ is part of this plan only where it is cheap to say why in the output.
 
 ## Progress
 
-- [ ] M1. Profile: per-executor and per-process wall time for one intranet status run (read-only),
+- [x] M1. Profile: per-executor and per-process wall time for one intranet status run (read-only),
   with the count of `kubectl` processes and how many are guard calls. Pass: a table in the Decision
-  Log that accounts for at least 90% of the 104 s.
-- [ ] M2. A store-only answer: `nagarectl inventory status --store-only` (name decided in M1)
+  Log that accounts for at least 90% of the 104 s. Done 2026-10-12 against v0.6.1: the table below
+  accounts for all 143 s of the profiled run (139 s unprofiled).
+- [x] M2. A store-only answer: `nagarectl inventory store status --json` (decided in M1)
   reads the head and journal and prints `activeTransaction` and the accepted scopes without any
   provider observation. Pass: under 10 s against the intranet, and a test that it starts no
-  provider process. The operator runbook's "before any change" check switches to it.
+  provider process. The operator runbook's "before any change" check switches to it. Done
+  2026-10-12: 5.6–7.2 s in six of eight intranet runs. Its only processes are the store's three
+  ownership reads (`config-helper`, `buckets describe`, `projects describe`); in the other two
+  runs `gcloud projects describe` stalled past the 15 s capture timeout and was retried (33.7 s,
+  44 s). The command is executable-private, so the "no provider process" proof is the shim log,
+  not a suite test. The `mori://tan/tan-ng-labs` runbook is the operator's to switch.
 - [ ] M3. One guard per status run, and Kubernetes objects read in batches (one `kubectl get` per
   kind and namespace, or one list per kind) that serve both the presence and the readiness
   observation. Pass: identical findings to the v0.5.0 status on the same context, recorded by
-  diffing the two JSON outputs, and a full intranet status under 30 s.
+  diffing the two JSON outputs, and a full intranet status under 30 s. 2026-10-12: all 248
+  findings and every other field identical to the v0.6.1 run; 67 s and 83 processes (from 143 s
+  and 475). The 54 batched reads take 25 s in series, so the 30 s needs M4.
 - [ ] M4. Independent executors observed concurrently, bounded. Pass: same findings as M3, and the
   wall time reported in the Decision Log.
 
@@ -62,3 +70,30 @@ is part of this plan only where it is cheap to say why in the output.
 - Decision: Track F119 as its own plan under MasterPlan 26 instead of folding it into EP-172 or
   EP-184. Rationale: it is operator command speed, not upgrades or gate time, and it can land
   independently in the next release. Date: 2026-10-12 (operator approved recording F119 and a plan).
+
+- Decision: M1 profile, 2026-10-12, v0.6.1 CLI (`080ae60a`) from `mori://tan/tan-ng-labs` against
+  the intranet after its v0.6.1 upgrade committed, read-only, every child process logged by a PATH
+  shim. 139 s unprofiled, 143 s profiled, 475 processes, 248 findings, no active transaction. The
+  shim log covers the run end to end (first process at +0.1 s, last ends 0.4 s before exit):
+
+  | Phase (in run order) | Wall | Processes |
+  | --- | --- | --- |
+  | Store read and project guard | 6.0 s | 3 gcloud |
+  | Kubernetes presence | 47.2 s | 206 `kubectl get`, 7 guard |
+  | Helm presence | 9.2 s | 5 helm, 5 `kubectl get`, 8 guard |
+  | Pulumi, foundation, artifact, host, cache, broker, access | 22.9 s | 9 gcloud, 3 pulumi, 1 nix |
+  | Helm health | 9.8 s | 5 helm, 6 `kubectl get`, 12 guard |
+  | Kubernetes health | 48.8 s | 68 `kubectl get`, 137 guard |
+
+  162 of 475 processes are guard calls (`kubectl get nodes` at about 0.31 s each,
+  `config current-context`), 29 s together. The readiness pass re-reads each of 68 objects with a
+  fresh guard, so it costs as much as the presence pass. The 287 object reads fall in 54
+  (kind, namespace) pairs over 8 namespaces. Each Helm chart is read twice (`vmks` takes 3–4 s per
+  read), and the project guard (`config-helper` plus `projects describe`, 2.8 s) runs three times.
+  Consequences: M3 reads Kubernetes objects once per (kind, namespace) into a per-run snapshot that
+  answers both passes, and runs the cluster guard once per run plus once before printing; the Helm
+  health pass reuses the presence read.
+- Decision: M2 uses the existing `inventory store status --json` instead of a new flag. It already
+  reads only `head.json` and reports `activeTransaction`, `dataFence` and `executorClaim`, and the
+  nagare runbooks already use it for the open-transaction check; it gains `accepted`, `converged`
+  and `transition`. Date: 2026-10-12.

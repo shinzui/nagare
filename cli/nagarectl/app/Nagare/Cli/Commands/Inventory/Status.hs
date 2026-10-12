@@ -4,10 +4,12 @@ module Nagare.Cli.Commands.Inventory.Status
   )
 where
 
+import Control.Concurrent.MVar (modifyMVar, newMVar)
 import Control.Monad (forM, forM_)
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Lazy qualified as LBS
 import Data.ByteString.Lazy.Char8 qualified as LBC
+import Data.Either (isLeft, isRight)
 import Data.Generics.Labels ()
 import Data.List (find)
 import Data.Map qualified as Map
@@ -24,7 +26,6 @@ import Nagare.Cli.Inventory.Adapters
   , inventoryCacheAdapter
   , inventoryCdnAdapter
   , inventoryHostAdapter
-  , inventoryKubernetesAdapter
   , inventoryPulumiAdapter
   )
 import Nagare.Cli.Inventory.CdnHistory
@@ -52,6 +53,7 @@ import Nagare.Inventory.Adapters.Helm
   , mkHelmAdapter
   )
 import Nagare.Inventory.Adapters.HelmRuntime (helmObservation)
+import Nagare.Inventory.Adapters.KubernetesApplication (kubernetesApplicationAdapter)
 import Nagare.Inventory.Adapters.KubernetesRuntime
   ( KubernetesRuntimeConfig (KubernetesRuntimeConfig)
   , observeKubernetesHealth
@@ -61,6 +63,7 @@ import Nagare.Inventory.BackupRetention (retentionPolicyText, standardRetention)
 import Nagare.Inventory.Cloud qualified as InventoryCloud
 import Nagare.Inventory.Command qualified as Inventory
 import Nagare.Inventory.Host qualified as InventoryHost
+import Nagare.Inventory.KubernetesSnapshot (snapshotRuntime)
 import Nagare.Inventory.ObservationNative qualified as InventoryObservation
 import Nagare.Inventory.Plan qualified as InventoryPlan
 import Nagare.Inventory.Status qualified as InventoryStatus
@@ -183,6 +186,22 @@ runInventoryStatus mctx requested json gcOutput = do
       then pure Nothing
       else either dieT pure (InventoryHost.hostExecutionInputsFromScopes scopes)
   observationStartedAt <- currentTimestamp
+  -- EP-185: a read-only run checks the cluster guard once, reads the
+  -- Kubernetes objects once for both the presence and the readiness pass, and
+  -- checks the guard again before it reports.
+  clusterGuard <- once (fmap (fmap (const ())) (guardKubernetesContext active))
+  opening <- clusterGuard
+  let kubernetesConfig = KubernetesRuntimeConfig context (contextNameText (active ^. #contextName)) clusterGuard
+  runtime <-
+    either
+      (const (pure kubernetesConfig))
+      ( const
+          ( snapshotRuntime
+              kubernetesConfig
+              [declaration ^. #address | (declaration, _) <- Map.elems kubernetesNative <> Map.elems retainedKubernetesNative]
+          )
+      )
+      opening
   pulumi <-
     if null registrations
       then pure (Inventory.executionBlockedAdapterFor ResourceInventory.PulumiExecutor)
@@ -226,28 +245,29 @@ runInventoryStatus mctx requested json gcOutput = do
     if Map.null dnsSpecs && Map.null cloudflareSpecs
       then pure (Inventory.executionBlockedAdapterFor ResourceInventory.CdnExecutor)
       else withWorkspace (\root -> inventoryCdnAdapter active root binding dnsSpecs cloudflareSpecs acceptedCdn)
-  kubernetes <-
-    inventoryKubernetesAdapter
-      active
-      binding
-      cacheKey
-      kubernetesNative
-  let observeHelm specs =
+  let observedKubernetes specs
+        | Map.null specs = Inventory.executionBlockedAdapterFor ResourceInventory.KubernetesExecutor
+        | otherwise = kubernetesApplicationAdapter False runtime cacheKey specs
+      kubernetes = observedKubernetes kubernetesNative
+      observeHelm specs =
         helmObservation
           (contextNameText (active ^. #contextName))
           (binding ^. #identity)
           (Map.map fst specs)
-          (fmap (fmap (const ())) (guardKubernetesContext active))
-      readOnlyHelm specs =
+          clusterGuard
+      readOnlyHelm specs observe =
         mkHelmAdapter
           specs
           HelmAdapterOps
-            { helmObserve = observeHelm specs
+            { helmObserve = observe
             , helmMutateConditional = \_ -> pure (InventoryAdapter.AdapterEffectAmbiguous "observation cannot mutate")
             }
-      helm = readOnlyHelm helmNative
-  retainedKubernetes <- inventoryKubernetesAdapter active binding cacheKey retainedKubernetesNative
-  let retainedHelm = readOnlyHelm retainedHelmNative
+  -- The health pass reuses each chart's presence read (EP-185).
+  observeManagedHelm <- remembered (observeHelm helmNative)
+  observeRetainedHelm <- remembered (observeHelm retainedHelmNative)
+  let helm = readOnlyHelm helmNative observeManagedHelm
+      retainedKubernetes = observedKubernetes retainedKubernetesNative
+      retainedHelm = readOnlyHelm retainedHelmNative observeRetainedHelm
   -- The facts, and the members whose rollout is stuck (EP-181).
   let inspectWithStuck adapter executor = do
         let requestedIds = ids executor
@@ -282,7 +302,7 @@ runInventoryStatus mctx requested json gcOutput = do
   access <-
     ReviewedAccess.accessAdapter
       active
-      (fmap (fmap (const ())) (guardKubernetesContext active))
+      clusterGuard
       (ResourceInventory.inventoryDeclarations inventory)
       history
   accessFacts <- inspect access ResourceInventory.AccessExecutor
@@ -310,7 +330,7 @@ runInventoryStatus mctx requested json gcOutput = do
   helmHealthPairs <- forM (ids ResourceInventory.HelmExecutor) $ \resourceId -> do
     health <- case Map.lookup resourceId helmObserved of
       Just fact | helmObservedPhysical fact -> do
-        state <- observeHelm helmNative resourceId
+        state <- observeManagedHelm resourceId
         pure (helmStateHealth resourceId fact state)
       _ -> pure Nothing
     pure (resourceId, health)
@@ -318,15 +338,11 @@ runInventoryStatus mctx requested json gcOutput = do
   retainedHelmHealthPairs <- forM (retainedIds ResourceInventory.HelmExecutor) $ \resourceId -> do
     health <- case Map.lookup resourceId retainedHelmObserved of
       Just fact | helmObservedPhysical fact -> do
-        state <- observeHelm retainedHelmNative resourceId
+        state <- observeRetainedHelm resourceId
         pure (helmStateHealth resourceId fact state)
       _ -> pure Nothing
     pure (resourceId, health)
-  let healthConfig =
-        KubernetesRuntimeConfig
-          context
-          (contextNameText (active ^. #contextName))
-          (fmap (fmap (const ())) (guardKubernetesContext active))
+  let healthConfig = runtime
       kubeObserved = Map.fromList kubeFacts
   healthPairs <- forM managed $ \resource -> do
     let resourceId = resource ^. #identity
@@ -348,6 +364,10 @@ runInventoryStatus mctx requested json gcOutput = do
   retainedHealthPairs <- forM (InventoryStatus.retainedHealthTargets history kubernetesObservations) $ \(resourceId, address, physical) -> do
     health <- observeKubernetesHealth healthConfig address physical
     pure (resourceId, health)
+  closing <- guardKubernetesContext active
+  when
+    (isRight opening && isLeft closing)
+    (dieT "the cluster guard refused after observation; retry inventory status")
   transactionStatus <-
     InventoryStatus.loadActiveTransactionStatus store (InventoryPlan.historyHead history)
       >>= either dieT pure
@@ -597,3 +617,21 @@ runInventoryStatus mctx requested json gcOutput = do
       if json
         then LBC.putStrLn (Aeson.encode explanation)
         else TIO.putStrLn summary
+
+-- | An action run once per status run; later calls return its first result.
+once :: IO a -> IO (IO a)
+once action = do
+  cell <- newMVar Nothing
+  pure $
+    modifyMVar cell $ \case
+      Just value -> pure (Just value, value)
+      Nothing -> (\value -> (Just value, value)) <$> action
+
+-- | A read run once per key in a status run.
+remembered :: (Ord k) => (k -> IO a) -> IO (k -> IO a)
+remembered action = do
+  cell <- newMVar Map.empty
+  pure $ \key ->
+    modifyMVar cell $ \seen -> case Map.lookup key seen of
+      Just value -> pure (seen, value)
+      Nothing -> (\value -> (Map.insert key value seen, value)) <$> action key

@@ -3,6 +3,7 @@ module InventoryStatusSpec (inventoryStatusTests) where
 import Data.Aeson (object, toJSON, (.=))
 import Data.Generics.Labels ()
 import Data.Map.Strict qualified as Map
+import InventoryKubernetesSnapshotSpec (inventoryKubernetesSnapshotTests)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.CollectionPolicy (supportsRetainedCollection)
@@ -281,6 +282,7 @@ inventoryStatusTests =
                   (Just (SourceLocation "fixture" "configmap"))
                   2
               ]
+    , inventoryKubernetesSnapshotTests
     ]
   where
     known :: (Show e) => Either e a -> a
