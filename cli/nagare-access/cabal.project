@@ -8,7 +8,11 @@ write-ghc-environment-files: always
 constraints:
   time ==1.14,
   crypton >=1.1,
-  crypton-x509-validation >=1.9.1
+  crypton-x509-validation >=1.9.1,
+  pg-migrate ==1.2.0.0,
+  pg-migrate-cli ==1.2.0.0,
+  pg-migrate-embed ==1.2.0.0,
+  ephemeral-pg ==0.3.1.0
 
 packages:
   .
@@ -17,49 +21,49 @@ packages:
 source-repository-package
   type: git
   location: https://github.com/shinzui/shomei.git
-  tag: 6a96185f4f809e5e7a99095274caa6bd90e7a8d7
+  tag: 0eedad1328a910b457f86bc79bc42024aca33a20
   subdir: shomei-core
 
 source-repository-package
   type: git
   location: https://github.com/shinzui/shomei.git
-  tag: 6a96185f4f809e5e7a99095274caa6bd90e7a8d7
+  tag: 0eedad1328a910b457f86bc79bc42024aca33a20
   subdir: shomei-jwt
 
 source-repository-package
   type: git
   location: https://github.com/shinzui/shomei.git
-  tag: 6a96185f4f809e5e7a99095274caa6bd90e7a8d7
+  tag: 0eedad1328a910b457f86bc79bc42024aca33a20
   subdir: shomei-servant
 
 source-repository-package
   type: git
   location: https://github.com/shinzui/shomei.git
-  tag: 6a96185f4f809e5e7a99095274caa6bd90e7a8d7
+  tag: 0eedad1328a910b457f86bc79bc42024aca33a20
   subdir: shomei-client
 
 source-repository-package
   type: git
   location: https://github.com/shinzui/shomei.git
-  tag: 6a96185f4f809e5e7a99095274caa6bd90e7a8d7
+  tag: 0eedad1328a910b457f86bc79bc42024aca33a20
   subdir: shomei-migrations
 
 source-repository-package
   type: git
   location: https://github.com/shinzui/shomei.git
-  tag: 6a96185f4f809e5e7a99095274caa6bd90e7a8d7
+  tag: 0eedad1328a910b457f86bc79bc42024aca33a20
   subdir: shomei-postgres
 
 source-repository-package
   type: git
   location: https://github.com/shinzui/shomei.git
-  tag: 6a96185f4f809e5e7a99095274caa6bd90e7a8d7
+  tag: 0eedad1328a910b457f86bc79bc42024aca33a20
   subdir: shomei-webauthn
 
 source-repository-package
   type: git
   location: https://github.com/shinzui/shomei.git
-  tag: 6a96185f4f809e5e7a99095274caa6bd90e7a8d7
+  tag: 0eedad1328a910b457f86bc79bc42024aca33a20
   subdir: shomei-server
 
 source-repository-package
@@ -72,6 +76,11 @@ package webauthn
   benchmarks: False
 
 allow-newer:
+  -- mori://shinzui/pg-migrate v1.2 changes test support only; the core, CLI,
+  -- and embed APIs used by En are unchanged. Shomei requires the 1.2 cohort.
+  en-migrations:pg-migrate,
+  en-migrations:pg-migrate-cli,
+  en-migrations:pg-migrate-embed,
   haxl:time,
   webauthn:*
 
@@ -84,7 +93,7 @@ source-repository-package
 source-repository-package
   type: git
   location: https://github.com/shinzui/en.git
-  tag: 054afaddfc8a1eb631373f6cdd8bfd1f1c8c9634
+  tag: c3ee100a0b2cc63a50a9473ef590de7086dca4d0
   subdir:
     en-core
     en-migrations
@@ -92,3 +101,11 @@ source-repository-package
     en-servant
     en-client
     en-biscuit
+    en-server
+
+-- Required by the current En server, matching its upstream project.
+-- mori://shinzui/hs-opentelemetry-instrumentation-servant
+source-repository-package
+  type: git
+  location: https://github.com/shinzui/hs-opentelemetry-instrumentation-servant.git
+  tag: 7a6f692e85295f965cd1827f9354c28af9e62742

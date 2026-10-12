@@ -30,6 +30,7 @@ mkdir -p \
   "$test_root/tmp" \
   "$fake_root/scripts/lib" \
   "$fake_root/cluster/bootstrap/auth-images" \
+  "$fake_root/cli/nagare-access" \
   "$src_dir/shomei/deploy" \
   "$src_dir/en"
 
@@ -45,6 +46,25 @@ cp "$repo_root/cluster/bootstrap/auth-images/Dockerfile.local-haskell" \
   "$fake_root/cluster/bootstrap/auth-images/Dockerfile.local-haskell"
 build_script="$fake_root/cluster/bootstrap/auth-images/build-local-image.sh"
 printf '#!/bin/sh\nexec shomei-server "$@"\n' > "$src_dir/shomei/deploy/entrypoint.sh"
+
+# Pin real tiny repositories, then dirty them. Every image must stage the
+# committed bytes, including the Shomei entrypoint, rather than checkout HEAD.
+for service in shomei en; do
+  printf 'pinned\n' > "$src_dir/$service/source-proof"
+  git init -q "$src_dir/$service"
+  git -C "$src_dir/$service" add .
+  git -C "$src_dir/$service" -c user.name=Fixture -c user.email=fixture@example.invalid \
+    -c commit.gpgsign=false commit -qm 'test: pin auth fixture'
+  ref=$(git -C "$src_dir/$service" rev-parse HEAD)
+  cat >> "$fake_root/cli/nagare-access/cabal.project" <<EOF
+source-repository-package
+  type: git
+  location: https://github.com/shinzui/$service.git
+  tag: $ref
+EOF
+  printf 'unreviewed\n' > "$src_dir/$service/source-proof"
+done
+printf 'unreviewed entrypoint\n' > "$src_dir/shomei/deploy/entrypoint.sh"
 
 # Recording fake gcloud. It records every invocation and WOULD answer
 # `config get-value project` with a production project, so any surviving
@@ -64,6 +84,18 @@ printf '#!%s\n' "$(command -v bash)" > "$fake_bin/docker"
 cat >> "$fake_bin/docker" <<'FAKE_DOCKER'
 set -euo pipefail
 printf '%s\n' "$*" >> "${DOCKER_LOG:?DOCKER_LOG unset}"
+if [[ "$1" == build ]]; then
+  for context in "$@"; do :; done
+  for service in shomei en; do
+    staged="$context/workspace/$service"
+    if [[ -d "$staged" ]]; then
+      [[ "$(cat "$staged/source-proof")" == pinned ]]
+    fi
+  done
+  if [[ "${TEST_AUTH_SERVICE:-shomei}" == shomei ]]; then
+    grep -q 'exec shomei-server' "$context/runtime/usr/local/bin/auth-entrypoint"
+  fi
+fi
 FAKE_DOCKER
 chmod +x "$fake_bin/gcloud" "$fake_bin/docker"
 
@@ -104,7 +136,7 @@ run_build() {
     EN_SRC="$src_dir/en" \
     NAGARE_AUTH_TAG=test-tag \
     "$@" \
-    bash "$build_script" shomei
+    bash "$build_script" "${TEST_AUTH_SERVICE:-shomei}"
 }
 
 # 1. An ambient CLOUDSDK_CORE_PROJECT that disagrees with the context must stop
@@ -162,3 +194,11 @@ if [ -s "$gcloud_log" ]; then
 fi
 grep -q '^build ' "$docker_log"
 echo "ok: a local-mode no-push build never invokes gcloud"
+
+for service in en nagare-access; do
+  TEST_AUTH_SERVICE="$service" run_build guardlocal \
+    TEST_AUTH_SERVICE="$service" NAGARE_AUTH_BUILDER=docker NAGARE_AUTH_PUSH=0 \
+    > "$test_root/out-$service" 2> "$test_root/err-$service"
+  grep -q '^build ' "$docker_log"
+done
+echo "ok: all auth images stage pinned sources and the pinned entrypoint"

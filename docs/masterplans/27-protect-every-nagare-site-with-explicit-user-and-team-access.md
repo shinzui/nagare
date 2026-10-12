@@ -16,11 +16,16 @@ provenance:
       at: 2026-10-12T15:08:55Z
       mode: "other"
       note: "Ground user-selected site and team access scope in source research and MasterPlan decomposition"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-12T15:28:33Z
+      mode: "update"
+      note: "Validate APIs, upgrade latest En/Shomei prerequisite, and limit performance checks to concrete risks"
 ---
 
 # Protect every Nagare site with explicit user and team access
 
-This MasterPlan coordinates implementation; the registry owns child status. Its living sections must be updated as work proceeds. This session creates the plans and researches options; it does not implement or deploy them.
+This MasterPlan coordinates implementation; the registry owns child status. Its living sections must be updated as work proceeds. This update validates the APIs and performance assumptions. The user additionally authorized upgrading Nagare to the latest upstream En and Shomei; site/team implementation remains separate.
 
 
 ## Vision & Scope
@@ -51,21 +56,32 @@ En also supports bounded request conditions, called caveats, and optional Biscui
 
 On 2026-10-12, Nagare HEAD was `9200626d1a3c2b0fa66b7a0f5e3114f89903a811`. `cli/nagare-access/cabal.project` pins Shomei `6a96185f4f809e5e7a99095274caa6bd90e7a8d7` and En `054afaddfc8a1eb631373f6cdd8bfd1f1c8c9634`. The registered checkout heads were Shomei `0eedad1328a910b457f86bc79bc42024aca33a20` and En `c3ee100a0b2cc63a50a9473ef590de7086dca4d0`; checkout HEAD is not proof of the deployed version. En userset subjects, the text-schema parser, bounded caveat types, and schema API were also inspected at Nagare's pinned commit.
 
-The authoritative Hackage preferred-version endpoint returned `{"normal-version":["0.2.0.0"]}` for shomei-core. Upstream GitHub releases and remote tags show the Shomei 2026-08-27 release at the pinned `6a96185...` commit. The en-core Hackage endpoint returned HTTP 404, upstream En releases returned an empty array, and `git ls-remote --tags` returned no En tags. En's local Cabal version `0.1.0.0` therefore must not be represented as a published release. No dependency update or compatibility workaround is chosen by this plan. Recheck registries and upstream tags before any later pin change. Authoritative release listings are https://github.com/shinzui/shomei/releases and https://github.com/shinzui/en/releases, for the canonical projects named above.
+The authoritative Hackage preferred-version endpoint returned `{"normal-version":["0.2.0.0"]}` for shomei-core. Upstream GitHub releases and remote tags show the Shomei 2026-08-27 release at the pinned `6a96185...` commit. The en-core Hackage endpoint returned HTTP 404, upstream En releases returned an empty array, and `git ls-remote --tags` returned no En tags. En's local Cabal version `0.1.0.0` therefore must not be represented as a published release. That was the initial research baseline; the subsequent user-authorized upgrade below supersedes the no-upgrade assumption. Recheck registries and upstream tags before any later pin change. Authoritative release listings are https://github.com/shinzui/shomei/releases and https://github.com/shinzui/en/releases, for the canonical projects named above.
+
+
+### API and performance validation (2026-10-12)
+
+The user requested current upstream En and Shomei after validation found an API-version mismatch. Remote HEAD verification selects En `c3ee100a0b2cc63a50a9473ef590de7086dca4d0` and Shomei `0eedad1328a910b457f86bc79bc42024aca33a20`. Hackage still lists shomei-core 0.2.0.0, matching the older release tag; En has no published release/tag. These are deliberately pinned upstream commits, not claims of newer published package releases. Keep the library and all three auth-image builders on the same revisions.
+
+Nagare's reviewed grant adapter already sends Relay `first=2` and decodes `edges/pageInfo`, while its previous En pin expected a body `limit/cursor` and returned `relationships/state`. Current En supports Relay relationship pagination. Upgrade the dependency and validate that existing transport against the real new handler; do not regress Nagare to the old API. En's new response API also uses Problem Details, adds `EnInternal`, and carries optional `grantGeneration`; every error remains unavailable to the gateway. The upgraded En includes its own grant-generation database migration, applied by Nagare's existing upstream migration Job before the new server. Shomei's update changes migration-library/test-support dependencies without changing the JWT verification interface.
+
+The user explicitly declined a general load-test program. Two concrete cost concerns remain: `DecisionCache.writeCache` scans the full map at each insertion and has no live-entry capacity; En's `Check` can drain attached team memberships for a denied subject. EP-186 adds a focused cache-cost check; EP-187 records tuple reads for representative allowed and denied flat-team checks. Neither page size nor recursion depth bounds total graph breadth. Use those observations to justify a small fix or an upstream issue; do not add speculative throttling, metrics infrastructure, broad benchmarks, or latency SLAs. Existing pooled HTTP and local JWT verification remain appropriate.
+
+Source evidence is in Nagare's `AccessRuntime.hs`, `Access/Grants.hs`, `DecisionCache.hs`, and, in `mori://shinzui/en`, project-relative `en-servant/src/En/Tuple/Api.hs`, `en-servant/src/En/Check/Api.hs`, `en-servant/src/En/Servant/Response.hs`, `en-core/src/En/Check.hs`, and `en-core/src/En/Budget.hs` (file-level URIs pending). All four plans were authored by `gpt-6.1-sol` and had no recorded reviews before this update. API/source validation is not a claim of measured production performance.
 
 
 ## Decomposition Strategy
 
-Three work streams preserve clear outcomes. EP-186 closes protection coverage and routing holes using existing individual grants. EP-187 adds owned team memberships and team-to-site grants, with exact relationship recovery. EP-188 adds effective-access diagnostics and verifies the combined behavior through public commands and the HTTP enforcer. Separate plans avoid mixing site routing with a new tuple lifecycle and keep integration evidence distinct from implementation progress.
+Three work streams preserve clear outcomes. EP-186 first upgrades the shared auth dependencies (M0), then closes protection coverage and routing holes using existing individual grants. EP-187 adds owned team memberships and team-to-site grants, with exact relationship recovery. EP-188 adds effective-access diagnostics and verifies the combined behavior through public commands and the HTTP enforcer. Separate plans avoid mixing site routing with a new tuple lifecycle and keep integration evidence distinct from implementation progress.
 
-Relevant local architectural context is [ADR 1](../adr/0001-auth-plane-images-mirror-upstream-dependency-plans.md), which requires exact auth dependency pins and image-plan parity; [ADR 2](../adr/0002-auth-service-images-own-and-apply-their-database-schemas.md), which reserves database migrations to the upstream services; [ADR 15](../adr/0015-the-auth-portal-hands-sessions-to-nagare-access-through-response-headers.md), which keeps session authority in the enforcer and the portal distinct from protected content; [ADR 20](../adr/0020-domain-routing-and-tls-ownership-are-explicit.md), which makes hostname claims and routing ownership explicit; [ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md), whose Decision section requires owned declarations and guarded, journaled effects; and [ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md), which requires adversarial interpreter verification before native operations. Cross-repository ADR discovery also found and inspected [Shomei ADR-1](mori://shinzui/shomei/okf/adrs/concepts/ADR-1): interactive, machine, and delegated sessions retain provenance, and only a live interactive session may mint an OAuth authorization code. Preserve that authentication boundary; it does not substitute for a site grant. No existing local ADR defines user/team site access. During implementation, record the selected architecture in an ADR using the repository's ADR discovery and allocation workflow; do not change upstream-owned database schemas to store Nagare groups.
+Relevant local architectural context is [ADR 1](../adr/0001-auth-plane-images-mirror-upstream-dependency-plans.md), which requires exact auth dependency pins and image-plan parity; [ADR 2](../adr/0002-auth-service-images-own-and-apply-their-database-schemas.md), which reserves database migrations to the upstream services; [ADR 15](../adr/0015-the-auth-portal-hands-sessions-to-nagare-access-through-response-headers.md), which keeps session authority in the enforcer and the portal distinct from protected content; [ADR 20](../adr/0020-domain-routing-and-tls-ownership-are-explicit.md), which makes hostname claims and routing ownership explicit; [ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md), whose Decision section requires owned declarations and guarded, journaled effects; and [ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md), which requires adversarial interpreter verification before native operations. Cross-repository ADR discovery also found and inspected [Shomei ADR-1](mori://shinzui/shomei/okf/adrs/concepts/ADR-1): interactive, machine, and delegated sessions retain provenance, and only a live interactive session may mint an OAuth authorization code. Preserve that authentication boundary; it does not substitute for a site grant. The 2026-10-12 amendment to ADR 22 records the selected user/team and API contracts; implementation adds acceptance evidence there. Do not change upstream-owned database schemas to store Nagare groups.
 
 
 ## Exec-Plan Registry
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|---|---|---|---|---|
-| 186 | Protect Nagare sites with explicit user and team grants (site protection foundation) | [EP-186](../plans/186-protect-nagare-sites-with-explicit-user-and-team-grants.md) | None | None | Not Started |
+| 186 | Protect Nagare sites with explicit user and team grants (site protection foundation) | [EP-186](../plans/186-protect-nagare-sites-with-explicit-user-and-team-grants.md) | None | None | In Progress |
 | 187 | Manage reviewed team membership and site access grants | [EP-187](../plans/187-manage-reviewed-team-membership-and-site-access-grants.md) | EP-186 | None | Not Started |
 | 188 | Check effective site access and verify user and team isolation | [EP-188](../plans/188-check-effective-site-access-and-verify-user-and-team-isolation.md) | EP-186, EP-187 | None | Not Started |
 
@@ -81,9 +97,9 @@ Implement EP-186, then EP-187, then EP-188. EP-187 needs accepted private routes
 
 EP-186 owns the protected-host contract in `cli/nagare-dsl/src/Nagare/Dsl/Access.hs`, access fields in the site types, and shared private route composition in `cli/nagarectl/src/Nagare/Inventory/Site.hs` and `cli/nagarectl/src/Nagare/Inventory/Application/Service.hs`. It keeps the authorization object `app:<normalized hostname>` and permission `access`. EP-187 consumes those route claims rather than inventing a second site identifier. Preview hosts and alternate domains have separate grants.
 
-EP-187 owns the additive En schema in `cluster/bootstrap/en/configmap.yaml`, typed team subjects and relationship addresses in `cli/nagare-dsl/src/Nagare/Resource/Types.hs`, `Inventory.hs`, and `Wire.hs`, and their guarded transport in `cli/nagarectl/src/Nagare/Inventory/Access.hs` and `AccessRuntime.hs`. Existing direct-user claim encodings and identities remain readable. EP-188 consumes the same exact relationship representation for diagnostics; effective access is an En check, not an inference from a flattened list.
+EP-186 owns the shared En/Shomei pins, image-source parity, and gateway compatibility in M0. EP-187 extends the existing CLI wire boundary and reviewed transport for teams and stored-relationship listing; EP-188 consumes it for checks. All three verify against the same selected En API. EP-187 owns the additive En schema in `cluster/bootstrap/en/configmap.yaml`, typed team subjects and relationship addresses in `cli/nagare-dsl/src/Nagare/Resource/Types.hs`, `Inventory.hs`, and `Wire.hs`, and their guarded transport in `cli/nagarectl/src/Nagare/Inventory/Access.hs` and `AccessRuntime.hs`. Existing direct-user claim encodings and identities remain readable. EP-188 consumes the same exact relationship representation for diagnostics; effective access is an En check, not an inference from a flattened list.
 
-EP-186 owns enforcer decision freshness: query En fully consistently on cache misses, retaining the configurable gateway decision TTL (`NAGARE_ACCESS_DECISION_TTL`, default 30 seconds, zero disables). That bounds revocation staleness to the gateway cache rather than adding an unspecified optimized-revision lag. This is a planned behavior change, not a claim about current behavior. EP-188 proves the bound with an injected clock and a representative native transcript. All outcomes other than Allowed refuse proxying; unavailable answers yield 503, are not cached, and never grant access.
+EP-186 owns enforcer decision freshness: query En fully consistently on cache misses, retaining the configurable gateway decision TTL (`NAGARE_ACCESS_DECISION_TTL`, default 30 seconds, zero disables). That bounds revocation staleness to the gateway cache rather than adding an unspecified optimized-revision lag. This is a planned behavior change, not a claim about current behavior. EP-186 tests expiry with a monotonic injected clock, anchored to check start, including delayed completions and concurrent misses. EP-188 proves the bound with a representative native transcript. The bound governs new proxy admissions, not disconnecting established streams. All outcomes other than Allowed refuse proxying; unavailable answers yield 503, are not cached, and never grant access.
 
 EP-187 extends `cli/nagarectl/app/Nagare/Cli/Parser/Access.hs` and `Commands/Access.hs` with team membership and group grants. EP-188 adds the read-only check command there after EP-187. CLI review loading, status, resume, retirement, and collection all recognize the new typed relationship forms. Every relationship write remains under operator credentials; the browser never receives En API keys.
 
@@ -92,7 +108,7 @@ Early integration belongs to EP-186: emit a protected StaticSite configuration, 
 
 ## Progress
 
-Planning and dependency research are complete. The user selected site access for users and teams. All three implementation children are Not Started. There is no cloud or local-cluster deployment authorization in this planning turn. Final integration and architectural decision distillation remain part of implementation acceptance.
+API/performance validation is complete. The authorized latest-auth source upgrade (EP-186 M0) is complete with 134 passing gateway tests, compiled auth executables, and pinned-source image-staging checks. EP-186 remains In Progress because its site-protection milestones are unimplemented; EP-187/188 remain Not Started. Container builds and deployment were not performed. There is no cloud or local-cluster deployment authorization in this planning turn. Final integration and architectural decision distillation remain part of implementation acceptance.
 
 
 ## Surprises & Discoveries
@@ -100,6 +116,9 @@ Planning and dependency research are complete. The user selected site access for
 The existing access policy is exposed on Deployment and Application, but not on StaticSite or ServerSite. Current backend contributions contain upstream and route role only; they do not propagate `AccessPolicy.permission` or `audience`. The current enforcer hardcodes `access` and verifies the cluster audience. EP-186 must refuse unsupported custom values rather than silently claiming they work.
 
 Current host grant CLI writes direct `viewer` tuples only, and its provider address hardcodes that relation. The team extension therefore changes inventory representation as well as En schema. Replacing a CLI subject string alone would lose userset identity and make guarded writes unsafe.
+
+
+Validation found a Relay-versus-old-pagination mismatch between Nagare's CLI and its old En dependency. The user selected upgrading both auth dependencies, so existing Relay support is retained. Current `access list` recursively expands permissions; EP-187 must use stored relationship queries to avoid flattening teams or traversing their members just to list site grants.
 
 
 ## Decision Log
@@ -111,6 +130,11 @@ Decision (2026-10-12): Implement En host grants for users and teams, as selected
 Decision (2026-10-12): Keep hostname-scoped `access` and public defaults, add protection to dedicated site kinds, and refuse unsupported policy/CDN combinations. Changing all existing sites to private or implementing path/data permissions would be a separate scope decision.
 
 Decision (2026-10-12): Use fully consistent En checks on gateway cache misses. Keep the existing configurable short gateway TTL and prove its upper bound. This makes a revocation guarantee observable without pretending MinimizeLatency is immediately fresh.
+
+
+Decision (2026-10-12, validation update): Upgrade to verified upstream En/Shomei HEAD commits before site/team work, preserving Relay pagination and auth-image parity. Keep the three-child sequence; the dependency upgrade is EP-186 M0. Use narrowly targeted cost checks for identified cache and denied-team risks; no general load-test suite or arbitrary latency targets.
+
+Revision (2026-10-12): Applied API findings, the user's latest-dependency requirement, and the request to avoid overengineering to all children and ADR 22.
 
 
 ## Outcomes & Retrospective

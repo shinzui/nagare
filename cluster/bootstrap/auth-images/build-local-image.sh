@@ -174,20 +174,18 @@ copy_tree_at_ref() {
 mkdir -p "$tmpdir/workspace/deps" "$tmpdir/runtime/usr/local/bin"
 cp "$script_dir/Dockerfile.local-haskell" "$tmpdir/Dockerfile.local-haskell"
 copy_tree "$root" "$tmpdir/workspace/nagare"
+# All three images use the same reviewed revisions. A newer or dirty Mori
+# checkout is a source mirror, never an implicit dependency upgrade.
+access_project="$root/cli/nagare-access/cabal.project"
+en_ref="$(dependency_tag_from_project "https://github.com/shinzui/en.git" "$access_project")"
+shomei_ref="$(dependency_tag_from_project "https://github.com/shinzui/shomei.git" "$access_project")"
 case "$service" in
   nagare-access)
-    # Build the enforcer against the exact API revisions selected by its
-    # standalone Cabal project. The sibling checkouts are Mori source mirrors,
-    # but their working-tree HEADs can legitimately be newer than Nagare's pins.
-    # See mori://shinzui/en and mori://shinzui/shomei.
-    access_project="$root/cli/nagare-access/cabal.project"
-    en_ref="$(dependency_tag_from_project "https://github.com/shinzui/en.git" "$access_project")"
-    shomei_ref="$(dependency_tag_from_project "https://github.com/shinzui/shomei.git" "$access_project")"
     copy_tree_at_ref "$en_src" "$en_ref" "$tmpdir/workspace/en"
     copy_tree_at_ref "$shomei_src" "$shomei_ref" "$tmpdir/workspace/shomei"
     ;;
-  en) copy_tree "$en_src" "$tmpdir/workspace/en" ;;
-  shomei) copy_tree "$shomei_src" "$tmpdir/workspace/shomei" ;;
+  en) copy_tree_at_ref "$en_src" "$en_ref" "$tmpdir/workspace/en" ;;
+  shomei) copy_tree_at_ref "$shomei_src" "$shomei_ref" "$tmpdir/workspace/shomei" ;;
 esac
 
 write_common_cabal_tail() {
@@ -201,9 +199,10 @@ package webauthn
   tests: False
   benchmarks: False
 
-allow-newer:
-  webauthn:*
 EOF
+  if [[ "$service" == "shomei" ]]; then
+    printf '\nallow-newer: webauthn:*\n'
+  fi
 }
 
 write_shomei_packages() {
@@ -232,6 +231,17 @@ EOF
 }
 
 write_en_cabal_tail() {
+  cat <<'EOF'
+
+-- mori://shinzui/pg-migrate v1.2 leaves these En migration APIs unchanged.
+allow-newer:
+  en-migrations:pg-migrate,
+  en-migrations:pg-migrate-cli,
+  en-migrations:pg-migrate-embed
+EOF
+  if [[ "$service" == "nagare-access" ]]; then
+    printf '  , webauthn:*\n  , haxl:time\n'
+  fi
   cat <<'EOF'
 
 -- mori://shinzui/biscuit-haskell
@@ -263,7 +273,11 @@ write-ghc-environment-files: never
 constraints:
   time ==1.14,
   crypton-x509-validation >=1.9.1,
-  crypton >=1.1
+  crypton >=1.1,
+  pg-migrate ==1.2.0.0,
+  pg-migrate-cli ==1.2.0.0,
+  pg-migrate-embed ==1.2.0.0,
+  ephemeral-pg ==0.3.1.0
 
 packages:
   nagare/cli/nagare-access
@@ -290,14 +304,18 @@ write-ghc-environment-files: never
 
 constraints:
   crypton-x509-validation >=1.9.1,
-  crypton >=1.1
+  crypton >=1.1,
+  pg-migrate ==1.2.0.0,
+  pg-migrate-cli ==1.2.0.0,
+  pg-migrate-embed ==1.2.0.0,
+  ephemeral-pg ==0.3.1.0
 
 packages:
 EOF
       write_shomei_packages
       write_common_cabal_tail
     } > "$tmpdir/workspace/cabal.project"
-    cp "$shomei_src/deploy/entrypoint.sh" "$tmpdir/runtime/usr/local/bin/auth-entrypoint"
+    cp "$tmpdir/workspace/shomei/deploy/entrypoint.sh" "$tmpdir/runtime/usr/local/bin/auth-entrypoint"
     ;;
   en)
     cabal_targets=(exe:en-server exe:en-migrate)
@@ -308,7 +326,11 @@ with-compiler: ghc-9.12.4
 write-ghc-environment-files: never
 
 constraints:
-  crypton >=1.1
+  crypton >=1.1,
+  pg-migrate ==1.2.0.0,
+  pg-migrate-cli ==1.2.0.0,
+  pg-migrate-embed ==1.2.0.0,
+  ephemeral-pg ==0.3.1.0
 
 packages:
 EOF

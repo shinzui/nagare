@@ -1770,3 +1770,29 @@ hand-ingesting each run made retention unusable.
   validates it with the existing retirement and collection rules
   (`decideRetirementAndCollection`).
 
+
+
+## Amendment — 2026-10-12: site access uses exact relationships and one auth API version
+
+[MasterPlan 27](../masterplans/27-protect-every-nagare-site-with-explicit-user-and-team-access.md)
+selects opt-in protection for every web site kind, with `access` on each normalized hostname.
+Shomei supplies identity; En supplies direct grants and flat team membership. A team site grant
+is an `app#viewer` userset edge to `group#member`; membership is `group#member@user`. Each alias
+and preview host has separate authority. New relationship claims preserve subject kind/relation
+and old direct-user identities remain readable. The auth owner controls schema rollout; a site
+grant additionally depends on its exact protected route. Public defaults and portal handling remain.
+
+The user selected upgrading to current upstream En and Shomei. Library pins and all auth images
+must use the same exact revisions, including migration executables and entrypoints. The CLI's
+Relay relationship query is validated against that selected En handler. Stored grant/member lists
+use filtered Relay pages and snapshot-bound continuation; effective access uses check. Neither
+listing nor the gateway expands every team's members. Read-only schema metadata describes the
+loaded model; a reviewed rollout and serving-revision convergence precede new relationship writes.
+
+The gateway's planned fully consistent misses and default 30-second TTL bound new proxy admissions
+after acknowledged revocation; they do not disconnect existing streams. Cache duration uses a
+monotonic clock and begins at check start so delayed results cannot extend an allow. The identified
+cache-insertion and denied-team traversal risks receive targeted cost checks. The user declined a
+general load-test program: further performance mechanisms require specific evidence. Page size and
+recursion depth must not be represented as bounds on total traversal. Site/team implementation
+and its acceptance remain pending; the dependency upgrade is the first bounded step.

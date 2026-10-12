@@ -17,6 +17,11 @@ provenance:
       at: 2026-10-12T15:08:55Z
       mode: "other"
       note: "Ground user-selected site and team access scope in source research and MasterPlan decomposition"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-12T15:28:33Z
+      mode: "update"
+      note: "Validate APIs, upgrade latest En/Shomei prerequisite, and limit performance checks to concrete risks"
 ---
 
 # Check effective site access and verify user and team isolation
@@ -38,7 +43,7 @@ An operator can ask whether a particular Shomei user currently has access to a p
 
 ## Surprises & Discoveries
 
-(None during implementation yet.)
+Validation (2026-10-12): Current En already supplies `checkedAt`, optional `grantGeneration`, and conditional obligations. Reuse those response types; do not invent a diagnostic API. No general load-testing milestone is required.
 
 
 ## Decision Log
@@ -59,9 +64,9 @@ Whole-child prerequisites are `docs/plans/186-protect-nagare-sites-with-explicit
 
 `cli/nagarectl/app/Nagare/Cli/Parser/Access.hs` defines public commands, `Commands/Access.hs` executes them, `cli/nagarectl/src/Nagare/Access/ShomeiUser.hs` resolves identity, and `Inventory/AccessRuntime.hs` provides private context En transport. This child should factor a reusable read transport if needed rather than copy mutation authorization logic. `cli/nagare-access/src/Nagare/Access/En.hs` builds the enforcement query; `App.hs` proxies only Allowed, while `DecisionCache.hs` may serve a prior answer until its TTL. A fully consistent operator check bypasses that gateway cache, so an immediate denied check can coexist briefly with an HTTP 200 after a revoke. Explain that expected interval explicitly.
 
-Dependency APIs are `mori://shinzui/en/packages/en-client` and `mori://shinzui/en/packages/en-servant`. Lookup sources through Mori before choosing check wire types or consistency. Nagare's En pin at plan creation is `054afaddfc8a1eb631373f6cdd8bfd1f1c8c9634`; this child assumes no upgrade. Shomei subject mapping is exact verified TypeID text, following `mori://shinzui/shomei/packages/shomei-core`. Email is an input lookup aid, not an En principal.
+Dependency APIs are `mori://shinzui/en/packages/en-client` and `mori://shinzui/en/packages/en-servant`. Lookup sources through Mori before choosing check wire types or consistency. Prerequisite EP-186 M0 upgrades En to `c3ee100a0b2cc63a50a9473ef590de7086dca4d0` and Shomei to `0eedad1328a910b457f86bc79bc42024aca33a20`; use those APIs and matching service images. Shomei subject mapping is exact verified TypeID text, following `mori://shinzui/shomei/packages/shomei-core`. Email is an input lookup aid, not an En principal.
 
-[ADR 15](../adr/0015-the-auth-portal-hands-sessions-to-nagare-access-through-response-headers.md) preserves portal session handling and header stripping. [ADR 20](../adr/0020-domain-routing-and-tls-ownership-are-explicit.md) owns aliases and hostname collision checks. [ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md), Decision section, requires owned saved reviews; [ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md) requires interpreter checks and a gated committed candidate before native confirmation. Source image parity and upstream database ownership remain governed by ADR 1 and ADR 2. No existing local ADR covers user/team site access; create the resulting record after implementation proves the architecture.
+[ADR 15](../adr/0015-the-auth-portal-hands-sessions-to-nagare-access-through-response-headers.md) preserves portal session handling and header stripping. [ADR 20](../adr/0020-domain-routing-and-tls-ownership-are-explicit.md) owns aliases and hostname collision checks. [ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md), Decision section, requires owned saved reviews; [ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md) requires interpreter checks and a gated committed candidate before native confirmation. Source image parity and upstream database ownership remain governed by ADR 1 and ADR 2. The 2026-10-12 amendment to ADR 22 records the selected contracts; add implementation evidence there.
 
 
 ## Plan of Work
@@ -70,7 +75,7 @@ Dependency APIs are `mori://shinzui/en/packages/en-client` and `mori://shinzui/e
 
 Add `nagarectl access check --host HOST --user EMAIL_OR_ID [--json]`. Normalize/validate the host using the same route contract as grant. Resolve user identity through the existing Shomei resolver. Require a context-owned protected route and accepted En binding; reject a public or foreign host with a useful diagnostic. Send a FullyConsistent En check for `user:<id>`, permission `access`, object `app:<host>`, using private service credentials. The user's login token is not an En API key.
 
-Expose one typed result: Allowed, Denied, Conditional with missing requirements when provided by the API, or Unavailable with a bounded non-secret diagnostic. JSON contains host, resolved subject, permission, decision, and checked-at consistency token when the pinned response supplies it. Plain output explains the current result and gateway cache caveat. Exit zero for a successful Allowed/Denied/Conditional query and nonzero for invalid input or unavailable service; denied is a valid answer, not a transport failure. No tuples, route config, or inventory history are written. Do not derive the answer from `access list`, which reports stored relationships and may not capture every effective path.
+Expose one typed result: Allowed, Denied, Conditional with the API's caveat obligations, or Unavailable with a bounded non-secret diagnostic. JSON contains host, resolved subject, permission, decision, and required `checkedAt` consistency token; optional `grantGeneration` may be reported when present. Neither field is a timestamp, and neither creates a gateway invalidation feed by itself. Issue one En check for one user/host; do not expand or list teams to infer the decision. Plain output explains the current result and gateway cache caveat. Exit zero for a successful Allowed/Denied/Conditional query and nonzero for invalid input or unavailable service; denied is a valid answer, not a transport failure. No tuples, route config, or inventory history are written. Do not derive the answer from `access list`, which reports stored relationships and may not capture every effective path.
 
 Implement tests with a recording transport and real typed response decoding in `cli/nagarectl/test/AccessGrantsSpec.hs` or a new `AccessCheckSpec.hs` registered in the Cabal test suite. Check public parser wiring and JSON encoding, authenticated context transport, FullyConsistent choice, all result states, missing keys, invalid users, public hosts, and secret-free diagnostics.
 
@@ -80,7 +85,7 @@ Create a reusable integration scenario under `cli/nagare-access/test`, proposed 
 
 The scenario has protected sites A and B; Alice belongs to engineering, Bob belongs to finance, and Carol has no membership. Engineering is granted A; finance is granted B. Alice gets A only, Bob gets B only, Carol gets neither. Then give Carol an individual A grant, verify she gets A only, and revoke it. Give Alice an independent direct A grant, remove her engineering membership, prove A remains allowed, then revoke the direct path and prove denial. Repeat the coverage for StaticSite, ServerSite, Deployment, Application, alternate hosts, and private previews using parameterized test inputs rather than duplicated scenarios.
 
-Inject clock changes to prove the gateway decision TTL and zero-TTL behavior without sleeping. An En fully consistent check immediately reflects accepted writes; gateway misses also reflect them; gateway hits expire within the configured TTL. A fresh-cache En outage gives 503, no upstream call, and no cached failure; restore transport and prove retry. Conditional responses fail closed. Record no upstream request for an ungranted authenticated user. Malformed backend policy and absent auth routes cannot open an origin.
+Inject clock changes to prove the gateway decision TTL and zero-TTL behavior without sleeping. An En fully consistent check immediately reflects accepted writes; gateway misses also reflect them; gateway hits expire within the configured TTL. An En outage on an empty or expired cache gives 503, no upstream call, and no cached failure; restore transport and prove retry. Conditional responses fail closed. Record no upstream request for an ungranted authenticated user. Malformed backend policy and absent auth routes cannot open an origin.
 
 Run the relationship adapter through lost acknowledgements and public `inventory resume`, status, and retirement loader paths already covered by EP-187; integration tests assert their resulting access state, not just a successful provider operation. These tests must pass before native confirmation.
 
@@ -120,6 +125,9 @@ nagarectl access check --host b.apps.example.com --user alice@example.com --json
 ```
 
 Expected decisions are denied before the grant, allowed for A after it, and denied for B throughout. Use `curl -sS -o /dev/null -w '%{http_code}\n'` with a private session-cookie input supplied by the fixture for HTTP verification; avoid putting secrets in transcripts or command lines. The fixture owns login and token cleanup. Obtain a committed candidate gate record before the native drill and record the actual fixture invocation in Progress once it exists.
+
+
+Revision (2026-10-12): Consume the latest dependency APIs and verified diagnostic fields. Keep functional and freshness integration acceptance; performance checks remain the specific cache and tuple-read regressions owned by EP-186/187, without a general load suite.
 
 
 ## Validation and Acceptance

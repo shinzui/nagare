@@ -17,11 +17,16 @@ provenance:
       at: 2026-10-12T15:08:55Z
       mode: "other"
       note: "Ground user-selected site and team access scope in source research and MasterPlan decomposition"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-12T15:28:33Z
+      mode: "implement"
+      note: "Validate APIs, upgrade latest En/Shomei prerequisite, and limit performance checks to concrete risks"
 ---
 
 # Protect Nagare sites with explicit user and team grants
 
-This living ExecPlan is the site-protection foundation. Team relationship mutation is owned by `docs/plans/187-manage-reviewed-team-membership-and-site-access-grants.md`; this child first makes existing individual grants usable across all web workload kinds. This planning session implements no code.
+This living ExecPlan is the site-protection foundation. Team relationship mutation is owned by `docs/plans/187-manage-reviewed-team-membership-and-site-access-grants.md`; this child first makes existing individual grants usable across all web workload kinds. The user additionally authorized the prerequisite latest-auth upgrade in M0; the remaining site-protection milestones are still planned.
 
 
 ## Purpose / Big Picture
@@ -31,6 +36,7 @@ An operator can opt a StaticSite or ServerSite into the same protection already 
 
 ## Progress
 
+- [x] M0 (2026-10-12): Upgraded En to `c3ee100a` and Shomei to `0eedad13`; gateway build and all 134 tests pass, all five auth server/admin/migration executables compile, and all three image variants pass pinned-source staging checks. Container builds were not run because the local Docker daemon is unavailable.
 - [ ] M1: Protected-site policy survives typed-config serialization and a representative private-route/enforcer interaction.
 - [ ] M2: Production, alias, preview, and rollback routes enforce the selected policy without an origin bypass.
 - [ ] M3: Freshness, unsupported-policy refusal, lifecycle recovery, and compatibility are verified through public loaders and focused tests.
@@ -38,7 +44,7 @@ An operator can opt a StaticSite or ServerSite into the same protection already 
 
 ## Surprises & Discoveries
 
-(None during implementation yet.)
+Validation (2026-10-12): The CLI uses Relay relationship pages but the old En pin predates them. Upgrade En rather than rewriting the CLI to the old API. The selected Shomei migration packages require pg-migrate 1.2 while En caps its core/CLI/embed dependencies at 1.1. The published 1.2 changelogs confirm those three APIs are unchanged; use only package-scoped upper-bound exceptions with exact 1.2.0.0 cohort constraints, mirrored in the image project (ADR 1 amendment). Cache insertions scan every live entry; measure this specific cost before introducing a replacement cache design.
 
 
 ## Decision Log
@@ -50,7 +56,7 @@ Decision (2026-10-12): Preserve public defaults, `app:<hostname>#access`, and th
 
 ## Outcomes & Retrospective
 
-(To be filled during implementation and at completion.)
+M0 delivers the authorized source dependency upgrade and verifies Relay reads, Problem Details handling, and exact image source staging. `cabal build all --project-dir=cli/nagare-access`, `cabal test nagare-access-test --project-dir=cli/nagare-access --test-show-details=direct`, explicit builds of `en-server`, `en-migrate`, `shomei-server`, `shomei-admin`, and `shomei-migrate`, `bash scripts/test-image-build-guard.sh`, and `just haskell-style-check` pass. The suite includes a real Shomei JWT/En authorization HTTP roundtrip. Container image builds and a context rollout remain unverified; no live migration or deployment was performed. M1–M3 remain unimplemented.
 
 
 ## Context and Orientation
@@ -59,12 +65,21 @@ Work from the Nagare repository root. A Deployment is a typed web-service config
 
 `cli/nagarectl/src/Nagare/Inventory/Application/Service.hs` already composes protected DomainMappings in `nagare-system`, records `RegisterBackend` contributions, and marks the origin Service cluster-local. `cli/nagarectl/src/Nagare/Inventory/BackendMap.hs` combines contributions into `nagare-access-backends`. Dedicated sites instead use `cli/nagarectl/src/Nagare/Inventory/Site.hs` and `cli/nagarectl/app/Nagare/Cli/Commands/Site.hs`, with production, preview, and rollback paths. These must use the same protection path. `cli/nagare-access/src/Nagare/Access/App.hs` authenticates and checks each protected host before proxying; `En.hs` asks permission `access`; `DecisionCache.hs` caches subject/host decisions; `Shomei.hs` retains the verified JWT subject only.
 
-Authentication proves who is calling. Authorization is a separate yes/no check on a particular resource. The baseline tuple, a stored relationship fact, is `app:<host>#viewer@user:<id>`. En grants `access` from viewer. The user ID is the exact TypeID text in verified Shomei `sub`, never an email or bare UUID. Source APIs are in `mori://shinzui/shomei/packages/shomei-core` and `mori://shinzui/en/packages/en-client`; locate them with Mori before coding. Current pins are Shomei `6a96185f4f809e5e7a99095274caa6bd90e7a8d7` and En `054afaddfc8a1eb631373f6cdd8bfd1f1c8c9634` in `cli/nagare-access/cabal.project`; no upgrade is required by this child.
+Authentication proves who is calling. Authorization is a separate yes/no check on a particular resource. The baseline tuple, a stored relationship fact, is `app:<host>#viewer@user:<id>`. En grants `access` from viewer. The user ID is the exact TypeID text in verified Shomei `sub`, never an email or bare UUID. Source APIs are in `mori://shinzui/shomei/packages/shomei-core` and `mori://shinzui/en/packages/en-client`; locate them with Mori before coding. M0 upgrades the previous pins to Shomei `0eedad1328a910b457f86bc79bc42024aca33a20` and En `c3ee100a0b2cc63a50a9473ef590de7086dca4d0` in `cli/nagare-access/cabal.project`, both verified upstream HEADs on 2026-10-12. The image helper must archive those same commits for server images and the gateway; sibling checkout HEAD or dirty files are not build inputs.
 
-[ADR 15](../adr/0015-the-auth-portal-hands-sessions-to-nagare-access-through-response-headers.md) keeps the portal public enough for login and keeps session authority at the enforcer. [ADR 20](../adr/0020-domain-routing-and-tls-ownership-are-explicit.md) requires explicit domain claims. [ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md), Decision section, requires shared resource owners to compose consumer contributions and forbids unreviewed changes. [ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md) requires interpreter failure coverage before native route changes. There is no existing local ADR defining team-based site access. Preserve auth image pins and upstream migration ownership under [ADR 1](../adr/0001-auth-plane-images-mirror-upstream-dependency-plans.md) and [ADR 2](../adr/0002-auth-service-images-own-and-apply-their-database-schemas.md).
+[ADR 15](../adr/0015-the-auth-portal-hands-sessions-to-nagare-access-through-response-headers.md) keeps the portal public enough for login and keeps session authority at the enforcer. [ADR 20](../adr/0020-domain-routing-and-tls-ownership-are-explicit.md) requires explicit domain claims. [ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md), Decision section, requires shared resource owners to compose consumer contributions and forbids unreviewed changes. [ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md) requires interpreter failure coverage before native route changes. The 2026-10-12 amendment to ADR 22 records the planned site/team and API contract. Preserve auth image pins and upstream migration ownership under [ADR 1](../adr/0001-auth-plane-images-mirror-upstream-dependency-plans.md) and [ADR 2](../adr/0002-auth-service-images-own-and-apply-their-database-schemas.md).
 
 
 ## Plan of Work
+
+### M0: Upgrade the shared auth dependencies
+
+Update all En/Shomei source pins in `cli/nagare-access/cabal.project` after registry/tag/remote-HEAD verification. Mirror upstream's relevant dependency constraints and required forks in `cluster/bootstrap/auth-images/build-local-image.sh`; archive the selected commits for standalone En and Shomei images as well as the gateway, including Shomei's entrypoint. Do not copy a mutable sibling checkout into a supposedly pinned image. Preserve the existing image guard tests and prove all service variants use selected source bytes.
+
+Adapt `Nagare.Access.En` to current `En.Servant.Problem.ProblemDetails` and the added `EnInternal` outcome, retaining fail-closed unavailable semantics for every error. Update real-handler test fixtures for optional `CheckResponseWire.grantGeneration` and `Env.grantGenerationOperation`. Keep existing host checks and TTL behavior in this bounded upgrade; the M3 freshness change remains separate. Validate direct relationship query bytes against the real current En Relay handler, including `first=2`, exact filters, and exhausted `edges/pageInfo`; retain existing CLI review identities and HTTP semantics.
+
+Run the gateway tests, compile the auth server/migration executables against the selected dependency closure, and verify image-source staging. En adds `0002-grant-generations.sql` in its upstream-owned migrations. The existing reviewed migration Job must finish before the new server starts; never copy that SQL into Nagare or silently deploy a server against an older schema. Record any build or image-validation limitation accurately. M0 does not authorize a context deployment, publishing images, or the remaining site/team implementation.
+
 
 ### M1: One common private-site contract
 
@@ -81,6 +96,11 @@ Refuse protection when auth bindings are missing or conflict with a route owner.
 ### M3: Bounded revocation and compatibility
 
 Change `Nagare.Access.En.buildCheckRequest` to FullyConsistent on gateway cache misses. Keep subject/host cache keys because this child has one permission and no path/context variants. Keep `NAGARE_ACCESS_DECISION_TTL`: default 30 seconds, zero disables the gateway cache. Denied and Conditional never proxy; unavailable results return 503 and are not cached. Prove grants and revokes become observable after at most that TTL, with an injected clock and no sleeps. Do not promise a fresh answer from a cached Allowed entry during an En outage.
+
+Use a monotonic clock for cache duration and keep expiry anchored to the start of the En check. Test a result delayed past TTL and an older concurrent completion arriving after a newer one; neither may extend a stale allow. TTL zero bypasses stored decisions. The revocation bound applies to new proxy admissions after an acknowledged write, not existing streams.
+
+Add a focused operation-count check for N and 2N distinct cache insertions to expose the current full-map filtering cost. Make only the smallest justified cache correction and put an explicit bound on live entries; expiry bookkeeping must obey that bound too. Test concurrent same-key misses to establish whether duplicate calls are material before adding coalescing machinery. Keep the shared HTTP manager and local JWT verification. No general load harness, new metrics subsystem, arbitrary latency SLO, or multi-layer concurrency controller is required.
+
 
 Extend focused tests in `cli/nagare-dsl/test`, `cli/nagarectl/test/Nagare/Test/SiteInventory.hs`, `cli/nagarectl/test/InventoryAccessSpec.hs`, `AccessResolveSpec.hs`, and `cli/nagare-access/test/Spec.hs`. Cover missing auth, conflicting host claims, unrelated accepted contributors, public-to-protected transition refusal/recovery, lost Kubernetes acknowledgement, unready rollout, renamed/replaced origins, private previews, protected rollback, portal behavior, and malformed config. Preserve legacy direct-user wire values. Document the custom-policy refusals and the 30-second bound in `docs/user/access.md`.
 
@@ -111,6 +131,9 @@ just gate-fast
 ```
 
 A future implementation commit includes Conventional Commit syntax and trailers for this plan, `docs/masterplans/27-protect-every-nagare-site-with-explicit-user-and-team-access.md`, and the frontmatter intention. Do not deploy in the planning session. Before any implementation native drill, obtain the required green committed-candidate gate record and follow `docs/runbooks/before-a-native-run.md`.
+
+
+Revision (2026-10-12): Added the user-authorized latest-auth upgrade as M0, retained Relay support, and scoped performance work to observed cache insertion/freshness risks.
 
 
 ## Validation and Acceptance

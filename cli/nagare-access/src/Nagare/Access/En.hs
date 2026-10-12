@@ -29,7 +29,7 @@ import En.Client
   , SubjectWire (..)
   , enClient
   )
-import En.Servant.Seam (ErrorEnvelopeWire (..))
+import En.Servant.Problem (ProblemDetails (..))
 import Nagare.Access.Auth (AuthenticatedUser (..))
 import Nagare.Access.Config (AuthPlaneConfig (..))
 import Nagare.Access.DecisionCache (AccessDecision (..), AuthorizationResult (..))
@@ -65,10 +65,11 @@ authorizationFromClientResult = \case
   Right (EnClientError envelope) -> AuthorizationUnavailable (envelopeMessage envelope)
   Right (EnPreconditionFailed envelope) -> AuthorizationUnavailable (envelopeMessage envelope)
   Right (EnUnprocessable envelope) -> AuthorizationUnavailable (envelopeMessage envelope)
+  Right (EnInternal envelope) -> AuthorizationUnavailable (envelopeMessage envelope)
   Right (EnUnavailable envelope) -> AuthorizationUnavailable (envelopeMessage envelope)
 
-envelopeMessage :: ErrorEnvelopeWire -> Text
-envelopeMessage envelope = envelope.code <> ": " <> envelope.message
+envelopeMessage :: ProblemDetails -> Text
+envelopeMessage envelope = envelope.code <> ": " <> envelope.detail
 
 buildCheckRequest :: AuthenticatedUser -> Text -> CheckRequestWire
 buildCheckRequest user host =

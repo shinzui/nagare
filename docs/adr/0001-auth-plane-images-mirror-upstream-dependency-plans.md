@@ -54,3 +54,22 @@ plans and validate the service images, not only compile the Haskell library.
 
 The local-source builder still requires sibling checkouts. Removing that operational
 requirement belongs to the versioned-distribution work, not to dependency compatibility.
+
+
+## Amendment — 2026-10-12: service images use the same source pins as the gateway
+
+The user requested latest upstream En and Shomei while validating
+[MasterPlan 27](../masterplans/27-protect-every-nagare-site-with-explicit-user-and-team-access.md).
+All three image variants now archive the exact commits in `cli/nagare-access/cabal.project`,
+including Shomei's entrypoint. A dirty or newer Mori source checkout cannot change a server
+image independently of the gateway's client API. The upstream-owned migration executable
+continues to ship in the same image as its server.
+
+The selected En commit still bounds its migration packages to the pg-migrate 1.1 cohort,
+while selected Shomei requires 1.2. The published 1.2 core, CLI, and embed changelogs report no
+API or behavior change; the breaking change is confined to test support. Nagare admits 1.2
+only for En's three affected migration dependencies and constrains the cohort to 1.2.0.0 in
+both build plans. This is a narrow compatibility exception, removable when upstream bounds
+admit 1.2; it does not relax unrelated package bounds. Source and release evidence belongs to
+mori://shinzui/pg-migrate and its project-relative `pg-migrate/CHANGELOG.md`,
+`pg-migrate-cli/CHANGELOG.md`, and `pg-migrate-embed/CHANGELOG.md` (artifact URIs pending).
