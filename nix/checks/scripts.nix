@@ -53,7 +53,7 @@
   # active context, with no `gcloud config get-value project` fallback.
   image-build-guard = pkgs.runCommand "nagare-image-build-guard-test"
     {
-      nativeBuildInputs = [ pkgs.bash pkgs.coreutils pkgs.gnugrep pkgs.rsync ];
+      nativeBuildInputs = [ pkgs.bash pkgs.coreutils pkgs.git pkgs.gnugrep pkgs.gnutar pkgs.rsync ];
       inherit src;
     }
     ''
