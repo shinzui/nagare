@@ -209,6 +209,8 @@ GitHub Release with minimal write permission. Monitor it through completion and 
 - `nagare-release-X.Y.Z.json` names the tag, exact revision, and every supported system.
 - `nagare-vX.Y.Z.md`, one native Nix output manifest and one clone-free rehearsal manifest per
   supported system, and `SHA256SUMS` are present.
+- `nagare-transition-rehearsal-vX.Y.Z.json` binds the candidate's version and revision and the
+  EP-172 rehearsal outcome; `nagare-platform-metadata-vX.Y.Z.json` is the candidate's `release.json`.
 - Every checksum passes and the attachments are the deterministic set assembled by the workflow.
 - `nix run github:shinzui/nagare/vX.Y.Z#nagarectl -- version --json` reports the expected version and
   revision without a checkout.

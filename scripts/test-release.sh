@@ -84,24 +84,25 @@ for system in x86_64-linux aarch64-darwin; do
       checks: ["version", "context", "typed-config", "inventory-compile", "payload", "host-config", "local-init", "cloud-init", "operator-recipe", "platform-upgrade"]}' \
     > "$native_dir/clone-free-$system.json"
 done
-python3 "$repo_root/scripts/test-inventory-release-index.py" --write-fixture "$test_root/evidence"
-# Bind synthetic scenario receipts to this release fixture's native payloads.
-python3 - "$test_root/evidence" "$version" <<'PYFIXTURE'
-import json,sys
-from pathlib import Path
-root=Path(sys.argv[1]); version=sys.argv[2]
-for mode,system in [("local","aarch64-darwin"),("cloud","x86_64-linux")]:
-    path=root/mode/"inventory-evidence.json"
-    value=json.loads(path.read_text());value["payload"]["version"]=version
-    value["payload"]["digest"]="sha256-platform-"+system
-    path.write_text(json.dumps(value,sort_keys=True,separators=(",",":"))+"\n")
-PYFIXTURE
-expect_failure missing-inventory-evidence assemble_release --version "$version" \
-  --input-root "$test_root/native" --output-dir "$test_root/no-evidence"
+# The EP-172 transition rehearsal record, as scripts/transition-rehearsal.sh writes it, bound to
+# this fixture's candidate.
+rehearsal="$test_root/transition-rehearsal.json"
+jq -n -S --arg version "$version" --arg source "$(jq -er '.transitionsFrom[0]' "$repo_root/release.json")" \
+  '{schemaVersion: 1, mode: "local", context: "transition",
+    source: {version: $source, revision: "source-revision"},
+    candidate: {version: $version, revision: "fixture-revision"},
+    bootstrap: {reviews: 3}, transition: {reviews: 3, operations: 1},
+    sentinel: {seeded: "transition fixture", readBack: "transition fixture"},
+    platform: {identities: ({version: $version, revision: "fixture-revision"} as $at
+      | {cli: $at, payload: $at, cluster: $at, context: {version: $version, revision: null}, host: {version: null, revision: null}})},
+    inventory: {activeTransaction: null, transactionStatus: null, observationComplete: true},
+    replan: {operations: 0, reaccepts: 0}}' > "$rehearsal"
+expect_failure missing-transition-rehearsal assemble_release --version "$version" \
+  --input-root "$test_root/native" --output-dir "$test_root/no-rehearsal"
 assemble_release \
   --version "$version" \
   --input-root "$test_root/native" \
-  --inventory-evidence "$test_root/evidence" \
+  --transition-rehearsal "$rehearsal" \
   --output-dir "$test_root/assembled"
 test -s "$test_root/assembled/nagare-release-${version}.json"
 test -s "$test_root/assembled/nix-output-x86_64-linux.json"
@@ -115,21 +116,19 @@ jq -e '
     and .payloadDigests["aarch64-darwin"] == "sha256-platform-aarch64-darwin"
 ' "$test_root/assembled/nagare-release-${version}.json" >/dev/null
 
-test -s "$test_root/assembled/nagare-inventory-evidence-v${version}.json"
-grep -q "nagare-inventory-evidence-v${version}.json" "$test_root/assembled/SHA256SUMS"
-cp -R "$test_root/evidence" "$test_root/incomplete-evidence"
-jq '.complete = false' "$test_root/evidence/coverage.json" > "$test_root/incomplete-evidence/coverage.json"
-expect_failure incomplete-inventory-evidence \
+test -s "$test_root/assembled/nagare-transition-rehearsal-v${version}.json"
+test -s "$test_root/assembled/nagare-platform-metadata-v${version}.json"
+grep -q "nagare-transition-rehearsal-v${version}.json" "$test_root/assembled/SHA256SUMS"
+jq '.candidate.revision = "different-revision"' "$rehearsal" > "$test_root/foreign-rehearsal.json"
+expect_failure foreign-transition-rehearsal \
   assemble_release --version "$version" --input-root "$test_root/native" \
-    --inventory-evidence "$test_root/incomplete-evidence" \
-    --output-dir "$test_root/assembled-incomplete-evidence"
-cp -R "$test_root/evidence" "$test_root/mismatched-evidence"
-jq '.payload.digest = "sha256-other-payload"' "$test_root/evidence/cloud/inventory-evidence.json" \
-  > "$test_root/mismatched-evidence/cloud/inventory-evidence.json"
-expect_failure mismatched-inventory-evidence \
+    --transition-rehearsal "$test_root/foreign-rehearsal.json" \
+    --output-dir "$test_root/assembled-foreign-rehearsal"
+jq '.sentinel.readBack = "another row"' "$rehearsal" > "$test_root/changed-rehearsal.json"
+expect_failure changed-transition-rehearsal \
   assemble_release --version "$version" --input-root "$test_root/native" \
-    --inventory-evidence "$test_root/mismatched-evidence" \
-    --output-dir "$test_root/assembled-mismatched-evidence"
+    --transition-rehearsal "$test_root/changed-rehearsal.json" \
+    --output-dir "$test_root/assembled-changed-rehearsal"
 
 cp -R "$test_root/native" "$test_root/divergent-native"
 jq '.revision = "different-revision"' \
@@ -141,7 +140,7 @@ expect_failure divergent-native-manifest \
   assemble_release \
     --version "$version" \
     --input-root "$test_root/divergent-native" \
-    --inventory-evidence "$test_root/evidence" \
+    --transition-rehearsal "$rehearsal" \
     --output-dir "$test_root/divergent-assembled"
 
 expect_failure malformed-version \

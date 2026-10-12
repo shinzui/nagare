@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Verify public release review rejects missing or dishonest inventory proof.
+"""Verify the public release review accepts a complete proof and refuses a missing, foreign or
+failed transition rehearsal record (EP-172).
 
 Uses an isolated Git repository and synthetic provider-free evidence. No forge
 request, product tag, or publication is made.
@@ -30,7 +31,7 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-with tempfile.TemporaryDirectory(prefix="mp23-release-public-") as temporary:
+with tempfile.TemporaryDirectory(prefix="nagare-release-public-") as temporary:
     root = Path(temporary)
     source = root / "git"
     source.mkdir()
@@ -41,41 +42,42 @@ with tempfile.TemporaryDirectory(prefix="mp23-release-public-") as temporary:
     subprocess.run(["git", "add", "fixture.txt"], cwd=source, check=True)
     subprocess.run(["git", "-c", "commit.gpgsign=false", "commit", "-qm", "test: seed isolated release"], cwd=source, check=True)
     revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=source, text=True).strip()
-    version = read(REPO / "release.json")["platformVersion"]
+    metadata = read(REPO / "release.json")
+    version = metadata["platformVersion"]
+    systems = metadata["supportedSystems"]
     subprocess.run(["git", "-c", "tag.gpgsign=false", "tag", "-a", "v" + version, "-m", "fixture"], cwd=source, check=True)
-    evidence = root / "evidence"
-    subprocess.run(["python3", str(REPO / "scripts/test-inventory-release-index.py"), "--write-fixture", str(evidence)], check=True, capture_output=True)
-    coverage = read(evidence / "coverage.json")
-    coverage["sourceRevision"] = revision
-    write(evidence / "coverage.json", coverage)
-    manifest = read(evidence / "nagare-release-0.4.0.json")
-    manifest.update(version=version, revision=revision, tag="v" + version)
-    for system in manifest["systems"]:
-        for prefix in ["nix-output", "clone-free"]:
-            path = evidence / "native" / f"{prefix}-{system}.json"
-            value = read(path)
-            value.update(version=version, revision=revision)
-            write(path, value)
-        directory = evidence / "native" / system
-        directory.mkdir()
-        write(directory / f"nagare-release-{version}.json", dict(manifest, payloadDigest=manifest["payloadDigests"][system]))
+    native = root / "native"
+    manifest = {"version": version, "tag": "v" + version, "revision": revision, "consistent": True, "systems": systems}
+    for system in systems:
+        directory = native / system
+        directory.mkdir(parents=True)
+        payload = "sha256-platform-" + system
+        write(directory / f"nagare-release-{version}.json", dict(manifest, payloadDigest=payload))
         (directory / f"nagare-v{version}.md").write_text("# Synthetic release fixture\n")
-    for mode in ["local", "cloud"]:
-        path = evidence / mode / "inventory-evidence.json"
-        value = read(path)
-        value["payload"].update(version=version, sourceRevision=revision)
-        value["tools"]["operator"]["revision"] = revision
-        value["coverage"]["resultDigest"] = digest(evidence / "coverage.json")
-        write(path, value)
-        path = evidence / mode / f"{mode}-health.json"
-        value = read(path)
-        value["operatorRevision"] = revision
-        for record in value["assertions"]:
-            record["operatorRevision"] = revision
-        write(path, value)
+        write(directory / f"nix-output-{system}.json",
+              {"version": version, "revision": revision, "system": system,
+               "outputs": {"nagarectl": {"narHash": "sha256-cli", "narSize": 1},
+                           "nagare-platform": {"narHash": payload, "narSize": 2}}})
+        write(directory / f"clone-free-{system}.json",
+              {"version": version, "revision": revision, "system": system, "supportedSystems": systems,
+               "cloneFree": True, "checks": ["version", "context", "typed-config", "inventory-compile",
+                                             "payload", "operator-recipe"]})
+    identity = {"version": version, "revision": revision}
+    rehearsal = root / "transition-rehearsal.json"
+    write(rehearsal, {
+        "schemaVersion": 1, "mode": "local", "context": "transition",
+        "source": {"version": metadata["transitionsFrom"][0], "revision": "a" * 40},
+        "candidate": identity,
+        "bootstrap": {"reviews": 3}, "transition": {"reviews": 3, "operations": 1},
+        "sentinel": {"seeded": "transition fixture", "readBack": "transition fixture"},
+        "platform": {"identities": {"cli": identity, "payload": identity, "cluster": identity,
+                                    "context": {"version": version, "revision": None},
+                                    "host": {"version": None, "revision": None}}},
+        "inventory": {"activeTransaction": None, "transactionStatus": None, "observationComplete": True},
+        "replan": {"operations": 0, "reaccepts": 0}})
     output = root / "assets"
     subprocess.run(["bash", str(REPO / "scripts/assemble-release.sh"), "--version", version,
-                    "--input-root", str(evidence / "native"), "--inventory-evidence", str(evidence),
+                    "--input-root", str(native), "--transition-rehearsal", str(rehearsal),
                     "--output-dir", str(output)], check=True, capture_output=True)
     # Any accidental provider request fails; review must remain entirely local.
     bins = root / "bin"
@@ -96,73 +98,26 @@ with tempfile.TemporaryDirectory(prefix="mp23-release-public-") as temporary:
     def sums():
         (output / "SHA256SUMS").write_text("".join(f"{digest(path)}  {path.name}\n" for path in sorted(output.iterdir()) if path.name != "SHA256SUMS"))
 
+    def changed(adjust, message):
+        value = json.loads(original)
+        adjust(value)
+        write(record, value)
+        sums()
+        run(False, message)
+
     run(True, "Review only")
-    index_path = output / f"nagare-inventory-evidence-v{version}.json"
-    original_index = index_path.read_bytes()
-    index_path.unlink()
+    record = output / f"nagare-transition-rehearsal-v{version}.json"
+    original = record.read_bytes()
+    record.unlink()
     run(False, "missing required release asset")
-    index_path.write_bytes(original_index)
-    health_path = output / "inventory-cloud-health.json"
-    original_health = health_path.read_bytes()
-    changed = read(health_path)
-    changed["checks"].remove("redis-backup-restore")
-    write(health_path, changed)
-    changed_index = read(index_path)
-    cloud = next(item for item in changed_index["scenarios"] if item["mode"] == "cloud")
-    cloud["healthDigest"] = digest(health_path)
-    write(index_path, changed_index)
-    sums()
-    run(False, "lacks required supported assertions")
-    health_path.write_bytes(original_health)
-    index_path.write_bytes(original_index)
-    # A required name whose bound record was removed is refused by the
-    # validator itself, even with a recomputed index and sums.
-    changed = read(health_path)
-    changed["assertions"] = [item for item in changed["assertions"] if item["name"] != "google-cdn"]
-    write(health_path, changed)
-    changed_index = read(index_path)
-    cloud = next(item for item in changed_index["scenarios"] if item["mode"] == "cloud")
-    cloud["healthDigest"] = digest(health_path)
-    write(index_path, changed_index)
-    sums()
-    run(False, "lacks bound assertion records")
-    health_path.write_bytes(original_health)
-    index_path.write_bytes(original_index)
-    # Recompute the public index and sums so the validator must compare the
-    # health's declared fixture with the separately shipped definition.
-    fixture_path = output / "inventory-cloud-fixture.json"
-    original_fixture = fixture_path.read_bytes()
-    changed = read(fixture_path)
-    changed["description"] = "another fixture with the same context"
-    write(fixture_path, changed)
-    changed_index = read(index_path)
-    cloud = next(item for item in changed_index["scenarios"] if item["mode"] == "cloud")
-    cloud["fixtureDigest"] = digest(fixture_path)
-    write(index_path, changed_index)
-    sums()
-    run(False, "release evidence digest differs: inventory-cloud-fixture.json")
-    fixture_path.write_bytes(original_fixture)
-    index_path.write_bytes(original_index)
-    target_path = output / "inventory-local-target.json"
-    original_target = target_path.read_bytes()
-    changed = read(target_path)
-    changed["context"] = "foreign-context"
-    write(target_path, changed)
-    sums()
-    run(False, "release evidence digest differs")
-    target_path.write_bytes(original_target)
-    coverage_path = output / "inventory-coverage.json"
-    original_coverage = coverage_path.read_bytes()
-    changed = read(coverage_path)
-    changed["deferredRoutes"].append("CdnCommand.CdnPurge")
-    write(coverage_path, changed)
-    changed_index = read(index_path)
-    changed_index["coverageDigest"] = digest(coverage_path)
-    write(index_path, changed_index)
-    sums()
-    run(False, "changes the supported contract")
-    coverage_path.write_bytes(original_coverage)
-    index_path.write_bytes(original_index)
+    record.write_bytes(original)
+    # Recomputed sums do not make a foreign or failed rehearsal acceptable.
+    changed(lambda value: value["candidate"].update(revision="0" * 40), "belongs to another candidate")
+    changed(lambda value: value["source"].update(version="0.1.0"), "does not accept")
+    changed(lambda value: value["sentinel"].update(readBack="another row"), "read the seeded data back changed")
+    changed(lambda value: value["replan"].update(operations=1), "replan is not converged")
+    changed(lambda value: value["inventory"].update(activeTransaction="tx-1"), "ended with an open transaction")
+    record.write_bytes(original)
     sums()
     run(True, "Review only")
-print("public release review accepts complete proof and refuses missing, stale and narrowed evidence")
+print("public release review accepts a complete proof and refuses a missing, foreign or failed transition rehearsal")

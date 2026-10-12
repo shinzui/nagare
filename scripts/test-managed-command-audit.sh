@@ -46,8 +46,8 @@ print(f"managed command audit: {current['registeredRoutes']} routes, "
       f"{current['recipes']} recipes, {current['libraryCalls']} library calls; "
       "injected mutation refused")
 PY
-# Both release assemblers pin these lists. They must follow the live audit, or every release
-# assembly refuses with "mutation coverage is incomplete" (v0.5.0 candidate 42c0f0b3).
+# Both MasterPlan 23 evidence assemblers pin these lists. They must follow the live audit, or an
+# evidence assembly refuses with "mutation coverage is incomplete" (v0.5.0 candidate 42c0f0b3).
 PYTHONDONTWRITEBYTECODE=1 python3 - "$repo_root" "$fixture_root/current.json" <<'PY'
 import importlib.util
 import json
@@ -68,13 +68,7 @@ for field in ('deferredRoutes', 'recoveryOnlyRoutes'):
     match = re.search(r'\.' + field + r' == (\[[^\]]*\])', shell)
     assert match, field
     assert json.loads(match.group(1)) == current[field], (field, match.group(1))
-# The CLI's release-evidence check (the publisher's) pins the same two lists.
-cli = (root / "cli/nagarectl/src/Nagare/Inventory/ReleaseEvidence.hs").read_text()
-for name, field in (('deferred', 'deferredRoutes'), ('recovery', 'recoveryOnlyRoutes')):
-    match = re.search(r'\b' + name + r' == (\[[^\]]*\])', cli)
-    assert match, name
-    assert json.loads(match.group(1)) == current[field], (name, match.group(1))
-print("managed command audit: both assemblers and the CLI pin the live deferred and recovery-only routes")
+print("managed command audit: both evidence assemblers pin the live deferred and recovery-only routes")
 PY
 
 python3 - "$repo_root" "$fixture_root" <<'PY'

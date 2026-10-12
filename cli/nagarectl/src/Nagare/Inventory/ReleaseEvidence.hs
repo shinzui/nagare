@@ -1,12 +1,17 @@
--- | Validate the complete public release proof before any provider publication.
+-- | Validate the public release proof before any provider publication: the
+-- native output and clone-free rehearsal of every supported system, the
+-- platform metadata, and the EP-172 transition rehearsal record. A release
+-- after v0.5.0 proves the full gate, this rehearsal and the intranet upgrade
+-- (operator, 2026-10-10); the per-release local and cloud evidence chain of
+-- MasterPlan 23 is not re-run.
 module Nagare.Inventory.ReleaseEvidence
-  ( inventoryEvidenceAssetNames
-  , validateInventoryReleaseEvidence
+  ( releaseEvidenceAssetNames
+  , validateReleaseEvidence
   )
 where
 
 import Control.Monad (forM_)
-import Data.Aeson (Value (..), eitherDecodeStrict', toJSON)
+import Data.Aeson (Value (..), eitherDecodeStrict')
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
@@ -16,150 +21,63 @@ import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
-import Nagare.Dsl.Prelude hiding (at, index)
-import Nagare.Inventory.Digest (contentDigest)
-import Nagare.Resource.Types (digestText)
-import Nagare.Resource.Wire (canonicalValue)
+import Nagare.Dsl.Prelude hiding (at)
 
-inventoryEvidenceAssetNames :: Text -> [FilePath]
-inventoryEvidenceAssetNames version =
-  [ "nagare-inventory-evidence-v" <> T.unpack version <> ".json"
+-- | The evidence attachments beside the manifest, notes, native outputs,
+-- clone-free rehearsals and checksums.
+releaseEvidenceAssetNames :: Text -> [FilePath]
+releaseEvidenceAssetNames version =
+  [ "nagare-transition-rehearsal-v" <> T.unpack version <> ".json"
   , "nagare-platform-metadata-v" <> T.unpack version <> ".json"
-  , "inventory-coverage.json"
   ]
-    <> ["inventory-" <> mode <> "-" <> kind <> ".json" | mode <- ["local", "cloud"], kind <- ["target", "health", "fixture", "evidence"]]
 
-validateInventoryReleaseEvidence :: Text -> Text -> Map FilePath ByteString -> Either Text ()
-validateInventoryReleaseEvidence version revision assets = do
+-- | Refuse unless every native system's output and rehearsal, the platform
+-- metadata and the transition rehearsal record bind this version and
+-- candidate revision, and the rehearsal ended converged on the candidate
+-- with its seeded data read back unchanged.
+validateReleaseEvidence :: Text -> Text -> Map FilePath ByteString -> Either Text ()
+validateReleaseEvidence version revision assets = do
   manifest <- document manifestName
-  index <- document ("nagare-inventory-evidence-v" <> T.unpack version <> ".json")
   metadata <- document metadataName
-  coverage <- document "inventory-coverage.json"
-  mapM_ rejectSensitive [index, metadata, coverage]
-  require (field "schemaVersion" index == Number 1) "unsupported inventory release index"
-  let candidate = field "candidate" index
-      payloads = field "payloadDigests" manifest
-  require (field "version" candidate == String version && field "sourceRevision" candidate == String revision) "inventory index candidate differs from release"
-  boundDigest candidate "manifestDigest" manifestName
-  boundDigest candidate "metadataDigest" metadataName
-  boundDigest index "coverageDigest" "inventory-coverage.json"
+  rehearsal <- document rehearsalName
+  mapM_ rejectSensitive [metadata, rehearsal]
   systems <- strings (field "systems" manifest)
   supported <- strings (field "supportedSystems" metadata)
   require (not (null systems) && unique systems && Set.fromList systems == Set.fromList supported && unique supported && field "platformVersion" metadata == String version) "release systems differ from platform metadata"
-  require (field "schemaVersion" coverage == Number 1 && field "complete" coverage == Bool True && field "dirty" coverage == Bool False && field "sourceRevision" coverage == String revision && hexValue (field "candidateDigest" coverage)) "command coverage is incomplete or stale"
-  forM_ ["pending", "pendingRecipes", "incompleteCatalogueRows", "errors"] $ \key -> require (field key coverage == Array mempty) "command coverage has unresolved entries"
-  forM_ ["registeredRoutes", "recipes", "libraryCalls"] $ \key -> require (positive (field key coverage)) "command coverage lacks a mutation family"
-  deferred <- strings (field "deferredRoutes" coverage)
-  recovery <- strings (field "recoveryOnlyRoutes" coverage)
-  require (deferred == ["DbCommand.DbRestore.--into-live", "DbCommand.DbShell", "StorageCommand.StorageRestore.--into-live"] && recovery == ["DbCommand.DbRecoverScheduledPrune", "StorageCommand.StorageRecoverScheduledPrune"]) "command coverage changes the supported contract"
-  native <- array (field "nativeSystems" index)
-  nativeSystems <- traverse (text . field "system") native
-  require (unique nativeSystems && Set.fromList nativeSystems == Set.fromList systems) "inventory index lacks exactly the supported native systems"
-  forM_ native $ \entry -> do
-    system <- text (field "system" entry)
+  let payloads = field "payloadDigests" manifest
+  forM_ systems $ \system -> do
     let outputName = "nix-output-" <> T.unpack system <> ".json"
-        rehearsalName = "clone-free-" <> T.unpack system <> ".json"
+        cloneFreeName = "clone-free-" <> T.unpack system <> ".json"
         expectedPayload = field (Key.fromText system) payloads
     output <- document outputName
-    rehearsal <- document rehearsalName
-    mapM_ rejectSensitive [output, rehearsal]
-    boundDigest entry "outputDigest" outputName
-    boundDigest entry "rehearsalDigest" rehearsalName
-    forM_ [output, rehearsal] $ \value -> require (field "system" value == String system && field "version" value == String version && field "revision" value == String revision) "native evidence belongs to another candidate"
-    require (hashValue expectedPayload && field "payloadDigest" entry == expectedPayload && at ["outputs", "nagare-platform", "narHash"] output == expectedPayload && hashValue (at ["outputs", "nagarectl", "narHash"] output)) "native payload identity differs from release"
-    checks <- strings (field "checks" rehearsal)
-    nativeSupported <- strings (field "supportedSystems" rehearsal)
-    require (field "cloneFree" rehearsal == Bool True && field "installedSmoke" rehearsal /= Bool True && Set.fromList nativeSupported == Set.fromList systems && all (`elem` checks) ["version", "context", "typed-config", "inventory-compile", "payload", "operator-recipe"]) "native rehearsal is incomplete"
-  scenarios <- array (field "scenarios" index)
-  modes <- traverse (text . field "mode") scenarios
-  require (Set.fromList modes == Set.fromList ["local", "cloud"] && unique modes) "both local and cloud scenarios are required"
-  forM_ scenarios $ \entry -> do
-    mode <- text (field "mode" entry)
-    let asset kind = "inventory-" <> T.unpack mode <> "-" <> kind <> ".json"
-    target <- document (asset "target")
-    health <- document (asset "health")
-    fixture <- document (asset "fixture")
-    evidence <- document (asset "evidence")
-    mapM_ rejectSensitive [target, health, fixture, evidence]
-    boundDigest entry "targetDigest" (asset "target")
-    boundDigest entry "healthDigest" (asset "health")
-    boundDigest entry "fixtureDigest" (asset "fixture")
-    boundDigest health "fixtureDigest" (asset "fixture")
-    require (field "schemaVersion" fixture == Number 1 && field "mode" fixture == String mode) "scenario fixture definition has wrong schema or mode"
-    boundDigest entry "evidenceDigest" (asset "evidence")
-    require (field "schemaVersion" target == Number 1 && field "mode" target == String mode && nonempty (field "context" target) && nonempty (field "kubeContext" target) && nonempty (field "expectedCluster" target)) "scenario target is incomplete"
-    require (if mode == "cloud" then nonempty (field "expectedProject" target) else field "expectedProject" target == Null) "scenario project binding is invalid"
-    forM_ [("context", "context"), ("kubeContext", "kubeContext"), ("cluster", "expectedCluster"), ("project", "expectedProject")] $ \(key, targetKey) -> require (field key entry == field targetKey target) "scenario index differs from target"
-    checks <- strings (field "checks" health)
-    require (field "schemaVersion" health == Number 1 && field "mode" health == String mode && field "context" health == field "context" target && field "cluster" health == field "expectedCluster" target && field "operatorRevision" health == String revision && field "healthy" health == Bool True && hexValue (field "fixtureDigest" health) && all (`elem` checks) (requiredChecks mode)) "scenario health lacks required supported assertions"
-    require (scenarioAssertionsBound mode health) "scenario health lacks bound assertion records"
-    let payload = field "payload" evidence
-        run = field "run" evidence
-    canonicalTarget <- canonicalValue target
-    require (field "fixtureDigest" run == String (digestText (contentDigest (canonicalTarget <> "\n")))) "scenario run differs from saved target"
-    system <- text (field "system" payload)
-    require (field "schemaVersion" evidence == Number 1 && field "version" payload == String version && field "sourceRevision" payload == String revision && system `elem` systems && field "digest" payload == field (Key.fromText system) payloads && field "system" entry == String system) "scenario payload differs from candidate"
-    require (field "mode" run == String mode && hexValue (field "id" run) && field "runId" entry == field "id" run && hexValue (field "fixtureDigest" run)) "scenario run binding is invalid"
-    forM_ ["inventoryDigest", "reviewedChangeDigest", "privateStoreHeadDigest"] $ \key -> require (hexValue (field key evidence)) "scenario lacks committed evidence digests"
-    receipts <- array (field "componentReceipts" evidence)
-    require (not (null receipts) && field "receiptCount" entry == Number (fromIntegral (length receipts)) && all validReceipt receipts) "scenario lacks complete committed receipts"
-    require (at ["finalObservation", "complete"] evidence == Bool True && at ["coverage", "complete"] evidence == Bool True && at ["coverage", "resultDigest"] evidence == field "coverageDigest" index && at ["tools", "operator", "revision"] evidence == String revision) "scenario final observation or coverage is incomplete"
+    cloneFree <- document cloneFreeName
+    mapM_ rejectSensitive [output, cloneFree]
+    forM_ [output, cloneFree] $ \value -> require (field "system" value == String system && field "version" value == String version && field "revision" value == String revision) "native evidence belongs to another candidate"
+    require (hashValue expectedPayload && at ["outputs", "nagare-platform", "narHash"] output == expectedPayload && hashValue (at ["outputs", "nagarectl", "narHash"] output)) "native payload identity differs from release"
+    checks <- strings (field "checks" cloneFree)
+    nativeSupported <- strings (field "supportedSystems" cloneFree)
+    require (field "cloneFree" cloneFree == Bool True && field "installedSmoke" cloneFree /= Bool True && Set.fromList nativeSupported == Set.fromList systems && all (`elem` checks) ["version", "context", "typed-config", "inventory-compile", "payload", "operator-recipe"]) "native rehearsal is incomplete"
+  require (field "schemaVersion" rehearsal == Number 1 && field "mode" rehearsal == String "local" && nonempty (field "context" rehearsal)) "transition rehearsal has an unsupported schema or mode"
+  let candidate = field "candidate" rehearsal
+      source = field "source" rehearsal
+  require (field "version" candidate == String version && field "revision" candidate == String revision) "transition rehearsal belongs to another candidate"
+  sourceVersion <- text (field "version" source)
+  accepted <- strings (field "transitionsFrom" metadata)
+  require (sourceVersion /= version && sourceVersion `elem` accepted && nonempty (field "revision" source)) "transition rehearsal moved from a release the payload does not accept"
+  seeded <- text (at ["sentinel", "seeded"] rehearsal)
+  require (at ["sentinel", "readBack"] rehearsal == String seeded) "transition rehearsal read the seeded data back changed"
+  require (positive (at ["transition", "reviews"] rehearsal)) "transition rehearsal applied no transition review"
+  let identities = at ["platform", "identities"] rehearsal
+  forM_ ["cli", "payload", "cluster"] $ \component -> require (at [component, "version"] identities == String version && at [component, "revision"] identities == String revision) "transition rehearsal did not end on the candidate"
+  require (at ["context", "version"] identities == String version) "transition rehearsal did not pin the context to the candidate"
+  require (at ["inventory", "activeTransaction"] rehearsal == Null && at ["inventory", "observationComplete"] rehearsal == Bool True) "transition rehearsal ended with an open transaction"
+  require (at ["replan", "operations"] rehearsal == Number 0 && at ["replan", "reaccepts"] rehearsal == Number 0) "transition rehearsal replan is not converged"
   where
     manifestName = "nagare-release-" <> T.unpack version <> ".json"
     metadataName = "nagare-platform-metadata-v" <> T.unpack version <> ".json"
+    rehearsalName = "nagare-transition-rehearsal-v" <> T.unpack version <> ".json"
     bytes name = maybe (Left ("missing release evidence asset: " <> T.pack name)) Right (Map.lookup name assets)
     document name = bytes name >>= first (const ("invalid release evidence JSON: " <> T.pack name)) . eitherDecodeStrict'
-    boundDigest value key name = do
-      actual <- digestText . contentDigest <$> bytes name
-      require (field key value == String actual) ("release evidence digest differs: " <> T.pack name)
-
--- | Each required check needs exactly one passed assertion record bound to
--- this run's context, cluster, operator revision and fixture, with hashed
--- public evidence. A bare name in @checks@ is not acceptance. The assembler
--- additionally rehashes the evidence files, which are not release assets.
-scenarioAssertionsBound :: Text -> Value -> Bool
-scenarioAssertionsBound mode health = case (field "assertions" health, field "preflightChecks" health) of
-  (Array records, Array preflight) ->
-    let entries = toList records
-        names = [name | record <- entries, String name <- [field "name" record]]
-        preflightNames = [name | String name <- toList preflight]
-        bound record =
-          field "schemaVersion" record == Number 1
-            && field "mode" record == String mode
-            && field "passed" record == Bool True
-            && nonempty (field "summary" record)
-            && all (\key -> field key record == field key health) ["context", "cluster", "operatorRevision", "fixtureDigest"]
-            && evidenced (field "evidence" record)
-        evidenced (Array items) = not (null items) && all (\item -> nonempty (field "path" item) && hexValue (field "sha256" item)) items
-        evidenced _ = False
-     in all bound entries
-          && length names == length entries
-          && unique names
-          && all (`elem` names) (requiredChecks mode)
-          && not (null preflightNames)
-          && length preflightNames == length (toList preflight)
-          && field "checks" health == toJSON (Set.toAscList (Set.fromList (preflightNames <> names)))
-  _ -> False
-
-requiredChecks :: Text -> [Text]
-requiredChecks mode =
-  [ "collision-refusal"
-  , "adoption"
-  , "drift-classification"
-  , "convergence-noop-removal"
-  , "independent-scope-preservation"
-  , "secret-read-refusal"
-  , "interrupted-recovery"
-  , "postgresql-backup-restore"
-  , "redis-backup-restore"
-  , "clickhouse-backup-restore"
-  , "volume-backup-restore"
-  , "source-unavailable-recovery"
-  , "backup-freshness"
-  , "retained-data"
-  , "access-grant-revoke"
-  ]
-    <> if mode == "local" then ["retained-postgresql-rename"] else ["shared-history-takeover", "google-cdn"]
 
 field :: Key.Key -> Value -> Value
 field key (Object fields) = fromMaybe Null (KM.lookup key fields)
@@ -175,12 +93,9 @@ text :: Value -> Either Text Text
 text (String value) | not (T.null value) = Right value
 text _ = Left "release evidence requires a nonempty string"
 
-array :: Value -> Either Text [Value]
-array (Array values) = Right (toList values)
-array _ = Left "release evidence requires an array"
-
 strings :: Value -> Either Text [Text]
-strings value = array value >>= traverse text
+strings (Array values) = traverse text (toList values)
+strings _ = Left "release evidence requires an array"
 
 unique :: (Ord a) => [a] -> Bool
 unique values = Set.size (Set.fromList values) == length values
@@ -189,10 +104,6 @@ nonempty :: Value -> Bool
 nonempty (String value) = not (T.null value)
 nonempty _ = False
 
-hexValue :: Value -> Bool
-hexValue (String value) = T.length value == 64 && T.all (`elem` ("0123456789abcdef" :: String)) value
-hexValue _ = False
-
 hashValue :: Value -> Bool
 hashValue (String value) = "sha256-" `T.isPrefixOf` value
 hashValue _ = False
@@ -200,9 +111,6 @@ hashValue _ = False
 positive :: Value -> Bool
 positive (Number value) = value > 0 && fromInteger (floor value) == value
 positive _ = False
-
-validReceipt :: Value -> Bool
-validReceipt value = nonempty (field "operation" value) && all (hexValue . (`field` value)) ["journalDigest", "receiptDigest"]
 
 rejectSensitive :: Value -> Either Text ()
 rejectSensitive (Object fields) = forM_ (KM.toList fields) $ \(key, value) -> do

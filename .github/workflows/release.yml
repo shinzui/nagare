@@ -17,7 +17,7 @@ on:
         required: false
         type: string
       evidence_revision:
-        description: Exact commit containing docs/release-evidence/CANDIDATE (required for full assembly)
+        description: Exact commit containing docs/release-evidence/CANDIDATE/transition-rehearsal.json (required for full assembly)
         required: false
         type: string
 
@@ -189,16 +189,16 @@ jobs:
           pattern: nagare-release-*
           path: native-artifacts
 
-      - name: Require independently collected scenario evidence
+      - name: Require the committed transition rehearsal record
         env:
           EVIDENCE_REVISION: ${{ needs.prepare.outputs.evidence_revision }}
-        run: test -n "$EVIDENCE_REVISION" || { echo 'Full assembly requires evidence_revision; native artifacts remain available.'; exit 1; }
+        run: test -n "$EVIDENCE_REVISION" || { echo 'Full assembly requires evidence_revision, the commit holding docs/release-evidence/CANDIDATE/transition-rehearsal.json; native artifacts remain available.'; exit 1; }
 
-      - name: Read immutable public scenario evidence
+      - name: Read the committed transition rehearsal record
         uses: actions/checkout@v6
         with:
           ref: ${{ needs.prepare.outputs.evidence_revision }}
-          path: scenario-evidence
+          path: release-evidence
           sparse-checkout: docs/release-evidence
 
       - name: Assemble deterministic release attachments
@@ -207,7 +207,8 @@ jobs:
           REVISION: ${{ needs.prepare.outputs.revision }}
         run: |
           ./scripts/assemble-release.sh --version "$VERSION" --input-root native-artifacts \
-            --inventory-evidence "scenario-evidence/docs/release-evidence/$REVISION" --output-dir dist
+            --transition-rehearsal "release-evidence/docs/release-evidence/$REVISION/transition-rehearsal.json" \
+            --output-dir dist
 
       - name: Upload assembled release attachments
         uses: actions/upload-artifact@v7

@@ -110,7 +110,7 @@ platform version upgrade.
 | `nagarectl platform upgrade status [ID] [--json]` | Inspect a selected or latest context-owned transaction. |
 | `nagarectl platform upgrade recover-pulumi ID --outcome applied\|retry --yes` | Record an audited decision for an ambiguous or pre-receipt Pulumi outcome. |
 | `nagarectl platform upgrade rollback ID --yes` | Reverse the release selection only when target metadata permits it. |
-| `nagarectl release publish --repo OWNER/REPO --version VERSION --assets DIR [--yes]` | Review exact tag, commit, release manifest, checksums, and attachment bytes, including a matching optional inventory-evidence attachment; with `--yes`, recover or publish a GitHub release through its provider-bound draft and verification receipt, then write a local completion observation beside the candidate files. This is a repository-level command and does not select a context. |
+| `nagarectl release publish --repo OWNER/REPO --version VERSION --assets DIR [--yes]` | Review exact tag, commit, release manifest, checksums, and attachment bytes, including the candidate-bound EP-172 transition rehearsal record and platform metadata; with `--yes`, recover or publish a GitHub release through its provider-bound draft and verification receipt, then write a local completion observation beside the candidate files. This is a repository-level command and does not select a context. |
 | `nagarectl release cleanup-starter --repo OWNER/REPO --version VERSION --assets DIR --release-id ID --asset-id ID --asset-name NAME [--yes]` | Review and, with `--yes`, remove one exact failed upload placeholder from the bound draft. Published or uploaded assets are refused. |
 
 When invoking these platform commands from an immutable release without installing it, use

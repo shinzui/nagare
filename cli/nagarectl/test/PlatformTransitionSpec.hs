@@ -1,13 +1,18 @@
--- | The release transition (EP-172): the compatibility check, and the store
--- head marker that admission opens for the first transition review, keeps for
--- the later ones, and that closes the store to every other review.
+-- | The release transition (EP-172): the compatibility check, the store head
+-- marker that admission opens for the first transition review, keeps for the
+-- later ones, and that closes the store to every other review, and the
+-- rehearsal record a release binds.
 module PlatformTransitionSpec (platformTransitionTests) where
 
 import Data.Aeson (eitherDecode, eitherDecodeStrict', encode)
+import Data.Aeson qualified as Aeson
+import Data.Aeson.Key qualified as Key
+import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy qualified as LBS
 import Data.Generics.Labels ()
 import Data.List.NonEmpty qualified as NE
+import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
@@ -19,6 +24,7 @@ import Nagare.Inventory.Adapter (AdapterExecution (AdapterEffectCompleted), Adap
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Execute (AdmissionError (..), applyReviewed)
 import Nagare.Inventory.Plan (ReviewedPlan)
+import Nagare.Inventory.ReleaseEvidence (validateReleaseEvidence)
 import Nagare.Inventory.Store
 import Nagare.Platform.Transition
 import Nagare.Platform.Workspace (PayloadManifest)
@@ -29,7 +35,72 @@ import Test.Tasty
 import Test.Tasty.HUnit
 
 platformTransitionTests :: TestTree
-platformTransitionTests = testGroup "release transition (EP-172)" [compatibilityTests, markerTests]
+platformTransitionTests = testGroup "release transition (EP-172)" [compatibilityTests, markerTests, releaseEvidenceTests]
+
+-- | The publisher's proof: the rehearsal record binds the candidate and
+-- reports the outcome the release rule asks for.
+releaseEvidenceTests :: TestTree
+releaseEvidenceTests =
+  testGroup
+    "release evidence"
+    [ testCase "a complete proof is accepted" $ validateReleaseEvidence "0.5.0" candidate (assetsWith id) @?= Right ()
+    , testCase "a rehearsal of another candidate or from an unaccepted release is refused" $ do
+        refuses (assetsWith (set ["candidate", "revision"] (Aeson.String other))) "another candidate"
+        refuses (assetsWith (set ["source", "version"] (Aeson.String "0.3.0"))) "does not accept"
+        refuses (assetsWith (set ["source", "version"] (Aeson.String "0.5.0"))) "does not accept"
+    , testCase "a rehearsal whose outcome is not the release rule's is refused" $ do
+        refuses (assetsWith (set ["sentinel", "readBack"] (Aeson.String "other row"))) "read the seeded data back changed"
+        refuses (assetsWith (set ["transition", "reviews"] (Aeson.Number 0))) "no transition review"
+        refuses (assetsWith (set ["platform", "identities", "cluster", "version"] (Aeson.String "0.4.0"))) "did not end on the candidate"
+        refuses (assetsWith (set ["platform", "identities", "context", "version"] (Aeson.String "0.4.0"))) "did not pin the context"
+        refuses (assetsWith (set ["inventory", "activeTransaction"] (Aeson.String "tx-1"))) "open transaction"
+        refuses (assetsWith (set ["replan", "operations"] (Aeson.Number 1))) "not converged"
+        refuses (assetsWith (set ["mode"] (Aeson.String "cloud"))) "unsupported schema or mode"
+    , testCase "a missing record, a secret-looking key and foreign native evidence are refused" $ do
+        refuses (Map.delete rehearsalName (assetsWith id)) "missing release evidence asset"
+        refuses (assetsWith (set ["adminPassword"] (Aeson.String "x"))) "sensitive key"
+        refuses (Map.insert "nix-output-x86_64-linux.json" (encoded (output "x86_64-linux" "sha256-linux" other)) (assetsWith id)) "native evidence belongs to another candidate"
+    ]
+  where
+    candidate = "37d8d45da8a0e683208a62cfc59efe8c2831f737"
+    other = "0000000000000000000000000000000000000000"
+    systems = ["x86_64-linux", "aarch64-darwin"] :: [Text]
+    rehearsalName = "nagare-transition-rehearsal-v0.5.0.json"
+    identity = Aeson.object ["version" Aeson..= ("0.5.0" :: Text), "revision" Aeson..= candidate]
+    refuses assets needle = case validateReleaseEvidence "0.5.0" candidate assets of
+      Left reason -> assertBool (T.unpack reason) (needle `T.isInfixOf` reason)
+      Right () -> assertFailure ("accepted a proof that should refuse with " <> T.unpack needle)
+    encoded = LBS.toStrict . encode
+    assetsWith adjust =
+      Map.fromList
+        ( [ ("nagare-release-0.5.0.json", encoded (Aeson.object ["version" Aeson..= ("0.5.0" :: Text), "revision" Aeson..= candidate, "systems" Aeson..= systems, "payloadDigests" Aeson..= Aeson.object ["x86_64-linux" Aeson..= ("sha256-linux" :: Text), "aarch64-darwin" Aeson..= ("sha256-darwin" :: Text)]]))
+          , ("nagare-platform-metadata-v0.5.0.json", encoded (Aeson.object ["platformVersion" Aeson..= ("0.5.0" :: Text), "supportedSystems" Aeson..= systems, "transitionsFrom" Aeson..= (["0.4.0"] :: [Text])]))
+          , (rehearsalName, encoded (adjust rehearsal))
+          , ("nix-output-x86_64-linux.json", encoded (output "x86_64-linux" "sha256-linux" candidate))
+          , ("nix-output-aarch64-darwin.json", encoded (output "aarch64-darwin" "sha256-darwin" candidate))
+          ]
+            <> [("clone-free-" <> T.unpack system <> ".json", encoded (cloneFree system)) | system <- systems]
+        )
+    output system digest revision = Aeson.object ["version" Aeson..= ("0.5.0" :: Text), "revision" Aeson..= (revision :: Text), "system" Aeson..= (system :: Text), "outputs" Aeson..= Aeson.object ["nagarectl" Aeson..= Aeson.object ["narHash" Aeson..= ("sha256-cli" :: Text)], "nagare-platform" Aeson..= Aeson.object ["narHash" Aeson..= (digest :: Text)]]]
+    cloneFree system = Aeson.object ["version" Aeson..= ("0.5.0" :: Text), "revision" Aeson..= candidate, "system" Aeson..= system, "cloneFree" Aeson..= True, "supportedSystems" Aeson..= systems, "checks" Aeson..= (["version", "context", "typed-config", "inventory-compile", "payload", "operator-recipe"] :: [Text])]
+    rehearsal =
+      Aeson.object
+        [ "schemaVersion" Aeson..= (1 :: Int)
+        , "mode" Aeson..= ("local" :: Text)
+        , "context" Aeson..= ("transition" :: Text)
+        , "source" Aeson..= Aeson.object ["version" Aeson..= ("0.4.0" :: Text), "revision" Aeson..= ("831243962c6b80f91da1028cdab8238ae6acdabd" :: Text)]
+        , "candidate" Aeson..= identity
+        , "bootstrap" Aeson..= Aeson.object ["reviews" Aeson..= (3 :: Int)]
+        , "transition" Aeson..= Aeson.object ["reviews" Aeson..= (3 :: Int), "operations" Aeson..= (1 :: Int)]
+        , "sentinel" Aeson..= Aeson.object ["seeded" Aeson..= ("transition 20261011T200000Z" :: Text), "readBack" Aeson..= ("transition 20261011T200000Z" :: Text)]
+        , "platform" Aeson..= Aeson.object ["identities" Aeson..= Aeson.object ["cli" Aeson..= identity, "payload" Aeson..= identity, "cluster" Aeson..= identity, "context" Aeson..= Aeson.object ["version" Aeson..= ("0.5.0" :: Text), "revision" Aeson..= Aeson.Null], "host" Aeson..= Aeson.object ["version" Aeson..= Aeson.Null, "revision" Aeson..= Aeson.Null]]]
+        , "inventory" Aeson..= Aeson.object ["activeTransaction" Aeson..= Aeson.Null, "transactionStatus" Aeson..= Aeson.Null, "observationComplete" Aeson..= True]
+        , "replan" Aeson..= Aeson.object ["operations" Aeson..= (0 :: Int), "reaccepts" Aeson..= (0 :: Int)]
+        ]
+    set :: [Key.Key] -> Aeson.Value -> Aeson.Value -> Aeson.Value
+    set [] new _ = new
+    set (key : rest) new (Aeson.Object fields) = Aeson.Object (KM.insert key (set rest new (fromMaybe Aeson.Null (KM.lookup key fields))) fields)
+    set _ new _ = new
 
 compatibilityTests :: TestTree
 compatibilityTests =

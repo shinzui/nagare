@@ -4,10 +4,12 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage: scripts/assemble-release.sh --version VERSION --input-root DIR --output-dir DIR
-  --inventory-evidence DIR
+  --transition-rehearsal FILE
 
-Combine native artifacts and complete local/cloud inventory proof into immutable attachments.
-The evidence directory must contain coverage.json and local/ and cloud/ scenario inputs.
+Combine native artifacts, the platform metadata and the EP-172 transition rehearsal record into
+immutable attachments. The record is the evidence/transition-rehearsal.json that
+`just transition-rehearsal` writes after moving a disposable local context from the previous
+release to this candidate; it must bind this candidate's version and revision.
 EOF
 }
 
@@ -28,7 +30,7 @@ hash_file() {
 version=""
 input_root=""
 output_dir=""
-inventory_evidence=""
+transition_rehearsal=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -47,9 +49,9 @@ while [[ $# -gt 0 ]]; do
       output_dir="$2"
       shift 2
       ;;
-    --inventory-evidence)
-      [[ $# -ge 2 ]] || die "--inventory-evidence requires a value"
-      inventory_evidence="$2"
+    --transition-rehearsal)
+      [[ $# -ge 2 ]] || die "--transition-rehearsal requires a value"
+      transition_rehearsal="$2"
       shift 2
       ;;
     --help|-h)
@@ -66,12 +68,14 @@ done
   || die "--version must be an unpadded major.minor.patch semantic version"
 [[ -d "$input_root" ]] || die "--input-root is not a directory: $input_root"
 [[ -n "$output_dir" ]] || die "--output-dir is required"
-[[ -n "$inventory_evidence" && -d "$inventory_evidence" && ! -L "$inventory_evidence" ]] \
-  || die "--inventory-evidence requires a complete evidence directory"
+[[ -n "$transition_rehearsal" && -f "$transition_rehearsal" && ! -L "$transition_rehearsal" ]] \
+  || die "--transition-rehearsal requires the rehearsal record file"
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 manifest_name="nagare-release-${version}.json"
 notes_name="nagare-v${version}.md"
+rehearsal_name="nagare-transition-rehearsal-v${version}.json"
+metadata_name="nagare-platform-metadata-v${version}.json"
 manifests=()
 while IFS= read -r candidate; do
   manifests+=("$candidate")
@@ -106,6 +110,7 @@ for candidate in "${notes[@]:1}"; do
 done
 
 expected_systems="$(jq -c '.systems | sort' "$base_manifest")"
+revision="$(jq -er '.revision' "$base_manifest")"
 observed_systems='[]'
 payload_digests='{}'
 for output in "${outputs[@]}"; do
@@ -117,7 +122,7 @@ for output in "${outputs[@]}"; do
       and (.outputs["nagare-platform"].narHash | startswith("sha256-"))' \
     "$output" >/dev/null || die "invalid native output manifest: $output"
   output_revision="$(jq -er '.revision' "$output")"
-  [[ "$output_revision" == "$(jq -er '.revision' "$base_manifest")" ]] \
+  [[ "$output_revision" == "$revision" ]] \
     || die "native output revision does not match release manifest: $output"
   system="$(jq -er '.system' "$output")"
   payload_digest="$(jq -er '.outputs["nagare-platform"].narHash' "$output")"
@@ -153,6 +158,23 @@ done
 [[ "$(jq -r 'length' <<<"$rehearsed_systems")" == "$(jq -r 'length' <<<"$expected_systems")" ]] \
   || die "duplicate clone-free rehearsals found"
 
+# The transition rehearsal record binds this candidate, moved from a release this payload
+# accepts, read its seeded row back unchanged, ended with every component on the candidate and
+# no open transaction, and replanned with no operation. The publisher re-validates the copy.
+jq -e --arg version "$version" --arg revision "$revision" \
+  --argjson accepted "$(jq -c '.transitionsFrom // []' "$repo_root/release.json")" \
+  '.schemaVersion == 1 and .mode == "local"
+    and .candidate.version == $version and .candidate.revision == $revision
+    and (.source.version as $source | $accepted | any(. == $source))
+    and (.sentinel.seeded | type == "string" and length > 0) and .sentinel.readBack == .sentinel.seeded
+    and (.transition.reviews | type == "number" and . >= 1)
+    and (.platform.identities | [.cli, .payload, .cluster] | all(.version == $version and .revision == $revision))
+    and .platform.identities.context.version == $version
+    and .inventory.activeTransaction == null and .inventory.observationComplete == true
+    and .replan.operations == 0 and .replan.reaccepts == 0' \
+  "$transition_rehearsal" >/dev/null \
+  || die "the transition rehearsal record does not prove this candidate: $transition_rehearsal"
+
 mkdir -p "$output_dir"
 jq -S \
   --argjson payloadDigests "$payload_digests" \
@@ -165,32 +187,14 @@ done
 for rehearsal in "${rehearsals[@]}"; do
   cp "$rehearsal" "$output_dir/$(basename "$rehearsal")"
 done
-python3 "$repo_root/scripts/assemble-inventory-release-index.py" \
-  --release-metadata "$repo_root/release.json" \
-  --release-manifest "$output_dir/$manifest_name" \
-  --native-dir "$output_dir" \
-  --coverage-result "$inventory_evidence/coverage.json" \
-  --local-dir "$inventory_evidence/local" \
-  --cloud-dir "$inventory_evidence/cloud" \
-  --output "$output_dir/nagare-inventory-evidence-v${version}.json"
-
-cp "$repo_root/release.json" "$output_dir/nagare-platform-metadata-v${version}.json"
-cp "$inventory_evidence/coverage.json" "$output_dir/inventory-coverage.json"
-for mode in local cloud; do
-  cp "$inventory_evidence/$mode/target.json" "$output_dir/inventory-$mode-target.json"
-  cp "$inventory_evidence/$mode/$mode-health.json" "$output_dir/inventory-$mode-health.json"
-  cp "$inventory_evidence/$mode/fixture.json" "$output_dir/inventory-$mode-fixture.json"
-  cp "$inventory_evidence/$mode/inventory-evidence.json" "$output_dir/inventory-$mode-evidence.json"
-done
+cp "$transition_rehearsal" "$output_dir/$rehearsal_name"
+cp "$repo_root/release.json" "$output_dir/$metadata_name"
 
 (
   cd "$output_dir"
-  for file in "$manifest_name" "$notes_name" nix-output-*.json clone-free-*.json; do
+  for file in "$manifest_name" "$notes_name" nix-output-*.json clone-free-*.json "$rehearsal_name" "$metadata_name"; do
     hash_file "$file"
   done
-  hash_file "nagare-inventory-evidence-v${version}.json"
-  hash_file "nagare-platform-metadata-v${version}.json"
-  for file in inventory-*.json; do hash_file "$file"; done
 ) > "$output_dir/SHA256SUMS"
 
 printf 'Assembled Nagare %s release artifacts for %s.\n' \

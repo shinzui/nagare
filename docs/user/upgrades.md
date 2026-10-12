@@ -114,14 +114,14 @@ checks that identity against the release manifest, verifies the export, and
 emits a versioned public manifest with
 payload identity, scope revisions, review and component receipt digests, and
 an aggregate final observation. Its fixture and run identities are distinct
-from the shared release payload. This projector alone does not add an
-attachment to a release; release assembly still needs the completed live
-rehearsal and coverage gate.
+from the shared release payload. This projector does not add an attachment to
+a release; since EP-172, release assembly binds the transition rehearsal
+record described below instead.
 
 ## Release publication and retry
 
-The release workflow assembles its native outputs and the inventory evidence
-described below into checksummed attachments, then invokes the tagged `nagarectl release publish` command. The command
+The release workflow assembles its native outputs, the platform metadata and the
+transition rehearsal record described below into checksummed attachments, then invokes the tagged `nagarectl release publish` command. The command
 checks the annotated tag object and commit, manifest identity, `SHA256SUMS`,
 and every candidate byte before creating a draft. The draft body holds the
 complete publication intent; an append-only, digest-addressed receipt records
@@ -134,18 +134,20 @@ to it but do not own it. A successful run writes
 recording the verified release and asset IDs; the workflow archives this local
 observation separately from the immutable release attachments.
 
-Inventory evidence is a mandatory part of release assembly, not an optional
-attachment. `scripts/assemble-release.sh` requires `--inventory-evidence DIR`,
-a directory holding `coverage.json` (the generated command-coverage result) and
-`local/` and `cloud/` scenario directories, each with `target.json`,
-`fixture.json`, `<mode>-health.json` and `inventory-evidence.json`. Assembly
-refuses before writing anything when an input is missing, stale, belongs to
-another candidate, lacks a required check or carries secret-looking keys. It
-then writes the bound index `nagare-inventory-evidence-vVERSION.json` and copies
-each public input as an `inventory-*.json` attachment listed in `SHA256SUMS`.
-The publisher re-validates that index against the release manifest before it
-contacts the forge. A release without complete local and cloud evidence for
-the same candidate cannot be assembled.
+The EP-172 transition rehearsal record is a mandatory part of release
+assembly, not an optional attachment. `scripts/assemble-release.sh` requires
+`--transition-rehearsal FILE`, the `evidence/transition-rehearsal.json` that
+`just transition-rehearsal` writes after moving a disposable local context
+from the previous release to the candidate. Assembly refuses before writing
+anything when the record binds another candidate, moved from a release the
+payload's `transitionsFrom` does not list, read its seeded row back changed,
+ended with an open transaction or a component off the candidate, or replanned
+with an operation. It copies the record as
+`nagare-transition-rehearsal-vVERSION.json` and the candidate's `release.json`
+as `nagare-platform-metadata-vVERSION.json`, both listed in `SHA256SUMS`. The
+publisher re-validates them against the release manifest before it contacts
+the forge, and refuses secret-looking keys. The per-release local and cloud
+evidence chain of MasterPlan 23 is not re-run (operator, 2026-10-10).
 
 The candidate files are still required when an upload is missing. If the
 temporary Actions artifacts have expired, reconstruct the exact candidate

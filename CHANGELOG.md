@@ -5,6 +5,11 @@ immutable `v<major>.<minor>.<patch>` Git tags.
 
 ## [Unreleased]
 
+- **Releases bind the upgrade rehearsal.** Release assembly and `nagarectl release publish` require
+  the EP-172 transition rehearsal record (a disposable local context moved from the previous release
+  to the candidate, its seeded row read back unchanged) and the platform metadata, in place of the
+  per-release local and cloud evidence chain.
+
 ## [0.5.0] - 2026-10-10
 
 - **Protected HTTPS login for every deploy.** The access enforcer re-reads its route map, so a

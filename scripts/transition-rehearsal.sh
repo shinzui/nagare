@@ -92,6 +92,7 @@ resume_ambiguous() { # bin-fn apply-log
 reviewed_loop() { # bin-fn plan-words... -- apply-words...
   local fn="$1" label="$2"; shift 2
   local n review
+  LOOP_REVIEWS=0; LOOP_OPERATIONS=0
   for n in $(seq 1 "$STAGES_MAX"); do
     review="$ROOT/reviews/$label-$n"
     "$fn" platform "${PLAN_CMD[@]}" --out "$review" > "$review.plan.log" 2>&1 || { echo "$label plan $n refused: $(tail -2 "$review.plan.log")" >&2; exit 1; }
@@ -99,6 +100,7 @@ reviewed_loop() { # bin-fn plan-words... -- apply-words...
     log "$label stage $n: $ops operations, re-accepts scopes: $moves"
     [ "$ops" != 0 ] || [ "$moves" != 0 ] || return 0
     "$fn" "${APPLY_CMD[@]}" "$review" --yes > "$review.apply.log" 2>&1 || resume_ambiguous "$fn" "$review.apply.log" || { echo "$label apply $n failed: $(tail -3 "$review.apply.log")" >&2; exit 1; }
+    LOOP_REVIEWS=$((LOOP_REVIEWS + 1)); LOOP_OPERATIONS=$((LOOP_OPERATIONS + ops))
     if [ "$label" = bootstrap ] && [ ! -f "$ROOT/images.env" ] && docker ps --format '{{.Names}}' | grep -q '^k3d-registry'; then
       seed_images; log "images seeded: $(wc -l < "$ROOT/images.env") pins"
     fi
@@ -110,6 +112,7 @@ if [ "${NAGARE_REHEARSAL_SKIP_BOOTSTRAP:-0}" = 1 ]; then
   export SOPS_AGE_KEY_FILE="$ROOT/sops/age/keys.txt"
   set -a; . "$ROOT/images.env"; set +a
   export NAGARE_LOCAL_REGISTRY_FORWARD="127.0.0.1:${NAGARE_REHEARSAL_FORWARD_PORT:-15213}"
+  bootstrap_reviews=null
   log "continuing in $ROOT on the bootstrapped context $CTX"
 else
 # --- 0. the daemon is disposable and empty of k3d ---
@@ -144,6 +147,7 @@ log "source payload $source_version"
 
 PLAN_CMD=(bootstrap plan); APPLY_CMD=(platform bootstrap apply)
 reviewed_loop S bootstrap
+bootstrap_reviews=$LOOP_REVIEWS
 S inventory status --json > "$ROOT/evidence/before-status.json"
 fi
 
@@ -163,6 +167,7 @@ log "seeded: $(psql_in_pod 'SELECT v FROM transition_sentinel;')"
 # --- 6. the transition on the candidate, then the pin ---
 PLAN_CMD=(transition plan); APPLY_CMD=(inventory apply)
 reviewed_loop T transition
+transition_reviews=$LOOP_REVIEWS; transition_operations=$LOOP_OPERATIONS
 T platform transition commit --yes | tail -1
 
 # --- 7. read back on the candidate ---
@@ -174,11 +179,25 @@ PLAN_CMD=(bootstrap plan); APPLY_CMD=(platform bootstrap apply)
 replan="$ROOT/reviews/replan"
 T platform bootstrap plan --out "$replan" > "$replan.plan.log" 2>&1
 [ "$(operations "$replan")" = 0 ] && [ "$(reaccepts "$replan")" = 0 ] || { echo "replan on the candidate has operations or re-accepts a scope" >&2; exit 1; }
-python3 -I - "$ROOT" "$SENTINEL" <<'PY'
+# The record a release binds (scripts/assemble-release.sh --transition-rehearsal): what moved
+# from where, the seeded row and what read back, the final platform status, the idle inventory
+# and the converged replan.
+python3 -I - "$ROOT" "$CTX" "$("$NAGARE_REHEARSAL_SOURCE" version --json)" "$("$NAGARE_REHEARSAL_TARGET" version --json)" \
+  "${bootstrap_reviews:-null}" "$transition_reviews" "$transition_operations" "$SENTINEL" "$got" <<'PY'
 import json, sys
-root, sentinel = sys.argv[1], sys.argv[2]
-after = json.load(open(f"{root}/evidence/after-platform.json"))
+root, context, source, candidate, bootstrap_reviews, reviews, operations, seeded, read_back = sys.argv[1:]
+identity = lambda raw: {key: json.loads(raw).get(key) for key in ("version", "revision")}
 status = json.load(open(f"{root}/evidence/after-status.json"))
-json.dump({"schemaVersion": 1, "sentinel": sentinel, "platform": after, "flags": status.get("flags"), "replanOperations": 0}, open(f"{root}/evidence/transition.json", "w"), indent=2, sort_keys=True)
+record = {
+    "schemaVersion": 1, "mode": "local", "context": context,
+    "source": identity(source), "candidate": identity(candidate),
+    "bootstrap": {"reviews": json.loads(bootstrap_reviews)},
+    "transition": {"reviews": int(reviews), "operations": int(operations)},
+    "sentinel": {"seeded": seeded, "readBack": read_back},
+    "platform": json.load(open(f"{root}/evidence/after-platform.json")),
+    "inventory": {key: status.get(key) for key in ("activeTransaction", "transactionStatus", "observationComplete")},
+    "replan": {"operations": 0, "reaccepts": 0},
+}
+json.dump(record, open(f"{root}/evidence/transition-rehearsal.json", "w"), indent=2, sort_keys=True)
 PY
-log "transition rehearsal OK: evidence in $ROOT/evidence"
+log "transition rehearsal OK: record in $ROOT/evidence/transition-rehearsal.json"

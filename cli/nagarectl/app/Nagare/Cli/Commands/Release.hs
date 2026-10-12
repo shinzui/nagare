@@ -27,7 +27,7 @@ import Nagare.Inventory.Artifact
   , ArtifactKind (ReleasePayloadArtifact)
   )
 import Nagare.Inventory.Digest qualified as InventoryDigest
-import Nagare.Inventory.ReleaseEvidence (inventoryEvidenceAssetNames, validateInventoryReleaseEvidence)
+import Nagare.Inventory.ReleaseEvidence (releaseEvidenceAssetNames, validateReleaseEvidence)
 import Nagare.Resource.Types qualified as Resource
 import Nagare.Resource.Wire qualified as ResourceWire
 import Nagare.Version (parsePlatformVersion)
@@ -57,7 +57,7 @@ runReleasePublish repository version directory yes cleanup = do
         , "clone-free-aarch64-darwin.json"
         , "SHA256SUMS"
         ]
-          <> inventoryEvidenceAssetNames version
+          <> releaseEvidenceAssetNames version
   tagType <- exactGitObjectType ("refs/tags/" <> T.unpack tag)
   unless (tagType == "tag") (dieT "release requires an annotated Git tag")
   tagObject <- exactGitRevision ("refs/tags/" <> T.unpack tag)
@@ -104,7 +104,7 @@ runReleasePublish repository version directory yes cleanup = do
         )
         (dieT "assembled release manifest does not bind this version, tag, and commit")
     _ -> dieT "assembled release manifest is not an object"
-  either dieT pure (validateInventoryReleaseEvidence version commit byName)
+  either dieT pure (validateReleaseEvidence version commit byName)
   sumsText <- either (dieT . T.pack . show) pure (TE.decodeUtf8' sumsBytes)
   listed <- forM (T.lines sumsText) $ \line -> do
     let (digest, suffix) = T.breakOn "  " line

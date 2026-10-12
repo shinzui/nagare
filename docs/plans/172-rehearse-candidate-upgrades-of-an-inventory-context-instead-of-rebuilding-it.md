@@ -117,6 +117,14 @@ status` reports T on the CLI, payload, context, host and cluster.
     `platform transition commit` pinned the context to 0.5.0 and cleared the marker; `platform
     status` reported 0.5.0 at 37d8d45d on CLI, payload, context and cluster; the head ended idle
     at generation 2213; the sentinel row read back unchanged; a replan had no operation.
+- [x] (2026-10-11) Releases bind the rehearsal record: the driver writes
+  `evidence/transition-rehearsal.json` (source and candidate version and revision, transition
+  reviews, seeded row and read-back, final `platform status`, idle inventory, converged replan);
+  `scripts/assemble-release.sh --transition-rehearsal FILE` and `nagarectl release publish`
+  (`Nagare.Inventory.ReleaseEvidence`) require it, bound to the candidate's version and revision
+  and to a source in the payload's `transitionsFrom`, in place of the MasterPlan 23 local and cloud
+  evidence tree. Tests: `PlatformTransitionSpec` (release evidence), `scripts/test-release.sh`,
+  `scripts/test-release-evidence-public.py`.
 
 
 ## Surprises & Discoveries
