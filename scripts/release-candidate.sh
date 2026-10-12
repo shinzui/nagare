@@ -2,7 +2,8 @@
 # MP-26 item 11: everything up to the tag, unattended (docs/runbooks/releases.md). The release
 # gate, the transition rehearsal from the newest release the candidate accepts, both systems'
 # native attachments (aarch64-darwin here, x86_64-linux in an amd64 container on Colima), and
-# two assemblies that must be byte-identical. Then the rehearsal record is committed on
+# two assemblies that must be byte-identical. The release gate runs alongside the other steps.
+# Then the rehearsal record is committed on
 # origin/master and landed. Every step stops at its first failure; nothing is retried.
 # `just release-publish VERSION` takes the run from here.
 #
@@ -60,16 +61,20 @@ run="$state/v$version/$($rehearsal && echo rehearsal-)$(date -u +%Y%m%dT%H%M%SZ)
 mkdir -p "$run"
 worktree="$run/worktree"
 evidence="$run/evidence"
+gate=""
 cleanup() {
+  [[ -z "$gate" ]] || kill "$gate" 2>/dev/null || true
   git -C "$repo" worktree remove --force "$worktree" 2>/dev/null || true
   git -C "$repo" worktree remove --force "$evidence" 2>/dev/null || true
 }
 trap cleanup EXIT
 step "v$version at $rev from v$previous; run directory $run"
 
-# --- 1. the release gate ---
-step "release gate"
-just gate-release "$rev"
+# --- 1. the release gate, in parallel with steps 2-5 (it works on the builder, they mostly
+# work here); its result is required before anything lands ---
+step "release gate (in the background, log $run/gate-release.log)"
+just gate-release "$rev" > "$run/gate-release.log" 2>&1 &
+gate=$!
 
 # --- 2. the transition rehearsal ---
 step "transition rehearsal from v$previous"
@@ -130,6 +135,10 @@ diff -r "$run/dist" "$run/dist-again" >/dev/null || die "the two assemblies diff
 (cd "$run/dist" && shasum -a 256 -c SHA256SUMS >/dev/null) || die "SHA256SUMS does not verify in $run/dist"
 jq -n -S --arg version "$version" --arg revision "$rev" --arg previous "$previous" \
   '{version: $version, revision: $revision, previous: $previous}' > "$run/candidate.json"
+
+step "waiting for the release gate"
+wait "$gate" || die "the release gate failed: $run/gate-release.log"
+tail -1 "$run/gate-release.log"
 
 if $rehearsal; then
   step "rehearsal complete; nothing landed. Attachments in $run/dist; $record is left uncommitted"

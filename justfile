@@ -355,15 +355,31 @@ mutation-sweep rev="HEAD" width="4":
 
 # EP-184 M4: the release gate for a fully gated revision. The deep tier is not
 # part of it (operator, 2026-10-12): it took over six hours. Run `just gate-deep`
-# by hand when working on recovery code.
-# Run the release gate: gate record, then mutation sweep.
+# by hand when working on recovery code. The sweep is skipped when nothing it
+# builds (cli/, nix/, the flake, cabal.project) changed since the nearest
+# ancestor with a clean sweep.
+# Run the release gate: gate record, then mutation sweep unless nothing it builds changed.
 [group('test')]
 gate-release rev="HEAD":
     #!/usr/bin/env bash
     set -euo pipefail
     commit=$(git rev-parse --verify '{{rev}}^{commit}')
     just gate-verify "$commit"
+    records="${XDG_STATE_HOME:-$HOME/.local/state}/nagare/gates/sweep"
+    base=""
+    for record in "$records"/*; do
+      [ -f "$record" ] || continue
+      candidate=$(basename "$record")
+      git merge-base --is-ancestor "$candidate" "$commit" 2>/dev/null || continue
+      if [ -z "$base" ] || git merge-base --is-ancestor "$base" "$candidate"; then base=$candidate; fi
+    done
+    if [ -n "$base" ] && git diff --quiet "$base" "$commit" -- cli nix flake.nix flake.lock 'cabal.project*'; then
+      echo "gate-release: $commit has a green full gate, and nothing the mutation sweep builds changed since its clean sweep on $base"
+      exit 0
+    fi
     just mutation-sweep "$commit"
+    mkdir -p "$records"
+    date -u +%Y-%m-%dT%H:%M:%SZ > "$records/$commit"
     echo "gate-release: $commit has a green full gate and a clean mutation sweep"
 
 # EP-179 (ADR 25 amendment of 2026-10-06): list the recovery-related files
