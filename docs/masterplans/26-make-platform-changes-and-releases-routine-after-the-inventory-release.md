@@ -108,11 +108,11 @@ apply here:
 - [x] 6. An admitted inventory context moves to a new release through a reviewed transition that
       binds the source and target releases and refuses unsupported pairs. The recovery model proves
       it under faults first (EP-172 M1–M2). Evidence: `1ae43c34`, `61368b61`.
-- [ ] 7. **Native run L2 (cp3).** A disposable local context converged on v0.4.0 moves to the next
+- [x] 7. **Native run L2 (cp3).** A disposable local context converged on v0.4.0 moves to the next
       candidate through that transition. The seeded data reads back unchanged, and an unchanged
       replan has zero operations (EP-172 M3). The seeded row read back unchanged for 0.5.0 → 0.6.0
-      (`f59c42a4`) and 0.5.0 → 0.6.1 (`3504325b`). Open: a converged replan still re-emits its
-      verifications (F124); its fix ticks this box.
+      (`f59c42a4`) and 0.5.0 → 0.6.1 (`3504325b`). F124's fix (`eb0f017e`) closed the replan: item
+      12's rehearsal on `cf2fa37e` (landed as `10f28696`) replanned with zero operations.
 - [x] 8. The next release is cut this way: one candidate, classified, carrying only the evidence its
       class requires, and published locally through the release runbook (integration gate, all
       children). Evidence: v0.6.1 under the 2026-10-10 release proof. Full gate on `080ae60a`,
