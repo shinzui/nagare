@@ -139,18 +139,15 @@ which defer to the user's scope:
   `just gate-fast` with no uncommitted changes, then `just land`, which starts the full gate on
   the landed commit in the background; a red one blocks the next land until a fully gated fix
   lands (operator decision, 2026-10-11). **Per release only:** `just gate-release REV`
-  on the candidate (its green full gate, then `just mutation-sweep`, then `just gate-deep` after a
-  recovery change), with any unlisted deep-tier class triaged. A docs-only commit carries
-  its gated ancestor's record forward.
+  on the candidate (its green full gate, then `just mutation-sweep`). The deep tier is not part of
+  a release (operator, 2026-10-12). A docs-only commit carries its gated ancestor's record forward.
 - **Releases after v0.5.0 prove three things:** the full gate is green, the EP-172 upgrade
   rehearsal on a disposable local context reads the seeded data back unchanged, and the real
   intranet context upgrades and passes the deploy-and-login check. No per-release local and cloud
   evidence chain is re-run.
 - **Held plans are not worked on.** MasterPlan 25 and MasterPlan 26's EP-168, EP-171 and
-  EP-173 M3–M5 are held, and so is all of EP-170 except its deep-tier slice. The open code items
-  are MasterPlan 26 items 10–12, in that order (operator, 2026-10-12): a deep tier that reads the
-  ledger and runs only after a recovery change, a release in two commands, and a rehearsal that
-  runs the packaged nagarectl with every guard.
+  EP-173 M3–M5 are held, and so is all of EP-170. The open code item is MasterPlan 26 item 11, a
+  release in two commands (operator, 2026-10-12).
 
 ## Git conventions
 

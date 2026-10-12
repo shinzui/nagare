@@ -125,11 +125,14 @@ apply here:
       inside it when needed. Before and after times are recorded (EP-184). Evidence: `7e78de52`,
       `9200626d`, `b588b03d`. M3 was dropped and M4 reduced to `just gate-release` (EP-184 Decision
       Log).
-- [ ] 10. (Added by the operator, 2026-10-12.) The deep tier is worth running once per release.
+- [x] 10. (Added by the operator, 2026-10-12.) The deep tier is worth running once per release.
       - It reads the known-defect ledger, so only an unlisted class fails it.
       - It reports each class once, with a count.
       - `just gate-release` runs it only when recovery-related code changed since the revision
         of the last deep run.
+      Superseded (operator, 2026-10-12): the deep tier is out of the release path, because a run
+      took 6.2 hours. `just gate-release` is the gate record and the mutation sweep (ADR 25,
+      2026-10-12 amendment). The ledger-aware judge landed in `acd53e28` for manual runs.
 - [ ] 11. (Added by the operator, 2026-10-12.) A release is two commands.
       - `just release-candidate VERSION` runs everything up to the tag, unattended: the release
         gate, the transition rehearsal, both native builds and the assembly.
@@ -362,6 +365,12 @@ items 10–12.
 
 
 ## Decision Log
+
+- Decision (operator, 2026-10-12): Take the deep tier out of the release path. "I can't wait 6
+  hours." A release is the full gate record and the mutation sweep; `just gate-deep` stays manual.
+  Item 10 is superseded and its triage dropped.
+  Rationale: the 2026-10-10 run took 6.2 hours, 70% of it in five database scenarios.
+  Date: 2026-10-12
 
 - Decision (operator, 2026-10-12): Releases come first, "so I don't have to dread them". Add items
   10–12, in that order:

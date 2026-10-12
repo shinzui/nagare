@@ -35,10 +35,8 @@ It runs unattended up to the tag. Each step stops at its first failure and nothi
 1. **Preflight.** `release.json` at the candidate says `X.Y.Z` and names both systems, the candidate
    is on `origin/master`, `vX.Y.Z` is not tagged, and the newest version in `transitionsFrom` is a
    published tag. That version is the rehearsal's source.
-2. **Release gate.** `just gate-release <candidate>`: the gate record, the mutation sweep, then the
-   deep tier if recovery-related code changed since the last green deep run. The deep tier fails
-   only on a violation class the known-defect ledger does not list. Triage each one into a fix or a
-   ledger entry, then run the command again.
+2. **Release gate.** `just gate-release <candidate>`: the gate record, then the mutation sweep. The
+   recovery model's deep tier is not part of a release.
 3. **Upgrade rehearsal.** `just release-rehearse <candidate> <previous>` builds the previous
    release's packaged `nagarectl` and the candidate's, prepares the Colima profile `nagare-mp23`
    (VM resolver, registry forward on `127.0.0.1:15213`), and runs

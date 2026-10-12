@@ -353,11 +353,10 @@ mutation-sweep rev="HEAD" width="4":
     commit=$(git rev-parse --verify '{{rev}}^{commit}')
     cabal run --project-dir=cli/nagare-harness -v0 nagare-harness -- mutations sweep --rev "$commit" --width '{{width}}'
 
-# EP-184 M4: the release gate for a fully gated revision. The mutation sweep and
-# the deep tier each take the whole builder, so they run one after the other.
-# The deep tier runs only when recovery-related code changed since the nearest
-# ancestor with a green deep run (MP-26 item 10).
-# Run the release gate: gate record, mutation sweep, then the deep tier if needed.
+# EP-184 M4: the release gate for a fully gated revision. The deep tier is not
+# part of it (operator, 2026-10-12): it took over six hours. Run `just gate-deep`
+# by hand when working on recovery code.
+# Run the release gate: gate record, then mutation sweep.
 [group('test')]
 gate-release rev="HEAD":
     #!/usr/bin/env bash
@@ -365,19 +364,7 @@ gate-release rev="HEAD":
     commit=$(git rev-parse --verify '{{rev}}^{commit}')
     just gate-verify "$commit"
     just mutation-sweep "$commit"
-    base=""
-    for record in "${XDG_STATE_HOME:-$HOME/.local/state}"/nagare/gates/deep/*; do
-      [ -f "$record" ] || continue
-      candidate=$(basename "$record")
-      git merge-base --is-ancestor "$candidate" "$commit" 2>/dev/null || continue
-      if [ -z "$base" ] || git merge-base --is-ancestor "$base" "$candidate"; then base=$candidate; fi
-    done
-    if [ -n "$base" ] && just deep-tier-required "$base" "$commit"; then
-      echo "gate-release: $commit has a green full gate, a clean mutation sweep, and no recovery change since the green deep tier on $base"
-      exit 0
-    fi
-    just gate-deep "$commit"
-    echo "gate-release: $commit has a green full gate, a clean mutation sweep and a passing deep tier"
+    echo "gate-release: $commit has a green full gate and a clean mutation sweep"
 
 # EP-179 (ADR 25 amendment of 2026-10-06): list the recovery-related files
 # changed since `base` (committed, uncommitted or untracked), and exit non-zero
