@@ -96,6 +96,16 @@ acceptedApplicationImage snapshot imageId taggedImage =
     [resource] -> case (resource ^. #executor, resource ^. #address, resource ^. #spec) of
       (ArtifactExecutor, Artifact _ _, ArtifactPublication kind destination _ _)
         | nameText kind == "oci-image" && destination == taggedImage -> Right ()
+        -- F116: say which two images differ and what to change.
+        | nameText kind == "oci-image" ->
+            Left
+              ( "accepted image resource publishes "
+                  <> destination
+                  <> ", but this rollout's image is "
+                  <> taggedImage
+                  <> "; make the Config's image reference and tag name exactly that publication"
+                  <> " (a PrebuiltImage takes its tag from the Config, not from --tag)"
+              )
       _ -> Left "accepted image resource is not the requested OCI publication"
     _ -> Left "image resource is absent or ambiguous in accepted inventory"
 

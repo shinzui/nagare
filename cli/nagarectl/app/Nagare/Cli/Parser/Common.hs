@@ -50,7 +50,7 @@ tagOpt =
         ( long "tag"
             <> short 't'
             <> metavar "TAG"
-            <> help "Image tag override (default: UTC timestamp YYYYMMDD-HHMMSS)"
+            <> help "Image tag override (default: UTC timestamp YYYYMMDD-HHMMSS); a PrebuiltImage keeps the tag its Config declares"
         )
     )
 

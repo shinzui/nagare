@@ -221,7 +221,13 @@ inventoryArtifactTests =
           Left _ -> pure ()
           Right _ -> assertFailure "webhook selected an unrelated image publication"
         case acceptedApplicationImage snapshot imageId "registry.example/app:v2" of
-          Left _ -> pure ()
+          Left refusal ->
+            assertBool
+              ("the refusal does not name both images and the Config tag (F116): " <> Text.unpack refusal)
+              ( all
+                  (`Text.isInfixOf` refusal)
+                  ["registry.example/app:v1", "registry.example/app:v2", "takes its tag from the Config"]
+              )
           Right () -> assertFailure "a different image tag was accepted"
         case acceptedApplicationImage snapshot artifactResource "registry.example/app:v1" of
           Left _ -> pure ()
