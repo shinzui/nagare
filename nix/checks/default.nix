@@ -17,6 +17,5 @@
       // (import ./platform.nix { inherit pkgs nagarePackages src; })
       // (import ./infra.nix { inherit pkgs nagarePackages src; })
       // (import ./scripts.nix { inherit pkgs nagarePackages src; })
-      // (import ./ci.nix { inherit pkgs nagarePackages src; });
   };
 }
