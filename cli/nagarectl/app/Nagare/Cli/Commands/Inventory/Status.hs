@@ -4,6 +4,7 @@ module Nagare.Cli.Commands.Inventory.Status
   )
 where
 
+import Control.Concurrent.Async (Concurrently (..))
 import Control.Concurrent.MVar (modifyMVar, newMVar)
 import Control.Monad (forM, forM_)
 import Data.Aeson qualified as Aeson
@@ -192,16 +193,6 @@ runInventoryStatus mctx requested json gcOutput = do
   clusterGuard <- once (fmap (fmap (const ())) (guardKubernetesContext active))
   opening <- clusterGuard
   let kubernetesConfig = KubernetesRuntimeConfig context (contextNameText (active ^. #contextName)) clusterGuard
-  runtime <-
-    either
-      (const (pure kubernetesConfig))
-      ( const
-          ( snapshotRuntime
-              kubernetesConfig
-              [declaration ^. #address | (declaration, _) <- Map.elems kubernetesNative <> Map.elems retainedKubernetesNative]
-          )
-      )
-      opening
   pulumi <-
     if null registrations
       then pure (Inventory.executionBlockedAdapterFor ResourceInventory.PulumiExecutor)
@@ -245,10 +236,9 @@ runInventoryStatus mctx requested json gcOutput = do
     if Map.null dnsSpecs && Map.null cloudflareSpecs
       then pure (Inventory.executionBlockedAdapterFor ResourceInventory.CdnExecutor)
       else withWorkspace (\root -> inventoryCdnAdapter active root binding dnsSpecs cloudflareSpecs acceptedCdn)
-  let observedKubernetes specs
+  let observedKubernetes runtime specs
         | Map.null specs = Inventory.executionBlockedAdapterFor ResourceInventory.KubernetesExecutor
         | otherwise = kubernetesApplicationAdapter False runtime cacheKey specs
-      kubernetes = observedKubernetes kubernetesNative
       observeHelm specs =
         helmObservation
           (contextNameText (active ^. #contextName))
@@ -266,7 +256,6 @@ runInventoryStatus mctx requested json gcOutput = do
   observeManagedHelm <- remembered (observeHelm helmNative)
   observeRetainedHelm <- remembered (observeHelm retainedHelmNative)
   let helm = readOnlyHelm helmNative observeManagedHelm
-      retainedKubernetes = observedKubernetes retainedKubernetesNative
       retainedHelm = readOnlyHelm retainedHelmNative observeRetainedHelm
   -- The facts, and the members whose rollout is stuck (EP-181).
   let inspectWithStuck adapter executor = do
@@ -275,37 +264,71 @@ runInventoryStatus mctx requested json gcOutput = do
           then pure ([], Map.empty)
           else InventoryStatus.statusFacts "adapter omitted this resource" requestedIds <$> InventoryAdapter.adapterObserve adapter requestedIds
       inspect adapter executor = fst <$> inspectWithStuck adapter executor
-  (kubeFacts, kubeStuck) <- inspectWithStuck kubernetes ResourceInventory.KubernetesExecutor
-  helmFacts <- inspect helm ResourceInventory.HelmExecutor
-  pulumiFacts <- inspect pulumi ResourceInventory.PulumiExecutor
-  artifactFacts <- inspect artifact ResourceInventory.ArtifactExecutor
-  hostFacts <- inspect host ResourceInventory.HostExecutor
-  cacheFacts <- inspect cache ResourceInventory.CacheExecutor
-  brokerFacts <- inspect broker ResourceInventory.BrokerExecutor
-  cdnFacts <- inspect cdn ResourceInventory.CdnExecutor
-  -- Cloud foundation buckets and the Pulumi stack are observed read-only
-  -- through the same guarded adapter that plans them (F44).
-  foundation <-
-    if null (ids ResourceInventory.CloudFoundationExecutor)
-      then pure (Inventory.executionBlockedAdapterFor ResourceInventory.CloudFoundationExecutor)
-      else
-        withWorkspace
-          ( \root ->
-              inventoryFoundationAdapter
-                active
-                root
-                binding
-                (ResourceInventory.inventoryDeclarations inventory)
-                (Set.fromList (ids ResourceInventory.CloudFoundationExecutor))
-          )
-  foundationFacts <- inspect foundation ResourceInventory.CloudFoundationExecutor
-  access <-
-    ReviewedAccess.accessAdapter
-      active
-      clusterGuard
-      (ResourceInventory.inventoryDeclarations inventory)
-      history
-  accessFacts <- inspect access ResourceInventory.AccessExecutor
+      -- Cloud foundation buckets and the Pulumi stack are observed read-only
+      -- through the same guarded adapter that plans them (F44).
+      foundationAdapter =
+        if null (ids ResourceInventory.CloudFoundationExecutor)
+          then pure (Inventory.executionBlockedAdapterFor ResourceInventory.CloudFoundationExecutor)
+          else
+            withWorkspace
+              ( \root ->
+                  inventoryFoundationAdapter
+                    active
+                    root
+                    binding
+                    (ResourceInventory.inventoryDeclarations inventory)
+                    (Set.fromList (ids ResourceInventory.CloudFoundationExecutor))
+              )
+      kubernetesLane = do
+        runtime <-
+          either
+            (const (pure kubernetesConfig))
+            ( const
+                ( snapshotRuntime
+                    kubernetesConfig
+                    [declaration ^. #address | (declaration, _) <- Map.elems kubernetesNative <> Map.elems retainedKubernetesNative]
+                )
+            )
+            opening
+        (runtime,) <$> inspectWithStuck (observedKubernetes runtime kubernetesNative) ResourceInventory.KubernetesExecutor
+      -- Pulumi and the foundation share a lane: both drive pulumi in the
+      -- same workspace.
+      pulumiLane = do
+        pulumiFacts <- inspect pulumi ResourceInventory.PulumiExecutor
+        foundation <- foundationAdapter
+        (pulumiFacts,foundation,) <$> inspect foundation ResourceInventory.CloudFoundationExecutor
+      accessLane = do
+        access <-
+          ReviewedAccess.accessAdapter
+            active
+            clusterGuard
+            (ResourceInventory.inventoryDeclarations inventory)
+            history
+        (access,) <$> inspect access ResourceInventory.AccessExecutor
+  -- EP-185 M4: independent executors are observed at the same time.
+  ( (runtime, (kubeFacts, kubeStuck))
+    , helmFacts
+    , (pulumiFacts, foundation, foundationFacts)
+    , artifactFacts
+    , hostFacts
+    , cacheFacts
+    , brokerFacts
+    , cdnFacts
+    , (access, accessFacts)
+    ) <-
+    runConcurrently $
+      (,,,,,,,,)
+        <$> Concurrently kubernetesLane
+        <*> Concurrently (inspect helm ResourceInventory.HelmExecutor)
+        <*> Concurrently pulumiLane
+        <*> Concurrently (inspect artifact ResourceInventory.ArtifactExecutor)
+        <*> Concurrently (inspect host ResourceInventory.HostExecutor)
+        <*> Concurrently (inspect cache ResourceInventory.CacheExecutor)
+        <*> Concurrently (inspect broker ResourceInventory.BrokerExecutor)
+        <*> Concurrently (inspect cdn ResourceInventory.CdnExecutor)
+        <*> Concurrently accessLane
+  let kubernetes = observedKubernetes runtime kubernetesNative
+      retainedKubernetes = observedKubernetes runtime retainedKubernetesNative
   case InventoryStatus.missingStatusObservers
     [ InventoryAdapter.adapterExecutor adapter
     | adapter <- [kubernetes, helm, pulumi, foundation, artifact, host, cache, broker, cdn, access]

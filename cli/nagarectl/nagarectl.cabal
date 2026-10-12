@@ -469,6 +469,7 @@ executable nagarectl
 
   build-depends:
     aeson,
+    async,
     base,
     bytestring,
     containers,

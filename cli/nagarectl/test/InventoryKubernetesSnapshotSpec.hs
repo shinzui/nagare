@@ -10,6 +10,7 @@ import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString.Lazy.Char8 qualified as BLC
 import Data.Generics.Labels ()
 import Data.IORef
+import Data.List (sort)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -30,7 +31,7 @@ inventoryKubernetesSnapshotTests =
     [ testCase "one read per kind and namespace answers every single-object read" $ do
         requests <- newIORef []
         let cluster request = do
-              modifyIORef requests (<> [request ^. #arguments])
+              atomicModifyIORef' requests (\seen -> (request ^. #arguments : seen, ()))
               pure $ case request ^. #arguments of
                 "get" : "deployment.apps" : _ -> Right (ExitSuccess, list [item "web"], "")
                 "get" : "configmap" : _ -> Right (ExitSuccess, "", "")
@@ -48,7 +49,7 @@ inventoryKubernetesSnapshotTests =
         settingsRead @?= Right (ExitSuccess, "", "")
         named readerRead @?= Just "reader"
         seen <- readIORef requests
-        seen
+        sort seen
           @?= [ ["get", "clusterrole.rbac.authorization.k8s.io", "reader", "-o", "json", "--ignore-not-found"]
               , ["get", "configmap", "settings", "--namespace", "apps", "-o", "json", "--ignore-not-found"]
               , ["get", "deployment.apps", "web", "worker", "--namespace", "apps", "-o", "json", "--ignore-not-found"]
@@ -59,7 +60,7 @@ inventoryKubernetesSnapshotTests =
     , testCase "any other answer leaves the members to their own reads" $ do
         requests <- newIORef (0 :: Int)
         let cluster request = do
-              modifyIORef requests (+ 1)
+              atomicModifyIORef' requests (\count -> (count + 1, ()))
               pure $ case request ^. #arguments of
                 "get" : "deployment.apps" : "web" : "worker" : _ -> Right (ExitFailure 1, "", "Unable to connect to the server")
                 _ -> Right (ExitSuccess, BLC.unpack (encode (item "web")), "")

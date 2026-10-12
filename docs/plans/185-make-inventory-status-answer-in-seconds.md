@@ -56,14 +56,16 @@ is part of this plan only where it is cheap to say why in the output.
   runs `gcloud projects describe` stalled past the 15 s capture timeout and was retried (33.7 s,
   44 s). The command is executable-private, so the "no provider process" proof is the shim log,
   not a suite test. The `mori://tan/tan-ng-labs` runbook is the operator's to switch.
-- [ ] M3. One guard per status run, and Kubernetes objects read in batches (one `kubectl get` per
+- [x] M3. One guard per status run, and Kubernetes objects read in batches (one `kubectl get` per
   kind and namespace, or one list per kind) that serve both the presence and the readiness
   observation. Pass: identical findings to the v0.5.0 status on the same context, recorded by
   diffing the two JSON outputs, and a full intranet status under 30 s. 2026-10-12: all 248
   findings and every other field identical to the v0.6.1 run; 67 s and 83 processes (from 143 s
-  and 475). The 54 batched reads take 25 s in series, so the 30 s needs M4.
-- [ ] M4. Independent executors observed concurrently, bounded. Pass: same findings as M3, and the
-  wall time reported in the Decision Log.
+  and 475). The 54 batched reads take 25 s in series, so the 30 s needs M4. Landed as
+  `894b58b7`; with M4 the full status is under 30 s (below).
+- [x] M4. Independent executors observed concurrently, bounded. Pass: same findings as M3, and the
+  wall time reported in the Decision Log. 2026-10-12: three intranet runs, 25.4 s, 27.7 s and
+  22.7 s, each with all 248 findings and every other field identical to v0.6.1, 83 processes.
 
 ## Decision Log
 
@@ -97,3 +99,9 @@ is part of this plan only where it is cheap to say why in the output.
   reads only `head.json` and reports `activeTransaction`, `dataFence` and `executorClaim`, and the
   nagare runbooks already use it for the open-transaction check; it gains `accepted`, `converged`
   and `transition`. Date: 2026-10-12.
+- Decision: M4 lanes. Kubernetes (its snapshot reads at most eight at a time), Helm, artifact,
+  host, cache, broker, CDN and access each run in their own lane; Pulumi and the cloud foundation
+  share one because both drive `pulumi` in the same workspace. Retained members and the health
+  passes run after the lanes from the snapshot and the remembered Helm reads. A refusal in any
+  lane cancels the others and exits as before. Critical path on the intranet: about 5 s store open,
+  then about 13 s for the slowest lane (the `vmks` chart and the CRD read). Date: 2026-10-12.

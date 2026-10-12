@@ -10,6 +10,9 @@ module Nagare.Inventory.KubernetesSnapshot
   )
 where
 
+import Control.Concurrent.Async (mapConcurrently)
+import Control.Concurrent.QSem (newQSem, signalQSem, waitQSem)
+import Control.Exception (bracket_)
 import Data.Aeson (Value (..), eitherDecodeStrict', encode)
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString.Lazy qualified as BL
@@ -30,10 +33,14 @@ import System.Exit (ExitCode (..))
 -- guard, with the addresses' single-object reads answered from one batched read.
 snapshotRuntime :: KubernetesRuntimeConfig -> [ProviderAddress] -> IO KubernetesRuntimeConfig
 snapshotRuntime config addresses = do
+  -- At most eight reads at a time (M4).
+  limit <- newQSem 8
   answers <-
     Map.unions
-      <$> traverse
-        (\(arguments, members) -> snapshotAnswers members <$> invokeKubectl config arguments "")
+      <$> mapConcurrently
+        ( \(arguments, members) ->
+            bracket_ (waitQSem limit) (signalQSem limit) (snapshotAnswers members <$> invokeKubectl config arguments "")
+        )
         (snapshotReads addresses)
   let answer request =
         maybe
