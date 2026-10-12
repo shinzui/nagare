@@ -51,7 +51,8 @@ for url in \
               -e '^\./cli/nagarectl/test/Spec\.hs$' \
               -e '^\./cli/nagarectl/test/InventoryUpstreamSpec\.hs$' \
               -e '^\./cli/nagarectl/test/Nagare/Test/Init\.hs$' \
-              -e '^\./cluster/bootstrap/vendor/' || true)"
+              -e '^\./cluster/bootstrap/vendor/' \
+              -e '^\./cli/nagarectl/test/fixtures/transition-[0-9.]*/payload/' || true)"
   if [ -n "$stray" ]; then
     echo "$url is duplicated outside the two resolvers:" >&2
     echo "$stray" >&2
