@@ -21,11 +21,14 @@ let
   # The nagarectl tests read payload files from cluster/ and run payload scripts
   # (for example the Helm capture plugin). A Linux build sandbox has no
   # /usr/bin/env, so they read a copy of cluster/ alone, with store-path
-  # interpreters. It is cluster/ only, so other repository changes do not
-  # invalidate the tested build.
+  # interpreters. The release transition table test (EP-172 M1) also reads the
+  # payload's nixos/ and release.json. Only these are copied, so other repository
+  # changes do not invalidate the tested build.
   sourceForTests = pkgs.runCommand "nagare-source-for-tests" { } ''
     mkdir -p "$out"
     cp -R ${../cluster} "$out/cluster"
+    cp -R ${../nixos} "$out/nixos"
+    cp ${../release.json} "$out/release.json"
     chmod -R u+w "$out"
     patchShebangs "$out/cluster"
   '';
@@ -119,6 +122,7 @@ let
               substituteInPlace \
                 test/InventoryUpstreamSpec.hs test/InventoryObservabilitySpec.hs \
                 test/InventoryCacheSpec.hs test/InventoryAuthSpec.hs \
+                test/PlatformTransitionTableSpec.hs \
                 --replace-fail '"../.."' '"${sourceForTests}"'
             '';
             preCheck = ''
