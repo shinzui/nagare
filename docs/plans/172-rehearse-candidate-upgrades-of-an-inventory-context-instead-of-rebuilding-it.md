@@ -140,7 +140,7 @@ status` reports T on the CLI, payload, context, host and cluster.
         committed before the transition stage converged", under 17 single faults.
     - Every suite passes: see the fast gate record in Outcomes & Retrospective.
 - [x] (2026-10-11) M3 (native run on a disposable Docker daemon, never cp3; lane B):
-  `just transition-rehearsal` (`scripts/transition-rehearsal.sh`) bootstraps a fresh local context on
+  `scripts/transition-rehearsal.sh` (run by `just release-rehearse`) bootstraps a fresh local context on
   the source release's nix-built nagarectl, seeds a PostgreSQL row, runs `platform transition plan`
   and `inventory apply` with the candidate until a review has no operation and re-declares no
   scope but the plan-time stamp, commits, and reads the row back. EP-168 is held, so the driver is

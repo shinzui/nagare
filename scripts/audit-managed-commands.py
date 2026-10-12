@@ -149,7 +149,7 @@ RECIPE_SCRIPTS = {
     "scripts/live-smoke.sh",
     "scripts/live-test.sh",
     "scripts/local-smoke.sh",
-    "scripts/transition-rehearsal.sh",
+    "scripts/release-rehearse.sh",
     "scripts/run-reviewed-bootstrap.sh",
     "scripts/release-candidate.sh",
     "scripts/release-publish.sh",
@@ -209,7 +209,7 @@ RECIPES = {
     "read": "default docs-validate terminology-validate reviews-validate user-documentation-validate nixos-registry-host nix-cache-status job-runs-status context-show status live-test test-inventory-effects haskell-style-check gate-fast gate-deep deep-tier-required gate gate-verify gate-landable gate-release test-remote mutation-check mutation-sweep",
     "reviewed": "infra-up infra-preview infra-destroy cluster-bootstrap nix-cache-publish nix-cache-bootstrap job-runs-bootstrap cluster-enable-tls local-bootstrap local-minio observability deploy-hello host-switch host-image vm-start vm-stop smoke local-smoke release-publish",
     "bounded": "iap-ssh",
-    "local": "local-up local-down nix-cache-secret-init install-hooks fixture-smoke land gate-post-land transition-rehearsal release-candidate release-rehearse",
+    "local": "local-up local-down nix-cache-secret-init install-hooks fixture-smoke land gate-post-land release-candidate release-rehearse",
     "pending": "",
 }
 

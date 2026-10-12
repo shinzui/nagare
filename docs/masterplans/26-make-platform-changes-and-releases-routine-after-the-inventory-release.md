@@ -136,11 +136,18 @@ apply here:
       - `just release-publish VERSION` signs the tag, pushes it and publishes, retrying a draft
         that is not yet visible.
       - What stays manual: signing the tag, and choosing when the intranet upgrades.
-- [ ] 12. (Added by the operator, 2026-10-12.) The transition rehearsal catches what the intranet
+- [x] 12. (Added by the operator, 2026-10-12.) The transition rehearsal catches what the intranet
       upgrade caught.
       - It runs the packaged nagarectl with every guard.
       - It sets up its own Colima environment (DNS, registry forward, clean environment).
       - F122 (the skew guard) and F123 (the Helm version) would each have stopped it.
+      Evidence: `just release-rehearse REV 0.5.0` on `cf2fa37e` read the seeded row back unchanged
+      and replanned with zero operations. With F122's guard reverted (`fe8212f9`) it stopped at the
+      first transition apply ("minor platform-version skew requires `nagarectl platform upgrade`"),
+      and with the v0.6.0 wrapper's missing Helm (`a255c1d0`) at the second transition plan
+      ("helm: … does not exist"). It also found why the old rehearsal missed F122: `inventory apply`
+      ran the release guard only for stages that select Pulumi, host or artifact operations, so a
+      Kubernetes- and Helm-only stage skipped it. Every bootstrap and transition stage now runs it.
 
 No cloud run is required by this plan. If item 8's change class requires C3, the operator approves
 that one bounded sequence when it is reached. The sequence includes the human dependencies: builder

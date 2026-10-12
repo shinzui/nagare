@@ -539,16 +539,6 @@ smoke:
 local-smoke:
     scripts/local-smoke.sh
 
-# EP-172 M3: rehearse the reviewed release transition of a local context from a published
-# source release to this candidate on a disposable Docker daemon (never cp3): bootstrap on
-# the source, seed a database row, run `platform transition plan` / `inventory apply` until a
-# review has no operations, `platform transition commit`, then read the row back unchanged.
-# Needs NAGARE_REHEARSAL_SOURCE and NAGARE_REHEARSAL_TARGET (nix-built nagarectl paths),
-# DOCKER_HOST and NAGARE_REHEARSAL_IMAGE_DAEMON; see the script header.
-[group('test')]
-transition-rehearsal:
-    scripts/transition-rehearsal.sh
-
 # MP-26 item 11: a release is two commands (docs/runbooks/releases.md). This one
 # runs everything up to the tag, unattended: `just gate-release`, the transition
 # rehearsal from the newest release the candidate accepts, the native attachments
@@ -569,17 +559,14 @@ release-candidate version *args:
 release-publish version:
     scripts/release-publish.sh {{version}}
 
-# MP-26 item 12 stub until the packaged rehearsal lands: accept the transition
-# rehearsal record for REV from PREVIOUS when it already exists in this checkout,
-# otherwise refuse with the runbook's manual steps.
+# MP-26 item 12: the EP-172 upgrade rehearsal, unattended. It builds release
+# PREVIOUS's and REV's packaged nagarectl, prepares the Colima profile nagare-mp23
+# (VM resolver, registry forward on 127.0.0.1:15213), moves a disposable local
+# context from PREVIOUS to REV with every guard on, from an empty environment whose
+# PATH has no Helm, reads the seeded row back, and writes
+# docs/release-evidence/REV/transition-rehearsal.json (uncommitted). An existing
+# record for REV from PREVIOUS is accepted as is.
 # Rehearse the transition from a published release to a candidate.
 [group('release')]
 release-rehearse rev previous:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    rev=$(git rev-parse --verify '{{rev}}^{commit}')
-    record="docs/release-evidence/$rev/transition-rehearsal.json"
-    [ -f "$record" ] || { echo "release-rehearse: no $record; until MP-26 item 12 lands, run the upgrade rehearsal from v{{previous}} by hand (docs/runbooks/releases.md) and write it there" >&2; exit 1; }
-    jq -e --arg rev "$rev" --arg previous '{{previous}}' '.candidate.revision == $rev and .source.version == $previous' "$record" >/dev/null \
-      || { echo "release-rehearse: $record does not record a move from {{previous}} to $rev" >&2; exit 1; }
-    echo "release-rehearse: $record moves a context from {{previous}} to $rev"
+    scripts/release-rehearse.sh '{{rev}}' '{{previous}}'

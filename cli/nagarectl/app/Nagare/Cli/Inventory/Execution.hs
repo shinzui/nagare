@@ -51,6 +51,7 @@ import Nagare.Cli.Platform.InfrastructureReview
   )
 import Nagare.Cli.Runtime.Cluster (guardKubernetesContext)
 import Nagare.Cli.Runtime.Error (dieT)
+import Nagare.Cli.Runtime.PlatformStatus (gatherPlatformStatus)
 import Nagare.Cli.Runtime.Target
   ( activeTarget
   , resolvePlatformWorkspace
@@ -202,6 +203,7 @@ inventoryExecutionRegistry mctx store bundle = do
       declarations = [declaration | scopeDeclaration <- scopes, resourceBundle <- ResourceInventory.scopeBundles scopeDeclaration, declaration <- ResourceInventory.declarations resourceBundle]
   let reviewIdentity = InventoryPlan.reviewPayloadIdentity document
       transitionReview = "nagare-transition:" `T.isPrefixOf` reviewIdentity
+      releaseGuard = if transitionReview then guardTransitionMutation else guardPlatformMutation
   when ("nagare-bootstrap:" `T.isPrefixOf` reviewIdentity || "nagare-transition:" `T.isPrefixOf` reviewIdentity) $ do
     active <- activeTarget mctx
     (paths, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
@@ -215,6 +217,9 @@ inventoryExecutionRegistry mctx store bundle = do
           && active ^. #profile . #platformVersion == Just expectedPin
       )
       (dieT "reviewed platform stage requires the payload that planned it and the context pin it expects")
+    -- The release guard holds for every stage, local or cloud, whatever executors it selects.
+    (_, status) <- gatherPlatformStatus mctx
+    either dieT pure (releaseGuard status)
   cloudHistory <-
     if Set.null (selected ResourceInventory.PulumiExecutor)
       && not (any ((\owner -> Resource.scopeKind owner == Resource.Platform && Resource.nameText (Resource.scopeName owner) == "cloud") . InventoryPlan.retentionOwner) (Map.elems (InventoryPlan.reviewRetentions document)))
@@ -514,7 +519,7 @@ inventoryExecutionRegistry mctx store bundle = do
                     then prepareVmPowerMutation mctx
                     else
                       prepareInfraMutationWithPulumi
-                        (if transitionReview then guardTransitionMutation else guardPlatformMutation)
+                        releaseGuard
                         (not (null registrations))
                         mctx
                 pure (prepared, Just workspace)

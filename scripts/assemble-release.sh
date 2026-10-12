@@ -8,7 +8,7 @@ Usage: scripts/assemble-release.sh --version VERSION --input-root DIR --output-d
 
 Combine native artifacts, the platform metadata and the EP-172 transition rehearsal record into
 immutable attachments. The record is the evidence/transition-rehearsal.json that
-`just transition-rehearsal` writes after moving a disposable local context from the previous
+`just release-rehearse` writes after moving a disposable local context from the previous
 release to this candidate; it must bind this candidate's version and revision.
 EOF
 }

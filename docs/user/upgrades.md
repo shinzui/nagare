@@ -80,8 +80,9 @@ observation separately from the immutable release attachments.
 
 The EP-172 transition rehearsal record is a mandatory part of release
 assembly, not an optional attachment. `scripts/assemble-release.sh` requires
-`--transition-rehearsal FILE`, the `evidence/transition-rehearsal.json` that
-`just transition-rehearsal` writes after moving a disposable local context
+`--transition-rehearsal FILE`, the
+`docs/release-evidence/REVISION/transition-rehearsal.json` that
+`just release-rehearse` writes after moving a disposable local context
 from the previous release to the candidate. Assembly refuses before writing
 anything when the record binds another candidate, moved from a release the
 payload's `transitionsFrom` does not list, read its seeded row back changed,

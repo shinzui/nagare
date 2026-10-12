@@ -39,16 +39,14 @@ It runs unattended up to the tag. Each step stops at its first failure and nothi
    deep tier if recovery-related code changed since the last green deep run. The deep tier fails
    only on a violation class the known-defect ledger does not list. Triage each one into a fix or a
    ledger entry, then run the command again.
-3. **Upgrade rehearsal.** `just release-rehearse <candidate> <previous>` writes
-   `docs/release-evidence/<candidate-40-character-revision>/transition-rehearsal.json`. Until
-   MasterPlan 26 item 12 lands, the recipe only accepts a record that is already there: build the
-   candidate's CLI (`nix build --no-link --print-out-paths .#nagarectl`) and the previous
-   release's (`github:shinzui/nagare/vPREVIOUS#nagarectl`), run
-   [`scripts/transition-rehearsal.sh`](../../scripts/transition-rehearsal.sh) inside `nix develop`
-   with `NAGARE_REHEARSAL_SOURCE` and `NAGARE_REHEARSAL_TARGET` set to their `bin/nagarectl`,
-   `DOCKER_HOST` and `NAGARE_REHEARSAL_IMAGE_DAEMON` set to a Docker daemon whose VM can resolve
-   public names, `NAGARE_REHEARSAL_RESET=1` and a fresh `NAGARE_REHEARSAL_ROOT`, and copy its
-   `evidence/transition-rehearsal.json` to that path.
+3. **Upgrade rehearsal.** `just release-rehearse <candidate> <previous>` builds the previous
+   release's packaged `nagarectl` and the candidate's, prepares the Colima profile `nagare-mp23`
+   (VM resolver, registry forward on `127.0.0.1:15213`), and runs
+   [`scripts/transition-rehearsal.sh`](../../scripts/transition-rehearsal.sh) from an empty
+   environment whose PATH has no Helm, so the candidate must bring every tool it pins. Every guard
+   is on. It writes
+   `docs/release-evidence/<candidate-40-character-revision>/transition-rehearsal.json`, and accepts
+   one that is already there for the same candidate and source.
 4. **aarch64-darwin attachments.** [`scripts/release-native.sh`](../../scripts/release-native.sh)
    in a clean worktree of the candidate: the release gate's built checks (`check-release.sh`), the
    native output identities, and the clone-free rehearsal from an exact `git+file` revision in an

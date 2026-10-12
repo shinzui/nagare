@@ -7,7 +7,6 @@ set -euo pipefail
 : "${NAGARE_REHEARSAL_SOURCE:?the source release nagarectl, a nix output bin/nagarectl}"
 : "${NAGARE_REHEARSAL_TARGET:?the candidate nagarectl, a nix output bin/nagarectl}"
 : "${DOCKER_HOST:?the disposable Docker daemon socket, never the shared cp3 daemon}"
-: "${NAGARE_REHEARSAL_IMAGE_DAEMON:?a Docker daemon whose store holds the auth and MinIO images to copy}"
 ROOT="${NAGARE_REHEARSAL_ROOT:-$(mktemp -d /private/tmp/nagare-transition.XXXXXX)}"
 CTX="${NAGARE_REHEARSAL_CONTEXT:-transition}"
 NS=personal
@@ -25,15 +24,7 @@ mkdir -p "$ROOT"/{config,state,cache,reviews,evidence,sops/age}
 chmod 700 "$ROOT" "$ROOT/sops" "$ROOT/sops/age"
 log() { printf '%s rehearsal: %s\n' "$(date -u +%H:%M:%S)" "$*"; }
 S() { "$NAGARE_REHEARSAL_SOURCE" --context "$CTX" "$@"; }
-# A candidate built by cabal has no packaged payload; NAGARE_REHEARSAL_TARGET_ROOT names its
-# source tree then. A nix-built candidate finds its own payload and leaves this unset.
-T() {
-  if [ -n "${NAGARE_REHEARSAL_TARGET_ROOT:-}" ]; then
-    NAGARE_PLATFORM_ROOT="$NAGARE_REHEARSAL_TARGET_ROOT" "$NAGARE_REHEARSAL_TARGET" --context "$CTX" "$@"
-  else
-    "$NAGARE_REHEARSAL_TARGET" --context "$CTX" "$@"
-  fi
-}
+T() { "$NAGARE_REHEARSAL_TARGET" --context "$CTX" "$@"; }
 # Operations of a review; a review with none that also re-accepts no scope revision is the
 # converged state. A review that only re-accepts declarations (a transition re-declares every
 # scope from the target payload) is applied, so that the next plan sees them accepted. A source
@@ -49,7 +40,10 @@ seed_images() {
   local pair repo tag
   for pair in en:9577009 shomei:9577009 nagare-access:9577009 nagare-minio:release-2025-09-07-arm64 nagare-mc:release-2025-08-13-arm64; do
     repo="${pair%%:*}"; tag="${pair#*:}"
-    docker --host "$NAGARE_REHEARSAL_IMAGE_DAEMON" save "k3d-registry.localhost:5000/$repo:$tag" | docker load >/dev/null
+    # Pinned images stay in the daemon's store across resets; NAGARE_REHEARSAL_IMAGE_DAEMON
+    # names a daemon to copy them from when this one lacks them.
+    docker image inspect "k3d-registry.localhost:5000/$repo:$tag" >/dev/null 2>&1 \
+      || docker --host "${NAGARE_REHEARSAL_IMAGE_DAEMON:?this daemon lacks $repo:$tag; set NAGARE_REHEARSAL_IMAGE_DAEMON}" save "k3d-registry.localhost:5000/$repo:$tag" | docker load >/dev/null
     docker tag "k3d-registry.localhost:5000/$repo:$tag" "localhost:5000/$repo:$tag"
     digest="$(docker push "localhost:5000/$repo:$tag" | sed -n 's/.*digest: \(sha256:[0-9a-f]*\).*/\1/p' | tail -1)"
     [ -n "$digest" ] || { echo "no digest for $repo" >&2; exit 1; }
@@ -120,7 +114,7 @@ if [ "${NAGARE_REHEARSAL_SKIP_BOOTSTRAP:-0}" = 1 ]; then
 else
 # --- 0. the daemon is disposable and empty of k3d ---
 [ "$DOCKER_HOST" != "unix:///Users/shinzui/.colima/nagare-mp23-cp3/docker.sock" ] || { echo "refusing the shared cp3 daemon" >&2; exit 1; }
-if docker ps -a --format '{{.Names}}' | grep -q '^k3d-'; then
+if docker ps -a --format '{{.Names}}' | grep -q '^k3d-\|^registry-forward$'; then
   if [ "${NAGARE_REHEARSAL_RESET:-0}" = 1 ]; then
     docker rm -f registry-forward >/dev/null 2>&1 || true
     k3d cluster delete nagare-local >/dev/null 2>&1 || true
