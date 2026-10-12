@@ -65,9 +65,10 @@ checkTierWith judge progress label clean selected schedulesFor check = do
 -- | Shard @shard@ of the deep tier (M4) over every scenario: each placement it
 -- heads alone, then each pair it heads that can interact, with every 50th
 -- independent pair checked against its second fault alone. With @prune@ off,
--- every pair runs.
-deepTier :: Bool -> (Int, Int) -> (s -> Text) -> (s -> Runner checkpoint) -> [s] -> Assertion
-deepTier prune shard label run' selected = do
+-- every pair runs. The violations found pass through @judge@ (the known-defect
+-- ledger) before the shard fails on what remains.
+deepTier :: ([Text] -> [Text]) -> Bool -> (Int, Int) -> (s -> Text) -> (s -> Runner checkpoint) -> [s] -> Assertion
+deepTier judge prune shard label run' selected = do
   tallies <- forM (zip [0 :: Int ..] selected) $ \(offset, scenario) -> do
     let report = announce (length selected) (offset + 1) (label scenario)
         note = announceViolation (length selected) (offset + 1) (label scenario)
@@ -92,7 +93,7 @@ deepTier prune shard label run' selected = do
         <> T.pack (show (length (tally ^. #violations)))
         <> " violation(s)"
     pure tally
-  failOn (concatMap (^. #violations) tallies)
+  failOn (judge (concatMap (^. #violations) tallies))
   where
     -- A model assertion inside one run is that run's violation; it does not
     -- end the shard.

@@ -51,7 +51,7 @@ import Nagare.Resource.Wire (canonicalValue)
 import Nagare.Test.Model.Fixtures
 import Nagare.Test.Model.Ingest (ingestReceipt)
 import Nagare.Test.Model.Invariants
-import Nagare.Test.Model.KnownDefects (KnownViolation (..), judgeViolations, knownViolationsFor)
+import Nagare.Test.Model.KnownDefects (KnownViolation (..), judgeDeepViolations, judgeViolations, knownViolations, knownViolationsFor)
 import Nagare.Test.Model.Pairs
 import Nagare.Test.Model.Rebuild (decideModelRebuild, loseCluster)
 import Nagare.Test.Model.Run
@@ -149,6 +149,11 @@ inventoryRecoveryModelTests =
         judgeViolations [entry] [listed, other] @?= [other]
         assertBool "a fixed entry is reported" (any ("fixed or changed" `T.isInfixOf`) (judgeViolations [entry] []))
         assertBool "an extra occurrence is reported" (any ("fixed or changed" `T.isInfixOf`) (judgeViolations [entry] [listed, listed]))
+    , testCase "the deep tier excuses a ledger entry's class and reports each other class once" $ do
+        let found line = T.unlines ["scenario: s", "faults: [(Boundary {call = ObserveCall, ordinal = 3},Deleted),(Boundary {call = MutateCall, ordinal = 1},LandsUnready)]", "violation: " <> line]
+            judge = map (T.takeWhile (/= ';')) . judgeDeepViolations [KnownViolation "G0" "EP-0" "s" Deleted "I1: planning refused" 1] . map found
+        judge ["I1: planning refused (x)", "I1: planning refused (y)"] @?= []
+        judge ["I8: op-1a2b settles unknown", "I8: op-3c4d settles unknown", "I2: scope reported converged"] @?= ["1 violation(s) of this class", "2 violation(s) of this class"]
     , testCase "every generated create writes its kind's member" $ do
         let writes scenario = runScenario scenario [] >>= either (assertFailure . T.unpack) (pure . Map.findWithDefault 0 MutateCall . finishedCalls)
         plain <- writes (Scenario "create" [Deploy "v1"] [] True plainShape False)
@@ -289,7 +294,7 @@ inventoryRecoveryModelTests =
         enabled <- lookupEnv "NAGARE_RECOVERY_MODEL_DEEP"
         shard <- lookupEnv "NAGARE_RECOVERY_MODEL_SHARD"
         pairs <- lookupEnv "NAGARE_RECOVERY_MODEL_PAIRS"
-        when (enabled == Just "1") $ either assertFailure (\selected -> deepTier (pairs /= Just "all") selected label traceScenario scenarios) (parseShard shard)
+        when (enabled == Just "1") $ either assertFailure (\selected -> deepTier (judgeDeepViolations knownViolations) (pairs /= Just "all") selected label traceScenario scenarios) (parseShard shard)
     ]
 
 type Schedule = [(Boundary, Fault)]

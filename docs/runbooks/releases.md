@@ -24,8 +24,9 @@ context upgrades to the candidate and passes the deploy-and-login check. A relea
 intranet runs it, not when a tag exists.
 
 1. **Release gate.** When the candidate's full gate is green, run `just gate-release <candidate>`. It
-   runs the mutation sweep, then the deep tier, on the builder. Triage any deep-tier failure before
-   going on.
+   runs the mutation sweep, then, if recovery-related code changed since the last green deep run, the
+   deep tier, on the builder. The deep tier fails only on a violation class the known-defect ledger
+   does not list. Triage each one into a fix or a ledger entry before going on.
 2. **Upgrade rehearsal.** Build the candidate's CLI (`nix build --no-link --print-out-paths
    .#nagarectl`) and the previous release's (`nix build --no-link --print-out-paths
    github:shinzui/nagare/vPREVIOUS#nagarectl`). Then run

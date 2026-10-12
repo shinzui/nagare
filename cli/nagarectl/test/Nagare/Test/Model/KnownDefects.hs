@@ -10,10 +10,13 @@ module Nagare.Test.Model.KnownDefects
   , knownViolations
   , knownViolationsFor
   , judgeViolations
+  , judgeDeepViolations
   )
 where
 
 import Data.Generics.Labels ()
+import Data.Map.Strict qualified as Map
+import Data.Maybe (listToMaybe)
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude
 import Nagare.Test.World.Adversary (Fault (..))
@@ -33,8 +36,9 @@ data KnownViolation = KnownViolation
   }
   deriving stock (Eq, Show, Generic)
 
--- | Known defects the fast tier finds on the validated world. Only the fast
--- tier reads this ledger; the deep tier reports every violation.
+-- | Known defects the fast tier finds on the validated world. The fast tier
+-- holds each entry to its exact count; the deep tier excuses each entry's
+-- class ('judgeDeepViolations').
 knownViolations :: [KnownViolation]
 knownViolations =
   -- F77: a mounted database claim deleted outside review stays Terminating
@@ -90,19 +94,39 @@ knownViolationsFor labels = [entry | entry <- knownViolations, entry ^. #scenari
 -- line per entry whose count differs from what was found.
 judgeViolations :: [KnownViolation] -> [Text] -> [Text]
 judgeViolations ledger found =
-  [v | v <- found, not (any (`matches` v) ledger)]
+  [v | v <- found, not (any (\entry -> matches True entry v) ledger)]
     <> [ "known-defect ledger: fixed or changed, update or remove this entry: "
            <> T.pack (show entry)
            <> " (found "
            <> T.pack (show seen)
            <> ")"
        | entry <- ledger
-       , let seen = length (filter (matches entry) found)
+       , let seen = length (filter (matches True entry) found)
        , seen /= entry ^. #count
        ]
+
+-- | The violations that fail the deep tier, one line per class. An entry
+-- excuses its class: the same scenario and violation with the entry's fault
+-- among the pair's faults. Counts are not compared, because a pair multiplies
+-- them. What remains is grouped by scenario and violation, with tx and op ids
+-- ignored, and each class is reported once with its count and first example.
+judgeDeepViolations :: [KnownViolation] -> [Text] -> [Text]
+judgeDeepViolations ledger found =
+  [ T.pack (show (length members)) <> " violation(s) of this class; the first:\n" <> example
+  | members@(example : _) <- Map.elems (Map.fromListWith (flip (<>)) [(classOf v, [v]) | v <- unlisted])
+  ]
   where
-    matches entry v =
-      fieldIs "scenario: " (== entry ^. #scenario) v
-        && fieldIs "faults: " (\faults -> T.pack (show (entry ^. #fault)) `T.isInfixOf` faults && T.count "Boundary" faults == 1) v
-        && fieldIs "violation: " ((entry ^. #violation) `T.isPrefixOf`) v
-    fieldIs prefix predicate v = any predicate [rest | line <- T.lines v, Just rest <- [T.stripPrefix prefix (T.strip line)]]
+    unlisted = [v | v <- found, not (any (\entry -> matches False entry v) ledger)]
+    classOf v = (field "scenario: " v, map withoutId (T.words (T.take 160 (field "violation: " v))))
+    withoutId word = if any (`T.isPrefixOf` word) ["tx-", "op-"] then T.take 3 word else word
+    field prefix v = fromMaybe "" (listToMaybe [rest | line <- T.lines v, Just rest <- [T.stripPrefix prefix (T.strip line)]])
+
+-- | Whether an entry matches a violation; @single@ also requires the
+-- violation's schedule to hold exactly one fault, as the fast tier's do.
+matches :: Bool -> KnownViolation -> Text -> Bool
+matches single entry v =
+  fieldIs "scenario: " (== entry ^. #scenario)
+    && fieldIs "faults: " (\faults -> T.pack (show (entry ^. #fault)) `T.isInfixOf` faults && (not single || T.count "Boundary" faults == 1))
+    && fieldIs "violation: " ((entry ^. #violation) `T.isPrefixOf`)
+  where
+    fieldIs prefix predicate = any predicate [rest | line <- T.lines v, Just rest <- [T.stripPrefix prefix (T.strip line)]]

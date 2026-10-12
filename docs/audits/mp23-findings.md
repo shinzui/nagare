@@ -476,7 +476,7 @@ In each, the fault deletes the PVC between reviews, so no transaction is open. T
 
 E16 verified steps 1, 2, 4 and 6 (and a file-level backup through the pod) on k3s v1.34.6. Steps 5 and 7 are the documented close and rebind procedures, not yet exercised end to end on this case.
 
-**Ledger.** The three violations are listed in the recovery model's two-sided known-defect ledger (`cli/nagarectl/test/Nagare/Test/Model/KnownDefects.hs`) with this owner. The fast tier fails if the count changes or a new violation appears. The deep tier does not read the ledger and reports them.
+**Ledger.** The three violations are listed in the recovery model's two-sided known-defect ledger (`cli/nagarectl/test/Nagare/Test/Model/KnownDefects.hs`) with this owner. The fast tier fails if the count changes or a new violation appears. The deep tier excuses each entry's class (MP-26 item 10).
 
 **For the next MasterPlan.**
 - A reviewed exit that plans the backup through the running pod, the release of the claim (the volume set to `Retain`, the pod deleted) and the rebind. Each step is guarded by the claim's UID and deletion timestamp.

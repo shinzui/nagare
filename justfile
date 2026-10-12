@@ -316,8 +316,13 @@ gate-fast:
 gate-deep rev="HEAD" shards="16":
     #!/usr/bin/env bash
     set -euo pipefail
+    commit=$(git rev-parse --verify '{{rev}}^{commit}')
     specs=$(for i in $(seq 0 $(( {{shards}} - 1 ))); do printf '%s/%s ' "$i" "{{shards}}"; done)
-    just test-remote '{{rev}}' '/deep tier/' "$specs" true
+    just test-remote "$commit" '/deep tier/' "$specs" true
+    # A green run is the base `gate-release` compares later releases against.
+    records="${XDG_STATE_HOME:-$HOME/.local/state}/nagare/gates/deep"
+    mkdir -p "$records"
+    date -u +%Y-%m-%dT%H:%M:%SZ > "$records/$commit"
 
 # EP-180 M8: prove on the remote builder that every mutation record still fails
 # its tests at a committed revision. records.json beside the records names each
@@ -350,7 +355,9 @@ mutation-sweep rev="HEAD" width="4":
 
 # EP-184 M4: the release gate for a fully gated revision. The mutation sweep and
 # the deep tier each take the whole builder, so they run one after the other.
-# Run the release gate: gate record, mutation sweep, then the deep tier.
+# The deep tier runs only when recovery-related code changed since the nearest
+# ancestor with a green deep run (MP-26 item 10).
+# Run the release gate: gate record, mutation sweep, then the deep tier if needed.
 [group('test')]
 gate-release rev="HEAD":
     #!/usr/bin/env bash
@@ -358,15 +365,27 @@ gate-release rev="HEAD":
     commit=$(git rev-parse --verify '{{rev}}^{commit}')
     just gate-verify "$commit"
     just mutation-sweep "$commit"
+    base=""
+    for record in "${XDG_STATE_HOME:-$HOME/.local/state}"/nagare/gates/deep/*; do
+      [ -f "$record" ] || continue
+      candidate=$(basename "$record")
+      git merge-base --is-ancestor "$candidate" "$commit" 2>/dev/null || continue
+      if [ -z "$base" ] || git merge-base --is-ancestor "$base" "$candidate"; then base=$candidate; fi
+    done
+    if [ -n "$base" ] && just deep-tier-required "$base" "$commit"; then
+      echo "gate-release: $commit has a green full gate, a clean mutation sweep, and no recovery change since the green deep tier on $base"
+      exit 0
+    fi
     just gate-deep "$commit"
     echo "gate-release: $commit has a green full gate, a clean mutation sweep and a passing deep tier"
 
 # EP-179 (ADR 25 amendment of 2026-10-06): list the recovery-related files
 # changed since `base` (committed, uncommitted or untracked), and exit non-zero
-# when there are any: such a change needs a passing `just gate-deep`.
+# when there are any: such a change needs a passing `just gate-deep`. With
+# `rev`, compare the committed revision only.
 # Report whether changes since a base need the recovery model's deep tier.
 [group('test')]
-deep-tier-required base="origin/master":
+deep-tier-required base="origin/master" rev="":
     #!/usr/bin/env bash
     set -euo pipefail
     inventory=cli/nagarectl/src/Nagare/Inventory
@@ -383,8 +402,13 @@ deep-tier-required base="origin/master":
     # Accept both `just deep-tier-required <ref>` and `base=<ref>`.
     base="{{base}}"
     base="${base#base=}"
-    since=$(git merge-base "$base" HEAD)
-    changed=$( { git diff --name-only "$since" -- "${paths[@]}"; git ls-files --others --exclude-standard -- "${paths[@]}"; } | sort -u)
+    if [ -n '{{rev}}' ]; then
+      since=$(git merge-base "$base" '{{rev}}')
+      changed=$(git diff --name-only "$since" '{{rev}}' -- "${paths[@]}")
+    else
+      since=$(git merge-base "$base" HEAD)
+      changed=$( { git diff --name-only "$since" -- "${paths[@]}"; git ls-files --others --exclude-standard -- "${paths[@]}"; } | sort -u)
+    fi
     if [ -z "$changed" ]; then
       echo "deep tier not required: no recovery-related file changed since $base ($since)"
       exit 0

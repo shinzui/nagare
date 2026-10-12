@@ -1,13 +1,13 @@
 diff --git a/cli/nagarectl/test/Nagare/Test/Model/KnownDefects.hs b/cli/nagarectl/test/Nagare/Test/Model/KnownDefects.hs
-index 3410ad66..3684bd41 100644
+index 9d06b9ca..10df829f 100644
 --- a/cli/nagarectl/test/Nagare/Test/Model/KnownDefects.hs
 +++ b/cli/nagarectl/test/Nagare/Test/Model/KnownDefects.hs
-@@ -70,7 +70,7 @@ judgeViolations ledger found =
+@@ -102,7 +102,7 @@ judgeViolations ledger found =
             <> ")"
         | entry <- ledger
-        , let seen = length (filter (matches entry) found)
+        , let seen = length (filter (matches True entry) found)
 -       , seen /= entry ^. #count
 +       , False
         ]
-   where
-     matches entry v =
+ 
+ -- | The violations that fail the deep tier, one line per class. An entry
