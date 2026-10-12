@@ -1,14 +1,18 @@
--- | The revision-bound gate record (EP-174). @nagare-harness gate --full@
--- writes it; @gate verify@ and the acceptance harness (EP-168) read it. It
--- lives under @$XDG_STATE_HOME/nagare/gates/<commit>.json@ because it
--- describes one machine's verification, not source.
+-- | The revision-bound gate records (EP-174). @nagare-harness gate --full@
+-- writes a full record and @gate --fast@ on a clean tree writes a fast one;
+-- @gate verify@ and @gate landable@ read them. They live under
+-- @$XDG_STATE_HOME/nagare/gates/@ because they describe one machine's
+-- verification, not source.
 module Nagare.Harness.Record
   ( BuilderProbe (..)
+  , FastRecord (..)
   , GateRecord (..)
   , SystemRealisation (..)
+  , readFastRecord
   , readRecord
   , recentRecordCommits
   , recordPath
+  , writeFastRecord
   , writeRecord
   )
 where
@@ -59,6 +63,19 @@ data GateRecord = GateRecord
   deriving stock (Eq, Show, Generic)
   deriving anyclass (FromJSON, ToJSON)
 
+-- | The fast gate's result for a clean commit: the static checks and both
+-- suites, built incrementally on this machine. @just land@ accepts it, and the
+-- full gate then runs on the landed commit in the background.
+data FastRecord = FastRecord
+  { version :: !Int
+  , commit :: !Text
+  , tree :: !Text
+  , steps :: ![StepResult]
+  , green :: !Bool
+  }
+  deriving stock (Eq, Show, Generic)
+  deriving anyclass (FromJSON, ToJSON)
+
 recordPath :: Text -> IO FilePath
 recordPath commitId = do
   base <- getXdgDirectory XdgState "nagare/gates"
@@ -75,6 +92,27 @@ writeRecord record = do
 readRecord :: Text -> IO (Either Text (Maybe GateRecord))
 readRecord commitId = do
   path <- recordPath commitId
+  present <- doesFileExist path
+  if not present
+    then pure (Right Nothing)
+    else first (\err -> T.pack (path <> ": " <> err)) . fmap Just <$> eitherDecodeFileStrict path
+
+fastRecordPath :: Text -> IO FilePath
+fastRecordPath commitId = do
+  base <- getXdgDirectory XdgState "nagare/gates/fast"
+  pure (base </> (T.unpack commitId <> ".json"))
+
+writeFastRecord :: FastRecord -> IO FilePath
+writeFastRecord record = do
+  path <- fastRecordPath (record ^. #commit)
+  createDirectoryIfMissing True (takeDirectory path)
+  BL.writeFile path (encodePretty record <> "\n")
+  pure path
+
+-- | @Nothing@ when no fast record exists for the commit.
+readFastRecord :: Text -> IO (Either Text (Maybe FastRecord))
+readFastRecord commitId = do
+  path <- fastRecordPath commitId
   present <- doesFileExist path
   if not present
     then pure (Right Nothing)

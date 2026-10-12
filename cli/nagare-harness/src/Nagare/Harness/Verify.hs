@@ -1,7 +1,11 @@
--- | Whether a revision may be used for native work: it needs a green, clean
--- gate record for its exact tree that realised every supported system.
+-- | Whether a revision may be used for native work or a release: it needs a
+-- green, clean gate record for its exact tree that realised every supported
+-- system. Landing needs less: a green fast record, and no red full gate on a
+-- landed commit.
 module Nagare.Harness.Verify
   ( VerifyTarget (..)
+  , landedGateBlock
+  , verifyFastRecord
   , verifyRecord
   )
 where
@@ -41,3 +45,23 @@ verifyRecord target = \case
         realisation ^. #checks > 0
           && realisation ^. #realised == realisation ^. #checks
           && null (realisation ^. #remaining)
+
+-- | Whether a fast record lets @just land@ push the commit: green, for the
+-- commit's exact tree.
+verifyFastRecord :: Text -> Text -> Maybe FastRecord -> Either Text ()
+verifyFastRecord commitId treeId = \case
+  Nothing -> Left ("no fast gate record for " <> commitId <> "; run `just gate-fast` on a checkout of it with no uncommitted changes")
+  Just record
+    | record ^. #commit /= commitId -> Left "the fast record names a different commit"
+    | not (record ^. #green) -> Left "the fast gate record is red"
+    | record ^. #tree /= treeId ->
+        Left ("the fast record's tree " <> record ^. #tree <> " is not the commit's tree " <> treeId)
+    | otherwise -> Right ()
+
+-- | The finished full gates of landed commits, newest first, as (commit,
+-- green). The newest one being red blocks the next landing until a fix lands
+-- and its own full gate is green.
+landedGateBlock :: [(Text, Bool)] -> Maybe Text
+landedGateBlock = \case
+  (commitId, False) : _ -> Just ("the full gate of landed commit " <> commitId <> " is red; land a fix with `just gate` first")
+  _ -> Nothing

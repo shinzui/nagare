@@ -294,11 +294,12 @@ haskell-style-check:
     cabal-gild --mode check --input cli/nagare-access/nagare-access.cabal
     cabal-gild --mode check --input cli/nagare-harness/nagare-harness.cabal
 
-# EP-174: the fast local gate the pre-push hook runs. The style check, the
+# The landing gate (operator decision, 2026-10-11). The style check, the
 # architecture check and the mutation records' manifest first (seconds), then
-# both Haskell suites (serially), whose builds come before the record patterns
-# are checked; logs go to ${XDG_STATE_HOME:-~/.local/state}/nagare/gates/logs/.
-# Run the fast local gate (both Haskell suites, style, architecture).
+# both Haskell suites, built incrementally and run serially; logs go to
+# ${XDG_STATE_HOME:-~/.local/state}/nagare/gates/logs/. With no uncommitted
+# changes to tracked files it writes HEAD's fast record, which `just land` needs.
+# Run the fast local gate and record HEAD's result.
 [group('test')]
 gate-fast:
     cabal run --project-dir=cli/nagare-harness -v0 nagare-harness -- gate --fast
@@ -423,22 +424,47 @@ test-remote rev pattern shards="0/1" deep="false" suite="nagarectl":
     cat "$logs/status"
     ! grep -qv ' exit=0 ' "$logs/status"
 
-# The only way a revision reaches master (2026-10-06): it needs a green full
-# gate record for its exact tree (`just gate` on a clean checkout of it), or
-# one carried forward over inert documentation (`gate verify`, 2026-10-09), and
-# must descend from origin/master. It pushes that exact commit to origin's
-# master from any checkout, without touching the local master branch, which
-# may hold someone else's unpushed work; the push hook verifies the record.
-# Push a gate-verified revision to origin's master.
+# The only way a revision reaches master. It needs a green fast record
+# (`just gate-fast`) or full record for its exact tree, or one carried forward
+# over inert documentation, and must descend from origin/master; while the
+# newest finished full gate of a landed commit is red, only a fully gated fix
+# lands (`gate landable`). It pushes that exact commit to origin's master from
+# any checkout, then starts the full gate on it in the background
+# (`just gate-post-land`); a release still needs a green full record.
+# Push a landable revision to origin's master and start its full gate.
 [group('test')]
 land rev:
     #!/usr/bin/env bash
     set -euo pipefail
     target=$(git rev-parse --verify '{{rev}}^{commit}')
-    just gate-verify "$target"
     git fetch origin master
-    git merge-base --is-ancestor origin/master "$target" || { echo "land: $target does not descend from origin/master; rebase it; a rebase over documentation keeps its gate record, anything else needs a new just gate" >&2; exit 1; }
+    just gate-landable "$target"
+    git merge-base --is-ancestor origin/master "$target" || { echo "land: $target does not descend from origin/master; rebase it; a rebase over documentation keeps its record, anything else needs a new just gate-fast" >&2; exit 1; }
     git push origin "$target:refs/heads/master"
+    if just gate-verify "$target" >/dev/null 2>&1; then exit 0; fi
+    log="${XDG_STATE_HOME:-$HOME/.local/state}/nagare/gates/logs/post-land-$target.log"
+    mkdir -p "$(dirname "$log")"
+    nohup just gate-post-land "$target" >"$log" 2>&1 &
+    echo "land: $target is on master; its full gate runs in the background, log $log"
+
+# Check that a revision may land: a green fast or full record, and no red full
+# gate on the newest landed commit that finished one.
+[group('test')]
+gate-landable rev:
+    cabal run --project-dir=cli/nagare-harness -v0 nagare-harness -- gate landable --revision {{rev}}
+
+# The full gate of a landed commit, in a throwaway worktree so the operator's
+# checkout stays free. `just land` starts it; a red record blocks the next land.
+# Run the full gate on a committed revision in a temporary worktree.
+[group('test')]
+gate-post-land rev:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    dir="${XDG_STATE_HOME:-$HOME/.local/state}/nagare/gates/worktrees/{{rev}}"
+    git worktree add --detach "$dir" '{{rev}}'
+    trap 'git worktree remove --force "$dir"' EXIT
+    cd "$dir"
+    just gate
 
 # EP-174: build and run every fixture application with only its declared
 # bindings (fixtures/inventory-release/local/fixture-smoke.json), plus the

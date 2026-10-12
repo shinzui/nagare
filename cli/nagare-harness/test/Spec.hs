@@ -13,7 +13,7 @@ import Data.Text qualified as T
 import FlakeCheckSpec (flakeCheckTests)
 import Nagare.Harness.CarryForward
 import Nagare.Harness.FixtureSmoke
-import Nagare.Harness.Gate (fastSteps, fullCheckPlan, verifyRevision)
+import Nagare.Harness.Gate (fastSteps, fullCheckPlan, landableRevision, verifyRevision)
 import Nagare.Harness.Mutation (Expectation (..), MutationRecord (..), Outcome (..), Suite (..), classifyProof, readSweepResults)
 import Nagare.Harness.Prelude
 import Nagare.Harness.Realise (remainingPaths)
@@ -142,6 +142,20 @@ tests =
               )
         , testCase "a failed builder probe is refused" $
             assertBool "failed probe accepted" (isLeft (verifyRecord target (Just (greenRecord & #builderProbe . #ok .~ False))))
+        ]
+    , testGroup
+        "gate landable"
+        [ testCase "a green fast record for the exact tree lands" $
+            verifyFastRecord "c0ffee" "7ree" (Just greenFast) @?= Right ()
+        , testCase "a missing, red or other-tree fast record is refused" $ do
+            assertBool "missing fast record accepted" (isLeft (verifyFastRecord "c0ffee" "7ree" Nothing))
+            assertBool "red fast record accepted" (isLeft (verifyFastRecord "c0ffee" "7ree" (Just (greenFast & #green .~ False))))
+            assertBool "other tree accepted" (isLeft (verifyFastRecord "c0ffee" "other" (Just greenFast)))
+        , testCase "only the newest landed full gate being red blocks landing" $ do
+            assertBool "red newest gate ignored" (isJust (landedGateBlock [("b", False), ("a", True)]))
+            landedGateBlock [("b", True), ("a", False)] @?= Nothing
+            landedGateBlock [] @?= Nothing
+        , testCase "land takes a fast record, carries it over documentation, and stops behind a red landed gate until a fully gated fix" landableRoundTrip
         ]
     , testGroup
         "documentation carry-forward (EP-170, operator 2026-10-09)"
@@ -325,6 +339,59 @@ carryForwardRoundTrip =
       redOwn <- commitAll "red"
       recordFor redOwn False
       assertBool "a commit with its own red record carried forward" . isLeft =<< verifyRevision repo redOwn
+
+landableRoundTrip :: Assertion
+landableRoundTrip =
+  withSystemTempDirectory "land" $ \dir -> do
+    let repo = dir </> "repo"
+        git arguments = callProcess "git" (["-C", repo, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"] <> arguments)
+        write path content = createDirectoryIfMissing True (takeDirectory (repo </> path)) >> writeFile (repo </> path) content
+        commitAll message = git ["add", "-A"] >> git ["commit", "-q", "-m", message] >> headOf
+        headOf = T.strip . T.pack <$> readProcess "git" ["-C", repo, "rev-parse", "HEAD"] ""
+        treeOf commitId = T.strip . T.pack <$> readProcess "git" ["-C", repo, "rev-parse", T.unpack commitId <> "^{tree}"] ""
+        fullFor commitId isGreen = do
+          treeId <- treeOf commitId
+          _ <- writeRecord (greenRecord & #commit .~ commitId & #tree .~ treeId & #green .~ isGreen)
+          pure ()
+        fastFor commitId isGreen = do
+          treeId <- treeOf commitId
+          _ <- writeFastRecord (greenFast & #commit .~ commitId & #tree .~ treeId & #green .~ isGreen)
+          pure ()
+        landable commitId = landableRevision repo "landed" commitId
+    createDirectoryIfMissing True repo
+    git ["init", "-q"]
+    write "release.json" "{\"supportedSystems\":[\"x86_64-linux\",\"aarch64-darwin\"]}"
+    write "src/Main.hs" "-- base"
+    previous <- lookupEnv "XDG_STATE_HOME"
+    flip finally (maybe (unsetEnv "XDG_STATE_HOME") (setEnv "XDG_STATE_HOME") previous) $ do
+      setEnv "XDG_STATE_HOME" (dir </> "state")
+      base <- commitAll "base"
+      fullFor base True
+      git ["branch", "landed"]
+      write "src/Main.hs" "-- change"
+      change <- commitAll "change"
+      assertBool "a code change without a record landed" . isLeft =<< landable change
+      fastFor change False
+      assertBool "a red fast record landed" . isLeft =<< landable change
+      fastFor change True
+      verdict <- landable change
+      assertBool ("a green fast record refused: " <> show verdict) (isRight verdict)
+      write "docs/plans/1-plan.md" "notes"
+      docs <- commitAll "docs"
+      carried <- landable docs
+      assertBool ("documentation over a fast-gated commit refused: " <> show carried) (isRight carried)
+      git ["branch", "-f", "landed", T.unpack change]
+      fullFor change False
+      write "src/Main.hs" "-- next"
+      next <- commitAll "next"
+      fastFor next True
+      assertBool "a fast-gated commit landed behind a red landed gate" . isLeft =<< landable next
+      fullFor next True
+      fixed <- landable next
+      assertBool ("a fully gated fix refused behind a red landed gate: " <> show fixed) (isRight fixed)
+
+greenFast :: FastRecord
+greenFast = FastRecord {version = 1, commit = "c0ffee", tree = "7ree", steps = [], green = True}
 
 target :: VerifyTarget
 target = VerifyTarget {commit = "c0ffee", tree = "7ree", supportedSystems = ["x86_64-linux", "aarch64-darwin"]}

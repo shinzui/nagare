@@ -1,12 +1,16 @@
--- | The local gate (EP-174). The fast gate runs on every push through
--- @.githooks/pre-push@: the style check, the architecture check, the mutation
--- records and both Haskell suites, serially, stopping at the first failure.
+-- | The local gate (EP-174). The fast gate is the style check, the
+-- architecture check, the mutation records and both Haskell suites, built
+-- incrementally and run serially, stopping at the first failure. On a tree
+-- with no uncommitted changes it writes a fast record, which is what
+-- @just land@ needs; the full gate then runs on the landed commit in the
+-- background, and a release needs a full record.
 module Nagare.Harness.Gate
   ( CheckPlan (..)
   , GateRun (..)
   , fastSteps
   , formatResult
   , fullCheckPlan
+  , landableRevision
   , newLogDir
   , newSay
   , repositoryRoot
@@ -28,6 +32,7 @@ import Data.Containers.ListUtils (nubOrd)
 import Data.Either (isRight)
 import Data.Generics.Labels ()
 import Data.Map.Strict qualified as Map
+import Data.Maybe (catMaybes)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
@@ -40,7 +45,7 @@ import Nagare.Harness.Prelude
 import Nagare.Harness.Realise (remainingPaths)
 import Nagare.Harness.Record
 import Nagare.Harness.Step
-import Nagare.Harness.Verify (VerifyTarget (..), verifyRecord)
+import Nagare.Harness.Verify (VerifyTarget (..), landedGateBlock, verifyFastRecord, verifyRecord)
 import System.Directory (XdgDirectory (XdgState), createDirectoryIfMissing, getXdgDirectory)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
@@ -145,16 +150,29 @@ reportResult say result
       let tailLines = reverse (take 60 (reverse (T.lines output)))
       say ([formatResult result, "gate: last lines of " <> result ^. #logPath <> ":"] <> map (T.unpack . ("  " <>)) tailLines)
 
--- | Run the fast gate. Returns the results, ending at the first failure.
+-- | Run the fast gate. Returns the results, ending at the first failure. When
+-- the tracked files match HEAD before and after the run, it writes HEAD's fast
+-- record, green or red. Untracked files are ignored: the operator's checkout
+-- often holds some, and they are not part of the commit.
 runFastGate :: GateRun -> IO [StepResult]
 runFastGate run = do
+  let workdir = run ^. #root
   say <- newSay
-  results <- runSteps (reportResult say) (run ^. #root) (run ^. #logDir) fastSteps
-  putStrLn $
-    if all stepSucceeded results && length results == length fastSteps
-      then "gate: fast gate green"
-      else "gate: fast gate RED"
+  before <- trackedChanges workdir
+  results <- runSteps (reportResult say) workdir (run ^. #logDir) fastSteps
+  let green = all stepSucceeded results && length results == length fastSteps
+  putStrLn (if green then "gate: fast gate green" else "gate: fast gate RED")
+  after <- trackedChanges workdir
+  if T.null before && T.null after
+    then do
+      commitId <- captureLine workdir "git" ["rev-parse", "HEAD"]
+      treeId <- captureLine workdir "git" ["rev-parse", "HEAD^{tree}"]
+      path <- writeFastRecord FastRecord {version = 1, commit = commitId, tree = treeId, steps = results, green}
+      putStrLn ("gate: fast record " <> path <> (if green then " (green)" else " (RED)"))
+    else putStrLn "gate: uncommitted changes, so no fast record; commit them and rerun to land"
   pure results
+  where
+    trackedChanges workdir = captureLine workdir "git" ["status", "--porcelain", "--untracked-files=no"]
 
 -- | Run a command in @workdir@ and capture its output.
 capture :: FilePath -> FilePath -> [String] -> IO (ExitCode, Text, Text)
@@ -436,7 +454,13 @@ verifyOwnRecord workdir commitId = do
 -- the gate's result depends on the tree alone, so a code commit rebased over
 -- documentation keeps the record it earned before the rebase.
 carryForwardRecord :: FilePath -> Text -> IO (Either Text (Text, Int, [Text]))
-carryForwardRecord workdir commitId = do
+carryForwardRecord workdir = carryForwardWith workdir (verifyOwnRecord workdir) (recentRecordCommits 50)
+
+-- | 'carryForwardRecord' over any kind of record: @verifyOwn@ verifies a
+-- commit's own record, and @siblings@ lists recently gated commits to try
+-- when the nearest gated ancestor is blocked.
+carryForwardWith :: FilePath -> (Text -> IO (Either Text (Maybe [Text]))) -> IO [Text] -> Text -> IO (Either Text (Text, Int, [Text]))
+carryForwardWith workdir verifyOwn siblings commitId = do
   (_, listed, _) <- capture workdir "git" ["rev-list", "--max-count=500", T.unpack commitId <> "^@"]
   ancestor <- firstGreen (T.lines listed)
   nearest <- case ancestor of
@@ -446,7 +470,7 @@ carryForwardRecord workdir commitId = do
         <$> verdictFrom ancestorId systems
   case nearest of
     Right carried -> pure (Right carried)
-    Left refusal -> maybe (Left refusal) Right <$> (firstSibling . filter (`notElem` (commitId : T.lines listed)) =<< recentRecordCommits 50)
+    Left refusal -> maybe (Left refusal) Right <$> (firstSibling . filter (`notElem` (commitId : T.lines listed)) =<< siblings)
   where
     verdictFrom gatedId systems = do
       changed <- changedPaths gatedId
@@ -463,7 +487,7 @@ carryForwardRecord workdir commitId = do
       [] -> pure Nothing
       candidate : rest -> do
         (exists, _, _) <- capture workdir "git" ["cat-file", "-e", T.unpack candidate <> "^{commit}"]
-        own <- if exists == ExitSuccess then verifyOwnRecord workdir candidate else pure (Right Nothing)
+        own <- if exists == ExitSuccess then verifyOwn candidate else pure (Right Nothing)
         case own of
           Right (Just systems) -> do
             changed <- changedPaths candidate
@@ -474,7 +498,7 @@ carryForwardRecord workdir commitId = do
     firstGreen = \case
       [] -> pure Nothing
       candidate : rest -> do
-        own <- verifyOwnRecord workdir candidate
+        own <- verifyOwn candidate
         case own of
           Right (Just systems) -> pure (Just (candidate, systems))
           _ -> firstGreen rest
@@ -485,3 +509,50 @@ carryForwardRecord workdir commitId = do
       pure $ case T.lines found of
         hit : _ -> Just (fromMaybe hit (T.stripPrefix (commitId <> ":") hit))
         [] -> Nothing
+
+-- | Whether @just land@ may push a revision. A green full record (its own or
+-- carried forward) always may: that is how a fix lands. Otherwise the newest
+-- finished full gate of a commit already on @base@ must not be red, and the
+-- revision needs a green fast record, its own or carried forward from a
+-- fast-gated ancestor over inert documentation.
+landableRevision :: FilePath -> Text -> Text -> IO (Either Text Text)
+landableRevision workdir base revision = do
+  full <- verifyRevision workdir revision
+  case full of
+    Right summary -> pure (Right ("full gate: " <> summary))
+    Left _ -> do
+      (code, out, err) <- capture workdir "git" ["rev-parse", "--verify", T.unpack revision <> "^{commit}"]
+      case code of
+        ExitFailure _ -> pure (Left ("unknown revision " <> revision <> ": " <> T.strip err))
+        ExitSuccess -> do
+          let commitId = T.strip out
+          landed <- landedFullGates
+          case landedGateBlock landed of
+            Just blocked -> pure (Left blocked)
+            Nothing -> do
+              own <- verifyOwnFast commitId
+              case own of
+                Right (Just _) -> pure (Right ("fast gate: " <> commitId <> " green"))
+                Left refusal -> pure (Left refusal)
+                Right Nothing -> do
+                  carried <- carryForwardWith workdir verifyOwnFast (pure []) commitId
+                  pure $ case carried of
+                    Right (ancestor, paths, _) ->
+                      Right ("fast gate: " <> commitId <> " carried forward from " <> ancestor <> " over " <> T.pack (show paths) <> " inert paths")
+                    Left refusal -> Left ("no fast gate record for " <> commitId <> ", and no carry-forward: " <> refusal <> "; run `just gate-fast` on it")
+  where
+    verifyOwnFast commitId = do
+      treeId <- captureLine workdir "git" ["rev-parse", T.unpack commitId <> "^{tree}"]
+      stored <- readFastRecord commitId
+      pure $ case stored of
+        Left err -> Left err
+        Right Nothing -> Right Nothing
+        Right present -> Just [] <$ verifyFastRecord commitId treeId present
+    landedFullGates = do
+      recent <- recentRecordCommits 50
+      fmap catMaybes . forM recent $ \commitId -> do
+        (onBase, _, _) <- capture workdir "git" ["merge-base", "--is-ancestor", T.unpack commitId, T.unpack base]
+        stored <- readRecord commitId
+        pure $ case (onBase, stored) of
+          (ExitSuccess, Right (Just record)) -> Just (commitId, record ^. #green)
+          _ -> Nothing

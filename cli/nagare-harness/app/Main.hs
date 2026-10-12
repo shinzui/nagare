@@ -4,7 +4,7 @@ import Data.Generics.Labels ()
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Nagare.Harness.FixtureSmoke (runFixtureSmoke)
-import Nagare.Harness.Gate (GateRun (..), newLogDir, repositoryRoot, runFastGate, runFullGate, verifyRevision)
+import Nagare.Harness.Gate (GateRun (..), landableRevision, newLogDir, repositoryRoot, runFastGate, runFullGate, verifyRevision)
 import Nagare.Harness.Mutation (Outcome (..), checkPatterns, checkRecords, loadRecords, proveRecords, selectRecords, sweepRecords)
 import Nagare.Harness.Prelude
 import Nagare.Harness.RouteCheck (RouteCheckOptions (..), routeCheckMain)
@@ -18,6 +18,7 @@ data Command
   = GateFast
   | GateFull
   | GateVerify !Text
+  | GateLandable !Text !Text
   | FixtureSmoke !(Maybe FilePath) !Bool
   | MutationsCheck
   | MutationsPatterns
@@ -91,8 +92,17 @@ gateParser =
             (GateVerify . T.pack <$> strOption (long "revision" <> metavar "REV" <> help "Revision that native work will use"))
             (progDesc "Refuse a revision without a green, clean, fully realised gate record")
         )
+        <> command
+          "landable"
+          ( info
+              ( GateLandable
+                  <$> (T.pack <$> strOption (long "revision" <> metavar "REV" <> help "Revision to land"))
+                  <*> (T.pack <$> strOption (long "base" <> metavar "REF" <> value "origin/master" <> showDefault <> help "The branch it lands on"))
+              )
+              (progDesc "Refuse to land a revision without a green fast or full record, or while a landed commit's full gate is red")
+          )
     )
-    <|> flag' GateFast (long "fast" <> help "Both Haskell suites, style and architecture checks")
+    <|> flag' GateFast (long "fast" <> help "Style and architecture checks and both Haskell suites, incremental; writes the fast record land needs")
     <|> flag' GateFull (long "full" <> help "Clean tree, builder probe, static checks, then the suite builds alongside nix flake check --all-systems (each suite once), realisation proof, record")
 
 main :: IO ()
@@ -116,6 +126,11 @@ main = do
       case outcome of
         Left err -> refuse ("gate verify: " <> revision <> " refused: " <> err)
         Right summary -> TIO.putStrLn ("gate verify: " <> summary)
+    GateLandable revision base -> do
+      outcome <- landableRevision root base revision
+      case outcome of
+        Left err -> refuse ("gate landable: " <> revision <> " refused: " <> err)
+        Right summary -> TIO.putStrLn ("gate landable: " <> summary)
     MutationsCheck -> report "mutations check" =<< checkRecords root
     MutationsPatterns -> report "mutations patterns" =<< checkPatterns root
     MutationsProve revision base width chosen -> do

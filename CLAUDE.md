@@ -136,8 +136,11 @@ which defer to the user's scope:
   line and keep working. Prefer removing a step to adding one.
 - **No time estimates.** Report what is done and what is next.
 - **Per Haskell commit:** `just haskell-style-check`, then `just gate-fast`. **Per landing:**
-  `just gate` and `just land`. **Per release only:** `just mutation-sweep` and the deep tier
-  (`just gate-deep`), triaged. A docs-only commit carries its gated ancestor's record forward.
+  `just gate-fast` with no uncommitted changes, then `just land`, which starts the full gate on
+  the landed commit in the background; a red one blocks the next land until a fully gated fix
+  lands (operator decision, 2026-10-11). **Per release only:** a green `just gate`,
+  `just mutation-sweep` and the deep tier (`just gate-deep`), triaged. A docs-only commit carries
+  its gated ancestor's record forward.
 - **Releases after v0.5.0 prove three things:** the full gate is green, the EP-172 upgrade
   rehearsal on a disposable local context reads the seeded data back unchanged, and the real
   intranet context upgrades and passes the deploy-and-login check. No per-release local and cloud
