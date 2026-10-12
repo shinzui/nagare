@@ -441,7 +441,7 @@ land rev:
     just gate-landable "$target"
     git merge-base --is-ancestor origin/master "$target" || { echo "land: $target does not descend from origin/master; rebase it; a rebase over documentation keeps its record, anything else needs a new just gate-fast" >&2; exit 1; }
     git push origin "$target:refs/heads/master"
-    if just gate-verify "$target" >/dev/null 2>&1; then exit 0; fi
+    if covered=$(cabal run --project-dir=cli/nagare-harness -v0 nagare-harness -- gate covered --revision "$target" 2>/dev/null); then echo "land: $target is on master; ${covered#gate covered: }"; exit 0; fi
     log="${XDG_STATE_HOME:-$HOME/.local/state}/nagare/gates/logs/post-land-$target.log"
     mkdir -p "$(dirname "$log")"
     nohup just gate-post-land "$target" >"$log" 2>&1 &

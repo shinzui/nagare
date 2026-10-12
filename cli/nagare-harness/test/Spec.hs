@@ -13,7 +13,7 @@ import Data.Text qualified as T
 import FlakeCheckSpec (flakeCheckTests)
 import Nagare.Harness.CarryForward
 import Nagare.Harness.FixtureSmoke
-import Nagare.Harness.Gate (fastSteps, fullCheckPlan, landableRevision, verifyRevision)
+import Nagare.Harness.Gate (coveredRevision, fastSteps, fullCheckPlan, landableRevision, verifyRevision)
 import Nagare.Harness.Mutation (Expectation (..), MutationRecord (..), Outcome (..), Suite (..), classifyProof, readSweepResults)
 import Nagare.Harness.Prelude
 import Nagare.Harness.Realise (remainingPaths)
@@ -392,6 +392,19 @@ landableRoundTrip =
       fullFor next True
       fixed <- landable next
       assertBool ("a fully gated fix refused behind a red landed gate: " <> show fixed) (isRight fixed)
+      -- A docs-only commit over a commit whose post-land gate is still running
+      -- needs no gate of its own; a code commit over it does.
+      write "src/Main.hs" "-- gating"
+      gating <- commitAll "gating"
+      assertBool "an ungated commit was covered" . isLeft =<< coveredRevision repo gating
+      createDirectoryIfMissing True (dir </> "state" </> "nagare" </> "gates" </> "worktrees" </> T.unpack gating)
+      write "docs/plans/2-plan.md" "notes"
+      docsOverRunning <- commitAll "docs over a running gate"
+      covered <- coveredRevision repo docsOverRunning
+      assertBool ("documentation over a running gate was not covered: " <> show covered) (isRight covered)
+      write "src/Main.hs" "-- after"
+      codeOverRunning <- commitAll "code over a running gate"
+      assertBool "code over a running gate was covered" . isLeft =<< coveredRevision repo codeOverRunning
 
 greenFast :: FastRecord
 greenFast = FastRecord {version = 1, commit = "c0ffee", tree = "7ree", steps = [], green = True}

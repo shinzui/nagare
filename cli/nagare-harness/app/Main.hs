@@ -4,7 +4,7 @@ import Data.Generics.Labels ()
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Nagare.Harness.FixtureSmoke (runFixtureSmoke)
-import Nagare.Harness.Gate (GateRun (..), landableRevision, newLogDir, repositoryRoot, runFastGate, runFullGate, verifyRevision)
+import Nagare.Harness.Gate (GateRun (..), coveredRevision, landableRevision, newLogDir, repositoryRoot, runFastGate, runFullGate, verifyRevision)
 import Nagare.Harness.Mutation (Outcome (..), checkPatterns, checkRecords, loadRecords, proveRecords, selectRecords, sweepRecords)
 import Nagare.Harness.Prelude
 import Nagare.Harness.RouteCheck (RouteCheckOptions (..), routeCheckMain)
@@ -18,6 +18,7 @@ data Command
   = GateFast
   | GateFull
   | GateVerify !Text
+  | GateCovered !Text
   | GateLandable !Text !Text
   | FixtureSmoke !(Maybe FilePath) !Bool
   | MutationsCheck
@@ -93,6 +94,12 @@ gateParser =
             (progDesc "Refuse a revision without a green, clean, fully realised gate record")
         )
         <> command
+          "covered"
+          ( info
+              (GateCovered . T.pack <$> strOption (long "revision" <> metavar "REV" <> help "Landed revision"))
+              (progDesc "Succeed when a landed revision needs no full gate of its own: a record verifies, or a running ancestor gate will carry forward over inert documentation")
+          )
+        <> command
           "landable"
           ( info
               ( GateLandable
@@ -126,6 +133,11 @@ main = do
       case outcome of
         Left err -> refuse ("gate verify: " <> revision <> " refused: " <> err)
         Right summary -> TIO.putStrLn ("gate verify: " <> summary)
+    GateCovered revision -> do
+      outcome <- coveredRevision root revision
+      case outcome of
+        Left err -> refuse ("gate covered: " <> revision <> " not covered: " <> err)
+        Right summary -> TIO.putStrLn ("gate covered: " <> summary)
     GateLandable revision base -> do
       outcome <- landableRevision root base revision
       case outcome of

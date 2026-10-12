@@ -10,6 +10,7 @@ module Nagare.Harness.Gate
   , fastSteps
   , formatResult
   , fullCheckPlan
+  , coveredRevision
   , landableRevision
   , newLogDir
   , newSay
@@ -46,7 +47,7 @@ import Nagare.Harness.Realise (remainingPaths)
 import Nagare.Harness.Record
 import Nagare.Harness.Step
 import Nagare.Harness.Verify (VerifyTarget (..), landedGateBlock, verifyFastRecord, verifyRecord)
-import System.Directory (XdgDirectory (XdgState), createDirectoryIfMissing, getXdgDirectory)
+import System.Directory (XdgDirectory (XdgState), createDirectoryIfMissing, doesDirectoryExist, getXdgDirectory)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 import System.IO (hFlush, stdout)
@@ -509,6 +510,32 @@ carryForwardWith workdir verifyOwn siblings commitId = do
       pure $ case T.lines found of
         hit : _ -> Just (fromMaybe hit (T.stripPrefix (commitId <> ":") hit))
         [] -> Nothing
+
+-- | Whether a landed revision needs a full gate of its own. It does not when
+-- its own or a carried-forward record verifies, or when the nearest ancestor
+-- that has a green record or a post-land full gate still running (its
+-- worktree under @gates/worktrees@) differs from it only by inert
+-- documentation: that gate's record carries forward once it finishes.
+coveredRevision :: FilePath -> Text -> IO (Either Text Text)
+coveredRevision workdir revision = do
+  verified <- verifyRevision workdir revision
+  case verified of
+    Right summary -> pure (Right summary)
+    Left refusal -> do
+      commitId <- captureLine workdir "git" ["rev-parse", T.unpack revision <> "^{commit}"]
+      worktrees <- getXdgDirectory XdgState "nagare/gates/worktrees"
+      let gatedOrRunning candidate = do
+            own <- verifyOwnRecord workdir candidate
+            case own of
+              Right (Just systems) -> pure (Right (Just systems))
+              _ -> do
+                running <- doesDirectoryExist (worktrees </> T.unpack candidate)
+                pure (Right (if running then Just [] else Nothing))
+      carried <- carryForwardWith workdir gatedOrRunning (pure []) commitId
+      pure $ case carried of
+        Right (ancestor, paths, _) ->
+          Right (commitId <> " covered by the full gate of " <> ancestor <> " over " <> T.pack (show paths) <> " inert paths")
+        Left _ -> Left refusal
 
 -- | Whether @just land@ may push a revision. A green full record (its own or
 -- carried forward) always may: that is how a fix lands. Otherwise the newest
