@@ -3,6 +3,7 @@ module EnContractSpec (enContractTests) where
 import Control.Monad (forM_)
 import Data.Aeson (Value, eitherDecode, encode, object, (.=))
 import Data.Aeson.Types (parseEither, withObject, (.:))
+import Data.Generics.Labels ()
 import Data.Text (Text)
 import Data.Text qualified as Text
 import En.Client (CheckDecisionWire (..), CheckResponseWire (..))
