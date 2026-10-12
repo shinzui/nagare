@@ -18,10 +18,12 @@ entire system from scratch.
 > [MasterPlan 24](docs/masterplans/24-operate-nagare-as-a-team-run-workplace-intranet-paas.md).
 > Until that lands, treat a team installation as operated by one person at a time.
 
-> **Status:** [Nagare 0.6.0](https://github.com/shinzui/nagare/releases/tag/v0.6.0)
-> upgrades an installed context in place through a reviewed transition, grants
+> **Status:** [Nagare 0.6.1](https://github.com/shinzui/nagare/releases/tag/v0.6.1)
+> lets a cloud context's transition stages apply and builds the host on the context's
+> builder ([release notes](docs/releases/v0.6.1.md)).
+> [0.6.0](docs/releases/v0.6.0.md) upgrades an installed context in place through a reviewed transition, grants
 > access by email, and fixes the first-deploy and recovery findings from the
-> intranet's 0.5.0 bootstrap ([release notes](docs/releases/v0.6.0.md)). 0.5.0 added
+> intranet's 0.5.0 bootstrap. 0.5.0 added
 > protected HTTPS login for every deploy, scheduled volume backups, retention with
 > reviewed pruning, and rebuild of a lost database or volume. It builds on the typed
 > resource inventory and resumable operation ledger from
@@ -143,7 +145,7 @@ typed `nagare/Config.hs`; no Cabal package environment or Nagare checkout is
 needed. Select a reviewed release explicitly:
 
 ```bash
-export NAGARE_VERSION=0.6.0
+export NAGARE_VERSION=0.6.1
 nix run "github:shinzui/nagare/v${NAGARE_VERSION}#nagarectl" -- version
 nix profile install "github:shinzui/nagare/v${NAGARE_VERSION}#nagarectl"
 ```
@@ -310,8 +312,8 @@ Optimize for: **cheap, rebuildable, simple, observable, fun to use.**
 ## Non-goals (v1)
 
 Full-context physical collection, live database/PVC overwrite, and new
-interactive mutating maintenance remain outside the 0.6.0 inventory contract. See
-[0.6.0 release notes](docs/releases/v0.6.0.md) for the supported boundaries and
+interactive mutating maintenance remain outside the 0.6 inventory contract. See
+[0.6.1 release notes](docs/releases/v0.6.1.md) for the supported boundaries and
 known limits.
 
 Multi-node Kubernetes, Istio / full service mesh, Argo CD, Flux, Crossplane,

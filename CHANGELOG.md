@@ -5,6 +5,16 @@ immutable `v<major>.<minor>.<patch>` Git tags.
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-10-12
+
+- **A cloud context's transition stages apply.** 0.6.0's `inventory apply` ran the ordinary release
+  guard on every cloud stage, which refuses the minor skew a transition exists to close, so no cloud
+  context could leave 0.5.0. A reviewed transition stage now refuses only a major mismatch (F122).
+- **The host builds on the context's builder.** The host stage built its NixOS closure on the
+  operator machine's default Nix builders. It now builds on the context's builder
+  (`NAGARE_BUILDER_*`) through the same pinned IAP tunnel as the host image, and refuses a builder in
+  another project or a Nix daemon that would ignore it (F121).
+
 ## [0.6.0] - 2026-10-12
 
 - **Upgrade an installed context in place.** `nagarectl platform transition plan --out DIR` reviews
