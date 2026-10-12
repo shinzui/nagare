@@ -99,10 +99,11 @@ mkPulumiAdapter declared ops =
     , adapterPreflight = preflight
     , adapterExecute = executePlan
     , adapterVerify = verifyPlan
-    , adapterSettle = Nothing
+    , adapterSettle = Just settlePlan
     , adapterRecover = recoverPlan
     }
   where
+    urnResources = Map.fromList [(registrationPulumiUrn registration, registrationResource registration) | registration <- declared]
     prepare operation
       | MigrateResource _ <- plannedAction operation =
           pure (Left (PrepareRefused (plannedOperationId operation) "Pulumi adapter has no migration stage contract"))
@@ -135,6 +136,16 @@ mkPulumiAdapter declared ops =
       case decodePrepared (preparedNativeBytes prepared) of
         Left err -> pure (RecoveryUnresolved (renderBundleError err))
         Right (_, planBytes) -> pulumiRecoverSavedPlan ops operation planBytes
+    -- F113: a create the provider stopped partway is settled from the stack,
+    -- which records every resource Pulumi created. The members the saved plan
+    -- creates are either held by the stack or proved absent from it.
+    settlePlan operation prepared
+      | plannedAction operation /= CreateResource = settleFromRecovery <$> recoverPlan operation prepared
+      | otherwise = case decodePrepared (preparedNativeBytes prepared) of
+          Left err -> pure (SettledUnknown (renderBundleError err) "the saved review's native bundle")
+          Right (header, _) -> do
+            let created = Set.toAscList (Set.fromList [resource | step <- headerSteps header, op step == OpCreate, Just resource <- [Map.lookup (urn step) urnResources]])
+            settleCreated created <$> pulumiObserveResources ops created
 
 validatePulumiPreparation :: [NativeRegistration] -> PlannedOperation -> PulumiPreparation -> Either PulumiBundleError PulumiBundleHeader
 validatePulumiPreparation declared operation preparation = do
@@ -170,6 +181,22 @@ validatePulumiPreparation declared operation preparation = do
       , headerRegistrationsDigest = contentDigest registrationsBytes
       , headerSteps = steps
       }
+
+settleCreated :: [ResourceId] -> Either Text ObservationSet -> Settlement
+settleCreated created observed = case observed of
+  Left reason -> SettledUnknown reason resolvedBy
+  Right facts ->
+    let fact resource = Map.lookup resource (observationMap facts)
+        present = [resource | resource <- created, Just (ObservedPresent _) <- [fact resource]]
+        absent = [resource | resource <- created, Just (ConfirmedAbsent _) <- [fact resource]]
+        unread = [(resource, fact resource) | resource <- created, resource `notElem` present, resource `notElem` absent]
+     in case (unread, present) of
+          ((resource, reading) : _, _) ->
+            SettledUnknown (resourceIdText resource <> " is not proved present or absent: " <> maybe "no observation" (T.pack . show) reading) resolvedBy
+          ([], []) -> SettledNoEffect "the Pulumi stack holds no resource the saved plan creates"
+          ([], _) -> SettledPartial present absent
+  where
+    resolvedBy = "a Pulumi stack export that reads every resource the saved plan creates"
 
 isMutation :: StepOp -> Bool
 isMutation OpSame = False

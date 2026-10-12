@@ -317,6 +317,7 @@ classify registry reviewed transaction states entry = case journalClass states o
         SettledLanded physical -> ClassLanded physical
         SettledTargetGone physical -> ClassTargetGone physical
         SettledTerminalPartial physical -> ClassTerminalPartial physical
+        SettledPartial present absent -> ClassPartial present absent
         SettledUnknown reason resolvesBy -> ClassUnknown reason resolvesBy
   where
     operation = reviewPlannedOperation entry
@@ -418,7 +419,8 @@ closeRecordFor transaction review document classes absent =
           | resource <- Map.keys (reviewRetentions document) <> Map.keys (reviewMigrations document)
           , any reverted [Map.lookup scope dispositions | scope <- changed, ownedBy scope resource]
           ]
-    , closedNeverStarted = absent
+    , -- A partial create's absent members are proved absent at close too.
+      closedNeverStarted = absent <> Set.fromList [resource | ClassPartial _ gone <- Map.elems classes, resource <- gone]
     , closedAttestation = Nothing
     }
   where

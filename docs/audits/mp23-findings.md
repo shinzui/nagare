@@ -131,8 +131,8 @@ This is the authoritative list of implementation findings for [MP-23](../masterp
 | [F110](#v050-deferrals) | P3 | `infra destroy` on a context stopped partway through bootstrap refuses with `dangling-reference` instead of retiring dependent scopes together | Deferred (next release) | deferral ledger (operator, 2026-10-10/11) |
 | [F111](#v050-deferrals) | P3 | The scheduled-backup retention warning and prune are not yet checked on a running context | Deferred (next release) | deferral ledger (operator, 2026-10-10/11) |
 | [F112](#v050-deferrals) | P3 | `scripts/test-access-reviewed-public.py` (in no gate) fails at the portal-sync `inventory apply`, which ends "ambiguous tx-… at op-…"; master fails identically and the cause (stale fake kubectl or a real portal-sync regression) is not yet diagnosed | Deferred (next release) | deferral ledger (operator, 2026-10-11) |
-| [F113](#v050-deferrals) | P2 | A Pulumi stage the provider refused partway (Cloud DNS ownership check on the intranet zone, 2026-10-11) has no proof-based exit: `inventory close` needs a converged preview and `recover --decision retry-after-adapter-proof` refuses `unsupported-recovery`, so only an attested close remains | Open | next release |
-| [F114](#v050-deferrals) | P2 | After an attested close of a partially applied Pulumi stage, the fresh plan bundles the missing resources into one create that depends on every verify, while two verifies (`nagare-network-net`, `nagare-nix-cache`) depend on that create, so admission refuses `operation-graph: operation dependency cycle` and the stage cannot be replanned | Open | next release |
+| [F113](#v050-deferrals) | P2 | A Pulumi stage the provider refused partway (Cloud DNS ownership check on the intranet zone, 2026-10-11) has no proof-based exit: `inventory close` needs a converged preview and `recover --decision retry-after-adapter-proof` refuses `unsupported-recovery`, so only an attested close remains | Closed | next release; fixed after v0.5.0: close settles a partial Pulumi create from the stack export (present members kept, absent ones proved absent), with no attestation |
+| [F114](#v050-deferrals) | P2 | After an attested close of a partially applied Pulumi stage, the fresh plan bundles the missing resources into one create that depends on every verify, while two verifies (`nagare-network-net`, `nagare-nix-cache`) depend on that create, so admission refuses `operation-graph: operation dependency cycle` and the stage cannot be replanned | Closed | next release; fixed after v0.5.0: an existing Pulumi member ordered after a member the stage creates joins that create, so the replan has no cycle |
 | [F115](#v050-deferrals) | P3 | `cluster/examples/protected-hello` pins a third-party prebuilt image (`gcr.io/knative-samples/helloworld-go`), so a reviewed deploy refuses it as shipped (`accepted image resource is not the requested OCI publication`) | Deferred (next release) | deferral ledger (operator go-ahead, 2026-10-11) |
 | [F116](#v050-deferrals) | P2 | A reviewed deploy of a prebuilt image needs the Config's own tag to equal the published tag; `deploy --tag` does not override it, and the refusal does not say so. A developer hits this on a first deploy | Deferred (next release) | deferral ledger (operator go-ahead, 2026-10-11) |
 | [F117](#v050-deferrals) | P3 | `nagare-harness route-check` cannot drive a login through an operator portal, so it cannot prove a full login on a context that has one (the intranet) | Deferred (next release) | deferral ledger (operator go-ahead, 2026-10-11) |
@@ -524,7 +524,9 @@ stack's state.
 F114 followed F113 on the same stage. The intranet context was restarted fresh instead; evidence is
 in the operator's intranet evidence directory (`evidence-attempt1-20261011T222923Z`). F113 and F114
 together leave a provider-refused Pulumi stage with no reviewed path forward, which also affects
-EP-172 upgrades of the intranet.
+EP-172 upgrades of the intranet. Both were fixed after v0.5.0. A fake Pulumi stack reproduces the
+stage: the apply stops partway, close settles it from the stack without an attestation, and the
+replan converges.
 
 F115–F117 were found deploying the intranet's protected example on 2026-10-11. The full login on
 the intranet is proven by the operator's own passkey sign-in instead of route-check.

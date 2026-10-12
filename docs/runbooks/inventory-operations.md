@@ -148,6 +148,9 @@ Close classifies every operation of the review from its journal or from the adap
 settlement:
 - completed, never started, refused with no effect, reverted, or no effect;
 - landed, target gone, or terminal partial;
+- partial: a Pulumi create the provider stopped partway. The stack export holds some of its
+  members and proves the rest absent. A pending operation in the export leaves it unknown until
+  `pulumi refresh` resolves it;
 - unknown.
 
 It refuses, and changes nothing, in these cases:
@@ -166,7 +169,8 @@ changed scope gets one of two dispositions:
 - **Reverted.** Nothing in it took effect, so its accepted revision returns to the review's base
   and the review's own retained additions are removed.
 - **Kept.** Something in it completed, landed or partially ran. It keeps the review's desired
-  revision; its objects stay owned and unconverged, and the next review plans from them.
+  revision; its objects stay owned and unconverged, and the next review plans from them. After a
+  partial Pulumi create, that review verifies the members the stack holds and creates the rest.
 
 A scope in which a reviewed migration did not complete every stage always reverts, even if some
 of its stages completed, so a half-moved database is never accepted under its new name (F81).

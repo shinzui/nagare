@@ -8,6 +8,7 @@ module Nagare.Inventory.Adapters.PulumiRuntime
   ( PulumiRuntimeConfig (..)
   , mkPulumiRuntimeOps
   , decodePhysicalResources
+  , decodePendingOperations
   )
 where
 
@@ -72,17 +73,22 @@ observeResources config resources = do
   result <- runPulumi config ["stack", "export", "--stack", T.unpack (runtimeStack config), "--show-secrets=false"]
   pure $ do
     output <- successful "Pulumi stack export" result
-    physicalByUrn <- decodePhysicalResources (TE.encodeUtf8 (T.pack output))
+    let exported = TE.encodeUtf8 (T.pack output)
+    physicalByUrn <- decodePhysicalResources exported
+    pendingByUrn <- decodePendingOperations exported
     let registrationByResource = Map.fromList [(registrationResource registration, registration) | registration <- runtimeRegistrations config]
-    observations <- traverse (observeOne registrationByResource physicalByUrn) resources
+    observations <- traverse (observeOne registrationByResource physicalByUrn pendingByUrn) resources
     observationSet observations
   where
-    observeOne registrations physicalByUrn resource = do
+    observeOne registrations physicalByUrn pendingByUrn resource = do
       registration <- maybe (Left ("Pulumi resource is absent from the native registration bundle: " <> resourceIdText resource)) Right (Map.lookup resource registrations)
       let urn = registrationPulumiUrn registration
-      pure $ case Map.lookup urn physicalByUrn of
-        Just physical -> (resource, ObservedPresent physical)
-        Nothing -> (resource, ConfirmedAbsent (contentDigest (TE.encodeUtf8 ("pulumi-absence:" <> urn))))
+      pure $ case (Map.lookup urn pendingByUrn, Map.lookup urn physicalByUrn) of
+        -- An interrupted Pulumi run leaves the operation pending: the provider
+        -- may hold the resource although the stack does not.
+        (Just pending, _) -> (resource, ObservationUnavailable ("the Pulumi stack records a pending " <> pending <> " operation; pulumi refresh resolves it"))
+        (Nothing, Just physical) -> (resource, ObservedPresent physical)
+        (Nothing, Nothing) -> (resource, ConfirmedAbsent (contentDigest (TE.encodeUtf8 ("pulumi-absence:" <> urn))))
 
 prepareSavedPlan :: PulumiRuntimeConfig -> PlannedOperation -> IO (Either Text PulumiPreparation)
 prepareSavedPlan config operation = do
@@ -268,6 +274,28 @@ digestFromText :: Text -> Text -> IO ContentDigest
 digestFromText label value = case mkContentDigest value of
   Left err -> ioError (userError (T.unpack ("invalid " <> label <> " digest: " <> err)))
   Right digest -> pure digest
+
+-- | The stack's pending operations, by URN, with their kind (creating,
+-- updating, deleting).
+decodePendingOperations :: ByteString -> Either Text (Map Text Text)
+decodePendingOperations bytes = do
+  value <- first T.pack (eitherDecodeStrict bytes)
+  pending <- case value of
+    Object root -> case KM.lookup "deployment" root of
+      Just (Object deployment) -> case KM.lookup "pending_operations" deployment of
+        Just (Array entries) -> Right (toList entries)
+        Nothing -> Right []
+        Just Null -> Right []
+        _ -> Left "Pulumi stack export has malformed pending operations"
+      _ -> Left "Pulumi stack export has no deployment"
+    _ -> Left "Pulumi stack export is not an object"
+  Map.fromList <$> traverse (first T.pack . parseEither parser) pending
+  where
+    parser = withObject "Pulumi pending operation" $ \entry -> do
+      resource <- entry .: "resource"
+      urn <- withObject "Pulumi pending resource" (.: "urn") resource
+      kind <- entry .: "type"
+      pure (urn, kind)
 
 decodePhysicalResources :: ByteString -> Either Text (Map Text PhysicalIdentity)
 decodePhysicalResources bytes = do

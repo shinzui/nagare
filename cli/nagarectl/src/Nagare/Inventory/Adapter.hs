@@ -21,6 +21,7 @@ module Nagare.Inventory.Adapter
   , RecoveryDecision (..)
   , Settlement (..)
   , settleOperationWith
+  , settleFromRecovery
   , fencedSettle
   , Adapter (..)
   , AdapterFence (..)
@@ -230,6 +231,9 @@ data Settlement
     SettledTargetGone !(Maybe PhysicalIdentity)
   | -- | A run-to-completion object of this review failed terminally.
     SettledTerminalPartial !PhysicalIdentity
+  | -- | A create of several members stopped partway (F113): the provider's
+    -- state holds the first members and proves the second absent.
+    SettledPartial ![ResourceId] ![ResourceId]
   | -- | Unproved: the reason, and what would resolve it.
     SettledUnknown !Text !Text
   deriving stock (Eq, Show, Generic)

@@ -8,6 +8,7 @@ import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
+import InventoryPulumiPartialStageSpec (inventoryPulumiPartialStageTests)
 import Nagare.Dsl.Prelude hiding (preview, (.=))
 import Nagare.Infra.Plan (StepOp (OpCreate))
 import Nagare.Inventory.Adapter
@@ -253,6 +254,7 @@ inventoryCloudTests =
           _ <- adapterPrepare adapter verifyOperation >>= expectRight
           calls <- readFile logPath
           assertBool "the saved-plan preview asked Pulumi to report unchanged resources" (" --show-sames " `isInfixOf` calls)
+    , inventoryPulumiPartialStageTests
     ]
 
 fakePulumi :: FilePath -> String

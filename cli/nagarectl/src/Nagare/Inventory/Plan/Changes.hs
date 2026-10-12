@@ -560,24 +560,32 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
         <> [resourceOperation RetireResource resource | (_, resource) <- selectedCollections]
     -- Pulumi saved plans describe one stack snapshot. Independent plans for
     -- resources in that stack become stale as soon as the first one applies.
+    -- F114: an existing member ordered after one the group creates must wait
+    -- for the group, which may itself wait for that member, so it joins the
+    -- group; the group's saved plan holds it unchanged.
     groupPulumiCreates operations =
-      [operation | operation <- operations, isNothing (pulumiCreateOwner operation)]
-        <> [ groupOwner ownerOperations
-           | (_, ownerOperations) <-
-               Map.toAscList
-                 ( Map.fromListWith
-                     (<>)
-                     [ (owner, [operation])
-                     | operation <- operations
-                     , Just owner <- [pulumiCreateOwner operation]
-                     ]
-                 )
-           ]
-    pulumiCreateOwner operation = case (plannedAction operation, plannedExecutor operation, NE.toList (plannedResources operation)) of
-      (CreateResource, PulumiExecutor, [resourceId]) -> case Map.lookup resourceId desiredDeclarations of
+      [operation | operation <- operations, isNothing (pulumiCreateOwner operation), not (joinsGroup operation)]
+        <> [groupOwner (ownerOperations <> filter ((== Just owner) . pulumiOwner VerifyResource) joining) | (owner, ownerOperations) <- Map.toAscList creates]
+      where
+        creates = Map.fromListWith (<>) [(owner, [operation]) | operation <- operations, Just owner <- [pulumiCreateOwner operation]]
+        joining = filter joinsGroup operations
+        joinsGroup operation = case (pulumiOwner VerifyResource operation, NE.toList (plannedResources operation)) of
+          (Just owner, [resourceId]) | Just grouped <- Map.lookup owner creates -> orderedAfterAny (Set.fromList (concatMap (NE.toList . plannedResources) grouped)) resourceId
+          _ -> False
+    pulumiCreateOwner = pulumiOwner CreateResource
+    pulumiOwner action operation = case (plannedAction operation, plannedExecutor operation, NE.toList (plannedResources operation)) of
+      (planned, PulumiExecutor, [resourceId]) | planned == action -> case Map.lookup resourceId desiredDeclarations of
         Just (Managed resource) -> Just (resource ^. #owner)
         _ -> Nothing
       _ -> Nothing
+    orderedAfterAny targets start = go Set.empty [start]
+      where
+        go _ [] = False
+        go seen (resourceId : rest)
+          | Set.member resourceId seen = go seen rest
+          | otherwise =
+              let next = [dependencyResource dependency | Just declaration <- [Map.lookup resourceId desiredDeclarations], dependency <- declarationDependencies declaration]
+               in any (`Set.member` targets) next || go (Set.insert resourceId seen) (next <> rest)
     groupOwner [operation] = operation
     groupOwner operations =
       let ordered = sortOn (NE.head . plannedResources) operations

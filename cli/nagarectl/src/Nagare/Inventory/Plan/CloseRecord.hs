@@ -51,6 +51,8 @@ data OperationClass
   | ClassLanded !PhysicalIdentity
   | ClassTargetGone !(Maybe PhysicalIdentity)
   | ClassTerminalPartial !PhysicalIdentity
+  | -- | The members present at close, then those proved absent (F113).
+    ClassPartial ![ResourceId] ![ResourceId]
   | ClassUnknown !Text !Text
   deriving stock (Eq, Show)
 
@@ -215,6 +217,7 @@ instance ToJSON OperationClass where
     ClassLanded physical -> object ["class" .= ("landed" :: Text), "physical" .= physical]
     ClassTargetGone physical -> object ["class" .= ("target-gone" :: Text), "physical" .= physical]
     ClassTerminalPartial physical -> object ["class" .= ("terminal-partial" :: Text), "physical" .= physical]
+    ClassPartial present absent -> object ["class" .= ("partial" :: Text), "present" .= present, "absent" .= absent]
     ClassUnknown reason resolvesBy -> object ["class" .= ("unknown" :: Text), "reason" .= reason, "resolvesBy" .= resolvesBy]
 
 instance FromJSON OperationClass where
@@ -229,6 +232,7 @@ instance FromJSON OperationClass where
       "landed" -> ClassLanded <$> o .: "physical"
       "target-gone" -> ClassTargetGone <$> o .:? "physical"
       "terminal-partial" -> ClassTerminalPartial <$> o .: "physical"
+      "partial" -> ClassPartial <$> o .: "present" <*> o .: "absent"
       "unknown" -> ClassUnknown <$> o .: "reason" <*> o .: "resolvesBy"
       _ -> fail "unknown operation class"
 
@@ -267,6 +271,7 @@ renderCloseRecord record =
       ClassLanded physical -> "landed on " <> physicalIdentityText physical <> ", not ready"
       ClassTargetGone physical -> "target gone" <> maybe "" ((" (now " <>) . (<> ")") . physicalIdentityText) physical
       ClassTerminalPartial physical -> "terminal partial effect on " <> physicalIdentityText physical
+      ClassPartial present absent -> "partial: present " <> T.intercalate ", " (map resourceIdText present) <> "; absent " <> T.intercalate ", " (map resourceIdText absent)
       ClassUnknown reason resolvesBy -> "unknown: " <> reason <> " (resolved by " <> resolvesBy <> ")"
     renderDisposition = \case
       RevertTo _ -> "reverted to the review's base"

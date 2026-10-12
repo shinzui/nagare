@@ -571,6 +571,7 @@ test-suite nagarectl-test
     InventoryPreviewCleanupSpec
     InventoryPreviewRecoverySpec
     InventoryPublicationSpec
+    InventoryPulumiPartialStageSpec
     InventoryRebuildRestoreSpec
     InventoryRebuildSpec
     InventoryRecoveryModelSpec
