@@ -171,6 +171,16 @@ platformTests =
         guardPlatformMutation exact @?= Right ()
         incompatible ^. #compatibility @?= MajorIncompatible
         assertBool "major skew blocks mutation" (either (const True) (const False) (guardPlatformMutation incompatible))
+    , testCase "a reviewed transition stage passes minor skew and still refuses a major mismatch" $ do
+        let release version = ReleaseIdentity (Just version) Nothing (Just 1)
+            -- EP-172 mid-transition: the target CLI, payload and host against a context and cluster on the source.
+            midTransition = assessPlatformStatus (release "0.6.0") (release "0.6.0") (release "0.5.0") (release "0.6.0") Deployed (release "0.5.0") Deployed
+            major = assessPlatformStatus (release "1.0.0") (release "1.0.0") (release "0.6.0") (release "0.6.0") Deployed (release "0.6.0") Deployed
+        midTransition ^. #compatibility @?= MinorUpgradeRequired
+        assertBool "ordinary mutation still refuses minor skew" (either (const True) (const False) (guardPlatformMutation midTransition))
+        guardTransitionMutation midTransition @?= Right ()
+        major ^. #compatibility @?= MajorIncompatible
+        assertBool "a transition refuses a major mismatch" (either (const True) (const False) (guardTransitionMutation major))
     , testCase "missing host and cluster identities remain a non-blocking legacy warning" $ do
         let release = ReleaseIdentity (Just "1.2.3") Nothing (Just 1)
             unknown = ReleaseIdentity Nothing Nothing Nothing

@@ -14,6 +14,7 @@ module Nagare.Platform.Status
   , renderPlatformStatus
   , platformProbe
   , guardPlatformMutation
+  , guardTransitionMutation
   , validatePlatformAdoption
   , validatePlatformRepin
   , clusterMarkerValue
@@ -186,6 +187,15 @@ guardPlatformMutation :: PlatformStatus -> Either Text ()
 guardPlatformMutation status = case status ^. #compatibility of
   MajorIncompatible -> Left "major platform-version mismatch; inspect `nagarectl platform status` and run an explicit upgrade"
   MinorUpgradeRequired -> Left "minor platform-version skew requires `nagarectl platform upgrade` before platform mutation"
+  _ -> Right ()
+
+-- | The release guard for a reviewed transition stage (EP-172). The stage exists
+-- to close the minor skew between its source release and this payload, so only a
+-- major mismatch refuses; the caller has already bound the review to the payload
+-- that planned it and the context pin it expects.
+guardTransitionMutation :: PlatformStatus -> Either Text ()
+guardTransitionMutation status = case status ^. #compatibility of
+  MajorIncompatible -> Left "major platform-version mismatch; a release transition moves only between minor releases"
   _ -> Right ()
 
 -- | Validate the observations shown before a legacy context is assigned its

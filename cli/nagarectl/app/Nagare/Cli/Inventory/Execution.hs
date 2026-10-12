@@ -142,7 +142,7 @@ import Nagare.Inventory.ScheduledIngest
 import Nagare.Inventory.Status qualified as InventoryStatus
 import Nagare.Inventory.Store qualified as InventoryStore
 import Nagare.Inventory.VmPower (vmPowerOnly)
-import Nagare.Platform.Status (identityFromPayload)
+import Nagare.Platform.Status (guardPlatformMutation, guardTransitionMutation, identityFromPayload)
 import Nagare.Platform.Transition (platformReviewExpectation)
 import Nagare.Platform.Workspace
   ( PlatformWorkspace
@@ -201,6 +201,7 @@ inventoryExecutionRegistry mctx store bundle = do
           ]
       declarations = [declaration | scopeDeclaration <- scopes, resourceBundle <- ResourceInventory.scopeBundles scopeDeclaration, declaration <- ResourceInventory.declarations resourceBundle]
   let reviewIdentity = InventoryPlan.reviewPayloadIdentity document
+      transitionReview = "nagare-transition:" `T.isPrefixOf` reviewIdentity
   when ("nagare-bootstrap:" `T.isPrefixOf` reviewIdentity || "nagare-transition:" `T.isPrefixOf` reviewIdentity) $ do
     active <- activeTarget mctx
     (paths, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
@@ -511,7 +512,11 @@ inventoryExecutionRegistry mctx store bundle = do
                     && Map.null (InventoryPlan.reviewCollections document)
                     && Map.null (InventoryPlan.reviewMigrations document)
                     then prepareVmPowerMutation mctx
-                    else prepareInfraMutationWithPulumi (not (null registrations)) mctx
+                    else
+                      prepareInfraMutationWithPulumi
+                        (if transitionReview then guardTransitionMutation else guardPlatformMutation)
+                        (not (null registrations))
+                        mctx
                 pure (prepared, Just workspace)
       let withWorkspace :: (PlatformWorkspace -> IO a) -> IO a
           withWorkspace action = maybe (dieT "selected executor requires a platform workspace") action workspace

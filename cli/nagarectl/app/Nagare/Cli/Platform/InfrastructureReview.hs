@@ -62,7 +62,7 @@ import Nagare.Ops.ContextGuard
   , renderProjectGuard
   )
 import Nagare.Platform.StackConfig (contextStackConfigPath)
-import Nagare.Platform.Status (guardPlatformMutation)
+import Nagare.Platform.Status (PlatformStatus, guardPlatformMutation)
 import Nagare.Platform.Workspace (PlatformWorkspace)
 import Nagare.Target
   ( ActiveTarget
@@ -99,12 +99,12 @@ import System.Process (readProcessWithExitCode)
 -- infrastructure mutation. ADC is validated before workspace preparation,
 -- because preparation may select or initialize a Pulumi stack.
 prepareInfraMutation :: Maybe String -> IO (ActiveTarget, PlatformWorkspace)
-prepareInfraMutation = prepareInfraMutationWithPulumi True
+prepareInfraMutation = prepareInfraMutationWithPulumi guardPlatformMutation True
 
-prepareInfraMutationWithPulumi :: Bool -> Maybe String -> IO (ActiveTarget, PlatformWorkspace)
-prepareInfraMutationWithPulumi needsPulumi mctx = do
+prepareInfraMutationWithPulumi :: (PlatformStatus -> Either Text ()) -> Bool -> Maybe String -> IO (ActiveTarget, PlatformWorkspace)
+prepareInfraMutationWithPulumi guard needsPulumi mctx = do
   (active, status) <- gatherPlatformStatus mctx
-  either dieT pure (guardPlatformMutation status)
+  either dieT pure (guard status)
   TIO.putStrLn ("platform mutation allowed (" <> compatibilityToken (status ^. #compatibility) <> ")")
   prepareInfraTargetWithPulumi needsPulumi active
 
