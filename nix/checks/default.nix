@@ -16,6 +16,6 @@
       (import ./haskell.nix { inherit pkgs nagarePackages src; })
       // (import ./platform.nix { inherit pkgs nagarePackages src; })
       // (import ./infra.nix { inherit pkgs nagarePackages src; })
-      // (import ./scripts.nix { inherit pkgs nagarePackages src; })
+      // (import ./scripts.nix { inherit pkgs nagarePackages src; });
   };
 }
