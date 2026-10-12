@@ -6,97 +6,110 @@ and describes an existing tag but never creates a version commit, moves a tag, o
 ## Prepare a candidate
 
 1. Choose an unpadded semantic version `X.Y.Z` and update root `release.json`, all three Cabal package
-   versions, `CHANGELOG.md`, and `docs/releases/vX.Y.Z.md` in one reviewed Conventional Commit.
-2. Verify compatibility metadata and migration/rollback claims. A release must not claim automated
-   rollback from a version unless the reverse transaction is tested and listed in `release.json`.
-3. On a clean committed candidate, run:
+   versions, the compatibility fixture in `cli/nagarectl/test/PlatformSpec.hs`, `CHANGELOG.md`, the
+   README status, and `docs/releases/vX.Y.Z.md` in one Conventional Commit,
+   `chore(release): prepare vX.Y.Z`.
+2. Check the compatibility claims. `transitionsFrom` lists the releases an installed context may move
+   from. Do not claim rollback from a version unless the reverse transaction is tested and listed in
+   `rollbackSupportedFrom`.
+3. Run `./scripts/check-release.sh --version X.Y.Z --source-only` and `just docs-validate`, then
+   `just gate-fast` and `just land <candidate>`. The land starts the candidate's full gate in the
+   background.
 
-   ```bash
-   ./scripts/check-release.sh --version X.Y.Z --json
-   ./scripts/rehearse-clone-free-release.sh --version X.Y.Z
-   nix flake check --print-build-logs
-   ```
+## Prove the candidate
 
-The first command checks source and built identities and writes deterministic attachments. The second
-uses an exact `git+file` revision from outside the checkout with an isolated home/XDG tree. It covers
-version, context, external typed configuration, payload resolution, host generation, and local/cloud
-dry runs. It also copies the documented `nix shell ...#nagare -c nagarectl platform upgrade` shape
-into an environment with no ambient Pulumi, verifies the release supplies its operator tools, and
-records a mutation-free reviewed preview. CI repeats the rehearsal natively on every system in
-`release.json`.
+A release proves three things (operator, 2026-10-10): the release gate is green, the EP-172 upgrade
+rehearsal on a disposable local context reads its seeded data back unchanged, and the real intranet
+context upgrades to the candidate and passes the deploy-and-login check. A release counts when the
+intranet runs it, not when a tag exists.
 
-## Rehearse CI without publishing
+1. **Release gate.** When the candidate's full gate is green, run `just gate-release <candidate>`. It
+   runs the mutation sweep, then the deep tier, on the builder. Triage any deep-tier failure before
+   going on.
+2. **Upgrade rehearsal.** Build the candidate's CLI (`nix build --no-link --print-out-paths
+   .#nagarectl`) and the previous release's (`nix build --no-link --print-out-paths
+   github:shinzui/nagare/vPREVIOUS#nagarectl`). Then run
+   [`scripts/transition-rehearsal.sh`](../../scripts/transition-rehearsal.sh) inside
+   `nix develop` with `NAGARE_REHEARSAL_SOURCE` and `NAGARE_REHEARSAL_TARGET` set to their
+   `bin/nagarectl`, `DOCKER_HOST` and `NAGARE_REHEARSAL_IMAGE_DAEMON` set to a Docker daemon whose
+   VM can resolve public names, `NAGARE_REHEARSAL_RESET=1` and a fresh `NAGARE_REHEARSAL_ROOT`.
+   It writes `evidence/transition-rehearsal.json` under that root. Commit that one file as
+   `docs/release-evidence/<candidate-40-character-revision>/transition-rehearsal.json` after the
+   candidate, and land it. Never change the candidate to embed evidence about itself.
+3. **The intranet.** In the operator repository (`mori://tan/tan-ng-labs`), pin the Nagare flake
+   input to the candidate's exact revision. Then follow the release notes' upgrade steps:
+   `platform transition plan --out DIR`, `inventory apply DIR --yes`, and a new plan until it holds
+   only verifications and re-accepts only `bootstrap-stamp` (F124), then
+   `platform transition commit --yes`. Check `platform status` is exact, that protected sites
+   still require login, and that the operator's passkey login works. The open transition binds the
+   candidate's payload, which is derived from its revision. So once the intranet starts, the tag
+   must go on that same commit; a fix found mid-transition goes into the next release.
 
-**Releases after v0.5.0 (operator, 2026-10-10).** A release proves three things: the full gate is
-green for the candidate and so are the mutation sweep and deep tier (`just gate-release REV`), the EP-172 upgrade rehearsal on a disposable local
-context reads the seeded data back unchanged, and the real intranet context upgrades to the
-candidate and passes `nagare-harness route-check`. The local and cloud evidence chain was
-MasterPlan 23's acceptance for the inventory release and is not re-run per release.
+## Build and assemble the attachments
 
-Seal the candidate commit, then run the rehearsal with its nix-built nagarectl as the target
-(`just transition-rehearsal`; [`scripts/transition-rehearsal.sh`](../../scripts/transition-rehearsal.sh)
-names the inputs). It writes `evidence/transition-rehearsal.json` under its root: the source and
-candidate versions and revisions, the transition reviews applied, the seeded row and what read back,
-the final `platform status`, the idle inventory and the zero-operation replan. Save that one file as
-`docs/release-evidence/<candidate-40-character-revision>/transition-rehearsal.json` and commit it
-after the candidate; do not modify the candidate to embed evidence about itself. The rehearsal root
-(reviews, logs, keys) stays outside the tree.
+Each system in `release.json` builds its own attachments from the candidate with
+[`scripts/release-native.sh`](../../scripts/release-native.sh) `X.Y.Z OUTPUT_DIR`. The script runs
+the release gate's built checks (`check-release.sh`), records the native output identities, and runs
+the clone-free rehearsal from an exact `git+file` revision in an isolated home.
 
-Run the GitHub `Release` workflow manually with the candidate version, `candidate_revision` and
-`evidence_revision`, both exact 40-character commits. The evidence commit supplies the record; all
-native builds and rehearsals use the candidate commit. Manual dispatch has read-only repository
-permission and cannot enter the publish job. Omitting the evidence revision permits native artifact
-collection but makes final assembly fail. Download the two native artifacts and assemble them locally:
+- **aarch64-darwin:** in a clean worktree of the candidate, run
+  `scripts/release-native.sh X.Y.Z native/aarch64-darwin`.
+- **x86_64-linux:** run the same script natively in an amd64 `nixos/nix` container, on a Colima
+  profile with Rosetta and 16 GiB of memory whose VM can resolve public names. Prepare a work
+  directory first: build the x86 outputs on the builder with `nix build --no-link
+  --print-out-paths --max-jobs 0 .#packages.x86_64-linux.{nagarectl,nagare,nagare-platform,release-tools}`,
+  copy them into a file cache with `nix copy --to file://WORK/cache`, and write the candidate to
+  `WORK/candidate.bundle` with `git bundle create`. Then run:
+
+  ```bash
+  docker run --rm --platform linux/amd64 -v WORK:/work -v "$PWD/scripts:/scripts" nixos/nix:2.35.2 \
+    bash /scripts/release-native-container.sh CANDIDATE_REVISION X.Y.Z
+  ```
+
+  Its attachments land in `WORK/out/x86_64-linux`.
+
+Put both systems' outputs under one input root and assemble twice:
 
 ```bash
 ./scripts/assemble-release.sh \
   --version X.Y.Z \
-  --input-root native-artifacts \
+  --input-root native \
   --transition-rehearsal docs/release-evidence/CANDIDATE_REVISION/transition-rehearsal.json \
   --output-dir dist
 ```
 
-Confirm the shared manifest and notes were byte-identical, both native output manifests are present,
-and checksums pass from inside `dist` (`sha256sum -c SHA256SUMS`, or `shasum -a 256 -c`).
-Assembly and the checked publisher require the native output and clone-free rehearsal of every
-supported system, the platform metadata, and a rehearsal record that binds this candidate's version
-and revision, moved from a release the payload's `transitionsFrom` lists, read its seeded row back
-unchanged, applied at least one transition review, ended with the CLI, payload, context and cluster
-on the candidate and no open transaction, and replanned with no operation. A record for another
-candidate or a changed outcome fails even when checksums have been recomputed.
-
-Foundation release acceptance does not approve critical intranet adoption: that also requires the
-supported inventory upgrade/recovery gate, the agreed one-hour recovery-point objective, and agreed
-recovery-time and retention targets. Preserve those limits in the production handoff.
+The two assemblies must be byte-identical, and `shasum -a 256 -c SHA256SUMS` must pass from inside
+`dist`. Assembly and the publisher require every supported system's native output and clone-free
+rehearsal, the platform metadata, and a rehearsal record bound to this candidate's version and
+revision. That record must show a move from a release in `transitionsFrom`, the seeded row read back
+unchanged, at least one transition review applied, and the CLI, payload, context and cluster ending
+on the candidate with no open transaction. A record for another candidate or a changed outcome fails
+even when the checksums were recomputed.
 
 ## Publish
 
-After review and explicit publication authorization, configure repository variable
-`NAGARE_INVENTORY_EVIDENCE_REVISION` to the exact reviewed evidence commit. From the sealed candidate
-commit, a maintainer explicitly creates and pushes the signed annotated tag:
+Create the signed annotated tag on the candidate commit, verify it, and push only the tag:
 
 ```bash
-git tag -s vX.Y.Z -m 'Nagare vX.Y.Z'
+git tag -s vX.Y.Z -m 'Nagare vX.Y.Z' CANDIDATE_REVISION
 git push origin vX.Y.Z
 ```
 
-The default command uses Git's configured signing backend. When OpenPGP is unavailable but the
-maintainer already has a usable SSH signing key, use Git's SSH backend for the tag instead:
+When OpenPGP is unavailable but the maintainer already has a usable SSH signing key, use Git's SSH
+backend: `git -c gpg.format=ssh -c user.signingkey=/path/to/key.pub tag -s ...`. Before pushing,
+check that the ref is an annotated `tag`, resolves to the candidate, and has a good signature. SSH
+verification needs an allowed-signers file outside the repository that maps the maintainer's email to
+the public key, passed with `-c gpg.ssh.allowedSignersFile=...`. Never generate or register
+credentials during a release, and never fall back to an unsigned tag.
+
+From a checkout of the tag, publish with the candidate's own CLI:
 
 ```bash
-git -c gpg.format=ssh -c user.signingkey=/path/to/key.pub \
-  tag -s vX.Y.Z -m 'Nagare vX.Y.Z'
+nagarectl release publish --repo shinzui/nagare --version X.Y.Z --assets dist --yes
 ```
 
-Before pushing, verify that the ref is an annotated `tag`, resolves to the reviewed commit, and has a
-good signature. SSH verification requires an allowed-signers file that maps the maintainer's email to
-the existing public key; create it outside the repository and pass it with
-`-c gpg.ssh.allowedSignersFile=/path/to/allowed_signers`. Do not generate or register credentials as
-part of a release run, and never fall back to an unsigned tag.
-
-The tag workflow reruns the normal flake checks, release gate, native builds, and clone-free rehearsal.
-Only its final job receives `contents: write`. It creates the GitHub release from the reviewed notes
-and attaches:
+The publisher checks the tag and every attachment, creates the GitHub release from the reviewed
+notes, and attaches:
 
 - `nagare-release-X.Y.Z.json`;
 - `nagare-vX.Y.Z.md`;
@@ -106,19 +119,20 @@ and attaches:
 - `nagare-platform-metadata-vX.Y.Z.json`, the candidate's `release.json`;
 - `SHA256SUMS`.
 
-Verify the release page, checksums, manifest revision, native systems, and the documented command
-`nix run github:shinzui/nagare/vX.Y.Z#nagarectl -- version --json`. A rerun accepts an existing
-release only when every attachment is byte-identical; any difference requires investigation and a
-new semantic version.
+If it stops with "created draft is not yet visible", run the same command again: a rerun completes
+the draft, and it accepts an existing release only when every attachment is byte-identical. Then
+verify the release page and the documented command
+`nix run github:shinzui/nagare/vX.Y.Z#nagarectl -- version --json`, and switch the operator
+repository's flake input from the revision to the tag, which resolves to the same commit.
 
 ## Broken release or failed publication
 
 Never move, delete, or reuse a published tag, and never overwrite its attachments. These are the
 reproducible identities of existing operator pins.
 
-- If CI fails before publication because source is inconsistent, fix the source and choose a new
-  version. Do not move the candidate tag after others may have fetched it.
-- If only external CI infrastructure failed and the tagged source is unchanged, rerun the workflow.
+- If a gate fails before publication because the source is inconsistent, fix the source and choose a
+  new version. Do not move the candidate tag after others may have fetched it.
+- If only publication failed and the tagged source is unchanged, rerun `nagarectl release publish`.
 - If a published release is unsafe, edit its GitHub release description to lead with
   **Deprecated**, explain the impact, and point to the retained prior version or a fixed later
   release. Do not describe this as deleting or yanking the Nix input.

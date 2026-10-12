@@ -20,9 +20,8 @@ that may drift:
 
 - `docs/runbooks/releases.md` for the maintainer procedure and recovery rules.
 - `release.json` for the platform version, schema versions, supported systems, and rollback claims.
-- `.github/workflows/release.yml` for the native build matrix, attachment set, and publication
-  permissions; read `.github/workflows/ci.yml` and `.github/workflows/live-smoke.yml` too when Nix
-  installation, flake evaluation, cache trust, or workflow consistency changes.
+- `scripts/release-native.sh` and `scripts/release-native-container.sh` for each system's native
+  attachments. GitHub Actions are removed; every release step runs locally as the runbook describes.
 - `scripts/check-release.sh`, `scripts/rehearse-clone-free-release.sh`, and
   `scripts/assemble-release.sh` for executable release invariants.
 - `flake.nix`, `flake.lock`, `nix/packages.nix`, `nix/nagare-packages.nix`,
@@ -64,7 +63,7 @@ upstream release tags before choosing bounds or pins.
 
 ## Select the operating phase
 
-Determine whether the user wants an audit, candidate preparation, CI rehearsal, publication, or
+Determine whether the user wants an audit, candidate preparation, candidate proof, publication, or
 recovery. Do only the requested phase and its safe prerequisites. When the user explicitly asks to
 release or publish a version, treat that as one end-to-end operation: audit and prepare the candidate,
 commit release fixes, run local and native gates, assemble evidence, create and push the signed tag,
@@ -82,7 +81,7 @@ focused fix when it remains within the authorized release scope; do not bypass t
 - Candidate preparation may edit release-owned files, but preserve unrelated user changes. Never
   stash, reset, discard, or fold unrelated edits into the release commit.
 - A full rehearsal requires a clean, committed candidate so the revision is exact.
-- Manual workflow dispatch, tag creation, tag push, release-description edits, and live smoke tests
+- Intranet upgrades, tag creation, tag push, release-description edits, and live smoke tests
   are external mutations. An explicit request to release or publish authorizes the normal mutations
   required by this runbook; a request only to audit, prepare, or rehearse does not.
 - Tag creation is a deliberate maintainer action. Do not infer permission to sign or push a tag from
@@ -155,26 +154,11 @@ unrelated worktree changes.
 
 ## Validate a committed candidate
 
-On a clean candidate commit, run the repository's exact gates:
-
-```bash
-nix flake check --print-build-logs
-./scripts/check-release.sh --version X.Y.Z --json
-./scripts/rehearse-clone-free-release.sh --version X.Y.Z
-```
-
-Every GitHub workflow that evaluates the root flake must use the same supported
-`cachix/install-nix-action` major as the release workflow and set `accept-flake-config = true` in
-`extra_nix_config`. This keeps clean runners independent of a maintainer's local flake registry and
-lets them use the public cache advertised by `flake.nix`. If CI tries to update an otherwise clean
-lock and reports that a `flake:` input is absent from the registry, compare the runner's Nix version
-and workflow installer with the release workflow before changing the lock or adding a registry
-dependency.
-
-The local rehearsal proves only the current system. Require the GitHub `Release` workflow's manual,
-non-publishing dispatch to pass for every system declared in `release.json`, then assemble and verify
-the downloaded native artifacts as described in `docs/runbooks/releases.md`. Also require the normal
-CI jobs for the candidate commit, including the separate `nagare-access` compatibility check.
+Follow `docs/runbooks/releases.md` ("Prove the candidate" and "Build and assemble the
+attachments"): `just gate-release` on the candidate after its green full gate, the EP-172 upgrade
+rehearsal record committed after the candidate, the intranet upgraded to the exact candidate
+revision with the deploy-and-login check passing, and `scripts/release-native.sh` on every system in
+`release.json`, assembled twice to byte-identical output.
 
 Scale extra evidence to the diff:
 
@@ -191,7 +175,7 @@ justifies bypassing a check.
 
 ## Publish only an exact reviewed candidate
 
-Immediately before publication, confirm the version, clean HEAD revision, candidate CI results,
+Immediately before publication, confirm the version, clean HEAD revision, release gate and rehearsal results,
 release notes, supported-system evidence, and authorization to sign and push the tag. An explicit
 request to release or publish supplies that authorization for the end-to-end workflow.
 Then follow the runbook's exact signed annotated tag command and push only `vX.Y.Z` to `origin`.
@@ -203,15 +187,16 @@ allowed-signers file outside the repository before pushing. Never generate a key
 a forge, or weaken the tag to unsigned operation automatically. If neither an existing OpenPGP nor
 SSH signing identity can produce and locally verify the tag, report a release blocker.
 
-Do not run a separate `gh release create`: the tag-triggered workflow reruns the gates and creates the
-GitHub Release with minimal write permission. Monitor it through completion and verify:
+Publish from a checkout of the tag with the candidate's `nagarectl release publish --repo
+shinzui/nagare --version X.Y.Z --assets dist --yes`; rerun it if it reports a draft that is not yet
+visible. Do not run a separate `gh release create`. Verify:
 
 - `nagare-release-X.Y.Z.json` names the tag, exact revision, and every supported system.
 - `nagare-vX.Y.Z.md`, one native Nix output manifest and one clone-free rehearsal manifest per
   supported system, and `SHA256SUMS` are present.
 - `nagare-transition-rehearsal-vX.Y.Z.json` binds the candidate's version and revision and the
   EP-172 rehearsal outcome; `nagare-platform-metadata-vX.Y.Z.json` is the candidate's `release.json`.
-- Every checksum passes and the attachments are the deterministic set assembled by the workflow.
+- Every checksum passes and the attachments are the deterministic set assembled locally.
 - `nix run github:shinzui/nagare/vX.Y.Z#nagarectl -- version --json` reports the expected version and
   revision without a checkout.
 
@@ -221,7 +206,7 @@ Publication itself must leave every Nagare context and cluster unchanged.
 
 - If validation fails before publication, fix the source and choose a new version if the tag may
   already have been fetched. Do not move the candidate tag.
-- If only external CI infrastructure failed and tagged source is unchanged, rerun the workflow.
+- If only publication failed and the tagged source is unchanged, rerun `nagarectl release publish`.
 - If an already published release is unsafe, mark its GitHub description `Deprecated`, explain the
   impact, and point to a retained prior or fixed later version. Keep the tag and assets intact.
 - Direct operators to the staged per-context upgrade/rollback and disaster-recovery runbooks. Do not
