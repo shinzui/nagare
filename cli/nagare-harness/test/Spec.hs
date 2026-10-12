@@ -155,7 +155,10 @@ tests =
             assertBool "red newest gate ignored" (isJust (landedGateBlock [("b", False), ("a", True)]))
             landedGateBlock [("b", True), ("a", False)] @?= Nothing
             landedGateBlock [] @?= Nothing
-        , testCase "land takes a fast record, carries it over documentation, and stops behind a red landed gate until a fully gated fix" landableRoundTrip
+        , -- Both round trips set XDG_STATE_HOME, which is process-wide, so they
+          -- must not run at the same time.
+          after AllFinish "/carries a green record forward/" $
+            testCase "land takes a fast record, carries it over documentation, and stops behind a red landed gate until a fully gated fix" landableRoundTrip
         ]
     , testGroup
         "documentation carry-forward (EP-170, operator 2026-10-09)"
