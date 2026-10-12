@@ -136,6 +136,7 @@ This is the authoritative list of implementation findings for [MP-23](../masterp
 | [F115](#v050-deferrals) | P3 | `cluster/examples/protected-hello` pins a third-party prebuilt image (`gcr.io/knative-samples/helloworld-go`), so a reviewed deploy refuses it as shipped (`accepted image resource is not the requested OCI publication`) | Deferred (next release) | deferral ledger (operator go-ahead, 2026-10-11) |
 | [F116](#v050-deferrals) | P2 | A reviewed deploy of a prebuilt image needs the Config's own tag to equal the published tag; `deploy --tag` does not override it, and the refusal does not say so. A developer hits this on a first deploy | Deferred (next release) | deferral ledger (operator go-ahead, 2026-10-11) |
 | [F117](#v050-deferrals) | P3 | `nagare-harness route-check` cannot drive a login through an operator portal, so it cannot prove a full login on a context that has one (the intranet) | Deferred (next release) | deferral ledger (operator go-ahead, 2026-10-11) |
+| [F118](#v050-deferrals) | P3 | `inventory status` from a CLI whose platform workspace was never prepared for the context reports "existing Nagare platform workspace has a mismatched manifest" for a directory that does not exist, instead of saying the workspace is not prepared | Deferred (next release) | deferral ledger (operator, 2026-10-11) |
 
 Closed findings keep their full text, location, implementation updates and verification in [the closed-findings archive](mp23-archive/mp23-findings-closed.md). F01 and F11 retain their [earlier independent closure](mp23-archive/mp23-verification.md). F02, F03, F04, F05, F06, F07, F08 and F20 now have [2026-10-02 independent closure](mp23-independent-verification-2026-10-02.md). F34, F35, F36, F37, F38, F41 and F42 have 2026-10-04 independent closure on candidate `7596632c`, and F49 and F50 on candidate `847543896d07` ([records](mp23-independent-results-2026-10-04/phase1-source-and-regressions-7596632c.md)). F51, F53, F55–F61, F63–F76 and F79 have 2026-10-07 independent closure on candidate `96c1da11`, all on source except F53 and F76, which close on the gate itself ([record](mp23-independent-results-2026-10-07/README.md)). Other entries retain their status shown above.
 
@@ -530,3 +531,7 @@ replan converges.
 
 F115–F117 were found deploying the intranet's protected example on 2026-10-11. The full login on
 the intranet is proven by the operator's own passkey sign-in instead of route-check.
+
+F118 was found on 2026-10-11 running a master CLI's read-only `inventory status` against the
+intranet, whose payload is v0.5.0. Status never prepares a workspace, so the refusal is correct;
+only its wording is wrong.
