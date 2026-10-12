@@ -246,3 +246,18 @@ Rationale: a docs-only full gate spent about 20 minutes re-running unchanged sui
 `nagarectl-test`), and its outcome could not differ from the ancestor's. This is the first slice of
 [EP-170](../plans/170-size-the-release-gate-to-the-change.md).
 
+
+
+## Amendment (2026-10-12): the deep tier has no time budget, and its path list is a deliberate cut
+
+The operator dropped the one-hour budget of the 2026-10-06 amendment and of the 2026-10-07
+amendment's "widening the guarantee" line. The deep tier runs only when `just gate-release` finds a
+change to the paths listed in the 2026-10-06 amendment since the nearest ancestor with a green deep
+run (`just deep-tier-required`), so a run of several hours is an occasional cost, not a per-release
+wait. It took 6.2 hours on 2026-10-10.
+
+The path list leaves out code that recovery also runs, such as planning under
+`src/Nagare/Inventory/Plan/` other than `CloseRecord.hs` and command wiring in
+`src/Nagare/Inventory/Command.hs`. Those change in most releases, so listing them would run the
+deep tier almost every time. A change there that alters recovery behaviour is caught by the fast
+tier, which every commit runs, and not by the deep tier until a listed path next changes.
