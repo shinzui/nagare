@@ -107,20 +107,3 @@ check the token before context resolution or provider work. A nested inventory
 command sees the transaction marker and refuses, preventing self-deadlock on the
 context lock. `scripts/test-inventory-transport-guards.sh` covers the early shell
 boundary, while `InventoryTransactionSpec` covers marker scope and lock re-entry.
-
-## Release evidence projection
-
-`scripts/assemble-managed-resource-evidence.sh` accepts a verified disposable
-rehearsal, an exported private inventory store, a complete coverage result, and
-the native or assembled release manifest. It rechecks the candidate, review,
-operator version/source revision, no-op review, converged scope vector, private head, and committed journal member
-digests. Its output contains only selected public fields: payload and run
-identities, revision and review digests, completed operation receipt references,
-aggregate observations, tool identities, and a coverage-result digest. Private
-store members, provider addresses, credentials, and native plans remain outside
-the public output. `scripts/test-managed-resource-evidence.sh` checks idempotent
-projection, structural redaction, incomplete coverage refusal, and changed
-private member refusal. Release assembly and the checked publisher can include
-the manifest as an eighth immutable product after verifying its payload
-binding, but the workflow does not yet require or supply it;
-provider-backed rehearsal and complete command coverage remain acceptance gates.

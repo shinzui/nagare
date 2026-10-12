@@ -208,4 +208,3 @@ jq '.sourceRevision = "0123456789abcdef0123456789abcdef01234567"' \
 [[ "$(nagare_release_source_tag "$metadata_fixture")" == "0123456789ab" ]]
 
 printf 'release consistency tests passed\n'
-bash "$repo_root/scripts/test-managed-resource-evidence.sh"

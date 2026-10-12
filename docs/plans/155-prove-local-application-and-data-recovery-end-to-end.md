@@ -132,7 +132,7 @@ Evidence counts toward final acceptance only where its recorded inputs (operator
   - **Records:**
     - [the C2 record](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-implementer-results-2026-10-03/c2-acceptance-7d486457.json);
     - [the C1 proof](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-implementer-results-2026-10-03/c1-local-gate-7d486457-rerun.json);
-    - the procedure, in [runbook §6](../runbooks/native-verification-harness.md).
+    - the procedure, in [runbook §6](https://github.com/shinzui/nagare/blob/0331adaec93a69083e6e7295afa72b91540fb8e1/docs/runbooks/native-verification-harness.md).
 
   **Update (2026-10-04, implementer, frozen candidate `7596632c`):** `7d486457` became a checkpoint when C3 found F45–F47. The acceptance C2 for the new candidate finalized 16/16 on a fresh context with the candidate's own payload, and the assembler accepted the same directory.
   - **Assembly result:** run `af847e74…`, 46 scope revisions, 1 component receipt.
