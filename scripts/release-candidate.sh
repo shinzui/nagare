@@ -103,15 +103,15 @@ cp "$worktree/scripts/release-native-container.sh" "$work/release-native-contain
 step "Colima profile $profile"
 yaml="$HOME/.colima/$profile/colima.yaml"
 if ! colima status -p "$profile" >/dev/null 2>&1; then
-  colima start -p "$profile" --cpu 4 --memory 16 --vm-type vz --vz-rosetta --mount "$work:w"
+  colima start -p "$profile" --activate=false --cpu 4 --memory 16 --vm-type vz --vz-rosetta --mount "$work:w"
 fi
 grep -qx 'memory: 16' "$yaml" || die "$profile does not have 16 GiB of memory; stop it and rerun"
 grep -qx 'rosetta: true' "$yaml" || die "$profile does not have Rosetta; stop it and rerun"
 grep -A1 '^mounts:' "$yaml" | grep -q "location: $work\$" || die "$profile does not mount $work; stop it and rerun"
 colima ssh -p "$profile" -- sudo sh -c "printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' > /etc/resolv.conf"
 export DOCKER_HOST="unix://$HOME/.colima/$profile/docker.sock"
-docker run --rm --platform linux/amd64 "$image" getent hosts github.com >/dev/null \
-  || die "the $profile VM cannot resolve github.com"
+[[ "$(docker run --rm --platform linux/amd64 "$image" curl -s -o /dev/null -w '%{http_code}' https://cache.nixos.org/nix-cache-info)" == 200 ]] \
+  || die "a container on $profile cannot reach cache.nixos.org"
 
 step "x86_64-linux attachments"
 docker run --rm --platform linux/amd64 -v "$work:/work" "$image" \
