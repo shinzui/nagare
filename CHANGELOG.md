@@ -5,6 +5,23 @@ immutable `v<major>.<minor>.<patch>` Git tags.
 
 ## [Unreleased]
 
+## [0.6.3] - 2026-10-13
+
+### Added
+
+- **Static and server sites can require login.** `StaticSite` and `ServerSite` take the same
+  `access` field as an application and route through the shared enforcer; a preview of a protected
+  site is its own protected hostname. A public route does not become protected in place: retire it
+  through a reviewed plan first (EP-186).
+- **Sites can be granted to a team.** `nagarectl access team add-member|remove-member|list-members`
+  and `access grant|revoke --team` write reviewed En relationships. The bootstrap En schema adds
+  group membership; the schema change rolls the `en` server during the upgrade (EP-187).
+- **`nagarectl access check --host HOST --user EMAIL`** asks the context's En whether one user can
+  reach a protected host now, without writing anything (EP-188).
+- **`nagarectl domains tls HOST`** diagnoses one host's certificate chain, from DomainMapping to the
+  ACME challenges, without reading Secrets. `--renew --yes` retries a failed certificate this
+  context owns. A deploy that stops on TLS prints the verdict and this command (IR-28).
+
 ### Fixed
 
 - **Static sites keep their public URL on redirects and serve text as UTF-8.** The generated Nginx
@@ -12,6 +29,9 @@ immutable `v<major>.<minor>.<patch>` Git tags.
   container's internal port. Redirects are now relative (`Location: /guide/`), and text responses
   carry `charset=utf-8`. Existing sites pick this up on their next `nagarectl site deploy`
   (BUG-5, BUG-6).
+- **A review with access operations refuses before admission when `NAGARE_EN_API_KEY` is unset.**
+  `inventory apply` and `inventory resume` name the variable and keep the saved review valid;
+  status findings and plan errors name why an access observation was unavailable (IR-27).
 
 ## [0.6.2] - 2026-10-12
 
