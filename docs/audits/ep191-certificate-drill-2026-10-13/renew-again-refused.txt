@@ -1,0 +1,8 @@
+nagarectl: renew refused: the certificate is Ready; there is nothing to renew
+ep191.protected-static-site.preview.127-0-0-1.sslip.io: certificate ready
+  namespace nagare-system
+  DomainMapping        ep191.protected-static-site.preview.127-0-0-1.sslip.io Ready
+  Knative Certificate  ep191.protected-static-site.preview.127-0-0-1.sslip.io Ready
+  Certificate          ep191.protected-static-site.preview.127-0-0-1.sslip.io Ready
+  CertificateRequest   ep191.protected-static-site.preview.127-0-0-1.sslip.io-1 Issued
+  next: nothing to do

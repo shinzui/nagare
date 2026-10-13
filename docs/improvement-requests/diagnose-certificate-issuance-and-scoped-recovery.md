@@ -6,7 +6,9 @@ generated:
   by: process:openai-codex
   at: "2026-10-13T13:08:02Z"
 requestId: IR-28
-status: accepted
+status: completed
+completedAt: "2026-10-13T16:50:00Z"
+resolution: "ExecPlan 191: `nagarectl domains tls HOST [--json]` walks DomainMapping, Knative Certificate, cert-manager Certificate, latest CertificateRequest, ACME Order and Challenges by ownerReference and classifies ready, issuing, failed, rate-limited or incomplete with bounded, PEM-redacted upstream detail, failed attempts and cert-manager's next retry, without reading Secrets. `--renew --yes` runs the cluster guard, refuses foreign or unmanaged hosts, wildcards and every verdict but failed with a Failed latest request, prints the diagnosis, and writes one resourceVersion-tested Issuing=True status patch, proved on cert-manager v1.20.2. A deploy that stops on a certificate prints the verdict and the command; docs/user/cluster-bootstrap.md documents diagnose, renew and inventory resume. A disposable local drill renewed a forced finalize failure, resumed the stopped deploy, and kept access grants and DomainMapping specs byte-identical."
 targetPlan: docs/plans/191-diagnose-certificate-issuance-failures-and-renew-one-owned-host.md
 origin: mori://shinzui/keiro-runtime-docs/plans/49-deploy-the-docs-to-the-labs-intranet-with-local-bun-builds
 acceptanceCriteria:

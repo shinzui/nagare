@@ -71,13 +71,17 @@ After this change:
   in `scripts/audit-managed-commands.py`.
   Done 2026-10-13: the same tests, plus a `denied` case that is refused (see Decision Log). The
   coverage row is `delegated`, since no inventory scope claims the Certificate. Fast gate green.
-- [ ] M4: The deploy's certificate timeout includes the M2 one-line diagnosis and the renew
+- [x] M4: The deploy's certificate timeout includes the M2 one-line diagnosis and the renew
   command. `docs/user/cluster-bootstrap.md` has a "Certificate did not issue" section, and
   `docs/user/reference.md` lists the command. IR-28 is marked `completed`. Pass: `just gate-fast`
   is green, then `just land`. The M1 local context is re-run end to end once with the packaged
   `nagarectl`: forced failure during a deploy, diagnose, renew, Ready, `inventory resume` converges,
   and `nagarectl access list` plus the DomainMapping `.spec` are identical before the failure and
   after the resume.
+  Done 2026-10-13: [`docs/audits/ep191-certificate-drill-2026-10-13/`](../audits/ep191-certificate-drill-2026-10-13/README.md),
+  packaged `nagarectl` at `5b13b0f0`. The stop printed the diagnosis, then renew, Ready after 4 s,
+  `resume` printed `converged`, and access lists and DomainMapping specs were byte-identical. Fast
+  gate green.
 
 
 ## Surprises & Discoveries
@@ -137,7 +141,7 @@ After this change:
 
 ## Outcomes & Retrospective
 
-(To be filled at completion.)
+Complete 2026-10-13: M1–M4 pass; IR-28 is completed.
 
 
 ## Context and Orientation

@@ -1,0 +1,17 @@
+ep191.protected-static-site.preview.127-0-0-1.sslip.io: certificate failed after 1 failed attempt: Failed to finalize Order: 404 urn:ietf:params:acme:error:malformed: Certificate not found (EP-191 M4 forced failure); cert-manager retries at 2026-10-13T17:39:49Z
+  namespace nagare-system
+  DomainMapping        ep191.protected-static-site.preview.127-0-0-1.sslip.io Ready
+  Knative Certificate  ep191.protected-static-site.preview.127-0-0-1.sslip.io not Ready (DoesNotExist)
+                       Issuing certificate as Secret does not exist
+  Certificate          ep191.protected-static-site.preview.127-0-0-1.sslip.io not Ready, Issuing=False (Failed)
+                       Issuing certificate as Secret does not exist
+  CertificateRequest   ep191.protected-static-site.preview.127-0-0-1.sslip.io-1 Failed
+                       Failed to finalize Order: 404 urn:ietf:params:acme:error:malformed: Certificate not found (EP-191 M4 forced failure)
+  ACME problem: urn:ietf:params:acme:error:malformed
+  failed issuance attempts: 1
+  last failure: 2026-10-13T16:39:49Z
+  cert-manager retries at: 2026-10-13T17:39:49Z
+  next: renew once with `nagarectl domains tls ep191.protected-static-site.preview.127-0-0-1.sslip.io --renew --yes`, or wait for cert-manager's retry
+renewing Certificate nagare-system/ep191.protected-static-site.preview.127-0-0-1.sslip.io; cert-manager deletes the failed request and its Order, so the diagnosis above is the only record of that attempt
+patch: [{"op":"test","path":"/metadata/resourceVersion","value":"4431"},{"op":"replace","path":"/status/conditions/1","value":{"lastTransitionTime":"2026-10-13T16:44:25Z","message":"Certificate re-issuance manually triggered","observedGeneration":1,"reason":"ManuallyTriggered","status":"True","type":"Issuing"}}]
+run `nagarectl domains tls ep191.protected-static-site.preview.127-0-0-1.sslip.io` to follow issuance; then `nagarectl inventory resume TX --yes` if a deploy stopped on this certificate

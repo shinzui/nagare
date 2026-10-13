@@ -1,0 +1,1 @@
+{"ref": {"apiVersion": "serving.knative.dev/v1", "kind": "Service", "name": "nagare-access", "namespace": "nagare-system"}}
