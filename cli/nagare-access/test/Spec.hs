@@ -101,6 +101,7 @@ import Shomei.Server.Keys (bootstrapKeys)
 import Shomei.Session.Dto qualified as ShomeiSessionDTO
 import Shomei.SigningKey.Domain (SigningAlgorithm (ES256))
 import Shomei.SigningKey.Protection.Jwt (KeyEncryptionKey, keyEncryptionKeyFromBase64)
+import SiteAccessIntegrationSpec (siteAccessIntegrationTests)
 import System.Timeout (timeout)
 import TeamAccessSpec (teamAccessTests)
 import Test.Tasty
@@ -121,7 +122,7 @@ main =
       , shomeiTests
       , enTests
       , decisionCacheTests
-      , teamAccessTests
+      , testGroup "MasterPlan 27" [teamAccessTests, siteAccessIntegrationTests]
       , proxyTests
       , portalTests
       , challengeTests

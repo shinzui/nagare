@@ -5,7 +5,9 @@
 -- the pinned En evaluator here: the schema parses and compiles, a team's member
 -- reaches the team's host and nothing else, and the cost of a check against a
 -- flat team is recorded as tuple-store operations, for members and strangers.
-module TeamAccessSpec (teamAccessTests) where
+-- The team schema, En configuration and tuple fixtures are shared with
+-- "SiteAccessIntegrationSpec", which drives the same tuples through the gateway.
+module TeamAccessSpec (teamAccessTests, authConfig, memberTuple, ref, teamActiveSchema, teamViewerTuple) where
 
 import Control.Monad (forM)
 import Data.Generics.Labels ()

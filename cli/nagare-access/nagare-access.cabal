@@ -96,6 +96,7 @@ test-suite nagare-access-test
     BackendMapSpec
     DecisionCacheSpec
     EnContractSpec
+    SiteAccessIntegrationSpec
     TeamAccessSpec
     TestServices
 

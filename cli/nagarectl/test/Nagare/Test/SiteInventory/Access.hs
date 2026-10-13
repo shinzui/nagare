@@ -219,6 +219,21 @@ protectedSiteInventoryTests =
           pure
           (mkScopeSnapshot context (Map.insert (scopeId firstScope) (generation, firstScope) (snapshotScopes snapshot)) Map.empty)
       assertBool "a second site claimed an accepted protected hostname" (isLeft (composeInventory withFirst (ReplaceScope secondScope :| [])))
+  , testCase "two protected sites of two kinds compose one backend map, which the enforcer suite denies and admits through" $ do
+      -- The enforcer's "site access integration" group decodes exactly these bytes.
+      static <- roundTrip (protectedStatic & #name .~ unsafe (mkSiteName "a") & #domains .~ unsafe (mkDomains [("a.example.test", True)]))
+      let server = protectedServer & #name .~ unsafe (mkSiteName "b") & #domains .~ unsafe (mkDomains [("b.example.test", True)])
+      (staticScope, _) <- compileStatic RecordRelease (Just binding) static emptyReleaseLog
+      (serverScope, _) <-
+        either
+          (fail . show)
+          pure
+          (compileServerSiteScopeWith RecordRelease Nothing (Just binding) mempty (ServerDeploy.ServerDeployInputs server "v1" "example.com" "." True initProfile) cluster namespaceId imageId Map.empty Map.empty Map.empty emptyReleaseLog (releaseFor "b" "b.example.test") source)
+      withStatic <- either (fail . show) pure (mkScopeSnapshot context (Map.insert (scopeId staticScope) (generation, staticScope) (snapshotScopes snapshot)) Map.empty)
+      candidate <- either (fail . show) pure (composeInventory withStatic (ReplaceScope serverScope :| []))
+      maps <- either (fail . T.unpack) pure (compileContributedBackendMaps (inventoryDeclarations (candidateInventory candidate)))
+      backends <- maybe (assertFailure "no composed backend map" >> fail "no map") (backendsJson . snd) (Map.lookup (backendMapResourceId authOwner) maps)
+      backends @?= "{\"a.example.test\":\"http://a.personal.svc.cluster.local\",\"b.example.test\":\"http://b.personal.svc.cluster.local\"}"
   , testCase "an unrelated accepted contributor keeps its backend entry beside the site's" $ do
       site <- roundTrip (protectedStatic & #domains .~ demoDomains)
       (scope, _) <- compileStatic RecordRelease (Just binding) site emptyReleaseLog
