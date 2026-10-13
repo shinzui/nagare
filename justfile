@@ -357,7 +357,8 @@ mutation-sweep rev="HEAD" width="4":
 # part of it (operator, 2026-10-12): it took over six hours. Run `just gate-deep`
 # by hand when working on recovery code. The sweep is skipped when nothing it
 # builds (cli/, nix/, the flake, cabal.project) changed since the nearest
-# ancestor with a clean sweep.
+# ancestor with a clean sweep, apart from the platform version a release
+# preparation bumps.
 # Run the release gate: gate record, then mutation sweep unless nothing it builds changed.
 [group('test')]
 gate-release rev="HEAD":
@@ -373,9 +374,22 @@ gate-release rev="HEAD":
       git merge-base --is-ancestor "$candidate" "$commit" 2>/dev/null || continue
       if [ -z "$base" ] || git merge-base --is-ancestor "$base" "$candidate"; then base=$candidate; fi
     done
-    if [ -n "$base" ] && git diff --quiet "$base" "$commit" -- cli nix flake.nix flake.lock 'cabal.project*'; then
-      echo "gate-release: $commit has a green full gate, and nothing the mutation sweep builds changed since its clean sweep on $base"
-      exit 0
+    if [ -n "$base" ]; then
+      # Compare the changed lines with the platform version masked on both sides.
+      from=$(git show "$base:release.json" | jq -r .platformVersion)
+      to=$(git show "$commit:release.json" | jq -r .platformVersion)
+      removed=() added=()
+      while IFS= read -r line; do
+        case "$line" in
+          "--- a/"* | "+++ b/"* | "--- /dev/null" | "+++ /dev/null") ;;
+          -*) line=${line#-}; removed+=("${line//"$from"/VERSION}") ;;
+          +*) line=${line#+}; added+=("${line//"$to"/VERSION}") ;;
+        esac
+      done < <(git diff -U0 "$base" "$commit" -- cli nix flake.nix flake.lock 'cabal.project*')
+      if [ "$(printf '%s\n' "${removed[@]}" | sort)" = "$(printf '%s\n' "${added[@]}" | sort)" ]; then
+        echo "gate-release: $commit has a green full gate, and nothing the mutation sweep builds changed since its clean sweep on $base, apart from the platform version"
+        exit 0
+      fi
     fi
     just mutation-sweep "$commit"
     mkdir -p "$records"
