@@ -31,7 +31,8 @@ packages:
   - nagarectl
 interface:
   - "Nagare.Dsl.Access"
-  - "nagarectl access grant|revoke|list"
+  - "nagarectl access grant|revoke|list|check"
+  - "nagarectl access team add-member|remove-member|list-members"
   - "nagare-access"
 requires:
   - CAP-6
@@ -49,11 +50,20 @@ evidence:
     resource: cli/nagarectl/test/Nagare/Test/SiteInventory/Access.hs
     proves: A protected StaticSite or ServerSite reviews a cluster-local origin, enforcer routes per hostname including previews, and the backend entry the enforcer denies through; unsupported policies, CDN, supplied TLS, missing auth, and in-place public-to-protected transitions refuse.
   - kind: test
+    resource: cli/nagare-access/test/SiteAccessIntegrationSpec.hs
+    proves: Through the real En evaluator over the reviewed schema and the gateway, a user reaches exactly the hosts granted to them or their teams, a revoked last path denies within the decision TTL, an En outage is 503 without an upstream call, and a forged identity header admits nobody.
+  - kind: test
+    resource: cli/nagarectl/test/AccessCheckSpec.hs
+    proves: The effective-access diagnostic sends one fully consistent check, reports allowed, denied, conditional and unavailable exactly, and never echoes a body into a diagnostic.
+  - kind: test
     resource: cli/nagare-access/test/DecisionCacheSpec.hs
     proves: A grant or revoke is observed after at most the decision TTL on a monotonic clock, a delayed or older check cannot extend an allow, and live entries are bounded.
   - kind: example
     resource: cluster/examples/protected-hello/nagare/Config.hs
     proves: A shipped application opts into required-login access in its typed config.
+  - kind: example
+    resource: cluster/examples/protected-static-site/nagare/Config.hs
+    proves: A shipped static site opts into required-login access with the same field.
   - kind: guide
     resource: docs/user/access.md
     proves: Auth-plane installation, protected deployment, grants, revocation, local verification, and failure modes are documented.

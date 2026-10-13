@@ -1,18 +1,26 @@
--- | EP-183 M1: a protected route is checked over verified HTTPS, never
--- assumed. The stage proves, in order, against one @requireLogin@ host:
+-- | EP-183 M1, extended by EP-188 M3: a protected route is checked over
+-- verified HTTPS, never assumed. The stage proves, in order, against one
+-- @requireLogin@ host:
 --
 -- 1. certificate verification is enforced: the same request with a
 --    deliberately wrong trust anchor is refused;
--- 2. an anonymous request is redirected to the login page;
--- 3. a scripted login of a granted disposable user reaches the app;
--- 4. after a reviewed revoke of that grant the same session gets 403 within
---    the enforcer's decision cache.
+-- 2. an anonymous document request is redirected to the login page, and an
+--    anonymous API request gets 401;
+-- 3. a scripted login of a disposable user without a grant gets 403, and the
+--    effective-access diagnostic says denied;
+-- 4. after a reviewed grant (direct, or a team membership plus a team grant)
+--    the same session reaches the app and the diagnostic says allowed; on
+--    the team path a member of another team is refused;
+-- 5. after a reviewed revoke (or removal from the team) the diagnostic says
+--    denied at once, and the session gets 403 within the enforcer's decision
+--    cache.
 --
 -- The checks are pure over 'RouteOps', so each named failure has a test with
 -- a scripted world; 'ioRouteOps' runs them with curl, kubectl and nagarectl.
 -- No request skips certificate verification.
 module Nagare.Harness.RouteCheck
   ( RouteCheck (..)
+  , GrantPath (..)
   , Trust (..)
   , HttpRequest (..)
   , HttpResponse (..)
@@ -41,10 +49,15 @@ where
 import Control.Concurrent (threadDelay)
 import Control.Exception (bracket)
 import Control.Monad (replicateM)
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.Except (ExceptT (..), except, runExceptT, throwE)
+import Data.Aeson (Value (..), eitherDecodeStrict)
+import Data.Aeson.KeyMap qualified as KM
 import Data.Char (isAlphaNum, isSpace)
 import Data.Generics.Labels ()
 import Data.List (find)
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
 import Nagare.Harness.Prelude
 import System.Directory (getTemporaryDirectory, removeFile)
@@ -64,6 +77,7 @@ data HttpRequest = HttpRequest
   , url :: !Text
   , cookies :: ![(Text, Text)]
   , form :: ![(Text, Text)]
+  , headers :: ![(Text, Text)]
   }
   deriving stock (Eq, Show, Generic)
 
@@ -95,8 +109,15 @@ data RouteCheck = RouteCheck
   , revokeWait :: !Int
   -- ^ Seconds to wait for a revoke: En's publish lag plus the enforcer's
   -- 30-second decision cache.
+  , grantPath :: !GrantPath
   }
   deriving stock (Eq, Show, Generic)
+
+-- | How the checked user receives the host: a direct grant, or membership in
+-- a team the host is granted to, beside a second team that holds nothing,
+-- whose member must be refused.
+data GrantPath = DirectGrant | TeamGrant !Text !Text
+  deriving stock (Eq, Show)
 
 -- | Everything the stage does to the world.
 data RouteOps = RouteOps
@@ -106,6 +127,13 @@ data RouteOps = RouteOps
   , grant :: !(Text -> IO (Either Text ()))
   -- ^ A reviewed grant of the host to a user id, saved and applied.
   , revoke :: !(Text -> IO (Either Text ()))
+  , addMember :: !(Text -> Text -> IO (Either Text ()))
+  -- ^ A reviewed membership of a user id in a team, saved and applied.
+  , removeMember :: !(Text -> Text -> IO (Either Text ()))
+  , grantTeam :: !(Text -> IO (Either Text ()))
+  -- ^ A reviewed grant of the host to a team.
+  , checkAccess :: !(Text -> IO (Either Text Text))
+  -- ^ The effective-access diagnostic's decision word for a user id.
   , newSecret :: !(IO Text)
   , pause :: !(IO ())
   -- ^ One second.
@@ -126,6 +154,12 @@ data RouteFailure
   | ProtectedNotServed !Int !Text
   | RevokeFailed !Text
   | RevokeNotEnforced !Int
+  | ApiNotUnauthorized !Int
+  | UngrantedServed !Int
+  | StrangerServed !Int
+  | TeamStepFailed !Text
+  | CheckFailed !Text !Text
+  | CheckMismatch !Text !Text !Text
   deriving stock (Eq, Show)
 
 renderFailure :: RouteFailure -> Text
@@ -142,89 +176,113 @@ renderFailure = \case
   ProtectedNotServed code detail -> "a granted session was not served the app: " <> tshow code <> (if T.null detail then "" else " (" <> detail <> ")")
   RevokeFailed detail -> "the reviewed revoke failed: " <> detail
   RevokeNotEnforced code -> "the revoked session still gets " <> tshow code <> ", not 403"
+  ApiNotUnauthorized code -> "an anonymous API request was not refused with 401: " <> tshow code
+  UngrantedServed code -> "a signed-in user without a grant was not refused with 403: " <> tshow code
+  StrangerServed code -> "a member of a team without a grant was not refused with 403: " <> tshow code
+  TeamStepFailed detail -> "the reviewed team step failed: " <> detail
+  CheckFailed user detail -> "access check for " <> user <> " gave no decision: " <> detail
+  CheckMismatch user wanted got -> "access check for " <> user <> " said " <> got <> ", not " <> wanted
 
 runRouteCheck :: RouteOps -> RouteCheck -> IO (Either RouteFailure ())
-runRouteCheck ops check = do
-  wrong <- (ops ^. #http) (check ^. #wrongTrust) (get root [])
+runRouteCheck ops check = runExceptT $ do
+  wrong <- lift ((ops ^. #http) (check ^. #wrongTrust) (get root []))
   case wrong of
-    Right _ -> pure (Left VerificationNotEnforced)
-    Left (Unreachable detail) -> pure (Left (RouteUnreachable detail))
-    Left (TlsRejected _) -> do
-      say "a wrong trust anchor is refused ok"
-      anonymous <- awaitRoute (check ^. #routeWait)
-      case anonymous of
-        Left failure -> pure (Left failure)
-        Right response -> case loginTarget (check ^. #host) response of
-          Left failure -> pure (Left failure)
-          Right loginUrl -> do
-            say ("anonymous: 302 -> " <> loginUrl <> " ok")
-            secret <- ops ^. #newSecret
-            let email = "route-check-" <> T.take 12 secret <> "@example.test"
-                password = "Rc-" <> secret
-            created <- (ops ^. #createUser) email password
-            case created of
-              Left detail -> pure (Left (UserNotCreated detail))
-              Right user -> do
-                granted <- (ops ^. #grant) user
-                case granted of
-                  Left detail -> pure (Left (GrantFailed detail))
-                  Right () -> do
-                    say ("granted " <> user <> " on " <> check ^. #host)
-                    session <- login loginUrl email password
-                    case session of
-                      Left failure -> pure (Left failure)
-                      Right jar -> do
-                        served <- untilStatus (check ^. #grantWait) jar (== 200)
-                        case served of
-                          Just response
-                            | (check ^. #expectBody) `T.isInfixOf` (response ^. #body) -> do
-                                say ("login as " <> email <> ": 200 ok")
-                                revoked <- (ops ^. #revoke) user
-                                case revoked of
-                                  Left detail -> pure (Left (RevokeFailed detail))
-                                  Right () -> do
-                                    denied <- untilStatus (check ^. #revokeWait) jar (== 403)
-                                    case denied of
-                                      Just _ -> say "after revoke: 403 ok" >> pure (Right ())
-                                      Nothing -> Left . either (const (RevokeNotEnforced 0)) (RevokeNotEnforced . (^. #status)) <$> (ops ^. #http) (check ^. #trust) (get root jar)
-                            | otherwise -> pure (Left (ProtectedNotServed 200 "the body lacks the expected text"))
-                          Nothing -> do
-                            last' <- (ops ^. #http) (check ^. #trust) (get root jar)
-                            pure (Left (either (ProtectedNotServed 0 . tshow) (\r -> ProtectedNotServed (r ^. #status) (T.take 120 (r ^. #body))) last'))
+    Right _ -> throwE VerificationNotEnforced
+    Left (Unreachable detail) -> throwE (RouteUnreachable detail)
+    Left (TlsRejected _) -> pure ()
+  say "a wrong trust anchor is refused ok"
+  anonymous <- ExceptT (awaitRoute (check ^. #routeWait))
+  loginUrl <- except (loginTarget host anonymous)
+  say ("anonymous: 302 -> " <> loginUrl <> " ok")
+  api <- request (HttpRequest "GET" root [] [] [("Accept", "application/json")])
+  unless (api ^. #status == 401) (throwE (ApiNotUnauthorized (api ^. #status)))
+  say "anonymous API request: 401 ok"
+  (email, password, user) <- newUser
+  jar <- login loginUrl email password
+  ungranted <- request (get root jar)
+  unless (ungranted ^. #status == 403) (throwE (UngrantedServed (ungranted ^. #status)))
+  expectCheck user "denied"
+  say ("login as " <> email <> " without a grant: 403, check denied ok")
+  case check ^. #grantPath of
+    DirectGrant -> do
+      step GrantFailed ((ops ^. #grant) user)
+      say ("granted " <> user <> " on " <> host)
+    TeamGrant team _ -> do
+      step TeamStepFailed ((ops ^. #addMember) team user)
+      step TeamStepFailed ((ops ^. #grantTeam) team)
+      say (user <> " joined team " <> team <> ", which is granted " <> host)
+  served <- lift (untilStatus (check ^. #grantWait) jar (== 200))
+  case served of
+    Just response
+      | (check ^. #expectBody) `T.isInfixOf` (response ^. #body) -> pure ()
+      | otherwise -> throwE (ProtectedNotServed 200 "the body lacks the expected text")
+    Nothing -> do
+      last' <- lift ((ops ^. #http) (check ^. #trust) (get root jar))
+      throwE (either (ProtectedNotServed 0 . tshow) (\r -> ProtectedNotServed (r ^. #status) (T.take 120 (r ^. #body))) last')
+  expectCheck user "allowed"
+  say "granted session: 200, check allowed ok"
+  case check ^. #grantPath of
+    DirectGrant -> pure ()
+    TeamGrant _ other -> do
+      (strangerEmail, strangerPassword, stranger) <- newUser
+      step TeamStepFailed ((ops ^. #addMember) other stranger)
+      strangerJar <- login loginUrl strangerEmail strangerPassword
+      answer <- request (get root strangerJar)
+      unless (answer ^. #status == 403) (throwE (StrangerServed (answer ^. #status)))
+      expectCheck stranger "denied"
+      say ("a member of team " <> other <> ": 403, check denied ok")
+  case check ^. #grantPath of
+    DirectGrant -> step RevokeFailed ((ops ^. #revoke) user)
+    TeamGrant team _ -> step RevokeFailed ((ops ^. #removeMember) team user)
+  expectCheck user "denied"
+  say "after revoke: check denied at once"
+  denied <- lift (untilStatus (check ^. #revokeWait) jar (== 403))
+  case denied of
+    Just _ -> say "after revoke: 403 ok"
+    Nothing -> do
+      last' <- lift ((ops ^. #http) (check ^. #trust) (get root jar))
+      throwE (either (const (RevokeNotEnforced 0)) (RevokeNotEnforced . (^. #status)) last')
   where
-    root = "https://" <> check ^. #host <> "/"
-    say = ops ^. #progress
-    get target jar = HttpRequest "GET" target jar []
-    request req =
+    host = check ^. #host
+    root = "https://" <> host <> "/"
+    say = lift . (ops ^. #progress)
+    get target jar = HttpRequest "GET" target jar [] []
+    step wrap action = lift action >>= either (throwE . wrap) pure
+    newUser = do
+      secret <- lift (ops ^. #newSecret)
+      let email = "route-check-" <> T.take 12 secret <> "@example.test"
+          password = "Rc-" <> secret
+      user <- step UserNotCreated ((ops ^. #createUser) email password)
+      pure (email, password, user)
+    expectCheck user wanted = do
+      got <- step (CheckFailed user) ((ops ^. #checkAccess) user)
+      unless (got == wanted) (throwE (CheckMismatch user wanted got))
+    requestIO req =
       (ops ^. #http) (check ^. #trust) req <&> \case
         Left (TlsRejected detail) -> Left (CertificateNotTrusted detail)
         Left (Unreachable detail) -> Left (RouteUnreachable detail)
         Right response -> Right response
+    request = ExceptT . requestIO
     login loginUrl email password = do
-      formPage <- request (get loginUrl [])
-      case formPage of
-        Left failure -> pure (Left failure)
-        Right page
-          | page ^. #status /= 200 -> pure (Left (LoginFormUnusable ("GET returned " <> tshow (page ^. #status))))
-          | otherwise -> case (lookup "__Host-nagare_csrf" (responseCookies page), formCsrf (page ^. #body)) of
-              (Just cookie, Just token) | cookie == token -> do
-                let submit =
-                      HttpRequest
-                        "POST"
-                        ("https://" <> check ^. #host <> "/_nagare/login")
-                        [("__Host-nagare_csrf", cookie)]
-                        [("csrf", token), ("rd", "/"), ("email", email), ("password", password)]
-                submitted <- request submit
-                pure $ case submitted of
-                  Left failure -> Left failure
-                  Right response
-                    | response ^. #status == 302
-                    , Just sessionCookie <- lookup "nagare_session" (responseCookies response) ->
-                        Right (("nagare_session", sessionCookie) : [cookie' | cookie'@("nagare_refresh", _) <- responseCookies response])
-                    | otherwise -> Left (LoginRejected (response ^. #status))
-              _ -> pure (Left (LoginFormUnusable "no matching CSRF cookie and form token"))
+      page <- request (get loginUrl [])
+      when (page ^. #status /= 200) (throwE (LoginFormUnusable ("GET returned " <> tshow (page ^. #status))))
+      case (lookup "__Host-nagare_csrf" (responseCookies page), formCsrf (page ^. #body)) of
+        (Just cookie, Just token) | cookie == token -> do
+          submitted <-
+            request
+              ( HttpRequest
+                  "POST"
+                  ("https://" <> host <> "/_nagare/login")
+                  [("__Host-nagare_csrf", cookie)]
+                  [("csrf", token), ("rd", "/"), ("email", email), ("password", password)]
+                  []
+              )
+          case lookup "nagare_session" (responseCookies submitted) of
+            Just sessionCookie | submitted ^. #status == 302 -> pure (("nagare_session", sessionCookie) : [cookie' | cookie'@("nagare_refresh", _) <- responseCookies submitted])
+            _ -> throwE (LoginRejected (submitted ^. #status))
+        _ -> throwE (LoginFormUnusable "no matching CSRF cookie and form token")
     awaitRoute remaining = do
-      answer <- request (get root [])
+      answer <- requestIO (get root [])
       case answer of
         Right response
           | response ^. #status == 502
@@ -330,8 +388,12 @@ ioRouteOps environment host' =
         pure $ case code of
           ExitSuccess -> parseCreatedUser (T.pack out)
           ExitFailure _ -> Left (T.strip (T.pack err))
-    , grant = reviewed "grant"
-    , revoke = reviewed "revoke"
+    , grant = \user -> reviewed ("grant-" <> user) ["access", "grant", "--host", T.unpack host', "--user", T.unpack user]
+    , revoke = \user -> reviewed ("revoke-" <> user) ["access", "revoke", "--host", T.unpack host', "--user", T.unpack user]
+    , addMember = \team user -> reviewed ("add-member-" <> team <> "-" <> user) ["access", "team", "add-member", "--team", T.unpack team, "--user", T.unpack user]
+    , removeMember = \team user -> reviewed ("remove-member-" <> team <> "-" <> user) ["access", "team", "remove-member", "--team", T.unpack team, "--user", T.unpack user]
+    , grantTeam = \team -> reviewed ("grant-team-" <> team) ["access", "grant", "--host", T.unpack host', "--team", T.unpack team]
+    , checkAccess = \user -> fmap (>>= decisionWord) (run ["access", "check", "--host", T.unpack host', "--user", T.unpack user, "--json"])
     , newSecret = T.pack . concatMap show <$> replicateM 4 (uniformM globalStdGen :: IO Word)
     , pause = threadDelay 1_000_000
     , progress = \line -> TIO.putStrLn ("route " <> line)
@@ -346,12 +408,14 @@ ioRouteOps environment host' =
               CaFile path -> ["--cacert", path]
             connectArgs = maybe [] (\port -> ["--connect-to", T.unpack host' <> ":443:127.0.0.1:" <> show port]) (environment ^. #connectTo)
             cookieArgs = if null (req ^. #cookies) then [] else ["-H", T.unpack ("Cookie: " <> T.intercalate "; " [k <> "=" <> v | (k, v) <- req ^. #cookies])]
+            headerArgs = concat [["-H", T.unpack (k <> ": " <> v)] | (k, v) <- req ^. #headers]
             formArgs = concat [["--data-urlencode", T.unpack (k <> "=" <> v)] | (k, v) <- req ^. #form]
             args =
               ["-sS", "--max-time", "20", "-X", T.unpack (req ^. #method), "-D", headerPath, "-o", "-", "-w", "\n%{http_code}"]
                 <> trustArgs
                 <> connectArgs
                 <> cookieArgs
+                <> headerArgs
                 <> formArgs
                 <> [T.unpack (req ^. #url)]
         (code, out, err) <- readProcessWithExitCode "curl" args ""
@@ -363,19 +427,26 @@ ioRouteOps environment host' =
                   [(statusCode, "")] -> Right (HttpResponse statusCode (parseHeaders rawHeaders) (T.dropEnd 1 content))
                   _ -> Left (Unreachable ("curl printed no status: " <> statusLine))
           ExitFailure n -> Left (curlFailure n (T.strip (T.pack err)))
-    reviewed verb user = do
-      let dir = environment ^. #reviews <> "/route-check-" <> T.unpack verb <> "-" <> T.unpack user
-          env' = [("NAGARE_EN_URL", T.unpack (environment ^. #enUrl)), ("NAGARE_EN_API_KEY", T.unpack (environment ^. #enApiKey))]
-          run args = do
-            inherited <- getEnvironment
-            (code, out, err) <- readCreateProcessWithExitCode ((proc (environment ^. #nagarectl) (["--context", T.unpack (environment ^. #context)] <> args)) {env = Just (env' <> filter ((`notElem` map fst env') . fst) inherited)}) ""
-            pure $ case code of
-              ExitSuccess -> Right ()
-              ExitFailure _ -> Left (lastLine (T.pack (out <> err)))
-      saved <- run ["access", T.unpack verb, "--host", T.unpack host', "--user", T.unpack user, "--save-plan", dir]
+    -- A reviewed command: saved under the reviews directory, then applied.
+    reviewed label args = do
+      let dir = environment ^. #reviews <> "/route-check-" <> T.unpack label
+      saved <- run (args <> ["--save-plan", dir])
       case saved of
         Left detail -> pure (Left ("save: " <> detail))
-        Right () -> first ("apply: " <>) <$> run ["inventory", "apply", dir, "--yes"]
+        Right _ -> first ("apply: " <>) . fmap (const ()) <$> run ["inventory", "apply", dir, "--yes"]
+    -- nagarectl in the context, with the private En address and key; its
+    -- stdout on success, its last line on failure.
+    run args = do
+      let env' = [("NAGARE_EN_URL", T.unpack (environment ^. #enUrl)), ("NAGARE_EN_API_KEY", T.unpack (environment ^. #enApiKey))]
+      inherited <- getEnvironment
+      (code, out, err) <- readCreateProcessWithExitCode ((proc (environment ^. #nagarectl) (["--context", T.unpack (environment ^. #context)] <> args)) {env = Just (env' <> filter ((`notElem` map fst env') . fst) inherited)}) ""
+      pure $ case code of
+        ExitSuccess -> Right (T.pack out)
+        ExitFailure _ -> Left (lastLine (T.pack (out <> err)))
+    -- The decision of @access check --json@: its one JSON line.
+    decisionWord out = case [line | line <- T.lines out, "{" `T.isPrefixOf` line] of
+      line : _ | Right (Object report) <- eitherDecodeStrict (TE.encodeUtf8 line), Just (String word) <- KM.lookup "decision" report -> Right word
+      _ -> Left ("access check printed no decision: " <> T.take 200 (T.strip out))
     lastLine text' = case reverse (filter (not . T.null) (map T.strip (T.lines text'))) of
       line : _ -> line
       [] -> "no output"
@@ -451,6 +522,10 @@ data RouteCheckOptions = RouteCheckOptions
   , expectBody :: !Text
   , nagarectl :: !FilePath
   , reviews :: !FilePath
+  , team :: !(Maybe Text)
+  -- ^ Grant through this team instead of directly (EP-188 M3).
+  , otherTeam :: !Text
+  -- ^ A team the host is never granted to, whose member must be refused.
   }
   deriving stock (Eq, Show, Generic)
 
@@ -481,7 +556,8 @@ routeCheckMain options = do
               , enApiKey = key
               , reviews = options ^. #reviews
               }
-          check = RouteCheck (options ^. #host) trusted (CaFile wrong) (options ^. #expectBody) 180 60 120
+          path = maybe DirectGrant (\team' -> TeamGrant team' (options ^. #otherTeam)) (options ^. #team)
+          check = RouteCheck (options ^. #host) trusted (CaFile wrong) (options ^. #expectBody) 180 60 120 path
           ingress action = case options ^. #ingressPort of
             Just port -> withPortForward (options ^. #kubeContext) "kourier-system" "kourier" port 443 action
             Nothing -> action

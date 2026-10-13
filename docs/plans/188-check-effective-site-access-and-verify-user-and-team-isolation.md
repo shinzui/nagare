@@ -128,6 +128,19 @@ nagarectl access check --host b.apps.example.com --user alice@example.com --json
 
 Expected decisions are denied before the grant, allowed for A after it, and denied for B throughout. Use `curl -sS -o /dev/null -w '%{http_code}\n'` with a private session-cookie input supplied by the fixture for HTTP verification; avoid putting secrets in transcripts or command lines. The fixture owns login and token cleanup. Obtain a committed candidate gate record before the native drill and record the actual fixture invocation in Progress once it exists.
 
+The native drill is `scripts/site-access-drill.sh` (M3). It runs from an empty environment on a disposable Docker daemon, with the auth images built from this tree by `cluster/bootstrap/auth-images/build-local-image.sh` under `NAGARE_MODE=local` and `NAGARE_AUTH_PUSH=0`:
+
+```bash
+DOCKER_HOST=unix://$HOME/.colima/nagare-mp23/docker.sock \
+NAGARE_DRILL_NAGARECTL=$(cabal list-bin --project-dir=cli/nagarectl nagarectl:exe:nagarectl) \
+NAGARE_DRILL_HARNESS=$(cabal list-bin --project-dir=cli/nagare-harness nagare-harness) \
+NAGARE_DRILL_GHC_ENV=$PWD/cli/nagarectl/.ghc.environment.aarch64-darwin-9.12.4 \
+NAGARE_DRILL_IMAGE_TAG=mp27-<revision> NAGARE_DRILL_RESET=1 \
+  scripts/site-access-drill.sh
+```
+
+It bootstraps a `site-access` context, verifies the served En schema and the images, publishes and deploys `cluster/examples/protected-static-site` and a preview, runs `nagare-harness route-check --team engineering --other-team finance` against the production host, then drives a direct grant through the real login: the preview refuses the production grant, a raw identity header admits nobody, the origin's cluster-local hostname has no external route, the diagnostic says denied the moment a revoke is applied while the cached session may still be served, the session is refused within the decision TTL, and a second release rolls back to the first with its protection intact. Its record is `evidence/site-access-drill.json` under the drill root.
+
 
 Revision (2026-10-12): Consume the latest dependency APIs and verified diagnostic fields. Keep functional and freshness integration acceptance; performance checks remain the specific cache and tuple-read regressions owned by EP-186/187, without a general load suite.
 

@@ -252,7 +252,9 @@ hostname is its own authorization object, including the default
 grant each one separately with `nagarectl access grant --host HOST`.
 `site rollback` keeps the current config's protection and changes only the
 image. An accepted public site cannot become protected in place; retire it
-and collect its DomainMapping first. See [identity-aware access](access.md).
+and collect its DomainMapping first. See [identity-aware access](access.md) and
+the bundled [`protected-static-site`](../../cluster/examples/protected-static-site)
+example, which also shows team grants and `nagarectl access check`.
 
 ---
 

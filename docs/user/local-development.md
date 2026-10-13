@@ -34,7 +34,10 @@ local-bootstrap` installs a private CA (`nagare-local-ca`) and enables Knative
 auto-TLS, so app routes are served over `https://…` with certificates that CA
 issues (the secure context WebAuthn requires). Trust that CA, or pass it to
 `curl --cacert`, to reach them without a certificate warning; `nagare-harness
-route-check --context NAME --reviews DIR` checks a protected route this way.
+route-check --context NAME --reviews DIR` checks a protected route this way
+(with `--team KEY` it grants through a reviewed team membership and refuses a
+member of another team), and `scripts/site-access-drill.sh` runs the whole
+site-access proof on a disposable daemon (MasterPlan 27).
 
 For a hybrid workflow where one service runs on your workstation and calls
 dependencies deployed on Nagare, see

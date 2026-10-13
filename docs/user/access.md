@@ -174,7 +174,9 @@ the route is never deleted by a name-only command.
 
 A `StaticSite` or `ServerSite` takes the same reviewed route through
 `nagarectl site deploy`, `site rollback` and `site preview deploy`
-([static hosting](static-hosting.md#protected-sites)). Its origin Service is
+([static hosting](static-hosting.md#protected-sites);
+[`cluster/examples/protected-static-site`](../../cluster/examples/protected-static-site)
+is the bundled example). Its origin Service is
 cluster-local, so the generated Knative hostname is not a public alternative
 to the protected route, and a rollback changes only the image: protection
 follows the current config, never older release history. A protected site
@@ -238,6 +240,26 @@ Revoke the grant:
 ```bash
 nagarectl access revoke --host protected-hello.apps.example.com --user alice@example.com
 ```
+
+### Check effective access
+
+Ask En, at a fully consistent snapshot, whether one user currently has `access`
+on one protected host, through every path (direct grants and teams), with the
+same permission the enforcer evaluates:
+
+```bash
+nagarectl access check --host protected-hello.apps.example.com --user alice@example.com
+nagarectl access check --host protected-hello.apps.example.com --user alice@example.com --json
+```
+
+The answer is `allowed`, `denied`, `conditional` (a caveat En could not
+evaluate; the enforcer refuses it), or `unavailable` (En did not answer; this
+is not a denial and exits nonzero). It names the snapshot token it was decided
+at, never a timestamp. The gateway may still serve its cached decision for up to
+`NAGARE_ACCESS_DECISION_TTL` seconds after a change, so a fresh `denied` here can
+coexist briefly with an admitted session. The command reads En through the
+context's private transport with `NAGARE_EN_API_KEY`; it writes nothing, and it
+never infers an answer from `access list`.
 
 ### Teams
 

@@ -50,6 +50,8 @@ routeCheckParser =
       <*> (T.pack <$> strOption (long "expect-body" <> metavar "TEXT" <> value "rows: " <> showDefault <> help "Text the app's page contains"))
       <*> strOption (long "nagarectl" <> metavar "PATH" <> value "nagarectl" <> showDefault <> help "The nagarectl binary for reviewed commands")
       <*> strOption (long "reviews" <> metavar "DIR" <> help "Directory for the saved grant and revoke reviews")
+      <*> optional (T.pack <$> strOption (long "team" <> metavar "KEY" <> help "Grant the host to this team and check through a reviewed membership (EP-188 M3)"))
+      <*> (T.pack <$> strOption (long "other-team" <> metavar "KEY" <> value "route-check-strangers" <> showDefault <> help "A team the host is never granted to; its member must be refused"))
 
 mutationsParser :: Parser Command
 mutationsParser =
