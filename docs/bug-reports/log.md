@@ -1,4 +1,7 @@
 # Bundle Update Log
 
+## 2026-10-13
+* **Addition**: Record BUG-5 and BUG-6 from the protected runtime-docs deployment and an owning-repository reproduction of the released static Nginx golden configuration: directory redirects expose HTTP port 8080, and UTF-8 text is served without a charset. Retain the local container reproduction and HTTP results under `docs/audits/static-runtime-defaults-2026-10-13/`.
+
 ## 2026-09-15
 * **Addition**: Create the Bug Report bundle on the `coordination.bugReports` profile from okf-profiles v0.15.0 and record BUG-1 through BUG-4 from the live 0.2.2 to 0.3.0 upgrade at `mori://tan/tan-ng-labs/docs/validate-the-labs-nagare-cluster-before-real-use`.

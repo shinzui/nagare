@@ -8,6 +8,8 @@ okf_version: "0.2"
 
 # Improvement Request
 
+- [Diagnose terminal certificate issuance failures and expose scoped recovery](diagnose-certificate-issuance-and-scoped-recovery.md) - Surface the certificate request and ACME failure chain with a supported per-host retry path that preserves the reviewed deployment.
+- [Preflight private access credentials and preserve actionable observation errors](preflight-private-access-credentials.md) - Name missing access credentials before starting a reviewed transaction and retain safe adapter causes in planning diagnostics.
 - [Migrate Nagare's local object store from MinIO to RustFS](migrate-from-minio-to-rustfs.md) - Replace the local S3 backend with pinned RustFS artifacts, verified backup and recovery compatibility, and a data-preserving migration and rollback path.
 - [Add optional Coraza Web Application Firewall support to Nagare ingress](add-coraza-web-application-firewall-support.md) - Add a declarative self-hosted WAF path that protects direct HTTP traffic before Kourier, with tuning, bypass checks, and rollback.
 - [Make every managed resource a first-class object in one authoritative inventory](make-managed-resources-first-class.md) - Give Nagare one typed model of identity, ownership, dependencies, lifecycle, desired state, observed drift, and transaction evidence across cloud, host, cluster, data, secrets, artifacts, and releases.
