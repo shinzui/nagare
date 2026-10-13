@@ -19,6 +19,8 @@ import Data.Text.Encoding qualified as TE
 import Data.Time (UTCTime)
 import Data.Time.Format.ISO8601 (iso8601ParseM)
 import Nagare.Dsl.Prelude hiding ((<.>))
+import Nagare.Inventory.Adapter (AdapterExecution (..))
+import Nagare.Inventory.KubernetesTransport (KubectlRequest (..), KubernetesRuntimeConfig (KubernetesRuntimeConfig), runKubectlWith, withKubectlInterpreter)
 import Nagare.Ops.CertificateChain
   ( ChainReport (..)
   , ChainVerdict (..)
@@ -27,6 +29,7 @@ import Nagare.Ops.CertificateChain
   , renderChainReport
   , renewChainWith
   , renewDecision
+  , withCertificateDiagnosis
   )
 import Nagare.Ops.Domains
   ( CertificateEvidence (..)
@@ -50,6 +53,8 @@ import Nagare.Ops.Domains
   , parseDigShort
   , queryDomainRowsWith
   )
+import Nagare.Resource.Types (mkContextId)
+import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 import Test.Tasty (TestTree)
 import Test.Tasty.HUnit
@@ -330,6 +335,26 @@ certificateChainTests =
       (result, events) <- renew "failed-finalize" (pure (Left "the active Kubernetes context is 'other'"))
       result @?= Left "cluster guard refused: the active Kubernetes context is 'other'"
       [() | Ran _ _ <- events] @?= []
+  , testCase "a deploy's certificate timeout names the verdict through the runtime's own kubectl binding" $ do
+      requests <- newIORef []
+      events0 <- newIORef []
+      let stopped = AdapterEffectAmbiguous "Kubernetes DomainMapping certificate did not prove readiness; reobserve before retry"
+          runtime handler = withKubectlInterpreter (runKubectlWith handler) (KubernetesRuntimeConfig (either (error . T.unpack) id (mkContextId "labs")) "labs" (pure (Right ())))
+          served request = do
+            modifyIORef' requests (<> [request])
+            result <- fixtureRunner "failed-finalize" events0 "kubectl" (request ^. #arguments)
+            pure $ case result of
+              Observed bytes -> Right (ExitSuccess, T.unpack (TE.decodeUtf8 bytes), "")
+              _ -> Right (ExitFailure 1, "", "error: the server could not find the requested resource")
+      diagnosed <- withCertificateDiagnosis (runtime served) "docs.labs.example.com" stopped
+      diagnosed
+        @?= AdapterEffectAmbiguous
+          "Kubernetes DomainMapping certificate did not prove readiness; reobserve before retry; docs.labs.example.com: certificate failed after 1 failed attempt: Failed to finalize Order: 404 urn:ietf:params:acme:error:malformed: Certificate not found; cert-manager retries at 2026-10-13T15:03:41Z; run `nagarectl domains tls docs.labs.example.com`"
+      sent <- readIORef requests
+      map (^. #context) sent @?= replicate 6 "labs"
+      assertBool "no write" (all (\r -> take 1 (r ^. #arguments) == ["get"]) sent)
+      kept <- withCertificateDiagnosis (runtime (\_ -> pure (Left "could not invoke kubectl"))) "docs.labs.example.com" stopped
+      kept @?= stopped
   , testCase "the JSON renew field states the refusal" $ do
       (report, _) <- diagnose "foreign-context"
       case Aeson.toJSON (chainReportValue (renewDecision "labs" report) report) of

@@ -268,6 +268,66 @@ guarantee deletion of already-issued resources. Keep the context on Let's
 Encrypt staging until the inventory and `certificate-policy` check are clean;
 Nagare deliberately does not automate bulk certificate deletion.
 
+## Certificate did not issue
+
+A deploy that waits for a site's certificate stops like this when issuance does
+not finish:
+
+```text
+stopped tx-… at op-…: Kubernetes DomainMapping certificate did not prove readiness; reobserve before retry; docs.labs.example.com: certificate failed after 1 failed attempt: Failed to finalize Order: 404 urn:ietf:params:acme:error:malformed: Certificate not found; cert-manager retries at 2026-10-13T15:03:41Z; run `nagarectl domains tls docs.labs.example.com`
+```
+
+Recover in three steps.
+
+1. Diagnose the host. This only reads, and it never reads Secrets:
+
+   ```bash
+   nagarectl domains tls docs.labs.example.com
+   ```
+
+   The report walks the DomainMapping, Knative Certificate, cert-manager
+   Certificate, latest CertificateRequest, ACME Order and Challenges. It shows
+   each object's phase, the upstream error, the failed attempt count, and when
+   cert-manager retries on its own: an hour after the first failure, doubling
+   each time, up to 32 hours. The verdict tells you what to do:
+
+   | Verdict | Meaning | Next |
+   | --- | --- | --- |
+   | `ready` | The certificate is valid. A failed renewal of a still-valid certificate stays `ready` and still shows the failure. | Nothing. |
+   | `issuing` | Issuance is in progress, for example a DNS-01 challenge waiting for propagation. | Run the command again to follow it. |
+   | `failed` | The last attempt failed and cert-manager is backing off. | Fix the cause if the error names one, then renew once. |
+   | `rate-limited` | The CA refused with `urn:ietf:params:acme:error:rateLimited`. | Wait for the retry time the CA gave. Renewing now spends more of the limit. |
+   | `incomplete` | An object below the DomainMapping is missing. | Check that net-certmanager is running. |
+
+   `--json` prints the same report as versioned JSON (`schemaVersion` 1),
+   including whether a renew would be allowed and why not.
+
+2. Renew once, when the verdict is `failed`:
+
+   ```bash
+   nagarectl domains tls docs.labs.example.com --renew --yes
+   ```
+
+   This triggers exactly one re-issuance of that host's cert-manager Certificate,
+   as `cmctl renew` does. cert-manager deletes the failed CertificateRequest and its
+   Order, so the command prints the full diagnosis first: that output is the only
+   record of the failed attempt. The command refuses, and writes nothing, when the
+   cluster guard refuses, when this context's `nagare.dev/context-id` is not on the
+   host's DomainMapping, when the certificate is a namespace wildcard, when the
+   verdict is anything but `failed`, or when the latest request was denied rather
+   than failed. A second renew is refused while issuance runs. Nagare never
+   retries on its own.
+
+3. Follow issuance with `nagarectl domains tls HOST` until the verdict is
+   `ready`, then finish the stopped deploy:
+
+   ```bash
+   nagarectl inventory resume TX --yes
+   ```
+
+   The resume verifies the reviewed objects and changes no route or access
+   policy.
+
 ## Next
 
 Add metrics, logs, and traces:

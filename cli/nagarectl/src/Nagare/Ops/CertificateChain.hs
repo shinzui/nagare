@@ -23,6 +23,8 @@ module Nagare.Ops.CertificateChain
   , renderChainReport
   , chainReportValue
   , domainMappingQuery
+  , runtimeToolRunner
+  , withCertificateDiagnosis
   )
 where
 
@@ -49,7 +51,10 @@ import Nagare.Cluster.CertificateMigration
   , parseKnativeCertificates
   )
 import Nagare.Dsl.Prelude hiding ((.=))
+import Nagare.Inventory.Adapter (AdapterExecution (..))
+import Nagare.Inventory.KubernetesTransport (KubernetesRuntimeConfig, invokeKubectl)
 import Nagare.Ops.Domains (Observation (..), ToolRunner)
+import System.Exit (ExitCode (..))
 
 data ChainVerdict
   = VerdictReady
@@ -527,6 +532,28 @@ renewChainWith runner guardCluster context now hostName say = do
                   pure (Right ())
                 NotFound -> pure (Left ("the Certificate disappeared while renewing; run `nagarectl domains tls " <> hostName <> "` again"))
                 Unavailable err -> pure (Left ("Certificate changed while renewing or the patch was refused (" <> err <> "); run `nagarectl domains tls " <> hostName <> "` again"))
+
+-- | kubectl through the inventory runtime's own binding: its context, its
+-- guard-checked cluster, and its interpreter in tests.
+runtimeToolRunner :: KubernetesRuntimeConfig -> ToolRunner
+runtimeToolRunner config _ args = do
+  result <- invokeKubectl config args ""
+  pure $ case result of
+    Right (ExitSuccess, out, _) -> Observed (TE.encodeUtf8 (T.pack out))
+    Right (ExitFailure _, _, err)
+      | "doesn't have a resource type" `T.isInfixOf` T.pack err || "NotFound" `T.isInfixOf` T.pack err -> NotFound
+      | otherwise -> Unavailable (T.take 240 (T.strip (T.pack err)))
+    Left err -> Unavailable err
+
+-- | A deploy that stopped on a DomainMapping certificate names the chain's
+-- verdict and the command to follow it. A failed read keeps the message.
+withCertificateDiagnosis :: KubernetesRuntimeConfig -> Text -> AdapterExecution -> IO AdapterExecution
+withCertificateDiagnosis config hostName = \case
+  AdapterEffectAmbiguous message ->
+    readChainWith (runtimeToolRunner config) hostName <&> \case
+      Right report -> AdapterEffectAmbiguous (message <> "; " <> chainSummaryLine report <> "; run `nagarectl domains tls " <> hostName <> "`")
+      Left _ -> AdapterEffectAmbiguous message
+  other -> pure other
 
 -- ---------------------------------------------------------------------------
 -- Rendering

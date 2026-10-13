@@ -82,6 +82,7 @@ import Nagare.Inventory.Journal (FailureClass (KnownNoEffect))
 import Nagare.Inventory.KubernetesConfiguration (confirmInventoryFieldOwnership, confirmInventoryFieldOwnershipFor, confirmReviewedFieldTakeover, confirmTakeoverSettled, confirmUpdateTarget, liveStamp)
 import Nagare.Inventory.KubernetesTransport (KubernetesRuntimeConfig (..), invokeKubectl)
 import Nagare.Inventory.Migration.PostgresRename (migrationFenced, scaledToZero)
+import Nagare.Ops.CertificateChain (withCertificateDiagnosis)
 import Nagare.Resource.Inventory (ManagedResource (..))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (canonicalValue)
@@ -347,7 +348,7 @@ waitForReadiness config address = case address of
       readLiveManagedObject config address >>= \case
         Left _ -> pure (AdapterEffectAmbiguous "Knative DomainMapping could not be read after Ready; reobserve before retry")
         Right value
-          | httpDowngraded value -> waitFor ("jsonpath={.status.url}=https://" <> T.unpack (nameText name)) "domainmapping.serving.knative.dev" namespace name "DomainMapping certificate"
+          | httpDowngraded value -> waitFor ("jsonpath={.status.url}=https://" <> T.unpack (nameText name)) "domainmapping.serving.knative.dev" namespace name "DomainMapping certificate" >>= withCertificateDiagnosis config (nameText name)
           | otherwise -> pure AdapterEffectCompleted
 
 -- | A separate read-only condition probe. The UID check prevents a second
