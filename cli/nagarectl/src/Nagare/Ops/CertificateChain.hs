@@ -41,6 +41,7 @@ import Data.Maybe (listToMaybe, mapMaybe)
 import Data.Ord (Down (..))
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
+import Data.Text.IO qualified as TIO
 import Data.Time (UTCTime, addUTCTime)
 import Data.Time.Format.ISO8601 (iso8601ParseM, iso8601Show)
 import Data.Vector qualified as V
@@ -55,6 +56,7 @@ import Nagare.Inventory.Adapter (AdapterExecution (..))
 import Nagare.Inventory.KubernetesTransport (KubernetesRuntimeConfig, invokeKubectl)
 import Nagare.Ops.Domains (Observation (..), ToolRunner)
 import System.Exit (ExitCode (..))
+import System.IO (stderr)
 
 data ChainVerdict
   = VerdictReady
@@ -546,13 +548,18 @@ runtimeToolRunner config _ args = do
     Left err -> Unavailable err
 
 -- | A deploy that stopped on a DomainMapping certificate names the chain's
--- verdict and the command to follow it. A failed read keeps the message.
+-- verdict and the command to follow it, on stderr and in the journal: the
+-- stop line itself never carries journal detail. A failed read keeps the
+-- message.
 withCertificateDiagnosis :: KubernetesRuntimeConfig -> Text -> AdapterExecution -> IO AdapterExecution
 withCertificateDiagnosis config hostName = \case
   AdapterEffectAmbiguous message ->
-    readChainWith (runtimeToolRunner config) hostName <&> \case
-      Right report -> AdapterEffectAmbiguous (message <> "; " <> chainSummaryLine report <> "; run `nagarectl domains tls " <> hostName <> "`")
-      Left _ -> AdapterEffectAmbiguous message
+    readChainWith (runtimeToolRunner config) hostName >>= \case
+      Right report -> do
+        let diagnosis = chainSummaryLine report <> "; run `nagarectl domains tls " <> hostName <> "`"
+        TIO.hPutStrLn stderr ("nagarectl: " <> diagnosis)
+        pure (AdapterEffectAmbiguous (message <> "; " <> diagnosis))
+      Left _ -> pure (AdapterEffectAmbiguous message)
   other -> pure other
 
 -- ---------------------------------------------------------------------------

@@ -129,6 +129,11 @@ After this change:
   CertificateRequest's `Ready` reason to be `Failed`. A denied or invalid request is reported as
   `failed` with that reason, and renew refuses it.
 
+- Decision (2026-10-13, from the M4 rehearsal): The diagnosis goes to stderr as well as the journal.
+  An ambiguous stop prints only `ambiguous TX at OP`, and by design journal detail never reaches
+  status or stop output, because it may hold command output. The one-line verdict is bounded and
+  PEM-redacted, so `withCertificateDiagnosis` prints it as `nagarectl: HOST: certificate …; run
+  nagarectl domains tls HOST` just before the stop line.
 
 ## Outcomes & Retrospective
 

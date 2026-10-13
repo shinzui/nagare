@@ -270,11 +270,12 @@ Nagare deliberately does not automate bulk certificate deletion.
 
 ## Certificate did not issue
 
-A deploy that waits for a site's certificate stops like this when issuance does
-not finish:
+A deploy waits up to five minutes for a site's certificate. When issuance does
+not finish in that time, the deploy stops and names the certificate's state:
 
 ```text
-stopped tx-… at op-…: Kubernetes DomainMapping certificate did not prove readiness; reobserve before retry; docs.labs.example.com: certificate failed after 1 failed attempt: Failed to finalize Order: 404 urn:ietf:params:acme:error:malformed: Certificate not found; cert-manager retries at 2026-10-13T15:03:41Z; run `nagarectl domains tls docs.labs.example.com`
+nagarectl: docs.labs.example.com: certificate failed after 1 failed attempt: Failed to finalize Order: 404 urn:ietf:params:acme:error:malformed: Certificate not found; cert-manager retries at 2026-10-13T15:03:41Z; run `nagarectl domains tls docs.labs.example.com`
+ambiguous tx-… at op-…
 ```
 
 Recover in three steps.
