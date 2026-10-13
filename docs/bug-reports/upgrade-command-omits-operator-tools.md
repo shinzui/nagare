@@ -8,7 +8,10 @@ generated:
   by: process:openai-codex
   at: "2026-09-15T13:52:11Z"
 bugId: BUG-1
-status: confirmed
+status: fixed
+fixedVersion: 0.4.0
+resolution: >-
+  Fixed in 0.4.0 by ExecPlan 140 (docs/plans/140-make-clone-free-platform-upgrades-carry-release-pinned-operator-tools.md, commits 4600fcc2 through 5f2d0ad9). The Upgrades guide runs every infrastructure operation as nix shell "${TARGET_NAGARE}#nagare" -c nagarectl, whose operator package carries the release-pinned Pulumi CLI and language host; the nagare-operator-tools flake check proves the tools resolve with a Nix-only PATH. Revalidated against master 1532a447 on 2026-10-13.
 severity: degraded
 origin: mori://tan/tan-ng-labs/docs/validate-the-labs-nagare-cluster-before-real-use
 affects: mori://shinzui/nagare/packages/nagarectl

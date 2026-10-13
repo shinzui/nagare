@@ -8,7 +8,10 @@ generated:
   by: process:openai-codex
   at: "2026-09-15T13:52:11Z"
 bugId: BUG-3
-status: confirmed
+status: fixed
+fixedVersion: 0.4.0
+resolution: >-
+  Fixed in 0.4.0 by ExecPlan 142 (docs/plans/142-migrate-legacy-namespace-wildcard-certificates-during-upgrades.md, commits d639ec8a, 66fdf191 and 28067de0). The upgrade narrows the legacy selector in its reviewed Kubernetes bundle before the certificate-policy gate and deletes only unchanged reviewed Secrets. Since 0.5.0 the TLS selector is part of the reviewed bootstrap and supported transitions start at 0.4.0, which already ships the narrowed selector. Revalidated against master 1532a447 on 2026-10-13.
 severity: degraded
 origin: mori://tan/tan-ng-labs/docs/validate-the-labs-nagare-cluster-before-real-use
 affects: mori://shinzui/nagare/packages/cluster-bootstrap

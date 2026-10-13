@@ -8,7 +8,10 @@ generated:
   by: process:openai-codex
   at: "2026-09-15T13:52:11Z"
 bugId: BUG-4
-status: confirmed
+status: fixed
+fixedVersion: 0.4.0
+resolution: >-
+  Fixed in 0.4.0 by ExecPlan 143 (docs/plans/143-skip-proven-pulumi-apply-work-when-resuming-upgrades.md, commit b4784c24). Pulumi apply writes transaction-bound receipts tied to the reviewed plan digest; resume skips the phase on a succeeded receipt and refuses an ambiguous one, pointing to the audited platform upgrade recover-pulumi path. PlatformSpec proves Pulumi runs exactly once when host, Kubernetes, stamp or context-commit fails and resumes. Revalidated against master 1532a447 on 2026-10-13.
 severity: degraded
 origin: mori://tan/tan-ng-labs/docs/validate-the-labs-nagare-cluster-before-real-use
 affects: mori://shinzui/nagare/packages/nagarectl

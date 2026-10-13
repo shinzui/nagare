@@ -8,7 +8,10 @@ generated:
   by: process:openai-codex
   at: "2026-09-15T13:52:11Z"
 bugId: BUG-2
-status: confirmed
+status: fixed
+fixedVersion: 0.4.0
+resolution: >-
+  Fixed in 0.4.0 by ExecPlan 141 (docs/plans/141-separate-generated-host-identity-from-gce-instance-identity-in-upgrades.md, commits 8dbaddaf and 7a64bf75). The upgrade host phase reads the generated host name from the staged context host.nix and sets NAGARE_HOST_ATTR and NAGARE_SSH_HOST from it; scripts/host-switch.sh no longer reads NAGARE_INSTANCE_NAME for the attribute or the SSH target. HostSpec covers the labs-nagare versus nagare-01 case. Revalidated against master 1532a447 on 2026-10-13.
 severity: degraded
 origin: mori://tan/tan-ng-labs/docs/validate-the-labs-nagare-cluster-before-real-use
 affects: mori://shinzui/nagare/packages/nagarectl

@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-10-13
+* **Update**: Revalidate BUG-1 through BUG-4 against master `1532a447` and close them as `fixed` in 0.4.0 (ExecPlans 140 to 143). Plan BUG-5 and BUG-6 in `docs/plans/189-serve-static-sites-with-relative-redirects-and-a-utf-8-charset.md`.
 * **Addition**: Record BUG-5 and BUG-6 from the protected runtime-docs deployment and an owning-repository reproduction of the released static Nginx golden configuration: directory redirects expose HTTP port 8080, and UTF-8 text is served without a charset. Retain the local container reproduction and HTTP results under `docs/audits/static-runtime-defaults-2026-10-13/`.
 
 ## 2026-09-15
