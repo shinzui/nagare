@@ -36,17 +36,22 @@ is built.
 
 ## Progress
 
-- [ ] M1: The renderer emits `absolute_redirect off;`, `charset utf-8;` and an explicit
+- [x] M1: The renderer emits `absolute_redirect off;`, `charset utf-8;` and an explicit
   `charset_types` list. The golden `cli/nagare-dsl/test/golden/static-site.nginx.conf` is updated.
   Pass: `nagare-dsl-test -p '/renderNginxConfig/'` is green and the golden diff is exactly the new
-  directives.
-- [ ] M2: The flake check `static-nginx-runtime` runs the golden configuration in a real Nginx and
+  directives. Done 2026-10-13 in `dff31cf5`: the test passes and the golden diff is +3 lines, the
+  three directives.
+- [x] M2: The flake check `static-nginx-runtime` runs the golden configuration in a real Nginx and
   asserts the HTTP results listed under Validation. Pass: the check fails on the current golden
-  configuration and passes after M1.
-- [ ] M3: A CHANGELOG `[Unreleased]` entry and a sentence in `docs/user/static-hosting.md` say that
+  configuration and passes after M1. Done 2026-10-13 in `dff31cf5`: on the pre-M1 golden it fails
+  five assertions (`/guide` and `/old` `Location` with `http://docs.example.test:<port>`, and
+  `text/plain`, `text/css`, `application/javascript` without a charset); on the new golden it
+  passes, and `nix build .#checks.aarch64-darwin.static-nginx-runtime` is green.
+- [x] M3: A CHANGELOG `[Unreleased]` entry and a sentence in `docs/user/static-hosting.md` say that
   redirects are relative and text is UTF-8. BUG-5 and BUG-6 are marked `fixed` with
   `fixedVersion: unreleased` and a `resolution` naming the fixing commit. Pass: `just gate-fast` is
-  green, then `just land`.
+  green, then `just land`. Done 2026-10-13: both reports name `dff31cf5`, and
+  `okf validate docs/bug-reports --strict` is OK.
 
 
 ## Surprises & Discoveries
@@ -194,7 +199,7 @@ All commands run from the repository root:
 # M2 first: the new script must fail on the current golden configuration.
 nix shell --inputs-from . nixpkgs#nginx nixpkgs#curl -c bash scripts/test-static-nginx-runtime.sh   # expect a non-zero exit
 # M1: regenerate the golden file.
-cabal test --project-dir=cli/nagare-dsl nagare-dsl-test --test-options="-p '/renderNginxConfig/' --accept"
+cabal test --project-dir=cli/nagare-dsl nagare-dsl-test --test-option=-p --test-option=/renderNginxConfig/ --test-option=--accept
 git diff -- cli/nagare-dsl/test/golden/static-site.nginx.conf   # exactly the three new lines
 nix shell --inputs-from . nixpkgs#nginx nixpkgs#curl -c bash scripts/test-static-nginx-runtime.sh   # expect exit 0
 nix build .#checks.aarch64-darwin.static-nginx-runtime -L        # or the x86_64-linux attribute on Linux

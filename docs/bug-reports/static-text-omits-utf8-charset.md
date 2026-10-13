@@ -6,7 +6,10 @@ generated:
   by: process:openai-codex
   at: "2026-10-13T13:08:02Z"
 bugId: BUG-6
-status: confirmed
+status: fixed
+fixedVersion: unreleased
+resolution: >-
+  Fixed on master by ExecPlan 189 (docs/plans/189-serve-static-sites-with-relative-redirects-and-a-utf-8-charset.md, commit dff31cf5). The generated server block sets charset utf-8 with an explicit charset_types list, so text/plain, text/css, application/javascript and other text types carry charset=utf-8; binary assets are served byte for byte. The static-nginx-runtime flake check runs the golden configuration in a real Nginx and fails on the previous one. Existing sites pick up the fix on their next nagarectl site deploy.
 severity: cosmetic
 origin: mori://shinzui/keiro-runtime-docs/plans/49-deploy-the-docs-to-the-labs-intranet-with-local-bun-builds
 affects: mori://shinzui/nagare/packages/nagarectl

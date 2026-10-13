@@ -116,10 +116,14 @@ main = case staticSite of
 | `image` | Artifact Registry repo for the built image, **no tag** (Nagare appends the tag). |
 | `build` | `NoBuild dir` to serve an existing directory, or `BuildCommand { command, outputDirectory }` to run a build first (e.g. `npm run build` → `dist`). |
 | `domains` | Custom hostnames (`[DomainSpec]`) built with `mkDomains`; exactly one non-empty entry is canonical and each becomes a Knative DomainMapping. Empty = the wildcard URL. Source configs written as `[Domain]` must migrate to `mkDomains [(host, True)]`; legacy emitted JSON string arrays still load. |
-| `redirects` | `[RedirectRule]`; `mkRedirectRule from to status` with status ∈ {301,302,303,307,308}. |
+| `redirects` | `[RedirectRule]`; `mkRedirectRule from to status` with status ∈ {301,302,303,307,308}. A path target is sent as a relative `Location`, so readers stay on the site's public HTTPS URL. |
 | `headers` | `[HeaderRule]`; `mkHeaderRule path name value` adds a response header for matching paths. |
 | `cache` | `mkCachePolicy immutableAssets defaultMaxAge` — long-immutable caching for fingerprinted assets, plus a default `max-age`. |
 | `notFound` | Optional `404.html`; when set, unmatched paths return 404 with that page. When unset, the catch-all falls back to `index.html` (SPA mode). |
+
+The generated server sends every redirect it issues as a relative `Location`, including the
+slash it adds to a directory link (`/guide` → `/guide/`), and serves text files (HTML, CSS,
+JavaScript, JSON, SVG, plain text) with `charset=utf-8`. Write the built files in UTF-8.
 
 Everything is validated at construction: `mkFilePathText` rejects absolute paths
 and `..` escapes; `mkRedirectRule` rejects a bad status; `mkHeaderRule` rejects a

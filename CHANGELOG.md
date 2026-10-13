@@ -5,6 +5,14 @@ immutable `v<major>.<minor>.<patch>` Git tags.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Static sites keep their public URL on redirects and serve text as UTF-8.** The generated Nginx
+  configuration issued directory and configured redirects as `http://<host>:8080/…`, the
+  container's internal port. Redirects are now relative (`Location: /guide/`), and text responses
+  carry `charset=utf-8`. Existing sites pick this up on their next `nagarectl site deploy`
+  (BUG-5, BUG-6).
+
 ## [0.6.2] - 2026-10-12
 
 - **A converged upgrade plan has no operations.** Every platform stage selects the bootstrap stamp,
