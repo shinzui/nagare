@@ -58,8 +58,11 @@ a review, or journalled.
   reason and `resumeTransaction` converges once the key is set; the sentinel key is absent from
   every file of the filesystem store and the written review, the rendered plan errors and the
   status JSON.
-- [ ] M3: `docs/user/access.md` names the refusal and its fix. IR-27 is marked `completed`. Pass:
-  `just gate-fast` is green, then `just land`.
+- [x] M3 (2026-10-13): `docs/user/access.md` quotes the planning reason and the apply/resume
+  refusal and says the saved review stays valid; IR-27 is `completed` with a log entry. Evidence:
+  `just gate-fast` green on `46a671f0` (record
+  `~/.local/state/nagare/gates/fast/46a671f049be3c254f8ec09dbbe013f64e4aeb7a.json`), then
+  `just land`.
 
 
 ## Surprises & Discoveries
