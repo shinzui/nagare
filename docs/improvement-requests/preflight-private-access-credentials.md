@@ -6,7 +6,8 @@ generated:
   by: process:openai-codex
   at: "2026-10-13T13:08:02Z"
 requestId: IR-27
-status: proposed
+status: accepted
+targetPlan: docs/plans/190-refuse-a-missing-access-key-before-admission-and-keep-observation-causes-in-plan-errors.md
 origin: mori://shinzui/keiro-runtime-docs/plans/49-deploy-the-docs-to-the-labs-intranet-with-local-bun-builds
 acceptanceCriteria:
   - id: AC-1

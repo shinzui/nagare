@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-10-13
+* **Update**: Accept IR-27 and IR-28 after validating both against master; plan them in ExecPlans 190 and 191.
 * **Add**: Propose IR-27 for early private-access credential preflight and safe cause-preserving observation diagnostics, and IR-28 for actionable certificate-issuance diagnostics and scoped supported recovery. Both originate from `mori://shinzui/keiro-runtime-docs/plans/49-deploy-the-docs-to-the-labs-intranet-with-local-bun-builds`. The first-class protected-site gap is already implemented by the site-access initiative and receives no duplicate request.
 
 ## 2026-10-03
