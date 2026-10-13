@@ -29,10 +29,12 @@ inventory. Kotei's fake `nagarectl` kept emitting the old shape, and nothing com
 After this change, every `nagarectl` output Kotei reads has a published JSON Schema and golden
 sample documents, under `cli/nagarectl/contract/v1/` in this repository
 (`mori://shinzui/nagare`, path `cli/nagarectl/contract/v1/`; an artifact-level URI is pending).
-Each schema is generated from the same Haskell codec that encodes the output, so the two cannot
-disagree. Nagare's test suite fails when an output or schema changes without the golden files
-being accepted. Kotei copies the schemas at its pinned Nagare revision and tests its fixtures and
-its fake `nagarectl` against them. When either side drifts, a test fails on the side that moved.
+The schemas are hand-written standard JSON Schema 2020-12. Nagare's test suite validates every
+golden sample, produced by the real projection code, against its schema with a small subset
+validator. A changed output that the schema does not allow fails a test, and so does a changed
+sample that was not accepted. Kotei copies the schemas at its pinned Nagare revision and tests
+its fixtures and its fake `nagarectl` against them with any standard validator. When either side
+drifts, a test fails on the side that moved.
 
 The outputs are selected with `--contract 1`:
 
@@ -55,31 +57,28 @@ existing `--json` documents do not change.
 
 ## Progress
 
-- [ ] M1: Prove that `autodocodec-schema` 0.2.0.1 emits a schema that a standard JSON Schema
-  validator accepts. Pass: a probe codec with an enum, a nullable field, an optional field, an
-  array and an embedded opaque value renders a schema, and `check-jsonschema --check-metaschema`
-  accepts it. A sample document validates both with `check-jsonschema` and with
-  `validateAccordingTo`, and a sample with a wrong enum value fails both. The transcript and the
-  draft the schema uses are recorded in the Decision Log.
-- [ ] M2: The contract module, the seven schemas, the golden samples and the version listing.
-  Pass: `Nagare.Test.Contract` checks each schema file against `jsonSchemaViaCodec` with
-  tasty-golden, checks each sample document against its golden file, validates every sample
-  against its schema, and asserts `contractVersion` is 1. `nagarectl version --json` prints
-  `"contracts":[1]`.
-- [ ] M3: `inventory apply` and `inventory resume` with `--contract 1`. Pass: tests cover the
+- [ ] M1: The contract types, the seven hand-written schemas, the subset validator, the golden
+  samples and the version listing. Pass: `Nagare.Test.Contract` checks each sample document
+  against its golden file and validates every sample against its schema. The validator's own
+  tests show it rejects each violation it claims to check (wrong type, missing required field,
+  extra field, value outside an enum, wrong `const`, null where not allowed, bad array item) and
+  refuses a schema keyword it does not implement. Every schema passes
+  `check-jsonschema --check-metaschema` once by hand, recorded in this plan.
+  `nagarectl version --json` prints `"contracts":[1]`.
+- [ ] M2: `inventory apply` and `inventory resume` with `--contract 1`. Pass: tests cover the
   outcome document and exit code for every `TransactionResult` constructor. They show a
   pre-execution refusal printing `refused` with exit 2, and a failure after execution starts
   never printing `refused`. Without `--contract`, the output and exit status are byte-for-byte
   unchanged in the existing suites.
-- [ ] M4: `app image-plan`, `app deploy --save-plan` and `app deploy --dry-run` with
+- [ ] M3: `app image-plan`, `app deploy --save-plan` and `app deploy --dry-run` with
   `--contract 1`. Pass: CLI-level tests on the existing app-deploy fixtures emit documents equal
   to the golden samples. The deploy preview has the same top-level keys with and without hooks.
-- [ ] M5: `inventory status --contract 1 [--scope SCOPE]` and `inventory publications
+- [ ] M4: `inventory status --contract 1 [--scope SCOPE]` and `inventory publications
   --contract 1`. Pass: tests over the existing status fixtures show findings for the selected
   scope only, and an unknown scope refuses. A publication fixture lists resource ID, key,
   destination, both digests, generation, and the application scopes whose accepted
   `imageResource` names it.
-- [ ] M6: Clean up and hand off. Delete `renderPlan`, `AppDeployPlan` and `renderAppObjects`,
+- [ ] M5: Clean up and hand off. Delete `renderPlan`, `AppDeployPlan` and `renderAppObjects`,
   and fix the stale comment in `Options.hs`. Add `cli/nagarectl/contract/README.md` and a
   "Machine-readable contract" section in `docs/user/reference.md`. Pass: `just haskell-style-check`
   and `just gate-fast` are green, then `just land`. The contract path and the landed commit hash
@@ -100,17 +99,23 @@ existing `--json` documents do not change.
   `docs/releases/v0.6.0.md` tell operators to use `inventory status --json`. The flag is also the
   selector Kotei asked for to keep an older major version available, so a future
   `--contract 2` needs no new mechanism.
-- Decision (2026-10-13): Generate each schema with `autodocodec-schema` from the codec that
-  encodes the output, and make the schema files tasty-golden outputs. A hand-written schema
-  could drift from the encoder while every golden test stays green, which is the same failure
-  that broke Kotei. Use the versions in the pinned package set (`autodocodec` 0.5.0.0,
-  `autodocodec-schema` 0.2.0.1). Hackage has 0.2.0.2, which requires `autodocodec >=0.6`; do not
-  override the pin for it.
-- Decision (2026-10-13): The contract types live in their own modules, `Nagare.Contract.V1`
-  (types and codecs, importing nothing from Nagare) and `Nagare.Contract.Project` (pure
-  projections from internal values). Kotei never links them; it stays subprocess-only. Internal
-  types keep their aeson instances. Contract types are encode-only inside `nagarectl`: per
-  ADR 22, decoding JSON never grants authority, so no command reads a contract document back.
+- Decision (2026-10-13, operator): Hand-write the schemas and check the outputs with a small
+  subset validator in the test suite. Add no JSON Schema library. Haskell has no maintained
+  general JSON Schema validator. `autodocodec-schema` (considered first) generates schemas from
+  codecs, but it does not document which draft it emits, and it would add a dependency to the
+  release closure. The seven documents use only `type`, `properties`, `required`,
+  `additionalProperties: false`, `enum`, `const`, nullable types, `items` and `description`,
+  which a validator of about 150 lines covers. The schemas declare JSON Schema 2020-12, so Kotei
+  can use any standard validator. Encoder and schema are no longer tied by construction. Drift
+  is caught because every projected sample is validated, `additionalProperties: false` rejects
+  undeclared fields, and samples cover every enum value and both dry-run shapes. The review
+  rule in `cli/nagarectl/contract/README.md` is that every new field gets a sample.
+- Decision (2026-10-13): The contract types live in their own module, `Nagare.Contract.V1`
+  (plain records with hand-written `ToJSON`, importing nothing from Nagare), with
+  `Nagare.Contract.Project` holding the pure projections from internal values. Kotei never links
+  them; it stays subprocess-only. Internal types keep their own aeson instances. Contract types
+  are encode-only inside `nagarectl`: per ADR 22, decoding JSON never grants authority, so no
+  command reads a contract document back.
 - Decision (2026-10-13): Scopes appear as the `kind:name` text `scopeIdText` produces (for
   example `application:kizashi`, `publication:app-image-v1`). It is the same prefix every
   resource ID already carries, so Kotei uses one representation everywhere.
@@ -219,7 +224,7 @@ apply.
 
 **JSON and tests in this codebase.** Output JSON uses hand-written aeson `ToJSON` instances and
 the canonical encoder `canonicalValue` (`cli/nagare-dsl/src/Nagare/Resource/Canonical.hs`). No
-package uses autodocodec or any JSON Schema library yet. `tasty-golden` is already a test
+package uses a JSON Schema library, and this plan adds none. `tasty-golden` is already a test
 dependency of `nagarectl` (`cli/nagarectl/nagarectl.cabal:709`), and its one golden test is
 `test/Nagare/Test/Task.hs:174-177`. `nagare-dsl` has many YAML goldens. Test modules are
 registered in `test/Nagare/Test/Suite.hs` (see `test/README.md`).
@@ -240,27 +245,12 @@ generic-lens labels.
 [ADR 6](../adr/0006-version-platform-state-across-cli-payload-context-host-and-cluster.md)
 versions the platform. The contract version is a separate number, deliberately: Kotei gates on
 `contracts`, not on the platform version.
-[ADR 17](../adr/0017-the-root-flake-follows-the-shared-haskell-nix-dev-toolchain-pin.md) pins
-the package set, which is why the plan uses the pinned autodocodec versions.
 
 
 ## Plan of Work
 
-**M1 — prove the schema generator.** In a scratch Cabal project outside the repository, depend
-on `autodocodec` and `autodocodec-schema` from the pinned set. Write one probe type covering the
-shapes the contract needs: a string enum, a nullable field, an optional field, an array of
-objects, and an opaque `Value` field. Render `jsonSchemaViaCodec` with aeson. Run
-`check-jsonschema --check-metaschema` on it, from `nixpkgs#check-jsonschema` via
-`nix shell --inputs-from .`. Then validate one good and one bad sample with both
-`check-jsonschema --schemafile` and `validateAccordingTo`. Record the draft the output declares,
-or the absence of `$schema`. If the output needs a wrapper to be standard (for example adding
-`$schema` and `$id`), record that in the Decision Log; M2 applies it in one function. If no
-wrapper makes it standard, stop and bring it to the operator rather than hand-writing schemas.
-
-**M2 — contract module and schemas.** Add `autodocodec` and `autodocodec-schema` to the
-`nagarectl` library, and `aeson-pretty` to the test suite (it is in the pinned set and already
-used by `cli/nagare-harness`). Create `src/Nagare/Contract/V1.hs` with one record per document
-and a `HasCodec` instance each:
+**M1 — contract types, schemas and validator.** Create `src/Nagare/Contract/V1.hs` with one
+plain record per document and a hand-written `ToJSON` each:
 
 - `TransactionOutcome`
 - `SavedReview`
@@ -277,18 +267,36 @@ a `document` field naming its kind. `VersionInfo` is the discovery document: it 
 values to these records. Route `version --json` through `VersionInfo`, so that output's only
 change is the new `contracts` field.
 
+Hand-write one schema per document in `cli/nagarectl/contract/v1/<name>.schema.json`. Each
+declares `"$schema": "https://json-schema.org/draft/2020-12/schema"`, an `$id` naming the
+document and version, and `additionalProperties: false` on every object except the opaque
+`scopeDocuments` items. It uses only these keywords: `$schema`, `$id`, `title`, `description`,
+`type` (a name or a list including `"null"`), `properties`, `required`,
+`additionalProperties`, `enum`, `const` and `items`. Descriptions carry the meaning Kotei relies
+on: what `configDigest` covers, that `refused` means no provider was touched, and that
+`observationComplete: false` means the findings are partial.
+
+Write the subset validator in `test/Nagare/Test/Contract/Validate.hs`:
+`validate :: Value -> Value -> Either [Text] ()`, schema first. Each error names the JSON path.
+It implements exactly the keywords above, and it returns an error for any other keyword found
+in a schema, so a schema can never use something the validator silently ignores. Its tests use
+small inline schemas, one per rule, each with a passing and a failing value.
+
 Add `test/Nagare/Test/Contract.hs` and register it in `test/Nagare/Test/Suite.hs`. For each
 document it has:
 
-- a golden test writing the schema to `cli/nagarectl/contract/v1/<name>.schema.json`;
-- a golden test writing a sample built through `Project` from fixed internal values to
-  `cli/nagarectl/contract/v1/samples/<name>*.json`;
-- a test that every sample satisfies `validateAccordingTo` against its schema.
+- a tasty-golden test writing a sample built through `Project`, from fixed internal values, to
+  `cli/nagarectl/contract/v1/samples/<name>*.json`, pretty-printed with sorted keys and a
+  trailing newline (`aeson-pretty`, added to the test suite; it is in the pinned set and already
+  used by `cli/nagare-harness`);
+- a test that every sample validates against its schema file;
+- a test that every schema file passes the validator's keyword check.
 
-Both kinds of golden file are pretty-printed with sorted keys and a trailing newline. Samples
-cover every enum value of `outcome`, and a deploy preview with and without hooks.
+Samples cover every `outcome` value, every `failureClass` value, and a deploy preview with and
+without hooks. Run `check-jsonschema --check-metaschema` over the seven schema files once by
+hand and record the result in Progress; the gate does not run it.
 
-**M3 — apply and resume.** Add `--contract VERSION` to `inventory apply` and
+**M2 — apply and resume.** Add `--contract VERSION` to `inventory apply` and
 `inventory resume`; it accepts only `1` and otherwise refuses with the supported list. With it,
 print one `TransactionOutcome`. Its fields are:
 
@@ -311,7 +319,7 @@ intent is written; find that point in `src/Nagare/Inventory/Execute/`. An unexpe
 under the sink also yields `interrupted` once executing. Without the sink, `dieT` and `dieText`
 behave exactly as now. Keep the human `renderTransactionResult` line unchanged.
 
-**M4 — publication, saved review and preview.** Add `--contract VERSION` to `app image-plan` and
+**M3 — publication, saved review and preview.** Add `--contract VERSION` to `app image-plan` and
 `app deploy`. Give `planInventoryCandidateWith` and its two siblings a way to return the digest,
 the bundle directory, the scope IDs (keys of `reviewBundleScopes`) and the lineage lines, instead
 of only printing them. With `--contract 1`, print a `SavedReview`:
@@ -319,7 +327,7 @@ of only printing them. With `--contract 1`, print a `SavedReview`:
 
 `app image-plan --contract 1` prints an `ImagePublicationResult`:
 `{imageResource, review:{sha256, directory|null}, transaction: TransactionOutcome|null}`. The
-transaction is filled when it converged in-process; the exit code follows the M3 rules.
+transaction is filled when it converged in-process; the exit code follows the M2 rules.
 
 `app deploy --dry-run --contract 1` prints a `DeployPreview` with the same keys for every config:
 
@@ -332,7 +340,7 @@ The schema description of `configDigest` says what it covers and what it does no
 above. `app deploy` with `--contract` but neither `--save-plan` nor `--dry-run` refuses, since a
 live unreviewed apply has no contract document.
 
-**M5 — status and publications.** Add `--contract VERSION` and `--scope KIND:NAME` to
+**M4 — status and publications.** Add `--contract VERSION` and `--scope KIND:NAME` to
 `inventory status`. `--scope` without `--contract` filters the existing document the same way.
 An unknown or unaccepted scope refuses. With `--contract 1`, print an `InventoryStatusReport`:
 
@@ -347,13 +355,13 @@ The exit code is 0, as today; drift is data, not an error. Add `inventory public
 archiveDigest, generation, usedBy:[scope]}]}`, sorted by scope. Without `--contract` it prints a
 plain table. Register the new subcommand in `scripts/audit-managed-commands.py` as read-only.
 
-**M6 — cleanup and handoff.** Delete the dead pre-inventory contract (see Decision Log) and its
+**M5 — cleanup and handoff.** Delete the dead pre-inventory contract (see Decision Log) and its
 tests in `test/AppDeploySpec.hs`, and fix `app/Nagare/Cli/Options.hs:154-157`. Write
 `cli/nagarectl/contract/README.md`. It lists the documents and their commands, and the exit-code
 table. It states the versioning rules: additive changes keep major 1 and add only optional fields
 or new enum values announced in the README; anything else is version 2, and nagarectl keeps
-emitting version 1 for at least one release behind `--contract 1`. It also says how to accept
-goldens. Add the "Machine-readable contract" section to `docs/user/reference.md` pointing at it.
+emitting version 1 for at least one release behind `--contract 1`. It also says that every new
+field or enum value gets a golden sample in the same change, and how to accept goldens. Add the "Machine-readable contract" section to `docs/user/reference.md` pointing at it.
 Gate, land, and send the path and landed hash to the `kotei` session.
 
 
@@ -366,20 +374,22 @@ cabal test nagarectl-test --offline --test-show-details=failures --test-options=
 cabal test nagarectl-test --offline --test-show-details=failures --test-options='-p /Contract/ --accept'
 ```
 
-The first run after adding a document fails with a missing golden file. `--accept` writes it.
-Review the written schema and sample with `git diff` before committing; a changed schema file is
-a contract change and needs the README versioning rule applied.
+The first run after adding a sample fails with a missing golden file. `--accept` writes it.
+Review the written sample with `git diff` before committing. A changed schema file or a changed
+sample shape is a contract change, and the README versioning rule applies.
 
-M1 validator check, from the scratch directory:
+M1 one-time standard-validator check, from the repository root (check-jsonschema 0.38.0 is in
+the pinned nixpkgs):
 
 ```bash
-nix shell --inputs-from /Users/shinzui/Keikaku/bokuno/nagare nixpkgs#check-jsonschema -c \
-  check-jsonschema --check-metaschema probe.schema.json
-nix shell --inputs-from /Users/shinzui/Keikaku/bokuno/nagare nixpkgs#check-jsonschema -c \
-  check-jsonschema --schemafile probe.schema.json good.json
+nix shell --inputs-from . nixpkgs#check-jsonschema -c \
+  check-jsonschema --check-metaschema cli/nagarectl/contract/v1/*.schema.json
+nix shell --inputs-from . nixpkgs#check-jsonschema -c \
+  check-jsonschema --schemafile cli/nagarectl/contract/v1/transaction-outcome.schema.json \
+  cli/nagarectl/contract/v1/samples/transaction-outcome-*.json
 ```
 
-Expected: `ok -- validation done` for both, and a failure naming the enum for `bad.json`.
+Expected: `ok -- validation done` for each.
 
 Per commit, from the repository root:
 
@@ -404,9 +414,10 @@ Commit messages follow Conventional Commits, for example
 Required acceptance, all offline:
 
 - `nagarectl version --json` contains `"contracts":[1]`, and its other fields are unchanged.
-- For each of the seven documents, the schema golden equals `jsonSchemaViaCodec` output, the
-  sample goldens equal the projected documents, and every sample passes `validateAccordingTo`.
-- Each M3 constructor case prints the expected outcome and exits with the expected code. A
+- For each of the seven documents, the sample goldens equal the projected documents and every
+  sample validates against its hand-written schema. The validator rejects each violation in its
+  own tests and refuses an unimplemented schema keyword.
+- Each M2 constructor case prints the expected outcome and exits with the expected code. A
   refusal before admission (for example omitting `--yes`) prints
   `{"contractVersion":1,"document":"transaction-outcome","outcome":"refused",…}` and exits 2.
   A failure injected after admission prints `interrupted` with a non-null `transaction` and
@@ -434,17 +445,15 @@ a revision, so it is not affected until it moves its pin.
 
 Libraries:
 
-- `autodocodec` 0.5.0.0 and `autodocodec-schema` 0.2.0.1, from the pinned GHC 9.12.4 package
-  set, in the `nagarectl` library.
-- `aeson-pretty`, in the `nagarectl` test suite.
+- No new library dependency. No JSON Schema library is added (see Decision Log).
+- `aeson-pretty`, added to the `nagarectl` test suite only.
 - `tasty-golden`, already present.
-- `check-jsonschema`, used once in M1 and not in the gate.
+- `check-jsonschema`, from the pinned nixpkgs, run once by hand in M1 and not in the gate.
 
 New modules:
 
-- `cli/nagarectl/src/Nagare/Contract/V1.hs` exports the seven document records, their codecs,
-  `contractVersions :: [Int]` (= `[1]`), and `schemaFor`-style functions returning each
-  document's schema `Value`.
+- `cli/nagarectl/src/Nagare/Contract/V1.hs` exports the seven document records with their
+  `ToJSON` instances, and `contractVersions :: [Int]` (= `[1]`).
 - `cli/nagarectl/src/Nagare/Contract/Project.hs` exports pure projections:
   - `transactionOutcome :: TransactionResult -> TransactionOutcome`, with constructors for
     `refused` and `interrupted`;
@@ -454,7 +463,9 @@ New modules:
   - `inventoryStatusReport`;
   - `publicationList`;
   - `versionInfo`.
-- `cli/nagarectl/test/Nagare/Test/Contract.hs` holds the goldens and the schema validation.
+- `cli/nagarectl/test/Nagare/Test/Contract/Validate.hs` holds the subset validator,
+  `validate :: Value -> Value -> Either [Text] ()`.
+- `cli/nagarectl/test/Nagare/Test/Contract.hs` holds the sample goldens and the schema checks.
 
 Published artifacts: `cli/nagarectl/contract/v1/*.schema.json`,
 `cli/nagarectl/contract/v1/samples/*.json` and `cli/nagarectl/contract/README.md`, under
@@ -469,3 +480,5 @@ Differences from what Kotei asked for, to relay at handoff:
 - `closed` and `interrupted` are added to the outcomes.
 - The publication listing has `generation` and `usedBy` instead of `acceptedAt`.
 - The dry-run envelope adds `scopeDocuments`.
+- The schemas declare JSON Schema 2020-12 and use a small keyword subset, so any standard
+  validator works on Kotei's side.
