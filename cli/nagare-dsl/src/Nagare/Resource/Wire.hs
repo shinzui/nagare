@@ -33,6 +33,7 @@ import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude hiding ((.=))
+import Nagare.Resource.Access (TeamKey, mkTeamKey, teamKeyText)
 import Nagare.Resource.Canonical (canonicalValue)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
@@ -54,6 +55,10 @@ options :: Options
 options = defaultOptions {rejectUnknownFields = True}
 
 instance ToJSON Name where toJSON = toJSON . nameText
+
+instance ToJSON TeamKey where toJSON = toJSON . teamKeyText
+
+instance FromJSON TeamKey where parseJSON = checkedText mkTeamKey
 
 instance FromJSON Name where parseJSON = checkedText mkName
 
@@ -257,6 +262,10 @@ parseClaim parts = fmap canonicalClaim $ case parts of
   ["host", c, n] -> Host <$> resource c <*> name n
   ["access-tuple", auth, host, subject, "viewer"] ->
     (AccessTuple <$> resource auth <*> name host <*> pure subject) >>= check . mkProviderAddress
+  ["team-member", auth, team, subject, "member"] ->
+    (TeamMemberTuple <$> resource auth <*> teamKey team <*> pure subject) >>= check . mkProviderAddress
+  ["team-access", auth, host, team, "member", "viewer"] ->
+    (TeamAccessTuple <$> resource auth <*> name host <*> teamKey team) >>= check . mkProviderAddress
   ["artifact", n, d] -> Artifact <$> name n <*> check (mkContentDigest d)
   ["hostname", n] -> Hostname <$> name n
   ["database", r, n] -> DatabaseName <$> resource r <*> name n
@@ -271,6 +280,7 @@ parseClaim parts = fmap canonicalClaim $ case parts of
   _ -> fail "unsupported canonical claim"
   where
     name = check . mkName
+    teamKey = check . mkTeamKey
     resource = check . mkResourceId
     check = either (fail . T.unpack) pure
 

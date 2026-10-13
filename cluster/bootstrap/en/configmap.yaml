@@ -15,7 +15,11 @@ data:
   app.en: |
     object user {}
 
+    object group {
+      relation member: user
+    }
+
     object app {
-      relation viewer: user
+      relation viewer: user, group#member
       permission access = viewer
     }

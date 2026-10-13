@@ -1,10 +1,20 @@
--- | Independent reviewed control of one direct app-viewer relationship.
+-- | Independent reviewed control of one exact en relationship: a direct
+-- app-viewer grant, a team membership, or a team's app-viewer grant
+-- (MasterPlan 27, EP-187). Each is its own scope, bound to the accepted auth
+-- en Service and, for a host grant, to the host's exact protected route.
 module Nagare.Inventory.Access
   ( AccessBinding (..)
   , AccessFact (..)
   , AccessPlan (..)
   , AccessOps (..)
+  , Relationship (..)
+  , relationshipOf
+  , teamRelationship
+  , teamSchemaDeclarations
+  , activeSchemaSupportsTeams
   , compileAccessScope
+  , compileTeamMemberScope
+  , compileTeamAccessScope
   , compilePortalSyncScope
   , accessBindings
   , acceptedAccessBindings
@@ -20,6 +30,7 @@ import Data.Generics.Labels ()
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (maybeToList)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -29,6 +40,7 @@ import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect), OperationId)
+import Nagare.Resource.Access (TeamKey, teamKeyText)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
@@ -125,11 +137,56 @@ compilePortalSyncScope scope workloads token = do
       pure (Object (KM.insert field updated fields))
     updateAt _ _ _ = Left "portal workload Pod template is malformed"
 
+-- | The one relationship a reviewed access scope controls.
+data Relationship
+  = -- | @app:<host>#viewer@user:<id>@
+    DirectViewer !Name !Text
+  | -- | @group:<team>#member@user:<id>@
+    TeamMember !TeamKey !Text
+  | -- | @app:<host>#viewer@group:<team>#member@
+    TeamViewer !Name !TeamKey
+  deriving stock (Eq, Show)
+
+-- | The auth en Service and the relationship a typed address names.
+relationshipOf :: ProviderAddress -> Maybe (ResourceId, Relationship)
+relationshipOf = \case
+  AccessTuple auth host subject -> Just (auth, DirectViewer host subject)
+  TeamMemberTuple auth team subject -> Just (auth, TeamMember team subject)
+  TeamAccessTuple auth host team -> Just (auth, TeamViewer host team)
+  _ -> Nothing
+
+-- | Whether a binding relies on the group schema (EP-187) rather than the
+-- original direct-user model.
+teamRelationship :: AccessBinding -> Bool
+teamRelationship binding = case relationshipOf (accessResource binding ^. #address) of
+  Just (_, DirectViewer _ _) -> False
+  Just _ -> True
+  Nothing -> False
+
+-- | The en schema declarations team relationships rely on, exactly as the
+-- reviewed bootstrap ConfigMap (@cluster/bootstrap/en/configmap.yaml@) states
+-- them, with layout collapsed to single spaces.
+teamSchemaDeclarations :: [Text]
+teamSchemaDeclarations =
+  [ "object group { relation member: user }"
+  , "object app { relation viewer: user, group#member permission access = viewer }"
+  ]
+
+-- | Whether an active schema source (@GET /v1/schema@) declares those
+-- relations and that permission. Layout is ignored; the relation subject
+-- types and the permission rewrite are compared exactly, so a schema that
+-- names the relations but changes what they mean is not accepted.
+activeSchemaSupportsTeams :: Text -> Bool
+activeSchemaSupportsTeams source = all (`T.isInfixOf` normalized) teamSchemaDeclarations
+  where
+    normalized = T.unwords (T.words source)
+
 -- These dependencies come from the composed owner declarations, not live lists.
+-- A team membership has no route: it depends on the auth en Service alone.
 data AccessBinding = AccessBinding
   { accessResource :: !ManagedResource
   , accessAuth :: !ManagedResource
-  , accessRoute :: !ManagedResource
+  , accessRoute :: !(Maybe ManagedResource)
   }
   deriving stock (Eq, Show)
 
@@ -162,41 +219,114 @@ data AccessOps = AccessOps
 enServiceEndpoint :: Text
 enServiceEndpoint = "http://en.nagare-system.svc.cluster.local"
 
+-- | A direct viewer grant for one user on one protected host.
 compileAccessScope :: ScopeSnapshot -> Text -> ShomeiUser -> Bool -> Either Text ScopeDeclaration
 compileAccessScope snapshot rawHost user granted = do
   let subject = user ^. #userId
-  host <- mkName (T.toLower (T.dropWhileEnd (== '.') (T.strip rawHost)))
+  host <- hostName rawHost
   unless (isShomeiUserId subject) (Left "access subject must be a Shomei user id (user_…)")
-  inventory <- first (T.pack . show) (composeSnapshot snapshot)
-  (auth, route) <- protectedOwner (inventoryDeclarations inventory) host
-  let key =
-        T.take
-          40
-          ( digestText
-              ( contentDigest
-                  ( TE.encodeUtf8
-                      (resourceIdText (auth ^. #identity) <> "\n" <> nameText host <> "\n" <> subject)
-                  )
-              )
-          )
-  owner <- mkScopeId Standalone ("access-" <> key)
-  logical <- mkLogicalKey "viewer"
+  declarations <- composedDeclarationsOf snapshot
+  (auth, route) <- protectedOwner declarations host
+  compileRelationship
+    snapshot
+    auth
+    (Just route)
+    "access"
+    "viewer"
+    (AccessTuple (auth ^. #identity) host subject)
+    (fromMaybe "viewer" (user ^. #email))
+    granted
+    [resourceIdText (auth ^. #identity), nameText host, subject]
+
+-- | One user's membership in one team. A team first exists through its first
+-- accepted membership; nothing else creates it.
+compileTeamMemberScope :: ScopeSnapshot -> TeamKey -> ShomeiUser -> Bool -> Either Text ScopeDeclaration
+compileTeamMemberScope snapshot team user present = do
+  let subject = user ^. #userId
+  unless (isShomeiUserId subject) (Left "team member must be a Shomei user id (user_…)")
+  declarations <- composedDeclarationsOf snapshot
+  auth <- authService declarations
+  compileRelationship
+    snapshot
+    auth
+    Nothing
+    "access-member"
+    "member"
+    (TeamMemberTuple (auth ^. #identity) team subject)
+    (fromMaybe "member" (user ^. #email))
+    present
+    ["team-member", resourceIdText (auth ^. #identity), teamKeyText team, subject]
+
+-- | One team's viewer grant on one protected host. The team must have
+-- accepted membership history in this context, even if every member has
+-- since been removed, so a grant never names a team nobody reviewed.
+compileTeamAccessScope :: ScopeSnapshot -> Text -> TeamKey -> Bool -> Either Text ScopeDeclaration
+compileTeamAccessScope snapshot rawHost team present = do
+  host <- hostName rawHost
+  declarations <- composedDeclarationsOf snapshot
+  (auth, route) <- protectedOwner declarations host
+  unless
+    (teamKnown declarations (auth ^. #identity) team)
+    (Left ("team " <> teamKeyText team <> " has no accepted membership in this context; add a member first"))
+  compileRelationship
+    snapshot
+    auth
+    (Just route)
+    "access-team"
+    "viewer"
+    (TeamAccessTuple (auth ^. #identity) host team)
+    "viewer"
+    present
+    ["team-access", resourceIdText (auth ^. #identity), nameText host, teamKeyText team]
+
+hostName :: Text -> Either Text Name
+hostName rawHost = mkName (T.toLower (T.dropWhileEnd (== '.') (T.strip rawHost)))
+
+composedDeclarationsOf :: ScopeSnapshot -> Either Text [Declaration]
+composedDeclarationsOf snapshot = inventoryDeclarations <$> first (T.pack . show) (composeSnapshot snapshot)
+
+teamKnown :: [Declaration] -> ResourceId -> TeamKey -> Bool
+teamKnown declarations auth team =
+  or
+    [ True
+    | Managed resource <- declarations
+    , TeamMemberTuple owner known _ <- [resource ^. #address]
+    , owner == auth
+    , known == team
+    ]
+
+compileRelationship ::
+  ScopeSnapshot ->
+  ManagedResource ->
+  Maybe ManagedResource ->
+  Text ->
+  Text ->
+  ProviderAddress ->
+  Text ->
+  Bool ->
+  [Text] ->
+  Either Text ScopeDeclaration
+compileRelationship snapshot auth route prefix logical address label present digestInput = do
+  let key = T.take 40 (digestText (contentDigest (TE.encodeUtf8 (T.intercalate "\n" digestInput))))
+  owner <- mkScopeId Standalone (prefix <> "-" <> key)
+  logicalKey <- mkLogicalKey logical
   role <- mkName "grant"
+  validated <- mkProviderAddress address
   let resource =
         ManagedResource
-          (mintResourceId owner logical role)
+          (mintResourceId owner logicalKey role)
           owner
           AccessExecutor
-          (AccessTuple (auth ^. #identity) host subject)
+          validated
           []
-          (AccessGrantSpec enServiceEndpoint granted)
+          (AccessGrantSpec enServiceEndpoint present)
           Retain
           Stateless
           Private
-          [OrderedAfter (auth ^. #identity), OrderedAfter (route ^. #identity)]
+          (Set.toAscList (Set.fromList (OrderedAfter (auth ^. #identity) : [OrderedAfter (r ^. #identity) | r <- maybeToList route])))
           []
           -- The review names the email the operator gave alongside the id.
-          (SourceLocation "access" (fromMaybe "viewer" (user ^. #email)))
+          (SourceLocation "access" label)
   forM_ (Map.lookup owner (snapshotScopes snapshot)) $ \(_, prior) ->
     forM_ [old | bundle <- scopeBundles prior, Managed old <- bundle ^. #declarations] $ \old ->
       unless
@@ -209,21 +339,25 @@ compileAccessScope snapshot rawHost user granted = do
         [ResourceBundle [Managed resource] [] [] [] [] []]
     )
 
+authService :: [Declaration] -> Either Text ManagedResource
+authService declarations = do
+  authOwner <- mkScopeId Platform "auth"
+  one
+    "access requires one accepted platform auth en Service"
+    [ r
+    | Managed r <- declarations
+    , r ^. #owner == authOwner
+    , Kubernetes _ "" kind (Just ns) name <- [r ^. #address]
+    , nameText kind == "service"
+    , nameText ns == "nagare-system"
+    , nameText name == "en"
+    , NativeObject {} <- [r ^. #spec]
+    ]
+
 protectedOwner :: [Declaration] -> Name -> Either Text (ManagedResource, ManagedResource)
 protectedOwner declarations host = do
   authOwner <- mkScopeId Platform "auth"
-  auth <-
-    one
-      "access requires one accepted platform auth en Service"
-      [ r
-      | Managed r <- declarations
-      , r ^. #owner == authOwner
-      , Kubernetes _ "" kind (Just ns) name <- [r ^. #address]
-      , nameText kind == "service"
-      , nameText ns == "nagare-system"
-      , nameText name == "en"
-      , NativeObject {} <- [r ^. #spec]
-      ]
+  auth <- authService declarations
   cluster <- case auth ^. #address of Kubernetes c _ _ _ _ -> Right c; _ -> Left "invalid auth service"
   let protected =
         [ ()
@@ -250,8 +384,10 @@ protectedOwner declarations host = do
       , OrderedAfter (backendMapResourceId authOwner) `elem` (r ^. #dependencies)
       ]
   pure (auth, route)
-  where
-    one _ [single] = Right single; one reason _ = Left reason
+
+one :: Text -> [a] -> Either Text a
+one _ [single] = Right single
+one reason _ = Left reason
 
 accessBindings :: [Declaration] -> Either Text (Map ResourceId AccessBinding)
 accessBindings declarations = Map.fromList <$> traverse bind resources
@@ -265,13 +401,17 @@ accessBindings declarations = Map.fromList <$> traverse bind resources
             ]
         )
     bind resource = do
-      (authId, host) <- case (resource ^. #address, resource ^. #spec) of
-        (AccessTuple auth host _, AccessGrantSpec endpoint _) | validAccessEndpoint endpoint -> Right (auth, host)
+      (authId, relationship) <- case (relationshipOf (resource ^. #address), resource ^. #spec) of
+        (Just pair, AccessGrantSpec endpoint _) | validAccessEndpoint endpoint -> Right pair
         _ -> Left "invalid typed access tuple declaration"
-      (auth, route) <- protectedOwner declarations host
+      (auth, route) <- case relationship of
+        DirectViewer host _ -> fmap Just <$> protectedOwner declarations host
+        TeamViewer host _ -> fmap Just <$> protectedOwner declarations host
+        TeamMember _ _ -> (,Nothing) <$> authService declarations
       unless
         ( authId == auth ^. #identity
-            && Set.fromList (resource ^. #dependencies) == Set.fromList [OrderedAfter authId, OrderedAfter (route ^. #identity)]
+            && Set.fromList (resource ^. #dependencies)
+              == Set.fromList (OrderedAfter authId : [OrderedAfter (r ^. #identity) | r <- maybeToList route])
             && resource ^. #lifecycle == Retain
             && resource ^. #dataPolicy == Stateless
         )
@@ -406,14 +546,19 @@ mkAccessAdapter accepted bindings ops =
         (Left "exact reviewed access tuple completion cannot be proved")
       canonical <- canonicalValue (object ["plan" .= plan, "observed" .= fact])
       pure (contentDigest canonical)
-    summary binding = case accessResource binding ^. #address of
-      AccessTuple _ host subject ->
-        (if wanted binding then "grant " else "revoke ")
+    summary binding = case relationshipOf (accessResource binding ^. #address) of
+      Just (_, DirectViewer host subject) ->
+        verb binding <> subject <> emailNote (accessResource binding ^. #source) <> " viewer on " <> nameText host
+      Just (_, TeamMember team subject) ->
+        (if wanted binding then "add " else "remove ")
           <> subject
           <> emailNote (accessResource binding ^. #source)
-          <> " viewer on "
-          <> nameText host
-      _ -> "invalid access tuple"
+          <> (if wanted binding then " to team " else " from team ")
+          <> teamKeyText team
+      Just (_, TeamViewer host team) ->
+        verb binding <> "team " <> teamKeyText team <> " viewer on " <> nameText host
+      Nothing -> "invalid access tuple"
+    verb binding = if wanted binding then "grant " else "revoke "
     emailNote = \case
-      SourceLocation "access" label | label /= "viewer" -> " (" <> label <> ")"
+      SourceLocation "access" label | T.any (== '@') label -> " (" <> label <> ")"
       _ -> ""

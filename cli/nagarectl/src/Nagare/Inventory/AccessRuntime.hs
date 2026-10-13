@@ -18,10 +18,11 @@ import Data.ByteString (ByteString)
 import Data.ByteString.Lazy qualified as LBS
 import Data.Generics.Labels ()
 import Data.Map.Strict qualified as Map
+import Data.Maybe (maybeToList)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
-import Nagare.Access.Grants (accessTuple)
+import Nagare.Access.Grants (TupleWire, accessTuple, teamAccessTuple, teamMemberTuple)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Access
 import Nagare.Inventory.Adapter
@@ -30,6 +31,7 @@ import Nagare.Inventory.Journal (FailureClass (KnownNoEffect))
 import Nagare.Inventory.Plan (ReviewBundle, loadInventoryHistory, reviewBaseRevisions, reviewBundleDocument, reviewBundleScopes, reviewDesiredRevisions)
 import Nagare.Inventory.Plan.Types (historyDeclarations)
 import Nagare.Inventory.Store (InventoryStore, readObject, revisionDigest, scopeKey)
+import Nagare.Resource.Access (teamKeyText)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Types
 import Nagare.Resource.Wire (decodeScope)
@@ -62,16 +64,25 @@ accessMutation binding before =
            ]
     ]
   where
-    tuple = case accessResource binding ^. #address of
-      AccessTuple _ host subject -> toJSON (accessTuple (nameText host) subject)
-      _ -> Null
+    tuple = maybe Null toJSON (relationshipTuple binding)
 
 wanted :: AccessBinding -> Bool
 wanted binding = case accessResource binding ^. #spec of AccessGrantSpec _ granted -> granted; _ -> False
 
+-- | The exact tuple a binding writes or deletes, in en's wire form.
+relationshipTuple :: AccessBinding -> Maybe TupleWire
+relationshipTuple binding = case relationshipOf (accessResource binding ^. #address) of
+  Just (_, DirectViewer host subject) -> Just (accessTuple (nameText host) subject)
+  Just (_, TeamMember team subject) -> Just (teamMemberTuple (teamKeyText team) subject)
+  Just (_, TeamViewer host team) -> Just (teamAccessTuple (nameText host) (teamKeyText team))
+  Nothing -> Nothing
+
+-- | The exact filter for one relationship: every field named, and the subject
+-- relation pinned, so a concrete user never matches a userset over that user
+-- and a team grant never matches a direct one.
 tupleFilter :: AccessBinding -> Value
-tupleFilter binding = case accessResource binding ^. #address of
-  AccessTuple _ host subject ->
+tupleFilter binding = case relationshipOf (accessResource binding ^. #address) of
+  Just (_, DirectViewer host subject) ->
     object
       [ "objectType" .= ("app" :: Text)
       , "objectId" .= nameText host
@@ -80,7 +91,25 @@ tupleFilter binding = case accessResource binding ^. #address of
       , "subjectId" .= subject
       , "subjectRelation" .= object ["match" .= ("none" :: Text)]
       ]
-  _ -> Null
+  Just (_, TeamMember team subject) ->
+    object
+      [ "objectType" .= ("group" :: Text)
+      , "objectId" .= teamKeyText team
+      , "relation" .= ("member" :: Text)
+      , "subjectType" .= ("user" :: Text)
+      , "subjectId" .= subject
+      , "subjectRelation" .= object ["match" .= ("none" :: Text)]
+      ]
+  Just (_, TeamViewer host team) ->
+    object
+      [ "objectType" .= ("app" :: Text)
+      , "objectId" .= nameText host
+      , "relation" .= ("viewer" :: Text)
+      , "subjectType" .= ("group" :: Text)
+      , "subjectId" .= teamKeyText team
+      , "subjectRelation" .= object ["match" .= ("exact" :: Text), "relation" .= ("member" :: Text)]
+      ]
+  Nothing -> Null
 
 -- No expand/permission inference: only a complete page of the exact direct tuple.
 -- Caveated or userset grants are distinct authority and cannot be rewritten.
@@ -92,9 +121,7 @@ parseAccessPage binding bytes = do
   case nodes of
     [] -> Right False
     [node] -> do
-      expected <- case accessResource binding ^. #address of
-        AccessTuple _ host subject -> Right (toJSON (accessTuple (nameText host) subject))
-        _ -> Left "invalid access tuple address"
+      expected <- maybe (Left "invalid access tuple address") (Right . toJSON) (relationshipTuple binding)
       unless (node == expected) (Left "access query returned a foreign or caveated tuple")
       pure True
     _ -> Left "access query returned multiple tuples"
@@ -142,12 +169,27 @@ accessRuntimeOps context kubectlContext contextGuard =
               parseAccessCapabilities bytes of
               Left reason -> pure (Left reason)
               Right () -> do
-                response <- call "POST" "/v1/relationships/query?first=2" (accessQuery binding)
-                pure $ do
-                  (code, bytes) <- response
-                  unless (code == 200) (Left "access relationship query refused")
-                  present <- parseAccessPage binding bytes
-                  pure (AccessFact physical present)
+                -- A team relationship needs the reviewed group schema to be
+                -- the active one; the direct form predates it (EP-187).
+                schema <-
+                  if teamRelationship binding
+                    then do
+                      active <- call "GET" "/v1/schema" Null
+                      pure $ do
+                        (code, bytes) <- active
+                        unless (code == 200) (Left "active en schema observation refused")
+                        source <- first (const "malformed en schema response") (eitherDecodeStrict bytes >>= parseEither (withObject "schema" (.: "source")))
+                        unless (activeSchemaSupportsTeams source) (Left "active en schema does not declare team membership; apply the reviewed auth schema update first")
+                    else pure (Right ())
+                case schema of
+                  Left reason -> pure (Left reason)
+                  Right () -> do
+                    response <- call "POST" "/v1/relationships/query?first=2" (accessQuery binding)
+                    pure $ do
+                      (code, bytes) <- response
+                      unless (code == 200) (Left "access relationship query refused")
+                      present <- parseAccessPage binding bytes
+                      pure (AccessFact physical present)
     , accessWrite = \binding before -> do
         current <- inspectOwners binding
         case current of
@@ -174,7 +216,7 @@ accessRuntimeOps context kubectlContext contextGuard =
       case guarded of
         Left _ -> pure (Left "access context guard refused")
         Right () -> do
-          identities <- traverse inspectOwner [accessAuth binding, accessRoute binding]
+          identities <- traverse inspectOwner (accessAuth binding : maybeToList (accessRoute binding))
           pure $ do
             uids <- sequence identities
             mkPhysicalIdentity ("access-owner://" <> T.intercalate "/" uids)

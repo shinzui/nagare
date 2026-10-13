@@ -102,9 +102,10 @@ import Shomei.Session.Dto qualified as ShomeiSessionDTO
 import Shomei.SigningKey.Domain (SigningAlgorithm (ES256))
 import Shomei.SigningKey.Protection.Jwt (KeyEncryptionKey, keyEncryptionKeyFromBase64)
 import System.Timeout (timeout)
+import TeamAccessSpec (teamAccessTests)
 import Test.Tasty
 import Test.Tasty.HUnit
-import TestServices (testServices)
+import TestServices (testServices, withHeader)
 
 main :: IO ()
 main =
@@ -120,6 +121,7 @@ main =
       , shomeiTests
       , enTests
       , decisionCacheTests
+      , teamAccessTests
       , proxyTests
       , portalTests
       , challengeTests
@@ -1313,10 +1315,6 @@ authConfigFromEnv :: [(String, String)] -> IO AuthPlaneConfig
 authConfigFromEnv env = do
   runtime <- assertRight (parseRuntimeConfig env)
   maybe (assertFailure "expected auth-plane config") pure (runtime ^. #authPlaneConfig)
-
-withHeader :: HeaderName -> ByteString -> Request -> Request
-withHeader name value req =
-  req {requestHeaders = (name, value) : requestHeaders req}
 
 -- | A TCP port on loopback that nothing is listening on: bind one, learn its
 -- number, then close it. Connecting there fails at the transport level, which

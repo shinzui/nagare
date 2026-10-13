@@ -10,6 +10,8 @@ module Nagare.Access.Grants
   , ExpandStateWire (..)
   , ExpandTreeWire (..)
   , accessTuple
+  , teamAccessTuple
+  , teamMemberTuple
   , collectExpandedSubjects
   , expandRequest
   , runAccessGrant
@@ -309,6 +311,28 @@ accessTuple host user =
     { object = ObjectRefWire "app" (canonicalHost host)
     , relation = "viewer"
     , subject = SubjectIdWire (ObjectRefWire "user" user)
+    , caveat = Nothing
+    }
+
+-- | A user's membership in a team: @group:<team>#member@user:<id>@ (EP-187).
+teamMemberTuple :: Text -> Text -> TupleWire
+teamMemberTuple team user =
+  TupleWire
+    { object = ObjectRefWire "group" team
+    , relation = "member"
+    , subject = SubjectIdWire (ObjectRefWire "user" user)
+    , caveat = Nothing
+    }
+
+-- | A team's grant on a host: @app:<host>#viewer@group:<team>#member@. The
+-- subject is a userset, so every current member of the team is a viewer and
+-- nobody else.
+teamAccessTuple :: Text -> Text -> TupleWire
+teamAccessTuple host team =
+  TupleWire
+    { object = ObjectRefWire "app" (canonicalHost host)
+    , relation = "viewer"
+    , subject = SubjectSetWire (ObjectRefWire "group" team) "member"
     , caveat = Nothing
     }
 

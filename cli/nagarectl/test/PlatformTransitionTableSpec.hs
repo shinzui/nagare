@@ -31,7 +31,7 @@ import Nagare.Inventory.Components.LocalObjectStore (LocalMinioImages (..), comp
 import Nagare.Inventory.Components.Observability (PackagedHelmInput (..), compilePinnedObservability, pinnedObservabilityInputs)
 import Nagare.Inventory.Components.ObservabilityExtras (compileObservabilityExtras)
 import Nagare.Inventory.Components.ObservabilitySecrets (compileObservabilitySecrets)
-import Nagare.Inventory.Components.PackagedAuth (packagedAuthInputs)
+import Nagare.Inventory.Components.PackagedAuth (compilePackagedAuth, packagedAuthInputs)
 import Nagare.Inventory.Components.Upstream (IssuerMode (LocalIssuer), bindNetCertManagerControllerImage, configuredUpstreamInputsWithIssuer)
 import Nagare.Inventory.Database (DatabaseBackupTarget (DatabaseBackupTarget))
 import Nagare.Inventory.Digest (contentDigest)
@@ -95,13 +95,18 @@ observeFixture :: IO (Map TransitionState TransitionDelta)
 observeFixture = do
   source <- manifestAt sourceRoot
   target <- manifestAt targetRoot
-  -- This release pins the digest of its own MinIO manifest (F41) and refuses
-  -- the source payload's, which is why the workspace moves with the CLI; the
-  -- source side takes its object store from this tree.
+  -- This release pins the digests of its own MinIO and auth manifests (F41)
+  -- and refuses the source payload's, which is why the workspace moves with
+  -- the CLI; the source side takes those components from this tree. The auth
+  -- manifests differ since EP-187 changed the En schema.
   refused <- compileLocalObjectStore sourceCompileRoot (sourceFoundation sourceCompileRoot) localStore minioImages
   case refused of
     Left errors | any ((== "invalid-local-object-store") . (^. #code)) errors -> pure ()
     other -> assertFailure ("this release compiled the v0.4.0 MinIO manifest: " <> either show (const "accepted") other)
+  refusedAuth <- compilePackagedAuth sourceCompileRoot (sourceFoundation sourceCompileRoot) LocalAuth "127-0-0-1.sslip.io" fixtureAuthImages (DatabaseBackupTarget (MinioBackend localStore) HourlyRecoveryPoint)
+  case refusedAuth of
+    Left errors | any ((== "invalid-auth-component") . (^. #code)) errors -> pure ()
+    other -> assertFailure ("this release compiled the v0.4.0 auth manifests: " <> either show (const "accepted") other)
   sourceScopes <- compileLocalPlatform sourceCompileRoot targetRoot source
   targetScopes <- compileLocalPlatform targetRoot targetRoot target
   recorded <- recordedPairs
@@ -173,9 +178,11 @@ recordedScopes = do
 
 -- | The local platform scopes this release compiles from a payload root, the
 -- stamp included, with the fixed inputs of a local context: the scopes
--- `platform bootstrap plan` composes in its platform stage.
+-- `platform bootstrap plan` composes in its platform stage. Components whose
+-- manifests this release pins (the object store and the auth plane) come
+-- from @pinnedRoot@.
 compileLocalPlatform :: FilePath -> FilePath -> PayloadManifest -> IO (Map Text ScopeDeclaration)
-compileLocalPlatform root objectStoreRoot manifest = do
+compileLocalPlatform root pinnedRoot manifest = do
   let observabilityInputs = pinnedObservabilityInputs platformCluster root "v1.32.0"
       foundation = sourceFoundation root
       store = localStore
@@ -184,12 +191,12 @@ compileLocalPlatform root objectStoreRoot manifest = do
   (controllerScope, controllerImage, publication) <-
     expectRight (controllerImageDeclaration "k3d-registry.localhost:5000" (ok (mkContentDigest (T.replicate 64 "a"))) (ok (mkContentDigest (T.replicate 64 "b"))))
   upstream <- expectRight (bindNetCertManagerControllerImage platformCluster controllerImage publication rawUpstream)
-  (localScope, localNative) <- compileLocalObjectStore objectStoreRoot foundation store minioImages >>= expectRight
+  (localScope, localNative) <- compileLocalObjectStore pinnedRoot foundation store minioImages >>= expectRight
   bucketJob <- case [resource ^. #identity | (resource, _) <- Map.elems localNative, isBucketJob resource] of
     [job] -> pure job
     other -> assertFailure ("expected one bucket Job, got " <> show other) >> error "unreachable"
   (auth, databases) <-
-    expectRight (packagedAuthInputs root foundation LocalAuth "127-0-0-1.sslip.io" authImages (DatabaseBackupTarget (MinioBackend store) HourlyRecoveryPoint))
+    expectRight (packagedAuthInputs pinnedRoot foundation LocalAuth "127-0-0-1.sslip.io" fixtureAuthImages (DatabaseBackupTarget (MinioBackend store) HourlyRecoveryPoint))
   (base, _) <-
     compileBootstrapWithAuthAndScopes snapshot (BootstrapInput foundation Nothing upstream [controllerScope]) auth {authExtraPrerequisites = [bucketJob]} databases [localScope]
       >>= expectRight
@@ -218,7 +225,6 @@ compileLocalPlatform root objectStoreRoot manifest = do
         ]
     )
   where
-    authImages = Map.fromList [(name, "k3d-registry.localhost:5000/" <> name <> "@sha256:" <> T.replicate 64 "c") | name <- ["en", "shomei", "nagare-access"]]
     isBucketJob resource = case resource ^. #address of
       Kubernetes _ "batch" kind _ name -> nameText kind == "job" && nameText name == "minio-make-bucket"
       _ -> False
@@ -233,6 +239,9 @@ compileLocalPlatform root objectStoreRoot manifest = do
 
 platformFoundationOwner :: ScopeId
 platformFoundationOwner = ok (mkScopeId Platform "foundation")
+
+fixtureAuthImages :: Map Text Text
+fixtureAuthImages = Map.fromList [(name, "k3d-registry.localhost:5000/" <> name <> "@sha256:" <> T.replicate 64 "c") | name <- ["en", "shomei", "nagare-access"]]
 
 platformCluster :: ResourceId
 platformCluster = mintResourceId (ok (mkScopeId Platform "cluster")) (ok (mkLogicalKey "cluster")) (ok (mkName "cluster"))

@@ -2,6 +2,7 @@ module InventoryAccessSpec (inventoryAccessTests) where
 
 import Control.Monad (forM_, void)
 import Data.Aeson (Value (..), object, toJSON, (.=))
+import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString qualified as BS
 import Data.Generics.Labels ()
 import Data.IORef
@@ -12,7 +13,8 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
-import Nagare.Access.Grants (accessTuple)
+import Data.Yaml qualified as Yaml
+import Nagare.Access.Grants (accessTuple, teamAccessTuple, teamMemberTuple)
 import Nagare.Access.ShomeiUser (ShomeiUser (..))
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Access
@@ -25,6 +27,7 @@ import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.Lifecycle (decideRetirement)
 import Nagare.Inventory.Plan
 import Nagare.Inventory.Store
+import Nagare.Resource.Access (mkTeamKey, teamKeyText)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Inventory qualified as ResourceInventory
 import Nagare.Resource.Kubernetes (KubernetesInput (..))
@@ -248,6 +251,98 @@ inventoryAccessTests =
             Left errors | granted -> assertBool (show errors) (any ((== "access-grant-live") . planErrorCode) (NE.toList errors))
             Left errors -> assertFailure ("a revoked grant's retirement refused: " <> show errors)
             Right _ -> assertFailure "a live grant's retirement was planned"
+    , testCase "a team membership and a team grant are exact typed relationships with their own scopes (EP-187)" $ do
+        let engineering = ok (mkTeamKey "engineering")
+            member = ok (compileTeamMemberScope snapshot engineering alice True)
+            withMember = ok (mkScopeSnapshot context (Map.insert (scopeId member) (generation, member) (snapshotScopes snapshot)) Map.empty)
+            team = ok (compileTeamAccessScope withMember "ONE.EXAMPLE.TEST." engineering True)
+            memberResource = head [r | bundle <- scopeBundles member, Managed r <- bundle ^. #declarations]
+            teamResource = head [r | bundle <- scopeBundles team, Managed r <- bundle ^. #declarations]
+        assertBool "team scope collides with the member scope" (scopeId member /= scopeId team)
+        assertBool "team scope collides with the direct grant" (scopeId team /= scopeId (ok (compileAccessScope snapshot "one.example.test" alice True)))
+        memberResource ^. #address @?= TeamMemberTuple (ok (mkResourceId "platform:auth/en/service")) engineering aliceId
+        teamResource ^. #address @?= TeamAccessTuple (ok (mkResourceId "platform:auth/en/service")) (ok (mkName "one.example.test")) engineering
+        -- Serialized reviews round-trip the new claims exactly.
+        forM_ [member, team] $ \scope -> either (fail . show) (@?= scope) (decodeScope (encodeCanonicalScope scope))
+        -- A membership depends on the en Service alone; a team grant also on the exact route.
+        let bound = ok (accessBindings (inventoryDeclarations (candidateInventory (ok (composeInventory withMember (ReplaceScope team :| []))))))
+            memberBinding = bound Map.! (memberResource ^. #identity)
+            teamBinding = bound Map.! (teamResource ^. #identity)
+        accessRoute memberBinding @?= Nothing
+        fmap (^. #identity) (accessRoute teamBinding) @?= Just (mintResourceId (ok (mkScopeId Application "one")) (ok (mkLogicalKey "web")) (ok (mkName "route")))
+        -- A team grant needs accepted membership history for that team.
+        assertBool
+          "team grant planned for a team nobody reviewed"
+          (either (const True) (const False) (compileTeamAccessScope snapshot "one.example.test" engineering True))
+        assertBool "team grant accepted a public host" (either (const True) (const False) (compileTeamAccessScope withMember "foreign.example.test" engineering True))
+        assertBool "malformed team key accepted" (either (const True) (const False) (mkTeamKey "Engineering"))
+        assertBool "subject that is not a Shomei id accepted" (either (const True) (const False) (compileTeamMemberScope snapshot engineering (ShomeiUser "alice" Nothing) True))
+    , testCase "team wire pins the exact subject kind and relation, so a user and a userset never collide (EP-187)" $ do
+        let engineering = ok (mkTeamKey "engineering")
+            member = ok (compileTeamMemberScope snapshot engineering alice True)
+            withMember = ok (mkScopeSnapshot context (Map.insert (scopeId member) (generation, member) (snapshotScopes snapshot)) Map.empty)
+            team = ok (compileTeamAccessScope withMember "one.example.test" engineering True)
+            bound = ok (accessBindings (inventoryDeclarations (candidateInventory (ok (composeInventory withMember (ReplaceScope team :| []))))))
+            bindingOf scope = case [binding | Managed r <- concatMap (^. #declarations) (scopeBundles scope), Just binding <- [Map.lookup (r ^. #identity) bound]] of
+              [binding] -> binding
+              other -> error ("scope has no unique access binding: " <> show (length other))
+            memberBinding = bindingOf member
+            teamBinding = bindingOf team
+            memberFilter =
+              object
+                [ "objectType" .= ("group" :: Text)
+                , "objectId" .= ("engineering" :: Text)
+                , "relation" .= ("member" :: Text)
+                , "subjectType" .= ("user" :: Text)
+                , "subjectId" .= aliceId
+                , "subjectRelation" .= object ["match" .= ("none" :: Text)]
+                ]
+            teamFilter =
+              object
+                [ "objectType" .= ("app" :: Text)
+                , "objectId" .= ("one.example.test" :: Text)
+                , "relation" .= ("viewer" :: Text)
+                , "subjectType" .= ("group" :: Text)
+                , "subjectId" .= ("engineering" :: Text)
+                , "subjectRelation" .= object ["match" .= ("exact" :: Text), "relation" .= ("member" :: Text)]
+                ]
+        accessQuery memberBinding @?= object ["consistency" .= object ["mode" .= ("fullyConsistent" :: Text)], "filter" .= memberFilter]
+        accessMutation teamBinding (AccessFact physical False)
+          @?= object
+            [ "tuples" .= [teamAccessTuple "one.example.test" "engineering"]
+            , "deletes" .= ([] :: [Value])
+            , "preconditions" .= [object ["kind" .= ("mustNotExist" :: Text), "filter" .= teamFilter]]
+            ]
+        toJSON (teamAccessTuple "one.example.test" "engineering")
+          @?= object
+            [ "object" .= object ["objectType" .= ("app" :: Text), "objectId" .= ("one.example.test" :: Text)]
+            , "relation" .= ("viewer" :: Text)
+            , "subject" .= object ["kind" .= ("set" :: Text), "objectType" .= ("group" :: Text), "objectId" .= ("engineering" :: Text), "relation" .= ("member" :: Text)]
+            , "caveat" .= Null
+            ]
+        let page nodes = ok (canonicalValue (object ["edges" .= [object ["node" .= n] | n <- nodes], "pageInfo" .= object ["hasNextPage" .= False]]))
+        parseAccessPage teamBinding (page [toJSON (teamAccessTuple "one.example.test" "engineering")]) @?= Right True
+        parseAccessPage memberBinding (page [toJSON (teamMemberTuple "engineering" aliceId)]) @?= Right True
+        assertBool "a direct user tuple satisfied the team grant" (either (const True) (const False) (parseAccessPage teamBinding (page [toJSON (accessTuple "one.example.test" aliceId)])))
+        assertBool "a team tuple satisfied the direct grant" (either (const True) (const False) (parseAccessPage (accessBinding True) (page [toJSON (teamAccessTuple "one.example.test" "engineering")])))
+        -- Review summaries name the relationship, never a key.
+        adapter <- pure (mkAccessAdapter Map.empty (Map.fromList [(accessResource b ^. #identity, b) | b <- [memberBinding, teamBinding]]) AccessOps {accessInspect = \_ -> pure (Right (AccessFact physical False)), accessWrite = \_ _ -> pure AdapterEffectCompleted})
+        forM_ [(memberBinding, "add " <> aliceId <> " (alice@example.test) to team engineering"), (teamBinding, "grant team engineering viewer on one.example.test")] $ \(binding, expected) -> do
+          prepared <- adapterPrepare adapter (operation binding CreateResource) >>= either (fail . show) pure
+          preparedPublicSummary prepared @?= expected
+    , testCase "the team schema the CLI requires is the reviewed bootstrap schema (EP-187)" $ do
+        documents <- Yaml.decodeAllFileEither "../../cluster/bootstrap/en/configmap.yaml" >>= either (fail . show) pure
+        source <- case [ text
+                       | Object root <- documents
+                       , Just (Object payload) <- [KM.lookup "data" root]
+                       , Just (String text) <- [KM.lookup "app.en" payload]
+                       ] of
+          [text] -> pure text
+          other -> assertFailure ("bootstrap en schema has no unique app.en: " <> show other) >> fail "schema"
+        assertBool "bootstrap schema does not declare team membership" (activeSchemaSupportsTeams source)
+        assertBool "the old user-only schema passed as supporting teams" (not (activeSchemaSupportsTeams "object user {}\nobject app {\n  relation viewer: user\n  permission access = viewer\n}\n"))
+        assertBool "a schema with the names but another permission passed" (not (activeSchemaSupportsTeams "object group { relation member: user }\nobject app { relation viewer: user, group#member\n permission access = viewer + owner }"))
+        teamKeyText (ok (mkTeamKey "platform-ops_2")) @?= "platform-ops_2"
     , testCase "seed complete public command fixture from typed declarations" $
         lookupEnv "MP23_ACCESS_FIXTURE_ROOT"
           >>= maybe

@@ -1,13 +1,15 @@
 -- | The enforcer runtime every WAI-level test starts from: a verifier that
 -- admits one signed-in subject, an authorizer that allows, and a proxy that
 -- answers "proxied". Tests override the one service under test.
-module TestServices (testServices) where
+module TestServices (testServices, withHeader) where
 
+import Data.ByteString (ByteString)
 import Nagare.Access.App (textResponse)
 import Nagare.Access.Auth
 import Nagare.Access.DecisionCache (AccessDecision (..), AuthorizationResult (..), disabledDecisionCache)
 import Nagare.Access.Prelude
-import Network.HTTP.Types (status200)
+import Network.HTTP.Types (HeaderName, status200)
+import Network.Wai (Request, requestHeaders)
 
 testServices :: AccessServices
 testServices =
@@ -25,3 +27,7 @@ testServices =
     , decisionCache = disabledDecisionCache
     , cookieSettings = Nothing
     }
+
+withHeader :: HeaderName -> ByteString -> Request -> Request
+withHeader name value req =
+  req {requestHeaders = (name, value) : requestHeaders req}

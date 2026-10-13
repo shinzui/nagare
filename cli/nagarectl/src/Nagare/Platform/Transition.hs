@@ -211,7 +211,7 @@ transitionTable =
       "${XDG_STATE_HOME}/nagare/<context>/platform/<payloadId>-<digest>, selected by payload digest"
       1
       "platform transition plan prepares the target payload's workspace beside the source's; local and outside the store"
-      "a workspace whose manifest disagrees with the payload refuses before planning; this release refuses the source payload's MinIO manifest (F41), so the workspace moves with the CLI"
+      "a workspace whose manifest disagrees with the payload refuses before planning; this release refuses the source payload's MinIO and auth-plane manifests (F41), so the workspace moves with the CLI"
       "prepared again from the immutable payload; the source workspace is kept"
       Changed
   , TransitionRow

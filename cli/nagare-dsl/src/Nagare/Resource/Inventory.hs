@@ -70,6 +70,7 @@ import Data.Maybe (mapMaybe)
 import Data.Set qualified as Set
 import Data.Text qualified
 import Nagare.Dsl.Prelude
+import Nagare.Resource.Access (validAccessEndpoint)
 import Nagare.Resource.Policy
 import Nagare.Resource.Reference
 import Nagare.Resource.Types
@@ -109,12 +110,6 @@ data CloudflareCacheIntent = CloudflareCacheIntent
 
 data CloudflareTlsMode = CloudflareFlexible | CloudflareFull | CloudflareFullStrict
   deriving stock (Eq, Ord, Show, Generic)
-
-validAccessEndpoint :: Text -> Bool
-validAccessEndpoint endpoint =
-  ("https://" `Data.Text.isPrefixOf` endpoint || "http://" `Data.Text.isPrefixOf` endpoint)
-    && not (Data.Text.any (\c -> c <= ' ' || c `elem` ("@?#" :: String)) endpoint)
-    && not (Data.Text.null (Data.Text.takeWhile (/= '/') (Data.Text.drop 3 (snd (Data.Text.breakOn "://" endpoint)))))
 
 validDnsIpv4 :: Text -> Bool
 validDnsIpv4 address = case Data.Text.splitOn "." address of
@@ -329,7 +324,7 @@ validateDeclaration d@(Managed r) = [err m | m <- issues]
       PulumiUrn {} -> r ^. #executor == PulumiExecutor
       Host {} -> r ^. #executor == HostExecutor
       Artifact {} -> r ^. #executor == ArtifactExecutor
-      AccessTuple {} -> r ^. #executor == AccessExecutor
+      address | accessAddress address -> r ^. #executor == AccessExecutor
       AtticCache {} -> r ^. #executor == CacheExecutor
       BrokerTopic {} -> r ^. #executor == BrokerExecutor
       Helm {} -> r ^. #executor == HelmExecutor
@@ -348,8 +343,8 @@ validateDeclaration d@(Managed r) = [err m | m <- issues]
       (Kubernetes _ "" k (Just ns) n, ShomeiSettingsSpec {}) ->
         nameText k == "configmap" && nameText ns == "nagare-system" && nameText n == "nagare-shomei-settings"
       (Kubernetes _ g k _ _, NativeObject _) -> (g, nameText k) `notElem` [("serving.knative.dev", "service"), ("cert-manager.io", "certificate"), ("apps", "statefulset")]
-      (AccessTuple _ _ _, AccessGrantSpec endpoint _) -> validAccessEndpoint endpoint
-      (AccessTuple {}, _) -> False
+      (address, AccessGrantSpec endpoint _) | accessAddress address -> validAccessEndpoint endpoint
+      (address, _) | accessAddress address -> False
       (AtticCache _ _, LogicalCache _) -> True
       (AtticCache {}, _) -> False
       (BrokerTopic _ _, LogicalBrokerTopic partitions replicas retention) ->

@@ -33,6 +33,7 @@ module Nagare.Resource.Types
   , ContextBinding (..)
   , ProviderAddress (..)
   , mkProviderAddress
+  , accessAddress
   , kubernetesAddress
   , CanonicalClaim
   , canonicalClaim
@@ -46,6 +47,7 @@ where
 import Data.Char (isAsciiLower, isDigit)
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude
+import Nagare.Resource.Access (TeamKey, teamKeyText)
 
 newtype Name = Name Text deriving stock (Eq, Ord, Show)
 
@@ -173,6 +175,10 @@ data ProviderAddress
   | BackendRoute ResourceId Name
   | AtticCache ResourceId Name
   | AccessTuple ResourceId Name Text
+  | -- | A team membership: the auth en Service, the team, the user subject.
+    TeamMemberTuple ResourceId TeamKey Text
+  | -- | A team's viewer grant on a hostname: the auth en Service, the host, the team.
+    TeamAccessTuple ResourceId Name TeamKey
   | BrokerTopic ResourceId Name
   | Helm ResourceId Name Name
   | DnsRecord Name Name Name
@@ -183,12 +189,24 @@ data ProviderAddress
 
 newtype CanonicalClaim = CanonicalClaim [Text] deriving stock (Eq, Ord, Show)
 
+-- | Whether an address names a reviewed en relationship (direct grant, team
+-- membership, or team grant), all of which the access executor owns.
+accessAddress :: ProviderAddress -> Bool
+accessAddress = \case
+  AccessTuple {} -> True
+  TeamMemberTuple {} -> True
+  TeamAccessTuple {} -> True
+  _ -> False
+
 mkProviderAddress :: ProviderAddress -> Either Text ProviderAddress
 mkProviderAddress address = case address of
   Kubernetes _ group _ _ _ -> do
     unless (T.null group) (void (mkName group))
     pure address
   AccessTuple _ _ subject -> do
+    unless (not (T.null (T.strip subject)) && not (T.any (< ' ') subject)) (Left "invalid access subject")
+    pure address
+  TeamMemberTuple _ _ subject -> do
     unless (not (T.null (T.strip subject)) && not (T.any (< ' ') subject)) (Left "invalid access subject")
     pure address
   PulumiUrn urn -> do
@@ -222,6 +240,8 @@ canonicalClaim =
     BackendRoute r n -> ["route", resourceIdText r, nameText n]
     AtticCache r n -> ["attic-cache", resourceIdText r, nameText n]
     AccessTuple r host subject -> ["access-tuple", resourceIdText r, nameText host, subject, "viewer"]
+    TeamMemberTuple r team subject -> ["team-member", resourceIdText r, teamKeyText team, subject, "member"]
+    TeamAccessTuple r host team -> ["team-access", resourceIdText r, nameText host, teamKeyText team, "member", "viewer"]
     BrokerTopic r n -> ["broker-topic", resourceIdText r, nameText n]
     Helm r namespace n -> ["helm", resourceIdText r, nameText namespace, nameText n]
     DnsRecord account zone host -> ["dns-record", nameText account, nameText zone, nameText host]

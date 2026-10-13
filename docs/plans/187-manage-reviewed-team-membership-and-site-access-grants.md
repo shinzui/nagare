@@ -36,7 +36,7 @@ An operator can grant a named team access to selected protected sites, add or re
 
 ## Progress
 
-- [ ] M1: En schema and typed exact relationships represent team membership and team site grants, preserving old direct-user identities.
+- [x] M1 (2026-10-12): `cluster/bootstrap/en/configmap.yaml` declares `group { relation member: user }` and `app { relation viewer: user, group#member }`; the pinned En parser and compiler accept it (`nagare-access-test`, `team access` group), and the en Deployment's Pod template carries the schema digest (`nagare.dev/en-schema-digest`) so a reviewed schema change rolls the server. `TeamKey` (`[a-z][a-z0-9_-]{0,62}`, `Nagare.Resource.Access`), `TeamMemberTuple` and `TeamAccessTuple` addresses with claims `team-member`/`team-access` that round-trip through the wire; `compileTeamMemberScope` and `compileTeamAccessScope` mint `access-member-*` and `access-team-*` scopes bound to the auth en Service (and, for a team grant, the exact protected route), and a team grant needs accepted membership history for its key. Exact filters pin the subject kind and relation (`subjectRelation none` for users, `exact member` for the userset); the runtime refuses a team write unless `GET /v1/schema` serves the reviewed declarations. Direct-user claims, scopes, filters and summaries are unchanged. The exact tuples nagarectl writes, driven through the real En and the gateway, admit a team's member to the team's host only, deny the member elsewhere and a stranger everywhere, and deny on the next check once the membership is gone. Measured cost at En `c3ee100a` (flat teams, counting tuple store): a member's check is 3 operations and `teams + 1` rows at 10, 100 and 1000 members; a stranger's check is 5 operations for one attached team and 23 for ten, reading every member once (`members × teams + teams` rows). Evidence: `nagarectl-test -p '/reviewed access/'`, `nagare-access-test -p '/team access/'`.
 - [ ] M2: Public team/grant commands plan and apply guarded changes and list direct versus team relationships accurately.
 - [ ] M3: Status, interrupted-write recovery, revocation, and lifecycle exits pass adversarial interpreter tests and a representative producer/consumer interaction.
 
@@ -51,6 +51,10 @@ Validation (2026-10-12): `runAccessList` currently expands `access` and flattens
 Decision (2026-10-12): A team is a named En group with flat user membership. Its members satisfy a site's viewer relation only when that exact site grants `group:<team>#member`. No Shomei-role synchronization, nesting, wildcard user, or global login grant is introduced.
 
 Decision (2026-10-12): Preserve existing direct-user AccessTuple representation and introduce distinct typed forms for membership and team site grants. Do not reinterpret a subject string as an arbitrary En relationship.
+
+Decision (2026-10-12): The schema change makes the packaged auth manifests differ from every earlier payload's. As with the MinIO manifest (EP-172, F41), this release pins its own and refuses the source payload's, so the transition fixture compiles the auth plane from this tree on both sides and the workspace row names the refusal; the real upgrade re-plans the auth scope from the target payload in its platform stage, where the ConfigMap update and the schema-digest annotation roll En. The next release's EP-172 rehearsal carries that proof; no fixture evidence is edited by hand.
+
+Decision (2026-10-12): A denied check against a flat team reads every member of each attached team once at the pinned En (a member's check does not). For the intended small teams that is a few hundred rows per miss, bounded by En's tuple-read and decision caches and the gateway's TTL; Nagare adds no second graph or throttle. The concrete upstream improvement is a point probe of `group#member` for the checked subject instead of a relation read; it is recorded here as an En issue candidate, not a Nagare dependency.
 
 
 ## Outcomes & Retrospective

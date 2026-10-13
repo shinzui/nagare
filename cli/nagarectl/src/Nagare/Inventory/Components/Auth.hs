@@ -108,7 +108,7 @@ compileAuth input = do
   case sequence loaded of
     Left message -> pure (Left (single message))
     Right sources -> do
-      let transformed = concat <$> traverse transformSource (concat sources)
+      let transformed = concat <$> traverse transformSource (concat sources) >>= stampSchemaDigest
       case transformed of
         Left message -> pure (Left (single message))
         Right objects -> do
@@ -229,7 +229,7 @@ compileAuth input = do
     packaged =
       [ ("cluster/bootstrap/shomei/migrations.yaml", "ad92056638ae97ccf2dec2921b72f1d027e3b238a3c1c70819ffc6ebc725096e")
       , ("cluster/bootstrap/en/migrations.yaml", "45cf0132d346e43cf307ed23ddb98dd6c0a74f3f4249c1373a9d54b0d8028f0b")
-      , ("cluster/bootstrap/en/configmap.yaml", "9fad4c79902738e6882915f79588813ceecfded240e6938dd348d3ccd5dfef6a")
+      , ("cluster/bootstrap/en/configmap.yaml", "ac1c0c14fdddcd826efba1af344dbe0badcc56efc2c8d5e67a78322e73a6afec")
       , ("cluster/bootstrap/nagare-access/configmap.yaml", "195cf7c08a5f8645207f5ba51cf4818a1ad6f9f59f4a8c7f39685a70e92344ab")
       , ("cluster/bootstrap/shomei/service.yaml", "5d5e0a1470764e4a77f717a52d5a0e74e4d61b69056629e8a5bd615b11ea8f72")
       , ("cluster/bootstrap/en/service.yaml", "9ed0b83a91c0e3855e4574f2998cbc7ed9161701f5ba173ff9b723e968714a1a")
@@ -280,6 +280,35 @@ compileAuth input = do
         )
         (Left "auth image must use an immutable sha256 digest")
       pure image
+    -- EP-187: the en Deployment carries the digest of the schema it mounts,
+    -- so a reviewed schema change rolls the server instead of leaving the old
+    -- model active behind an updated ConfigMap.
+    stampSchemaDigest objects = do
+      schema <- case [ text
+                     | (_, Object root) <- objects
+                     , KM.lookup "kind" root == Just (String "ConfigMap")
+                     , Just (Object meta) <- [KM.lookup "metadata" root]
+                     , KM.lookup "name" meta == Just (String "en-schema")
+                     , Just (Object payload) <- [KM.lookup "data" root]
+                     , Just (String text) <- [KM.lookup "app.en" payload]
+                     ] of
+        [text] -> Right text
+        _ -> Left "auth bootstrap has no unique en-schema ConfigMap"
+      let digest = digestText (contentDigest (TE.encodeUtf8 schema))
+      traverse (\(location, value) -> (location,) <$> stampEn digest value) objects
+    stampEn digest value@(Object root)
+      | KM.lookup "kind" root == Just (String "Deployment")
+      , Just (Object meta) <- KM.lookup "metadata" root
+      , KM.lookup "name" meta == Just (String "en") =
+          updateAt ["spec", "template", "metadata"] (annotateSchema digest) value
+    stampEn _ value = Right value
+    annotateSchema digest (Object metadata) = do
+      annotations <- case KM.lookup "annotations" metadata of
+        Nothing -> Right KM.empty
+        Just (Object values) -> Right values
+        _ -> Left "en Deployment Pod template annotations are malformed"
+      pure (Object (KM.insert "annotations" (Object (KM.insert "nagare.dev/en-schema-digest" (String digest) annotations)) metadata))
+    annotateSchema _ _ = Left "en Deployment Pod template metadata is malformed"
     reviseJob (Object root) | KM.lookup "kind" root == Just (String "Job") = do
       metadata <- case KM.lookup "metadata" root of
         Just (Object fields) -> Right fields
