@@ -1,5 +1,5 @@
 -- | Public access commands compile one independent scope and use the common journal.
-module Nagare.Access.Reviewed (planAccess, accessPlanRegistry, planPortalSync, accessAdapter) where
+module Nagare.Access.Reviewed (planAccess, planTeamAccess, planTeamMember, accessPlanRegistry, planPortalSync, accessAdapter) where
 
 import Control.Exception (bracket)
 import Control.Monad (forM)
@@ -24,6 +24,7 @@ import Nagare.Inventory.Plan
 import Nagare.Inventory.Plan.Types (historyDeclarations)
 import Nagare.Inventory.Status (loadAcceptedNativeSelected)
 import Nagare.Inventory.Store (headBinding)
+import Nagare.Resource.Access (TeamKey)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Types
 import Nagare.Target
@@ -39,9 +40,48 @@ planAccess ::
   Bool ->
   FilePath ->
   IO ()
-planAccess active guard host user configuredKey granted output = do
+planAccess active guard host user =
+  planRelationship active guard (\snapshot -> compileAccessScope snapshot host user)
+
+-- | A team's viewer grant on a protected host (EP-187).
+planTeamAccess ::
+  ActiveTarget ->
+  IO (Either Text ()) ->
+  Text ->
+  TeamKey ->
+  Maybe Text ->
+  Bool ->
+  FilePath ->
+  IO ()
+planTeamAccess active guard host team =
+  planRelationship active guard (\snapshot -> compileTeamAccessScope snapshot host team)
+
+-- | One user's membership in a team (EP-187).
+planTeamMember ::
+  ActiveTarget ->
+  IO (Either Text ()) ->
+  TeamKey ->
+  ShomeiUser ->
+  Maybe Text ->
+  Bool ->
+  FilePath ->
+  IO ()
+planTeamMember active guard team user =
+  planRelationship active guard (\snapshot -> compileTeamMemberScope snapshot team user)
+
+-- | Every reviewed relationship is one independent scope composed against
+-- the accepted snapshot and planned through the common journal.
+planRelationship ::
+  ActiveTarget ->
+  IO (Either Text ()) ->
+  (ScopeSnapshot -> Bool -> Either Text ScopeDeclaration) ->
+  Maybe Text ->
+  Bool ->
+  FilePath ->
+  IO ()
+planRelationship active guard compile configuredKey present output = do
   snapshot <- Command.loadTargetSnapshotReadOnly active
-  scope <- either (fail . T.unpack) pure (compileAccessScope snapshot host user granted)
+  scope <- either (fail . T.unpack) pure (compile snapshot present)
   candidate <- either (fail . show) pure (composeInventory snapshot (ReplaceScope scope :| []))
   withKey (Command.planInventoryCandidateWith (accessPlanRegistry active guard) active candidate output)
   where

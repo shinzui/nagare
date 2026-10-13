@@ -2,30 +2,35 @@
 module Nagare.Access.Grants
   ( AccessGrantParams (..)
   , AccessListParams (..)
-  , AccessListResult (..)
+  , HostGrants (..)
   , ObjectRefWire (..)
   , SubjectWire (..)
   , TupleWire (..)
-  , ExpandNodeWire (..)
-  , ExpandStateWire (..)
-  , ExpandTreeWire (..)
+  , RelationshipFilter (..)
+  , RelationshipPage (..)
   , accessTuple
   , teamAccessTuple
   , teamMemberTuple
-  , collectExpandedSubjects
-  , expandRequest
+  , hostGrantsFilter
+  , teamMembersFilter
+  , listRelationships
+  , hostGrantsOf
+  , teamMembersOf
+  , maxListedPages
+  , relationshipQueryPath
   , runAccessGrant
-  , runAccessList
   , runAccessRevoke
+  , runHostGrantsList
+  , runTeamMembersList
   )
 where
 
-import Data.Aeson (FromJSON (..), ToJSON (..), eitherDecode, encode, pairs, withObject, (.:), (.=))
+import Data.Aeson (FromJSON (..), ToJSON (..), eitherDecode, encode, pairs, withObject, (.:), (.:?), (.=))
 import Data.Aeson qualified as Aeson
+import Data.Aeson.Encoding (pair)
 import Data.ByteString.Char8 qualified as BC
 import Data.ByteString.Lazy qualified as LBS
 import Data.Generics.Labels ()
-import Data.Map qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
@@ -37,6 +42,7 @@ import Network.HTTP.Client.TLS (tlsManagerSettings)
 import Network.HTTP.Types.Header (hAuthorization, hContentType)
 import Network.HTTP.Types.Method (methodPost)
 import Network.HTTP.Types.Status (statusCode)
+import Network.HTTP.Types.URI (urlEncode)
 import System.Environment (lookupEnv)
 import System.Exit (exitFailure)
 import System.IO (stderr)
@@ -53,11 +59,7 @@ data AccessListParams = AccessListParams
   { enUrl :: !(Maybe Text)
   , enApiKey :: !(Maybe Text)
   , host :: !Text
-  }
-  deriving stock (Generic, Eq, Show)
-
-newtype AccessListResult = AccessListResult
-  { users :: [Text]
+  , json :: !Bool
   }
   deriving stock (Generic, Eq, Show)
 
@@ -123,7 +125,7 @@ instance ToJSON TupleWire where
 
 instance FromJSON TupleWire where
   parseJSON = withObject "TupleWire" $ \o ->
-    TupleWire <$> o .: "object" <*> o .: "relation" <*> o .: "subject" <*> o .: "caveat"
+    TupleWire <$> o .: "object" <*> o .: "relation" <*> o .: "subject" <*> o .:? "caveat"
 
 newtype WriteTuplesRequestWire = WriteTuplesRequestWire
   { tuples :: [TupleWire]
@@ -143,148 +145,130 @@ newtype WriteTuplesResponseWire = WriteTuplesResponseWire
   deriving stock (Eq, Show, Generic)
   deriving anyclass (FromJSON)
 
-data ConsistencyWire
-  = MinimizeLatencyWire
-  | FullyConsistentWire
-  | AtLeastAsFreshWire !Text
-  | AtExactSnapshotWire !Text
-  deriving stock (Eq, Show)
-
-instance ToJSON ConsistencyWire where
-  toJSON = \case
-    MinimizeLatencyWire -> Aeson.object ["mode" .= ("minimizeLatency" :: Text)]
-    FullyConsistentWire -> Aeson.object ["mode" .= ("fullyConsistent" :: Text)]
-    AtLeastAsFreshWire token -> Aeson.object ["mode" .= ("atLeastAsFresh" :: Text), "token" .= token]
-    AtExactSnapshotWire token -> Aeson.object ["mode" .= ("atExactSnapshot" :: Text), "token" .= token]
-  toEncoding = \case
-    MinimizeLatencyWire -> pairs ("mode" .= ("minimizeLatency" :: Text))
-    FullyConsistentWire -> pairs ("mode" .= ("fullyConsistent" :: Text))
-    AtLeastAsFreshWire token -> pairs ("mode" .= ("atLeastAsFresh" :: Text) <> "token" .= token)
-    AtExactSnapshotWire token -> pairs ("mode" .= ("atExactSnapshot" :: Text) <> "token" .= token)
-
-instance FromJSON ConsistencyWire where
-  parseJSON = withObject "ConsistencyWire" $ \o ->
-    o .: "mode" >>= \case
-      "minimizeLatency" -> pure MinimizeLatencyWire
-      "fullyConsistent" -> pure FullyConsistentWire
-      "atLeastAsFresh" -> AtLeastAsFreshWire <$> o .: "token"
-      "atExactSnapshot" -> AtExactSnapshotWire <$> o .: "token"
-      other -> fail ("unknown consistency mode: " <> T.unpack other)
-
-newtype CaveatContextWire = CaveatContextWire
-  { values :: Map.Map Text ()
+-- | A stored-relationship filter for @POST /v1/relationships/query@: one
+-- object and relation, every subject. Listing never expands a permission, so
+-- a team is reported as the userset it is, not as its members.
+data RelationshipFilter = RelationshipFilter
+  { objectType :: !Text
+  , objectId :: !Text
+  , relation :: !Text
   }
   deriving stock (Generic, Eq, Show)
 
-instance ToJSON CaveatContextWire where
-  toJSON (CaveatContextWire values) = Aeson.object ["values" .= values]
-  toEncoding (CaveatContextWire values) = pairs ("values" .= values)
-
-data ExpandRequestWire = ExpandRequestWire
-  { consistency :: !ConsistencyWire
-  , object :: !ObjectRefWire
-  , permission :: !Text
-  , context :: !CaveatContextWire
-  , limit :: !Int
-  , cursor :: !(Maybe Text)
-  }
-  deriving stock (Generic, Eq, Show)
-
-instance ToJSON ExpandRequestWire where
-  toJSON (ExpandRequestWire consistency object permission context limit cursor) =
+instance ToJSON RelationshipFilter where
+  toJSON (RelationshipFilter objectType objectId relation) =
     Aeson.object
-      [ "consistency" .= consistency
-      , "object" .= object
-      , "permission" .= permission
-      , "context" .= context
-      , "limit" .= limit
-      , "cursor" .= cursor
+      [ "consistency" .= Aeson.object ["mode" .= ("fullyConsistent" :: Text)]
+      , "filter" .= Aeson.object ["objectType" .= objectType, "objectId" .= objectId, "relation" .= relation]
       ]
-  toEncoding (ExpandRequestWire consistency object permission context limit cursor) =
+  toEncoding (RelationshipFilter objectType objectId relation) =
     pairs
-      ( "consistency" .= consistency
-          <> "object" .= object
-          <> "permission" .= permission
-          <> "context" .= context
-          <> "limit" .= limit
-          <> "cursor" .= cursor
+      ( "consistency" `pair` pairs ("mode" .= ("fullyConsistent" :: Text))
+          <> "filter" `pair` pairs ("objectType" .= objectType <> "objectId" .= objectId <> "relation" .= relation)
       )
 
-data ExpandNodeWire
-  = ExpandSubjectWire !SubjectWire
-  | ExpandUsersetWire !ObjectRefWire !Text ![ExpandNodeWire]
-  | ExpandCaveatedWire !Text ![ExpandNodeWire]
-  | ExpandUnionWire ![ExpandNodeWire]
-  | ExpandIntersectionWire ![ExpandNodeWire]
-  | ExpandExclusionWire ![ExpandNodeWire] ![ExpandNodeWire]
-  deriving stock (Eq, Show)
-
-instance ToJSON ExpandNodeWire where
-  toJSON = \case
-    ExpandSubjectWire subject -> Aeson.object ["kind" .= ("subject" :: Text), "subject" .= subject]
-    ExpandUsersetWire object relation children ->
-      Aeson.object ["kind" .= ("userset" :: Text), "object" .= object, "relation" .= relation, "children" .= children]
-    ExpandCaveatedWire caveat children ->
-      Aeson.object ["kind" .= ("caveated" :: Text), "caveat" .= caveat, "children" .= children]
-    ExpandUnionWire children -> Aeson.object ["kind" .= ("union" :: Text), "children" .= children]
-    ExpandIntersectionWire children -> Aeson.object ["kind" .= ("intersection" :: Text), "children" .= children]
-    ExpandExclusionWire granted subtracted ->
-      Aeson.object ["kind" .= ("exclusion" :: Text), "granted" .= granted, "subtracted" .= subtracted]
-  toEncoding = \case
-    ExpandSubjectWire subject -> pairs ("kind" .= ("subject" :: Text) <> "subject" .= subject)
-    ExpandUsersetWire object relation children ->
-      pairs ("kind" .= ("userset" :: Text) <> "object" .= object <> "relation" .= relation <> "children" .= children)
-    ExpandCaveatedWire caveat children ->
-      pairs ("kind" .= ("caveated" :: Text) <> "caveat" .= caveat <> "children" .= children)
-    ExpandUnionWire children -> pairs ("kind" .= ("union" :: Text) <> "children" .= children)
-    ExpandIntersectionWire children -> pairs ("kind" .= ("intersection" :: Text) <> "children" .= children)
-    ExpandExclusionWire granted subtracted ->
-      pairs ("kind" .= ("exclusion" :: Text) <> "granted" .= granted <> "subtracted" .= subtracted)
-
-instance FromJSON ExpandNodeWire where
-  parseJSON = withObject "ExpandNodeWire" $ \o ->
-    o .: "kind" >>= \case
-      "subject" -> ExpandSubjectWire <$> o .: "subject"
-      "userset" -> ExpandUsersetWire <$> o .: "object" <*> o .: "relation" <*> o .: "children"
-      "caveated" -> ExpandCaveatedWire <$> o .: "caveat" <*> o .: "children"
-      "union" -> ExpandUnionWire <$> o .: "children"
-      "intersection" -> ExpandIntersectionWire <$> o .: "children"
-      "exclusion" -> ExpandExclusionWire <$> o .: "granted" <*> o .: "subtracted"
-      other -> fail ("unknown expand node kind: " <> T.unpack other)
-
-data ExpandTreeWire = ExpandTreeWire
-  { root :: !ObjectRefWire
-  , permission :: !Text
-  , children :: ![ExpandNodeWire]
-  , state :: !ExpandStateWire
-  , checkedAt :: !Text
+-- | One Relay page of stored relationships: the nodes and the continuation.
+data RelationshipPage = RelationshipPage
+  { nodes :: ![TupleWire]
+  , hasNextPage :: !Bool
+  , endCursor :: !(Maybe Text)
   }
-  deriving stock (Eq, Show, Generic)
-  deriving anyclass (FromJSON)
+  deriving stock (Generic, Eq, Show)
 
-data ExpandStateWire
-  = ExpandExhaustedWire
-  | ExpandHasMoreWire !Text
-  | ExpandTruncatedWire !Text
-  deriving stock (Eq, Show)
+instance FromJSON RelationshipPage where
+  parseJSON = withObject "relationship page" $ \o -> do
+    edges <- o .: "edges"
+    nodes <- traverse (withObject "edge" (.: "node")) edges
+    info <- o .: "pageInfo"
+    (hasNextPage, endCursor) <- withObject "page info" (\p -> (,) <$> p .: "hasNextPage" <*> p .:? "endCursor") info
+    pure RelationshipPage {nodes, hasNextPage, endCursor}
 
-instance ToJSON ExpandStateWire where
-  toJSON = \case
-    ExpandExhaustedWire -> Aeson.object ["status" .= ("exhausted" :: Text)]
-    ExpandHasMoreWire cursor -> Aeson.object ["status" .= ("hasMore" :: Text), "cursor" .= cursor]
-    ExpandTruncatedWire cursor -> Aeson.object ["status" .= ("truncated" :: Text), "cursor" .= cursor]
-  toEncoding = \case
-    ExpandExhaustedWire -> pairs ("status" .= ("exhausted" :: Text))
-    ExpandHasMoreWire cursor -> pairs ("status" .= ("hasMore" :: Text) <> "cursor" .= cursor)
-    ExpandTruncatedWire cursor -> pairs ("status" .= ("truncated" :: Text) <> "cursor" .= cursor)
+hostGrantsFilter :: Text -> RelationshipFilter
+hostGrantsFilter host = RelationshipFilter "app" (canonicalHost host) "viewer"
 
-instance FromJSON ExpandStateWire where
-  parseJSON = withObject "ExpandStateWire" $ \o ->
-    o .: "status" >>= \case
-      "exhausted" -> pure ExpandExhaustedWire
-      "hasMore" -> ExpandHasMoreWire <$> o .: "cursor"
-      "truncated" -> ExpandTruncatedWire <$> o .: "cursor"
-      other -> fail ("unknown expand status: " <> T.unpack other)
+teamMembersFilter :: Text -> RelationshipFilter
+teamMembersFilter team = RelationshipFilter "group" team "member"
+
+-- | The most pages one listing follows. A hundred pages of a hundred tuples
+-- is far beyond any host's grants; past it the listing is incomplete and says
+-- so rather than printing a partial list as if it were the whole.
+maxListedPages :: Int
+maxListedPages = 100
+
+-- | The query path for one page: a full page, continued from the server's
+-- opaque cursor, which binds the continuation to the first page's snapshot.
+relationshipQueryPath :: Maybe Text -> String
+relationshipQueryPath cursor =
+  "/v1/relationships/query?first=100"
+    <> maybe "" (\c -> "&after=" <> BC.unpack (urlEncode True (TE.encodeUtf8 c))) cursor
+
+-- | Drain a listing page by page. The fetcher takes the cursor to continue
+-- from. A repeated cursor or more than 'maxListedPages' pages is an
+-- incomplete listing, never an empty or complete one.
+listRelationships :: (Monad m) => (Maybe Text -> m RelationshipPage) -> m (Either Text [TupleWire])
+listRelationships fetch = go Nothing [] (0 :: Int)
+  where
+    go cursor seen pages
+      | pages >= maxListedPages = pure (Left ("listing incomplete: more than " <> T.pack (show maxListedPages) <> " pages"))
+      | otherwise = do
+          page <- fetch cursor
+          let collected = seen <> (page ^. #nodes)
+          case (page ^. #hasNextPage, page ^. #endCursor) of
+            (False, _) -> pure (Right collected)
+            (True, Nothing) -> pure (Left "listing incomplete: the server reported more pages without a cursor")
+            (True, Just next)
+              | Just next == cursor -> pure (Left "listing incomplete: the server repeated a continuation cursor")
+              | otherwise -> go (Just next) collected (pages + 1)
+
+-- | A host's stored grants, direct users apart from team usersets. Anything
+-- else on the viewer relation is reported verbatim rather than hidden.
+data HostGrants = HostGrants
+  { users :: ![Text]
+  , teams :: ![Text]
+  , other :: ![Text]
+  }
+  deriving stock (Generic, Eq, Show)
+
+instance ToJSON HostGrants where
+  toJSON grants = Aeson.object ["users" .= (grants ^. #users), "teams" .= (grants ^. #teams), "other" .= (grants ^. #other)]
+
+hostGrantsOf :: Text -> [TupleWire] -> HostGrants
+hostGrantsOf host tuples = foldr classify (HostGrants [] [] []) tuples
+  where
+    expectedObject = ObjectRefWire "app" (canonicalHost host)
+    classify tuple grants
+      | tuple ^. #object == expectedObject && tuple ^. #relation == "viewer" && isNothing (tuple ^. #caveat) =
+          case tuple ^. #subject of
+            SubjectIdWire (ObjectRefWire "user" user) -> grants & #users %~ (user :)
+            SubjectSetWire (ObjectRefWire "group" team) "member" -> grants & #teams %~ (team :)
+            subject -> grants & #other %~ (subjectText subject :)
+      | otherwise = grants & #other %~ (tupleText tuple :)
+
+teamMembersOf :: Text -> [TupleWire] -> ([Text], [Text])
+teamMembersOf team = foldr classify ([], [])
+  where
+    classify tuple (members, others)
+      | tuple ^. #object == ObjectRefWire "group" team && tuple ^. #relation == "member" && isNothing (tuple ^. #caveat)
+      , SubjectIdWire (ObjectRefWire "user" user) <- tuple ^. #subject =
+          (user : members, others)
+      | otherwise = (members, tupleText tuple : others)
+
+subjectText :: SubjectWire -> Text
+subjectText = \case
+  SubjectIdWire ref -> ref ^. #objectType <> ":" <> ref ^. #objectId
+  SubjectSetWire ref relation -> ref ^. #objectType <> ":" <> ref ^. #objectId <> "#" <> relation
+  SubjectWildcardWire typ -> typ <> ":*"
+
+tupleText :: TupleWire -> Text
+tupleText tuple =
+  tuple ^. #object . #objectType
+    <> ":"
+    <> tuple ^. #object . #objectId
+    <> "#"
+    <> tuple ^. #relation
+    <> "@"
+    <> subjectText (tuple ^. #subject)
+    <> maybe "" (const " (caveated)") (tuple ^. #caveat)
 
 runAccessGrant :: AccessGrantParams -> IO ()
 runAccessGrant params = do
@@ -296,14 +280,48 @@ runAccessRevoke params = do
   response <- (enRequest (params ^. #enUrl) (params ^. #enApiKey) methodPost "/v1/relationships/delete" (DeleteTuplesRequestWire [accessTuple (params ^. #host) (params ^. #user)]) :: IO WriteTuplesResponseWire)
   TIO.putStrLn ("Revoked " <> params ^. #user <> " access to " <> canonicalHost (params ^. #host) <> " (token " <> response ^. #token <> ").")
 
-runAccessList :: AccessListParams -> IO AccessListResult
-runAccessList params = do
-  tree <- enRequest (params ^. #enUrl) (params ^. #enApiKey) methodPost "/v1/expand" (expandRequest (params ^. #host))
-  let result = AccessListResult (collectExpandedSubjects tree)
-  if null (result ^. #users)
-    then TIO.putStrLn "(none)"
-    else mapM_ TIO.putStrLn (result ^. #users)
-  pure result
+-- | @access list --host@: the stored viewer relationships of one host, direct
+-- users and team usersets apart. Effective access is @access check@'s job.
+runHostGrantsList :: AccessListParams -> IO HostGrants
+runHostGrantsList params = do
+  tuples <- drain (params ^. #enUrl) (params ^. #enApiKey) (hostGrantsFilter (params ^. #host))
+  let grants = hostGrantsOf (params ^. #host) tuples
+  if params ^. #json
+    then LBS.putStr (encode (Aeson.object ["host" .= canonicalHost (params ^. #host), "grants" .= grants])) >> TIO.putStrLn ""
+    else do
+      TIO.putStrLn ("direct users (" <> count (grants ^. #users) <> "):")
+      mapM_ (TIO.putStrLn . ("  " <>)) (grants ^. #users)
+      TIO.putStrLn ("teams (" <> count (grants ^. #teams) <> "):")
+      mapM_ (TIO.putStrLn . ("  " <>)) (grants ^. #teams)
+      unless (null (grants ^. #other)) $ do
+        TIO.putStrLn ("other stored relationships (" <> count (grants ^. #other) <> "):")
+        mapM_ (TIO.putStrLn . ("  " <>)) (grants ^. #other)
+  pure grants
+  where
+    count = T.pack . show . length
+
+-- | @access team list-members --team@: a team's stored memberships.
+runTeamMembersList :: Maybe Text -> Maybe Text -> Text -> Bool -> IO [Text]
+runTeamMembersList configuredUrl configuredKey team json = do
+  tuples <- drain configuredUrl configuredKey (teamMembersFilter team)
+  let (members, others) = teamMembersOf team tuples
+  if json
+    then LBS.putStr (encode (Aeson.object ["team" .= team, "members" .= members, "other" .= others])) >> TIO.putStrLn ""
+    else do
+      TIO.putStrLn ("members of " <> team <> " (" <> T.pack (show (length members)) <> "):")
+      mapM_ (TIO.putStrLn . ("  " <>)) members
+      unless (null others) $ do
+        TIO.putStrLn ("other stored relationships (" <> T.pack (show (length others)) <> "):")
+        mapM_ (TIO.putStrLn . ("  " <>)) others
+  pure members
+
+drain :: Maybe Text -> Maybe Text -> RelationshipFilter -> IO [TupleWire]
+drain configuredUrl configuredKey query = do
+  base <- resolveEnUrl configuredUrl
+  apiKey <- resolveEnApiKey configuredKey
+  manager <- newManager tlsManagerSettings
+  listed <- listRelationships (\cursor -> enRequestWith manager base apiKey methodPost (relationshipQueryPath cursor) query)
+  either dieT pure listed
 
 accessTuple :: Text -> Text -> TupleWire
 accessTuple host user =
@@ -336,37 +354,17 @@ teamAccessTuple host team =
     , caveat = Nothing
     }
 
-expandRequest :: Text -> ExpandRequestWire
-expandRequest host =
-  ExpandRequestWire
-    { consistency = MinimizeLatencyWire
-    , object = ObjectRefWire "app" (canonicalHost host)
-    , permission = "access"
-    , context = CaveatContextWire Map.empty
-    , limit = 1000
-    , cursor = Nothing
-    }
-
-collectExpandedSubjects :: ExpandTreeWire -> [Text]
-collectExpandedSubjects tree =
-  T.strip <$> concatMap collectNode (tree ^. #children)
-  where
-    collectNode = \case
-      ExpandSubjectWire (SubjectIdWire (ObjectRefWire "user" user)) -> [user]
-      ExpandSubjectWire (SubjectIdWire ref) -> [ref ^. #objectType <> ":" <> ref ^. #objectId]
-      ExpandSubjectWire (SubjectSetWire ref relation) -> [ref ^. #objectType <> ":" <> ref ^. #objectId <> "#" <> relation]
-      ExpandSubjectWire (SubjectWildcardWire typ) -> [typ <> ":*"]
-      ExpandUsersetWire _ _ nodes -> concatMap collectNode nodes
-      ExpandCaveatedWire _ nodes -> concatMap collectNode nodes
-      ExpandUnionWire nodes -> concatMap collectNode nodes
-      ExpandIntersectionWire nodes -> concatMap collectNode nodes
-      ExpandExclusionWire granted _subtracted -> concatMap collectNode granted
-
 enRequest :: (ToJSON body, FromJSON response) => Maybe Text -> Maybe Text -> BC.ByteString -> String -> body -> IO response
 enRequest configuredUrl configuredApiKey method path body = do
   base <- resolveEnUrl configuredUrl
   apiKey <- resolveEnApiKey configuredApiKey
   manager <- newManager tlsManagerSettings
+  enRequestWith manager base apiKey method path body
+
+-- | One request on a shared connection manager, so a drained listing reuses
+-- one connection rather than opening one per page.
+enRequestWith :: (ToJSON body, FromJSON response) => Manager -> Text -> Text -> BC.ByteString -> String -> body -> IO response
+enRequestWith manager base apiKey method path body = do
   initial <- parseRequest (T.unpack (trimTrailingSlash base) <> path)
   let request =
         initial

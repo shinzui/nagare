@@ -54,6 +54,9 @@ module Nagare.Cli.Options
   , KubeconfigCommand (..)
   , KubeconfigFetchOpts (..)
   , PortalCommand (..)
+  , TeamCommand (..)
+  , TeamListOpts (..)
+  , TeamMemberOpts (..)
   , ScopeSelection (..)
   , SecretCommand (..)
   , ServerStatusOpts (..)
@@ -78,6 +81,15 @@ module Nagare.Cli.Options
 where
 
 import Data.List.NonEmpty qualified as NE
+import Nagare.Cli.Options.Access
+  ( AccessCommand (..)
+  , AccessGrantOpts (..)
+  , AccessListOpts (..)
+  , PortalCommand (..)
+  , TeamCommand (..)
+  , TeamListOpts (..)
+  , TeamMemberOpts (..)
+  )
 import Nagare.Dsl.Broker (BrokerProvider)
 import Nagare.Dsl.Database (Engine)
 import Nagare.Dsl.Prelude
@@ -179,34 +191,6 @@ data WorkerDeleteOpts = WorkerDeleteOpts
   , namespace :: !(Maybe String)
   , savePlan :: !FilePath
   , scopeKey :: !(Maybe String)
-  }
-  deriving stock (Generic, Show)
-
-data AccessCommand
-  = AccessGrant AccessGrantOpts
-  | AccessRevoke AccessGrantOpts
-  | AccessList AccessListOpts
-  | AccessPortal PortalCommand
-  deriving stock (Generic, Show)
-
-data PortalCommand
-  = PortalShow
-  | PortalSync !(Maybe FilePath)
-  deriving stock (Generic, Show)
-
-data AccessGrantOpts = AccessGrantOpts
-  { savePlan :: !(Maybe FilePath)
-  , enUrl :: !(Maybe String)
-  , enApiKey :: !(Maybe String)
-  , host :: !String
-  , user :: !String
-  }
-  deriving stock (Generic, Show)
-
-data AccessListOpts = AccessListOpts
-  { enUrl :: !(Maybe String)
-  , enApiKey :: !(Maybe String)
-  , host :: !String
   }
   deriving stock (Generic, Show)
 

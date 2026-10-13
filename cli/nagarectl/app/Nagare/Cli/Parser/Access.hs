@@ -10,6 +10,9 @@ import Nagare.Cli.Options
   , AccessListOpts (..)
   , Command (..)
   , PortalCommand (..)
+  , TeamCommand (..)
+  , TeamListOpts (..)
+  , TeamMemberOpts (..)
   )
 import Nagare.Dsl.Prelude
 import Options.Applicative
@@ -26,24 +29,58 @@ import Options.Applicative
   , progDesc
   , strOption
   , subparser
+  , switch
   , (<**>)
   )
 
 accessGrantOptsParser :: Parser AccessGrantOpts
 accessGrantOptsParser =
   AccessGrantOpts
-    <$> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save a reviewed access grant or revocation"))
+    <$> savePlanOpt "Save a reviewed access grant or revocation"
     <*> enUrlOpt
     <*> enApiKeyOpt
-    <*> strOption (long "host" <> metavar "HOST" <> help "Protected site hostname, e.g. tools.apps.example.com")
-    <*> strOption (long "user" <> metavar "EMAIL|USER_ID" <> help "The email the person signed up with, or their Shomei user id (user_…)")
+    <*> hostOpt
+    <*> optional userOpt
+    <*> optional (strOption (long "team" <> metavar "TEAM" <> help "Team whose members receive access to the host (always reviewed; exactly one of --user and --team)"))
 
 accessListOptsParser :: Parser AccessListOpts
 accessListOptsParser =
   AccessListOpts
     <$> enUrlOpt
     <*> enApiKeyOpt
-    <*> strOption (long "host" <> metavar "HOST" <> help "Protected site hostname, e.g. tools.apps.example.com")
+    <*> hostOpt
+    <*> jsonOpt "Print the stored relationships as JSON"
+
+teamMemberOptsParser :: Parser TeamMemberOpts
+teamMemberOptsParser =
+  TeamMemberOpts
+    <$> savePlanOpt "Save a reviewed team membership change"
+    <*> enApiKeyOpt
+    <*> teamOpt
+    <*> userOpt
+
+teamListOptsParser :: Parser TeamListOpts
+teamListOptsParser =
+  TeamListOpts
+    <$> enUrlOpt
+    <*> enApiKeyOpt
+    <*> teamOpt
+    <*> jsonOpt "Print the stored memberships as JSON"
+
+savePlanOpt :: String -> Parser (Maybe FilePath)
+savePlanOpt description = optional (strOption (long "save-plan" <> metavar "DIR" <> help description))
+
+hostOpt :: Parser String
+hostOpt = strOption (long "host" <> metavar "HOST" <> help "Protected site hostname, e.g. tools.apps.example.com")
+
+userOpt :: Parser String
+userOpt = strOption (long "user" <> metavar "EMAIL|USER_ID" <> help "The email the person signed up with, or their Shomei user id (user_…)")
+
+teamOpt :: Parser String
+teamOpt = strOption (long "team" <> metavar "TEAM" <> help "Team key: lowercase letters, digits, _ and -, starting with a letter")
+
+jsonOpt :: String -> Parser Bool
+jsonOpt description = switch (long "json" <> help description)
 
 enUrlOpt :: Parser (Maybe String)
 enUrlOpt =
@@ -78,19 +115,25 @@ accessSubparser =
         "grant"
         ( info
             (AccessGrant <$> accessGrantOptsParser <**> helper)
-            (progDesc "Grant a shomei user access to a protected host")
+            (progDesc "Grant a shomei user, or a team's members, access to a protected host")
         )
         <> command
           "revoke"
           ( info
               (AccessRevoke <$> accessGrantOptsParser <**> helper)
-              (progDesc "Revoke a shomei user's access to a protected host")
+              (progDesc "Revoke a shomei user's, or a team's, access to a protected host")
           )
         <> command
           "list"
           ( info
               (AccessList <$> accessListOptsParser <**> helper)
-              (progDesc "List users who currently expand to access on a protected host")
+              (progDesc "List the stored grants on a protected host: direct users apart from teams")
+          )
+        <> command
+          "team"
+          ( info
+              (AccessTeam <$> teamSubparser <**> helper)
+              (progDesc "Manage team membership (a team is a named group with flat user membership)")
           )
         <> command
           "portal"
@@ -98,6 +141,20 @@ accessSubparser =
               (AccessPortal <$> portalSubparser <**> helper)
               (progDesc "Inspect or synchronize the authentication portal")
           )
+    )
+
+teamSubparser :: Parser TeamCommand
+teamSubparser =
+  subparser
+    ( command
+        "add-member"
+        (info (TeamAddMember <$> teamMemberOptsParser <**> helper) (progDesc "Add a shomei user to a team (reviewed)"))
+        <> command
+          "remove-member"
+          (info (TeamRemoveMember <$> teamMemberOptsParser <**> helper) (progDesc "Remove a shomei user from a team (reviewed)"))
+        <> command
+          "list-members"
+          (info (TeamListMembers <$> teamListOptsParser <**> helper) (progDesc "List a team's stored memberships"))
     )
 
 portalSubparser :: Parser PortalCommand

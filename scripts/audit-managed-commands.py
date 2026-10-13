@@ -85,9 +85,10 @@ ROUTES = {
     "WorkerCommand": {"reviewed": "WorkerDeploy WorkerDelete"},
     "AccessCommand": {
         "read": "AccessList",
-        "group": "AccessPortal",
+        "group": "AccessPortal AccessTeam",
         "reviewed": "AccessGrant AccessRevoke",
     },
+    "TeamCommand": {"read": "TeamListMembers", "reviewed": "TeamAddMember TeamRemoveMember"},
     "PortalCommand": {"read": "PortalShow", "reviewed": "PortalSync"},
     "DomainsCommand": {"read": "DomainsList DomainsCheck"},
     "CdnCommand": {
@@ -170,6 +171,7 @@ DEFAULT_FAMILY = {
     "WorkerCommand": "Standalone worker Deployment and PVCs",
     "AccessCommand": "Protected Service access routes and shared auth settings",
     "PortalCommand": "Protected Service access routes and shared auth settings",
+    "TeamCommand": "Protected Service access routes and shared auth settings",
     "CdnCommand": "Cloudflare CDN host DNS",
 }
 
@@ -411,7 +413,12 @@ def main() -> int:
     args = parser.parse_args()
     options = args.options_source or args.cli_source_dir / OPTIONS.relative_to(CLI)
     dispatch = args.dispatch_source or args.cli_source_dir / DISPATCH.relative_to(CLI)
-    errors, registered = audit(options.read_text(), dispatch.read_text(), args.cli_source_dir)
+    # Option types live in Options.hs and its Options/*.hs siblings (EP-187).
+    options_text = "\n".join(
+        [options.read_text()]
+        + [path.read_text() for path in sorted((args.cli_source_dir / "Nagare/Cli/Options").glob("*.hs"))]
+    )
+    errors, registered = audit(options_text, dispatch.read_text(), args.cli_source_dir)
     catalogue = CATALOGUE.read_text()
     snapshot = catalogue_snapshot(registered)
     if CATALOGUE_START in catalogue and CATALOGUE_END in catalogue:

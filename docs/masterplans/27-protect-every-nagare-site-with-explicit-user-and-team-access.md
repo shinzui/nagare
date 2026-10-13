@@ -82,7 +82,7 @@ Relevant local architectural context is [ADR 1](../adr/0001-auth-plane-images-mi
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|---|---|---|---|---|
 | 186 | Protect Nagare sites with explicit user and team grants (site protection foundation) | [EP-186](../plans/186-protect-nagare-sites-with-explicit-user-and-team-grants.md) | None | None | Complete |
-| 187 | Manage reviewed team membership and site access grants | [EP-187](../plans/187-manage-reviewed-team-membership-and-site-access-grants.md) | EP-186 | None | In Progress |
+| 187 | Manage reviewed team membership and site access grants | [EP-187](../plans/187-manage-reviewed-team-membership-and-site-access-grants.md) | EP-186 | None | Complete |
 | 188 | Check effective site access and verify user and team isolation | [EP-188](../plans/188-check-effective-site-access-and-verify-user-and-team-isolation.md) | EP-186, EP-187 | None | Not Started |
 
 The numbers identify actual child documents. Whole-child hard dependencies require all milestones and acceptance in the prerequisite to be complete.
@@ -108,7 +108,7 @@ Early integration belongs to EP-186: emit a protected StaticSite configuration, 
 
 ## Progress
 
-EP-186 is complete: the shared protected-host contract (`Nagare.Inventory.ProtectedRoute`) serves Deployment, Application, StaticSite and ServerSite including previews and rollbacks, the composed backend-map bytes are denied end to end by the enforcer, gateway misses are fully consistent with the TTL as the only freshness bound, and the user documentation describes the supported policy subset, the transition rule, and the bound. EP-187 (reviewed team membership and team site grants) is next; EP-188 follows it and owns the native transcript that confirms the cluster-local origin and the TTL bound. Container builds and deployment were not performed. There is no cloud or local-cluster deployment authorization in this planning turn. Final integration and architectural decision distillation remain part of implementation acceptance.
+EP-186 is complete: the shared protected-host contract (`Nagare.Inventory.ProtectedRoute`) serves Deployment, Application, StaticSite and ServerSite including previews and rollbacks, the composed backend-map bytes are denied end to end by the enforcer, gateway misses are fully consistent with the TTL as the only freshness bound, and the user documentation describes the supported policy subset, the transition rule, and the bound. EP-187 is complete: the bootstrap En schema carries group membership with a digest-driven En rollout, team membership and team site grants are exact typed relationships with reviewed commands, listing reads stored relationships through Relay pages without flattening teams, and the measured flat-team check cost is recorded. EP-188 (effective-access check, combined verification, documentation and the native transcript) is next. Container builds and deployment were not performed. There is no cloud or local-cluster deployment authorization in this planning turn. Final integration and architectural decision distillation remain part of implementation acceptance.
 
 
 ## Surprises & Discoveries

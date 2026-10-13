@@ -330,6 +330,64 @@ inventoryAccessTests =
         forM_ [(memberBinding, "add " <> aliceId <> " (alice@example.test) to team engineering"), (teamBinding, "grant team engineering viewer on one.example.test")] $ \(binding, expected) -> do
           prepared <- adapterPrepare adapter (operation binding CreateResource) >>= either (fail . show) pure
           preparedPublicSummary prepared @?= expected
+    , testCase "every relationship form recovers a lost write from the exact tuple and refuses a foreign or missing effect (EP-187)" $
+        forM_ teamBindings $ \(label, binding) -> do
+          state <- newIORef (AccessFact physical False)
+          effects <- newIORef (0 :: Int)
+          let adapter =
+                mkAccessAdapter
+                  Map.empty
+                  (Map.singleton (accessResource binding ^. #identity) binding)
+                  AccessOps
+                    { accessInspect = \_ -> Right <$> readIORef state
+                    , accessWrite = \_ before -> do
+                        modifyIORef' effects (+ 1)
+                        writeIORef state (before {accessPresent = True})
+                        pure (AdapterEffectAmbiguous "lost response")
+                    }
+              op = operation binding CreateResource
+          prepared <- adapterPrepare adapter op >>= either (fail . (label <>) . show) pure
+          adapterExecute adapter op prepared >>= (@?= AdapterEffectAmbiguous "lost response")
+          adapterRecover adapter op prepared >>= \case RecoveryProvedComplete _ -> pure (); other -> assertFailure (label <> show other)
+          readIORef effects >>= (@?= 1)
+          writeIORef state (AccessFact (ok (mkPhysicalIdentity "foreign-owner")) True)
+          adapterRecover adapter op prepared >>= \case RecoveryUnresolved _ -> pure (); other -> assertFailure (label <> show other)
+          writeIORef state (AccessFact physical False)
+          adapterRecover adapter op prepared >>= \case RecoveryUnresolved _ -> pure (); other -> assertFailure (label <> show other)
+          -- Planning is deterministic: the same inputs compile the same review.
+          prepared' <- adapterPrepare adapter op >>= either (fail . show) pure
+          preparedPublicSummary prepared' @?= preparedPublicSummary prepared
+    , testCase "a live team relationship cannot be retired; a removed one is retained as history (EP-187)" $
+        forM_ [("member", memberScopeFor), ("team", teamScopeFor)] $ \(label, scopeFor) ->
+          forM_ [False, True] $ \present -> do
+            store <- newMemoryStore
+            _ <- initializeStore store context ("team-retire-" <> label) >>= either (fail . show) pure
+            let (base, target) = scopeFor present
+                withTeam = ok (mkScopeSnapshot context (Map.insert (scopeId target) (generation, target) (snapshotScopes base)) Map.empty)
+                dummy = ok (mkScopeDeclaration (ok (mkScopeId Standalone "dummy")) [])
+            _ <- seedInventoryHistory store (ok (composeInventory withTeam (ReplaceScope dummy :| []))) >>= either (fail . show) pure
+            history <- loadInventoryHistory store >>= either (fail . show) pure
+            let accepted = ok (mkScopeSnapshot context (Map.map (\(revision, declared) -> (revisionGeneration revision, declared)) (historyAccepted history)) (historyReservations history))
+                retirement = ok (composeInventory accepted (RetireScope (scopeId target) RetainResources :| []))
+            planning <- loadInventoryPlanningHistory store retirement >>= either (fail . show) pure
+            let acceptedDeclarations = ok (composedDeclarations (Map.map snd (historyAccepted planning)))
+                members = Map.fromList [(r ^. #identity, r) | Managed r <- acceptedDeclarations, r ^. #executor == AccessExecutor]
+                desired = either (const Map.empty) id (accessBindings (inventoryDeclarations (candidateInventory retirement)))
+                adapter =
+                  mkAccessAdapter
+                    members
+                    (Map.union desired (acceptedAccessBindings acceptedDeclarations))
+                    AccessOps
+                      { accessInspect = \_ -> pure (Right (AccessFact physical present))
+                      , accessWrite = \_ _ -> assertFailure "a retirement wrote a relationship" >> pure AdapterEffectCompleted
+                      }
+                registry = ok (mkAdapterRegistry [adapter])
+            observed <- observeWithRegistry registry (requirementsByExecutor (observationRequirements retirement planning)) >>= either (fail . show) pure
+            case decideRetirement retirement planning observed >>= \decisions -> planChanges retirement decisions planning observed of
+              Right _ | not present -> pure ()
+              Left errors | present -> assertBool (T.unpack label <> ": " <> show errors) (any ((== "access-grant-live") . planErrorCode) (NE.toList errors))
+              Left errors -> assertFailure (T.unpack label <> ": a removed relationship's retirement refused: " <> show errors)
+              Right _ -> assertFailure (T.unpack label <> ": a live relationship's retirement was planned")
     , testCase "the team schema the CLI requires is the reviewed bootstrap schema (EP-187)" $ do
         documents <- Yaml.decodeAllFileEither "../../cluster/bootstrap/en/configmap.yaml" >>= either (fail . show) pure
         source <- case [ text
@@ -369,6 +427,34 @@ inventoryAccessTests =
         (contentDigest "review")
         []
         VerifyBeforeRetry
+
+-- The two team forms, bound against the fixture: a membership for Alice and
+-- engineering's grant on host one, each with its accepted prerequisites.
+teamBindings :: [(String, AccessBinding)]
+teamBindings =
+  [ ("member: ", bindingOf memberSnapshot memberScope)
+  , ("team: ", bindingOf memberSnapshot teamScope)
+  ]
+  where
+    engineering = ok (mkTeamKey "engineering")
+    memberScope = ok (compileTeamMemberScope snapshot engineering alice True)
+    memberSnapshot = ok (mkScopeSnapshot context (Map.insert (scopeId memberScope) (generation, memberScope) (snapshotScopes snapshot)) Map.empty)
+    teamScope = ok (compileTeamAccessScope memberSnapshot "one.example.test" engineering True)
+    bindingOf base scope =
+      let bound = ok (accessBindings (inventoryDeclarations (candidateInventory (ok (composeInventory base (ReplaceScope scope :| []))))))
+       in case [binding | Managed r <- concatMap (^. #declarations) (scopeBundles scope), Just binding <- [Map.lookup (r ^. #identity) bound]] of
+            [binding] -> binding
+            other -> error ("scope has no unique access binding: " <> show (length other))
+
+-- A membership, present or removed, over the fixture; and a team grant over
+-- a fixture that already accepted the membership.
+memberScopeFor, teamScopeFor :: Bool -> (ScopeSnapshot, ScopeDeclaration)
+memberScopeFor present = (snapshot, ok (compileTeamMemberScope snapshot (ok (mkTeamKey "engineering")) alice present))
+teamScopeFor present =
+  let engineering = ok (mkTeamKey "engineering")
+      member = ok (compileTeamMemberScope snapshot engineering alice True)
+      base = ok (mkScopeSnapshot context (Map.insert (scopeId member) (generation, member) (snapshotScopes snapshot)) Map.empty)
+   in (base, ok (compileTeamAccessScope base "one.example.test" engineering present))
 
 -- The fixture subject as an email resolves it: the typed id and the address.
 alice :: ShomeiUser

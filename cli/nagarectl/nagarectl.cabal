@@ -437,6 +437,7 @@ executable nagarectl
     Nagare.Cli.Inventory.VmPower
     Nagare.Cli.Inventory.Workflow
     Nagare.Cli.Options
+    Nagare.Cli.Options.Access
     Nagare.Cli.Parser
     Nagare.Cli.Parser.Access
     Nagare.Cli.Parser.Application

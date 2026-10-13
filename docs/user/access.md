@@ -224,7 +224,10 @@ The host suffix comes from the active context's `NAGARE_BASE_DOMAIN`. A `labs`
 context with `labs.topagentnetwork.net` uses
 `protected-hello.labs.topagentnetwork.net` in these commands.
 
-List users that expand to the host's `access` permission:
+List the host's stored grants, direct users apart from teams (`--json` for a
+machine-readable form). This reads stored relationships at a fully consistent
+snapshot; it never expands a team into its members, and it is not an effective
+access check:
 
 ```bash
 nagarectl access list --host protected-hello.apps.example.com
@@ -235,6 +238,37 @@ Revoke the grant:
 ```bash
 nagarectl access revoke --host protected-hello.apps.example.com --user alice@example.com
 ```
+
+### Teams
+
+A team is a named group with flat user membership, held in En as
+`group:<team>#member` relationships (MasterPlan 27, EP-187). A site grant to a
+team (`app:<host>#viewer@group:<team>#member`) admits exactly the team's current
+members on that one host. Team keys are lowercase identifiers
+(`[a-z][a-z0-9_-]{0,62}`), chosen once and never renamed; a team exists from
+its first accepted membership. Team changes are always reviewed:
+
+```bash
+nagarectl access team add-member --team engineering --user alice@example.com --save-plan ./member-review
+nagarectl inventory apply ./member-review --yes
+nagarectl access grant --host protected-hello.apps.example.com --team engineering --save-plan ./team-review
+nagarectl inventory apply ./team-review --yes
+nagarectl access team list-members --team engineering
+nagarectl access team remove-member --team engineering --user alice@example.com --save-plan ./remove-review
+nagarectl access revoke --host protected-hello.apps.example.com --team engineering --save-plan ./revoke-team-review
+```
+
+Exactly one of `--user` and `--team` goes with `grant` and `revoke`. A
+membership depends on the context's accepted En service; a team grant also
+depends on the exact protected route, never on a particular member, so the
+last member can be removed without disturbing the grant, and removing all
+members does not revoke it. Revoking a direct grant leaves an independent
+team grant in place, and removing one membership leaves access through a
+direct grant or another team. A team grant for a team with no accepted
+membership in the context refuses. The reviewed write requires the context's
+En to serve the reviewed schema with group membership (`GET /v1/schema`);
+until the platform update that ships it is applied, team changes refuse with
+the schema as the reason.
 
 The commands talk to En and must use its read-write bearer key: pass `--en-api-key KEY`
 or set `NAGARE_EN_API_KEY`. `access list` and the direct grant and revoke forms also
