@@ -31,7 +31,9 @@ app is served. This is the BeyondCorp-style model: no VPN, but every request is
 checked by identity and relationship.
 
 Public sites remain the default. A site becomes protected only when its typed
-config opts in:
+config opts in. The field is the same on every web workload kind: a
+`Deployment`, an `Application`, a `StaticSite` and a `ServerSite`
+(MasterPlan 27, EP-186):
 
 ```haskell
 import Nagare.Dsl.Access (requireLogin)
@@ -43,7 +45,17 @@ deployment = do
 
 `requireLogin` means: authenticate with shomei, then ask en whether subject
 `user:<shomei-user-id>` has permission `access` on object
-`app:<public-host>`.
+`app:<public-host>`. Every hostname is its own object: each custom domain,
+the default `<name>.<namespace>.<base-domain>` hostname when no domain is
+declared, and every preview hostname needs its own grant. Signing in alone
+never admits anyone: a protected site with no grants answers 403 to every
+signed-in user, and there is no administrator bypass.
+
+This release enforces exactly `requireLogin`. A policy with another
+permission or an explicit audience is refused at planning time rather than
+silently ignored, because the enforcer checks permission `access` and verifies
+the cluster audience. A `StaticSite` or `ServerSite` cannot be the auth
+portal; the portal remains a `Deployment` or `Application` role.
 
 ## Install the optional auth plane
 
@@ -159,6 +171,17 @@ that scope.
 Retirement retains the central DomainMapping. Its later removal is a separate
 `inventory collect --resource` review with an exact UID and resource version;
 the route is never deleted by a name-only command.
+
+A `StaticSite` or `ServerSite` takes the same reviewed route through
+`nagarectl site deploy`, `site rollback` and `site preview deploy`
+([static hosting](static-hosting.md#protected-sites)). Its origin Service is
+cluster-local, so the generated Knative hostname is not a public alternative
+to the protected route, and a rollback changes only the image: protection
+follows the current config, never older release history. A protected site
+cannot use a CDN or supplied origin TLS. An accepted public site cannot
+become protected in place, because its route moves from the site namespace to
+`nagare-system`: the planner refuses with `migration-review-required`. Retire
+the public site (and collect its DomainMapping), then deploy it protected.
 
 ## Customize sign-in with an auth portal
 
@@ -281,11 +304,15 @@ For a protected host:
   across protected subdomains under the same base domain.
 
 En publishes an optimized revision on a short interval, so list results can lag a
-successful mutation by several seconds. The enforcer also caches En decisions briefly,
-defaulting to 30 seconds. A grant or revoke may therefore take up to that TTL to affect
-an already active session.
-Expired decisions are evicted as new decisions are written, so old subject/host
-pairs do not accumulate indefinitely.
+successful mutation by several seconds. The enforcer asks En at a fully consistent
+snapshot whenever its decision cache misses, so that lag never delays a decision. The
+cache itself is the only bound on freshness: `NAGARE_ACCESS_DECISION_TTL` seconds
+(default 30, zero disables it), measured on a monotonic clock from the start of the
+En check. An acknowledged grant or revoke therefore reaches new requests after at
+most that TTL; it does not disconnect a stream that was already admitted. A check
+that takes longer than the TTL produces an already-expired entry, and a slower older
+check can never replace a newer answer. Live entries are bounded (10,000 by
+default); at the bound, expired entries go first, then the oldest.
 
 ## Example verification
 

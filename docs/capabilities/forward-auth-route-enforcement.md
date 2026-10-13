@@ -45,6 +45,12 @@ evidence:
   - kind: test
     resource: cli/nagarectl/test/AccessGrantsSpec.hs
     proves: Grant tuples, authorization wire encoding, and expanded-subject parsing are tested.
+  - kind: test
+    resource: cli/nagarectl/test/Nagare/Test/SiteInventory/Access.hs
+    proves: A protected StaticSite or ServerSite reviews a cluster-local origin, enforcer routes per hostname including previews, and the backend entry the enforcer denies through; unsupported policies, CDN, supplied TLS, missing auth, and in-place public-to-protected transitions refuse.
+  - kind: test
+    resource: cli/nagare-access/test/DecisionCacheSpec.hs
+    proves: A grant or revoke is observed after at most the decision TTL on a monotonic clock, a delayed or older check cannot extend an allow, and live entries are bounded.
   - kind: example
     resource: cluster/examples/protected-hello/nagare/Config.hs
     proves: A shipped application opts into required-login access in its typed config.
@@ -55,8 +61,9 @@ evidence:
 
 # Forward-auth route enforcement
 
-An application can declare `requireLogin`. Deployment then fails closed unless the shared enforcer
-is present, writes the hostname-to-backend mapping, and points the DomainMapping at `nagare-access`.
+An application, Deployment, StaticSite or ServerSite can declare `requireLogin`. Deployment then
+fails closed unless the shared enforcer is present, writes the hostname-to-backend mapping, and
+points the DomainMapping at `nagare-access`.
 The enforcer challenges browser and API clients appropriately, validates session material, checks a
 host-scoped authorization tuple, caches bounded decisions, and proxies allowed requests. Grant
 commands manage the tuples used for that check.

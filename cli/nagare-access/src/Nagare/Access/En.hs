@@ -71,10 +71,14 @@ authorizationFromClientResult = \case
 envelopeMessage :: ProblemDetails -> Text
 envelopeMessage envelope = envelope.code <> ": " <> envelope.detail
 
+-- | The check the gateway sends on a decision-cache miss. It asks for a
+-- fully consistent snapshot, so an acknowledged grant or revoke is visible to
+-- the next miss; the only staleness left is the gateway's own TTL
+-- ("Nagare.Access.DecisionCache"), not en's optimized-revision lag.
 buildCheckRequest :: AuthenticatedUser -> Text -> CheckRequestWire
 buildCheckRequest user host =
   CheckRequestWire
-    { consistency = MinimizeLatencyWire
+    { consistency = FullyConsistentWire
     , context = CaveatContextWire Map.empty
     , subject = SubjectIdWire ObjectRefWire {objectType = "user", objectId = user ^. #subject}
     , permission = "access"

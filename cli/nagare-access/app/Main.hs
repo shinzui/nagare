@@ -6,9 +6,9 @@ import Control.Monad (forever, when)
 import Data.ByteString qualified as BS
 import Data.Generics.Labels ()
 import Data.Text qualified as Text
-import Data.Time.Clock.POSIX (getPOSIXTime)
 import Data.UUID (toText)
 import Data.UUID.V4 (nextRandom)
+import GHC.Clock (getMonotonicTime)
 import Nagare.Access.App (appWithBackends, appWithRuntime)
 import Nagare.Access.Auth (AccessServices (..))
 import Nagare.Access.BackendMap (BackendMap, emptyBackendMap)
@@ -109,6 +109,8 @@ cookieSettingsFromAuthPlane cfg =
     Nothing -> defaultCookieSettings (cfg ^. #cookieDomain)
     Just key -> signedCookieSettings (cfg ^. #cookieDomain) key
 
+-- | Cache durations are measured on the monotonic clock: a wall clock that
+-- steps backwards would revive an expired decision or JWKS fetch.
 currentSeconds :: IO Int
 currentSeconds =
-  floor <$> getPOSIXTime
+  floor <$> getMonotonicTime

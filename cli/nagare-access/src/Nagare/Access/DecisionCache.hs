@@ -1,4 +1,11 @@
 -- | Short-lived cache for en authorization decisions.
+--
+-- The cache bounds how long a revoked grant keeps admitting new requests: a
+-- miss asks en at a fully consistent snapshot ("Nagare.Access.En"), and the
+-- answer is served for at most the TTL, measured on the injected clock from
+-- the start of that check. @NAGARE_ACCESS_DECISION_TTL@ sets the TTL (default
+-- 30 seconds; zero disables the cache). Live entries are bounded too, so a
+-- long-running process with many subject/host pairs cannot grow without limit.
 module Nagare.Access.DecisionCache
   ( AccessDecision (..)
   , AuthorizationResult (..)
@@ -6,7 +13,9 @@ module Nagare.Access.DecisionCache
   , DecisionKey (..)
   , cacheLookupOrLoad
   , cacheSize
+  , defaultDecisionCacheEntries
   , disabledDecisionCache
+  , newBoundedDecisionCache
   , newDecisionCache
   )
 where
@@ -18,6 +27,7 @@ import Data.IORef
   , newIORef
   , readIORef
   )
+import Data.List (sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
@@ -54,6 +64,7 @@ data DecisionCache
   = DecisionCacheDisabled
   | DecisionCache
       { ttlSeconds :: !Int
+      , maxEntries :: !Int
       , nowSeconds :: !(IO Int)
       , entriesRef :: !(IORef (Map DecisionKey CachedDecision))
       }
@@ -65,10 +76,22 @@ data CachedDecision = CachedDecision
   }
   deriving stock (Generic, Eq, Show)
 
+-- | The default bound on live entries: one entry per subject/host pair seen
+-- within a TTL, far above what one enforcer serves, and small in memory.
+defaultDecisionCacheEntries :: Int
+defaultDecisionCacheEntries = 10000
+
+-- | A cache with the default entry bound. The clock must be monotonic (the
+-- enforcer passes 'GHC.Clock.getMonotonicTime' seconds): the TTL is a
+-- duration, and a wall clock that steps backwards would revive an expired
+-- allow.
 newDecisionCache :: Int -> IO Int -> IO DecisionCache
-newDecisionCache ttl now
-  | ttl <= 0 = pure DecisionCacheDisabled
-  | otherwise = DecisionCache ttl now <$> newIORef Map.empty
+newDecisionCache ttl = newBoundedDecisionCache ttl defaultDecisionCacheEntries
+
+newBoundedDecisionCache :: Int -> Int -> IO Int -> IO DecisionCache
+newBoundedDecisionCache ttl bound now
+  | ttl <= 0 || bound <= 0 = pure DecisionCacheDisabled
+  | otherwise = DecisionCache ttl bound now <$> newIORef Map.empty
 
 disabledDecisionCache :: DecisionCache
 disabledDecisionCache = DecisionCacheDisabled
@@ -79,6 +102,12 @@ disabledDecisionCache = DecisionCacheDisabled
 -- Only an 'AuthorizationDecision' is ever written: an 'AuthorizationUnavailable'
 -- is passed straight back to the caller, so the next request retries the
 -- authorizer instead of inheriting an outage for the rest of the TTL.
+--
+-- The entry is stamped with the clock read before the loader ran, so a
+-- loader that takes longer than the TTL produces an entry that is already
+-- expired, and a slow older check can never extend a newer answer.
+-- Concurrent misses for one key each run the loader; there is no coalescing,
+-- so the duplicate cost is one en check per in-flight miss.
 cacheLookupOrLoad :: DecisionCache -> DecisionKey -> IO AuthorizationResult -> IO AuthorizationResult
 cacheLookupOrLoad DecisionCacheDisabled _ loadDecision =
   loadDecision
@@ -107,24 +136,29 @@ isExpired DecisionCacheDisabled _ _ = True
 isExpired DecisionCache {ttlSeconds} now cached =
   now - cached ^. #atSeconds >= ttlSeconds
 
--- | Insert an entry, dropping every expired one on the way in.
+-- | Insert an entry, keeping a newer one for the same key, and keep the map
+-- within its bound.
 --
--- Without this the map only ever grows: an entry for a (subject, host) pair
--- that is never queried again is never removed, so a process that runs for
--- weeks accumulates dead keys forever. Filtering on write is O(n) over a map
--- that this same filtering keeps small, needs no extra bookkeeping, and is
--- deterministic to test through the injected clock.
+-- A write never replaces an entry stamped later than itself: two concurrent
+-- misses for one key may complete out of order, and the later check saw the
+-- later state. Eviction runs only when the bound is reached, first dropping
+-- expired entries and then the oldest live ones, so an ordinary insert costs
+-- one map update rather than a scan of every entry.
 writeCache :: DecisionCache -> DecisionKey -> Int -> AccessDecision -> IO ()
 writeCache DecisionCacheDisabled _ _ _ =
   pure ()
-writeCache cache@DecisionCache {entriesRef} key now decision =
+writeCache cache@DecisionCache {entriesRef, maxEntries} key now decision =
   atomicModifyIORef'
     entriesRef
     ( \entries ->
-        ( Map.insert
-            key
-            CachedDecision {atSeconds = now, decision = decision}
-            (Map.filter (not . isExpired cache now) entries)
-        , ()
-        )
+        let inserted = Map.insertWith keepNewer key CachedDecision {atSeconds = now, decision = decision} entries
+         in (if Map.size inserted > maxEntries then bounded inserted else inserted, ())
     )
+  where
+    keepNewer new old = if new ^. #atSeconds >= old ^. #atSeconds then new else old
+    bounded entries =
+      let live = Map.filter (not . isExpired cache now) entries
+          excess = Map.size live - maxEntries
+       in if excess <= 0
+            then live
+            else foldr Map.delete live (map fst (take excess (sortOn (atSeconds . snd) (Map.toList live))))

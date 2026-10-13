@@ -226,6 +226,36 @@ their new release.
 
 ---
 
+## Protected sites
+
+A `StaticSite` or `ServerSite` opts into identity-aware access with the same
+field a `Deployment` uses, and nothing else changes in the config:
+
+```haskell
+import Nagare.Dsl.Access (requireLogin)
+
+    StaticSite
+      { ...
+      , cdn = Nothing
+      , access = Just requireLogin
+      }
+```
+
+`nagarectl site deploy` then reviews a cluster-local origin Service, one
+DomainMapping per hostname in `nagare-system` that targets the shared
+`nagare-access` enforcer, and a contribution to the auth owner's backend map.
+The auth plane must already be accepted in the context; a protected site
+without it, a site with a CDN or supplied TLS, a policy other than
+`requireLogin`, or the portal role refuses before any route is planned. Each
+hostname is its own authorization object, including the default
+`<name>.<namespace>.<base-domain>` hostname and every preview hostname, so
+grant each one separately with `nagarectl access grant --host HOST`.
+`site rollback` keeps the current config's protection and changes only the
+image. An accepted public site cannot become protected in place; retire it
+and collect its DomainMapping first. See [identity-aware access](access.md).
+
+---
+
 ## Releases and rollback
 
 Every successful production deploy records a **release** — image tag, timestamp,

@@ -14,14 +14,19 @@ import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (listToMaybe)
 import Data.Set qualified as Set
 import Data.Text qualified as T
+import Nagare.Access.Resolve (backendConfigMapNamespace)
+import Nagare.Dsl.Access (AccessPolicy)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Render (managedConfigMapName, managedSecretName, pvcName)
 import Nagare.Dsl.Server.Render qualified as ServerRender
 import Nagare.Dsl.Static.Types (siteNameText)
-import Nagare.Dsl.Types (EnvScope (Preview, Runtime), EnvVar (..), ScopedEnvVar (..), SecretName, Volume (..), VolumeName, mkDomains, namespaceText, volumeNameText)
+import Nagare.Dsl.Types (EnvScope (Preview, Runtime), EnvVar (..), ScopedEnvVar (..), SecretName, Volume (..), VolumeName, mkDomains, mkNamespace, mkServiceName, namespaceText, volumeNameText)
 import Nagare.Dsl.Types qualified as Dsl
+import Nagare.Inventory.Application (AccessBinding)
+import Nagare.Inventory.ProtectedRoute (ProtectedRoute (..), ProtectedRoutes (..), composeProtectedRoutes, siteAccessPolicy)
 import Nagare.Inventory.Site.Member (bindOne, checkAddress, reviewedBuildReference, siteSecretDependency)
 import Nagare.Resource.Application (domainMappingResourceId, volumeResourceId)
 import Nagare.Resource.Inventory
@@ -35,6 +40,7 @@ import Nagare.Static.Preview (previewDomain)
 -- | A preview is an independent short-lived scope. The exact rendered
 -- envFrom references require all four accepted Runtime/Preview stores.
 compileStaticSitePreviewScope ::
+  Maybe AccessBinding ->
   DeployInputs ->
   T.Text ->
   ResourceId ->
@@ -45,7 +51,7 @@ compileStaticSitePreviewScope ::
   Either
     (NonEmpty InventoryError)
     (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
-compileStaticSitePreviewScope inputs raw cluster namespaceId imageId stores source = do
+compileStaticSitePreviewScope accessBinding inputs raw cluster namespaceId imageId stores source = do
   let site = inputs ^. #site
       name = siteNameText (site ^. #name)
       ns = namespaceText (site ^. #namespace)
@@ -59,6 +65,9 @@ compileStaticSitePreviewScope inputs raw cluster namespaceId imageId stores sour
   compileRenderedSitePreviewScope
     name
     ns
+    (site ^. #access)
+    accessBinding
+    (inputs ^. #baseDomain)
     (rendered ^. #serviceName)
     host
     (rendered ^. #service)
@@ -73,6 +82,7 @@ compileStaticSitePreviewScope inputs raw cluster namespaceId imageId stores sour
     source
 
 compileServerSitePreviewScope ::
+  Maybe AccessBinding ->
   Server.ServerDeployInputs ->
   T.Text ->
   ResourceId ->
@@ -85,9 +95,10 @@ compileServerSitePreviewScope ::
   Either
     (NonEmpty InventoryError)
     (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
-compileServerSitePreviewScope = compileServerSitePreviewScopeWithBuild Set.empty
+compileServerSitePreviewScope accessBinding = compileServerSitePreviewScopeWithBuild accessBinding Set.empty
 
 compileServerSitePreviewScopeWithBuild ::
+  Maybe AccessBinding ->
   Set.Set SecretName ->
   Server.ServerDeployInputs ->
   T.Text ->
@@ -101,7 +112,7 @@ compileServerSitePreviewScopeWithBuild ::
   Either
     (NonEmpty InventoryError)
     (ScopeDeclaration, Map ResourceId (ManagedResource, ByteString))
-compileServerSitePreviewScopeWithBuild buildSecrets inputs raw cluster namespaceId imageId stores recovery envSecrets source = do
+compileServerSitePreviewScopeWithBuild accessBinding buildSecrets inputs raw cluster namespaceId imageId stores recovery envSecrets source = do
   let site = inputs ^. #site
       name = siteNameText (site ^. #name)
       ns = namespaceText (site ^. #namespace)
@@ -152,6 +163,9 @@ compileServerSitePreviewScopeWithBuild buildSecrets inputs raw cluster namespace
   compileRenderedSitePreviewScope
     name
     ns
+    (site ^. #access)
+    accessBinding
+    (inputs ^. #baseDomain)
     (rendered ^. #serviceName)
     host
     (rendered ^. #service)
@@ -167,6 +181,9 @@ compileServerSitePreviewScopeWithBuild buildSecrets inputs raw cluster namespace
 
 compileRenderedSitePreviewScope ::
   T.Text ->
+  T.Text ->
+  Maybe AccessPolicy ->
+  Maybe AccessBinding ->
   T.Text ->
   T.Text ->
   T.Text ->
@@ -186,6 +203,9 @@ compileRenderedSitePreviewScope ::
 compileRenderedSitePreviewScope
   name
   ns
+  access
+  accessBinding
+  baseDomain
   serviceName
   host
   serviceBytes
@@ -211,6 +231,24 @@ compileRenderedSitePreviewScope
     domainBytes <- case domainManifests of
       [bytes] -> Right bytes
       _ -> Left (invalid "preview renderer changed domain manifest membership")
+    -- EP-186: a preview inherits the production policy, but its hostname is an
+    -- independent authorization object with its own route and backend entry.
+    protection <- case (access, accessBinding) of
+      (Nothing, Nothing) -> Right Nothing
+      (Just policy, Just binding) -> do
+        first invalid (siteAccessPolicy policy)
+        namespace <- first invalid (mkNamespace ns)
+        previewService <- first invalid (mkServiceName serviceName)
+        Just
+          <$> first
+            invalid
+            (composeProtectedRoutes binding policy cluster baseDomain namespace previewService [domain] serviceBytes)
+      _ -> Left (invalid "site preview access requires exactly its accepted auth binding")
+    let originBytes = maybe serviceBytes (^. #origin) protection
+        routeBytes = maybe domainBytes (\routes -> fromMaybe domainBytes (listToMaybe (map (^. #mapping) (routes ^. #routes)))) protection
+        routeNamespace = maybe ns (const backendConfigMapNamespace) protection
+        routePrerequisites = maybe [] (^. #prerequisites) protection
+        contributions = maybe [] (map (^. #contribution) . (^. #routes)) protection
     owner <- first invalid (mkScopeId Standalone ("site-preview-" <> serviceName))
     serviceKey <- first invalid (mkLogicalKey serviceName)
     serviceRole <- first invalid (mkName "service")
@@ -264,7 +302,7 @@ compileRenderedSitePreviewScope
         Stateless
         (map OrderedAfter ([namespaceId, imageId] <> volumeIds <> envIds <> secretIds))
         (source {path = path source <> "/service"})
-        serviceBytes
+        originBytes
     checkAddress
       invalid
       cluster
@@ -282,10 +320,10 @@ compileRenderedSitePreviewScope
         domainId
         DeleteWhenUnreferenced
         Stateless
-        [OrderedAfter namespaceId, OrderedAfter serviceId]
+        (map OrderedAfter ([namespaceId, serviceId] <> routePrerequisites))
         (source {path = path source <> "/domain/" <> host})
-        domainBytes
-    checkAddress invalid cluster "serving.knative.dev/v1beta1" "DomainMapping" ns host domainMember
+        routeBytes
+    checkAddress invalid cluster "serving.knative.dev/v1beta1" "DomainMapping" routeNamespace host domainMember
     let members =
           volumeMembers
             <> [serviceMember, first (\resource -> resource {aliases = [Hostname hostname]}) domainMember]
@@ -297,7 +335,7 @@ compileRenderedSitePreviewScope
     scope <-
       mkScopeDeclaration
         owner
-        [ResourceBundle (map (Managed . fst) members) [] [] [] [] []]
+        [ResourceBundle (map (Managed . fst) members) [] [] contributions [] []]
     pure (scope, native)
 
 -- | Resolve all four preview overlay stores from accepted Managed resources.

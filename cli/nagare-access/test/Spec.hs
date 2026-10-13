@@ -19,6 +19,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TE
 import Data.Time (UTCTime (..), fromGregorian)
+import DecisionCacheSpec (decisionCacheTests)
 import Effectful (IOE, runEff)
 import Effectful.Error.Static (Error, runErrorNoCallStack)
 import En.Budget (defaultEvaluationBudget)
@@ -419,7 +420,7 @@ enTests =
     "en"
     [ testCase "builds the app access check for the authenticated user and host" $ do
         let req = buildCheckRequest AuthenticatedUser {subject = "alice"} "tools.example.com"
-        req.consistency @?= MinimizeLatencyWire
+        req.consistency @?= FullyConsistentWire
         req.context @?= CaveatContextWire mempty
         req.subject @?= SubjectIdWire ObjectRefWire {objectType = "user", objectId = "alice"}
         req.permission @?= "access"
@@ -478,83 +479,6 @@ enTests =
         case result of
           AuthorizationUnavailable _ -> pure ()
           other -> assertFailure ("expected AuthorizationUnavailable, got: " <> show other)
-    ]
-
-decisionCacheTests :: TestTree
-decisionCacheTests =
-  testGroup
-    "decision cache"
-    [ testCase "cache hit reuses the previous decision" $ do
-        clock <- newIORef 100
-        loads <- newIORef (0 :: Int)
-        cache <- newDecisionCache 30 (readIORef clock)
-        let key = DecisionKey {subject = "user:alice", host = "tools.example.com"}
-            load = modifyIORef' loads (+ 1) >> pure (AuthorizationDecision AccessAllowed)
-        first <- cacheLookupOrLoad cache key load
-        second <- cacheLookupOrLoad cache key load
-        first @?= AuthorizationDecision AccessAllowed
-        second @?= AuthorizationDecision AccessAllowed
-        readIORef loads >>= (@?= 1)
-    , testCase "expired entry reloads" $ do
-        clock <- newIORef 100
-        loads <- newIORef (0 :: Int)
-        cache <- newDecisionCache 30 (readIORef clock)
-        let key = DecisionKey {subject = "user:alice", host = "tools.example.com"}
-            load = modifyIORef' loads (+ 1) >> pure (AuthorizationDecision AccessDenied)
-        cacheLookupOrLoad cache key load >>= (@?= AuthorizationDecision AccessDenied)
-        modifyIORef' clock (+ 30)
-        cacheLookupOrLoad cache key load >>= (@?= AuthorizationDecision AccessDenied)
-        readIORef loads >>= (@?= 2)
-    , testCase "zero ttl disables caching" $ do
-        loads <- newIORef (0 :: Int)
-        cache <- newDecisionCache 0 (pure 100)
-        let key = DecisionKey {subject = "user:alice", host = "tools.example.com"}
-            load = modifyIORef' loads (+ 1) >> pure (AuthorizationDecision AccessConditional)
-        cacheLookupOrLoad cache key load >>= (@?= AuthorizationDecision AccessConditional)
-        cacheLookupOrLoad cache key load >>= (@?= AuthorizationDecision AccessConditional)
-        readIORef loads >>= (@?= 2)
-    , testCase "subject and host both participate in the cache key" $ do
-        loads <- newIORef (0 :: Int)
-        cache <- newDecisionCache 30 (pure 100)
-        let load = modifyIORef' loads (+ 1) >> pure (AuthorizationDecision AccessAllowed)
-        cacheLookupOrLoad cache DecisionKey {subject = "user:alice", host = "tools.example.com"} load >>= (@?= AuthorizationDecision AccessAllowed)
-        cacheLookupOrLoad cache DecisionKey {subject = "user:bob", host = "tools.example.com"} load >>= (@?= AuthorizationDecision AccessAllowed)
-        cacheLookupOrLoad cache DecisionKey {subject = "user:alice", host = "admin.example.com"} load >>= (@?= AuthorizationDecision AccessAllowed)
-        readIORef loads >>= (@?= 3)
-    , -- The core of the outage fix: an unreachable authorizer is returned to
-      -- the caller but never written, so the next request retries instead of
-      -- inheriting the outage for the rest of the TTL.
-      testCase "an unavailable authorizer is not cached and is retried" $ do
-        loads <- newIORef (0 :: Int)
-        cache <- newDecisionCache 30 (pure 100)
-        let key = DecisionKey {subject = "user:alice", host = "tools.example.com"}
-            load = modifyIORef' loads (+ 1) >> pure (AuthorizationUnavailable "en is down")
-        cacheLookupOrLoad cache key load >>= (@?= AuthorizationUnavailable "en is down")
-        cacheLookupOrLoad cache key load >>= (@?= AuthorizationUnavailable "en is down")
-        readIORef loads >>= (@?= 2)
-        cacheSize cache >>= (@?= 0)
-    , -- The other half: a genuine denial IS still cached. Without this the
-      -- previous test could pass by never caching anything.
-      testCase "a genuine denial is still cached" $ do
-        loads <- newIORef (0 :: Int)
-        cache <- newDecisionCache 30 (pure 100)
-        let key = DecisionKey {subject = "user:alice", host = "tools.example.com"}
-            load = modifyIORef' loads (+ 1) >> pure (AuthorizationDecision AccessDenied)
-        cacheLookupOrLoad cache key load >>= (@?= AuthorizationDecision AccessDenied)
-        cacheLookupOrLoad cache key load >>= (@?= AuthorizationDecision AccessDenied)
-        readIORef loads >>= (@?= 1)
-        cacheSize cache >>= (@?= 1)
-    , -- Eviction: writing key B after key A has expired drops A, so the map
-      -- does not accumulate dead keys over a long-running process.
-      testCase "writing evicts entries that expired in the meantime" $ do
-        clock <- newIORef 100
-        cache <- newDecisionCache 30 (readIORef clock)
-        let load d = pure (AuthorizationDecision d)
-        _ <- cacheLookupOrLoad cache DecisionKey {subject = "user:alice", host = "a.example.com"} (load AccessAllowed)
-        cacheSize cache >>= (@?= 1)
-        writeIORef clock 200
-        _ <- cacheLookupOrLoad cache DecisionKey {subject = "user:bob", host = "b.example.com"} (load AccessAllowed)
-        cacheSize cache >>= (@?= 1)
     ]
 
 proxyTests :: TestTree

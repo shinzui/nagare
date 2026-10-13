@@ -699,6 +699,7 @@ runReviewedStaticPreviewPlan mctx tp options original bd pname output = do
   (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
   snapshot <- Inventory.loadTargetSnapshot active
   (cluster, namespaceId) <- either dieT pure (acceptedFoundationNamespace snapshot ns)
+  accessBinding <- reviewedSiteAccessBinding snapshot cluster (site ^. #access)
   either
     dieT
     pure
@@ -726,6 +727,7 @@ runReviewedStaticPreviewPlan mctx tp options original bd pname output = do
       (dieT . T.pack . show)
       pure
       ( compileStaticSitePreviewScope
+          accessBinding
           inputs
           pname
           cluster
@@ -814,6 +816,7 @@ runReviewedServerPreviewPlan mctx tp options original bd pname output = do
   (_, workspace) <- resolvePlatformWorkspace (active ^. #contextName)
   snapshot <- Inventory.loadTargetSnapshot active
   (cluster, namespaceId) <- either dieT pure (acceptedFoundationNamespace snapshot ns)
+  accessBinding <- reviewedSiteAccessBinding snapshot cluster (site ^. #access)
   either
     dieT
     pure
@@ -854,6 +857,7 @@ runReviewedServerPreviewPlan mctx tp options original bd pname output = do
       (dieT . T.pack . show)
       pure
       ( compileServerSitePreviewScopeWithBuild
+          accessBinding
           buildSecrets
           inputs
           pname

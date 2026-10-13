@@ -9,6 +9,7 @@ import Data.Generics.Labels ()
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
+import Nagare.Access.Resolve (backendConfigMapNamespace)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Render (pvcName)
 import Nagare.Resource.Inventory
@@ -43,13 +44,29 @@ validatePreviewAddresses scope cluster serviceName ns host volumeNames = do
       "Service"
       (Just ns)
       serviceName
-  domainAddress <-
+  -- A public preview routes in its own namespace; a protected one (EP-186)
+  -- routes through the enforcer in nagare-system. Exactly one must be owned.
+  publicRoute <-
     kubernetesAddress
       cluster
       "serving.knative.dev/v1beta1"
       "DomainMapping"
       (Just ns)
       host
+  enforcerRoute <-
+    kubernetesAddress
+      cluster
+      "serving.knative.dev/v1beta1"
+      "DomainMapping"
+      (Just backendConfigMapNamespace)
+      host
+  domainAddress <- case [ member ^. #address
+                        | bundle <- scopeBundles scope
+                        , Managed member <- declarations bundle
+                        , member ^. #address `elem` [publicRoute, enforcerRoute]
+                        ] of
+    [one] -> Right one
+    _ -> Left "accepted site preview lacks exactly one route for its hostname"
   volumeAddresses <-
     traverse
       ( \volumeName ->

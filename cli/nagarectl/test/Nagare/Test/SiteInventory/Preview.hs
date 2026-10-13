@@ -185,11 +185,12 @@ previewSiteInventoryTests =
         either
           (fail . show)
           pure
-          (compileStaticSitePreviewScope inputs "branch" cluster namespaceId imageId deps source)
+          (compileStaticSitePreviewScope Nothing inputs "branch" cluster namespaceId imageId deps source)
       assertBool
         "preview compiler accepted incomplete stores"
         ( isLeft
             ( compileStaticSitePreviewScope
+                Nothing
                 inputs
                 "branch"
                 cluster
@@ -288,6 +289,7 @@ previewSiteInventoryTests =
           (fail . show)
           pure
           ( compileServerSitePreviewScope
+              Nothing
               serverInputs
               "branch"
               cluster
@@ -327,6 +329,7 @@ previewSiteInventoryTests =
           (fail . show)
           pure
           ( compileServerSitePreviewScope
+              Nothing
               (serverInputs {ServerDeploy.site = secretSite})
               "branch"
               cluster
@@ -347,6 +350,7 @@ previewSiteInventoryTests =
         "server preview accepted an unbound Runtime Secret"
         ( isLeft
             ( compileServerSitePreviewScope
+                Nothing
                 (serverInputs {ServerDeploy.site = secretSite})
                 "branch"
                 cluster
@@ -369,6 +373,7 @@ previewSiteInventoryTests =
           (fail . show)
           pure
           ( compileServerSitePreviewScope
+              Nothing
               (serverInputs {ServerDeploy.site = previewSecretSite})
               "branch"
               cluster
@@ -389,6 +394,7 @@ previewSiteInventoryTests =
         "server preview accepted an unbound Preview Secret"
         ( isLeft
             ( compileServerSitePreviewScope
+                Nothing
                 (serverInputs {ServerDeploy.site = previewSecretSite})
                 "branch"
                 cluster
@@ -415,6 +421,7 @@ previewSiteInventoryTests =
         "server preview accepted a Build Secret without publication"
         ( isLeft
             ( compileServerSitePreviewScope
+                Nothing
                 (serverInputs {ServerDeploy.site = buildSecretSite})
                 "branch"
                 cluster
@@ -438,6 +445,7 @@ previewSiteInventoryTests =
           (fail . show)
           pure
           ( compileServerSitePreviewScopeWithBuild
+              Nothing
               (Set.singleton secretName)
               pinnedBuildInputs
               "branch"
@@ -456,6 +464,7 @@ previewSiteInventoryTests =
         "preview accepted a Build Secret absent from image inputs"
         ( isLeft
             ( compileServerSitePreviewScopeWithBuild
+                Nothing
                 Set.empty
                 pinnedBuildInputs
                 "branch"
@@ -472,6 +481,7 @@ previewSiteInventoryTests =
         "preview accepted a mixed Build/Preview Secret"
         ( isLeft
             ( compileServerSitePreviewScopeWithBuild
+                Nothing
                 (Set.singleton secretName)
                 (serverInputs {ServerDeploy.site = buildSecretSite})
                 "branch"
@@ -499,6 +509,7 @@ previewSiteInventoryTests =
         "server preview accepted a retained volume without recovery"
         ( isLeft
             ( compileServerSitePreviewScope
+                Nothing
                 (serverInputs {ServerDeploy.site = volumeSite})
                 "branch"
                 cluster
@@ -520,6 +531,7 @@ previewSiteInventoryTests =
           (fail . show)
           pure
           ( compileServerSitePreviewScope
+              Nothing
               (serverInputs {ServerDeploy.site = volumeSite})
               "branch"
               cluster
@@ -589,6 +601,7 @@ previewSiteInventoryTests =
           (fail . show)
           pure
           ( compileServerSitePreviewScope
+              Nothing
               (serverInputs {ServerDeploy.site = deletableSite})
               "branch"
               cluster
