@@ -23,6 +23,7 @@ module Nagare.Ops.Domains
   , queryDomainRows
   , queryDomainRowsWith
   , queryBaseDomainRow
+  , systemToolRunner
   , observeNamespaces
   , listNamespaces
   , formatDomainList
@@ -110,6 +111,8 @@ data CertificateEvidence = CertificateEvidence
   , readyStatus :: !(Maybe Text)
   , reason :: !(Maybe Text)
   , message :: !(Maybe Text)
+  , issuingStatus :: !(Maybe Text)
+  , lastFailureTime :: !(Maybe Text)
   }
   deriving stock (Generic, Eq, Show)
 
@@ -132,8 +135,11 @@ arrayAt path value = case lookupPath path value of
   _ -> []
 
 readyCondition :: Aeson.Value -> (Maybe Text, Maybe Text, Maybe Text)
-readyCondition value =
-  case find ((== Just "Ready") . textAt ["type"]) (arrayAt ["status", "conditions"] value) of
+readyCondition = namedCondition "Ready"
+
+namedCondition :: Text -> Aeson.Value -> (Maybe Text, Maybe Text, Maybe Text)
+namedCondition conditionType value =
+  case find ((== Just conditionType) . textAt ["type"]) (arrayAt ["status", "conditions"] value) of
     Nothing -> (Nothing, Nothing, Nothing)
     Just condition ->
       ( textAt ["status"] condition
@@ -184,12 +190,15 @@ extractCertificateEvidence bytes =
   where
     evidence item =
       let (status, why, detail) = readyCondition item
+          (issuing, _, _) = namedCondition "Issuing" item
        in CertificateEvidence
             (fromMaybe "(unnamed certificate)" (textAt ["metadata", "name"] item))
             [dnsName | Aeson.String dnsName <- arrayAt ["spec", "dnsNames"] item]
             status
             why
             detail
+            issuing
+            (textAt ["status", "lastFailureTime"] item)
 
 listItems :: Text -> Aeson.Value -> Either Text [Aeson.Value]
 listItems kind value = case lookupPath ["items"] value of
@@ -251,15 +260,17 @@ certificateStateFor TlsEnabled issuer certificates hostname =
       Observed evidence ->
         case find (any (`covers` hostname) . (^. #dnsNames)) evidence of
           Nothing -> CertificatePending "no certificate covering this hostname"
-          Just cert -> certificateEvidenceState cert
+          Just cert -> certificateEvidenceState hostname cert
 
-certificateEvidenceState :: CertificateEvidence -> CertificateState
-certificateEvidenceState cert =
+certificateEvidenceState :: Text -> CertificateEvidence -> CertificateState
+certificateEvidenceState hostname cert =
   let detail = conditionDetail (cert ^. #reason) (cert ^. #message)
       named suffix = cert ^. #name <> ": " <> suffix
    in case cert ^. #readyStatus of
         Just "True" -> CertificateReady (cert ^. #name)
         Just "False"
+          | cert ^. #issuingStatus == Just "True" -> CertificatePending (named detail)
+          | isJust (cert ^. #lastFailureTime) -> CertificateFailed (named (detail <> "; run `nagarectl domains tls " <> hostname <> "` for the issuance chain"))
           | looksFailed detail -> CertificateFailed (named detail)
           | otherwise -> CertificatePending (named detail)
         Just status -> CertificateUnknown (named ("Ready=" <> status <> ": " <> detail))

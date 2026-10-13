@@ -99,7 +99,7 @@ import Nagare.Test.Context
   , targetProfileTests
   )
 import Nagare.Test.Database (connectionEnvTests, databaseTests)
-import Nagare.Test.Domains (domainTlsTests, domainsTests)
+import Nagare.Test.Domains (certificateChainTests, domainsTests)
 import Nagare.Test.Environment
   ( buildArgsTests
   , dotenvTests
@@ -293,7 +293,7 @@ main = do
             , adcTests
             , clusterGuardTests
             , domainBindingTests
-            , testGroup "Nagare.Domain.Tls" domainTlsTests
+            , testGroup "Nagare.Ops.CertificateChain" certificateChainTests
             , testGroup "Nagare.Access" [accessGrantsTests, accessCheckTests]
             , accessResolveTests
             , appDeployTests

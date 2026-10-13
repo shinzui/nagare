@@ -45,6 +45,7 @@ module Nagare.Cli.Options
   , DoctorOpts (..)
   , DomainsCommand (..)
   , DomainsListOpts (..)
+  , DomainsTlsOpts (..)
   , EnvCommand (..)
   , HostCommand (..)
   , HostInitOpts (..)
@@ -913,6 +914,17 @@ data DoctorOpts = DoctorOpts
 data DomainsCommand
   = DomainsList DomainsListOpts
   | DomainsCheck DomainsListOpts
+  | DomainsTls DomainsTlsOpts
+  deriving stock (Generic, Show)
+
+-- | Options for @domains tls HOST@ (EP-191): the issuance chain of one host,
+-- and with @--renew --yes@ one re-issuance trigger for an owned failed host.
+data DomainsTlsOpts = DomainsTlsOpts
+  { host :: !String
+  , json :: !Bool
+  , renew :: !Bool
+  , yes :: !Bool
+  }
   deriving stock (Generic, Show)
 
 -- | Options for @domains list@: namespace selection and an optional base-domain

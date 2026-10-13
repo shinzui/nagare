@@ -17,6 +17,7 @@ module Nagare.Cluster.CertificateMigration
   , parseConfigNetworkObservation
   , parseKnativeCertificates
   , parseCertManagerCertificates
+  , certManagerCertificateFor
   , parseSecretObservations
   , planCertificateMigration
   , validateReviewedCleanup
@@ -300,6 +301,15 @@ parseCertificate group = withObject "Certificate" $ \item -> do
       , nagareManaged = isManaged
       }
 
+-- | The cert-manager Certificate net-certmanager made for a Knative
+-- Certificate: same namespace, owned by it, and writing the same Secret.
+certManagerCertificateFor :: CertificateResource -> CertificateResource -> Bool
+certManagerCertificateFor knative certificate =
+  isJust (secretName knative)
+    && certificateNamespace certificate == certificateNamespace knative
+    && certificateUid knative `elem` certificateOwnerUids certificate
+    && secretName certificate == secretName knative
+
 parseSecretObservations :: ByteString -> Either Text [SecretObservation]
 parseSecretObservations bytes = do
   root <- firstText (eitherDecodeStrict' bytes)
@@ -375,14 +385,7 @@ planCertificateMigration config optedIn knativeCertificates certManagerCertifica
     managedWildcards = filter (\certificate -> namespaceWildcard certificate && nagareManaged certificate) knativeCertificates
     buildChain knative = do
       knativeSecret <- maybe (Left (resourceKey knative <> " has no spec.secretName")) Right (secretName knative)
-      let managers =
-            filter
-              ( \certificate ->
-                  certificateNamespace certificate == certificateNamespace knative
-                    && certificateUid knative `elem` certificateOwnerUids certificate
-                    && secretName certificate == Just knativeSecret
-              )
-              certManagerCertificates
+      let managers = filter (certManagerCertificateFor knative) certManagerCertificates
       manager <- exactlyOne (resourceKey knative <> " has an ambiguous or missing cert-manager Certificate") managers
       managerSecret <- maybe (Left (resourceKey manager <> " has no spec.secretName")) Right (secretName manager)
       when (managerSecret /= knativeSecret) (Left (resourceKey manager <> " does not use the Knative Certificate's Secret"))

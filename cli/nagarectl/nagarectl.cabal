@@ -118,7 +118,6 @@ library
     Nagare.Deploy
     Nagare.Deploy.Resolve
     Nagare.Domain.Binding
-    Nagare.Domain.Tls
     Nagare.Env.BuildArgs
     Nagare.Env.Dotenv
     Nagare.Env.Generated
@@ -295,6 +294,7 @@ library
     Nagare.Inventory.VolumeRebuildRestore
     Nagare.Inventory.VolumeRestore
     Nagare.Inventory.VolumeRestoreSource
+    Nagare.Ops.CertificateChain
     Nagare.Ops.Cleanup
     Nagare.Ops.ClusterGuard
     Nagare.Ops.ContextGuard

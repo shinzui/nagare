@@ -1,0 +1,38 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "acme.cert-manager.io/v1",
+      "kind": "Challenge",
+      "metadata": {
+        "name": "docs.labs.example.com-1-3051234567-2412345678",
+        "namespace": "nagare-system",
+        "uid": "9b1c2d3e-0000-4000-8000-000000000002",
+        "creationTimestamp": "2026-10-13T14:02:13Z",
+        "ownerReferences": [
+          {
+            "apiVersion": "acme.cert-manager.io/v1",
+            "kind": "Order",
+            "name": "docs.labs.example.com-1-3051234567",
+            "uid": "9b1c2d3e-0000-4000-8000-000000000001",
+            "controller": true,
+            "blockOwnerDeletion": true
+          }
+        ]
+      },
+      "spec": {
+        "dnsName": "docs.labs.example.com",
+        "type": "DNS-01",
+        "key": "EP191-DECOY-CHALLENGE-KEY",
+        "token": "EP191-DECOY-TOKEN"
+      },
+      "status": {
+        "state": "pending",
+        "reason": "Waiting for DNS-01 challenge propagation: DNS record for \"docs.labs.example.com\" not yet propagated",
+        "presented": true,
+        "processing": true
+      }
+    }
+  ]
+}

@@ -55,17 +55,22 @@ After this change:
   Forced `Failed` request, `failedIssuanceAttempts: 1`, patch applied, failed request deleted (new
   uid, same name `ep191-probe-1`), Ready 1 s later; stale `resourceVersion` rejected. A `Denied`
   request is not renewable (see Decision Log).
-- [ ] M2: `domains tls HOST [--json]` reads and classifies the chain. Pass: `Nagare.Test.Domains`
+- [x] M2: `domains tls HOST [--json]` reads and classifies the chain. Pass: `Nagare.Test.Domains`
   cases over JSON fixtures for ready, pending DNS-01 challenge, failed finalization (the IR-28 404),
   rate limited (`urn:ietf:params:acme:error:rateLimited`), a missing link, and a ready certificate
   whose renewal failed. Each asserts the verdict, the human lines and the JSON, and that the decoy
   Secret data and key text appear in neither. `src/Nagare/Domain/Tls.hs` and its tests are gone.
-- [ ] M3: `--renew --yes` triggers one re-issuance through the M1 patch. Pass: recording-kubectl
+  Done 2026-10-13: `Nagare.Ops.CertificateChain`; `certificateChainTests` over the fixture cases in
+  `test/fixtures/certificate-chain/`, plus a `pem-in-message` case; `domains list|check` now decide
+  failed or pending from the Certificate's `Issuing` and `lastFailureTime`.
+- [x] M3: `--renew --yes` triggers one re-issuance through the M1 patch. Pass: recording-kubectl
   tests show exactly one status patch for an owned `failed` host, printed after the full diagnosis.
   They show zero patches for a host owned by another context, a host with no Nagare DomainMapping, a
   namespace-wildcard certificate, and the `ready`, `issuing`, `rate-limited` and `incomplete`
   verdicts, and zero patches when the context guard refuses. The command is registered as `bounded`
   in `scripts/audit-managed-commands.py`.
+  Done 2026-10-13: the same tests, plus a `denied` case that is refused (see Decision Log). The
+  coverage row is `delegated`, since no inventory scope claims the Certificate. Fast gate green.
 - [ ] M4: The deploy's certificate timeout includes the M2 one-line diagnosis and the renew
   command. `docs/user/cluster-bootstrap.md` has a "Certificate did not issue" section, and
   `docs/user/reference.md` lists the command. IR-28 is marked `completed`. Pass: `just gate-fast`

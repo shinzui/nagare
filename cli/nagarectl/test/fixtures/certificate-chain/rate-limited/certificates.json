@@ -1,0 +1,59 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "cert-manager.io/v1",
+      "kind": "Certificate",
+      "metadata": {
+        "name": "docs.labs.example.com",
+        "namespace": "nagare-system",
+        "uid": "7753f9af-09a0-4467-9a7e-9206ecd04364",
+        "generation": 1,
+        "resourceVersion": "83304",
+        "creationTimestamp": "2026-10-13T08:06:31Z",
+        "ownerReferences": [
+          {
+            "apiVersion": "networking.internal.knative.dev/v1alpha1",
+            "kind": "Certificate",
+            "name": "docs.labs.example.com",
+            "uid": "054f0ef1-30ac-4f8d-bfe9-d5e64a0cd8fe",
+            "controller": true,
+            "blockOwnerDeletion": true
+          }
+        ]
+      },
+      "spec": {
+        "commonName": "docs.labs.example.com",
+        "dnsNames": [
+          "docs.labs.example.com"
+        ],
+        "secretName": "docs.labs.example.com",
+        "issuerRef": {
+          "kind": "ClusterIssuer",
+          "name": "letsencrypt-dns"
+        }
+      },
+      "status": {
+        "conditions": [
+          {
+            "type": "Ready",
+            "status": "False",
+            "lastTransitionTime": "2026-10-13T14:02:10Z",
+            "reason": "DoesNotExist",
+            "message": "Issuing certificate as Secret does not exist"
+          },
+          {
+            "type": "Issuing",
+            "status": "False",
+            "lastTransitionTime": "2026-10-13T14:03:41Z",
+            "reason": "Failed",
+            "message": "The certificate request has failed to complete and will be retried: Failed to wait for order resource \"docs.labs.example.com-1-3051234567\" to become ready: order is in \"errored\" state: Failed to create Order: 429 urn:ietf:params:acme:error:rateLimited: too many certificates (5) already issued for this exact set of identifiers in the last 168h0m0s, retry after 2026-10-14 08:00:00 UTC: see https://letsencrypt.org/docs/rate-limits/#new-certificates-per-exact-set-of-identifiers"
+          }
+        ],
+        "failedIssuanceAttempts": 3,
+        "lastFailureTime": "2026-10-13T14:03:41Z"
+      }
+    }
+  ]
+}

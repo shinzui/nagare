@@ -19,6 +19,7 @@ import Nagare.Cli.Options
   , DoctorOpts (..)
   , DomainsCommand (..)
   , DomainsListOpts (..)
+  , DomainsTlsOpts (..)
   , ServerStatusOpts (..)
   )
 import Nagare.Cli.Parser.Common
@@ -158,7 +159,21 @@ domainsSubparser =
               (Domains . DomainsCheck <$> domainsListOptsParser <**> helper)
               (progDesc "Check public DNS, route ownership/readiness, and certificate state")
           )
+        <> command
+          "tls"
+          ( info
+              (Domains . DomainsTls <$> domainsTlsOptsParser <**> helper)
+              (progDesc "Show one hostname's certificate issuance chain; --renew --yes triggers one re-issuance of an owned failed certificate")
+          )
     )
+
+domainsTlsOptsParser :: Parser DomainsTlsOpts
+domainsTlsOptsParser =
+  DomainsTlsOpts
+    <$> strArgument (metavar "HOST" <> help "Hostname of a DomainMapping")
+    <*> switch (long "json" <> help "Emit versioned JSON instead of the human report")
+    <*> switch (long "renew" <> help "Trigger one re-issuance when the verdict is failed and this context owns the host")
+    <*> switch (long "yes" <> help "Confirm --renew")
 
 cdnCmd :: ParserInfo Command
 cdnCmd =

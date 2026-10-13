@@ -1,0 +1,50 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "networking.internal.knative.dev/v1alpha1",
+      "kind": "Certificate",
+      "metadata": {
+        "name": "docs.labs.example.com",
+        "namespace": "nagare-system",
+        "uid": "054f0ef1-30ac-4f8d-bfe9-d5e64a0cd8fe",
+        "creationTimestamp": "2026-10-13T08:06:31Z",
+        "labels": {
+          "serving.knative.dev/domainMappingUID": "d60df931-76b3-4de9-aa33-50f2c604207c"
+        },
+        "annotations": {
+          "networking.knative.dev/certificate.class": "cert-manager.certificate.networking.knative.dev"
+        },
+        "ownerReferences": [
+          {
+            "apiVersion": "serving.knative.dev/v1beta1",
+            "kind": "DomainMapping",
+            "name": "docs.labs.example.com",
+            "uid": "d60df931-76b3-4de9-aa33-50f2c604207c",
+            "controller": true,
+            "blockOwnerDeletion": true
+          }
+        ]
+      },
+      "spec": {
+        "dnsNames": [
+          "docs.labs.example.com"
+        ],
+        "secretName": "docs.labs.example.com",
+        "domain": "docs.labs.example.com"
+      },
+      "status": {
+        "conditions": [
+          {
+            "type": "Ready",
+            "status": "False",
+            "lastTransitionTime": "2026-10-13T08:06:36Z",
+            "reason": "NotReady",
+            "message": "Certificate docs.labs.example.com is not ready"
+          }
+        ]
+      }
+    }
+  ]
+}

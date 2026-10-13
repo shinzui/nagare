@@ -1,0 +1,38 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "serving.knative.dev/v1beta1",
+      "kind": "DomainMapping",
+      "metadata": {
+        "name": "docs.labs.example.com",
+        "namespace": "nagare-system",
+        "uid": "d60df931-76b3-4de9-aa33-50f2c604207c",
+        "creationTimestamp": "2026-10-13T08:06:30Z",
+        "annotations": {
+          "nagare.dev/context-id": "other",
+          "nagare.dev/resource-id": "standalone:site-docs/docs.labs.example.com/domain-mapping"
+        }
+      },
+      "spec": {
+        "ref": {
+          "apiVersion": "serving.knative.dev/v1",
+          "kind": "Service",
+          "name": "nagare-access",
+          "namespace": "nagare-system"
+        }
+      },
+      "status": {
+        "url": "https://docs.labs.example.com",
+        "conditions": [
+          {
+            "type": "Ready",
+            "status": "True",
+            "lastTransitionTime": "2026-10-13T08:06:36Z"
+          }
+        ]
+      }
+    }
+  ]
+}

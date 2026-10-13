@@ -1,0 +1,59 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "cert-manager.io/v1",
+      "kind": "Certificate",
+      "metadata": {
+        "name": "docs.labs.example.com",
+        "namespace": "nagare-system",
+        "uid": "7753f9af-09a0-4467-9a7e-9206ecd04364",
+        "generation": 1,
+        "resourceVersion": "83304",
+        "creationTimestamp": "2026-10-13T08:06:31Z",
+        "ownerReferences": [
+          {
+            "apiVersion": "networking.internal.knative.dev/v1alpha1",
+            "kind": "Certificate",
+            "name": "docs.labs.example.com",
+            "uid": "054f0ef1-30ac-4f8d-bfe9-d5e64a0cd8fe",
+            "controller": true,
+            "blockOwnerDeletion": true
+          }
+        ]
+      },
+      "spec": {
+        "commonName": "docs.labs.example.com",
+        "dnsNames": [
+          "docs.labs.example.com"
+        ],
+        "secretName": "docs.labs.example.com",
+        "issuerRef": {
+          "kind": "ClusterIssuer",
+          "name": "letsencrypt-dns"
+        }
+      },
+      "status": {
+        "conditions": [
+          {
+            "type": "Ready",
+            "status": "False",
+            "lastTransitionTime": "2026-10-13T14:02:10Z",
+            "reason": "DoesNotExist",
+            "message": "Issuing certificate as Secret does not exist"
+          },
+          {
+            "type": "Issuing",
+            "status": "False",
+            "lastTransitionTime": "2026-10-13T14:03:41Z",
+            "reason": "PolicyDenied",
+            "message": "The certificate request has failed to complete and will be retried: denied by the approval policy"
+          }
+        ],
+        "failedIssuanceAttempts": 1,
+        "lastFailureTime": "2026-10-13T14:03:41Z"
+      }
+    }
+  ]
+}

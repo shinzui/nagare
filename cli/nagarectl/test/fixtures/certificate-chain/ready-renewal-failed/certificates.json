@@ -1,0 +1,63 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "cert-manager.io/v1",
+      "kind": "Certificate",
+      "metadata": {
+        "name": "docs.labs.example.com",
+        "namespace": "nagare-system",
+        "uid": "7753f9af-09a0-4467-9a7e-9206ecd04364",
+        "generation": 1,
+        "resourceVersion": "83304",
+        "creationTimestamp": "2026-10-13T08:06:31Z",
+        "ownerReferences": [
+          {
+            "apiVersion": "networking.internal.knative.dev/v1alpha1",
+            "kind": "Certificate",
+            "name": "docs.labs.example.com",
+            "uid": "054f0ef1-30ac-4f8d-bfe9-d5e64a0cd8fe",
+            "controller": true,
+            "blockOwnerDeletion": true
+          }
+        ]
+      },
+      "spec": {
+        "commonName": "docs.labs.example.com",
+        "dnsNames": [
+          "docs.labs.example.com"
+        ],
+        "secretName": "docs.labs.example.com",
+        "issuerRef": {
+          "kind": "ClusterIssuer",
+          "name": "letsencrypt-dns"
+        }
+      },
+      "status": {
+        "conditions": [
+          {
+            "type": "Ready",
+            "status": "True",
+            "lastTransitionTime": "2026-10-13T08:06:36Z",
+            "reason": "Ready",
+            "message": "Certificate is up to date and has not expired"
+          },
+          {
+            "type": "Issuing",
+            "status": "False",
+            "lastTransitionTime": "2026-12-12T09:00:00Z",
+            "reason": "Failed",
+            "message": "The certificate request has failed to complete and will be retried: Failed to wait for order resource \"docs.labs.example.com-1-3051234567\" to become ready: order is in \"errored\" state: Failed to finalize Order: 404 urn:ietf:params:acme:error:malformed: Certificate not found"
+          }
+        ],
+        "notAfter": "2027-01-11T08:06:36Z",
+        "notBefore": "2026-10-13T08:06:36Z",
+        "renewalTime": "2026-12-12T08:06:36Z",
+        "revision": 1,
+        "failedIssuanceAttempts": 2,
+        "lastFailureTime": "2026-12-12T09:00:00Z"
+      }
+    }
+  ]
+}

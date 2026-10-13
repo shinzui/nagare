@@ -1,0 +1,56 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "cert-manager.io/v1",
+      "kind": "CertificateRequest",
+      "metadata": {
+        "name": "docs.labs.example.com-1",
+        "namespace": "nagare-system",
+        "uid": "5408a77d-1db6-4808-9027-0750390ff836",
+        "creationTimestamp": "2026-10-13T14:02:11Z",
+        "annotations": {
+          "cert-manager.io/certificate-name": "docs.labs.example.com",
+          "cert-manager.io/certificate-revision": "1",
+          "cert-manager.io/private-key-secret-name": "docs.labs.example.com-abcde"
+        },
+        "ownerReferences": [
+          {
+            "apiVersion": "cert-manager.io/v1",
+            "kind": "Certificate",
+            "name": "docs.labs.example.com",
+            "uid": "7753f9af-09a0-4467-9a7e-9206ecd04364",
+            "controller": true,
+            "blockOwnerDeletion": true
+          }
+        ]
+      },
+      "spec": {
+        "request": "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURSBSRVFVRVNULS0tLS0KRVAxOTEtREVDT1ktQ1NS",
+        "issuerRef": {
+          "kind": "ClusterIssuer",
+          "name": "letsencrypt-dns"
+        }
+      },
+      "status": {
+        "conditions": [
+          {
+            "type": "Approved",
+            "status": "True",
+            "lastTransitionTime": "2026-10-13T08:06:36Z",
+            "reason": "cert-manager.io",
+            "message": "Certificate request has been approved by cert-manager.io"
+          },
+          {
+            "type": "Ready",
+            "status": "False",
+            "lastTransitionTime": "2026-10-13T08:06:36Z",
+            "reason": "Pending",
+            "message": "Waiting on certificate issuance from order nagare-system/docs.labs.example.com-1-3051234567: \"pending\""
+          }
+        ]
+      }
+    }
+  ]
+}

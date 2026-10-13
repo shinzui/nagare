@@ -24,10 +24,7 @@ import Nagare.Cli.Commands.Cdn (runCdn)
 import Nagare.Cli.Commands.Context (runContext)
 import Nagare.Cli.Commands.Database (runDb)
 import Nagare.Cli.Commands.Deployment (runDeploy)
-import Nagare.Cli.Commands.Domains
-  ( runDomainsCheck
-  , runDomainsList
-  )
+import Nagare.Cli.Commands.Domains (runDomains)
 import Nagare.Cli.Commands.Environment (runEnv, runSecret)
 import Nagare.Cli.Commands.Host
   ( runCluster
@@ -92,7 +89,6 @@ import Nagare.Cli.Inventory.Workflow
   )
 import Nagare.Cli.Options
   ( Command (..)
-  , DomainsCommand (..)
   , InfraCommand (..)
   )
 import Nagare.Cli.Platform.Upgrade
@@ -166,8 +162,7 @@ dispatch (mctx, cmd0) = case cmd0 of
   Infra (InfraPreview options) -> runInfraPreview mctx options
   Infra (InfraApply options) -> runInfraApply mctx options
   Infra (InfraDestroy yes output) -> runInfraDestroy mctx yes output
-  Domains (DomainsList o) -> runDomainsList mctx o
-  Domains (DomainsCheck o) -> runDomainsCheck mctx o
+  Domains c -> runDomains mctx c
   CdnCmd ccmd -> runCdn mctx ccmd
   Cleanup o -> runCleanup mctx o
   InventoryCompile input output json -> Inventory.compileInventory input output json

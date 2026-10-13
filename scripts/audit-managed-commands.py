@@ -90,7 +90,7 @@ ROUTES = {
     },
     "TeamCommand": {"read": "TeamListMembers", "reviewed": "TeamAddMember TeamRemoveMember"},
     "PortalCommand": {"read": "PortalShow", "reviewed": "PortalSync"},
-    "DomainsCommand": {"read": "DomainsList DomainsCheck"},
+    "DomainsCommand": {"read": "DomainsList DomainsCheck", "bounded": "DomainsTls"},
     "CdnCommand": {
         "read": "CdnList CdnStatus",
         "reviewed": "CdnPurge CdnDisable",
@@ -194,6 +194,7 @@ FAMILY_ROUTES = {
     "HostCommand.HostImagePlan": "NixOS image object and GCE image publication",
     "HostCommand.HostStart HostCommand.HostStop": "VM start/stop",
     "KubeconfigCommand.KubeconfigRecover": "Context kubeconfig fetch and accepted-history recovery",
+    "DomainsCommand.DomainsTls": "Certificate re-issuance trigger",
     "DbCommand.DbBackup DbCommand.DbPruneBackup DbCommand.DbBackupReceipts DbCommand.DbManualReceipt DbCommand.DbPruneScheduledBackups DbCommand.DbRecoverScheduledPrune DbCommand.DbDisableBackupPrune DbCommand.DbRestore DbCommand.DbRestoreRebuilt": "Database backup and restore",
     "DbCommand.DbShell": "Interactive database maintenance",
     "DbCommand.DbRestart BrokerCommand.BrokerRestart": "Manual task run/delete and database/broker restart",

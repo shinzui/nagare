@@ -1,0 +1,43 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "acme.cert-manager.io/v1",
+      "kind": "Order",
+      "metadata": {
+        "name": "docs.labs.example.com-1-3051234567",
+        "namespace": "nagare-system",
+        "uid": "9b1c2d3e-0000-4000-8000-000000000001",
+        "creationTimestamp": "2026-10-13T14:02:12Z",
+        "ownerReferences": [
+          {
+            "apiVersion": "cert-manager.io/v1",
+            "kind": "CertificateRequest",
+            "name": "docs.labs.example.com-1",
+            "uid": "5408a77d-1db6-4808-9027-0750390ff836",
+            "controller": true,
+            "blockOwnerDeletion": true
+          }
+        ]
+      },
+      "spec": {
+        "request": "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURSBSRVFVRVNULS0tLS0KRVAxOTEtREVDT1ktQ1NS",
+        "dnsNames": [
+          "docs.labs.example.com"
+        ],
+        "issuerRef": {
+          "kind": "ClusterIssuer",
+          "name": "letsencrypt-dns"
+        }
+      },
+      "status": {
+        "state": "errored",
+        "url": "https://acme-v02.api.letsencrypt.org/acme/order/123/456",
+        "finalizeURL": "https://acme-v02.api.letsencrypt.org/acme/finalize/123/456",
+        "reason": "Failed to finalize Order: 404 urn:ietf:params:acme:error:malformed: Certificate not found",
+        "failureTime": "2026-10-13T14:03:40Z"
+      }
+    }
+  ]
+}
