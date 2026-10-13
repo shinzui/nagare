@@ -59,7 +59,7 @@ Decision (2026-10-12): A denied check against a flat team reads every member of 
 
 ## Outcomes & Retrospective
 
-(To be filled during implementation and at completion.)
+The deliverables and their evidence are the Progress checklist above; the decisions are in the Decision Log and in [ADR 29](../adr/0029-site-access-is-a-reviewed-relationship-per-hostname.md).
 
 
 ## Context and Orientation
