@@ -5,6 +5,24 @@ immutable `v<major>.<minor>.<patch>` Git tags.
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-10-12
+
+- **A converged upgrade plan has no operations.** Every platform stage selects the bootstrap stamp,
+  and selecting it planned a check of every Kubernetes and Helm member, so a converged transition
+  replanned the same verifications forever. The planner now checks before the stamp only when
+  something changed (F124).
+- **nagarectl ships its pinned Helm.** The observability release refuses any Helm but v4.2.4, and
+  the package carried none, so a transition ran whatever `helm` the operator had. The wrapper now
+  puts the pinned Helm first on its PATH, and `version --tools` reports it (F123).
+- **The release guard runs on every stage.** `inventory apply` ran it only for stages that select
+  Pulumi, host or artifact operations, so a Kubernetes- and Helm-only stage skipped it.
+- **`inventory status` is about five times faster.** It reads each Kubernetes kind and namespace
+  once and observes independent executors concurrently: 22.7–27.7 s against the intranet, from
+  139 s, with the same findings. `inventory store status` also reports the transition and the
+  accepted and converged revisions.
+- **Auth images follow current En and Shomei.** Nagare pins current upstream revisions, handles
+  En's Problem Details responses, and stages every auth image from the selected source commits.
+
 ## [0.6.1] - 2026-10-12
 
 - **A cloud context's transition stages apply.** 0.6.0's `inventory apply` ran the ordinary release
