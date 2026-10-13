@@ -20,10 +20,12 @@ import Data.Text qualified as Text
 import Nagare.Dsl.Load.Cdn (JsonCdn (..), toCdn)
 import Nagare.Dsl.Load.Error (LoadError (..))
 import Nagare.Dsl.Load.Fields
-  ( JsonDomainEntry (..)
+  ( JsonAccessPolicy (..)
+  , JsonDomainEntry (..)
   , JsonEnvEntry (..)
   , JsonKindEnvelope (..)
   , JsonVolume (..)
+  , toAccessPolicy
   , toDomainSpecs
   , toEnvEntry
   , toVolumes
@@ -83,6 +85,7 @@ data JsonServerSite = JsonServerSite
   , domains :: ![JsonDomainEntry]
   , volumes :: ![JsonVolume]
   , cdn :: !(Maybe JsonCdn)
+  , access :: !(Maybe JsonAccessPolicy)
   }
   deriving stock (Generic, Eq, Show)
 
@@ -103,6 +106,7 @@ instance FromJSON JsonServerSite where
       <*> o .:? "domains" .!= []
       <*> o .:? "volumes" .!= []
       <*> o .:? "cdn"
+      <*> o .:? "access"
 
 -- ---------------------------------------------------------------------------
 -- Marshalling JsonServerSite -> ServerSite (re-runs the smart constructors)
@@ -124,6 +128,7 @@ toServerSite j = do
   domains' <- toDomainSpecs "domains" (j ^. #domains)
   vols' <- toVolumes (j ^. #volumes)
   cdn' <- traverse toCdn (j ^. #cdn)
+  access' <- traverse toAccessPolicy (j ^. #access)
   Right
     ServerSite
       { name = name'
@@ -138,6 +143,7 @@ toServerSite j = do
       , domains = domains'
       , volumes = vols'
       , cdn = cdn'
+      , access = access'
       }
 
 toServerBuild :: JsonServerBuild -> Either LoadError ServerBuild

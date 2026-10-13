@@ -95,6 +95,7 @@ test-suite nagare-access-test
   other-modules:
     BackendMapSpec
     EnContractSpec
+    TestServices
 
   build-depends:
     aeson,

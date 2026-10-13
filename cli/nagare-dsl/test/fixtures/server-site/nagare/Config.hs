@@ -46,6 +46,7 @@ serverSite = do
       , -- Front the origin with Google Cloud CDN (a global HTTP(S) load
         -- balancer) with a 10-minute default edge TTL.
         cdn = Just (withDefaultTtl 600 gcpCloudCdn)
+      , access = Nothing
       }
 
 main :: IO ()

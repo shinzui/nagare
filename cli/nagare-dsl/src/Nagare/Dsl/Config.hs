@@ -515,6 +515,7 @@ staticSiteJSON site =
     , "headers" .= map headerJSON (site ^. #headers)
     , "cache" .= cacheJSON (site ^. #cache)
     , "notFound" .= fmap filePathText (site ^. #notFound)
+    , "access" .= fmap accessPolicyJSON (site ^. #access)
     ]
       <> maybe [] (\c -> ["cdn" .= cdnJSON c]) (site ^. #cdn)
   where
@@ -579,6 +580,7 @@ serverSiteJSON site =
     , "scaleMax" .= fmap (^. #maxScale) scale
     , "domains" .= map domainSpecJSON (site ^. #domains)
     , "volumes" .= map volumeJSON (site ^. #volumes)
+    , "access" .= fmap accessPolicyJSON (site ^. #access)
     ]
       <> maybe [] (\c -> ["cdn" .= cdnJSON c]) (site ^. #cdn)
   where

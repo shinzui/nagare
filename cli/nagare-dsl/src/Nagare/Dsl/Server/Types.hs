@@ -30,6 +30,7 @@ import Data.Char (isSpace)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map (Map)
 import Data.Text qualified as Text
+import Nagare.Dsl.Access (AccessPolicy)
 import Nagare.Dsl.Cdn.Types (Cdn)
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Static.Types (FilePathText, SiteName, mkFilePathText)
@@ -126,5 +127,9 @@ data ServerSite = ServerSite
   , cdn :: !(Maybe Cdn)
   -- ^ An optional edge CDN fronting the origin (MasterPlan 11, EP-55). 'Nothing'
   -- (the backward-compatible default) means no CDN.
+  , access :: !(Maybe AccessPolicy)
+  -- ^ Optional identity-aware access (MasterPlan 27, EP-186). 'Nothing' (the
+  -- backward-compatible default) means public; 'Just' routes every hostname
+  -- through the shared nagare-access enforcer. See 'Nagare.Dsl.Static.Types'.
   }
   deriving stock (Generic, Eq, Show)

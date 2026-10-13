@@ -108,7 +108,7 @@ Early integration belongs to EP-186: emit a protected StaticSite configuration, 
 
 ## Progress
 
-API/performance validation is complete. The authorized latest-auth source upgrade (EP-186 M0) is complete with 134 passing gateway tests, compiled auth executables, and pinned-source image-staging checks. EP-186 remains In Progress because its site-protection milestones are unimplemented; EP-187/188 remain Not Started. Container builds and deployment were not performed. There is no cloud or local-cluster deployment authorization in this planning turn. Final integration and architectural decision distillation remain part of implementation acceptance.
+API/performance validation is complete. The authorized latest-auth source upgrade (EP-186 M0) is complete with 134 passing gateway tests, compiled auth executables, and pinned-source image-staging checks. EP-186 M1 is complete: the shared protected-host contract (`Nagare.Inventory.ProtectedRoute`) serves Deployment, Application, StaticSite and ServerSite, and the composed backend-map bytes are denied end to end by the enforcer. EP-186 M2 (previews, public-to-protected transition, retirement) and M3 (freshness, cache bound, documentation) are next; EP-187/188 remain Not Started. Container builds and deployment were not performed. There is no cloud or local-cluster deployment authorization in this planning turn. Final integration and architectural decision distillation remain part of implementation acceptance.
 
 
 ## Surprises & Discoveries

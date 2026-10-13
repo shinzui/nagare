@@ -10,7 +10,7 @@ module ServerSpec (serverTests) where
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BC
-import Data.ByteString.Lazy (fromStrict)
+import Data.ByteString.Lazy (fromStrict, toStrict)
 import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map qualified as Map
@@ -18,7 +18,9 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TE
+import Nagare.Dsl.Access (requireLogin)
 import Nagare.Dsl.Cdn.Types
+import Nagare.Dsl.Config (encodeServerSite)
 import Nagare.Dsl.Load
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Server.Render
@@ -36,6 +38,7 @@ serverTests =
     [ testGroup "RuntimeImage" runtimeImageTests
     , testGroup "loadServerSite + render goldens" loadAndGoldenTests
     , testGroup "decodeServerSite failure modes" decodeFailureTests
+    , testGroup "access contract (EP-186)" accessContractTests
     , testGroup "preview environment" previewEnvTests
     , testGroup "volume render parity (EP-34)" volumeParityTests
     ]
@@ -63,6 +66,7 @@ notesApp =
     , domains = unsafe (mkDomains [("notes-app.example.com", True)])
     , volumes = []
     , cdn = Just (withDefaultTtl 600 gcpCloudCdn)
+    , access = Nothing
     }
 
 loadAndGoldenTests :: [TestTree]
@@ -178,6 +182,20 @@ runtimeImageTests =
   , testCase "rejects empty" $ assertLeftContains "empty" (mkRuntimeImage "")
   , testCase "rejects spaces" $ assertLeftContains "spaces" (mkRuntimeImage "node 22")
   , testCase "rejects URI scheme" $ assertLeftContains "scheme" (mkRuntimeImage "docker://node")
+  ]
+
+accessContractTests :: [TestTree]
+accessContractTests =
+  [ testCase "protected server site survives emit -> decode round-trip" $
+      let protected = notesApp & #access .~ Just requireLogin
+       in decodeServerSite (toStrict (encodeServerSite protected)) @?= Right protected
+  , testCase "a server site JSON without an access field decodes public" $
+      case decodeServerSite (BC.pack legacyDomainsJSON) of
+        Right site -> site ^. #access @?= Nothing
+        other -> assertFailure ("expected Right, got: " <> show other)
+  , testCase "server access is invisible to the Knative renderer" $
+      renderServerService (notesApp & #access .~ Just requireLogin) ctx
+        @?= renderServerService notesApp ctx
   ]
 
 decodeFailureTests :: [TestTree]

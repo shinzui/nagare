@@ -44,6 +44,7 @@ serverSite = do
       , domains = domains'
       , volumes = []
       , cdn = Just gcpCloudCdn
+      , access = Nothing
       }
 
 main :: IO ()

@@ -10,11 +10,13 @@ module StaticSpec (staticTests) where
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BC
-import Data.ByteString.Lazy (fromStrict)
+import Data.ByteString.Lazy (fromStrict, toStrict)
 import Data.Generics.Labels ()
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Nagare.Dsl.Access (requireLogin)
 import Nagare.Dsl.Cdn.Types
+import Nagare.Dsl.Config (encodeStaticSite)
 import Nagare.Dsl.Load
 import Nagare.Dsl.Prelude
 import Nagare.Dsl.Static.Render
@@ -31,6 +33,7 @@ staticTests =
     [ testGroup "smart constructors" constructorTests
     , testGroup "loadStaticSite + render goldens" loadAndGoldenTests
     , testGroup "decodeStaticSite failure modes" decodeFailureTests
+    , testGroup "access contract (EP-186)" accessContractTests
     ]
 
 -- ---------------------------------------------------------------------------
@@ -62,6 +65,7 @@ notesSite =
                   =<< withCacheRule "/assets/" (Just 31536000) (withDefaultTtl 3600 cloudflareCdn)
               )
           )
+    , access = Nothing
     }
 
 -- ---------------------------------------------------------------------------
@@ -142,6 +146,31 @@ constructorTests =
           assertLeftContains ">= 0" (mkCachePolicy False (Just (-1)))
       ]
   ]
+
+-- ---------------------------------------------------------------------------
+-- Identity-aware access: the field round-trips, old JSON stays public, and the
+-- renderer never sees it (the reviewed site compiler resolves it).
+
+accessContractTests :: [TestTree]
+accessContractTests =
+  [ testCase "protected static site survives emit -> decode round-trip" $
+      let protected = notesSite & #access .~ Just requireLogin
+       in decodeStaticSite (toStrict (encodeStaticSite protected)) @?= Right protected
+  , testCase "a static site JSON without an access field decodes public" $
+      case decodeStaticSite (BC.pack legacyDomainsJSON) of
+        Right site -> site ^. #access @?= Nothing
+        other -> assertFailure ("expected Right, got: " <> show other)
+  , testCase "static access is invisible to the Knative renderer" $
+      renderStaticService (notesSite & #access .~ Just requireLogin) ctx
+        @?= renderStaticService notesSite ctx
+  , testCase "invalid static access permission is a precise MarshalError" $
+      case decodeStaticSite (BC.pack (staticJSON validParts & withAccess "{\"permission\":\"Access\"}")) of
+        Left (MarshalError "access.permission" _) -> pure ()
+        other -> assertFailure ("expected MarshalError access.permission, got: " <> show other)
+  ]
+  where
+    -- Splice an access object into the valid JSON (it ends with "}").
+    withAccess accessJson json = init json <> ",\"access\":" <> accessJson <> "}"
 
 -- ---------------------------------------------------------------------------
 -- Negative: decode-level rejections (re-running the constructors over JSON)

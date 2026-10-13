@@ -103,6 +103,7 @@ import Shomei.SigningKey.Protection.Jwt (KeyEncryptionKey, keyEncryptionKeyFromB
 import System.Timeout (timeout)
 import Test.Tasty
 import Test.Tasty.HUnit
+import TestServices (testServices)
 
 main :: IO ()
 main =
@@ -1152,14 +1153,18 @@ appTests =
             (request (withHeader hHost "tools.example.com" (withHeader "Authorization" "Bearer invalid" (withHeader hAccept "application/json" (setPath defaultRequest "/api")))))
             (appWithRuntime backends (testServices & #verifyCredential .~ (\_ -> pure (Left InvalidCredential))))
         simpleStatus res @?= status401
-    , testCase "denied protected request returns 403" $ do
-        backends <- assertRight (backendMapFromList [("tools.example.com", "http://tools.personal.svc.cluster.local")])
+    , testCase "a signed-in user without a grant on a protected site gets 403 and the origin is never reached" $ do
+        -- The exact map bytes nagarectl composes for a protected StaticSite
+        -- (its "a protected static site reviews" case, EP-186 M1).
+        backends <- assertRight (decodeBackendMap "{\"demo.example.com\":\"http://demo.personal.svc.cluster.local\"}")
+        reached <- newIORef False
         res <-
           runSession
-            (request (withHeader hHost "tools.example.com" (withHeader "Authorization" "Bearer valid" (setPath defaultRequest "/"))))
-            (appWithRuntime backends (testServices & #authorizeUser .~ (\_ _ -> pure (AuthorizationDecision AccessDenied))))
+            (request (withHeader hHost "demo.example.com" (withHeader "Authorization" "Bearer valid" (setPath defaultRequest "/"))))
+            (appWithRuntime backends (testServices & #authorizeUser .~ (\_ _ -> pure (AuthorizationDecision AccessDenied)) & #forwardAuthorized .~ (\_ _ _ _ -> writeIORef reached True >> pure (textResponse status200 "proxied"))))
         simpleStatus res @?= status403
         simpleBody res @?= "Forbidden"
+        readIORef reached >>= (@?= False)
     , testCase "allowed protected request is forwarded" $ do
         backends <- assertRight (backendMapFromList [("tools.example.com", "http://tools.personal.svc.cluster.local")])
         res <-
@@ -1790,20 +1795,3 @@ successfulHandoffServices returnTo =
        )
     & #cookieSettings
     .~ Just (signedCookieSettings ".example.test" "cookie-secret")
-
-testServices :: AccessServices
-testServices =
-  AccessServices
-    { verifyCredential = \_ -> pure (Right AuthenticatedUser {subject = "user:alice"})
-    , authorizeUser = \_ _ -> pure (AuthorizationDecision AccessAllowed)
-    , forwardAuthorized = \_ _ _ _ -> pure (textResponse status200 "proxied")
-    , loginUser = \_ -> pure (LoginFailed "invalid login")
-    , completeMfa = \_ -> pure (LoginFailed "mfa failed")
-    , refreshUserSession = \_ -> pure (LoginFailed "refresh failed")
-    , revokeSession = \_ -> pure ()
-    , forwardPortal = \_ _ _ -> pure (PortalPassThrough (textResponse status200 "portal"))
-    , fetchPortalPage = \_ _ -> pure Nothing
-    , newCsrfToken = pure "csrf-token"
-    , decisionCache = disabledDecisionCache
-    , cookieSettings = Nothing
-    }

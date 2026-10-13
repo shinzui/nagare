@@ -2,6 +2,9 @@
 module Nagare.Test.SiteInventory (staticInventoryTests) where
 
 import Nagare.Dsl.Prelude
+import Nagare.Test.SiteInventory.Access
+  ( protectedSiteInventoryTests
+  )
 import Nagare.Test.SiteInventory.Preview
   ( previewSiteInventoryTests
   )
@@ -14,4 +17,4 @@ import Nagare.Test.SiteInventory.Static
 import Test.Tasty (TestTree)
 
 staticInventoryTests :: [TestTree]
-staticInventoryTests = staticSiteInventoryTests <> previewSiteInventoryTests <> serverSiteInventoryTests
+staticInventoryTests = staticSiteInventoryTests <> previewSiteInventoryTests <> serverSiteInventoryTests <> protectedSiteInventoryTests

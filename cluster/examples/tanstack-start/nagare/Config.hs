@@ -43,6 +43,7 @@ serverSite = do
       , domains = []
       , volumes = []
       , cdn = Nothing
+      , access = Nothing
       }
 
 main :: IO ()

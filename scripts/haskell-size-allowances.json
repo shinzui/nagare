@@ -5,7 +5,6 @@
   "cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesRuntime.hs": 1180,
   "cli/nagarectl/src/Nagare/Inventory/Command.hs": 1030,
   "cli/nagarectl/src/Nagare/Inventory/DataFence/KubernetesExclusion.hs": 1199,
-  "cli/nagarectl/src/Nagare/Inventory/Site.hs": 1426,
   "cli/nagarectl/src/Nagare/Inventory/Store.hs": 1259,
   "cli/nagarectl/test/AppDeploySpec.hs": 4818,
   "cli/nagarectl/test/DataFenceSpec.hs": 5619,

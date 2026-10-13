@@ -260,6 +260,7 @@ library
     Nagare.Inventory.Plan
     Nagare.Inventory.PreviewCleanup
     Nagare.Inventory.PreviewOwnership
+    Nagare.Inventory.ProtectedRoute
     Nagare.Inventory.Prune
     Nagare.Inventory.Rebuild
     Nagare.Inventory.RebuildRestore
@@ -274,6 +275,9 @@ library
     Nagare.Inventory.ScheduledStore
     Nagare.Inventory.SigningKeyEscrow
     Nagare.Inventory.Site
+    Nagare.Inventory.Site.Member
+    Nagare.Inventory.Site.Preview
+    Nagare.Inventory.Site.Release
     Nagare.Inventory.Status
     Nagare.Inventory.Store
     Nagare.Inventory.Store.Discovery
@@ -645,6 +649,7 @@ test-suite nagarectl-test
     Nagare.Test.Server
     Nagare.Test.Shards
     Nagare.Test.SiteInventory
+    Nagare.Test.SiteInventory.Access
     Nagare.Test.SiteInventory.Preview
     Nagare.Test.SiteInventory.Server
     Nagare.Test.SiteInventory.Static

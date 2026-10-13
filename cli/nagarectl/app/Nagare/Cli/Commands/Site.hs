@@ -54,6 +54,7 @@ import Nagare.Cli.Runtime.Target
   , resolveBaseDomain
   , resolvePlatformWorkspace
   )
+import Nagare.Dsl.Access (AccessPolicy)
 import Nagare.Dsl.Cdn.Types (Cdn)
 import Nagare.Dsl.Load qualified as Load
 import Nagare.Dsl.Prelude
@@ -67,7 +68,9 @@ import Nagare.Dsl.Types
   )
 import Nagare.Image (qualifyImage)
 import Nagare.Inventory.Application
-  ( ReviewedCdnBinding (..)
+  ( AccessBinding
+  , ReviewedCdnBinding (..)
+  , acceptedAccessBinding
   , acceptedApplicationImage
   , acceptedImageBuildSecrets
   , acceptedSecretBindings
@@ -77,19 +80,14 @@ import Nagare.Inventory.DataService (acceptedFoundationNamespace)
 import Nagare.Inventory.Lifecycle qualified as InventoryLifecycle
 import Nagare.Inventory.Plan qualified as InventoryPlan
 import Nagare.Inventory.Site
-  ( acceptedSitePreviewDependencies
+  ( SiteReleaseAction (..)
+  , acceptedSitePreviewDependencies
   , acceptedSiteReleaseLog
   , acceptedSiteSource
   , compileServerSitePreviewScopeWithBuild
-  , compileServerSiteRollbackScopeWithBuild
-  , compileServerSiteScopeWithBuild
+  , compileServerSiteScopeWith
   , compileStaticSitePreviewScope
-  , compileStaticSiteRollbackScope
-  , compileStaticSiteRollbackScopeWithCdn
-  , compileStaticSiteRollbackScopeWithCloudflare
-  , compileStaticSiteScope
-  , compileStaticSiteScopeWithCdn
-  , compileStaticSiteScopeWithCloudflare
+  , compileStaticSiteScopeWith
   , legacyServerSiteReleaseImport
   , legacyStaticSiteReleaseImport
   , sitePreviewRetirementScope
@@ -191,12 +189,10 @@ runStaticSiteDeployPlan mctx tp options site bd output = do
     (rendered ^. #url)
     tag
     (site ^. #cdn)
+    (site ^. #access)
     False
-    ( \cdn _ _ tls cluster namespaceId imageId ->
-        case cdn of
-          Nothing -> compileStaticSiteScope inputs cluster namespaceId imageId tls
-          Just (GoogleCdnBindingFor binding) -> compileStaticSiteScopeWithCdn binding inputs cluster namespaceId imageId tls
-          Just (CloudflareCdnBindingFor binding) -> compileStaticSiteScopeWithCloudflare binding inputs cluster namespaceId imageId tls
+    ( \cdn access _ _ tls cluster namespaceId imageId ->
+        compileStaticSiteScopeWith RecordRelease cdn access inputs cluster namespaceId imageId tls
     )
     (legacyStaticSiteReleaseImport site)
     output
@@ -238,11 +234,14 @@ runServerSiteDeployPlan mctx tp options original bd output = do
     (rendered ^. #url)
     tag
     (site ^. #cdn)
+    (site ^. #access)
     True
-    ( \cdn buildSecrets bindings tls cluster namespaceId imageId ->
-        compileServerSiteScopeWithBuild
-          buildSecrets
+    ( \cdn access buildSecrets bindings tls cluster namespaceId imageId ->
+        compileServerSiteScopeWith
+          RecordRelease
           cdn
+          access
+          buildSecrets
           inputs
           cluster
           namespaceId
@@ -276,8 +275,10 @@ runReviewedSiteDeployPlan ::
   Text ->
   Text ->
   Maybe Cdn ->
+  Maybe AccessPolicy ->
   Bool ->
   ( Maybe ReviewedCdnBinding ->
+    Maybe AccessBinding ->
     Set SecretName ->
     Map.Map SecretName ResourceInventory.Declaration ->
     Map.Map SecretName ResourceInventory.Declaration ->
@@ -296,7 +297,7 @@ runReviewedSiteDeployPlan ::
   (Text -> ByteString -> Either Text (StaticReleaseLog, StaticRelease)) ->
   Maybe FilePath ->
   IO ()
-runReviewedSiteDeployPlan mctx options siteName ns imageName url tag cdnIntent bindBuildInputs compile importLegacy output = do
+runReviewedSiteDeployPlan mctx options siteName ns imageName url tag cdnIntent accessIntent bindBuildInputs compile importLegacy output = do
   unless
     (null (options ^. #sitePreviewEnvResources))
     (dieT "production site review has no preview environment resources")
@@ -340,6 +341,7 @@ runReviewedSiteDeployPlan mctx options siteName ns imageName url tag cdnIntent b
           (maybe (T.pack (options ^. #file)) T.pack (options ^. #source))
           siteName
   (cluster, namespaceId) <- either dieT pure (acceptedFoundationNamespace snapshot ns)
+  accessBinding <- reviewedSiteAccessBinding snapshot cluster accessIntent
   either
     dieT
     pure
@@ -406,7 +408,7 @@ runReviewedSiteDeployPlan mctx options siteName ns imageName url tag cdnIntent b
     either
       (dieT . T.pack . show)
       pure
-      (compile cdnBinding buildSecrets envSecrets tlsSecrets cluster namespaceId imageId prior release source)
+      (compile cdnBinding accessBinding buildSecrets envSecrets tlsSecrets cluster namespaceId imageId prior release source)
   candidate <-
     either
       (dieT . T.pack . show)
@@ -436,6 +438,17 @@ runReviewedSiteDeployPlan mctx options siteName ns imageName url tag cdnIntent b
           proposal
           directory
       (Just _, Nothing) -> dieT "site adoption requires --save-plan"
+
+-- | A site that opts into access needs the accepted auth owner; a public site
+-- must not carry one. The binding is resolved against the accepted snapshot,
+-- never from a live Service or a caller-supplied name.
+reviewedSiteAccessBinding ::
+  ResourceInventory.ScopeSnapshot ->
+  Resource.ResourceId ->
+  Maybe AccessPolicy ->
+  IO (Maybe AccessBinding)
+reviewedSiteAccessBinding snapshot cluster =
+  traverse (\_ -> either dieT pure (acceptedAccessBinding snapshot cluster))
 
 serverSiteWithGeneratedEnvSource :: Maybe Text -> ServerSite -> Text -> Text -> ServerSite
 serverSiteWithGeneratedEnvSource source site bd tag =
@@ -498,6 +511,11 @@ runReviewedSiteRollbackPlan mctx tp options config bd rid output = do
   let cdnIntent = case config of
         Load.SiteStatic site -> site ^. #cdn
         Load.SiteServer site -> site ^. #cdn
+      -- The current config's policy governs a rollback: it changes the image,
+      -- never resurrects older public routing from release history (EP-186).
+      accessIntent = case config of
+        Load.SiteStatic site -> site ^. #access
+        Load.SiteServer site -> site ^. #access
   cdnBinding <-
     reviewedCdnBinding
       active
@@ -506,6 +524,7 @@ runReviewedSiteRollbackPlan mctx tp options config bd rid output = do
       cdnIntent
       (options ^. #cdnBackendResource)
   (cluster, namespaceId) <- either dieT pure (acceptedFoundationNamespace snapshot ns)
+  accessBinding <- reviewedSiteAccessBinding snapshot cluster accessIntent
   store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
   history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
   acceptedInventory <-
@@ -551,9 +570,13 @@ runReviewedSiteRollbackPlan mctx tp options config bd rid output = do
       qualifiedImage <- either dieT pure (qualifyImage tp (original ^. #image))
       let qualified = original & #image .~ qualifiedImage
           inputs = DeployInputs qualified (release ^. #imageTag) bd "." True tp
-      either (dieT . T.pack . show) pure $ case cdnBinding of
-        Nothing ->
-          compileStaticSiteRollbackScope
+      either
+        (dieT . T.pack . show)
+        pure
+        ( compileStaticSiteScopeWith
+            SelectRelease
+            cdnBinding
+            accessBinding
             inputs
             cluster
             namespaceId
@@ -562,28 +585,7 @@ runReviewedSiteRollbackPlan mctx tp options config bd rid output = do
             prior
             release
             source
-        Just (GoogleCdnBindingFor binding) ->
-          compileStaticSiteRollbackScopeWithCdn
-            binding
-            inputs
-            cluster
-            namespaceId
-            imageId
-            tlsSecrets
-            prior
-            release
-            source
-        Just (CloudflareCdnBindingFor binding) ->
-          compileStaticSiteRollbackScopeWithCloudflare
-            binding
-            inputs
-            cluster
-            namespaceId
-            imageId
-            tlsSecrets
-            prior
-            release
-            source
+        )
     Load.SiteServer original -> do
       buildSecrets <-
         either
@@ -610,9 +612,11 @@ runReviewedSiteRollbackPlan mctx tp options config bd rid output = do
       either
         (dieT . T.pack . show)
         pure
-        ( compileServerSiteRollbackScopeWithBuild
-            buildSecrets
+        ( compileServerSiteScopeWith
+            SelectRelease
             cdnBinding
+            accessBinding
+            buildSecrets
             inputs
             cluster
             namespaceId

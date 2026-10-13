@@ -49,6 +49,7 @@ staticSite = do
       , cache = cache'
       , notFound = Just notFound'
       , cdn = Just cdn'
+      , access = Nothing
       }
 
 main :: IO ()

@@ -53,6 +53,7 @@ where
 
 import Data.Char (isControl, isDigit, isLower, isSpace)
 import Data.Text qualified as Text
+import Nagare.Dsl.Access (AccessPolicy)
 import Nagare.Dsl.Cdn.Types (Cdn)
 import Nagare.Dsl.Path (FilePathText, filePathText, mkFilePathText)
 import Nagare.Dsl.Prelude
@@ -198,6 +199,12 @@ data StaticSite = StaticSite
   -- ^ An optional edge CDN fronting the origin (MasterPlan 11, EP-55). 'Nothing'
   -- (the backward-compatible default) means no CDN — the site is served directly
   -- from the VM. EP-58 provisions the chosen provider at deploy time.
+  , access :: !(Maybe AccessPolicy)
+  -- ^ Optional identity-aware access (MasterPlan 27, EP-186). 'Nothing' (the
+  -- backward-compatible default) means public. 'Just' routes every hostname of
+  -- the site through the shared nagare-access enforcer, which admits only a
+  -- signed-in user with an explicit grant on that exact hostname. The renderer
+  -- emits no YAML for this field; the reviewed site compiler resolves it.
   }
   deriving stock (Generic, Eq, Show)
 

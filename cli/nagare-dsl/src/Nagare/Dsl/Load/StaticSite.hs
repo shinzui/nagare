@@ -17,8 +17,10 @@ import Data.Text qualified as Text
 import Nagare.Dsl.Load.Cdn (JsonCdn (..), toCdn)
 import Nagare.Dsl.Load.Error (LoadError (..))
 import Nagare.Dsl.Load.Fields
-  ( JsonDomainEntry (..)
+  ( JsonAccessPolicy (..)
+  , JsonDomainEntry (..)
   , JsonKindEnvelope (..)
+  , toAccessPolicy
   , toDomainSpecs
   )
 import Nagare.Dsl.Prelude
@@ -94,6 +96,7 @@ data JsonStaticSite = JsonStaticSite
   , cache :: !JsonCache
   , notFound :: !(Maybe Text)
   , cdn :: !(Maybe JsonCdn)
+  , access :: !(Maybe JsonAccessPolicy)
   }
   deriving stock (Generic, Eq, Show)
 
@@ -110,6 +113,7 @@ instance FromJSON JsonStaticSite where
       <*> o .: "cache"
       <*> o .:? "notFound"
       <*> o .:? "cdn"
+      <*> o .:? "access"
 
 -- ---------------------------------------------------------------------------
 -- Marshalling JsonStaticSite -> StaticSite (re-runs the smart constructors)
@@ -128,6 +132,7 @@ toStaticSite j = do
       mkCachePolicy (cacheJ ^. #immutableAssets) (cacheJ ^. #defaultMaxAge)
   notFound' <- traverse (first (MarshalError "notFound") . mkFilePathText) (j ^. #notFound)
   cdn' <- traverse toCdn (j ^. #cdn)
+  access' <- traverse toAccessPolicy (j ^. #access)
   Right
     StaticSite
       { name = name'
@@ -140,6 +145,7 @@ toStaticSite j = do
       , cache = cache'
       , notFound = notFound'
       , cdn = cdn'
+      , access = access'
       }
   where
     cacheJ = j ^. #cache

@@ -14,6 +14,7 @@ import Nagare.Dsl.Prelude hiding ((<.>))
 import Nagare.Dsl.Server.Types
   ( ServerSite
       ( ServerSite
+      , access
       , build
       , cdn
       , domains
@@ -261,6 +262,7 @@ previewSiteInventoryTests =
               , domains = []
               , volumes = []
               , cdn = Nothing
+              , access = Nothing
               }
           serverInputs =
             ServerDeploy.ServerDeployInputs

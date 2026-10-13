@@ -10,8 +10,7 @@ module Nagare.Inventory.Application.Service
   )
 where
 
-import Data.Aeson (Value (Object, String))
-import Data.Aeson.KeyMap qualified as KM
+import Data.Aeson (Value)
 import Data.ByteString (ByteString)
 import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
@@ -22,13 +21,10 @@ import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Yaml qualified as Yaml
 import Nagare.Access.Resolve
-  ( RouteTarget (..)
-  , backendConfigMapNamespace
+  ( backendConfigMapNamespace
   , isUnderBaseDomain
   , mkBaseDomain
   , mkPublicHost
-  , renderAccessDomainMapping
-  , upstreamFor
   )
 import Nagare.App.Deploy (RolloutEnv, renderServiceObjects)
 import Nagare.Dsl.Access (AccessRole (..))
@@ -40,12 +36,10 @@ import Nagare.Dsl.Render (pvcName)
 import Nagare.Dsl.Types
   ( DatabaseName
   , Deployment
-  , DomainSpec (DomainSpec)
   , DomainTls (AutomaticTls, SuppliedTlsSecret)
   , SecretName
   , VolumeName
   , domainText
-  , mkDomain
   , namespaceText
   , serviceNameText
   , volumeNameText
@@ -73,6 +67,7 @@ import Nagare.Inventory.Application.Types
   )
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
+import Nagare.Inventory.ProtectedRoute (ProtectedRoute (..), ProtectedRoutes (..), composeProtectedRoutes, protectedHosts)
 import Nagare.Resource.Application
   ( applicationScopeId
   , deploymentResourceId
@@ -80,17 +75,13 @@ import Nagare.Resource.Application
   , volumeResourceId
   )
 import Nagare.Resource.Inventory
-  ( BackendRole (PortalBackend, ProtectedBackend)
-  , Contribution (RegisterBackend)
-  , Declaration (Managed)
+  ( Declaration (Managed)
   , ManagedResource (aliases, dependencies)
   , ResourceBundle (ResourceBundle, declarations)
   , ScopeDeclaration
-  , backendMapResourceId
   , claimsOf
   , mkScopeDeclaration
   , scopeBundles
-  , shomeiSettingsResourceId
   , withScopeConfigDigest
   )
 import Nagare.Resource.Kubernetes (KubernetesInput (..))
@@ -110,10 +101,8 @@ import Nagare.Resource.Types
   , SourceLocation (path)
   , inventoryError
   , kubernetesAddress
-  , mkLogicalKey
   , mkName
   , nameText
-  , scopeIdText
   , scopeKind
   )
 import Nagare.Resource.Wire (canonicalValue)
@@ -546,49 +535,21 @@ compileServiceMembers owner service rollout cluster namespaceId imageId database
   unless
     (service ^. #cdn == Nothing)
     (Left (invalid "service CDN requires a typed owner"))
-  accessIds <- case (service ^. #access, accessBinding) of
-    (Nothing, Nothing) -> Right []
-    (Just policy, Just binding) -> do
-      expected <-
-        first
-          invalid
-          ( kubernetesAddress
-              cluster
-              "serving.knative.dev/v1"
-              "Service"
-              (Just backendConfigMapNamespace)
-              "nagare-access"
-          )
-      case accessEnforcer binding of
-        Managed enforcer
-          | accessOwner binding == enforcer ^. #owner
-          , scopeIdText (accessOwner binding) == "platform:auth"
-          , enforcer ^. #address == expected
-          , nameText (accessBaseDomain binding) == rollout ^. #baseDomain ->
-              Right
-                ( [backendMapResourceId (accessOwner binding), enforcer ^. #identity]
-                    <> [shomeiSettingsResourceId (accessOwner binding) | policy ^. #role == AuthPortal]
-                )
-        _ -> Left (invalid "access binding lacks the accepted auth enforcer")
+  access <- case (service ^. #access, accessBinding) of
+    (Nothing, Nothing) -> Right Nothing
+    (Just policy, Just binding) -> Right (Just (policy, binding))
     _ -> Left (invalid "access intent requires exactly its accepted auth binding")
-  unless
-    (null accessIds || all ((== AutomaticTls) . (^. #tls)) (service ^. #domains))
-    (Left (invalid "central access routes require automatic TLS"))
-  domains <- case (accessIds, service ^. #domains) of
-    (_ : _, []) -> do
-      host <-
-        first
-          invalid
-          ( mkDomain
-              ( serviceNameText (service ^. #name)
-                  <> "."
-                  <> namespaceText (service ^. #namespace)
-                  <> "."
-                  <> (rollout ^. #baseDomain)
-              )
-          )
-      Right [DomainSpec host Nothing True AutomaticTls]
-    (_, existing) -> Right existing
+  domains <- case access of
+    Nothing -> Right (service ^. #domains)
+    Just _ ->
+      first
+        invalid
+        ( protectedHosts
+            (serviceNameText (service ^. #name))
+            (namespaceText (service ^. #namespace))
+            (rollout ^. #baseDomain)
+            (service ^. #domains)
+        )
   let renderedService = service & #domains .~ domains
   case service ^. #access of
     Just policy | policy ^. #role == AuthPortal -> do
@@ -634,17 +595,26 @@ compileServiceMembers owner service rollout cluster namespaceId imageId database
   renderedServiceBytes <- case serviceRendered of
     ("service", manifest) : _ -> Right manifest
     _ -> Left (invalid "service renderer produced unexpected members")
-  serviceBytes <-
-    if null accessIds
-      then Right renderedServiceBytes
-      else do
-        value <-
+  protected <-
+    traverse
+      ( \(policy, binding) ->
           first
-            (invalid . T.pack . show)
-            (Yaml.decodeEither' renderedServiceBytes :: Either Yaml.ParseException Value)
-        private <- first invalid (privateService value)
-        first invalid (canonicalValue private)
-  let domainRendered = drop 1 serviceRendered
+            invalid
+            ( composeProtectedRoutes
+                binding
+                policy
+                cluster
+                (rollout ^. #baseDomain)
+                (service ^. #namespace)
+                (service ^. #name)
+                domains
+                renderedServiceBytes
+            )
+      )
+      access
+  let serviceBytes = maybe renderedServiceBytes (^. #origin) protected
+      accessIds = maybe [] (^. #prerequisites) protected
+      domainRendered = drop 1 serviceRendered
   unless
     (length domainRendered == length domains && all ((== "service") . fst) domainRendered)
     (Left (invalid "service domain renderer produced unexpected members"))
@@ -661,26 +631,9 @@ compileServiceMembers owner service rollout cluster namespaceId imageId database
       (map OrderedAfter (namespaceId : imageId : volumeIds <> databasePrerequisites <> secretIds))
       source
       serviceBytes
-  domainMembers <- traverse (compileDomain accessIds resource) (zip domains (map snd domainRendered))
-  contributions <- case (service ^. #access, accessBinding) of
-    (Just policy, Just binding) ->
-      traverse
-        ( \domain -> do
-            host <- first invalid (mkName (domainText (domain ^. #domain)))
-            key <- first invalid (mkLogicalKey (domainText (domain ^. #domain)))
-            let role = if policy ^. #role == AuthPortal then PortalBackend else ProtectedBackend
-            pure
-              ( RegisterBackend
-                  (accessOwner binding)
-                  cluster
-                  host
-                  (upstreamFor (service ^. #namespace) (service ^. #name))
-                  role
-                  key
-              )
-        )
-        domains
-    _ -> Right []
+  let routeBytes = maybe (map snd domainRendered) (map (^. #mapping) . (^. #routes)) protected
+      contributions = maybe [] (map (^. #contribution) . (^. #routes)) protected
+  domainMembers <- traverse (compileDomain accessIds resource) (zip domains routeBytes)
   let members = volumeMembers <> [serviceMember] <> domainMembers
       declarations = [Managed declaration | (declaration, _) <- members]
       native = Map.fromList [(declaration ^. #identity, member) | member@(declaration, _) <- members]
@@ -699,32 +652,6 @@ compileServiceMembers owner service rollout cluster namespaceId imageId database
             .~ [source]
         )
     single errorValue = errorValue :| []
-    privateService (Object root) = case KM.lookup "metadata" root of
-      Just (Object metadata) -> case KM.lookup "labels" metadata of
-        Just (Object labels) ->
-          Right
-            ( Object
-                ( KM.insert
-                    "metadata"
-                    ( Object
-                        ( KM.insert
-                            "labels"
-                            ( Object
-                                ( KM.insert
-                                    "networking.knative.dev/visibility"
-                                    (String "cluster-local")
-                                    labels
-                                )
-                            )
-                            metadata
-                        )
-                    )
-                    root
-                )
-            )
-        _ -> Left "protected Service has no object labels"
-      _ -> Left "protected Service has no object metadata"
-    privateService _ = Left "protected Service native evidence is not an object"
     compileVolume (volume, bytes) = do
       recovery <- case volume ^. #retention of
         Dsl.Retain ->
@@ -783,14 +710,7 @@ compileServiceMembers owner service rollout cluster namespaceId imageId database
                   secretName
               )
           pure [secretId]
-      let reviewedBytes = case accessIds of
-            [] -> bytes
-            _ ->
-              renderAccessDomainMapping
-                backendConfigMapNamespace
-                (domainText (domain ^. #domain))
-                (RouteTarget "serving.knative.dev/v1" "Service" "nagare-access" backendConfigMapNamespace)
-          domainNamespace = if null accessIds then rollout ^. #namespace else backendConfigMapNamespace
+      let domainNamespace = if null accessIds then rollout ^. #namespace else backendConfigMapNamespace
           prerequisites = namespaceId : serviceId : tlsPrerequisites <> accessIds
       (declaration, native) <-
         bindOne
@@ -799,7 +719,7 @@ compileServiceMembers owner service rollout cluster namespaceId imageId database
           Stateless
           (map OrderedAfter prerequisites)
           domainSource
-          reviewedBytes
+          bytes
       expected <-
         first
           invalid

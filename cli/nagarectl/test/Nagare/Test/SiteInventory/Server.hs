@@ -16,6 +16,7 @@ import Nagare.Dsl.Prelude hiding ((<.>))
 import Nagare.Dsl.Server.Types
   ( ServerSite
       ( ServerSite
+      , access
       , build
       , cdn
       , domains
@@ -115,6 +116,7 @@ serverSiteInventoryTests =
               , domains = unsafe (mkDomains [("demo.example.com", True)])
               , volumes = []
               , cdn = Nothing
+              , access = Nothing
               }
           inputs = ServerDeploy.ServerDeployInputs site "v1" "example.com" "." True initProfile
           foundation = unsafe (Resource.mkScopeId Resource.Platform "foundation")

@@ -44,6 +44,7 @@ demoServerSiteWith buildCmd =
     , domains = []
     , volumes = []
     , cdn = Nothing
+    , access = Nothing
     }
 
 noBuildSite :: Text -> StaticSite
@@ -71,4 +72,5 @@ baseSite b =
     , cache = defaultCachePolicy
     , notFound = Nothing
     , cdn = Nothing
+    , access = Nothing
     }
