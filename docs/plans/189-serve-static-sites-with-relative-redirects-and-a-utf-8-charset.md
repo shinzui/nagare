@@ -67,7 +67,15 @@ is built.
   built output, and every supported generator writes UTF-8. `charset` only adds the header; with no
   `source_charset` set, Nginx does not transcode bytes.
 - Decision (2026-10-13): Do not add a MIME mapping for `.md` in this plan. The bug was observed on
-  `text/plain` content. Whether Markdown exports need their own type is a separate request.
+  `text/plain` content. Whether Markdown exports need their own type is a separate request. For the
+  same reason `charset_types` does not list `text/markdown`: stock `mime.types` maps `.md` to
+  `application/octet-stream`, so the entry could never match.
+- Decision (2026-10-13): The design was prototyped before implementation against nixpkgs' Nginx
+  1.30.4 (the flake's `nixpkgs#nginx`), with the golden configuration's `root` and `listen` lines
+  rewritten. Before: `/guide` gave `Location: http://docs.example.test:<port>/guide/`, `/old` gave
+  `http://…:<port>/new`, and `/example.txt` gave `text/plain`. With the three directives: `/guide/`
+  and `/new`, and `text/plain; charset=utf-8` (also `text/css`, `application/javascript` and
+  `application/json`). `image/png` carried no charset and its SHA-256 was unchanged.
 - Decision (2026-10-13): BUG-1 to BUG-4 were revalidated against master `1532a447` and need no
   plan. ExecPlans 140 to 143 fixed them, and the fixes shipped in v0.4.0. Their reports are now
   marked `fixed`.
@@ -130,7 +138,7 @@ In `renderNginxConfig`, after `index index.html;`, emit:
 ```text
     absolute_redirect off;
     charset utf-8;
-    charset_types text/css text/plain text/xml text/markdown application/javascript application/json application/manifest+json application/rss+xml application/atom+xml image/svg+xml;
+    charset_types text/css text/plain text/xml application/javascript application/json application/manifest+json application/rss+xml application/atom+xml image/svg+xml;
 ```
 
 `text/html` is always in `charset_types` and need not be listed. Update the module's header comment
@@ -141,42 +149,60 @@ diff is exactly these three lines.
 
 Add `scripts/test-static-nginx-runtime.sh` and register it in `nix/checks/scripts.nix` as
 `static-nginx-runtime`, with `nativeBuildInputs = [ pkgs.bash pkgs.coreutils pkgs.curl pkgs.gnused pkgs.nginx ]`
-and `__darwinAllowLocalNetworking = true;`, since the full gate builds it on Darwin too. The script:
+and `__darwinAllowLocalNetworking = true;`, since the full gate builds it on Darwin too. On Darwin
+the check shares the host's loopback, so it must not bind the fixed port 8080. The script takes
+one optional argument, the server-block file, defaulting to
+`cli/nagare-dsl/test/golden/static-site.nginx.conf`. It:
 
 1. Creates a document root under `$TMPDIR` containing `guide/index.html`, `new.html`, `404.html`,
-   `example.txt` (UTF-8 with an em dash and `café`), `style.css` with a non-ASCII comment, and a
-   small binary `assets/logo.png`.
-2. Copies `cli/nagare-dsl/test/golden/static-site.nginx.conf`, rewriting only its `root` line to
-   that directory.
+   `example.txt` (UTF-8 with an em dash and `café`), `style.css` with a non-ASCII comment,
+   `app.js` with a non-ASCII string, and a small binary `assets/logo.png`.
+2. Copies the server block, rewriting only its `root` line to that directory and its
+   `listen 8080;` line to `listen 127.0.0.1:<port>;`. Because redirects are relative after M1, the
+   port never appears in an expected value.
 3. Writes a main configuration that mirrors the image's: `pid`, `error_log stderr` and every
-   `*_temp_path` under `$TMPDIR`, then `http { include <pkgs.nginx>/conf/mime.types;
-   default_type application/octet-stream; access_log off; include <server block>; }`. It starts
-   `nginx -p "$TMPDIR" -c …` and waits for port 8080.
-4. Makes the requests under Validation, with `Host: docs.example.test` and
-   `X-Forwarded-Proto: https`, and exits non-zero on the first mismatch. It stops Nginx using the PID
-   from its own pid file.
+   `*_temp_path` under `$TMPDIR`, then `http { include <mime.types>; default_type
+   application/octet-stream; access_log off; include <server block>; }`. `<mime.types>` is
+   `$(dirname "$(command -v nginx)")/../conf/mime.types`, so the same script runs inside the check
+   and from `nix shell`. It starts `nginx -e stderr -p "$TMPDIR" -c …`. The `-e stderr` flag is
+   needed because nixpkgs' Nginx is compiled with `--error-log-path=/var/log/nginx/error.log`, which
+   it opens before reading the configuration. If startup fails on a busy port, it retries the next
+   port in a small range.
+4. Makes the requests under Validation, with `Host: docs.example.test`, and exits non-zero on the
+   first mismatch. It stops Nginx using the PID from its own pid file.
 
-Run it once against the unmodified golden file first, and confirm that it fails on the `Location`
-and `Content-Type` assertions. That proves the check detects both bugs.
+Write the script before regenerating the golden file. Run it against the current golden file and
+confirm that it fails on the `Location` and `Content-Type` assertions. That proves the check
+detects both bugs.
 
 ### M3: Docs and bug records
 
 Add a CHANGELOG `[Unreleased]` line under Fixed. In `docs/user/static-hosting.md`, near the
 redirects table row, say that generated redirects are relative and text is served as UTF-8. Set
 both bug reports to `status: fixed`, `fixedVersion: unreleased`, with a `resolution` that names the
-commit and the `static-nginx-runtime` check. Add a `docs/bug-reports/log.md` entry.
+commit and the `static-nginx-runtime` check. `unreleased` is the bug-report profile's value for a fix
+on the default branch only. Replace it with the release version when that release ships. A commit
+cannot name its own hash, so the bug-report edits go in a docs commit after the fix commit. Add a
+`docs/bug-reports/log.md` entry.
 
 
 ## Concrete Steps
 
-From the repository root:
+All commands run from the repository root:
 
 ```bash
-cd cli/nagare-dsl && cabal test nagare-dsl-test --test-options="-p '/renderNginxConfig/' --accept"
+# M2 first: the new script must fail on the current golden configuration.
+nix shell --inputs-from . nixpkgs#nginx nixpkgs#curl -c bash scripts/test-static-nginx-runtime.sh   # expect a non-zero exit
+# M1: regenerate the golden file.
+cabal test --project-dir=cli/nagare-dsl nagare-dsl-test --test-options="-p '/renderNginxConfig/' --accept"
 git diff -- cli/nagare-dsl/test/golden/static-site.nginx.conf   # exactly the three new lines
+nix shell --inputs-from . nixpkgs#nginx nixpkgs#curl -c bash scripts/test-static-nginx-runtime.sh   # expect exit 0
 nix build .#checks.aarch64-darwin.static-nginx-runtime -L        # or the x86_64-linux attribute on Linux
 just haskell-style-check && just gate-fast
-just land
+git commit ...   # the fix commit
+# M3: docs and bug records in a second commit that names the fix commit, then:
+just gate-fast
+just land HEAD
 ```
 
 
@@ -191,6 +217,7 @@ The `static-nginx-runtime` check passes when all of the following hold:
 | `GET /old` | `301`, `Location` exactly `/new` |
 | `GET /example.txt` | `200`, `Content-Type: text/plain; charset=utf-8`, body bytes equal the file |
 | `GET /style.css` | `Content-Type: text/css; charset=utf-8` |
+| `GET /app.js` | `Content-Type: application/javascript; charset=utf-8` |
 | `GET /assets/logo.png` | `Content-Type: image/png` with no charset, body SHA-256 equals the file's |
 
 The check must fail on the pre-M1 golden configuration. No cloud deploy is part of acceptance. The
@@ -206,5 +233,7 @@ To revert, revert the commit; sites keep whichever configuration their last depl
 ## Interfaces and Dependencies
 
 No interface changes. `renderNginxConfig :: StaticSite -> ByteString` keeps its signature. The
-directives need Nginx 1.11.8 or later; the image is pinned to `nginx:1.27-alpine` and the check uses
-nixpkgs' `pkgs.nginx`.
+directives need Nginx 1.11.8 or later. The image is pinned to `nginx:1.27-alpine`, and the check
+uses nixpkgs' `pkgs.nginx` (1.30.4 at the flake's current lock), whose stock `mime.types` maps `.js`
+to `application/javascript`. If an Nginx update maps `.js` to `text/javascript`, the `/app.js`
+assertion fails, and that type must be added to `charset_types`.
