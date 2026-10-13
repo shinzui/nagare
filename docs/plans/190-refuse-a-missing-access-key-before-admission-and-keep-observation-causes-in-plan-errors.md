@@ -41,17 +41,23 @@ a review, or journalled.
 
 ## Progress
 
-- [ ] M1: Plan errors and status findings carry the observation reason for access resources only;
-  other executors keep the generic text. Plan errors print as readable lines instead of Haskell
-  `show`. Pass: new cases in `test/InventoryAccessSpec.hs` and `test/InventoryStatusSpec.hs` show
-  three distinct access causes (missing key, port-forward failure, En refusal) in `planChanges`
-  errors and in `DriftFinding` JSON, and the existing "private provider stderr" status case still
-  reads `provider observation is unavailable`.
-- [ ] M2: Apply and resume of a review with access operations refuse before admission when
-  `NAGARE_EN_API_KEY` is unset or empty; recover and close are not gated. Pass: unit cases for
-  `accessKeyRefusal`; an admitted access transaction whose preflight refused resumes and converges
-  once the fake reports the key present; a sentinel key appears in no review bundle, store object,
-  journal entry, rendered plan error or status JSON.
+- [x] M1 (2026-10-13): Plan errors and status findings carry the observation reason for access
+  resources only; other executors keep the generic text. Plan errors print as
+  `code: message (resources)` lines. Evidence: `test/InventoryAccessSpec.hs` "planning names why
+  each access observation was unavailable (IR-27)" (missing key, port-forward failure, En refusal
+  in `renderPlanErrors` output) and "status reports an access observation's reason; other
+  providers stay redacted (IR-27)" (access `reason` in `DriftFinding` JSON; a Kubernetes route on
+  the same inventory still reads `provider observation is unavailable`). The status case lives in
+  the access spec because its fixture already composes a grant; the existing "private provider
+  stderr" case in `test/InventoryStatusSpec.hs` is unchanged and passes.
+- [x] M2 (2026-10-13): `accessKeyRefusal` gates `inventory apply` and `inventory resume` through
+  `requireAccessKey` in `app/Nagare/Cli/Inventory/Workflow.hs`; recover and close keep the bare
+  factory. Evidence: "an access review refuses before admission without the key; a refused
+  preflight resumes once it is set (IR-27)" — refusal for `Nothing` and `Just ""`, none with a
+  key or for a review without access operations; the refused preflight stops with the missing-key
+  reason and `resumeTransaction` converges once the key is set; the sentinel key is absent from
+  every file of the filesystem store and the written review, the rendered plan errors and the
+  status JSON.
 - [ ] M3: `docs/user/access.md` names the refusal and its fix. IR-27 is marked `completed`. Pass:
   `just gate-fast` is green, then `just land`.
 

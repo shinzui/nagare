@@ -3,6 +3,7 @@ module Nagare.Inventory.AccessRuntime
   ( EnCall
   , accessRuntimeOps
   , withContextEn
+  , accessKeyRefusal
   , accessQuery
   , accessMutation
   , parseAccessPage
@@ -30,7 +31,7 @@ import Nagare.Inventory.Access
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (FailureClass (KnownNoEffect))
-import Nagare.Inventory.Plan (ReviewBundle, loadInventoryHistory, reviewBaseRevisions, reviewBundleDocument, reviewBundleScopes, reviewDesiredRevisions)
+import Nagare.Inventory.Plan (ReviewBundle, ReviewDocument (reviewOperations), ReviewOperation (reviewPlannedOperation), loadInventoryHistory, reviewBaseRevisions, reviewBundleDocument, reviewBundleScopes, reviewDesiredRevisions)
 import Nagare.Inventory.Plan.Types (historyDeclarations)
 import Nagare.Inventory.Store (InventoryStore, readObject, revisionDigest, scopeKey)
 import Nagare.Resource.Access (teamKeyText)
@@ -292,7 +293,7 @@ withContextEn :: Text -> (EnCall -> IO a) -> IO (Either Text a)
 withContextEn kubectlContext action = do
   credential <- lookupEnv "NAGARE_EN_API_KEY"
   case credential of
-    Just key | not (null key) -> do
+    Just key | accessKeyPresent credential -> do
       result <-
         try @IOException $
           bracket (openEnForward kubectlContext) closeEnForward $ \(output, _) -> do
@@ -302,6 +303,18 @@ withContextEn kubectlContext action = do
               Just port -> Right <$> action (enRequest key ("http://127.0.0.1:" <> port))
       pure (either (const (Left "en port-forward failed")) id result)
     _ -> pure (Left "reviewed access requires private NAGARE_EN_API_KEY")
+
+accessKeyPresent :: Maybe String -> Bool
+accessKeyPresent = maybe False (not . null)
+
+-- | The refusal for a review that has access operations while the private
+-- key is unset or empty. Takes the variable's value so tests need no setEnv.
+accessKeyRefusal :: Maybe String -> ReviewBundle -> Maybe Text
+accessKeyRefusal credential bundle
+  | not (accessKeyPresent credential)
+  , any ((== AccessExecutor) . plannedExecutor . reviewPlannedOperation) (reviewOperations (reviewBundleDocument bundle)) =
+      Just "reviewed access requires private NAGARE_EN_API_KEY; export it in this shell and rerun this command (the saved review stays valid)"
+  | otherwise = Nothing
 
 openEnForward :: Text -> IO (Handle, ProcessHandle)
 openEnForward kubectlContext = do

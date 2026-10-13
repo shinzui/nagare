@@ -33,6 +33,7 @@ module Nagare.Inventory.Plan
   , proposalAbsences
   , candidateDesiredRevisions
   , RebindProof (..)
+  , renderPlanErrors
   , renderRebind
   , RetentionProof (..)
   , AbsenceProof (..)
@@ -121,6 +122,7 @@ import Nagare.Inventory.Plan.Types
   , encodeReviewDocument
   , historyDeclarations
   , historyReservations
+  , renderPlanErrors
   , renderRebind
   , reviewBundleDocument
   , reviewBundleFenceRecord

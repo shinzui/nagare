@@ -46,6 +46,7 @@ import Nagare.Cli.Runtime.Target
   , resolvePlatformWorkspace
   )
 import Nagare.Dsl.Prelude
+import Nagare.Inventory.AccessRuntime (accessKeyRefusal)
 import Nagare.Inventory.Adapter qualified as InventoryAdapter
 import Nagare.Inventory.Adapters.Cache
   ( cacheSpecsFromDeclarations
@@ -72,6 +73,7 @@ import Nagare.Target
   , contextNameText
   , effectiveInventoryStore
   )
+import System.Environment (lookupEnv)
 
 runInventoryPlan :: Maybe String -> FilePath -> [String] -> FilePath -> IO ()
 runInventoryPlan mctx candidateDirectory retained output = do
@@ -272,19 +274,27 @@ runInventoryCollect mctx rawResources output descendants = do
 runInventoryApply :: Maybe String -> FilePath -> Bool -> IO ()
 runInventoryApply mctx reviewDirectory yes = do
   target <- activeTarget mctx
-  Inventory.applyInventoryWithFactory (inventoryExecutionRegistry mctx) target reviewDirectory yes
+  Inventory.applyInventoryWithFactory (requireAccessKey (inventoryExecutionRegistry mctx)) target reviewDirectory yes
 
 runInventoryResume :: Maybe String -> Text -> Bool -> Bool -> IO ()
 runInventoryResume mctx transaction yes takeOver = do
   target <- activeTarget mctx
   selected <- foundationResumeTarget target transaction
-  Inventory.resumeInventoryWithFactoryTakeover (inventoryExecutionRegistry mctx) selected transaction yes takeOver
+  Inventory.resumeInventoryWithFactoryTakeover (requireAccessKey (inventoryExecutionRegistry mctx)) selected transaction yes takeOver
   when
     ( effectiveInventoryStore (target ^. #profile) == InventoryStoreGcs
         && effectiveInventoryStore (selected ^. #profile) == InventoryStoreLocal
     )
     $ Inventory.migrateTargetStore selected InventoryStoreGcs False
       >>= either (dieT . T.pack . show) TIO.putStrLn
+
+-- Apply and resume refuse an access review before admission when the private
+-- key is missing. Recover and close keep the bare factory: nothing gates
+-- recovery of an uncertain prerequisite.
+requireAccessKey :: (InventoryStore.InventoryStore -> InventoryPlan.ReviewBundle -> IO InventoryAdapter.AdapterRegistry) -> InventoryStore.InventoryStore -> InventoryPlan.ReviewBundle -> IO InventoryAdapter.AdapterRegistry
+requireAccessKey registryFor store bundle = do
+  key <- lookupEnv "NAGARE_EN_API_KEY"
+  maybe (registryFor store bundle) dieT (accessKeyRefusal key bundle)
 
 -- The first foundation transaction precedes the remote inventory format. Only
 -- its exact immutable review can authorize recovery from the local journal.

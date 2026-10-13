@@ -325,6 +325,20 @@ protected DomainMapping before the tuple write. En must support atomic
 relationship preconditions. Older services fail the capability check before a
 write. An existing relationship without an accepted owner also refuses.
 
+Without the key, planning refuses with `observation-unavailable: required resource
+observation is unavailable: reviewed access requires private NAGARE_EN_API_KEY`, and
+`inventory status --json` gives the same reason for each access resource. Other
+observation failures name their cause the same way, for example `en port-forward failed`
+or `access relationship query refused`. `inventory apply` and `inventory resume` of a
+review with access operations refuse before admitting it:
+
+```text
+reviewed access requires private NAGARE_EN_API_KEY; export it in this shell and rerun this command (the saved review stays valid)
+```
+
+Nothing is claimed or journalled, so export the key and rerun the same command with
+the same review. `inventory recover` and `inventory close` are not gated by this check.
+
 If a response is lost, resume the original transaction ID printed by the apply
 command with `inventory resume ID --yes`. Recovery observes the exact direct
 `viewer` tuple and its reviewed owners rather than repeating an uncertain write.

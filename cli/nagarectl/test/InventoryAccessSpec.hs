@@ -1,7 +1,7 @@
 module InventoryAccessSpec (inventoryAccessTests) where
 
 import Control.Monad (forM_, void)
-import Data.Aeson (Value (..), object, toJSON, (.=))
+import Data.Aeson (Value (..), encode, object, toJSON, (.=))
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString qualified as BS
 import Data.Generics.Labels ()
@@ -22,10 +22,12 @@ import Nagare.Inventory.AccessRuntime
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.BackendMap (compileContributedBackendMaps, compileContributedShomeiSettings)
 import Nagare.Inventory.Digest (contentDigest)
-import Nagare.Inventory.Journal (mkOperationId)
+import Nagare.Inventory.Execute (TransactionResult (..), applyReviewed, resumeTransaction)
+import Nagare.Inventory.Journal (FailureClass (KnownNoEffect), mkOperationId)
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.Lifecycle (decideRetirement)
 import Nagare.Inventory.Plan
+import Nagare.Inventory.Status (DriftFinding (..), classifyDrift)
 import Nagare.Inventory.Store
 import Nagare.Resource.Access (mkTeamKey, teamKeyText)
 import Nagare.Resource.Inventory
@@ -35,7 +37,7 @@ import Nagare.Resource.Policy
 import Nagare.Resource.Reference (Dependency (OrderedAfter))
 import Nagare.Resource.Types
 import Nagare.Resource.Wire
-import System.Directory (createDirectoryIfMissing)
+import System.Directory (createDirectoryIfMissing, doesDirectoryExist, listDirectory)
 import System.Environment (lookupEnv)
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
@@ -401,6 +403,85 @@ inventoryAccessTests =
         assertBool "the old user-only schema passed as supporting teams" (not (activeSchemaSupportsTeams "object user {}\nobject app {\n  relation viewer: user\n  permission access = viewer\n}\n"))
         assertBool "a schema with the names but another permission passed" (not (activeSchemaSupportsTeams "object group { relation member: user }\nobject app { relation viewer: user, group#member\n permission access = viewer + owner }"))
         teamKeyText (ok (mkTeamKey "platform-ops_2")) @?= "platform-ops_2"
+    , testCase "planning names why each access observation was unavailable (IR-27)" $
+        forM_ [missingKey, "en port-forward failed", "access relationship query refused"] $ \reason -> do
+          store <- newMemoryStore
+          (_, planned) <- planGrant store AccessOps {accessInspect = \_ -> pure (Left reason), accessWrite = \_ _ -> pure AdapterEffectCompleted}
+          case planned of
+            Right _ -> assertFailure "an unavailable access observation was planned"
+            Left errors -> do
+              let rendered = renderPlanErrors errors
+              assertBool
+                (T.unpack rendered)
+                (("observation-unavailable: required resource observation is unavailable: " <> reason <> " (" <> resourceIdText grantId <> ")") `elem` T.lines rendered)
+    , testCase "status reports an access observation's reason; other providers stay redacted (IR-27)" $ do
+        let findingsFor resource observation =
+              [finding | finding <- classifyDrift grantedInventory (ok (observationSet [(resource, observation)])), findingResource finding == resource]
+            routeId = head [r ^. #identity | Managed r <- inventoryDeclarations grantedInventory, r ^. #executor == KubernetesExecutor, r ^. #owner == ok (mkScopeId Application "one")]
+        map findingReason (findingsFor grantId (ObservationUnavailable missingKey)) @?= [Just missingKey]
+        [KM.lookup "reason" fields | finding <- findingsFor grantId (ObservationUnavailable missingKey), Object fields <- [toJSON finding]]
+          @?= [Just (String missingKey)]
+        map findingReason (findingsFor routeId (ObservationUnavailable "private provider stderr"))
+          @?= [Just "provider observation is unavailable"]
+    , testCase "an access review refuses before admission without the key; a refused preflight resumes once it is set (IR-27)" $
+        withSystemTempDirectory "access-key" $ \root -> do
+          let sentinel = "sentinel-en-key-5f1c9a" :: Text
+              refusal = Just "reviewed access requires private NAGARE_EN_API_KEY; export it in this shell and rerun this command (the saved review stays valid)"
+          key <- newIORef (Just (T.unpack sentinel))
+          state <- newIORef (AccessFact physical False)
+          let ops =
+                AccessOps
+                  { accessInspect = \_ ->
+                      readIORef key >>= \case
+                        Just present | not (null present) -> Right <$> readIORef state
+                        _ -> pure (Left missingKey)
+                  , accessWrite = \_ before -> writeIORef state (before {accessPresent = True}) >> pure AdapterEffectCompleted
+                  }
+          store <- openFilesystemStore (root </> "inventory") >>= either (fail . show) pure
+          (registry, planned) <- planGrant store ops
+          proposal <- either (fail . show) pure planned
+          before <- readStoreSnapshot store >>= either (fail . show) pure
+          bundle <- prepareReview registry before proposal >>= either (fail . show) pure
+          accessKeyRefusal Nothing bundle @?= refusal
+          accessKeyRefusal (Just "") bundle @?= refusal
+          accessKeyRefusal (Just (T.unpack sentinel)) bundle @?= Nothing
+          _ <- publishReview store bundle >>= either (fail . show) pure
+          _ <- writeReviewBundle (root </> "review") bundle >>= either (fail . T.unpack) pure
+          published <- readStoreSnapshot store >>= either (fail . show) pure
+          reviewed <- either (fail . show) pure (verifyReview published bundle)
+          -- The key went missing after review: the adapter preflight still refuses.
+          writeIORef key Nothing
+          transaction <-
+            applyReviewed store registry reviewed >>= either (fail . show) pure >>= \case
+              StoppedFailed token _ (KnownNoEffect reason) -> do
+                assertBool (T.unpack reason) (missingKey `T.isInfixOf` reason)
+                pure token
+              other -> assertFailure ("a missing key did not stop the access operation: " <> show other) >> fail "expected a refused preflight"
+          writeIORef key (Just (T.unpack sentinel))
+          resumeTransaction store registry transaction >>= either (fail . show) pure >>= (@?= Converged transaction)
+          readIORef state >>= (@?= AccessFact physical True)
+          -- A review without access operations never needs the key.
+          withoutAccess <- do
+            history <- loadInventoryHistory store >>= either (fail . show) pure
+            let accepted = ok (mkScopeSnapshot context (Map.map (\(revision, declared) -> (revisionGeneration revision, declared)) (historyAccepted history)) (historyReservations history))
+                candidate = ok (composeInventory accepted (ReplaceScope (ok (mkScopeDeclaration (ok (mkScopeId Standalone "other")) [])) :| []))
+            planning <- loadInventoryPlanningHistory store candidate >>= either (fail . show) pure
+            observed <- observeWithRegistry registry (requirementsByExecutor (observationRequirements candidate planning)) >>= either (fail . show) pure
+            empty <- either (fail . show) pure (planChanges candidate noLifecycleDecisions planning observed)
+            current <- readStoreSnapshot store >>= either (fail . show) pure
+            prepareReview registry current empty >>= either (fail . show) pure
+          forM_ [Nothing, Just "", Just (T.unpack sentinel)] $ \value -> accessKeyRefusal value withoutAccess @?= Nothing
+          -- The key has no channel into a review, the store, the journal,
+          -- a rendered plan error or a status finding.
+          writeIORef key Nothing
+          unavailable <- newMemoryStore >>= \fresh -> snd <$> planGrant fresh ops
+          let finding = classifyDrift grantedInventory (ok (observationSet [(grantId, ObservationUnavailable missingKey)]))
+              outputs = [either (TE.encodeUtf8 . renderPlanErrors) (const "") unavailable, BS.toStrict (encode finding)]
+          files <- filesUnder root
+          assertBool "no store or review file was written" (not (null files))
+          written <- traverse BS.readFile files
+          forM_ (outputs <> written) $ \bytes ->
+            assertBool "the private key reached a record or output" (not (TE.encodeUtf8 sentinel `BS.isInfixOf` bytes))
     , testCase "seed complete public command fixture from typed declarations" $
         lookupEnv "MP23_ACCESS_FIXTURE_ROOT"
           >>= maybe
@@ -409,6 +490,24 @@ inventoryAccessTests =
     ]
   where
     physical = ok (mkPhysicalIdentity "access-owner://en-uid/one-route-uid")
+    missingKey = "reviewed access requires private NAGARE_EN_API_KEY"
+    grantId = accessResource (accessBinding True) ^. #identity
+    grantScope = ok (compileAccessScope snapshot "one.example.test" alice True)
+    grantedInventory = ok (composeSnapshot (ok (mkScopeSnapshot context (Map.insert (scopeId grantScope) (generation, grantScope) (snapshotScopes snapshot)) Map.empty)))
+    -- Alice's grant on host one, planned against the accepted fixture and
+    -- observed only through @ops@.
+    planGrant store ops = do
+      _ <- initializeStore store context "access-grant" >>= either (fail . show) pure
+      let dummy = ok (mkScopeDeclaration (ok (mkScopeId Standalone "dummy")) [])
+      _ <- seedInventoryHistory store (ok (composeInventory snapshot (ReplaceScope dummy :| []))) >>= either (fail . show) pure
+      history <- loadInventoryHistory store >>= either (fail . show) pure
+      let accepted = ok (mkScopeSnapshot context (Map.map (\(revision, declared) -> (revisionGeneration revision, declared)) (historyAccepted history)) (historyReservations history))
+          candidate = ok (composeInventory accepted (ReplaceScope (ok (compileAccessScope accepted "one.example.test" alice True)) :| []))
+      planning <- loadInventoryPlanningHistory store candidate >>= either (fail . show) pure
+      let bindings = ok (accessBindings (inventoryDeclarations (candidateInventory candidate)))
+          registry = ok (mkAdapterRegistry [mkAccessAdapter Map.empty bindings ops])
+      observed <- observeWithRegistry registry (requirementsByExecutor (observationRequirements candidate planning)) >>= either (fail . show) pure
+      pure (registry, planChanges candidate noLifecycleDecisions planning observed)
     exactFilter =
       object
         [ "objectType" .= ("app" :: Text)
@@ -755,6 +854,13 @@ writeFixture root = do
         )
     )
   void (loadInventoryHistory store >>= either (fail . show) pure)
+
+filesUnder :: FilePath -> IO [FilePath]
+filesUnder path = do
+  directory <- doesDirectoryExist path
+  if directory
+    then listDirectory path >>= fmap concat . traverse (filesUnder . (path </>))
+    else pure [path]
 
 ok :: (Show e) => Either e a -> a
 ok = either (error . show) id

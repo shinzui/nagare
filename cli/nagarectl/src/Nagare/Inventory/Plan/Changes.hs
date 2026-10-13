@@ -114,7 +114,8 @@ import Nagare.Resource.Inventory
   ( CompositionCandidate
   , Declaration (Managed, ObservedChild)
   , Executor
-    ( ArtifactExecutor
+    ( AccessExecutor
+    , ArtifactExecutor
     , BrokerExecutor
     , CdnExecutor
     , CloudFoundationExecutor
@@ -272,7 +273,13 @@ planChanges candidate decisions history observations = do
     observed = observationMap observations
     requirements = observationRequirements candidate history
     missing = Set.toAscList (requiredResources requirements `Set.difference` Map.keysSet observed)
-    unavailable = [resource | (resource, ObservationUnavailable _) <- Map.toAscList observed, Set.member resource (requiredResources requirements)]
+    unavailableWithReasons = [(resource, reason) | (resource, ObservationUnavailable reason) <- Map.toAscList observed, Set.member resource (requiredResources requirements)]
+    accessResources = Set.fromList (Map.findWithDefault [] AccessExecutor (requirementsByExecutor requirements))
+    -- Access observation reasons are fixed strings that name the missing
+    -- prerequisite; other executors' reasons may carry provider output.
+    unavailable = [resource | (resource, _) <- unavailableWithReasons, Set.notMember resource accessResources]
+    unavailableAccess =
+      Map.toAscList (Map.fromListWith (flip (<>)) [(reason, [resource]) | (resource, reason) <- unavailableWithReasons, Set.member resource accessResources])
     historyGenerations = fmap (revisionGeneration . fst) (historyAccepted history)
     structuralErrors =
       [PlanError "context-binding" "candidate belongs to a different context or provider target" [] | inventoryBinding (candidateInventory candidate) /= headBinding (historyHead history)]
@@ -293,6 +300,7 @@ planChanges candidate decisions history observations = do
         <> [PlanError "accepted-contributions" "accepted scopes cannot be composed into their effective resources" [] | either (const True) (const False) (historyComposition history)]
         <> [PlanError "observation-coverage" "required resource was not observed" missing | not (null missing)]
         <> [PlanError "observation-unavailable" "required resource observation is unavailable" unavailable | not (null unavailable)]
+        <> [PlanError "observation-unavailable" ("required resource observation is unavailable: " <> reason) resources | (reason, resources) <- unavailableAccess]
     retainedReactivations =
       Set.toAscList
         ( Set.filter
@@ -781,7 +789,7 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
           else ([PlanError "adoption-required" "resource exists without inventory ownership" [resourceId]], Nothing)
       (_, Just (ObservedUnowned _)) -> ([PlanError "foreign-resource" "accepted object lost its inventory owner stamp" [resourceId]], Nothing)
       (_, Just (ObservedForeign _)) -> ([PlanError "foreign-resource" "resource address is occupied by an object without accepted ownership" [resourceId]], Nothing)
-      (Nothing, Just (ObservationUnavailable _)) -> ([PlanError "observation-unavailable" "resource observation is unavailable" [resourceId]], Nothing)
+      (Nothing, Just (ObservationUnavailable reason)) -> ([PlanError "observation-unavailable" (unavailableMessage resource reason) [resourceId]], Nothing)
       (Just old, Just (ConfirmedAbsent _)) -> case resource ^. #dataPolicy of
         Stateless
           | Set.member resourceId provenMigrationJobs
@@ -822,9 +830,12 @@ buildOperations candidate (LifecycleDecisions _ decisions migrations) history ob
                 then Just (resourceOperation VerifyResource resource)
                 else Nothing
             )
-      (Just _, Just (ObservationUnavailable _)) -> ([PlanError "observation-unavailable" "resource observation is unavailable" [resourceId]], Nothing)
+      (Just _, Just (ObservationUnavailable reason)) -> ([PlanError "observation-unavailable" (unavailableMessage resource reason) [resourceId]], Nothing)
       (Just _, _) -> ([], Just (resourceOperation UpdateResource resource))
       (_, Nothing) -> ([PlanError "observation-coverage" "resource was not observed" [resourceId]], Nothing)
+    unavailableMessage resource reason
+      | resource ^. #executor == AccessExecutor = "resource observation is unavailable: " <> reason
+      | otherwise = "resource observation is unavailable"
     absences = buildAbsenceProofs candidate history observations
     retireError (resource, Managed old)
       | Map.member resource absences = []

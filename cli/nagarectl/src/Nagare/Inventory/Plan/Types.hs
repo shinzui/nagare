@@ -12,6 +12,7 @@ module Nagare.Inventory.Plan.Types
   , ObservationRequirements (..)
   , PlanError (..)
   , RebindProof (..)
+  , renderPlanErrors
   , renderRebind
   , RebuildProof (..)
   , RetentionProof (..)
@@ -148,6 +149,18 @@ data PlanError = PlanError
   , planErrorResources :: ![ResourceId]
   }
   deriving stock (Eq, Show, Generic)
+
+-- | One line per error, @code: message (resource ids)@, for operator output.
+renderPlanErrors :: NonEmpty PlanError -> Text
+renderPlanErrors = T.intercalate "\n" . map renderOne . NE.toList
+  where
+    renderOne planError =
+      planErrorCode planError
+        <> ": "
+        <> planErrorMessage planError
+        <> case planErrorResources planError of
+          [] -> ""
+          resources -> " (" <> T.intercalate ", " (map resourceIdText resources) <> ")"
 
 data ChangeProposal = ChangeProposal
   { proposalBinding :: !ContextBinding

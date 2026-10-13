@@ -810,6 +810,11 @@ classifyDriftWith incarnations inventory observations =
               (UnownedResource, HealthUnknown, Just uid, Nothing, Just "observed object has no inventory owner")
             Just (ConfirmedAbsent _) ->
               (MissingResource, HealthUnavailable, Nothing, Nothing, Just "provider confirmed absence")
+            -- Access reasons are fixed strings naming the missing
+            -- prerequisite; other providers' reasons may carry their output.
+            Just (ObservationUnavailable observationReason)
+              | resource ^. #executor == AccessExecutor ->
+                  (UnknownObservation, HealthUnknown, Nothing, Nothing, Just observationReason)
             Just (ObservationUnavailable _) ->
               (UnknownObservation, HealthUnknown, Nothing, Nothing, Just "provider observation is unavailable")
             Nothing ->

@@ -499,8 +499,8 @@ prepareInventoryCandidateWithDeciderPayload registryFor decide payloadIdentity t
   registry <- registryFor candidate history
   let requirements = observationRequirements candidate history
   observations <- observeWithRegistry registry (requirementsByExecutor requirements) >>= either dieText pure
-  decisions <- either (dieText . showText . NE.toList) pure (decide history observations)
-  proposal <- either (dieText . showText . NE.toList) pure (planChanges candidate decisions history observations)
+  decisions <- either (dieText . renderPlanErrors) pure (decide history observations)
+  proposal <- either (dieText . renderPlanErrors) pure (planChanges candidate decisions history observations)
   snapshot <- readStoreSnapshot store >>= either (dieText . showText) pure
   bundle <-
     prepareReviewWithPayloadIdentity payloadIdentity registry snapshot proposal
