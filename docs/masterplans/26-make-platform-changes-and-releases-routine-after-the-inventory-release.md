@@ -133,12 +133,18 @@ apply here:
       Superseded (operator, 2026-10-12): the deep tier is out of the release path, because a run
       took 6.2 hours. `just gate-release` is the gate record and the mutation sweep (ADR 25,
       2026-10-12 amendment). The ledger-aware judge landed in `acd53e28` for manual runs.
-- [ ] 11. (Added by the operator, 2026-10-12.) A release is two commands.
+- [x] 11. (Added by the operator, 2026-10-12.) A release is two commands.
       - `just release-candidate VERSION` runs everything up to the tag, unattended: the release
         gate, the transition rehearsal, both native builds and the assembly.
       - `just release-publish VERSION` signs the tag, pushes it and publishes, retrying a draft
         that is not yet visible.
       - What stays manual: signing the tag, and choosing when the intranet upgrades.
+      Evidence: `just release-candidate 0.6.1 --rehearsal` on `391db1b6` ran unattended and green
+      in 28 minutes (2026-10-12, 23:47–00:15Z). The release gate (full gate record and a
+      187-of-187 mutation sweep) ran in the background and was the longest step. The 0.5.0 →
+      candidate rehearsal took 8.5 minutes, both native builds 5 minutes, and two identical
+      assemblies 1 second. Recipes `e9bd86d1`, `cd3e92d9` and `391db1b6`; a release with no change
+      under `cli/`, `nix/` or the flake skips the sweep.
 - [x] 12. (Added by the operator, 2026-10-12.) The transition rehearsal catches what the intranet
       upgrade caught.
       - It runs the packaged nagarectl with every guard.
