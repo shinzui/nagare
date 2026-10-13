@@ -2,7 +2,8 @@
 --
 --   * the generated Nginx configuration that serves the built files
 --     ('renderNginxConfig'), with redirects applied before header rules and the
---     cache policy turned into @Cache-Control@ headers;
+--     cache policy turned into @Cache-Control@ headers, relative redirects and
+--     UTF-8 text;
 --   * the Knative @Service@ YAML that runs the Nginx image ('renderStaticService');
 --   * one @DomainMapping@ YAML per configured custom domain
 --     ('renderStaticDomainMappings').
@@ -60,6 +61,11 @@ nginxRoot = "/usr/share/nginx/html"
 -- redirect rules first, then per-path header rules, then the immutable-asset
 -- cache location, then the catch-all that serves files (falling back to the 404
 -- page when configured, or to @index.html@ for SPA routing otherwise).
+--
+-- Every redirect the server issues is relative (@absolute_redirect off@), so the
+-- browser keeps the public scheme, host and port instead of the container's
+-- port 8080. Text types are served with @charset=utf-8@; bytes are never
+-- transcoded.
 renderNginxConfig :: StaticSite -> ByteString
 renderNginxConfig site =
   TE.encodeUtf8 . Text.unlines $
@@ -68,6 +74,9 @@ renderNginxConfig site =
     , "    server_name _;"
     , "    root " <> nginxRoot <> ";"
     , "    index index.html;"
+    , "    absolute_redirect off;"
+    , "    charset utf-8;"
+    , "    charset_types text/css text/plain text/xml application/javascript application/json application/manifest+json application/rss+xml application/atom+xml image/svg+xml;"
     ]
       <> concatMap redirectBlock (site ^. #redirects)
       <> concatMap headerBlock (site ^. #headers)

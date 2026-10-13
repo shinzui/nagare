@@ -227,4 +227,19 @@
       bash scripts/test-forge-credentials-refresh.sh
       touch "$out"
     '';
+
+  # EP-189: the renderer's golden StaticSite server block in a real Nginx gives
+  # relative redirects, UTF-8 text, and byte-identical binary assets. Darwin
+  # builds share the host loopback, so the script picks a free port itself.
+  static-nginx-runtime = pkgs.runCommand "nagare-static-nginx-runtime-test"
+    {
+      nativeBuildInputs = [ pkgs.bash pkgs.coreutils pkgs.curl pkgs.gnused pkgs.nginx ];
+      inherit src;
+      __darwinAllowLocalNetworking = true;
+    }
+    ''
+      cd "$src"
+      bash scripts/test-static-nginx-runtime.sh
+      touch "$out"
+    '';
 }
