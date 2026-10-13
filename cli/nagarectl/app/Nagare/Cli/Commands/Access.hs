@@ -4,9 +4,12 @@ module Nagare.Cli.Commands.Access
   )
 where
 
+import Data.Aeson (encode)
+import Data.ByteString.Lazy qualified as LBS
 import Data.Generics.Labels ()
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
+import Nagare.Access.Check (checkDecided, renderCheckReport)
 import Nagare.Access.Grants
   ( AccessGrantParams (..)
   , AccessListParams (..)
@@ -41,6 +44,7 @@ import Nagare.Resource.Access (TeamKey, mkTeamKey, teamKeyText)
 import Nagare.Target (ActiveTarget, contextNameText)
 import System.Directory (doesFileExist)
 import System.Environment (setEnv)
+import System.Exit (exitFailure)
 
 runAccess :: Maybe String -> AccessCommand -> IO ()
 runAccess mctx = \case
@@ -55,6 +59,20 @@ runAccess mctx = \case
           , host = T.pack (o ^. #host)
           , json = o ^. #json
           }
+  AccessCheck o -> do
+    user <- resolveUser (o ^. #user)
+    active <- selectedContext "access check"
+    report <-
+      ReviewedAccess.checkEffectiveAccess
+        active
+        (fmap (fmap (const ())) (guardKubernetesContext active))
+        (T.pack (o ^. #host))
+        (user ^. #userId)
+        (T.pack <$> o ^. #enApiKey)
+    if o ^. #json
+      then LBS.putStr (encode report) >> TIO.putStrLn ""
+      else TIO.putStr (renderCheckReport report)
+    unless (checkDecided report) exitFailure
   AccessTeam (TeamAddMember o) -> membership True o
   AccessTeam (TeamRemoveMember o) -> membership False o
   AccessTeam (TeamListMembers o) -> do

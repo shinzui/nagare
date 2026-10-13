@@ -1,6 +1,8 @@
 -- | Private credential transport for exact reviewed en tuples.
 module Nagare.Inventory.AccessRuntime
-  ( accessRuntimeOps
+  ( EnCall
+  , accessRuntimeOps
+  , withContextEn
   , accessQuery
   , accessMutation
   , parseAccessPage
@@ -162,7 +164,7 @@ accessRuntimeOps context kubectlContext contextGuard =
         owner <- inspectOwners binding
         case owner of
           Left reason -> pure (Left reason)
-          Right physical -> fmap join $ withEn $ \call -> do
+          Right physical -> fmap join $ withContextEn kubectlContext $ \call -> do
             capability <- call "GET" "/v1/openapi.json" Null
             case capability >>= \(code, bytes) -> do
               unless (code == 200) (Left "access API capability observation refused")
@@ -198,7 +200,7 @@ accessRuntimeOps context kubectlContext contextGuard =
             | owner /= accessPhysical before ->
                 pure (AdapterEffectFailed (KnownNoEffect "reviewed auth or route UID changed"))
           Right _ -> do
-            sent <- withEn (\call -> call "POST" "/v1/relationships" (accessMutation binding before))
+            sent <- withContextEn kubectlContext (\call -> call "POST" "/v1/relationships" (accessMutation binding before))
             pure $ case sent of
               -- No request left this process without a ready forward and key.
               Left reason -> AdapterEffectFailed (KnownNoEffect reason)
@@ -276,56 +278,68 @@ accessRuntimeOps context kubectlContext contextGuard =
               annotations
         )
         meta
-    -- Every grant reaches the context's en the same way, through a private
-    -- port-forward to its Service, so no accepted grant depends on the local
-    -- address an operator once used (F97). The forward lives for one call.
-    withEn :: ((ByteString -> Text -> Value -> IO (Either Text (Int, ByteString))) -> IO a) -> IO (Either Text a)
-    withEn action = do
-      credential <- lookupEnv "NAGARE_EN_API_KEY"
-      case credential of
-        Just key | not (null key) -> do
-          result <-
-            try @IOException $
-              bracket openEnForward closeEnForward $ \(output, _) -> do
-                ready <- timeout 15000000 (hGetLine output)
-                case ready >>= parseEnForwardPort . T.pack of
-                  Nothing -> pure (Left "en port-forward did not become ready")
-                  Just port -> Right <$> action (request key ("http://127.0.0.1:" <> port))
-          pure (either (const (Left "en port-forward failed")) id result)
-        _ -> pure (Left "reviewed access requires private NAGARE_EN_API_KEY")
-    openEnForward :: IO (Handle, ProcessHandle)
-    openEnForward = do
-      (_, output, _, process) <-
-        createProcess
-          ( proc
-              "kubectl"
-              ["--context", T.unpack kubectlContext, "-n", "nagare-system", "port-forward", "svc/en", ":80", "--address", "127.0.0.1"]
-          )
-            { std_out = CreatePipe
-            , std_err = NoStream
-            }
-      maybe (fail "kubectl port-forward has no output pipe") (\handle -> pure (handle, process)) output
-    closeEnForward (output, process) = do
-      terminateProcess process `catch` \(_ :: IOException) -> pure ()
-      _ <- waitForProcess process
-      hClose output `catch` \(_ :: IOException) -> pure ()
-    request key base verb suffix body = do
-      response <- try @HttpException $ do
-        manager <- newTlsManager
-        initial <- parseRequest (T.unpack (base <> suffix))
-        httpLbs
-          initial
-            { method = verb
-            , requestHeaders = [("Authorization", "Bearer " <> TE.encodeUtf8 (T.pack key)), ("Content-Type", "application/json")]
-            , requestBody = RequestBodyLBS (if verb == "GET" then "" else encode body)
-            , responseTimeout = responseTimeoutMicro 10000000
-            , redirectCount = 0
-            , checkResponse = \_ _ -> pure ()
-            }
-          manager
-      pure $ case response of
-        Left _ -> Left "access transport failed; credentials and response body withheld"
-        Right result -> Right (statusCode (responseStatus result), LBS.toStrict (responseBody result))
+
+-- | One request to the context's en: method, path, JSON body; en's status
+-- and body, or a transport failure that withholds credentials and bodies.
+type EnCall = ByteString -> Text -> Value -> IO (Either Text (Int, ByteString))
+
+-- | Every reviewed relationship and every diagnostic reaches the context's en
+-- the same way, through a private port-forward to its Service, so nothing
+-- depends on the local address an operator once used (F97). The forward
+-- lives for one call. The private @NAGARE_EN_API_KEY@ is required; nothing
+-- is sent without it.
+withContextEn :: Text -> (EnCall -> IO a) -> IO (Either Text a)
+withContextEn kubectlContext action = do
+  credential <- lookupEnv "NAGARE_EN_API_KEY"
+  case credential of
+    Just key | not (null key) -> do
+      result <-
+        try @IOException $
+          bracket (openEnForward kubectlContext) closeEnForward $ \(output, _) -> do
+            ready <- timeout 15000000 (hGetLine output)
+            case ready >>= parseEnForwardPort . T.pack of
+              Nothing -> pure (Left "en port-forward did not become ready")
+              Just port -> Right <$> action (enRequest key ("http://127.0.0.1:" <> port))
+      pure (either (const (Left "en port-forward failed")) id result)
+    _ -> pure (Left "reviewed access requires private NAGARE_EN_API_KEY")
+
+openEnForward :: Text -> IO (Handle, ProcessHandle)
+openEnForward kubectlContext = do
+  (_, output, _, process) <-
+    createProcess
+      ( proc
+          "kubectl"
+          ["--context", T.unpack kubectlContext, "-n", "nagare-system", "port-forward", "svc/en", ":80", "--address", "127.0.0.1"]
+      )
+        { std_out = CreatePipe
+        , std_err = NoStream
+        }
+  maybe (fail "kubectl port-forward has no output pipe") (\handle -> pure (handle, process)) output
+
+closeEnForward :: (Handle, ProcessHandle) -> IO ()
+closeEnForward (output, process) = do
+  terminateProcess process `catch` \(_ :: IOException) -> pure ()
+  _ <- waitForProcess process
+  hClose output `catch` \(_ :: IOException) -> pure ()
+
+enRequest :: String -> Text -> EnCall
+enRequest key base verb suffix body = do
+  response <- try @HttpException $ do
+    manager <- newTlsManager
+    initial <- parseRequest (T.unpack (base <> suffix))
+    httpLbs
+      initial
+        { method = verb
+        , requestHeaders = [("Authorization", "Bearer " <> TE.encodeUtf8 (T.pack key)), ("Content-Type", "application/json")]
+        , requestBody = RequestBodyLBS (if verb == "GET" then "" else encode body)
+        , responseTimeout = responseTimeoutMicro 10000000
+        , redirectCount = 0
+        , checkResponse = \_ _ -> pure ()
+        }
+      manager
+  pure $ case response of
+    Left _ -> Left "access transport failed; credentials and response body withheld"
+    Right result -> Right (statusCode (responseStatus result), LBS.toStrict (responseBody result))
 
 -- | The local port from kubectl's first @Forwarding from 127.0.0.1:PORT -> N@ line.
 parseEnForwardPort :: Text -> Maybe Text

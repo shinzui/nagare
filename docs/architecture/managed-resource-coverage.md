@@ -21,7 +21,7 @@ authority.
 | `BrokerCommand` | 6 | none |
 | `TaskCommand` | 4 | none |
 | `WorkerCommand` | 2 | none |
-| `AccessCommand` | 5 | none |
+| `AccessCommand` | 6 | none |
 | `TeamCommand` | 3 | none |
 | `PortalCommand` | 2 | none |
 | `DomainsCommand` | 2 | none |

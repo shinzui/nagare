@@ -1,6 +1,7 @@
 -- | Options. Executable-private CLI boundary.
 module Nagare.Cli.Options
-  ( AccessCommand (..)
+  ( AccessCheckOpts (..)
+  , AccessCommand (..)
   , AccessGrantOpts (..)
   , AccessListOpts (..)
   , AppDeleteOpts (..)
@@ -82,7 +83,8 @@ where
 
 import Data.List.NonEmpty qualified as NE
 import Nagare.Cli.Options.Access
-  ( AccessCommand (..)
+  ( AccessCheckOpts (..)
+  , AccessCommand (..)
   , AccessGrantOpts (..)
   , AccessListOpts (..)
   , PortalCommand (..)

@@ -84,7 +84,7 @@ ROUTES = {
     },
     "WorkerCommand": {"reviewed": "WorkerDeploy WorkerDelete"},
     "AccessCommand": {
-        "read": "AccessList",
+        "read": "AccessList AccessCheck",
         "group": "AccessPortal AccessTeam",
         "reviewed": "AccessGrant AccessRevoke",
     },

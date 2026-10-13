@@ -5,7 +5,8 @@ module Nagare.Cli.Parser.Access
 where
 
 import Nagare.Cli.Options
-  ( AccessCommand (..)
+  ( AccessCheckOpts (..)
+  , AccessCommand (..)
   , AccessGrantOpts (..)
   , AccessListOpts (..)
   , Command (..)
@@ -42,6 +43,14 @@ accessGrantOptsParser =
     <*> hostOpt
     <*> optional userOpt
     <*> optional (strOption (long "team" <> metavar "TEAM" <> help "Team whose members receive access to the host (always reviewed; exactly one of --user and --team)"))
+
+accessCheckOptsParser :: Parser AccessCheckOpts
+accessCheckOptsParser =
+  AccessCheckOpts
+    <$> enApiKeyOpt
+    <*> hostOpt
+    <*> userOpt
+    <*> jsonOpt "Print the decision as JSON"
 
 accessListOptsParser :: Parser AccessListOpts
 accessListOptsParser =
@@ -128,6 +137,12 @@ accessSubparser =
           ( info
               (AccessList <$> accessListOptsParser <**> helper)
               (progDesc "List the stored grants on a protected host: direct users apart from teams")
+          )
+        <> command
+          "check"
+          ( info
+              (AccessCheck <$> accessCheckOptsParser <**> helper)
+              (progDesc "Ask en, fully consistently, whether a user currently has access to a protected host")
           )
         <> command
           "team"

@@ -6,6 +6,7 @@ module Nagare.Test.Suite
   )
 where
 
+import AccessCheckSpec (accessCheckTests)
 import AccessGrantsSpec (accessGrantsTests)
 import AccessResolveSpec (accessResolveTests)
 import AppDeploySpec (appDeployTests)
@@ -293,7 +294,7 @@ main = do
             , clusterGuardTests
             , domainBindingTests
             , testGroup "Nagare.Domain.Tls" domainTlsTests
-            , accessGrantsTests
+            , testGroup "Nagare.Access" [accessGrantsTests, accessCheckTests]
             , accessResolveTests
             , appDeployTests
             ]

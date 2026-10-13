@@ -1,8 +1,9 @@
 -- | Public access commands compile one independent scope and use the common journal.
-module Nagare.Access.Reviewed (planAccess, planTeamAccess, planTeamMember, accessPlanRegistry, planPortalSync, accessAdapter) where
+module Nagare.Access.Reviewed (checkEffectiveAccess, planAccess, planTeamAccess, planTeamMember, accessPlanRegistry, planPortalSync, accessAdapter) where
 
 import Control.Exception (bracket)
 import Control.Monad (forM)
+import Data.Aeson (toJSON)
 import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
@@ -10,6 +11,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Time (defaultTimeLocale, formatTime, getCurrentTime)
+import Nagare.Access.Check (CheckReport (..), CheckResult (Unavailable), effectiveAccess)
 import Nagare.Access.ShomeiUser (ShomeiUser)
 import Nagare.Cluster.Kubeconfig (kubeconfigPath)
 import Nagare.Dsl.Prelude
@@ -83,15 +85,35 @@ planRelationship active guard compile configuredKey present output = do
   snapshot <- Command.loadTargetSnapshotReadOnly active
   scope <- either (fail . T.unpack) pure (compile snapshot present)
   candidate <- either (fail . show) pure (composeInventory snapshot (ReplaceScope scope :| []))
-  withKey (Command.planInventoryCandidateWith (accessPlanRegistry active guard) active candidate output)
-  where
-    withKey action = case configuredKey of
-      Nothing -> action
-      Just key -> bracket
-        (lookupEnv "NAGARE_EN_API_KEY")
-        (maybe (unsetEnv "NAGARE_EN_API_KEY") (setEnv "NAGARE_EN_API_KEY"))
-        $ \_ ->
-          setEnv "NAGARE_EN_API_KEY" (T.unpack key) >> action
+  withEnApiKey configuredKey (Command.planInventoryCandidateWith (accessPlanRegistry active guard) active candidate output)
+
+-- | Run an action with @--en-api-key@ exported as the private key, restoring
+-- the environment afterwards; without the option the environment stands.
+withEnApiKey :: Maybe Text -> IO a -> IO a
+withEnApiKey configuredKey action = case configuredKey of
+  Nothing -> action
+  Just key -> bracket
+    (lookupEnv "NAGARE_EN_API_KEY")
+    (maybe (unsetEnv "NAGARE_EN_API_KEY") (setEnv "NAGARE_EN_API_KEY"))
+    $ \_ ->
+      setEnv "NAGARE_EN_API_KEY" (T.unpack key) >> action
+
+-- | @access check@ (EP-188 M1): one fully consistent en check of a user on a
+-- host this context protects, through the same private transport reviewed
+-- writes use. The user's login token is never an en credential.
+checkEffectiveAccess :: ActiveTarget -> IO (Either Text ()) -> Text -> Text -> Maybe Text -> IO CheckReport
+checkEffectiveAccess active guard host subject configuredKey = do
+  snapshot <- Command.loadTargetSnapshotReadOnly active
+  protected <- either (fail . T.unpack) pure (acceptedProtectedHost snapshot host)
+  guarded <- guard
+  case guarded of
+    Left reason -> pure (CheckReport (nameText protected) subject (Unavailable ("context guard refused: " <> reason)))
+    Right () -> do
+      answer <-
+        withEnApiKey configuredKey $
+          withContextEn (contextNameText (active ^. #contextName)) $ \call ->
+            effectiveAccess (\path body -> call "POST" path (toJSON body)) (nameText protected) subject
+      pure (either (CheckReport (nameText protected) subject . Unavailable) id answer)
 
 accessPlanRegistry ::
   ActiveTarget ->

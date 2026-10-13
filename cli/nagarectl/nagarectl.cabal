@@ -78,6 +78,7 @@ library
     Paths_nagarectl
 
   exposed-modules:
+    Nagare.Access.Check
     Nagare.Access.Grants
     Nagare.Access.Resolve
     Nagare.Access.Reviewed
@@ -517,6 +518,7 @@ test-suite nagarectl-test
   main-is: Spec.hs
   hs-source-dirs: test
   other-modules:
+    AccessCheckSpec
     AccessGrantsSpec
     AccessResolveSpec
     AppDeployPhaseSpec

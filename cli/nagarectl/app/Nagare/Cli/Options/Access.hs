@@ -1,7 +1,8 @@
 -- | Access and team command options. Executable-private CLI boundary
 -- (MasterPlan 27): every option type the @access@ subcommands parse.
 module Nagare.Cli.Options.Access
-  ( AccessCommand (..)
+  ( AccessCheckOpts (..)
+  , AccessCommand (..)
   , AccessGrantOpts (..)
   , AccessListOpts (..)
   , PortalCommand (..)
@@ -17,6 +18,7 @@ data AccessCommand
   = AccessGrant AccessGrantOpts
   | AccessRevoke AccessGrantOpts
   | AccessList AccessListOpts
+  | AccessCheck AccessCheckOpts
   | AccessTeam TeamCommand
   | AccessPortal PortalCommand
   deriving stock (Generic, Show)
@@ -58,6 +60,15 @@ data AccessGrantOpts = AccessGrantOpts
   , user :: !(Maybe String)
   , team :: !(Maybe String)
   -- ^ Exactly one of @user@ and @team@; a team grant is always reviewed.
+  }
+  deriving stock (Generic, Show)
+
+-- | @access check@: one user's effective access on one protected host.
+data AccessCheckOpts = AccessCheckOpts
+  { enApiKey :: !(Maybe String)
+  , host :: !String
+  , user :: !String
+  , json :: !Bool
   }
   deriving stock (Generic, Show)
 

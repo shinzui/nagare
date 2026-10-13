@@ -12,6 +12,7 @@ module Nagare.Inventory.Access
   , teamRelationship
   , teamSchemaDeclarations
   , activeSchemaSupportsTeams
+  , acceptedProtectedHost
   , compileAccessScope
   , compileTeamMemberScope
   , compileTeamAccessScope
@@ -278,6 +279,16 @@ compileTeamAccessScope snapshot rawHost team present = do
     "viewer"
     present
     ["team-access", resourceIdText (auth ^. #identity), nameText host, teamKeyText team]
+
+-- | A hostname this context protects: normalized, with an accepted
+-- protected backend contribution and enforcer route. A public or foreign
+-- host has no effective-access answer worth asking en for.
+acceptedProtectedHost :: ScopeSnapshot -> Text -> Either Text Name
+acceptedProtectedHost snapshot rawHost = do
+  host <- hostName rawHost
+  declarations <- composedDeclarationsOf snapshot
+  _ <- protectedOwner declarations host
+  pure host
 
 hostName :: Text -> Either Text Name
 hostName rawHost = mkName (T.toLower (T.dropWhileEnd (== '.') (T.strip rawHost)))
