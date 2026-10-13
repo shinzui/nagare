@@ -125,6 +125,7 @@ let
                 test/InventoryUpstreamSpec.hs test/InventoryApplicationSpec.hs \
                 test/InventoryFoundationSpec.hs test/InventoryAuthSpec.hs \
                 test/InventoryObservabilitySpec.hs test/InventoryCacheSpec.hs \
+                test/InventoryAccessSpec.hs \
                 --replace-fail "../../cluster/" "${sourceForTests}/cluster/"
               substituteInPlace test/AppDeploySpec.hs test/InventoryApplicationSpec.hs \
                 --replace-fail "../nagare-dsl/test/fixtures/" "${../cli/nagare-dsl/test/fixtures}/"
