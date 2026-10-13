@@ -1,0 +1,2 @@
+15:22:02 + kubectl patch certificates.cert-manager.io ep191-probe -n ep191-probe --subresource=status --type=json -p [{"op":"test","path":"/metadata/resourceVersion","value":"1"},{"op":"replace","path":"/status/conditions/1","value":{"type":"Issuing","status":"True","reason":"ManuallyTriggered","message":"Certificate re-issuance manually triggered","observedGeneration":1,"lastTransitionTime":"2026-10-13T15:22:02Z"}}]
+The request is invalid: the server rejected our request due to an error in our request

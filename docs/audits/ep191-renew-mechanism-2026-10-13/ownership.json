@@ -1,0 +1,80 @@
+[
+  {
+    "kind": "DomainMapping",
+    "name": "protected-static-site.personal.127-0-0-1.sslip.io",
+    "uid": "d60df931-76b3-4de9-aa33-50f2c604207c",
+    "annotations": {
+      "nagare.dev/context-id": "site-access",
+      "nagare.dev/resource-id": "standalone:site-protected-static-site/protected-static-site.personal.127-0-0-1.sslip.io/domain-mapping",
+      "nagare.dev/spec-digest": "c646c953811657ea24b20b2a66e334b553d96c8e3ed77befed5b5694b1f36000"
+    },
+    "ownerReferences": null
+  },
+  {
+    "kind": "Certificate",
+    "name": "protected-static-site.personal.127-0-0-1.sslip.io",
+    "uid": "054f0ef1-30ac-4f8d-bfe9-d5e64a0cd8fe",
+    "secretName": "protected-static-site.personal.127-0-0-1.sslip.io",
+    "ownerReferences": [
+      {
+        "apiVersion": "serving.knative.dev/v1beta1",
+        "blockOwnerDeletion": true,
+        "controller": true,
+        "kind": "DomainMapping",
+        "name": "protected-static-site.personal.127-0-0-1.sslip.io",
+        "uid": "d60df931-76b3-4de9-aa33-50f2c604207c"
+      }
+    ]
+  },
+  {
+    "kind": "Certificate",
+    "name": "protected-static-site.personal.127-0-0-1.sslip.io",
+    "uid": "7753f9af-09a0-4467-9a7e-9206ecd04364",
+    "secretName": "protected-static-site.personal.127-0-0-1.sslip.io",
+    "issuerRef": {
+      "kind": "ClusterIssuer",
+      "name": "nagare-local-ca"
+    },
+    "ownerReferences": [
+      {
+        "apiVersion": "networking.internal.knative.dev/v1alpha1",
+        "blockOwnerDeletion": true,
+        "controller": true,
+        "kind": "Certificate",
+        "name": "protected-static-site.personal.127-0-0-1.sslip.io",
+        "uid": "054f0ef1-30ac-4f8d-bfe9-d5e64a0cd8fe"
+      }
+    ],
+    "status": {
+      "conditions": [
+        {
+          "lastTransitionTime": "2026-10-13T08:06:36Z",
+          "message": "Certificate is up to date and has not expired",
+          "observedGeneration": 1,
+          "reason": "Ready",
+          "status": "True",
+          "type": "Ready"
+        }
+      ],
+      "notAfter": "2027-01-11T08:06:36Z",
+      "notBefore": "2026-10-13T08:06:36Z",
+      "renewalTime": "2026-12-12T08:06:36Z",
+      "revision": 1
+    }
+  },
+  {
+    "kind": "CertificateRequest",
+    "name": "protected-static-site.personal.127-0-0-1.sslip.io-1",
+    "revision": "1",
+    "ownerReferences": [
+      {
+        "apiVersion": "cert-manager.io/v1",
+        "blockOwnerDeletion": true,
+        "controller": true,
+        "kind": "Certificate",
+        "name": "protected-static-site.personal.127-0-0-1.sslip.io",
+        "uid": "7753f9af-09a0-4467-9a7e-9206ecd04364"
+      }
+    ]
+  }
+]

@@ -1,0 +1,103 @@
+15:14:53 cluster https://0.0.0.0:52351 node k3d-nagare-local-server-0 cert-manager quay.io/jetstack/cert-manager-controller:v1.20.2
+== ownership chain of protected-static-site.personal.127-0-0-1.sslip.io
+15:14:53 + kubectl get domainmappings.serving.knative.dev protected-static-site.personal.127-0-0-1.sslip.io -n nagare-system -o json
+15:14:53 + kubectl get certificates.networking.internal.knative.dev protected-static-site.personal.127-0-0-1.sslip.io -n nagare-system -o json
+15:14:53 + kubectl get certificates.cert-manager.io protected-static-site.personal.127-0-0-1.sslip.io -n nagare-system -o json
+15:14:53 + kubectl get certificaterequests.cert-manager.io -n nagare-system -o json
+{"kind":"DomainMapping","name":"protected-static-site.personal.127-0-0-1.sslip.io","uid":"d60df931-76b3-4de9-aa33-50f2c604207c","owners":[]}
+{"kind":"Certificate","name":"protected-static-site.personal.127-0-0-1.sslip.io","uid":"054f0ef1-30ac-4f8d-bfe9-d5e64a0cd8fe","owners":[{"kind":"DomainMapping","name":"protected-static-site.personal.127-0-0-1.sslip.io","uid":"d60df931-76b3-4de9-aa33-50f2c604207c","controller":true}]}
+{"kind":"Certificate","name":"protected-static-site.personal.127-0-0-1.sslip.io","uid":"7753f9af-09a0-4467-9a7e-9206ecd04364","owners":[{"kind":"Certificate","name":"protected-static-site.personal.127-0-0-1.sslip.io","uid":"054f0ef1-30ac-4f8d-bfe9-d5e64a0cd8fe","controller":true}]}
+{"kind":"CertificateRequest","name":"protected-static-site.personal.127-0-0-1.sslip.io-1","uid":null,"owners":[{"kind":"Certificate","name":"protected-static-site.personal.127-0-0-1.sslip.io","uid":"7753f9af-09a0-4467-9a7e-9206ecd04364","controller":true}]}
+== 1. automatic approval off
+15:14:54 + kubectl -n cert-manager patch deploy cert-manager --type=json -p [{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--controllers=*,-certificaterequests-approver"}]
+deployment.apps/cert-manager patched
+15:14:54 + kubectl -n cert-manager rollout status deploy/cert-manager --timeout=180s
+Waiting for deployment "cert-manager" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "cert-manager" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "cert-manager" rollout to finish: 1 old replicas are pending termination...
+deployment "cert-manager" successfully rolled out
+== 2. a Certificate on nagare-local-ca, its request denied
+15:14:55 + kubectl create namespace ep191-probe --dry-run=client -o yaml
+15:14:55 + kubectl apply -f -
+namespace/ep191-probe created
+15:14:56 + kubectl apply -f -
+certificate.cert-manager.io/ep191-probe created
+15:15:14 + kubectl patch certificaterequests.cert-manager.io ep191-probe-1 -n ep191-probe --subresource=status --type=merge -p {"status":{"conditions":[{"type":"Denied","status":"True","reason":"EP191ForcedFailure","message":"EP-191 M1 forced failure","lastTransitionTime":"2026-10-13T15:15:14Z"}]}}
+certificaterequest.cert-manager.io/ep191-probe-1 patched
+-- Certificate after the denial
+15:15:14 + kubectl get certificates.cert-manager.io ep191-probe -n ep191-probe -o json
+{
+  "resourceVersion": "82211",
+  "generation": 1,
+  "status": {
+    "conditions": [
+      {
+        "lastTransitionTime": "2026-10-13T15:15:13Z",
+        "message": "Issuing certificate as Secret does not exist",
+        "observedGeneration": 1,
+        "reason": "DoesNotExist",
+        "status": "False",
+        "type": "Ready"
+      },
+      {
+        "lastTransitionTime": "2026-10-13T15:15:14Z",
+        "message": "The certificate request has failed to complete and will be retried: EP-191 M1 forced failure",
+        "observedGeneration": 1,
+        "reason": "EP191ForcedFailure",
+        "status": "False",
+        "type": "Issuing"
+      }
+    ],
+    "failedIssuanceAttempts": 1,
+    "lastFailureTime": "2026-10-13T15:15:14Z"
+  }
+}
+15:15:14 + kubectl get certificaterequests.cert-manager.io -n ep191-probe -o json
+{"name":"ep191-probe-1","revision":"1","created":"2026-10-13T15:15:14Z","conditions":[{"type":"Denied","status":"True","reason":"EP191ForcedFailure"},{"type":"Ready","status":"False","reason":"Denied"}]}
+== 3. automatic approval restored
+15:15:14 + kubectl -n cert-manager patch deploy cert-manager --type=json -p [{"op":"test","path":"/spec/template/spec/containers/0/args/5","value":"--controllers=*,-certificaterequests-approver"},{"op":"remove","path":"/spec/template/spec/containers/0/args/5"}]
+deployment.apps/cert-manager patched
+15:15:14 + kubectl -n cert-manager rollout status deploy/cert-manager --timeout=180s
+Waiting for deployment "cert-manager" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "cert-manager" rollout to finish: 1 old replicas are pending termination...
+deployment "cert-manager" successfully rolled out
+-- 30 s after restoring approval, backoff holds:
+15:15:46 + kubectl get certificaterequests.cert-manager.io -n ep191-probe -o json
+{"name":"ep191-probe-1","revision":"1","created":"2026-10-13T15:15:14Z","conditions":[{"type":"Denied","status":"True","reason":"EP191ForcedFailure"},{"type":"Ready","status":"False","reason":"Denied"}]}
+== 4. a stale resourceVersion fails the test
+15:15:46 + kubectl patch certificates.cert-manager.io ep191-probe -n ep191-probe --subresource=status --type=json -p [{"op":"test","path":"/metadata/resourceVersion","value":"1"},{"op":"replace","path":"/status/conditions/1","value":{"type":"Issuing","status":"True","reason":"ManuallyTriggered","message":"Certificate re-issuance manually triggered","observedGeneration":1,"lastTransitionTime":"2026-10-13T15:15:46Z"}}]
+The request is invalid: the server rejected our request due to an error in our request
+== 5. the renew patch (resourceVersion 82211, Issuing at index 1, generation 1)
+15:15:46 + kubectl patch certificates.cert-manager.io ep191-probe -n ep191-probe --subresource=status --type=json -p [{"op":"test","path":"/metadata/resourceVersion","value":"82211"},{"op":"replace","path":"/status/conditions/1","value":{"type":"Issuing","status":"True","reason":"ManuallyTriggered","message":"Certificate re-issuance manually triggered","observedGeneration":1,"lastTransitionTime":"2026-10-13T15:15:46Z"}}]
+certificate.cert-manager.io/ep191-probe patched
+-- Ready after 129 s
+15:17:55 + kubectl get certificates.cert-manager.io ep191-probe -n ep191-probe -o json
+{
+  "resourceVersion": "82391",
+  "generation": 1,
+  "status": {
+    "conditions": [
+      {
+        "lastTransitionTime": "2026-10-13T15:15:13Z",
+        "message": "Issuing certificate as Secret does not exist",
+        "observedGeneration": 1,
+        "reason": "DoesNotExist",
+        "status": "False",
+        "type": "Ready"
+      },
+      {
+        "lastTransitionTime": "2026-10-13T15:15:46Z",
+        "message": "The certificate request has failed to complete and will be retried: EP-191 M1 forced failure",
+        "observedGeneration": 1,
+        "reason": "EP191ForcedFailure",
+        "status": "False",
+        "type": "Issuing"
+      }
+    ],
+    "failedIssuanceAttempts": 2,
+    "lastFailureTime": "2026-10-13T15:15:46Z"
+  }
+}
+15:17:55 + kubectl get certificaterequests.cert-manager.io -n ep191-probe -o json
+{"name":"ep191-probe-1","revision":"1","created":"2026-10-13T15:15:46Z","conditions":[{"type":"Approved","status":"True","reason":"cert-manager.io"},{"type":"Ready","status":"True","reason":"Issued"}]}
+the denied request ep191-probe-1 still exists

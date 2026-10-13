@@ -1,0 +1,19 @@
+[
+  {
+    "op": "test",
+    "path": "/metadata/resourceVersion",
+    "value": "82211"
+  },
+  {
+    "op": "replace",
+    "path": "/status/conditions/1",
+    "value": {
+      "type": "Issuing",
+      "status": "True",
+      "reason": "ManuallyTriggered",
+      "message": "Certificate re-issuance manually triggered",
+      "observedGeneration": 1,
+      "lastTransitionTime": "2026-10-13T15:15:46Z"
+    }
+  }
+]

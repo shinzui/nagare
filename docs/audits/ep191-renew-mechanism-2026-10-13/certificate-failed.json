@@ -1,0 +1,26 @@
+{
+  "resourceVersion": "83731",
+  "generation": 1,
+  "status": {
+    "conditions": [
+      {
+        "lastTransitionTime": "2026-10-13T15:21:29Z",
+        "message": "Issuing certificate as Secret does not exist",
+        "observedGeneration": 1,
+        "reason": "DoesNotExist",
+        "status": "False",
+        "type": "Ready"
+      },
+      {
+        "lastTransitionTime": "2026-10-13T15:21:30Z",
+        "message": "The certificate request has failed to complete and will be retried: Failed to finalize Order: 404 urn:ietf:params:acme:error:malformed: Certificate not found (EP-191 M1 forced failure)",
+        "observedGeneration": 1,
+        "reason": "Failed",
+        "status": "False",
+        "type": "Issuing"
+      }
+    ],
+    "failedIssuanceAttempts": 1,
+    "lastFailureTime": "2026-10-13T15:21:30Z"
+  }
+}

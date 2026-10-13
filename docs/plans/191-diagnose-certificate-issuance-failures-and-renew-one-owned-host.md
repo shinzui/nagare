@@ -43,7 +43,7 @@ After this change:
 
 ## Progress
 
-- [ ] M1: Prove the renew mechanism against real cert-manager v1.20.2 on a disposable local k3d
+- [x] M1: Prove the renew mechanism against real cert-manager v1.20.2 on a disposable local k3d
   context. A forced failure leaves the Certificate with `failedIssuanceAttempts` ≥ 1, a
   `lastFailureTime` and `Issuing=False`. The M3 JSON patch then sets `Issuing=True`, cert-manager
   deletes the failed CertificateRequest, creates a new one before the backoff expires, and the
@@ -51,6 +51,10 @@ After this change:
   the exact `kubectl` arguments, the Certificate status before and after, both CertificateRequests'
   names and revisions, and the `ownerReferences` of one real DomainMapping's Knative and cert-manager
   Certificates.
+  Done 2026-10-13: [`docs/audits/ep191-renew-mechanism-2026-10-13/`](../audits/ep191-renew-mechanism-2026-10-13/README.md).
+  Forced `Failed` request, `failedIssuanceAttempts: 1`, patch applied, failed request deleted (new
+  uid, same name `ep191-probe-1`), Ready 1 s later; stale `resourceVersion` rejected. A `Denied`
+  request is not renewable (see Decision Log).
 - [ ] M2: `domains tls HOST [--json]` reads and classifies the chain. Pass: `Nagare.Test.Domains`
   cases over JSON fixtures for ready, pending DNS-01 challenge, failed finalization (the IR-28 404),
   rate limited (`urn:ietf:params:acme:error:rateLimited`), a missing link, and a ready certificate
@@ -110,6 +114,15 @@ After this change:
 - Decision (2026-10-13): Delete the unused `src/Nagare/Domain/Tls.hs` and its tests. Production
   code does not import it (only `test/Nagare/Test/Domains.hs` and `Suite.hs` do). The live surface
   is `src/Nagare/Ops/Domains.hs`, which this plan extends.
+
+
+- Decision (2026-10-13, from M1): Force the failure with the status an ACME failure leaves
+  (`Approved=True`, `Ready=False` reason `Failed`, `failureTime`), not by denial. cert-manager
+  v1.20.2 deletes a failed request on renew only when its `Ready` reason is `Failed`. For a
+  `Denied` request the issuing controller fails the issuance again, which M1 observed as
+  `failedIssuanceAttempts: 2` and a two-hour backoff. So renew also requires the latest
+  CertificateRequest's `Ready` reason to be `Failed`. A denied or invalid request is reported as
+  `failed` with that reason, and renew refuses it.
 
 
 ## Outcomes & Retrospective
@@ -199,12 +212,13 @@ validate cert-manager's semantics, and M4's local run confirms. No cloud run is 
 
 On a disposable local context (`mode=local`, k3d; see `docs/user/local-development.md`), which
 already runs cert-manager v1.20.2 and the `nagare-local-ca` issuer. A missing CA Secret or an
-unreachable ACME directory leaves the request `Pending`, not failed, so force the failure by denial:
+unreachable ACME directory leaves the request `Pending`, not failed, so force the failure by writing the request status:
 
 1. Turn off cert-manager's automatic approval in this disposable cluster by adding
    `--controllers=*,-certificaterequests-approver` to the `cert-manager` Deployment's args.
-2. Create a Certificate on `nagare-local-ca`. When its CertificateRequest appears, mark it
-   `Denied` by status patch (condition `Denied=True`, reason `EP191ForcedFailure`, a message). Wait until the
+2. Create a Certificate on `nagare-local-ca`. When its CertificateRequest appears, write the
+   status an ACME failure leaves (`Approved=True`, `Ready=False` reason `Failed`, `failureTime`;
+   see the Decision Log for why not a denial). Wait until the
    Certificate shows `failedIssuanceAttempts: 1`, a `lastFailureTime` and `Issuing=False`.
 3. Restore automatic approval.
 4. Read the Certificate and apply the renew patch with its `resourceVersion` and the index `I` of
@@ -274,7 +288,7 @@ to the ambiguous message. The read must go through the adapter's own `invoke con
 failure keeps today's message. Keep the addition to a call into `Nagare.Ops.CertificateChain`; the
 file has four lines of size allowance left, so move code out of it if the call does not fit.
 
-Write the docs section, run the M4 local confirmation (the M1 denial method, triggered during a
+Write the docs section, run the M4 local confirmation (the M1 forced-failure method, triggered during a
 deploy of a fresh hostname), and update the IR record (`status: completed`, `completedAt`,
 `targetPlan`, `resolution`) and `docs/improvement-requests/log.md`.
 

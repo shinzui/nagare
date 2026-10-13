@@ -1,0 +1,20 @@
+{
+  "resourceVersion": "83885",
+  "generation": 1,
+  "status": {
+    "conditions": [
+      {
+        "lastTransitionTime": "2026-10-13T15:22:02Z",
+        "message": "Certificate is up to date and has not expired",
+        "observedGeneration": 1,
+        "reason": "Ready",
+        "status": "True",
+        "type": "Ready"
+      }
+    ],
+    "notAfter": "2027-01-11T15:22:02Z",
+    "notBefore": "2026-10-13T15:22:02Z",
+    "renewalTime": "2026-12-12T15:22:02Z",
+    "revision": 1
+  }
+}
