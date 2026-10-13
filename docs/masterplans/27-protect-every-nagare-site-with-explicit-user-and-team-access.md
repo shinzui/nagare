@@ -83,7 +83,7 @@ Relevant local architectural context is [ADR 1](../adr/0001-auth-plane-images-mi
 |---|---|---|---|---|---|
 | 186 | Protect Nagare sites with explicit user and team grants (site protection foundation) | [EP-186](../plans/186-protect-nagare-sites-with-explicit-user-and-team-grants.md) | None | None | Complete |
 | 187 | Manage reviewed team membership and site access grants | [EP-187](../plans/187-manage-reviewed-team-membership-and-site-access-grants.md) | EP-186 | None | Complete |
-| 188 | Check effective site access and verify user and team isolation | [EP-188](../plans/188-check-effective-site-access-and-verify-user-and-team-isolation.md) | EP-186, EP-187 | None | In Progress |
+| 188 | Check effective site access and verify user and team isolation | [EP-188](../plans/188-check-effective-site-access-and-verify-user-and-team-isolation.md) | EP-186, EP-187 | None | Complete |
 
 The numbers identify actual child documents. Whole-child hard dependencies require all milestones and acceptance in the prerequisite to be complete.
 
@@ -108,7 +108,7 @@ Early integration belongs to EP-186: emit a protected StaticSite configuration, 
 
 ## Progress
 
-EP-186 is complete: the shared protected-host contract (`Nagare.Inventory.ProtectedRoute`) serves Deployment, Application, StaticSite and ServerSite including previews and rollbacks, the composed backend-map bytes are denied end to end by the enforcer, gateway misses are fully consistent with the TTL as the only freshness bound, and the user documentation describes the supported policy subset, the transition rule, and the bound. EP-187 is complete: the bootstrap En schema carries group membership with a digest-driven En rollout, team membership and team site grants are exact typed relationships with reviewed commands, listing reads stored relationships through Relay pages without flattening teams, and the measured flat-team check cost is recorded. EP-188 (effective-access check, combined verification, documentation and the native transcript) is next. Container builds and deployment were not performed. There is no cloud or local-cluster deployment authorization in this planning turn. Final integration and architectural decision distillation remain part of implementation acceptance.
+EP-186, EP-187 and EP-188 are complete. Every web kind (Deployment, Application, StaticSite, ServerSite, with previews and rollbacks) takes `access = Just requireLogin` through one protected-host contract; teams are exact En relationships managed by reviewed commands; `access list` reads stored relationships and `access check` asks En fully consistently; the gateway's decision TTL is the only freshness bound. The combined behaviour is proved by the real-En gateway scenario (`nagare-access-test`, MasterPlan 27 group) and by the native drill of 2026-10-13 on a disposable local context (`docs/audits/mp27-site-access-drill-2026-10-13/`). ADR 29 records the durable decisions. No cloud deployment was made; the intranet adopts this with its next release.
 
 
 ## Surprises & Discoveries
@@ -139,4 +139,4 @@ Revision (2026-10-12): Applied API findings, the user's latest-dependency requir
 
 ## Outcomes & Retrospective
 
-(To be filled during implementation and at completion.)
+The deliverables and their evidence are the children's Progress checklists; the decisions are the Decision Logs and [ADR 29](../adr/0029-site-access-is-a-reviewed-relationship-per-hostname.md).

@@ -1,0 +1,143 @@
+{
+  "candidate": {
+    "revision": "f6dd3ea0bd17029e0fd8edbf13b2f1e01f4dbc32",
+    "version": "0.6.2"
+  },
+  "context": "site-access",
+  "enSchema": {
+    "digestAnnotation": "decdbed52e34bda29d1f973996f451061ac744f42d852af9c861b82a3be2a668",
+    "hash": "fnv1a64:40b7b82bdaeea49e",
+    "origin": "/etc/en/schema/app.en"
+  },
+  "hosts": {
+    "preview": "drill.protected-static-site.preview.127-0-0-1.sslip.io",
+    "production": "protected-static-site.personal.127-0-0-1.sslip.io"
+  },
+  "imageTag": "mp27-df54e94e",
+  "images": {
+    "en": "k3d-registry.localhost:5000/en@sha256:d515cf44c4ce712d3ca575182c7de593324d80811e2a7ff92c84f3d8b75c6378",
+    "nagare-access": "k3d-registry.localhost:5000/nagare-access@sha256:f2544cb9040c7f5f661d4639271a15596ffb08777ecdd54083f2037312addb24",
+    "shomei": "k3d-registry.localhost:5000/shomei@sha256:260a5268a640a0d64237e091b1dd85369ba7e515aa1b7c5bb4e1b0bd13de67f3"
+  },
+  "inventory": {
+    "activeTransaction": null,
+    "observationComplete": false,
+    "transactionStatus": null
+  },
+  "mode": "local",
+  "observations": [
+    {
+      "step": "seconds until protected-static-site.personal.127-0-0-1.sslip.io answered 302",
+      "value": "1"
+    },
+    {
+      "step": "seconds until drill.protected-static-site.preview.127-0-0-1.sslip.io answered 302",
+      "value": "68"
+    },
+    {
+      "step": "origin ksvc url",
+      "value": "http://protected-static-site.personal.svc.cluster.local"
+    },
+    {
+      "step": "origin visibility label",
+      "value": "cluster-local"
+    },
+    {
+      "step": "enforcer route namespace",
+      "value": "nagare-access"
+    },
+    {
+      "step": "preview route namespace",
+      "value": "nagare-access"
+    },
+    {
+      "step": "anonymous preview document",
+      "value": "302"
+    },
+    {
+      "step": "anonymous preview API",
+      "value": "401"
+    },
+    {
+      "step": "raw identity header, anonymous",
+      "value": "401"
+    },
+    {
+      "step": "check production after direct grant",
+      "value": "allowed"
+    },
+    {
+      "step": "check preview after production grant",
+      "value": "denied"
+    },
+    {
+      "step": "login",
+      "value": "302"
+    },
+    {
+      "step": "granted session on production",
+      "value": "200"
+    },
+    {
+      "step": "granted session on the preview",
+      "value": "403"
+    },
+    {
+      "step": "origin bypass through the ingress",
+      "value": "404"
+    },
+    {
+      "step": "check production right after revoke",
+      "value": "denied"
+    },
+    {
+      "step": "session right after revoke (cached)",
+      "value": "200"
+    },
+    {
+      "step": "session after the decision TTL",
+      "value": "403"
+    },
+    {
+      "step": "seconds from revoke to 403",
+      "value": "26"
+    },
+    {
+      "step": "second release file on the second release",
+      "value": "200"
+    },
+    {
+      "step": "second release file absent after rollback",
+      "value": "404"
+    },
+    {
+      "step": "granted session after rollback",
+      "value": "200"
+    },
+    {
+      "step": "anonymous after rollback",
+      "value": "302"
+    },
+    {
+      "step": "rolled back ksvc image is the first release",
+      "value": "k3d-registry.localhost:5000/tan-nb-exp/nagare/protected-static-site:mp27-df54e94e"
+    }
+  ],
+  "routeCheck": [
+    "route a wrong trust anchor is refused ok",
+    "route anonymous: 302 -> https://protected-static-site.personal.127-0-0-1.sslip.io/_nagare/login?rd=%2F ok",
+    "route anonymous API request: 401 ok",
+    "route login as route-check-941805501856@example.test without a grant: 403, check denied ok",
+    "route user_01m4t4w897eyg8p6xyetdqqja2 joined team engineering, which is granted protected-static-site.personal.127-0-0-1.sslip.io",
+    "route granted session: 200, check allowed ok",
+    "route a member of team finance: 403, check denied ok",
+    "route after revoke: check denied at once",
+    "route after revoke: 403 ok",
+    "route check: ok"
+  ],
+  "schemaVersion": 1,
+  "teams": {
+    "granted": "engineering",
+    "other": "finance"
+  }
+}

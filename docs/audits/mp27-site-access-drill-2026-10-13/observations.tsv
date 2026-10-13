@@ -1,0 +1,24 @@
+seconds until protected-static-site.personal.127-0-0-1.sslip.io answered 302	1
+seconds until drill.protected-static-site.preview.127-0-0-1.sslip.io answered 302	68
+origin ksvc url	http://protected-static-site.personal.svc.cluster.local
+origin visibility label	cluster-local
+enforcer route namespace	nagare-access
+preview route namespace	nagare-access
+anonymous preview document	302
+anonymous preview API	401
+raw identity header, anonymous	401
+check production after direct grant	allowed
+check preview after production grant	denied
+login	302
+granted session on production	200
+granted session on the preview	403
+origin bypass through the ingress	404
+check production right after revoke	denied
+session right after revoke (cached)	200
+session after the decision TTL	403
+seconds from revoke to 403	26
+second release file on the second release	200
+second release file absent after rollback	404
+granted session after rollback	200
+anonymous after rollback	302
+rolled back ksvc image is the first release	k3d-registry.localhost:5000/tan-nb-exp/nagare/protected-static-site:mp27-df54e94e

@@ -64,6 +64,9 @@ evidence:
   - kind: example
     resource: cluster/examples/protected-static-site/nagare/Config.hs
     proves: A shipped static site opts into required-login access with the same field.
+  - kind: conformance
+    resource: docs/audits/mp27-site-access-drill-2026-10-13/site-access-drill.json
+    proves: On a disposable local context the real Shomei login, reviewed user and team grants, the enforcer, the effective-access diagnostic, a protected preview, a rollback and the cluster-local origin behave as the interpreters proved, with the served En schema and exact images recorded.
   - kind: guide
     resource: docs/user/access.md
     proves: Auth-plane installation, protected deployment, grants, revocation, local verification, and failure modes are documented.

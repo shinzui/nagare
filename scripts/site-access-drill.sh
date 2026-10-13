@@ -69,6 +69,14 @@ review_apply() { # dir
 
 # --- 0. the daemon is disposable; its k3d state is replaced ---
 [ "$DOCKER_HOST" != "unix:///Users/shinzui/.colima/nagare-mp23-cp3/docker.sock" ] || { echo "refusing the shared cp3 daemon" >&2; exit 1; }
+if [ "${NAGARE_DRILL_SKIP_BOOTSTRAP:-0}" = 1 ]; then
+  # Continue in a root whose context is already bootstrapped: its images, forward and key stand.
+  export SOPS_AGE_KEY_FILE="$ROOT/sops/age/keys.txt"
+  set -a; . "$ROOT/images.env"; set +a
+  export NAGARE_LOCAL_REGISTRY_FORWARD="127.0.0.1:$FORWARD_PORT"
+  candidate="$(N version --json)"
+  log "continuing in $ROOT on the bootstrapped context $CTX; candidate $(printf '%s' "$candidate" | python3 -I -c 'import json,sys; d=json.load(sys.stdin); print(d.get("version"), d.get("revision"))')"
+else
 for repo in en shomei nagare-access; do
   docker image inspect "k3d-registry.localhost:5000/$repo:$TAG" >/dev/null 2>&1 || { echo "this daemon has no $repo:$TAG image built from this tree" >&2; exit 1; }
 done
@@ -138,8 +146,9 @@ for n in $(seq 1 "$STAGES_MAX"); do
   fi
   [ "$n" != "$STAGES_MAX" ] || { echo "bootstrap did not converge in $STAGES_MAX stages" >&2; exit 1; }
 done
+fi
 export KUBECONFIG="$XDG_CONFIG_HOME/nagare/kubeconfigs/$CTX.yaml"
-KUBE=k3d-nagare-local
+KUBE="$(kubectl config current-context)"
 kubectl --context "$KUBE" -n nagare-system rollout status deploy/shomei --timeout=300s >/dev/null
 kubectl --context "$KUBE" -n nagare-system rollout status deploy/en --timeout=300s >/dev/null
 kubectl --context "$KUBE" -n nagare-system wait ksvc/nagare-access --for=condition=Ready --timeout=300s >/dev/null
@@ -194,7 +203,28 @@ deploy() { site deploy -C "$EXAMPLE" --skip-build "$@"; }
 deploy --tag "$TAG" --image-resource "$IMAGE_A" > "$EV/site-deploy.log" 2>&1 || { tail -5 "$EV/site-deploy.log" >&2; exit 1; }
 IMAGE_A_REF="$(kubectl --context "$KUBE" -n "$NS" get ksvc "$SITE" -o jsonpath='{.spec.template.spec.containers[0].image}')"
 log "deployed $HOST from $IMAGE_A_REF"
-site preview deploy --name "$PREVIEW" -C "$EXAMPLE" --skip-build --tag "$TAG" --image-resource "$IMAGE_A" --save-plan "$ROOT/reviews/preview" > "$EV/preview-plan.log" 2>&1 || { tail -5 "$EV/preview-plan.log" >&2; exit 1; }
+# A static preview needs the site's four accepted environment stores: one reviewed key
+# in each of the Runtime and Preview ConfigMaps and Secrets.
+store() { # label args...
+  local label="$1"; shift
+  N "$@" -f "$EXAMPLE/nagare/Config.hs" --save-plan "$ROOT/reviews/store-$label" > /dev/null
+  review_apply "$ROOT/reviews/store-$label"
+  python3 -I -c 'import json,sys; print(sorted({r for o in json.load(open(sys.argv[1]))["operations"] for r in o["operation"].get("resources", [])})[0])' "$ROOT/reviews/store-$label/review.json"
+}
+( cd "$EXAMPLE"
+  STORES=(
+    "$(store runtime-env env set "$SITE" DRILL_RUNTIME one --runtime)"
+    "$(printf 'runtime-secret\n' | store runtime-secret secret set "$SITE" DRILL_RUNTIME_SECRET --runtime --version v1)"
+    "$(store preview-env env set "$SITE" DRILL_PREVIEW one --preview)"
+    "$(printf 'preview-secret\n' | store preview-secret secret set "$SITE" DRILL_PREVIEW_SECRET --preview --version v1)"
+  )
+  printf '%s\n' "${STORES[@]}" > "$EV/stores.txt"
+)
+mapfile -t STORES < "$EV/stores.txt"
+[ "${#STORES[@]}" = 4 ] || { echo "expected four environment stores, got: ${STORES[*]}" >&2; exit 1; }
+site preview deploy --name "$PREVIEW" -C "$EXAMPLE" --skip-build --tag "$TAG" --image-resource "$IMAGE_A" \
+  --preview-env-resource "${STORES[0]}" --preview-env-resource "${STORES[1]}" --preview-env-resource "${STORES[2]}" --preview-env-resource "${STORES[3]}" \
+  --save-plan "$ROOT/reviews/preview" > "$EV/preview-plan.log" 2>&1 || { tail -5 "$EV/preview-plan.log" >&2; exit 1; }
 review_apply "$ROOT/reviews/preview"
 log "deployed preview $PREVIEW_HOST"
 # Each enforcer route answers over its local-CA certificate once cert-manager has issued it.
@@ -208,8 +238,11 @@ get() { # host path [curl args...]
 }
 await_route() { # host
   local n
-  for n in $(seq 1 240); do [ "$(get "$1" "/")" = 302 ] && return 0; sleep 1; done
-  echo "$1 did not answer 302 over the local CA within 240 s: last $(get "$1" "/")" >&2; exit 1
+  for n in $(seq 1 600); do
+    if [ "$(get "$1" "/")" = 302 ]; then record "seconds until $1 answered 302" "$n"; return 0; fi
+    sleep 1
+  done
+  echo "$1 did not answer 302 over the local CA within 600 s: last $(get "$1" "/")" >&2; exit 1
 }
 await_route "$HOST"; await_route "$PREVIEW_HOST"
 expect "origin ksvc url" "$(kubectl --context "$KUBE" -n "$NS" get ksvc "$SITE" -o jsonpath='{.status.url}')" "http://$SITE.$NS.svc.cluster.local"

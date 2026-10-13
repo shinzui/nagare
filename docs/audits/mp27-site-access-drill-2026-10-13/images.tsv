@@ -1,0 +1,3 @@
+en	k3d-registry.localhost:5000/en@sha256:d515cf44c4ce712d3ca575182c7de593324d80811e2a7ff92c84f3d8b75c6378
+shomei	k3d-registry.localhost:5000/shomei@sha256:260a5268a640a0d64237e091b1dd85369ba7e515aa1b7c5bb4e1b0bd13de67f3
+nagare-access	k3d-registry.localhost:5000/nagare-access@sha256:f2544cb9040c7f5f661d4639271a15596ffb08777ecdd54083f2037312addb24

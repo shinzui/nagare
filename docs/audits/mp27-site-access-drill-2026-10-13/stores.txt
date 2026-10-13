@@ -1,0 +1,4 @@
+application:env-protected-static-site-runtime/runtime-env/configmap
+application:secret-protected-static-site-runtime/runtime-secret/secret
+application:env-protected-static-site-preview/preview-env/configmap
+application:secret-protected-static-site-preview/preview-secret/secret

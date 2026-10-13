@@ -1,0 +1,1 @@
+{"source":"object user {}\n\nobject group {\n  relation member: user\n}\n\nobject app {\n  relation viewer: user, group#member\n  permission access = viewer\n}\n","hash":"fnv1a64:40b7b82bdaeea49e","origin":"/etc/en/schema/app.en","loadedAt":"2026-10-13T08:05:29.11369324Z"}
