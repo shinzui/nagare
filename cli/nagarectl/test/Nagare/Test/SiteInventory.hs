@@ -8,6 +8,9 @@ import Nagare.Test.SiteInventory.Access
 import Nagare.Test.SiteInventory.Preview
   ( previewSiteInventoryTests
   )
+import Nagare.Test.SiteInventory.PreviewCollision
+  ( previewCollisionTests
+  )
 import Nagare.Test.SiteInventory.Server
   ( serverSiteInventoryTests
   )
@@ -17,4 +20,4 @@ import Nagare.Test.SiteInventory.Static
 import Test.Tasty (TestTree)
 
 staticInventoryTests :: [TestTree]
-staticInventoryTests = staticSiteInventoryTests <> previewSiteInventoryTests <> serverSiteInventoryTests <> protectedSiteInventoryTests
+staticInventoryTests = staticSiteInventoryTests <> previewSiteInventoryTests <> previewCollisionTests <> serverSiteInventoryTests <> protectedSiteInventoryTests

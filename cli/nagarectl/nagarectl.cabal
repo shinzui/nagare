@@ -654,6 +654,7 @@ test-suite nagarectl-test
     Nagare.Test.SiteInventory
     Nagare.Test.SiteInventory.Access
     Nagare.Test.SiteInventory.Preview
+    Nagare.Test.SiteInventory.PreviewCollision
     Nagare.Test.SiteInventory.Server
     Nagare.Test.SiteInventory.Static
     Nagare.Test.Static

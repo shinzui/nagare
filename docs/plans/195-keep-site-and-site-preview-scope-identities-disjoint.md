@@ -40,11 +40,15 @@ review is saved.
 
 ## Progress
 
-- [ ] M1. Severity and real-world exposure are established. Interpreter tests reproduce all four
+- [x] M1. Severity and real-world exposure are established. Interpreter tests reproduce all four
       collisions and record what the saved review proposes for the first owner's members, especially
       `Retain` volumes. A characterization test shows that preview cleanup refuses, and does not
       select, a scope that a `preview-*` site owns. A read-only check of the intranet context shows
       whether any accepted or retained scope there would be refused by the new rules.
+      Pass: `cli/nagarectl/test/Nagare/Test/SiteInventory/PreviewCollision.hs` (collisions 1–4) and
+      "a site-owned site-preview- scope is refused, not selected, by preview cleanup" in
+      `cli/nagarectl/test/InventoryPreviewCleanupSpec.hs`. The intranet check printed nothing
+      (2026-10-14, v0.6.3: 31 accepted scopes, 0 retained, no `site-*` scope at all).
 - [ ] M2. `mkSiteName` refuses names that begin with `preview-`, contain `-pr-` or end with `-pr`.
       New `mkSiteName`, `decodeStaticSite` and `decodeServerSite` cases fail before the fix and pass
       after it.
@@ -80,6 +84,23 @@ Deploy, preview deploy and `site preview delete` all go through it. As a result,
 `site preview delete` cannot name an existing cut-short preview. `cleanup --previews` can still
 collect one, because it reads Service names from scopes and never calls `previewServiceName`. M1's
 exposure check gates this.
+
+2026-10-14 (M1 result): every collision fails closed today; none deletes, re-binds or hands over a
+`Retain` volume. A preview deploy plans with no lifecycle decisions, so:
+
+- collision 1 (preview `x` of `blog` over site `preview-blog-pr-x`) is refused with
+  `migration-review-required` on the volume `data` (same identity, different claim) and
+  `retirement-required` on the site's Service and release history; the reverse order is refused by
+  "accepted site scope lacks release history";
+- collisions 2 and 3 (two previews with one Service name) are refused with `retirement-required` on
+  the first preview's DomainMapping, whose identity is its host. The Service and the volume have the
+  same identity and claim, so after a reviewed retirement of that one route the second preview would
+  run against the first one's volume. No `nagarectl` command makes that decision for a preview;
+- collision 4 is refused at composition with three `claim-conflict` errors.
+
+The cost today is availability: the second owner can never deploy. M2 and M3 remove the collisions
+themselves. The intranet holds no site or preview scope, so neither refusal affects an existing
+identity.
 
 2026-10-14: The collision tests are M1 evidence only. After M2 and M3 none of them can be built:
 `SiteName` is abstract, and `previewServiceName` refuses the long names. M2 and M3 delete them rather

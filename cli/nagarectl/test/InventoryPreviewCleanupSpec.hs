@@ -86,6 +86,28 @@ inventoryPreviewCleanupTests =
         assertBool
           "changed original digest"
           (isLeft (eligiblePreviewCollections "personal" history inventory (Map.singleton (fixtureOwner, revision) unrelated)))
+    , -- EP-195: a site named preview-notes owns standalone:site-preview-notes,
+      -- the scope a preview would own. Cleanup refuses it and never selects it.
+      testCase "a site-owned site-preview- scope is refused, not selected, by preview cleanup" $ do
+        let siteOwner = ok (mkScopeId Standalone "site-preview-notes")
+            siteMember key api kind name = resourceOf siteOwner key api kind name []
+            members =
+              [ siteMember "preview-notes" "serving.knative.dev/v1" "Service" "preview-notes" & #spec .~ KnativeService (contentDigest "site")
+              , siteMember "notes.example.test" "serving.knative.dev/v1beta1" "DomainMapping" "notes.example.test"
+              , siteMember "release-history" "v1" "ConfigMap" "preview-notes-releases"
+              ]
+            siteScope = ok (mkScopeDeclaration siteOwner [ResourceBundle (map Managed members) [] [] [] [] []])
+            siteSnapshot = ok (mkScopeSnapshot binding (Map.singleton siteOwner (generation, siteScope)) Map.empty)
+        assertBool "site-owned scope selected as a preview" (isLeft (previewCleanupServices "personal" siteSnapshot))
+        store <- newMemoryStore
+        _ <- initializeStore store binding "preview-test" >>= right
+        original <- loadInventoryHistory store >>= right
+        inventory <- right (composeSnapshot (ok (mkScopeSnapshot binding Map.empty Map.empty)))
+        let revision = ScopeRevision generation (contentDigest (encodeCanonicalScope siteScope))
+            history = original {historyRetained = Map.fromList [(member ^. #identity, (RetainedIncarnation siteOwner revision uid "fixture" Nothing Nothing, member)) | member <- members]}
+        assertBool
+          "retained site-owned scope selected for preview collection"
+          (isLeft (eligiblePreviewCollections "personal" history inventory (Map.singleton (siteOwner, revision) siteScope)))
     ]
 
 fixtureOwner :: ScopeId
@@ -118,10 +140,13 @@ volume =
 alien = resource "alien" "v1" "ConfigMap" "settings" []
 
 resource :: Text -> Text -> Text -> Text -> [Dependency] -> ManagedResource
-resource key api kind name dependencies =
+resource = resourceOf fixtureOwner
+
+resourceOf :: ScopeId -> Text -> Text -> Text -> Text -> [Dependency] -> ManagedResource
+resourceOf owner key api kind name dependencies =
   ManagedResource
-    (mintResourceId fixtureOwner (ok (mkLogicalKey key)) (ok (mkName key)))
-    fixtureOwner
+    (mintResourceId owner (ok (mkLogicalKey key)) (ok (mkName key)))
+    owner
     KubernetesExecutor
     (ok (kubernetesAddress fixtureCluster api kind (Just "personal") name))
     []
