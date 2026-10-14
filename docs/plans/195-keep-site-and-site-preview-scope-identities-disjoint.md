@@ -49,13 +49,15 @@ review is saved.
       "a site-owned site-preview- scope is refused, not selected, by preview cleanup" in
       `cli/nagarectl/test/InventoryPreviewCleanupSpec.hs`. The intranet check printed nothing
       (2026-10-14, v0.6.3: 31 accepted scopes, 0 retained, no `site-*` scope at all).
-- [ ] M2. `mkSiteName` refuses names that begin with `preview-`, contain `-pr-` or end with `-pr`.
+- [x] M2. `mkSiteName` refuses names that begin with `preview-`, contain `-pr-` or end with `-pr`.
       New `mkSiteName`, `decodeStaticSite` and `decodeServerSite` cases fail before the fix and pass
-      after it.
-- [ ] M3. `previewServiceName` refuses a Service name over 63 characters instead of cutting it. The
+      after it. Pass: the `mkSiteName` group and both "site name reserved for previews returns
+      MarshalError name" cases in `cli/nagare-dsl/test/StaticSpec.hs` and `ServerSpec.hs`.
+- [x] M3. `previewServiceName` refuses a Service name over 63 characters instead of cutting it. The
       boundary cases fail before the fix and pass after it. The cleanup characterization test passes
       unchanged. `just haskell-style-check` and `just gate-fast` are green, and M2 and M3 land through
-      `just land`.
+      `just land`. Pass: the three `previewServiceName` length cases in
+      `cli/nagarectl/test/Nagare/Test/Static.hs`; the M1 collision module is deleted.
 
 
 ## Decision Log
@@ -101,6 +103,11 @@ exposure check gates this.
 The cost today is availability: the second owner can never deploy. M2 and M3 remove the collisions
 themselves. The intranet holds no site or preview scope, so neither refusal affects an existing
 identity.
+
+2026-10-14: F99 lands with M2 and M3, because it is the same preview naming code: the preview
+scope compiler refuses a hostname over 63 bytes, the longest name net-certmanager puts in a
+certificate. The check is in `compileRenderedSitePreviewScope`, not in `previewDomain`, so
+`site preview delete` can still name an existing over-long preview and retire it.
 
 2026-10-14: The collision tests are M1 evidence only. After M2 and M3 none of them can be built:
 `SiteName` is abstract, and `previewServiceName` refuses the long names. M2 and M3 delete them rather

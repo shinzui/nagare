@@ -111,7 +111,7 @@ main = case staticSite of
 
 | Field | Meaning |
 | --- | --- |
-| `name` | DNS-label site name (also the Knative Service name). |
+| `name` | DNS-label site name (also the Knative Service name). It must not begin with `preview-`, contain `-pr-` or end with `-pr`: those are reserved for previews. |
 | `namespace` | Kubernetes namespace; use `mkNamespace "personal"`. |
 | `image` | Artifact Registry repo for the built image, **no tag** (Nagare appends the tag). |
 | `build` | `NoBuild dir` to serve an existing directory, or `BuildCommand { command, outputDirectory }` to run a build first (e.g. `npm run build` → `dist`). |
@@ -314,7 +314,10 @@ nagarectl site preview delete feature-x --save-plan preview-retire-review
 
 A preview becomes a separate Knative Service named `<site>-pr-<name>` at
 `https://<name>.<site>.preview.<base-domain>`. The name is normalized to a
-DNS-safe form (`Feature/X-1` → `feature-x-1`). Deletion starts with a saved
+DNS-safe form (`Feature/X-1` → `feature-x-1`). The whole Service name must fit
+in 63 characters, so a site of 59 or more characters cannot have previews, and
+the hostname must also fit in 63 characters, the longest name a certificate can
+carry. A preview that breaks either limit is refused before any review. Deletion starts with a saved
 retirement review, followed by separate exact collection reviews.
 
 To review a static preview, publish its tagged image and accept the site's four

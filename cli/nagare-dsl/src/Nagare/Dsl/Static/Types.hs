@@ -66,7 +66,11 @@ newtype SiteName = SiteName Text
   deriving stock (Generic, Eq, Ord, Show)
 
 -- | Validate and construct a 'SiteName': 1–63 characters of lowercase letters,
--- digits, and hyphens, not starting or ending with a hyphen.
+-- digits, and hyphens, not starting or ending with a hyphen. A site preview's
+-- Service is @<site>-pr-<preview>@ and its scope @site-preview-<service>@, so a
+-- name beginning with @preview-@, containing @-pr-@ or ending with @-pr@ is
+-- refused: each would let a site and a preview, or two previews, share one
+-- identity (EP-195).
 mkSiteName :: Text -> Either Text SiteName
 mkSiteName t
   | Text.null t = Left "site name must not be empty"
@@ -76,6 +80,10 @@ mkSiteName t
   | Text.isSuffixOf "-" t = Left "site name must not end with a hyphen"
   | not (Text.all validLabelChar t) =
       Left ("site name contains invalid characters (allowed: a-z, 0-9, -): " <> t)
+  | Text.isPrefixOf "preview-" t =
+      Left "site name must not begin with \"preview-\" (reserved for site preview scopes)"
+  | Text.isInfixOf "-pr-" t || Text.isSuffixOf "-pr" t =
+      Left "site name must not contain \"-pr-\" or end with \"-pr\" (reserved as the site preview separator)"
   | otherwise = Right (SiteName t)
 
 siteNameText :: SiteName -> Text

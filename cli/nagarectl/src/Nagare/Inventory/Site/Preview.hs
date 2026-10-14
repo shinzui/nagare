@@ -10,6 +10,7 @@ module Nagare.Inventory.Site.Preview
 where
 
 import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
 import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict (Map)
@@ -17,6 +18,7 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (listToMaybe)
 import Data.Set qualified as Set
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 import Nagare.Access.Resolve (backendConfigMapNamespace)
 import Nagare.Dsl.Access (AccessPolicy)
 import Nagare.Dsl.Prelude
@@ -223,6 +225,20 @@ compileRenderedSitePreviewScope
             & #sources
             .~ [source]
             & (:| [])
+    -- F99: net-certmanager refuses a DomainMapping whose hostname, its
+    -- certificate's common name, exceeds 63 bytes, so such a preview would
+    -- never become Ready under external TLS. Refuse it before any review.
+    let hostBytes = BS.length (TE.encodeUtf8 host)
+    unless (hostBytes <= 63) $
+      Left
+        ( invalid
+            ( "preview hostname "
+                <> host
+                <> " is "
+                <> T.pack (show hostBytes)
+                <> " bytes, max 63 (the longest certificate common name); shorten the preview name"
+            )
+        )
     envIds <- first invalid (sitePreviewStoreIds cluster name ns stores)
     domains <- first invalid (mkDomains [(host, True)])
     domain <- case domains of

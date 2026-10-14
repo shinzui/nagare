@@ -208,6 +208,8 @@ decodeFailureTests =
       case decodeServerSite (BC.pack legacyDomainsJSON) of
         Right site -> fmap domainText (canonicalDomain (site ^. #domains)) @?= Just "first.example.com"
         other -> assertFailure ("expected Right, got: " <> show other)
+  , testCase "site name reserved for previews returns MarshalError name" $
+      assertMarshal "name" (Text.unpack (Text.replace "\"name\":\"app\"" "\"name\":\"preview-x\"" (Text.pack (serverJSON validParts))))
   , testCase "absolute output dir returns MarshalError build.outputDirs" $
       assertMarshal "build.outputDirs" (serverJSON (validParts & #pOutputDirs .~ "[\"/abs\"]"))
   , testCase "parent-dir output dir returns MarshalError build.outputDirs" $

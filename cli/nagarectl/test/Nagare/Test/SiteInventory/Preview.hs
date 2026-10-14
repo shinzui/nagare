@@ -5,7 +5,7 @@ module Nagare.Test.SiteInventory.Preview
 where
 
 import Data.ByteString.Char8 qualified as BC
-import Data.Either (isLeft)
+import Data.Either (isLeft, isRight)
 import Data.Generics.Labels ()
 import Data.Map qualified as Map
 import Data.Set qualified as Set
@@ -199,6 +199,18 @@ previewSiteInventoryTests =
                 (take 3 deps)
                 source
             )
+        )
+      -- F99: "<preview>.demo.preview.example.com" fits 63 bytes up to a
+      -- 38-character preview name; one more is refused before any review.
+      assertBool
+        "preview refused a 63-byte hostname"
+        (isRight (compileStaticSitePreviewScope Nothing inputs (T.replicate 38 "a") cluster namespaceId imageId deps source))
+      assertBool
+        "preview accepted a 64-byte hostname"
+        ( either
+            (any (T.isInfixOf "is 64 bytes, max 63" . (^. #message)))
+            (const False)
+            (compileStaticSitePreviewScope Nothing inputs (T.replicate 39 "a") cluster namespaceId imageId deps source)
         )
       Resource.scopeKind (scopeId scope) @?= Resource.Standalone
       Map.size native @?= 2

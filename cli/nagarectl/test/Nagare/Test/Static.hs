@@ -181,12 +181,13 @@ previewTests =
       assertLeftText (normalizePreviewName "@@@")
   , testCase "previewServiceName derives <site>-pr-<name>" $
       previewServiceName "notes" "feature-x" @?= Right "notes-pr-feature-x"
-  , testCase "previewServiceName clips to 63 chars without trailing hyphen" $
-      case previewServiceName "notes" (T.replicate 80 "a") of
-        Right n -> do
-          assertBool "<= 63 chars" (T.length n <= 63)
-          assertBool "no trailing hyphen" (T.last n /= '-')
-        Left e -> assertFailure ("expected Right, got: " <> T.unpack e)
+  , testCase "previewServiceName accepts a 63-character Service name" $
+      previewServiceName "notes" (T.replicate 54 "a") @?= Right ("notes-pr-" <> T.replicate 54 "a")
+  , testCase "previewServiceName refuses a 64-character Service name instead of cutting it" $
+      previewServiceName "notes" (T.replicate 55 "a")
+        @?= Left ("preview name too long: \"notes-pr-" <> T.replicate 55 "a" <> "\" is 64 characters, max 63 (at most 54 characters for site notes)")
+  , testCase "previewServiceName refuses every preview of a 59-character site" $
+      assertLeftText (previewServiceName (T.replicate 59 "s") "x")
   , testCase "previewDomain derives <preview>.<site>.preview.<base>" $
       previewDomain "notes" "feature-x" "apps.example.com"
         @?= Right "feature-x.notes.preview.apps.example.com"

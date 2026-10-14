@@ -110,6 +110,11 @@ constructorTests =
       [ testCase "accepts notes" $ assertRight (mkSiteName "notes")
       , testCase "rejects uppercase" $ assertLeftContains "invalid" (mkSiteName "Notes")
       , testCase "rejects empty" $ assertLeftContains "empty" (mkSiteName "")
+      , testCase "rejects the preview scope prefix" $ assertLeftContains "\"preview-\"" (mkSiteName "preview-blog-pr-x")
+      , testCase "rejects the preview separator inside" $ assertLeftContains "\"-pr-\"" (mkSiteName "a-pr-b")
+      , testCase "rejects the preview separator at the end" $ assertLeftContains "\"-pr\"" (mkSiteName "blog-pr")
+      , testCase "accepts names near the preview rules" $
+          mapM_ (assertRight . mkSiteName) ["blog-preview", "preview", "pr-tools", "blog-prod"]
       ]
   , testGroup
       "mkFilePathText"
@@ -187,6 +192,8 @@ decodeFailureTests =
         other -> assertFailure ("expected Right, got: " <> show other)
   , testCase "bad site name returns MarshalError name" $
       assertMarshal "name" (staticJSON (validParts & #pName .~ "Notes"))
+  , testCase "site name reserved for previews returns MarshalError name" $
+      assertMarshal "name" (staticJSON (validParts & #pName .~ "preview-x"))
   , testCase "absolute output dir returns MarshalError build.outputDirectory" $
       assertMarshal
         "build.outputDirectory"

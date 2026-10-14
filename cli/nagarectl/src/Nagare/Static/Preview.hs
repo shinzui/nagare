@@ -46,16 +46,28 @@ previewPrefix :: Text -> Text
 previewPrefix site = site <> "-pr-"
 
 -- | The preview Service name for @site@ and a (raw) preview name:
--- @"<site>-pr-<preview>"@, truncated to the 63-char DNS-label limit with any
--- trailing hyphen removed. Fails if the preview name normalizes to nothing.
+-- @"<site>-pr-<preview>"@. Fails if the preview name normalizes to nothing, or
+-- if the name exceeds the 63-character DNS-label limit: cutting it would give
+-- two previews, or a preview and its site, one Service and scope (EP-195).
 previewServiceName :: Text -> Text -> Either Text Text
 previewServiceName site raw = do
   norm <- normalizePreviewName raw
   let combined = previewPrefix site <> norm
-      clipped = dropTrailingHyphen (T.take 63 combined)
-  Right clipped
-  where
-    dropTrailingHyphen = T.dropWhileEnd (== '-')
+      room = 63 - T.length (previewPrefix site)
+  when (T.length combined > 63) . Left $
+    if room <= 0
+      then "preview name too long: site " <> site <> " leaves no room for a preview (\"<site>-pr-<name>\" must fit in 63 characters)"
+      else
+        "preview name too long: \""
+          <> combined
+          <> "\" is "
+          <> T.pack (show (T.length combined))
+          <> " characters, max 63 (at most "
+          <> T.pack (show room)
+          <> " characters for site "
+          <> site
+          <> ")"
+  Right combined
 
 -- | The preview public hostname: @"<preview>.<site>.preview.<baseDomain>"@,
 -- using the normalized preview name.
