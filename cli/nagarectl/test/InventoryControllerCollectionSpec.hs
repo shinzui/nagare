@@ -38,6 +38,7 @@ controllerCollectionTests =
     , testCase "ordinary adapter cannot execute a controller-authority review" ordinaryRefuses
     , testCase "new descendant after accepted delete prevents convergence" newAfter
     , testCase "status-only version changes do not stale descendant authority" statusChanges
+    , testCase "a parent that never became Ready is collected by its reviewed identity (F100)" unreadyParent
     ]
 
 selected :: FilePath -> CollectionFault -> AdapterRegistry
@@ -206,3 +207,26 @@ statusChanges = withSystemTempDirectory "nagare-cascade-status" $ \root -> do
   result <- must (applyReviewed store (selected root Cascade) reviewed)
   assertUnresolved result
   length . deleteBodies <$> readCollectionWorld root >>= (@?= 1)
+
+-- F100: a DomainMapping whose certificate never issues stays Ready=False. Its
+-- retained parent must still get a reviewed Background collection.
+unreadyParent :: IO ()
+unreadyParent = withSystemTempDirectory "nagare-cascade-unready" $ \root -> do
+  (store, _, _) <- preparedCollection root
+  world <- readCollectionWorld root
+  let unready value =
+        setField
+          "status"
+          ( object
+              [ "observedGeneration" .= (1 :: Int)
+              , "conditions" .= [object ["type" .= ("Ready" :: Text), "status" .= ("False" :: Text), "reason" .= ("CommonName Too Long" :: Text)]]
+              ]
+          )
+          value
+  writeCollectionWorld root world {resources = Map.adjust unready parentKey (resources world)}
+  (_, reviewed) <- prepareChange store (selected root Cascade) (CollectRetained parentId)
+  result <- must (applyReviewed store (selected root Cascade) reviewed)
+  assertUnresolved result
+  pending <- readCollectionWorld root
+  Map.member parentKey (resources pending) @?= False
+  map (field "propagationPolicy") (deleteBodies pending) @?= [String "Background"]

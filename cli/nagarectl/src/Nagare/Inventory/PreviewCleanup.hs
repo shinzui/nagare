@@ -3,6 +3,7 @@ module Nagare.Inventory.PreviewCleanup
   ( previewCleanupServices
   , parsePreviewAge
   , eligiblePreviewCollections
+  , firstCollectible
   , previewCleanupRevisions
   , validatePreviewIncarnations
   )
@@ -143,6 +144,17 @@ eligiblePreviewCollections namespace history inventory originals = do
       services <- previewCleanupServices namespace snapshot
       unless (length services == 1) (Left "retained cleanup owner does not have an original complete preview contract")
       pure (key, scope)
+
+-- | Try each eligible member in order and keep the first whose collection
+-- review is saved. A member whose review refuses is returned with its reason
+-- and skipped, so it never blocks the members after it (F101).
+firstCollectible :: (Monad m) => (ResourceId -> m (Either Text a)) -> [ResourceId] -> m ([(ResourceId, Text)], Maybe (ResourceId, a))
+firstCollectible attempt = go []
+  where
+    go refused [] = pure (reverse refused, Nothing)
+    go refused (resource : rest) =
+      attempt resource
+        >>= either (\reason -> go ((resource, reason) : refused) rest) (\saved -> pure (reverse refused, Just (resource, saved)))
 
 validatePreviewIncarnations :: Map.Map ResourceId PhysicalIdentity -> ObservationSet -> Either (NonEmpty PlanError) ()
 validatePreviewIncarnations expected observed = case [ resource

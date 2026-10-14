@@ -28,6 +28,7 @@ module Nagare.Inventory.Command
   , planInventoryRetirementsWith
   , planInventoryCollectionWith
   , planInventoryCollectionsWith
+  , tryPlanInventoryCollectionWith
   , applyInventory
   , applyInventoryWith
   , applyInventoryWithFactory
@@ -394,6 +395,29 @@ planInventoryCollectionsWith registryFor target resources output = do
     candidate
     output
 
+-- | Save the reviewed collection of one retained resource, or return why its
+-- review refuses without ending the process, so a caller can try another
+-- resource (F101). A refusal publishes nothing.
+tryPlanInventoryCollectionWith ::
+  (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry) ->
+  ActiveTarget ->
+  ResourceId ->
+  FilePath ->
+  IO (Either Text ())
+tryPlanInventoryCollectionWith registryFor target resource output = do
+  snapshot <- loadTargetSnapshot target
+  case composeInventory snapshot (CollectRetained resource :| []) of
+    Left errors -> pure (Left (showText (NE.toList errors)))
+    Right candidate -> do
+      prepared <-
+        tryPrepareInventoryCandidateWithDeciderPayload
+          registryFor
+          (\history observations -> decideCollection candidate history observations)
+          "operator-cli"
+          target
+          candidate
+      traverse (\(_, bundle, digest) -> writePlannedReview output bundle digest) prepared
+
 -- | Plan a freshly compiled component candidate with native member bytes held
 -- by the caller. Publication still retains those bytes in the private review.
 planInventoryCandidateWith :: (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry) -> ActiveTarget -> CompositionCandidate -> FilePath -> IO ()
@@ -435,6 +459,10 @@ planInventoryCandidateWithDeciderPayload ::
   IO ()
 planInventoryCandidateWithDeciderPayload registryFor decide payloadIdentity target candidate output = do
   (_, bundle, digest) <- prepareInventoryCandidateWithDeciderPayload registryFor decide payloadIdentity target candidate
+  writePlannedReview output bundle digest
+
+writePlannedReview :: FilePath -> ReviewBundle -> ContentDigest -> IO ()
+writePlannedReview output bundle digest = do
   _ <- writeReviewBundle output bundle >>= either dieText pure
   TIO.putStrLn (digestText digest)
   mapM_ (TIO.putStrLn . uncurry renderRebind) (Map.toAscList (reviewRebinds (reviewBundleDocument bundle)))
@@ -488,7 +516,21 @@ prepareInventoryCandidateWithDeciderPayload ::
   ActiveTarget ->
   CompositionCandidate ->
   IO (InventoryStore, ReviewBundle, ContentDigest)
-prepareInventoryCandidateWithDeciderPayload registryFor decide payloadIdentity target candidate = do
+prepareInventoryCandidateWithDeciderPayload registryFor decide payloadIdentity target candidate =
+  tryPrepareInventoryCandidateWithDeciderPayload registryFor decide payloadIdentity target candidate
+    >>= either dieText pure
+
+-- | As 'prepareInventoryCandidateWithDeciderPayload', but the candidate's own
+-- refusal (observation, lifecycle decision, plan or review preparation) is
+-- returned instead of ending the process. Nothing is published on a refusal.
+tryPrepareInventoryCandidateWithDeciderPayload ::
+  (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry) ->
+  (InventoryHistory -> ObservationSet -> Either (NonEmpty PlanError) LifecycleDecisions) ->
+  T.Text ->
+  ActiveTarget ->
+  CompositionCandidate ->
+  IO (Either Text (InventoryStore, ReviewBundle, ContentDigest))
+tryPrepareInventoryCandidateWithDeciderPayload registryFor decide payloadIdentity target candidate = do
   rejectReentry
   validateTarget target candidate
   store <- openTargetStore target
@@ -498,15 +540,17 @@ prepareInventoryCandidateWithDeciderPayload registryFor decide payloadIdentity t
   history <- loadInventoryPlanningHistory store candidate >>= either (dieText . showText) pure
   registry <- registryFor candidate history
   let requirements = observationRequirements candidate history
-  observations <- observeWithRegistry registry (requirementsByExecutor requirements) >>= either dieText pure
-  decisions <- either (dieText . renderPlanErrors) pure (decide history observations)
-  proposal <- either (dieText . renderPlanErrors) pure (planChanges candidate decisions history observations)
-  snapshot <- readStoreSnapshot store >>= either (dieText . showText) pure
-  bundle <-
-    prepareReviewWithPayloadIdentity payloadIdentity registry snapshot proposal
-      >>= either (dieText . showText . NE.toList) pure
-  digest <- publishReview store bundle >>= either (dieText . showText) pure
-  pure (store, bundle, digest)
+  observed <- observeWithRegistry registry (requirementsByExecutor requirements)
+  case observed >>= \observations -> first renderPlanErrors (decide history observations >>= \decisions -> planChanges candidate decisions history observations) of
+    Left reason -> pure (Left reason)
+    Right proposal -> do
+      snapshot <- readStoreSnapshot store >>= either (dieText . showText) pure
+      prepared <- prepareReviewWithPayloadIdentity payloadIdentity registry snapshot proposal
+      case prepared of
+        Left errors -> pure (Left (showText (NE.toList errors)))
+        Right bundle -> do
+          digest <- publishReview store bundle >>= either (dieText . showText) pure
+          pure (Right (store, bundle, digest))
 
 applyInventory :: ActiveTarget -> FilePath -> Bool -> IO ()
 applyInventory = applyInventoryWith executionBlockedRegistry

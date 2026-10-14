@@ -1,6 +1,6 @@
 module Nagare.Cli.Runtime.PreviewCleanup (saveReviewedPreviewCleanup) where
 
-import Control.Monad (forM)
+import Control.Monad (forM, forM_)
 import Data.Generics.Labels ()
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
@@ -26,6 +26,7 @@ import Nagare.Resource.Types
 import Nagare.Resource.Wire (decodeScope)
 import Nagare.Target (contextNameText)
 import System.Exit (ExitCode (..))
+import System.IO (stderr)
 
 saveReviewedPreviewCleanup :: Maybe String -> CleanupOpts -> FilePath -> IO ()
 saveReviewedPreviewCleanup selected options output = do
@@ -48,19 +49,23 @@ saveReviewedPreviewCleanup selected options output = do
     scope <- either (dieT . T.pack . show) pure (decodeScope bytes)
     pure (key, scope)
   collectible <- either dieT pure (eligiblePreviewCollections namespace history inventory (Map.fromList originals))
-  -- Collection is deliberately a later review; retirement never deletes.
-  case collectible of
-    resource : _ -> do
-      let member = snd (Plan.historyRetained history Map.! resource)
-          controller = case member ^. #address of
-            Kubernetes _ "serving.knative.dev" kind _ _ -> nameText kind `elem` ["service", "domainmapping"]
-            _ -> False
-          collectionRegistry candidate previous =
-            withPreparationGuard (collectOnly resource)
-              <$> (if controller then inventoryControllerCollectionRegistry else inventoryPlanRegistry) active workspace candidate previous
-      Inventory.planInventoryCollectionWith collectionRegistry active resource output
-      TIO.putStrLn "Saved exact retained preview collection; dependent and durable members remain retained"
-    [] -> do
+  -- Collection is deliberately a later review; retirement never deletes. A
+  -- member whose collection review refuses is reported and skipped (F101).
+  let collect resource = do
+        let member = snd (Plan.historyRetained history Map.! resource)
+            controller = case member ^. #address of
+              Kubernetes _ "serving.knative.dev" kind _ _ -> nameText kind `elem` ["service", "domainmapping"]
+              _ -> False
+            collectionRegistry candidate previous =
+              withPreparationGuard (collectOnly resource)
+                <$> (if controller then inventoryControllerCollectionRegistry else inventoryPlanRegistry) active workspace candidate previous
+        Inventory.tryPlanInventoryCollectionWith collectionRegistry active resource output
+  (refused, saved) <- firstCollectible collect collectible
+  forM_ refused $ \(resource, reason) ->
+    TIO.hPutStrLn stderr ("Skipped retained preview member " <> resourceIdText resource <> ": its collection review refused: " <> reason)
+  case saved of
+    Just _ -> TIO.putStrLn "Saved exact retained preview collection; dependent and durable members remain retained"
+    Nothing -> do
       services <- either dieT pure (previewCleanupServices namespace snapshot)
       context <- either dieT pure (mkContextId (contextNameText (active ^. #contextName)))
       let guard = fmap (fmap (const ())) (guardKubernetesContext active)
@@ -79,7 +84,9 @@ saveReviewedPreviewCleanup selected options output = do
       let stale = [(service, uid) | (service, uid, True) <- observed]
           expected = Map.fromList [(service ^. #identity, uid) | (service, uid) <- stale]
       case NE.nonEmpty [service ^. #owner | (service, _) <- stale] of
-        Nothing -> TIO.putStrLn "No stale accepted previews or eligible retained preview members; no cleanup review created"
+        Nothing
+          | null refused -> TIO.putStrLn "No stale accepted previews or eligible retained preview members; no cleanup review created"
+          | otherwise -> dieT "No stale accepted previews, and no skipped retained preview member could be collected; no cleanup review created"
         Just owners -> do
           Inventory.planInventoryRetirementsWith registry (validatePreviewIncarnations expected) active owners output
           TIO.putStrLn "Saved stale preview retirement; apply it, then review cleanup again for exact collection"

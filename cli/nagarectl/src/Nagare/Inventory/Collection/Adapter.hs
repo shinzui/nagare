@@ -192,10 +192,14 @@ rootWaitKind root = case root of
   ServiceRoot -> "service.serving.knative.dev"
   DomainMappingRoot -> "domainmapping.serving.knative.dev"
 
+-- The DELETE is bound to the reviewed parent's UID and resourceVersion, so a
+-- parent that never became Ready (F100: a DomainMapping whose certificate never
+-- issues) is collected exactly like a ready one.
 identityOf :: KubernetesMutation -> Either Text (Text, Text)
 identityOf mutation = case mutationBefore mutation of
   KubernetesPresent uid version _ _ -> Right (physicalIdentityText uid, version)
-  _ -> Left "controller collection needs a ready present reviewed parent"
+  KubernetesNotReady uid version _ _ -> Right (physicalIdentityText uid, version)
+  _ -> Left "controller collection needs a present reviewed parent"
 
 namespaceOf :: KubernetesMutation -> Text
 namespaceOf mutation = case mutationAddress mutation of

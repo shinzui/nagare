@@ -5,6 +5,7 @@ import Data.ByteString.Lazy qualified as BL
 import Data.Either (isLeft)
 import Data.Foldable (for_)
 import Data.Generics.Labels ()
+import Data.IORef (modifyIORef, newIORef, readIORef, writeIORef)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
 import Data.Text.Encoding qualified as TE
@@ -86,6 +87,21 @@ inventoryPreviewCleanupTests =
         assertBool
           "changed original digest"
           (isLeft (eligiblePreviewCollections "personal" history inventory (Map.singleton (fixtureOwner, revision) unrelated)))
+    , -- F101: an unready route used to stop every later cleanup in its namespace.
+      testCase "a member whose collection review refuses is skipped, not a block on later members" $ do
+        attempts <- newIORef []
+        let ids = map (^. #identity) [previewRoute, service, volume]
+            attempt refusing resource = do
+              modifyIORef attempts (<> [resource])
+              pure (if resource `elem` refusing then Left "refused" else Right ())
+        (refused, saved) <- firstCollectible (attempt [previewRoute ^. #identity]) ids
+        refused @?= [(previewRoute ^. #identity, "refused")]
+        saved @?= Just (service ^. #identity, ())
+        readIORef attempts >>= (@?= take 2 ids)
+        writeIORef attempts []
+        none <- firstCollectible (attempt ids) ids
+        none @?= ([(resource, "refused") | resource <- ids], Nothing)
+        readIORef attempts >>= (@?= ids)
     , -- EP-195: a site named preview-notes owns standalone:site-preview-notes,
       -- the scope a preview would own. Cleanup refuses it and never selects it.
       testCase "a site-owned site-preview- scope is refused, not selected, by preview cleanup" $ do
