@@ -1,7 +1,7 @@
 ---
 id: 192
 slug: publish-a-versioned-json-contract-for-the-nagarectl-outputs-kotei-consumes
-title: "Publish a versioned JSON contract for the nagarectl outputs Kotei consumes"
+title: "Publish Nagare's versioned document contract for Kotei and the read-only admin API"
 kind: exec-plan
 created_at: 2026-10-13T13:47:33Z
 provenance:
@@ -11,12 +11,17 @@ provenance:
     at: 2026-10-13T13:47:33Z
 ---
 
-# Publish a versioned JSON contract for the nagarectl outputs Kotei consumes
+# Publish Nagare's versioned document contract for Kotei and the read-only admin API
 
 This ExecPlan answers the contract request in
 `mori://shinzui/kotei/plans/84-deploy-to-nagare-through-its-reviewed-resource-inventory`
 (section "Request to Nagare for a stable public contract"). The operator approved the work on
 2026-10-13. It is outside the production-readiness checklist and does not block a release.
+
+Rewritten 2026-10-14 (operator): Nagare will also get an admin API, and that API is read-only.
+The documents defined here are therefore Nagare's one public contract, not a set of CLI outputs.
+The CLI serves them now behind `--contract 1`; the admin API will later serve the read documents
+unchanged over HTTP. The API itself is a separate MasterPlan and is not built here.
 
 
 ## Purpose / Big Picture
@@ -54,10 +59,29 @@ Each prints exactly one JSON document on stdout carrying `"contractVersion": 1`.
 `--contract`, every command prints exactly what it prints today, so operator runbooks and the
 existing `--json` documents do not change.
 
+The documents fall into two classes, recorded in `cli/nagarectl/contract/README.md`:
+
+- **Read documents**: `inventory-status`, `publication-list`, `version-info`, `refusal`, and
+  `site-list` (added by [EP-193](193-list-recorded-sites-without-live-provider-observation.md)
+  under this contract's rules). The admin API serves exactly these, with the same schemas. Each
+  separates what the inventory store recorded from what a provider observed, and says when an
+  observation is partial, because the API may run with less provider access than an operator.
+- **Operation documents**: `transaction-outcome`, `saved-review`, `image-publication-result` and
+  `deploy-preview`. They describe a change, so only the CLI emits them; the read-only API never
+  will. Kotei deploys through the CLI.
+
+Every refusal is one shape, the `refusal` object `{code, message}`: a read command prints it as
+its document, and a `refused` transaction outcome carries it. The admin API will return the same
+body. Three deferred findings are fixed here, because each would otherwise be frozen into the
+contract with its current wording: F94 (an `ambiguous` stop drops the adapter's reason), F107 (an
+expired gcloud login reads as a store I/O error) and F118 (an unprepared workspace reads as a
+mismatched one). They are in `docs/audits/mp23-findings.md`.
+
 
 ## Progress
 
-- [ ] M1: The contract types, the seven hand-written schemas, the subset validator, the golden
+- [ ] M1: The contract types, the eight hand-written schemas (the seven Kotei documents plus
+  `refusal`), the class of each document in the README draft, the subset validator, the golden
   samples and the version listing. Pass: `Nagare.Test.Contract` checks each sample document
   against its golden file and validates every sample against its schema. The validator's own
   tests show it rejects each violation it claims to check (wrong type, missing required field,
@@ -68,8 +92,11 @@ existing `--json` documents do not change.
 - [ ] M2: `inventory apply` and `inventory resume` with `--contract 1`. Pass: tests cover the
   outcome document and exit code for every `TransactionResult` constructor. They show a
   pre-execution refusal printing `refused` with exit 2, and a failure after execution starts
-  never printing `refused`. Without `--contract`, the output and exit status are byte-for-byte
-  unchanged in the existing suites.
+  never printing `refused`, and a refused outcome carrying a `refusal` object. F94: every
+  `StoppedAmbiguous` carries its reason, the human line prints it after a colon, and the contract
+  `detail` holds it; a test drives a host recovery decision and a fence refusal through resume and
+  sees each reason. Apart from that line, output and exit status without `--contract` are
+  byte-for-byte unchanged in the existing suites.
 - [ ] M3: `app image-plan`, `app deploy --save-plan` and `app deploy --dry-run` with
   `--contract 1`. Pass: CLI-level tests on the existing app-deploy fixtures emit documents equal
   to the golden samples. The deploy preview has the same top-level keys with and without hooks.
@@ -77,20 +104,55 @@ existing `--json` documents do not change.
   --contract 1`. Pass: tests over the existing status fixtures show findings for the selected
   scope only, and an unknown scope refuses. A publication fixture lists resource ID, key,
   destination, both digests, generation, and the application scopes whose accepted
-  `imageResource` names it.
+  `imageResource` names it. Read commands under `--contract 1` print a `refusal` document on
+  failure. F107: a store read failing on an expired gcloud login refuses with code
+  `reauthentication-required` and a message naming `gcloud auth login`, with and without
+  `--contract`. F118: status against a context whose workspace directory does not exist refuses
+  with `workspace-not-prepared`, not "mismatched manifest". Each has a test that fails before the
+  fix.
 - [ ] M5: Clean up and hand off. Delete `renderPlan`, `AppDeployPlan` and `renderAppObjects`,
   and fix the stale comment in `Options.hs`. Add `cli/nagarectl/contract/README.md` and a
-  "Machine-readable contract" section in `docs/user/reference.md`. Pass: `just haskell-style-check`
+  "Machine-readable contract" section in `docs/user/reference.md`. The README states the two
+  document classes and that the admin API serves the read class only. Pass: `just haskell-style-check`
   and `just gate-fast` are green, then `just land`. The contract path and the landed commit hash
-  (copied from `git log`) are sent to the `kotei` session.
-
-
-## Surprises & Discoveries
-
-(None yet.)
+  (copied from `git log`) are sent to the `kotei` session, and the M1 commit hash to whichever
+  session implements EP-193.
 
 
 ## Decision Log
+
+- Decision (2026-10-14, operator): Nagare's admin API is read-only. This plan becomes Nagare's
+  one public document contract instead of a CLI-output contract for Kotei. The seven document
+  shapes Kotei designed against (Kotei plan 84, Milestone 2) are kept exactly, so Kotei has no
+  rework; what changes is the framing, the added `refusal` document, and the rules below. The
+  admin API is not built here; its MasterPlan serves the read documents from
+  `cli/nagarectl/contract/v1/` and adds no second schema set. Its OpenAPI 3.1 description, if it
+  has one, references these files, since OpenAPI 3.1 uses the same JSON Schema 2020-12 dialect.
+- Decision (2026-10-14): Two document classes. Read documents (`inventory-status`,
+  `publication-list`, `version-info`, `refusal`, and EP-193's `site-list`) are served by the CLI
+  and the admin API. Operation documents (`transaction-outcome`, `saved-review`,
+  `image-publication-result`, `deploy-preview`) are CLI-only, because the API never changes
+  anything. A read document keeps recorded facts (from the store) and observed facts (from
+  providers) in separate fields and states completeness (`observationComplete`), because the API
+  may observe less than an operator's CLI. Nothing in a read document may require operator
+  credentials to be meaningful.
+- Decision (2026-10-14): One refusal shape, `{code, message}`, with `code` from a closed enum:
+  `unknown-scope`, `unsupported-contract-version`, `wrong-context`, `review-changed`,
+  `admission-refused`, `store-unavailable`, `reauthentication-required`,
+  `workspace-not-prepared` and `other`. Read commands print it as a `refusal` document; a
+  `refused` transaction outcome carries it as `refusal`. The CLI exit codes stay as below, and
+  the admin API's plan maps codes to HTTP statuses. A new code is an additive enum value under
+  the README rule. Classify only the sources this plan names; everything else is `other` with the
+  existing message, so no refusal is lost.
+- Decision (2026-10-14): Fix F94, F107 and F118 here. Each would otherwise be published in the
+  contract with misleading content: F94 as an `ambiguous` outcome with a null `detail`, F107 as a
+  `store-unavailable` refusal for what is an expired login, and F118 as a mismatch for a
+  workspace that was never prepared. F94 deliberately changes one human line (`ambiguous <tx> at
+  <op>` gains `: <reason>`); every other human output stays byte-identical.
+- Decision (2026-10-14): EP-193's `site list` JSON is this contract's `site-list` document,
+  emitted under `--contract 1` and added to `cli/nagarectl/contract/v1/` with its schema and
+  samples by EP-193, after this plan's M1 lands. EP-193 keeps its query and acceptance; only its
+  output format follows these rules.
 
 - Decision (2026-10-13): Contract output is selected by `--contract 1`, not by `--json`. The
   existing `--json` documents (`inventory status`, `inventory explain`, `app deploy --dry-run`)
@@ -110,10 +172,12 @@ existing `--json` documents do not change.
   is caught because every projected sample is validated, `additionalProperties: false` rejects
   undeclared fields, and samples cover every enum value and both dry-run shapes. The review
   rule in `cli/nagarectl/contract/README.md` is that every new field gets a sample.
-- Decision (2026-10-13): The contract types live in their own module, `Nagare.Contract.V1`
-  (plain records with hand-written `ToJSON`, importing nothing from Nagare), with
-  `Nagare.Contract.Project` holding the pure projections from internal values. Kotei never links
-  them; it stays subprocess-only. Internal types keep their own aeson instances. Contract types
+- Decision (2026-10-13, amended 2026-10-14): The contract types live in their own module,
+  `Nagare.Contract.V1` (plain records with hand-written `ToJSON`, importing nothing from Nagare),
+  with `Nagare.Contract.Project` holding the pure projections from internal values. Both are in
+  the `nagarectl` library (`src/`), never in `app/`, so the admin API executable can link them as
+  `nagared` links the library today. Kotei never links them; it reads the documents, from the CLI
+  now and possibly from the admin API for the read class later. Internal types keep their own aeson instances. Contract types
   are encode-only inside `nagarectl`: per ADR 22, decoding JSON never grants authority, so no
   command reads a contract document back.
 - Decision (2026-10-13): Scopes appear as the `kind:name` text `scopeIdText` produces (for
@@ -138,11 +202,6 @@ existing `--json` documents do not change.
   `describe` still needs it after the deletion.
 - Decision (2026-10-13): The rule "keep emitting the previous major for one release" is written
   into `cli/nagarectl/contract/README.md`. It is not implemented until a version 2 exists.
-
-
-## Outcomes & Retrospective
-
-(To be filled at completion.)
 
 
 ## Context and Orientation
@@ -235,6 +294,43 @@ contract. Only `test/AppDeploySpec.hs` uses them (lines 92 and 4735-4767). `toRe
 also used by `stampAppLabel`'s local `describe` (`Deploy.hs:338`). `app/Nagare/Cli/Options.hs:154-157`
 still calls `--json` "the kotei contract".
 
+**The admin API to come.** The operator decided on 2026-10-14 that Nagare gets a read-only admin
+API, built under its own MasterPlan. Nothing here builds it. The relevant precedent is
+`nagared` (`cli/nagarectl/nagared/Main.hs`), an HTTP executable in the same Cabal package that
+links the `nagarectl` library, so code in `src/` is reachable from a future API executable and
+code in `app/` is not. The store-only reads that suit an API already exist:
+`loadTargetSnapshotReadOnly` (`Command.hs:940`) and `inventory store status`
+([EP-185](185-make-inventory-status-answer-in-seconds.md)). Full `inventory status` builds its
+provider observers in `app/Nagare/Cli/Commands/Inventory/Status.hs`; how the API observes is its
+own plan's decision, which is why `observationComplete` must stay honest.
+
+**The three findings fixed here** (full text in `docs/audits/mp23-findings.md`):
+
+- F94. `src/Nagare/Inventory/Execute/Driver.hs`, `runOperationsWith` (around lines 168-201),
+  returns `StoppedAmbiguous transaction operation` from every recovery stop: a recovery decision naming
+  an operation not in the review, `preparedFor` failing, `lookupAdapter` failing, an adapter
+  identity or version mismatch, `selectedFence` refusing, a recovery decision for another
+  operation, and every non-complete `adapterRecover` decision (`RecoveryUnresolved`,
+  `RecoveryLandedUnready`, `RecoveryTargetReplaced`, `RecoveryTerminalFailure`, and a disallowed
+  `RecoverySafeToRetry`). Each has a reason in hand (the `Left` value or the decision's text) and
+  drops it. Observed on 2026-10-09: a host whose timer reverted the upgrade said only
+  `ambiguous tx-… at op-…`, while `Adapters/Host.hs` `recoveryState` had the exit ("close the
+  transaction and review the change again").
+- F107. `src/Nagare/Inventory/Store/Target.hs` (lines 147, 166, 183) turns every
+  `IOException` from the remote store's `gcloud` calls into `StoreIoError (show err)`, so an
+  expired login reads as an I/O error (and on a conditional write as `StoreConditionFailed`).
+  The fix recognizes gcloud's reauthentication failure in the captured stderr and reports it
+  as its own `StoreError` constructor (`StoreAuthRequired`), rendered with a `gcloud auth login`
+  instruction.
+- F118. `src/Nagare/Platform/Workspace.hs`, `validateExisting` (around line 217), maps a failed
+  read of `.nagare-workspace.json` to `ExistingWorkspaceMismatch root`, which renders as
+  "existing Nagare platform workspace has a mismatched manifest" even when the directory does not
+  exist. The fix returns a new `WorkspaceNotPrepared root` when the file is absent, rendered as
+  "the platform workspace for this context is not prepared", naming the commands that prepare
+  it (those that call `preparePlatformWorkspace`, in `app/Nagare/Cli/Runtime/Target.hs` and
+  `app/Nagare/Cli/Platform/Upgrade.hs`). `inventory status` never prepares a workspace, so the
+  refusal itself is correct; only its words change.
+
 **ADRs.**
 [ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md) defines
 scopes, reviews and transactions, and says decoding JSON never grants authority. That is why the
@@ -259,8 +355,11 @@ plain record per document and a hand-written `ToJSON` each:
 - `InventoryStatusReport`
 - `PublicationList`
 - `VersionInfo`
+- `Refusal`, `{code, message}`, also embedded as `refusal` in `TransactionOutcome`
 
-Every document except `VersionInfo` has a required `contractVersion` field, constant 1 in V1, and
+The first four are operation documents and the rest are read documents (see Decision Log). Draft
+`cli/nagarectl/contract/README.md` in M1 with the class of each document, so the classes are fixed
+before any command emits one. Every document except `VersionInfo` has a required `contractVersion` field, constant 1 in V1, and
 a `document` field naming its kind. `VersionInfo` is the discovery document: it keeps today's
 `version`, `platformVersion`, optional `revision` and optional `tools`, and gains
 `contracts: [Int]`. Create `src/Nagare/Contract/Project.hs` with pure functions from internal
@@ -305,7 +404,8 @@ print one `TransactionOutcome`. Its fields are:
 - `operation` (nullable)
 - `failureClass`: `known-no-effect`, `partial-or-unknown` or null
 - `barriers` (strings)
-- `detail` (nullable text)
+- `detail` (nullable text): the stop's reason for `stopped`, `ambiguous` and `interrupted`
+- `refusal` (nullable `{code, message}`): set exactly when `outcome` is `refused`
 
 The exit codes are 0 converged, 2 refused, 3 paused, 4 stopped, 5 ambiguous, 6 closed and
 7 interrupted. Code 1 stays for a crash the handler could not classify.
@@ -317,7 +417,18 @@ the sink is switched to the executing phase, then `interrupted` with the transac
 goes in `applyReviewed`'s path at the point where admission has succeeded and before the first
 intent is written; find that point in `src/Nagare/Inventory/Execute/`. An unexpected exception
 under the sink also yields `interrupted` once executing. Without the sink, `dieT` and `dieText`
-behave exactly as now. Keep the human `renderTransactionResult` line unchanged.
+behave exactly as now. The sink fills `refusal.code` from the refusal's source:
+`unsupported-contract-version` for the flag itself, `wrong-context` for the context check,
+`review-changed` for a bundle that no longer verifies, `admission-refused` for admission errors
+(`Command.hs:522-536`), `store-unavailable` and `reauthentication-required` for store errors,
+and `other` for any `dieT`/`dieText` this plan does not classify. Classify at the call sites,
+by passing a code to a coded variant of `dieT`, not by matching message text.
+
+F94: give `StoppedAmbiguous` a third field, the reason as `Text`, and fill it at every
+construction site in `Driver.hs` from the value already in hand (render the `Left` error, or the
+recovery decision's own text). `renderTransactionResult` prints
+`ambiguous <tx> at <op>: <reason>`; this is the only human line that changes. The contract
+`detail` carries the same reason. Every other `renderTransactionResult` line stays unchanged.
 
 **M3 — publication, saved review and preview.** Add `--contract VERSION` to `app image-plan` and
 `app deploy`. Give `planInventoryCandidateWith` and its two siblings a way to return the digest,
@@ -355,14 +466,40 @@ The exit code is 0, as today; drift is data, not an error. Add `inventory public
 archiveDigest, generation, usedBy:[scope]}]}`, sorted by scope. Without `--contract` it prints a
 plain table. Register the new subcommand in `scripts/audit-managed-commands.py` as read-only.
 
+Under `--contract 1`, a read command that refuses prints a `Refusal` document on stdout and exits
+2, through the same coded sink as M2: `unknown-scope` for `--scope`, `unsupported-contract-version`,
+`store-unavailable`, `reauthentication-required` and `workspace-not-prepared`, and `other` for the
+rest. Without `--contract`, the stderr message is the same text as the `message` field.
+
+F107: add a `StoreAuthRequired` constructor to `StoreError` (`src/Nagare/Inventory/Store.hs:100`).
+In `src/Nagare/Inventory/Store/Target.hs`, where a gcloud failure becomes `StoreIoError`, inspect
+the failing command's stderr and return `StoreAuthRequired` when it shows a missing or expired
+login: gcloud's token-refresh failure ("There was a problem refreshing your current auth tokens",
+"Reauthentication failed") or no credentialed account. Capture the no-account text safely with an
+isolated, empty gcloud configuration, which never touches the operator's login:
+`CLOUDSDK_CONFIG=$(mktemp -d) gcloud storage ls gs://<the context's inventory bucket>`. Never run
+`gcloud auth revoke` for this; it revokes the operator's real tokens. Put both texts in test
+fixtures. Render the error as "the gcloud login is missing or expired; run `gcloud auth login`
+and retry". `Discovery.hs:64` reports `StoreIoError` as unavailable; treat `StoreAuthRequired`
+the same way there.
+
+F118: add `WorkspaceNotPrepared` to `WorkspaceError` and return it from `validateExisting` when
+`.nagare-workspace.json` does not exist, keeping `ExistingWorkspaceMismatch` for a manifest that
+exists and differs. Render it as described in Context.
+
 **M5 — cleanup and handoff.** Delete the dead pre-inventory contract (see Decision Log) and its
-tests in `test/AppDeploySpec.hs`, and fix `app/Nagare/Cli/Options.hs:154-157`. Write
-`cli/nagarectl/contract/README.md`. It lists the documents and their commands, and the exit-code
-table. It states the versioning rules: additive changes keep major 1 and add only optional fields
+tests in `test/AppDeploySpec.hs`, and fix `app/Nagare/Cli/Options.hs:154-157`. Finish
+`cli/nagarectl/contract/README.md`. It lists the documents, their class (read or operation) and
+their commands, the refusal codes, and the exit-code table. It states that the admin API serves
+read documents only, with these schemas, and that a read document never needs operator
+credentials to be meaningful (recorded and observed facts are separate fields, and partial
+observation is flagged). It states the versioning rules: additive changes keep major 1 and add only optional fields
 or new enum values announced in the README; anything else is version 2, and nagarectl keeps
 emitting version 1 for at least one release behind `--contract 1`. It also says that every new
 field or enum value gets a golden sample in the same change, and how to accept goldens. Add the "Machine-readable contract" section to `docs/user/reference.md` pointing at it.
-Gate, land, and send the path and landed hash to the `kotei` session.
+Gate, land, and send the path and landed hash to the `kotei` session, with the differences
+listed under Interfaces. Mark F94, F107 and F118 Verifying in `docs/audits/mp23-findings.md`
+with the landed hash.
 
 
 ## Concrete Steps
@@ -414,20 +551,28 @@ Commit messages follow Conventional Commits, for example
 Required acceptance, all offline:
 
 - `nagarectl version --json` contains `"contracts":[1]`, and its other fields are unchanged.
-- For each of the seven documents, the sample goldens equal the projected documents and every
+- For each of the eight documents, the sample goldens equal the projected documents and every
   sample validates against its hand-written schema. The validator rejects each violation in its
   own tests and refuses an unimplemented schema keyword.
 - Each M2 constructor case prints the expected outcome and exits with the expected code. A
   refusal before admission (for example omitting `--yes`) prints
-  `{"contractVersion":1,"document":"transaction-outcome","outcome":"refused",…}` and exits 2.
+  `{"contractVersion":1,"document":"transaction-outcome","outcome":"refused",…,"refusal":{"code":…}}`
+  and exits 2.
   A failure injected after admission prints `interrupted` with a non-null `transaction` and
   exits 7.
-- Without `--contract`, the existing suites pass unchanged. `inventory apply` still prints
-  `converged tx-…` and exits 0 or 1.
+- Without `--contract`, the existing suites pass unchanged except the F94 line. `inventory apply`
+  still prints `converged tx-…` and exits 0 or 1, and an ambiguous stop prints
+  `ambiguous tx-… at op-…: <reason>`.
 - `app deploy --dry-run --contract 1` on `cluster/examples/multi-workload-app` (which has hooks)
   and on an example without hooks produces documents with identical top-level key sets.
 - `inventory status --contract 1 --scope application:<name>` lists only that scope's findings,
-  and an unknown scope exits non-zero with a refusal.
+  and an unknown scope prints a `refusal` document with code `unknown-scope` and exits 2.
+- F107: with a store whose gcloud call fails with either fixture text, `inventory status`
+  refuses with code `reauthentication-required` and the `gcloud auth login` instruction.
+- F118: `inventory status` against a context with no workspace directory refuses with code
+  `workspace-not-prepared`; a workspace whose manifest differs still reports the mismatch.
+- The README names each document's class, and every read-document schema separates recorded
+  from observed fields.
 
 Kotei's side, not required here: it copies `cli/nagarectl/contract/v1/` at its pinned revision
 and validates its fake `nagarectl` against it (Kotei plan 84, Milestone 2).
@@ -452,8 +597,8 @@ Libraries:
 
 New modules:
 
-- `cli/nagarectl/src/Nagare/Contract/V1.hs` exports the seven document records with their
-  `ToJSON` instances, and `contractVersions :: [Int]` (= `[1]`).
+- `cli/nagarectl/src/Nagare/Contract/V1.hs` exports the eight document records (`Refusal` among
+  them) with their `ToJSON` instances, a `RefusalCode` enum,, and `contractVersions :: [Int]` (= `[1]`).
 - `cli/nagarectl/src/Nagare/Contract/Project.hs` exports pure projections:
   - `transactionOutcome :: TransactionResult -> TransactionOutcome`, with constructors for
     `refused` and `interrupted`;
@@ -462,7 +607,10 @@ New modules:
   - `deployPreview :: ScopeDeclaration -> [ScopeDeclaration] -> DeployPreview`;
   - `inventoryStatusReport`;
   - `publicationList`;
-  - `versionInfo`.
+  - `versionInfo`;
+  - `refusal :: RefusalCode -> Text -> Refusal`.
+- Changed internal types: `StoppedAmbiguous` gains a reason (`Text`) (F94); `StoreError` gains
+  `StoreAuthRequired` (F107); `WorkspaceError` gains `WorkspaceNotPrepared` (F118).
 - `cli/nagarectl/test/Nagare/Test/Contract/Validate.hs` holds the subset validator,
   `validate :: Value -> Value -> Either [Text] ()`.
 - `cli/nagarectl/test/Nagare/Test/Contract.hs` holds the sample goldens and the schema checks.
@@ -482,3 +630,9 @@ Differences from what Kotei asked for, to relay at handoff:
 - The dry-run envelope adds `scopeDocuments`.
 - The schemas declare JSON Schema 2020-12 and use a small keyword subset, so any standard
   validator works on Kotei's side.
+- (2026-10-14) A `refused` outcome carries `refusal: {code, message}`, and read commands print
+  a `refusal` document when they refuse. `detail` of an `ambiguous` outcome now always holds the
+  reason.
+- (2026-10-14) The contract is also the future read-only admin API's: the read documents will be
+  served over HTTP with the same schemas. Kotei may read status and publications from it later;
+  deploys stay on the CLI.

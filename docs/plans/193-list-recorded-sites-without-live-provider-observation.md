@@ -77,6 +77,14 @@ harness. Measure only wall time, so no new store instrumentation is needed. The 
 fixture is a `Suite.hs` environment probe, because the test suite cannot import `app/`.
 
 
+2026-10-14 (operator): Nagare's admin API is read-only, and
+[EP-192](192-publish-a-versioned-json-contract-for-the-nagarectl-outputs-kotei-consumes.md) is now
+the one public document contract that API will serve. `site list`'s versioned JSON is that
+contract's `site-list` read document: emit it under `--contract 1`, and add its hand-written
+schema and golden samples to `cli/nagarectl/contract/v1/` under the README rules, once EP-192's M1
+has landed. Refusals use EP-192's `refusal` document. The query, its library location in `src/`,
+and this plan's acceptance are unchanged.
+
 ## Outcomes & Retrospective
 
 
