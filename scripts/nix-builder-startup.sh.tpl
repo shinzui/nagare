@@ -47,6 +47,73 @@ ensure_tailscale() {
   fi
 }
 ensure_tailscale || echo "nix-builder: tailscale setup failed; the IAP path still works" >&2
+# --- Idle-shutdown watchdog (every boot, idempotent) ----------------------------
+# Stops the VM after 30 minutes in which every check found it idle. A check
+# runs every 5 minutes and finds it busy when ANY of these is true, which
+# resets the idle clock:
+#   * an established TCP connection on port 22 (the headless
+#     `nix-store --serve` transport while the consumer's SSH channel is open)
+#   * a `nix-store --serve` process (a build in flight whose SSH session
+#     dropped between derivations; single-user Determinate Nix keeps the
+#     process across the gap; MasterPlan #2 EP-7 surprises 2026-05-17 #10/#11)
+#   * a live build subprocess of the nix-daemon
+# It used to stop the VM on one idle check, every 15 minutes. A full gate
+# whose remote work paused between derivations lost the builder that way
+# (2026-10-14: guestTerminate at 18:29Z mid-gate); a woken VM then needs about
+# 30 s before SSH answers, longer than Nix's 10 s connect timeout. Runs before
+# the first-boot sentinel so existing builders get it too.
+cat >/usr/local/bin/idle-shutdown.sh <<'WD'
+#!/usr/bin/env bash
+set -e
+SINCE_FILE=/run/idle-shutdown.since
+busy() {
+  rm -f "$SINCE_FILE"
+  exit 0
+}
+ESTABLISHED=$(ss -Htn 'sport = :22' state established 2>/dev/null | wc -l)
+[ "$ESTABLISHED" -gt 0 ] && busy
+pgrep -f 'nix-store --serve' >/dev/null 2>&1 && busy
+DAEMON_PID=$(pgrep -f 'nix-daemon --daemon' | head -n1 || true)
+if [ -n "$DAEMON_PID" ]; then
+  CHILDREN=$(pgrep -P "$DAEMON_PID" 2>/dev/null | wc -l)
+  [ "$CHILDREN" -gt 0 ] && busy
+fi
+NOW=$(date +%s)
+if [ ! -f "$SINCE_FILE" ]; then
+  echo "$NOW" >"$SINCE_FILE"
+  exit 0
+fi
+IDLE_S=$((NOW - $(cat "$SINCE_FILE")))
+[ "$IDLE_S" -lt 1800 ] && exit 0
+logger -t idle-shutdown "shutting down: idle for $((IDLE_S / 60)) min"
+/sbin/shutdown -h now
+WD
+chmod +x /usr/local/bin/idle-shutdown.sh
+
+cat >/etc/systemd/system/idle-shutdown.service <<'SVC'
+[Unit]
+Description=Shut down the VM after 30 idle minutes
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/idle-shutdown.sh
+SVC
+
+cat >/etc/systemd/system/idle-shutdown.timer <<'TMR'
+[Unit]
+Description=Periodic idle check for the Nix builder VM
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+Unit=idle-shutdown.service
+[Install]
+WantedBy=timers.target
+TMR
+
+systemctl daemon-reload
+systemctl enable idle-shutdown.timer
+# Restart so a builder booted with the old 15-minute timer takes the new one.
+systemctl restart idle-shutdown.timer
+
 # scripts/setup-nix-builder.sh waits for this line on the serial console before
 # it stops the VM after a startup-script change.
 echo "nix-builder: every-boot setup done"
@@ -83,62 +150,5 @@ chmod 0440 /etc/sudoers.d/builder
 curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | \
   sh -s -- install linux --no-confirm \
        --extra-conf 'trusted-users = root builder'
-
-# --- Idle-shutdown watchdog ---------------------------------------------------
-# Stops the VM only when ALL of these are true:
-#   * uptime > 30 min (give the first build room to settle)
-#   * zero established TCP connections on port 22 (catches the common
-#     headless `nix-store --serve` transport when the consumer-side SSH
-#     channel is currently connected)
-#   * zero `nix-store --serve` processes running (catches the case where
-#     a build is in flight but the SSH session has momentarily dropped
-#     between derivations — single-user Determinate Nix on the builder
-#     leaves the nix-store --serve process running across the gap)
-#   * the nix-daemon (when present) has no live build subprocesses
-# Without the nix-store --serve guard the watchdog has been observed
-# killing the VM mid-build during multi-derivation closure transfers;
-# see MasterPlan #2 EP-7 surprises 2026-05-17 #10 / #11 for the
-# original root-cause investigation.
-cat >/usr/local/bin/idle-shutdown.sh <<'WD'
-#!/usr/bin/env bash
-set -e
-UPTIME_S=$(awk '{print int($1)}' /proc/uptime)
-[ "$UPTIME_S" -lt 1800 ] && exit 0
-ESTABLISHED=$(ss -Htn 'sport = :22' state established 2>/dev/null | wc -l)
-[ "$ESTABLISHED" -gt 0 ] && exit 0
-# Protect active remote builds: nix-store --serve stays running across
-# brief SSH disconnects between derivations.
-pgrep -f 'nix-store --serve' >/dev/null 2>&1 && exit 0
-DAEMON_PID=$(pgrep -f 'nix-daemon --daemon' | head -n1 || true)
-if [ -n "$DAEMON_PID" ]; then
-  CHILDREN=$(pgrep -P "$DAEMON_PID" 2>/dev/null | wc -l)
-  [ "$CHILDREN" -gt 0 ] && exit 0
-fi
-logger -t idle-shutdown "shutting down: idle"
-/sbin/shutdown -h now
-WD
-chmod +x /usr/local/bin/idle-shutdown.sh
-
-cat >/etc/systemd/system/idle-shutdown.service <<'SVC'
-[Unit]
-Description=Shut down the VM if idle
-[Service]
-Type=oneshot
-ExecStart=/usr/local/bin/idle-shutdown.sh
-SVC
-
-cat >/etc/systemd/system/idle-shutdown.timer <<'TMR'
-[Unit]
-Description=Periodic idle check for the Nix builder VM
-[Timer]
-OnBootSec=30min
-OnUnitActiveSec=15min
-Unit=idle-shutdown.service
-[Install]
-WantedBy=timers.target
-TMR
-
-systemctl daemon-reload
-systemctl enable --now idle-shutdown.timer
 
 touch /var/lib/nix-builder.provisioned
