@@ -12,7 +12,7 @@ import Data.List (isInfixOf)
 import Data.Text qualified as T
 import Data.Time.Clock (diffUTCTime, getCurrentTime)
 import Nagare.Harness.FlakeCheck
-import Nagare.Harness.Gate (CheckPlan (..), fullCheckPlan, runCheckPlan)
+import Nagare.Harness.Gate (CheckPlan (..), fullCheckPlan, probeUntilUp, runCheckPlan)
 import Nagare.Harness.Prelude
 import Nagare.Harness.Step
 import System.Directory (doesFileExist)
@@ -97,6 +97,17 @@ flakeCheckTests =
           map (^. #exit) flake @?= [1, 0, 1]
         withPlan (retrying [broken "probe"] lostOnce) $ \(_, flake, _, _) ->
           map (^. #name) flake @?= ["nix-flake-check", "probe"]
+    , testCase "a probe that fails while the builder wakes is tried again, at most three times" $ do
+        -- Fails twice (the woken VM is still booting), then passes.
+        let waking = Step "probe" "." "sh" ["-c", "n=$(cat tries 2>/dev/null || echo 0); n=$((n+1)); echo $n > tries; [ $n -ge 3 ]"]
+        withPlan (retrying [waking] lostOnce) $ \(_, flake, _, _) -> do
+          map (^. #name) flake @?= ["nix-flake-check", "probe", "nix-flake-check-retry"]
+          map (^. #exit) flake @?= [1, 0, 0]
+        let asleep = Step "probe" "." "sh" ["-c", "echo x >> tries; exit 1"]
+        withSystemTempDirectory "gate" $ \dir -> do
+          results <- probeUntilUp 0 (const (pure ())) dir dir [asleep]
+          map (^. #exit) results @?= [1]
+          (@?= 3) . length . lines =<< readFile (dir </> "tries")
     , testCase "a cancelled step's process is terminated" $
         withSystemTempDirectory "gate" $ \dir -> do
           let pidFile = dir </> "pid"
@@ -114,7 +125,7 @@ flakeCheckTests =
     broken name = Step name "." "sh" ["-c", "echo broken; exit 3"]
     sleeping name n = Step name "." "sh" ["-c", "sleep " <> show (n :: Int)]
     brokenFlake = Step "nix-flake-check" "." "sh" ["-c", "echo \"error: builder for '/nix/store/aaa-broken.drv' failed with exit code 1;\"; sleep 2; exit 1"]
-    plan static suite flake = CheckPlan {static, suite, flake, pollMicroseconds = 100000, beforeRetry = []}
+    plan static suite flake = CheckPlan {static, suite, flake, pollMicroseconds = 100000, beforeRetry = [], probePauseMicroseconds = 0}
     retrying probes flake = (plan [ok "static"] [ok "suite"] flake) {beforeRetry = probes}
     lost = "Failed to find a machine for remote build!\n"
     flakeSaying text code = Step "nix-flake-check" "." "sh" ["-c", "printf '%s\\n' " <> show (T.unpack text) <> "; exit " <> show (code :: Int)]

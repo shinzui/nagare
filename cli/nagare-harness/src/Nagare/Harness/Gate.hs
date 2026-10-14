@@ -15,6 +15,7 @@ module Nagare.Harness.Gate
   , newLogDir
   , newSay
   , repositoryRoot
+  , probeUntilUp
   , runCheckPlan
   , runFastGate
   , runFullGate
@@ -236,7 +237,9 @@ data CheckPlan = CheckPlan
   , beforeRetry :: ![Step]
   -- ^ Run, all green, before @flake@ runs a second time because it lost the
   -- remote builder and nothing else failed ('builderLostOnly'): the builder
-  -- probes.
+  -- probes, tried as 'probeUntilUp' tries them.
+  , probePauseMicroseconds :: !Int
+  -- ^ The pause between two tries of @beforeRetry@.
   }
   deriving stock (Eq, Show, Generic)
 
@@ -245,7 +248,36 @@ data CheckPlan = CheckPlan
 -- local @cabal test@ steps are not repeated here. The local builds stay for
 -- the record patterns, and are already built when the fast gate ran.
 fullCheckPlan :: CheckPlan
-fullCheckPlan = CheckPlan {static = staticSteps, suite = buildSteps, flake = flakeCheckStep, pollMicroseconds = 10000000, beforeRetry = []}
+fullCheckPlan =
+  CheckPlan
+    { static = staticSteps
+    , suite = buildSteps
+    , flake = flakeCheckStep
+    , pollMicroseconds = 10000000
+    , beforeRetry = []
+    , probePauseMicroseconds = probePause
+    }
+
+-- | Run the builder probes until they all pass, at most three times,
+-- @pause@ microseconds apart, and return the last try. The builder VM stops
+-- itself when an idle check finds no SSH connection and no build (the
+-- watchdog in scripts/nix-builder-startup.sh.tpl), even in the middle of a
+-- gate. Started again, it needs about 30 s before SSH answers, longer than
+-- Nix's 10 s connect timeout, so the probe that wakes it fails and a later
+-- one passes (2026-10-14: guestTerminate at 18:29Z, start at 18:45:09Z, first
+-- connection at 18:45:38Z).
+probeUntilUp :: Int -> (StepResult -> IO ()) -> FilePath -> FilePath -> [Step] -> IO [StepResult]
+probeUntilUp pause report workdir logDir steps = go (3 :: Int)
+  where
+    go tries = do
+      results <- runSteps report workdir logDir steps
+      if tries <= 1 || (length results == length steps && all stepSucceeded results)
+        then pure results
+        else threadDelay pause >> go (tries - 1)
+
+-- | 45 s between probe tries: a woken builder answers SSH within about 30 s.
+probePause :: Int
+probePause = 45000000
 
 -- | Every step 'runCheckPlan' runs for the full gate, in order.
 fullCheckSteps :: [Step]
@@ -282,7 +314,7 @@ runCheckPlan say workdir logDir plan = do
         then pure [first]
         else do
           say ["gate: " <> flakeName <> " lost the remote builder and no build failed; probing the builder and running it once more"]
-          probes <- runSteps (reportResult say) workdir logDir (plan ^. #beforeRetry)
+          probes <- probeUntilUp (plan ^. #probePauseMicroseconds) (reportResult say) workdir logDir (plan ^. #beforeRetry)
           if length probes /= length (plan ^. #beforeRetry) || not (all stepSucceeded probes)
             then pure (first : probes)
             else do
@@ -348,17 +380,17 @@ runFullGate run = do
           let remoteSystems = filter (/= localSystem) systems
           salt <- T.pack . show <$> uniformM @Word globalStdGen
           say <- newSay
-          -- The builder probe runs first: the builder's idle watchdog stops
-          -- its VM after about nine idle minutes, and a gate that probed only
-          -- after the fast steps found it gone (2026-10-07).
-          probes <- runSteps (reportResult say) workdir (run ^. #logDir) [probeStep system salt | system <- remoteSystems]
+          -- The builder probe runs first, and wakes a stopped builder VM: a
+          -- gate that probed only after the fast steps found it gone
+          -- (2026-10-07).
+          probes <- probeUntilUp probePause (reportResult say) workdir (run ^. #logDir) [probeStep system salt | system <- remoteSystems]
           let probesGreen = length probes == length remoteSystems && all stepSucceeded probes
           unless probesGreen $
             putStrLn
               ( "gate: builder unreachable for "
                   <> T.unpack (T.intercalate ", " remoteSystems)
-                  <> "; nothing else ran. Its idle watchdog stops the VM after about nine idle minutes"
-                  <> " (scripts/setup-nix-builder.sh): start it, then rerun the gate."
+                  <> " after three probes; nothing else ran. Check that the builder VM starts"
+                  <> " (scripts/setup-nix-builder.sh), then rerun the gate."
               )
           (fast, flake) <-
             if probesGreen
