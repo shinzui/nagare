@@ -53,10 +53,12 @@ flakeCheckTests =
           (@?= [FailedDerivation "split-check"]) =<< followLog follower
           (@?= []) =<< followLog follower
     , testCase "the suite and the flake check run at the same time" $
-        withPlan (plan [ok "static"] [sleeping "suite" 2] (sleeping "nix-flake-check" 2)) $ \(fast, flake, _, seconds) -> do
+        -- Each waits up to 20 s to see the other start; run one after the
+        -- other, the first never sees it. No wall-clock bound, so a loaded
+        -- machine does not fail it (2026-10-14: 4.5 s under a full gate).
+        withPlan (plan [ok "static"] [meeting "suite" "nix-flake-check"] (meeting "nix-flake-check" "suite")) $ \(fast, flake, _, _) -> do
           map (^. #name) fast @?= ["static", "suite"]
           map (^. #exit) flake @?= [0]
-          assertBool ("took " <> show seconds <> " s, not about 2 s") (seconds < 3.5)
     , testCase "a static failure stops the gate before the suite and the flake check" $
         withSystemTempDirectory "gate" $ \dir -> do
           let say _ = pure ()
@@ -73,10 +75,11 @@ flakeCheckTests =
     , testCase "a failing check is reported while the flake check still runs, and listed at its end" $
         withPlan (plan [ok "static"] [ok "suite"] brokenFlake) $ \(_, flake, said, _) -> do
           map (^. #exit) flake @?= [1]
-          -- The fake flake check names its failure at once and runs 2 s more.
-          case [elapsed | (elapsed, line) <- said, "nix-flake-check: FAILED derivation broken" `isInfixOf` line] of
-            elapsed : _ -> assertBool ("reported only after " <> show elapsed <> " s") (elapsed < 1.5)
-            [] -> assertFailure ("never reported: " <> show said)
+          -- The fake flake check names its failure at once and runs 5 s more;
+          -- the report must come before it ends, not within a fixed time.
+          case ([elapsed | (elapsed, line) <- said, "nix-flake-check: FAILED derivation broken" `isInfixOf` line], [elapsed | (elapsed, line) <- said, "nix-flake-check " `isInfixOf` line, "FAIL" `isInfixOf` line]) of
+            (reported : _, ended : _) -> assertBool ("reported at " <> show reported <> " s, the check ended at " <> show ended <> " s") (reported < ended - 2)
+            _ -> assertFailure ("never reported: " <> show said)
           assertBool "the end does not list the failed check" (any (("gate:   derivation broken" `isInfixOf`) . snd) said)
     , testCase "only a lost builder with no failed build counts as a lost builder" $ do
         builderLostOnly (lost <> "error: Cannot build '/nix/store/aaa-nagare.drv'.\n       Reason: platform mismatch\n") @?= True
@@ -123,8 +126,11 @@ flakeCheckTests =
   where
     ok name = Step name "." "sh" ["-c", "exit 0"]
     broken name = Step name "." "sh" ["-c", "echo broken; exit 3"]
-    sleeping name n = Step name "." "sh" ["-c", "sleep " <> show (n :: Int)]
-    brokenFlake = Step "nix-flake-check" "." "sh" ["-c", "echo \"error: builder for '/nix/store/aaa-broken.drv' failed with exit code 1;\"; sleep 2; exit 1"]
+    meeting name other =
+      let mine = T.unpack name <> ".started"
+          theirs = T.unpack other <> ".started"
+       in Step name "." "sh" ["-c", "touch " <> mine <> "; i=0; while [ ! -f " <> theirs <> " ] && [ $i -lt 200 ]; do sleep 0.1; i=$((i+1)); done; [ -f " <> theirs <> " ]"]
+    brokenFlake = Step "nix-flake-check" "." "sh" ["-c", "echo \"error: builder for '/nix/store/aaa-broken.drv' failed with exit code 1;\"; sleep 5; exit 1"]
     plan static suite flake = CheckPlan {static, suite, flake, pollMicroseconds = 100000, beforeRetry = [], probePauseMicroseconds = 0}
     retrying probes flake = (plan [ok "static"] [ok "suite"] flake) {beforeRetry = probes}
     lost = "Failed to find a machine for remote build!\n"
