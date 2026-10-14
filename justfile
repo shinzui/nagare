@@ -559,7 +559,7 @@ local-smoke:
 # MP-26 item 11: a release is two commands (docs/runbooks/releases.md). This one
 # runs everything up to the tag, unattended: `just gate-release`, the transition
 # rehearsal from the newest release the candidate accepts, the native attachments
-# on aarch64-darwin and in an amd64 container on Colima nagare-c4-amd64, two
+# on aarch64-darwin and in an amd64 Apple container, two
 # byte-identical assemblies, then the rehearsal record landed on master. Runs live
 # in ${XDG_STATE_HOME:-~/.local/state}/nagare/releases/vVERSION/. Takes
 # --revision REV (default HEAD) and --rehearsal (lands nothing, never published).

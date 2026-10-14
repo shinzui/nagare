@@ -50,13 +50,11 @@ It runs unattended up to the tag. Each step stops at its first failure and nothi
    native output identities, and the clone-free rehearsal from an exact `git+file` revision in an
    isolated home.
 5. **x86_64-linux attachments.** The x86 outputs are built on the builder and copied into a file
-   cache under `~/.local/state/nagare/releases/x86-work`, which persists across releases. The
-   Colima profile `nagare-c4-amd64` is started with 4 CPUs, 16 GiB, Rosetta and that directory as
-   its only mount, and those settings are read back, because a restart can rewrite `colima.yaml`.
-   The VM's resolver is set to public servers and checked. Then
+   cache under `~/.local/state/nagare/releases/x86-work`, which persists across releases. Then
    [`scripts/release-native-container.sh`](../../scripts/release-native-container.sh) runs the
-   same native script in an amd64 `nixos/nix:2.35.2` container. If the profile is already running
-   with other settings, the command refuses: stop the profile and run it again.
+   same native script in an amd64 `nixos/nix:2.35.2` Apple container (`container run --rosetta`,
+   4 CPUs, 16 GiB, `HOME=/root`, that directory as its only mount). Each run gets a fresh VM, so
+   there is no profile to keep in shape.
 6. **Assembly.** [`scripts/assemble-release.sh`](../../scripts/assemble-release.sh) runs twice. The
    two outputs must be byte-identical, and `SHA256SUMS` must verify. Assembly requires every
    supported system's native output and clone-free rehearsal, the platform metadata, and a

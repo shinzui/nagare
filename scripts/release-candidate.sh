@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # MP-26 item 11: everything up to the tag, unattended (docs/runbooks/releases.md). The release
 # gate, the transition rehearsal from the newest release the candidate accepts, both systems'
-# native attachments (aarch64-darwin here, x86_64-linux in an amd64 container on Colima), and
+# native attachments (aarch64-darwin here, x86_64-linux in an amd64 Apple container), and
 # two assemblies that must be byte-identical. The release gate runs alongside the other steps.
 # Then the rehearsal record is committed on
 # origin/master and landed. Every step stops at its first failure; nothing is retried.
@@ -34,12 +34,11 @@ repo="$(git rev-parse --show-toplevel)"
 cd "$repo"
 rev="$(git rev-parse --verify "$revision^{commit}")"
 state="${XDG_STATE_HOME:-$HOME/.local/state}/nagare/releases"
-profile=nagare-c4-amd64
 image=nixos/nix:2.35.2
 
 # --- preflight: everything that can refuse without building ---
 [[ "$(nix eval --impure --raw --expr builtins.currentSystem)" == aarch64-darwin ]] \
-  || die "run it on the aarch64-darwin workstation; the x86_64-linux attachments come from Colima"
+  || die "run it on the aarch64-darwin workstation; the x86_64-linux attachments come from an Apple container"
 metadata="$(git show "$rev:release.json")"
 [[ "$(jq -r .platformVersion <<<"$metadata")" == "$version" ]] \
   || die "release.json at $rev is not $version; land chore(release): prepare v$version first"
@@ -54,8 +53,7 @@ fi
 previous="$(jq -r '.transitionsFrom[]' <<<"$metadata" | sort -V | tail -1)"
 [[ -n "$previous" ]] || die "release.json at $rev accepts no transition"
 git rev-parse -q --verify "refs/tags/v$previous" >/dev/null || die "v$previous, the newest accepted source, is not a published tag"
-command -v colima >/dev/null || die "colima is not installed"
-[[ -f "$HOME/.colima/$profile/colima.yaml" ]] || die "Colima profile $profile does not exist"
+command -v container >/dev/null || die "Apple container is not installed"
 
 run="$state/v$version/$($rehearsal && echo rehearsal-)$(date -u +%Y%m%dT%H%M%SZ)"
 mkdir -p "$run"
@@ -88,10 +86,9 @@ step "aarch64-darwin attachments"
 git worktree add -q --detach "$worktree" "$rev"
 (cd "$worktree" && scripts/release-native.sh "$version" "$run/native/aarch64-darwin")
 
-# --- 4. x86_64-linux attachments, in an amd64 container on Colima ---
-# The work root is the profile's only mount and persists across releases, so the file cache
-# of builder outputs is reused. A profile restart can rewrite colima.yaml, so the profile is
-# started with its settings and read back.
+# --- 4. x86_64-linux attachments, in an amd64 Apple container under Rosetta ---
+# The work root is the container's only mount and persists across releases, so the file cache
+# of builder outputs is reused. Each run gets a fresh VM with its settings on the command line.
 step "x86_64-linux outputs on the builder"
 work="$state/x86-work"
 mkdir -p "$work/cache"
@@ -105,25 +102,13 @@ rm -rf "$work/out" "$work/candidate.bundle"
 git -C "$worktree" bundle create -q "$work/candidate.bundle" HEAD
 cp "$worktree/scripts/release-native-container.sh" "$work/release-native-container.sh"
 
-step "Colima profile $profile"
-yaml="$HOME/.colima/$profile/colima.yaml"
-if ! colima status -p "$profile" >/dev/null 2>&1; then
-  colima start -p "$profile" --activate=false --cpu 4 --memory 16 --vm-type vz --vz-rosetta --mount "$work:w"
-fi
-grep -qx 'memory: 16' "$yaml" || die "$profile does not have 16 GiB of memory; stop it and rerun"
-grep -qx 'rosetta: true' "$yaml" || die "$profile does not have Rosetta; stop it and rerun"
-grep -A1 '^mounts:' "$yaml" | grep -q "location: $work\$" || die "$profile does not mount $work; stop it and rerun"
-colima ssh -p "$profile" -- sudo sh -c "printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' > /etc/resolv.conf"
-export DOCKER_HOST="unix://$HOME/.colima/$profile/docker.sock"
-[[ "$(docker run --rm --platform linux/amd64 "$image" curl -s -o /dev/null -w '%{http_code}' https://cache.nixos.org/nix-cache-info)" == 200 ]] \
-  || die "a container on $profile cannot reach cache.nixos.org"
-
 step "x86_64-linux attachments"
-docker run --rm --platform linux/amd64 -v "$work:/work" "$image" \
+container system status >/dev/null 2>&1 || container system start
+# Apple container starts processes with HOME=/, so nix profile would install off PATH.
+container run --rm --platform linux/amd64 --rosetta -c 4 -m 16G -e HOME=/root -v "$work:/work" "$image" \
   bash /work/release-native-container.sh "$rev" "$version"
 mkdir -p "$run/native"
 cp -R "$work/out/x86_64-linux" "$run/native/x86_64-linux"
-unset DOCKER_HOST
 
 # --- 5. assemble twice and compare ---
 step "assembly"
