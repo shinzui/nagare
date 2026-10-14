@@ -483,9 +483,9 @@ test-remote rev pattern shards="0/1" deep="false" suite="nagarectl":
 # over inert documentation, and must descend from origin/master; while the
 # newest finished full gate of a landed commit is red, only a fully gated fix
 # lands (`gate landable`). It pushes that exact commit to origin's master from
-# any checkout, then starts the full gate on it in the background
+# any checkout, then starts its post-land check in the background
 # (`just gate-post-land`); a release still needs a green full record.
-# Push a landable revision to origin's master and start its full gate.
+# Push a landable revision to origin's master and start its post-land check.
 [group('test')]
 land rev:
     #!/usr/bin/env bash
@@ -495,11 +495,10 @@ land rev:
     just gate-landable "$target"
     git merge-base --is-ancestor origin/master "$target" || { echo "land: $target does not descend from origin/master; rebase it; a rebase over documentation keeps its record, anything else needs a new just gate-fast" >&2; exit 1; }
     git push origin "$target:refs/heads/master"
-    if covered=$(cabal run --project-dir=cli/nagare-harness -v0 nagare-harness -- gate covered --revision "$target" 2>/dev/null); then echo "land: $target is on master; ${covered#gate covered: }"; exit 0; fi
     log="${XDG_STATE_HOME:-$HOME/.local/state}/nagare/gates/logs/post-land-$target.log"
     mkdir -p "$(dirname "$log")"
     nohup just gate-post-land "$target" >"$log" 2>&1 &
-    echo "land: $target is on master; its full gate runs in the background, log $log"
+    echo "land: $target is on master; its post-land check runs in the background, log $log"
 
 # Check that a revision may land: a green fast or full record, and no red full
 # gate on the newest landed commit that finished one.
@@ -509,15 +508,39 @@ gate-landable rev:
 
 # The full gate of a landed commit, in a throwaway worktree so the operator's
 # checkout stays free. `just land` starts it; a red record blocks the next land.
+# A commit an earlier full gate covers (inert documentation over a gated or
+# running ancestor) runs none. Coverage is asked in the worktree's own build:
+# asked in a shared checkout another session was building, it failed and a
+# docs-only land ran a needless full gate (2026-10-14). At most two full gates
+# share the remote builder; a third waits for a slot.
 # Run the full gate on a committed revision in a temporary worktree.
 [group('test')]
 gate-post-land rev:
     #!/usr/bin/env bash
     set -euo pipefail
-    dir="${XDG_STATE_HOME:-$HOME/.local/state}/nagare/gates/worktrees/{{rev}}"
+    state="${XDG_STATE_HOME:-$HOME/.local/state}/nagare/gates"
+    dir="$state/worktrees/{{rev}}"
+    slot=""
     git worktree add --detach "$dir" '{{rev}}'
-    trap 'git worktree remove --force "$dir"' EXIT
+    trap 'if [ -n "$slot" ]; then rm -rf "$slot"; fi; git worktree remove --force "$dir"' EXIT
     cd "$dir"
+    if covered=$(cabal run --project-dir=cli/nagare-harness -v0 nagare-harness -- gate covered --revision '{{rev}}'); then
+      echo "$covered; no full gate needed"
+      exit 0
+    fi
+    mkdir -p "$state/slots"
+    until [ -n "$slot" ]; do
+      for n in 1 2; do
+        if mkdir "$state/slots/$n" 2>/dev/null; then
+          echo $$ > "$state/slots/$n/pid"
+          slot="$state/slots/$n"
+          break
+        fi
+        holder=$(cat "$state/slots/$n/pid" 2>/dev/null || true)
+        if [ -n "$holder" ] && ! kill -0 "$holder" 2>/dev/null; then rm -rf "$state/slots/$n"; fi
+      done
+      if [ -z "$slot" ]; then echo "gate-post-land: two full gates are running; waiting for one to finish"; sleep 60; fi
+    done
     just gate
 
 # EP-174: build and run every fixture application with only its declared

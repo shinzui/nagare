@@ -233,6 +233,10 @@ data CheckPlan = CheckPlan
   -- ^ Started with @suite@ and always run to its end (it keeps going).
   , pollMicroseconds :: !Int
   -- ^ How often @flake@'s log is read for new failures.
+  , beforeRetry :: ![Step]
+  -- ^ Run, all green, before @flake@ runs a second time because it lost the
+  -- remote builder and nothing else failed ('builderLostOnly'): the builder
+  -- probes.
   }
   deriving stock (Eq, Show, Generic)
 
@@ -241,7 +245,7 @@ data CheckPlan = CheckPlan
 -- local @cabal test@ steps are not repeated here. The local builds stay for
 -- the record patterns, and are already built when the fast gate ran.
 fullCheckPlan :: CheckPlan
-fullCheckPlan = CheckPlan {static = staticSteps, suite = buildSteps, flake = flakeCheckStep, pollMicroseconds = 10000000}
+fullCheckPlan = CheckPlan {static = staticSteps, suite = buildSteps, flake = flakeCheckStep, pollMicroseconds = 10000000, beforeRetry = []}
 
 -- | Every step 'runCheckPlan' runs for the full gate, in order.
 fullCheckSteps :: [Step]
@@ -250,16 +254,20 @@ fullCheckSteps = fullCheckPlan ^. #static <> fullCheckPlan ^. #suite
 -- | Run the static checks; when they pass, run the suite and the flake check
 -- at the same time. Each flake failure is reported as soon as its log shows
 -- it, and the flake check runs to its end even after a suite step fails, so
--- one gate run reports every failing check. Returns the static and suite
--- results (the fast gate's steps, in order) and the flake result.
+-- one gate run reports every failing check. A flake check that lost the
+-- remote builder, with no build or test failing, runs once more after the
+-- @beforeRetry@ steps pass; everything it already built is cached, so the
+-- second run costs about a minute. Returns the static and suite results (the
+-- fast gate's steps, in order) and the flake results: the first run, then any
+-- @beforeRetry@ steps and the second run. The last one decides.
 runCheckPlan :: ([String] -> IO ()) -> FilePath -> FilePath -> CheckPlan -> IO ([StepResult], [StepResult])
 runCheckPlan say workdir logDir plan = do
   static <- runSteps (reportResult say) workdir logDir (plan ^. #static)
   if length static /= length (plan ^. #static) || not (all stepSucceeded static)
     then pure (static, [])
     else do
-      (suite, flake) <- concurrently (runSteps reportSuite workdir logDir (plan ^. #suite)) runFlake
-      pure (static <> suite, [flake])
+      (suite, flake) <- concurrently (runSteps reportSuite workdir logDir (plan ^. #suite)) runFlakeOnceMore
+      pure (static <> suite, flake)
   where
     flakeName = T.unpack (plan ^. #flake . #name)
     reportSuite result = do
@@ -267,16 +275,30 @@ runCheckPlan say workdir logDir plan = do
       unless (stepSucceeded result) $
         say ["gate: RED; " <> flakeName <> " keeps going to report every failing check (interrupt the gate to stop it)"]
     reportFailures = mapM_ (\failure -> say ["gate: " <> flakeName <> ": FAILED " <> T.unpack (renderFailure failure) <> " (the other checks keep going)"])
-    runFlake = do
-      let logPath = logDir </> (flakeName <> ".log")
+    runFlakeOnceMore = do
+      first <- runFlake (plan ^. #flake)
+      output <- TE.decodeUtf8Lenient <$> BS.readFile (first ^. #logPath)
+      if stepSucceeded first || not (builderLostOnly output)
+        then pure [first]
+        else do
+          say ["gate: " <> flakeName <> " lost the remote builder and no build failed; probing the builder and running it once more"]
+          probes <- runSteps (reportResult say) workdir logDir (plan ^. #beforeRetry)
+          if length probes /= length (plan ^. #beforeRetry) || not (all stepSucceeded probes)
+            then pure (first : probes)
+            else do
+              second <- runFlake (plan ^. #flake & #name %~ (<> "-retry"))
+              pure (first : probes <> [second])
+    runFlake step = do
+      let name = T.unpack (step ^. #name)
+          logPath = logDir </> (name <> ".log")
       follower <- newLogFollower logPath
       result <- withAsync (forever (threadDelay (plan ^. #pollMicroseconds) >> followLog follower >>= reportFailures)) $ \_ ->
-        runStep workdir logDir (plan ^. #flake)
+        runStep workdir logDir step
       followLog follower >>= reportFailures
       reportResult say result
       unless (stepSucceeded result) $ do
         failures <- summaryFailures . flakeFailures . TE.decodeUtf8Lenient <$> BS.readFile logPath
-        say (("gate: " <> flakeName <> " failed checks (" <> show (length failures) <> "):") : ["gate:   " <> T.unpack (renderFailure failure) | failure <- failures])
+        say (("gate: " <> name <> " failed checks (" <> show (length failures) <> "):") : ["gate:   " <> T.unpack (renderFailure failure) | failure <- failures])
       pure result
 
 -- | Dry-run every check attribute of @system@; anything left to build or
@@ -340,10 +362,17 @@ runFullGate run = do
               )
           (fast, flake) <-
             if probesGreen
-              then runCheckPlan say workdir (run ^. #logDir) fullCheckPlan
+              then
+                runCheckPlan say workdir (run ^. #logDir) $
+                  fullCheckPlan & #beforeRetry .~ [probeStep system ("retry-" <> salt) & #name %~ (<> "-retry") | system <- remoteSystems]
               else pure ([], [])
           let fastGreen = probesGreen && length fast == length fullCheckSteps && all stepSucceeded fast
-              flakeGreen = fastGreen && all stepSucceeded flake && not (null flake)
+              -- A flake check run a second time after losing the builder
+              -- ('runCheckPlan') is decided by its last run.
+              flakeGreen =
+                fastGreen && case reverse flake of
+                  latest : _ -> stepSucceeded latest
+                  [] -> False
           realisations <-
             if flakeGreen
               then forM systems $ \system -> do

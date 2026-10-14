@@ -9,6 +9,7 @@ import Control.Concurrent.Async (cancel, withAsync)
 import Data.Generics.Labels ()
 import Data.IORef (atomicModifyIORef', newIORef, readIORef)
 import Data.List (isInfixOf)
+import Data.Text qualified as T
 import Data.Time.Clock (diffUTCTime, getCurrentTime)
 import Nagare.Harness.FlakeCheck
 import Nagare.Harness.Gate (CheckPlan (..), fullCheckPlan, runCheckPlan)
@@ -77,6 +78,25 @@ flakeCheckTests =
             elapsed : _ -> assertBool ("reported only after " <> show elapsed <> " s") (elapsed < 1.5)
             [] -> assertFailure ("never reported: " <> show said)
           assertBool "the end does not list the failed check" (any (("gate:   derivation broken" `isInfixOf`) . snd) said)
+    , testCase "only a lost builder with no failed build counts as a lost builder" $ do
+        builderLostOnly (lost <> "error: Cannot build '/nix/store/aaa-nagare.drv'.\n       Reason: platform mismatch\n") @?= True
+        builderLostOnly "cannot build on 'ssh://builder@b': error: failed to start SSH connection to 'b': Connection to UNKNOWN port 65535 timed out\n" @?= True
+        builderLostOnly (lost <> "error: Cannot build '/nix/store/bbb-tests.drv'.\n       Reason: builder failed with exit code 1.\n") @?= False
+        builderLostOnly "error: builder for '/nix/store/aaa-broken.drv' failed with exit code 1;\n" @?= False
+        builderLostOnly "error: attribute 'missing' not found\n" @?= False
+    , testCase "a flake check that lost the builder runs once more after the probe, and the second run decides" $
+        withPlan (retrying [ok "probe"] lostOnce) $ \(_, flake, said, _) -> do
+          map (^. #name) flake @?= ["nix-flake-check", "probe", "nix-flake-check-retry"]
+          map (^. #exit) flake @?= [1, 0, 0]
+          assertBool "the gate did not say it runs the flake check again" (any (("running it once more" `isInfixOf`) . snd) said)
+    , testCase "a lost builder is not retried when a build also failed" $
+        withPlan (retrying [ok "probe"] (flakeSaying (lost <> "Reason: builder failed with exit code 1.") 1)) $ \(_, flake, _, _) ->
+          map (^. #name) flake @?= ["nix-flake-check"]
+    , testCase "a flake check is run at most twice, and not again when the probe fails" $ do
+        withPlan (retrying [ok "probe"] (flakeSaying lost 1)) $ \(_, flake, _, _) ->
+          map (^. #exit) flake @?= [1, 0, 1]
+        withPlan (retrying [broken "probe"] lostOnce) $ \(_, flake, _, _) ->
+          map (^. #name) flake @?= ["nix-flake-check", "probe"]
     , testCase "a cancelled step's process is terminated" $
         withSystemTempDirectory "gate" $ \dir -> do
           let pidFile = dir </> "pid"
@@ -94,7 +114,12 @@ flakeCheckTests =
     broken name = Step name "." "sh" ["-c", "echo broken; exit 3"]
     sleeping name n = Step name "." "sh" ["-c", "sleep " <> show (n :: Int)]
     brokenFlake = Step "nix-flake-check" "." "sh" ["-c", "echo \"error: builder for '/nix/store/aaa-broken.drv' failed with exit code 1;\"; sleep 2; exit 1"]
-    plan static suite flake = CheckPlan {static, suite, flake, pollMicroseconds = 100000}
+    plan static suite flake = CheckPlan {static, suite, flake, pollMicroseconds = 100000, beforeRetry = []}
+    retrying probes flake = (plan [ok "static"] [ok "suite"] flake) {beforeRetry = probes}
+    lost = "Failed to find a machine for remote build!\n"
+    flakeSaying text code = Step "nix-flake-check" "." "sh" ["-c", "printf '%s\\n' " <> show (T.unpack text) <> "; exit " <> show (code :: Int)]
+    -- Loses the builder on its first run (no marker file yet), passes on the next.
+    lostOnce = Step "nix-flake-check" "." "sh" ["-c", "if [ -f lost-once ]; then exit 0; fi; touch lost-once; echo 'Failed to find a machine for remote build!'; exit 1"]
     withPlan checkPlan check =
       withSystemTempDirectory "gate" $ \dir -> do
         said <- newIORef []

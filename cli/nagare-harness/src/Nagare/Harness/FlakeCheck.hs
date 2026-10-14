@@ -5,6 +5,7 @@
 -- and reports each failing check as it appears.
 module Nagare.Harness.FlakeCheck
   ( FlakeFailure (..)
+  , builderLostOnly
   , flakeCheckStep
   , flakeFailures
   , LogFollower
@@ -67,6 +68,16 @@ flakeFailures = nubOrd . mapMaybe (failure . stripEscapes) . T.lines
       let base = T.takeWhileEnd (/= '/') path
           named = T.drop 1 (T.dropWhile (/= '-') base)
        in fromMaybe named (T.stripSuffix ".drv" named)
+
+-- | Whether a failed flake check lost its remote builder and nothing else
+-- failed: Nix found no machine for a remote build, and no builder exited with
+-- an error. A build or test failure always shows as "failed with exit code",
+-- so it is never mistaken for a lost builder (2026-10-14: an SSH timeout to
+-- the builder turned a run whose every build passed into a red full gate).
+builderLostOnly :: Text -> Bool
+builderLostOnly output =
+  any (`T.isInfixOf` output) ["Failed to find a machine for remote build", "failed to start SSH connection"]
+    && not ("failed with exit code" `T.isInfixOf` output)
 
 -- | Drop ANSI escape sequences (@ESC [ ... letter@).
 stripEscapes :: Text -> Text
