@@ -75,6 +75,7 @@ library
     Nagare.Inventory.Plan.Types
     Nagare.Inventory.Plan.Validation
     Nagare.Inventory.Store.Target
+    Nagare.Inventory.Store.TargetMigration
     Paths_nagarectl
 
   exposed-modules:
