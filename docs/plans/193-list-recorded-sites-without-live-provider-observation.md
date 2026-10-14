@@ -4,6 +4,7 @@ slug: list-recorded-sites-without-live-provider-observation
 title: "List recorded sites without live provider observation"
 kind: exec-plan
 created_at: 2026-10-14T14:46:27Z
+master_plan: "docs/masterplans/28-serve-nagare-s-recorded-state-through-a-read-only-admin-api.md"
 intention: "intention_01m4xe1h31e4m8hgrt986kx7p5"
 provenance:
   created_by:
@@ -77,12 +78,16 @@ harness. Measure only wall time, so no new store instrumentation is needed. The 
 fixture is a `Suite.hs` environment probe, because the test suite cannot import `app/`.
 
 
-2026-10-14 (operator): Nagare's admin API is read-only, and
+2026-10-14 (operator): This plan is a child of
+[MasterPlan 28](../masterplans/28-serve-nagare-s-recorded-state-through-a-read-only-admin-api.md).
+Nagare's admin API is read-only, and
 [EP-192](192-publish-a-versioned-json-contract-for-the-nagarectl-outputs-kotei-consumes.md) is now
 the one public document contract that API will serve. `site list`'s versioned JSON is that
-contract's `site-list` read document: emit it under `--contract 1`, and add its hand-written
-schema and golden samples to `cli/nagarectl/contract/v1/` under the README rules, once EP-192's M1
-has landed. Refusals use EP-192's `refusal` document. The query, its library location in `src/`,
+contract's `site-list` read document, with `SiteSummary` items: emit it under `--contract 1`,
+and add both types (with `ToSchema` from their shared aeson `Options`) to the `nagare-contract`
+package and a golden sample to `docs/api/samples/`, once EP-192's M1 has landed. Refusals are
+EP-192's RFC 9457 problem documents. The admin API (EP-197) serves `SiteSummary` items from this
+query. The query, its library location in `src/`,
 and this plan's acceptance are unchanged.
 
 ## Outcomes & Retrospective
