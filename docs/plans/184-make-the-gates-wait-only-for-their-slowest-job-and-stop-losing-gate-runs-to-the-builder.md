@@ -117,12 +117,12 @@ record still runs at the same gate it runs at today ([ADR 25](../adr/0025-defect
     runs each suite once per system. The fast gate still runs both suites locally. Step start and
     end times were not added: the gate prints `gate: wall N s`, and the record format is
     unchanged.
-- [ ] M3. The full gate does not lose a run to the builder: a gcloud preflight that makes a real
+- [-] M3. The full gate does not lose a run to the builder: a gcloud preflight that makes a real
   API call, a keep-awake session for the length of the run, and one retry of a remote step after a
-  transport failure. Each is shown working against an injected failure.
-- [ ] M4. `just gate --deep auto --sweep` runs the deep tier (when `just recovery-changes` reports a
+  transport failure. Each is shown working against an injected failure. {disposition=declined}
+- [-] M4. `just gate --deep auto --sweep` runs the deep tier (when `just recovery-changes` reports a
   recovery path) and the mutation sweep on the builder alongside the flake check, and records them.
-  `just land` checks the recorded results.
+  `just land` checks the recorded results. {disposition=declined}
 
 
 ## Surprises & Discoveries
@@ -178,7 +178,7 @@ record still runs at the same gate it runs at today ([ADR 25](../adr/0025-defect
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+Closed 2026-10-12. M1–M2 landed: the suite runs sharded and in parallel, and the full gate runs each check once with local and remote work overlapping; a full gate went from about 55 minutes to a 14-minute median over the 34 records since 2026-10-12. M3 was dropped and M4 shrank to `just gate-release` (Decision Log).
 
 
 ## Context and Orientation

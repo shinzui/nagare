@@ -139,20 +139,20 @@ behind it is in
   Acceptance: documented reversions of the F38, F49 and F50 guards fail. The model reports F51 and
   F52 as violations on their pre-fix source, and passes once their MasterPlan 23 fixes land
   (operator decision, 2026-10-04: both un-deferred).
-**M3–M4 held behind a trigger, M5 cancelled (operator, 2026-10-14; MasterPlan 26 Decision Log).** The host-transport world is reopened when an intranet upgrade finds a host-stage defect, the Pulumi cloud-foundation world when MasterPlan 25 reopens; M3 goes first when either does. F121–F124, the four upgrade defects since v0.5.0, all sat in these providers.
+**M3–M4 out of this plan's scope and re-chartered on a trigger, M5 declined (operator, 2026-10-14; MasterPlan 26 Decision Log).** The host-transport world is reopened when an intranet upgrade finds a host-stage defect, the Pulumi cloud-foundation world when MasterPlan 25 reopens; M3 goes first when either does. F121–F124, the four upgrade defects since v0.5.0, all sat in these providers.
 
-- [ ] M3: The production adapter registry is constructed in the library from provider operation
+- [-] M3: The production adapter registry is constructed in the library from provider operation
   records, and the model runs that production wiring instead of a test-local copy. Acceptance: the
   model and the F44 observer check use the production registry builder, and every suite and the
-  architecture check pass.
-- [ ] M4: Worlds for the remaining providers (Pulumi cloud foundation, Helm, host transport). The Pulumi cloud-foundation world is shared with [MasterPlan 25](../masterplans/25-reviewed-full-context-teardown-with-vm-workload-collection.md): EP-165 and EP-167 extend it with retained cloud members and teardown faults, so build it to observe from a stack export and to delete by exact physical identity reuse the
+  architecture check pass. {disposition=out-of-scope}
+- [-] M4: Worlds for the remaining providers (Pulumi cloud foundation, Helm, host transport). The Pulumi cloud-foundation world is shared with [MasterPlan 25](../masterplans/25-reviewed-full-context-teardown-with-vm-workload-collection.md): EP-165 and EP-167 extend it with retained cloud members and teardown faults, so build it to observe from a stack export and to delete by exact physical identity reuse the
   existing restore and collection models, and fidelity fixtures check that the runtime parsers agree
   with the worlds on real recorded output. Acceptance: one fidelity fixture per L3 finding with
-  retained real output, and every registered executor has a world.
-- [ ] M5: An interpreter-coverage record lists every executor and action with the model scenarios
+  retained real output, and every registered executor has a world. {disposition=out-of-scope}
+- [-] M5: An interpreter-coverage record lists every executor and action with the model scenarios
   that cover it, and a test fails when a registered pair has none. Acceptance: deleting a scenario
   fails the coverage test, and the record is emitted for the release gate
-  ([EP-170](170-size-the-release-gate-to-the-change.md)).
+  ([EP-170](170-size-the-release-gate-to-the-change.md)). {disposition=declined}
 
 ## Surprises & Discoveries
 
@@ -306,5 +306,5 @@ behind it is in
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+Closed 2026-10-14. M1–M2 delivered the Kubernetes, store and rename worlds and the recovery model, which found F55–F65 before any native run and is the fast tier every commit runs. M3–M4 (production registry, worlds for host transport, Helm and Pulumi) are out of this plan's scope and are re-chartered when an intranet upgrade finds a host-stage defect or MasterPlan 25 reopens; F121–F124 all sat in those providers. M5 is declined: the coverage record has no consumer.
 

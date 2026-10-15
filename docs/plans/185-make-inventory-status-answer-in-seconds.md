@@ -105,3 +105,9 @@ is part of this plan only where it is cheap to say why in the output.
   passes run after the lanes from the snapshot and the remembered Helm reads. A refusal in any
   lane cancels the others and exits as before. Critical path on the intranet: about 5 s store open,
   then about 13 s for the slowest lane (the `vmks` chart and the CRD read). Date: 2026-10-12.
+
+
+## Outcomes & Retrospective
+
+Complete 2026-10-12. `inventory status` on the intranet went from 139 s to 23–28 s (`894b58b7`,
+`90370d07`), and `inventory store status` answers in 5.6–7.2 s without a provider process.

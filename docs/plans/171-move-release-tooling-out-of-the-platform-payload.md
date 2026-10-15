@@ -34,8 +34,8 @@ The platform payload is the set of files the `nagarectl` CLI installs into a con
 
 **Cancelled (operator, 2026-10-14; MasterPlan 26 Decision Log).** `just release-candidate VERSION --revision REV` runs the tooling from the working tree, so a tooling fix no longer mints a candidate (`78a79865` landed after candidate `ba6dd7d7`); the Haskell derivations build from their `cli/` subtrees and the sweep skip ignores `scripts/`. The payload keeps shipping the whole `scripts/` directory.
 
-- [ ] M1: An inventory of every file the payload ships, each classified as runtime (read or executed by an installed CLI, a justfile recipe, a manifest or a host flake) or tooling (release, audit, rehearsal, check, test). Acceptance: the classification is checked in with the evidence for each runtime entry (the code path that uses it).
-- [ ] M2: The payload ships only runtime files, the harness tooling is versioned separately and recorded in release evidence, and every existing check still passes. Acceptance: `nix flake check` passes; changing a tooling script leaves the payload digest unchanged; the release evidence records the harness revision.
+- [-] M1: An inventory of every file the payload ships, each classified as runtime (read or executed by an installed CLI, a justfile recipe, a manifest or a host flake) or tooling (release, audit, rehearsal, check, test). Acceptance: the classification is checked in with the evidence for each runtime entry (the code path that uses it). {disposition=declined}
+- [-] M2: The payload ships only runtime files, the harness tooling is versioned separately and recorded in release evidence, and every existing check still passes. Acceptance: `nix flake check` passes; changing a tooling script leaves the payload digest unchanged; the release evidence records the harness revision. {disposition=declined}
 
 ## Surprises & Discoveries
 
@@ -53,5 +53,5 @@ The platform payload is the set of files the `nagarectl` CLI installs into a con
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+Cancelled 2026-10-14 (MasterPlan 26 Decision Log). `just release-candidate --revision` already runs release tooling from the working tree, so a tooling fix mints no candidate; the payload keeps shipping `scripts/` whole.
 

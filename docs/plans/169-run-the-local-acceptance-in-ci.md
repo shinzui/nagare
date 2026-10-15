@@ -37,8 +37,8 @@ After [EP-168](168-script-the-local-acceptance-run-as-one-command.md), the local
 
 ## Progress
 
-- [ ] M1: A CI job starts a k3d cluster sized for the full local platform inside a Docker-in-Docker environment and completes the platform bootstrap. Acceptance: the job's log ends with a converged platform review.
-- [ ] M2: The job runs `scripts/run-local-acceptance.sh` end to end and uploads only public evidence. Acceptance: a green run on the then-current candidate with all required assertions finalized and no private material in the artifact.
+- [-] M1: A CI job starts a k3d cluster sized for the full local platform inside a Docker-in-Docker environment and completes the platform bootstrap. Acceptance: the job's log ends with a converged platform review. {disposition=declined}
+- [-] M2: The job runs `scripts/run-local-acceptance.sh` end to end and uploads only public evidence. Acceptance: a green run on the then-current candidate with all required assertions finalized and no private material in the artifact. {disposition=declined}
 
 ## Surprises & Discoveries
 
@@ -56,5 +56,5 @@ After [EP-168](168-script-the-local-acceptance-run-as-one-command.md), the local
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+Cancelled 2026-10-04 (operator: no GitHub Actions). EP-174's local per-commit gate and EP-172's release rehearsal cover the need.
 
