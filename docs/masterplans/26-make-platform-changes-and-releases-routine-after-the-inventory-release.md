@@ -84,6 +84,9 @@ mutating a real operator context; weakening any MasterPlan 23 guarantee.
 **2026-10-12:** releases are the priority. Items 10–12 are the open work, in that order. Items 1–5
 stay held. See the Decision Log.
 
+**2026-10-14:** items 6–12 are ticked and no item is open. Items 1–5 stay held; each carries a
+dated note on what covers it today and what it would still buy, measured in Progress.
+
 The rules of the [production readiness checklist](../releases/production-readiness-checklist.md)
 apply here:
 - **Fixed scope.** No item is added. A new finding that does not risk data loss goes to the deferral
@@ -94,17 +97,42 @@ apply here:
   once.
 
 - [ ] 1. The recovery model runs the production adapter registry, built in the library, rather than a
-      test-local copy (EP-173 M3).
+      test-local copy (EP-173 M3). Held. 2026-10-14: the model still assembles its own registry
+      from an adapter list, while production wires twelve adapters with their fences and recoveries
+      in `cli/nagarectl/app/Nagare/Cli/Inventory/Adapters.hs`. No finding since 2026-10-12 traces
+      to the difference.
 - [ ] 2. Every registered executor and action has a provider world and a covering model scenario,
       recorded in `interpreter-coverage.json`. Deleting a scenario fails a test. This includes the
-      Pulumi cloud-foundation world that MasterPlan 25 extends (EP-173 M4–M5).
+      Pulumi cloud-foundation world that MasterPlan 25 extends (EP-173 M4–M5). Held. 2026-10-14:
+      F121–F124, the four upgrade defects since v0.5.0, all sat in providers without a world (host
+      transport, Helm, the cloud stage's guard) and were all found on the intranet. Item 12's
+      rehearsal now catches the Helm and guard classes locally; the host stage and Pulumi are still
+      first run on the intranet each release. The three intranet upgrades since F121's fix ran the
+      host stage clean. The coverage record (M5) has no remaining consumer: item 4's M3 and item
+      5's refusal are both held.
 - [ ] 3. Changing release or harness tooling leaves the built payload digest unchanged (EP-171).
+      Held. 2026-10-14: the cost it removes is gone. `just release-candidate VERSION --revision REV`
+      runs the tooling from the working tree, so the Apple-container fix `78a79865` landed after
+      candidate `ba6dd7d7` and v0.6.3 kept its candidate. The Haskell derivations build from their
+      `cli/` subtrees and the sweep skip ignores `scripts/`, so a tooling change rebuilds and
+      re-sweeps nothing. What remains is hygiene: 37 of the 57 scripts under `share/nagare` are
+      release, drill, check or test tooling.
 - [ ] 4. The release gate classifies the change between two revisions and requires only that class's
       evidence. Its output on real MasterPlan 23 candidate pairs matches a hand-checked expectation
-      (EP-170).
+      (EP-170). Held. 2026-10-14: landed in slices without the classifier: the docs carry-forward
+      (ADR 25, 2026-10-09), the mutation-sweep skip when nothing under `cli/`, `nix/` or the flake
+      changed (`391db1b6`), the version mask (`e9d78be3`), and covered post-land gates skipped
+      (`eaec31c8`). The rest would spare a full gate on about 19 of the 125 commits since
+      2026-10-10 (11 runbook and user-doc commits, 8 script-only commits), each a background
+      post-land gate of about 14 minutes. M3 has nothing left to gate: no release carries fresh
+      native evidence.
 - [ ] 5. **Native run L1 (cp3).** `nagare-harness local-acceptance` reproduces C2 on `83124396`
       unattended: 16/16 assertions, evidence assembled. A deliberately injected fault stops it at the
-      named stage (EP-168).
+      named stage (EP-168). Held. 2026-10-14: the command does not exist, and no release reads
+      `inventory-evidence.json`; `release-candidate` and `release-publish` need only the rehearsal
+      record. `scripts/release-rehearse.sh` and `scripts/site-access-drill.sh` bootstrap a fresh
+      local context from the packaged CLI today (about 7 to 9 minutes). The only dependent is
+      MasterPlan 25 EP-167 M3, which is held.
 - [x] 6. An admitted inventory context moves to a new release through a reviewed transition that
       binds the source and target releases and refuses unsupported pairs. The recovery model proves
       it under faults first (EP-172 M1–M2). Evidence: `1ae43c34`, `61368b61`.
@@ -224,9 +252,9 @@ No cross-repository ADR applies.
 |---|-------|------|-----------|-----------|--------|
 | 1 | Script the local acceptance run as one command | docs/plans/168-script-the-local-acceptance-run-as-one-command.md | None | EP-171; MP-25 EP-167 M3 (reviewed local teardown stage) | Held (operator, 2026-10-10) |
 | 2 | Run the local acceptance in CI | docs/plans/169-run-the-local-acceptance-in-ci.md | EP-168 | EP-171 | Cancelled (operator, 2026-10-04: no GitHub Actions; EP-168 + EP-174 cover the need) |
-| 3 | Size the release gate to the change | docs/plans/170-size-the-release-gate-to-the-change.md | None; M3 needs EP-173 M5 | EP-168, EP-171 | In Progress (operator, 2026-10-12: the deep-tier slice, item 10; the rest stays held. Its first slice, carry-forward over docs, is landed) |
+| 3 | Size the release gate to the change | docs/plans/170-size-the-release-gate-to-the-change.md | None; M3 needs EP-173 M5 | EP-168, EP-171 | Held (operator, 2026-10-10). Landed slices: docs carry-forward (2026-10-09), the ledger-aware deep-tier judge `acd53e28` (item 10, then superseded on 2026-10-12), the sweep skip `391db1b6` and version mask `e9d78be3`, covered post-land gates `eaec31c8`. M1–M3 not started |
 | 4 | Move release tooling out of the platform payload | docs/plans/171-move-release-tooling-out-of-the-platform-payload.md | None | None | Held (operator, 2026-10-10) |
-| 5 | Move an inventory context to the next release through a reviewed transition | docs/plans/172-rehearse-candidate-upgrades-of-an-inventory-context-instead-of-rebuilding-it.md | None (M3 rehearses on a disposable local context without EP-168) | None | Complete (2026-10-12: v0.6.0 and v0.6.1 moved the intranet; F124's zero-operation replan lands separately). Earlier: (M2 and M3 done 2026-10-11: marker, `platform transition plan\|commit`, model scenario, first green v0.4.0 → candidate rehearsal; release assembly and `release publish` bind the rehearsal record; M1 open) |
+| 5 | Move an inventory context to the next release through a reviewed transition | docs/plans/172-rehearse-candidate-upgrades-of-an-inventory-context-instead-of-rebuilding-it.md | None (M3 rehearses on a disposable local context without EP-168) | None | Complete (2026-10-12: v0.6.0 and v0.6.1 moved the intranet; F124's zero-operation replan closed in `eb0f017e`, item 7). Since then v0.6.2 and v0.6.3 moved it through the same transition |
 | 6 | Find recovery defects with adversarial provider interpreters | docs/plans/173-find-recovery-defects-with-adversarial-provider-interpreters.md | None | None | Held (M1–M2 accepted 2026-10-05; M3–M5 held by the operator, 2026-10-10) |
 | 7 | Gate every commit before any native run | docs/plans/174-gate-every-commit-before-any-native-run.md | None | EP-168 (shared `nagare-harness` package) | Complete (2026-10-05) |
 | 8 | Make the flake check build each Haskell package once | docs/plans/178-make-the-flake-check-build-each-haskell-package-once.md | None | EP-174 | Complete (2026-10-05) |
@@ -240,8 +268,8 @@ changed with the 2026-10-09 re-scope.
 
 ## Dependency Graph
 
-**2026-10-12:** item 10, then 11, then 12, in one lane. Item 12's rehearsal becomes a step of item
-11's `release-candidate`. The lanes below describe the held items.
+**2026-10-14:** no item is open. Items 10–12 ran in one lane; item 12's rehearsal is a step of item
+11's `release-candidate`. The lanes below apply only if the operator reopens the held items.
 
 Two lanes, each one worktree session:
 - **Lane A (pure code, start now).**
@@ -260,7 +288,10 @@ milestone: a scripted fresh-context bootstrap and scenario that leaves a converg
 
 ## Integration Points
 
-**The acceptance runner and its output layout.** EP-168 owns `nagare-harness local-acceptance`:
+**The acceptance runner and its output layout.** Held with EP-168. Today
+`scripts/release-rehearse.sh` bootstraps the fresh local context on the previous release, moves it
+to the candidate and reads the seeded data back; its record is the only evidence the release scripts
+read. If reopened, EP-168 owns `nagare-harness local-acceptance`:
 - **Inputs:** candidate package, images, operator root.
 - **Outputs:** one evidence directory created by the runner's plan, a staging directory, a private
   directory, and the assembled `inventory-evidence.json`.
@@ -270,8 +301,11 @@ milestone: a scripted fresh-context bootstrap and scenario that leaves a converg
 - **Consumers:** EP-170 reads the output as gate input. EP-172 reuses its stages against a moved
   context instead of a fresh one.
 
-**The environment preflight.** EP-168 owns it. Before any stage, the harness refuses unless every
-human dependency is settled:
+**The environment preflight.** Held with EP-168. Today the full gate's builder probe and gcloud
+preflight, `release-candidate`'s preflight and `release-rehearse.sh`'s environment scrub cover the
+builder, gcloud, gate-record and Colima checks; the Tailscale tag check exists nowhere, and no held
+or open native run needs it. If reopened, EP-168 owns it. Before any stage, the harness refuses
+unless every human dependency is settled:
 - the remote builder answers;
 - gcloud is authenticated (cloud contexts);
 - the context's Tailscale key carries `tag:nagare-test`;
@@ -298,17 +332,18 @@ rehearsal" as evidence a class may accept.
 
 **The gate record.** EP-174 owns it (complete). It is a JSON record per commit under
 `${XDG_STATE_HOME:-$HOME/.local/state}/nagare/gates/`, checked by
-`nagare-harness gate verify --revision`. EP-168 calls it before any cluster step, and EP-170 requires
-it.
+`nagare-harness gate verify --revision`. `just land`, the pre-push hook, `release-candidate` and
+`release-rehearse` call it; EP-168 would call it before any cluster step.
 
 **The interpreter-coverage record and the provider worlds.** EP-173 owns `interpreter-coverage.json`
 and the worlds:
 - **Already built:** Kubernetes, store, rename, restore and collection.
 - **Added in M4:** the Pulumi cloud foundation, Helm and the host transport.
 
-EP-170 requires the coverage record, and EP-168 refuses a native step with no entry. MasterPlan 25
-EP-165 and EP-167 extend the Pulumi cloud-foundation world with retained members and teardown
-faults rather than building a second one.
+EP-170 M3 would require the coverage record, and EP-168 would refuse a native step with no entry;
+both are held, so the record has no active consumer. MasterPlan 25 EP-165 and EP-167 extend the
+Pulumi cloud-foundation world with retained members and teardown faults rather than building a
+second one.
 
 **The local teardown stage.** MasterPlan 25 EP-167 M3 delivers reviewed removal of a local context.
 Once it lands, EP-168 runs it as its final stage, so teardown is exercised every release. Until then,
@@ -337,6 +372,24 @@ to the builder in one night.
 
 2026-10-12: items 6, 8 and 9 are ticked; item 7 waits on F124. The operator re-scoped the plan to
 items 10–12.
+
+2026-10-14: items 6–12 are ticked. No item is open; items 1–5 are held. Measured state on
+v0.6.3, the release the intranet runs:
+- **Three releases through the two commands.** v0.6.1, v0.6.2 and v0.6.3 each ran
+  `just release-candidate` (13.7 minutes for v0.6.2 with the sweep skipped, 28 minutes with it)
+  and `just release-publish` (2 minutes), and each upgraded the intranet in place the same day
+  with the operator's login working (`mori://tan/tan-ng-labs` `ca34a6e`, `7dca2bc`, `d92ba9c`).
+- **Full gate.** 34 records since 2026-10-12: median about 14 minutes of wall time, 9 minutes when
+  the Linux flake check is cached, 51 at worst. The local `nagarectl` build is the 9-minute floor.
+- **Commits since 2026-10-10:** 125. 89 changed only inert documentation and carried their
+  ancestor's record forward; 16 changed Haskell or Nix; 11 changed other documentation and 8
+  only scripts, and those 19 each paid a full gate.
+- **Upgrade defects since v0.5.0:** F121–F124, all found by the intranet's first transitions on
+  2026-10-12, all in providers without a model world. The rehearsal of item 12 catches three of
+  the four classes. The 0.6.2 and 0.6.3 intranet upgrades found none.
+- **Open decision for the operator:** whether items 1–5 are cancelled or stay held, with the per-item
+  notes in the finish line as the basis. Nothing in MasterPlan 27, MasterPlan 28 or EP-195 depends
+  on them; only held MasterPlan 25 does (EP-173 M4's Pulumi world, EP-168 M1).
 
 
 ## Surprises & Discoveries
