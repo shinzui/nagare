@@ -27,6 +27,8 @@ drill log. Nothing is ticked on an estimate.
 - **A release counts when the intranet runs on it.** The operator's requirement of 2026-10-10:
   developers can deploy and log in, and the operator can change and upgrade without losing data.
 
+What comes after this list is ranked in [priorities after v0.6.3](priorities-after-v0.6.3.md).
+
 ## 1. The ledger is reliable day to day (MP-23)
 
 - [x] Close stopped transactions by per-operation proof, with attested close as the last resort
