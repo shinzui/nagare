@@ -139,6 +139,8 @@ behind it is in
   Acceptance: documented reversions of the F38, F49 and F50 guards fail. The model reports F51 and
   F52 as violations on their pre-fix source, and passes once their MasterPlan 23 fixes land
   (operator decision, 2026-10-04: both un-deferred).
+**M3–M4 held behind a trigger, M5 cancelled (operator, 2026-10-14; MasterPlan 26 Decision Log).** The host-transport world is reopened when an intranet upgrade finds a host-stage defect, the Pulumi cloud-foundation world when MasterPlan 25 reopens; M3 goes first when either does. F121–F124, the four upgrade defects since v0.5.0, all sat in these providers.
+
 - [ ] M3: The production adapter registry is constructed in the library from provider operation
   records, and the model runs that production wiring instead of a test-local copy. Acceptance: the
   model and the F44 observer check use the production registry builder, and every suite and the

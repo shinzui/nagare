@@ -256,3 +256,16 @@ it in five database scenarios, and no change to the design brings that within a 
 commit runs, replays every single fault at every boundary; that is the release guarantee, as the
 2026-10-07 amendment already said. `just gate-deep` stays as a manual tool for someone working on
 recovery code. This drops the deep tier's per-release triage and its time budget.
+
+
+## Amendment (2026-10-14): where interpreter coverage ends
+
+MasterPlan 26 closed with EP-173 M3–M4 held and M5 cancelled (its Decision Log, 2026-10-14). The
+worlds that exist are Kubernetes, store, rename, restore and collection. There is no world for the
+host transport, Helm or the Pulumi cloud foundation, and no interpreter-coverage record, so the
+"release evidence gains a precondition" rule above has no implementation: no release carries fresh
+native evidence, and nothing gates one on a coverage record. For the providers without a world, a
+defect first appears in the release rehearsal (`just release-rehearse`: the Helm and
+transition-guard paths) or in the intranet's own upgrade (the host stage and Pulumi); F121–F124 were
+all found that way. The host-transport world is reopened when an intranet upgrade finds a host-stage
+defect, and the Pulumi world when MasterPlan 25 reopens.

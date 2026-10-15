@@ -44,6 +44,8 @@ You can see it working by running the command on the final MasterPlan 23 candida
 
 ## Progress
 
+**Cancelled (operator, 2026-10-14; MasterPlan 26 Decision Log).** No release reads the evidence this run assembles, and `scripts/release-rehearse.sh` bootstraps a fresh local context from the packaged CLI. Nothing below was started.
+
 - [ ] M1: The tool first runs the environment preflight and refuses unless every human dependency is settled: builder reachable, `gate verify` green for the candidate revision, only the expected Colima profile running, and for cloud contexts gcloud authenticated and the Tailscale key tagged `tag:nagare-test`. It then bootstraps a fresh local context from a candidate package, runs C1 on that payload, deploys the scenario with its interruption points, seeds every store, and leaves a converged, idle context. Acceptance: a run on `83124396` ends with the store idle and accepted equal to converged, and each preflight refusal is covered by a unit test.
 - [ ] M2: The tool runs every check in `fixtures/inventory-release/local/scenario.json`, including the source-unavailable drill, and records each assertion. Acceptance: `scripts/scenario-assertions.py finalize` reports all required assertions.
 - [ ] M3: After every scenario mutation, the tool runs the runner rehearsal: plan, apply and verify back to back in the evidence directory (one packaged CreateResource, apply, a verified no-op, every provider observable). It then replays the staged records and assembles `inventory-evidence.json`. Acceptance: the assembler accepts that same directory.

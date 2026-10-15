@@ -96,7 +96,7 @@ apply:
       run G1, and G1 follows it verbatim.
 
 G1 is the only cloud sequence. The operator approves it once, when item 8 is reached, after the
-preflight (MasterPlan 26 EP-168) has passed. The project is `tan-ng-labs` unless the operator names
+preflight has passed (MasterPlan 26 EP-168 was cancelled on 2026-10-14, so the runner carries its own). The project is `tan-ng-labs` unless the operator names
 another disposable project.
 
 ## Decomposition Strategy
@@ -149,7 +149,7 @@ Relevant ADRs:
 | 1 | Collect a retained VM together with the workloads it hosts | [docs/plans/164-collect-a-retained-vm-together-with-the-workloads-it-hosts.md](../plans/164-collect-a-retained-vm-together-with-the-workloads-it-hosts.md) | None | EP-165 | Held (operator, 2026-10-10) |
 | 2 | Observe retained cloud members and order cloud collection by real consumption | [docs/plans/165-observe-retained-cloud-members-and-order-cloud-collection-by-real-consumption.md](../plans/165-observe-retained-cloud-members-and-order-cloud-collection-by-real-consumption.md) | M1 needs MP-26 EP-173 M4 (Pulumi cloud-foundation world) | EP-164 | Held (operator, 2026-10-10) |
 | 3 | Review deletion of protected cloud data and context authority | [docs/plans/166-review-deletion-of-protected-cloud-data-and-context-authority.md](../plans/166-review-deletion-of-protected-cloud-data-and-context-authority.md) | M2–M3 need EP-164, EP-165 | None | Held (operator, 2026-10-10) |
-| 4 | Prove a full GCP and local context tears down to zero through reviews | [docs/plans/167-prove-a-full-gcp-and-local-context-tears-down-to-zero-through-reviews.md](../plans/167-prove-a-full-gcp-and-local-context-tears-down-to-zero-through-reviews.md) | M1: MP-26 EP-173 M4; M2: EP-164, EP-165, EP-166; M3: MP-26 EP-168 M1 | None | Held (operator, 2026-10-10) |
+| 4 | Prove a full GCP and local context tears down to zero through reviews | [docs/plans/167-prove-a-full-gcp-and-local-context-tears-down-to-zero-through-reviews.md](../plans/167-prove-a-full-gcp-and-local-context-tears-down-to-zero-through-reviews.md) | M1: MP-26 EP-173 M4; M2: EP-164, EP-165, EP-166; M3: a scripted fresh local context (`scripts/release-rehearse.sh` bootstraps one; MP-26 EP-168 was cancelled on 2026-10-14) | None | Held (operator, 2026-10-10) |
 
 Status values: Not Started, In Progress, Complete, Cancelled, Held. A held plan is not worked on
 until the operator reopens it.

@@ -38,10 +38,10 @@ The operator runbook then documents the sequence.
   - The model runs the real planner, driver and adapters over the Pulumi and Kubernetes worlds, under these faults: lost acknowledgement on delete, transient read, interruption at every boundary, out-of-band deletion, and protected data without intent.
   - It asserts that every reachable stop reaches zero through supported commands, and that nothing protected is deleted without its intent.
   - The model is expected to fail until EP-164 to EP-166 land.
-  - The runner is a `nagare-harness` command sharing EP-168's preflight and evidence layout.
+  - The runner is a `nagare-harness` command with its own preflight and evidence layout (MasterPlan 26 EP-168 was cancelled on 2026-10-14).
   - Acceptance: the model is green on the completed children, and each guard's mutation record fails it.
 - [ ] Milestone 2, native run G1, the only cloud sequence (needs EP-164, EP-165, EP-166 and M1): a native GCP teardown to zero of a fresh disposable context that holds a revoked access grant. It follows the runbook section verbatim and closes F33's and F84's native proof.
-- [ ] Milestone 3, native run L3 (needs MasterPlan 26 EP-168 M1): reviewed local teardown (retire, then substrate removal), run as the final stage of `nagare-harness local-acceptance` rather than as a separate run. Also the operator runbook section, written before G1.
+- [ ] Milestone 3, native run L3 (needs a scripted fresh local context; `scripts/release-rehearse.sh` bootstraps one, since MasterPlan 26 EP-168 was cancelled on 2026-10-14): reviewed local teardown (retire, then substrate removal), run as the final stage of that bootstrap rather than as a separate run. Also the operator runbook section, written before G1.
 
 ## Surprises & Discoveries
 
