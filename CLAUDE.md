@@ -145,9 +145,9 @@ which defer to the user's scope:
   rehearsal on a disposable local context reads the seeded data back unchanged, and the real
   intranet context upgrades and passes the deploy-and-login check. No per-release local and cloud
   evidence chain is re-run.
-- **Held plans are not worked on.** MasterPlan 25 and MasterPlan 26's EP-168, EP-171 and
-  EP-173 M3–M5 are held, and so is all of EP-170. The open code item is MasterPlan 26 item 11, a
-  release in two commands (operator, 2026-10-12).
+- **Held plans are not worked on.** MasterPlan 25 is held, and so is MasterPlan 26's EP-173
+  M3–M4, behind a trigger (its Decision Log, 2026-10-14). MasterPlan 26 is closed; its EP-168,
+  EP-170, EP-171 and EP-173 M5 are cancelled, not held.
 
 ## Git conventions
 
