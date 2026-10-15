@@ -10,6 +10,12 @@ provenance:
     model: "claude-opus-5-5"
     harness: "claude-code"
     at: 2026-10-14T17:49:39Z
+  revisions:
+    - model: "claude-fable-5-1"
+      harness: "claude-code"
+      at: 2026-10-15T00:19:10Z
+      mode: "update"
+      note: "MasterPlan 28 design review for the admin UI and Kotei: one recorded-state reader, admin.<base> origin, service-account bearer, Deployment+NetworkPolicy, gateway problem documents, ETag/head summary"
 ---
 
 # Read the inventory store from an in-cluster service identity
@@ -61,6 +67,9 @@ pod can read, a compromised pod with the same identity can read too.
   two project numbers read without `gcloud`.
 - 2026-10-14: Only `gcs` stores are supported. A `local` store lives on the operator's machine and
   is not reachable from the cluster; local runs of the API open it with the existing local path.
+- 2026-10-14 (MasterPlan 28 review): Option 1 is the default unless M1(a) finds plaintext secret
+  material in scope objects; see Posture under Context. Store failures map to the shared catalog
+  (`store_unavailable`, `reauthentication_required`).
 
 
 ## Context and Orientation
@@ -109,6 +118,14 @@ inventory prefix.
 The project number of the context comes from the metadata server
 (`computeMetadata/v1/project/numeric-project-id`) under option 1, or from the key's project under
 option 2, and must still equal the bucket's owning project number.
+
+**Posture (MasterPlan 28 review, 2026-10-14).** Option 1's exposure class, a node-account grant
+readable by every pod, already exists: the backup bucket holds database dumps under
+`roles/storage.objectAdmin` on that account. Option 1 therefore adds no new class, and option 3
+is what closes the class for both; it goes to the deferral ledger with the operator's approval
+rather than into this plan. M1's stop condition stands. The API pod is a plain Deployment with
+an egress NetworkPolicy (EP-198), so under option 1 the metadata server (`169.254.169.254:80`)
+and the GCS endpoint are explicit egress rules, not an implicit path.
 
 **ADRs.** [ADR 9](../adr/0009-assert-the-active-context-project-on-every-cloud-mutating-path.md):
 every cloud path is bound to the active context's project; the service reader keeps the same

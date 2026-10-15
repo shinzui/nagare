@@ -11,6 +11,12 @@ provenance:
     model: "gpt-6.1-sol"
     harness: "codex-cli"
     at: 2026-10-14T14:46:27Z
+  revisions:
+    - model: "claude-fable-5-1"
+      harness: "claude-code"
+      at: 2026-10-15T00:19:10Z
+      mode: "update"
+      note: "MasterPlan 28 design review for the admin UI and Kotei: one recorded-state reader, admin.<base> origin, service-account bearer, Deployment+NetworkPolicy, gateway problem documents, ETag/head summary"
 ---
 
 # List recorded sites without live provider observation
@@ -90,6 +96,15 @@ EP-192's RFC 9457 problem documents. The admin API (EP-197) serves `SiteSummary`
 query. The query, its library location in `src/`,
 and this plan's acceptance are unchanged.
 
+2026-10-14 (MasterPlan 28 review): M1's loader is the initiative's one recorded-state reader.
+It lives in `cli/nagarectl/src/Nagare/Inventory/Recorded.hs` as `RecordedState` (the head plus
+every accepted scope declaration, digest-checked and bound to the context) and
+`readRecordedState :: InventoryStore -> IO (Either StoreError RecordedState)`; the recorded-site
+projection in `Nagare.Inventory.Site.Recorded` is a pure function of a `RecordedState`. The
+reader never refuses because a transaction, claim, fence, migration or transition is open on the
+head; it returns them as facts. EP-192's `inventory publications` and every EP-197 handler
+project from the same value, so M1 is a hard dependency of EP-192 M4 and EP-197 M2.
+
 ## Outcomes & Retrospective
 
 
@@ -160,10 +175,12 @@ No ADR or inventory format change is needed merely to add the read API.
 ## Plan of Work
 
 
-M1 delivers a library module at `cli/nagarectl/src/Nagare/Inventory/Site/Recorded.hs` with a
-pure projection from validated stored scope revisions to recorded-site summaries, and a
-read-only loader using the existing store. Keep projection separate from store/network IO
-so future HTTP consumers can reuse it. Read a head, decode and verify referenced scopes,
+M1 delivers two library modules: `cli/nagarectl/src/Nagare/Inventory/Recorded.hs`, the
+read-only loader (`RecordedState`, `readRecordedState`) that MasterPlan 28 names as the one
+recorded-state reader for every read document and API handler, and
+`cli/nagarectl/src/Nagare/Inventory/Site/Recorded.hs`, a pure projection from a `RecordedState`
+to recorded-site summaries. Keep projection separate from store/network IO; the HTTP consumer
+(EP-197) reuses the loader, not the CLI. Read a head, decode and verify referenced scopes,
 compose the accepted declarations through the existing typed composition boundary, and load
 previous converged scope revisions only where they differ and contain a selected site's last
 recorded deployment. Reuse immutable values by digest within the invocation. Avoid loading
@@ -351,8 +368,9 @@ operator contexts alone. No data migration or new persistent index is planned.
 ## Interfaces and Dependencies
 
 
-The new `Nagare.Inventory.Site.Recorded` module exports a recorded-site result type, pure
-projection, read-only store query, and versioned JSON rendering (or a separate renderer in
+`Nagare.Inventory.Recorded` exports `RecordedState` and `readRecordedState` (consumed by EP-192 M4
+and EP-197 M2). `Nagare.Inventory.Site.Recorded` exports a recorded-site result type, the pure
+projection from a `RecordedState`, and versioned JSON rendering (or a separate renderer in
 the same library boundary). Public signatures should use the existing `InventoryStore`,
 `HeadManifest`, `ScopeRevision`, `ScopeDeclaration`, `ResourceId`, and `ProviderAddress`
 types rather than a mutation adapter registry. Keep IO/context selection out of the pure

@@ -10,6 +10,12 @@ provenance:
     model: "claude-opus-5-5"
     harness: "claude-code"
     at: 2026-10-13T13:47:33Z
+  revisions:
+    - model: "claude-fable-5-1"
+      harness: "claude-code"
+      at: 2026-10-15T00:19:10Z
+      mode: "update"
+      note: "MasterPlan 28 design review for the admin UI and Kotei: one recorded-state reader, admin.<base> origin, service-account bearer, Deployment+NetworkPolicy, gateway problem documents, ETag/head summary"
 ---
 
 # Publish Nagare's versioned document contract for Kotei and the read-only admin API
@@ -200,6 +206,10 @@ as a store failure) and F118 (an unprepared workspace reads as a mismatched one)
   `describe` still needs it after the deletion.
 - Decision (2026-10-13): The rule "keep emitting the previous major for one release" is written
   into `docs/api/README.md`. It is not implemented until a version 2 exists.
+- Decision (2026-10-14, MasterPlan 28 review): `inventory publications` and the recorded half of
+  `inventory status` project from EP-193 M1's `RecordedState`, so M4 has EP-193 M1 as a hard
+  dependency; the rest of this plan has none. Every read document the CLI and the API share is a
+  pure function of one `RecordedState`, so the two surfaces cannot disagree about one head.
 
 
 ## Context and Orientation
@@ -303,15 +313,15 @@ contract. Only `test/AppDeploySpec.hs` uses them (lines 92 and 4735-4767). `toRe
 also used by `stampAppLabel`'s local `describe` (`Deploy.hs:338`). `app/Nagare/Cli/Options.hs:154-157`
 still calls `--json` "the kotei contract".
 
-**The admin API to come.** The operator decided on 2026-10-14 that Nagare gets a read-only admin
-API, built under its own MasterPlan. Nothing here builds it. The relevant precedent is
-`nagared` (`cli/nagarectl/nagared/Main.hs`), an HTTP executable in the same Cabal package that
-links the `nagarectl` library, so code in `src/` is reachable from a future API executable and
-code in `app/` is not. The store-only reads that suit an API already exist:
-`loadTargetSnapshotReadOnly` (`Command.hs:940`) and `inventory store status`
-([EP-185](185-make-inventory-status-answer-in-seconds.md)). Full `inventory status` builds its
-provider observers in `app/Nagare/Cli/Commands/Inventory/Status.hs`; how the API observes is its
-own plan's decision, which is why `observationComplete` must stay honest.
+**The admin API.** MasterPlan 28 builds it (EP-197); nothing here does. The precedent is
+`nagared` (`cli/nagarectl/nagared/Main.hs`), an HTTP executable that links the `nagarectl`
+library, so code in `src/` is reachable from the API server and code in `app/` is not. The
+store-only read every read document and every API handler shares is EP-193 M1's
+`readRecordedState` (`src/Nagare/Inventory/Recorded.hs`), which reads the head once and returns
+whatever is open on it as facts. `loadTargetSnapshotReadOnly` (`Command.hs:892`) is for planning:
+it calls `dieText` and refuses an open transaction, so no read document uses it. Full
+`inventory status` builds its provider observers in `app/Nagare/Cli/Commands/Inventory/Status.hs`;
+the API serves recorded facts only in v1, which is why `observationComplete` must stay honest.
 
 **The three findings fixed here** (full text in `docs/audits/mp23-findings.md`):
 
@@ -475,7 +485,10 @@ An unknown or unaccepted scope refuses. With `--contract 1`, print an `Inventory
 - `findings`: `[{scope, resource, category, health, reason}]`
 
 The exit code is 0, as today; drift is data, not an error. Add `inventory publications
---contract VERSION`, read-only, using `loadTargetSnapshotReadOnly`. It prints a
+--contract VERSION`, read-only, projecting from one `RecordedState` read through
+`readRecordedState` (`src/Nagare/Inventory/Recorded.hs`, EP-193 M1; MasterPlan 28, 2026-10-14),
+never through `loadTargetSnapshotReadOnly`, which exits the process and refuses an open
+transaction. It prints a
 `PublicationList`, `{publications:[{resourceId, scope, key, destination, manifestDigest,
 archiveDigest, generation, usedBy:[scope]}]}`, sorted by scope. Without `--contract` it prints a
 plain table. Register the new subcommand in `scripts/audit-managed-commands.py` as read-only.
@@ -623,6 +636,10 @@ In the `nagarectl` library, `src/Nagare/Contract/Project.hs` exports the pure pr
 - `savedReview`, `imagePublicationResult`,
   `deployPreview :: ScopeDeclaration -> [ScopeDeclaration] -> DeployPreview`,
   `inventoryStatusReport`, `publicationList`, `versionInfo`.
+
+Consumed from EP-193 M1: `RecordedState` and `readRecordedState`
+(`src/Nagare/Inventory/Recorded.hs`), the input of `publicationList` and of the recorded half of
+`inventoryStatusReport`.
 
 Changed internal types: `StoppedAmbiguous` gains a reason (`Text`) (F94); `StoreError` gains
 `StoreAuthRequired` (F107); `WorkspaceError` gains `WorkspaceNotPrepared` (F118).
