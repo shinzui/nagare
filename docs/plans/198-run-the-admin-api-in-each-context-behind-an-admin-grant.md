@@ -156,7 +156,14 @@ change `Nagare.Access.Response` (and the 503 in `Nagare.Access.App`) to render p
 for the `JsonApi` challenge mode; widen `wantsJson` in `Nagare.Access.Challenge` to any `+json`
 `Accept` value.
 
-M2 and M3 are native confirmations; each records its evidence path in Progress.
+M2 and M3 are native confirmations; each records its evidence path in Progress. The service
+account for the bearer check is created the way `docs/user/auth-portal.md` creates a test user,
+since the auth image ships `shomei-admin` (`cluster/bootstrap/shomei/README.md`):
+`kubectl -n nagare-system exec -i deploy/shomei -- env LC_ALL=C.UTF-8 shomei-admin
+service-accounts create --display-name kotei`. Its one-time secret goes to the operator's secret
+store, never into a plan or a log; the token comes from Shomei's `/oauth/token` with
+`grant_type=client_credentials`; the subject to grant is the token's `sub` claim, the account's
+backing user, passed to `access grant --host admin.<base domain> --user <user id>`.
 
 
 ## Validation and Acceptance

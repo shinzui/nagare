@@ -145,9 +145,11 @@ curl -s localhost:8085/v1/openapi.json | head -c 200
 `servant-health` 0.1.0.0.
 Re-check Hackage and upstream tags before choosing bounds. Use `openapi-hs >=5.0 && <5.1` and
 `servant-openapi-hs >=5.1 && <5.2` (one cohort). Nagare builds Haskell with nixpkgs'
-`haskell.packages.ghc9124` plus overrides in `nix/haskell-packages.nix` (line 45); add a
-`callHackage` override there for any of these the package set lacks, as is already done for
-`generic-lens`.
+`haskell.packages.ghc9124` plus overrides in `nix/haskell-packages.nix` (line 45). None of the six
+(`openapi-hs`, `servant-openapi-hs`, the three `relay-pagination` packages, `servant-health`) is
+in the toolchain pin's package set or its `all-cabal-hashes` (checked 2026-10-14 against the
+nixpkgs of 2026-09-10 that `haskell-nix-dev` pins), so `callHackage` cannot find them: add each
+with `callHackageDirect` and the Hackage tarball's `sha256`.
 
 **What the service reads.** Documents and items come from `nagare-contract` (`Nagare.Contract.V1`,
 EP-192), built from internal values by `Nagare.Contract.Project` in the `nagarectl` library.

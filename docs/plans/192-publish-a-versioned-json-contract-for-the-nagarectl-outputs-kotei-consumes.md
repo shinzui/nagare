@@ -296,7 +296,10 @@ dependency of `nagarectl` (`cli/nagarectl/nagarectl.cabal:709`), and its one gol
 `test/Nagare/Test/Task.hs:174-177`. `nagare-dsl` has many YAML goldens. Test modules are
 registered in `test/Nagare/Test/Suite.hs` (see `test/README.md`). Haskell packages are built by
 nixpkgs' `haskell.packages.ghc9124` with overrides in `nix/haskell-packages.nix` (line 45); a
-package the set lacks is added there with `callHackage`, as `generic-lens` already is. A new Cabal
+package the set lacks is added there. `openapi-hs` 5.0.0 is in neither the set nor the pinned
+`all-cabal-hashes` (checked 2026-10-14 against the nixpkgs of 2026-09-10 that `haskell-nix-dev`
+pins), so `callHackage` cannot find it: add it with `callHackageDirect` and the Hackage tarball's
+`sha256`, not the `generic-lens` pattern. A new Cabal
 package is also added to the payload copy in `nix/platform-package.nix`, as `cli/nagare-access` is.
 
 **The standards this follows.** `mori://shinzui/haskell-jitsurei/docs/api-openapi-from-types`
