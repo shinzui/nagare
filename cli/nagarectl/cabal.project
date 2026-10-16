@@ -21,6 +21,8 @@ packages:
   .
   ../nagare-dsl
   ../nagare-contract
+  ../nagare-api
+  ../nagare-api-server
 
 source-repository-package
   type: git

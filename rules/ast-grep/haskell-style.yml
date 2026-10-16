@@ -104,10 +104,12 @@ rule:
 id: haskell-contract-modules-import-custom-prelude
 language: Haskell
 severity: error
-message: Maintained contract modules must import Nagare.Contract.Prelude
+message: Maintained contract and admin API modules must import Nagare.Contract.Prelude
 files:
   - 'cli/nagare-contract/src/**/*.hs'
-  - 'cli/nagare-contract/app/*.hs'
+  - 'cli/nagare-api/src/**/*.hs'
+  - 'cli/nagare-api/app/*.hs'
+  - 'cli/nagare-api-server/test/**/*.hs'
 ignores:
   - '**/Prelude.hs'
 rule:

@@ -5,6 +5,7 @@
   nagare-dsl-build-test = nagarePackages.checkedNagareDsl;
   nagarectl-build-test = nagarePackages.checkedNagarectl;
   nagare-harness-build-test = nagarePackages.checkedNagareHarness;
+  nagare-api-server-build-test = nagarePackages.checkedNagareApiServer;
 
   haskell-style = pkgs.runCommand "haskell-style"
     {
@@ -30,6 +31,8 @@
       cabal-gild --mode check --input cli/nagarectl/nagarectl.cabal
       cabal-gild --mode check --input cli/nagare-access/nagare-access.cabal
       cabal-gild --mode check --input cli/nagare-contract/nagare-contract.cabal
+      cabal-gild --mode check --input cli/nagare-api/nagare-api.cabal
+      cabal-gild --mode check --input cli/nagare-api-server/nagare-api-server.cabal
       cabal-gild --mode check --input cli/nagare-harness/nagare-harness.cabal
       touch "$out"
     '';

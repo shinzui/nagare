@@ -4,8 +4,8 @@ This directory is Nagare's machine-readable contract, version 1. `nagarectl` pri
 under `--contract 1`, and the read-only admin API serves the read documents' items. Clients such as
 Kotei copy this directory at their pinned Nagare revision and validate against it.
 
-- `openapi.json` is generated from the Haskell types in `cli/nagare-contract`. Never edit it by
-  hand. Its `components.schemas` are JSON Schema 2020-12 (OpenAPI 3.1), so any standard validator
+- `openapi.json` is generated from the admin API's route types (`cli/nagare-api`) and the contract
+  types (`cli/nagare-contract`). Never edit it by hand. Its `components.schemas` are JSON Schema 2020-12 (OpenAPI 3.1), so any standard validator
   or `openapi-hs`'s `validateJSON` can check a document against `#/components/schemas/<Name>`.
 - `samples/` holds one golden document per shape, produced by the test suite from the real types
   and, for read documents, the real projection code.
@@ -13,12 +13,12 @@ Kotei copy this directory at their pinned Nagare revision and validate against i
 Regenerate and review after changing a contract type, from the repository root:
 
 ```bash
-cabal run --project-dir=cli/nagarectl nagare-contract-openapi
+cabal run --project-dir=cli/nagarectl nagare-api-openapi
 git diff docs/api/openapi.json
 ```
 
-The test suite fails while the checked-in document differs from the generated one, or a sample
-differs from what the code produces. Accept changed samples with tasty-golden's `--accept`
+`nagare-api-server-test` fails while the checked-in document differs from the generated one, and
+`nagarectl-test` while a sample differs from what the code produces. Accept changed samples with tasty-golden's `--accept`
 (`cabal test nagarectl-test --test-options='-p /Contract/ --accept'` from `cli/nagarectl`), then
 review `git diff docs/api/samples`.
 

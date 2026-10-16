@@ -1,0 +1,67 @@
+cabal-version: 3.0
+name: nagare-api
+version: 0.6.3
+synopsis: Route types and OpenAPI document of Nagare's read-only admin API.
+description:
+  The Servant NamedRoutes of the admin API with typed MultiVerb responses,
+  and the generator of docs/api/openapi.json. It depends on nagare-contract,
+  not on nagarectl, so clients and the admin UI can use it alone.
+
+build-type: Simple
+
+common common
+  default-language: GHC2024
+  default-extensions:
+    DeriveAnyClass
+    DuplicateRecordFields
+    OverloadedLabels
+    OverloadedStrings
+
+  ghc-options:
+    -Wall
+    -Wno-unused-imports
+    -Werror=incomplete-patterns
+    -Werror=incomplete-uni-patterns
+    -Werror=missing-fields
+
+library
+  import: common
+  hs-source-dirs: src
+  exposed-modules:
+    Nagare.Api.Access.Routes
+    Nagare.Api.Inventory.Routes
+    Nagare.Api.OpenApi
+    Nagare.Api.Page
+    Nagare.Api.Platform.Routes
+    Nagare.Api.Response
+    Nagare.Api.Routes
+    Nagare.Api.Sites.Routes
+
+  build-depends:
+    aeson >=2.2 && <2.3,
+    base >=4.17 && <5,
+    bytestring,
+    containers,
+    http-media >=0.8 && <0.9,
+    lens ^>=5.3,
+    nagare-contract,
+    openapi-hs >=5.0 && <5.1,
+    relay-pagination >=0.1.1.2 && <0.2,
+    relay-pagination-servant >=0.1.1.2 && <0.2,
+    servant >=0.20.3 && <0.21,
+    servant-client-core >=0.20.3 && <0.21,
+    servant-health >=0.1 && <0.2,
+    servant-openapi-hs >=5.1 && <5.2,
+    sop-core >=0.5 && <0.6,
+    text,
+
+-- Writes docs/api/openapi.json, from the repository root.
+executable nagare-api-openapi
+  import: common
+  main-is: OpenApi.hs
+  hs-source-dirs: app
+  build-depends:
+    base,
+    bytestring,
+    nagare-api,
+    nagare-contract,

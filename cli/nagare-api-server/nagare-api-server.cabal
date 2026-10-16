@@ -1,0 +1,60 @@
+cabal-version: 3.0
+name: nagare-api-server
+version: 0.6.3
+synopsis: Nagare's read-only admin API server.
+description:
+  Serves one context's recorded inventory state through the routes of
+  nagare-api, reading the inventory store through the nagarectl library's
+  recorded-state reader.
+
+build-type: Simple
+
+common common
+  default-language: GHC2024
+  default-extensions:
+    DeriveAnyClass
+    DuplicateRecordFields
+    OverloadedLabels
+    OverloadedStrings
+
+  ghc-options:
+    -Wall
+    -Wno-unused-imports
+    -Werror=incomplete-patterns
+    -Werror=incomplete-uni-patterns
+    -Werror=missing-fields
+    -threaded
+
+test-suite nagare-api-server-test
+  import: common
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is: Main.hs
+  other-modules:
+    Nagare.Api.Server.Test.Client
+    Nagare.Api.Server.Test.Document
+
+  build-depends:
+    aeson,
+    base,
+    bytestring,
+    containers,
+    filepath,
+    generic-lens ^>=2.3,
+    http-client,
+    http-media,
+    lens,
+    nagare-api,
+    nagare-contract,
+    openapi-hs,
+    relay-pagination,
+    servant,
+    servant-client >=0.20.3 && <0.21,
+    servant-client-core >=0.20.3 && <0.21,
+    servant-health,
+    servant-server >=0.20.3 && <0.21,
+    tasty >=1.4,
+    tasty-hunit >=0.10,
+    text,
+    time,
+    warp,

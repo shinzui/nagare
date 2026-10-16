@@ -19,6 +19,33 @@
         ],
         "type": "object"
       },
+      "Cursor": {
+        "description": "opaque pagination cursor",
+        "format": "base64url",
+        "type": "string"
+      },
+      "DataFenceSummary": {
+        "properties": {
+          "acquiredAt": {
+            "type": "string"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "transaction": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "phase",
+          "transaction",
+          "acquiredAt"
+        ],
+        "type": "object"
+      },
       "DeployPreview": {
         "description": "scopeDocuments are the canonical scope documents as opaque audit data; their bundles are outside the contract.",
         "properties": {
@@ -56,6 +83,25 @@
           "application",
           "hooks",
           "scopeDocuments"
+        ],
+        "type": "object"
+      },
+      "ExecutorClaimSummary": {
+        "properties": {
+          "claimedAt": {
+            "type": "string"
+          },
+          "epoch": {
+            "type": "integer"
+          },
+          "transaction": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "transaction",
+          "epoch",
+          "claimedAt"
         ],
         "type": "object"
       },
@@ -110,6 +156,176 @@
           "unknown"
         ],
         "type": "string"
+      },
+      "Grant": {
+        "description": "A recorded viewer relationship on a hostname; not an effective-access check, and it may outlive its route.",
+        "properties": {
+          "acceptedRevision": {
+            "$ref": "#/components/schemas/Revision"
+          },
+          "convergedRevision": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Revision"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "host": {
+            "type": "string"
+          },
+          "resourceId": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "subjectKind": {
+            "$ref": "#/components/schemas/SubjectKind"
+          },
+          "subjectRelation": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "resourceId",
+          "scope",
+          "host",
+          "subjectKind",
+          "subject",
+          "subjectRelation",
+          "acceptedRevision",
+          "convergedRevision"
+        ],
+        "type": "object"
+      },
+      "GrantConnection": {
+        "properties": {
+          "edges": {
+            "items": {
+              "$ref": "#/components/schemas/GrantEdge"
+            },
+            "type": "array"
+          },
+          "pageInfo": {
+            "$ref": "#/components/schemas/PageInfo"
+          }
+        },
+        "required": [
+          "edges",
+          "pageInfo"
+        ],
+        "type": "object"
+      },
+      "GrantEdge": {
+        "properties": {
+          "cursor": {
+            "$ref": "#/components/schemas/Cursor"
+          },
+          "node": {
+            "$ref": "#/components/schemas/Grant"
+          }
+        },
+        "required": [
+          "node",
+          "cursor"
+        ],
+        "type": "object"
+      },
+      "HeadSummary": {
+        "description": "A checked inventory head and its open execution state; revision identifies the snapshot. It records no installed release version.",
+        "properties": {
+          "acceptedScopes": {
+            "maximum": 9223372036854775807,
+            "minimum": -9223372036854775808,
+            "type": "integer"
+          },
+          "activeTransaction": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "context": {
+            "$ref": "#/components/schemas/ContextRef"
+          },
+          "convergedScopes": {
+            "maximum": 9223372036854775807,
+            "minimum": -9223372036854775808,
+            "type": "integer"
+          },
+          "dataFence": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DataFenceSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "executorClaim": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ExecutorClaimSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "generation": {
+            "type": "integer"
+          },
+          "journalSequence": {
+            "type": "integer"
+          },
+          "migration": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/MigrationSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revision": {
+            "type": "string"
+          },
+          "transition": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TransitionSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "context",
+          "generation",
+          "journalSequence",
+          "revision",
+          "acceptedScopes",
+          "convergedScopes",
+          "activeTransaction",
+          "executorClaim",
+          "dataFence",
+          "migration",
+          "transition"
+        ],
+        "type": "object"
       },
       "Health": {
         "enum": [
@@ -215,6 +431,17 @@
         ],
         "type": "object"
       },
+      "MigrationSummary": {
+        "properties": {
+          "destination": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "destination"
+        ],
+        "type": "object"
+      },
       "Outcome": {
         "enum": [
           "converged",
@@ -226,6 +453,27 @@
           "interrupted"
         ],
         "type": "string"
+      },
+      "PageInfo": {
+        "properties": {
+          "endCursor": {
+            "$ref": "#/components/schemas/Cursor"
+          },
+          "hasNextPage": {
+            "type": "boolean"
+          },
+          "hasPreviousPage": {
+            "type": "boolean"
+          },
+          "startCursor": {
+            "$ref": "#/components/schemas/Cursor"
+          }
+        },
+        "required": [
+          "hasNextPage",
+          "hasPreviousPage"
+        ],
+        "type": "object"
       },
       "PreviewScope": {
         "description": "configDigest is the SHA-256 of the canonical JSON of the typed configuration only; the tag, image resource, base domain, CDN fields, namespace request and hook effects are in overrides.",
@@ -250,6 +498,24 @@
           "scope",
           "configDigest",
           "overrides"
+        ],
+        "type": "object"
+      },
+      "ProbeStatus": {
+        "properties": {
+          "check": {
+            "type": "string"
+          },
+          "failingSince": {
+            "$ref": "#/components/schemas/UTCTime"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "check"
         ],
         "type": "object"
       },
@@ -336,6 +602,39 @@
           "archiveDigest",
           "generation",
           "usedBy"
+        ],
+        "type": "object"
+      },
+      "PublicationConnection": {
+        "properties": {
+          "edges": {
+            "items": {
+              "$ref": "#/components/schemas/PublicationEdge"
+            },
+            "type": "array"
+          },
+          "pageInfo": {
+            "$ref": "#/components/schemas/PageInfo"
+          }
+        },
+        "required": [
+          "edges",
+          "pageInfo"
+        ],
+        "type": "object"
+      },
+      "PublicationEdge": {
+        "properties": {
+          "cursor": {
+            "$ref": "#/components/schemas/Cursor"
+          },
+          "node": {
+            "$ref": "#/components/schemas/Publication"
+          }
+        },
+        "required": [
+          "node",
+          "cursor"
         ],
         "type": "object"
       },
@@ -504,6 +803,39 @@
         ],
         "type": "object"
       },
+      "ScopeStateConnection": {
+        "properties": {
+          "edges": {
+            "items": {
+              "$ref": "#/components/schemas/ScopeStateEdge"
+            },
+            "type": "array"
+          },
+          "pageInfo": {
+            "$ref": "#/components/schemas/PageInfo"
+          }
+        },
+        "required": [
+          "edges",
+          "pageInfo"
+        ],
+        "type": "object"
+      },
+      "ScopeStateEdge": {
+        "properties": {
+          "cursor": {
+            "$ref": "#/components/schemas/Cursor"
+          },
+          "node": {
+            "$ref": "#/components/schemas/ScopeState"
+          }
+        },
+        "required": [
+          "node",
+          "cursor"
+        ],
+        "type": "object"
+      },
       "SiteKind": {
         "enum": [
           "site",
@@ -647,6 +979,46 @@
         ],
         "type": "object"
       },
+      "SiteSummaryConnection": {
+        "properties": {
+          "edges": {
+            "items": {
+              "$ref": "#/components/schemas/SiteSummaryEdge"
+            },
+            "type": "array"
+          },
+          "pageInfo": {
+            "$ref": "#/components/schemas/PageInfo"
+          }
+        },
+        "required": [
+          "edges",
+          "pageInfo"
+        ],
+        "type": "object"
+      },
+      "SiteSummaryEdge": {
+        "properties": {
+          "cursor": {
+            "$ref": "#/components/schemas/Cursor"
+          },
+          "node": {
+            "$ref": "#/components/schemas/SiteSummary"
+          }
+        },
+        "required": [
+          "node",
+          "cursor"
+        ],
+        "type": "object"
+      },
+      "SubjectKind": {
+        "enum": [
+          "user",
+          "team"
+        ],
+        "type": "string"
+      },
       "TransactionOutcome": {
         "properties": {
           "barriers": {
@@ -722,6 +1094,30 @@
         ],
         "type": "object"
       },
+      "TransitionSummary": {
+        "properties": {
+          "source": {
+            "type": "string"
+          },
+          "startedAt": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "target",
+          "startedAt"
+        ],
+        "type": "object"
+      },
+      "UTCTime": {
+        "example": "2016-07-22T00:00:00Z",
+        "format": "yyyy-mm-ddThh:MM:ssZ",
+        "type": "string"
+      },
       "VersionInfo": {
         "description": "The serving build and the contract versions it emits; not the version a context has installed.",
         "properties": {
@@ -759,12 +1155,1748 @@
         ],
         "type": "object"
       }
+    },
+    "securitySchemes": {
+      "bearer": {
+        "description": "A Shomei service-account access token.",
+        "scheme": "bearer",
+        "type": "http"
+      },
+      "nagare_session": {
+        "description": "A signed-in person's session cookie.",
+        "in": "cookie",
+        "name": "nagare_session",
+        "type": "apiKey"
+      }
     }
   },
   "info": {
-    "title": "Nagare contract",
+    "description": "The read-only admin API of one Nagare context: recorded inventory state, never live workload health. Its components are also Nagare's versioned document contract (docs/api/README.md).",
+    "title": "Nagare admin API",
     "version": "1"
   },
   "openapi": "3.1.0",
-  "paths": {}
+  "paths": {
+    "/health/live": {
+      "get": {
+        "operationId": "getLiveness",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProbeStatus"
+                }
+              },
+              "application/json;charset=utf-8": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProbeStatus"
+                }
+              }
+            },
+            "description": "Probe passed"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProbeStatus"
+                }
+              },
+              "application/json;charset=utf-8": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProbeStatus"
+                }
+              }
+            },
+            "description": "Probe failed"
+          }
+        }
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "operationId": "getReadiness",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProbeStatus"
+                }
+              },
+              "application/json;charset=utf-8": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProbeStatus"
+                }
+              }
+            },
+            "description": "Probe passed"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProbeStatus"
+                }
+              },
+              "application/json;charset=utf-8": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProbeStatus"
+                }
+              }
+            },
+            "description": "Probe failed"
+          }
+        }
+      }
+    },
+    "/v1/access/grants": {
+      "get": {
+        "operationId": "listAccessGrants",
+        "parameters": [
+          {
+            "description": "Forward page size, 0 to 100; 50 when neither first nor last is given. Not with last or before.",
+            "in": "query",
+            "name": "first",
+            "required": false,
+            "schema": {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Opaque cursor: items after this position.",
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Backward page size, 0 to 100. Not with first or after.",
+            "in": "query",
+            "name": "last",
+            "required": false,
+            "schema": {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Opaque cursor: items before this position.",
+            "in": "query",
+            "name": "before",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-None-Match",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GrantConnection"
+                }
+              }
+            },
+            "description": "The recorded representation",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Nagare-Head-Revision": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Vary": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Not Modified",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Nagare-Head-Revision": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Vary": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request or `If-None-Match` or `before` or `last` or `after` or `first`"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Unauthenticated: no valid session cookie or bearer token. Carries WWW-Authenticate: Bearer and a login link.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Forbidden: the subject has no grant on this hostname."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "405": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Method Not Allowed: only GET and HEAD are served. Carries Allow."
+          },
+          "406": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Acceptable: the representation is application/json."
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Gateway: the admin API is unreachable from the gateway."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "504": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Gateway Timeout: the admin API did not answer within the gateway's deadline."
+          }
+        },
+        "security": [
+          {
+            "nagare_session": []
+          },
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/inventory/head": {
+      "get": {
+        "operationId": "getInventoryHead",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "If-None-Match",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HeadSummary"
+                }
+              }
+            },
+            "description": "The recorded representation",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Nagare-Head-Revision": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Vary": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Not Modified",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Nagare-Head-Revision": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Vary": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request or `If-None-Match`"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Unauthenticated: no valid session cookie or bearer token. Carries WWW-Authenticate: Bearer and a login link.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Forbidden: the subject has no grant on this hostname."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "405": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Method Not Allowed: only GET and HEAD are served. Carries Allow."
+          },
+          "406": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Acceptable: the representation is application/json."
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Gateway: the admin API is unreachable from the gateway."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "504": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Gateway Timeout: the admin API did not answer within the gateway's deadline."
+          }
+        },
+        "security": [
+          {
+            "nagare_session": []
+          },
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/inventory/publications": {
+      "get": {
+        "operationId": "listInventoryPublications",
+        "parameters": [
+          {
+            "description": "Forward page size, 0 to 100; 50 when neither first nor last is given. Not with last or before.",
+            "in": "query",
+            "name": "first",
+            "required": false,
+            "schema": {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Opaque cursor: items after this position.",
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Backward page size, 0 to 100. Not with first or after.",
+            "in": "query",
+            "name": "last",
+            "required": false,
+            "schema": {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Opaque cursor: items before this position.",
+            "in": "query",
+            "name": "before",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-None-Match",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicationConnection"
+                }
+              }
+            },
+            "description": "The recorded representation",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Nagare-Head-Revision": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Vary": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Not Modified",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Nagare-Head-Revision": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Vary": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request or `If-None-Match` or `before` or `last` or `after` or `first`"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Unauthenticated: no valid session cookie or bearer token. Carries WWW-Authenticate: Bearer and a login link.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Forbidden: the subject has no grant on this hostname."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "405": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Method Not Allowed: only GET and HEAD are served. Carries Allow."
+          },
+          "406": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Acceptable: the representation is application/json."
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Gateway: the admin API is unreachable from the gateway."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "504": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Gateway Timeout: the admin API did not answer within the gateway's deadline."
+          }
+        },
+        "security": [
+          {
+            "nagare_session": []
+          },
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/inventory/scopes": {
+      "get": {
+        "operationId": "listInventoryScopes",
+        "parameters": [
+          {
+            "description": "Forward page size, 0 to 100; 50 when neither first nor last is given. Not with last or before.",
+            "in": "query",
+            "name": "first",
+            "required": false,
+            "schema": {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Opaque cursor: items after this position.",
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Backward page size, 0 to 100. Not with first or after.",
+            "in": "query",
+            "name": "last",
+            "required": false,
+            "schema": {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Opaque cursor: items before this position.",
+            "in": "query",
+            "name": "before",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-None-Match",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScopeStateConnection"
+                }
+              }
+            },
+            "description": "The recorded representation",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Nagare-Head-Revision": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Vary": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Not Modified",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Nagare-Head-Revision": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Vary": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request or `If-None-Match` or `before` or `last` or `after` or `first`"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Unauthenticated: no valid session cookie or bearer token. Carries WWW-Authenticate: Bearer and a login link.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Forbidden: the subject has no grant on this hostname."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "405": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Method Not Allowed: only GET and HEAD are served. Carries Allow."
+          },
+          "406": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Acceptable: the representation is application/json."
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Gateway: the admin API is unreachable from the gateway."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "504": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Gateway Timeout: the admin API did not answer within the gateway's deadline."
+          }
+        },
+        "security": [
+          {
+            "nagare_session": []
+          },
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/inventory/scopes/{scopeId}": {
+      "get": {
+        "operationId": "getInventoryScope",
+        "parameters": [
+          {
+            "description": "A scope ID, kind:name, for example application:kizashi.",
+            "in": "path",
+            "name": "scopeId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-None-Match",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScopeState"
+                }
+              }
+            },
+            "description": "The recorded representation",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Nagare-Head-Revision": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Vary": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Not Modified",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Nagare-Head-Revision": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Vary": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request or `If-None-Match`"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Unauthenticated: no valid session cookie or bearer token. Carries WWW-Authenticate: Bearer and a login link.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Forbidden: the subject has no grant on this hostname."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`scopeId` or Not Found"
+          },
+          "405": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Method Not Allowed: only GET and HEAD are served. Carries Allow."
+          },
+          "406": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Acceptable: the representation is application/json."
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Gateway: the admin API is unreachable from the gateway."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "504": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Gateway Timeout: the admin API did not answer within the gateway's deadline."
+          }
+        },
+        "security": [
+          {
+            "nagare_session": []
+          },
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/openapi.json": {
+      "get": {
+        "operationId": "getOpenApi",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "If-None-Match",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnyValue"
+                }
+              }
+            },
+            "description": "The serving build's representation",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Vary": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Not Modified",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Vary": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Invalid `If-None-Match`"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Unauthenticated: no valid session cookie or bearer token. Carries WWW-Authenticate: Bearer and a login link.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Forbidden: the subject has no grant on this hostname."
+          },
+          "405": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Method Not Allowed: only GET and HEAD are served. Carries Allow."
+          },
+          "406": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Acceptable: the representation is application/json."
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Gateway: the admin API is unreachable from the gateway."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Service Unavailable: the gateway could not authorize the request, or the server is busy (Retry-After)."
+          },
+          "504": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Gateway Timeout: the admin API did not answer within the gateway's deadline."
+          }
+        },
+        "security": [
+          {
+            "nagare_session": []
+          },
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/platform/version": {
+      "get": {
+        "operationId": "getPlatformVersion",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "If-None-Match",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionInfo"
+                }
+              }
+            },
+            "description": "The serving build's representation",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Vary": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Not Modified",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Vary": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Invalid `If-None-Match`"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Unauthenticated: no valid session cookie or bearer token. Carries WWW-Authenticate: Bearer and a login link.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Forbidden: the subject has no grant on this hostname."
+          },
+          "405": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Method Not Allowed: only GET and HEAD are served. Carries Allow."
+          },
+          "406": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Acceptable: the representation is application/json."
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Gateway: the admin API is unreachable from the gateway."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Service Unavailable: the gateway could not authorize the request, or the server is busy (Retry-After)."
+          },
+          "504": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Gateway Timeout: the admin API did not answer within the gateway's deadline."
+          }
+        },
+        "security": [
+          {
+            "nagare_session": []
+          },
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/sites": {
+      "get": {
+        "operationId": "listSites",
+        "parameters": [
+          {
+            "description": "Only sites whose origin Service is in this namespace.",
+            "in": "query",
+            "name": "namespace",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Include site previews; false by default.",
+            "in": "query",
+            "name": "includePreviews",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Forward page size, 0 to 100; 50 when neither first nor last is given. Not with last or before.",
+            "in": "query",
+            "name": "first",
+            "required": false,
+            "schema": {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Opaque cursor: items after this position.",
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Backward page size, 0 to 100. Not with first or after.",
+            "in": "query",
+            "name": "last",
+            "required": false,
+            "schema": {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Opaque cursor: items before this position.",
+            "in": "query",
+            "name": "before",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-None-Match",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SiteSummaryConnection"
+                }
+              }
+            },
+            "description": "The recorded representation",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Nagare-Head-Revision": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Vary": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Not Modified",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Nagare-Head-Revision": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Vary": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request or `If-None-Match` or `before` or `last` or `after` or `first` or `includePreviews` or `namespace`"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Unauthenticated: no valid session cookie or bearer token. Carries WWW-Authenticate: Bearer and a login link.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Bearer",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Forbidden: the subject has no grant on this hostname."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "405": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Method Not Allowed: only GET and HEAD are served. Carries Allow."
+          },
+          "406": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Acceptable: the representation is application/json."
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Gateway: the admin API is unreachable from the gateway."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "504": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Gateway Timeout: the admin API did not answer within the gateway's deadline."
+          }
+        },
+        "security": [
+          {
+            "nagare_session": []
+          },
+          {
+            "bearer": []
+          }
+        ]
+      }
+    }
+  }
 }

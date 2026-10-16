@@ -47,14 +47,3 @@ library
     openapi-hs >=5.0 && <5.1,
     servant >=0.20.3 && <0.21,
     text,
-
--- Writes docs/api/openapi.json, from the repository root. An executable
--- rather than a test, so the artifact is produced deterministically.
-executable nagare-contract-openapi
-  import: common
-  main-is: OpenApi.hs
-  hs-source-dirs: app
-  build-depends:
-    base,
-    bytestring,
-    nagare-contract,

@@ -13,6 +13,8 @@ module Nagare.Contract.Project
   , publicationList
   , siteSummary
   , siteList
+  , headSummary
+  , grants
   )
 where
 
@@ -24,6 +26,11 @@ import Data.Text qualified as T
 import Nagare.Contract.Schema (ContractVersion (..), DocumentName (..), nullable)
 import Nagare.Contract.V1
   ( ContextRef (..)
+  , DataFenceSummary (..)
+  , ExecutorClaimSummary (..)
+  , Grant (..)
+  , HeadSummary (..)
+  , MigrationSummary (..)
   , Publication (..)
   , PublicationList (..)
   , RecordState (..)
@@ -33,13 +40,17 @@ import Nagare.Contract.V1
   , SiteList (..)
   , SiteService (..)
   , SiteSummary (..)
+  , SubjectKind (..)
+  , TransitionSummary (..)
   , VersionInfo (..)
   , contractVersions
   )
 import Nagare.Dsl.Prelude
+import Nagare.Inventory.Access (Relationship (..), relationshipOf)
 import Nagare.Inventory.Site.Recorded qualified as Recorded
-import Nagare.Inventory.Store (HeadManifest (..), ScopeRevision (..))
+import Nagare.Inventory.Store (DataFenceRecord (..), ExecutorClaim (..), HeadManifest (..), MigrationTombstone (..), ScopeRevision (..), TransitionMarker (..))
 import Nagare.Inventory.Store qualified as Store
+import Nagare.Resource.Access (teamKeyText)
 import Nagare.Resource.Inventory
   ( Declaration (..)
   , DesiredSpec (..)
@@ -196,3 +207,75 @@ siteList headValue sites =
     , liveObserved = False
     , sites = map siteSummary sites
     }
+
+-- | A head's summary, from the head alone. @revision@ is the digest of the
+-- canonical checked head.
+headSummary :: HeadManifest -> ContentDigest -> HeadSummary
+headSummary headValue revisionDigestValue =
+  HeadSummary
+    { context = contextRef (headBinding headValue)
+    , generation = Store.headGeneration headValue
+    , journalSequence = headSequence headValue
+    , revision = digestText revisionDigestValue
+    , acceptedScopes = Map.size (headAccepted headValue)
+    , convergedScopes = Map.size (Map.filter id (Map.intersectionWith (==) (headAccepted headValue) (headConverged headValue)))
+    , activeTransaction = nullable (headActiveTransaction headValue)
+    , executorClaim = nullable (claimOf <$> headExecutorClaim headValue)
+    , dataFence = nullable (fenceOf <$> headDataFence headValue)
+    , migration = nullable (MigrationSummary . migrationDestination <$> headMigration headValue)
+    , transition = nullable (transitionOf <$> headTransition headValue)
+    }
+  where
+    claimOf claim =
+      ExecutorClaimSummary
+        { transaction = claimTransaction claim
+        , epoch = claimEpoch claim
+        , claimedAt = claimTimestamp claim
+        }
+    fenceOf fence =
+      DataFenceSummary
+        { phase = fencePhaseText (fencePhase fence)
+        , transaction = nullable (fenceTransaction fence)
+        , acquiredAt = fenceAcquiredAt fence
+        }
+    fencePhaseText = \case
+      Store.FenceAcquiring -> "acquiring"
+      Store.FenceExcluded -> "excluded"
+      Store.FenceChanging -> "changing"
+      Store.FenceVerifying -> "verifying"
+      Store.FenceUnresolved -> "unresolved"
+      Store.FenceReleasing -> "releasing"
+    transitionOf marker =
+      TransitionSummary
+        { source = transitionSource marker
+        , target = transitionTarget marker
+        , startedAt = transitionStartedAt marker
+        }
+
+-- | Every recorded viewer relationship on a hostname in the accepted
+-- scopes, sorted by resource ID: a direct user grant, or a team's grant to
+-- its members. Team membership is not a host grant, and a grant is listed
+-- whether or not its route is still accepted.
+grants :: HeadManifest -> Map ScopeId (ScopeRevision, ScopeDeclaration) -> [Grant]
+grants headValue accepted =
+  sortOn
+    (^. #resourceId)
+    [ Grant
+        { resourceId = resourceIdText (resource ^. #identity)
+        , scope = scopeIdText scope
+        , host = nameText host
+        , subjectKind = kindOf
+        , subject = subjectText
+        , subjectRelation = nullable relation
+        , acceptedRevision = revisionOf revisionValue
+        , convergedRevision = nullable (revisionOf <$> Map.lookup scope (headConverged headValue))
+        }
+    | (scope, (revisionValue, declaration)) <- Map.toList accepted
+    , bundle <- scopeBundles declaration
+    , Managed resource <- declarations bundle
+    , Just (_, relationship) <- [relationshipOf (resource ^. #address)]
+    , (host, kindOf, subjectText, relation) <- case relationship of
+        DirectViewer viewedHost user -> [(viewedHost, SubjectUser, user, Nothing)]
+        TeamViewer viewedHost team -> [(viewedHost, SubjectTeam, teamKeyText team, Just "member")]
+        TeamMember _ _ -> []
+    ]

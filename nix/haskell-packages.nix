@@ -44,6 +44,13 @@ let
     patchShebangs "$out/cluster"
   '';
 
+  # A released Hackage package the pinned set lacks, without its own tests.
+  hackageRelease = name: version: sha256:
+    hl.dontHaddock (hl.dontCheck (haskellPackages.callCabal2nix name (builtins.fetchTarball {
+      url = "https://hackage.haskell.org/package/${name}-${version}/${name}-${version}.tar.gz";
+      inherit sha256;
+    }) { }));
+
   haskellPackages = pkgs.haskell.packages.ghc9124.override {
     overrides = hfinal: _hprev: {
       generic-lens = hfinal.callHackage "generic-lens" "2.3.0.0" { };
@@ -67,6 +74,23 @@ let
         url = "https://hackage.haskell.org/package/openapi-hs-5.0.0/openapi-hs-5.0.0.tar.gz";
         sha256 = "194lng0czgk0ma9463yydj9hnr2hpq99kxfx0p06xvwg36b11cin";
       }) { }));
+
+      # EP-197: the admin API's released cohort, newer than the pinned set.
+      # mori://shinzui/servant-openapi-hs mori://shinzui/relay-pagination
+      servant-openapi-hs = hackageRelease "servant-openapi-hs" "5.1.0" "19mvvlzfk7ffh5gbmqhpy587rjjd0xcgydbkcy1b48wxx061h8im";
+      relay-pagination = hackageRelease "relay-pagination" "0.1.1.2" "1axyz9271q9al8jmmy5kjfvry7dlcaaz85rhdq4gis50qh0ayw61";
+      relay-pagination-servant = hackageRelease "relay-pagination-servant" "0.1.1.2" "192md77zmdlh5bqq0gc5mbwqb3fv65bfpd771m2xl398bh0nyblm";
+      servant-health = hackageRelease "servant-health" "0.1.0.0" "1g24jnnijpap99vkmmqmkinlw18pg0hd23arrijgss430y63iv4x";
+
+      # EP-197: the admin API's route types and its server. The server's
+      # suite reads the published artifact from the source copy.
+      nagare-api = nagarePackage (hfinal.callCabal2nix "nagare-api" ../cli/nagare-api { });
+      nagare-api-server = nagarePackage (hl.doCheck (hl.overrideCabal (hfinal.callCabal2nix "nagare-api-server" ../cli/nagare-api-server { }) (_old: {
+        postPatch = ''
+          substituteInPlace test/Nagare/Api/Server/Test/Document.hs \
+            --replace-fail '"../.."' '"${sourceForTests}"'
+        '';
+      })));
 
       # EP-192: the versioned public document contract; no Nagare dependency.
       nagare-contract = nagarePackage (hfinal.callCabal2nix "nagare-contract" ../cli/nagare-contract { });
@@ -265,6 +289,7 @@ let
 in
 {
   checkedNagareHarness = haskellPackages.nagare-harness;
+  checkedNagareApiServer = haskellPackages.nagare-api-server;
   inherit atticClient checkedNagareDsl checkedNagarectl haskellPackages nagare nagarectl nixBuilderProxy operatorNagarectl typedConfigRuntime;
   nagarePlatform = platformPackage;
 }

@@ -94,23 +94,25 @@ staticSteps =
   , harness "mutation-records" ["mutations", "check"]
   ]
 
--- | Both builds, the record patterns, and both suites: minutes.
+-- | The suite builds, the record patterns, and the suites: minutes.
 suiteSteps :: [Step]
 suiteSteps = buildSteps <> testSteps
 
--- | Both suite builds and the record patterns, which need the built suites.
+-- | The suite builds and the record patterns, which need the built suites.
 buildSteps :: [Step]
 buildSteps =
   [ Step "nagarectl-build" "cli/nagarectl" "cabal" ["build", "nagarectl-test"]
   , Step "nagare-dsl-build" "cli/nagare-dsl" "cabal" ["build", "nagare-dsl-test"]
+  , Step "nagare-api-server-build" "cli/nagarectl" "cabal" ["build", "nagare-api-server-test"]
   , harness "mutation-patterns" ["mutations", "patterns"]
   ]
 
--- | Both suites, each one process per core ("Nagare.Test.Shards").
+-- | The suites; nagarectl's runs one process per core ("Nagare.Test.Shards").
 testSteps :: [Step]
 testSteps =
   [ Step "nagarectl-test" "cli/nagarectl" "cabal" ["test", "nagarectl-test"]
   , Step "nagare-dsl-test" "cli/nagare-dsl" "cabal" ["test", "nagare-dsl-test"]
+  , Step "nagare-api-server-test" "cli/nagarectl" "cabal" ["test", "nagare-api-server-test"]
   ]
 
 harness :: Text -> [String] -> Step

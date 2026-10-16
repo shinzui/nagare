@@ -43,6 +43,13 @@ module Nagare.Contract.V1
   , SiteService (..)
   , SiteSummary (..)
   , SiteList (..)
+  , ExecutorClaimSummary (..)
+  , DataFenceSummary (..)
+  , MigrationSummary (..)
+  , TransitionSummary (..)
+  , HeadSummary (..)
+  , SubjectKind (..)
+  , Grant (..)
   )
 where
 
@@ -313,6 +320,78 @@ data SiteList = SiteList
   }
   deriving stock (Eq, Show, Generic)
 
+-- | The executor claim on a head: which transaction holds the writer and
+-- since when. The claiming client identity is not part of the contract.
+data ExecutorClaimSummary = ExecutorClaimSummary
+  { transaction :: !Text
+  , epoch :: !Integer
+  , claimedAt :: !Text
+  }
+  deriving stock (Eq, Show, Generic)
+
+-- | An open data fence: its phase, transaction and when it was acquired.
+data DataFenceSummary = DataFenceSummary
+  { phase :: !Text
+  , transaction :: !(Nullable Text)
+  , acquiredAt :: !Text
+  }
+  deriving stock (Eq, Show, Generic)
+
+-- | A store migration recorded on the head: where the history moved.
+newtype MigrationSummary = MigrationSummary
+  { destination :: Text
+  }
+  deriving stock (Eq, Show, Generic)
+
+-- | An open release transition: the pinned source release, the target
+-- payload and when its first review was admitted.
+data TransitionSummary = TransitionSummary
+  { source :: !Text
+  , target :: !Text
+  , startedAt :: !Text
+  }
+  deriving stock (Eq, Show, Generic)
+
+-- | One checked inventory head, read without any scope object. @revision@
+-- identifies the snapshot: equal revisions are the same head, and
+-- @journalSequence@ is the next journal position. The head
+-- records no installed release version; rollout state is the transition and
+-- the scope revisions.
+data HeadSummary = HeadSummary
+  { context :: !ContextRef
+  , generation :: !Integer
+  , journalSequence :: !Integer
+  , revision :: !Text
+  , acceptedScopes :: !Int
+  , convergedScopes :: !Int
+  , activeTransaction :: !(Nullable Text)
+  , executorClaim :: !(Nullable ExecutorClaimSummary)
+  , dataFence :: !(Nullable DataFenceSummary)
+  , migration :: !(Nullable MigrationSummary)
+  , transition :: !(Nullable TransitionSummary)
+  }
+  deriving stock (Eq, Show, Generic)
+
+data SubjectKind
+  = SubjectUser
+  | SubjectTeam
+  deriving stock (Eq, Ord, Show, Enum, Bounded, Generic)
+
+-- | One recorded viewer relationship on a hostname: a user, or the members
+-- of a team (@subjectRelation@ is @member@). It is what the inventory
+-- accepted, not an effective-access check; a grant may outlive its route.
+data Grant = Grant
+  { resourceId :: !Text
+  , scope :: !Text
+  , host :: !Text
+  , subjectKind :: !SubjectKind
+  , subject :: !Text
+  , subjectRelation :: !(Nullable Text)
+  , acceptedRevision :: !Revision
+  , convergedRevision :: !(Nullable Revision)
+  }
+  deriving stock (Eq, Show, Generic)
+
 -- Records: one shared options value per type, via 'recordOptions'.
 -- 'VersionInfo' omits an absent revision or tool map, as it always has.
 
@@ -504,3 +583,55 @@ instance ToSchema SiteList where
       <&> schema
       . description
       ?~ "Recorded sites from the inventory store only; liveObserved is false because no workload, DNS or certificate was inspected."
+
+instance ToJSON ExecutorClaimSummary where toJSON = genericToJSON recordOptions
+
+instance FromJSON ExecutorClaimSummary where parseJSON = genericParseJSON recordOptions
+
+instance ToSchema ExecutorClaimSummary where declareNamedSchema = recordSchema
+
+instance ToJSON DataFenceSummary where toJSON = genericToJSON recordOptions
+
+instance FromJSON DataFenceSummary where parseJSON = genericParseJSON recordOptions
+
+instance ToSchema DataFenceSummary where declareNamedSchema = recordSchema
+
+instance ToJSON MigrationSummary where toJSON = genericToJSON recordOptions
+
+instance FromJSON MigrationSummary where parseJSON = genericParseJSON recordOptions
+
+instance ToSchema MigrationSummary where declareNamedSchema = recordSchema
+
+instance ToJSON TransitionSummary where toJSON = genericToJSON recordOptions
+
+instance FromJSON TransitionSummary where parseJSON = genericParseJSON recordOptions
+
+instance ToSchema TransitionSummary where declareNamedSchema = recordSchema
+
+instance ToJSON HeadSummary where toJSON = genericToJSON recordOptions
+
+instance FromJSON HeadSummary where parseJSON = genericParseJSON recordOptions
+
+instance ToSchema HeadSummary where
+  declareNamedSchema proxy =
+    recordSchema proxy
+      <&> schema
+      . description
+      ?~ "A checked inventory head and its open execution state; revision identifies the snapshot. It records no installed release version."
+
+instance ToJSON SubjectKind where toJSON = genericToJSON (enumOptions "Subject")
+
+instance FromJSON SubjectKind where parseJSON = genericParseJSON (enumOptions "Subject")
+
+instance ToSchema SubjectKind where declareNamedSchema = enumSchema "Subject"
+
+instance ToJSON Grant where toJSON = genericToJSON recordOptions
+
+instance FromJSON Grant where parseJSON = genericParseJSON recordOptions
+
+instance ToSchema Grant where
+  declareNamedSchema proxy =
+    recordSchema proxy
+      <&> schema
+      . description
+      ?~ "A recorded viewer relationship on a hostname; not an effective-access check, and it may outlive its route."

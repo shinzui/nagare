@@ -1,8 +1,9 @@
 {-# LANGUAGE DataKinds #-}
 
--- | The public document contract (EP-192): the checked-in OpenAPI artifact,
--- the golden samples in @docs/api/samples@, schema conformance, and the
--- problem catalog.
+-- | The public document contract (EP-192): the golden samples in
+-- @docs/api/samples@, schema conformance, and the problem catalog. The
+-- OpenAPI artifact's own test is in nagare-api-server-test, beside its
+-- generator.
 module Nagare.Test.Contract
   ( contractTests
   )
@@ -20,7 +21,6 @@ import Data.Map.Strict qualified as Map
 import Data.OpenApi (ToSchema)
 import Data.OpenApi.Schema.Validation (validateToJSON)
 import Data.Text qualified as Text
-import Nagare.Contract.OpenApi (contractOpenApi, renderOpenApi)
 import Nagare.Contract.Problem
 import Nagare.Contract.Project
 import Nagare.Contract.Schema (ContractVersion (..), DocumentName (..), Nullable (..))
@@ -56,12 +56,7 @@ contractTests :: TestTree
 contractTests =
   testGroup
     "Contract"
-    [ testCase "docs/api/openapi.json equals the generated document" $ do
-        checkedIn <- LBS.readFile (repositoryRoot </> "docs/api/openapi.json")
-        assertBool
-          "docs/api/openapi.json is stale; run: cabal run --project-dir=cli/nagarectl nagare-contract-openapi"
-          (checkedIn == renderOpenApi contractOpenApi)
-    , testGroup "samples" (concatMap sampleTests samples)
+    [ testGroup "samples" (concatMap sampleTests samples)
     , testCase "a base problem has exactly the RFC 9457 members and the two extensions" $ do
         let base = problemFor unknownScope "application:nope is not accepted"
         objectKeys (toJSON base) @?= sort ["type", "title", "status", "detail", "code", "retryable"]

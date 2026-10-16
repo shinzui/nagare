@@ -27,6 +27,8 @@ import Nagare.Contract.Problem (ProblemDetails)
 import Nagare.Contract.V1
   ( DeployPreview
   , Finding
+  , Grant
+  , HeadSummary
   , ImagePublicationResult
   , InventoryStatusReport
   , Publication
@@ -55,6 +57,8 @@ contractSchemas = do
   void (declareSchemaRef (Proxy @Publication))
   void (declareSchemaRef (Proxy @SiteList))
   void (declareSchemaRef (Proxy @SiteSummary))
+  void (declareSchemaRef (Proxy @HeadSummary))
+  void (declareSchemaRef (Proxy @Grant))
 
 contractOpenApi :: OpenApi
 contractOpenApi =
