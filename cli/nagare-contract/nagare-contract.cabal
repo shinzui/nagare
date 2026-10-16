@@ -1,0 +1,60 @@
+cabal-version: 3.0
+name: nagare-contract
+version: 0.6.3
+synopsis: Nagare's versioned public document contract.
+description:
+  The documents nagarectl prints under --contract 1 and the read-only admin
+  API serves, with JSON codecs and OpenAPI 3.1 schemas derived from one
+  aeson Options value per type. It has no Nagare dependency, so clients can
+  depend on it without nagarectl.
+
+build-type: Simple
+
+-- House standard: GHC2024 + the common extension set (haskell-jitsurei),
+-- matching nagare-dsl.
+common common
+  default-language: GHC2024
+  default-extensions:
+    DeriveAnyClass
+    DuplicateRecordFields
+    OverloadedLabels
+    OverloadedStrings
+
+  ghc-options:
+    -Wall
+    -Wno-unused-imports
+    -Werror=incomplete-patterns
+    -Werror=incomplete-uni-patterns
+
+library
+  import: common
+  hs-source-dirs: src
+  exposed-modules:
+    Nagare.Contract.OpenApi
+    Nagare.Contract.Prelude
+    Nagare.Contract.Problem
+    Nagare.Contract.Schema
+    Nagare.Contract.V1
+
+  build-depends:
+    aeson >=2.2 && <2.3,
+    aeson-pretty >=0.8.9 && <0.9,
+    base >=4.17 && <5,
+    bytestring,
+    containers,
+    http-media >=0.8 && <0.9,
+    lens ^>=5.3,
+    openapi-hs >=5.0 && <5.1,
+    servant >=0.20.3 && <0.21,
+    text,
+
+-- Writes docs/api/openapi.json, from the repository root. An executable
+-- rather than a test, so the artifact is produced deterministically.
+executable nagare-contract-openapi
+  import: common
+  main-is: OpenApi.hs
+  hs-source-dirs: app
+  build-depends:
+    base,
+    bytestring,
+    nagare-contract,

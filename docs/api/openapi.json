@@ -1,0 +1,619 @@
+{
+  "components": {
+    "schemas": {
+      "AnyValue": {
+        "additionalProperties": true
+      },
+      "ContextRef": {
+        "properties": {
+          "identity": {
+            "type": "string"
+          },
+          "project": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "identity",
+          "project"
+        ],
+        "type": "object"
+      },
+      "DeployPreview": {
+        "description": "scopeDocuments are the canonical scope documents as opaque audit data; their bundles are outside the contract.",
+        "properties": {
+          "application": {
+            "$ref": "#/components/schemas/PreviewScope"
+          },
+          "contractVersion": {
+            "enum": [
+              1
+            ],
+            "type": "integer"
+          },
+          "document": {
+            "enum": [
+              "deploy-preview"
+            ],
+            "type": "string"
+          },
+          "hooks": {
+            "items": {
+              "$ref": "#/components/schemas/PreviewScope"
+            },
+            "type": "array"
+          },
+          "scopeDocuments": {
+            "items": {
+              "$ref": "#/components/schemas/AnyValue"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "contractVersion",
+          "document",
+          "application",
+          "hooks",
+          "scopeDocuments"
+        ],
+        "type": "object"
+      },
+      "FailureClass": {
+        "enum": [
+          "known-no-effect",
+          "partial-or-unknown"
+        ],
+        "type": "string"
+      },
+      "Finding": {
+        "properties": {
+          "category": {
+            "$ref": "#/components/schemas/FindingCategory"
+          },
+          "health": {
+            "$ref": "#/components/schemas/Health"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "resource": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "resource",
+          "category",
+          "health",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "FindingCategory": {
+        "enum": [
+          "converged",
+          "configuration-drift",
+          "immutable-replacement-required",
+          "replaced-incarnation",
+          "unrecorded",
+          "stuck-rollout",
+          "missing",
+          "unowned",
+          "foreign-owner",
+          "unknown"
+        ],
+        "type": "string"
+      },
+      "Health": {
+        "enum": [
+          "ready",
+          "not-ready",
+          "unknown",
+          "unavailable"
+        ],
+        "type": "string"
+      },
+      "ImagePublicationResult": {
+        "properties": {
+          "contractVersion": {
+            "enum": [
+              1
+            ],
+            "type": "integer"
+          },
+          "document": {
+            "enum": [
+              "image-publication-result"
+            ],
+            "type": "string"
+          },
+          "imageResource": {
+            "type": "string"
+          },
+          "review": {
+            "$ref": "#/components/schemas/PublishedReview"
+          },
+          "transaction": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TransactionOutcome"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "contractVersion",
+          "document",
+          "imageResource",
+          "review",
+          "transaction"
+        ],
+        "type": "object"
+      },
+      "InventoryStatusReport": {
+        "description": "Recorded scopes and observed findings are separate; observationComplete false means findings are partial.",
+        "properties": {
+          "activeTransaction": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "context": {
+            "$ref": "#/components/schemas/ContextRef"
+          },
+          "contractVersion": {
+            "enum": [
+              1
+            ],
+            "type": "integer"
+          },
+          "document": {
+            "enum": [
+              "inventory-status"
+            ],
+            "type": "string"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/Finding"
+            },
+            "type": "array"
+          },
+          "observationComplete": {
+            "type": "boolean"
+          },
+          "observedAt": {
+            "type": "string"
+          },
+          "scopes": {
+            "items": {
+              "$ref": "#/components/schemas/ScopeState"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "contractVersion",
+          "document",
+          "context",
+          "observedAt",
+          "observationComplete",
+          "activeTransaction",
+          "scopes",
+          "findings"
+        ],
+        "type": "object"
+      },
+      "Outcome": {
+        "enum": [
+          "converged",
+          "paused",
+          "stopped",
+          "ambiguous",
+          "closed",
+          "refused",
+          "interrupted"
+        ],
+        "type": "string"
+      },
+      "PreviewScope": {
+        "description": "configDigest is the SHA-256 of the canonical JSON of the typed configuration only; the tag, image resource, base domain, CDN fields, namespace request and hook effects are in overrides.",
+        "properties": {
+          "configDigest": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "overrides": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "scope": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "configDigest",
+          "overrides"
+        ],
+        "type": "object"
+      },
+      "ProblemDetails": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "login": {
+            "type": "string"
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "status": {
+            "maximum": 9223372036854775807,
+            "minimum": -9223372036854775808,
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "detail",
+          "code",
+          "retryable"
+        ],
+        "type": "object"
+      },
+      "Publication": {
+        "description": "An accepted artifact publication. usedBy lists the scopes whose accepted imageResource names it.",
+        "properties": {
+          "archiveDigest": {
+            "type": "string"
+          },
+          "destination": {
+            "type": "string"
+          },
+          "generation": {
+            "type": "integer"
+          },
+          "key": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "manifestDigest": {
+            "type": "string"
+          },
+          "resourceId": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "usedBy": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "resourceId",
+          "scope",
+          "key",
+          "kind",
+          "destination",
+          "manifestDigest",
+          "archiveDigest",
+          "generation",
+          "usedBy"
+        ],
+        "type": "object"
+      },
+      "PublicationList": {
+        "properties": {
+          "contractVersion": {
+            "enum": [
+              1
+            ],
+            "type": "integer"
+          },
+          "document": {
+            "enum": [
+              "publication-list"
+            ],
+            "type": "string"
+          },
+          "publications": {
+            "items": {
+              "$ref": "#/components/schemas/Publication"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "contractVersion",
+          "document",
+          "publications"
+        ],
+        "type": "object"
+      },
+      "PublishedReview": {
+        "properties": {
+          "directory": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sha256": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sha256",
+          "directory"
+        ],
+        "type": "object"
+      },
+      "ReviewLocation": {
+        "properties": {
+          "directory": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sha256",
+          "directory"
+        ],
+        "type": "object"
+      },
+      "Revision": {
+        "properties": {
+          "digest": {
+            "type": "string"
+          },
+          "generation": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "generation",
+          "digest"
+        ],
+        "type": "object"
+      },
+      "SavedReview": {
+        "properties": {
+          "contractVersion": {
+            "enum": [
+              1
+            ],
+            "type": "integer"
+          },
+          "document": {
+            "enum": [
+              "saved-review"
+            ],
+            "type": "string"
+          },
+          "rebinds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "rebuilds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "review": {
+            "$ref": "#/components/schemas/ReviewLocation"
+          },
+          "scopes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "contractVersion",
+          "document",
+          "review",
+          "scopes",
+          "rebinds",
+          "rebuilds"
+        ],
+        "type": "object"
+      },
+      "ScopeState": {
+        "description": "A recorded scope revision. converged means the accepted revision's execution completed; it is not a live health check.",
+        "properties": {
+          "converged": {
+            "type": "boolean"
+          },
+          "convergedRevision": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Revision"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "digest": {
+            "type": "string"
+          },
+          "generation": {
+            "type": "integer"
+          },
+          "scope": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "generation",
+          "digest",
+          "converged",
+          "convergedRevision"
+        ],
+        "type": "object"
+      },
+      "TransactionOutcome": {
+        "properties": {
+          "barriers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "contractVersion": {
+            "enum": [
+              1
+            ],
+            "type": "integer"
+          },
+          "detail": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "document": {
+            "enum": [
+              "transaction-outcome"
+            ],
+            "type": "string"
+          },
+          "failureClass": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/FailureClass"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "operation": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/Outcome"
+          },
+          "problem": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ProblemDetails"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "transaction": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "contractVersion",
+          "document",
+          "outcome",
+          "transaction",
+          "operation",
+          "failureClass",
+          "barriers",
+          "detail",
+          "problem"
+        ],
+        "type": "object"
+      },
+      "VersionInfo": {
+        "description": "The serving build and the contract versions it emits; not the version a context has installed.",
+        "properties": {
+          "contracts": {
+            "items": {
+              "maximum": 9223372036854775807,
+              "minimum": -9223372036854775808,
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "platformVersion": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "string"
+          },
+          "tools": {
+            "additionalProperties": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": "object"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "platformVersion",
+          "contracts"
+        ],
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "Nagare contract",
+    "version": "1"
+  },
+  "openapi": "3.1.0",
+  "paths": {}
+}

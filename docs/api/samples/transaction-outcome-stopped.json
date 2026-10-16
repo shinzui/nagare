@@ -1,0 +1,11 @@
+{
+  "barriers": [],
+  "contractVersion": 1,
+  "detail": "the rollout did not become ready",
+  "document": "transaction-outcome",
+  "failureClass": "partial-or-unknown",
+  "operation": "op-2",
+  "outcome": "stopped",
+  "problem": null,
+  "transaction": "tx-0f3a"
+}

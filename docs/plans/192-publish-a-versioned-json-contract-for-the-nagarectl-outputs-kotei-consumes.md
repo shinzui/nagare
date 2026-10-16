@@ -99,20 +99,17 @@ as a store failure) and F118 (an unprepared workspace reads as a mismatched one)
 
 ## Progress
 
-- [ ] M1: The `nagare-contract` package and the generated document. Pass: `cli/nagare-contract`
-  holds `Nagare.Contract.V1` (every document and item type, `ToJSON`/`FromJSON`/`ToSchema` from
-  one shared `Options` each) and `Nagare.Contract.Problem` (`ProblemDetails`, `ProblemJSON`, the
-  problem catalog); `nagare-contract-openapi` writes `docs/api/openapi.json`; tests pass that the
-  checked-in document equals the generated one, that every golden sample in `docs/api/samples/`
-  equals its projected document and validates (`validateToJSON`), that the base `ProblemDetails` encodes
-  with the keys `type`, `title`, `status`, `detail`, `code`, `retryable`, while the shared
-  gateway problem encoder permits optional `error` and `login` extension members, and that every
-  catalog code has one status and one title. `docs/api/README.md` drafted with each document's
-  class. Pure version, scope-state and publication projections in `Nagare.Contract.Project`
-  are complete from existing internal head/declaration values, including publication `usedBy`;
-  no `RecordedState` import or CLI dispatch is needed for them. Projection goldens for later
-  outcome/command changes land with their owning milestone, rather than blocking this foundation.
-  `nagarectl version --json` prints `"contracts":[1]`.
+- [x] M1: The `nagare-contract` package and the generated document. Pass: `cli/nagare-contract`
+  holds `Nagare.Contract.V1`, `Nagare.Contract.Problem`, `Nagare.Contract.Schema` and
+  `Nagare.Contract.OpenApi`; `nagare-contract-openapi` writes `docs/api/openapi.json`;
+  `cli/nagarectl/test/Nagare/Test/Contract.hs` (34 tests) passes: the checked-in document equals
+  the generated one, ten samples in `docs/api/samples/` equal their values, validate
+  (`validateToJSON`) and decode back, the base problem has exactly the six RFC members and the
+  gateway extensions round-trip, and catalog codes are unique with status-phrase titles.
+  `Nagare.Contract.Project` projects version, scope states (head only) and publications (with
+  `usedBy`); the publication and status samples are built through it. `nagarectl version --json`
+  prints `"contracts":[1]`, its other members unchanged. `docs/api/README.md` drafted. Nix builds
+  `openapi-hs` 5.0.0 and `nagare-contract`.
 - [ ] M2: `inventory apply` and `inventory resume` with `--contract 1`. Pass: tests cover the
   outcome document and exit code for every `TransactionResult` constructor. They show a
   pre-execution refusal printing `refused` with exit 2 and a `problem` whose `code` names its
@@ -229,6 +226,15 @@ as a store failure) and F118 (an unprepared workspace reads as a mismatched one)
 leaving their CLI wiring in M4, so HTTP delivery does not wait for transaction CLI work. The
 shared problem schema permits the gateway's compatibility extensions, `about:blank` uses HTTP
 status titles, and new enum cases require an explicit forward-compatible decoding policy.
+
+
+2026-10-16 (M1): The contract package's tests run inside `nagarectl-test`, so the gate gains no
+step. `ScopeState` adds a nullable `convergedRevision` and `Publication` adds the artifact `kind`
+(both additive to Kotei's shapes). The gateway's `error` member is the Haskell field
+`gatewayError`, so importers keep the Prelude's `error`. A required member that may be `null`
+uses `Nullable`, because a `Maybe` field is optional in the derived schema. `nagare-contract` is
+copied into the platform payload by EP-198, when the API image is built from it; nothing needs
+it there before.
 
 
 ## Context and Orientation

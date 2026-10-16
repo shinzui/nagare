@@ -98,6 +98,7 @@ import Nagare.Test.Context
   , modeResolutionTests
   , targetProfileTests
   )
+import Nagare.Test.Contract (contractTests)
 import Nagare.Test.Database (connectionEnvTests, databaseTests)
 import Nagare.Test.Domains (certificateChainTests, domainsTests)
 import Nagare.Test.Environment
@@ -114,11 +115,7 @@ import Nagare.Test.GhcEnvironment (ghcEnvTests)
 import Nagare.Test.Image (dockerAuthPlanTests, qualifyImageTests)
 import Nagare.Test.Infrastructure (infraPlanTests)
 import Nagare.Test.Init (initTests)
-import Nagare.Test.Operations
-  ( cleanupTests
-  , doctorTests
-  , opsTests
-  )
+import Nagare.Test.Operations (cleanupTests, doctorTests, opsTests)
 import Nagare.Test.Pulumi (pulumiBackendBootstrapTests)
 import Nagare.Test.Server (serverBuildTests)
 import Nagare.Test.Shards (runSharded)
@@ -134,11 +131,7 @@ import Nagare.Test.Storage
   , storageSnapshotTests
   , volumeArchiveTests
   )
-import Nagare.Test.Task
-  ( taskDiscoverTests
-  , taskResolveTests
-  , taskRunTests
-  )
+import Nagare.Test.Task (taskDiscoverTests, taskResolveTests, taskRunTests)
 import Nagare.Test.Version (versionTests)
 import Nagare.Test.Webhook (webhookTests)
 import PlatformCutoverSpec (platformCutoverTests)
@@ -269,6 +262,7 @@ main = do
             , testGroup "Data-movement Job store backend (EP-84)" storeBackendModeTests
             , testGroup "Nagare.GhcEnv (EP-6)" ghcEnvTests
             , testGroup "Nagare.Version" versionTests
+            , contractTests
             , testGroup "Nagare.Database (EP-45)" databaseTests
             , testGroup "Nagare.Broker (EP-78)" brokerTests
             , testGroup "Nagare.Broker.Connection (EP-77)" brokerConnectionEnvTests

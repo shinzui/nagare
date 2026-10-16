@@ -29,6 +29,8 @@ let
     cp -R ${../cluster} "$out/cluster"
     cp -R ${../nixos} "$out/nixos"
     cp ${../release.json} "$out/release.json"
+    mkdir -p "$out/docs"
+    cp -R ${../docs/api} "$out/docs/api"
     chmod -R u+w "$out"
     patchShebangs "$out/cluster"
   '';
@@ -57,6 +59,17 @@ let
         url = "https://hackage.haskell.org/package/strict-mutable-base-2.0.0.0/strict-mutable-base-2.0.0.0.tar.gz";
         sha256 = "1sdps117s8vdirhwqfma1b37q1i5dg939cmsa3xsbrr5vwq8z3fy";
       }) { };
+
+      # EP-192: the OpenAPI 3.1 data model the public contract's schemas are
+      # derived from. 5.0.0 is newer than the pinned package set.
+      # mori://shinzui/openapi-hs
+      openapi-hs = hl.dontHaddock (hl.dontCheck (hfinal.callCabal2nix "openapi-hs" (builtins.fetchTarball {
+        url = "https://hackage.haskell.org/package/openapi-hs-5.0.0/openapi-hs-5.0.0.tar.gz";
+        sha256 = "194lng0czgk0ma9463yydj9hnr2hpq99kxfx0p06xvwg36b11cin";
+      }) { }));
+
+      # EP-192: the versioned public document contract; no Nagare dependency.
+      nagare-contract = nagarePackage (hfinal.callCabal2nix "nagare-contract" ../cli/nagare-contract { });
 
       cradle = hl.dontHaddock (hl.dontCheck (
         hfinal.callCabal2nix "cradle" cradleSrc { }
@@ -132,7 +145,7 @@ let
               substituteInPlace \
                 test/InventoryUpstreamSpec.hs test/InventoryObservabilitySpec.hs \
                 test/InventoryCacheSpec.hs test/InventoryAuthSpec.hs \
-                test/PlatformTransitionTableSpec.hs \
+                test/PlatformTransitionTableSpec.hs test/Nagare/Test/Contract.hs \
                 --replace-fail '"../.."' '"${sourceForTests}"'
               substituteInPlace test/PlatformTransitionTableSpec.hs \
                 --replace-fail 'sourceCompileRoot = sourceRoot' 'sourceCompileRoot = "${transitionFixtureForTests}"'

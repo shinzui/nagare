@@ -1,0 +1,42 @@
+{
+  "activeTransaction": "tx-sample",
+  "context": {
+    "identity": "intranet",
+    "project": "example-project"
+  },
+  "contractVersion": 1,
+  "document": "inventory-status",
+  "findings": [
+    {
+      "category": "configuration-drift",
+      "health": "ready",
+      "reason": "the live Service differs from the accepted declaration",
+      "resource": "application:kizashi/web/service",
+      "scope": "application:kizashi"
+    }
+  ],
+  "observationComplete": false,
+  "observedAt": "2026-10-16T12:00:00Z",
+  "scopes": [
+    {
+      "converged": false,
+      "convergedRevision": {
+        "digest": "755eb274c68f17166e6fd8f7dc4c6c7344b87240600bcc794a44095c7e9685e7",
+        "generation": 2
+      },
+      "digest": "2eda222182579ef02e6e207bce3c270f86b1baa8e3bc2458f063f4cd1d6b624f",
+      "generation": 3,
+      "scope": "application:kizashi"
+    },
+    {
+      "converged": true,
+      "convergedRevision": {
+        "digest": "62b7513c672f266f940a5918f101a68db802cba557e2428d4127e57d3783ec17",
+        "generation": 1
+      },
+      "digest": "62b7513c672f266f940a5918f101a68db802cba557e2428d4127e57d3783ec17",
+      "generation": 1,
+      "scope": "publication:app-image-kizashi-v1"
+    }
+  ]
+}

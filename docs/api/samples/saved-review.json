@@ -1,0 +1,13 @@
+{
+  "contractVersion": 1,
+  "document": "saved-review",
+  "rebinds": [],
+  "rebuilds": [],
+  "review": {
+    "directory": "/tmp/kizashi-review",
+    "sha256": "c97ace4c8fef2cee8fa0f3c9f52aab18dbd4f42438afe362ffb8f75ce4c04b84"
+  },
+  "scopes": [
+    "application:kizashi"
+  ]
+}

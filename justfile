@@ -292,6 +292,7 @@ haskell-style-check:
     cabal-gild --mode check --input cli/nagare-dsl/nagare-dsl.cabal
     cabal-gild --mode check --input cli/nagarectl/nagarectl.cabal
     cabal-gild --mode check --input cli/nagare-access/nagare-access.cabal
+    cabal-gild --mode check --input cli/nagare-contract/nagare-contract.cabal
     cabal-gild --mode check --input cli/nagare-harness/nagare-harness.cabal
 
 # The landing gate (operator decision, 2026-10-11). The style check, the

@@ -1,0 +1,19 @@
+{
+  "contractVersion": 1,
+  "document": "publication-list",
+  "publications": [
+    {
+      "archiveDigest": "1ff9f33a1b5c785888c94e2bd01605451a116c5d67666b477c32371f87ba6a44",
+      "destination": "registry.example/kizashi:v1",
+      "generation": 1,
+      "key": "kizashi-v1",
+      "kind": "oci-image",
+      "manifestDigest": "2196416f14015c43829dedfdb3795038948a0a6c1bbfc00604efc4993a5069da",
+      "resourceId": "publication:app-image-kizashi-v1/kizashi-v1/oci-image",
+      "scope": "publication:app-image-kizashi-v1",
+      "usedBy": [
+        "application:kizashi"
+      ]
+    }
+  ]
+}

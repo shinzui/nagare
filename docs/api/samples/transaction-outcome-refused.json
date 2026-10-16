@@ -1,0 +1,18 @@
+{
+  "barriers": [],
+  "contractVersion": 1,
+  "detail": null,
+  "document": "transaction-outcome",
+  "failureClass": null,
+  "operation": null,
+  "outcome": "refused",
+  "problem": {
+    "code": "unclassified",
+    "detail": "inventory apply requires --yes",
+    "retryable": false,
+    "status": 500,
+    "title": "Internal Server Error",
+    "type": "about:blank"
+  },
+  "transaction": null
+}

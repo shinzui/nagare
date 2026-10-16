@@ -1,0 +1,20 @@
+{
+  "contractVersion": 1,
+  "document": "image-publication-result",
+  "imageResource": "publication:app-image-kizashi-v1/kizashi-v1/oci-image",
+  "review": {
+    "directory": null,
+    "sha256": "30fa3aaa27e66839966ba3ac67e1718f2f9722c5ef729e44544037bd7792d425"
+  },
+  "transaction": {
+    "barriers": [],
+    "contractVersion": 1,
+    "detail": null,
+    "document": "transaction-outcome",
+    "failureClass": null,
+    "operation": null,
+    "outcome": "converged",
+    "problem": null,
+    "transaction": "tx-0f3a"
+  }
+}

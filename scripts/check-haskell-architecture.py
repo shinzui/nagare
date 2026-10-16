@@ -8,7 +8,7 @@ from pathlib import Path
 import re
 
 ROOT = Path(__file__).resolve().parents[1]
-PACKAGES = ('nagare-dsl', 'nagarectl', 'nagare-access', 'nagare-harness')
+PACKAGES = ('nagare-dsl', 'nagarectl', 'nagare-access', 'nagare-contract', 'nagare-harness')
 EXHAUSTIVENESS = ('-Werror=incomplete-patterns', '-Werror=incomplete-uni-patterns')
 PRIVATE = ('Nagare.Inventory.Application.', 'Nagare.Inventory.Plan.',
            'Nagare.Inventory.Execute.', 'Nagare.Dsl.Load.')

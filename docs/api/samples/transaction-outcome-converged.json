@@ -1,0 +1,11 @@
+{
+  "barriers": [],
+  "contractVersion": 1,
+  "detail": null,
+  "document": "transaction-outcome",
+  "failureClass": null,
+  "operation": null,
+  "outcome": "converged",
+  "problem": null,
+  "transaction": "tx-0f3a"
+}

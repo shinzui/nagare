@@ -101,6 +101,26 @@ rule:
                 pattern: import Nagare.Access.Prelude
                 stopBy: end
 ---
+id: haskell-contract-modules-import-custom-prelude
+language: Haskell
+severity: error
+message: Maintained contract modules must import Nagare.Contract.Prelude
+files:
+  - 'cli/nagare-contract/src/**/*.hs'
+  - 'cli/nagare-contract/app/*.hs'
+ignores:
+  - '**/Prelude.hs'
+rule:
+  all:
+    - kind: header
+    - inside:
+        all:
+          - kind: haskell
+          - not:
+              has:
+                pattern: import Nagare.Contract.Prelude
+                stopBy: end
+---
 id: haskell-label-use-requires-explicit-import
 language: Haskell
 severity: error

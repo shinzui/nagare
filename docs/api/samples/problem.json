@@ -1,0 +1,8 @@
+{
+  "code": "unknown_scope",
+  "detail": "application:nope is not an accepted scope",
+  "retryable": false,
+  "status": 404,
+  "title": "Not Found",
+  "type": "about:blank"
+}

@@ -35,6 +35,7 @@ import Nagare.Cli.Runtime.Target
   ( activeTarget
   , resolvePlatformWorkspace
   )
+import Nagare.Contract.Project (versionInfo)
 import Nagare.Dsl.Prelude
 import Nagare.Gcp.Adc (validateAdc)
 import Nagare.Host.Config
@@ -68,8 +69,6 @@ import Nagare.Version
   , compatibilityToken
   , currentBuildVersion
   , parsePlatformVersion
-  , renderBuildVersionJson
-  , renderBuildVersionJsonWithTools
   , renderBuildVersionText
   , renderPlatformVersion
   )
@@ -86,10 +85,9 @@ runVersion options = do
       else pure []
   if options ^. #json
     then
-      BC.putStrLn
-        ( if options ^. #tools
-            then renderBuildVersionJsonWithTools currentBuildVersion resolvedTools
-            else renderBuildVersionJson currentBuildVersion
+      LBC.putStrLn
+        ( Aeson.encode
+            (versionInfo currentBuildVersion (if options ^. #tools then Just resolvedTools else Nothing))
         )
     else do
       TIO.putStrLn (renderBuildVersionText currentBuildVersion)

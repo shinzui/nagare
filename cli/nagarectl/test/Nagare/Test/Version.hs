@@ -4,9 +4,9 @@ module Nagare.Test.Version
   )
 where
 
-import Data.Aeson (eitherDecodeStrict)
 import Data.Aeson qualified as Aeson
 import Data.Either (isLeft)
+import Nagare.Contract.Project (versionInfo)
 import Nagare.Dsl.Prelude hiding ((<.>))
 import Nagare.Version
   ( BuildVersion (..)
@@ -14,8 +14,6 @@ import Nagare.Version
   , PlatformVersion (..)
   , comparePlatformVersions
   , parsePlatformVersion
-  , renderBuildVersionJson
-  , renderBuildVersionJsonWithTools
   , renderBuildVersionText
   , renderPlatformVersion
   )
@@ -26,28 +24,26 @@ versionTests :: [TestTree]
 versionTests =
   [ testCase "text rendering includes the program and semantic version" $
       renderBuildVersionText (BuildVersion "1.2.3" Nothing) @?= "nagarectl 1.2.3"
-  , testCase "JSON rendering preserves optional revision metadata" $
-      (eitherDecodeStrict (renderBuildVersionJson (BuildVersion "1.2.3" (Just "abc123"))) :: Either String Aeson.Value)
-        @?= Right (Aeson.object ["version" Aeson..= ("1.2.3" :: Text), "platformVersion" Aeson..= ("1.2.3" :: Text), "revision" Aeson..= ("abc123" :: Text)])
+  , testCase "JSON rendering preserves optional revision metadata and lists the contracts" $
+      Aeson.encode (versionInfo (BuildVersion "1.2.3" (Just "abc123")) Nothing)
+        @?= "{\"contracts\":[1],\"platformVersion\":\"1.2.3\",\"revision\":\"abc123\",\"version\":\"1.2.3\"}"
   , testCase "tool JSON reports resolved paths and explicit nulls" $
-      ( eitherDecodeStrict
-          ( renderBuildVersionJsonWithTools
-              (BuildVersion "1.2.3" Nothing)
-              [("pulumi", Just "/opt/bin/pulumi"), ("npm", Nothing)]
-          ) ::
-          Either String Aeson.Value
-      )
-        @?= Right
-          ( Aeson.object
-              [ "version" Aeson..= ("1.2.3" :: Text)
-              , "platformVersion" Aeson..= ("1.2.3" :: Text)
-              , "tools"
-                  Aeson..= Aeson.object
-                    [ "pulumi" Aeson..= (Just "/opt/bin/pulumi" :: Maybe FilePath)
-                    , "npm" Aeson..= (Nothing :: Maybe FilePath)
-                    ]
-              ]
-          )
+      Aeson.toJSON
+        ( versionInfo
+            (BuildVersion "1.2.3" Nothing)
+            (Just [("pulumi", Just "/opt/bin/pulumi"), ("npm", Nothing)])
+        )
+        @?= ( Aeson.object
+                [ "version" Aeson..= ("1.2.3" :: Text)
+                , "platformVersion" Aeson..= ("1.2.3" :: Text)
+                , "contracts" Aeson..= [1 :: Int]
+                , "tools"
+                    Aeson..= Aeson.object
+                      [ "pulumi" Aeson..= (Just "/opt/bin/pulumi" :: Maybe FilePath)
+                      , "npm" Aeson..= (Nothing :: Maybe FilePath)
+                      ]
+                ]
+            )
   , testCase "platform versions round-trip releases and prereleases" $ do
       let release = PlatformVersion 2 4 7 Nothing
           candidate = PlatformVersion 2 4 7 (Just "rc.1")

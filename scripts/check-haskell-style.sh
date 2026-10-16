@@ -12,6 +12,7 @@ rg --files \
   cli/nagare-dsl/src cli/nagare-dsl/test \
   cli/nagarectl/src cli/nagarectl/app cli/nagarectl/nagared cli/nagarectl/test \
   cli/nagare-access/src cli/nagare-access/app cli/nagare-access/test \
+  cli/nagare-contract/src cli/nagare-contract/app \
   cli/nagare-harness/src cli/nagare-harness/app cli/nagare-harness/test \
   -g '*.hs' \
   -g '!**/fixtures/**' \
@@ -27,4 +28,4 @@ if rg -n '^\s*PackageImports\b' cli -g '*.cabal'; then
   exit 1
 fi
 
-printf '%s\n' 'Haskell style checks passed (nagare-dsl, nagarectl, nagare-access, nagare-harness).'
+printf '%s\n' 'Haskell style checks passed (nagare-dsl, nagarectl, nagare-access, nagare-contract, nagare-harness).'

@@ -1,0 +1,18 @@
+{
+  "application": {
+    "configDigest": "352033854558033a34dffbf15b1329eeee3f87ee91ca031c2a1800c38bd648a2",
+    "overrides": {
+      "imageResource": "publication:app-image-kizashi-v1/kizashi-v1/oci-image",
+      "tag": "v1"
+    },
+    "scope": "application:kizashi"
+  },
+  "contractVersion": 1,
+  "document": "deploy-preview",
+  "hooks": [],
+  "scopeDocuments": [
+    {
+      "scope": "application:kizashi"
+    }
+  ]
+}

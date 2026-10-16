@@ -105,6 +105,7 @@ library
     Nagare.Cluster.Kubeconfig
     Nagare.Cluster.Namespace
     Nagare.Context.Review
+    Nagare.Contract.Project
     Nagare.Database.Backup
     Nagare.Database.Connection
     Nagare.Database.Create
@@ -362,6 +363,7 @@ library
     http-types,
     lens ^>=5.3,
     memory,
+    nagare-contract,
     nagare-dsl,
     process,
     temporary,
@@ -624,6 +626,7 @@ test-suite nagarectl-test
     Nagare.Test.Cdn
     Nagare.Test.Cluster
     Nagare.Test.Context
+    Nagare.Test.Contract
     Nagare.Test.DataFixtures
     Nagare.Test.Database
     Nagare.Test.Domains
@@ -691,6 +694,7 @@ test-suite nagarectl-test
 
   build-depends:
     aeson,
+    aeson-pretty,
     async,
     base,
     bytestring,
@@ -703,8 +707,10 @@ test-suite nagarectl-test
     gogol-storage,
     http-client,
     http-types,
+    nagare-contract,
     nagare-dsl,
     nagarectl,
+    openapi-hs,
     process,
     tasty >=1.4,
     tasty-golden >=2.3,
