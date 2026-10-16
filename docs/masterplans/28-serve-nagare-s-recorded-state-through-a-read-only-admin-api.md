@@ -88,7 +88,7 @@ requires offline proof before native confirmation.
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | 192 | Publish the shared versioned document contract | [EP-192](../plans/192-publish-a-versioned-json-contract-for-the-nagarectl-outputs-kotei-consumes.md) | EP-193 M1 for M4 only | None | In Progress |
-| 193 | Read recorded state and list recorded sites | [EP-193](../plans/193-list-recorded-sites-without-live-provider-observation.md) | EP-192 M1 for M1 DTO/converter acceptance | None | Not Started |
+| 193 | Read recorded state and list recorded sites | [EP-193](../plans/193-list-recorded-sites-without-live-provider-observation.md) | EP-192 M1 for M1 DTO/converter acceptance | None | In Progress |
 | 196 | Open the inventory through a read-only service identity | [EP-196](../plans/196-read-the-inventory-store-from-an-in-cluster-service-identity.md) | None | EP-193 head-reader interface | Not Started |
 | 197 | Serve typed, bounded HTTP reads | [EP-197](../plans/197-serve-the-read-documents-through-a-typed-servant-admin-api.md) | EP-192 M1, EP-193 M1 | EP-196 for cloud source | Not Started |
 | 198 | Deploy behind the admin hostname grant | [EP-198](../plans/198-run-the-admin-api-in-each-context-behind-an-admin-grant.md) | EP-196, EP-197 | None | Not Started |
@@ -185,9 +185,8 @@ replace the network-policy proof. Native work follows existing authorization req
 
 ## Progress
 
-EP-192 M1 is complete: `cli/nagare-contract`, `docs/api/openapi.json`, the samples and the pure
-version/scope/publication projections. Next are EP-193 M1's staged reader and site DTO, then
-EP-197 M1, and EP-196's dedicated-identity design.
+EP-192 M1 and EP-193 M1 are complete: the contract package and artifact, the pure projections,
+the shared recorded-state reader and the site DTO. EP-197 M1 and EP-196 are unblocked.
 The credential's actual project lookup, provider IAM enforcement and local mount/network behavior
 remain explicit implementation proofs, not claims established by this documentation review.
 

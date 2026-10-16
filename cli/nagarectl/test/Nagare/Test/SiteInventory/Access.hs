@@ -6,6 +6,8 @@
 -- "a site backend map entry" case), so the two packages agree on one literal.
 module Nagare.Test.SiteInventory.Access
   ( protectedSiteInventoryTests
+  , SiteFixture (..)
+  , protectedSiteFixture
   )
 where
 
@@ -257,30 +259,6 @@ protectedSiteInventoryTests =
       , Resource.Kubernetes _ "serving.knative.dev" kind _ _ <- [member ^. #address]
       , kind == unsafe (Resource.mkName "domainmapping")
       ]
-    previewFixture = do
-      stores <-
-        traverse
-          (either (fail . show) pure)
-          [ compileRuntimeEnvChannel "demo" "personal" cluster namespaceId Map.empty source
-          , compileRuntimeSecretChannel "demo" "personal" cluster namespaceId (unsafe (Resource.mkName "v1")) Map.empty source
-          , compilePreviewEnvChannel "demo" "personal" cluster namespaceId Map.empty source
-          , compilePreviewSecretChannel "demo" "personal" cluster namespaceId (unsafe (Resource.mkName "v1")) Map.empty source
-          ]
-      previewSnapshot <-
-        either
-          (fail . show)
-          pure
-          ( mkScopeSnapshot
-              context
-              (Map.union (Map.fromList [(scopeId store, (generation, store)) | (store, _) <- stores]) (snapshotScopes snapshot))
-              Map.empty
-          )
-      declarations' <-
-        either
-          (fail . T.unpack)
-          pure
-          (acceptedSitePreviewDependencies previewSnapshot cluster "demo" "personal" (concatMap (Map.keys . snd) stores))
-      pure (previewSnapshot, declarations')
     roundTrip site = do
       loaded <- either (fail . show) pure (decodeStaticSite (toStrict (encodeStaticSite site)))
       loaded @?= site
@@ -343,6 +321,79 @@ protectedSiteInventoryTests =
         , Just (String json) <- KM.lookup "backends.json" payload ->
             pure (BC.pack (T.unpack json))
       other -> assertFailure ("backend map ConfigMap has no backends.json: " <> show other) >> fail "no data"
+
+previewFixture :: IO (ScopeSnapshot, [Declaration])
+previewFixture = do
+  stores <-
+    traverse
+      (either (fail . show) pure)
+      [ compileRuntimeEnvChannel "demo" "personal" cluster namespaceId Map.empty source
+      , compileRuntimeSecretChannel "demo" "personal" cluster namespaceId (unsafe (Resource.mkName "v1")) Map.empty source
+      , compilePreviewEnvChannel "demo" "personal" cluster namespaceId Map.empty source
+      , compilePreviewSecretChannel "demo" "personal" cluster namespaceId (unsafe (Resource.mkName "v1")) Map.empty source
+      ]
+  previewSnapshot <-
+    either
+      (fail . show)
+      pure
+      ( mkScopeSnapshot
+          context
+          (Map.union (Map.fromList [(scopeId store, (generation, store)) | (store, _) <- stores]) (snapshotScopes snapshot))
+          Map.empty
+      )
+  declarations' <-
+    either
+      (fail . T.unpack)
+      pure
+      (acceptedSitePreviewDependencies previewSnapshot cluster "demo" "personal" (concatMap (Map.keys . snd) stores))
+  pure (previewSnapshot, declarations')
+
+-- | Accepted scopes from the production site compilers, for the recorded-site
+-- reader (EP-193): a public site, its update with another hostname, a
+-- protected site, a public preview, and the platform scopes they bind to.
+data SiteFixture = SiteFixture
+  { siteContext :: !Resource.ContextBinding
+  , publicSite :: !ScopeDeclaration
+  , updatedPublicSite :: !ScopeDeclaration
+  , protectedSite :: !ScopeDeclaration
+  , previewSite :: !ScopeDeclaration
+  , platform :: ![ScopeDeclaration]
+  }
+
+protectedSiteFixture :: IO SiteFixture
+protectedSiteFixture = do
+  let public = protectedStatic & #access .~ Nothing & #domains .~ unsafe (mkDomains [("demo.example.com", True)])
+      secure = protectedStatic & #name .~ unsafe (mkSiteName "secure") & #domains .~ unsafe (mkDomains [("secure.example.com", True)])
+      compile accessBinding site host =
+        either (fail . show) (pure . fst) $
+          compileStaticSiteScopeWith
+            RecordRelease
+            Nothing
+            accessBinding
+            (DeployInputs site "v1" "example.com" "." True initProfile)
+            cluster
+            namespaceId
+            imageId
+            Map.empty
+            emptyReleaseLog
+            (releaseFor (siteNameText (site ^. #name)) host)
+            source
+  publicScope <- compile Nothing public "demo.example.com"
+  updatedScope <- compile Nothing (public & #domains .~ unsafe (mkDomains [("www.demo.example.com", True)])) "www.demo.example.com"
+  protectedScope <- compile (Just binding) secure "secure.example.com"
+  (previewSnapshot, stores) <- previewFixture
+  previewScope <-
+    either (fail . show) (pure . fst) $
+      compileStaticSitePreviewScope Nothing (DeployInputs public "v1" "example.com" "." True initProfile) "branch" cluster namespaceId imageId stores source
+  pure
+    SiteFixture
+      { siteContext = context
+      , publicSite = publicScope
+      , updatedPublicSite = updatedScope
+      , protectedSite = protectedScope
+      , previewSite = previewScope
+      , platform = map snd (Map.elems (snapshotScopes previewSnapshot))
+      }
 
 protectedStatic :: StaticSite
 protectedStatic =

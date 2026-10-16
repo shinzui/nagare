@@ -11,6 +11,8 @@ module Nagare.Contract.Project
   , scopeState
   , acceptedPublications
   , publicationList
+  , siteSummary
+  , siteList
   )
 where
 
@@ -24,13 +26,20 @@ import Nagare.Contract.V1
   ( ContextRef (..)
   , Publication (..)
   , PublicationList (..)
+  , RecordState (..)
   , Revision (..)
   , ScopeState (..)
+  , SiteKind (..)
+  , SiteList (..)
+  , SiteService (..)
+  , SiteSummary (..)
   , VersionInfo (..)
   , contractVersions
   )
 import Nagare.Dsl.Prelude
+import Nagare.Inventory.Site.Recorded qualified as Recorded
 import Nagare.Inventory.Store (HeadManifest (..), ScopeRevision (..))
+import Nagare.Inventory.Store qualified as Store
 import Nagare.Resource.Inventory
   ( Declaration (..)
   , DesiredSpec (..)
@@ -85,12 +94,13 @@ scopeStateOf scope accepted lastConverged =
     , converged = lastConverged == Just accepted
     , convergedRevision = nullable (revisionOf <$> lastConverged)
     }
-  where
-    revisionOf revisionValue =
-      Revision
-        { generation = generationNumber (revisionGeneration revisionValue)
-        , digest = digestText (revisionDigest revisionValue)
-        }
+
+revisionOf :: ScopeRevision -> Revision
+revisionOf revisionValue =
+  Revision
+    { generation = generationNumber (revisionGeneration revisionValue)
+    , digest = digestText (revisionDigest revisionValue)
+    }
 
 -- | Every artifact publication in an accepted publication scope, sorted by
 -- resource ID. @usedBy@ lists the accepted scopes whose @imageResource@
@@ -145,3 +155,44 @@ publicationList accepted = do
       , document = DocumentName
       , publications = items
       }
+
+siteSummary :: Recorded.RecordedSite -> SiteSummary
+siteSummary site =
+  SiteSummary
+    { scope = scopeIdText (site ^. #scope)
+    , resourceId = resourceIdText (site ^. #service)
+    , kind = case site ^. #kind of
+        Recorded.SiteKindSite -> SiteKindSite
+        Recorded.SiteKindService -> SiteKindService
+        Recorded.SiteKindPreview -> SiteKindPreview
+    , state = case site ^. #state of
+        Recorded.RecordConverged -> RecordConverged
+        Recorded.RecordPending -> RecordPending
+        Recorded.RecordNeverConverged -> RecordNeverConverged
+    , name = site ^. #acceptedService . #name
+    , namespace = site ^. #acceptedService . #namespace
+    , hostnames = site ^. #acceptedService . #hostnames
+    , acceptedRevision = revisionOf (site ^. #acceptedRevision)
+    , convergedRevision = nullable (revisionOf <$> site ^. #convergedRevision)
+    , lastConverged = nullable (service <$> site ^. #lastConverged)
+    }
+  where
+    service summary =
+      SiteService
+        { name = summary ^. #name
+        , namespace = summary ^. #namespace
+        , hostnames = summary ^. #hostnames
+        }
+
+-- | The @site-list@ document of a head's recorded sites, in the given order.
+siteList :: HeadManifest -> [Recorded.RecordedSite] -> SiteList
+siteList headValue sites =
+  SiteList
+    { contractVersion = ContractVersion1
+    , document = DocumentName
+    , context = contextRef (headBinding headValue)
+    , headGeneration = Store.headGeneration headValue
+    , activeTransaction = nullable (headActiveTransaction headValue)
+    , liveObserved = False
+    , sites = map siteSummary sites
+    }

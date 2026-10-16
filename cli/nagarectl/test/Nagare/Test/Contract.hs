@@ -35,6 +35,7 @@ import Nagare.Inventory.Artifact
   , compileArtifactScope
   )
 import Nagare.Inventory.Digest (contentDigest)
+import Nagare.Inventory.Site.Recorded qualified as Recorded
 import Nagare.Inventory.Store (HeadManifest (..), ScopeRevision (..))
 import Nagare.Resource.Inventory (ScopeDeclaration, mkScopeDeclaration, withScopeConfigDigest, withScopeOverrides)
 import Nagare.Resource.Policy (DataPolicy (..), LifecyclePolicy (..), Sensitivity (..))
@@ -124,6 +125,7 @@ samples =
   , Sample "saved-review.json" savedReviewSample
   , Sample "image-publication-result.json" imagePublicationSample
   , Sample "deploy-preview.json" deployPreviewSample
+  , Sample "site-list.json" (siteList sampleHead [sampleSite])
   , Sample "problem.json" (problemFor unknownScope "application:nope is not an accepted scope")
   ]
 
@@ -294,6 +296,21 @@ deployPreviewSample =
           }
     , hooks = []
     , scopeDocuments = [Object (KeyMap.fromList [("scope", String "application:kizashi")])]
+    }
+
+-- | A protected site whose accepted update is pending over its converged
+-- revision.
+sampleSite :: Recorded.RecordedSite
+sampleSite =
+  Recorded.RecordedSite
+    { scope = ok (mkScopeId Types.Standalone "site-docs")
+    , service = ok (mkResourceId "standalone:site-docs/site/service")
+    , kind = Recorded.SiteKindSite
+    , state = Recorded.RecordPending
+    , acceptedRevision = ScopeRevision (ok (mkScopeGeneration 4)) (contentDigest "docs-v4")
+    , convergedRevision = Just (ScopeRevision (ok (mkScopeGeneration 3)) (contentDigest "docs-v3"))
+    , acceptedService = Recorded.ServiceSummary "docs" "personal" ["docs.example.com", "www.docs.example.com"]
+    , lastConverged = Just (Recorded.ServiceSummary "docs" "personal" ["docs.example.com"])
     }
 
 ok :: (Show e) => Either e a -> a

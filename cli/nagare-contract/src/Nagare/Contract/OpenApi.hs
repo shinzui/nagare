@@ -33,6 +33,8 @@ import Nagare.Contract.V1
   , PublicationList
   , SavedReview
   , ScopeState
+  , SiteList
+  , SiteSummary
   , TransactionOutcome
   , VersionInfo
   )
@@ -51,6 +53,8 @@ contractSchemas = do
   void (declareSchemaRef (Proxy @ScopeState))
   void (declareSchemaRef (Proxy @Finding))
   void (declareSchemaRef (Proxy @Publication))
+  void (declareSchemaRef (Proxy @SiteList))
+  void (declareSchemaRef (Proxy @SiteSummary))
 
 contractOpenApi :: OpenApi
 contractOpenApi =

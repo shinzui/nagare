@@ -51,7 +51,15 @@ their live inspection roles.
 ## Progress
 
 
-- [ ] M1. After EP-192 M1, a reusable checked-head and hydration reader lists recorded sites, associates hostnames correctly, and distinguishes accepted from converged revisions. `SiteSummary`, the `site-list` document and the pure contract converter are included here, with compiler-to-reader and schema tests, so EP-197 can serve sites without waiting for CLI dispatch.
+- [x] M1. `Nagare.Inventory.Recorded` (checked head, reusable reader with a byte-bounded digest
+  cache and bounded workers, hydration of that head, one-shot `readRecordedState`) and
+  `Nagare.Inventory.Site.Recorded` (pure projection). `SiteSummary`, `SiteList` and the converter
+  `Nagare.Contract.Project.siteList` are in the contract, with `docs/api/samples/site-list.json`.
+  Planning history and the reader share `Nagare.Inventory.ScopeMember`. Pass: `recorded sites`
+  (6 tests) over scopes from the production static, protected and preview compilers: hostnames and
+  kinds, protected origin namespace, pending/never-converged, enforcer excluded, open transaction
+  read as a fact, missing member is an error, foreign/uninitialized refusal, and a warm read fetches
+  only the head (a changed scope fetches only its new member).
 - [ ] M2. `nagarectl site list` exposes the query through documented human and versioned JSON output, namespace selection, and optional previews, with no live workload/provider inspection or mutation setup; the `NAGARE_RECORDED_SITES_FIXTURE` probe seeds a disposable local context.
 - [ ] M3. The no-write recording test, the empty-`PATH` fixture run, and cold/warm timing evidence meet the acceptance below, including remote-store startup; required gates pass and durable documentation is updated.
 
@@ -116,6 +124,13 @@ decode reuse; the CLI one-shot convenience function and the HTTP service use the
 and hydration code. Move the site DTO/converter into M1, giving M1 a hard dependency on EP-192 M1;
 this removes the API's hidden dependency on site CLI dispatch. The site command's existing timing
 criteria remain, while EP-197 owns tighter service latency and request-cost proof.
+
+2026-10-16 (M1): `readRecordedHead` takes the reader, not the store, because the binding check
+needs the expected context the reader holds. The cache charges a member's stored byte length.
+A head is bound to its reader by a `Unique`, so `loadRecordedStateAt` refuses another reader's
+head. Earlier converged revisions are loaded for application and standalone scopes whose
+converged revision differs from the accepted one; whether that revision holds the Service is
+known only after loading.
 
 ## Outcomes & Retrospective
 

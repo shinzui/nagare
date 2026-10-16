@@ -1,0 +1,40 @@
+{
+  "activeTransaction": "tx-sample",
+  "context": {
+    "identity": "intranet",
+    "project": "example-project"
+  },
+  "contractVersion": 1,
+  "document": "site-list",
+  "headGeneration": 12,
+  "liveObserved": false,
+  "sites": [
+    {
+      "acceptedRevision": {
+        "digest": "099a41af7e789c5b16e118a727ec819d7eb33ab430e1eb0aee83bd37ccc9750e",
+        "generation": 4
+      },
+      "convergedRevision": {
+        "digest": "42cb2cc10467a4950e2c336906a7c039024e902a05c00663e8bf521846e9bc65",
+        "generation": 3
+      },
+      "hostnames": [
+        "docs.example.com",
+        "www.docs.example.com"
+      ],
+      "kind": "site",
+      "lastConverged": {
+        "hostnames": [
+          "docs.example.com"
+        ],
+        "name": "docs",
+        "namespace": "personal"
+      },
+      "name": "docs",
+      "namespace": "personal",
+      "resourceId": "standalone:site-docs/site/service",
+      "scope": "standalone:site-docs",
+      "state": "pending"
+    }
+  ]
+}

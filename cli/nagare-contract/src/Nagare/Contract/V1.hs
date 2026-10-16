@@ -2,9 +2,10 @@
 
 -- | Version 1 of Nagare's public document contract.
 --
--- Read documents ('InventoryStatusReport', 'PublicationList', 'VersionInfo')
--- are printed by the CLI and their item types ('ScopeState', 'Finding',
--- 'Publication') are served by the read-only admin API. Operation documents
+-- Read documents ('InventoryStatusReport', 'PublicationList', 'SiteList',
+-- 'VersionInfo') are printed by the CLI and their item types ('ScopeState',
+-- 'Finding', 'Publication', 'SiteSummary') are served by the read-only admin
+-- API. Operation documents
 -- ('TransactionOutcome', 'SavedReview', 'ImagePublicationResult',
 -- 'DeployPreview') describe a change and are printed only by the CLI.
 --
@@ -37,6 +38,11 @@ module Nagare.Contract.V1
   , Publication (..)
   , PublicationList (..)
   , VersionInfo (..)
+  , SiteKind (..)
+  , RecordState (..)
+  , SiteService (..)
+  , SiteSummary (..)
+  , SiteList (..)
   )
 where
 
@@ -255,6 +261,58 @@ data VersionInfo = VersionInfo
   }
   deriving stock (Eq, Show, Generic)
 
+-- | What kind of user-facing Knative Service a site row is.
+data SiteKind
+  = SiteKindSite
+  | SiteKindService
+  | SiteKindPreview
+  deriving stock (Eq, Ord, Show, Enum, Bounded, Generic)
+
+-- | The scope record of a site, not its health: the accepted revision
+-- converged, an earlier revision of this Service converged, or none did.
+data RecordState
+  = RecordConverged
+  | RecordPending
+  | RecordNeverConverged
+  deriving stock (Eq, Ord, Show, Enum, Bounded, Generic)
+
+-- | A Service's recorded name, origin namespace and declared hostnames.
+data SiteService = SiteService
+  { name :: !Text
+  , namespace :: !Text
+  , hostnames :: ![Text]
+  }
+  deriving stock (Eq, Show, Generic)
+
+-- | One recorded site. @lastConverged@ is the Service as its last converged
+-- scope revision declared it, which differs while an update is pending.
+data SiteSummary = SiteSummary
+  { scope :: !Text
+  , resourceId :: !Text
+  , kind :: !SiteKind
+  , state :: !RecordState
+  , name :: !Text
+  , namespace :: !Text
+  , hostnames :: ![Text]
+  , acceptedRevision :: !Revision
+  , convergedRevision :: !(Nullable Revision)
+  , lastConverged :: !(Nullable SiteService)
+  }
+  deriving stock (Eq, Show, Generic)
+
+-- | Recorded sites, from the inventory store only: @liveObserved@ is always
+-- false, because no workload, DNS or certificate was inspected.
+data SiteList = SiteList
+  { contractVersion :: !ContractVersion
+  , document :: !(DocumentName "site-list")
+  , context :: !ContextRef
+  , headGeneration :: !Integer
+  , activeTransaction :: !(Nullable Text)
+  , liveObserved :: !Bool
+  , sites :: ![SiteSummary]
+  }
+  deriving stock (Eq, Show, Generic)
+
 -- Records: one shared options value per type, via 'recordOptions'.
 -- 'VersionInfo' omits an absent revision or tool map, as it always has.
 
@@ -406,3 +464,43 @@ instance ToJSON Health where toJSON = genericToJSON (enumOptions "Health")
 instance FromJSON Health where parseJSON = genericParseJSON (enumOptions "Health")
 
 instance ToSchema Health where declareNamedSchema = enumSchema "Health"
+
+instance ToJSON SiteKind where toJSON = genericToJSON (enumOptions "SiteKind")
+
+instance FromJSON SiteKind where parseJSON = genericParseJSON (enumOptions "SiteKind")
+
+instance ToSchema SiteKind where declareNamedSchema = enumSchema "SiteKind"
+
+instance ToJSON RecordState where toJSON = genericToJSON (enumOptions "Record")
+
+instance FromJSON RecordState where parseJSON = genericParseJSON (enumOptions "Record")
+
+instance ToSchema RecordState where declareNamedSchema = enumSchema "Record"
+
+instance ToJSON SiteService where toJSON = genericToJSON recordOptions
+
+instance FromJSON SiteService where parseJSON = genericParseJSON recordOptions
+
+instance ToSchema SiteService where declareNamedSchema = recordSchema
+
+instance ToJSON SiteSummary where toJSON = genericToJSON recordOptions
+
+instance FromJSON SiteSummary where parseJSON = genericParseJSON recordOptions
+
+instance ToSchema SiteSummary where
+  declareNamedSchema proxy =
+    recordSchema proxy
+      <&> schema
+      . description
+      ?~ "A recorded site. state describes scope records, not workload health: converged means the accepted revision's execution completed."
+
+instance ToJSON SiteList where toJSON = genericToJSON recordOptions
+
+instance FromJSON SiteList where parseJSON = genericParseJSON recordOptions
+
+instance ToSchema SiteList where
+  declareNamedSchema proxy =
+    recordSchema proxy
+      <&> schema
+      . description
+      ?~ "Recorded sites from the inventory store only; liveObserved is false because no workload, DNS or certificate was inspected."

@@ -385,6 +385,14 @@
         ],
         "type": "object"
       },
+      "RecordState": {
+        "enum": [
+          "converged",
+          "pending",
+          "never-converged"
+        ],
+        "type": "string"
+      },
       "ReviewLocation": {
         "properties": {
           "directory": {
@@ -493,6 +501,149 @@
           "digest",
           "converged",
           "convergedRevision"
+        ],
+        "type": "object"
+      },
+      "SiteKind": {
+        "enum": [
+          "site",
+          "service",
+          "preview"
+        ],
+        "type": "string"
+      },
+      "SiteList": {
+        "description": "Recorded sites from the inventory store only; liveObserved is false because no workload, DNS or certificate was inspected.",
+        "properties": {
+          "activeTransaction": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "context": {
+            "$ref": "#/components/schemas/ContextRef"
+          },
+          "contractVersion": {
+            "enum": [
+              1
+            ],
+            "type": "integer"
+          },
+          "document": {
+            "enum": [
+              "site-list"
+            ],
+            "type": "string"
+          },
+          "headGeneration": {
+            "type": "integer"
+          },
+          "liveObserved": {
+            "type": "boolean"
+          },
+          "sites": {
+            "items": {
+              "$ref": "#/components/schemas/SiteSummary"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "contractVersion",
+          "document",
+          "context",
+          "headGeneration",
+          "activeTransaction",
+          "liveObserved",
+          "sites"
+        ],
+        "type": "object"
+      },
+      "SiteService": {
+        "properties": {
+          "hostnames": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "name": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "namespace",
+          "hostnames"
+        ],
+        "type": "object"
+      },
+      "SiteSummary": {
+        "description": "A recorded site. state describes scope records, not workload health: converged means the accepted revision's execution completed.",
+        "properties": {
+          "acceptedRevision": {
+            "$ref": "#/components/schemas/Revision"
+          },
+          "convergedRevision": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Revision"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "hostnames": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/SiteKind"
+          },
+          "lastConverged": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SiteService"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "resourceId": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/RecordState"
+          }
+        },
+        "required": [
+          "scope",
+          "resourceId",
+          "kind",
+          "state",
+          "name",
+          "namespace",
+          "hostnames",
+          "acceptedRevision",
+          "convergedRevision",
+          "lastConverged"
         ],
         "type": "object"
       },

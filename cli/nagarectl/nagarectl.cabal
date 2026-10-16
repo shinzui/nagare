@@ -74,6 +74,7 @@ library
     Nagare.Inventory.Plan.Publication
     Nagare.Inventory.Plan.Types
     Nagare.Inventory.Plan.Validation
+    Nagare.Inventory.ScopeMember
     Nagare.Inventory.Store.Target
     Nagare.Inventory.Store.TargetMigration
     Paths_nagarectl
@@ -266,6 +267,7 @@ library
     Nagare.Inventory.Prune
     Nagare.Inventory.Rebuild
     Nagare.Inventory.RebuildRestore
+    Nagare.Inventory.Recorded
     Nagare.Inventory.RegistryCredentials
     Nagare.Inventory.ReleaseEvidence
     Nagare.Inventory.Restore
@@ -279,6 +281,7 @@ library
     Nagare.Inventory.Site
     Nagare.Inventory.Site.Member
     Nagare.Inventory.Site.Preview
+    Nagare.Inventory.Site.Recorded
     Nagare.Inventory.Site.Release
     Nagare.Inventory.Status
     Nagare.Inventory.Store
@@ -690,6 +693,7 @@ test-suite nagarectl-test
     PlatformSpec
     PlatformTransitionSpec
     PlatformTransitionTableSpec
+    RecordedSiteSpec
     ShomeiUserSpec
 
   build-depends:

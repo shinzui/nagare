@@ -1,6 +1,7 @@
 -- | Exact preview ownership and age selection for reviewed cleanup.
 module Nagare.Inventory.PreviewCleanup
   ( previewCleanupServices
+  , previewOwner
   , parsePreviewAge
   , eligiblePreviewCollections
   , firstCollectible

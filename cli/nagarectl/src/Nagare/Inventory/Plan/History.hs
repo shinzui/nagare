@@ -56,6 +56,7 @@ import Nagare.Inventory.Plan.Types
   , reviewBundleScopes
   )
 import Nagare.Inventory.PreviewOwnership (previewScopeMembers)
+import Nagare.Inventory.ScopeMember (decodeScopeMember)
 import Nagare.Inventory.Store
   ( DeletionTombstone
       ( tombstoneAt
@@ -193,10 +194,7 @@ loadInventoryHistory store = do
     loadScope inventoryStore (scope, revision) = do
       bytesResult <- readObject inventoryStore (scopeKey (revisionDigest revision))
       pure $ do
-        bytes <- bytesResult >>= maybe (Left (StoreInvalidObject (scopeKey (revisionDigest revision)) "scope member is missing")) Right
-        unless (contentDigest bytes == revisionDigest revision) (Left (StoreInvalidObject (scopeKey (revisionDigest revision)) "scope member digest mismatch"))
-        declaration <- first (StoreInvalidObject (scopeKey (revisionDigest revision)) . T.pack . show) (decodeScope bytes)
-        unless (scopeId declaration == scope) (Left (StoreInvalidObject (scopeKey (revisionDigest revision)) "scope member identity mismatch"))
+        declaration <- bytesResult >>= decodeScopeMember scope (revisionDigest revision)
         pure (scope, (revision, declaration))
     loadRetained inventoryStore (resourceId, retained) = do
       let revision = retainedRevision retained
