@@ -15,287 +15,234 @@ provenance:
       at: 2026-10-15T00:19:10Z
       mode: "update"
       note: "MasterPlan 28 design review for the admin UI and Kotei: one recorded-state reader, admin.<base> origin, service-account bearer, Deployment+NetworkPolicy, gateway problem documents, ETag/head summary"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-16T22:20:11Z
+      mode: "update"
+      note: "Validated API and serving design against source and releases; corrected bounded reads, HTTP semantics, milestone ownership, credentials and deployment proof."
 ---
 
 # Serve Nagare's recorded state through a read-only admin API
 
-This MasterPlan coordinates the work; the registry owns child status, and each child owns its
-milestones. Under the operator's rules (CLAUDE.md, 2026-10-10), the plans hold deliverables with
-pass/fail evidence and a dated Decision Log, and nothing else is narrated.
-
 
 ## Vision & Scope
 
-When this is done, every Nagare context runs an admin API inside its cluster at
-`https://admin.<base domain>/v1/…`. A person signed in through the context's existing login, and
-granted access to that hostname, can read what Nagare has recorded over HTTP: the platform
-version, the head (its generation and whatever is open on it: a transaction, an executor claim, a
-data fence, a migration, a release transition), the accepted and converged scopes, the recorded
-sites, the image publications and the access grants. Every response body is described by one
-generated OpenAPI 3.1 document, `docs/api/openapi.json`, served at `/v1/openapi.json`, and every
-error, the gateway's included, is an RFC 9457 problem document.
+Serve one context's recorded state at `https://admin.<base domain>/v1/…`: accepted/converged
+scope revisions, recorded sites, image publications, host grants and the head's transaction,
+claim, fence, migration and transition summaries. A signed-in person or Shomei service-account
+bearer client must have an ordinary grant on that hostname. The future admin UI shares this
+origin (`/` reserved), while Kotei continues to deploy through the CLI. Recorded convergence
+is not live workload health or an effective-access check.
 
-Two clients are designed for from the start, because both are committed (operator, 2026-10-14):
+The service must be prompt: head/scope-summary requests read no scope objects, unchanged lists
+reuse verified decoded data, request work has a total deadline, and real gateway-to-GCS latency
+is measured before completion. EP-197 sets the test conditions and budgets: warm p95 below two
+seconds remotely, below 250 ms locally, and a ten-second backend request deadline. These are
+acceptance targets; no API has been implemented or benchmarked by this plan validation.
 
-- **The admin UI** the operator will build. It is served from the API's own origin
-  (`admin.<base domain>`; the path `/` is reserved for it), so the browser never makes a
-  cross-origin request, the gateway needs no CORS handling, and the parent-domain session cookie
-  works unchanged. Its client code is generated from `/v1/openapi.json`, not hand-written.
-- **Kotei**, as a machine client. Kotei is a Shomei service account (OAuth2 client credentials at
-  Shomei's `/oauth/token`) presenting its access token as `Authorization: Bearer`. Nothing new is
-  needed for that: `nagare-access` already accepts a bearer token when no session cookie is
-  present (`cli/nagare-access/src/Nagare/Access/Credential.hs`), verifies issuer, audience and
-  signature exactly as for a cookie (`Nagare/Access/Shomei.hs`), and Shomei mints every access
-  token with its one configured audience; the gateway then checks the ordinary per-host grant on
-  the account's `user_…` subject, which `nagarectl access grant --user` accepts. Over the API Kotei
-  reads publications, scope state (accepted versus converged, so "has my deploy landed"), the
-  head and the recorded sites. Deploys stay on the CLI (the API is read-only), and drift stays on
-  `inventory status --contract 1` because it needs observed findings, which v1 does not serve.
+The API is read-only and its dedicated credential grants no mutation authority. It reads existing
+inventory only, never initializes/migrates it, and never plans, applies, resumes or closes work.
+It runs inside GCS-backed contexts. Local native proof uses a context-scoped read-only store
+mount; a cloud context whose authoritative store is still on a workstation needs an explicit
+existing store migration before enabling the in-cluster service. No store is silently substituted.
 
-The API is **read-only** (operator decision, 2026-10-14). It never plans, applies, resumes or
-closes a transaction, and it holds no credential that can change a context. Changes stay with
-`nagarectl` on an operator's machine, as reviewed transactions.
+The public contract is one generated OpenAPI 3.1 artifact, `docs/api/openapi.json`, also served
+unchanged at `/v1/openapi.json`. `/v1/platform/version` describes the serving binary and packaged
+platform version, not the context's fully installed release; recorded rollout state is the head
+transition plus per-scope revisions. The head stores no installed-version field, and fetching
+native version ConfigMap bytes from review archives would violate this read boundary.
 
-Included: the shared document contract (types, schemas, problem details) used by the CLI, the
-API and the gateway; one recorded-state reader that every read document and every handler
-projects from; reading the inventory store from inside the cluster; the Servant service and its
-OpenAPI document; packaging and running it in a context behind the existing access gateway, with
-the gateway as the only network path to it and the gateway's own refusals rendered as problem
-documents; and the native proof on a disposable local context and then the intranet.
-
-Excluded: the admin UI's code (a later plan; this one only reserves its origin); any mutating
-endpoint; live provider observation that needs cloud or Pulumi credentials (Pulumi stack reads,
-Cloud DNS, certificate issuance state); observed Kubernetes state (findings, backup freshness,
-certificates), which the API can observe from inside the cluster with a read-only service account
-and is the natural follow-up, as an additive resource beside the recorded ones; and any change to
-how reviews are made or applied.
+Included are the shared CLI/API/gateway document contract, recorded reader, service identity,
+HTTP server, deployment, protected routing and native confirmation. Excluded are UI code,
+mutating routes, live Kubernetes/provider inspection, raw native payloads/secrets, new auth flows,
+a persistent discovery database and background reconciliation. `inventory status --contract 1`
+retains observed drift for Kotei; v1 HTTP does not pretend to supply it.
 
 
 ## Decomposition Strategy
 
-Five work streams, split by the boundary each one owns:
+Five existing workstreams remain appropriate. EP-192 owns shared wire types and schemas;
+EP-193 owns checked snapshot reading and recorded-site interpretation; EP-196 owns service
+credentials and the GCS transport lifetime; EP-197 owns HTTP semantics, bounded request/cache
+policy and offline latency proof; EP-198 owns packaging, gateway integration and native proof.
+No extra plan or observability platform is needed to fix the identified gaps.
 
-1. **The document contract** (EP-192). Types, schemas and the problem-details shape, used by the
-   CLI now and the API later. It already exists as a plan for Kotei; it is re-scoped as this
-   initiative's foundation, because two contracts (one for the CLI, one for HTTP) would drift.
-2. **The recorded-state reader and recorded sites** (EP-193). One total, read-only reader of the
-   store (head once, every accepted scope by digest, never refusing because something is open on
-   the head) that every read document and every API handler projects from, and the first
-   projection over it: the recorded sites. It was already planned as a store-only query; its
-   loader is promoted to the initiative's one read model, because four readers (one per
-   document) would return four different snapshots inside one request.
-3. **Reading the store from the cluster** (EP-196). Today only an operator's machine can open the
-   store: the GCS reader takes its token and its ownership proof from the `gcloud` CLI. A service
-   needs a credential and a reader of its own, and that credential is the initiative's main
-   security decision.
-4. **The Servant service** (EP-197). Routes, handlers, the generated OpenAPI document, health,
-   telemetry, logging and the Hurl suite, all per the haskell-jitsurei API standards. Each
-   request reads one recorded state and projects from it. It can be built and tested entirely
-   offline against a local store.
-5. **Running it in a context** (EP-198). Image, inventory-managed deployment in `nagare-system`
-   as a plain Deployment whose NetworkPolicy admits only the gateway, the protected hostname and
-   its grant, the gateway's problem-document rendering for API-shaped requests, the release
-   transition, and the native runs (browser session, service-account bearer, and the bypass
-   proof).
-
-Splitting 3 from 4 keeps the security-sensitive credential work reviewable on its own and lets the
-service be built in parallel against a local store. Splitting 5 from 4 keeps the native runs
-(which per ADR 25 only confirm) out of the code plans. A single "API" plan was rejected: it would
-mix a credential decision, a library, and a cloud deployment in one checklist.
-
-Relevant ADRs:
-
-- [ADR 16](../adr/0016-adopt-haskell-jitsurei-for-production-haskell.md): production Haskell
-  follows haskell-jitsurei. Its API family applies here:
-  `mori://shinzui/haskell-jitsurei/docs/api-overview` and the documents it lists (Servant routes,
-  RFC 9457 problem details, OpenAPI from types, Hurl, Relay pagination, OpenTelemetry, request
-  logging, health endpoints).
-- [ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md): the
-  inventory store, scopes, heads and the rule that decoding JSON never grants authority.
-- [ADR 29](../adr/0029-site-access-is-a-reviewed-relationship-per-hostname.md) and
-  [ADR 15](../adr/0015-the-auth-portal-hands-sessions-to-nagare-access-through-response-headers.md):
-  protected hostnames, per-host grants and the `nagare-access` gateway, which the API sits behind.
-- [ADR 9](../adr/0009-assert-the-active-context-project-on-every-cloud-mutating-path.md): the
-  project guardrail; the API's reader must stay bound to its own context's project.
-- [ADR 6](../adr/0006-version-platform-state-across-cli-payload-context-host-and-cluster.md):
-  platform versions; a new platform component reaches existing contexts through a release
-  transition (EP-172).
-- [ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md): native
-  runs confirm; defects are found offline first.
+Relevant durable context: [ADR 16](../adr/0016-adopt-haskell-jitsurei-for-production-haskell.md)
+requires the Haskell/API standards at `mori://shinzui/haskell-jitsurei/docs/api-overview`;
+[ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md) owns
+inventory authority and the recorded-read boundary;
+[ADR 9](../adr/0009-assert-the-active-context-project-on-every-cloud-mutating-path.md) preserves
+context and bucket ownership checks;
+[ADR 13](../adr/0013-operator-deployment-material-lives-in-a-private-repository-with-remote-state.md)
+keeps credential delivery in operator material;
+[ADR 29](../adr/0029-site-access-is-a-reviewed-relationship-per-hostname.md) and
+[ADR 15](../adr/0015-the-auth-portal-hands-sessions-to-nagare-access-through-response-headers.md)
+cover hostname authorization and sessions;
+[ADR 6](../adr/0006-version-platform-state-across-cli-payload-context-host-and-cluster.md)
+requires release transitions; [ADR 25](../adr/0025-defects-are-found-by-interpreters-and-native-runs-only-confirm.md)
+requires offline proof before native confirmation.
 
 
 ## Exec-Plan Registry
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 192 | Publish Nagare's versioned document contract for Kotei and the read-only admin API | [EP-192](../plans/192-publish-a-versioned-json-contract-for-the-nagarectl-outputs-kotei-consumes.md) | EP-193 M1 (for its M4 only) | None | Not Started |
-| 193 | List recorded sites without live provider observation | [EP-193](../plans/193-list-recorded-sites-without-live-provider-observation.md) | EP-192 M1 (for its M2 only) | None | Not Started |
-| 196 | Read the inventory store from an in-cluster service identity | [EP-196](../plans/196-read-the-inventory-store-from-an-in-cluster-service-identity.md) | None | None | Not Started |
-| 197 | Serve the read documents through a typed Servant admin API | [EP-197](../plans/197-serve-the-read-documents-through-a-typed-servant-admin-api.md) | EP-192 M1, EP-193 M1 | EP-196 | Not Started |
-| 198 | Run the admin API in each context behind an admin grant | [EP-198](../plans/198-run-the-admin-api-in-each-context-behind-an-admin-grant.md) | EP-196, EP-197 | None | Not Started |
+| 192 | Publish the shared versioned document contract | [EP-192](../plans/192-publish-a-versioned-json-contract-for-the-nagarectl-outputs-kotei-consumes.md) | EP-193 M1 for M4 only | None | Not Started |
+| 193 | Read recorded state and list recorded sites | [EP-193](../plans/193-list-recorded-sites-without-live-provider-observation.md) | EP-192 M1 for M1 DTO/converter acceptance | None | Not Started |
+| 196 | Open the inventory through a read-only service identity | [EP-196](../plans/196-read-the-inventory-store-from-an-in-cluster-service-identity.md) | None | EP-193 head-reader interface | Not Started |
+| 197 | Serve typed, bounded HTTP reads | [EP-197](../plans/197-serve-the-read-documents-through-a-typed-servant-admin-api.md) | EP-192 M1, EP-193 M1 | EP-196 for cloud source | Not Started |
+| 198 | Deploy behind the admin hostname grant | [EP-198](../plans/198-run-the-admin-api-in-each-context-behind-an-admin-grant.md) | EP-196, EP-197 | None | Not Started |
 
 Status values: Not Started, In Progress, Complete, Cancelled, Held.
 
 
 ## Dependency Graph
 
-EP-192 M1 creates the `nagare-contract` package: the document types, their `ToSchema` instances,
-the RFC 9457 `ProblemDetails` type and its catalog, and the generated `docs/api/openapi.json`
-holding their component schemas. EP-193 M1 creates the recorded-state reader,
-`Nagare.Inventory.Recorded`, and the sites projection over it. Neither depends on the other, and
-EP-196 depends on neither, so all three start at once.
+Start EP-192 M1 and EP-196 independently. EP-193's underlying store work can be prepared alongside
+EP-192, but its M1 acceptance includes the site DTO/converter and therefore waits for EP-192 M1.
+Then EP-197 can implement the whole HTTP surface against a local fixture. Its first proof is one
+real compiled 200/304/503 slice, generated OpenAPI and generated-client decode before expanding
+routes. EP-196 supplies the cloud reader when ready. EP-198 waits for both completed children,
+reviews/applies infrastructure prerequisites, and confirms the deployed path.
 
-EP-193 M2 (the `site-list` document) needs EP-192 M1's types. EP-192 M4 (`inventory
-publications`) reads through EP-193 M1's reader, so that one milestone has EP-193 M1 as a hard
-dependency; the rest of EP-192 has none. EP-197 M1 (routes and the document) needs EP-192 M1;
-EP-197 M2 (handlers) needs EP-193 M1, since every handler projects from one `RecordedState` and
-the sites route is a projection it serves from the first day rather than a placeholder. EP-197
-reads a GCS store once EP-196 exists and a local directory store until then, so EP-196 is soft.
-EP-198 needs a reader that works in the cluster (EP-196) and a service to run (EP-197), so both
-are hard dependencies.
-
-Suggested order: (EP-192 M1, EP-193 M1, EP-196) in parallel → EP-197 → EP-198. EP-192's later
-milestones (the CLI `--contract 1` commands for Kotei) proceed alongside and do not block the API.
+EP-192 M4 waits for EP-193 M1 for CLI reader wiring; this is not a milestone cycle:
+EP-192 M1 → EP-193 M1 → EP-192 M4. Pure publication/scope/version projections move to EP-192 M1,
+and the site DTO/converter moves to EP-193 M1. Thus EP-197 has no hidden dependency on EP-192's
+mutating CLI milestones or EP-193's CLI dispatch. EP-192 M2–M5 and EP-193 M2–M3 remain required
+for the whole initiative, but do not block the first functioning HTTP service.
 
 
 ## Integration Points
 
-- **Document types and the problem shape.** Owner: EP-192. The `nagare-contract` package
-  (`cli/nagare-contract`) holds `Nagare.Contract.V1` (every document and item type, with `ToJSON`,
-  `FromJSON` and `ToSchema` derived through one shared aeson `Options` per type) and
-  `Nagare.Contract.Problem` (`ProblemDetails`, the `ProblemJSON` content type and the problem
-  catalog). It depends on nothing from Nagare, so a client (Kotei, a UI's generated client, the
-  gateway) can depend on it alone. EP-193 adds `SiteSummary` and the `site-list` document there,
-  and EP-197 adds `Grant` and `HeadSummary`; EP-197 returns the item types inside Relay
-  `Connection`s. Projections from internal values stay in `nagarectl` (`Nagare.Contract.Project`),
-  owned by EP-192 and extended by EP-193 and EP-197.
-- **Item types versus list documents.** Owner: EP-192. Each list is an item type (`ScopeState`,
-  `SiteSummary`, `Publication`, `Finding`, `Grant`) plus a CLI list document that wraps a plain
-  array. The API returns the same item type inside a Relay `Connection`
-  (`mori://shinzui/haskell-jitsurei/docs/api-relay-pagination`). Neither may define its own item
-  shape.
-- **The recorded-state reader.** Owner: EP-193 M1. `Nagare.Inventory.Recorded` in the `nagarectl`
-  library exports `RecordedState` (the head plus every accepted scope declaration, digest-checked
-  and bound to the context) and `readRecordedState :: InventoryStore -> IO (Either StoreError
-  RecordedState)`. It reads the head exactly once, loads no journal, review archive or
-  retained/collected history, and never refuses because a transaction, claim, fence, migration or
-  transition is open: those are facts it returns. Every read document (EP-192's `inventory
-  publications`; EP-193's sites) and every EP-197 handler is a pure projection from one
-  `RecordedState`, read once per command or request. `loadTargetSnapshotReadOnly`
-  (`cli/nagarectl/src/Nagare/Inventory/Command.hs`) stays for planning; it exits the process and
-  refuses an open transaction, so no read document may use it.
-- **`docs/api/openapi.json`.** Owner: EP-192 until EP-197 M1 lands, then EP-197. EP-192 writes it
-  from an executable as a components-only document (every contract schema, no paths). EP-197
-  moves the generator to the API package: `toOpenApi` of the served route type, plus every
-  contract schema the routes do not reach (the CLI-only operation documents), plus the two
-  security schemes (the `nagare_session` cookie and HTTP bearer) applied to every operation. It
-  stays one file, served unchanged at `/v1/openapi.json`, and a test in each owning package fails
-  when the checked-in file differs from the generated one.
-- **The problem catalog.** Owner: EP-192. Every `code` the CLI, the API or the gateway can emit is
-  a catalog entry with a fixed status and title. EP-196 adds store codes it introduces; EP-197
-  adds HTTP-only codes (for example `not_found`); EP-198 adds the gateway's `unauthenticated`
-  (401), `forbidden` (403) and `authorization_unavailable` (503, retryable). No plan writes a
-  problem body by hand; `cli/nagare-access` takes `nagare-contract` as a dependency the way it
-  already takes `nagare-dsl` (its own `cabal.project` and Dockerfile).
-- **The store reader.** Owner: EP-196. A read-only `openServiceStore` in the `nagarectl` library
-  that opens a context's GCS store with a service credential and the same ownership guarantee as
-  the operator path, and never writes. EP-197 calls it; EP-198 supplies its configuration.
-- **The identity the service sees.** Owner: EP-198. The service reads `X-Forwarded-User` (a
-  Shomei `user_…` id, for a person or a service account) for logs and traces only and makes no
-  access decision. That is sound only because EP-198 makes the gateway the sole network path: the
-  API is a plain Deployment behind a ClusterIP Service whose NetworkPolicy admits ingress from the
-  `nagare-access` pods alone. (A Knative Service cannot be pinned that way: every cluster-local
-  Knative route is reachable from every pod through the shared ingress and activator.)
-- **The hostname, origin and grant.** Owner: EP-198. `admin.<base domain>` is a protected host
-  under ADR 29, wired like any protected site (backend-map contribution, DomainMapping to the
-  enforcer; the upstream `http://admin-api.nagare-system.svc.cluster.local` that `upstreamFor` in
-  `cli/nagarectl/src/Nagare/Access/Resolve.hs` builds resolves to the plain Service as well).
-  Reading requires an ordinary reviewed `access grant` on that hostname, for a person or for
-  Kotei's service account. The API owns `/v1/…` and `/v1/openapi.json`; `/` is reserved for the
-  admin UI, which a later plan serves from the same origin and image.
-- **The gateway's answers to API-shaped requests.** Owner: EP-198. `nagare-access` already
-  classifies a request as JSON-shaped (`Accept` containing `application/json`, `Sec-Fetch-Mode`
-  `cors` or `same-origin`, or `X-Requested-With: XMLHttpRequest`;
-  `cli/nagare-access/src/Nagare/Access/Challenge.hs`) and answers 401 JSON instead of a redirect.
-  EP-198 widens the classifier to any `+json` media type and renders those 401, 403 and 503
-  bodies as `application/problem+json` from the catalog, keeping the existing `error` and `login`
-  members as RFC 9457 extension members so nothing that reads them breaks.
+**Document contract — EP-192 owns.** `cli/nagare-contract` has no Nagare dependency. It owns
+`Nagare.Contract.V1` and `Nagare.Contract.Problem`, including the Servant content-type dependency
+needed by `ProblemJSON`. One item shape is used in CLI arrays and HTTP Relay connections.
+EP-193 M1 adds `SiteSummary`, the site-list envelope and converter; EP-197 M1 adds `HeadSummary`
+and `Grant`. Pure projections live in `cli/nagarectl/src/Nagare/Contract/Project.hs`; version,
+scope and publication projection is ready in EP-192 M1. Operation DTO changes and CLI dispatch
+remain with their later milestones. Gateway `error`/`login` extensions are part of the shared
+problem codec/schema, not hand-built alternate JSON.
 
-Candidate ADRs at completion: the API is read-only and holds no mutating credential; the service
-credential model chosen in EP-196; one contract package shared by the CLI, the API and the
-gateway; one recorded-state reader for every read; the gateway is the only network path to a
-platform service that makes no access decision; machine clients are Shomei service accounts with
-ordinary per-host grants (amending ADR 29's "machine access" exclusion).
+**Recorded reader — EP-193 M1 owns.** `Nagare.Inventory.Recorded` exposes an opaque checked head,
+a reusable reader, hydration of that exact head and a one-shot CLI convenience function. It
+checks store/context binding, canonical bytes, digests and scope ownership and returns open
+execution state as facts. Head/scope-summary handlers project without hydration. Accepted scopes
+are hydrated for sites/publications/grants; previous converged declarations are loaded only for
+sites that need them. No journals, reviews, native envelopes or retained/collected history are
+loaded. `loadTargetSnapshotReadOnly` remains planning-only: it exits and refuses open transactions.
+EP-196 supplies a cancellable fresh ownership/head action, while local callers use the existing
+checked head path. The reader accepts that injected action without importing service credentials.
+
+**Read cost and cache — EP-197 owns policy; EP-193 owns loader implementation.** The service
+retains its session/manager, uses the shared byte-bounded digest decode cache and bounded
+hydration workers, and memoizes sorted projections by their required revision vectors. Only
+immutable verified data is reusable; every state request still reads an authoritative bound head.
+A head-only transaction change does not force all declarations to decode again. Defaults are
+64 MiB cache, eight hydration workers and 32 admitted state requests; deadline includes queue,
+auth refresh, store IO and encoding. Full error/cancellation and cold/warm acceptance belongs to
+EP-197, and EP-198 measures the real gateway/GCS path. Page size alone is not a read-cost bound.
+
+**HTTP contract and artifact — EP-197 owns after M1.** EP-192 initially generates component
+schemas; EP-197 takes over the one artifact/equality test and retains CLI-only components.
+It publishes the exact routes, filters, cursor rules and statuses in its Plan of Work. Cookie
+and bearer are alternatives (OR). A representative generated-client test covers success, a Relay
+page and a problem; it must not rely only on schema equality. ETags hash encoded representation
+bytes; `Nagare-Head-Revision` separately identifies the checked snapshot across routes. Health,
+OpenAPI and build-version routes never trigger inventory hydration. Conditional requests do not
+bypass authorization, validity or existence checks. Private caches must revalidate every use.
+
+**Error catalog — EP-192 owns; EP-197/198 extend.** `about:blank` uses HTTP status titles;
+`code` and `detail` carry domain distinctions. EP-196 returns typed store failures without an HTTP
+package dependency. EP-197 maps them and owns Servant/middleware error rendering, including
+405/406, cancellation deadlines and corruption. EP-198 maps gateway 401/403/503 and proxy 502/504,
+with sanitized details and required headers. Nagare-produced `/v1` errors before response commit
+are problems even without an Accept header; infrastructure errors, disconnects and health-status
+bodies have separate limits. Future enum values are not automatically wire-compatible.
+
+**Service identity — EP-196 owns.** A dedicated read-only identity has exact-prefix
+`storage.objects.get`, separate exact-bucket metadata permission and any explicitly needed
+project-number lookup. No bucket listing or writes, even after missing-object reads. The API
+cannot receive the broadly privileged node credential; EP-198 isolates metadata access and
+mounts dedicated credential material. HTTP manager/token refresh live for the service lifetime,
+with fresh ownership checks and caller-controlled deadlines. Expected project ID and numeric
+project number are validated rather than inferred from a service-account key string.
+
+**Deployment and authorization — EP-198 owns.** A one-replica Deployment and ClusterIP Service
+in `nagare-system` are protected from ordinary workloads by ingress requiring both the gateway
+namespace and stable pod label. Prove both Service and Pod-IP isolation, including unrelated pods
+in the same namespace; trusted node/admin traffic is outside that claim. Native NetworkPolicy
+cannot select GCS by DNS name: documented HTTPS egress plus exact IAM is the chosen boundary,
+with metadata access blocked. EP-198 owns 512 MiB runtime limit, private writable temp/cache,
+read-only source/credential mounts and probes, plus the protected DomainMapping, backend-map
+update and gateway rollout. The gateway authenticates and checks the host grant; forwarded
+identity is only log/trace context. Its admin `/v1` classifier must not depend on Accept.
+
+**Cloud/local rollout — EP-198 owns.** Pulumi identity/IAM prerequisites are reviewed/applied
+explicitly before platform transition; a transition-table row does not create an account.
+The local native fixture uses a real read-only context mount; a workstation-only server cannot
+replace the network-policy proof. Native work follows existing authorization requirements.
 
 
 ## Progress
 
-No child started. Reviewed 2026-10-14 for the two committed clients (the admin UI and Kotei); the
-Decision Log holds what changed. The first gates are EP-192 M1 (`nagare-contract` with the
-generated components document) and EP-193 M1 (the recorded-state reader), which together unblock
-EP-197. EP-196 M1 (the credential decision) is the first operator decision point.
+All five children remain Not Started. Source-based validation completed 2026-10-16 and the
+corrections are applied to all affected plans. The first implementation gates are EP-192 M1's
+contract/projections, EP-193 M1's staged reader/site DTO and EP-196's dedicated-identity design.
+The credential's actual project lookup, provider IAM enforcement and local mount/network behavior
+remain explicit implementation proofs, not claims established by this documentation review.
+
+
+## Surprises & Discoveries
+
+The initial design hydrated all scopes even before conditional responses; the GCS transport uses
+two HTTP operations per uncached object and a twenty-second per-attempt timeout. Existing
+`acceptedAccessBindings` filters unbindable grants, `Proxy.hs` emits text 502s, and the node
+identity already has mutating permissions. Those source findings motivate the corrections below.
 
 
 ## Decision Log
 
-- 2026-10-14 (operator): The admin API is read-only. EP-192 becomes the shared contract for the CLI
-  and the API, and joins this MasterPlan with EP-193.
-- 2026-10-14 (operator): The API follows the haskell-jitsurei API standards: `NamedRoutes`,
-  `MultiVerb` with declared error statuses, RFC 9457 problem documents, the OpenAPI 3.1 document
-  derived by `toOpenApi` with the released `openapi-hs` / `servant-openapi-hs` cohort and never
-  hand-written, Relay pagination for growing lists, `servant-health` probes, OpenTelemetry and
-  bounded request logging, and a Hurl suite. This supersedes EP-192's 2026-10-13 decision to
-  hand-write JSON Schemas and validate them with a test-local subset validator.
-- 2026-10-14: The API reads only the inventory store and what it can observe in-cluster with its
-  own read-only identity. It needs a `gcs` inventory store; a local-mode context keeps its store
-  on the operator's machine, so local runs serve the API from the workstation against that store
-  (EP-197, EP-198).
-- 2026-10-14: Authentication and authorization come from the existing `nagare-access` gateway and
-  a reviewed per-host grant (ADR 29). The API adds no login of its own.
-- 2026-10-14 (review for the admin UI and Kotei): One recorded-state reader. EP-193 M1's loader
-  becomes `Nagare.Inventory.Recorded`, the read model for every read document and every API
-  handler; EP-192 M4 and EP-197 M2 project from it. `loadTargetSnapshotReadOnly` is planning-only:
-  it calls `dieText` and refuses an open transaction, so a service built on it would exit, or
-  answer nothing, exactly when an operator most needs to look.
-- 2026-10-14 (review): The hostname is `admin.<base domain>`, one origin for the API (`/v1/…`,
-  `/v1/openapi.json`) and the later UI (`/`). A UI on a second hostname would need CORS preflights
-  through the gateway, which answers an unauthenticated `OPTIONS` with a challenge; sharing the
-  origin removes the problem instead of handling it.
-- 2026-10-14 (review): Kotei's access is a Shomei service account presenting a bearer token
-  through the gateway, granted on the hostname like a person. Verified against the code: the
-  gateway's credential extraction, its token verification (issuer, audience, signature; no session
-  kind check) and Shomei's single configured audience. This supersedes "Kotei's service-to-service
-  access is a later decision" and amends ADR 29's "machine access" exclusion at completion.
-- 2026-10-14 (review): The API runs as a plain Deployment and ClusterIP Service with a
-  NetworkPolicy admitting ingress only from the `nagare-access` pods (precedent:
-  `cluster/bootstrap/nix-cache/`), not as a Knative Service. The service makes no access decision,
-  so the gateway must be its only path; a cluster-local Knative route is reachable from every pod
-  through the shared ingress, which would make "the service trusts `X-Forwarded-User`" unsound.
-  The same choice lets a local context mount the store directory read-only without a Knative
-  feature flag.
-- 2026-10-14 (review): The gateway's 401, 403 and 503 for JSON-shaped requests on protected hosts
-  are problem documents from the shared catalog, with the existing members kept as extensions.
-  Otherwise the UI and Kotei would decode three error dialects (gateway JSON, gateway HTML, API
-  problem).
-- 2026-10-14 (review): Every API response carries the head generation it was read from as a
-  strong `ETag`, and `If-None-Match` answers 304, so a polling UI is cheap and a client can tell
-  when two responses came from different heads. Cursors are keyset cursors over the item's unique
-  id and stay valid across heads; the planned `stale_cursor` refusal is dropped, because it would
-  make a UI restart a list on every deploy for no consistency gain the `ETag` does not already give.
-- 2026-10-14 (review): `/v1/inventory/head` serves a `HeadSummary` (generation, sequence, active
-  transaction, executor claim, data fence phase, migration, open release transition) instead of a
-  bare "is a transaction open". An operator looking at a stuck context needs all of them; they
-  are in `HeadManifest` already, and adding them later would be a second endpoint for one object.
-- 2026-10-14 (review): EP-197 serves the sites route from EP-193's projection from its first
-  landing; the planned 503 `not_ready` placeholder is dropped, so the contract never publishes a
-  route that does not work.
-- 2026-10-14 (review): On EP-196's credential, the exposure class of option 1 (a grant to the node
-  service account is readable by every pod) already exists for the backup bucket, which holds
-  database dumps under `roles/storage.objectAdmin`. Option 1 adds no new class; option 3 (block the
-  metadata server outside `nagare-system`) closes the class for both and goes to the deferral
-  ledger with the operator's approval. M1's stop condition (plaintext secret material in scope
-  objects) stands.
-</content>
-</invoke>
-<invoke name="Bash">
-<parameter name="command">cd /Users/shinzui/Keikaku/bokuno/nagare; grep -rn "requireLogin" docs/user/*.md | head -3; grep -rn "access grant" docs/user/*.md | head -3; command ls cli/nagarectl/src/Nagare/Inventory/ | grep -i -E "platform|auth|scope" | head; grep -rn "nagare-access" cli/nagarectl/src/Nagare/Inventory/*.hs -l | head -5
+2026-10-14 (operator): The API is read-only. EP-192 becomes the shared CLI/API contract and joins
+this initiative with EP-193. Follow the haskell-jitsurei API standards: NamedRoutes/MultiVerb,
+generated OpenAPI 3.1, RFC 9457, Relay, health, telemetry, bounded logs and Hurl.
+
+2026-10-14: One shared recorded-state reader; no use of the planning loader that refuses an open
+transaction. Admin UI and API share `admin.<base domain>`; Kotei uses Shomei service-account bearer
+and an ordinary per-host grant. Use a plain Deployment protected by NetworkPolicy, not a shared
+Knative origin. Local stores require workstation access or a scoped local mount; no cloud-store
+credential is assumed to work for a local directory. Native deployment proof requires the mount.
+
+2026-10-14: Head summary includes open execution state. Gateway JSON errors share the problem
+shape. Cursors continue across heads. The initial generation-only strong ETag and node-account
+default are superseded by the following validation decisions.
+
+2026-10-16: Preserve the five workstreams but expose checked-head and hydration separately,
+move API-needed pure projections/DTO conversion into prerequisite M1s, and make read costs,
+request deadlines and measured gateway latency acceptance criteria. Reuse immutable data without
+caching away fresh mutable ownership/head checks. This addresses both implementation ordering
+and serving latency without adding a persistent index or another service.
+
+2026-10-16: Correct validators, pagination consistency claims, version meaning, grants and error
+coverage. Representation ETags and snapshot identity are separate; fixed-snapshot walks have
+no-skip/no-duplicate proof while cross-head cursors make no frozen-snapshot promise. The grants
+route reports recorded viewers including unbindable ones, not live authorization. Build version
+is not installed-context version. Every API error produced by Nagare before commit uses the
+shared shape; probe and external transport failures are explicitly scoped.
+
+2026-10-16: The node credential cannot meet the read-only promise because it already grants
+writes. Use a dedicated identity and minimal exact-object reads with separate ownership metadata
+permission. Correct the unimplementable GCS-by-hostname NetworkPolicy claim, require blocked
+metadata credentials and same-namespace bypass proof, and make Pulumi prerequisites explicit.
+Durable boundaries are recorded now in ADR 22 and ADR 29 rather than deferred until completion.
+
+Revision note, 2026-10-16: Validated against store, gateway, access and deployment sources and
+current dependency releases; corrected API semantics, bounded serving costs, prerequisite
+ownership and credential/deployment feasibility. Removed an accidentally embedded tool transcript
+from the previous MasterPlan tail. No implementation or native performance result is claimed.
+
+
+## Outcomes & Retrospective
+
+Implementation is pending. The plan now specifies the behavior and measurements required to
+establish that the API is correct and prompt; completion requires all child acceptance and the
+real gateway/GCS proof.

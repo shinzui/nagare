@@ -16,6 +16,11 @@ provenance:
       at: 2026-10-15T00:19:10Z
       mode: "update"
       note: "MasterPlan 28 design review for the admin UI and Kotei: one recorded-state reader, admin.<base> origin, service-account bearer, Deployment+NetworkPolicy, gateway problem documents, ETag/head summary"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-16T22:20:47Z
+      mode: "update"
+      note: "Source-based API validation: correct shared interfaces, bounded read costs, HTTP behavior and serving acceptance."
 ---
 
 # Publish Nagare's versioned document contract for Kotei and the read-only admin API
@@ -99,10 +104,15 @@ as a store failure) and F118 (an unprepared workspace reads as a mismatched one)
   one shared `Options` each) and `Nagare.Contract.Problem` (`ProblemDetails`, `ProblemJSON`, the
   problem catalog); `nagare-contract-openapi` writes `docs/api/openapi.json`; tests pass that the
   checked-in document equals the generated one, that every golden sample in `docs/api/samples/`
-  equals its projected document and validates (`validateToJSON`), that `ProblemDetails` encodes
-  with exactly the keys `type`, `title`, `status`, `detail`, `code`, `retryable`, and that every
+  equals its projected document and validates (`validateToJSON`), that the base `ProblemDetails` encodes
+  with the keys `type`, `title`, `status`, `detail`, `code`, `retryable`, while the shared
+  gateway problem encoder permits optional `error` and `login` extension members, and that every
   catalog code has one status and one title. `docs/api/README.md` drafted with each document's
-  class. `nagarectl version --json` prints `"contracts":[1]`.
+  class. Pure version, scope-state and publication projections in `Nagare.Contract.Project`
+  are complete from existing internal head/declaration values, including publication `usedBy`;
+  no `RecordedState` import or CLI dispatch is needed for them. Projection goldens for later
+  outcome/command changes land with their owning milestone, rather than blocking this foundation.
+  `nagarectl version --json` prints `"contracts":[1]`.
 - [ ] M2: `inventory apply` and `inventory resume` with `--contract 1`. Pass: tests cover the
   outcome document and exit code for every `TransactionResult` constructor. They show a
   pre-execution refusal printing `refused` with exit 2 and a `problem` whose `code` names its
@@ -144,11 +154,12 @@ as a store failure) and F118 (an unprepared workspace reads as a mismatched one)
   shared aeson `Options` per type, and the conformance test holds them together.
 - Decision (2026-10-14, operator): Nagare's admin API is read-only, and this plan is the one
   public contract it serves (MasterPlan 28). The seven document shapes Kotei designed against
-  (Kotei plan 84, Milestone 2) are kept field for field, so Kotei's decoding has no rework; what
+  (`mori://shinzui/kotei/plans/84-deploy-to-nagare-through-its-reviewed-resource-inventory`, Milestone 2) are kept field for field, so Kotei's decoding has no rework; what
   moves is where the schemas are published (`docs/api/openapi.json` instead of per-document files)
   and the error shape (a problem document).
 - Decision (2026-10-14): The types live in their own package, `cli/nagare-contract`, depending
-  only on `base`, `text`, `aeson`, `containers` and `openapi-hs`. A client (Kotei, the admin API's
+  on `base`, `text`, `aeson`, `containers`, `openapi-hs` and the small Servant/media-type
+  dependencies required by `ProblemJSON` (`Accept`/`MimeRender`), with no Nagare dependency. A client (Kotei, the admin API's
   route package, a UI's generator) can depend on it without `nagarectl`. The projections from
   internal values stay in the `nagarectl` library as `Nagare.Contract.Project` (in `src/`, never
   `app/`), so the API server can link them. Inside `nagarectl` the contract types are only
@@ -163,7 +174,8 @@ as a store failure) and F118 (an unprepared workspace reads as a mismatched one)
   (`observationComplete`). Nothing in a read document may need operator credentials to be
   meaningful.
 - Decision (2026-10-14): Every refusal is a `ProblemDetails` (RFC 9457) with `type` always
-  `about:blank`, a `title` fixed per `code`, `status` the HTTP status the API would answer, and a
+  `about:blank`, a `title` equal to the HTTP status phrase (the domain-specific reason is in
+  `code` and `detail`, per RFC 9457 section 4.2.1), `status` the HTTP status the API would answer, and a
   `snake_case` `code` from a catalog (`problemCatalog`, shomei's pattern): `unknown_scope` (404),
   `unsupported_contract_version` (400), `wrong_context` (409), `review_changed` (409),
   `admission_refused` (409), `store_unavailable` (503, retryable), `reauthentication_required`
@@ -207,9 +219,16 @@ as a store failure) and F118 (an unprepared workspace reads as a mismatched one)
 - Decision (2026-10-13): The rule "keep emitting the previous major for one release" is written
   into `docs/api/README.md`. It is not implemented until a version 2 exists.
 - Decision (2026-10-14, MasterPlan 28 review): `inventory publications` and the recorded half of
-  `inventory status` project from EP-193 M1's `RecordedState`, so M4 has EP-193 M1 as a hard
+  `inventory status` are wired to EP-193 M1's `RecordedState`, so M4 has EP-193 M1 as a hard
   dependency; the rest of this plan has none. Every read document the CLI and the API share is a
-  pure function of one `RecordedState`, so the two surfaces cannot disagree about one head.
+  projection of the same checked head/declarations. VersionInfo is build metadata, and HTTP
+  head/scope summaries use the checked head without hydrating declarations.
+
+
+2026-10-16: Validation moves pure API-facing version/scope/publication projections into M1,
+leaving their CLI wiring in M4, so HTTP delivery does not wait for transaction CLI work. The
+shared problem schema permits the gateway's compatibility extensions, `about:blank` uses HTTP
+status titles, and new enum cases require an explicit forward-compatible decoding policy.
 
 
 ## Context and Orientation
@@ -319,8 +338,8 @@ still calls `--json` "the kotei contract".
 **The admin API.** MasterPlan 28 builds it (EP-197); nothing here does. The precedent is
 `nagared` (`cli/nagarectl/nagared/Main.hs`), an HTTP executable that links the `nagarectl`
 library, so code in `src/` is reachable from the API server and code in `app/` is not. The
-store-only read every read document and every API handler shares is EP-193 M1's
-`readRecordedState` (`src/Nagare/Inventory/Recorded.hs`), which reads the head once and returns
+store-only read boundary used by inventory documents and state handlers is EP-193 M1's
+checked-head/hydration reader (`src/Nagare/Inventory/Recorded.hs`), which reads the head once and returns
 whatever is open on it as facts. `loadTargetSnapshotReadOnly` (`Command.hs:892`) is for planning:
 it calls `dieText` and refuses an open transaction, so no read document uses it. Full
 `inventory status` builds its provider observers in `app/Nagare/Cli/Commands/Inventory/Status.hs`;
@@ -383,7 +402,8 @@ Each type gets one `Options` value used by its `ToJSON`, `FromJSON` and `ToSchem
 (`genericDeclareNamedSchema (fromAesonOptions opts)`), so encoder and schema cannot disagree.
 Enumerations (`outcome`, `failureClass`, `category`, `health`) are sum types whose schemas are
 `enum`s. `scopeDocuments` in `DeployPreview` is opaque: give `Value` the `ToSchema` instance from
-the standards (empty schema, `additionalProperties` allowed), in the generator module only.
+the standards (empty schema, `additionalProperties` allowed), in a shared schema module imported where dependent `ToSchema` instances are compiled; a
+generator-only orphan cannot satisfy those library instances.
 Field descriptions carry the meaning Kotei relies on: what `configDigest` covers, that `refused`
 means no provider was touched, and that `observationComplete: false` means the findings are
 partial. Every document except `VersionInfo` has a required `contractVersion` field, constant 1 in
@@ -415,11 +435,13 @@ projections:
   `cli/nagare-harness`);
 - `validateToJSON` is empty for every sample value, and every sample file decodes with
   `FromJSON` back to the same value;
-- `ProblemDetails` encodes with exactly the keys `type`, `title`, `status`, `detail`, `code`,
-  `retryable`; every catalog code is unique with one status and one title.
+- the base `ProblemDetails` encodes with the keys `type`, `title`, `status`, `detail`, `code`,
+  `retryable`; optional gateway extensions `error` and `login` round-trip without shadowing base
+  members; the schema permits these members; every catalog code has one status and title.
 
-Samples cover every `outcome` value, every `failureClass` value, and a deploy preview with and
-without hooks. Draft `docs/api/README.md` with each document's class.
+M1 supplies type/codec samples for every shape and real version/scope/publication projection
+goldens. The later owning milestones add outcome and deploy projection goldens through their
+changed production code, covering every `outcome`, `failureClass`, and previews with/without hooks. Draft `docs/api/README.md` with each document's class.
 
 **M2 — apply and resume.** Add `--contract VERSION` to `inventory apply` and
 `inventory resume`; it accepts only `1` and otherwise refuses with the supported list. With it,
@@ -499,7 +521,7 @@ plain table. Register the new subcommand in `scripts/audit-managed-commands.py` 
 Under `--contract 1`, a read command that refuses prints a `ProblemDetails` document on stdout
 and exits 2, through the same coded sink as M2: `unknown_scope` for `--scope`,
 `unsupported_contract_version`, `store_unavailable`, `reauthentication_required` and
-`workspace_not_prepared`, and `unclassified` for the rest. Without `--contract`, the stderr message is the same text as the `message` field.
+`workspace_not_prepared`, and `unclassified` for the rest. Without `--contract`, the stderr message is the same text as the `detail` field.
 
 F107: in `src/Nagare/Inventory/Store/GcloudAuth.hs`, make the runner keep stderr and return a
 distinct reason when it shows a missing or expired login: gcloud's token-refresh failure ("There
@@ -524,8 +546,8 @@ tests in `test/AppDeploySpec.hs`, and fix `app/Nagare/Cli/Options.hs:154-157`. F
 commands, the problem catalog, and the exit-code table. It states that the admin API serves
 read documents only, with these schemas, and that a read document never needs operator
 credentials to be meaningful (recorded and observed facts are separate fields, and partial
-observation is flagged). It states the versioning rules: additive changes keep major 1 and add only optional fields
-or new enum values announced in the README; anything else is version 2, and nagarectl keeps
+observation is flagged). It states the versioning rules: additive changes keep major 1 and add only optional fields. A new enum value is additive only when v1 already defines an unknown-value
+decoding rule and both clients prove it; otherwise it is version 2. Other breaking changes are version 2, and nagarectl keeps
 emitting version 1 for at least one release behind `--contract 1`. It also says that every new
 field or enum value gets a golden sample in the same change, and how to accept goldens. Add the "Machine-readable contract" section to `docs/user/reference.md` pointing at it.
 Gate, land, and send the path and landed hash to the `kotei` session, with the differences
@@ -602,7 +624,7 @@ Required acceptance, all offline:
   from observed fields.
 
 Kotei's side, not required here: it copies `docs/api/` at its pinned revision and validates its
-fixtures and fake `nagarectl` against `#/components/schemas/<Name>` (Kotei plan 84, Milestone 2).
+fixtures and fake `nagarectl` against `#/components/schemas/<Name>` (`mori://shinzui/kotei/plans/84-deploy-to-nagare-through-its-reviewed-resource-inventory`, Milestone 2).
 
 
 ## Idempotence and Recovery
@@ -629,7 +651,7 @@ New package `cli/nagare-contract`:
 - `Nagare.Contract.Problem`: `ProblemDetails`, `ProblemJSON`, `ProblemSpec`, `problemCatalog`,
   and `problemFor :: ProblemSpec -> Text -> ProblemDetails`.
 - `Nagare.Contract.OpenApi`: `contractOpenApi :: OpenApi` (components only), with the orphan
-  `ToSchema Value` instance confined here.
+  `ToSchema Value` instance in the shared schema module imported by dependent instances.
 - Executable `nagare-contract-openapi`, writing `docs/api/openapi.json`.
 
 In the `nagarectl` library, `src/Nagare/Contract/Project.hs` exports the pure projections:
@@ -638,11 +660,13 @@ In the `nagarectl` library, `src/Nagare/Contract/Project.hs` exports the pure pr
   `refused` and `interrupted`;
 - `savedReview`, `imagePublicationResult`,
   `deployPreview :: ScopeDeclaration -> [ScopeDeclaration] -> DeployPreview`,
-  `inventoryStatusReport`, `publicationList`, `versionInfo`.
+  `inventoryStatusReport`, `publicationList`, `versionInfo`. The M1 API-facing version/scope/
+  publication projections accept existing head/declaration values; M4 connects these to the
+  shared reader and CLI. Do not defer publication semantics or its golden until M4.
 
 Consumed from EP-193 M1: `RecordedState` and `readRecordedState`
-(`src/Nagare/Inventory/Recorded.hs`), the input of `publicationList` and of the recorded half of
-`inventoryStatusReport`.
+(`src/Nagare/Inventory/Recorded.hs`), the source whose checked head/declarations M4 passes to the pure projections; it is not a
+prerequisite of the M1 projection implementations.
 
 Changed internal types: `StoppedAmbiguous` gains a reason (`Text`) (F94); `StoreError` gains
 `StoreAuthRequired` (F107); `WorkspaceError` gains `WorkspaceNotPrepared` (F118).

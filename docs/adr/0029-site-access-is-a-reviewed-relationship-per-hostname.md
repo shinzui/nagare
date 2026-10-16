@@ -81,3 +81,30 @@ protectable and for teams to hold access, without converting any existing site.
 - Excluded, deliberately: nested groups, invitations, self-service sharing, delegated site
   administration, per-path or per-method rules, machine access, MFA step-up, expiring
   shares, and application-data permissions.
+
+## Amendment — 2026-10-16: read-only admin service and machine clients
+
+[MasterPlan 28](../masterplans/28-serve-nagare-s-recorded-state-through-a-read-only-admin-api.md)
+extends the same hostname grant to the planned admin API. A Shomei service account presents its
+client-credentials access token as bearer; its backing user subject receives the same reviewed
+direct/team grant as any user. This narrowly supersedes the machine-access exclusion above;
+there is no machine bypass, new login mechanism or mutation API. Native proof remains pending.
+
+The admin backend uses a Deployment/ClusterIP Service with ingress restricted to the conjunction
+of the gateway namespace and stable pod identity. It trusts forwarded identity only for logs;
+authentication and authorization remain at the gateway, including conditional HTTP requests.
+This isolates ordinary workload pods, not privileged cluster/node administrators. Same-namespace,
+Pod-IP and Service bypass tests are required. A shared cluster-local Knative ingress would not
+supply this boundary. Standard NetworkPolicy cannot restrict egress by GCS DNS name; the declared
+HTTPS egress and separately confined IAM must be described honestly, and the API pod cannot
+reach the broadly privileged node metadata credential.
+
+`admin.<base domain>` hosts `/v1` and the future UI at `/`. API challenges and gateway failures
+use the shared problem contract even without Accept; document navigation to UI paths keeps the
+existing login behavior. Gateway proxy failures are sanitized, and cache validators never bypass
+authorization. ADR 29's decision-cache TTL still governs revocation freshness.
+
+The API's grants route reports accepted recorded viewer relationships, including their exact
+user/team subject relation and convergence facts. It is not En's live relationship listing or
+an effective-access check, and must not silently filter recorded grants merely because their
+route cannot currently be bound. Team membership is a separate relationship, not a host grant.

@@ -1796,3 +1796,32 @@ cache-insertion and denied-team traversal risks receive targeted cost checks. Th
 general load-test program: further performance mechanisms require specific evidence. Page size and
 recursion depth must not be represented as bounds on total traversal. Site/team implementation
 and its acceptance remain pending; the dependency upgrade is the first bounded step.
+
+## Amendment — 2026-10-16: bounded recorded-state readers
+
+[MasterPlan 28](../masterplans/28-serve-nagare-s-recorded-state-through-a-read-only-admin-api.md)
+defines the read-only admin service; implementation remains pending. CLI and HTTP readers share
+one checked-head and immutable-hydration boundary. A head-only query need not load declarations;
+a hydrated query resolves only against its captured, context-bound head and verifies every needed
+digest/owner. Open transactions, claims, fences and transitions remain visible facts, not reasons
+to invoke a planning refusal. Inspection does not load journal/review/native history or grant
+mutation authority.
+
+A service retains its transport/token lifecycle and bounded verified immutable caches. Mutable
+head and ownership checks remain fresh for each state request. Cached projections include every
+revision they depend on, including convergence facts; cache loss changes cost, never correctness.
+One total request deadline covers remote IO, refresh and rendering. Pagination bounds response
+size, not store work, so acceptance also measures actual object calls and gateway-to-store latency.
+No persistent discovery index or reconciliation writer is introduced.
+
+HTTP representation identity is distinct from snapshot identity: ETags describe the selected
+encoded response, and a separate head-revision header supports cross-response snapshot comparison.
+A keyset cursor can continue on a later head but does not promise a frozen multi-request view.
+Recorded scope convergence does not prove current health; the API binary's build version does
+not prove the whole context runs that release. DTOs expose summaries rather than native payloads.
+
+The service identity is dedicated and read-only, with exact inventory-prefix object reads and
+separate metadata permission for ownership. The shared node identity has unrelated write grants
+and therefore does not satisfy that boundary. Service reads must not require bucket listing,
+initialize a missing store or make an unavailable/corrupt store appear empty. Native permission
+and metadata-isolation evidence is required before claiming that deployment meets the boundary.

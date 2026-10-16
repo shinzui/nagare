@@ -17,6 +17,11 @@ provenance:
       at: 2026-10-15T00:19:10Z
       mode: "update"
       note: "MasterPlan 28 design review for the admin UI and Kotei: one recorded-state reader, admin.<base> origin, service-account bearer, Deployment+NetworkPolicy, gateway problem documents, ETag/head summary"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-16T22:20:47Z
+      mode: "update"
+      note: "Source-based API validation: correct shared interfaces, bounded read costs, HTTP behavior and serving acceptance."
 ---
 
 # List recorded sites without live provider observation
@@ -46,7 +51,7 @@ their live inspection roles.
 ## Progress
 
 
-- [ ] M1. A reusable store-backed query lists recorded production sites and web services, associates hostnames correctly, and distinguishes accepted from converged revisions, with representative compiler-to-reader tests.
+- [ ] M1. After EP-192 M1, a reusable checked-head and hydration reader lists recorded sites, associates hostnames correctly, and distinguishes accepted from converged revisions. `SiteSummary`, the `site-list` document and the pure contract converter are included here, with compiler-to-reader and schema tests, so EP-197 can serve sites without waiting for CLI dispatch.
 - [ ] M2. `nagarectl site list` exposes the query through documented human and versioned JSON output, namespace selection, and optional previews, with no live workload/provider inspection or mutation setup; the `NAGARE_RECORDED_SITES_FIXTURE` probe seeds a disposable local context.
 - [ ] M3. The no-write recording test, the empty-`PATH` fixture run, and cold/warm timing evidence meet the acceptance below, including remote-store startup; required gates pass and durable documentation is updated.
 
@@ -91,19 +96,26 @@ Nagare's admin API is read-only, and
 the one public document contract that API will serve. `site list`'s versioned JSON is that
 contract's `site-list` read document, with `SiteSummary` items: emit it under `--contract 1`,
 and add both types (with `ToSchema` from their shared aeson `Options`) to the `nagare-contract`
-package and a golden sample to `docs/api/samples/`, once EP-192's M1 has landed. Refusals are
+package and a golden sample to `docs/api/samples/`, during this plan's M1, after EP-192's M1 has landed. Refusals are
 EP-192's RFC 9457 problem documents. The admin API (EP-197) serves `SiteSummary` items from this
 query. The query, its library location in `src/`,
 and this plan's acceptance are unchanged.
 
 2026-10-14 (MasterPlan 28 review): M1's loader is the initiative's one recorded-state reader.
 It lives in `cli/nagarectl/src/Nagare/Inventory/Recorded.hs` as `RecordedState` (the head plus
-every accepted scope declaration, digest-checked and bound to the context) and
-`readRecordedState :: InventoryStore -> IO (Either StoreError RecordedState)`; the recorded-site
+every accepted scope declaration and required previous site revisions, digest-checked and bound
+to the context). The 2026-10-16 staged interface below supersedes the original one-shot signature; the recorded-site
 projection in `Nagare.Inventory.Site.Recorded` is a pure function of a `RecordedState`. The
 reader never refuses because a transaction, claim, fence, migration or transition is open on the
 head; it returns them as facts. EP-192's `inventory publications` and every EP-197 handler
 project from the same value, so M1 is a hard dependency of EP-192 M4 and EP-197 M2.
+
+2026-10-16: Split the shared reader into checked-head and hydration stages. HTTP head/scopes
+requests must not load every declaration. A reusable `RecordedReader` owns bounded immutable
+decode reuse; the CLI one-shot convenience function and the HTTP service use the same validation
+and hydration code. Move the site DTO/converter into M1, giving M1 a hard dependency on EP-192 M1;
+this removes the API's hidden dependency on site CLI dispatch. The site command's existing timing
+criteria remain, while EP-197 owns tighter service latency and request-cost proof.
 
 ## Outcomes & Retrospective
 
@@ -169,14 +181,16 @@ which explains protected origin/route placement; and
 requires interpreter proof before native confirmation and gates before commits.
 [ADR 27](../adr/0027-physical-identity-is-recorded-at-creation-and-read-through-one-checked-accessor.md)
 requires checked live identity for live ownership claims; this command makes no such claim.
-No ADR or inventory format change is needed merely to add the read API.
+The recorded-read amendment of ADR 22 records the shared reader/cache boundary; no inventory
+format change is needed.
 
 
 ## Plan of Work
 
 
 M1 delivers two library modules: `cli/nagarectl/src/Nagare/Inventory/Recorded.hs`, the
-read-only loader (`RecordedState`, `readRecordedState`) that MasterPlan 28 names as the one
+read-only loader (`RecordedHead`, `RecordedReader`, `RecordedState`, `readRecordedHead`,
+`loadRecordedStateAt`, and `readRecordedState`) that MasterPlan 28 names as the one
 recorded-state reader for every read document and API handler, and
 `cli/nagarectl/src/Nagare/Inventory/Site/Recorded.hs`, a pure projection from a `RecordedState`
 to recorded-site summaries. Keep projection separate from store/network IO; the HTTP consumer
@@ -186,6 +200,20 @@ previous converged scope revisions only where they differ and contain a selected
 recorded deployment. Reuse immutable values by digest within the invocation. Avoid loading
 journals, archived reviews, native execution envelopes, or retained/collected history.
 Extract a small shared scope reader if needed instead of duplicating digest and owner checks.
+`readRecordedHead :: InventoryStore -> IO (Either StoreError RecordedHead)` checks presence,
+supported schema and exact context binding and returns an opaque head handle bound to its store.
+`loadRecordedStateAt` takes a `RecordedReader`, that handle and a selection (`AcceptedOnly` or
+`WithConvergedSites`); it checks the handle belongs to the same store, hydrates accepted scopes,
+and loads previous site revisions only for the latter selection. It never re-reads the head.
+The reader constructor accepts an injected fresh head action: local callers use the ordinary
+store path, while EP-196 supplies ownership checking plus the authoritative head read. The reader
+then validates presence, canonical format and binding identically for both; it has no credential
+module dependency. The reader owns a configurable byte-bounded immutable cache and bounded worker pool (EP-197
+supplies its service limits); use one code path for digest/decode/owner checks, coalesce duplicate
+loads and preserve asynchronous cancellation. `readRecordedState` is the CLI convenience function
+composing these stages with `WithConvergedSites`. Expose checked head facts separately so a head
+or scope-summary request need not hydrate. Add the SiteSummary DTO, site-list document, golden
+and pure contract converter in this milestone after EP-192 M1; M2 only wires CLI dispatch.
 Read the head exactly once. Every scope it names is immutable and digest-checked, so one head
 read is already a consistent snapshot; a referenced scope that is missing or fails its digest
 is an error, never an omitted row.
@@ -245,8 +273,9 @@ All namespaces in that context are the default; `-n/--namespace NS` filters by t
 Service namespace. There is no `--all-namespaces` flag, because it would only restate the
 default. `--include-previews` includes preview scopes.
 Default output is an aligned table of namespace, name, recorded state, and hostnames, preceded
-by a notice that health was not checked. JSON is one complete document with `schemaVersion: 1`,
-`context`, `headGeneration`, `activeTransaction`, `liveObserved: false`, and `sites`.
+by a notice that health was not checked. `--json` and `--contract 1` are aliases for one complete `site-list` document with
+`contractVersion: 1`, `document: "site-list"`, `context`, `headGeneration`, `activeTransaction`,
+`liveObserved: false`, and `sites`; do not introduce a competing `schemaVersion` envelope.
 Sort rows by namespace, name, then resource identity; an initialized empty store prints
 `sites: []`. Uninitialized/unavailable/corrupt stores fail clearly and nonzero. Buffered output
 must not leak partial JSON before a failure. Update `docs/user/static-hosting.md`,
@@ -368,8 +397,9 @@ operator contexts alone. No data migration or new persistent index is planned.
 ## Interfaces and Dependencies
 
 
-`Nagare.Inventory.Recorded` exports `RecordedState` and `readRecordedState` (consumed by EP-192 M4
-and EP-197 M2). `Nagare.Inventory.Site.Recorded` exports a recorded-site result type, the pure
+`Nagare.Inventory.Recorded` exports the checked-head, reader, hydration and one-shot interfaces
+described in M1 (consumed by EP-192 M4 and EP-197 M2). EP-192 M1 is this milestone's hard
+prerequisite for site DTOs; the underlying IO code remains independent of the contract package. `Nagare.Inventory.Site.Recorded` exports a recorded-site result type, the pure
 projection from a `RecordedState`, and versioned JSON rendering (or a separate renderer in
 the same library boundary). Public signatures should use the existing `InventoryStore`,
 `HeadManifest`, `ScopeRevision`, `ScopeDeclaration`, `ResourceId`, and `ProviderAddress`

@@ -16,194 +16,300 @@ provenance:
       at: 2026-10-15T00:19:10Z
       mode: "update"
       note: "MasterPlan 28 design review for the admin UI and Kotei: one recorded-state reader, admin.<base> origin, service-account bearer, Deployment+NetworkPolicy, gateway problem documents, ETag/head summary"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-16T22:20:47Z
+      mode: "update"
+      note: "Source-based API validation: correct shared interfaces, bounded read costs, HTTP behavior and serving acceptance."
 ---
 
 # Serve the read documents through a typed Servant admin API
 
-Child of [MasterPlan 28](../masterplans/28-serve-nagare-s-recorded-state-through-a-read-only-admin-api.md).
-Progress holds the deliverables with pass/fail evidence; the Decision Log holds dated decisions.
-
 
 ## Purpose / Big Picture
 
-After this plan, Nagare has an HTTP service, `nagare-api-server`, that answers read-only questions
-about one context from its inventory store: the platform version, the head and whatever is open
-on it, the accepted and converged scopes, the recorded sites, the image publications and the
-access grants. Every request reads one `RecordedState` (EP-193 M1) and projects from it, carries
-the head generation as its `ETag`, and answers `If-None-Match` with 304. Its OpenAPI 3.1 document
-is generated from the route types into `docs/api/openapi.json` and served at `/v1/openapi.json`,
-and every error is an RFC 9457 problem document. It is built and tested offline here, against a
-local directory store and a fake GCS; running it inside a context is
-[EP-198](198-run-the-admin-api-in-each-context-behind-an-admin-grant.md). The clients it is built
-for are the admin UI (served later from the same origin) and Kotei (a service-account bearer
-through the gateway); both are described in MasterPlan 28's Vision.
+Serve one context's recorded inventory promptly through `nagare-api-server`. The admin UI and
+Kotei can read accepted and converged scope revisions, sites, publications, grants, and open
+execution state without running provider inspection. Recorded convergence never claims current
+workload health. [MasterPlan 28](../masterplans/28-serve-nagare-s-recorded-state-through-a-read-only-admin-api.md)
+coordinates the work; [EP-198](198-run-the-admin-api-in-each-context-behind-an-admin-grant.md)
+packages it and proves gateway access. This plan proves the HTTP behavior offline first.
 
-To see it work after this plan, start it against a local context's store and read it:
+One authoritative head is read per state request. Head and scope-summary routes need no scope
+objects. Other routes hydrate that head through the shared reader and reuse verified immutable
+objects and decoded projections. Polling must not reopen credentials, enumerate history, or
+rebuild the full inventory on each unchanged request. `/v1/platform/version` describes the
+serving binary and its packaged platform version, as CLI `VersionInfo` does; it is not evidence
+that every platform component has converged on that release. The head's transition marker and
+scope revisions describe recorded rollout state. The head does not contain a context release
+version field, and scope declarations hold native-object digests, not the version ConfigMap's
+body. Do not invent a recorded installed version or fetch archives to infer one.
+
+After implementation, from the repository root:
 
 ```bash
-cabal run nagare-api-server -- --context local-dev --store-dir ~/.local/state/nagare/local-dev/inventory --port 8085
-curl -s localhost:8085/v1/platform/version
-curl -s -i localhost:8085/v1/inventory/head                       # ETag: "<head generation>"
+cabal run --project-dir=cli/nagarectl nagare-api-server -- --context local-dev --store-dir ~/.local/state/nagare/local-dev/inventory --port 8085
+curl -s -i localhost:8085/v1/inventory/head
 curl -s 'localhost:8085/v1/inventory/scopes?first=2'
-curl -s -i localhost:8085/v1/inventory/scopes/application:nope   # 404, application/problem+json
-curl -s localhost:8085/v1/openapi.json | head -c 200
+curl -s -i localhost:8085/v1/inventory/scopes/application:nope
+curl -s localhost:8085/v1/openapi.json
 ```
+
+The missing scope answers 404 with `application/problem+json`. The server binds loopback by
+default; the deployed image explicitly binds its pod interface.
 
 
 ## Progress
 
-- [ ] M1. Route types, OpenAPI document and conformance tests. Pass: package `cli/nagare-api`
-  defines one `NamedRoutes` record per slice (Platform, Inventory, Sites, Publications, Access)
-  with every terminal verb a `MultiVerb` over the shared problem tail, including
-  `GET /v1/inventory/head` (`HeadSummary`) and `GET /v1/openapi.json`; `HeadSummary` and `Grant`
-  are added to `nagare-contract`; `nagare-api-openapi` writes `docs/api/openapi.json` (taking
-  over the file from EP-192) with the two security schemes (`nagare_session` cookie, HTTP bearer)
-  on every operation and stable `operationId`s; tests pass that (a) the checked-in document
-  equals the generated one, (b) the path set equals the served set, (c) every operation declares
-  a 4xx/5xx response keyed by `application/problem+json`, and (d) every DTO's `ToJSON` validates
-  against its `ToSchema` (`validateToJSON`). `just haskell-style-check` and `just gate-fast`
-  green, landed.
-- [ ] M2. Handlers over the store. Pass: package `cli/nagare-api-server` serves every route from
-  a `StoreSource` (a local directory store, or EP-196's `openServiceStore`), and each request
-  calls `readRecordedState` (EP-193 M1) exactly once and projects every answer from that value.
-  In-process tests against fixture stores show: version; the head summary, including a fixture
-  whose head has an open transaction, a claim, a fence and a transition, all served, none
-  refused; scope list paged with keyset Relay cursors over the scope id, proven by
-  `relay-pagination-conformance` (no item skipped or duplicated, forward and backward), and a
-  cursor minted on one head still valid on the next; one scope by id and a 404 problem for an
-  unknown one; sites from `Nagare.Inventory.Site.Recorded`; publications; grants read from the
-  accepted access scopes; every 200 carrying `ETag: "<head generation>"` and `If-None-Match`
-  answered 304; and a 503 `store_unavailable` problem with `retryable: true` when the store
-  cannot be read. Servant's own rejections (bad query, unknown path) render as problem documents
-  through `ErrorFormatters`.
-- [ ] M3. Operability. Pass: `/health/live` and `/health/ready` from `servant-health`, readiness
-  checking only that the store head can be read; OpenTelemetry tracer and meter providers set up
-  in `main` with Servant route span names, exporting to the context's collector when
-  `OTEL_EXPORTER_OTLP_ENDPOINT` is set; one bounded JSON request log line per request, excluding
-  probes; a Hurl suite under `cli/nagare-api-server/hurl/` run by `just api-hurl` against a
-  running server over a fixture store, asserting status and media type for every request. The
-  new recipe is registered in `scripts/audit-managed-commands.py` (`RECIPES`).
+- [ ] M1. The route package and generated contract compile with the released dependency cohort.
+  Every route, status, response header and authentication alternative below is documented;
+  generated bytes equal `docs/api/openapi.json`; an actual generated client decodes one head,
+  one paginated site list and one problem fixture. Prove the 200/304/503 `MultiVerb` slice before
+  expanding the other routes.
+- [ ] M2. All handlers serve the recorded fixtures correctly, including an open transaction,
+  claim, fence, migration and transition. The store-recording tests prove the read costs,
+  cache behavior, error mapping and conditional semantics below. Stable-snapshot forward and
+  backward Relay walks skip/duplicate nothing; cross-head walks follow the stated weaker rule.
+- [ ] M3. Health, telemetry, bounded request logging and `just api-hurl` pass; the measured
+  latency, deadline, concurrency and memory criteria below pass. `just haskell-style-check`
+  and `just gate-fast` pass before landing.
+
+
+## Surprises & Discoveries
+
+The original full hydration prelude would charge every request for the whole inventory.
+Source inspection also found that recorded grant binding filters are unsuitable for a complete
+recorded grant list; neither claim is treated as acceptable behavior.
 
 
 ## Decision Log
 
-- 2026-10-14: Two packages, per `mori://shinzui/haskell-jitsurei/docs/api-servant-routes`
-  ("Packages are layers"): `nagare-api` holds route types and the OpenAPI generator and depends
-  only on `nagare-contract` and Servant, so a client (an admin UI's generator input, Kotei) can
-  depend on it without `nagarectl`; `nagare-api-server` holds handlers and `main` and depends on the
-  `nagarectl` library. Module paths are domain-first: `Nagare/Api/<Slice>/Routes.hs` in
-  `nagare-api`, `Nagare/Api/<Slice>/Handler.hs` in `nagare-api-server`.
-- 2026-10-14: Lists that grow (scopes, sites, publications, grants) use Relay pagination. The data
-  is one immutable head snapshot per request, not a database, so the handlers page an in-memory
-  list sorted by its unique id with `relay-pagination`'s core `Cursor`, `Request` and `Connection`
-  types, and prove it with `relay-pagination-conformance`; `relay-pagination-hasql` is not used.
-  Each page is cut from one head read, so a page is internally consistent. A cursor is a keyset
-  cursor over the item's unique id and stays valid across heads, the ordinary Relay guarantee;
-  the `ETag` tells a client when two pages came from different heads. (Revised 2026-10-14 in the
-  MasterPlan 28 review: the earlier `stale_cursor` refusal is dropped, because it would restart a
-  UI's list on every deploy for nothing the `ETag` does not already give.)
-- 2026-10-14: This plan adds the `Grant` item type (host, subject kind, subject) and the
-  `HeadSummary` document to the `nagare-contract` package, with `ToSchema` from their shared aeson
-  `Options`, because the API is their first consumer. EP-192 owns the package and its catalog;
-  additions follow its README rules.
-- 2026-10-14: The service trusts `X-Forwarded-User` only as the caller's identity for logs and
-  traces. Authorization is entirely the gateway's (ADR 29); the service makes no access decision.
-  That is sound only because EP-198 makes the gateway the sole network path to the service (a
-  plain Deployment whose NetworkPolicy admits only the `nagare-access` pods); nothing in this
-  plan may be relied on to reject a direct in-cluster caller.
-- 2026-10-14 (MasterPlan 28 review): Every request reads one `RecordedState` through EP-193 M1's
-  `readRecordedState` and projects from it; `loadTargetSnapshotReadOnly` is never called, because
-  it exits the process and refuses an open transaction. The sites route is a projection of the
-  same value from the first landing, so the planned 503 `not_ready` placeholder is dropped and
-  EP-193 M1 is a hard dependency of M2.
-- 2026-10-14 (MasterPlan 28 review): Every 200 carries the head generation as a strong `ETag`
-  (`"<generation>"`), and `If-None-Match` answers 304 with no body; the admin UI polls cheaply and
-  can tell when two responses came from different heads. `GET /v1/inventory/head` returns a
-  `HeadSummary` (generation, sequence, active transaction, executor claim, data fence phase,
-  migration, open release transition), all read from `HeadManifest`. `GET /v1/openapi.json`
-  serves the checked-in document bytes, and the document declares the `nagare_session` cookie
-  and HTTP bearer security schemes so a generated client knows how to authenticate.
-- 2026-10-14: Versioned under `/v1`, matching contract version 1. A breaking change is `/v2` served
-  beside `/v1` for one release, the same rule as `--contract`.
+2026-10-16: Validation replaces the full-inventory-per-request design with one checked head plus
+selective hydration and bounded immutable reuse. The current GCS reader performs metadata and
+media requests for each uncached object, with a 20-second bound per SDK attempt; neither a page
+size nor that per-attempt timeout bounds the total HTTP request. This plan owns the end-to-end
+budget and measurement; EP-196 owns token/transport lifecycle.
+
+2026-10-16: ETags identify representations, not merely inventory generations. A binary or
+OpenAPI document can change while the head does not, and different pages are different
+representations. A separate `Nagare-Head-Revision` header identifies the snapshot for comparisons.
+This supersedes the 2026-10-14 generation-only strong ETag decision. Conditional requests still
+validate authorization, route/query/cursor validity, store freshness, and resource existence.
+
+2026-10-16: The published route set and filters below are v1. Keyset cursors survive head
+changes, but do not promise one frozen snapshot across requests. Grants mean recorded direct
+or team viewer relationships, never effective authorization. Build version is distinguished
+from deployment convergence. See [ADR 22](../adr/0022-compose-independent-resource-scopes-through-a-typed-inventory.md)
+and [ADR 29](../adr/0029-site-access-is-a-reviewed-relationship-per-hostname.md).
 
 
 ## Context and Orientation
 
-**Standards.** Production Haskell follows haskell-jitsurei
-([ADR 16](../adr/0016-adopt-haskell-jitsurei-for-production-haskell.md)). The API family is
-`mori://shinzui/haskell-jitsurei/docs/api-overview`; read these before writing code:
-`api-servant-routes` (NamedRoutes, MultiVerb, statuses: a failed dependency is 503 with
-`retryable: true`, an internal fault is 500), `api-rfc9457-problem-details` (the problem shape,
-`RespondAs ProblemJSON`, `ErrorFormatters`, the 405 limitation), `api-openapi-from-types`
-(`toOpenApi`, the generator executable, the four document tests, the `ToSchema Value` instance),
-`api-relay-pagination`, `api-health-endpoints`, `api-opentelemetry-integration`,
-`api-request-logging` and `api-hurl-integration-testing`. Resolve each with
-`mori registry docs shinzui/haskell-jitsurei`.
+`cli/nagarectl/src/Nagare/Inventory/Store.hs` defines `HeadManifest`, `readHead`, immutable
+object reads and caches. `replaceObservedHeadUnlocked` increments `headGeneration` on every
+head replacement, but HTTP validators must also cover representation changes. The
+`Nagare.Inventory.Recorded` reader from
+[EP-193 M1](193-list-recorded-sites-without-live-provider-observation.md) provides a checked
+head and hydration of that same head, plus recorded-site projection and its contract converter.
+[EP-192 M1](192-publish-a-versioned-json-contract-for-the-nagarectl-outputs-kotei-consumes.md)
+provides `nagare-contract`, the shared problem catalog, and pure version/scope/publication
+projections. Both milestones are hard dependencies. EP-192 M2–M5's CLI dispatch is not.
 
-**Versions** (Hackage, checked 2026-10-14): `servant` and `servant-server` 0.20.3.0, `openapi-hs`
-5.0.0, `servant-openapi-hs` 5.1.0, `relay-pagination`, `relay-pagination-servant` and `relay-pagination-conformance` 0.1.1.2,
-`servant-health` 0.1.0.0.
-Re-check Hackage and upstream tags before choosing bounds. Use `openapi-hs >=5.0 && <5.1` and
-`servant-openapi-hs >=5.1 && <5.2` (one cohort). Nagare builds Haskell with nixpkgs'
-`haskell.packages.ghc9124` plus overrides in `nix/haskell-packages.nix` (line 45). None of the six
-(`openapi-hs`, `servant-openapi-hs`, the three `relay-pagination` packages, `servant-health`) is
-in the toolchain pin's package set or its `all-cabal-hashes` (checked 2026-10-14 against the
-nixpkgs of 2026-09-10 that `haskell-nix-dev` pins), so `callHackage` cannot find them: add each
-with `callHackageDirect` and the Hackage tarball's `sha256`.
+`cli/nagarectl/src/Nagare/Inventory/Access.hs` exposes `relationshipOf`, whose constructors
+include `DirectViewer`, `TeamViewer` and `TeamMember`. Do not use `acceptedAccessBindings` to
+list grants: its list comprehension silently excludes relationships that cannot bind to an
+accepted route. Project viewer relationships directly from accepted declarations and retain
+scope/resource identities and accepted/converged revisions. Team membership is not a host grant.
+A recorded grant may still exist after its route disappears; report it, without claiming access.
 
-**What the service reads.** Documents and items come from `nagare-contract` (`Nagare.Contract.V1`,
-EP-192), built from internal values by `Nagare.Contract.Project` in the `nagarectl` library.
-The store is opened read-only: a local directory store through the existing local path, or a GCS
-store through `openServiceStore` from
-[EP-196](196-read-the-inventory-store-from-an-in-cluster-service-identity.md). Each request then
-calls `readRecordedState` (`cli/nagarectl/src/Nagare/Inventory/Recorded.hs`, EP-193 M1) once and
-projects everything from the returned `RecordedState`: the head summary and scope states from its
-`HeadManifest` (`headGeneration`, `headSequence`, `headAccepted`, `headConverged`,
-`headActiveTransaction`, `headExecutorClaim`, `headDataFence`, `headMigration`, `headTransition`
-in `cli/nagarectl/src/Nagare/Inventory/Store.hs`); publications through EP-192's
-`publicationList`; sites through `Nagare.Inventory.Site.Recorded` (EP-193); grants from the
-accepted access scopes' declarations (`cli/nagarectl/src/Nagare/Inventory/Access.hs`,
-`acceptedAccessBindings`). Nothing here observes a provider; `inventory status`'s live findings
-are not served, and the recorded resources are laid out so an observed resource can be added
-beside them later without renaming anything.
+Two packages: `cli/nagare-api` owns route types and `nagare-api-openapi`, depending on
+`nagare-contract`, Servant, Relay and schema libraries, not `nagarectl`. `cli/nagare-api-server`
+owns handlers and executable and links the `nagarectl` library. Pure DTO projections remain
+in `cli/nagarectl/src/Nagare/Contract/Project.hs`; transport and cache policy stay in the server.
+`Nagare/Api/<Slice>/Routes.hs` and `Nagare/Api/<Slice>/Handler.hs` are domain-first module paths.
 
-**Precedent.** `nagared` (`cli/nagarectl/nagared/Main.hs`) is an existing WAI/warp executable in
-this repository; `cli/nagare-access` is an existing Servant-client user with a Dockerfile.
+Follow [ADR 16](../adr/0016-adopt-haskell-jitsurei-for-production-haskell.md) and
+`mori://shinzui/haskell-jitsurei/docs/api-overview`, especially the canonical documents
+`mori://shinzui/haskell-jitsurei/docs/api-servant-routes`,
+`mori://shinzui/haskell-jitsurei/docs/api-openapi-from-types`,
+`mori://shinzui/haskell-jitsurei/docs/api-rfc9457-problem-details`,
+`mori://shinzui/haskell-jitsurei/docs/api-relay-pagination`,
+`mori://shinzui/haskell-jitsurei/docs/api-health-endpoints`,
+`mori://shinzui/haskell-jitsurei/docs/api-opentelemetry-integration`,
+`mori://shinzui/haskell-jitsurei/docs/api-request-logging` and
+`mori://shinzui/haskell-jitsurei/docs/api-hurl-integration-testing`.
+
+Hackage preferred releases checked 2026-10-16: `servant`/`servant-server` 0.20.3.0,
+`openapi-hs` 5.0.0, `servant-openapi-hs` 5.1.0, the three Relay packages 0.1.1.2,
+and `servant-health` 0.1.0.0. Upstream tags confirm the OpenAPI and Relay cohorts. Keep
+`openapi-hs >=5.0 && <5.1`, `servant-openapi-hs >=5.1 && <5.2`; recheck before implementation.
+Released-source inspection confirms `RespondEmpty` is Servant's synonym for
+`RespondAs '() ... ()`, covered by the cohort's response machinery; no compatibility patch is
+prescribed. M1 still compiles the actual headers/200/304/503 slice before route expansion.
+Add packages to `cli/nagarectl/cabal.project`, `nix/haskell-packages.nix`, and the payload's
+package sources in `nix/platform-package.nix`. Check the pinned package set without traversing
+`/nix/store`; use `callHackageDirect` with verified tarball hashes where the pin lacks a release.
 
 
 ## Plan of Work
 
-M1: create `cli/nagare-api` (library plus executable `nagare-api-openapi`) and add it to the
-Cabal project and `nix/haskell-packages.nix`. Write the slice records, the shared problem tail
-from `Nagare.Contract.Problem`, and `Nagare.Api.OpenApi` with the orphan instances and stable
-`operationId`s. The generated document must still contain every contract schema the routes do
-not reach (the CLI-only operation documents), so EP-192's components remain published: add them
-with `declareSchemaRef` into `components.schemas`. Move the "checked-in equals generated" test
-from `nagare-contract` to `nagare-api`.
+### M1 — the wire contract
 
-M2: create `cli/nagare-api-server`. `Env` holds the store source and the context name. One step
-per request (a WAI middleware or a shared handler prelude) reads one `RecordedState`, sets the
-`ETag` from its head generation, answers `If-None-Match`, and hands the value to the handler,
-which projects and pages. Write `AsUnion` instances by hand and one total `faultToResult` per
-slice, per the routes standard.
+Define `NamedRoutes` slices with typed `MultiVerb` results. The public GET paths are exactly
+`/v1/platform/version` (`VersionInfo`), `/v1/inventory/head` (`HeadSummary`),
+`/v1/inventory/scopes` (`Connection ScopeState`), `/v1/inventory/scopes/:scopeId`
+(`ScopeState`), `/v1/sites` (`Connection SiteSummary`), `/v1/inventory/publications`
+(`Connection Publication`), `/v1/access/grants` (`Connection Grant`), and `/v1/openapi.json`.
+Health paths `/health/live` and `/health/ready` are internal probes, separately documented and
+without gateway security requirements. No write route, raw scope/native payload, journal,
+observed findings or credential material is exposed. Reserve `/` for the future UI.
 
-M3: mount `servant-health`, set up telemetry and logging in `main` in the order the standards
-give (OpenTelemetry middleware outermost, then the request logger, then the application), and
-write the Hurl suite with one file per resource family.
+All growing lists use Relay `first/after/last/before`, default 50 and maximum 100; invalid or
+oversized requests are 400, not silently clamped. `/v1/sites` additionally accepts `namespace`
+and `includePreviews` (false by default). Other v1 lists have no filters. Sort scopes by full
+scope ID, sites and publications by full resource ID, and grants by full resource ID (which
+preserves user/team relation distinctions). The site CLI may retain its display ordering.
+Cursors encode the complete ordering key and a fingerprint of context, endpoint, filter values,
+sort definition and cursor version. Reject malformed or foreign cursors before scope hydration.
+Do not include the head revision in that fingerprint: across heads the next page means items
+strictly after/before that key in the new head. Inserts before the cursor may be missed and
+removed records may disappear; clients needing a consistent walk compare `Nagare-Head-Revision`
+and restart. Conformance's no-skip/no-duplicate claim applies to a fixed fixture head only.
+
+Add `HeadSummary` and `Grant` to `nagare-contract` here. `HeadSummary` has context, generation,
+sequence and the nullable active transaction, executor claim, data fence phase, migration and
+release-transition summaries; use explicit DTOs, never raw internal serialization. `Grant`
+has resource ID, scope, host, subject kind (`user` or `team`), subject, subject relation
+(null or `member`), and accepted/converged revision facts. Never expand team members or query En.
+`SiteSummary` and its converter arrive in EP-193 M1; publications' pure projection arrives in
+EP-192 M1, without its later CLI milestone.
+
+Generate one OpenAPI 3.1 artifact using `toOpenApi`, retaining every CLI-only schema introduced
+by EP-192. Transfer generator ownership and its equality test from `nagare-contract` to
+`nagare-api`; later children contribute schemas through one shared declaration list. Declare
+cookie `nagare_session` and HTTP bearer as two alternative security requirement objects (OR,
+not AND) for each `/v1` operation. Declare stable operation IDs, actual query/cursor types,
+200 success, bodyless 304, response headers (`ETag`, `Cache-Control`, `Vary`, and snapshot header),
+and applicable 400/401/403/404/405/406/500/502/503/504 problem responses, including gateway ones.
+The OpenAPI endpoint returns the artifact bytes unchanged, not a JSON-encoded string.
+A `ToSchema Value` instance needed by nested schema derivation must be reachable wherever the
+instance is compiled; a generator-only orphan cannot satisfy an earlier library module.
+
+### M2 — serving a bounded read
+
+`Env` owns one context-bound read-only store session, its transport/token source, a bounded
+immutable/decoded cache and request admission. EP-196 supplies cloud access; local fixtures use
+the existing store implementation. Read the authoritative checked head once per state request;
+never globally wrap health, version or OpenAPI requests in a full-state loader. Head and scope
+summary routes project directly from the head. Sites, publications and grants hydrate the same
+head through EP-193's `loadRecordedStateAt`; no second mutable-head read. Only sites need the
+previous converged declarations. Missing/corrupt required objects are explicit failures, not
+empty results. Catch synchronous boundary failures as sanitized problems; preserve cancellation.
+
+Reuse verified scope decodes by digest and reuse the sorted projection when its accepted revision
+vector (plus every converged revision used by the response, including site and grant state) is unchanged. Head transaction/claim churn
+must not force every object to decode again. Bind cache keys to the store/context and schema
+version. Start with 64 MiB charged cache storage, eight concurrent hydration workers per process,
+and 32 admitted state requests; reject excess work promptly with 503 `server_busy` and
+`Retry-After`. Coalesce concurrent loads of the same immutable digest, cancel failed work, release
+waiters, and never cache errors as empty data. Eviction or restart affects cost only. An item too
+large for the cache is processed within the request limit without permanently retaining it.
+No persistent index, background reconciliation or TTL-cached mutable head is needed.
+
+Use a ten-second total handler deadline covering admission, current ownership/head reads,
+credential refresh, hydration, projection and strict response encoding. Do not stack fresh
+ten-second timeouts on each operation. Dependency timeout is 503 `store_timeout`, with
+`retryable: true`; corruption/unsupported stored schema is 503 `store_invalid`, non-retryable;
+unexpected internal failure is sanitized 500. Close cancelled network work and do not start
+unbounded retries. EP-196 must accept cancellation within this budget even though the existing
+SDK attempt timeout is twenty seconds.
+
+Cache a response's strong ETag as the hash of its exact encoded bytes, with representation
+selection (route/query/media type and serving contract/build identity) in its cache key. Dynamic
+200s include `Nagare-Head-Revision`, an opaque digest of the canonical checked head and binding;
+that identifies snapshot equality across routes, independently of ETag. Build version and
+OpenAPI use their own bytes/build identity and have no inventory snapshot header. A cache hit
+can answer 304 after a fresh successful head check and validated request without rehydration;
+on a cache miss, build and validate the representation first. Never turn a missing scope,
+malformed cursor, unavailable store or failed authorization into 304, including for `*`.
+Implement list-valued and weak-tag `If-None-Match` comparison for GET/HEAD. A 304 has no body and
+retains the relevant cache/validator/snapshot headers. Protected responses use
+`Cache-Control: private, no-cache` and `Vary: Authorization, Cookie, Accept`; errors use
+`no-store`. Preserve these through the gateway. Every admission, including conditional requests,
+passes gateway authorization (subject to its documented decision TTL).
+
+Use `ErrorFormatters` plus a narrow WAI rejection renderer for Servant-generated 405/406 and
+synchronous exceptions; `ErrorFormatters` alone cannot catch all of those. Preserve `Allow` on
+405 and `WWW-Authenticate` on 401. Test `Accept: application/json` receiving a typed problem
+when its handler fails; MultiVerb content negotiation must not replace the intended error with
+406. Support HEAD as GET headers/status without a response body and test that behavior.
+The problem-body guarantee covers responses produced by Nagare's gateway/server before response
+commit; disconnects and infrastructure-generated errors cannot be guaranteed to contain JSON.
+
+### M3 — operability and measurable acceptance
+
+Mount `servant-health`. Liveness does no store IO. Readiness checks a fresh bound store head
+under a one-second deadline, without loading scopes; its structured health failure body is a
+probe contract, not an RFC 9457 application error. Allow normal cold startup with a startup
+probe; store outages make readiness fail without repeatedly restarting a live process.
+Telemetry and one bounded JSON request log per request (excluding probes) must not block the
+request on a collector. Record route, status, duration, store calls/cache misses and deadline
+outcomes, never tokens, cookies, native scope bytes or high-cardinality IDs as metric labels.
+
+Add Hurl files per route family under `cli/nagare-api-server/hurl/`, `just api-hurl` and its
+`scripts/audit-managed-commands.py` registration. Assert statuses, media types, conditional and
+HEAD semantics, and actual generated-client decoding. Use the test store's read counter and
+controllable delays to prove costs, not only wall-time assertions against a fast local disk.
 
 
 ## Validation and Acceptance
 
-From the repository root: `just haskell-style-check`, `just gate-fast`, then for M3
-`just api-hurl`. Acceptance is the Progress list; the command block in Purpose must work against
-a local context.
+At least 250 scopes and 2,500 declarations, including protected/preview sites, publications,
+user/team grants, a grant whose route is retired, and differing accepted/converged sites, form
+the deterministic fixture. Head/scopes requests perform zero scope-object reads. A warm list
+reads a fresh head but fetches/decodes zero unchanged scopes; a conditional warm hit avoids
+projection and body encoding. Changing one scope fetches only changed required digests;
+transaction-only head changes preserve cached scope decodes. Instrument exact object operations:
+one logical GCS object read currently means metadata plus generation-pinned media, not one
+HTTP round trip. No history listings or subprocesses are allowed.
+
+On the already-built binary, record cold initialization separately from 100 warm requests at
+concurrency eight for head and a page of each list. On the local fixture, warm p95 is below
+250 ms; on EP-198's representative GCS deployment through the gateway, warm p95 is below two
+seconds. A cold full fixture request must succeed within the ten-second handler deadline.
+Record counts, response sizes, binary revision and runtime limits so the result is interpretable;
+these are acceptance targets, not measurements already achieved. The default deployment has
+512 MiB memory limit, and fixture load must remain below it without unbounded cache growth.
+
+A fake remote store with 20 ms per HTTP operation proves bounded parallel cold hydration. A
+hung token/head/object read returns a problem within ten seconds plus 500 ms scheduling tolerance,
+readiness within one second plus tolerance, and liveness stays responsive. A failed shared load
+must not deadlock subsequent requests. Repeat warm checks with head churn and an unavailable
+collector. One unavailable/corrupt unrelated scope does not break the head/scopes routes; a
+route requiring it fails explicitly. A matching ETag with an unknown route, malformed query,
+missing scope, changed binary or unavailable store must not incorrectly return 304.
+
+Run focused package tests, `just api-hurl`, `just haskell-style-check` and `just gate-fast`.
+EP-198 confirms the same path with real gateway auth, network policy and GCS. Fix failures in the
+owning milestone; do not call a paginated response or a per-operation timeout proof of promptness.
 
 
 ## Interfaces and Dependencies
 
-- Consumes `nagare-contract` (EP-192), `readRecordedState` and the site projection (EP-193 M1),
-  `openServiceStore` (EP-196).
-- Produces `nagare-api` (routes, `docs/api/openapi.json`, the `HeadSummary` and `Grant` contract
-  types) and the `nagare-api-server` executable, configured by flags or environment: context name,
-  store source (a GCS URL plus EP-196's credential, or a directory), port, OTLP endpoint. EP-198
-  packages and runs it.
+EP-192 M1 owns shared DTO foundations and pure version/scope/publication projection. EP-193 M1
+owns the checked-head/hydration API, site projection and converter. EP-196 supplies a cancellable,
+read-only service session; it is soft until cloud integration. EP-197 owns request/caching policy,
+HTTP routes, `HeadSummary`/`Grant`, OpenAPI generation and local cost/latency evidence. EP-198
+owns image/runtime resource limits, protected routing, gateway errors, and native confirmation.
+No dependency on EP-192's later mutating CLI documents is introduced.
+
+The validator and conditional rules follow [RFC 9110 sections 8.8 and 13](https://www.rfc-editor.org/rfc/rfc9110.html#section-8.8).
+The problem format, extension members and `about:blank` titles follow
+[RFC 9457](https://www.rfc-editor.org/info/rfc9457/). These specify protocol semantics; the latency
+budgets above are Nagare acceptance choices.
+
+
+## Outcomes & Retrospective
+
+The HTTP contract and performance acceptance are specified. No compiled server, generated-client
+roundtrip or benchmark result is claimed by the plan validation.
