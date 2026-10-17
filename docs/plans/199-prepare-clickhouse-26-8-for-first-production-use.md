@@ -43,11 +43,20 @@ invent a migration from an installation that does not exist.
   --dry-run` shows server and backup images `clickhouse-server:26.8`, ports 9000/8123,
   `CLICKHOUSE_USER`/`CLICKHOUSE_PASSWORD` Secret refs, `limits.memory: 2Gi`, the
   1610612736/268435456 memory ConfigMap and the `/var/lib/clickhouse` mount.
-- [ ] M2: A fresh managed 26.8 instance passes authenticated access, restart persistence, and manual and scheduled backup/scratch-restore checks with recorded evidence.
-- [ ] M3: Documentation and the first-use handoff match the verified behavior, required gates pass, and implementation evidence identifies the tested revision and image.
-
-Docs and `scripts/clickhouse-drill.sh` landed in `ae846cc4`. Next: green full gate on the
-candidate, then M2 on a fresh disposable local context.
+- [x] M2: A fresh managed 26.8 instance passes authenticated access, restart persistence, and manual and scheduled backup/scratch-restore checks with recorded evidence.
+  2026-10-17, candidate `20c71309` (full gate green, `gate-verify` green), local context
+  `transition` on `nagare-mp23`, arm64. Run r3 of `scripts/clickhouse-drill.sh`:
+  `26.8.29.10`, image `sha256:6ded2b2c…cb41e4`; native and HTTP authenticated, 401/516
+  unauthenticated; rows 1–2 kept across a reviewed restart; manual scratch rows 1–2 with
+  source 1–3; scheduled run `947a99b2…` ingested and restored with rows 1–3; 0 restarts,
+  0 OOM events, 770 MiB resident. Evidence: [`docs/audits/ep199-clickhouse-26.8/`](../audits/ep199-clickhouse-26.8/README.md).
+  Cleanup not completed: `db retire` refuses while the backup, restore and receipt scopes
+  depend on the database; the disposable cluster retains the three validation databases.
+- [x] M3: Documentation and the first-use handoff match the verified behavior, required gates pass, and implementation evidence identifies the tested revision and image.
+  2026-10-17. `docs/user/managed-databases.md`, `docs/user/config-reference.md` and the
+  example README (`ae846cc4`); `just user-documentation-validate` and `git diff --check`
+  pass; gate records above; the audit README names the revision, image and the local-only
+  scope.
 
 ## Surprises & Discoveries
 
@@ -84,6 +93,12 @@ own record is not release evidence for this change and is not committed.
 
 ## Outcomes & Retrospective
 
+New ClickHouse databases default to `26.8`, and a fresh 26.8.29.10 instance passed
+authenticated access, persistence and both recovery paths on a local context. Not
+validated: cloud GCS backups, the analytics example application, and the patch that the
+`26.8` line tag resolves to later. The release rehearsal could not move the context to the
+candidate because both are 0.6.3, so the platform payload under test was the released
+0.6.3. No ADR change: the version default is not an architectural decision.
 
 ## Context and Orientation
 
@@ -281,8 +296,8 @@ state rather than hard-coding them. The implementation must record the full
 reproducible validation sequence, including scheduled backup selection, SQL
 assertions, and managed cleanup, in the evidence directory. Consult
 `docs/user/managed-databases.md` for scheduled receipt selection and
-`docs/user/backups-and-disaster-recovery.md` for verification. Update this section
-with the exact final script invocation once written. The expected observable
+`docs/user/backups-and-disaster-recovery.md` for verification. The final invocation, run
+from `env -i` in the `personal` namespace, is in `docs/audits/ep199-clickhouse-26.8/README.md`. The expected observable
 results are `SELECT version()` returning `26.8.*`, persisted rows 1 and 2 after
 restart, manual scratch rows 1 and 2, and source rows 1, 2, and 3 after restore.
 

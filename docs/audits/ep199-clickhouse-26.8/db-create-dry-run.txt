@@ -1,0 +1,242 @@
+--- Namespace manifest ---
+{"apiVersion":"v1","kind":"Namespace","metadata":{"labels":{"nagare.dev/app-namespace":"true"},"name":"personal"}}
+--- Credential Secret nagare-db-ep199-ch (data generated at reviewed apply; omitted from dry run) ---
+--- PersistentVolumeClaim manifest ---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nagare-db-ep199-ch-data
+  namespace: personal
+  labels:
+    nagare.dev/managed-by: nagarectl
+    nagare.dev/database: ep199-ch
+    nagare.dev/engine: clickhouse
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 1Gi
+
+--- ConfigMap manifest ---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nagare-db-ep199-ch-mem
+  namespace: personal
+  labels:
+    nagare.dev/managed-by: nagarectl
+    nagare.dev/database: ep199-ch
+    nagare.dev/engine: clickhouse
+data:
+  low-memory.xml: |
+    <clickhouse>
+      <max_server_memory_usage>1610612736</max_server_memory_usage>
+      <mark_cache_size>268435456</mark_cache_size>
+    </clickhouse>
+
+--- Service manifest ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ep199-ch
+  namespace: personal
+  labels:
+    nagare.dev/managed-by: nagarectl
+    nagare.dev/database: ep199-ch
+    nagare.dev/engine: clickhouse
+spec:
+  type: ClusterIP
+  selector:
+    nagare.dev/database: ep199-ch
+  ports:
+  - name: native
+    port: 9000
+    targetPort: 9000
+  - name: http
+    port: 8123
+    targetPort: 8123
+
+--- StatefulSet manifest ---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ep199-ch
+  namespace: personal
+  labels:
+    nagare.dev/managed-by: nagarectl
+    nagare.dev/database: ep199-ch
+    nagare.dev/engine: clickhouse
+  annotations:
+    nagare.dev/retention: Retain
+    nagare.dev/size: 1Gi
+    nagare.dev/version: '26.8'
+spec:
+  serviceName: ep199-ch
+  replicas: 1
+  selector:
+    matchLabels:
+      nagare.dev/database: ep199-ch
+  template:
+    metadata:
+      labels:
+        nagare.dev/managed-by: nagarectl
+        nagare.dev/database: ep199-ch
+        nagare.dev/engine: clickhouse
+    spec:
+      containers:
+      - name: clickhouse
+        image: clickhouse/clickhouse-server:26.8
+        ports:
+        - containerPort: 9000
+        - containerPort: 8123
+        env:
+        - name: CLICKHOUSE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: nagare-db-ep199-ch
+              key: CLICKHOUSE_PASSWORD
+        - name: CLICKHOUSE_USER
+          valueFrom:
+            secretKeyRef:
+              name: nagare-db-ep199-ch
+              key: CLICKHOUSE_USER
+        resources:
+          limits:
+            memory: 2Gi
+        readinessProbe:
+          httpGet:
+            path: /ping
+            port: 8123
+          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 3
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/clickhouse
+        - name: config
+          mountPath: /etc/clickhouse-server/config.d/low-memory.xml
+          subPath: low-memory.xml
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: nagare-db-ep199-ch-data
+      - name: config
+        configMap:
+          name: nagare-db-ep199-ch-mem
+
+--- Backup CronJob manifest ---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  labels:
+    nagare.dev/database: ep199-ch
+    nagare.dev/managed-by: nagarectl
+  name: nagare-dbbackup-ep199-ch
+  namespace: personal
+spec:
+  concurrencyPolicy: Forbid
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            nagare.dev/database: ep199-ch
+            nagare.dev/managed-by: nagarectl
+        spec:
+          affinity:
+            podAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+              - labelSelector:
+                  matchLabels:
+                    nagare.dev/database: ep199-ch
+                    nagare.dev/engine: clickhouse
+                namespaces:
+                - personal
+                topologyKey: kubernetes.io/hostname
+          containers:
+          - args:
+            - set -e; DEST="${PREFIX}$(date -u +%Y%m%dT%H%M%SZ).zip.gz"; dnf install
+              -y -q tar gzip >/dev/null 2>&1; gzip -9 -c /dump/backup.zip | aws s3
+              cp - "$DEST" --endpoint-url http://minio.nagare-system.svc.cluster.local:9000;
+              echo pruning; aws s3 ls "$PREFIX" --endpoint-url http://minio.nagare-system.svc.cluster.local:9000
+              | awk '{print $NF}' | sort -r | tail -n +$((KEEP+1)) | (grep . | while
+              read k; do aws s3 rm "$PREFIX$k" --endpoint-url http://minio.nagare-system.svc.cluster.local:9000;
+              done || true)
+            command:
+            - /bin/sh
+            - -c
+            env:
+            - name: PREFIX
+              value: s3://nagare-backups/databases/ep199-ch/
+            - name: KEEP
+              value: '7'
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  key: AWS_ACCESS_KEY_ID
+                  name: nagare-minio-credentials
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  key: AWS_SECRET_ACCESS_KEY
+                  name: nagare-minio-credentials
+            - name: AWS_DEFAULT_REGION
+              value: us-east-1
+            - name: AWS_EC2_METADATA_DISABLED
+              value: 'true'
+            image: amazon/aws-cli:latest
+            name: upload
+            volumeMounts:
+            - mountPath: /dump
+              name: dump
+          initContainers:
+          - args:
+            - set -e; i=0; until clickhouse-client -h ep199-ch --user "$CLICKHOUSE_USER"
+              --password "$CLICKHOUSE_PASSWORD" --query "SELECT 1" >/dev/null 2>&1;
+              do i=$((i+1)); if [ "$i" -ge 150 ]; then echo "ep199-ch is not accepting
+              connections" >&2; exit 1; fi; sleep 2; done; case "$BACKUP_RUN_ID" in
+              ''|*[!a-zA-Z0-9-]*) exit 1;; esac; ARCHIVE="/source-data/backups/${BACKUP_RUN_ID}.zip";
+              test ! -e "$ARCHIVE"; clickhouse-client -h ep199-ch --user "$CLICKHOUSE_USER"
+              --password "$CLICKHOUSE_PASSWORD" --query "BACKUP DATABASE default TO
+              File('${BACKUP_RUN_ID}.zip')"; test -s "$ARCHIVE"; cp "$ARCHIVE" /dump/backup.zip;
+              rm -- "$ARCHIVE"
+            command:
+            - /bin/sh
+            - -c
+            env:
+            - name: CLICKHOUSE_USER
+              valueFrom:
+                secretKeyRef:
+                  key: CLICKHOUSE_USER
+                  name: nagare-db-ep199-ch
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: CLICKHOUSE_PASSWORD
+                  name: nagare-db-ep199-ch
+            - name: BACKUP_RUN_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['batch.kubernetes.io/controller-uid']
+            image: clickhouse/clickhouse-server:26.8
+            name: dump
+            volumeMounts:
+            - mountPath: /dump
+              name: dump
+            - mountPath: /source-data
+              name: source-data
+          restartPolicy: Never
+          volumes:
+          - emptyDir: {}
+            name: dump
+          - name: source-data
+            persistentVolumeClaim:
+              claimName: nagare-db-ep199-ch-data
+  schedule: 17 3 * * *
+  successfulJobsHistoryLimit: 3
+
+Would create database ep199-ch (clickhouse) at ep199-ch.personal.svc.cluster.local
