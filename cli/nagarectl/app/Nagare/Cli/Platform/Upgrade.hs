@@ -489,6 +489,7 @@ upgradeOps active workspace manifest staged hostRoot txPath = do
       [ ("NAGARE_CONTEXT", T.unpack (contextNameText context))
       , ("NAGARE_NIX_CACHE_ENABLED", if profile ^. #nixCacheEnabled then "1" else "0")
       , ("NAGARE_CDN_ENABLED", if profile ^. #cdnEnabled then "1" else "0")
+      , ("NAGARE_ADMIN_API_ENABLED", if profile ^. #adminApiEnabled then "1" else "0")
       , -- Force shell helpers to discard any stale context variables inherited
         -- from the operator's calling shell before they source the selected
         -- persisted context.

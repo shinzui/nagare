@@ -377,7 +377,7 @@ protectedOwner declarations host = do
         , BackendMapSpec entries <- [r ^. #spec]
         , (h, _, role) <- entries
         , h == host
-        , role == ProtectedBackend
+        , role /= PortalBackend
         ]
   unless
     (length protected == 1)

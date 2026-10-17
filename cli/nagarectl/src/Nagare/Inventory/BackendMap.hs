@@ -202,3 +202,13 @@ renderBackendMapObject entries = do
     backendEntry upstream PortalBackend =
       object
         ["upstream" .= upstream, "role" .= ("portal" :: Text)]
+    -- The gateway answers the API's paths with problem documents and waits
+    -- longer than the server's own ten-second request deadline. A gateway
+    -- that predates these fields reads the entry as an ordinary protected one.
+    backendEntry upstream ApiBackend =
+      object
+        [ "upstream" .= upstream
+        , "role" .= ("protected" :: Text)
+        , "apiPrefix" .= ("/v1" :: Text)
+        , "timeoutSeconds" .= (15 :: Int)
+        ]

@@ -384,12 +384,25 @@ publish() {
       [ "${destination}" = "$(jq -r .cluster "${archive}")" ] || {
         echo "local cluster destination differs from the reviewed specification" >&2; return 2;
       }
+      # EP-198: a context with the admin API mounts its own store read-only.
+      volume_args=()
+      inventory_mount="$(jq -r '.inventoryMount // empty' "${archive}")"
+      if [ -n "${inventory_mount}" ]; then
+        [[ "${inventory_mount}" == /* && "${inventory_mount}" != *:* && "${inventory_mount}" != *@* ]] || {
+          echo "local inventory mount must be an absolute path without ':' or '@'" >&2; return 2;
+        }
+        [ -d "${inventory_mount}" ] || {
+          echo "local inventory mount ${inventory_mount} is not an existing store directory" >&2; return 2;
+        }
+        volume_args=(--volume "${inventory_mount}:/var/lib/nagare/inventory:ro@server:0")
+      fi
       k3d cluster create "${destination}" \
         --image "$(jq -r .k3sImage "${archive}")" \
         --registry-use "$(jq -r .registryHost "${archive}")" \
         --port "$(jq -r .httpPort "${archive}")" \
         --port "$(jq -r .httpsPort "${archive}")" \
         --k3s-arg "$(jq -r .k3sArg "${archive}")" \
+        ${volume_args[@]+"${volume_args[@]}"} \
         --runtime-label "nagare.bootstrap.digest=${expected}@server:0" \
         --kubeconfig-update-default=false --kubeconfig-switch-context=false >&2
       ;;

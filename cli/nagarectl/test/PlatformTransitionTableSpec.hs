@@ -134,6 +134,8 @@ observeFixture = do
         , (HostClosure, if nixos then Unchanged else Changed)
         , (ClusterStamp, Map.findWithDefault Unchanged "bootstrap-stamp" scopes)
         , (ContextPin, differs (source ^. #platformVersion) (target ^. #platformVersion))
+        , -- Opt-in per context (EP-198); the fixture's context does not enable it.
+          (PlatformScope "admin-api", Map.findWithDefault NotInLocalContext "admin-api" scopes)
         ]
           <> [(PlatformScope name, delta) | (name, delta) <- Map.toList scopes, name /= "bootstrap-stamp"]
       )

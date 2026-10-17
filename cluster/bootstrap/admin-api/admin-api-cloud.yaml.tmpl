@@ -1,0 +1,176 @@
+# The read-only admin API in a cloud context (EP-198). nagarectl substitutes
+# @IMAGE@, @CONTEXT@, @PROJECT@, @STORE_URL@, @PROJECT_NUMBER@ and
+# @READER_DIGEST@ (the reader Secret's digest, so a rotated key rolls the pod), then reviews
+# these objects as scope platform:admin-api. Only the nagare-access gateway may
+# reach the pod; the reader key is the operator's sops-encrypted Secret
+# nagare-admin-api-reader (docs/runbooks/admin-api-reader.md).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nagare-admin-api
+  namespace: nagare-system
+  labels:
+    app.kubernetes.io/name: nagare-admin-api
+    app.kubernetes.io/part-of: nagare-platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nagare-admin-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nagare-admin-api
+        app.kubernetes.io/part-of: nagare-platform
+      annotations:
+        nagare.dev/reader-digest: "@READER_DIGEST@"
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 15
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: nagare-admin-api
+          image: "@IMAGE@"
+          args:
+            - --context
+            - "@CONTEXT@"
+            - --project
+            - "@PROJECT@"
+            - --store-url
+            - "@STORE_URL@"
+            - --project-number
+            - "@PROJECT_NUMBER@"
+            - --credentials
+            - /var/run/nagare/reader/key.json
+            - --cache-dir
+            - /var/cache/nagare
+            - --host
+            - 0.0.0.0
+            - --port
+            - "8085"
+          env:
+            - name: TMPDIR
+              value: /tmp
+            - name: HOME
+              value: /tmp
+          ports:
+            - name: http
+              containerPort: 8085
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          # A cold start reads and verifies the head from GCS; liveness never
+          # depends on the store, so an outage cannot restart-loop the pod.
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 2
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 2
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: cache
+              mountPath: /var/cache/nagare
+            - name: reader
+              mountPath: /var/run/nagare/reader
+              readOnly: true
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: cache
+          emptyDir:
+            sizeLimit: 256Mi
+        - name: reader
+          secret:
+            secretName: nagare-admin-api-reader
+            defaultMode: 0440
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nagare-admin-api
+  namespace: nagare-system
+  labels:
+    app.kubernetes.io/name: nagare-admin-api
+    app.kubernetes.io/part-of: nagare-platform
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: nagare-admin-api
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+# Ingress: only the gateway's pods (namespace AND label in one peer, so an
+# unrelated nagare-system pod or a look-alike label elsewhere is refused).
+# Egress: cluster DNS, and HTTPS to public addresses for Cloud Storage and the
+# token endpoint. Private, link-local (the metadata server's node credential)
+# and CGNAT ranges are excluded; this is not an FQDN allowlist.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: nagare-admin-api
+  namespace: nagare-system
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: nagare-admin-api
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: nagare-system}
+          podSelector:
+            matchLabels: {serving.knative.dev/service: nagare-access}
+      ports: [{protocol: TCP, port: 8085}]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+          podSelector:
+            matchLabels: {k8s-app: kube-dns}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 100.64.0.0/10
+              - 169.254.0.0/16
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports: [{protocol: TCP, port: 443}]

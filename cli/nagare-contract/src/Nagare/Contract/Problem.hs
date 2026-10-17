@@ -35,6 +35,11 @@ module Nagare.Contract.Problem
   , storeInvalid
   , storeCredentialsUnavailable
   , serverBusy
+  , unauthenticated
+  , forbidden
+  , authorizationUnavailable
+  , upstreamUnavailable
+  , upstreamTimeout
   )
 where
 
@@ -150,6 +155,11 @@ problemCatalog =
   , storeInvalid
   , storeCredentialsUnavailable
   , serverBusy
+  , unauthenticated
+  , forbidden
+  , authorizationUnavailable
+  , upstreamUnavailable
+  , upstreamTimeout
   ]
 
 status400, status404, status405, status406, conflict, internal, unavailable :: Text -> Bool -> ProblemSpec
@@ -193,3 +203,15 @@ storeTimeout = unavailable "store_timeout" True
 storeInvalid = unavailable "store_invalid" False
 storeCredentialsUnavailable = unavailable "store_credentials_unavailable" True
 serverBusy = unavailable "server_busy" True
+
+-- The access gateway's codes (EP-198), answered before a request reaches the
+-- admin API. An expired session or a missing grant is the caller's to fix; an
+-- authorizer or upstream that cannot answer may answer the unchanged request
+-- later.
+
+unauthenticated, forbidden, authorizationUnavailable, upstreamUnavailable, upstreamTimeout :: ProblemSpec
+unauthenticated = ProblemSpec "unauthenticated" 401 "Unauthorized" False
+forbidden = ProblemSpec "forbidden" 403 "Forbidden" False
+authorizationUnavailable = unavailable "authorization_unavailable" True
+upstreamUnavailable = ProblemSpec "upstream_unavailable" 502 "Bad Gateway" True
+upstreamTimeout = ProblemSpec "upstream_timeout" 504 "Gateway Timeout" True

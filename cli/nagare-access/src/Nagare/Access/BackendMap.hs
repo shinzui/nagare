@@ -7,6 +7,7 @@ module Nagare.Access.BackendMap
   , PublicHost
   , backendMapFromList
   , backendMapFromTargets
+  , isApiPath
   , decodeBackendMap
   , emptyBackendMap
   , findPortal
@@ -18,7 +19,7 @@ module Nagare.Access.BackendMap
   )
 where
 
-import Data.Aeson (FromJSON (parseJSON), Value (Object, String), eitherDecodeStrict, withObject, (.:))
+import Data.Aeson (FromJSON (parseJSON), Value (Object, String), eitherDecodeStrict, withObject, (.:), (.:?))
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Aeson.Types qualified as Aeson
@@ -42,9 +43,15 @@ data BackendRole
   | PortalBackend
   deriving stock (Generic, Eq, Show)
 
+-- | Where a host's requests go. 'apiPrefix' (such as @/v1@) marks the paths
+-- whose gateway answers are always problem documents; 'timeoutSeconds'
+-- bounds the wait for the upstream's response headers. Both are absent for
+-- an ordinary site, which keeps the shared manager's behavior.
 data BackendTarget = BackendTarget
   { upstreamUrl :: !Text
   , role :: !BackendRole
+  , apiPrefix :: !(Maybe Text)
+  , timeoutSeconds :: !(Maybe Int)
   }
   deriving stock (Generic, Eq, Show)
 
@@ -59,7 +66,7 @@ newtype BackendMap = BackendMap (Map PublicHost BackendTarget)
 
 instance FromJSON BackendTarget where
   parseJSON (String upstream) =
-    either (fail . Text.unpack) pure (validateTarget ProtectedBackend upstream)
+    either (fail . Text.unpack) pure (validateTarget (BackendTarget upstream ProtectedBackend Nothing Nothing))
   parseJSON value@(Object _) =
     withObject "backend target" parseTarget value
     where
@@ -70,7 +77,9 @@ instance FromJSON BackendTarget where
           "protected" -> pure ProtectedBackend
           "portal" -> pure PortalBackend
           other -> fail ("unknown backend role: " <> Text.unpack other)
-        either (fail . Text.unpack) pure (validateTarget role upstream)
+        prefix <- obj .:? "apiPrefix"
+        timeout <- obj .:? "timeoutSeconds"
+        either (fail . Text.unpack) pure (validateTarget (BackendTarget upstream role prefix timeout))
   parseJSON _ = fail "backend target must be a string URL or an object with upstream and role"
 
 emptyBackendMap :: BackendMap
@@ -79,7 +88,7 @@ emptyBackendMap = BackendMap Map.empty
 backendMapFromList :: [(Text, Text)] -> Either Text BackendMap
 backendMapFromList entries =
   backendMapFromTargets
-    [ (host, BackendTarget upstream ProtectedBackend)
+    [ (host, BackendTarget upstream ProtectedBackend Nothing Nothing)
     | (host, upstream) <- entries
     ]
 
@@ -91,7 +100,7 @@ backendMapFromTargets entries = do
   where
     parseEntry (host, target) = do
       publicHost <- mkPublicHost host
-      validated <- validateTarget (target ^. #role) (target ^. #upstreamUrl)
+      validated <- validateTarget target
       pure (publicHost, validated)
 
 decodeBackendMap :: ByteString -> Either Text BackendMap
@@ -155,12 +164,37 @@ isBadHostChar c =
 isDigitText :: Char -> Bool
 isDigitText c = c >= '0' && c <= '9'
 
-validateTarget :: BackendRole -> Text -> Either Text BackendTarget
-validateTarget role raw =
-  let upstream = Text.strip raw
-   in if hasHttpScheme upstream && hasHostPart upstream && not (Text.any badTargetChar upstream)
-        then Right (BackendTarget upstream role)
-        else Left ("invalid backend upstream URL: " <> raw)
+validateTarget :: BackendTarget -> Either Text BackendTarget
+validateTarget target
+  | not (hasHttpScheme upstream && hasHostPart upstream && not (Text.any badTargetChar upstream)) =
+      Left ("invalid backend upstream URL: " <> raw)
+  | Just prefix <- target ^. #apiPrefix
+  , not (validApiPrefix prefix) =
+      Left ("invalid backend API prefix: " <> prefix)
+  | Just seconds <- target ^. #timeoutSeconds
+  , seconds < 1 || seconds > 300 =
+      Left "backend timeoutSeconds must be between 1 and 300"
+  | otherwise = Right (target & #upstreamUrl .~ upstream)
+  where
+    raw = target ^. #upstreamUrl
+    upstream = Text.strip raw
+
+-- | An API prefix is an absolute path of at least one segment with no
+-- trailing slash, such as @/v1@.
+validApiPrefix :: Text -> Bool
+validApiPrefix prefix =
+  "/" `Text.isPrefixOf` prefix
+    && Text.length prefix > 1
+    && not ("/" `Text.isSuffixOf` prefix)
+    && not (Text.any badTargetChar prefix)
+
+-- | Whether a request path is under the target's API prefix: the prefix
+-- itself or any path below it, never a sibling such as @/v10@.
+isApiPath :: BackendTarget -> Text -> Bool
+isApiPath target path =
+  case target ^. #apiPrefix of
+    Nothing -> False
+    Just prefix -> path == prefix || (prefix <> "/") `Text.isPrefixOf` path
 
 rejectMultiplePortals :: [(PublicHost, BackendTarget)] -> Either Text ()
 rejectMultiplePortals entries =

@@ -21,7 +21,7 @@ backendMapTests =
     "backend map"
     [ testCase "decodes host to upstream JSON" $ do
         backends <- assertRight (decodeBackendMap "{\"Tools.Example.com\":\"http://tools.personal.svc.cluster.local\"}")
-        lookupBackend "tools.example.com" backends @?= Just (BackendTarget "http://tools.personal.svc.cluster.local" ProtectedBackend)
+        lookupBackend "tools.example.com" backends @?= Just (BackendTarget "http://tools.personal.svc.cluster.local" ProtectedBackend Nothing Nothing)
     , testCase "decodes object targets with protected and portal roles" $ do
         backends <-
           assertRight
@@ -29,9 +29,9 @@ backendMapTests =
                 "{\"tools.example.com\":{\"upstream\":\"http://tools.personal.svc.cluster.local\",\"role\":\"protected\"},\"auth.example.com\":{\"upstream\":\"http://auth.personal.svc.cluster.local\",\"role\":\"portal\"}}"
             )
         lookupBackend "tools.example.com" backends
-          @?= Just (BackendTarget "http://tools.personal.svc.cluster.local" ProtectedBackend)
+          @?= Just (BackendTarget "http://tools.personal.svc.cluster.local" ProtectedBackend Nothing Nothing)
         lookupBackend "auth.example.com" backends
-          @?= Just (BackendTarget "http://auth.personal.svc.cluster.local" PortalBackend)
+          @?= Just (BackendTarget "http://auth.personal.svc.cluster.local" PortalBackend Nothing Nothing)
         portal <- maybe (assertFailure "expected portal") pure (findPortal backends)
         publicHostText (portal ^. #host) @?= "auth.example.com"
     , testCase "rejects a second portal and names its host" $
@@ -45,12 +45,12 @@ backendMapTests =
           (isLeft (decodeBackendMap "{\"tools.example.com\":{\"upstream\":\"http://tools.personal.svc.cluster.local\",\"role\":\"admin\"}}"))
     , testCase "lookup strips Host header port" $ do
         backends <- assertRight (backendMapFromList [("tools.example.com", "http://tools.personal.svc.cluster.local")])
-        lookupBackend "tools.example.com:443" backends @?= Just (BackendTarget "http://tools.personal.svc.cluster.local" ProtectedBackend)
+        lookupBackend "tools.example.com:443" backends @?= Just (BackendTarget "http://tools.personal.svc.cluster.local" ProtectedBackend Nothing Nothing)
     , testCase "lookup can return the canonical host used for auth decisions" $ do
         backends <- assertRight (backendMapFromList [("tools.example.com", "http://tools.personal.svc.cluster.local")])
         (host, target) <- maybe (assertFailure "expected backend") pure (lookupBackendWithHost "Tools.Example.com:443" backends)
         publicHostText host @?= "tools.example.com"
-        target @?= BackendTarget "http://tools.personal.svc.cluster.local" ProtectedBackend
+        target @?= BackendTarget "http://tools.personal.svc.cluster.local" ProtectedBackend Nothing Nothing
     , testCase "rejects non-object JSON" $
         assertBool "expected Left" (isLeft (decodeBackendMap "[]"))
     , testCase "rejects non-string upstreams" $
@@ -88,7 +88,7 @@ backendSourceTests =
           Rejected _ -> pure ()
           other -> assertFailure ("expected Rejected, got " <> show other)
         backends <- currentBackends source
-        lookupBackend "tools.example.com" backends @?= Just (BackendTarget "http://tools.personal.svc.cluster.local" ProtectedBackend)
+        lookupBackend "tools.example.com" backends @?= Just (BackendTarget "http://tools.personal.svc.cluster.local" ProtectedBackend Nothing Nothing)
     , testCase "a map that does not decode at startup is refused" $
         assertBool "expected Left" . isLeft =<< newBackendSource (pure "[]")
     ]

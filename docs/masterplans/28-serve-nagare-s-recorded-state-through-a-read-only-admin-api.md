@@ -91,7 +91,7 @@ requires offline proof before native confirmation.
 | 193 | Read recorded state and list recorded sites | [EP-193](../plans/193-list-recorded-sites-without-live-provider-observation.md) | EP-192 M1 for M1 DTO/converter acceptance | None | In Progress |
 | 196 | Open the inventory through a read-only service identity | [EP-196](../plans/196-read-the-inventory-store-from-an-in-cluster-service-identity.md) | None | EP-193 head-reader interface | In Progress |
 | 197 | Serve typed, bounded HTTP reads | [EP-197](../plans/197-serve-the-read-documents-through-a-typed-servant-admin-api.md) | EP-192 M1, EP-193 M1 | EP-196 for cloud source | Complete |
-| 198 | Deploy behind the admin hostname grant | [EP-198](../plans/198-run-the-admin-api-in-each-context-behind-an-admin-grant.md) | EP-196, EP-197 | None | Not Started |
+| 198 | Deploy behind the admin hostname grant | [EP-198](../plans/198-run-the-admin-api-in-each-context-behind-an-admin-grant.md) | EP-196 M2 and EP-197 for M1–M2; EP-196 for M3 | None | In Progress |
 
 Status values: Not Started, In Progress, Complete, Cancelled, Held.
 
@@ -185,14 +185,13 @@ replace the network-policy proof. Native work follows existing authorization req
 
 ## Progress
 
-EP-192 and EP-197 are complete. EP-192 covers the contract package, the projections, every
-`--contract 1` command, and F94, F107 and F118 (Verifying); the Kotei relay waits for a `kotei`
-session. EP-197 covers the server, its Hurl suite and a local measurement (warm p95 under 130 ms
-at concurrency 8 on 250 sites). EP-193 M1–M2 are done (the shared reader and `site list`); its
-M3 remote timing needs a real GCS context. EP-196 M1–M2 are done, and its M3 Pulumi component is
-written and unit-tested, awaiting a disposable cloud preview. EP-198 waits for EP-196.
-The credential's actual project lookup, provider IAM enforcement and local mount/network behavior
-remain explicit implementation proofs, not claims established by this documentation review.
+EP-192 and EP-197 are complete. EP-193 M1–M2 are done; its M3 remote timing needs a real GCS
+context. EP-196 M1–M2 are done; its M3 Pulumi preview is the first step of EP-198 M3. EP-198 M1
+is done offline: the opt-in `platform:admin-api` scope, the gateway's problem-shaped answers on
+`admin.<base>/v1`, the local store mount and the cloud reader Secret. Next is EP-198 M2, a
+disposable local context. It first builds the image, which needs a container daemon.
+Everything that remains is native: EP-198 M2 locally; then, with the operator's go-ahead, EP-196
+M3's preview and apply, EP-193 M3's GCS timing and EP-198 M3 on the intranet.
 
 
 ## Surprises & Discoveries
@@ -204,6 +203,12 @@ identity already has mutating permissions. Those source findings motivate the co
 
 
 ## Decision Log
+
+2026-10-17: EP-198 M1–M2 depend on EP-196 M2's service store, which is complete. Only EP-198 M3
+needs EP-196 M3, whose cloud preview and apply open M3. The admin API is opt-in per context,
+and the gateway contract gains the `api` backend role and five gateway problem codes in the shared
+catalog (`unauthenticated`, `forbidden`, `authorization_unavailable`, `upstream_unavailable`,
+`upstream_timeout`). Details are in EP-198's Decision Log.
 
 2026-10-16 (EP-197 M1): The upstream servant-client `MultiVerb` client cannot decode a declared
 problem or a bodyless 304 (it checks the verb's media list first). `nagare-api` owns the client

@@ -6,6 +6,8 @@ module Nagare.Cli.Bootstrap.Local
 where
 
 import Data.Aeson qualified as Aeson
+import Data.Aeson.KeyMap qualified as KeyMap
+import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.Generics.Labels ()
 import Data.List.NonEmpty qualified as NE
@@ -46,7 +48,7 @@ import Nagare.Resource.Policy qualified as ResourcePolicy
 import Nagare.Resource.Reference qualified as ResourceReference
 import Nagare.Resource.Types qualified as Resource
 import Nagare.Resource.Wire qualified as ResourceWire
-import Nagare.Target (ActiveTarget, Mode (Local))
+import Nagare.Target (ActiveTarget, Mode (Local), contextNameText, nagareStateDir)
 import System.FilePath ((</>))
 
 data LocalSubstrateSpec = LocalSubstrateSpec
@@ -84,8 +86,7 @@ buildLocalSubstrateCandidate ::
 buildLocalSubstrateCandidate mode active workspace snapshot
   | active ^. #profile . #mode /= Local = pure Nothing
   | otherwise = do
-      let source = workspace ^. #root </> "cluster/bootstrap/local-substrate.json"
-      bytes <- BS.readFile source
+      (source, bytes) <- localSubstrateSpecSource active (workspace ^. #root </> "cluster/bootstrap/local-substrate.json")
       spec <- either (dieT . T.pack) pure (Aeson.eitherDecodeStrict' bytes)
       unless
         ( localSpecVersion spec == 1
@@ -176,3 +177,27 @@ buildLocalSubstrateCandidate mode active workspace snapshot
               (dieT . T.pack . show)
               pure
               (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
+
+-- | The reviewed substrate specification. A context with the admin API
+-- enabled (EP-198) adds @inventoryMount@, its own store directory, which the
+-- cluster's server node mounts read-only at @/var/lib/nagare/inventory@; that
+-- derived specification is written beside the context's store, so its digest
+-- differs from the packaged one and an existing cluster without the mount is
+-- refused rather than silently reused.
+localSubstrateSpecSource :: ActiveTarget -> FilePath -> IO (FilePath, ByteString)
+localSubstrateSpecSource active packaged = do
+  original <- BS.readFile packaged
+  if not (active ^. #profile . #adminApiEnabled)
+    then pure (packaged, original)
+    else do
+      stateRoot <- nagareStateDir
+      let contextDir = stateRoot </> T.unpack (contextNameText (active ^. #contextName))
+          derived = contextDir </> "local-substrate.json"
+      value <- either (dieT . T.pack) pure (Aeson.eitherDecodeStrict' original)
+      withMount <- case value of
+        Aeson.Object fields ->
+          pure (Aeson.Object (KeyMap.insert "inventoryMount" (Aeson.String (T.pack (contextDir </> "inventory"))) fields))
+        _ -> dieT "local substrate specification is not an object"
+      encoded <- either dieT pure (ResourceWire.canonicalValue withMount)
+      BS.writeFile derived encoded
+      pure (derived, encoded)

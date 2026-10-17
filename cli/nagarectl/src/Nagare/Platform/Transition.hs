@@ -248,6 +248,9 @@ transitionTable =
       "the activation reverts itself unless confirmed; resume or recover the host operation"
       Unchanged
   , platformScope 6 "kubeconfig" Unchanged
+  , -- EP-198: opt in per context with NAGARE_ADMIN_API_ENABLED=1; the
+    -- fixture's local context does not enable it.
+    platformScope 7 "admin-api" NotInLocalContext
   , platformScope 7 "auth" Unchanged
   , platformScope 7 "cert-manager" Unchanged
   , platformScope 7 "certificate-issuer" Unchanged

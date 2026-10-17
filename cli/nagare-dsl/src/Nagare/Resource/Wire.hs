@@ -408,11 +408,13 @@ instance FromJSON DeclaredOperation where parseJSON = genericParseJSON options
 instance ToJSON BackendRole where
   toJSON ProtectedBackend = String "protected"
   toJSON PortalBackend = String "portal"
+  toJSON ApiBackend = String "api"
 
 instance FromJSON BackendRole where
   parseJSON = withText "backend role" $ \case
     "protected" -> pure ProtectedBackend
     "portal" -> pure PortalBackend
+    "api" -> pure ApiBackend
     _ -> fail "unknown backend role"
 
 -- Preserve the v1 namespace contribution representation in accepted scopes.

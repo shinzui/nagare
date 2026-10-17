@@ -16,6 +16,7 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src
+COPY cli/nagare-contract/ cli/nagare-contract/
 COPY cli/nagare-dsl/ cli/nagare-dsl/
 COPY cli/nagare-access/ cli/nagare-access/
 

@@ -189,6 +189,7 @@ library
     Nagare.Inventory.Collection.Runtime
     Nagare.Inventory.CollectionPolicy
     Nagare.Inventory.Command
+    Nagare.Inventory.Components.AdminApi
     Nagare.Inventory.Components.Auth
     Nagare.Inventory.Components.ControllerImage
     Nagare.Inventory.Components.Foundation
@@ -542,6 +543,7 @@ test-suite nagarectl-test
     HostSpec
     InventoryAccessSpec
     InventoryActionPublicationSpec
+    InventoryAdminApiSpec
     InventoryApplicationRetireSpec
     InventoryApplicationSpec
     InventoryApplicationUpdateRecoverySpec

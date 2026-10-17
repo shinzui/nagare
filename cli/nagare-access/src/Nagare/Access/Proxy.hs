@@ -30,6 +30,7 @@ import Nagare.Access.Auth (AuthenticatedUser (..), PortalIdentity (..), PortalPa
 import Nagare.Access.BackendMap (BackendTarget (..), Portal (..), publicHostText)
 import Nagare.Access.Portal (AccessToken (..), CapturedResponse (..), PortalPage (..), PortalPageKind (..), ReturnTarget (..), decodeSessionHandoff, renderReturnTarget, safePathText)
 import Nagare.Access.Prelude
+import Nagare.Access.Response (UpstreamFailure (..), requestShapeFor, requestShapeFromWai, upstreamFailureResponse)
 import Network.HTTP.Client qualified as HC
 import Network.HTTP.Client.Internal qualified as HCI
 import Network.HTTP.Client.TLS (newTlsManager)
@@ -47,18 +48,22 @@ proxyForwarder manager user publicHost target waiReq = do
       then buildWebSocketProxyRequest user publicHost target waiReq
       else buildProxyRequest user publicHost target waiReq
   case built of
-    Left err ->
-      pure (badGatewayResponse err)
+    Left err -> do
+      putStrLn ("upstream for " <> Text.unpack publicHost <> " is unusable: " <> Text.unpack err)
+      pure (upstreamFailureResponse shape UpstreamUnreachable)
     Right proxyReq
       | upgrade ->
           pure (webSocketProxyResponse manager proxyReq)
       | otherwise -> do
           upstream <- try (HC.responseOpen proxyReq manager)
-          pure $ case upstream of
-            Left (err :: HC.HttpException) ->
-              badGatewayResponse ("upstream request failed: " <> Text.pack (show err))
+          case upstream of
+            Left (err :: HC.HttpException) -> do
+              putStrLn ("upstream request for " <> Text.unpack publicHost <> " failed: " <> describeHttpException err)
+              pure (upstreamFailureResponse shape (classifyHttpException err))
             Right response ->
-              proxyResponseToWai response
+              pure (proxyResponseToWai response)
+  where
+    shape = requestShapeFor target waiReq
 
 -- | Forward a request to the configured portal, intercepting its two trusted
 -- session-control response headers before they can reach the browser.
@@ -70,15 +75,34 @@ portalForwarder manager portal identity waiReq = do
       then buildPortalWebSocketRequest portal identity waiReq
       else buildPortalRequest portal identity waiReq
   case built of
-    Left err -> pure (PortalPassThrough (badGatewayResponse err))
+    Left err -> do
+      putStrLn ("the portal upstream is unusable: " <> Text.unpack err)
+      pure (PortalPassThrough (upstreamFailureResponse shape UpstreamUnreachable))
     Right proxyReq
       | upgrade -> pure (PortalPassThrough (webSocketProxyResponse manager proxyReq))
       | otherwise -> do
           opened <- try (HC.responseOpen proxyReq manager)
           case opened of
-            Left (err :: HC.HttpException) ->
-              pure (PortalPassThrough (badGatewayResponse ("upstream request failed: " <> Text.pack (show err))))
+            Left (err :: HC.HttpException) -> do
+              putStrLn ("portal upstream request failed: " <> describeHttpException err)
+              pure (PortalPassThrough (upstreamFailureResponse shape (classifyHttpException err)))
             Right response -> interceptPortalResponse response
+  where
+    shape = requestShapeFromWai waiReq
+
+-- | A response-header timeout is the upstream's 504; every other failure
+-- (refused or reset connection, connection timeout, bad URL) is a 502.
+classifyHttpException :: HC.HttpException -> UpstreamFailure
+classifyHttpException = \case
+  HC.HttpExceptionRequest _ HC.ResponseTimeout -> UpstreamTimedOut
+  _ -> UpstreamUnreachable
+
+-- | The exception's content without its request, whose rendering would
+-- include forwarded headers; for the log only, never a response.
+describeHttpException :: HC.HttpException -> String
+describeHttpException = \case
+  HC.HttpExceptionRequest _ content -> show content
+  HC.InvalidUrlException url reason -> "invalid URL " <> url <> ": " <> reason
 
 portalPageFetcher :: HC.Manager -> Portal -> PortalPageRequest -> IO (Maybe PortalPage)
 portalPageFetcher manager portal pageRequest = do
@@ -157,6 +181,8 @@ buildProxyRequest user publicHost target waiReq = do
               hardenRequestHeaders publicHost user (Wai.requestHeaders waiReq)
           , HC.decompress = const False
           , HC.redirectCount = 0
+          , HC.responseTimeout =
+              maybe (HC.responseTimeout baseReq) (HC.responseTimeoutMicro . (* 1000000)) (target ^. #timeoutSeconds)
           }
 
 buildPortalRequest :: Portal -> PortalIdentity -> Wai.Request -> IO (Either Text HC.Request)

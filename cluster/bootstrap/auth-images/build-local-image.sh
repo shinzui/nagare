@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat >&2 <<'USAGE'
-Usage: cluster/bootstrap/auth-images/build-local-image.sh <nagare-access|shomei|en> [tag]
+Usage: cluster/bootstrap/auth-images/build-local-image.sh <nagare-access|shomei|en|nagare-admin-api> [tag]
 
 Builds one auth-plane image from local source checkouts instead of fetching the
 private shomei/en repositories during Docker build.
@@ -14,6 +14,7 @@ Relevant environment variables:
   NAGARE_AUTH_TAG=<tag>          Default tag when [tag] is omitted.
   NAGARE_AUTH_IMAGE=<image>      Exact image reference override.
   NAGARE_ACCESS_IMAGE=<image>    Exact image override for nagare-access.
+  NAGARE_ADMIN_API_BUILD_IMAGE=<image> Exact image override for nagare-admin-api.
   SHOMEI_IMAGE=<image>           Exact image override for shomei.
   EN_IMAGE=<image>               Exact image override for en.
   NAGARE_REGISTRY_HOST=<host>    Default: us-west1-docker.pkg.dev
@@ -50,7 +51,7 @@ service="${1:-}"
 shift || true
 
 case "$service" in
-  nagare-access|shomei|en) ;;
+  nagare-access|shomei|en|nagare-admin-api) ;;
   *) usage; exit 2 ;;
 esac
 
@@ -91,6 +92,7 @@ fi
 image_override="${NAGARE_AUTH_IMAGE:-}"
 case "$service" in
   nagare-access) image_override="${NAGARE_ACCESS_IMAGE:-$image_override}" ;;
+  nagare-admin-api) image_override="${NAGARE_ADMIN_API_BUILD_IMAGE:-$image_override}" ;;
   shomei) image_override="${SHOMEI_IMAGE:-$image_override}" ;;
   en) image_override="${EN_IMAGE:-$image_override}" ;;
 esac
@@ -281,6 +283,7 @@ constraints:
 
 packages:
   nagare/cli/nagare-access
+  nagare/cli/nagare-contract
   nagare/cli/nagare-dsl
 EOF
       write_shomei_packages
@@ -316,6 +319,32 @@ EOF
       write_common_cabal_tail
     } > "$tmpdir/workspace/cabal.project"
     cp "$tmpdir/workspace/shomei/deploy/entrypoint.sh" "$tmpdir/runtime/usr/local/bin/auth-entrypoint"
+    ;;
+  nagare-admin-api)
+    # EP-198: the read-only admin API builds in nagarectl's workspace, with
+    # its reviewed source pins (everything after its packages block).
+    cabal_targets=(exe:nagare-api-server)
+    cabal_binaries=(exe:nagare-api-server)
+    {
+      cat <<'EOF'
+with-compiler: ghc-9.12.4
+write-ghc-environment-files: never
+
+packages:
+  nagare/cli/nagarectl
+  nagare/cli/nagare-dsl
+  nagare/cli/nagare-contract
+  nagare/cli/nagare-api
+  nagare/cli/nagare-api-server
+
+EOF
+      awk 'found || /^source-repository-package/ { found = 1; print }' "$root/cli/nagarectl/cabal.project"
+    } > "$tmpdir/workspace/cabal.project"
+    cat > "$tmpdir/runtime/usr/local/bin/auth-entrypoint" <<'EOF'
+#!/usr/bin/env sh
+set -eu
+exec /usr/local/bin/nagare-api-server "$@"
+EOF
     ;;
   en)
     cabal_targets=(exe:en-server exe:en-migrate)

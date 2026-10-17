@@ -326,6 +326,8 @@ renderTargetEnv tp =
     , "export NAGARE_BACKUP_BUCKET=" <> tp ^. #backupBucket
     , "export NAGARE_NIX_CACHE_ENABLED=" <> boolToken (tp ^. #nixCacheEnabled)
     , "export NAGARE_CDN_ENABLED=" <> boolToken (tp ^. #cdnEnabled)
+    , "export NAGARE_ADMIN_API_ENABLED=" <> boolToken (tp ^. #adminApiEnabled)
+    , "export NAGARE_PROJECT_NUMBER=" <> tp ^. #projectNumber
     , "export NAGARE_EXTERNAL_DOMAIN_TLS_ENABLED=" <> boolToken (tp ^. #externalDomainTlsEnabled)
     , "export NAGARE_NIX_CACHE_BUCKET=" <> tp ^. #nixCacheBucket
     , "export NAGARE_BASE_DOMAIN=" <> tp ^. #baseDomain
@@ -387,6 +389,9 @@ seedKeys tp =
            then [("nagare:enableCdn", "true"), ("nagare:cdnApex", "false")]
            else []
        )
+    -- EP-196: the admin API's dedicated reader account; absent otherwise, so
+    -- an existing stack previews unchanged.
+    <> [("nagare:enableAdminApiReader", "true") | tp ^. #adminApiEnabled]
 
 -- | The argv for one @pulumi -C infra/pulumi config set --stack STACK KEY VALUE@.
 -- Pure so it is unit-testable without Pulumi.

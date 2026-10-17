@@ -61,6 +61,7 @@ library
     http-types,
     jose,
     lens ^>=5.3,
+    nagare-contract,
     ram,
     servant-client,
     shomei-client,
@@ -93,6 +94,7 @@ test-suite nagare-access-test
   main-is: Spec.hs
   hs-source-dirs: test
   other-modules:
+    AdminApiGatewaySpec
     BackendMapSpec
     DecisionCacheSpec
     EnContractSpec
@@ -116,6 +118,7 @@ test-suite nagare-access-test
     jose,
     lens ^>=5.3,
     nagare-access,
+    nagare-contract,
     network,
     ram,
     servant-client,

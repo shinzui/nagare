@@ -19,24 +19,37 @@ also asks only for the read-only storage scope and refuses writes before any req
 
 ## Create the key
 
-After `just infra-up` has applied the account, from the operator's private repository, with the
-context's project active:
+The context opts in with `NAGARE_ADMIN_API_ENABLED=1` (through `nagarectl context review`), which
+also seeds `enableAdminApiReader: true` into its Pulumi config. After `just infra-up` has applied
+the account, from the operator's private repository, with the context's project active:
 
 ```bash
 email=$(pulumi -C infra/pulumi stack output adminApiReaderEmail)
+pulumi -C infra/pulumi stack output adminApiProjectNumber   # the context's NAGARE_PROJECT_NUMBER
 gcloud iam service-accounts keys create reader.json --iam-account "$email"
-sops --encrypt --in-place reader.json
 ```
 
-Keep `reader.json` only in the operator repository's sops material. The deployment (EP-198)
-decrypts it into a Kubernetes Secret mounted read-only into the admin API pod, together with
-`adminApiProjectNumber` as the server's `--project-number`. The server exchanges the key for an
+Wrap the key in the Secret the deployment binds, encrypt it in the context's cluster-secrets
+directory (beside `grafana-admin.yaml`), and delete the plaintext:
+
+```bash
+secrets="${XDG_CONFIG_HOME:-$HOME/.config}/nagare/cluster-secrets/<context>"
+{ printf 'apiVersion: v1\nkind: Secret\nmetadata:\n  name: nagare-admin-api-reader\n  namespace: nagare-system\nstringData:\n  key.json: |\n'
+  sed 's/^/    /' reader.json; } > "$secrets/admin-api-reader.yaml"
+sops --config "$secrets/.sops.yaml" --encrypt --in-place "$secrets/admin-api-reader.yaml"
+rm reader.json
+```
+
+The Secret must hold exactly `key.json`. The platform's `admin-api` scope (EP-198) decrypts it
+into a private member mounted read-only into the admin API pod, and passes
+`NAGARE_PROJECT_NUMBER` as the server's `--project-number`. The server exchanges the key for an
 access token at `https://www.googleapis.com/oauth2/v4/token` (gogol's service-account flow) and
 refreshes it once for all waiting requests.
 
 ## Rotate and revoke
 
-Create the new key as above, replace the sops file, roll the admin API, then delete the old key:
+Create the new key as above, replace the sops file, run the platform transition that re-accepts the
+`admin-api` scope, then delete the old key:
 
 ```bash
 gcloud iam service-accounts keys list --iam-account "$email"

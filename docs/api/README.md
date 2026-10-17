@@ -99,10 +99,17 @@ can succeed later. The access gateway adds the optional extension members `error
 | `store_invalid` | 503 | false |
 | `store_credentials_unavailable` | 503 | true |
 | `server_busy` | 503 | true |
+| `unauthenticated` | 401 | false |
+| `forbidden` | 403 | false |
+| `authorization_unavailable` | 503 | true |
+| `upstream_unavailable` | 502 | true |
+| `upstream_timeout` | 504 | true |
 
 `unclassified` carries any CLI refusal not yet given its own code, with the CLI's existing message
 in `detail`. The admin API's own codes follow it: `server_busy` carries `Retry-After`, and every
-error response is `Cache-Control: no-store`. A new code is an additive catalog entry.
+error response is `Cache-Control: no-store`. The access gateway's codes come last: it answers them
+on the admin host's `/v1` paths before the server is reached, a 401 with `WWW-Authenticate: Bearer`
+and, for compatibility, the `error` and `login` members. A new code is an additive catalog entry.
 
 ## The admin API
 

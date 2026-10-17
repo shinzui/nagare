@@ -1,0 +1,148 @@
+# The read-only admin API in a local context (EP-198). nagarectl substitutes
+# @IMAGE@, @CONTEXT@ and @PROJECT@, then reviews these objects as scope
+# platform:admin-api. The context's own store is the node directory
+# /var/lib/nagare/inventory, which the local substrate mounts read-only from
+# the workstation; the pod mounts it read-only again and never initializes it.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nagare-admin-api
+  namespace: nagare-system
+  labels:
+    app.kubernetes.io/name: nagare-admin-api
+    app.kubernetes.io/part-of: nagare-platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nagare-admin-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nagare-admin-api
+        app.kubernetes.io/part-of: nagare-platform
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 15
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: nagare-admin-api
+          image: "@IMAGE@"
+          args:
+            - --context
+            - "@CONTEXT@"
+            - --project
+            - "@PROJECT@"
+            - --store-dir
+            - /var/lib/nagare/inventory
+            - --host
+            - 0.0.0.0
+            - --port
+            - "8085"
+          env:
+            - name: TMPDIR
+              value: /tmp
+            - name: HOME
+              value: /tmp
+          ports:
+            - name: http
+              containerPort: 8085
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 2
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 2
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: inventory
+              mountPath: /var/lib/nagare/inventory
+              readOnly: true
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+        # Directory, not DirectoryOrCreate: a substrate without the mount
+        # fails the pod instead of serving an empty store.
+        - name: inventory
+          hostPath:
+            path: /var/lib/nagare/inventory
+            type: Directory
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nagare-admin-api
+  namespace: nagare-system
+  labels:
+    app.kubernetes.io/name: nagare-admin-api
+    app.kubernetes.io/part-of: nagare-platform
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: nagare-admin-api
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+# Ingress: only the gateway's pods. Egress: cluster DNS only; the store is a
+# local mount.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: nagare-admin-api
+  namespace: nagare-system
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: nagare-admin-api
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: nagare-system}
+          podSelector:
+            matchLabels: {serving.knative.dev/service: nagare-access}
+      ports: [{protocol: TCP, port: 8085}]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+          podSelector:
+            matchLabels: {k8s-app: kube-dns}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}

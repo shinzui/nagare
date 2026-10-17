@@ -28,6 +28,7 @@ import Nagare.Inventory.Bootstrap
   , compileBootstrapWithAuthAndScopes
   , composePlatformChanges
   )
+import Nagare.Inventory.Components.AdminApi
 import Nagare.Inventory.Components.Auth
   ( AuthInput (..)
   , AuthMode (..)
@@ -53,6 +54,7 @@ import Nagare.Inventory.Components.ObservabilityExtras
   )
 import Nagare.Inventory.Components.ObservabilitySecrets
   ( compileObservabilitySecrets
+  , loadContextSecretObject
   , loadObservabilitySecretObjects
   , readAlertmanagerEnabled
   )
@@ -86,9 +88,12 @@ import Nagare.Resource.Types qualified as Resource
 import Nagare.Resource.Wire qualified as ResourceWire
 import Nagare.Target
   ( ActiveTarget
+  , InventoryStoreKind (InventoryStoreGcs)
   , Mode (Cloud, Local)
   , acmeDirectoryUrl
   , contextNameText
+  , defaultGcsInventoryStoreUrl
+  , effectiveInventoryStore
   , parseAcmeDirectory
   , registryPrefix
   , storeBackendFor
@@ -334,12 +339,23 @@ buildPlatformCandidate active paths workspace snapshot = do
         Nothing -> ([], Map.empty)
         Just (imageScope, cacheScope, native) -> ([imageScope, cacheScope], native)
       localNative = maybe Map.empty snd localStore
-      nativeMaps = [baseNative, orderedObservabilityNative, extraNative, secretNative, cacheNative, localNative]
+  adminApi <-
+    if profile ^. #adminApiEnabled
+      then
+        Just
+          <$> compilePlatformAdminApi
+            active
+            root
+            foundation
+            (ResourceInventory.inventoryDeclarations (ResourceInventory.candidateInventory base))
+      else pure Nothing
+  let (adminApiScopes, adminApiNative) = maybe ([], Map.empty) (\(scope, members) -> ([scope], members)) adminApi
+      nativeMaps = [baseNative, orderedObservabilityNative, extraNative, secretNative, cacheNative, localNative, adminApiNative]
       native = Map.unions nativeMaps
   unless
     (Map.size native == sum (map Map.size nativeMaps))
     (dieT "bootstrap component native members share an identity")
-  extra <- case orderedObservabilityScopes <> [observabilityExtra, secretScope] <> cacheScopes of
+  extra <- case orderedObservabilityScopes <> [observabilityExtra, secretScope] <> cacheScopes <> adminApiScopes of
     firstScope : remaining -> pure (ResourceInventory.ReplaceScope firstScope NE.:| map ResourceInventory.ReplaceScope remaining)
     [] -> dieT "pinned bootstrap component set is empty"
   let kubeconfigEdges =
@@ -507,3 +523,47 @@ readBootstrapKubeVersion active = do
         _ -> dieT "Kubernetes server version has no gitVersion"
       _ -> dieT "Kubernetes version response has no serverVersion"
     _ -> dieT "Kubernetes version response is not an object"
+
+-- | The opt-in admin API scope (EP-198). Its image is an immutable reference
+-- like the auth plane's. A cloud context serves its GCS inventory through the
+-- reader Secret in its cluster-secrets directory; a cloud context whose store
+-- is still on a workstation must migrate it first, and a local context reads
+-- the store its substrate mounts.
+compilePlatformAdminApi ::
+  ActiveTarget ->
+  FilePath ->
+  FoundationInput ->
+  [ResourceInventory.Declaration] ->
+  IO (ResourceInventory.ScopeDeclaration, Map.Map Resource.ResourceId (ResourceInventory.ManagedResource, ByteString))
+compilePlatformAdminApi active root foundation declarations = do
+  let profile = active ^. #profile
+      context = contextNameText (active ^. #contextName)
+  image <-
+    lookupEnv "NAGARE_ADMIN_API_IMAGE"
+      >>= maybe (dieT "NAGARE_ADMIN_API_ENABLED=1 requires NAGARE_ADMIN_API_IMAGE as an immutable image reference") (pure . T.pack)
+  store <- case profile ^. #mode of
+    Local -> pure LocalMountedStore
+    Cloud -> do
+      unless
+        (effectiveInventoryStore profile == InventoryStoreGcs)
+        (dieT "the admin API serves a cloud context's GCS inventory; migrate this context's workstation store with `nagarectl inventory store migrate` first")
+      reader <-
+        loadContextSecretObject root context "admin API reader" adminApiReaderSecretFile
+          >>= either dieT pure
+      let url =
+            if T.null (profile ^. #inventoryStoreUrl)
+              then defaultGcsInventoryStoreUrl context profile
+              else profile ^. #inventoryStoreUrl
+      pure (CloudReaderStore url (profile ^. #projectNumber) reader)
+  compileAdminApi
+    AdminApiInput
+      { root = root
+      , foundation = foundation
+      , baseDomain = profile ^. #baseDomain
+      , context = context
+      , project = profile ^. #project
+      , image = image
+      , store = store
+      }
+    declarations
+    >>= either (dieT . T.pack . show) pure

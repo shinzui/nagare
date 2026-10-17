@@ -36,7 +36,7 @@ import Nagare.Access.Credential (Credential (SessionCookie), credentialToken, ex
 import Nagare.Access.DecisionCache
 import Nagare.Access.Portal
 import Nagare.Access.Prelude hiding ((.=))
-import Nagare.Access.Response (challengeResponse, forbiddenResponse, missingBackendResponse, requestShapeFromWai)
+import Nagare.Access.Response (authorizationUnavailableResponse, challengeResponse, forbiddenResponse, missingBackendResponse, requestShapeFor, requestShapeFromWai)
 import Network.HTTP.Types
   ( Header
   , HeaderName
@@ -66,6 +66,7 @@ import Network.Wai
   , responseLBS
   , strictRequestBody
   )
+import System.Timeout (timeout)
 
 defaultRefreshCookieMaxAgeSeconds :: Int
 defaultRefreshCookieMaxAgeSeconds = 30 * 24 * 60 * 60
@@ -120,7 +121,7 @@ handleProtected services loginPage host req target = do
         cacheLookupOrLoad
           (services ^. #decisionCache)
           DecisionKey {subject = user ^. #subject, host = hostText}
-          ((services ^. #authorizeUser) user hostText)
+          (boundedAuthorization ((services ^. #authorizeUser) user hostText))
       case outcome of
         AuthorizationDecision AccessAllowed ->
           addResponseHeaders responseHeaders <$> (services ^. #forwardAuthorized) user hostText target req
@@ -141,12 +142,24 @@ handleProtected services loginPage host req target = do
               host
               requestShape
               user
-              (textResponse status503 "authorization service unavailable")
+              (authorizationUnavailableResponse requestShape)
           pure (addResponseHeaders responseHeaders unavailable)
   where
     hostText = publicHostText host
-    requestShape = requestShapeFromWai req
+    requestShape = requestShapeFor target req
     challenge = challengeFor loginPage host requestShape
+
+-- | How long one authorization may take. An authorizer that has not answered
+-- by then is unavailable, which is a 503 and is never cached; without the
+-- bound a stalled authorizer would hold the request for the HTTP client's
+-- own thirty seconds, past an API client's deadline.
+authorizationBudgetMicroseconds :: Int
+authorizationBudgetMicroseconds = 5000000
+
+boundedAuthorization :: IO AuthorizationResult -> IO AuthorizationResult
+boundedAuthorization authorize =
+  fromMaybe (AuthorizationUnavailable "authorization timed out")
+    <$> timeout authorizationBudgetMicroseconds authorize
 
 loginPageFor :: BackendMap -> LoginPage
 loginPageFor = maybe BuiltinLoginPage PortalLoginPage . findPortal

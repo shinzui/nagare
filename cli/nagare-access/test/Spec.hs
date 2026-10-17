@@ -3,6 +3,7 @@
 
 module Main (main) where
 
+import AdminApiGatewaySpec (adminApiGatewayTests)
 import BackendMapSpec (backendMapTests, backendSourceTests)
 import Control.Concurrent (threadDelay)
 import Control.Exception (SomeException (..), bracket)
@@ -71,6 +72,7 @@ import Nagare.Access.Prelude hiding ((.=))
 import Nagare.Access.Proxy
 import Nagare.Access.Shomei
 import Nagare.Access.ShomeiClient
+import Nagare.Contract.Problem (ProblemDetails)
 import Network.HTTP.Client qualified as HC
 import Network.HTTP.Types (HeaderName, Status, hAccept, hAuthorization, hHost, hLocation, status200, status204, status302, status303, status400, status401, status403, status404, status502, status503)
 import Network.Socket qualified as Socket
@@ -126,6 +128,7 @@ main =
       , proxyTests
       , portalTests
       , challengeTests
+      , adminApiGatewayTests
       , appTests
       ]
 
@@ -215,16 +218,16 @@ challengeTests =
     , testCase "login path encodes the return destination" $
         loginPathFor "/foo bar" @?= "/_nagare/login?rd=%2Ffoo%20bar"
     , testCase "HTML navigation gets a redirect challenge" $
-        classifyChallenge (RequestShape "/" [(hAccept, "text/html")])
+        classifyChallenge (RequestShape "/" [(hAccept, "text/html")] False)
           @?= RedirectDocument "/_nagare/login?rd=%2F"
     , testCase "JSON request gets a JSON challenge" $
-        classifyChallenge (RequestShape "/api" [(hAccept, "application/json")])
+        classifyChallenge (RequestShape "/api" [(hAccept, "application/json")] False)
           @?= JsonApi "/_nagare/login?rd=%2Fapi"
     , testCase "XHR request gets a JSON challenge" $
-        classifyChallenge (RequestShape "/api" [("X-Requested-With", "XMLHttpRequest")])
+        classifyChallenge (RequestShape "/api" [("X-Requested-With", "XMLHttpRequest")] False)
           @?= JsonApi "/_nagare/login?rd=%2Fapi"
     , testCase "cors fetch gets a JSON challenge" $
-        classifyChallenge (RequestShape "/api" [("Sec-Fetch-Mode", "cors")])
+        classifyChallenge (RequestShape "/api" [("Sec-Fetch-Mode", "cors")] False)
           @?= JsonApi "/_nagare/login?rd=%2Fapi"
     ]
 
@@ -495,7 +498,7 @@ proxyTests =
                 , rawQueryString = "?v=1"
                 }
             user = AuthenticatedUser {subject = "user:alice"}
-            target = BackendTarget "http://tools.personal.svc.cluster.local/base" ProtectedBackend
+            target = BackendTarget "http://tools.personal.svc.cluster.local/base" ProtectedBackend Nothing Nothing
         proxyReq <- assertRight =<< buildProxyRequest user "tools.example.com" target waiReq
         HC.method proxyReq @?= "POST"
         HC.path proxyReq @?= "/base/assets/app.js"
@@ -511,7 +514,7 @@ proxyTests =
                     withHeader hHost "tools.example.com" $
                       setPath defaultRequest "/"
             user = AuthenticatedUser {subject = "user:alice"}
-            target = BackendTarget "http://tools.personal.svc.cluster.local" ProtectedBackend
+            target = BackendTarget "http://tools.personal.svc.cluster.local" ProtectedBackend Nothing Nothing
         proxyReq <- assertRight =<< buildProxyRequest user "tools.example.com" target waiReq
         lookup "X-Forwarded-User" (HC.requestHeaders proxyReq) @?= Just "user:alice"
         lookup "X-Forwarded-Host" (HC.requestHeaders proxyReq) @?= Just "tools.example.com"
@@ -538,7 +541,7 @@ proxyTests =
         testWithApplication (pure streamingUpstreamApp) $ \port -> do
           manager <- HC.newManager HC.defaultManagerSettings
           let user = AuthenticatedUser {subject = "user:alice"}
-              target = BackendTarget (Text.pack ("http://127.0.0.1:" <> show port)) ProtectedBackend
+              target = BackendTarget (Text.pack ("http://127.0.0.1:" <> show port)) ProtectedBackend Nothing Nothing
               proxyApp req respond =
                 proxyForwarder manager user "tools.example.com" target req >>= respond
           res <- runSession (request (setPath defaultRequest "/events")) proxyApp
@@ -550,7 +553,7 @@ proxyTests =
         testWithApplication (pure forgedSessionUpstreamApp) $ \port -> do
           manager <- HC.newManager HC.defaultManagerSettings
           let user = AuthenticatedUser {subject = "user:alice"}
-              target = BackendTarget (Text.pack ("http://127.0.0.1:" <> show port)) ProtectedBackend
+              target = BackendTarget (Text.pack ("http://127.0.0.1:" <> show port)) ProtectedBackend Nothing Nothing
               proxyApp req respond = proxyForwarder manager user "app.example.test" target req >>= respond
           res <- runSession (request (setPath defaultRequest "/")) proxyApp
           simpleStatus res @?= status200
@@ -744,13 +747,9 @@ portalTests =
                 withHeader hHost "app.example.test" (setPath defaultRequest "/api")
         res <- runSession (request req) (appWithRuntime portalBackends testServices)
         simpleStatus res @?= status401
-        decode (simpleBody res)
-          @?= Just
-            ( object
-                [ "error" .= ("unauthenticated" :: Text)
-                , "login" .= ("https://auth.example.test/login?return_to=https%3A%2F%2Fapp.example.test%2Fapi" :: Text)
-                ]
-            )
+        problem <- assertRight (eitherDecode (simpleBody res) :: Either String ProblemDetails)
+        problem ^. #gatewayError @?= Just "unauthenticated"
+        problem ^. #login @?= Just "https://auth.example.test/login?return_to=https%3A%2F%2Fapp.example.test%2Fapi"
     , testCase "built-in login route redirects to portal unless break-glass is requested" $ do
         let baseReq = withHeader hHost "app.example.test" defaultRequest
         redirected <- runSession (request (setPath baseReq "/_nagare/login")) (appWithRuntime portalBackends testServices)
@@ -1072,7 +1071,8 @@ appTests =
         backends <- assertRight (backendMapFromList [("tools.example.com", "http://tools.personal.svc.cluster.local")])
         res <- runSession (request (withHeader hHost "tools.example.com" (withHeader hAccept "application/json" (setPath defaultRequest "/api")))) (appWithBackends backends)
         simpleStatus res @?= status401
-        simpleBody res @?= "{\"error\":\"unauthenticated\",\"login\":\"/_nagare/login?rd=%2Fapi\"}"
+        problem <- assertRight (eitherDecode (simpleBody res) :: Either String ProblemDetails)
+        (problem ^. #code, problem ^. #gatewayError, problem ^. #login) @?= ("unauthenticated", Just "unauthenticated", Just "/_nagare/login?rd=%2Fapi")
     , testCase "protected request with invalid token returns a challenge" $ do
         backends <- assertRight (backendMapFromList [("tools.example.com", "http://tools.personal.svc.cluster.local")])
         res <-
@@ -1087,7 +1087,7 @@ appTests =
         reached <- newIORef False
         res <-
           runSession
-            (request (withHeader hHost "demo.example.com" (withHeader "Authorization" "Bearer valid" (setPath defaultRequest "/"))))
+            (request (withHeader hHost "demo.example.com" (withHeader "Cookie" "nagare_session=valid" (setPath defaultRequest "/"))))
             (appWithRuntime backends (testServices & #authorizeUser .~ (\_ _ -> pure (AuthorizationDecision AccessDenied)) & #forwardAuthorized .~ (\_ _ _ _ -> writeIORef reached True >> pure (textResponse status200 "proxied"))))
         simpleStatus res @?= status403
         simpleBody res @?= "Forbidden"
@@ -1127,7 +1127,7 @@ appTests =
                 .~ cache
                 & #authorizeUser
                 .~ (\_ _ -> modifyIORef' loads (+ 1) >> pure (AuthorizationUnavailable "en is down"))
-            req = request (withHeader hHost "tools.example.com" (withHeader "Authorization" "Bearer valid" (setPath defaultRequest "/")))
+            req = request (withHeader hHost "tools.example.com" (withHeader "Cookie" "nagare_session=valid" (setPath defaultRequest "/")))
         runSession req (appWithRuntime backends services) >>= \res -> do
           simpleStatus res @?= status503
           simpleBody res @?= "authorization service unavailable\n"
@@ -1536,7 +1536,7 @@ websocketProxyApp :: Int -> Wai.Application
 websocketProxyApp upstreamPort req respond = do
   manager <- HC.newManager HC.defaultManagerSettings
   let user = AuthenticatedUser {subject = "user:alice"}
-      target = BackendTarget (Text.pack ("http://127.0.0.1:" <> show upstreamPort)) ProtectedBackend
+      target = BackendTarget (Text.pack ("http://127.0.0.1:" <> show upstreamPort)) ProtectedBackend Nothing Nothing
   proxyForwarder manager user "tools.example.com" target req >>= respond
 
 websocketUpstreamApp :: Wai.Application
@@ -1605,8 +1605,8 @@ portalBackends :: BackendMap
 portalBackends =
   either (error . Text.unpack) id $
     backendMapFromTargets
-      [ ("app.example.test", BackendTarget "http://app.personal.svc.cluster.local" ProtectedBackend)
-      , ("auth.example.test", BackendTarget "http://auth.personal.svc.cluster.local" PortalBackend)
+      [ ("app.example.test", BackendTarget "http://app.personal.svc.cluster.local" ProtectedBackend Nothing Nothing)
+      , ("auth.example.test", BackendTarget "http://auth.personal.svc.cluster.local" PortalBackend Nothing Nothing)
       ]
 
 portalForPort :: Int -> IO Portal
@@ -1615,7 +1615,7 @@ portalForPort port = do
   pure
     Portal
       { host = host
-      , target = BackendTarget (Text.pack ("http://127.0.0.1:" <> show port)) PortalBackend
+      , target = BackendTarget (Text.pack ("http://127.0.0.1:" <> show port)) PortalBackend Nothing Nothing
       }
 
 handoffHeader :: Text -> Text -> Maybe Text -> ByteString

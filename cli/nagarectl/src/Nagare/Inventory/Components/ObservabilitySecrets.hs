@@ -4,6 +4,8 @@ module Nagare.Inventory.Components.ObservabilitySecrets
   ( compileObservabilitySecrets
   , loadObservabilitySecretObjects
   , loadObservabilitySecretObjectsFromDirectory
+  , loadContextSecretObject
+  , normalizeSecretData
   , readAlertmanagerEnabled
   )
 where
@@ -72,9 +74,22 @@ loadObservabilitySecretObjectsFromDirectory ::
   Bool ->
   IO (Either Text [(SourceLocation, Value)])
 loadObservabilitySecretObjectsFromDirectory executable directory alertmanagerEnabled = do
-  grafana <- decryptSecret executable directory "grafana-admin.yaml" True
-  alertmanager <- decryptSecret executable directory "alertmanager-config.yaml" alertmanagerEnabled
+  grafana <- decryptSecret executable "observability" directory "grafana-admin.yaml" True
+  alertmanager <- decryptSecret executable "observability" directory "alertmanager-config.yaml" alertmanagerEnabled
   pure ((<>) <$> grafana <*> alertmanager)
+
+-- | One required sops-encrypted Kubernetes Secret from the context's
+-- operator-owned cluster-secrets directory, as plaintext for a private native
+-- member. @label@ names the Secret's purpose in errors, which never carry
+-- its contents.
+loadContextSecretObject :: FilePath -> Text -> Text -> FilePath -> IO (Either Text (SourceLocation, Value))
+loadContextSecretObject root context label filename = do
+  directory <- resolveDirectory root context
+  loaded <- decryptSecret "sops" label directory filename True
+  pure $ case loaded of
+    Left reason -> Left reason
+    Right [one] -> Right one
+    Right _ -> Left ("decrypted " <> label <> " input must contain exactly one Secret")
 
 compileObservabilitySecrets ::
   FoundationInput ->
@@ -86,7 +101,7 @@ compileObservabilitySecrets ::
     )
 compileObservabilitySecrets foundation objects = case traverse validate objects of
   Left reason -> pure (Left (invalid reason :| []))
-  Right names -> case traverse normalizeSecret objects of
+  Right names -> case traverse normalizeSecretData objects of
     Left reason -> pure (Left (invalid reason :| []))
     Right normalized -> do
       let input =
@@ -153,29 +168,34 @@ compileObservabilitySecrets foundation objects = case traverse validate objects 
         )
         (Left "Grafana admin Secret lacks required keys")
       pure name
-    normalizeSecret (location, Object root) = do
-      encoded <- case KM.lookup "stringData" root of
-        Nothing -> Right KM.empty
-        Just (Object fields) ->
-          KM.traverseWithKey
-            ( \_ -> \case
-                String value -> Right (String (b64encode value))
-                _ -> Left "observability Secret stringData must contain text values"
-            )
-            fields
-        _ -> Left "observability Secret stringData is malformed"
-      existing <- case KM.lookup "data" root of
-        Nothing -> Right KM.empty
-        Just (Object fields) | all isString (KM.elems fields) -> Right fields
-        _ -> Left "observability Secret data is malformed"
-      unless
-        (null (KM.keys (KM.intersection existing encoded)))
-        (Left "observability Secret repeats a key in data and stringData")
-      let native = KM.insert "data" (Object (KM.union existing encoded)) (KM.delete "stringData" root)
-      pure (location, Object native)
-    normalizeSecret _ = Left "observability Secret is not an object"
+
+-- | A Secret's @stringData@ moved into base64 @data@, so its native bytes
+-- are the object the API server stores.
+normalizeSecretData :: (SourceLocation, Value) -> Either Text (SourceLocation, Value)
+normalizeSecretData (location, Object root) = do
+  encoded <- case KM.lookup "stringData" root of
+    Nothing -> Right KM.empty
+    Just (Object fields) ->
+      KM.traverseWithKey
+        ( \_ -> \case
+            String value -> Right (String (b64encode value))
+            _ -> Left "Secret stringData must contain text values"
+        )
+        fields
+    _ -> Left "Secret stringData is malformed"
+  existing <- case KM.lookup "data" root of
+    Nothing -> Right KM.empty
+    Just (Object fields) | all isString (KM.elems fields) -> Right fields
+    _ -> Left "Secret data is malformed"
+  unless
+    (null (KM.keys (KM.intersection existing encoded)))
+    (Left "Secret repeats a key in data and stringData")
+  let native = KM.insert "data" (Object (KM.union existing encoded)) (KM.delete "stringData" root)
+  pure (location, Object native)
+  where
     isString (String _) = True
     isString _ = False
+normalizeSecretData _ = Left "Secret is not an object"
 
 resolveDirectory :: FilePath -> Text -> IO FilePath
 resolveDirectory root context = do
@@ -190,15 +210,15 @@ resolveDirectory root context = do
       sourceExists <- doesDirectoryExist sourceCompat
       pure (if contextExists then contextOwned else if sourceExists then sourceCompat else contextOwned)
 
-decryptSecret :: FilePath -> FilePath -> FilePath -> Bool -> IO (Either Text [(SourceLocation, Value)])
-decryptSecret executable directory filename required = do
+decryptSecret :: FilePath -> Text -> FilePath -> FilePath -> Bool -> IO (Either Text [(SourceLocation, Value)])
+decryptSecret executable label directory filename required = do
   let path = directory </> filename
   exists <- doesFileExist path
   if not exists
     then
       pure
         ( if required
-            then Left ("required encrypted observability Secret is missing: " <> T.pack filename)
+            then Left ("required encrypted " <> label <> " Secret is missing: " <> T.pack filename)
             else Right []
         )
     else do
@@ -219,20 +239,20 @@ decryptSecret executable directory filename required = do
           ) ::
           IO (Either IOException (ExitCode, String, String))
       pure $ do
-        (code, plaintext, _) <- first (const "could not run sops for observability Secret") decrypted
+        (code, plaintext, _) <- first (const ("could not run sops for " <> label <> " Secret")) decrypted
         unless
           (code == ExitSuccess)
-          (Left ("could not decrypt observability Secret: " <> T.pack filename))
+          (Left ("could not decrypt " <> label <> " Secret: " <> T.pack filename))
         parsed <-
           first
-            (const "decrypted observability Secret is malformed")
+            (const ("decrypted " <> label <> " Secret is malformed"))
             ( parseKubernetesManifest
-                (SourceLocation (T.pack filename) "encrypted-observability-secret")
+                (SourceLocation (T.pack filename) ("encrypted-" <> T.replace " " "-" (T.toLower label) <> "-secret"))
                 (TE.encodeUtf8 (T.pack plaintext))
             )
         case parsed of
           [one] -> Right [one]
-          _ -> Left "decrypted observability input must contain exactly one Secret"
+          _ -> Left ("decrypted " <> label <> " input must contain exactly one Secret")
 
 objectFields :: Value -> Either Text (KM.KeyMap Value)
 objectFields (Object fields) = Right fields

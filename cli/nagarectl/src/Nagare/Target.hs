@@ -376,6 +376,14 @@ data TargetProfile = TargetProfile
   , cdnEnabled :: !Bool
   -- ^ NAGARE_CDN_ENABLED; opt in to the billable, cloud-only Google CDN load
   -- balancer as reviewed cloud members (F43).
+  , adminApiEnabled :: !Bool
+  -- ^ NAGARE_ADMIN_API_ENABLED; opt in to the read-only admin API at
+  -- @admin.\<base domain>@ (EP-198). A cloud context also needs its reader
+  -- credential and 'projectNumber'; a local one, a substrate that mounts the
+  -- context's store.
+  , projectNumber :: !Text
+  -- ^ NAGARE_PROJECT_NUMBER; the project's numeric number, which the admin API
+  -- compares with the state bucket's owner. Empty when the API is off.
   , nixCacheBucket :: !Text
   -- ^ NAGARE_NIX_CACHE_BUCKET, default @"\<project>-nagare-nix-cache"@
   , baseDomain :: !Text
@@ -539,6 +547,8 @@ renderContextShellEnv name tp penv =
     , line "NAGARE_BACKUP_BUCKET" (tp ^. #backupBucket)
     , line "NAGARE_NIX_CACHE_ENABLED" (boolToken (tp ^. #nixCacheEnabled))
     , line "NAGARE_CDN_ENABLED" (boolToken (tp ^. #cdnEnabled))
+    , line "NAGARE_ADMIN_API_ENABLED" (boolToken (tp ^. #adminApiEnabled))
+    , line "NAGARE_PROJECT_NUMBER" (tp ^. #projectNumber)
     , line "NAGARE_EXTERNAL_DOMAIN_TLS_ENABLED" (boolToken (tp ^. #externalDomainTlsEnabled))
     , line "NAGARE_NIX_CACHE_BUCKET" (tp ^. #nixCacheBucket)
     , line "NAGARE_BASE_DOMAIN" (tp ^. #baseDomain)
@@ -749,6 +759,8 @@ profileFromContextMap ctx =
       backupBucket = mapOr ctx "NAGARE_BACKUP_BUCKET" (project <> "-nagare-backups")
       nixCacheEnabled = mapRaw ctx "NAGARE_NIX_CACHE_ENABLED" == Just "1"
       cdnEnabled = mapRaw ctx "NAGARE_CDN_ENABLED" == Just "1"
+      adminApiEnabled = mapRaw ctx "NAGARE_ADMIN_API_ENABLED" == Just "1"
+      projectNumber = mapOr ctx "NAGARE_PROJECT_NUMBER" ""
       nixCacheBucket = mapOr ctx "NAGARE_NIX_CACHE_BUCKET" (project <> "-nagare-nix-cache")
       baseDomain = mapOr ctx "NAGARE_BASE_DOMAIN" "apps.example.com"
       externalDomainTlsEnabled = mapRaw ctx "NAGARE_EXTERNAL_DOMAIN_TLS_ENABLED" == Just "1"
@@ -780,6 +792,8 @@ profileFromContextMap ctx =
         , backupBucket = backupBucket
         , nixCacheEnabled = nixCacheEnabled
         , cdnEnabled = cdnEnabled
+        , adminApiEnabled = adminApiEnabled
+        , projectNumber = projectNumber
         , nixCacheBucket = nixCacheBucket
         , baseDomain = baseDomain
         , externalDomainTlsEnabled = externalDomainTlsEnabled
@@ -814,6 +828,8 @@ resolveProfileFrom ctx = do
   backupBucket <- ctxOr ctx "NAGARE_BACKUP_BUCKET" (project <> "-nagare-backups")
   nixCacheEnabled <- (== Just "1") <$> ctxRaw ctx "NAGARE_NIX_CACHE_ENABLED"
   cdnEnabled <- (== Just "1") <$> ctxRaw ctx "NAGARE_CDN_ENABLED"
+  adminApiEnabled <- (== Just "1") <$> ctxRaw ctx "NAGARE_ADMIN_API_ENABLED"
+  projectNumber <- ctxOr ctx "NAGARE_PROJECT_NUMBER" ""
   nixCacheBucket <- ctxOr ctx "NAGARE_NIX_CACHE_BUCKET" (project <> "-nagare-nix-cache")
   baseDomain <- ctxOr ctx "NAGARE_BASE_DOMAIN" "apps.example.com"
   externalDomainTlsEnabled <- (== Just "1") <$> ctxRaw ctx "NAGARE_EXTERNAL_DOMAIN_TLS_ENABLED"
@@ -846,6 +862,8 @@ resolveProfileFrom ctx = do
       , backupBucket = backupBucket
       , nixCacheEnabled = nixCacheEnabled
       , cdnEnabled = cdnEnabled
+      , adminApiEnabled = adminApiEnabled
+      , projectNumber = projectNumber
       , nixCacheBucket = nixCacheBucket
       , baseDomain = baseDomain
       , externalDomainTlsEnabled = externalDomainTlsEnabled
@@ -897,6 +915,10 @@ resolveActiveTarget arg = do
                 .~ (storedProfile ^. #nixCacheEnabled)
                 & #cdnEnabled
                 .~ (storedProfile ^. #cdnEnabled)
+                & #adminApiEnabled
+                .~ (storedProfile ^. #adminApiEnabled)
+                & #projectNumber
+                .~ (storedProfile ^. #projectNumber)
                 & #nixCacheBucket
                 .~ (storedProfile ^. #nixCacheBucket)
                 & #inventoryStore

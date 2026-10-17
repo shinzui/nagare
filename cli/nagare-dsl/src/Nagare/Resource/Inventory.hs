@@ -207,7 +207,8 @@ data DeclaredOperation = DeclaredOperation
   }
   deriving stock (Eq, Ord, Show, Generic)
 
-data BackendRole = ProtectedBackend | PortalBackend
+-- | 'ApiBackend': a protected host whose @/v1@ paths the gateway answers as an API (EP-198).
+data BackendRole = ProtectedBackend | PortalBackend | ApiBackend
   deriving stock (Eq, Ord, Show, Generic)
 
 data Contribution
@@ -632,7 +633,7 @@ composeContributions ss = checked errors (namespaces <> backendMaps <> shomeiSet
         )
         (Map.lookup s ss)
     backendAuthorized s c clusterId =
-      scopeKind s `elem` [Application, Standalone]
+      (scopeKind s `elem` [Application, Standalone] || scopeIdText s == "platform:admin-api")
         && (c ^. #owner, clusterId) `elem` backendOwners
     backendGroups =
       Map.fromListWith

@@ -39,11 +39,27 @@ coordinates the service, credentials and contract.
 
 ## Progress
 
-- [ ] M1. Image, `admin-api` platform-scope compiler, resource bounds, policies, backend map,
-  protected DomainMapping and transition row pass offline interpreter/model checks. Gateway
-  tests cover API challenges and failures (including proxy 502/504), validator forwarding,
-  missing Accept/bearer requests and no credential leakage. Local store mount and cloud
-  credential delivery are concrete. Required style/fast gates pass.
+- [x] M1. Offline, except the image build (moved to M2, which first needs a container daemon).
+  Scope `platform:admin-api` (`Nagare.Inventory.Components.AdminApi`, wired into the platform
+  candidate when the context sets `NAGARE_ADMIN_API_ENABLED=1`): Deployment, Service and
+  NetworkPolicy from `cluster/bootstrap/admin-api/admin-api-{cloud,local}.yaml.tmpl`, a protected
+  DomainMapping for `admin.<base>` ordered after the backend map and enforcer, and an `ApiBackend`
+  contribution, which the backend map renders as `apiPrefix: /v1`, `timeoutSeconds: 15`. In a cloud
+  context the scope also binds the sops reader Secret `admin-api-reader.yaml` as a member with
+  sensitivity `Secret`, and its digest annotates the pod template. A local context's
+  substrate spec gains `inventoryMount`, and the transport mounts it read-only. Transition row
+  `admin-api` is `NotInLocalContext`. Image: `build-local-image.sh nagare-admin-api`. Gateway:
+  `/v1` on an API backend, a bearer credential, or an Accept that prefers JSON now get RFC 9457
+  problems (401 with `WWW-Authenticate: Bearer`, 403, 503 `authorization_unavailable`, 502
+  `upstream_unavailable`, 504 `upstream_timeout`, all `no-store`). Proxy failures carry no
+  exception text. Authorization is bounded at 5 s. Pass: `nagarectl-test` "admin API inventory
+  component" (5 tests: local and cloud members, policy conjunction and egress exclusions,
+  route ordering and alias, wire round trip, key rotation rolls the pod, refused inputs, the
+  composed backend entry, no other platform contributor) and the transition table spec;
+  `nagare-access-test` 168 tests (19 new in `AdminApiGatewaySpec`: missing/`*/*`/HTML Accept
+  on `/v1`, expired bearer, denial, unavailable and hung authorizer, Accept quality values,
+  closed and slow upstreams, 304/ETag forwarding, spoofed `X-Forwarded-User`);
+  `just haskell-style-check`, the architecture ratchet, and `just gate-fast`.
 - [ ] M2. A disposable local context converges the scope and an unchanged replan has no operations.
   The browser and granted machine account read the API; ungranted/unauthenticated clients receive
   the specified 403/401. Direct Service and Pod-IP access from an application namespace and from
@@ -65,6 +81,27 @@ a rollout and honest network-policy boundaries for this service.
 
 
 ## Decision Log
+
+2026-10-17 (M1): EP-198 M1–M2 depend on EP-196 M2's `openServiceStore` (complete). Only M3
+depends on EP-196 M3, whose Pulumi preview and apply are M3's first step. The gateway already
+re-reads its mounted backend map every five seconds (`refreshLoop`), so no enforcer rollout is
+needed; this supersedes the startup-load surprise below.
+
+2026-10-17 (M1): The admin host is a new backend role `ApiBackend` (wire `api`). The backend map
+renders it as an ordinary protected object plus `apiPrefix` and `timeoutSeconds`, so a gateway
+that predates the fields degrades to plain protected handling. A platform scope may contribute
+a backend only if it is `platform:admin-api`. The API is opt-in per context
+(`NAGARE_ADMIN_API_ENABLED`, plus `NAGARE_PROJECT_NUMBER` in cloud), so contexts that don't
+enable it compile unchanged; enabling it seeds `enableAdminApiReader`. The image is built like
+the auth plane's and bound through `NAGARE_ADMIN_API_IMAGE`.
+
+2026-10-17 (M1): Local mode mounts the store through the substrate spec, which the enabled context
+writes beside its store with `inventoryMount`. An existing cluster created without the mount
+fails the substrate's "differs from the selected specification" check instead of being reused.
+The pod's hostPath is `type: Directory`, so a missing mount fails the pod rather than serving
+an empty store. Cloud egress is TCP 443 to addresses outside 10/8, 172.16/12, 192.168/16,
+100.64/10 and 169.254/16. Every host now treats a bearer credential or a JSON-preferring Accept
+as an API call, has a 5 s authorization budget, and gets proxy failures without exception text.
 
 2026-10-14: The API is its own `admin-api` platform scope with its own image and credential.
 It runs as a plain Deployment and ClusterIP Service: a shared cluster-local Knative route would

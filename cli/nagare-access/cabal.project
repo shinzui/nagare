@@ -16,6 +16,7 @@ constraints:
 
 packages:
   .
+  ../nagare-contract
   ../nagare-dsl
 
 source-repository-package
