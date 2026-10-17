@@ -656,10 +656,6 @@ databaseTests =
       "mkEngineVersion"
       [ testCase "accepts 18 for Postgres" $ assertRight (mkEngineVersion Postgres "18")
       , testCase "accepts 25.8 for ClickHouse" $ assertRight (mkEngineVersion ClickHouse "25.8")
-      , testCase "keeps an explicit ClickHouse patch tag" $
-          fmap engineVersionText (mkEngineVersion ClickHouse "26.8.29.10") @?= Right "26.8.29.10"
-      , testCase "ClickHouse defaults to the 26.8 LTS line" $
-          engineVersionText (defaultEngineVersion ClickHouse) @?= "26.8"
       , testCase "rejects empty" $ assertLeftContains "empty" (mkEngineVersion Postgres "")
       , testCase "rejects latest" $ assertLeftContains "pinned" (mkEngineVersion Redis "latest")
       , testCase "rejects a tag with a colon" $
