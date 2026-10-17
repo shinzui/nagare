@@ -18,6 +18,9 @@ module Nagare.Contract.Project
   , savedReview
   , imagePublicationResult
   , deployPreview
+  , inventoryStatusReport
+  , storeRefusal
+  , workspaceRefusal
   )
 where
 
@@ -26,6 +29,7 @@ import Data.List (sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
+import Nagare.Contract.Problem (ProblemSpec, reauthenticationRequired, storeUnavailable, unclassified, workspaceNotPrepared)
 import Nagare.Contract.Schema (ContractVersion (..), DocumentName (..), nullable)
 import Nagare.Contract.Sink (transactionOutcome)
 import Nagare.Contract.V1
@@ -33,9 +37,13 @@ import Nagare.Contract.V1
   , DataFenceSummary (..)
   , DeployPreview (..)
   , ExecutorClaimSummary (..)
+  , Finding (..)
+  , FindingCategory (..)
   , Grant (..)
   , HeadSummary (..)
+  , Health (..)
   , ImagePublicationResult (..)
+  , InventoryStatusReport (..)
   , MigrationSummary (..)
   , PreviewScope (..)
   , Publication (..)
@@ -61,8 +69,11 @@ import Nagare.Inventory.Execute.Types (TransactionResult)
 import Nagare.Inventory.Lineage (renderRebuild)
 import Nagare.Inventory.Plan.Types (ReviewBundle, ReviewDocument (..), renderRebind, reviewBundleDocument)
 import Nagare.Inventory.Site.Recorded qualified as Recorded
-import Nagare.Inventory.Store (DataFenceRecord (..), ExecutorClaim (..), HeadManifest (..), MigrationTombstone (..), ScopeRevision (..), TransitionMarker (..))
+import Nagare.Inventory.Status qualified as Status
+import Nagare.Inventory.Store (DataFenceRecord (..), ExecutorClaim (..), HeadManifest (..), MigrationTombstone (..), ScopeRevision (..), StoreError (..), TransitionMarker (..))
 import Nagare.Inventory.Store qualified as Store
+import Nagare.Inventory.Store.GcloudAuth (gcloudLoginRequired)
+import Nagare.Platform.Workspace (WorkspaceError (..), renderWorkspaceError)
 import Nagare.Resource.Access (teamKeyText)
 import Nagare.Resource.Inventory
   ( Declaration (..)
@@ -342,3 +353,55 @@ deployPreview application hookScopes =
         , configDigest = nullable (digestText <$> scopeConfigDigest declared)
         , overrides = scopeOverrides declared
         }
+
+-- | The status of a context's accepted scopes, or of one, with what the
+-- providers observed. @complete@ is false when some provider could not be
+-- observed.
+inventoryStatusReport :: ContextBinding -> Text -> Bool -> HeadManifest -> Maybe ScopeId -> [Status.DriftFinding] -> InventoryStatusReport
+inventoryStatusReport binding observed complete headValue selected drift =
+  InventoryStatusReport
+    { contractVersion = ContractVersion1
+    , document = DocumentName
+    , context = contextRef binding
+    , observedAt = observed
+    , observationComplete = complete
+    , activeTransaction = nullable (headActiveTransaction headValue)
+    , scopes = maybe (scopeStates headValue) (foldMap pure . scopeState headValue) selected
+    , findings = [projectFinding finding | finding <- drift, maybe True (== Status.findingOwner finding) selected]
+    }
+  where
+    projectFinding finding =
+      Finding
+        { scope = scopeIdText (Status.findingOwner finding)
+        , resource = resourceIdText (Status.findingResource finding)
+        , category = categoryOf (Status.findingCategory finding)
+        , health = healthOf (Status.findingHealth finding)
+        , reason = nullable (Status.findingReason finding)
+        }
+    categoryOf = \case
+      Status.Converged -> CategoryConverged
+      Status.ConfigurationDrift -> CategoryConfigurationDrift
+      Status.ImmutableReplacementRequired -> CategoryImmutableReplacementRequired
+      Status.MissingResource -> CategoryMissing
+      Status.UnownedResource -> CategoryUnowned
+      Status.ForeignOwner -> CategoryForeignOwner
+      Status.ReplacedIncarnation -> CategoryReplacedIncarnation
+      Status.UnrecordedIncarnation -> CategoryUnrecorded
+      Status.StuckRollout -> CategoryStuckRollout
+      Status.UnknownObservation -> CategoryUnknown
+    healthOf = \case
+      Status.HealthReady -> HealthReady
+      Status.HealthNotReady -> HealthNotReady
+      Status.HealthUnknown -> HealthUnknown
+      Status.HealthUnavailable -> HealthUnavailable
+
+-- | A store failure as a coded refusal: an expired login (F107) or an
+-- unavailable store.
+storeRefusal :: StoreError -> (ProblemSpec, Text)
+storeRefusal = \case
+  StoreAuthRequired -> (reauthenticationRequired, gcloudLoginRequired)
+  failure -> (storeUnavailable, "the inventory store could not be read: " <> T.pack (show failure))
+
+-- | A workspace failure as a coded refusal (F118).
+workspaceRefusal :: WorkspaceError -> (ProblemSpec, Text)
+workspaceRefusal failure = (case failure of WorkspaceNotPrepared _ -> workspaceNotPrepared; _ -> unclassified, renderWorkspaceError failure)

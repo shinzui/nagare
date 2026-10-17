@@ -43,7 +43,7 @@ import Nagare.Cli.Commands.Infrastructure
   , runServerStatus
   )
 import Nagare.Cli.Commands.Init (runInit)
-import Nagare.Cli.Commands.Inventory.Status (runInventoryStatus)
+import Nagare.Cli.Commands.Inventory.Status (runInventoryPublications, runInventoryStatus)
 import Nagare.Cli.Commands.Inventory.Store
   ( runInventoryMaterializeNative
   , runInventoryStoreMigrate
@@ -99,7 +99,7 @@ import Nagare.Cli.Platform.Upgrade
   , runPlatformUpgradeRollback
   , runPlatformUpgradeStatus
   )
-import Nagare.Contract.Sink (withContract)
+import Nagare.Contract.Sink (withContract, withReadContract)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Command qualified as Inventory
 
@@ -178,7 +178,7 @@ dispatch (mctx, cmd0) = case cmd0 of
   InventoryRebuild input output -> runInventoryRebuild mctx input output
   InventoryMigrate input output -> runInventoryMigrate mctx input output
   InventoryRetire owner output -> runInventoryRetire mctx owner output
-  InventoryGc output -> runInventoryStatus mctx Nothing True (Just output)
+  InventoryGc output -> runInventoryStatus mctx Nothing True (Just output) Nothing
   InventoryCollect resource output descendants -> runInventoryCollect mctx resource output descendants
   InventoryApply directory yes contract -> withContract contract (runInventoryApply mctx directory yes)
   InventoryResume transaction yes takeOver contract -> withContract contract (runInventoryResume mctx (T.pack transaction) yes takeOver)
@@ -191,8 +191,9 @@ dispatch (mctx, cmd0) = case cmd0 of
   InventoryExport output -> runInventoryExport mctx output
   InventoryRestore backup yes -> runInventoryRestore mctx backup yes
   InventoryLegacyGuard operation -> runInventoryLegacyGuard mctx operation
-  InventoryStatus json -> runInventoryStatus mctx Nothing json Nothing
-  InventoryExplain resource json -> runInventoryStatus mctx (Just resource) json Nothing
+  InventoryStatus json scope contract -> withReadContract contract (runInventoryStatus mctx Nothing json Nothing scope)
+  InventoryPublications contract -> withReadContract contract (runInventoryPublications mctx)
+  InventoryExplain resource json -> runInventoryStatus mctx (Just resource) json Nothing Nothing
   InventoryStoreMaterializeNative after limit -> runInventoryMaterializeNative mctx after limit
   InventoryStoreStatus json -> runInventoryStoreStatus mctx json
   InventoryStoreMigrate destination dryRun yes -> runInventoryStoreMigrate mctx destination dryRun yes

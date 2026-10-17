@@ -134,7 +134,7 @@ as a store failure) and F118 (an unprepared workspace reads as a mismatched one)
   `image-publication-result`, and shows `deploy-preview` keys equal with and without a hook; every
   document passes `validateToJSON`. The app commands only branch on the flag around these calls
   (`Commands/Image.hs`, `Commands/Application.hs`).
-- [ ] M4: `inventory status --contract 1 [--scope SCOPE]` and `inventory publications
+- [x] M4: `inventory status --contract 1 [--scope SCOPE]` and `inventory publications
   --contract 1`. Pass: tests over the existing status fixtures show findings for the selected
   scope only, and an unknown scope prints a problem with code `unknown_scope`. A publication
   fixture lists resource ID, key, destination, both digests, generation, and the application
@@ -143,6 +143,16 @@ as a store failure) and F118 (an unprepared workspace reads as a mismatched one)
   `gcloud auth login` instruction, with and without `--contract`. F118: status against a context
   whose workspace manifest does not exist refuses with `workspace_not_prepared`, not "mismatched
   manifest". Each has a test that fails before the fix.
+  Evidence: `test/Nagare/Test/ContractCommands.hs` projects a scoped `inventory-status` (one
+  scope's state and findings of two) and reads an empty `publication-list` from a local store
+  through `readPublications`; under the read sink an unknown scope and `StoreAuthRequired` print
+  bare problems (`unknown_scope`, `reauthentication_required` with the `gcloud auth login`
+  instruction) and exit 2. The publication fields and `usedBy` are the M1 projection's tests.
+  F107: `InventoryGcloudAuthSpec` drives the captured no-account text and a refresh-failure text
+  through `newGcloudSessionWith` to `gcloudLoginRequired`; `openTargetStoreReadOnly` maps it to
+  `StoreAuthRequired`. F118: `PlatformSpec` reads a missing workspace as `WorkspaceNotPrepared`
+  and a changed manifest as `ExistingWorkspaceMismatch`. `inventory publications` is registered
+  read-only in the command audit.
 - [ ] M5: Clean up and hand off. Delete `renderPlan`, `AppDeployPlan` and `renderAppObjects`,
   and fix the stale comment in `Options.hs`. Finish `docs/api/README.md` and add a
   "Machine-readable contract" section in `docs/user/reference.md`. Pass: `just haskell-style-check`
@@ -264,6 +274,15 @@ prints its own `image-publication-result` instead. A refusal from these commands
 `transaction-outcome` `refused` document as M2, so a client tells a refusal by `document`.
 `--contract` takes precedence over `--json` on a dry run; `app deploy --contract` without
 `--dry-run` or `--save-plan` refuses.
+
+2026-10-16 (M4): `withReadContract` gives read commands their own sink phase, so a refusal there
+is a bare `ProblemDetails` (exit 2) while apply and resume keep the `refused` outcome. `--scope`
+matches the accepted scope's `kind:name` text, as the admin API does, and narrows the observed
+resources by ID prefix, so a scoped status also observes less. F107 travels as the exported
+`gcloudLoginRequired` reason through the remote store's `Either Text` path and becomes
+`StoreAuthRequired` at `openTargetStoreReadOnly`; the admin API, which never uses gcloud, maps
+that constructor to `store_credentials_unavailable`. F118 is decided in `findPlatformWorkspace`
+only: preparation still reports a directory without a manifest as a mismatch.
 
 ## Context and Orientation
 

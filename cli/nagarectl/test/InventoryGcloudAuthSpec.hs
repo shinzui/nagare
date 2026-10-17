@@ -102,9 +102,28 @@ inventoryGcloudAuthTests =
           case result of
             Right _ -> assertFailure "invalid credential context accepted"
             Left reason -> assertBool "credential output leaked" (not ("private" `T.isInfixOf` reason))
+    , testCase "a missing or expired gcloud login is its own reason; other failures keep their first line (F107)" $ do
+        let failed stderrText = "gcloud credential or ownership command failed or timed out\n" <> stderrText
+            session stderrText = newGcloudSessionWith (pure start) (\_ _ -> pure (Left (failed stderrText))) [] "project"
+            reasonOf = either id (const "accepted")
+        forM_ [noAccountStderr, refreshStderr] $ \stderrText ->
+          (reasonOf <$> session stderrText) >>= (@?= gcloudLoginRequired)
+        (reasonOf <$> session "ERROR: (gcloud.config.config-helper) network unreachable")
+          >>= (@?= "gcloud credential or ownership command failed or timed out")
+        assertBool "the login reason names gcloud auth login" ("gcloud auth login" `T.isInfixOf` gcloudLoginRequired)
     ]
   where
     right = either (assertFailure . T.unpack) pure
+
+-- | Captured with an empty configuration: @CLOUDSDK_CONFIG=$(mktemp -d)
+-- gcloud config config-helper --format=json@ (never @gcloud auth revoke@).
+noAccountStderr :: T.Text
+noAccountStderr =
+  "ERROR: (gcloud.config.config-helper) You do not currently have an active account selected.\nPlease run:\n\n  $ gcloud auth login\n\nto obtain new credentials.\n"
+
+refreshStderr :: T.Text
+refreshStderr =
+  "ERROR: (gcloud.config.config-helper) There was a problem refreshing your current auth tokens: Reauthentication failed. cannot prompt during non-interactive execution.\nPlease run:\n\n  $ gcloud auth login\n\nto obtain new credentials.\n"
 
 start :: UTCTime
 start = UTCTime (fromGregorian 2026 9 29) 0

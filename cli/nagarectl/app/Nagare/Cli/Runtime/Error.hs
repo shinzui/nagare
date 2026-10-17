@@ -1,6 +1,7 @@
 -- | Runtime / Error. Executable-private CLI boundary.
 module Nagare.Cli.Runtime.Error
   ( dieT
+  , dieCoded
   , orDie
   , printPreflightWarnings
   , renderVersionError
@@ -8,7 +9,7 @@ module Nagare.Cli.Runtime.Error
 where
 
 import Data.Text.IO qualified as TIO
-import Nagare.Contract.Problem (unclassified)
+import Nagare.Contract.Problem (ProblemSpec, unclassified)
 import Nagare.Contract.Sink (refuseWith)
 import Nagare.Dsl.Prelude
 import Nagare.Version (VersionError (VersionError))
@@ -26,6 +27,10 @@ orDie = either dieT pure
 -- under @--contract 1@, the refusal's outcome document (EP-192).
 dieT :: Text -> IO a
 dieT msg = refuseWith ("nagarectl: " <> msg) unclassified msg
+
+-- | 'dieT' with the refusal's problem code.
+dieCoded :: (ProblemSpec, Text) -> IO a
+dieCoded (spec, msg) = refuseWith ("nagarectl: " <> msg) spec msg
 
 renderVersionError :: VersionError -> Text
 renderVersionError (VersionError message) = message

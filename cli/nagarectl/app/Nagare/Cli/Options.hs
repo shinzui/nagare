@@ -355,7 +355,8 @@ data Command
   | InventoryRegistryRecoveryPlan String String FilePath
   | InventoryExport FilePath
   | InventoryRestore FilePath Bool
-  | InventoryStatus Bool
+  | InventoryStatus Bool (Maybe String) (Maybe Int)
+  | InventoryPublications (Maybe Int)
   | InventoryLegacyGuard String
   | InventoryExplain String Bool
   | InventoryStoreMaterializeNative (Maybe String) Int

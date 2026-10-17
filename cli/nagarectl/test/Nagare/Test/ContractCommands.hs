@@ -1,12 +1,12 @@
--- | EP-192 M3: the saved-review, image-publication and deploy-preview
--- documents, produced by the library calls `app deploy` and `app image-plan`
--- make under @--contract 1@.
+-- | EP-192 M3 and M4: the saved-review, image-publication, deploy-preview,
+-- inventory-status and publication-list documents and the read refusals,
+-- produced by the library calls the commands make under @--contract 1@.
 module Nagare.Test.ContractCommands
   ( contractCommandTests
   )
 where
 
-import Control.Exception (finally)
+import Control.Exception (finally, try)
 import Data.Aeson (Value (..), eitherDecode, toJSON)
 import Data.Aeson qualified as Aeson
 import Data.Aeson.KeyMap qualified as KeyMap
@@ -18,9 +18,10 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
 import Data.OpenApi (validateToJSON)
 import Data.Text qualified as T
-import Nagare.Contract.Project (deployPreview, imagePublicationResult)
+import Nagare.Contract.Problem (ProblemDetails, unknownScope)
+import Nagare.Contract.Project (deployPreview, imagePublicationResult, inventoryStatusReport, storeRefusal)
 import Nagare.Contract.Schema (Nullable (..))
-import Nagare.Contract.Sink (clearContractSink, setContractSinkTo)
+import Nagare.Contract.Sink (clearContractSink, refuseWith, setContractSinkTo, withReadContract)
 import Nagare.Contract.V1 (ImagePublicationResult (..), Outcome (..), PublishedReview (..), ReviewLocation (..), SavedReview (..), TransactionOutcome (..))
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter (AdapterExecution (..), AdapterRegistry, mkAdapterRegistry)
@@ -31,8 +32,11 @@ import Nagare.Inventory.Execute (TransactionResult (..))
 import Nagare.Inventory.Kubernetes (bindKubernetesObject)
 import Nagare.Inventory.KubernetesReview (kubernetesSpecsFromReview)
 import Nagare.Inventory.Plan (InventoryHistory, ReviewBundle)
-import Nagare.Inventory.Store (InventoryStore, initializeStore)
-import Nagare.Resource.Inventory (CompositionCandidate, Declaration (..), ManagedResource, ResourceBundle (..), ScopeChange (ReplaceScope), ScopeDeclaration, composeInventory, mkScopeDeclaration, withScopeConfigDigest, withScopeOverrides)
+import Nagare.Inventory.Publications (readPublications)
+import Nagare.Inventory.Status qualified as Status
+import Nagare.Inventory.Store (InventoryStore, StoreError (StoreAuthRequired), initializeStore, readHead)
+import Nagare.Inventory.Store.GcloudAuth (gcloudLoginRequired)
+import Nagare.Resource.Inventory (CompositionCandidate, Declaration (..), Executor (KubernetesExecutor), ManagedResource, ResourceBundle (..), ScopeChange (ReplaceScope), ScopeDeclaration, composeInventory, mkScopeDeclaration, withScopeConfigDigest, withScopeOverrides)
 import Nagare.Resource.Kubernetes (KubernetesInput (..))
 import Nagare.Resource.Policy (DataPolicy (Stateless), LifecyclePolicy (DeleteWhenUnreferenced), Sensitivity (Private))
 import Nagare.Resource.Types qualified as Resource
@@ -41,6 +45,7 @@ import Nagare.Target (ActiveTarget (..), Mode (Local), mkContextName)
 import Nagare.Test.Support.Profiles (initProfile)
 import System.Directory (makeAbsolute)
 import System.Environment (lookupEnv, setEnv, unsetEnv)
+import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 import Test.Tasty (TestTree, testGroup)
@@ -49,7 +54,7 @@ import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 contractCommandTests :: TestTree
 contractCommandTests =
   testGroup
-    "contract commands (EP-192 M3)"
+    "contract commands (EP-192 M3, M4)"
     [ testCase "a saved review under --contract 1 is one saved-review document" $ withFixture $ \fixture -> do
         let directory = fixtureRoot fixture </> "review"
         documents <- collecting (planInventoryCandidateWith (fixturePlan fixture) (fixtureTarget fixture) (fixtureCandidate fixture) directory)
@@ -73,7 +78,7 @@ contractCommandTests =
     , testCase "a deploy preview has the same keys with and without hooks" $ do
         let digest = contentDigest "typed-config"
             application = withScopeOverrides (Map.fromList [("tag", "v1")]) (withScopeConfigDigest digest fixtureScope)
-            keys preview = case toJSON preview of
+            keys shown = case toJSON shown of
               Object members -> KeyMap.keys members
               _ -> []
             alone = deployPreview application []
@@ -83,6 +88,35 @@ contractCommandTests =
           @?= (Nullable (Just (Resource.digestText digest)), Map.fromList [("tag", "v1")], 2)
         validateToJSON alone @?= []
         validateToJSON hooked @?= []
+    , testCase "a scoped status report lists only that scope's state and findings" $ withFixture $ \fixture -> do
+        (_, result) <- convergeInventoryCandidateResult (fixturePlan fixture) (fixtureApply fixture) (fixtureTarget fixture) (fixtureCandidate fixture)
+        store <- openTargetStore (fixtureTarget fixture)
+        headValue <- readHead store >>= either (fail . show) (maybe (fail "no head") pure)
+        let other = ok (Resource.mkScopeId Resource.Application "other")
+            finding owner resource =
+              Status.DriftFinding resource owner KubernetesExecutor (member ^. #address) Status.ConfigurationDrift Status.HealthReady Nothing Nothing (Just "changed")
+            drift = [finding fixtureOwner fixtureMember, finding other (Resource.mintResourceId other (ok (Resource.mkLogicalKey "config")) (ok (Resource.mkName "configmap")))]
+            scoped = inventoryStatusReport fixtureBinding "2026-10-16T12:00:00Z" True headValue (Just fixtureOwner) drift
+            everything = inventoryStatusReport fixtureBinding "2026-10-16T12:00:00Z" True headValue Nothing drift
+        assertBool "fixture converged" (case result of Converged _ -> True; _ -> False)
+        (map (^. #scope) (scoped ^. #scopes), map (^. #scope) (scoped ^. #findings), length (everything ^. #findings))
+          @?= (["application:command-fixture"], ["application:command-fixture"], 2)
+        validateToJSON scoped @?= []
+    , testCase "a read refusal is a bare problem document with exit 2 (unknown scope, F107)" $ do
+        let refuse spec detailText = do
+              printed <- newIORef []
+              setContractSinkTo (\line -> modifyIORef' printed (line :))
+              exited <- try (withReadContract (Just 1) (refuseWith "unused" spec detailText)) `finally` clearContractSink
+              (,) exited . map (eitherDecode @ProblemDetails) <$> readIORef printed
+        refuse unknownScope "application:absent is not an accepted scope"
+          >>= \(exited, documents) -> (exited, fmap (^. #code) <$> documents) @?= (Left (ExitFailure 2), [Right "unknown_scope"])
+        let (spec, detailText) = storeRefusal StoreAuthRequired
+        refuse spec detailText
+          >>= \(exited, documents) -> (exited, fmap (\problem -> (problem ^. #code, problem ^. #detail)) <$> documents) @?= (Left (ExitFailure 2), [Right ("reauthentication_required", gcloudLoginRequired)])
+    , testCase "inventory publications reads the recorded state alone" $ withFixture $ \fixture -> do
+        listing <- readPublications (fixtureTarget fixture) >>= either (\(_, reason) -> fail (T.unpack reason)) pure
+        listing ^. #publications @?= []
+        validateToJSON listing @?= []
     ]
   where
     fromNullable' (Nullable value) = value

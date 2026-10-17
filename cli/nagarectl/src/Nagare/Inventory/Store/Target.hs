@@ -19,6 +19,7 @@ import Nagare.Context.Review (ProfileReview, profileReviewContext, profileReview
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Store
+import Nagare.Inventory.Store.GcloudAuth (gcloudLoginRequired)
 import Nagare.Inventory.Store.Remote (remoteObjectOps)
 import Nagare.Ops.PulumiBackend (gcsBucketOfUrl)
 import Nagare.Resource.Types
@@ -92,7 +93,9 @@ openRemoteStoreWithProfile mayInitialize target stateRoot stored = do
       Just _ -> do
         selected <- remoteObjectOps project url
         case selected of
-          Left reason -> pure (invalid reason)
+          Left reason
+            | reason == gcloudLoginRequired -> pure (Left StoreAuthRequired)
+            | otherwise -> pure (invalid reason)
           Right ops -> do
             clientResult <- localStoreClientIdentity mayInitialize stateRoot contextText
             case clientResult of

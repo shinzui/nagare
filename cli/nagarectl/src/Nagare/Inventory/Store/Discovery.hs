@@ -7,6 +7,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Store
+import Nagare.Inventory.Store.GcloudAuth (gcloudLoginRequired)
 import Nagare.Inventory.Store.ObjectOps
 import Nagare.Resource.Types (ContextBinding)
 import Nagare.Resource.Wire (canonicalValue)
@@ -62,6 +63,7 @@ discoverInventoryObjects ops prefixEmpty binding = do
           Right store ->
             readHead store >>= \case
               Left (StoreIoError reason) -> pure (DiscoveryUnavailable reason)
+              Left StoreAuthRequired -> pure (DiscoveryUnavailable gcloudLoginRequired)
               Left err -> pure (DiscoveryIncomplete (T.pack (show err)))
               Right Nothing -> pure (DiscoveryIncomplete "inventory format exists but the history head is missing")
               Right (Just headValue)

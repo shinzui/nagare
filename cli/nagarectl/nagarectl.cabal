@@ -266,6 +266,7 @@ library
     Nagare.Inventory.PreviewOwnership
     Nagare.Inventory.ProtectedRoute
     Nagare.Inventory.Prune
+    Nagare.Inventory.Publications
     Nagare.Inventory.Rebuild
     Nagare.Inventory.RebuildRestore
     Nagare.Inventory.Recorded

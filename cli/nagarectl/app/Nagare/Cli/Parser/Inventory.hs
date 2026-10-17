@@ -159,7 +159,13 @@ inventoryCmd =
               )
             <> command
               "status"
-              (info (InventoryStatus <$> switch (long "json") <**> helper) (progDesc "Report accepted resource ownership and observed drift without mutation"))
+              ( info
+                  (InventoryStatus <$> switch (long "json") <*> optional (strOption (long "scope" <> metavar "KIND:NAME" <> help "Report one accepted scope")) <*> contractOpt <**> helper)
+                  (progDesc "Report accepted resource ownership and observed drift without mutation")
+              )
+            <> command
+              "publications"
+              (info (InventoryPublications <$> contractOpt <**> helper) (progDesc "List accepted artifact publications from the inventory store without contacting providers"))
             <> command
               "guard-legacy"
               ( info

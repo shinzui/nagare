@@ -1,6 +1,7 @@
 -- | Commands / Inventory / Status. Executable-private CLI boundary.
 module Nagare.Cli.Commands.Inventory.Status
   ( runInventoryStatus
+  , runInventoryPublications
   )
 where
 
@@ -33,9 +34,12 @@ import Nagare.Cli.Inventory.CdnHistory
 import Nagare.Cli.Inventory.Foundation (inventoryFoundationAdapter)
 import Nagare.Cli.Inventory.PublicEvidence (publicDataFence)
 import Nagare.Cli.Runtime.Cluster (guardKubernetesContext)
-import Nagare.Cli.Runtime.Error (dieT)
+import Nagare.Cli.Runtime.Error (dieCoded, dieT)
 import Nagare.Cli.Runtime.Process (currentTimestamp)
 import Nagare.Cli.Runtime.Target (activeTarget)
+import Nagare.Contract.Problem (unknownScope)
+import Nagare.Contract.Project (inventoryStatusReport, storeRefusal, workspaceRefusal)
+import Nagare.Contract.Sink (contractSinkSet, emitDocument)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter qualified as InventoryAdapter
 import Nagare.Inventory.Adapters.Broker
@@ -67,6 +71,7 @@ import Nagare.Inventory.Host qualified as InventoryHost
 import Nagare.Inventory.KubernetesSnapshot (snapshotRuntime)
 import Nagare.Inventory.ObservationNative qualified as InventoryObservation
 import Nagare.Inventory.Plan qualified as InventoryPlan
+import Nagare.Inventory.Publications (readPublications, renderPublicationTable)
 import Nagare.Inventory.Status qualified as InventoryStatus
 import Nagare.Inventory.Store qualified as InventoryStore
 import Nagare.Platform.Paths
@@ -85,11 +90,23 @@ import Nagare.Target (contextNameText, nagareStateDir)
 import System.Directory (createDirectoryIfMissing, doesPathExist)
 import System.FilePath ((</>))
 
-runInventoryStatus :: Maybe String -> Maybe String -> Bool -> Maybe FilePath -> IO ()
-runInventoryStatus mctx requested json gcOutput = do
+-- | @inventory publications@: read-only, from the recorded state alone.
+runInventoryPublications :: Maybe String -> IO ()
+runInventoryPublications mctx = do
+  listing <- activeTarget mctx >>= readPublications >>= either dieCoded pure
+  contract <- contractSinkSet
+  if contract then emitDocument listing else TIO.putStr (renderPublicationTable listing)
+
+runInventoryStatus :: Maybe String -> Maybe String -> Bool -> Maybe FilePath -> Maybe String -> IO ()
+runInventoryStatus mctx requested json gcOutput scopeArg = do
   active <- activeTarget mctx
-  store <- Inventory.openTargetStoreReadOnly active >>= either (dieT . T.pack . show) pure
-  history <- InventoryPlan.loadInventoryHistory store >>= either (dieT . T.pack . show) pure
+  store <- Inventory.openTargetStoreReadOnly active >>= either (dieCoded . storeRefusal) pure
+  history <- InventoryPlan.loadInventoryHistory store >>= either (dieCoded . storeRefusal) pure
+  selectedScope <- forM scopeArg $ \raw ->
+    maybe
+      (dieCoded (unknownScope, T.pack raw <> " is not an accepted scope"))
+      pure
+      (find ((== T.pack raw) . Resource.scopeIdText) (Map.keys (InventoryPlan.historyAccepted history)))
   context <- either dieT pure (Resource.mkContextId (contextNameText (active ^. #contextName)))
   project <- either dieT pure (Resource.mkName (active ^. #profile . #project))
   let targetBinding = Resource.ContextBinding context project
@@ -112,7 +129,9 @@ runInventoryStatus mctx requested json gcOutput = do
   selected <- traverse (either dieT pure . Resource.mkResourceId . T.pack) requested
   let allManaged = [resource | ResourceInventory.Managed resource <- ResourceInventory.inventoryDeclarations inventory]
       byId = Map.fromList [(resource ^. #identity, resource) | resource <- allManaged]
-      wanted resource = maybe True (== resource) selected
+      wanted resource =
+        maybe True (== resource) selected
+          && maybe True (\scope -> (Resource.scopeIdText scope <> "/") `T.isPrefixOf` Resource.resourceIdText resource) selectedScope
       retainedMembers = Map.filterWithKey (\resource _ -> wanted resource) (InventoryPlan.historyRetained history)
   forM_ selected $ \resource ->
     unless
@@ -154,7 +173,7 @@ runInventoryStatus mctx requested json gcOutput = do
         stateRoot <- nagareStateDir
         Just
           <$> ( findPlatformWorkspace stateRoot (active ^. #contextName) paths
-                  >>= either (dieT . renderWorkspaceError) pure
+                  >>= either (dieCoded . workspaceRefusal) pure
               )
   let withWorkspace :: (PlatformWorkspace -> IO a) -> IO a
       withWorkspace action = maybe (dieT "selected provider requires a platform workspace") action workspace
@@ -485,6 +504,7 @@ runInventoryStatus mctx requested json gcOutput = do
       revisions values =
         [ Aeson.object ["scope" Aeson..= scope, "revision" Aeson..= revision]
         | (scope, revision) <- Map.toAscList values
+        , maybe True (== scope) selectedScope
         ]
   observedAt <- currentTimestamp
   case gcOutput of
@@ -542,29 +562,33 @@ runInventoryStatus mctx requested json gcOutput = do
               ( baseFields
                   <> ["observationComplete" Aeson..= null unavailable, "findings" Aeson..= findings]
               )
-      if json
-        then LBC.putStrLn (Aeson.encode report)
+      contract <- contractSinkSet
+      if contract
+        then emitDocument (inventoryStatusReport binding observedAt (null unavailable) (InventoryPlan.historyHead history) selectedScope findings)
         else
-          TIO.putStrLn
-            ( "Inventory status: "
-                <> T.pack (show (length findings))
-                <> " resources; retained: "
-                <> T.pack (show (length retainedFindings))
-                <> "; collected: "
-                <> T.pack (show (length collectedEntries))
-                <> "; data fence: "
-                <> maybe
-                  "none"
-                  (T.pack . show . InventoryStore.fencePhase)
-                  (InventoryStore.headDataFence (InventoryPlan.historyHead history))
-                <> ( if null scheduledBackups
-                       then ""
-                       else
-                         "; scheduled backup retention: " <> retentionPolicyText standardRetention <> " (reviewed prune)"
-                   )
-                <> "; unavailable providers: "
-                <> T.pack (show unavailable)
-            )
+          if json
+            then LBC.putStrLn (Aeson.encode report)
+            else
+              TIO.putStrLn
+                ( "Inventory status: "
+                    <> T.pack (show (length findings))
+                    <> " resources; retained: "
+                    <> T.pack (show (length retainedFindings))
+                    <> "; collected: "
+                    <> T.pack (show (length collectedEntries))
+                    <> "; data fence: "
+                    <> maybe
+                      "none"
+                      (T.pack . show . InventoryStore.fencePhase)
+                      (InventoryStore.headDataFence (InventoryPlan.historyHead history))
+                    <> ( if null scheduledBackups
+                           then ""
+                           else
+                             "; scheduled backup retention: " <> retentionPolicyText standardRetention <> " (reviewed prune)"
+                       )
+                    <> "; unavailable providers: "
+                    <> T.pack (show unavailable)
+                )
     (Nothing, Just raw) -> do
       resourceId <- either dieT pure (Resource.mkResourceId (T.pack raw))
       (explanation, summary) <- case Map.lookup resourceId byId of

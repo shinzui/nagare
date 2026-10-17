@@ -106,6 +106,7 @@ data StoreError
   | StoreBusy
   | StoreReentry
   | StoreCredentialsUnavailable !Text
+  | StoreAuthRequired
   deriving stock (Eq, Show)
 
 data ScopeRevision = ScopeRevision
@@ -182,8 +183,7 @@ data DataFenceRecord = DataFenceRecord
 -- | An open release transition (EP-172): the pinned source release, the
 -- target payload, and when its first review was admitted. While it is open,
 -- only reviews carrying 'transitionReviewIdentity' are admitted, and only the
--- target payload's CLI applies, resumes, recovers or closes; the pin step
--- clears it.
+-- target payload's CLI applies, resumes, recovers or closes; the pin step clears it.
 data TransitionMarker = TransitionMarker
   { transitionSource :: !Text
   , transitionTarget :: !Text

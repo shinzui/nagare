@@ -158,6 +158,19 @@ platformTests =
           prodWorkspace <- preparePlatformWorkspace stateRoot prod paths >>= either (assertFailure . show) pure
           stagingWorkspace <- preparePlatformWorkspace stateRoot staging paths >>= either (assertFailure . show) pure
           assertBool "context workspace roots differ" (prodWorkspace ^. #root /= stagingWorkspace ^. #root)
+    , testCase "status reads a missing workspace as not prepared and a changed one as a mismatch (F118)" $
+        withFixture $ \root -> withSystemTempDirectory "nagare-platform-state" $ \stateRoot -> do
+          paths <- validatePlatformRoot ExplicitRoot root >>= either (assertFailure . show) pure
+          context <- either (assertFailure . T.unpack) pure (mkContextName "prod")
+          missing <- either Just (const Nothing) <$> findPlatformWorkspace stateRoot context paths
+          case missing of
+            Just failure@(WorkspaceNotPrepared _) ->
+              assertBool (T.unpack (renderWorkspaceError failure)) ("is not prepared" `T.isInfixOf` renderWorkspaceError failure)
+            other -> assertFailure ("an unprepared workspace read as " <> show other)
+          prepared <- preparePlatformWorkspace stateRoot context paths >>= either (assertFailure . show) pure
+          BS.writeFile (prepared ^. #root </> ".nagare-workspace.json") "{}"
+          changed <- either Just (const Nothing) <$> findPlatformWorkspace stateRoot context paths
+          changed @?= Just (ExistingWorkspaceMismatch (prepared ^. #root))
     , testCase "platform status compares all five identities and fails closed on major skew" $ do
         let cli = identityFromBuild (BuildVersion "1.2.3" (Just "cli-rev"))
             payload = ReleaseIdentity (Just "1.2.3") (Just "payload-rev") (Just 1)

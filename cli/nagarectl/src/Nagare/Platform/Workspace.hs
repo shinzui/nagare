@@ -87,6 +87,8 @@ data WorkspaceError
   | InvalidPayloadId !Text
   | WorkspaceIoError !FilePath !Text
   | ExistingWorkspaceMismatch !FilePath
+  | -- | F118: no workspace manifest exists at this path.
+    WorkspaceNotPrepared !FilePath
   deriving stock (Eq, Show)
 
 workspaceAssets :: [FilePath]
@@ -190,7 +192,9 @@ findPlatformWorkspace stateRoot context paths = do
       | otherwise -> do
           let parent = stateRoot </> T.unpack (contextNameText context) </> "platform"
               directoryName = T.unpack (manifest ^. #payloadId <> "-" <> T.take 16 digest)
-          validateExisting (parent </> directoryName) manifest digest
+              root = parent </> directoryName
+          prepared <- doesFileExist (root </> ".nagare-workspace.json")
+          if prepared then validateExisting root manifest digest else pure (Left (WorkspaceNotPrepared root))
 
 validPayloadId :: Text -> Bool
 validPayloadId value =
@@ -285,3 +289,7 @@ renderWorkspaceError err = case err of
   InvalidPayloadId payloadId -> "invalid Nagare payload id: " <> payloadId
   WorkspaceIoError path detail -> "could not prepare Nagare platform workspace " <> T.pack path <> ": " <> detail
   ExistingWorkspaceMismatch path -> "existing Nagare platform workspace has a mismatched manifest: " <> T.pack path
+  WorkspaceNotPrepared path ->
+    "the platform workspace for this context is not prepared: "
+      <> T.pack path
+      <> "; a planning command such as `nagarectl inventory plan` or `nagarectl platform upgrade` prepares it"

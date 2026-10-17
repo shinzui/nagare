@@ -19,6 +19,7 @@ module Nagare.Contract.Sink
   , progressLine
   , withContractOutcome
   , withContract
+  , withReadContract
   , transactionOutcome
   , transactionExitCode
   )
@@ -43,9 +44,9 @@ import System.Exit (ExitCode (..), exitFailure, exitWith)
 import System.IO (stderr)
 import System.IO.Unsafe (unsafePerformIO)
 
--- | Where a contract command is: admitting (nothing touched yet) or
--- executing a transaction.
-data Phase = Admitting | Executing !Text
+-- | Where a contract command is: admitting (nothing touched yet), executing
+-- a transaction, or reading, where a refusal is a bare problem document.
+data Phase = Admitting | Executing !Text | Reading
 
 sink :: IORef (Maybe Phase)
 sink = unsafePerformIO (newIORef Nothing)
@@ -58,6 +59,9 @@ output = unsafePerformIO (newIORef LBC.putStrLn)
 
 setContractSink :: IO ()
 setContractSink = writeIORef sink (Just Admitting)
+
+setReadSink :: IO ()
+setReadSink = writeIORef sink (Just Reading)
 
 -- | Set the sink with another destination for its documents.
 setContractSinkTo :: (LBC.ByteString -> IO ()) -> IO ()
@@ -84,6 +88,7 @@ refuseWith line spec detailText = do
     Nothing -> TIO.hPutStrLn stderr line >> exitFailure
     Just Admitting -> emit (refused (problemFor spec detailText)) (ExitFailure 2)
     Just (Executing transaction) -> emit (interrupted transaction detailText) (ExitFailure 7)
+    Just Reading -> emitDocument (problemFor spec detailText) >> exitWith (ExitFailure 2)
 
 -- | Print a transaction's result: its human line (exit 1 unless converged),
 -- or under the sink its outcome document and distinct exit code. A converged
@@ -129,11 +134,19 @@ withContractOutcome action = do
 -- | Run a command under @--contract VERSION@: version 1 sets the sink;
 -- any other version is refused with the supported list.
 withContract :: Maybe Int -> IO () -> IO ()
-withContract requested action = case requested of
+withContract = withContractIn setContractSink
+
+-- | 'withContract' for a read command: a refusal prints a problem document
+-- and exits 2; the read document itself exits 0.
+withReadContract :: Maybe Int -> IO () -> IO ()
+withReadContract = withContractIn setReadSink
+
+withContractIn :: IO () -> Maybe Int -> IO () -> IO ()
+withContractIn set requested action = case requested of
   Nothing -> action
-  Just 1 -> setContractSink >> withContractOutcome action
+  Just 1 -> set >> withContractOutcome action
   Just other -> do
-    setContractSink
+    set
     refuseWith "" unsupportedContractVersion ("contract version " <> T.pack (show other) <> " is not supported; supported versions: 1")
 
 emit :: TransactionOutcome -> ExitCode -> IO a

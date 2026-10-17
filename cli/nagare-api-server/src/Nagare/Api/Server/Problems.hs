@@ -22,3 +22,4 @@ storeProblem = \case
   StoreObjectConflict _ -> problemFor internalError "the inventory store reported a write conflict to a reader"
   StoreReentry -> problemFor internalError "the inventory store was re-entered"
   StoreCredentialsUnavailable _ -> problemFor storeCredentialsUnavailable "the admin API's store credential is unavailable"
+  StoreAuthRequired -> problemFor storeCredentialsUnavailable "the admin API's store credential is unavailable"

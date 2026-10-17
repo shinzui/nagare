@@ -7,6 +7,7 @@ module Nagare.Inventory.Store.GcloudAuth
   , sessionToken
   , sessionCapture
   , sessionStorageEndpoint
+  , gcloudLoginRequired
   )
 where
 
@@ -45,8 +46,29 @@ newGcloudSession project = do
       result <- timeout 15000000 (try (readCreateProcessWithExitCode ((proc "gcloud" args) {env = Just variables}) ""))
       pure $ case result of
         Just (Right (ExitSuccess, output, _)) -> Right (T.pack output)
+        Just (Right (ExitFailure _, _, errors)) -> Left (failed <> "\n" <> T.pack errors)
         Just (Left (_ :: IOException)) -> Left "gcloud credential or ownership command could not start"
-        _ -> Left "gcloud credential or ownership command failed or timed out"
+        Nothing -> Left failed
+    failed = "gcloud credential or ownership command failed or timed out"
+
+-- | F107: the reason a session cannot start because the gcloud login is
+-- missing or expired.
+gcloudLoginRequired :: T.Text
+gcloudLoginRequired = "the gcloud login is missing or expired; run `gcloud auth login` and retry"
+
+-- | A failure's first line, or 'gcloudLoginRequired' when gcloud's stderr
+-- shows a missing or expired login.
+classifyFailure :: T.Text -> T.Text
+classifyFailure reason
+  | any (`T.isInfixOf` reason) loginTexts = gcloudLoginRequired
+  | otherwise = T.takeWhile (/= '\n') reason
+  where
+    loginTexts =
+      [ "You do not currently have an active account selected"
+      , "There was a problem refreshing your current auth tokens"
+      , "Reauthentication failed"
+      , "Reauthentication required"
+      ]
 
 -- | Clock/process injection for identity-change and concurrent-refresh tests.
 -- The helper contract is documented by `gcloud config config-helper --help`.
@@ -63,7 +85,7 @@ newGcloudSessionWith clock run inherited project = do
           ]
       helper = ["config", "config-helper", "--format=json", "--min-expiry=120s", "--quiet"]
       acquire variables = do
-        output <- run variables helper
+        output <- first classifyFailure <$> run variables helper
         now <- clock
         pure (output >>= parseSnapshot project now)
   initial <- acquire base
