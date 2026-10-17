@@ -121,31 +121,28 @@ saved backup db backup "$DB" -n "$NS" --backup-id "$MANUAL"
 native "INSERT INTO default.ep199_probe VALUES (3, 'after-backup')"
 AFTER_BACKUP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 saved restore-manual db restore "$DB" "$MANUAL" -n "$NS" --restore-id manual
-# The scratch database is the one the saved review's restore scope names (scopes/*.json).
-scratch_of() {
-  python3 -I - "$1" <<'PY'
+# The scratch database is the one this database's restore scope names (scopes/*.json); a
+# review also carries other accepted scopes, including earlier restores.
+scratch_of() { # review-dir restore-id
+  python3 -I - "$1" "$DB" "$2" <<'PY'
 import json, pathlib, sys
+review, database, restore_id = sys.argv[1:]
 found = set()
 def walk(node):
     if isinstance(node, dict):
-        for key, value in node.items():
-            if key == "restore.target.database" and isinstance(value, str):
-                found.add(value)
+        if node.get("restore.database") == database and node.get("restore.id") == restore_id and isinstance(node.get("restore.target.database"), str):
+            found.add(node["restore.target.database"])
+        for value in node.values():
             walk(value)
     elif isinstance(node, list):
         for item in node:
             walk(item)
-    elif isinstance(node, str) and "restore.target.database" in node:
-        try:
-            walk(json.loads(node))
-        except ValueError:
-            pass
-for path in sorted(pathlib.Path(sys.argv[1]).rglob("*.json")):
+for path in sorted(pathlib.Path(review).rglob("*.json")):
     walk(json.loads(path.read_text()))
 print(found.pop() if len(found) == 1 else "ambiguous:" + ",".join(sorted(found)))
 PY
 }
-MANUAL_SCRATCH="$(scratch_of "$REVIEWS/restore-manual")"
+MANUAL_SCRATCH="$(scratch_of "$REVIEWS/restore-manual" manual)"
 expect "manual scratch database" "$MANUAL_SCRATCH" "${DB}_restore_manual"
 expect "manual scratch rows" "$(rows "\`$MANUAL_SCRATCH\`")" "1:before-restart,2:backup-sentinel"
 expect "source rows after manual restore" "$(rows default)" "1:before-restart,2:backup-sentinel,3:after-backup"
@@ -166,7 +163,7 @@ N db backup-receipts "$DB" -n "$NS" > "$EV/backup-receipts.txt" 2>&1 || { echo "
 record "listing names the run" "$(grep -q "$JOB_UID" "$EV/backup-receipts.txt" && echo yes || echo no)"
 saved scheduled-receipt db backup-receipts "$DB" -n "$NS" --backup-id "$JOB_UID"
 saved restore-scheduled db restore "$DB" "$JOB_UID" -n "$NS" --restore-id sched
-SCHED_SCRATCH="$(scratch_of "$REVIEWS/restore-scheduled")"
+SCHED_SCRATCH="$(scratch_of "$REVIEWS/restore-scheduled" sched)"
 expect "scheduled scratch database" "$SCHED_SCRATCH" "${DB}_restore_sched"
 expect "scheduled scratch rows" "$(rows "\`$SCHED_SCRATCH\`")" "1:before-restart,2:backup-sentinel,3:after-backup"
 expect "source rows at the end" "$(rows default)" "1:before-restart,2:backup-sentinel,3:after-backup"
