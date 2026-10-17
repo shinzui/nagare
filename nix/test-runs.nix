@@ -117,10 +117,13 @@
         let deps = package.getCabalDeps;
         in (deps.libraryHaskellDepends or [ ]) ++ (deps.executableHaskellDepends or [ ])
           ++ (deps.testHaskellDepends or [ ]) ++ (deps.benchmarkHaskellDepends or [ ]);
-      localPackages = [ "nagare-dsl" "nagarectl" ];
+      # Every package of cli/nagarectl/cabal.project is a cabal goal, so the
+      # sweep's GHC carries all their dependencies, not only nagarectl's.
+      localPackages = [ "nagare-dsl" "nagarectl" "nagare-contract" "nagare-api" "nagare-api-server" ];
       sweepGhc = hp.ghcWithPackages (_: lib.filter
         (dep: dep != null && !(lib.elem (dep.pname or "") localPackages))
-        (cabalDeps hp.nagarectl ++ cabalDeps nagarePackages.checkedNagareDsl));
+        (cabalDeps hp.nagarectl ++ cabalDeps nagarePackages.checkedNagareDsl
+          ++ cabalDeps hp.nagare-contract ++ cabalDeps hp.nagare-api ++ cabalDeps hp.nagare-api-server));
 
       # The sweep's project file is the real cabal.project less its
       # source-repository-package stanzas (their packages are already in
