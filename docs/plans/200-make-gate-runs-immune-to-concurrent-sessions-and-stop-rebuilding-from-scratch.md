@@ -44,7 +44,7 @@ land" behave exactly as today.
 
 ## Progress
 
-- [ ] M1. Every gate run happens in a gate slot. `just gate-fast [REV]`, `just gate [REV]` and
+- [x] M1. Every gate run happens in a gate slot. `just gate-fast [REV]`, `just gate [REV]` and
   `just gate-post-land REV` check out the commit in a free slot (a kept, detached worktree under
   `${XDG_STATE_HOME:-~/.local/state}/nagare/gates/gate-slots/<n>/tree`, two slots) and run every
   step there. Harness sub-steps run the gate's own harness binary, and the `just` recipes get the
@@ -64,8 +64,13 @@ land" behave exactly as today.
     `cli/nagarectl/src/Nagare/Inventory/Components/AdminApi.hs`) in the warm slot 1:
     `nagarectl-build` 12.5 s, `nagare-dsl-build` 1.9 s, wall 309 s, of which `nagarectl-test`
     233 s. A change to an exported definition also recompiles its importers.
-  - [ ] (b) concurrency and (d) docs-only coverage: not yet run; (b) waits for a time no other
-    session gates, so it does not slow their runs.
+  - [x] (b) 2026-10-17: three `just gate-fast` runs on unlanded probe commits started within
+    23 s. `7f7a1a7a` took slot 1 and `946275a6` slot 2, both green (`nagarectl-test` 350 s and
+    339 s side by side); `015e9a79` printed "all 2 gate slots are busy; waiting" until slot 1
+    was freed, then ran there green (`nagarectl-build` 8.4 s, `nagarectl-test` 187 s).
+  - [x] (d) 2026-10-17: `262ac836` (this plan only) landed while the post-land full gate of
+    `0ed88c6b` ran in slot 1; its post-land printed "covered by the full gate of 0ed88c6b … over
+    1 inert paths; no full gate needed", and the `0ed88c6b` record ended green (wall 200 s).
 - [x] M2. The full gate uses the fast record of the same tree. When the gated tree has a green
   fast record, the full gate skips its static and suite-build steps and copies that record's step
   results into the full record; with no fast record it runs them as today. Pass when: a post-land
