@@ -31,14 +31,15 @@ inventoryAdminApiTests =
     "admin API inventory component"
     [ testCase "a local scope binds a gateway-only Deployment on the mounted store, its Service and policy, and a protected route" $ do
         auth <- authScope
-        (scope, native) <- compileWith auth (LocalMountedStore 501 20) >>= expectRight
+        (scope, native) <- compileWith auth LocalMountedStore >>= expectRight
         scopeId scope @?= adminOwner
         kinds native @?= ["deployment", "domainmapping", "networkpolicy", "service"]
         deployment <- objectOf "deployment" native
         let pod = field ["spec", "template", "spec"] deployment
             container = headOf (field ["containers"] pod)
         field ["automountServiceAccountToken"] pod @?= Bool False
-        field ["securityContext", "runAsUser"] pod @?= Number 501
+        -- Root, but only to read the owner-private mount: nothing else is granted.
+        field ["securityContext", "capabilities"] container @?= object ["drop" .= ["ALL" :: Text], "add" .= ["DAC_READ_SEARCH" :: Text]]
         field ["securityContext", "readOnlyRootFilesystem"] container @?= Bool True
         field ["resources", "limits", "memory"] container @?= String "512Mi"
         field ["image"] container @?= String fixtureImage
@@ -97,15 +98,14 @@ inventoryAdminApiTests =
         let refused label result = case result of
               Left errors -> assertBool label (any ((== "invalid-admin-api") . (^. #code)) (toList errors))
               Right _ -> assertFailure (label <> ": accepted")
-        compileAdminApi (input (LocalMountedStore 501 20) & #image .~ "registry.example.test/nagare-admin-api:latest") (declarationsOf auth) >>= refused "a mutable image tag"
+        compileAdminApi (input LocalMountedStore & #image .~ "registry.example.test/nagare-admin-api:latest") (declarationsOf auth) >>= refused "a mutable image tag"
         compileWith auth (CloudReaderStore "gs://project-nagare-pulumi-state/nagare/ctx/inventory" "" fixtureReader) >>= refused "an empty project number"
         compileWith auth (cloudStore (secretNamed "grafana-admin" [("key.json", "{}")])) >>= refused "another Secret"
         compileWith auth (cloudStore (secretNamed "nagare-admin-api-reader" [("key.json", "{}"), ("token", "x")])) >>= refused "an extra key"
-        compileAdminApi (input (LocalMountedStore 501 20)) [] >>= refused "no auth enforcer"
-        compileWith auth (LocalMountedStore 0 0) >>= refused "a root-owned store"
+        compileAdminApi (input LocalMountedStore) [] >>= refused "no auth enforcer"
     , testCase "the composed backend map routes the admin host as an API" $ do
         auth <- authScope
-        (scope, _) <- compileWith auth (LocalMountedStore 501 20) >>= expectRight
+        (scope, _) <- compileWith auth LocalMountedStore >>= expectRight
         let scopes = Map.fromList [(fixtureOwner, auth), (adminOwner, scope)]
         effective <- expectRight (composedDeclarations scopes)
         [(_, (_, bytes))] <- pure (Map.toList (ok (compileContributedBackendMaps effective)))

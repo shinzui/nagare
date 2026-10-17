@@ -44,10 +44,8 @@ import System.FilePath ((</>))
 
 -- | Where the server reads the context's inventory.
 data AdminApiStore
-  = -- | The node directory the local substrate mounts from the workstation,
-    -- with the numeric owner and group of the store, whose files are private
-    -- to that owner.
-    LocalMountedStore !Int !Int
+  = -- | The node directory the local substrate mounts from the workstation.
+    LocalMountedStore
   | -- | The context's GCS prefix through the dedicated reader account, whose
     -- decrypted key Secret is bound as a private member.
     CloudReaderStore
@@ -130,7 +128,7 @@ compileAdminApi input declarations = case validated of
     enforcerAddress = known (kubernetesAddress cluster "serving.knative.dev/v1" "Service" (Just backendConfigMapNamespace) "nagare-access")
     enforcerTarget = RouteTarget "serving.knative.dev/v1" "Service" "nagare-access" backendConfigMapNamespace
     (templatePath, cloud) = case input ^. #store of
-      LocalMountedStore {} -> ("cluster/bootstrap/admin-api/admin-api-local.yaml.tmpl", False)
+      LocalMountedStore -> ("cluster/bootstrap/admin-api/admin-api-local.yaml.tmpl", False)
       CloudReaderStore {} -> ("cluster/bootstrap/admin-api/admin-api-cloud.yaml.tmpl", True)
 
     validated = do
@@ -147,9 +145,7 @@ compileAdminApi input declarations = case validated of
         _ -> Left "the admin API requires the auth scope's nagare-access enforcer in the same cluster"
       let common = [("@IMAGE@", input ^. #image), ("@CONTEXT@", input ^. #context), ("@PROJECT@", input ^. #project)]
       case input ^. #store of
-        LocalMountedStore uid gid -> do
-          unless (uid > 0 && gid >= 0) (Left "the local admin API cannot run as root; the context's store must belong to an ordinary user")
-          Right (enforcerId, common <> [("@STORE_UID@", T.pack (show uid)), ("@STORE_GID@", T.pack (show gid))], [])
+        LocalMountedStore -> Right (enforcerId, common, [])
         CloudReaderStore url number readerObject -> do
           unless
             (("gs://" `T.isPrefixOf` url) && T.all safeUrlChar url && T.length url > 5)
@@ -167,7 +163,7 @@ compileAdminApi input declarations = case validated of
     render substitutions bytes = do
       text <- first (const "the admin API template is not UTF-8") (TE.decodeUtf8' bytes)
       let rendered = foldl' (\acc (token, value) -> T.replace token value acc) text substitutions
-          placeholders = ["@IMAGE@", "@CONTEXT@", "@PROJECT@", "@STORE_URL@", "@PROJECT_NUMBER@", "@READER_DIGEST@", "@STORE_UID@", "@STORE_GID@"]
+          placeholders = ["@IMAGE@", "@CONTEXT@", "@PROJECT@", "@STORE_URL@", "@PROJECT_NUMBER@", "@READER_DIGEST@"]
       when
         (any (`T.isInfixOf` rendered) placeholders)
         (Left "the admin API template has a placeholder its mode does not supply")
