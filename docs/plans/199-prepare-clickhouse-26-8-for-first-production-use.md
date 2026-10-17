@@ -34,11 +34,20 @@ invent a migration from an installation that does not exist.
 ## Progress
 
 
-- [ ] M1: New database declarations, maintained examples, and current test paths use 26.8; explicit version choices remain effective and focused checks pass.
+- [x] M1: New database declarations, maintained examples, and current test paths use 26.8; explicit version choices remain effective and focused checks pass.
+  2026-10-16, `cd921241`. Pass: `nagare-dsl-test` (ClickHouse golden on 26.8),
+  `nagarectl-test` 163/163 (new: omitted version renders server and scheduled
+  backup on `clickhouse-server:26.8`; explicit `26.8.29.10` survives image and
+  annotation; backup and scratch-restore ZIP rendering on 26.8), harness 62/62,
+  `just haskell-style-check`. Public `db create clickhouse ep199-ch --size 1Gi --memory 2Gi
+  --dry-run` shows server and backup images `clickhouse-server:26.8`, ports 9000/8123,
+  `CLICKHOUSE_USER`/`CLICKHOUSE_PASSWORD` Secret refs, `limits.memory: 2Gi`, the
+  1610612736/268435456 memory ConfigMap and the `/var/lib/clickhouse` mount.
 - [ ] M2: A fresh managed 26.8 instance passes authenticated access, restart persistence, and manual and scheduled backup/scratch-restore checks with recorded evidence.
 - [ ] M3: Documentation and the first-use handoff match the verified behavior, required gates pass, and implementation evidence identifies the tested revision and image.
 
-Only this plan has been authored. Implementation and native validation have not begun.
+Docs and `scripts/clickhouse-drill.sh` landed in `ae846cc4`. Next: green full gate on the
+candidate, then M2 on a fresh disposable local context.
 
 ## Surprises & Discoveries
 
@@ -62,6 +71,16 @@ image-digest policy or automatic dependency updater is outside this change.
 transition fixtures as records of their original versions. Update maintained
 examples and tests that exercise current defaults; retain explicit old-version
 fixtures when they prove decoding or caller-selected version behavior.
+
+2026-10-16 — Run M2 in the platform-declared `personal` namespace with the dedicated
+database name `ep199-ch`, not a new `ep199-ch` namespace. Reviewed `db create` requires the
+platform's accepted Namespace declaration, which a local context has for `personal`; creating
+a namespace scope would add work this version change does not need.
+
+2026-10-16 — The disposable context is a fresh local context on Colima profile `nagare-mp23`,
+bootstrapped on v0.6.3 and moved to the candidate by `just release-rehearse REV 0.6.3`. That
+is the existing unattended route to a context running a packaged candidate; the rehearsal's
+own record is not release evidence for this change and is not committed.
 
 ## Outcomes & Retrospective
 
