@@ -14,7 +14,7 @@ ClickHouse connection env. See
 ## Files
 
 - `nagare/Database.hs` — the typed `Database` (`engine = ClickHouse`,
-  `version 25.8` LTS, `5Gi`, **`resources` memory request 512Mi / limit 2Gi**,
+  `version 26.8` LTS, `5Gi`, **`resources` memory request 512Mi / limit 2Gi**,
   `retention = Retain`).
 - `nagare/Config.hs` — the app `Deployment`; `databases = ["events"]`.
 - `app.py` / `Dockerfile` — a stdlib HTTP app + `clickhouse-driver` (native, 9000).
@@ -23,25 +23,35 @@ ClickHouse connection env. See
 
 ```bash
 nagarectl db create clickhouse events --size 5Gi --memory 2Gi --dry-run
-nagarectl deploy -f cluster/examples/clickhouse-analytics/nagare/Config.hs --dry-run
 ```
 
 `db create --dry-run` shows a one-replica StatefulSet on
-`clickhouse/clickhouse-server:25.8` exposing both 9000 (native) and 8123 (HTTP),
+`clickhouse/clickhouse-server:26.8` exposing both 9000 (native) and 8123 (HTTP),
 mounting `/var/lib/clickhouse` and the memory-cap ConfigMap at
 `/etc/clickhouse-server/config.d/low-memory.xml`, the container memory `limit: 2Gi`,
-a `5Gi` PVC, the Secret, and the backup CronJob. The `deploy --dry-run` shows
-`CLICKHOUSE_HOST`/`CLICKHOUSE_PORT`(9000)/`CLICKHOUSE_USER` literals and
-`CLICKHOUSE_URL`/`CLICKHOUSE_PASSWORD` `secretKeyRef`s.
+a `5Gi` PVC, the Secret, and the backup CronJob. Omitting `--version` selects the
+`26.8` default; `--version 26.8.29.10` pins a full patch tag instead. A reviewed
+app deploy injects `CLICKHOUSE_HOST`/`CLICKHOUSE_PORT`(9000)/`CLICKHOUSE_USER`
+literals and `CLICKHOUSE_URL`/`CLICKHOUSE_PASSWORD` `secretKeyRef`s.
 
-## Live run (on `nagare-01`)
+## Live run
 
-> Run on the VM via `scripts/iap-ssh.sh`. In-pod GCS auth for backups is fixed
-> (node `/32` metadata route + `hostAliases`; see the user guide).
+Select the target context first (`nagarectl context current`). Creating the
+database publishes and applies a reviewed inventory scope:
 
 ```bash
-nagarectl db create clickhouse events --size 5Gi --memory 2Gi
-nagarectl deploy -f cluster/examples/clickhouse-analytics/nagare/Config.hs
+nagarectl db create clickhouse events --size 5Gi --memory 2Gi \
+  --recovery-backup events-backup --recovery-key-version v1
+nagarectl db get events
+```
+
+Build and publish the app image with `app image-plan` as described in
+[Deploying apps](../../../docs/user/deploying-apps.md), then deploy the accepted
+publication through the reviewed single-Service route:
+
+```bash
+nagarectl deploy -f cluster/examples/clickhouse-analytics/nagare/Config.hs \
+  --tag TAG --image-resource IMAGE_RESOURCE_ID
 URL=$(nagarectl app get clickhouse-analytics | sed -n 's/^URL:[[:space:]]*//p')
 curl -fsS "$URL/track"   # -> events: 1
 curl -fsS "$URL/count"   # -> events: 1
@@ -49,9 +59,14 @@ curl -fsS "$URL/count"   # -> events: 1
 
 ## Clean up
 
+Retire the app first, then the database. Retirement keeps every provider
+resource, including the PVC, as retained inventory history; delete them only
+through separate `inventory collect` reviews
+([inventory operations](../../../docs/runbooks/inventory-operations.md)).
+
 ```bash
-nagarectl db delete events --yes        # retention = Retain keeps the PVC
-nagarectl app delete clickhouse-analytics
-kubectl delete pvc -n personal nagare-db-events-data   # DESTRUCTIVE
-gsutil rm -r gs://tan-nb-exp-nagare-backups/databases/events/
+nagarectl app delete clickhouse-analytics --save-plan ./app-retire
+nagarectl inventory apply ./app-retire --yes
+nagarectl db retire events --save-plan ./events-retire
+nagarectl inventory apply ./events-retire --yes
 ```

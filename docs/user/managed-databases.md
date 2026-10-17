@@ -130,8 +130,17 @@ The platform defaults to **modern engine majors**, all verified on the cluster:
 | --- | --- | --- | --- | --- |
 | PostgreSQL | `Postgres` | 5432 | `/var/lib/postgresql/data` | `"18"` |
 | Redis | `Redis` | 6379 | `/data` | `"8"` |
-| ClickHouse | `ClickHouse` | 9000 (native; 8123 HTTP also exposed) | `/var/lib/clickhouse` | `"25.8"` (LTS) |
+| ClickHouse | `ClickHouse` | 9000 (native; 8123 HTTP also exposed) | `/var/lib/clickhouse` | `"26.8"` (LTS) |
 
+- `version` is the engine image tag. Omit `--version` (or use
+  `defaultEngineVersion`) for the default above; pass a line such as `26.8` or a
+  full patch tag such as `26.8.29.10` to pin one. The server, backup, and restore
+  images all use the declared tag. A database keeps the version it was created
+  with: changing the default never upgrades an accepted database, and a
+  declaration that names a version keeps it. ClickHouse's `26.8` line tag moves to
+  each new patch release, and a node that pulls the image again (for example a
+  rebuilt node) gets the newer build; pin a full patch tag when you need a fixed
+  server build.
 - `size` is the data PVC (e.g. `"10Gi"`), reusing the `Quantity` convention; it
   becomes a `local-path` `ReadWriteOnce` volume on the node's data disk.
 - `resources` (optional) sets CPU/memory requests and limits on the engine

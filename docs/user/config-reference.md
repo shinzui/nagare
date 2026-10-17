@@ -460,7 +460,7 @@ data Database = Database
 | Field type | Constructor | Notes |
 | --- | --- | --- |
 | `DatabaseName` | `mkDatabaseName :: Text -> Either Text DatabaseName` | DNS-1123 label (same rules as `ServiceName`). Exported from `Nagare.Dsl.Database` (and re-exported there from `Nagare.Dsl.Types`). |
-| `Engine` | constructors `Postgres`/`Redis`/`ClickHouse` | `defaultEngineVersion` gives the modern major per engine (Postgres `18`, Redis `8`, ClickHouse `25.8`). |
+| `Engine` | constructors `Postgres`/`Redis`/`ClickHouse` | `defaultEngineVersion` gives the modern major per engine (Postgres `18`, Redis `8`, ClickHouse `26.8`, the supported LTS line). A declaration that names a version keeps it. |
 | `EngineVersion` | `mkEngineVersion :: Engine -> Text -> Either Text EngineVersion` | Rejects empty, `latest`, and `:`-bearing tags; ClickHouse's `YY.M` form is accepted. |
 
 `namespace`, `size`, `resources`, and `retention` reuse the same types as the
