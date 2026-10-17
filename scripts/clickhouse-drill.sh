@@ -121,10 +121,10 @@ saved backup db backup "$DB" -n "$NS" --backup-id "$MANUAL"
 native "INSERT INTO default.ep199_probe VALUES (3, 'after-backup')"
 AFTER_BACKUP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 saved restore-manual db restore "$DB" "$MANUAL" -n "$NS" --restore-id manual
-# The scratch database is the one the saved review names, wherever its scope records it.
+# The scratch database is the one the saved review's restore scope names (scopes/*.json).
 scratch_of() {
-  python3 -I - "$1/review.json" <<'PY'
-import json, sys
+  python3 -I - "$1" <<'PY'
+import json, pathlib, sys
 found = set()
 def walk(node):
     if isinstance(node, dict):
@@ -140,7 +140,8 @@ def walk(node):
             walk(json.loads(node))
         except ValueError:
             pass
-walk(json.load(open(sys.argv[1])))
+for path in sorted(pathlib.Path(sys.argv[1]).rglob("*.json")):
+    walk(json.loads(path.read_text()))
 print(found.pop() if len(found) == 1 else "ambiguous:" + ",".join(sorted(found)))
 PY
 }
