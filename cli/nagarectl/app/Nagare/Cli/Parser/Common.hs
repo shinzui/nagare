@@ -3,6 +3,7 @@ module Nagare.Cli.Parser.Common
   ( appArg
   , appNameArg
   , baseDomainOpt
+  , contractOpt
   , configFileOpt
   , defaultConfigFile
   , dryRunOpt
@@ -18,9 +19,11 @@ where
 import Nagare.Dsl.Prelude
 import Options.Applicative
   ( Parser
+  , auto
   , help
   , long
   , metavar
+  , option
   , optional
   , short
   , showDefault
@@ -31,6 +34,10 @@ import Options.Applicative
   )
 
 -- Reusable option fragments shared across the subcommands.
+
+-- | @--contract VERSION@: print the versioned contract document (EP-192).
+contractOpt :: Parser (Maybe Int)
+contractOpt = optional (option auto (long "contract" <> metavar "VERSION" <> help "Print the machine-readable outcome of contract VERSION (1) and exit with its outcome code"))
 
 fileOpt :: FilePath -> Parser FilePath
 fileOpt defaultFile =

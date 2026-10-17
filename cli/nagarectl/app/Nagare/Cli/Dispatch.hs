@@ -98,6 +98,7 @@ import Nagare.Cli.Platform.Upgrade
   , runPlatformUpgradeRollback
   , runPlatformUpgradeStatus
   )
+import Nagare.Contract.Sink (withContract)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Command qualified as Inventory
 
@@ -178,8 +179,8 @@ dispatch (mctx, cmd0) = case cmd0 of
   InventoryRetire owner output -> runInventoryRetire mctx owner output
   InventoryGc output -> runInventoryStatus mctx Nothing True (Just output)
   InventoryCollect resource output descendants -> runInventoryCollect mctx resource output descendants
-  InventoryApply directory yes -> runInventoryApply mctx directory yes
-  InventoryResume transaction yes takeOver -> runInventoryResume mctx (T.pack transaction) yes takeOver
+  InventoryApply directory yes contract -> withContract contract (runInventoryApply mctx directory yes)
+  InventoryResume transaction yes takeOver contract -> withContract contract (runInventoryResume mctx (T.pack transaction) yes takeOver)
   InventoryRecover transaction operation decisionFile takeOver ->
     runInventoryRecover mctx (T.pack transaction) (T.pack operation) decisionFile takeOver
   InventoryClose transaction review attest takeOver -> runInventoryClose mctx (T.pack transaction) (T.pack review) attest takeOver

@@ -27,6 +27,7 @@ import Nagare.Inventory.Store.Migrate (migrateStore)
 import Nagare.Inventory.Store.ObjectOps
 import Nagare.Ops.PulumiBackend (GcloudOps (..), bucketOwnershipVerdict, bucketProjectNumberArgs, gcsBucketOfUrl, projectNumberArgs, realGcloudOps)
 import Nagare.Resource.Types
+import Nagare.Test.Support.Assertions (stoppedAt)
 import Nagare.Test.World.ObjectStore (fakeObjectOps)
 import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..))
@@ -370,7 +371,7 @@ inventoryObjectOpsTests =
           applyReviewed firstStore registry reviewed
             >>= either (assertFailure . show) pure
         transaction <- case stopped of
-          StoppedAmbiguous value _ -> pure value
+          StoppedAmbiguous value _ _ -> pure value
           other -> assertFailure (show other) >> error "unreachable"
         readIORef effects >>= (\calls -> length calls @?= 1)
         batches <- newIORef (0 :: Int)
@@ -665,7 +666,7 @@ inventoryObjectOpsTests =
                 (\_ _ -> pure RecoverySafeToRetry)
         outcome <- applyReviewed firstStore registry reviewed >>= either (assertFailure . show) pure
         case outcome of
-          StoppedAmbiguous _ _ -> pure ()
+          StoppedAmbiguous _ _ _ -> pure ()
           other -> assertFailure ("superseded executor continued: " <> show other)
         readIORef effects >>= (@?= 0)
     , testCase "a listing failure cannot look like an empty review catalogue" $ do
@@ -987,7 +988,7 @@ claimObservationRegression mode = do
       (\_ _ -> modifyIORef' recoveries (+ 1) >> pure (RecoveryUnresolved "still running"))
   stopped <- applyReviewed store registry reviewed >>= either (assertFailure . show) pure
   transaction <- case stopped of
-    StoppedAmbiguous value _ -> pure value
+    StoppedAmbiguous value _ _ -> pure value
     other -> assertFailure (show other) >> error "unreachable"
   heads <- newIORef (0 :: Int)
   writes <- newIORef (0 :: Int)
@@ -1028,7 +1029,8 @@ claimObservationRegression mode = do
         Right _ -> assertFailure "stale provider generation was reacquired"
       readIORef recoveries >>= (@?= 0)
     else do
-      result @?= Right stopped
+      -- The resumed stop's reason names its own recovery decision (F94).
+      fmap stoppedAt result @?= Right (stoppedAt stopped)
       readIORef recoveries >>= (@?= 1)
   readIORef effects >>= (@?= 1)
   when (mode == "count") $ do

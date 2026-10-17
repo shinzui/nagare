@@ -107,6 +107,7 @@ library
     Nagare.Cluster.Namespace
     Nagare.Context.Review
     Nagare.Contract.Project
+    Nagare.Contract.Sink
     Nagare.Database.Backup
     Nagare.Database.Connection
     Nagare.Database.Create
@@ -492,6 +493,7 @@ executable nagarectl
     filepath,
     generic-lens ^>=2.3,
     lens ^>=5.3,
+    nagare-contract,
     nagare-dsl,
     nagarectl,
     optparse-applicative,

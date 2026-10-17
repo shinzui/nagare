@@ -459,7 +459,7 @@ inventoryObservabilityTests =
           reviewed <- either (assertFailure . show) pure (verifyReview snapshotAfter reviewBundle)
           stopped <- applyReviewed store registry reviewed >>= either (assertFailure . show) pure
           transaction <- case stopped of
-            StoppedAmbiguous value _ -> pure value
+            StoppedAmbiguous value _ _ -> pure value
             other -> assertFailure ("expected migration interruption, got " <> show other) >> error "unreachable"
           resumed <- resumeTransaction store registry transaction >>= either (assertFailure . show) pure
           resumed @?= Converged transaction

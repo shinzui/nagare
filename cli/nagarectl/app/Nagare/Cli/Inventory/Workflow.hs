@@ -45,6 +45,7 @@ import Nagare.Cli.Runtime.Target
   ( activeTarget
   , resolvePlatformWorkspace
   )
+import Nagare.Contract.Sink (contractSinkSet)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.AccessRuntime (accessKeyRefusal)
 import Nagare.Inventory.Adapter qualified as InventoryAdapter
@@ -74,6 +75,8 @@ import Nagare.Target
   , effectiveInventoryStore
   )
 import System.Environment (lookupEnv)
+import System.Exit (exitFailure)
+import System.IO (stderr)
 
 runInventoryPlan :: Maybe String -> FilePath -> [String] -> FilePath -> IO ()
 runInventoryPlan mctx candidateDirectory retained output = do
@@ -285,8 +288,16 @@ runInventoryResume mctx transaction yes takeOver = do
     ( effectiveInventoryStore (target ^. #profile) == InventoryStoreGcs
         && effectiveInventoryStore (selected ^. #profile) == InventoryStoreLocal
     )
-    $ Inventory.migrateTargetStore selected InventoryStoreGcs False
-      >>= either (dieT . T.pack . show) TIO.putStrLn
+    $ do
+      -- Under --contract 1 stdout holds only the outcome document, already
+      -- printed; the migration that follows reports on stderr.
+      contract <- contractSinkSet
+      migrated <- Inventory.migrateTargetStore selected InventoryStoreGcs False
+      case migrated of
+        Right message -> (if contract then TIO.hPutStrLn stderr else TIO.putStrLn) message
+        Left failure
+          | contract -> TIO.hPutStrLn stderr ("nagarectl: " <> T.pack (show failure)) >> exitFailure
+          | otherwise -> dieT (T.pack (show failure))
 
 -- Apply and resume refuse an access review before admission when the private
 -- key is missing. Recover and close keep the bare factory: nothing gates

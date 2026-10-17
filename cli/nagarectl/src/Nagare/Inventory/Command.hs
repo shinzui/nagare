@@ -32,6 +32,7 @@ module Nagare.Inventory.Command
   , applyInventory
   , applyInventoryWith
   , applyInventoryWithFactory
+  , renderTransactionResult
   , resumeInventory
   , resumeInventoryWith
   , resumeInventoryWithFactory
@@ -67,6 +68,8 @@ import Data.Set qualified as Set
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
+import Nagare.Contract.Problem (ProblemSpec, admissionRefused, reviewChanged, storeUnavailable, unclassified, wrongContext)
+import Nagare.Contract.Sink (refuseWith, reportTransaction)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Digest
@@ -566,20 +569,17 @@ applyInventoryWithFactory registryFor target reviewDirectory yes = do
   validateReviewTarget target (reviewContextBinding (reviewBundleDocument publicBundle))
   store <- openTargetStore target
   requireTransitionOwner store
-  bundle <- loadPublishedReview store (reviewDigest publicBundle) >>= either (dieText . showText) pure
+  bundle <- loadPublishedReview store (reviewDigest publicBundle) >>= either (dieCoded reviewChanged . showText) pure
   unless
     ( reviewBundleDocument bundle == reviewBundleDocument publicBundle
         && reviewBundleScopes bundle == reviewBundleScopes publicBundle
     )
-    (dieText "review directory differs from the immutable review published by this store")
+    (dieCoded reviewChanged "review directory differs from the immutable review published by this store")
   registry <- registryFor store bundle
-  snapshot <- readReviewSnapshot store (reviewDigest bundle) >>= either (dieText . showText) pure
-  reviewed <- either (dieText . showText . NE.toList) pure (verifyReview snapshot bundle)
-  result <- applyReviewed store registry reviewed >>= either (dieText . showText . NE.toList) pure
-  TIO.putStrLn (renderTransactionResult result)
-  case result of
-    Converged _ -> pure ()
-    _ -> exitFailure
+  snapshot <- readReviewSnapshot store (reviewDigest bundle) >>= either (dieCoded storeUnavailable . showText) pure
+  reviewed <- either (dieCoded reviewChanged . showText . NE.toList) pure (verifyReview snapshot bundle)
+  result <- applyReviewed store registry reviewed >>= either (dieCoded admissionRefused . showText . NE.toList) pure
+  reportTransaction (renderTransactionResult result) result
 
 resumeInventory :: ActiveTarget -> Text -> Bool -> IO ()
 resumeInventory = resumeInventoryWith executionBlockedRegistry
@@ -605,11 +605,8 @@ resumeInventoryWithFactoryTakeover registryFor target transactionToken yes takeO
       bundle <- loadPublishedReview store digest >>= either (dieText . showText) pure
       registryFor store bundle
     _ -> either dieText pure (mkAdapterRegistry [])
-  result <- resumeTransactionWithTakeover store registry transaction takeOver >>= either (dieText . showText . NE.toList) pure
-  TIO.putStrLn (renderTransactionResult result)
-  case result of
-    Converged _ -> pure ()
-    _ -> exitFailure
+  result <- resumeTransactionWithTakeover store registry transaction takeOver >>= either (dieCoded admissionRefused . showText . NE.toList) pure
+  reportTransaction (renderTransactionResult result) result
 
 prepareRegistryRecoveryWithFactory ::
   (InventoryStore -> ReviewBundle -> IO AdapterRegistry) ->
@@ -926,7 +923,7 @@ validateReviewTarget :: ActiveTarget -> ContextBinding -> IO ()
 validateReviewTarget target binding = do
   let expectedProject = target ^. #profile . #project
   unless (nameText (binding ^. #project) == expectedProject) $
-    dieText ("inventory review targets project " <> nameText (binding ^. #project) <> ", active context targets " <> expectedProject)
+    dieCoded wrongContext ("inventory review targets project " <> nameText (binding ^. #project) <> ", active context targets " <> expectedProject)
 
 -- | EP-172: while a release transition is open, only the target payload's
 -- nagarectl applies, resumes, recovers or closes; any other refuses and
@@ -967,7 +964,7 @@ renderTransactionResult result = case result of
   Converged transaction -> "converged " <> transactionIdText transaction
   PausedAtBarrier transaction barriers -> "paused " <> transactionIdText transaction <> " at " <> T.pack (show (NE.length barriers)) <> " review barrier(s)"
   StoppedFailed transaction operation failureClass -> "stopped " <> transactionIdText transaction <> " at " <> operationIdText operation <> ": " <> showText failureClass
-  StoppedAmbiguous transaction operation -> "ambiguous " <> transactionIdText transaction <> " at " <> operationIdText operation
+  StoppedAmbiguous transaction operation reason -> "ambiguous " <> transactionIdText transaction <> " at " <> operationIdText operation <> ": " <> reason
   Closed transaction -> "closed " <> transactionIdText transaction
 
 rejectReentry :: IO ()
@@ -975,8 +972,12 @@ rejectReentry = do
   active <- lookupEnv "NAGARE_INVENTORY_TRANSACTION"
   when (maybe False (not . null) active) (dieText "an adapter child may not re-enter an inventory command")
 
+-- | A refusal: its line on stderr, or under @--contract 1@ a coded outcome.
 dieText :: Text -> IO a
-dieText message = TIO.hPutStrLn stderr message >> exitFailure
+dieText message = refuseWith message unclassified message
+
+dieCoded :: ProblemSpec -> Text -> IO a
+dieCoded spec message = refuseWith message spec message
 
 showText :: (Show a) => a -> Text
 showText = T.pack . show

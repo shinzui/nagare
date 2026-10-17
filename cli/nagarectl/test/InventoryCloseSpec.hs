@@ -87,7 +87,7 @@ landedClose releaseFaults = do
   reviewed <- reviewFor store registry owner [service "v2", extra] [(declarationId (service "v2"), ObservedPresent landed), (declarationId extra, ConfirmedAbsent (contentDigest "absent"))]
   applied <- applyReviewed store registry reviewed >>= expectRight
   transaction <- case applied of
-    StoppedAmbiguous tx _ -> pure tx
+    StoppedAmbiguous tx _ _ -> pure tx
     other -> assertFailure ("the update did not stop: " <> show other) >> pure (error "unreachable")
   -- A recorded incarnation that close must leave alone.
   stopped <- readHead store >>= expectRight >>= maybe (assertFailure "head missing" >> pure (error "unreachable")) pure
@@ -154,7 +154,7 @@ revertedClose = do
       admitted <- readHead store >>= expectRight
       maybe (assertFailure "the review was not admitted" >> pure (error "unreachable")) (pure . ok . mkTransactionId) (admitted >>= headActiveTransaction)
     Right (StoppedFailed tx _ _) -> pure tx
-    Right (StoppedAmbiguous tx _) -> pure tx
+    Right (StoppedAmbiguous tx _ _) -> pure tx
     Right other -> assertFailure ("the refused update did not stop: " <> show other) >> pure (error "unreachable")
   admitted <- readHead store >>= expectRight >>= maybe (assertFailure "head missing" >> pure (error "unreachable")) pure
   assertBool "admission retained the worker" (Map.member (declarationId worker) (headRetained admitted))
@@ -184,7 +184,7 @@ unknownBlocks = do
   reviewed <- reviewFor store registry owner [service "v2"] [(declarationId (service "v2"), ObservedPresent (ok (mkPhysicalIdentity "uid")))]
   transaction <-
     applyReviewed store registry reviewed >>= expectRight >>= \case
-      StoppedAmbiguous tx _ -> pure tx
+      StoppedAmbiguous tx _ _ -> pure tx
       other -> assertFailure ("the update did not stop: " <> show other) >> pure (error "unreachable")
   closeTransaction store registry (CloseInput transaction (reviewedDigest reviewed) False Nothing) >>= \case
     Left errors -> assertBool ("unexpected refusal: " <> show (NE.toList errors)) (any ((== "unknown-operation") . admissionErrorCode) (NE.toList errors))

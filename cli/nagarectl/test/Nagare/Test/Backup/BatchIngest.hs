@@ -135,7 +135,7 @@ stoppedBatch = do
     (store, reviewed) <- seededBatch registry
     transaction <-
       applyReviewed store registry reviewed >>= expectRight >>= \case
-        StoppedAmbiguous tx _ -> pure tx
+        StoppedAmbiguous tx _ _ -> pure tx
         other -> assertFailure ("the batch did not stop at " <> label <> ": " <> show other) >> pure (error "unreachable")
     if terminal
       then do

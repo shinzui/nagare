@@ -851,7 +851,7 @@ nativeApplicationReview = do
           let registryFromReview = makeRegistry (checked (kubernetesSpecsFromReview reviewBundle))
           result <- applyReviewed store registryFromReview reviewed >>= either (fail . show) pure
           transaction <- case result of
-            StoppedAmbiguous token _ -> pure token
+            StoppedAmbiguous token _ _ -> pure token
             other ->
               assertFailure ("application did not pause after lost acknowledgement: " <> show other)
                 >> fail "expected interrupted application"
@@ -1366,7 +1366,7 @@ renderTests =
           reviewedStop
           >>= either (fail . show) pure
       transaction <- case paused of
-        StoppedAmbiguous token _ -> pure token
+        StoppedAmbiguous token _ _ -> pure token
         other ->
           assertFailure ("stop did not pause after lost acknowledgement: " <> show other)
             >> fail "expected interrupted stop"

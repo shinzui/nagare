@@ -5957,7 +5957,7 @@ inventoryKubernetesTests =
                 reviewed <- expectRight (verifyReview snapshotAfter reviewBundle)
                 result <- applyReviewed store registryFromReview reviewed >>= expectRight
                 transaction <- case result of
-                  StoppedAmbiguous token _ -> pure token
+                  StoppedAmbiguous token _ _ -> pure token
                   other -> assertFailure ("database component did not pause after the lost acknowledgement: " <> show other)
                 resumed <- resumeTransaction store registryFromReview transaction >>= expectRight
                 resumed @?= Converged transaction

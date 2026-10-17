@@ -204,7 +204,7 @@ inventoryMigrationTests =
             reviewed <- either (assertFailure . show . NE.toList) pure (verifyReview published bundle)
             stopped <- applyReviewed store registry reviewed >>= either (assertFailure . show . NE.toList) pure
             transaction <- case stopped of
-              StoppedAmbiguous value _ -> pure value
+              StoppedAmbiguous value _ _ -> pure value
               other -> assertFailure ("stage did not stop ambiguously: " <> show (interrupted, other)) >> undefined
             resumeTransaction store registry transaction
               >>= either (assertFailure . show . NE.toList) pure

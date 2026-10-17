@@ -8,6 +8,8 @@ module Nagare.Cli.Runtime.Error
 where
 
 import Data.Text.IO qualified as TIO
+import Nagare.Contract.Problem (unclassified)
+import Nagare.Contract.Sink (refuseWith)
 import Nagare.Dsl.Prelude
 import Nagare.Version (VersionError (VersionError))
 import System.Exit (exitFailure)
@@ -20,11 +22,10 @@ printPreflightWarnings = mapM_ (TIO.putStrLn . ("  warning: " <>))
 orDie :: Either Text a -> IO a
 orDie = either dieT pure
 
--- | Print a one-line @nagarectl:@ error to stderr and exit non-zero.
+-- | Print a one-line @nagarectl:@ error to stderr and exit non-zero, or,
+-- under @--contract 1@, the refusal's outcome document (EP-192).
 dieT :: Text -> IO a
-dieT msg = do
-  TIO.hPutStrLn stderr ("nagarectl: " <> msg)
-  exitFailure
+dieT msg = refuseWith ("nagarectl: " <> msg) unclassified msg
 
 renderVersionError :: VersionError -> Text
 renderVersionError (VersionError message) = message

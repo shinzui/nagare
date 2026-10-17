@@ -89,7 +89,7 @@ runWithHeadFailures mode failures recoveryProof = do
   result <- case recoveryProof of
     Nothing -> pure (Right applied)
     Just _ -> case applied of
-      StoppedAmbiguous transaction _ -> do
+      StoppedAmbiguous transaction _ _ -> do
         replay <- newObjectStore base fixtureBinding "client-a" Nothing >>= either (assertFailure . show) pure
         Right <$> (resumeTransaction replay registry transaction >>= either (assertFailure . show) pure)
       other -> pure (Left ("expected the persistent head failure to stop ambiguous, got " <> show other))

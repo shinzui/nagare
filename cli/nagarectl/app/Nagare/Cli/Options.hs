@@ -345,8 +345,8 @@ data Command
   | InventoryRetire (NE.NonEmpty String) FilePath
   | InventoryGc FilePath
   | InventoryCollect (NE.NonEmpty String) FilePath Bool
-  | InventoryApply FilePath Bool
-  | InventoryResume String Bool Bool
+  | InventoryApply FilePath Bool (Maybe Int)
+  | InventoryResume String Bool Bool (Maybe Int)
   | InventoryRecover String String FilePath Bool
   | InventoryClose String String (Maybe FilePath) Bool
   | InventoryAbandonMigration String String Bool

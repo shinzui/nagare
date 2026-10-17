@@ -6,6 +6,7 @@ where
 
 import Data.List.NonEmpty qualified as NE
 import Nagare.Cli.Options (Command (..))
+import Nagare.Cli.Parser.Common (contractOpt)
 import Nagare.Cli.Parser.Data (inventoryResourceOption)
 import Nagare.Dsl.Prelude
 import Options.Applicative
@@ -89,14 +90,16 @@ inventoryCmd =
               (info (InventoryCollect <$> ((NE.:|) <$> inventoryResourceOption <*> many (strOption (long "resource" <> metavar "RESOURCE_ID" <> internal))) <*> strOption (long "out" <> metavar "DIRECTORY") <*> switch (long "controller-descendants" <> help "Review Background collection of a Knative Service or DomainMapping and its exclusive controller descendants") <**> helper) (progDesc "Review exact collection of retained stateless Kubernetes or workload DNS resources"))
             <> command
               "apply"
-              (info (InventoryApply <$> strArgument (metavar "REVIEW_DIRECTORY") <*> switch (long "yes") <**> helper) (progDesc "Apply an issued inventory review"))
+              (info (InventoryApply <$> strArgument (metavar "REVIEW_DIRECTORY") <*> switch (long "yes") <*> contractOpt <**> helper) (progDesc "Apply an issued inventory review"))
             <> command
               "resume"
               ( info
                   ( InventoryResume
                       <$> strArgument (metavar "TRANSACTION")
                       <*> switch (long "yes")
-                      <*> switch (long "take-over") <**> helper
+                      <*> switch (long "take-over")
+                      <*> contractOpt
+                        <**> helper
                   )
                   (progDesc "Resume an unresolved inventory transaction")
               )

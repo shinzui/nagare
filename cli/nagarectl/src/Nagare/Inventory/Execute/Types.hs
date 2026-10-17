@@ -11,6 +11,7 @@ module Nagare.Inventory.Execute.Types
   , decodeOperatorRecoveryInput
   , failure
   , fallbackResult
+  , fallbackWith
   , reviewAdmission
   , reviewDocumentDigest
   , showText
@@ -128,7 +129,8 @@ data TransactionResult
   = Converged !TransactionId
   | PausedAtBarrier !TransactionId !(NonEmpty ReviewBarrier)
   | StoppedFailed !TransactionId !OperationId !FailureClass
-  | StoppedAmbiguous !TransactionId !OperationId
+  | -- | F94: the reason recovery stopped, kept for the operator.
+    StoppedAmbiguous !TransactionId !OperationId !Text
   | -- | ADR 26: the transaction was closed by per-operation proof.
     Closed !TransactionId
   deriving stock (Eq, Show, Generic)
@@ -156,9 +158,15 @@ ambiguousFallback :: TransactionId -> ReviewDocument -> IO TransactionResult
 ambiguousFallback transaction document = pure (fallbackResult transaction document)
 
 fallbackResult :: TransactionId -> ReviewDocument -> TransactionResult
-fallbackResult transaction document =
+fallbackResult = fallbackWith "the inventory store could not record the transaction's progress"
+
+-- | Stop at the review's first operation with @reason@, when the store
+-- cannot record where the transaction is.
+fallbackWith :: Text -> TransactionId -> ReviewDocument -> TransactionResult
+fallbackWith cause transaction document =
   case reviewOperations document of
-    operation : _ -> StoppedAmbiguous transaction (plannedOperationId (reviewPlannedOperation operation))
-    [] -> StoppedAmbiguous transaction fallbackOperation
+    operation : _ -> StoppedAmbiguous transaction (plannedOperationId (reviewPlannedOperation operation)) reason
+    [] -> StoppedAmbiguous transaction fallbackOperation reason
   where
+    reason = cause <> "; check inventory status, then resume"
     fallbackOperation = either (error . T.unpack) id (mkOperationId "op-store")

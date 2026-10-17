@@ -124,6 +124,7 @@ import Nagare.Resource.Types
   ( ProviderAddress (Kubernetes)
   , digestText
   , nameText
+  , physicalIdentityText
   )
 import Nagare.Resource.Wire (decodeScope)
 
@@ -171,7 +172,7 @@ runOperationsWith latest locked registry transaction reviewed initialEvents oper
     step events = case recoveryDecision of
       Just (selected, _) -> case find ((== selected) . operationId) operations of
         Just operation -> recoverOrStop events operation
-        Nothing -> pure (Just (StoppedAmbiguous transaction selected))
+        Nothing -> pure (Just (StoppedAmbiguous transaction selected "the recovery decision names an operation outside this review"))
       Nothing -> case nextOperation operations (operationStates transaction events) of
         OperationsFinished -> pure Nothing
         OperationBlocked operation reason ->
@@ -184,21 +185,21 @@ runOperationsWith latest locked registry transaction reviewed initialEvents oper
     recoverOrStop events reviewOperation =
       let operation = reviewPlannedOperation reviewOperation
        in case preparedFor reviewed reviewOperation of
-            Left _ -> pure (Just (StoppedAmbiguous transaction (plannedOperationId (reviewPlannedOperation reviewOperation))))
+            Left reason -> pure (Just (StoppedAmbiguous transaction (plannedOperationId (reviewPlannedOperation reviewOperation)) ("the reviewed native input is unavailable: " <> reason)))
             Right prepared -> case lookupAdapter registry (plannedExecutor (reviewPlannedOperation reviewOperation)) of
-              Left _ -> pure (Just (StoppedAmbiguous transaction (plannedOperationId (reviewPlannedOperation reviewOperation))))
+              Left reason -> pure (Just (StoppedAmbiguous transaction (plannedOperationId (reviewPlannedOperation reviewOperation)) ("no adapter can recover the operation: " <> reason)))
               Right adapter
                 | adapterIdentity adapter /= reviewAdapterIdentity reviewOperation
                     || adapterVersion adapter /= reviewAdapterVersion reviewOperation ->
-                    pure (Just (StoppedAmbiguous transaction (plannedOperationId operation)))
-                | Left _ <- selectedFence registry reviewed reviewOperation prepared ->
-                    pure (Just (StoppedAmbiguous transaction (plannedOperationId operation)))
+                    pure (Just (StoppedAmbiguous transaction (plannedOperationId operation) "the installed adapter is not the reviewed identity and version"))
+                | Left reason <- selectedFence registry reviewed reviewOperation prepared ->
+                    pure (Just (StoppedAmbiguous transaction (plannedOperationId operation) ("the reviewed data fence capability changed: " <> reason)))
                 | otherwise -> case recoveryDecision of
                     Just (selected, RecoverBootstrapRegistry native)
                       | selected == plannedOperationId operation ->
                           recoverBootstrapDecision events reviewOperation adapter prepared native
-                      | otherwise -> pure (Just (StoppedAmbiguous transaction (plannedOperationId operation)))
-                    Just _ -> pure (Just (StoppedAmbiguous transaction (plannedOperationId operation)))
+                      | otherwise -> pure (Just (StoppedAmbiguous transaction (plannedOperationId operation) "the recovery decision names another operation"))
+                    Just _ -> pure (Just (StoppedAmbiguous transaction (plannedOperationId operation) "the recovery decision does not apply to this operation"))
                     Nothing -> ordinaryRecovery events reviewOperation operation adapter prepared
     ordinaryRecovery events reviewOperation operation adapter prepared = do
       decision <- withAdapterEnv transaction operation (adapterRecover adapter operation prepared)
@@ -212,20 +213,20 @@ runOperationsWith latest locked registry transaction reviewed initialEvents oper
               (Completed proof)
               "adapter recovery proved completion"
           case appended of
-            Left _ -> pure (Just (StoppedAmbiguous transaction (plannedOperationId operation)))
+            Left failure -> pure (Just (StoppedAmbiguous transaction (plannedOperationId operation) ("the recovery proof could not be journalled: " <> showText failure)))
             Right event -> go (events <> [event])
         RecoverySafeToRetry
           | isNothing (reviewFenceDigest reviewOperation)
           , dependenciesComplete (operationStates transaction events) reviewOperation ->
               executeOne events reviewOperation
-          | otherwise -> pure (Just (StoppedAmbiguous transaction (plannedOperationId operation)))
+          | otherwise -> pure (Just (StoppedAmbiguous transaction (plannedOperationId operation) "a retry is safe, but the operation is fenced or waits for an unfinished dependency"))
         RecoveryAwaitingReadiness _ -> continueReadiness events reviewOperation
         -- Resume cannot make a landed update Ready; only a reviewed stop or a
         -- corrected review ends it.
-        RecoveryLandedUnready _ -> pure (Just (StoppedAmbiguous transaction (plannedOperationId operation)))
-        RecoveryTargetReplaced _ -> pure (Just (StoppedAmbiguous transaction (plannedOperationId operation)))
-        RecoveryTerminalFailure _ -> pure (Just (StoppedAmbiguous transaction (plannedOperationId operation)))
-        RecoveryUnresolved _ -> pure (Just (StoppedAmbiguous transaction (plannedOperationId operation)))
+        RecoveryLandedUnready physical -> pure (Just (StoppedAmbiguous transaction (plannedOperationId operation) ("the update landed on " <> physicalIdentityText physical <> " but never became ready; close the transaction and review the change again")))
+        RecoveryTargetReplaced physical -> pure (Just (StoppedAmbiguous transaction (plannedOperationId operation) ("the target was replaced outside Nagare by " <> physicalIdentityText physical <> "; close the transaction and review the change again")))
+        RecoveryTerminalFailure physical -> pure (Just (StoppedAmbiguous transaction (plannedOperationId operation) ("the operation failed terminally on " <> physicalIdentityText physical <> "; close the transaction and review the change again")))
+        RecoveryUnresolved reason -> pure (Just (StoppedAmbiguous transaction (plannedOperationId operation) reason))
     -- The operator decision supplies the immutable capsule, but this shared
     -- driver still owns intent, claim recheck, effect execution, and receipt.
     -- A successful prerequisite deliberately stops here: workload readiness is
@@ -239,12 +240,12 @@ runOperationsWith latest locked registry transaction reviewed initialEvents oper
       case decision of
         RecoveryAwaitingReadiness _ -> executeBootstrapRecovery
         RecoveryProvedComplete _ -> executeBootstrapRecovery
-        _ -> pure (Just (StoppedAmbiguous transaction (plannedOperationId (reviewPlannedOperation reviewOperation))))
+        _ -> pure (Just (StoppedAmbiguous transaction (plannedOperationId (reviewPlannedOperation reviewOperation)) "the adapter did not prove the registry credential recovery"))
       where
         operation = reviewPlannedOperation reviewOperation
         operationId = plannedOperationId operation
         executeBootstrapRecovery = case lookupAdapterRecovery registry "bootstrap-registry-credentials" of
-          Nothing -> pure (Just (StoppedAmbiguous transaction operationId))
+          Nothing -> pure (Just (StoppedAmbiguous transaction operationId "no registry credential recovery capability is installed"))
           Just capability -> do
             let prior = Map.lookup operationId (operationStates transaction events)
                 selected = case prior of
@@ -257,7 +258,7 @@ runOperationsWith latest locked registry transaction reviewed initialEvents oper
               Right (Just bytes) | selected && contentDigest bytes == native -> do
                 validated <- recoveryValidate capability operation prepared bytes
                 case validated of
-                  Left _ -> pure (Just (StoppedAmbiguous transaction operationId))
+                  Left reason -> pure (Just (StoppedAmbiguous transaction operationId ("the saved recovery input was refused: " <> reason)))
                   Right () -> do
                     intent <-
                       appendEvent
@@ -267,11 +268,11 @@ runOperationsWith latest locked registry transaction reviewed initialEvents oper
                         (OperatorResolved ("bootstrap-registry-intent:" <> digestText native))
                         "bounded registry credential recovery selected; workload completion remains unproved"
                     case intent of
-                      Left _ -> pure (Just (StoppedAmbiguous transaction operationId))
+                      Left failure -> pure (Just (StoppedAmbiguous transaction operationId ("the recovery intent could not be journalled: " <> showText failure)))
                       Right _ -> do
                         claimed <- executorStillClaimed locked transaction
                         if not claimed
-                          then pure (Just (StoppedAmbiguous transaction operationId))
+                          then pure (Just (StoppedAmbiguous transaction operationId "the executor claim was lost"))
                           else do
                             proved <-
                               withAdapterEnv
@@ -279,7 +280,7 @@ runOperationsWith latest locked registry transaction reviewed initialEvents oper
                                 operation
                                 (recoveryExecute capability operation prepared bytes)
                             case proved of
-                              Left _ -> pure (Just (StoppedAmbiguous transaction operationId))
+                              Left reason -> pure (Just (StoppedAmbiguous transaction operationId ("the registry credential recovery failed: " <> reason)))
                               Right receipt -> do
                                 appended <-
                                   appendEvent
@@ -294,8 +295,8 @@ runOperationsWith latest locked registry transaction reviewed initialEvents oper
                                         )
                                     )
                                     "accepted host registry policy recovered; resume must independently prove workload readiness"
-                                pure (either (const (Just (StoppedAmbiguous transaction operationId))) (const Nothing) appended)
-              _ -> pure (Just (StoppedAmbiguous transaction operationId))
+                                pure (either (const (Just (StoppedAmbiguous transaction operationId "the recovery receipt could not be journalled"))) (const Nothing) appended)
+              _ -> pure (Just (StoppedAmbiguous transaction operationId "the saved recovery input is missing or is not the selected one"))
     -- Keep the original ambiguous operation and its readiness requirement.
     -- Only an untouched, independent stateless Deployment create may proceed;
     -- no retry, data operation, fence, or dependent work is authorized here.
@@ -351,7 +352,7 @@ runOperationsWith latest locked registry transaction reviewed initialEvents oper
                 _ -> Nothing
       case candidate of
         Just entry -> executeOne events entry
-        Nothing -> pure (Just (StoppedAmbiguous transaction (operationId waiting)))
+        Nothing -> pure (Just (StoppedAmbiguous transaction (operationId waiting) "the operation waits for readiness; resume once it is ready, or close the transaction"))
     operationId = plannedOperationId . reviewPlannedOperation
     loadDesiredScope revision = do
       result <- readObject (lockedStore locked) (scopeKey (revisionDigest revision))
@@ -364,8 +365,8 @@ runOperationsWith latest locked registry transaction reviewed initialEvents oper
       let operation = reviewPlannedOperation reviewOperation
           operationId = plannedOperationId operation
       case (lookupAdapter registry (plannedExecutor operation), preparedFor reviewed reviewOperation) of
-        (Left _, _) -> pure (Just (StoppedAmbiguous transaction operationId))
-        (_, Left _) -> pure (Just (StoppedAmbiguous transaction operationId))
+        (Left reason, _) -> pure (Just (StoppedAmbiguous transaction operationId ("no adapter can execute the operation: " <> reason)))
+        (_, Left reason) -> pure (Just (StoppedAmbiguous transaction operationId ("the reviewed native input is unavailable: " <> reason)))
         (Right adapter, Right prepared) -> case selectedFence registry reviewed reviewOperation prepared of
           Left _ ->
             pure
@@ -400,7 +401,7 @@ runOperationsWith latest locked registry transaction reviewed initialEvents oper
                   (Failed (KnownNoEffect ("adapter preflight refused: " <> reason)))
                   "retried operation refused by adapter preflight"
               pure $ Just $ case appended of
-                Left _ -> StoppedAmbiguous transaction operationId
+                Left failure -> StoppedAmbiguous transaction operationId ("the preflight refusal could not be journalled: " <> showText failure)
                 Right _ -> StoppedFailed transaction operationId (KnownNoEffect ("adapter preflight refused: " <> reason))
         -- F88: a first refusal is not journalled (nothing started), but the
         -- operator still gets the adapter's reason.
@@ -408,11 +409,11 @@ runOperationsWith latest locked registry transaction reviewed initialEvents oper
         Right () -> do
           intent <- appendEvent locked transaction (Just operationId) IntentRecorded "operation intent recorded"
           case intent of
-            Left _ -> pure (Just (StoppedAmbiguous transaction operationId))
+            Left failure -> pure (Just (StoppedAmbiguous transaction operationId ("the operation intent could not be journalled: " <> showText failure)))
             Right intentEvent -> do
               currentClaim <- executorStillClaimed locked transaction
               if not currentClaim
-                then pure (Just (StoppedAmbiguous transaction operationId))
+                then pure (Just (StoppedAmbiguous transaction operationId "the executor claim was lost"))
                 else do
                   started <- startFence fenceSelection
                   case started of
@@ -424,7 +425,7 @@ runOperationsWith latest locked registry transaction reviewed initialEvents oper
                           (Just operationId)
                           Ambiguous
                           ("data fence acquisition or exclusion is unresolved: " <> reason)
-                      pure (Just (StoppedAmbiguous transaction operationId))
+                      pure (Just (StoppedAmbiguous transaction operationId ("data fence acquisition or exclusion is unresolved: " <> reason)))
                     Right activeFence -> do
                       -- ADR 26 (O6): a verification is effect-free by
                       -- construction; only its adapterVerify step runs.
@@ -457,7 +458,7 @@ runOperationsWith latest locked registry transaction reviewed initialEvents oper
                           pure $ Just $ case (activeFence, failureClass, appended) of
                             (Nothing, KnownNoEffect _, Right _) ->
                               StoppedFailed transaction operationId failureClass
-                            _ -> StoppedAmbiguous transaction operationId
+                            _ -> StoppedAmbiguous transaction operationId ("the adapter stopped with " <> showText failureClass <> " while the outcome cannot be proved")
                         OutcomeAmbiguous reason -> do
                           markUnknown activeFence
                           _ <-
@@ -468,7 +469,7 @@ runOperationsWith latest locked registry transaction reviewed initialEvents oper
                               (Just operationId)
                               Ambiguous
                               ("adapter result was ambiguous: " <> reason)
-                          pure (Just (StoppedAmbiguous transaction operationId))
+                          pure (Just (StoppedAmbiguous transaction operationId ("adapter result was ambiguous: " <> reason)))
                         OutcomeCompleted -> do
                           verification <-
                             withAdapterEnv
@@ -476,7 +477,7 @@ runOperationsWith latest locked registry transaction reviewed initialEvents oper
                               operation
                               (adapterVerify adapter operation prepared)
                           case verification of
-                            Left _ -> do
+                            Left reason -> do
                               markUnknown activeFence
                               _ <-
                                 appendEventWith
@@ -486,11 +487,11 @@ runOperationsWith latest locked registry transaction reviewed initialEvents oper
                                   (Just operationId)
                                   Ambiguous
                                   "adapter completion could not be verified"
-                              pure (Just (StoppedAmbiguous transaction operationId))
+                              pure (Just (StoppedAmbiguous transaction operationId ("adapter completion could not be verified: " <> reason)))
                             Right proof -> do
                               fenceVerified <- finishFence activeFence
                               case fenceVerified of
-                                Left _ -> do
+                                Left reason -> do
                                   _ <-
                                     appendEventWith
                                       physical
@@ -499,7 +500,7 @@ runOperationsWith latest locked registry transaction reviewed initialEvents oper
                                       (Just operationId)
                                       Ambiguous
                                       "data fence verification or release is unresolved"
-                                  pure (Just (StoppedAmbiguous transaction operationId))
+                                  pure (Just (StoppedAmbiguous transaction operationId ("data fence verification or release is unresolved: " <> reason)))
                                 Right () -> do
                                   appended <-
                                     appendEventWith
@@ -510,7 +511,7 @@ runOperationsWith latest locked registry transaction reviewed initialEvents oper
                                       (Completed proof)
                                       "operation completion verified"
                                   case appended of
-                                    Left _ -> pure (Just (StoppedAmbiguous transaction operationId))
+                                    Left failure -> pure (Just (StoppedAmbiguous transaction operationId ("the completion could not be journalled: " <> showText failure)))
                                     Right completedEvent -> go (events <> [intentEvent, completedEvent])
     startFence Nothing = pure (Right Nothing)
     startFence (Just (requested, controls)) = do

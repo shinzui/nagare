@@ -262,7 +262,7 @@ inventoryPostgresRenameTests =
           modifyIORef' world (#loseJobAck .~ True)
           stopped <- must (applyReviewed store executionRegistry' reviewed)
           transaction <- case stopped of
-            StoppedAmbiguous transaction _ -> pure transaction
+            StoppedAmbiguous transaction _ _ -> pure transaction
             other -> assertFailure ("lost acknowledgement did not stop the run: " <> show other) >> fail "unreachable"
           resumed <- must (resumeTransaction store executionRegistry' transaction)
           case resumed of
@@ -956,7 +956,7 @@ mkOperationIdText = mkOperationId
 -- Name the stopped stage so a failure explains itself.
 describe :: ReviewedPlan -> TransactionResult -> String
 describe reviewed result = case result of
-  StoppedAmbiguous _ operation -> named operation
+  StoppedAmbiguous _ operation _ -> named operation
   StoppedFailed _ operation reason -> named operation <> " " <> show reason
   other -> show other
   where

@@ -100,7 +100,7 @@ retryRefused = do
   reviewed <- either (assertFailure . show . NE.toList) pure (verifyReview published bundle)
   (transaction, operation) <-
     applyReviewed store registry reviewed >>= expectRight >>= \case
-      StoppedAmbiguous tx op -> pure (tx, op)
+      StoppedAmbiguous tx op _ -> pure (tx, op)
       other -> assertFailure (show other) >> undefined
   writeIORef refusing True
   resumeTransaction store registry transaction >>= expectRight >>= (@?= StoppedFailed transaction operation (KnownNoEffect "adapter preflight refused: object changed since review"))
@@ -164,7 +164,7 @@ scenario variant = do
       firstOperation = maybe (error "fixture") plannedOperationId (find (not . touches secondId) operations)
   result <- applyReviewed store registry reviewed >>= expectRight
   transaction <- case (variant, result) of
-    (EarlierUncertain, StoppedAmbiguous tx op) -> (op @?= firstOperation) >> pure tx
+    (EarlierUncertain, StoppedAmbiguous tx op _) -> (op @?= firstOperation) >> pure tx
     (EarlierUncertain, other) -> assertFailure (show other) >> undefined
     (_, StoppedFailed tx op (KnownNoEffect _)) -> (op @?= secondOperation) >> pure tx
     (_, other) -> assertFailure (show other) >> undefined

@@ -259,7 +259,7 @@ inventoryStuckPodTests =
             (AdapterEffectAmbiguous "the StatefulSet did not prove readiness after its stuck pod was deleted; reobserve before retry")
             (ReplacementObservation (Just (planUid, False)) ReviewedPodGone)
         transaction <- case applied of
-          StoppedAmbiguous tx _ -> pure tx
+          StoppedAmbiguous tx _ _ -> pure tx
           other -> assertFailure ("the replacement did not stop: " <> show other) >> pure (error "unreachable")
         record <- closeTransaction store registry (CloseInput transaction (contentDigest (encodeReviewDocument (reviewedDocument reviewed))) False Nothing) >>= expectRight
         Map.elems (closedClasses record) @?= [ClassLanded planUid]

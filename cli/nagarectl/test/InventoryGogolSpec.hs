@@ -94,7 +94,7 @@ inventoryGogolTests =
         (reviewed, registry) <- preparedFixtureWith firstStore executeOnce recover
         stopped <- applyReviewed firstStore registry reviewed >>= either (assertFailure . show) pure
         transaction <- case stopped of
-          StoppedAmbiguous value _ -> pure value
+          StoppedAmbiguous value _ _ -> pure value
           other -> assertFailure (show other) >> error "unreachable"
         writeIORef (mode f) LostAck
         replay <- newObjectStore ops fixtureBinding "sdk-client" Nothing >>= either (assertFailure . show) pure

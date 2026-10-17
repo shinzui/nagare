@@ -63,7 +63,7 @@ partialStage = do
     @?= [(CreateResource, map resourceOf ["net", "root", "subnet", "zone"])]
   (transaction, stopped) <-
     applyReviewed store registry reviewed >>= expectRight >>= \case
-      StoppedAmbiguous tx op -> pure (tx, op)
+      StoppedAmbiguous tx op _ -> pure (tx, op)
       other -> assertFailure ("the refused apply did not stop ambiguous: " <> show other) >> undefined
   readIORef stack >>= (@?= Set.fromList [urnOf "net", urnOf "root"])
   record <- closeTransaction store registry (CloseInput transaction (reviewDigestFor reviewed) False Nothing) >>= expectRight
@@ -95,7 +95,7 @@ emptyStage = do
   reviewed <- reviewStage store registry
   (transaction, stopped) <-
     applyReviewed store registry reviewed >>= expectRight >>= \case
-      StoppedAmbiguous tx op -> pure (tx, op)
+      StoppedAmbiguous tx op _ -> pure (tx, op)
       other -> assertFailure ("the refused apply did not stop ambiguous: " <> show other) >> undefined
   record <- closeTransaction store registry (CloseInput transaction (reviewDigestFor reviewed) False Nothing) >>= expectRight
   Map.lookup stopped (closedClasses record) @?= Just (ClassNoEffect "the Pulumi stack holds no resource the saved plan creates")

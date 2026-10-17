@@ -1025,7 +1025,7 @@ dataFenceTests =
               readIORef effects >>= (@?= 0)
               outcome <- applyReviewed freshStore replayRegistry reviewed >>= right
               (transaction, selectedOperation) <- case outcome of
-                StoppedAmbiguous transaction operation -> pure (transaction, operation)
+                StoppedAmbiguous transaction operation _ -> pure (transaction, operation)
                 _ ->
                   assertFailure "lost marker acknowledgement did not stop review"
                     >> error "transaction"
@@ -3397,7 +3397,7 @@ dataFenceTests =
           Converged _ -> assertFailure "fenced transaction converged"
           _ -> pure ()
         transaction <- case outcome of
-          StoppedAmbiguous value _ -> pure value
+          StoppedAmbiguous value _ reason -> assertBool (T.unpack reason) ("fence" `T.isInfixOf` reason) >> pure value
           _ -> assertFailure "fenced transaction did not stop unresolved" >> error "transaction"
         resumed <- resumeTransaction store registry transaction
         case resumed of
@@ -5134,7 +5134,7 @@ dataFenceTests =
         (reviewed, registry) <- preparedFixtureRecording physical store effect recovery customize
         outcome <- applyReviewed store registry reviewed >>= right
         (transaction, operation) <- case outcome of
-          StoppedAmbiguous value selected -> pure (value, selected)
+          StoppedAmbiguous value selected _ -> pure (value, selected)
           _ ->
             assertFailure "draining fence did not stop the reviewed effect"
               >> error "transaction"
@@ -5205,7 +5205,7 @@ dataFenceTests =
         (reviewed, registry) <- preparedFixtureRecording physical store effect recovery customize
         outcome <- applyReviewed store registry reviewed >>= right
         (transaction, selectedOperation) <- case outcome of
-          StoppedAmbiguous value selected -> pure (value, selected)
+          StoppedAmbiguous value selected _ -> pure (value, selected)
           _ -> assertFailure "ambiguous effect did not stop the transaction" >> error "transaction"
         fenced <-
           readHead store
@@ -5260,7 +5260,7 @@ dataFenceTests =
             >>= right
         lostJournal <- resumeTransaction store registry transaction >>= right
         case lostJournal of
-          StoppedAmbiguous _ _ -> pure ()
+          StoppedAmbiguous _ _ _ -> pure ()
           _ -> assertFailure "safe-to-retry replayed after verified fence release"
         readIORef effects >>= (@?= 1)
         readIORef restored >>= (@?= 1)
@@ -5307,7 +5307,7 @@ dataFenceTests =
         (reviewed, registry) <- preparedFixtureRecording physical store effect recovery customize
         applied <- applyReviewed store registry reviewed >>= right
         (transaction, operation) <- case applied of
-          StoppedAmbiguous value selected -> pure (value, selected)
+          StoppedAmbiguous value selected _ -> pure (value, selected)
           _ ->
             assertFailure "ambiguous effect did not hold its fence"
               >> error "transaction"
@@ -5389,7 +5389,7 @@ dataFenceTests =
         (reviewed, registry) <- preparedFixtureRecording physical store effect recovery customize
         applied <- applyReviewed store registry reviewed >>= right
         (transaction, operation) <- case applied of
-          StoppedAmbiguous value selected -> pure (value, selected)
+          StoppedAmbiguous value selected _ -> pure (value, selected)
           _ ->
             assertFailure "ambiguous effect did not retain the fence"
               >> error "transaction"
@@ -5492,7 +5492,7 @@ dataFenceTests =
         (reviewed, registry) <- preparedFixtureRecording physical store effect recovery customize
         applied <- applyReviewed store registry reviewed >>= right
         (transaction, operation) <- case applied of
-          StoppedAmbiguous value selected -> pure (value, selected)
+          StoppedAmbiguous value selected _ -> pure (value, selected)
           _ ->
             assertFailure "ambiguous effect did not retain the fence"
               >> error "transaction"

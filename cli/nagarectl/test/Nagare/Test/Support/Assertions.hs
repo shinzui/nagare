@@ -5,6 +5,8 @@ module Nagare.Test.Support.Assertions
   , assertInfixStr
   , assertLeftText
   , single
+  , stopReason
+  , stoppedAt
   , unsafe
   , unsafeS
   )
@@ -15,6 +17,8 @@ import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BC
 import Data.Text qualified as T
 import Nagare.Dsl.Prelude hiding ((<.>))
+import Nagare.Inventory.Execute (TransactionResult (..))
+import Nagare.Inventory.Journal (OperationId, TransactionId)
 import Test.Tasty.HUnit (Assertion, assertBool, assertFailure)
 
 -- | Assert needle @a@ appears before needle @b@ in @hay@.
@@ -55,3 +59,16 @@ single :: [a] -> a
 single = \case
   [x] -> x
   xs -> error ("fixture: expected exactly one element, got " <> show (length xs))
+
+-- | Where a transaction stopped, without the stop's reason (F94: a resumed
+-- stop names its own recovery decision).
+stoppedAt :: TransactionResult -> Maybe (TransactionId, OperationId)
+stoppedAt = \case
+  StoppedAmbiguous transaction operation _ -> Just (transaction, operation)
+  _ -> Nothing
+
+-- | Why a transaction stopped ambiguously, if it did.
+stopReason :: TransactionResult -> Maybe Text
+stopReason = \case
+  StoppedAmbiguous _ _ reason -> Just reason
+  _ -> Nothing

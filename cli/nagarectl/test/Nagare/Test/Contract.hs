@@ -9,12 +9,14 @@ module Nagare.Test.Contract
   )
 where
 
+import Control.Exception (try)
 import Data.Aeson (FromJSON, ToJSON, Value (..), eitherDecode, toJSON)
 import Data.Aeson.Encode.Pretty (Config (..), Indent (..), defConfig, encodePretty')
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString.Lazy qualified as LBS
 import Data.Generics.Labels ()
+import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.List (nub, sort)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
@@ -23,9 +25,11 @@ import Data.OpenApi.Schema.Validation (validateToJSON)
 import Data.Text qualified as Text
 import Nagare.Contract.Problem
 import Nagare.Contract.Project
-import Nagare.Contract.Schema (ContractVersion (..), DocumentName (..), Nullable (..))
+import Nagare.Contract.Schema (ContractVersion (..), DocumentName (..), Nullable (..), fromNullable)
+import Nagare.Contract.Sink (clearContractSink, markExecuting, refuseWith, setContractSinkTo, transactionExitCode, transactionOutcome)
 import Nagare.Contract.V1
 import Nagare.Dsl.Prelude
+import Nagare.Inventory.Adapter (ReviewBarrier (..))
 import Nagare.Inventory.Artifact
   ( ArtifactDeclarationBundle (..)
   , ArtifactKind (..)
@@ -34,14 +38,20 @@ import Nagare.Inventory.Artifact
   , ConsumerCoverage (..)
   , compileArtifactScope
   )
+import Nagare.Inventory.Command (applyInventoryWithFactory, renderTransactionResult)
 import Nagare.Inventory.Digest (contentDigest)
+import Nagare.Inventory.Execute (TransactionResult (..))
+import Nagare.Inventory.Journal (FailureClass (..), mkOperationId, mkTransactionId, transactionIdText)
 import Nagare.Inventory.Site.Recorded qualified as Recorded
 import Nagare.Inventory.Store (HeadManifest (..), ScopeRevision (..))
 import Nagare.Resource.Inventory (ScopeDeclaration, mkScopeDeclaration, withScopeConfigDigest, withScopeOverrides)
 import Nagare.Resource.Policy (DataPolicy (..), LifecyclePolicy (..), Sensitivity (..))
 import Nagare.Resource.Types hiding (ScopeKind (..))
 import Nagare.Resource.Types qualified as Types
+import Nagare.Target (ActiveTarget (..), mkContextName)
+import Nagare.Test.Support.Profiles (initProfile)
 import Nagare.Version (BuildVersion (..))
+import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.Golden (goldenVsString)
@@ -71,6 +81,45 @@ contractTests =
           assertBool (Text.unpack (spec ^. #code) <> " has no status title") (not (Text.null (spec ^. #title)))
         for_ problemCatalog $ \spec ->
           lookup (spec ^. #status) statusTitles @?= Just (spec ^. #title)
+    , testCase "every transaction result has its outcome document and exit code" $ do
+        let transaction = ok (mkTransactionId ("tx-" <> Text.replicate 64 "a"))
+            operationValue = ok (mkOperationId "op-1")
+            cases =
+              [ (Converged transaction, OutcomeConverged, ExitSuccess)
+              , (PausedAtBarrier transaction (ReviewBarrier operationValue "operator decision" :| []), OutcomePaused, ExitFailure 3)
+              , (StoppedFailed transaction operationValue (PartialOrUnknown "rollout stalled"), OutcomeStopped, ExitFailure 4)
+              , (StoppedAmbiguous transaction operationValue "the timer reverted the host", OutcomeAmbiguous, ExitFailure 5)
+              , (Closed transaction, OutcomeClosed, ExitFailure 6)
+              ]
+        for_ cases $ \(result, expected, code) -> do
+          let document = transactionOutcome result
+          (document ^. #outcome, transactionExitCode result) @?= (expected, code)
+          validateToJSON document @?= []
+        (transactionOutcome (StoppedAmbiguous transaction operationValue "the timer reverted the host") ^. #detail) @?= Nullable (Just "the timer reverted the host")
+        renderTransactionResult (StoppedAmbiguous transaction operationValue "the timer reverted the host")
+          @?= "ambiguous " <> transactionIdText transaction <> " at op-1: the timer reverted the host"
+    , testCase "under the sink a refusal is refused before admission and interrupted after it" $ do
+        printed <- newIORef []
+        setContractSinkTo (\line -> modifyIORef' printed (line :))
+        before <- try (refuseWith "unused" wrongContext "the review targets another project")
+        markExecuting "tx-running"
+        after <- try (refuseWith "unused" unclassified "the provider connection dropped")
+        clearContractSink
+        (before :: Either ExitCode ()) @?= Left (ExitFailure 2)
+        (after :: Either ExitCode ()) @?= Left (ExitFailure 7)
+        documents <- traverse (either (\failure -> assertFailure failure >> fail "json") pure . eitherDecode) . reverse =<< readIORef printed
+        map (\document -> (document ^. #outcome, document ^. #transaction, fmap (^. #code) (fromNullable (document ^. #problem)))) (documents :: [TransactionOutcome])
+          @?= [(OutcomeRefused, Nullable Nothing, Just "wrong_context"), (OutcomeInterrupted, Nullable (Just "tx-running"), Nothing)]
+    , testCase "inventory apply without --yes is a refused outcome with exit 2" $ do
+        printed <- newIORef []
+        setContractSinkTo (\line -> modifyIORef' printed (line :))
+        let target = ActiveTarget (ok (mkContextName "contract-fixture")) initProfile
+        refused <- try (applyInventoryWithFactory (\_ _ -> fail "no registry") target "/nonexistent" False)
+        clearContractSink
+        (refused :: Either ExitCode ()) @?= Left (ExitFailure 2)
+        documents <- traverse (either (\failure -> assertFailure failure >> fail "json") pure . eitherDecode) =<< readIORef printed
+        map (\document -> (document ^. #outcome, fmap (^. #code) (fromNullable (document ^. #problem)))) (documents :: [TransactionOutcome])
+          @?= [(OutcomeRefused, Just "unclassified")]
     , testCase "scope states read only the head and report the last converged revision" $
         map (\item -> (item ^. #scope, item ^. #converged)) (scopeStates sampleHead)
           @?= [("application:kizashi", False), ("publication:app-image-kizashi-v1", True)]

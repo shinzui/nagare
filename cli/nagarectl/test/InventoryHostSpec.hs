@@ -244,7 +244,7 @@ inventoryHostTests =
         acceptedBefore <- readHead store >>= expectRight
         applied <- applyReviewed store registry reviewed >>= expectRight
         transaction <- case applied of
-          StoppedAmbiguous tx _ -> pure tx
+          StoppedAmbiguous tx _ _ -> pure tx
           other -> assertFailure ("the killed activation did not stop ambiguous: " <> show other) >> pure (error "unreachable")
         let closeIt = closeTransaction store registry (CloseInput transaction (contentDigest (encodeReviewDocument (reviewedDocument reviewed))) False Nothing)
         -- Inside the window the host may still commit or revert: close refuses.

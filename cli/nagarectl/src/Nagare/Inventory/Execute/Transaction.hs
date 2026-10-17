@@ -14,6 +14,7 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
+import Nagare.Contract.Sink (markExecuting)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Adapter (AdapterRegistry)
 import Nagare.Inventory.Execute.Admission (admit)
@@ -41,6 +42,7 @@ import Nagare.Inventory.Execute.Types
   , ambiguousFallback
   , failure
   , fallbackResult
+  , fallbackWith
   , reviewAdmission
   , reviewDocumentDigest
   , showText
@@ -151,7 +153,7 @@ executeWithJournal locked registry executable knownEvents = do
                           pure $ if converged then Converged transaction else fallbackResult transaction document
                 _ -> do
                   _ <- releaseClaim locked transaction Nothing
-                  pure (fallbackResult transaction document)
+                  pure (fallbackWith "the head holds a data fence or could not be read, so convergence was not recorded" transaction document)
 
 finalizeCollections :: LockedStore s -> TransactionId -> ReviewDocument -> IO Bool
 finalizeCollections locked transaction document
@@ -214,7 +216,9 @@ applyReviewed store registry reviewed = do
     admitted <- admit lock registry reviewed
     case admitted of
       Left errors -> pure (Left errors)
-      Right executable -> Right <$> execute lock registry executable
+      Right executable -> do
+        markExecuting (transactionIdText (executableTransaction executable))
+        Right <$> execute lock registry executable
   pure $ case locked of
     Left err -> failure "process-lock" (showText err)
     Right result -> result
@@ -291,7 +295,8 @@ resumeTransactionWithTakeover store registry transaction takeOver = do
                             let preflightErrors = validateOperationInputs registry reviewed (operationStates transaction events)
                             case preflightErrors of
                               firstError : rest -> releaseClaim lock transaction Nothing >> pure (Left (firstError :| rest))
-                              [] ->
+                              [] -> do
+                                markExecuting (transactionIdText transaction)
                                 Right
                                   <$> executeWithJournal
                                     lock

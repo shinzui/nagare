@@ -885,7 +885,7 @@ classify run applied = case applied of
   Right (Right result) -> case result of
     Converged _ -> pure Done
     Closed _ -> pure Done
-    StoppedAmbiguous transaction _ -> pure (Stopped transaction "ambiguous")
+    StoppedAmbiguous transaction _ _ -> pure (Stopped transaction "ambiguous")
     StoppedFailed transaction _ _ -> pure (Stopped transaction "failed")
     PausedAtBarrier transaction _ -> pure (Stopped transaction "paused at barrier")
 

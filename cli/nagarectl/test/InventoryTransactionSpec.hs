@@ -38,7 +38,7 @@ import Nagare.Resource.Policy
 import Nagare.Resource.Reference (Dependency (..), OutputConstraint (NonEmptyOutput), SomeRef (..), Witness (NixCachePublicKeyW), outputRef)
 import Nagare.Resource.Types
 import Nagare.Resource.Wire
-import Nagare.Test.Support.Assertions (single)
+import Nagare.Test.Support.Assertions (single, stopReason, stoppedAt)
 import Nagare.Test.Support.RegistryHost (registryHostFixture)
 import System.Directory (doesFileExist, findExecutable, listDirectory, removeFile)
 import System.Environment (getEnvironment, getExecutablePath, lookupEnv)
@@ -1872,7 +1872,7 @@ inventoryTransactionTests =
               pure (if wasFirst then AdapterEffectAmbiguous "simulated process loss" else AdapterEffectCompleted)
         (reviewed, registry) <- preparedFixtureWith store executeOnce (\operation _ -> pure (RecoveryProvedComplete (proof operation)))
         stopped <- applyReviewed store registry reviewed >>= expectRight
-        transaction <- case stopped of StoppedAmbiguous value _ -> pure value; other -> assertFailure (show other) >> undefined
+        transaction <- case stopped of StoppedAmbiguous value _ _ -> pure value; other -> assertFailure (show other) >> undefined
         history <- loadInventoryHistory store >>= expectRight
         bytes <- BS.readFile "test/fixtures/inventory/valid.json"
         let CandidateInput snapshot changes = ok (decodeCandidateInput bytes)
@@ -1930,7 +1930,7 @@ inventoryTransactionTests =
         registry <- either (assertFailure . T.unpack) pure (withAdapterRecovery original capability)
         (transaction, operation) <-
           applyReviewed store registry reviewed >>= expectRight >>= \case
-            StoppedAmbiguous tx selected -> pure (tx, selected)
+            StoppedAmbiguous tx selected _ -> pure (tx, selected)
             other -> assertFailure (show other) >> undefined
         input <-
           prepareBootstrapRegistryRecovery store registry transaction operation
@@ -2051,7 +2051,7 @@ inventoryTransactionTests =
         withRecovery <- either (assertFailure . T.unpack) pure (withAdapterRecovery liveRegistry capability)
         (transaction, operation) <-
           applyReviewed store withRecovery reviewed >>= expectRight >>= \case
-            StoppedAmbiguous tx selected -> pure (tx, selected)
+            StoppedAmbiguous tx selected _ -> pure (tx, selected)
             other -> assertFailure (show other) >> undefined
         input <-
           prepareBootstrapRegistryRecovery store withRecovery transaction operation
@@ -2186,7 +2186,7 @@ inventoryTransactionTests =
             recover operation _ = pure (RecoveryProvedComplete (proof operation))
         (reviewed, registry) <- preparedFixtureWith store executeOnce recover
         stopped <- applyReviewed store registry reviewed >>= expectRight
-        transaction <- case stopped of StoppedAmbiguous value _ -> pure value; other -> assertFailure (show other) >> undefined
+        transaction <- case stopped of StoppedAmbiguous value _ _ -> pure value; other -> assertFailure (show other) >> undefined
         let operation = plannedOperationId (reviewPlannedOperation (head (reviewOperations (reviewedDocument reviewed))))
             digest = contentDigest (encodeReviewDocument (reviewedDocument reviewed))
             input action = OperatorRecoveryInput transaction operation digest action
@@ -2210,7 +2210,7 @@ inventoryTransactionTests =
               pure (if proved then RecoverySafeToRetry else RecoveryUnresolved "provider state is uncertain")
         (reviewed, registry) <- preparedFixtureWith store executeOnce recover
         stopped <- applyReviewed store registry reviewed >>= expectRight
-        transaction <- case stopped of StoppedAmbiguous value _ -> pure value; other -> assertFailure (show other) >> undefined
+        transaction <- case stopped of StoppedAmbiguous value _ _ -> pure value; other -> assertFailure (show other) >> undefined
         let operation = plannedOperationId (reviewPlannedOperation (head (reviewOperations (reviewedDocument reviewed))))
             digest = contentDigest (encodeReviewDocument (reviewedDocument reviewed))
             input = OperatorRecoveryInput transaction operation digest RetryAfterAdapterProof
@@ -2229,7 +2229,7 @@ inventoryTransactionTests =
         (reviewed, registry) <- preparedApplicationStopFixture store Application Stateless effect recover
         stopped <- applyReviewed store registry reviewed >>= expectRight
         (transaction, selected) <- case stopped of
-          StoppedAmbiguous tx op -> pure (tx, op)
+          StoppedAmbiguous tx op _ -> pure (tx, op)
           other -> assertFailure (show other) >> undefined
         before <- readHead store >>= expectRight >>= maybe (assertFailure "head missing" >> undefined) pure
         let decision = OperatorRecoveryInput transaction selected (reviewDigestFor reviewed) StopIncompleteApplication
@@ -2305,7 +2305,7 @@ inventoryTransactionTests =
                 (\_ _ -> modifyIORef' effects (+ 1) >> pure (AdapterEffectAmbiguous "pending"))
                 (\_ _ -> pure recovery)
             stopped <- applyReviewed store registry reviewed >>= expectRight
-            (tx, op) <- case stopped of StoppedAmbiguous tx op -> pure (tx, op); other -> assertFailure (show other) >> undefined
+            (tx, op) <- case stopped of StoppedAmbiguous tx op _ -> pure (tx, op); other -> assertFailure (show other) >> undefined
             closed <- recordOperatorRecovery store registry (OperatorRecoveryInput tx op (reviewDigestFor reviewed) StopIncompleteApplication) False
             assertBool ("close outcome for " <> show recovery) (isRight closed == closes)
             after <- readHead store >>= expectRight >>= maybe (assertFailure "missing head" >> undefined) pure
@@ -2322,7 +2322,7 @@ inventoryTransactionTests =
             (\_ _ -> pure (RecoveryAwaitingReadiness (ok (mkPhysicalIdentity "original-service-uid"))))
         (tx, selected) <-
           applyReviewed store registry reviewed >>= expectRight >>= \case
-            StoppedAmbiguous tx op -> pure (tx, op)
+            StoppedAmbiguous tx op _ -> pure (tx, op)
             other -> assertFailure (show other) >> undefined
         -- Close confirms the never-started create absent; that is what admits it later.
         let absent = ok (mkAdapterRegistry [(ok (lookupAdapter registry KubernetesExecutor)) {adapterObserve = \resources -> pure (observationSet [(resource, ConfirmedAbsent (contentDigest "absent")) | resource <- resources])}])
@@ -2498,7 +2498,7 @@ inventoryTransactionTests =
             (\_ _ -> pure (RecoveryAwaitingReadiness (ok (mkPhysicalIdentity "original-service-uid"))))
         (tx, selected) <-
           applyReviewed store initialRegistry initialReview >>= expectRight >>= \case
-            StoppedAmbiguous tx op -> pure (tx, op)
+            StoppedAmbiguous tx op _ -> pure (tx, op)
             other -> assertFailure (show other) >> undefined
         recordOperatorRecovery
           store
@@ -2565,7 +2565,7 @@ inventoryTransactionTests =
         (reviewed, registry) <- preparedFixtureWith store executeOnce recover
         stopped <- applyReviewed store registry reviewed >>= expectRight
         (transaction, operation) <- case stopped of
-          StoppedAmbiguous value selected -> pure (value, selected)
+          StoppedAmbiguous value selected _ -> pure (value, selected)
           other -> assertFailure (show other) >> undefined
         let digest = contentDigest (encodeReviewDocument (reviewedDocument reviewed))
         forM_ [AbandonPartialVolumeRestore, AbandonPartialDatabaseRestore] $ \action ->
@@ -2620,7 +2620,7 @@ inventoryTransactionTests =
         (reviewed, _) <- preparedFixtureWith store executeOnce recover
         let registry = recordingRegistryWith preflight executeOnce recover
         stopped <- applyReviewed store registry reviewed >>= expectRight
-        transaction <- case stopped of StoppedAmbiguous value _ -> pure value; other -> assertFailure (show other) >> undefined
+        transaction <- case stopped of StoppedAmbiguous value _ _ -> pure value; other -> assertFailure (show other) >> undefined
         resumed <- resumeTransaction store registry transaction >>= expectRight
         resumed @?= Converged transaction
         readIORef calls >>= (@?= 1)
@@ -2649,7 +2649,7 @@ inventoryTransactionTests =
         (reviewed, registry) <- preparedDependentFixture store preflight effect recover
         stopped <- applyReviewed store registry reviewed >>= expectRight
         transaction <- case stopped of
-          StoppedAmbiguous value _ -> pure value
+          StoppedAmbiguous value _ _ -> pure value
           other -> assertFailure (show other) >> undefined
         resumeTransaction store registry transaction >>= expectRight >>= (@?= Converged transaction)
         -- Reopening the command after convergence must not observe or mutate.
@@ -2681,7 +2681,7 @@ inventoryTransactionTests =
                   else RecoveryAwaitingReadiness (ok (mkPhysicalIdentity "created-deployment"))
         (reviewed, registry) <- preparedReadinessFixture store False Stateless "deployment" effect recover
         stopped <- applyReviewed store registry reviewed >>= expectRight
-        transaction <- case stopped of StoppedAmbiguous value _ -> pure value; other -> assertFailure (show other) >> undefined
+        transaction <- case stopped of StoppedAmbiguous value _ _ -> pure value; other -> assertFailure (show other) >> undefined
         resumeTransaction store registry transaction >>= expectRight >>= (@?= Converged transaction)
         resumeTransaction store registry transaction >>= expectRight >>= (@?= Converged transaction)
         calls <- readIORef effects
@@ -2707,16 +2707,16 @@ inventoryTransactionTests =
                 recover _ _ = pure (RecoveryAwaitingReadiness (ok (mkPhysicalIdentity "created-deployment")))
             (reviewed, registry) <- preparedReadinessFixture store dependent policy kind effect recover
             stopped <- applyReviewed store registry reviewed >>= expectRight
-            transaction <- case stopped of StoppedAmbiguous value _ -> pure value; other -> assertFailure (show other) >> undefined
-            resumeTransaction store registry transaction >>= expectRight >>= (@?= stopped)
+            transaction <- case stopped of StoppedAmbiguous value _ _ -> pure value; other -> assertFailure (show other) >> undefined
+            resumeTransaction store registry transaction >>= expectRight >>= \resumed -> stoppedAt resumed @?= stoppedAt stopped
             readIORef effects >>= (@?= 1)
     , testCase "shared driver stops every unresolved or terminal recovery before dependent work" $ do
         forM_
-          [ RecoveryTerminalFailure (ok (mkPhysicalIdentity "failed-job"))
-          , RecoveryUnresolved "provider unavailable"
-          , RecoveryAwaitingReadiness (ok (mkPhysicalIdentity "unready-deployment"))
+          [ (RecoveryTerminalFailure (ok (mkPhysicalIdentity "failed-job")), "failed terminally on failed-job")
+          , (RecoveryUnresolved "provider unavailable", "provider unavailable")
+          , (RecoveryAwaitingReadiness (ok (mkPhysicalIdentity "unready-deployment")), "waits for readiness")
           ]
-          $ \decision -> do
+          $ \(decision, reason) -> do
             store <- newMemoryStore
             effects <- newIORef (0 :: Int)
             preflights <- newIORef (0 :: Int)
@@ -2727,9 +2727,9 @@ inventoryTransactionTests =
             (reviewed, registry) <- preparedDependentFixture store preflight effect recover
             stopped <- applyReviewed store registry reviewed >>= expectRight
             transaction <- case stopped of
-              StoppedAmbiguous value _ -> pure value
+              StoppedAmbiguous value _ _ -> pure value
               other -> assertFailure (show other) >> undefined
-            resumeTransaction store registry transaction >>= expectRight >>= (@?= stopped)
+            resumeTransaction store registry transaction >>= expectRight >>= \resumed -> (stoppedAt resumed, T.isInfixOf reason <$> stopReason resumed) @?= (stoppedAt stopped, Just True)
             readIORef effects >>= (@?= 1)
             readIORef preflights >>= (@?= 1)
             readIORef recoveries >>= (@?= 1)
@@ -3114,7 +3114,7 @@ modelApplyAndRecover store registry reviewed = do
   result <- applyReviewed store registry reviewed >>= expectRight
   case result of
     Converged _ -> pure ()
-    StoppedAmbiguous transaction _ -> do
+    StoppedAmbiguous transaction _ _ -> do
       -- Model the second executor at the claim boundary.  It must not resume
       -- the first executor's transaction until an explicit takeover is chosen.
       current <-
@@ -3202,7 +3202,7 @@ modelAssertStoppedScopePreserved = do
       (\_ _ -> pure (RecoveryAwaitingReadiness (ok (mkPhysicalIdentity "model-service-uid"))))
   (transaction, selected) <-
     applyReviewed store stoppedRegistry stoppedReview >>= expectRight >>= \case
-      StoppedAmbiguous value operation -> pure (value, operation)
+      StoppedAmbiguous value operation _ -> pure (value, operation)
       other -> assertFailure ("model did not stop its selected scope: " <> show other) >> pure (error "unreachable")
   recordOperatorRecovery
     store

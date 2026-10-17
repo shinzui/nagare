@@ -103,7 +103,7 @@ scenario extraMember = do
       statefulOperation = maybe (error "fixture") plannedOperationId (find (touches statefulId) operations)
   transaction <-
     applyReviewed store registry reviewed >>= expectRight >>= \case
-      StoppedAmbiguous tx op -> (op @?= statefulOperation) >> pure tx
+      StoppedAmbiguous tx op _ -> (op @?= statefulOperation) >> pure tx
       other -> assertFailure (show other) >> undefined
   before <- readHead store >>= expectRight >>= maybe (assertFailure "head missing" >> undefined) pure
   recovered <-

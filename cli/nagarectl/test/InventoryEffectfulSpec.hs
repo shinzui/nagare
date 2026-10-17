@@ -107,7 +107,7 @@ start root fault = do
   (bundle, reviewed) <- prepare store registry fixture
   result <- must (applyReviewed store registry reviewed)
   transaction <- case result of
-    StoppedAmbiguous transaction _ -> pure transaction
+    StoppedAmbiguous transaction _ _ -> pure transaction
     StoppedFailed transaction _ _ -> pure transaction
     other -> assertFailure ("expected interruption, got " <> show other) >> fail "not interrupted"
   pure (fixture, bundle, transaction)

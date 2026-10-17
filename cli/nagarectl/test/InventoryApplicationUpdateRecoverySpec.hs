@@ -98,7 +98,7 @@ companionRules = testCase "a pending application update closes: kept when it lan
     (transaction, selected) <-
       applyReviewed store registry reviewed >>= expectRight >>= \case
         StoppedFailed tx op _ -> pure (tx, op)
-        StoppedAmbiguous tx op -> pure (tx, op)
+        StoppedAmbiguous tx op _ -> pure (tx, op)
         other -> assertFailure (show other) >> undefined
     before <- readHead store >>= expectRight >>= maybe (assertFailure "head missing" >> undefined) pure
     stopped <-
@@ -165,7 +165,7 @@ recreatedServiceCloses = do
   reviewed <- either (assertFailure . show . NE.toList) pure (verifyReview published bundle)
   transaction <-
     applyReviewed store registry reviewed >>= expectRight >>= \case
-      StoppedAmbiguous tx _ -> pure tx
+      StoppedAmbiguous tx _ _ -> pure tx
       StoppedFailed tx _ _ -> pure tx
       other -> assertFailure (show other) >> undefined
   record <- closeTransaction store registry (CloseInput transaction (reviewDigestFor reviewed) False Nothing) >>= expectRight
@@ -242,7 +242,7 @@ durableVerifyNotRecreated = do
         (transaction, selected) <-
           applyReviewed store registry reviewed >>= expectRight >>= \case
             StoppedFailed tx op _ -> pure (tx, op)
-            StoppedAmbiguous tx op -> pure (tx, op)
+            StoppedAmbiguous tx op _ -> pure (tx, op)
             other -> assertFailure (show other) >> undefined
         recordOperatorRecovery store registry (OperatorRecoveryInput transaction selected (reviewDigestFor reviewed) StopIncompleteApplication) False
           >>= expectRight

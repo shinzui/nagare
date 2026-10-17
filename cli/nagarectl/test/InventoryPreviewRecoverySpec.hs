@@ -32,7 +32,7 @@ inventoryPreviewRecoveryTests =
       (reviewed, registry) <- preparedPreviewStopFixture store malformed pendingSibling
       (transaction, selected) <-
         applyReviewed store registry reviewed >>= expectRight >>= \case
-          StoppedAmbiguous tx op -> pure (tx, op)
+          StoppedAmbiguous tx op _ -> pure (tx, op)
           other -> assertFailure (show other) >> undefined
       before <- readHead store >>= expectRight >>= maybe (assertFailure "head missing" >> undefined) pure
       stopped <-

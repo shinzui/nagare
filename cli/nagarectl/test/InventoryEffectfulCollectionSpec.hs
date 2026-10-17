@@ -110,13 +110,13 @@ prepareChange store selected change = do
 transactionOf :: TransactionResult -> TransactionId
 transactionOf = \case
   Converged transaction -> transaction
-  StoppedAmbiguous transaction _ -> transaction
+  StoppedAmbiguous transaction _ _ -> transaction
   StoppedFailed transaction _ _ -> transaction
   other -> error ("unexpected result " <> show other)
 
 assertUnresolved :: TransactionResult -> Assertion
 assertUnresolved result = case result of
-  StoppedAmbiguous _ _ -> pure ()
+  StoppedAmbiguous _ _ _ -> pure ()
   StoppedFailed _ _ _ -> pure ()
   _ -> assertFailure ("pending deletion falsely converged: " <> show result)
 

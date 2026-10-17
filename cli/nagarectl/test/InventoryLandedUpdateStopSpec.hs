@@ -87,7 +87,7 @@ landedUpdate decision = do
   published <- readStoreSnapshot memory >>= expectRight
   checked <- either (assertFailure . show . NE.toList) pure (verifyReview published prepared)
   applyReviewed memory registry checked >>= expectRight >>= \case
-    StoppedAmbiguous stoppedTransaction stoppedOperation -> pure (Stopped memory prepared checked stoppedTransaction stoppedOperation seeded registry writes)
+    StoppedAmbiguous stoppedTransaction stoppedOperation _ -> pure (Stopped memory prepared checked stoppedTransaction stoppedOperation seeded registry writes)
     other -> assertFailure (show other) >> undefined
 
 stopThenCorrect :: Assertion
@@ -163,7 +163,7 @@ resumeStopsAmbiguous = do
   stopped <- landedUpdate (RecoveryLandedUnready serviceUid)
   readIORef (stopped ^. #updateWrites) >>= (@?= 1)
   resumeTransaction (stopped ^. #store) (stopped ^. #registry) (stopped ^. #transaction) >>= expectRight >>= \case
-    StoppedAmbiguous resumed operation -> (resumed, operation) @?= (stopped ^. #transaction, stopped ^. #selected)
+    StoppedAmbiguous resumed operation _ -> (resumed, operation) @?= (stopped ^. #transaction, stopped ^. #selected)
     other -> assertFailure ("resume of a landed unready update: " <> show other)
   readIORef (stopped ^. #updateWrites) >>= (@?= 1)
   readHead (stopped ^. #store) >>= expectRight >>= maybe (assertFailure "head missing") (\value -> headActiveTransaction value @?= Just (transactionIdText (stopped ^. #transaction)))

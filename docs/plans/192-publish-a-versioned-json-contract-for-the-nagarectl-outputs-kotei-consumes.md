@@ -110,7 +110,7 @@ as a store failure) and F118 (an unprepared workspace reads as a mismatched one)
   `usedBy`); the publication and status samples are built through it. `nagarectl version --json`
   prints `"contracts":[1]`, its other members unchanged. `docs/api/README.md` drafted. Nix builds
   `openapi-hs` 5.0.0 and `nagare-contract`.
-- [ ] M2: `inventory apply` and `inventory resume` with `--contract 1`. Pass: tests cover the
+- [x] M2: `inventory apply` and `inventory resume` with `--contract 1`. Pass: tests cover the
   outcome document and exit code for every `TransactionResult` constructor. They show a
   pre-execution refusal printing `refused` with exit 2 and a `problem` whose `code` names its
   source, and a failure after execution starts never printing `refused`. F94: every
@@ -118,6 +118,13 @@ as a store failure) and F118 (an unprepared workspace reads as a mismatched one)
   `detail` holds it; a test drives a host recovery decision and a fence refusal through resume and
   sees each reason. Apart from that line, output and exit status without `--contract` are
   byte-for-byte unchanged in the existing suites.
+  Evidence: `Nagare.Contract.Sink` (`src/`), wired through `withContract` in `Dispatch.hs`;
+  `test/Nagare/Test/Contract.hs` checks every constructor's outcome, exit code and schema validity,
+  `refused` (exit 2, `wrong_context`) before `markExecuting` and `interrupted` (exit 7, with the
+  transaction) after it, and `inventory apply` without `--yes` as `refused`/`unclassified` with
+  exit 2. F94: `StoppedAmbiguous` carries a reason at every stop; `InventoryTransactionSpec`
+  drives the recovery decisions through resume and `DataFenceSpec` sees the fence reason. The full
+  `nagarectl-test` suite passes unchanged otherwise.
 - [ ] M3: `app image-plan`, `app deploy --save-plan` and `app deploy --dry-run` with
   `--contract 1`. Pass: CLI-level tests on the existing app-deploy fixtures emit documents equal
   to the golden samples. The deploy preview has the same top-level keys with and without hooks.
@@ -236,6 +243,13 @@ uses `Nullable`, because a `Maybe` field is optional in the derived schema. `nag
 copied into the platform payload by EP-198, when the API image is built from it; nothing needs
 it there before.
 
+
+2026-10-16 (M2): The sink is process-global (`Nagare.Contract.Sink`), set once by `--contract 1`,
+and every existing `dieT`/`dieText` goes through `refuseWith`, so no refusal path is missed.
+Admission completes when `markExecuting` runs after the transaction is admitted. Resume's
+store migration after convergence prints on stderr under the sink, and its failure exits 1
+there: the converged document has already been printed, and stdout holds one document. A store
+that cannot record convergence names its cause in the ambiguous reason (`fallbackWith`).
 
 ## Context and Orientation
 

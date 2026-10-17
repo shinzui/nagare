@@ -222,7 +222,7 @@ stopAndClose store reviewed stopAt = do
 stopped :: InventoryStore -> AdapterRegistry -> ReviewedPlan -> OperationId -> IO TransactionId
 stopped store registry reviewed stopAt =
   applyReviewed store registry reviewed >>= expectRight >>= \case
-    StoppedAmbiguous tx _ -> pure tx
+    StoppedAmbiguous tx _ _ -> pure tx
     other -> assertFailure ("the review did not stop at " <> T.unpack (operationIdText stopAt) <> ": " <> show other) >> pure (error "unreachable")
 
 interruptAt :: OperationId -> PlannedOperation -> PreparedNative -> IO AdapterExecution
@@ -545,7 +545,7 @@ volumeRecoveryAfterDeploy = do
   reviewed <- reviewScope store stopping failedPrune
   transaction <-
     applyReviewed store stopping reviewed >>= expectRight >>= \case
-      StoppedAmbiguous tx _ -> pure tx
+      StoppedAmbiguous tx _ _ -> pure tx
       other -> assertFailure ("the volume prune did not stop: " <> show other) >> pure (error "unreachable")
   -- While the stopped prune is open, no other review applies.
   open <- loadInventoryHistory store >>= expectRight
@@ -666,7 +666,7 @@ stoppedPrunes = do
     reviewed <- reviewScope store registry (pruneScope "forty-days" [])
     transaction <-
       applyReviewed store registry reviewed >>= expectRight >>= \case
-        StoppedAmbiguous tx _ -> pure tx
+        StoppedAmbiguous tx _ _ -> pure tx
         other -> assertFailure ("the prune did not stop at " <> label <> ": " <> show other) >> pure (error "unreachable")
     if terminal
       then do

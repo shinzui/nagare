@@ -355,7 +355,7 @@ runScenario interruptedAt = do
   firstResult <- applyReviewed store registry reviewed >>= expectRight
   case (interruptedAt, firstResult) of
     (Nothing, Converged _) -> pure ()
-    (Just _, StoppedAmbiguous transaction _) ->
+    (Just _, StoppedAmbiguous transaction _ _) ->
       resumeTransaction store registry transaction >>= expectRight >>= \case
         Converged resumed | resumed == transaction -> pure ()
         other -> assertFailure ("resume did not converge: " <> show other)
