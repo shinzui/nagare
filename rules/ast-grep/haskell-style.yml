@@ -109,6 +109,8 @@ files:
   - 'cli/nagare-contract/src/**/*.hs'
   - 'cli/nagare-api/src/**/*.hs'
   - 'cli/nagare-api/app/*.hs'
+  - 'cli/nagare-api-server/src/**/*.hs'
+  - 'cli/nagare-api-server/app/*.hs'
   - 'cli/nagare-api-server/test/**/*.hs'
 ignores:
   - '**/Prelude.hs'

@@ -3,8 +3,9 @@ module Main (main) where
 
 import Nagare.Api.Server.Test.Client (clientTests)
 import Nagare.Api.Server.Test.Document (documentTests)
+import Nagare.Api.Server.Test.Serve (serveTests)
 import Nagare.Contract.Prelude
 import Test.Tasty (defaultMain, testGroup)
 
 main :: IO ()
-main = defaultMain (testGroup "nagare-api-server" [documentTests, clientTests])
+main = defaultMain (testGroup "nagare-api-server" [documentTests, clientTests, serveTests])

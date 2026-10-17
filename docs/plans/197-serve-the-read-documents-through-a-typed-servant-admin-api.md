@@ -71,10 +71,21 @@ default; the deployed image explicitly binds its pod interface.
   problem-typed 400–504 responses; health has no security; the client derived from the routes
   decodes a head with its validators and a 304, a Relay page of sites, and a 404 problem. The
   suite is a fast-gate step and a flake check.
-- [ ] M2. All handlers serve the recorded fixtures correctly, including an open transaction,
-  claim, fence, migration and transition. The store-recording tests prove the read costs,
-  cache behavior, error mapping and conditional semantics below. Stable-snapshot forward and
-  backward Relay walks skip/duplicate nothing; cross-head walks follow the stated weaker rule.
+- [x] M2. `cli/nagare-api-server` serves every route over `Nagare.Inventory.Recorded`
+  (`Nagare.Api.Server.Serve`: one fresh head per request, validation before hydration, a
+  representation cache keyed by route, arguments and the accepted/converged revision vector, one
+  ten-second deadline) with `nagare-api-server --context --project --store-dir`. Pass:
+  `nagare-api-server-test` "recorded store" (12 tests) over an in-memory store that counts reads:
+  the head reports an open transaction, claim, fence, migration and transition and reads only
+  `head.json`; scope pages read only the head and pass relay's conformance walk (forward,
+  backward, determinism); a warm list reads only the head, head churn keeps its ETag, a changed
+  scope reads one new member; `If-None-Match` (list, weak) answers 304 with validators, HEAD has
+  no body; a missing scope is 404 even for `*`; invalid pages, malformed and foreign cursors are
+  400 problems with no hydration; unknown route 404, POST 405, `Accept: text/html` 406 are
+  problems; an unreadable unrelated scope breaks only sites (503 `store_invalid`); a hung store
+  answers 503 `store_timeout` within the deadline and recovers; excess requests get 503
+  `server_busy` with `Retry-After`; grants list user, team and retired-route viewers; the
+  derived client walks 30 sites.
 - [ ] M3. Health, telemetry, bounded request logging and `just api-hurl` pass; the measured
   latency, deadline, concurrency and memory criteria below pass. `just haskell-style-check`
   and `just gate-fast` pass before landing.
@@ -119,6 +130,11 @@ not in the verb's list before trying the alternatives, so it cannot decode a dec
 `PreEncodedJSON` verbs, letting each alternative's status and media checks decide. Gateway-only
 statuses (401, 403, 405, 406, 502, 504, and 503 for authorization) are added to every `/v1`
 operation by the generator, not listed as handler alternatives.
+
+2026-10-16 (M2): The representation cache sits above the reader's member cache: an unchanged
+list is answered from its bytes after the fresh head read, without hydration. Admission is a WAI
+middleware so the refusal can carry `Retry-After`; probes are never refused. The ETag hashes the
+build identity with the bytes, so a new binary never revalidates an old representation.
 
 ## Context and Orientation
 

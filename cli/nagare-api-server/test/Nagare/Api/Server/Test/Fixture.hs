@@ -1,0 +1,303 @@
+-- | A recorded inventory for the admin API's tests: an in-memory object
+-- store that counts reads and can hang or lose an object, seeded with sites,
+-- publications and host grants, and a head that has every kind of open
+-- execution state.
+module Nagare.Api.Server.Test.Fixture
+  ( Fixture (..)
+  , fixture
+  , churnHead
+  , markMigrated
+  , replaceScope
+  , siteScope
+  , fixtureBinding
+  , authId
+  )
+where
+
+import Control.Concurrent (threadDelay)
+import Data.ByteString (ByteString)
+import Data.IORef
+import Data.List.NonEmpty (NonEmpty (..))
+import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
+import Data.Text qualified as Text
+import Data.Text.Encoding qualified as TE
+import Nagare.Contract.Prelude
+import Nagare.Inventory.Artifact (ArtifactDeclarationBundle (..), ArtifactKind (..), ArtifactOwnership (..), ArtifactResourceSpec (..), ConsumerCoverage (..), compileArtifactScope)
+import Nagare.Inventory.Digest (contentDigest)
+import Nagare.Inventory.Store
+import Nagare.Inventory.Store.ObjectOps
+import Nagare.Resource.Access (mkTeamKey)
+import Nagare.Resource.Inventory
+import Nagare.Resource.Policy (DataPolicy (..), LifecyclePolicy (..), Sensitivity (..))
+import Nagare.Resource.Reference (Dependency (OrderedAfter))
+import Nagare.Resource.Types
+import Nagare.Resource.Wire (encodeCanonicalScope)
+
+data Fixture = Fixture
+  { store :: !InventoryStore
+  , objectReads :: !(IORef Int)
+  , hang :: !(IORef Bool)
+  , lost :: !(IORef (Set.Set Text))
+  , declarations :: ![ScopeDeclaration]
+  }
+
+fixtureBinding :: ContextBinding
+fixtureBinding = ContextBinding (ok (mkContextId "fixture")) (ok (mkName "project"))
+
+foundation :: ScopeId
+foundation = ok (mkScopeId Platform "foundation")
+
+clusterId :: ResourceId
+clusterId = mintResourceId foundation (ok (mkLogicalKey "cluster")) (ok (mkName "resource"))
+
+authId :: ResourceId
+authId = ok (mkResourceId "platform:auth/en/service")
+
+-- | @sites@ site scopes of ten declarations each (a Service, two
+-- DomainMappings and seven ConfigMaps), one image publication used by the
+-- first application, and a user and a team grant on the first two hosts.
+-- Every accepted scope has converged except the last site.
+fixture :: Int -> IO Fixture
+fixture sites = do
+  (ops, counter, hung, missing) <- recordingObjects
+  inventory <- newObjectStore ops fixtureBinding "client-fixture" Nothing >>= either (fail . show) pure
+  let scopes = [siteScope index 1 | index <- [1 .. sites]] <> [publicationScope, applicationScope, grantScope]
+  _ <- initializeStore inventory fixtureBinding "client-fixture" >>= either (fail . show) pure
+  for_' scopes (publish inventory)
+  current <- readHead inventory >>= either (fail . show) pure >>= maybe (fail "no head") pure
+  let accepted = Map.fromList [(scopeId declaration, revisionOf 1 declaration) | declaration <- scopes]
+      converged = Map.delete (scopeId (siteScope sites 1)) accepted
+  replaceHeadIfGenerationMatches
+    inventory
+    (Just (headGeneration current))
+    current
+      { headGeneration = headGeneration current + 1
+      , headAccepted = accepted
+      , headConverged = converged
+      , headActiveTransaction = Just "tx-open"
+      , headExecutorClaim = Just (ExecutorClaim "tx-open" "client-fixture" 3 "2026-10-16T12:00:00Z")
+      , headDataFence = Just (fence accepted)
+      , headTransition = Just (TransitionMarker "0.6.2" "nagare-0.6.3-source" "2026-10-16T11:00:00Z")
+      }
+    >>= either (fail . show) pure
+  writeIORef counter 0
+  pure (Fixture inventory counter hung missing scopes)
+
+fence :: Map.Map ScopeId ScopeRevision -> DataFenceRecord
+fence accepted =
+  DataFenceRecord
+    { fenceContext = fixtureBinding
+    , fenceSession = "session-1"
+    , fenceTransaction = Just "tx-open"
+    , fenceAccepted = accepted
+    , fencePhysical = Map.singleton fencedDatabase (ok (mkPhysicalIdentity "postgres://fixture/docs"))
+    , fenceTargets = Set.singleton fencedDatabase
+    , fenceAffected = Set.empty
+    , fenceRecoveryArtifact = "recovery"
+    , fenceRecoveryDigest = contentDigest "recovery"
+    , fenceSavedWriters = Map.empty
+    , fenceProviderIntent = Nothing
+    , fencePhase = FenceChanging
+    , fenceAcquiredAt = "2026-10-16T12:30:00Z"
+    }
+
+fencedDatabase :: ResourceId
+fencedDatabase = ok (mkResourceId "application:docs/database/database")
+
+-- | A head change that leaves every scope revision alone.
+churnHead :: Fixture -> IO ()
+churnHead (Fixture inventory _ _ _ _) = do
+  current <- readHead inventory >>= either (fail . show) pure >>= maybe (fail "no head") pure
+  replaceHeadIfGenerationMatches
+    inventory
+    (Just (headGeneration current))
+    current {headGeneration = headGeneration current + 1, headSequence = headSequence current + 1}
+    >>= either (fail . show) pure
+
+-- | Record a store migration on the head. A migrated head refuses every
+-- later write, so this is a fixture's last change.
+markMigrated :: Fixture -> IO ()
+markMigrated (Fixture inventory _ _ _ _) = do
+  current <- readHead inventory >>= either (fail . show) pure >>= maybe (fail "no head") pure
+  replaceHeadIfGenerationMatches
+    inventory
+    (Just (headGeneration current))
+    current
+      { headGeneration = headGeneration current + 1
+      , headMigration = Just (MigrationTombstone "gs://fixture-bucket/nagare/fixture/inventory" (contentDigest "migrated-head"))
+      }
+    >>= either (fail . show) pure
+
+-- | Accept a new revision of one scope (the open fence records the same
+-- accepted vector).
+replaceScope :: Fixture -> Integer -> ScopeDeclaration -> IO ()
+replaceScope (Fixture inventory _ _ _ _) generation declaration = do
+  publish inventory declaration
+  current <- readHead inventory >>= either (fail . show) pure >>= maybe (fail "no head") pure
+  let accepted = Map.insert (scopeId declaration) (revisionOf generation declaration) (headAccepted current)
+  replaceHeadIfGenerationMatches
+    inventory
+    (Just (headGeneration current))
+    current
+      { headGeneration = headGeneration current + 1
+      , headAccepted = accepted
+      , headDataFence = (\record -> record {fenceAccepted = accepted}) <$> headDataFence current
+      }
+    >>= either (fail . show) pure
+
+publish :: InventoryStore -> ScopeDeclaration -> IO ()
+publish inventory declaration = do
+  let bytes = encodeCanonicalScope declaration
+  publishIfAbsent inventory (scopeKey (contentDigest bytes)) bytes >>= either (fail . show) (const (pure ()))
+
+revisionOf :: Integer -> ScopeDeclaration -> ScopeRevision
+revisionOf generation declaration = ScopeRevision (ok (mkScopeGeneration generation)) (contentDigest (encodeCanonicalScope declaration))
+
+-- | Site @index@ at revision @version@; the version changes its second host.
+siteScope :: Int -> Int -> ScopeDeclaration
+siteScope index version =
+  ok
+    ( mkScopeDeclaration
+        owner
+        [ResourceBundle ([Managed service] <> [Managed (route host) | host <- hosts] <> [Managed (configMap n) | n <- [1 .. 7 :: Int]]) [] [] [] [] []]
+    )
+  where
+    name' = "s" <> Text.pack (show index)
+    owner = ok (mkScopeId Standalone ("site-" <> name'))
+    serviceId = mintResourceId owner (ok (mkLogicalKey "site")) (ok (mkName "service"))
+    hosts = [name' <> ".example.com", name' <> "-v" <> Text.pack (show version) <> ".example.com"]
+    managed identity address aliases spec dependencies =
+      ManagedResource identity owner KubernetesExecutor address aliases spec Retain Stateless Public dependencies [] (SourceLocation "fixture" name')
+    service =
+      managed serviceId (ok (kubernetesAddress clusterId "serving.knative.dev/v1" "Service" (Just "personal") name')) [] (KnativeService (contentDigest (encodeUtf8' name'))) [OrderedAfter clusterId]
+    route host =
+      managed
+        (mintResourceId owner (ok (mkLogicalKey (Text.replace "." "-" host))) (ok (mkName "route")))
+        (ok (kubernetesAddress clusterId "serving.knative.dev/v1beta1" "DomainMapping" (Just "personal") host))
+        [Hostname (ok (mkName host))]
+        (NativeObject (contentDigest (encodeUtf8' host)))
+        [OrderedAfter clusterId, OrderedAfter serviceId]
+    configMap n =
+      managed
+        (mintResourceId owner (ok (mkLogicalKey ("config-" <> Text.pack (show n)))) (ok (mkName "configmap")))
+        (ok (kubernetesAddress clusterId "v1" "ConfigMap" (Just "personal") (name' <> "-config-" <> Text.pack (show n))))
+        []
+        (NativeObject (contentDigest (encodeUtf8' (name' <> Text.pack (show n)))))
+        [OrderedAfter clusterId]
+
+publicationScope :: ScopeDeclaration
+publicationScope =
+  ok
+    ( compileArtifactScope
+        ( ArtifactDeclarationBundle
+            1
+            (ok (mkScopeId Publication "app-image-docs-v1"))
+            ( ArtifactResourceSpec
+                { artifactLogicalKey = ok (mkLogicalKey "docs-v1")
+                , artifactRole = ok (mkName "oci-image")
+                , artifactName = ok (mkName "docs-v1")
+                , artifactDestination = "registry.example/docs:v1"
+                , artifactContentDigest = contentDigest "docs-manifest"
+                , artifactSpecDigest = contentDigest "docs-archive"
+                , artifactKind = OciImageArtifact
+                , artifactOwnership = OwnedArtifact
+                , artifactLifecycle = Retain
+                , artifactDataPolicy = Stateless
+                , artifactSensitivity = Private
+                , artifactDependencies = []
+                , artifactConsumers = ConsumerCompletenessUnknown
+                , artifactPublishOperation = True
+                , artifactSource = SourceLocation "docs.tar" "oci-archive-v1"
+                }
+                :| []
+            )
+        )
+    )
+
+applicationScope :: ScopeDeclaration
+applicationScope =
+  withScopeOverrides
+    (Map.fromList [("imageResource", "publication:app-image-docs-v1/docs-v1/oci-image"), ("tag", "v1")])
+    (ok (mkScopeDeclaration (ok (mkScopeId Application "docs")) []))
+
+-- | A user grant on @s1.example.com@, a team grant on @s2.example.com@, and a
+-- user grant on a host whose route no longer exists.
+grantScope :: ScopeDeclaration
+grantScope =
+  ok
+    ( mkScopeDeclaration
+        owner
+        [ ResourceBundle
+            [ Managed (grant "user" (AccessTuple authId (ok (mkName "s1.example.com")) "user_1"))
+            , Managed (grant "team" (TeamAccessTuple authId (ok (mkName "s2.example.com")) (ok (mkTeamKey "editors"))))
+            , Managed (grant "retired" (AccessTuple authId (ok (mkName "gone.example.com")) "user_2"))
+            ]
+            []
+            []
+            []
+            []
+            []
+        ]
+    )
+  where
+    owner = ok (mkScopeId Standalone "access-fixture")
+    grant key address =
+      ManagedResource
+        (mintResourceId owner (ok (mkLogicalKey key)) (ok (mkName "grant")))
+        owner
+        AccessExecutor
+        address
+        []
+        (AccessGrantSpec "http://en.nagare-system.svc.clusterId.local" True)
+        Retain
+        Stateless
+        Private
+        []
+        []
+        (SourceLocation "fixture" key)
+
+-- | Objects in memory. Every read is counted; a hung store blocks reads; a
+-- lost key reads as absent.
+recordingObjects :: IO (ObjectOps, IORef Int, IORef Bool, IORef (Set.Set Text))
+recordingObjects = do
+  state <- newIORef (0 :: Integer, Map.empty :: Map.Map ObjectName (Generation, ByteString))
+  counter <- newIORef 0
+  hung <- newIORef False
+  missing <- newIORef Set.empty
+  let blockWhileHung = do
+        isHung <- readIORef hung
+        when isHung (threadDelay 100000 >> blockWhileHung)
+  pure
+    ( ObjectOps
+        { getObject = \name@(ObjectName key) -> do
+            modifyIORef' counter (+ 1)
+            blockWhileHung
+            gone <- Set.member key <$> readIORef missing
+            (_, objects) <- readIORef state
+            pure (if gone then ObjectAbsent else maybe ObjectAbsent (uncurry ObjectFound) (Map.lookup name objects))
+        , getObjects = \_ -> pure (Left "the fixture store does not list")
+        , putObject = \condition name bytes -> atomicModifyIORef' state $ \(lastGeneration, objects) ->
+            let existing = Map.lookup name objects
+                matches = case condition of
+                  IfAbsent -> isNothing existing
+                  IfGenerationMatches expected -> maybe False ((== expected) . fst) existing
+             in if matches
+                  then ((lastGeneration + 1, Map.insert name (Generation (lastGeneration + 1), bytes) objects), PutWritten (Generation (lastGeneration + 1)))
+                  else ((lastGeneration, objects), PutPreconditionFailed)
+        , listObjects = \_ -> pure (Left "the fixture store does not list")
+        , pauseBeforeRetry = threadDelay
+        }
+    , counter
+    , hung
+    , missing
+    )
+
+encodeUtf8' :: Text -> ByteString
+encodeUtf8' = TE.encodeUtf8
+
+for_' :: [a] -> (a -> IO ()) -> IO ()
+for_' xs action = mapM_ action xs
+
+ok :: (Show e) => Either e a -> a
+ok = either (error . show) id

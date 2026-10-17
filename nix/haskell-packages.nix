@@ -45,11 +45,13 @@ let
   '';
 
   # A released Hackage package the pinned set lacks, without its own tests.
-  hackageRelease = name: version: sha256:
+  # Arguments name test-only dependencies the pinned set lacks.
+  hackageReleaseWith = arguments: name: version: sha256:
     hl.dontHaddock (hl.dontCheck (haskellPackages.callCabal2nix name (builtins.fetchTarball {
       url = "https://hackage.haskell.org/package/${name}-${version}/${name}-${version}.tar.gz";
       inherit sha256;
-    }) { }));
+    }) arguments));
+  hackageRelease = hackageReleaseWith { };
 
   haskellPackages = pkgs.haskell.packages.ghc9124.override {
     overrides = hfinal: _hprev: {
@@ -80,6 +82,7 @@ let
       servant-openapi-hs = hackageRelease "servant-openapi-hs" "5.1.0" "19mvvlzfk7ffh5gbmqhpy587rjjd0xcgydbkcy1b48wxx061h8im";
       relay-pagination = hackageRelease "relay-pagination" "0.1.1.2" "1axyz9271q9al8jmmy5kjfvry7dlcaaz85rhdq4gis50qh0ayw61";
       relay-pagination-servant = hackageRelease "relay-pagination-servant" "0.1.1.2" "192md77zmdlh5bqq0gc5mbwqb3fv65bfpd771m2xl398bh0nyblm";
+      relay-pagination-conformance = hackageReleaseWith { ephemeral-pg = null; relay-pagination-hasql = null; } "relay-pagination-conformance" "0.1.1.2" "1kzm9b4df2acyqglkrshgp8c45kjnq9q4yczfsq3bmgn53w4l1cv";
       servant-health = hackageRelease "servant-health" "0.1.0.0" "1g24jnnijpap99vkmmqmkinlw18pg0hd23arrijgss430y63iv4x";
 
       # EP-197: the admin API's route types and its server. The server's

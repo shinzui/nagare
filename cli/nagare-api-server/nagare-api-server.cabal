@@ -25,6 +25,53 @@ common common
     -Werror=missing-fields
     -threaded
 
+library
+  import: common
+  hs-source-dirs: src
+  exposed-modules:
+    Nagare.Api.Access.Handler
+    Nagare.Api.Inventory.Handler
+    Nagare.Api.Server.App
+    Nagare.Api.Server.Pagination
+    Nagare.Api.Server.Problems
+    Nagare.Api.Server.Serve
+    Nagare.Api.Server.Validators
+    Nagare.Api.Sites.Handler
+
+  build-depends:
+    aeson >=2.2 && <2.3,
+    base >=4.17 && <5,
+    bytestring,
+    containers,
+    generic-lens ^>=2.3,
+    http-types,
+    lens ^>=5.3,
+    nagare-api,
+    nagare-contract,
+    nagare-dsl,
+    nagarectl,
+    relay-pagination >=0.1.1.2 && <0.2,
+    servant >=0.20.3 && <0.21,
+    servant-health >=0.1 && <0.2,
+    servant-server >=0.20.3 && <0.21,
+    text,
+    time,
+    wai,
+
+executable nagare-api-server
+  import: common
+  main-is: Main.hs
+  hs-source-dirs: app
+  build-depends:
+    base,
+    nagare-api-server,
+    nagare-contract,
+    nagare-dsl,
+    nagarectl,
+    optparse-applicative,
+    text,
+    warp,
+
 test-suite nagare-api-server-test
   import: common
   type: exitcode-stdio-1.0
@@ -33,9 +80,12 @@ test-suite nagare-api-server-test
   other-modules:
     Nagare.Api.Server.Test.Client
     Nagare.Api.Server.Test.Document
+    Nagare.Api.Server.Test.Fixture
+    Nagare.Api.Server.Test.Serve
 
   build-depends:
     aeson,
+    async,
     base,
     bytestring,
     containers,
@@ -43,11 +93,16 @@ test-suite nagare-api-server-test
     generic-lens ^>=2.3,
     http-client,
     http-media,
+    http-types,
     lens,
     nagare-api,
+    nagare-api-server,
     nagare-contract,
+    nagare-dsl,
+    nagarectl,
     openapi-hs,
     relay-pagination,
+    relay-pagination-conformance >=0.1.1.2 && <0.2,
     servant,
     servant-client >=0.20.3 && <0.21,
     servant-client-core >=0.20.3 && <0.21,

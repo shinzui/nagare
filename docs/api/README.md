@@ -68,9 +68,31 @@ can succeed later. The access gateway adds the optional extension members `error
 | `reauthentication_required` | 503 | false |
 | `workspace_not_prepared` | 409 | false |
 | `unclassified` | 500 | false |
+| `bad_request` | 400 | false |
+| `invalid_page` | 400 | false |
+| `invalid_cursor` | 400 | false |
+| `not_found` | 404 | false |
+| `method_not_allowed` | 405 | false |
+| `not_acceptable` | 406 | false |
+| `internal_error` | 500 | false |
+| `store_timeout` | 503 | true |
+| `store_invalid` | 503 | false |
+| `store_credentials_unavailable` | 503 | true |
+| `server_busy` | 503 | true |
 
-`unclassified` carries any refusal not yet given its own code, with the CLI's existing message in
-`detail`. A new code is an additive catalog entry.
+`unclassified` carries any CLI refusal not yet given its own code, with the CLI's existing message
+in `detail`. The admin API's own codes follow it: `server_busy` carries `Retry-After`, and every
+error response is `Cache-Control: no-store`. A new code is an additive catalog entry.
+
+## The admin API
+
+`https://admin.<base domain>/v1/…` serves the read documents' items to a signed-in person (session
+cookie) or a Shomei service account (bearer token) with a grant on that hostname. Lists are Relay
+connections (`first`/`after`, `last`/`before`; 50 by default, at most 100; an invalid page is a
+problem, not a clamp). A cursor is bound to its context, list and filters; across head changes the
+next page is the items after the cursor in the new head, so compare `Nagare-Head-Revision` and
+restart for a consistent walk. Every 200 carries a strong `ETag` of its exact bytes and
+`Cache-Control: private, no-cache`; send it back in `If-None-Match` for a bodyless 304.
 
 ## Versioning
 

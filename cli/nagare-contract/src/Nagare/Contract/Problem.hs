@@ -24,6 +24,17 @@ module Nagare.Contract.Problem
   , reauthenticationRequired
   , workspaceNotPrepared
   , unclassified
+  , badRequest
+  , invalidPage
+  , invalidCursor
+  , notFound
+  , methodNotAllowed
+  , notAcceptable
+  , internalError
+  , storeTimeout
+  , storeInvalid
+  , storeCredentialsUnavailable
+  , serverBusy
   )
 where
 
@@ -128,18 +139,31 @@ problemCatalog =
   , reauthenticationRequired
   , workspaceNotPrepared
   , unclassified
+  , badRequest
+  , invalidPage
+  , invalidCursor
+  , notFound
+  , methodNotAllowed
+  , notAcceptable
+  , internalError
+  , storeTimeout
+  , storeInvalid
+  , storeCredentialsUnavailable
+  , serverBusy
   ]
 
-badRequest, notFound, conflict, internal, unavailable :: Text -> Bool -> ProblemSpec
-badRequest c = ProblemSpec c 400 "Bad Request"
-notFound c = ProblemSpec c 404 "Not Found"
+status400, status404, status405, status406, conflict, internal, unavailable :: Text -> Bool -> ProblemSpec
+status400 c = ProblemSpec c 400 "Bad Request"
+status404 c = ProblemSpec c 404 "Not Found"
+status405 c = ProblemSpec c 405 "Method Not Allowed"
+status406 c = ProblemSpec c 406 "Not Acceptable"
 conflict c = ProblemSpec c 409 "Conflict"
 internal c = ProblemSpec c 500 "Internal Server Error"
 unavailable c = ProblemSpec c 503 "Service Unavailable"
 
 unknownScope, unsupportedContractVersion, wrongContext, reviewChanged, admissionRefused :: ProblemSpec
-unknownScope = notFound "unknown_scope" False
-unsupportedContractVersion = badRequest "unsupported_contract_version" False
+unknownScope = status404 "unknown_scope" False
+unsupportedContractVersion = status400 "unsupported_contract_version" False
 wrongContext = conflict "wrong_context" False
 reviewChanged = conflict "review_changed" False
 admissionRefused = conflict "admission_refused" False
@@ -149,3 +173,23 @@ storeUnavailable = unavailable "store_unavailable" True
 reauthenticationRequired = unavailable "reauthentication_required" False
 workspaceNotPrepared = conflict "workspace_not_prepared" False
 unclassified = internal "unclassified" False
+
+-- The admin API's own codes (EP-197). A malformed parameter, page or cursor
+-- is the client's to fix; a store that cannot be read in time, or a server
+-- at its admission limit, may answer the unchanged request later; a store
+-- whose objects fail their checks will not.
+
+badRequest, invalidPage, invalidCursor, notFound, methodNotAllowed, notAcceptable, internalError :: ProblemSpec
+badRequest = status400 "bad_request" False
+invalidPage = status400 "invalid_page" False
+invalidCursor = status400 "invalid_cursor" False
+notFound = status404 "not_found" False
+methodNotAllowed = status405 "method_not_allowed" False
+notAcceptable = status406 "not_acceptable" False
+internalError = internal "internal_error" False
+
+storeTimeout, storeInvalid, storeCredentialsUnavailable, serverBusy :: ProblemSpec
+storeTimeout = unavailable "store_timeout" True
+storeInvalid = unavailable "store_invalid" False
+storeCredentialsUnavailable = unavailable "store_credentials_unavailable" True
+serverBusy = unavailable "server_busy" True
