@@ -105,6 +105,7 @@ data StoreError
   | StoreConditionFailed !Text
   | StoreBusy
   | StoreReentry
+  | StoreCredentialsUnavailable !Text
   deriving stock (Eq, Show)
 
 data ScopeRevision = ScopeRevision
@@ -212,10 +213,9 @@ data HeadManifest = HeadManifest
   }
   deriving stock (Eq, Show, Generic)
 
--- | Legacy platform mutations have no component receipts and may run only
--- before this store has accepted or retained any resource work. An initialized
--- but untouched head is safe for the older path; an admitted transaction is
--- not, even if no scope revision has committed yet.
+-- | Legacy platform mutations have no component receipts and may run only before
+-- this store accepted or retained any resource work: an untouched head is safe
+-- for the older path; an admitted transaction is not, even before a commit.
 hasSubstantiveHistory :: HeadManifest -> Bool
 hasSubstantiveHistory headValue =
   headGeneration headValue > 0

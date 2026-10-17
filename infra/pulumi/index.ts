@@ -2,6 +2,7 @@ import * as pulumi from "@pulumi/pulumi";
 import * as gcp from "@pulumi/gcp";
 import { NagarePerimeter } from "./src/components/NagarePerimeter";
 import { NagareNixCache } from "./src/components/NagareNixCache";
+import { NagareAdminApiReader } from "./src/components/NagareAdminApiReader";
 import { buildSshCommand } from "./src/outputs";
 import { parseCdnCertificateMode } from "./src/cdnCertificateMode";
 import { resolveVmShape } from "./src/vmShape";
@@ -31,6 +32,12 @@ const backupBucketNameCfg = cfg.get("backupBucket") ?? `${gcpProject}-nagare-bac
 const imageBucketNameCfg = cfg.require("imageBucket"); // set in Pulumi.<context>.yaml
 const enableNixCacheCfg = cfg.getBoolean("enableNixCache") ?? false;
 const nixCacheBucketCfg = cfg.get("nixCacheBucket") ?? `${gcpProject}-nagare-nix-cache`;
+// EP-196: the admin API's read-only inventory identity. Default false, so an
+// existing stack previews unchanged until the admin API is enabled (EP-198).
+const enableAdminApiReaderCfg = cfg.getBoolean("enableAdminApiReader") ?? false;
+const adminApiReaderAccountIdCfg = cfg.get("adminApiReaderAccountId") ?? "nagare-admin-api";
+const stateBucketCfg = cfg.get("stateBucket") ?? `${gcpProject}-nagare-pulumi-state`;
+const adminApiInventoryPrefixCfg = cfg.get("adminApiInventoryPrefix") ?? `nagare/${pulumi.getStack()}/inventory`;
 // A second stack in an already provisioned project must not acquire another
 // Pulumi ownership claim over the shared project API enablement resources.
 const manageProjectApisCfg = cfg.getBoolean("manageProjectApis") ?? true;
@@ -122,6 +129,16 @@ const nixCache = shouldDeclareResource("nagare:env:NagareNixCache", "nagare-nix-
     serviceAccountEmail: perimeter.serviceAccountEmail,
 }, { dependsOn: apiServices }) : undefined;
 
+// Constructed only when enabled: the reviewed cloud catalog of an existing
+// context stays unchanged until EP-198 adds the reader's members to it.
+const adminApiReader = enableAdminApiReaderCfg && shouldDeclareResource("nagare:env:NagareAdminApiReader", "nagare-admin-api-reader") ? new NagareAdminApiReader("nagare-admin-api-reader", {
+    enabled: enableAdminApiReaderCfg,
+    gcpProject,
+    accountId: adminApiReaderAccountIdCfg,
+    stateBucket: stateBucketCfg,
+    inventoryPrefix: adminApiInventoryPrefixCfg,
+}, { dependsOn: apiServices }) : undefined;
+
 // Integration Point 1 — the stable core stack-output names. The exported
 // binding name *is* the stack-output name, so do not rename any of these
 // without updating the MasterPlan and the consuming plans (EP-3/4/6/7).
@@ -138,6 +155,9 @@ export const nixCacheEnabled = nixCache?.enabled ?? pulumi.output(false);
 export const nixCacheBucket = nixCache?.bucket ?? pulumi.output("");
 export const nixCacheHmacAccessId = nixCache?.hmacAccessId ?? pulumi.output("");
 export const nixCacheHmacSecret = nixCache?.hmacSecret ?? pulumi.secret("");
+export const adminApiReaderEnabled = adminApiReader?.enabled ?? pulumi.output(false);
+export const adminApiReaderEmail = adminApiReader?.email ?? pulumi.output("");
+export const adminApiProjectNumber = adminApiReader?.projectNumber ?? pulumi.output("");
 export const sshCommand = buildSshCommand(perimeter.instanceName, zone, gcpProject);
 
 // MasterPlan 11 / EP-56 — Integration Point 2. The exported binding name *is*

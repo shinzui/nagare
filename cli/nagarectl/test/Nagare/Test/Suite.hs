@@ -62,6 +62,7 @@ import InventoryRedisRestoreRecoverySpec
 import InventoryRefusedPreflightRecoverySpec
 import InventoryRenameCommandSpec (inventoryPostgresRenameTests, inventoryRenameCommandTests)
 import InventoryRenameRecoveryModelSpec (inventoryRenameRecoveryModelTests)
+import InventoryServiceStoreSpec (inventoryServiceStoreTests)
 import InventorySettleSpec (inventorySettleTests)
 import InventorySpec (inventoryTests)
 import InventoryStatusSpec (inventoryStatusTests)
@@ -204,6 +205,7 @@ main = do
             , inventoryObservationTests
             , inventoryGcloudAuthTests
             , inventoryGogolTests
+            , inventoryServiceStoreTests
             , inventoryObjectOpsTests
             , inventoryJournalHeadAdvanceTests
             , inventoryIncarnationTests

@@ -37,21 +37,33 @@ coordinates this with the document contract and HTTP service; this plan does not
 
 ## Progress
 
-- [ ] M1. Record the inventory exposure audit and exact credential/IAM design. Read only the
-  selected context's store, report object classes rather than private contents, and distinguish
-  canonical scope declarations from archived/native payloads. Establish a dedicated reader
-  identity, its token exchange, numeric project lookup and delivery/rotation path. No default
-  grant to the node account is permitted under the read-only credential requirement.
-- [ ] M2. The service session opens an existing store, checks both numeric project ownership
-  and canonical store binding, reads its head/scopes, refreshes expiring tokens and propagates
-  cancellation. Fake-token/GCS tests prove the exact request permissions, fail-closed ownership,
-  no writes/listing/initialization, missing/corrupt handling and concurrent refresh behavior.
-  `just haskell-style-check` and `just gate-fast` pass.
-- [ ] M3. Reviewed Pulumi infrastructure declares the dedicated identity, minimal IAM and its
-  selected credential delivery. A disposable cloud preview shows all expected additions (account,
-  role/bindings and delivery as applicable), with no unrelated permissions. EP-198 owns apply
-  and native permission proof after its required authorization.
-
+- [x] M1. Exposure audit from the store's key layout (`Store.hs` `objectKeyFor`, `journalKey`,
+  `immutableKeyDigest`; `Plan/Publication.hs` `nativeKey`): an inventory prefix holds
+  `format.json`, `head.json`, `scopes/`, `reviews/`, `native/`, `objects/` and `journal/`; the
+  recorded reader needs only the first three, and `native/`/`reviews/` can hold private reviewed
+  bytes. Design: a dedicated account `nagare-admin-api`; custom role
+  `nagareInventoryObjectReader` (`storage.objects.get`) on the state bucket with an object-name
+  condition naming exactly `format.json`, `head.json` and `scopes/`; custom role
+  `nagareInventoryBucketReader` (`storage.buckets.get`) unconditioned for the ownership check;
+  the expected owner is the project number Pulumi exports (`adminApiProjectNumber`), so no
+  project lookup permission; a service-account key in sops operator material, created, rotated
+  and revoked per `docs/runbooks/admin-api-reader.md`, exchanged at gogol's token endpoint. The
+  live store listing is part of EP-198 M3's native permission proof.
+- [x] M2. `Nagare.Inventory.Store.Service.openServiceStore` (read-only storage scope; exact GETs,
+  404 is absence without listing; writes and listings refused before any request; bucket owner
+  rechecked on every fresh head; `StoreCredentialsUnavailable` for an unusable key or token).
+  `nagare-api-server --store-url --project-number --credentials [--cache-dir]` serves through
+  it. Pass: `InventoryServiceStoreSpec` (7 tests) against a loopback Storage API and token
+  endpoint with a real signed JWT: reads are bucket metadata and exact object GETs only, one
+  token for many reads; a foreign owner, a missing head and a missing format fail closed with no
+  listing; a write never leaves the reader; an authorized-user credential is refused; eight
+  concurrent reads after expiry cost one token exchange; a refused token exchange is a
+  credential failure; a caller's one-second deadline cancels a hung read.
+- [ ] M3. `infra/pulumi` `NagareAdminApiReader` (constructed only with `enableAdminApiReader`, so
+  existing stacks preview unchanged) declares the account, the two custom roles and the two
+  bucket members, and exports the email and project number; `test/adminApiReaderResources`
+  checks exactly those five resources, read-only permissions and the exact condition. Open: the
+  disposable cloud preview, which needs the operator's go-ahead.
 
 ## Surprises & Discoveries
 
@@ -81,6 +93,13 @@ each authoritative head read; no indefinitely cached mutable ownership/head subs
 current check. EP-197's total deadline covers that check and token refresh. Configuration changes
 construct and validate a new session before using it.
 
+
+2026-10-16 (M1–M3): The object grant names exactly `format.json`, `head.json` and `scopes/`, not
+the whole inventory prefix, because the rest of the prefix can hold private reviewed bytes. The
+service supplies the project number from deployment configuration instead of looking it up, so
+the account needs no Resource Manager permission. Its SDK environment requests the read-only
+storage scope as well. The reader component is built only when enabled; enabling it adds its
+members to the reviewed cloud catalog in EP-198.
 
 ## Context and Orientation
 

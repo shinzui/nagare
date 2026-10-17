@@ -292,6 +292,7 @@ library
     Nagare.Inventory.Store.Migrate
     Nagare.Inventory.Store.ObjectOps
     Nagare.Inventory.Store.Remote
+    Nagare.Inventory.Store.Service
     Nagare.Inventory.TaskLifecycle
     Nagare.Inventory.TaskRun
     Nagare.Inventory.VmPower
@@ -596,6 +597,7 @@ test-suite nagarectl-test
     InventoryRefusedPreflightRecoverySpec
     InventoryRenameCommandSpec
     InventoryRenameRecoveryModelSpec
+    InventoryServiceStoreSpec
     InventorySettleSpec
     InventorySpec
     InventoryStatusSpec

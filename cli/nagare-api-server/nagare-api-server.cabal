@@ -66,6 +66,7 @@ executable nagare-api-server
   build-depends:
     base,
     bytestring,
+    generic-lens ^>=2.3,
     nagare-api-server,
     nagare-contract,
     nagare-dsl,

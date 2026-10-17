@@ -12,6 +12,7 @@ module Nagare.Inventory.Store.Gogol
   , gogolObjectOpsWithEnv
   , newGogolObjectOpsWithToken
   , validateGogolLocation
+  , gogolLocation
   , inventoryManagerSettings
   , GogolDiscoveryOps (..)
   , newGogolDiscoveryWithToken
@@ -366,3 +367,7 @@ location project url = do
 
 validateGogolLocation :: Text -> Text -> Either Text ()
 validateGogolLocation project url = () <$ location project url
+
+-- | The bucket and object prefix of a validated @gs://@ store URL.
+gogolLocation :: Text -> Text -> Either Text (Text, Text)
+gogolLocation = location

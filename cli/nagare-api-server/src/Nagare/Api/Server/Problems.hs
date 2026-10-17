@@ -7,7 +7,7 @@ where
 
 import Data.Text qualified as Text
 import Nagare.Contract.Prelude
-import Nagare.Contract.Problem (ProblemDetails, internalError, problemFor, storeInvalid, storeUnavailable)
+import Nagare.Contract.Problem (ProblemDetails, internalError, problemFor, storeCredentialsUnavailable, storeInvalid, storeUnavailable)
 import Nagare.Inventory.Store (StoreError (..))
 
 -- | An unreadable store may answer later; a store whose objects fail their
@@ -21,3 +21,4 @@ storeProblem = \case
   StoreConditionFailed reason -> problemFor storeInvalid reason
   StoreObjectConflict _ -> problemFor internalError "the inventory store reported a write conflict to a reader"
   StoreReentry -> problemFor internalError "the inventory store was re-entered"
+  StoreCredentialsUnavailable _ -> problemFor storeCredentialsUnavailable "the admin API's store credential is unavailable"
