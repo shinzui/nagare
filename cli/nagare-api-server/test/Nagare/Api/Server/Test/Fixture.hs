@@ -11,10 +11,12 @@ module Nagare.Api.Server.Test.Fixture
   , siteScope
   , fixtureBinding
   , authId
+  , seedStore
   )
 where
 
 import Control.Concurrent (threadDelay)
+import Control.Exception (finally)
 import Data.ByteString (ByteString)
 import Data.IORef
 import Data.List.NonEmpty (NonEmpty (..))
@@ -39,6 +41,10 @@ data Fixture = Fixture
   , objectReads :: !(IORef Int)
   , hang :: !(IORef Bool)
   , lost :: !(IORef (Set.Set Text))
+  , delay :: !(IORef Int)
+  -- ^ Microseconds each read takes, like a remote store.
+  , peakReads :: !(IORef Int)
+  -- ^ The most reads ever in flight at once.
   , declarations :: ![ScopeDeclaration]
   }
 
@@ -60,8 +66,15 @@ authId = ok (mkResourceId "platform:auth/en/service")
 -- Every accepted scope has converged except the last site.
 fixture :: Int -> IO Fixture
 fixture sites = do
-  (ops, counter, hung, missing) <- recordingObjects
+  (ops, counter, hung, missing, latency, peak) <- recordingObjects
   inventory <- newObjectStore ops fixtureBinding "client-fixture" Nothing >>= either (fail . show) pure
+  scopes <- seedStore inventory sites
+  writeIORef counter 0
+  pure (Fixture inventory counter hung missing latency peak scopes)
+
+-- | Seed an empty store with the fixture's scopes and head.
+seedStore :: InventoryStore -> Int -> IO [ScopeDeclaration]
+seedStore inventory sites = do
   let scopes = [siteScope index 1 | index <- [1 .. sites]] <> [publicationScope, applicationScope, grantScope]
   _ <- initializeStore inventory fixtureBinding "client-fixture" >>= either (fail . show) pure
   for_' scopes (publish inventory)
@@ -81,8 +94,7 @@ fixture sites = do
       , headTransition = Just (TransitionMarker "0.6.2" "nagare-0.6.3-source" "2026-10-16T11:00:00Z")
       }
     >>= either (fail . show) pure
-  writeIORef counter 0
-  pure (Fixture inventory counter hung missing scopes)
+  pure scopes
 
 fence :: Map.Map ScopeId ScopeRevision -> DataFenceRecord
 fence accepted =
@@ -107,7 +119,7 @@ fencedDatabase = ok (mkResourceId "application:docs/database/database")
 
 -- | A head change that leaves every scope revision alone.
 churnHead :: Fixture -> IO ()
-churnHead (Fixture inventory _ _ _ _) = do
+churnHead (Fixture inventory _ _ _ _ _ _) = do
   current <- readHead inventory >>= either (fail . show) pure >>= maybe (fail "no head") pure
   replaceHeadIfGenerationMatches
     inventory
@@ -118,7 +130,7 @@ churnHead (Fixture inventory _ _ _ _) = do
 -- | Record a store migration on the head. A migrated head refuses every
 -- later write, so this is a fixture's last change.
 markMigrated :: Fixture -> IO ()
-markMigrated (Fixture inventory _ _ _ _) = do
+markMigrated (Fixture inventory _ _ _ _ _ _) = do
   current <- readHead inventory >>= either (fail . show) pure >>= maybe (fail "no head") pure
   replaceHeadIfGenerationMatches
     inventory
@@ -132,7 +144,7 @@ markMigrated (Fixture inventory _ _ _ _) = do
 -- | Accept a new revision of one scope (the open fence records the same
 -- accepted vector).
 replaceScope :: Fixture -> Integer -> ScopeDeclaration -> IO ()
-replaceScope (Fixture inventory _ _ _ _) generation declaration = do
+replaceScope (Fixture inventory _ _ _ _ _ _) generation declaration = do
   publish inventory declaration
   current <- readHead inventory >>= either (fail . show) pure >>= maybe (fail "no head") pure
   let accepted = Map.insert (scopeId declaration) (revisionOf generation declaration) (headAccepted current)
@@ -259,20 +271,28 @@ grantScope =
 
 -- | Objects in memory. Every read is counted; a hung store blocks reads; a
 -- lost key reads as absent.
-recordingObjects :: IO (ObjectOps, IORef Int, IORef Bool, IORef (Set.Set Text))
+recordingObjects :: IO (ObjectOps, IORef Int, IORef Bool, IORef (Set.Set Text), IORef Int, IORef Int)
 recordingObjects = do
   state <- newIORef (0 :: Integer, Map.empty :: Map.Map ObjectName (Generation, ByteString))
   counter <- newIORef 0
   hung <- newIORef False
   missing <- newIORef Set.empty
+  latency <- newIORef 0
+  inFlight <- newIORef (0 :: Int)
+  peak <- newIORef 0
   let blockWhileHung = do
         isHung <- readIORef hung
         when isHung (threadDelay 100000 >> blockWhileHung)
+      measured action = do
+        now <- atomicModifyIORef' inFlight (\count -> (count + 1, count + 1))
+        atomicModifyIORef' peak (\highest -> (max highest now, ()))
+        action `finally` atomicModifyIORef' inFlight (\count -> (count - 1, ()))
   pure
     ( ObjectOps
-        { getObject = \name@(ObjectName key) -> do
+        { getObject = \name@(ObjectName key) -> measured $ do
             modifyIORef' counter (+ 1)
             blockWhileHung
+            readIORef latency >>= \micros -> when (micros > 0) (threadDelay micros)
             gone <- Set.member key <$> readIORef missing
             (_, objects) <- readIORef state
             pure (if gone then ObjectAbsent else maybe ObjectAbsent (uncurry ObjectFound) (Map.lookup name objects))
@@ -291,6 +311,8 @@ recordingObjects = do
     , counter
     , hung
     , missing
+    , latency
+    , peak
     )
 
 encodeUtf8' :: Text -> ByteString

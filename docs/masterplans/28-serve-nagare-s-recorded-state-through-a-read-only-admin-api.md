@@ -90,7 +90,7 @@ requires offline proof before native confirmation.
 | 192 | Publish the shared versioned document contract | [EP-192](../plans/192-publish-a-versioned-json-contract-for-the-nagarectl-outputs-kotei-consumes.md) | EP-193 M1 for M4 only | None | In Progress |
 | 193 | Read recorded state and list recorded sites | [EP-193](../plans/193-list-recorded-sites-without-live-provider-observation.md) | EP-192 M1 for M1 DTO/converter acceptance | None | In Progress |
 | 196 | Open the inventory through a read-only service identity | [EP-196](../plans/196-read-the-inventory-store-from-an-in-cluster-service-identity.md) | None | EP-193 head-reader interface | Not Started |
-| 197 | Serve typed, bounded HTTP reads | [EP-197](../plans/197-serve-the-read-documents-through-a-typed-servant-admin-api.md) | EP-192 M1, EP-193 M1 | EP-196 for cloud source | In Progress |
+| 197 | Serve typed, bounded HTTP reads | [EP-197](../plans/197-serve-the-read-documents-through-a-typed-servant-admin-api.md) | EP-192 M1, EP-193 M1 | EP-196 for cloud source | Complete |
 | 198 | Deploy behind the admin hostname grant | [EP-198](../plans/198-run-the-admin-api-in-each-context-behind-an-admin-grant.md) | EP-196, EP-197 | None | Not Started |
 
 Status values: Not Started, In Progress, Complete, Cancelled, Held.
@@ -187,7 +187,9 @@ replace the network-policy proof. Native work follows existing authorization req
 
 EP-192 M1, EP-193 M1 and EP-197 M1 are complete: the contract package, the pure projections,
 the shared recorded-state reader, the route types and the one generated artifact, whose
-generator moved to `cli/nagare-api`. Next: EP-197 M2 (handlers over the reader) and EP-196.
+generator moved to `cli/nagare-api`. EP-197 is complete: the server, its Hurl suite and a
+local measurement (warm p95 under 130 ms at concurrency 8 on 250 sites). Next: EP-196's service
+identity, then EP-198; EP-192 M2–M5 and EP-193 M2–M3 remain for the CLI.
 The credential's actual project lookup, provider IAM enforcement and local mount/network behavior
 remain explicit implementation proofs, not claims established by this documentation review.
 

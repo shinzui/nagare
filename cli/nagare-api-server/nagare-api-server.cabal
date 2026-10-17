@@ -34,6 +34,7 @@ library
     Nagare.Api.Server.App
     Nagare.Api.Server.Pagination
     Nagare.Api.Server.Problems
+    Nagare.Api.Server.RequestLog
     Nagare.Api.Server.Serve
     Nagare.Api.Server.Validators
     Nagare.Api.Sites.Handler
@@ -64,6 +65,7 @@ executable nagare-api-server
   hs-source-dirs: app
   build-depends:
     base,
+    bytestring,
     nagare-api-server,
     nagare-contract,
     nagare-dsl,

@@ -15,14 +15,19 @@ module Nagare.Api.Server.Serve
   , serveBuild
   , acceptedVector
   , headRevisionText
+  , RequestStats (..)
+  , beginRequest
+  , endRequest
   )
 where
 
+import Control.Concurrent (ThreadId, myThreadId)
 import Control.Concurrent.MVar
 import Control.Exception (SomeAsyncException, SomeException, fromException, throwIO, try)
 import Control.Monad.IO.Class (liftIO)
 import Data.Aeson (ToJSON, encode)
 import Data.ByteString.Lazy qualified as LBS
+import Data.IORef (IORef, atomicModifyIORef', newIORef)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Sequence (Seq)
@@ -49,7 +54,16 @@ data Env = Env
   , deadlineMicroseconds :: !Int
   , representations :: !(MVar Representations)
   , representationLimit :: !Int
+  , requests :: !(IORef (Map ThreadId RequestStats))
   }
+
+-- | What one request's handler did, for its access log line: whether its
+-- representation came from the cache, and whether it ran out of time.
+data RequestStats = RequestStats
+  { cache :: !(Maybe Bool)
+  , deadlineExceeded :: !Bool
+  }
+  deriving stock (Eq, Show, Generic)
 
 data Representations = Representations
   { entries :: !(Map Text (Text, LBS.ByteString))
@@ -58,15 +72,34 @@ data Representations = Representations
 
 newEnv :: RecordedReader -> Text -> IO Env
 newEnv recordedReader buildIdentity = do
-  cache <- newMVar (Representations Map.empty Seq.empty)
+  cached <- newMVar (Representations Map.empty Seq.empty)
+  inFlight <- newIORef Map.empty
   pure
     Env
       { reader = recordedReader
       , build = buildIdentity
       , deadlineMicroseconds = 10000000
-      , representations = cache
+      , representations = cached
       , representationLimit = 512
+      , requests = inFlight
       }
+
+-- | Start recording the current request thread's statistics. Warp serves a
+-- request and its handler on one thread.
+beginRequest :: Env -> IO ()
+beginRequest env = do
+  thread <- myThreadId
+  atomicModifyIORef' (requests env) (\table -> (Map.insert thread (RequestStats Nothing False) table, ()))
+
+endRequest :: Env -> IO RequestStats
+endRequest env = do
+  thread <- myThreadId
+  atomicModifyIORef' (requests env) (\table -> (Map.delete thread table, Map.findWithDefault (RequestStats Nothing False) thread table))
+
+record :: Env -> (RequestStats -> RequestStats) -> IO ()
+record env change = do
+  thread <- myThreadId
+  atomicModifyIORef' (requests env) (\table -> (Map.adjust change thread table, ()))
 
 -- | A validated state request: the key of its representation and how to
 -- build the representation when it is not cached.
@@ -114,8 +147,9 @@ serveBuild buildIdentity bytes match =
 cachedOr :: Env -> Text -> IO (Either ProblemDetails LBS.ByteString) -> IO (Either ProblemDetails (Text, LBS.ByteString))
 cachedOr env cacheKey produce = do
   found <- Map.lookup cacheKey . entries <$> readMVar (representations env)
+  record env (\stats -> stats {cache = Just (isJust found)})
   case found of
-    Just cached -> pure (Right cached)
+    Just hit -> pure (Right hit)
     Nothing -> do
       produced <- produce
       case produced of
@@ -143,7 +177,7 @@ bounded env action = do
   outcome <- try (timeout (deadlineMicroseconds env) action)
   case outcome of
     Right (Just result) -> pure result
-    Right Nothing -> pure (snapshotProblem (problemFor storeTimeout "the inventory store did not answer within the request deadline"))
+    Right Nothing -> record env (\stats -> stats {deadlineExceeded = True}) >> pure (snapshotProblem (problemFor storeTimeout "the inventory store did not answer within the request deadline"))
     Left (failure :: SomeException)
       | Just (_ :: SomeAsyncException) <- fromException failure -> throwIO failure
       | otherwise -> pure (snapshotProblem (problemFor internalError "the request failed unexpectedly"))

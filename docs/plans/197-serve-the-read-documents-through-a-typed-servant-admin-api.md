@@ -86,10 +86,17 @@ default; the deployed image explicitly binds its pod interface.
   answers 503 `store_timeout` within the deadline and recovers; excess requests get 503
   `server_busy` with `Retry-After`; grants list user, team and retired-route viewers; the
   derived client walks 30 sites.
-- [ ] M3. Health, telemetry, bounded request logging and `just api-hurl` pass; the measured
-  latency, deadline, concurrency and memory criteria below pass. `just haskell-style-check`
-  and `just gate-fast` pass before landing.
-
+- [x] M3. `servant-health` probes (liveness without IO; readiness reads a fresh bound head
+  within one second); one bounded JSON access line per non-probe request
+  (`Nagare.Api.Server.RequestLog`: method, path without query, status, duration, user agent,
+  cache hit/miss, deadline exceeded; never a body, credential or query string);
+  `cli/nagare-api-server/hurl/` with `just api-hurl` (registered). Pass:
+  `nagare-api-server-test` (22 tests) adds the access line and a slow store (20 ms a read)
+  whose cold list reads members concurrently and never more than eight at once; `just api-hurl`
+  passes 21 requests in 6 files against the built server. Measured at `dc3a03c9` on a 250-site
+  fixture (253 scopes, about 2,560 declarations) on disk, with a full gate loading the machine:
+  cold 11–86 ms per route; 100 requests at concurrency 8, warm p95 95–128 ms (target 250 ms);
+  RSS 35 MB at start, 67 MB after (limit 512 MiB).
 
 ## Surprises & Discoveries
 
@@ -135,6 +142,12 @@ operation by the generator, not listed as handler alternatives.
 list is answered from its bytes after the fresh head read, without hydration. Admission is a WAI
 middleware so the refusal can carry `Retry-After`; probes are never refused. The ETag hashes the
 build identity with the bytes, so a new binary never revalidates an old representation.
+
+2026-10-16 (M3): Telemetry is the access line on stdout, which the cluster's log collector reads;
+the OTLP collector is optional in a Nagare cluster, so request handling never waits on one.
+Tracing joins when a deployment requires it. tasty 1.5 raises capabilities to the processor
+count and runs tests in parallel; concurrent first forcing of the large generated-document
+thunk spun on its blackhole, so the server and the suite build it once before serving.
 
 ## Context and Orientation
 
@@ -344,5 +357,6 @@ budgets above are Nagare acceptance choices.
 
 ## Outcomes & Retrospective
 
-The HTTP contract and performance acceptance are specified. No compiled server, generated-client
-roundtrip or benchmark result is claimed by the plan validation.
+M1–M3 pass offline: the route types and one artifact, the server over the recorded reader, the
+access line, the Hurl suite and the local measurement. The gateway, GCS and network-policy
+confirmation is EP-198's.

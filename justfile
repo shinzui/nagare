@@ -297,6 +297,29 @@ haskell-style-check:
     cabal-gild --mode check --input cli/nagare-api-server/nagare-api-server.cabal
     cabal-gild --mode check --input cli/nagare-harness/nagare-harness.cabal
 
+# The admin API's black-box suite (EP-197): build the server, seed a fixture
+# store with the suite's own probe, serve it on 127.0.0.1:18085, run Hurl, stop.
+# Run the admin API's Hurl suite against a fresh server and fixture store.
+[group('test')]
+api-hurl:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd cli/nagarectl
+    cabal build -v0 exe:nagare-api-server nagare-api-server-test
+    server=$(cabal list-bin -v0 exe:nagare-api-server)
+    suite=$(cabal list-bin -v0 test:nagare-api-server-test)
+    work=$(mktemp -d)
+    pid=""
+    trap 'if [ -n "$pid" ]; then kill "$pid" 2>/dev/null || true; fi; rm -rf "$work"' EXIT
+    NAGARE_API_FIXTURE="$work/inventory" "$suite"
+    "$server" --context fixture --project project --store-dir "$work/inventory" --port 18085 >"$work/server.log" 2>&1 &
+    pid=$!
+    for _ in $(seq 1 50); do
+      if curl -fsS http://127.0.0.1:18085/health/ready >/dev/null 2>&1; then break; fi
+      sleep 0.2
+    done
+    ../nagare-api-server/hurl/run.sh
+
 # The landing gate (operator decision, 2026-10-11). The style check, the
 # architecture check and the mutation records' manifest first (seconds), then
 # both Haskell suites, built incrementally and run serially; logs go to

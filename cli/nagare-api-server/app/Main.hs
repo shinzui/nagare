@@ -6,6 +6,7 @@
 -- explicitly. The store is opened read-only and never initialized.
 module Main (main) where
 
+import Data.ByteString qualified as BS
 import Data.String (fromString)
 import Data.Text qualified as Text
 import Nagare.Api.Server.App (AppConfig (..), adminApplication)
@@ -19,6 +20,7 @@ import Nagare.Version (BuildVersion (..), currentBuildVersion)
 import Network.Wai.Handler.Warp (defaultSettings, runSettings, setHost, setPort)
 import Options.Applicative
 import System.Exit (die)
+import System.IO (BufferMode (..), hSetBuffering, stdout)
 
 data Options = Options
   { context :: !Text
@@ -39,6 +41,7 @@ options =
 
 main :: IO ()
 main = do
+  hSetBuffering stdout LineBuffering
   Options contextName projectName directory address portNumber <-
     execParser (info (options <**> helper) (fullDesc <> progDesc "Serve one context's recorded inventory state, read-only."))
   binding <- either (die . Text.unpack) pure (ContextBinding <$> mkContextId contextName <*> mkName projectName)
@@ -46,5 +49,5 @@ main = do
   recordedReader <- newRecordedReader defaultRecordedReaderConfig store binding (readHead store)
   let BuildVersion buildVersion buildRevision = currentBuildVersion
   env <- newEnv recordedReader (buildVersion <> maybe "" ("+" <>) buildRevision)
-  application <- adminApplication (AppConfig contextName (versionInfo currentBuildVersion Nothing) 32) env
+  application <- adminApplication (AppConfig contextName (versionInfo currentBuildVersion Nothing) 32 (BS.hPutStr stdout)) env
   runSettings (setHost (fromString address) (setPort portNumber defaultSettings)) application

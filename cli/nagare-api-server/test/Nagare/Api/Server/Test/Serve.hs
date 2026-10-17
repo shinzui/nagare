@@ -9,6 +9,7 @@ where
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (async, wait)
 import Data.Aeson (FromJSON, Value (..), eitherDecode)
+import Data.Aeson.Key qualified
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 qualified as BC
@@ -177,6 +178,26 @@ serveTests =
               , ("s2.example.com", SubjectTeam, "editors", Nullable (Just "member"))
               , ("s1.example.com", SubjectUser, "user_1", Nullable Nothing)
               ]
+    , testCase "a cold list over a slow store reads members in parallel, never past eight at once" $ withServer 60 defaults $ \server -> do
+        writeIORef (delay (fixtureOf server)) 20000
+        cold <- request server "GET" "/v1/sites?first=100" []
+        statusOf cold @?= 200
+        peak <- readIORef (peakReads (fixtureOf server))
+        assertBool ("reads did not overlap (peak " <> show peak <> ")") (peak >= 2)
+        assertBool ("more than eight reads at once (peak " <> show peak <> ")") (peak <= 8)
+    , testCase "each request but a probe writes one bounded access line" $ withServer 3 defaults $ \server -> do
+        _ <- request server "GET" "/health/ready" []
+        _ <- request server "GET" "/v1/sites?first=2&namespace=personal" [("Authorization", "Bearer secret-token"), ("User-Agent", "kotei/1")]
+        _ <- request server "GET" "/v1/sites?first=2&namespace=personal" []
+        lines' <- accessLines server
+        length lines' @?= 2
+        values <- traverse (either (\failure -> assertFailure failure >> fail "json") pure . eitherDecode . LBS.fromStrict) lines'
+        [(field "path" value, field "cache" value, field "status" value) | value <- values]
+          @?= [ (Just (String "/v1/sites"), Just (String "miss"), Just (Number 200))
+              , (Just (String "/v1/sites"), Just (String "hit"), Just (Number 200))
+              ]
+        assertBool "a credential or the query string reached the log" (not (any (\line -> "secret-token" `BC.isInfixOf` line || "namespace=" `BC.isInfixOf` line) lines'))
+        field "user_agent" (head' values) @?= Just (String "kotei/1")
     , testCase "the client derived from the routes walks the sites of one head" $ withServer 30 defaults $ \server -> do
         expected <- map (^. #resourceId) <$> allSites server
         length expected @?= 30
@@ -196,6 +217,7 @@ data Server = Server
   { fixtureOf :: !Fixture
   , port :: !Int
   , manager :: !HTTP.Manager
+  , accessLines :: !(IO [ByteString])
   , run :: !(forall a. ClientM a -> IO a)
   }
 
@@ -204,13 +226,14 @@ withServer sites (Options deadlineValue admitValue) action = do
   recorded <- fixture sites
   reader <- newRecordedReader defaultRecordedReaderConfig (store recorded) fixtureBinding (readHead (store recorded))
   env <- newEnv reader "test-build"
-  application <- adminApplication (AppConfig "fixture" (VersionInfo "0.0.0" "0.0.0" Nothing Nothing contractVersions) admitValue) env {deadlineMicroseconds = deadlineValue}
+  logged <- newIORef []
+  application <- adminApplication (AppConfig "fixture" (VersionInfo "0.0.0" "0.0.0" Nothing Nothing contractVersions) admitValue (\line -> atomicModifyIORef' logged (\lines' -> (line : lines', ())))) env {deadlineMicroseconds = deadlineValue}
   testWithApplication (pure application) $ \portNumber -> do
     httpManager <- HTTP.newManager HTTP.defaultManagerSettings
     base <- parseBaseUrl ("http://127.0.0.1:" <> show portNumber)
     let clientEnv = mkClientEnv httpManager base
     writeIORef (objectReads recorded) 0
-    action (Server recorded portNumber httpManager (\call -> runClientM call clientEnv >>= either (\failure -> assertFailure (show failure) >> fail "client") pure))
+    action (Server recorded portNumber httpManager (reverse <$> readIORef logged) (\call -> runClientM call clientEnv >>= either (\failure -> assertFailure (show failure) >> fail "client") pure))
 
 request :: Server -> Method -> ByteString -> [Header] -> IO (HTTP.Response LBS.ByteString)
 request server method path headers = do
@@ -289,3 +312,15 @@ listToMaybe' = \case
 
 for_' :: [a] -> (a -> IO ()) -> IO ()
 for_' xs action = mapM_ action xs
+
+field :: Text -> Value -> Maybe Value
+field name = \case
+  Object fields -> KeyMap.lookup (fromText' name) fields
+  _ -> Nothing
+  where
+    fromText' = Data.Aeson.Key.fromText
+
+head' :: [Value] -> Value
+head' = \case
+  value : _ -> value
+  [] -> Null

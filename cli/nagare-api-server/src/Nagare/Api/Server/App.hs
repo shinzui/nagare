@@ -14,8 +14,10 @@ module Nagare.Api.Server.App
   )
 where
 
-import Control.Exception (SomeAsyncException, SomeException, bracket_, fromException, throwIO, try)
+import Control.Exception (SomeAsyncException, SomeException, bracket_, evaluate, fromException, throwIO, try)
 import Data.Aeson (encode)
+import Data.ByteString (ByteString)
+import Data.ByteString.Lazy qualified as LBS
 import Data.Generics.Labels ()
 import Data.IORef
 import Data.Text qualified as Text
@@ -26,6 +28,7 @@ import Nagare.Api.Inventory.Handler (inventoryServer)
 import Nagare.Api.OpenApi (renderAdminOpenApi)
 import Nagare.Api.Platform.Routes (PlatformRoutes (..))
 import Nagare.Api.Routes (AdminApi (..), adminApi)
+import Nagare.Api.Server.RequestLog (requestLog)
 import Nagare.Api.Server.Serve
 import Nagare.Api.Server.Validators (errorCacheControl)
 import Nagare.Api.Sites.Handler (sitesServer)
@@ -62,14 +65,20 @@ data AppConfig = AppConfig
   { context :: !Text
   , version :: !VersionInfo
   , admission :: !Int
+  , logSink :: !(ByteString -> IO ())
+  -- ^ Where each access line goes: stdout in the server.
   }
   deriving stock (Generic)
 
 adminApplication :: AppConfig -> Env -> IO Application
 adminApplication config env = do
+  -- Build the served documents once, before any request: concurrent first
+  -- forcing of one large top-level thunk was observed spinning on its
+  -- blackhole (GHC 9.12, many capabilities).
+  _ <- evaluate (LBS.length renderAdminOpenApi + LBS.length (encode (config ^. #version)))
   inFlight <- newIORef 0
   let application = serveWithContext adminApi (formatters Servant.:. Servant.EmptyContext) (adminServer config env)
-  pure (problemResponses (admitted (config ^. #admission) inFlight application))
+  pure (requestLog env (config ^. #logSink) (problemResponses (admitted (config ^. #admission) inFlight application)))
 
 adminServer :: AppConfig -> Env -> AdminApi (AsServerT Handler)
 adminServer config env =
