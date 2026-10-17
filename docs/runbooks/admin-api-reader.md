@@ -19,7 +19,9 @@ also asks only for the read-only storage scope and refuses writes before any req
 
 ## Create the key
 
-The context opts in with `NAGARE_ADMIN_API_ENABLED=1` (through `nagarectl context review`). Its
+The context opts in with `NAGARE_ADMIN_API_ENABLED=1`:
+`nagarectl context create <context> --force --enable-admin-api --save-plan DIR`, then
+`nagarectl context apply DIR --yes`. Its
 cloud stage then plans the reader account as reviewed cloud members (catalog section
 `adminApiReaderEnabled`), with `enableAdminApiReader: true`. A context with an explicit
 `NAGARE_INVENTORY_STORE_URL` also gets that URL's bucket and prefix as `stateBucket` and
@@ -45,7 +47,9 @@ sops --config "$secrets/.sops.yaml" --encrypt --in-place "$secrets/admin-api-rea
 rm reader.json
 ```
 
-The Secret must hold exactly `key.json`. The platform's `admin-api` scope (EP-198) decrypts it
+Record the project number the same reviewed way
+(`context create <context> --force --project-number <number> --save-plan DIR`, then
+`context apply`). The Secret must hold exactly `key.json`. The platform's `admin-api` scope (EP-198) decrypts it
 into a private member mounted read-only into the admin API pod, and passes
 `NAGARE_PROJECT_NUMBER` as the server's `--project-number`. The server exchanges the key for an
 access token at `https://www.googleapis.com/oauth2/v4/token` (gogol's service-account flow) and

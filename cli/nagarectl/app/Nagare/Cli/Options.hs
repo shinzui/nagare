@@ -525,6 +525,8 @@ data ContextCreateOpts = ContextCreateOpts
   , backupBucket :: !(Maybe String)
   , nixCacheEnabled :: !(Maybe String)
   , cdnEnabled :: !(Maybe String)
+  , adminApiEnabled :: !(Maybe String)
+  , projectNumber :: !(Maybe String)
   , nixCacheBucket :: !(Maybe String)
   , instanceName :: !(Maybe String)
   , serviceAccountId :: !(Maybe String)

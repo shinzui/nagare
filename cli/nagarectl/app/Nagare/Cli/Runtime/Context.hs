@@ -156,6 +156,8 @@ contextEnvPairs o =
     , pair "NAGARE_BACKUP_BUCKET" (o ^. #backupBucket)
     , pair "NAGARE_NIX_CACHE_ENABLED" (o ^. #nixCacheEnabled)
     , pair "NAGARE_CDN_ENABLED" (o ^. #cdnEnabled)
+    , pair "NAGARE_ADMIN_API_ENABLED" (o ^. #adminApiEnabled)
+    , pair "NAGARE_PROJECT_NUMBER" (o ^. #projectNumber)
     , pair "NAGARE_NIX_CACHE_BUCKET" (o ^. #nixCacheBucket)
     , pair "NAGARE_INSTANCE_NAME" (o ^. #instanceName)
     , pair "NAGARE_SERVICE_ACCOUNT_ID" (o ^. #serviceAccountId)

@@ -85,6 +85,8 @@ contextCreateOptsParser =
     <*> optional (strOption (long "backup-bucket" <> metavar "BUCKET" <> help "Backup bucket (default <project>-nagare-backups)"))
     <*> optional (flag' "1" (long "enable-nix-cache" <> help "Enable the cloud-only Attic binary cache") <|> flag' "0" (long "disable-nix-cache" <> help "Disable Attic without deleting retained resources"))
     <*> optional (flag' "1" (long "enable-cdn" <> help "Enable the billable, cloud-only Google CDN load balancer as reviewed cloud members") <|> flag' "0" (long "disable-cdn" <> help "Disable the Google CDN in the desired context profile"))
+    <*> optional (flag' "1" (long "enable-admin-api" <> help "Serve the read-only admin API at admin.<base domain>; a cloud context also needs --project-number and its reader key") <|> flag' "0" (long "disable-admin-api" <> help "Disable the admin API in the desired context profile"))
+    <*> optional (strOption (long "project-number" <> metavar "NUMBER" <> help "The project's numeric number, which the admin API compares with the state bucket's owner"))
     <*> optional (strOption (long "nix-cache-bucket" <> metavar "BUCKET" <> help "Attic GCS bucket (default <project>-nagare-nix-cache)"))
     <*> optional (strOption (long "instance-name" <> metavar "NAME" <> help "VM instance name (default nagare-01)"))
     <*> optional (strOption (long "service-account-id" <> metavar "ID" <> help "Node service account id (default nagare-node)"))
