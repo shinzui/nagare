@@ -108,14 +108,17 @@ After this plan is implemented:
       all 394 current tests pass in the packaged Nix check. (2026-08-26)
 - [x] M2: Update `docs/runbooks/disaster-recovery.md` so the restore map has
       only the managed `databases/<name>/` layout. (2026-08-24)
-- [ ] M2: `nagarectl server status` against the live cluster shows
+- [x] M2: `nagarectl server status` against the live cluster shows
       `backup databases/<name>` lines with fresh ages. A guarded 2026-09-17 read
       found no managed database in the `personal` namespace, so the command still
       emits the truthful `backup databases` fallback and no legacy `postgres` line.
       EP-4 created `en-db` and `shomei-db` in `nagare-system`, but the status probe
       intentionally enumerates application databases in `personal`; those system
       databases do not satisfy this acceptance gate. A fresh-age proof still needs
-      an approved live application database plus backup.
+      an approved live application database plus backup. (2026-10-17: on `mp23-c3j`, `server status` graded the
+      `personal` application databases rbk-pg, scenario-ch and scenario-pg healthy at ages 215–566 s, now
+      printed as `recovery point` rows; [server status](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-07/section2-drill-3ae20f8c/server-status.txt),
+      [checklist §2](../releases/production-readiness-checklist.md).)
 - [x] M3: Append the managed-DB backup→restore round-trip (new step 5) to
       `scripts/local-smoke.sh`, with matching teardown in its `cleanup()` trap;
       use the managed password without printing it and pin the cleanup client.

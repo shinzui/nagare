@@ -153,11 +153,13 @@ Milestone 3: deploy and verify the running host and cluster.
 - [x] Apply a test PVC; it binds and its hostPath lives under `/var/lib/nagare/local-path`. CONFIRMED
       live — a test PVC reached `Bound` with its backing dir at `/var/lib/nagare/local-path/pvc-…`.
       (2026-06-02)
-- [ ] Exercise the day-2 path: edit a trivial setting and run
+- [-] Exercise the day-2 path: edit a trivial setting and run
       `nixos-rebuild switch --flake .#nagare-01 --target-host nagare-01 --sudo`. DEFERRED operator
       follow-up: requires Tailscale (real auth key) or direct SSH as `deploy`; non-blocking for
       EP-4/5/6, which reach the cluster via an SSH local-forward to the apiserver (see MasterPlan
-      Surprises 2026-06-02).
+      Surprises 2026-06-02). Closed (2026-10-17): direct `nixos-rebuild switch` is no longer allowed; host
+      changes go only through `just host-switch` ([ADR 11](../adr/0011-host-activation-is-guarded-and-self-reverting.md)),
+      whose day-2 upgrades are proven in [checklist §3](../releases/production-readiness-checklist.md). {disposition=out-of-scope}
 
 ## Surprises & Discoveries
 

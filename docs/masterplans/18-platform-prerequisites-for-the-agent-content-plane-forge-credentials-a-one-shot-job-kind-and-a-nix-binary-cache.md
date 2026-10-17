@@ -76,13 +76,13 @@ Track milestone-level progress across all child plans. Each entry names the chil
 and the milestone. This section provides an at-a-glance view of the entire initiative.
 
 - [ ] EP-1: configure least-privilege read and write GitHub Apps through sops-nix.
-- [ ] EP-1: mint installation tokens on a host timer and atomically publish role-named Secrets.
+- [x] EP-1: mint installation tokens on a host timer and atomically publish role-named Secrets. (2026-10-17: `d5d5e612`, opt-in `5fe28650`; fixture-tested, the live run is the next line.)
 - [ ] EP-1: prove rotation, read access, and denial of unauthorized write access.
 - [x] EP-2: add, serialize, load, and deterministically render the first-class `Job` type.
 - [x] EP-2: add hardening, terminating-Pod quota, and default-deny network policy resources.
 - [x] EP-2: prove golden output, validation failures, quota backpressure, and steady-state network isolation.
-- [ ] EP-3: provision durable cache storage and pin/build the Attic server image.
-- [ ] EP-3: bootstrap Attic, Postgres, secrets, garbage collection, and the Nix client ConfigMap.
+- [x] EP-3: provision durable cache storage and pin/build the Attic server image. (2026-10-17: `5bd7d7e2`; rehearsed on `labs` 2026-09-16, `db8557cf`.)
+- [x] EP-3: bootstrap Attic, Postgres, secrets, garbage collection, and the Nix client ConfigMap. (2026-10-17: `5bd7d7e2`; rehearsed on `labs` 2026-09-16 through one-shot GC, `db8557cf`.)
 - [ ] EP-3: prove laptop push, cluster substitution, restart durability, and key rotation.
 
 ## Surprises & Discoveries

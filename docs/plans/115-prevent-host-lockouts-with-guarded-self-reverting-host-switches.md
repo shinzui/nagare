@@ -75,7 +75,7 @@ Milestone 1 — Agent guardrails (do this before ExecPlan 114 Milestone 1):
 - [x] Register the hook in `.claude/settings.json`. (2026-09-12T19:12Z; the file did not exist before)
 - [x] Add the "Host and cloud mutation" rules to `CLAUDE.md`. (2026-09-12T19:12Z)
 - [x] Live check: deny blocks and allow runs. (2026-09-12T19:14Z, in the implementing session, which hot-loaded the new settings)
-- [ ] Live check remaining: the "ask" decision produced no prompt under the operator's `defaultMode: "auto"`; recorded in Surprises, operator chose to continue. Re-check in a default-mode session.
+- [-] Live check remaining: the "ask" decision produced no prompt under the operator's `defaultMode: "auto"`; recorded in Surprises, operator chose to continue. Re-check in a default-mode session. Closed (2026-10-17): the agent guard was removed on 2026-09-13 (`2515c5db`; [ADR 11 amendment](../adr/0011-host-activation-is-guarded-and-self-reverting.md#amendment--2026-09-13-agent-guard-removed)), so there is no "ask" decision left to check. {disposition=out-of-scope}
 - [x] Commit. (2026-09-12T19:20Z)
 
 Milestone 2 — The evaluation fixture refuses to activate:

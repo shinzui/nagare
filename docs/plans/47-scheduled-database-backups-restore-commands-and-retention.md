@@ -94,8 +94,8 @@ Milestone 1 — on-demand `nagarectl db backup NAME` to GCS, with retention:
 - [x] (2026-06-10) `backup` subcommand added to EP-45's `db` subparser (IP4 extend).
 - [x] (2026-06-10) Pure tests for path/ext/schedule, the renderers, and prune-reuse.
 - [x] (2026-06-10) Engine-image-vs-gsutil tension resolved (two-container Job); renderer unit-tested.
-- [ ] Validate live: `nagarectl db backup mydb` then `gsutil ls`. **Deferred to EP-48 AND blocked by the
-      in-pod-ADC routing regression (EP-43 finding) until the node route is fixed.**
+- [x] Validate live: `nagarectl db backup mydb` then `gsutil ls`. **Deferred to EP-48 AND blocked by the
+      in-pod-ADC routing regression (EP-43 finding) until the node route is fixed.** (2026-10-17: on cloud context `mp23-c3m` a reviewed PostgreSQL backup to GCS restored into a scratch database with exactly the pre-backup rows; [C3 assertion](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-07/c3-acceptance-83124396/assertions/postgresql-backup-restore.json); backups in GCS, [checklist §2](../releases/production-readiness-checklist.md).)
 
 Milestone 2 — scheduled backups (CronJob renderer + provisioning):
 

@@ -74,7 +74,7 @@ Milestone 1 — `storage snapshot` writes a verified tar.gz to GCS, plus retenti
 - [x] Wire `runSnapshot` (apply Job, wait for completion, prune) into the CLI. (2026-06-09; in `Nagare.Storage.Snapshot`, dispatched from Main.)
 - [x] Add the `snapshot` subcommand to the `storage` subparser in `cli/nagarectl/app/Main.hs`. (2026-06-09; `StorageSnapshot` + `--bucket`/`--keep`; extends EP-35's subparser, IP5.)
 - [x] Add pure tests for `snapshotObjectPath` and `snapshotsToPrune` to `cli/nagarectl/test/Spec.hs`. (2026-06-09; new `Nagare.Storage.Snapshot` group — 118 tests pass.)
-- [ ] Validate end to end: `nagarectl storage snapshot myapp data` then `gsutil ls` shows the object. (Deferred to EP-37 — needs a deployed app + cluster API access; IAP forwards only SSH/22. See Surprises.)
+- [x] Validate end to end: `nagarectl storage snapshot myapp data` then `gsutil ls` shows the object. (Deferred to EP-37 — needs a deployed app + cluster API access; IAP forwards only SSH/22. See Surprises.) (2026-10-17: on cloud context `mp23-c3m` a reviewed service-volume snapshot converged and was restored from the bucket, which shows the object exists; [C3 assertion](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-07/c3-acceptance-83124396/assertions/volume-backup-restore.json).)
 
 Milestone 2 — backup-ownership policy + runbook + tested restore:
 
@@ -84,7 +84,7 @@ Milestone 2 — backup-ownership policy + runbook + tested restore:
 - [x] Add the "app volumes" row + restore procedure to `docs/runbooks/disaster-recovery.md`. (2026-06-09; inventory row + step-7 sub-step + hot-DB caveat.)
 - [x] Add the "app volumes" row to `docs/user/backups-and-disaster-recovery.md`. (2026-06-09; row + include/exclude policy section.)
 - [x] Add a pure test for `backupExcludedWarnings` to `cli/nagarectl/test/Spec.hs`. (2026-06-09)
-- [ ] Validate end to end: restore a snapshot into a disposable PVC and compare contents. (Deferred to EP-37 — needs cluster API access; same IAP constraint.)
+- [x] Validate end to end: restore a snapshot into a disposable PVC and compare contents. (Deferred to EP-37 — needs cluster API access; same IAP constraint.) (2026-10-17: the same C3 check restored the snapshot-time file after the live file was changed; [C3 assertion](https://github.com/shinzui/nagare/blob/0c00498fcc3a332b724c0d0bb767d86c37ce21be/docs/audits/mp23-independent-results-2026-10-07/c3-acceptance-83124396/assertions/volume-backup-restore.json).)
 
 ## Surprises & Discoveries
 

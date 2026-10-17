@@ -67,19 +67,21 @@ This plan only makes sure its changes are covered by that transition's compatibi
 
 ## Progress
 
-- [ ] M1. On a fresh local inventory context, the acceptance run fails unless the fixture's
+- [x] M1. On a fresh local inventory context, the acceptance run fails unless the fixture's
   protected route answers over HTTPS with the context's certificate trusted:
   - an anonymous request gets 302 to the login portal;
   - a scripted login with a granted user gets 200;
   - a revoked grant gets 403.
 
   The deploy waits for the route's certificate to be Ready. The docs no longer call local mode
-  HTTP-only or show the refused direct `context create --force` form.
+  HTTP-only or show the refused direct `context create --force` form. (2026-10-17: route-check passed on
+  a fresh cp3 context, `33330a50`, after the full gate at `d42913c9`; MinIO default `68108069`.)
   - [x] (2026-10-10) Code: the readiness fix, the `nagare-harness route-check` stage with docs, and
     two mutation records. `just gate-fast` is green, and both records were proven locally with
     their exact patterns.
-  - [ ] A fresh local bootstrap uses locally published MinIO images by default (Surprises,
-    2026-10-10).
+  - [x] A fresh local bootstrap uses locally published MinIO images by default (Surprises,
+    2026-10-10). (2026-10-17: `68108069`, with tests of the default binding; the native drills
+    still pass the overrides.)
   - [x] (2026-10-10) Full gate and `gate-verify` at the landed revision. Then, on a fresh local context, the
     route-check run and its `--ca /dev/null` negative run.
     - [x] (2026-10-10) M1–M4 landed at d42913c9 (full gate green, mutation sweep 184 killed, 0

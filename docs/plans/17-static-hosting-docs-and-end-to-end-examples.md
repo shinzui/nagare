@@ -34,7 +34,7 @@ Nagare cluster, they can follow the end-to-end section and get a public static s
 - [x] Document Git webhook setup if EP-16 is complete; otherwise document it as a planned follow-up with exact status. (2026-06-09: EP-16 is complete — documented `nagared`, signature verification, and GitHub webhook config, pointing at `cluster/bootstrap/nagared/README.md`.)
 - [x] Update `docs/user/README.md` and `docs/user/reference.md` to link the static hosting guide. (2026-06-09: status table row, read-in-order sub-bullet, and a `nagarectl site` command table.)
 - [x] Run the dry-run validation path and record expected output excerpts in the guide. (2026-06-09: static and server dry-run excerpts captured and verified against live `--dry-run` output.)
-- [ ] Run live validation if Docker and the Nagare cluster are available; record any deferred steps clearly. (2026-06-09: deferred — `nagare-01` is powered down; the guide marks the live deploy 🟡 and the `apps.example.com` URLs as placeholders, matching `deploying-apps.md`.)
+- [x] Run live validation if Docker and the Nagare cluster are available; record any deferred steps clearly. (2026-06-09: deferred — `nagare-01` is powered down; the guide marks the live deploy 🟡 and the `apps.example.com` URLs as placeholders, matching `deploying-apps.md`.) (2026-10-17: the static-site flow ran live on a disposable local context: reviewed `site deploy`, `site releases`, `site rollback` and a preview deploy, each answering over HTTPS; [MasterPlan 27 site-access drill](../audits/mp27-site-access-drill-2026-10-13/README.md). Not run live: the full-stack and webhook legs.)
 
 ## Surprises & Discoveries
 

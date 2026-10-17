@@ -89,7 +89,7 @@ happened to point at; and `shellcheck --severity=error` stays clean over all scr
   native root-flake checks; the shell hardening remains in that released tree. (Reconciled
   2026-09-15 from EP-139 and `docs/releases/v0.3.0.md`.)
 - [x] M3: commit M3 with Conventional Commit message + trailers; fill in Outcomes & Retrospective. (2026-08-05)
-- [ ] M3 (deferred, operator-run): the positive `just local-smoke` end-to-end run printing `local smoke: OK`. Docker is up on this machine but no `nagare-local` k3d cluster exists, so the run would stand up a fresh cluster; the specific risk this plan introduces to local mode (the tightened loopback whitelist) was instead proven directly — see Surprises & Discoveries.
+- [x] M3 (deferred, operator-run): the positive `just local-smoke` end-to-end run printing `local smoke: OK`. Docker is up on this machine but no `nagare-local` k3d cluster exists, so the run would stand up a fresh cluster; the specific risk this plan introduces to local mode (the tightened loopback whitelist) was instead proven directly — see Surprises & Discoveries. (2026-10-17: the packaged `nagare local-smoke`, the same `scripts/local-smoke.sh` with this plan's changes, passed end to end repeatedly on 2026-08-26, `8f3a7c04`; [EP-101 M3](101-alerting-and-backup-freshness-monitoring.md).)
 
 ## Surprises & Discoveries
 
