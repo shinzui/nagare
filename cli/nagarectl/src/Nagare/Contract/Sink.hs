@@ -15,6 +15,8 @@ module Nagare.Contract.Sink
   , markExecuting
   , refuseWith
   , reportTransaction
+  , emitDocument
+  , progressLine
   , withContractOutcome
   , withContract
   , transactionOutcome
@@ -23,7 +25,7 @@ module Nagare.Contract.Sink
 where
 
 import Control.Exception (SomeAsyncException, SomeException, displayException, fromException, throwIO, try)
-import Data.Aeson (encode)
+import Data.Aeson (ToJSON, encode)
 import Data.ByteString.Lazy.Char8 qualified as LBC
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.List.NonEmpty qualified as NE
@@ -92,7 +94,7 @@ reportTransaction line result = do
   case current of
     Nothing -> TIO.putStrLn line >> unless (isConverged result) exitFailure
     Just _ -> do
-      readIORef output >>= \destination -> destination (encode (transactionOutcome result))
+      emitDocument (transactionOutcome result)
       case transactionExitCode result of
         ExitSuccess -> pure ()
         code -> exitWith code
@@ -100,6 +102,15 @@ reportTransaction line result = do
     isConverged = \case
       Converged _ -> True
       _ -> False
+
+-- | Print a contract document on the sink's destination.
+emitDocument :: (ToJSON a) => a -> IO ()
+emitDocument document = readIORef output >>= \destination -> destination (encode document)
+
+-- | A human progress line: stdout, or stderr under the sink, where stdout
+-- holds only the document.
+progressLine :: Text -> IO ()
+progressLine line = contractSinkSet >>= \set -> if set then TIO.hPutStrLn stderr line else TIO.putStrLn line
 
 -- | Under the sink, an unexpected exception is a refusal before admission
 -- and an interruption after it, never an unformatted crash.
@@ -126,7 +137,7 @@ withContract requested action = case requested of
     refuseWith "" unsupportedContractVersion ("contract version " <> T.pack (show other) <> " is not supported; supported versions: 1")
 
 emit :: TransactionOutcome -> ExitCode -> IO a
-emit document code = readIORef output >>= \destination -> destination (encode document) >> exitWith code
+emit document code = emitDocument document >> exitWith code
 
 -- | 0 converged, 3 paused, 4 stopped, 5 ambiguous, 6 closed; a refusal is 2
 -- and an interruption 7.

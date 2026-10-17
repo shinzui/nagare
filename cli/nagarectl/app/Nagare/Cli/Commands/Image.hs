@@ -23,6 +23,8 @@ import Nagare.Cli.Runtime.Target
   ( activeTarget
   , resolvePlatformWorkspace
   )
+import Nagare.Contract.Project (imagePublicationResult)
+import Nagare.Contract.Sink (contractSinkSet, emitDocument, transactionExitCode)
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Artifact
   ( ArtifactDeclarationBundle (ArtifactDeclarationBundle)
@@ -65,6 +67,7 @@ import Nagare.Resource.Reference qualified as ResourceReference
 import Nagare.Resource.Types qualified as Resource
 import Nagare.Target (Mode (Cloud, Local), registryPrefix)
 import System.Directory (makeAbsolute)
+import System.Exit (ExitCode (ExitSuccess), exitWith)
 
 -- ---------------------------------------------------------------------------
 -- app lifecycle handlers (EP-30)
@@ -245,17 +248,19 @@ runAppImagePlan mctx options = do
       (dieT . T.pack . show)
       pure
       (ResourceInventory.composeInventory snapshot (ResourceInventory.ReplaceScope scope NE.:| []))
+  let planning = inventoryPlanRegistryWithNative active workspace Map.empty
+  contract <- contractSinkSet
   case options ^. #savePlan of
-    Nothing ->
-      Inventory.convergeInventoryCandidateWith
-        (inventoryPlanRegistryWithNative active workspace Map.empty)
-        (inventoryExecutionRegistry mctx)
-        active
-        candidate
-    Just directory ->
-      Inventory.planInventoryCandidateWith
-        (inventoryPlanRegistryWithNative active workspace Map.empty)
-        active
-        candidate
-        directory
-  TIO.putStrLn ("Image resource: " <> Resource.resourceIdText imageId)
+    Nothing
+      | contract -> do
+          (digest, result) <- Inventory.convergeInventoryCandidateResult planning (inventoryExecutionRegistry mctx) active candidate
+          emitDocument (imagePublicationResult imageId digest Nothing (Just result))
+          when (transactionExitCode result /= ExitSuccess) (exitWith (transactionExitCode result))
+      | otherwise -> Inventory.convergeInventoryCandidateWith planning (inventoryExecutionRegistry mctx) active candidate
+    Just directory
+      | contract -> do
+          (_, digest) <- Inventory.planInventoryCandidateQuiet planning active candidate directory
+          saved <- makeAbsolute directory
+          emitDocument (imagePublicationResult imageId digest (Just saved) Nothing)
+      | otherwise -> Inventory.planInventoryCandidateWith planning active candidate directory
+  unless contract (TIO.putStrLn ("Image resource: " <> Resource.resourceIdText imageId))

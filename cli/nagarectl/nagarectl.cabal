@@ -636,6 +636,7 @@ test-suite nagarectl-test
     Nagare.Test.Cluster
     Nagare.Test.Context
     Nagare.Test.Contract
+    Nagare.Test.ContractCommands
     Nagare.Test.DataFixtures
     Nagare.Test.Database
     Nagare.Test.Domains

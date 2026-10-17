@@ -77,6 +77,8 @@ import Nagare.Cli.Runtime.Target
   , activeTarget
   , resolvePlatformWorkspace
   )
+import Nagare.Contract.Project (deployPreview)
+import Nagare.Contract.Sink (emitDocument)
 import Nagare.Deploy (serviceUrl)
 import Nagare.Dsl.Build (resolveImageTag)
 import Nagare.Dsl.Load qualified as Load
@@ -187,6 +189,9 @@ runAppDeployPlan mctx params appOptions output = do
   when
     (appOptions ^. #json && not (appOptions ^. #dryRun))
     (dieT "--json requires --dry-run for reviewed application output")
+  when
+    (isJust (appOptions ^. #contract) && not (appOptions ^. #dryRun) && isNothing (appOptions ^. #savePlan))
+    (dieT "--contract requires --dry-run or --save-plan; a live deploy has no contract document")
   when
     (isJust (appOptions ^. #contextOverride) || isJust (appOptions ^. #dockerfileOverride))
     (dieT "reviewed app deploy requires a prepublished image; build overrides are unsupported")
@@ -480,45 +485,48 @@ runAppDeployPlan mctx params appOptions output = do
   forM_ adoption (validateInlineReleaseAdoption scope (appConfigMapName releaseSubject))
   if appOptions ^. #dryRun
     then
-      if appOptions ^. #json
-        then
-          if null hookScopes
-            then BC.putStrLn (ResourceWire.encodeCanonicalScope scope)
-            else
-              either
-                dieT
-                BC.putStrLn
-                ( ResourceWire.canonicalValue
-                    ( Aeson.object
-                        [ "application" Aeson..= ResourceWire.scopeValue scope
-                        , "hooks" Aeson..= map ResourceWire.scopeValue hookScopes
-                        ]
+      if isJust (appOptions ^. #contract)
+        then emitDocument (deployPreview scope hookScopes)
+        else
+          if appOptions ^. #json
+            then
+              if null hookScopes
+                then BC.putStrLn (ResourceWire.encodeCanonicalScope scope)
+                else
+                  either
+                    dieT
+                    BC.putStrLn
+                    ( ResourceWire.canonicalValue
+                        ( Aeson.object
+                            [ "application" Aeson..= ResourceWire.scopeValue scope
+                            , "hooks" Aeson..= map ResourceWire.scopeValue hookScopes
+                            ]
+                        )
                     )
-                )
-        else do
-          forM_ scopes $ \compiled -> do
-            TIO.putStrLn
-              ( "Application review scope "
-                  <> T.pack (show (ResourceInventory.scopeId compiled))
-              )
-            forM_ (ResourceInventory.scopeBundles compiled) $ \bundle -> do
-              forM_ (ResourceInventory.declarations bundle) $ \declaration ->
-                let address = case declaration of
-                      ResourceInventory.Managed member -> member ^. #address
-                      ResourceInventory.External _ location _ _ -> location
-                      ResourceInventory.ObservedChild _ _ location _ _ -> location
-                 in TIO.putStrLn
-                      ( "  "
-                          <> Resource.resourceIdText
-                            (ResourceInventory.declarationId declaration)
-                          <> "  "
-                          <> T.pack (show address)
-                      )
-              forM_ (ResourceInventory.operations bundle) $ \operation ->
+            else do
+              forM_ scopes $ \compiled -> do
                 TIO.putStrLn
-                  ( "  operation "
-                      <> Resource.resourceIdText (operation ^. #identity)
+                  ( "Application review scope "
+                      <> T.pack (show (ResourceInventory.scopeId compiled))
                   )
+                forM_ (ResourceInventory.scopeBundles compiled) $ \bundle -> do
+                  forM_ (ResourceInventory.declarations bundle) $ \declaration ->
+                    let address = case declaration of
+                          ResourceInventory.Managed member -> member ^. #address
+                          ResourceInventory.External _ location _ _ -> location
+                          ResourceInventory.ObservedChild _ _ location _ _ -> location
+                     in TIO.putStrLn
+                          ( "  "
+                              <> Resource.resourceIdText
+                                (ResourceInventory.declarationId declaration)
+                              <> "  "
+                              <> T.pack (show address)
+                          )
+                  forM_ (ResourceInventory.operations bundle) $ \operation ->
+                    TIO.putStrLn
+                      ( "  operation "
+                          <> Resource.resourceIdText (operation ^. #identity)
+                      )
     else case (adoption, appOptions ^. #savePlan) of
       (Nothing, Nothing) ->
         Inventory.convergeInventoryCandidateWith

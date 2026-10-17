@@ -125,9 +125,15 @@ as a store failure) and F118 (an unprepared workspace reads as a mismatched one)
   exit 2. F94: `StoppedAmbiguous` carries a reason at every stop; `InventoryTransactionSpec`
   drives the recovery decisions through resume and `DataFenceSpec` sees the fence reason. The full
   `nagarectl-test` suite passes unchanged otherwise.
-- [ ] M3: `app image-plan`, `app deploy --save-plan` and `app deploy --dry-run` with
+- [x] M3: `app image-plan`, `app deploy --save-plan` and `app deploy --dry-run` with
   `--contract 1`. Pass: CLI-level tests on the existing app-deploy fixtures emit documents equal
   to the golden samples. The deploy preview has the same top-level keys with and without hooks.
+  Evidence: `test/Nagare/Test/ContractCommands.hs` plans a ConfigMap scope on a local context
+  under the sink and reads exactly one `saved-review` (absolute directory, the changed scope,
+  the digest), converges it in-process with nothing on stdout and projects the
+  `image-publication-result`, and shows `deploy-preview` keys equal with and without a hook; every
+  document passes `validateToJSON`. The app commands only branch on the flag around these calls
+  (`Commands/Image.hs`, `Commands/Application.hs`).
 - [ ] M4: `inventory status --contract 1 [--scope SCOPE]` and `inventory publications
   --contract 1`. Pass: tests over the existing status fixtures show findings for the selected
   scope only, and an unknown scope prints a problem with code `unknown_scope`. A publication
@@ -250,6 +256,14 @@ Admission completes when `markExecuting` runs after the transaction is admitted.
 store migration after convergence prints on stderr under the sink, and its failure exits 1
 there: the converged document has already been printed, and stdout holds one document. A store
 that cannot record convergence names its cause in the ambiguous reason (`fallbackWith`).
+
+2026-10-16 (M3): A saved review's `scopes` are the scopes whose desired revision differs from the
+base (`reviewBundleScopes` is keyed by scope-document digest, not scope ID). Under the sink every
+`--save-plan` path prints its `saved-review` from `writePlannedReview`, and `app image-plan`
+prints its own `image-publication-result` instead. A refusal from these commands is the same
+`transaction-outcome` `refused` document as M2, so a client tells a refusal by `document`.
+`--contract` takes precedence over `--json` on a dry run; `app deploy --contract` without
+`--dry-run` or `--save-plan` refuses.
 
 ## Context and Orientation
 

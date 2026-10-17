@@ -134,6 +134,7 @@ data AppImagePlanOpts = AppImagePlanOpts
   , buildDockerfile :: !(Maybe FilePath)
   , buildContext :: !(Maybe FilePath)
   , savePlan :: !(Maybe FilePath)
+  , contract :: !(Maybe Int)
   }
   deriving stock (Generic, Show)
 
@@ -182,6 +183,7 @@ data AppDeployOpts = AppDeployOpts
   , releaseAdoptionInput :: !(Maybe FilePath)
   , takeOverFields :: !Bool
   , retireDatabases :: ![Text]
+  , contract :: !(Maybe Int)
   }
   deriving stock (Generic, Show)
 

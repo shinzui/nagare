@@ -14,6 +14,8 @@ module Nagare.Inventory.Command
   , planInventoryWithRetirements
   , planInventoryCandidateWithRetirements
   , planInventoryCandidateWith
+  , planInventoryCandidateQuiet
+  , convergeInventoryCandidateResult
   , planInventoryCandidateWithDecider
   , planInventoryCandidateWithPayloadIdentity
   , convergeInventoryCandidateWith
@@ -69,7 +71,8 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as TIO
 import Nagare.Contract.Problem (ProblemSpec, admissionRefused, reviewChanged, storeUnavailable, unclassified, wrongContext)
-import Nagare.Contract.Sink (refuseWith, reportTransaction)
+import Nagare.Contract.Project (savedReview)
+import Nagare.Contract.Sink (contractSinkSet, emitDocument, progressLine, refuseWith, reportTransaction)
 import Nagare.Dsl.Prelude hiding ((.=))
 import Nagare.Inventory.Adapter
 import Nagare.Inventory.Digest
@@ -434,11 +437,7 @@ planInventoryCandidateWithPayloadIdentity ::
   CompositionCandidate ->
   FilePath ->
   IO ()
-planInventoryCandidateWithPayloadIdentity registryFor payloadIdentity =
-  planInventoryCandidateWithDeciderPayload
-    registryFor
-    (\_ _ -> Right noLifecycleDecisions)
-    payloadIdentity
+planInventoryCandidateWithPayloadIdentity registryFor = planInventoryCandidateWithDeciderPayload registryFor (\_ _ -> Right noLifecycleDecisions)
 
 planInventoryCandidateWithDecider ::
   (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry) ->
@@ -462,9 +461,22 @@ planInventoryCandidateWithDeciderPayload registryFor decide payloadIdentity targ
   (_, bundle, digest) <- prepareInventoryCandidateWithDeciderPayload registryFor decide payloadIdentity target candidate
   writePlannedReview output bundle digest
 
+-- | Write the review; under @--contract 1@ print its saved-review document.
 writePlannedReview :: FilePath -> ReviewBundle -> ContentDigest -> IO ()
 writePlannedReview output bundle digest = do
   _ <- writeReviewBundle output bundle >>= either dieText pure
+  contract <- contractSinkSet
+  if contract then makeAbsolute output >>= \directory -> emitDocument (savedReview directory bundle digest) else printPlannedReview bundle digest
+
+-- | Plan and write a review without printing it, for a caller with its own
+-- document.
+planInventoryCandidateQuiet :: (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry) -> ActiveTarget -> CompositionCandidate -> FilePath -> IO (ReviewBundle, ContentDigest)
+planInventoryCandidateQuiet registryFor target candidate output = do
+  (_, bundle, digest) <- prepareInventoryCandidateWithDecider registryFor (\_ _ -> Right noLifecycleDecisions) target candidate
+  (bundle, digest) <$ (writeReviewBundle output bundle >>= either dieText pure)
+
+printPlannedReview :: ReviewBundle -> ContentDigest -> IO ()
+printPlannedReview bundle digest = do
   TIO.putStrLn (digestText digest)
   mapM_ (TIO.putStrLn . uncurry renderRebind) (Map.toAscList (reviewRebinds (reviewBundleDocument bundle)))
   mapM_ (TIO.putStrLn . uncurry renderRebuild) (Map.toAscList (reviewRebuilds (reviewBundleDocument bundle)))
@@ -479,27 +491,28 @@ convergeInventoryCandidateWith ::
   CompositionCandidate ->
   IO ()
 convergeInventoryCandidateWith planningRegistry executionRegistry target candidate = do
-  (store, _, digest) <-
-    prepareInventoryCandidateWithDecider
-      planningRegistry
-      (\_ _ -> Right noLifecycleDecisions)
-      target
-      candidate
+  (_, result) <- convergeInventoryCandidateResult planningRegistry executionRegistry target candidate
+  reportTransaction (renderTransactionResult result) result
+
+-- | Publish, apply and return the result; progress lines go to stderr under
+-- @--contract 1@.
+convergeInventoryCandidateResult ::
+  (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry) ->
+  (InventoryStore -> ReviewBundle -> IO AdapterRegistry) ->
+  ActiveTarget ->
+  CompositionCandidate ->
+  IO (ContentDigest, TransactionResult)
+convergeInventoryCandidateResult planningRegistry executionRegistry target candidate = do
+  (store, _, digest) <- prepareInventoryCandidateWithDecider planningRegistry (\_ _ -> Right noLifecycleDecisions) target candidate
   requireTransitionOwner store
   bundle <- loadPublishedReview store digest >>= either (dieText . showText) pure
   validateReviewTarget target (reviewContextBinding (reviewBundleDocument bundle))
-  TIO.putStrLn ("Published review " <> digestText digest)
-  forM_
-    (reviewOperations (reviewBundleDocument bundle))
-    (TIO.putStrLn . reviewPublicSummary)
+  progressLine ("Published review " <> digestText digest)
+  forM_ (reviewOperations (reviewBundleDocument bundle)) (progressLine . reviewPublicSummary)
   registry <- executionRegistry store bundle
   snapshot <- readReviewSnapshot store (reviewDigest bundle) >>= either (dieText . showText) pure
   reviewed <- either (dieText . showText . NE.toList) pure (verifyReview snapshot bundle)
-  result <- applyReviewed store registry reviewed >>= either (dieText . showText . NE.toList) pure
-  TIO.putStrLn (renderTransactionResult result)
-  case result of
-    Converged _ -> pure ()
-    _ -> exitFailure
+  (,) digest <$> (applyReviewed store registry reviewed >>= either (dieText . showText . NE.toList) pure)
 
 prepareInventoryCandidateWithDecider ::
   (CompositionCandidate -> InventoryHistory -> IO AdapterRegistry) ->

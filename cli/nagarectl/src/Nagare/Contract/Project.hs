@@ -15,6 +15,9 @@ module Nagare.Contract.Project
   , siteList
   , headSummary
   , grants
+  , savedReview
+  , imagePublicationResult
+  , deployPreview
   )
 where
 
@@ -24,17 +27,24 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import Nagare.Contract.Schema (ContractVersion (..), DocumentName (..), nullable)
+import Nagare.Contract.Sink (transactionOutcome)
 import Nagare.Contract.V1
   ( ContextRef (..)
   , DataFenceSummary (..)
+  , DeployPreview (..)
   , ExecutorClaimSummary (..)
   , Grant (..)
   , HeadSummary (..)
+  , ImagePublicationResult (..)
   , MigrationSummary (..)
+  , PreviewScope (..)
   , Publication (..)
   , PublicationList (..)
+  , PublishedReview (..)
   , RecordState (..)
+  , ReviewLocation (..)
   , Revision (..)
+  , SavedReview (..)
   , ScopeState (..)
   , SiteKind (..)
   , SiteList (..)
@@ -47,6 +57,9 @@ import Nagare.Contract.V1
   )
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Access (Relationship (..), relationshipOf)
+import Nagare.Inventory.Execute.Types (TransactionResult)
+import Nagare.Inventory.Lineage (renderRebuild)
+import Nagare.Inventory.Plan.Types (ReviewBundle, ReviewDocument (..), renderRebind, reviewBundleDocument)
 import Nagare.Inventory.Site.Recorded qualified as Recorded
 import Nagare.Inventory.Store (DataFenceRecord (..), ExecutorClaim (..), HeadManifest (..), MigrationTombstone (..), ScopeRevision (..), TransitionMarker (..))
 import Nagare.Inventory.Store qualified as Store
@@ -58,10 +71,13 @@ import Nagare.Resource.Inventory
   , ScopeDeclaration
   , declarations
   , scopeBundles
+  , scopeConfigDigest
+  , scopeId
   , scopeOverrides
   )
 import Nagare.Resource.Types hiding (ScopeKind (..))
 import Nagare.Resource.Types qualified as Types
+import Nagare.Resource.Wire (scopeValue)
 import Nagare.Version (BuildVersion (..))
 
 -- | The discovery document for this build. With tools, each name maps to
@@ -279,3 +295,50 @@ grants headValue accepted =
         TeamViewer viewedHost team -> [(viewedHost, SubjectTeam, teamKeyText team, Just "member")]
         TeamMember _ _ -> []
     ]
+
+-- | A saved review: its digest and absolute directory, the scopes whose
+-- revision it changes, and its lineage lines.
+savedReview :: FilePath -> ReviewBundle -> ContentDigest -> SavedReview
+savedReview directory bundle digest =
+  SavedReview
+    { contractVersion = ContractVersion1
+    , document = DocumentName
+    , review = ReviewLocation {sha256 = digestText digest, directory = T.pack directory}
+    , scopes = [scopeIdText scope | scope <- Map.keys (Map.union base desired), Map.lookup scope base /= Map.lookup scope desired]
+    , rebinds = map (uncurry renderRebind) (Map.toAscList (reviewRebinds reviewed))
+    , rebuilds = map (uncurry renderRebuild) (Map.toAscList (reviewRebuilds reviewed))
+    }
+  where
+    reviewed = reviewBundleDocument bundle
+    base = reviewBaseRevisions reviewed
+    desired = reviewDesiredRevisions reviewed
+
+-- | An image publication: saved (with its directory) or converged in-process
+-- (with its transaction outcome).
+imagePublicationResult :: ResourceId -> ContentDigest -> Maybe FilePath -> Maybe TransactionResult -> ImagePublicationResult
+imagePublicationResult image digest directory result =
+  ImagePublicationResult
+    { contractVersion = ContractVersion1
+    , document = DocumentName
+    , imageResource = resourceIdText image
+    , review = PublishedReview {sha256 = digestText digest, directory = nullable (T.pack <$> directory)}
+    , transaction = nullable (transactionOutcome <$> result)
+    }
+
+-- | A deploy preview with the same keys for every configuration.
+deployPreview :: ScopeDeclaration -> [ScopeDeclaration] -> DeployPreview
+deployPreview application hookScopes =
+  DeployPreview
+    { contractVersion = ContractVersion1
+    , document = DocumentName
+    , application = previewScope application
+    , hooks = map previewScope hookScopes
+    , scopeDocuments = map scopeValue (application : hookScopes)
+    }
+  where
+    previewScope declared =
+      PreviewScope
+        { scope = scopeIdText (scopeId declared)
+        , configDigest = nullable (digestText <$> scopeConfigDigest declared)
+        , overrides = scopeOverrides declared
+        }

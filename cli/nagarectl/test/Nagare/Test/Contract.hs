@@ -49,6 +49,7 @@ import Nagare.Resource.Policy (DataPolicy (..), LifecyclePolicy (..), Sensitivit
 import Nagare.Resource.Types hiding (ScopeKind (..))
 import Nagare.Resource.Types qualified as Types
 import Nagare.Target (ActiveTarget (..), mkContextName)
+import Nagare.Test.ContractCommands (contractCommandTests)
 import Nagare.Test.Support.Profiles (initProfile)
 import Nagare.Version (BuildVersion (..))
 import System.Exit (ExitCode (..))
@@ -67,6 +68,7 @@ contractTests =
   testGroup
     "Contract"
     [ testGroup "samples" (concatMap sampleTests samples)
+    , contractCommandTests
     , testCase "a base problem has exactly the RFC 9457 members and the two extensions" $ do
         let base = problemFor unknownScope "application:nope is not accepted"
         objectKeys (toJSON base) @?= sort ["type", "title", "status", "detail", "code", "retryable"]

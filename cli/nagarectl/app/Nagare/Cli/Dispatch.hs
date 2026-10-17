@@ -4,6 +4,7 @@ module Nagare.Cli.Dispatch
   )
 where
 
+import Data.Generics.Labels ()
 import Data.Text qualified as T
 import Nagare.Cli.Commands.Access (runAccess)
 import Nagare.Cli.Commands.Application
@@ -147,8 +148,8 @@ dispatch (mctx, cmd0) = case cmd0 of
   AppRestart o -> runAppRestart mctx o
   AppStop o -> runAppStop mctx o
   AppDelete o -> runAppDelete mctx o
-  AppDeploy o -> runAppDeploy mctx o
-  AppImagePlan o -> runAppImagePlan mctx o
+  AppDeploy o -> withContract (o ^. #contract) (runAppDeploy mctx o)
+  AppImagePlan o -> withContract (o ^. #contract) (runAppImagePlan mctx o)
   DeploymentsList o -> runDeploymentsList o
   DeploymentsLogs o -> runDeploymentsLogs o
   Storage scmd -> runStorage mctx scmd

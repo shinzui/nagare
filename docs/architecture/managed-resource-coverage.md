@@ -27,7 +27,7 @@ authority.
 | `DomainsCommand` | 3 | none |
 | `CdnCommand` | 4 | none |
 | `justfile` | 53 |  |
-| `Inventory.Command` production calls | 37 | none |
+| `Inventory.Command` production calls | 39 | none |
 <!-- managed-command-registry:end -->
 
 Each row names the lifecycle-owning scope, declaration compiler, native executor,

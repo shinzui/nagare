@@ -33,6 +33,7 @@ import Nagare.Cli.Options
 import Nagare.Cli.Parser.Common
   ( appNameArg
   , baseDomainOpt
+  , contractOpt
   , defaultConfigFile
   , dryRunOpt
   , fileOpt
@@ -114,6 +115,7 @@ appImagePlanOptsParser =
     <*> optional (strOption (long "build-dockerfile" <> metavar "FILE" <> help "Build the archive locally with this Dockerfile and accepted Build inputs"))
     <*> optional (strOption (long "build-context" <> metavar "DIR" <> help "Docker context for --build-dockerfile"))
     <*> optional (strOption (long "save-plan" <> metavar "DIR" <> help "Save a reviewed image publication for separate apply"))
+    <*> contractOpt
 
 appDeployOptsParser :: FilePath -> Parser AppDeployOpts
 appDeployOptsParser defaultFile =
@@ -179,6 +181,7 @@ appDeployOptsParser defaultFile =
       (long "take-over-fields" <> help "With --save-plan: record fields another writer manages on drifted objects so the reviewed apply takes them over")
     <*> many
       (strOption (long "retire-database" <> metavar "NAME" <> help "With --save-plan: retire a database the config no longer declares, retaining every member (F87)"))
+    <*> contractOpt
 
 workerDeployOptsParser :: FilePath -> Parser WorkerDeployOpts
 workerDeployOptsParser defaultFile =
