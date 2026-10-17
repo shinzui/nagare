@@ -66,6 +66,7 @@ import Nagare.Cli.Commands.Site
   , runSiteReleases
   , runSiteRollback
   )
+import Nagare.Cli.Commands.SiteList (runSiteList)
 import Nagare.Cli.Commands.Storage (runStorage)
 import Nagare.Cli.Commands.Task (runTask)
 import Nagare.Cli.Commands.Transition (runPlatformTransitionCommit, runPlatformTransitionPlan)
@@ -131,6 +132,7 @@ dispatch (mctx, cmd0) = case cmd0 of
   Deploy dopts -> runDeploy mctx dopts
   SiteDeploy sopts -> runSiteDeploy mctx sopts
   SiteReleases copts -> runSiteReleases copts
+  SiteList lopts -> runSiteList mctx lopts
   SiteRollback copts rid -> runSiteRollback mctx copts (T.pack rid)
   SitePreviewDeploy sopts pname -> runPreviewDeploy mctx sopts (T.pack pname)
   SitePreviewList copts -> runPreviewList copts

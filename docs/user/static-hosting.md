@@ -271,7 +271,13 @@ work for both static and server sites.
 
 ```bash
 nagarectl site releases             # list recorded releases (newest first; * = live)
+nagarectl site list                 # every recorded site of the context, from its inventory store
 ```
+
+`site list` reads only the inventory store: each site's accepted configuration, its declared
+hostnames and whether its accepted revision has converged. It inspects no workload, DNS record or
+certificate, so it answers in about a second; `inventory status` and `domains check` remain the
+live inspections.
 
 Rollback selects the older published image and marks that release current.
 History is capped at 50 records and a re-deploy of the same tag updates in place

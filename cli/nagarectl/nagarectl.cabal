@@ -279,6 +279,7 @@ library
     Nagare.Inventory.ScheduledStore
     Nagare.Inventory.SigningKeyEscrow
     Nagare.Inventory.Site
+    Nagare.Inventory.Site.Listing
     Nagare.Inventory.Site.Member
     Nagare.Inventory.Site.Preview
     Nagare.Inventory.Site.Recorded
@@ -412,6 +413,7 @@ executable nagarectl
     Nagare.Cli.Commands.Platform
     Nagare.Cli.Commands.Release
     Nagare.Cli.Commands.Site
+    Nagare.Cli.Commands.SiteList
     Nagare.Cli.Commands.Storage
     Nagare.Cli.Commands.Task
     Nagare.Cli.Commands.Transition

@@ -65,6 +65,10 @@ nagarectl app list
   notes             True    https://notes.personal.apps.example.com
 ```
 
+`nagarectl site list` is the recorded counterpart: it lists every application web service and
+site the context's inventory accepted, with declared hostnames and whether the accepted revision
+converged, from the inventory store alone (no cluster access; see the reference).
+
 Pass `--all` to drop the label filter and list *every* Knative Service in the
 namespace (useful to spot a Service that wasn't deployed through Nagare). When
 the managed list is empty, `app list` says so and hints at `--all`:

@@ -8,6 +8,7 @@ import Nagare.Cli.Options
   ( Command (..)
   , SiteCommonOpts (..)
   , SiteDeployOpts (..)
+  , SiteListOpts (..)
   , SitePreviewDeleteOpts (..)
   , SiteRollbackOpts (..)
   )
@@ -24,6 +25,7 @@ import Options.Applicative
   ( Alternative (many)
   , Parser
   , ParserInfo
+  , auto
   , command
   , fullDesc
   , help
@@ -31,6 +33,7 @@ import Options.Applicative
   , info
   , long
   , metavar
+  , option
   , optional
   , progDesc
   , short
@@ -122,6 +125,7 @@ siteSubparser =
   subparser
     ( command "deploy" siteDeployCmd
         <> command "releases" siteReleasesCmd
+        <> command "list" siteListCmd
         <> command "rollback" siteRollbackCmd
         <> command "preview" sitePreviewCmd
     )
@@ -137,6 +141,20 @@ siteReleasesCmd =
   info
     (SiteReleases <$> siteCommonOptsParser defaultConfigFile <**> helper)
     (fullDesc <> progDesc "List recorded releases for the site")
+
+siteListCmd :: ParserInfo Command
+siteListCmd =
+  info
+    ( SiteList
+        <$> ( SiteListOpts
+                <$> optional (strOption (long "namespace" <> short 'n' <> metavar "NS" <> help "Only sites whose origin Service is in this namespace; all namespaces by default"))
+                <*> switch (long "include-previews" <> help "Include site previews")
+                <*> switch (long "json" <> help "Print the versioned site-list document")
+                <*> optional (option auto (long "contract" <> metavar "VERSION" <> help "Print the site-list document of this contract version (1)"))
+            )
+          <**> helper
+    )
+    (fullDesc <> progDesc "List the recorded sites of the active context from its inventory store; no workload, DNS or certificate is inspected")
 
 siteRollbackCmd :: ParserInfo Command
 siteRollbackCmd =

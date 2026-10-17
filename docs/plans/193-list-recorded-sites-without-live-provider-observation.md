@@ -60,9 +60,19 @@ their live inspection roles.
   kinds, protected origin namespace, pending/never-converged, enforcer excluded, open transaction
   read as a fact, missing member is an error, foreign/uninitialized refusal, and a warm read fetches
   only the head (a changed scope fetches only its new member).
-- [ ] M2. `nagarectl site list` exposes the query through documented human and versioned JSON output, namespace selection, and optional previews, with no live workload/provider inspection or mutation setup; the `NAGARE_RECORDED_SITES_FIXTURE` probe seeds a disposable local context.
-- [ ] M3. The no-write recording test, the empty-`PATH` fixture run, and cold/warm timing evidence meet the acceptance below, including remote-store startup; required gates pass and durable documentation is updated.
-
+- [x] M2. `nagarectl site list [-n NS] [--include-previews] [--json | --contract 1]`
+  (`Nagare.Inventory.Site.Listing`: one read-only store open, one checked head, the projection,
+  the table renderer; `app/Nagare/Cli/Commands/SiteList.hs` only parses and prints). The
+  `NAGARE_RECORDED_SITES_FIXTURE=DIR` probe writes a local context and seeds 111 scopes (319
+  declarations): production-compiled public, protected and preview sites, a hundred more public
+  sites, an application web service and a worker-only application. Run against it with an empty
+  `PATH`: the table filtered by `-n team` shows only `notes`; the JSON document lists 44 sites of
+  kinds site, service and preview with `liveObserved: false`. Reference, static-hosting and
+  app-lifecycle documentation updated.
+- [ ] M3. Done: the no-write test (an object store whose writes, listings and batch reads fail
+  the test serves the full site query) and the local timing at `3864cc09`+M2 on that fixture,
+  five warm runs of the built binary at 0.05–0.06 s (target under 1 s). Open: the five warm and
+  one cold timing against a representative GCS context, a read of the operator's real context.
 
 ## Surprises & Discoveries
 
@@ -131,6 +141,10 @@ A head is bound to its reader by a `Unique`, so `loadRecordedStateAt` refuses an
 head. Earlier converged revisions are loaded for application and standalone scopes whose
 converged revision differs from the accepted one; whether that revision holds the Service is
 known only after loading.
+
+2026-10-16 (M2): The application web service and worker-only application in the fixture are
+built from the same Kubernetes addresses the application compilers emit, because those compilers
+run only through the app CLI's paths; the sites come from the production site compilers.
 
 ## Outcomes & Retrospective
 

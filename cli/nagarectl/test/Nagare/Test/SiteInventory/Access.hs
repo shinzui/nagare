@@ -8,6 +8,7 @@ module Nagare.Test.SiteInventory.Access
   ( protectedSiteInventoryTests
   , SiteFixture (..)
   , protectedSiteFixture
+  , publicSiteScope
   )
 where
 
@@ -394,6 +395,26 @@ protectedSiteFixture = do
       , previewSite = previewScope
       , platform = map snd (Map.elems (snapshotScopes previewSnapshot))
       }
+
+-- | A public static site named @name@ at @<name>.example.com@, from the
+-- production compiler.
+publicSiteScope :: Text -> IO ScopeDeclaration
+publicSiteScope siteName = do
+  let host = siteName <> ".example.com"
+      site = protectedStatic & #access .~ Nothing & #name .~ unsafe (mkSiteName siteName) & #domains .~ unsafe (mkDomains [(host, True)])
+  either (fail . show) (pure . fst) $
+    compileStaticSiteScopeWith
+      RecordRelease
+      Nothing
+      Nothing
+      (DeployInputs site "v1" "example.com" "." True initProfile)
+      cluster
+      namespaceId
+      imageId
+      Map.empty
+      emptyReleaseLog
+      (releaseFor siteName host)
+      source
 
 protectedStatic :: StaticSite
 protectedStatic =

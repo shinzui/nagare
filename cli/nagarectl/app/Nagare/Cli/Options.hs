@@ -63,6 +63,7 @@ module Nagare.Cli.Options
   , SecretCommand (..)
   , ServerStatusOpts (..)
   , SiteCommonOpts (..)
+  , SiteListOpts (..)
   , SiteDeployOpts (..)
   , SitePreviewDeleteOpts (..)
   , SiteRollbackOpts (..)
@@ -231,6 +232,16 @@ data SiteCommonOpts = SiteCommonOpts
   }
   deriving stock (Generic, Show)
 
+-- | @site list@: the active context's recorded sites, from its inventory
+-- store only (EP-193).
+data SiteListOpts = SiteListOpts
+  { namespace :: !(Maybe String)
+  , includePreviews :: !Bool
+  , json :: !Bool
+  , contract :: !(Maybe Int)
+  }
+  deriving stock (Generic, Show)
+
 data SiteRollbackOpts = SiteRollbackOpts
   { common :: !SiteCommonOpts
   , savePlan :: !(Maybe FilePath)
@@ -368,6 +379,7 @@ data Command
   | Deploy DeployOpts
   | SiteDeploy SiteDeployOpts
   | SiteReleases SiteCommonOpts
+  | SiteList SiteListOpts
   | SiteRollback SiteRollbackOpts String
   | SitePreviewDeploy SiteDeployOpts String
   | SitePreviewList SiteCommonOpts
