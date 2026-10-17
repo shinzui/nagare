@@ -5,6 +5,38 @@ immutable `v<major>.<minor>.<patch>` Git tags.
 
 ## [Unreleased]
 
+## [0.6.4] - 2026-10-17
+
+### Added
+
+- **Read-only admin API.** `https://admin.<base domain>/v1/…` serves the inventory head, scopes,
+  recorded sites, image publications and recorded grants as Relay connections with strong ETags and
+  RFC 9457 problems, described by `docs/api/openapi.json`. Callers are a signed-in person or a
+  Shomei service account, either with a grant on the hostname. It is opt-in per context with
+  `NAGARE_ADMIN_API_ENABLED=1`; a cloud context also needs the dedicated read-only reader account
+  and its key (MasterPlan 28).
+- **`--contract 1`** prints versioned JSON documents for inventory status, publications, transaction
+  outcomes, saved reviews, image publications and deploy previews, with problem documents for
+  refusals (EP-192).
+- **`nagarectl site list`** lists a context's recorded sites from one inventory read, without
+  inspecting providers (EP-193).
+
+### Changed
+
+- **New ClickHouse databases default to 26.8**, including their backup and restore images. An
+  explicit version is kept, and accepted databases are not upgraded (EP-199).
+- **The access gateway answers API clients with problem documents**: an API backend's `/v1` paths,
+  a bearer credential, or an `Accept` that prefers JSON. It bounds authorization at 5 s and never
+  returns the HTTP client's exception text.
+
+### Fixed
+
+- Site and preview identities no longer collide, and an over-long preview hostname is refused. A
+  preview route that never became ready can be removed through review, and preview cleanup skips
+  a member it cannot collect (EP-195, F99, F100, F101).
+- An ambiguous stop prints its reason (F94). An expired gcloud login asks for reauthentication
+  (F107). `inventory status` explains an unprepared workspace (F118).
+
 ## [0.6.3] - 2026-10-13
 
 ### Added
