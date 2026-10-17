@@ -60,12 +60,22 @@ coordinates the service, credentials and contract.
   on `/v1`, expired bearer, denial, unavailable and hung authorizer, Accept quality values,
   closed and slow upstreams, 304/ETag forwarding, spoofed `X-Forwarded-User`);
   `just haskell-style-check`, the architecture ratchet, and `just gate-fast`.
-- [ ] M2. A disposable local context converges the scope and an unchanged replan has no operations.
-  The browser and granted machine account read the API; ungranted/unauthenticated clients receive
-  the specified 403/401. Direct Service and Pod-IP access from an application namespace and from
-  an unrelated `nagare-system` pod fail, even with spoofed `X-Forwarded-User`. Gateway access and
-  kubelet probes succeed. EP-197's contract, warm latency and failure-deadline behavior survive
-  the gateway. A workload that copies gateway labels in another namespace remains blocked.
+- [x] M2. 2026-10-17, candidate `6f5ea259`, local context on `nagare-mp23` (arm64), images
+  built from this tree. The bootstrap converged with the admin API, and the final plan had 0
+  operations. Through the gateway:
+  - anonymous `/v1` requests get 401 problems (`WWW-Authenticate: Bearer`, also with no Accept or
+    `*/*`), and `/` redirects;
+  - a person and a Shomei service account get 403 `forbidden` before their grants and 200 after;
+  - `If-None-Match` answers 304, an unknown route 404 and POST 405;
+  - a revoked grant is refused within the TTL.
+
+  Requests to the Service and the Pod IP get no answer from an application pod, from an unrelated
+  `nagare-system` pod, and from a look-alike-labelled pod, while their control requests reach
+  other Services. Warm p95 is 23–41 ms; a stopped server is 502 `upstream_unavailable` within
+  1 s; a replan has 0 operations. Evidence:
+  [`docs/audits/ep198-admin-api/`](../audits/ep198-admin-api/README.md). Two findings were fixed on
+  the way: the packaged suite needed the spec's cluster-source patch, and a VM shares the store's
+  owner-private files as root-owned (decision below).
 - [ ] M3. After the release and operator authorization for the bounded cloud sequence, reviewed
   infrastructure applies EP-196's identity/IAM first, then the intranet transition adds the API.
   Browser and service-account access work, actual IAM denies writes and sibling Pulumi reads,
@@ -81,6 +91,12 @@ a rollout and honest network-policy boundaries for this service.
 
 
 ## Decision Log
+
+2026-10-17 (M2): The local pod runs as UID 0 with every capability dropped except
+`DAC_READ_SEARCH`, with a read-only root filesystem and mount and no privilege escalation.
+Colima's file sharing presents the store's 0600/0700 files as root-owned, and a native daemon as
+the workstation user's. No fixed non-root UID can read both, and the store's private modes stay.
+The cloud pod is unchanged: UID 10001, no capabilities.
 
 2026-10-17 (M1): EP-198 M1–M2 depend on EP-196 M2's `openServiceStore` (complete). Only M3
 depends on EP-196 M3, whose Pulumi preview and apply are M3's first step. The gateway already

@@ -185,13 +185,14 @@ replace the network-policy proof. Native work follows existing authorization req
 
 ## Progress
 
-EP-192 and EP-197 are complete. EP-193 M1–M2 are done; its M3 remote timing needs a real GCS
-context. EP-196 M1–M2 are done; its M3 Pulumi preview is the first step of EP-198 M3. EP-198 M1
-is done offline: the opt-in `platform:admin-api` scope, the gateway's problem-shaped answers on
-`admin.<base>/v1`, the local store mount and the cloud reader Secret. Next is EP-198 M2, a
-disposable local context. It first builds the image, which needs a container daemon.
-Everything that remains is native: EP-198 M2 locally; then, with the operator's go-ahead, EP-196
-M3's preview and apply, EP-193 M3's GCS timing and EP-198 M3 on the intranet.
+EP-192 and EP-197 are complete. EP-198 M1 (offline) and M2 (disposable local context, evidence in
+[`docs/audits/ep198-admin-api/`](../audits/ep198-admin-api/README.md)) are done. What remains is the
+one bounded cloud sequence after v0.6.4 is released, approved by the operator on 2026-10-17:
+- EP-196 M3's Pulumi preview and apply of the reader account;
+- the key and its sops Secret;
+- the intranet transition with the admin API enabled;
+- EP-198 M3's IAM, metadata, bypass and gateway-to-GCS latency proofs, which also close EP-193 M3's
+  GCS timing.
 
 
 ## Surprises & Discoveries
@@ -203,6 +204,9 @@ identity already has mutating permissions. Those source findings motivate the co
 
 
 ## Decision Log
+
+2026-10-17: EP-193 M3's remote timing is measured by EP-198 M3 (warm and cold reads through the
+real gateway against the intranet's GCS store), not as a separate run.
 
 2026-10-17: EP-198 M1–M2 depend on EP-196 M2's service store, which is complete. Only EP-198 M3
 needs EP-196 M3, whose cloud preview and apply open M3. The admin API is opt-in per context,

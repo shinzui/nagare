@@ -1,0 +1,1 @@
+{"apiPrefix": "/v1", "role": "protected", "timeoutSeconds": 15, "upstream": "http://nagare-admin-api.nagare-system.svc.cluster.local"}

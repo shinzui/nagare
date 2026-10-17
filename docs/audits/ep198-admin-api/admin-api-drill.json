@@ -1,0 +1,193 @@
+{
+  "adminApiImage": "k3d-registry.localhost:5000/nagare-admin-api@sha256:1333b43ac689bec14eaa54e4387f83bf1d7948cee7c1e5411d09c2849964f9b4",
+  "candidate": {
+    "revision": "6f5ea2598c0e64a4b37e254bbe5890b7c31a0267",
+    "version": "0.6.3"
+  },
+  "context": "site-access",
+  "host": "admin.127-0-0-1.sslip.io",
+  "mode": "local",
+  "observations": [
+    {
+      "step": "admin API image",
+      "value": "k3d-registry.localhost:5000/nagare-admin-api@sha256:1333b43ac689bec14eaa54e4387f83bf1d7948cee7c1e5411d09c2849964f9b4"
+    },
+    {
+      "step": "admin API pod ready",
+      "value": "True"
+    },
+    {
+      "step": "admin API pod user",
+      "value": "0"
+    },
+    {
+      "step": "admin route target",
+      "value": "nagare-access"
+    },
+    {
+      "step": "backend entry",
+      "value": "{\"apiPrefix\": \"/v1\", \"role\": \"protected\", \"timeoutSeconds\": 15, \"upstream\": \"http://nagare-admin-api.nagare-system.svc.cluster.local\"}"
+    },
+    {
+      "step": "seconds until the admin route answered",
+      "value": "1"
+    },
+    {
+      "step": "anonymous /v1 without Accept",
+      "value": "401"
+    },
+    {
+      "step": "anonymous problem code",
+      "value": "unauthenticated"
+    },
+    {
+      "step": "anonymous problem media type",
+      "value": "application/problem+json"
+    },
+    {
+      "step": "anonymous challenge",
+      "value": "Bearer"
+    },
+    {
+      "step": "anonymous /v1 with Accept */*",
+      "value": "401"
+    },
+    {
+      "step": "anonymous UI document",
+      "value": "302"
+    },
+    {
+      "step": "raw identity header, anonymous",
+      "value": "401"
+    },
+    {
+      "step": "login",
+      "value": "302"
+    },
+    {
+      "step": "signed in, no grant",
+      "value": "403"
+    },
+    {
+      "step": "ungranted problem code",
+      "value": "forbidden"
+    },
+    {
+      "step": "granted person, head",
+      "value": "200"
+    },
+    {
+      "step": "head revision through the gateway",
+      "value": "d2c6e45527e2b0ebe3ff08c1ebda9f6427d2edce95a887d1bd86d3296101dade"
+    },
+    {
+      "step": "conditional head through the gateway",
+      "value": "304"
+    },
+    {
+      "step": "granted person, sites",
+      "value": "200"
+    },
+    {
+      "step": "granted person, version",
+      "value": "200"
+    },
+    {
+      "step": "granted person, unknown route",
+      "value": "404"
+    },
+    {
+      "step": "granted person, POST",
+      "value": "405"
+    },
+    {
+      "step": "service account subject",
+      "value": "user_01m558bh12ed380c5fmfp9x441"
+    },
+    {
+      "step": "service account, no grant",
+      "value": "403"
+    },
+    {
+      "step": "invalid bearer",
+      "value": "401"
+    },
+    {
+      "step": "granted service account, head",
+      "value": "200"
+    },
+    {
+      "step": "granted service account, grants",
+      "value": "200"
+    },
+    {
+      "step": "control: application pod to the gateway Service",
+      "value": "200"
+    },
+    {
+      "step": "control: platform pod to the Shomei Service",
+      "value": "404"
+    },
+    {
+      "step": "application pod to the API Service",
+      "value": "000"
+    },
+    {
+      "step": "application pod to the API Pod IP",
+      "value": "000"
+    },
+    {
+      "step": "platform pod to the API Service",
+      "value": "000"
+    },
+    {
+      "step": "platform pod to the API Pod IP",
+      "value": "000"
+    },
+    {
+      "step": "look-alike label in another namespace",
+      "value": "000"
+    },
+    {
+      "step": "kubelet readiness still passes",
+      "value": "True"
+    },
+    {
+      "step": "warm latency /v1/inventory/head",
+      "value": "p50 0.018 s, p95 0.041 s, max 0.071 s"
+    },
+    {
+      "step": "warm latency /v1/sites",
+      "value": "p50 0.018 s, p95 0.026 s, max 0.031 s"
+    },
+    {
+      "step": "warm latency /v1/inventory/scopes",
+      "value": "p50 0.018 s, p95 0.023 s, max 0.027 s"
+    },
+    {
+      "step": "server stopped",
+      "value": "502"
+    },
+    {
+      "step": "server stopped, problem code",
+      "value": "upstream_unavailable"
+    },
+    {
+      "step": "seconds to the stopped-server answer",
+      "value": "1"
+    },
+    {
+      "step": "server returned",
+      "value": "200"
+    },
+    {
+      "step": "revoked person",
+      "value": "403"
+    },
+    {
+      "step": "replan operations",
+      "value": "0"
+    }
+  ],
+  "schemaVersion": 1
+}
