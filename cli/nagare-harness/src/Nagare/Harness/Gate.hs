@@ -19,6 +19,7 @@ module Nagare.Harness.Gate
   , postLandGate
   , repositoryRoot
   , probeUntilUp
+  , reuseFastRecord
   , runCheckPlan
   , runFastGate
   , runFullGate
@@ -268,6 +269,19 @@ fullCheckPlan self =
     , probePauseMicroseconds = probePause
     }
 
+-- | The full gate's check plan for a tree, and the step results that stand in
+-- for the steps it leaves out (EP-200 M2). A green fast record of the same
+-- commit and tree already ran the static checks, the suite builds and the
+-- record patterns on identical input, so the full gate runs only the flake
+-- check; without one, the plan is unchanged.
+reuseFastRecord :: Text -> Either Text (Maybe FastRecord) -> CheckPlan -> (CheckPlan, Maybe [StepResult])
+reuseFastRecord treeId stored plan = case stored of
+  Right (Just recorded)
+    | recorded ^. #green
+    , recorded ^. #tree == treeId ->
+        (plan & #static .~ [] & #suite .~ [], Just (recorded ^. #steps))
+  _ -> (plan, Nothing)
+
 -- | Run the builder probes until they all pass, at most three times,
 -- @pause@ microseconds apart, and return the last try. The builder VM stops
 -- itself when an idle check finds no SSH connection and no build (the
@@ -402,12 +416,18 @@ runFullGate run = do
                   <> " after three probes; nothing else ran. Check that the builder VM starts"
                   <> " (scripts/setup-nix-builder.sh), then rerun the gate."
               )
-          let plan = fullCheckPlan (run ^. #harness) & #beforeRetry .~ [probeStep system ("retry-" <> salt) & #name %~ (<> "-retry") | system <- remoteSystems]
-          (fast, flake) <-
+          stored <- readFastRecord commitId
+          let (plan, reused) =
+                reuseFastRecord treeId stored $
+                  fullCheckPlan (run ^. #harness) & #beforeRetry .~ [probeStep system ("retry-" <> salt) & #name %~ (<> "-retry") | system <- remoteSystems]
+          forM_ reused $ \_ ->
+            putStrLn ("gate: the green fast record of " <> T.unpack commitId <> " covers this tree's static checks and suite builds; they are not run again")
+          (ran, flake) <-
             if probesGreen
               then runCheckPlan say workdir (run ^. #logDir) plan
               else pure ([], [])
-          let fastGreen = probesGreen && length fast == length (planSteps plan) && all stepSucceeded fast
+          let fastGreen = probesGreen && length ran == length (planSteps plan) && all stepSucceeded ran
+              fast = fromMaybe ran reused
               -- A flake check run a second time after losing the builder
               -- ('runCheckPlan') is decided by its last run.
               flakeGreen =

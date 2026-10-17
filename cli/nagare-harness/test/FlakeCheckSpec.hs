@@ -12,8 +12,9 @@ import Data.List (isInfixOf)
 import Data.Text qualified as T
 import Data.Time.Clock (diffUTCTime, getCurrentTime)
 import Nagare.Harness.FlakeCheck
-import Nagare.Harness.Gate (CheckPlan (..), fullCheckPlan, probeUntilUp, runCheckPlan)
+import Nagare.Harness.Gate (CheckPlan (..), fullCheckPlan, probeUntilUp, reuseFastRecord, runCheckPlan)
 import Nagare.Harness.Prelude
+import Nagare.Harness.Record (FastRecord (..))
 import Nagare.Harness.Step
 import System.Directory (doesFileExist)
 import System.Exit (ExitCode (..))
@@ -111,6 +112,19 @@ flakeCheckTests =
           results <- probeUntilUp 0 (const (pure ())) dir dir [asleep]
           map (^. #exit) results @?= [1]
           (@?= 3) . length . lines =<< readFile (dir </> "tries")
+    , testCase "a green fast record of the same tree stands in for the static checks and suite builds (EP-200 M2)" $ do
+        let full = plan [ok "static"] [ok "suite"] (ok "nix-flake-check")
+            recorded = FastRecord {version = 1, commit = "c0ffee", tree = "7ree", steps = [StepResult "static" "sh" 0 1 "static.log"], green = True}
+            (reusedPlan, reused) = reuseFastRecord "7ree" (Right (Just recorded)) full
+        map (^. #name) (reusedPlan ^. #static <> reusedPlan ^. #suite) @?= []
+        fmap (map (^. #name)) reused @?= Just ["static"]
+        withPlan reusedPlan $ \(ran, flake, _, _) -> do
+          ran @?= []
+          map (^. #name) flake @?= ["nix-flake-check"]
+        forM_ [Right (Just (recorded & #green .~ False)), Right (Just (recorded & #tree .~ "other")), Right Nothing, Left "unreadable"] $ \stored -> do
+          let (unchanged, none) = reuseFastRecord "7ree" stored full
+          map (^. #name) (unchanged ^. #static <> unchanged ^. #suite) @?= ["static", "suite"]
+          none @?= Nothing
     , testCase "a cancelled step's process is terminated" $
         withSystemTempDirectory "gate" $ \dir -> do
           let pidFile = dir </> "pid"
