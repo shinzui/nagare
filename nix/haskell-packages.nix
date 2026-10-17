@@ -292,6 +292,9 @@ let
 in
 {
   checkedNagareHarness = haskellPackages.nagare-harness;
+  # EP-200: the gate recipes run this through scripts/harness.sh; its tests run
+  # in the nagare-harness-build-test check.
+  nagareHarness = hl.dontCheck haskellPackages.nagare-harness;
   checkedNagareApiServer = haskellPackages.nagare-api-server;
   inherit atticClient checkedNagareDsl checkedNagarectl haskellPackages nagare nagarectl nixBuilderProxy operatorNagarectl typedConfigRuntime;
   nagarePlatform = platformPackage;

@@ -19,9 +19,10 @@ import Nagare.Harness.Prelude
 import Nagare.Harness.Realise (remainingPaths)
 import Nagare.Harness.Record
 import Nagare.Harness.RouteCheck
+import Nagare.Harness.Slot (runningRevisions, withRunMarker, withSlot)
 import Nagare.Harness.Step
 import Nagare.Harness.Verify
-import System.Directory (createDirectoryIfMissing, listDirectory)
+import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileExist, listDirectory)
 import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory, (</>))
@@ -82,10 +83,10 @@ tests =
         eitherDecode entry @?= Right [MutationRecord "G7-x" NagareDsl "/a || b/" TestFails]
         assertBool "an unknown suite decoded" (isLeft (eitherDecode "[{\"record\":\"x\",\"suite\":\"other\",\"pattern\":\"/x/\",\"expect\":\"test-fails\"}]" :: Either String [MutationRecord]))
     , testCase "the fast gate runs the static checks, which take seconds, then both builds and the record patterns, before both suites" $
-        map (^. #name) fastSteps
+        map (^. #name) (fastSteps "nagare-harness")
           @?= ["haskell-style-check", "architecture-and-command-audit", "registry-credential-delegation", "mutation-records", "nagarectl-build", "nagare-dsl-build", "nagare-api-server-build", "mutation-patterns", "nagarectl-test", "nagare-dsl-test", "nagare-api-server-test"]
     , testCase "the full gate builds both suites for the record patterns and runs each suite once, in the flake check (EP-184 M2)" $
-        map (^. #name) (fullCheckPlan ^. #suite) @?= ["nagarectl-build", "nagare-dsl-build", "nagare-api-server-build", "mutation-patterns"]
+        map (^. #name) (fullCheckPlan "nagare-harness" ^. #suite) @?= ["nagarectl-build", "nagare-dsl-build", "nagare-api-server-build", "mutation-patterns"]
     , testGroup
         "dry-run realisation"
         [ testCase "nothing to build or fetch leaves nothing remaining" $
@@ -160,6 +161,8 @@ tests =
           after AllFinish "/carries a green record forward/" $
             testCase "land takes a fast record, carries it over documentation, and stops behind a red landed gate until a fully gated fix" landableRoundTrip
         ]
+    , after AllFinish "/stops behind a red landed gate/" $
+        testCase "a gate slot checks the commit out in its own kept worktree, keeps build output, and frees itself (EP-200)" slotRoundTrip
     , testGroup
         "documentation carry-forward (EP-170, operator 2026-10-09)"
         [ testCase "needles are the path and each directory below its inert prefix" $
@@ -445,14 +448,57 @@ landableRoundTrip =
       write "src/Main.hs" "-- gating"
       gating <- commitAll "gating"
       assertBool "an ungated commit was covered" . isLeft =<< coveredRevision repo gating
-      createDirectoryIfMissing True (dir </> "state" </> "nagare" </> "gates" </> "worktrees" </> T.unpack gating)
-      write "docs/plans/2-plan.md" "notes"
-      docsOverRunning <- commitAll "docs over a running gate"
-      covered <- coveredRevision repo docsOverRunning
-      assertBool ("documentation over a running gate was not covered: " <> show covered) (isRight covered)
-      write "src/Main.hs" "-- after"
-      codeOverRunning <- commitAll "code over a running gate"
-      assertBool "code over a running gate was covered" . isLeft =<< coveredRevision repo codeOverRunning
+      withRunMarker gating $ do
+        write "docs/plans/2-plan.md" "notes"
+        docsOverRunning <- commitAll "docs over a running gate"
+        covered <- coveredRevision repo docsOverRunning
+        assertBool ("documentation over a running gate was not covered: " <> show covered) (isRight covered)
+        write "src/Main.hs" "-- after"
+        codeOverRunning <- commitAll "code over a running gate"
+        assertBool "code over a running gate was covered" . isLeft =<< coveredRevision repo codeOverRunning
+      running <- runningRevisions
+      assertBool "a finished gate still counted as running" (gating `notElem` running)
+
+-- | Two commits gated in turn through slots of a throwaway repository: the
+-- second run reuses slot 1's worktree, keeps its build output, drops other
+-- untracked files and the shared checkout's uncommitted edit, and a nested
+-- run takes slot 2. A dead holder's lock is cleared.
+slotRoundTrip :: Assertion
+slotRoundTrip =
+  withSystemTempDirectory "slots" $ \dir -> do
+    let repo = dir </> "repo"
+        git arguments = callProcess "git" (["-C", repo, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"] <> arguments)
+        write path content = createDirectoryIfMissing True (takeDirectory path) >> writeFile path content
+        commitAll message = git ["add", "-A"] >> git ["commit", "-q", "-m", message] >> (T.strip . T.pack <$> readProcess "git" ["-C", repo, "rev-parse", "HEAD"] "")
+        slots = dir </> "state" </> "nagare" </> "gates" </> "gate-slots"
+    createDirectoryIfMissing True repo
+    git ["init", "-q"]
+    previous <- lookupEnv "XDG_STATE_HOME"
+    flip finally (maybe (unsetEnv "XDG_STATE_HOME") (setEnv "XDG_STATE_HOME") previous) $ do
+      setEnv "XDG_STATE_HOME" (dir </> "state")
+      write (repo </> "src/Main.hs") "one"
+      one <- commitAll "one"
+      write (repo </> "src/Main.hs") "two"
+      two <- commitAll "two"
+      write (repo </> "src/Main.hs") "uncommitted"
+      first' <- withSlot repo one $ \slot -> do
+        write (slot ^. #tree </> "cli/x/dist-newstyle/cache") "built"
+        write (slot ^. #tree </> "stray") "left behind"
+        readFile (slot ^. #tree </> "src/Main.hs") >>= (@?= "one")
+        pure slot
+      first' ^. #number @?= 1
+      assertBool "slot 1 still locked after its run" . not =<< doesDirectoryExist (slots </> "1" </> "lock")
+      withSlot repo two $ \slot -> do
+        slot ^. #tree @?= first' ^. #tree
+        readFile (slot ^. #tree </> "src/Main.hs") >>= (@?= "two")
+        assertBool "build output was cleaned" =<< doesFileExist (slot ^. #tree </> "cli/x/dist-newstyle/cache")
+        assertBool "an untracked file survived" . not =<< doesFileExist (slot ^. #tree </> "stray")
+        nested <- withSlot repo one pure
+        nested ^. #number @?= 2
+      createDirectoryIfMissing True (slots </> "1" </> "lock")
+      writeFile (slots </> "1" </> "lock" </> "pid") "999999"
+      cleared <- withSlot repo one pure
+      cleared ^. #number @?= 1
 
 greenFast :: FastRecord
 greenFast = FastRecord {version = 1, commit = "c0ffee", tree = "7ree", steps = [], green = True}

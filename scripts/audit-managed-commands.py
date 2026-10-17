@@ -146,6 +146,7 @@ SMOKE_BYPASS_PATTERNS = (
 RECIPE_SCRIPTS = {
     "scripts/host-switch.sh",
     "scripts/check-haskell-style.sh",
+    "scripts/harness.sh",
     "scripts/iap-ssh.sh",
     "scripts/live-smoke.sh",
     "scripts/live-test.sh",

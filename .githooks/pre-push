@@ -2,7 +2,7 @@
 # EP-174: refuse a push unless the fast local gate is green. Installed with
 # `just install-hooks`. A push whose commits are all landable (a green fast or
 # full record, `just gate-landable`) is accepted as is; otherwise the fast gate
-# runs on the working tree, so push from a clean tree.
+# runs on each pushed commit that is not (EP-200: in a gate slot).
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 # Commits pushed with a green fast or full record (`just land`), or one
@@ -10,18 +10,18 @@ cd "$(git rev-parse --show-toplevel)"
 # second gate. Git passes "<local ref> <local sha> <remote ref> <remote sha>" lines on
 # stdin; the record is checked for each pushed commit, not for the working
 # tree, so `just land` can push a gated commit from any checkout.
-all_recorded=yes
-pushed=0
+ungated=()
 while read -r _ local_sha _ _; do
   [ "$local_sha" = 0000000000000000000000000000000000000000 ] && continue
-  pushed=$((pushed + 1))
-  just gate-landable "$local_sha" >/dev/null 2>&1 || all_recorded=no
+  just gate-landable "$local_sha" >/dev/null 2>&1 || ungated+=("$local_sha")
 done
-if [ "$pushed" -gt 0 ] && [ "$all_recorded" = yes ]; then
+if [ "${#ungated[@]}" -eq 0 ]; then
   echo "pre-push: every pushed commit is landable"
   exit 0
 fi
-if ! just gate-fast; then
-  echo "pre-push: the fast gate is red; push refused (logs under \${XDG_STATE_HOME:-~/.local/state}/nagare/gates/logs)" >&2
-  exit 1
-fi
+for sha in "${ungated[@]}"; do
+  if ! just gate-fast "$sha"; then
+    echo "pre-push: the fast gate of $sha is red; push refused (logs under \${XDG_STATE_HOME:-~/.local/state}/nagare/gates/logs)" >&2
+    exit 1
+  fi
+done

@@ -11,9 +11,12 @@ module Nagare.Harness.Gate
   , formatResult
   , fullCheckPlan
   , coveredRevision
+  , fastGateAt
+  , fullGateAt
   , landableRevision
   , newLogDir
   , newSay
+  , postLandGate
   , repositoryRoot
   , probeUntilUp
   , runCheckPlan
@@ -46,9 +49,11 @@ import Nagare.Harness.FlakeCheck
 import Nagare.Harness.Prelude
 import Nagare.Harness.Realise (remainingPaths)
 import Nagare.Harness.Record
+import Nagare.Harness.Slot (Slot (..), runningRevisions, withRunMarker, withSlot)
 import Nagare.Harness.Step
 import Nagare.Harness.Verify (VerifyTarget (..), landedGateBlock, verifyFastRecord, verifyRecord)
-import System.Directory (XdgDirectory (XdgState), createDirectoryIfMissing, doesDirectoryExist, getXdgDirectory)
+import System.Directory (XdgDirectory (XdgState), createDirectoryIfMissing, getXdgDirectory)
+import System.Environment (getExecutablePath)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 import System.IO (hFlush, stdout)
@@ -56,10 +61,12 @@ import System.Process (CreateProcess (..), proc, readCreateProcessWithExitCode, 
 import System.Random.Stateful (globalStdGen, uniformM)
 import Text.Printf (printf)
 
--- | Where a gate run executes and logs.
+-- | Where a gate run executes and logs, and the harness its harness steps
+-- run: the running executable, never a @cabal run@ in a shared checkout.
 data GateRun = GateRun
   { root :: !FilePath
   , logDir :: !FilePath
+  , harness :: !FilePath
   }
   deriving stock (Eq, Show, Generic)
 
@@ -81,30 +88,30 @@ data GateRun = GateRun
 -- pattern selects a test of its built suite, once both suites are built and
 -- before they run. A record that applies to nothing or names no test proves
 -- nothing (F76).
-fastSteps :: [Step]
-fastSteps = staticSteps <> suiteSteps
+fastSteps :: FilePath -> [Step]
+fastSteps self = staticSteps self <> suiteSteps self
 
 -- | The static checks: seconds each.
-staticSteps :: [Step]
-staticSteps =
+staticSteps :: FilePath -> [Step]
+staticSteps self =
   [ Step "haskell-style-check" "." "just" ["haskell-style-check"]
   , Step "architecture-and-command-audit" "." "bash" ["scripts/test-managed-command-audit.sh"]
   , -- F31: the rendered registry-refresh timer against a recording API.
     Step "registry-credential-delegation" "." "python3" ["scripts/test-registry-credential-delegation.py"]
-  , harness "mutation-records" ["mutations", "check"]
+  , harnessStep self "mutation-records" ["mutations", "check"]
   ]
 
 -- | The suite builds, the record patterns, and the suites: minutes.
-suiteSteps :: [Step]
-suiteSteps = buildSteps <> testSteps
+suiteSteps :: FilePath -> [Step]
+suiteSteps self = buildSteps self <> testSteps
 
 -- | The suite builds and the record patterns, which need the built suites.
-buildSteps :: [Step]
-buildSteps =
+buildSteps :: FilePath -> [Step]
+buildSteps self =
   [ Step "nagarectl-build" "cli/nagarectl" "cabal" ["build", "nagarectl-test"]
   , Step "nagare-dsl-build" "cli/nagare-dsl" "cabal" ["build", "nagare-dsl-test"]
   , Step "nagare-api-server-build" "cli/nagarectl" "cabal" ["build", "nagare-api-server-test"]
-  , harness "mutation-patterns" ["mutations", "patterns"]
+  , harnessStep self "mutation-patterns" ["mutations", "patterns"]
   ]
 
 -- | The suites; nagarectl's runs one process per core ("Nagare.Test.Shards").
@@ -115,8 +122,8 @@ testSteps =
   , Step "nagare-api-server-test" "cli/nagarectl" "cabal" ["test", "nagare-api-server-test"]
   ]
 
-harness :: Text -> [String] -> Step
-harness name arguments = Step name "." "cabal" (["run", "--project-dir=cli/nagare-harness", "-v0", "nagare-harness", "--"] <> arguments)
+harnessStep :: FilePath -> Text -> [String] -> Step
+harnessStep self name = Step name "." self
 
 repositoryRoot :: IO FilePath
 repositoryRoot = filter (/= '\n') <$> readProcess "git" ["rev-parse", "--show-toplevel"] ""
@@ -163,8 +170,9 @@ runFastGate run = do
   let workdir = run ^. #root
   say <- newSay
   before <- trackedChanges workdir
-  results <- runSteps (reportResult say) workdir (run ^. #logDir) fastSteps
-  let green = all stepSucceeded results && length results == length fastSteps
+  let steps = fastSteps (run ^. #harness)
+  results <- runSteps (reportResult say) workdir (run ^. #logDir) steps
+  let green = all stepSucceeded results && length results == length steps
   putStrLn (if green then "gate: fast gate green" else "gate: fast gate RED")
   after <- trackedChanges workdir
   if T.null before && T.null after
@@ -249,11 +257,11 @@ data CheckPlan = CheckPlan
 -- and @x86_64-linux@ derivations run both suites, built hermetically, so the
 -- local @cabal test@ steps are not repeated here. The local builds stay for
 -- the record patterns, and are already built when the fast gate ran.
-fullCheckPlan :: CheckPlan
-fullCheckPlan =
+fullCheckPlan :: FilePath -> CheckPlan
+fullCheckPlan self =
   CheckPlan
-    { static = staticSteps
-    , suite = buildSteps
+    { static = staticSteps self
+    , suite = buildSteps self
     , flake = flakeCheckStep
     , pollMicroseconds = 10000000
     , beforeRetry = []
@@ -281,9 +289,9 @@ probeUntilUp pause report workdir logDir steps = go (3 :: Int)
 probePause :: Int
 probePause = 45000000
 
--- | Every step 'runCheckPlan' runs for the full gate, in order.
-fullCheckSteps :: [Step]
-fullCheckSteps = fullCheckPlan ^. #static <> fullCheckPlan ^. #suite
+-- | Every step 'runCheckPlan' runs for a check plan, in order.
+planSteps :: CheckPlan -> [Step]
+planSteps plan = plan ^. #static <> plan ^. #suite
 
 -- | Run the static checks; when they pass, run the suite and the flake check
 -- at the same time. Each flake failure is reported as soon as its log shows
@@ -394,13 +402,12 @@ runFullGate run = do
                   <> " after three probes; nothing else ran. Check that the builder VM starts"
                   <> " (scripts/setup-nix-builder.sh), then rerun the gate."
               )
+          let plan = fullCheckPlan (run ^. #harness) & #beforeRetry .~ [probeStep system ("retry-" <> salt) & #name %~ (<> "-retry") | system <- remoteSystems]
           (fast, flake) <-
             if probesGreen
-              then
-                runCheckPlan say workdir (run ^. #logDir) $
-                  fullCheckPlan & #beforeRetry .~ [probeStep system ("retry-" <> salt) & #name %~ (<> "-retry") | system <- remoteSystems]
+              then runCheckPlan say workdir (run ^. #logDir) plan
               else pure ([], [])
-          let fastGreen = probesGreen && length fast == length fullCheckSteps && all stepSucceeded fast
+          let fastGreen = probesGreen && length fast == length (planSteps plan) && all stepSucceeded fast
               -- A flake check run a second time after losing the builder
               -- ('runCheckPlan') is decided by its last run.
               flakeGreen =
@@ -576,9 +583,9 @@ carryForwardWith workdir verifyOwn siblings commitId = do
 
 -- | Whether a landed revision needs a full gate of its own. It does not when
 -- its own or a carried-forward record verifies, or when the nearest ancestor
--- that has a green record or a post-land full gate still running (its
--- worktree under @gates/worktrees@) differs from it only by inert
--- documentation: that gate's record carries forward once it finishes.
+-- that has a green record or a full gate waiting or running
+-- ('runningRevisions') differs from it only by inert documentation: that
+-- gate's record carries forward once it finishes.
 coveredRevision :: FilePath -> Text -> IO (Either Text Text)
 coveredRevision workdir revision = do
   verified <- verifyRevision workdir revision
@@ -586,14 +593,12 @@ coveredRevision workdir revision = do
     Right summary -> pure (Right summary)
     Left refusal -> do
       commitId <- captureLine workdir "git" ["rev-parse", T.unpack revision <> "^{commit}"]
-      worktrees <- getXdgDirectory XdgState "nagare/gates/worktrees"
+      running <- runningRevisions
       let gatedOrRunning candidate = do
             own <- verifyOwnRecord workdir candidate
             case own of
               Right (Just systems) -> pure (Right (Just systems))
-              _ -> do
-                running <- doesDirectoryExist (worktrees </> T.unpack candidate)
-                pure (Right (if running then Just [] else Nothing))
+              _ -> pure (Right (if candidate `elem` running then Just [] else Nothing))
       carried <- carryForwardWith workdir gatedOrRunning (pure []) commitId
       pure $ case carried of
         Right (ancestor, paths, _) ->
@@ -646,3 +651,43 @@ landableRevision workdir base revision = do
         pure $ case (onBase, stored) of
           (ExitSuccess, Right (Just record)) -> Just (commitId, record ^. #green)
           _ -> Nothing
+
+-- | Run the fast gate on @revision@ in a gate slot ("Nagare.Harness.Slot").
+-- @checkout@ is the checkout the gate was asked from; its uncommitted changes
+-- are not part of the commit and are not gated.
+fastGateAt :: FilePath -> Text -> IO (Either Text [StepResult])
+fastGateAt checkout revision = inSlot checkout revision False $ \run -> Right <$> runFastGate run
+
+-- | Run the full gate on @revision@ in a gate slot, marked as running for
+-- 'coveredRevision' while it waits and runs.
+fullGateAt :: FilePath -> Text -> IO (Either Text GateRecord)
+fullGateAt checkout revision = inSlot checkout revision True runFullGate
+
+-- | The post-land check of a landed revision: nothing when 'coveredRevision'
+-- covers it, otherwise its full gate in a slot.
+postLandGate :: FilePath -> Text -> IO (Either Text (Maybe GateRecord))
+postLandGate checkout revision = do
+  covered <- coveredRevision checkout revision
+  case covered of
+    Right summary -> do
+      putStrLn ("gate post-land: " <> T.unpack summary <> "; no full gate needed")
+      pure (Right Nothing)
+    Left _ -> fmap Just <$> fullGateAt checkout revision
+
+inSlot :: FilePath -> Text -> Bool -> (GateRun -> IO (Either Text a)) -> IO (Either Text a)
+inSlot checkout revision marked action = do
+  (code, out, err) <- capture checkout "git" ["rev-parse", "--verify", T.unpack revision <> "^{commit}"]
+  case code of
+    ExitFailure _ -> pure (Left ("unknown revision " <> revision <> ": " <> T.strip err))
+    ExitSuccess -> do
+      let commitId = T.strip out
+      dirty <- captureLine checkout "git" ["status", "--porcelain", "--untracked-files=no"]
+      unless (T.null dirty) $
+        putStrLn ("gate: " <> checkout <> " has uncommitted changes; they are not part of " <> T.unpack commitId <> " and are not gated")
+      self <- getExecutablePath
+      logDir <- newLogDir
+      (if marked then withRunMarker commitId else id) $
+        withSlot checkout commitId $ \slot -> do
+          printf "gate: slot %d, revision %s, worktree %s\n" (slot ^. #number) (T.unpack commitId) (slot ^. #tree)
+          hFlush stdout
+          action GateRun {root = slot ^. #tree, logDir, harness = self}

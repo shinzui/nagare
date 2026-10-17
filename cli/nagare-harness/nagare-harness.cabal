@@ -37,6 +37,7 @@ library
     Nagare.Harness.Realise
     Nagare.Harness.Record
     Nagare.Harness.RouteCheck
+    Nagare.Harness.Slot
     Nagare.Harness.Step
     Nagare.Harness.Verify
 

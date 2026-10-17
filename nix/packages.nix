@@ -10,6 +10,7 @@
       net-certmanager-controller = nagarePackages.netCertManagerController;
       net-certmanager-controller-image = nagarePackages.netCertManagerControllerImage;
       nagare = nagarePackages.nagare;
+      nagare-harness = nagarePackages.nagareHarness;
       release-tools = pkgs.symlinkJoin {
         name = "nagare-release-tools";
         paths = [ pkgs.coreutils pkgs.jq pkgs.python3 ];

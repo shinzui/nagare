@@ -4,7 +4,7 @@ import Data.Generics.Labels ()
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Nagare.Harness.FixtureSmoke (runFixtureSmoke)
-import Nagare.Harness.Gate (GateRun (..), coveredRevision, landableRevision, newLogDir, repositoryRoot, runFastGate, runFullGate, verifyRevision)
+import Nagare.Harness.Gate (coveredRevision, fastGateAt, fullGateAt, landableRevision, newLogDir, postLandGate, repositoryRoot, verifyRevision)
 import Nagare.Harness.Mutation (Outcome (..), checkPatterns, checkRecords, loadRecords, proveRecords, selectRecords, sweepRecords)
 import Nagare.Harness.Prelude
 import Nagare.Harness.RouteCheck (RouteCheckOptions (..), routeCheckMain)
@@ -15,8 +15,9 @@ import System.FilePath ((</>))
 import System.IO (BufferMode (LineBuffering), hSetBuffering, stderr, stdout)
 
 data Command
-  = GateFast
-  | GateFull
+  = GateFast !Text
+  | GateFull !Text
+  | GatePostLand !Text
   | GateVerify !Text
   | GateCovered !Text
   | GateLandable !Text !Text
@@ -102,6 +103,12 @@ gateParser =
               (progDesc "Succeed when a landed revision needs no full gate of its own: a record verifies, or a running ancestor gate will carry forward over inert documentation")
           )
         <> command
+          "post-land"
+          ( info
+              (GatePostLand . T.pack <$> strOption (long "revision" <> metavar "REV" <> help "Landed revision"))
+              (progDesc "The post-land check: nothing when the revision is covered, otherwise its full gate in a gate slot")
+          )
+        <> command
           "landable"
           ( info
               ( GateLandable
@@ -111,8 +118,10 @@ gateParser =
               (progDesc "Refuse to land a revision without a green fast or full record, or while a landed commit's full gate is red")
           )
     )
-    <|> flag' GateFast (long "fast" <> help "Style and architecture checks and both Haskell suites, incremental; writes the fast record land needs")
-    <|> flag' GateFull (long "full" <> help "Clean tree, builder probe, static checks, then the suite builds alongside nix flake check --all-systems (each suite once), realisation proof, record")
+    <|> (GateFast <$ flag' () (long "fast" <> help "Style and architecture checks and both Haskell suites, incremental, in a gate slot; writes the fast record land needs") <*> revisionOption)
+    <|> (GateFull <$ flag' () (long "full" <> help "In a gate slot: builder probe, static checks, then the suite builds alongside nix flake check --all-systems (each suite once), realisation proof, record") <*> revisionOption)
+  where
+    revisionOption = T.pack <$> strOption (long "revision" <> metavar "REV" <> value "HEAD" <> showDefault <> help "Committed revision to gate; uncommitted changes are never gated")
 
 main :: IO ()
 main = do
@@ -120,16 +129,22 @@ main = do
   parsed <- execParser (info (commandParser <**> helper) (fullDesc <> progDesc "Nagare release and gate harness"))
   root <- repositoryRoot
   case parsed of
-    GateFast -> do
-      logDir <- newLogDir
-      results <- runFastGate GateRun {root, logDir}
-      unless (all stepSucceeded results && not (null results)) exitFailure
-    GateFull -> do
-      logDir <- newLogDir
-      outcome <- runFullGate GateRun {root, logDir}
+    GateFast revision -> do
+      outcome <- fastGateAt root revision
+      case outcome of
+        Left err -> refuse ("gate: " <> err)
+        Right results -> unless (all stepSucceeded results && not (null results)) exitFailure
+    GateFull revision -> do
+      outcome <- fullGateAt root revision
       case outcome of
         Left err -> refuse ("gate: " <> err)
         Right record -> unless (record ^. #green) exitFailure
+    GatePostLand revision -> do
+      outcome <- postLandGate root revision
+      case outcome of
+        Left err -> refuse ("gate post-land: " <> err)
+        Right Nothing -> pure ()
+        Right (Just record) -> unless (record ^. #green) exitFailure
     GateVerify revision -> do
       outcome <- verifyRevision root revision
       case outcome of

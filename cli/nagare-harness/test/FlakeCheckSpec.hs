@@ -28,7 +28,7 @@ flakeCheckTests =
   testGroup
     "full gate checks (EP-184 M2)"
     [ testCase "the flake check keeps going and runs on every system" $
-        (fullCheckPlan ^. #flake . #arguments) @?= ["flake", "check", "--all-systems", "--keep-going", "--print-build-logs"]
+        (fullCheckPlan "nagare-harness" ^. #flake . #arguments) @?= ["flake", "check", "--all-systems", "--keep-going", "--print-build-logs"]
     , testCase "a flake log names each failed derivation once, and the summary names each failed check" $ do
         let running =
               "broken-one> make: *** [all] Error 1\n\

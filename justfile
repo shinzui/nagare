@@ -323,12 +323,14 @@ api-hurl:
 # The landing gate (operator decision, 2026-10-11). The style check, the
 # architecture check and the mutation records' manifest first (seconds), then
 # both Haskell suites, built incrementally and run serially; logs go to
-# ${XDG_STATE_HOME:-~/.local/state}/nagare/gates/logs/. With no uncommitted
-# changes to tracked files it writes HEAD's fast record, which `just land` needs.
-# Run the fast local gate and record HEAD's result.
+# ${XDG_STATE_HOME:-~/.local/state}/nagare/gates/logs/. EP-200: it gates the
+# committed revision in a gate slot (a kept worktree only gates use), so other
+# sessions' edits and builds cannot reach it; uncommitted changes are not gated.
+# It writes the revision's fast record, which `just land` needs.
+# Run the fast local gate on a commit and record its result.
 [group('test')]
-gate-fast:
-    cabal run --project-dir=cli/nagare-harness -v0 nagare-harness -- gate --fast
+gate-fast rev="HEAD":
+    scripts/harness.sh gate --fast --revision '{{rev}}'
 
 # EP-177/EP-179 (ADR 25): the recovery model's deep tier over the explicit and
 # generated scenarios: every placement alone, then every pair of placements
@@ -364,7 +366,7 @@ mutation-check rev="HEAD" base="":
     commit=$(git rev-parse --verify '{{rev}}^{commit}')
     args=(mutations prove --rev "$commit")
     if [ -n '{{base}}' ]; then args+=(--base "$(git rev-parse --verify '{{base}}^{commit}')"); fi
-    cabal run --project-dir=cli/nagare-harness -v0 nagare-harness -- "${args[@]}"
+    scripts/harness.sh "${args[@]}"
 
 # EP-180 M8: prove every mutation record at a committed revision in one remote
 # build (nix/test-runs.nix mutationSweep). Each of `width` workers compiles the
@@ -377,7 +379,7 @@ mutation-sweep rev="HEAD" width="4":
     #!/usr/bin/env bash
     set -euo pipefail
     commit=$(git rev-parse --verify '{{rev}}^{commit}')
-    cabal run --project-dir=cli/nagare-harness -v0 nagare-harness -- mutations sweep --rev "$commit" --width '{{width}}'
+    scripts/harness.sh mutations sweep --rev "$commit" --width '{{width}}'
 
 # EP-184 M4: the release gate for a fully gated revision. The deep tier is not
 # part of it (operator, 2026-10-12): it took over six hours. Run `just gate-deep`
@@ -467,16 +469,17 @@ deep-tier-required base="origin/master" rev="":
 # print as they appear (EP-184 M2), a dry-run
 # proof that every check of every supported system is realised, and a record
 # at ${XDG_STATE_HOME:-~/.local/state}/nagare/gates/<commit>.json.
-# Run the full local gate and write the revision's gate record.
+# EP-200: it runs the committed revision in a gate slot.
+# Run the full local gate on a commit and write its gate record.
 [group('test')]
-gate:
-    cabal run --project-dir=cli/nagare-harness -v0 nagare-harness -- gate --full
+gate rev="HEAD":
+    scripts/harness.sh gate --full --revision '{{rev}}'
 
 # EP-174: refuse a revision without a green, clean, fully realised gate record.
 # Check that a revision has a green full-gate record (run before native work).
 [group('test')]
 gate-verify rev:
-    cabal run --project-dir=cli/nagare-harness -v0 nagare-harness -- gate verify --revision {{rev}}
+    scripts/harness.sh gate verify --revision {{rev}}
 
 # Heavy nagarectl test runs go to the remote x86_64-linux builder, not the
 # operator's machine (2026-10-06). Builds nix/test-runs.nix's testRun from the
@@ -530,44 +533,17 @@ land rev:
 # gate on the newest landed commit that finished one.
 [group('test')]
 gate-landable rev:
-    cabal run --project-dir=cli/nagare-harness -v0 nagare-harness -- gate landable --revision {{rev}}
+    scripts/harness.sh gate landable --revision {{rev}}
 
-# The full gate of a landed commit, in a throwaway worktree so the operator's
-# checkout stays free. `just land` starts it; a red record blocks the next land.
-# A commit an earlier full gate covers (inert documentation over a gated or
-# running ancestor) runs none. Coverage is asked in the worktree's own build:
-# asked in a shared checkout another session was building, it failed and a
-# docs-only land ran a needless full gate (2026-10-14). At most two full gates
-# share the remote builder; a third waits for a slot.
-# Run the full gate on a committed revision in a temporary worktree.
+# The full gate of a landed commit, in a gate slot (EP-200), so the operator's
+# checkout stays free and the slot's kept build output makes it incremental.
+# `just land` starts it; a red record blocks the next land. A commit an earlier
+# full gate covers (inert documentation over a gated, waiting or running
+# ancestor) runs none. At most two gates run at once; a third waits for a slot.
+# Run the full gate on a landed revision unless an earlier full gate covers it.
 [group('test')]
 gate-post-land rev:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    state="${XDG_STATE_HOME:-$HOME/.local/state}/nagare/gates"
-    dir="$state/worktrees/{{rev}}"
-    slot=""
-    git worktree add --detach "$dir" '{{rev}}'
-    trap 'if [ -n "$slot" ]; then rm -rf "$slot"; fi; git worktree remove --force "$dir"' EXIT
-    cd "$dir"
-    if covered=$(cabal run --project-dir=cli/nagare-harness -v0 nagare-harness -- gate covered --revision '{{rev}}'); then
-      echo "$covered; no full gate needed"
-      exit 0
-    fi
-    mkdir -p "$state/slots"
-    until [ -n "$slot" ]; do
-      for n in 1 2; do
-        if mkdir "$state/slots/$n" 2>/dev/null; then
-          echo $$ > "$state/slots/$n/pid"
-          slot="$state/slots/$n"
-          break
-        fi
-        holder=$(cat "$state/slots/$n/pid" 2>/dev/null || true)
-        if [ -n "$holder" ] && ! kill -0 "$holder" 2>/dev/null; then rm -rf "$state/slots/$n"; fi
-      done
-      if [ -z "$slot" ]; then echo "gate-post-land: two full gates are running; waiting for one to finish"; sleep 60; fi
-    done
-    just gate
+    scripts/harness.sh gate post-land --revision '{{rev}}'
 
 # EP-174: build and run every fixture application with only its declared
 # bindings (fixtures/inventory-release/local/fixture-smoke.json), plus the
@@ -575,7 +551,7 @@ gate-post-land rev:
 # Smoke-run every acceptance fixture application locally.
 [group('test')]
 fixture-smoke *args:
-    cabal run --project-dir=cli/nagare-harness -v0 nagare-harness -- fixture-smoke {{args}}
+    scripts/harness.sh fixture-smoke {{args}}
 
 # EP-174: point git at the tracked hooks in .githooks/ (pre-push runs
 # `just gate-fast`). Undo with `git config --unset core.hooksPath`.
