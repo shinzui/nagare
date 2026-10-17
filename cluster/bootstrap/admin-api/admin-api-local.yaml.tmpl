@@ -1,8 +1,9 @@
 # The read-only admin API in a local context (EP-198). nagarectl substitutes
-# @IMAGE@, @CONTEXT@ and @PROJECT@, then reviews these objects as scope
-# platform:admin-api. The context's own store is the node directory
-# /var/lib/nagare/inventory, which the local substrate mounts read-only from
-# the workstation; the pod mounts it read-only again and never initializes it.
+# @IMAGE@, @CONTEXT@, @PROJECT@, @STORE_UID@ and @STORE_GID@, then reviews these
+# objects as scope platform:admin-api. The context's own store is the node
+# directory /var/lib/nagare/inventory, which the local substrate mounts read-only
+# from the workstation; the pod mounts it read-only again and never initializes
+# it. The store's files are private to their owner, so the pod runs as that user.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -27,8 +28,8 @@ spec:
       terminationGracePeriodSeconds: 15
       securityContext:
         runAsNonRoot: true
-        runAsUser: 10001
-        runAsGroup: 10001
+        runAsUser: @STORE_UID@
+        runAsGroup: @STORE_GID@
         seccompProfile:
           type: RuntimeDefault
       containers:

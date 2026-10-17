@@ -11,9 +11,15 @@ set -euo pipefail
 
 : "${DOCKER_HOST:?the disposable Docker daemon socket, never the shared cp3 daemon}"
 : "${NAGARE_DRILL_NAGARECTL:?the candidate nagarectl}"
-: "${NAGARE_DRILL_HARNESS:?the candidate nagare-harness}"
+: "${NAGARE_DRILL_IMAGE_TAG:?the tag of the images built from this tree on this daemon}"
+# EP-198: NAGARE_DRILL_ADMIN_API=1 enables the admin API in the context and pins its image;
+# NAGARE_DRILL_BOOTSTRAP_ONLY=1 stops once the platform has converged (scripts/admin-api-drill.sh
+# continues from there), and needs neither the harness nor the GHC environment.
+ADMIN_API="${NAGARE_DRILL_ADMIN_API:-0}"
+BOOTSTRAP_ONLY="${NAGARE_DRILL_BOOTSTRAP_ONLY:-0}"
+[ "$BOOTSTRAP_ONLY" = 1 ] || : "${NAGARE_DRILL_HARNESS:?the candidate nagare-harness}"
 : "${NAGARE_DRILL_IMAGE_TAG:?the tag of the en, shomei and nagare-access images built from this tree on this daemon}"
-: "${NAGARE_DRILL_GHC_ENV:?the GHC package environment that resolves nagare-dsl}"
+[ "$BOOTSTRAP_ONLY" = 1 ] || : "${NAGARE_DRILL_GHC_ENV:?the GHC package environment that resolves nagare-dsl}"
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ROOT="${NAGARE_DRILL_ROOT:-$(mktemp -d /private/tmp/nagare-site-access.XXXXXX)}"
 CTX="${NAGARE_DRILL_CONTEXT:-site-access}"
@@ -77,7 +83,12 @@ if [ "${NAGARE_DRILL_SKIP_BOOTSTRAP:-0}" = 1 ]; then
   candidate="$(N version --json)"
   log "continuing in $ROOT on the bootstrapped context $CTX; candidate $(printf '%s' "$candidate" | python3 -I -c 'import json,sys; d=json.load(sys.stdin); print(d.get("version"), d.get("revision"))')"
 else
-for repo in en shomei nagare-access; do
+AUTH_REPOS=(en shomei nagare-access)
+[ "$ADMIN_API" != 1 ] || AUTH_REPOS+=(nagare-admin-api)
+# The admin API's local store is mounted from the workstation through the daemon's VM, which
+# shares only the home directory.
+[ "$ADMIN_API" != 1 ] || case "$ROOT" in "$HOME"/*) ;; *) echo "an admin API drill root must be under $HOME, which the VM mounts" >&2; exit 1 ;; esac
+for repo in "${AUTH_REPOS[@]}"; do
   docker image inspect "k3d-registry.localhost:5000/$repo:$TAG" >/dev/null 2>&1 || { echo "this daemon has no $repo:$TAG image built from this tree" >&2; exit 1; }
 done
 if docker ps -a --format '{{.Names}}' | grep -q '^k3d-\|^registry-forward$'; then
@@ -102,11 +113,22 @@ sops --config "$secrets/.sops.yaml" --encrypt --in-place "$secrets/grafana-admin
 # --- 2. the disposable local context ---
 "$NAGARE_DRILL_NAGARECTL" context create "$CTX" --mode local --registry-host k3d-registry.localhost:5000 --base-domain "$BASE" \
   --target-platform linux/arm64 --local-object-store http://minio.nagare-system.svc.cluster.local:9000/nagare-backups --use | tail -1
+if [ "$ADMIN_API" = 1 ]; then
+  profile="$XDG_CONFIG_HOME/nagare/contexts/$CTX.env"
+  if grep -q '^export NAGARE_ADMIN_API_ENABLED=' "$profile"; then
+    sed -i.bak 's/^export NAGARE_ADMIN_API_ENABLED=.*/export NAGARE_ADMIN_API_ENABLED=1/' "$profile" && rm -f "$profile.bak"
+  else
+    printf 'export NAGARE_ADMIN_API_ENABLED=1\n' >> "$profile"
+  fi
+  "$NAGARE_DRILL_NAGARECTL" --context "$CTX" context env | grep -q 'NAGARE_ADMIN_API_ENABLED=.*1' || { echo "the context does not enable the admin API" >&2; exit 1; }
+fi
 
 # --- 3. the images the platform pins: this tree's auth plane, the pinned object store ---
 seed_images() {
   local pair repo tag digest
-  for pair in "en:$TAG" "shomei:$TAG" "nagare-access:$TAG" nagare-minio:release-2025-09-07-arm64 nagare-mc:release-2025-08-13-arm64; do
+  local pairs=("en:$TAG" "shomei:$TAG" "nagare-access:$TAG")
+  [ "$ADMIN_API" != 1 ] || pairs+=("nagare-admin-api:$TAG")
+  for pair in "${pairs[@]}" nagare-minio:release-2025-09-07-arm64 nagare-mc:release-2025-08-13-arm64; do
     repo="${pair%%:*}"; tag="${pair#*:}"
     docker image inspect "k3d-registry.localhost:5000/$repo:$tag" >/dev/null 2>&1 \
       || docker --host "${NAGARE_DRILL_IMAGE_DAEMON:?this daemon lacks $repo:$tag; set NAGARE_DRILL_IMAGE_DAEMON}" save "k3d-registry.localhost:5000/$repo:$tag" | docker load >/dev/null
@@ -117,11 +139,12 @@ seed_images() {
       en) export NAGARE_AUTH_EN_IMAGE="k3d-registry.localhost:5000/$repo@$digest" ;;
       shomei) export NAGARE_AUTH_SHOMEI_IMAGE="k3d-registry.localhost:5000/$repo@$digest" ;;
       nagare-access) export NAGARE_AUTH_ACCESS_IMAGE="k3d-registry.localhost:5000/$repo@$digest" ;;
+      nagare-admin-api) export NAGARE_ADMIN_API_IMAGE="k3d-registry.localhost:5000/$repo@$digest" ;;
       nagare-minio) export NAGARE_LOCAL_MINIO_IMAGE="k3d-registry.localhost:5000/$repo@$digest" ;;
       nagare-mc) export NAGARE_LOCAL_MC_IMAGE="k3d-registry.localhost:5000/$repo@$digest" ;;
     esac
   done
-  env | grep -E '^NAGARE_(AUTH_[A-Z]+|LOCAL_(MINIO|MC))_IMAGE=' > "$ROOT/images.env"
+  env | grep -E '^NAGARE_(AUTH_[A-Z]+|LOCAL_(MINIO|MC)|ADMIN_API)_IMAGE=' > "$ROOT/images.env"
   # Host-side publications reach the registry through a loopback forward (port 5000 on
   # this Mac belongs to AirPlay); the artifact transport honours it.
   [ "$(curl -s -m 2 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$FORWARD_PORT/v2/")" = 000 ] || { echo "127.0.0.1:$FORWARD_PORT is already in use on the host; set NAGARE_DRILL_FORWARD_PORT" >&2; exit 1; }
@@ -176,6 +199,10 @@ kubectl --context "$KUBE" -n nagare-system get deploy en -o jsonpath='{.spec.tem
   printf 'nagare-access\t%s\n' "$(kubectl --context "$KUBE" -n nagare-system get ksvc nagare-access -o jsonpath='{.spec.template.spec.containers[0].image}')"
 } > "$EV/images.tsv"
 log "auth plane: $(tr '\n' ' ' < "$EV/images.tsv")"
+if [ "$BOOTSTRAP_ONLY" = 1 ]; then
+  log "bootstrap converged; stopping as NAGARE_DRILL_BOOTSTRAP_ONLY=1 asks"
+  exit 0
+fi
 
 # --- 6. the example's image, built as a static release builds it, published under review ---
 eval "$(N context env)"

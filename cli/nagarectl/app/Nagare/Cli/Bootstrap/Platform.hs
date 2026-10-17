@@ -94,6 +94,7 @@ import Nagare.Target
   , contextNameText
   , defaultGcsInventoryStoreUrl
   , effectiveInventoryStore
+  , nagareStateDir
   , parseAcmeDirectory
   , registryPrefix
   , storeBackendFor
@@ -101,6 +102,7 @@ import Nagare.Target
 import System.Environment (lookupEnv)
 import System.Exit (ExitCode (ExitSuccess))
 import System.FilePath ((</>))
+import System.Posix.Files (fileGroup, fileOwner, getFileStatus)
 import System.Process (readProcessWithExitCode)
 
 -- Keep payload paths explicit so a fresh context compiles one immutable
@@ -542,7 +544,10 @@ compilePlatformAdminApi active root foundation declarations = do
     lookupEnv "NAGARE_ADMIN_API_IMAGE"
       >>= maybe (dieT "NAGARE_ADMIN_API_ENABLED=1 requires NAGARE_ADMIN_API_IMAGE as an immutable image reference") (pure . T.pack)
   store <- case profile ^. #mode of
-    Local -> pure LocalMountedStore
+    Local -> do
+      stateRoot <- nagareStateDir
+      owner <- getFileStatus (stateRoot </> T.unpack context </> "inventory")
+      pure (LocalMountedStore (fromIntegral (fileOwner owner)) (fromIntegral (fileGroup owner)))
     Cloud -> do
       unless
         (effectiveInventoryStore profile == InventoryStoreGcs)
