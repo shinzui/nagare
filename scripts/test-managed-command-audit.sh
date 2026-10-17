@@ -70,7 +70,7 @@ assert result.returncode == 1
 assert any("unregistered inventory library call" in error for error in after["errors"])
 assert before["candidateDigest"] != after["candidateDigest"]
 dispatch = cli / "Nagare/Cli/Dispatch.hs"
-dispatch.write_text(dispatch.read_text().replace("  InventoryApply directory yes ->", "  MissingApply directory yes ->"))
+dispatch.write_text(dispatch.read_text().replace("  InventoryApply directory yes contract ->", "  MissingApply directory yes contract ->"))
 result = subprocess.run(audit, text=True, capture_output=True)
 assert "top-level command has no visible dispatch: InventoryApply" in json.loads(result.stdout)["errors"]
 print("modular command audit: unregistered consumer and missing dispatch refused; all modules digest-bound")
