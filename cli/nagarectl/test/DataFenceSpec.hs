@@ -1132,7 +1132,7 @@ dataFenceTests =
             forM_
               [ ("postgres", Postgres, "postgres:18")
               , ("redis", Redis, "redis:8")
-              , ("clickhouse", ClickHouse, "clickhouse/clickhouse-server:25.8")
+              , ("clickhouse", ClickHouse, "clickhouse/clickhouse-server:26.8")
               ]
               $ \(podName, engine, image) -> do
                 (code, output, _) <-
@@ -1216,7 +1216,7 @@ dataFenceTests =
           )
           [ ("postgres", "postgres:18", Postgres)
           , ("redis", "redis:8", Redis)
-          , ("clickhouse", "clickhouse/clickhouse-server:25.8", ClickHouse)
+          , ("clickhouse", "clickhouse/clickhouse-server:26.8", ClickHouse)
           ]
         validateReviewedDatabaseEngine
           (Just Postgres)

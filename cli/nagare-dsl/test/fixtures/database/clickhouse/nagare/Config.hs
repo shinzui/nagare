@@ -13,7 +13,7 @@ import Nagare.Dsl.Types (RetentionPolicy (..), mkNamespace, mkQuantity)
 database :: Either String Database
 database = do
   n <- first show (mkDatabaseName "analytics")
-  v <- first show (mkEngineVersion ClickHouse "25.8")
+  v <- first show (mkEngineVersion ClickHouse "26.8")
   ns <- first show (mkNamespace "personal")
   sz <- first show (mkQuantity "5Gi")
   Right

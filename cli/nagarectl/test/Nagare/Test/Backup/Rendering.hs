@@ -48,7 +48,7 @@ backupRendererTests =
       let inputs =
             backupJobInputsPg
               { source = DatabaseSource ClickHouse
-              , clientImage = "clickhouse/clickhouse-server:25.8"
+              , clientImage = "clickhouse/clickhouse-server:26.8"
               , serviceHost = "mydb"
               , destination = BackupDestUrl "s3://nagare-backups/manual-databases/personal/mydb/one.zip.gz"
               , backend = localMinioBackend

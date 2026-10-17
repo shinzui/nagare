@@ -16,6 +16,7 @@ import Data.Text.Encoding qualified as TE
 import Nagare.Cluster.Namespace
   ( NamespacePurpose (ApplicationNamespace)
   )
+import Nagare.Database.Backup (renderDbBackupCronJob)
 import Nagare.Database.Connection
   ( ConnIdentity (..)
   , connectionEnv
@@ -44,8 +45,10 @@ import Nagare.Database.Secret
 import Nagare.Dsl.Database
   ( Engine (..)
   , engineToken
+  , engineVersionText
   , mkDatabaseName
   )
+import Nagare.Dsl.Database.Render (renderStatefulSet)
 import Nagare.Dsl.Prelude hiding ((<.>))
 import Nagare.Dsl.Render (renderService)
 import Nagare.Dsl.Types
@@ -59,6 +62,7 @@ import Nagare.Dsl.Types
   , secretNameText
   )
 import Nagare.Env.Store (extractSecretData)
+import Nagare.Test.DataFixtures (tnbGcsBackend)
 import Nagare.Test.Environment (mkDemoDep)
 import Nagare.Test.Support.Assertions (assertLeftText, unsafe)
 import Nagare.Test.Support.Profiles (tnbProfile)
@@ -127,6 +131,20 @@ databaseTests =
           assertBool "should reject" (isLeft (buildDatabase Postgres "Bad_Name" (mkParams Nothing Nothing)))
       , testCase "rejects latest version" $
           assertBool "should reject" (isLeft (buildDatabase Postgres "pg" (mkParams (Just "latest") Nothing)))
+      , testCase "an omitted ClickHouse version runs and backs up with 26.8" $ do
+          db <- either (assertFailure . T.unpack) pure (buildDatabase ClickHouse "ch" (mkParams Nothing Nothing))
+          let version = engineVersionText (db ^. #version)
+              server = renderStatefulSet db
+              backup = renderDbBackupCronJob "personal" "ch" ClickHouse version tnbGcsBackend 7
+          version @?= "26.8"
+          assertBool "server image" ("image: clickhouse/clickhouse-server:26.8\n" `BC.isInfixOf` server)
+          assertBool "backup image" ("clickhouse/clickhouse-server:26.8\n" `BC.isInfixOf` backup)
+      , testCase "an explicit ClickHouse patch tag survives rendering" $ do
+          db <- either (assertFailure . T.unpack) pure (buildDatabase ClickHouse "ch" (mkParams (Just "26.8.29.10") Nothing))
+          let server = renderStatefulSet db
+          engineVersionText (db ^. #version) @?= "26.8.29.10"
+          assertBool "server image" ("image: clickhouse/clickhouse-server:26.8.29.10\n" `BC.isInfixOf` server)
+          assertBool "version annotation" ("nagare.dev/version: 26.8.29.10\n" `BC.isInfixOf` server)
       , testCase "only a confirmed absent Secret can generate a password" $ do
           classifyPasswordObservation Postgres ExitSuccess "" @?= Right Nothing
           assertLeftText (classifyPasswordObservation Postgres (ExitFailure 1) "")

@@ -15,7 +15,7 @@ import Nagare.Dsl.Types (Resources (..), RetentionPolicy (..), defaultNamespace,
 database :: Either String Database
 database = do
   name' <- first show (mkDatabaseName "events")
-  ver' <- first show (mkEngineVersion ClickHouse "25.8")
+  ver' <- first show (mkEngineVersion ClickHouse "26.8")
   size' <- first show (mkQuantity "5Gi")
   memReq <- first show (mkQuantity "512Mi")
   memLim <- first show (mkQuantity "2Gi")

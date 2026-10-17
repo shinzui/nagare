@@ -151,7 +151,7 @@ restoreDownloadTests =
               & #engine
               .~ ClickHouse
               & #clientImage
-              .~ "clickhouse/clickhouse-server:25.8"
+              .~ "clickhouse/clickhouse-server:26.8"
               & #sourceUrl
               .~ "s3://nagare-backups/databases/mydb/run-001.zip.gz"
               & #verifiedSource

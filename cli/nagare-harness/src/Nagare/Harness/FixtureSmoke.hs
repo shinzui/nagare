@@ -112,7 +112,7 @@ serviceFor = \case
   "clickhouse" ->
     Right
       Service
-        { image = "clickhouse/clickhouse-server:25"
+        { image = "clickhouse/clickhouse-server:26.8"
         , url = \host -> "http://" <> host <> ":8123"
         , containerEnv = []
         , ready = ["clickhouse-client", "--query", "SELECT 1"]

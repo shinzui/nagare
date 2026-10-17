@@ -148,19 +148,19 @@ engineMemoryConfig ClickHouse =
 engineMemoryConfig _ = Nothing
 
 -- | The modern default image tag for an engine, per user direction and verified
--- on the cluster by EP-43: Postgres @18@, Redis @8@, ClickHouse @25.8@ (the
--- current LTS — ClickHouse uses @YY.M@ calendar versioning, there is no bare
--- @25@ tag). EP-45's @db create@ uses this when the author does not pin a
--- version.
+-- on the cluster by EP-43: Postgres @18@, Redis @8@. ClickHouse is @26.8@, the
+-- supported LTS line (EP-199; ClickHouse uses @YY.M@ calendar versioning, there
+-- is no bare @26@ tag). EP-45's @db create@ uses this when the author does not
+-- pin a version; a database that pins its version keeps it.
 defaultEngineVersion :: Engine -> EngineVersion
 defaultEngineVersion Postgres = EngineVersion "18"
 defaultEngineVersion Redis = EngineVersion "8"
-defaultEngineVersion ClickHouse = EngineVersion "25.8"
+defaultEngineVersion ClickHouse = EngineVersion "26.8"
 
--- | A pinned engine image tag (e.g. @"18"@, @"8"@, @"25.8"@). Validated per
+-- | A pinned engine image tag (e.g. @"18"@, @"8"@, @"26.8"@). Validated per
 -- engine: must be non-empty, must not be the floating tag @"latest"@ (a database
 -- image must be reproducible), must not contain spaces or a @':'@, and must start
--- with a digit. ClickHouse's @YY.M@ form (e.g. @"25.8"@) passes these rules. The
+-- with a digit. ClickHouse's @YY.M@ form (e.g. @"26.8"@) passes these rules. The
 -- @engine@ argument is accepted so a future per-engine allow-list (from EP-43's
 -- findings) can be added without changing the type.
 newtype EngineVersion = EngineVersion Text
