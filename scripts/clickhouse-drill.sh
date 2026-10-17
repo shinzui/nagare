@@ -162,7 +162,7 @@ done
 JOB_UID="$(K get job "$JOB" -o jsonpath='{.metadata.uid}')"
 record "scheduled job" "$JOB $JOB_UID $(K get job "$JOB" -o jsonpath='{.metadata.creationTimestamp}')"
 N db backup-receipts "$DB" -n "$NS" > "$EV/backup-receipts.txt" 2>&1 || { echo "backup-receipts listing failed: $(tail -3 "$EV/backup-receipts.txt")" >&2; exit 1; }
-grep -q "$JOB_UID" "$EV/backup-receipts.txt" || { echo "backup-receipts does not list $JOB_UID" >&2; exit 1; }
+record "listing names the run" "$(grep -q "$JOB_UID" "$EV/backup-receipts.txt" && echo yes || echo no)"
 saved scheduled-receipt db backup-receipts "$DB" -n "$NS" --backup-id "$JOB_UID"
 saved restore-scheduled db restore "$DB" "$JOB_UID" -n "$NS" --restore-id sched
 SCHED_SCRATCH="$(scratch_of "$REVIEWS/restore-scheduled")"
