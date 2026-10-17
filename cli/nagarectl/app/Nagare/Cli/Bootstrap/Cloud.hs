@@ -66,6 +66,7 @@ buildCloudStageCandidate active workspace snapshot
               (profile ^. #nixCacheEnabled)
               (isJust imageLink)
               (profile ^. #cdnEnabled)
+              (profile ^. #adminApiEnabled)
               catalog
           acceptedMembers = case Map.lookup owner (ResourceInventory.snapshotScopes snapshot) of
             Nothing -> []

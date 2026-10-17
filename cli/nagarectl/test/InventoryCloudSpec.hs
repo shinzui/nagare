@@ -53,8 +53,8 @@ inventoryCloudTests =
                     "{\"version\":1,\"project\":\"nagare\",\"foundationManaged\":[{\"type\":\"nagare:env:NagarePerimeter\",\"name\":\"nagare\",\"parent\":null,\"layer\":0},{\"type\":\"gcp:storage/bucket:Bucket\",\"name\":\"nagare-images\",\"parent\":\"nagare\",\"layer\":1}],\"nixCacheEnabled\":[{\"type\":\"nagare:env:NagareNixCache\",\"name\":\"nagare-nix-cache\",\"parent\":null,\"layer\":2}]}"
                 )
             )
-        length (selectedCloudCatalog False False False catalog) @?= 2
-        length (selectedCloudCatalog True False False catalog) @?= 3
+        length (selectedCloudCatalog False False False False catalog) @?= 2
+        length (selectedCloudCatalog True False False False catalog) @?= 3
         let image = last (catalogFoundationManaged catalog)
         imageUrn <- expectRight (cloudCatalogUrn (name "dev") catalog image)
         imageUrn @?= "urn:pulumi:dev::nagare::nagare:env:NagarePerimeter$gcp:storage/bucket:Bucket::nagare-images"
@@ -63,6 +63,7 @@ inventoryCloudTests =
           expectRight
             ( cloudBookkeepingRegistrations
                 (name "dev")
+                False
                 False
                 False
                 False
@@ -80,7 +81,7 @@ inventoryCloudTests =
                     "{\"version\":1,\"project\":\"nagare\",\"foundationManaged\":[{\"type\":\"nagare:env:NagarePerimeter\",\"name\":\"nagare\",\"parent\":null,\"layer\":0}],\"nixCacheEnabled\":[],\"imageEnabled\":[{\"key\":\"nagare-instance\",\"type\":\"nagare:compute:NagareInstance\",\"name\":\"nagare-01\",\"parent\":\"nagare\",\"layer\":4},{\"key\":\"nagare-instance-vm\",\"type\":\"gcp:compute/instance:Instance\",\"name\":\"nagare-01\",\"parent\":\"nagare-instance\",\"layer\":5}]}"
                 )
             )
-        let selected = selectedCloudCatalog False True False (withCloudInstanceName (name "custom-host") catalog)
+        let selected = selectedCloudCatalog False True False False (withCloudInstanceName (name "custom-host") catalog)
         length selected @?= 3
         let vm = last selected
         catalogNativeName vm @?= name "custom-host"
@@ -95,11 +96,23 @@ inventoryCloudTests =
                     "{\"version\":1,\"project\":\"nagare\",\"foundationManaged\":[{\"type\":\"nagare:env:NagarePerimeter\",\"name\":\"nagare\",\"parent\":null,\"layer\":0}],\"nixCacheEnabled\":[],\"imageEnabled\":[{\"key\":\"nagare-instance\",\"type\":\"nagare:compute:NagareInstance\",\"name\":\"nagare-01\",\"parent\":\"nagare\",\"layer\":4}],\"cdnEnabled\":[{\"type\":\"nagare:cdn:NagareCdn\",\"name\":\"nagare-cdn\",\"parent\":\"nagare\",\"layer\":6},{\"type\":\"gcp:compute/backendService:BackendService\",\"name\":\"nagare-cdn-backend\",\"parent\":\"nagare-cdn\",\"layer\":8}]}"
                 )
             )
-        length (selectedCloudCatalog False False True catalog) @?= 1
-        length (selectedCloudCatalog False True False catalog) @?= 2
-        length (selectedCloudCatalog False True True catalog) @?= 4
+        length (selectedCloudCatalog False False True False catalog) @?= 1
+        length (selectedCloudCatalog False True False False catalog) @?= 2
+        length (selectedCloudCatalog False True True False catalog) @?= 4
         urn <- expectRight (cloudCatalogUrn (name "dev") catalog (last (catalogCdnEnabled catalog)))
         urn @?= "urn:pulumi:dev::nagare::nagare:env:NagarePerimeter$nagare:cdn:NagareCdn$gcp:compute/backendService:BackendService::nagare-cdn-backend"
+    , testCase "the admin API reader's account and grants are admitted only when the context enables it" $ do
+        catalog <-
+          expectRight
+            ( decodeCloudCatalog
+                ( BC.pack
+                    "{\"version\":1,\"project\":\"nagare\",\"foundationManaged\":[{\"type\":\"nagare:env:NagarePerimeter\",\"name\":\"nagare\",\"parent\":null,\"layer\":0}],\"nixCacheEnabled\":[],\"adminApiReaderEnabled\":[{\"type\":\"nagare:env:NagareAdminApiReader\",\"name\":\"nagare-admin-api-reader\",\"parent\":null,\"layer\":2},{\"type\":\"gcp:storage/bucketIAMMember:BucketIAMMember\",\"name\":\"nagare-admin-api-reader-objects\",\"parent\":\"nagare-admin-api-reader\",\"layer\":4}]}"
+                )
+            )
+        length (selectedCloudCatalog True True True False catalog) @?= 1
+        length (selectedCloudCatalog False False False True catalog) @?= 3
+        urn <- expectRight (cloudCatalogUrn (name "intranet") catalog (last (catalogAdminApiReaderEnabled catalog)))
+        urn @?= "urn:pulumi:intranet::nagare::nagare:env:NagareAdminApiReader$gcp:storage/bucketIAMMember:BucketIAMMember::nagare-admin-api-reader-objects"
     , testCase "registration parity refuses an undeclared native object" $ do
         let foreignRegistration = registration {registrationResource = resource "platform:cloud/foreign/bucket"}
         case validateNativeRegistrationParity [registration] [registration, foreignRegistration] of

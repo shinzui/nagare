@@ -19,9 +19,14 @@ also asks only for the read-only storage scope and refuses writes before any req
 
 ## Create the key
 
-The context opts in with `NAGARE_ADMIN_API_ENABLED=1` (through `nagarectl context review`), which
-also seeds `enableAdminApiReader: true` into its Pulumi config. After `just infra-up` has applied
-the account, from the operator's private repository, with the context's project active:
+The context opts in with `NAGARE_ADMIN_API_ENABLED=1` (through `nagarectl context review`). Its
+cloud stage then plans the reader account as reviewed cloud members (catalog section
+`adminApiReaderEnabled`), with `enableAdminApiReader: true`. A context with an explicit
+`NAGARE_INVENTORY_STORE_URL` also gets that URL's bucket and prefix as `stateBucket` and
+`adminApiInventoryPrefix`, so the grant names its real inventory. The platform stage needs the key
+and the project number, so do the following after the cloud stage has applied and before
+planning the platform stage, from the operator's private repository, with the context's project
+active:
 
 ```bash
 email=$(pulumi -C infra/pulumi stack output adminApiReaderEmail)

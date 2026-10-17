@@ -100,6 +100,14 @@ initTests =
         assertBool "local mode" (T.isInfixOf "export NAGARE_MODE=local" out)
         assertBool "local registry" (T.isInfixOf "export NAGARE_REGISTRY_HOST=k3d-registry.localhost:5000" out)
         assertBool "local object store" (T.isInfixOf "export NAGARE_LOCAL_OBJECT_STORE=http://minio:9000/nagare-backups" out)
+    , testCase "seedKeys grants the admin API reader the context's own inventory location" $ do
+        let enabled = initProfile & #adminApiEnabled .~ True
+        lookup "nagare:enableAdminApiReader" (seedKeys initProfile) @?= Nothing
+        lookup "nagare:enableAdminApiReader" (seedKeys enabled) @?= Just "true"
+        lookup "nagare:stateBucket" (seedKeys enabled) @?= Nothing
+        let custom = enabled & #inventoryStoreUrl .~ "gs://tan-ng-labs-intranet-cblovqm-state/inventory"
+        lookup "nagare:stateBucket" (seedKeys custom) @?= Just "tan-ng-labs-intranet-cblovqm-state"
+        lookup "nagare:adminApiInventoryPrefix" (seedKeys custom) @?= Just "inventory"
     , testCase "seedKeys covers the Pulumi keys incl. cache opt-in and pinned VM shape" $
         map fst (seedKeys initProfile)
           @?= [ "gcp:project"

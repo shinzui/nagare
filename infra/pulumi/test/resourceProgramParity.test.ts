@@ -18,6 +18,7 @@ async function observeProgram(variant: string): Promise<void> {
     if (variant.includes("foundation-managed")) config["nagare:manageProjectApis"] = "false";
     if (variant.includes("image") || variant.includes("cdn-")) config["nagare:nagareImageSelfLink"] = "projects/example-project/global/images/nagare-image";
     if (variant.includes("cache")) config["nagare:enableNixCache"] = "true";
+    if (variant.includes("admin-api")) config["nagare:enableAdminApiReader"] = "true";
     if (variant.includes("cdn-legacy")) {
         config["nagare:enableCdn"] = "true";
         config["nagare:cdnCertificateMode"] = "legacy";
@@ -153,6 +154,7 @@ async function main(): Promise<void> {
     const foundationManaged = runVariant("foundation-managed");
     const foundationManagedCache = runVariant("foundation-managed-cache");
     const foundationManagedImage = runVariant("foundation-managed-image");
+    const foundationManagedAdminApi = runVariant("foundation-managed-admin-api");
     const image = runVariant("image");
     const cache = runVariant("cache");
     const legacyCdn = runVariant("cdn-legacy");
@@ -178,6 +180,7 @@ async function main(): Promise<void> {
     verifyGuardedVariant("foundation-managed", foundationManaged);
     verifyGuardedVariant("foundation-managed-cache", foundationManagedCache);
     verifyGuardedVariant("foundation-managed-image", foundationManagedImage);
+    verifyGuardedVariant("foundation-managed-admin-api", foundationManagedAdminApi);
     verifyGuardedVariant("image", image);
     verifyGuardedVariant("cache", cache);
     verifyGuardedVariant("cdn-legacy", legacyCdn);
@@ -192,6 +195,7 @@ async function main(): Promise<void> {
         nixCacheEnabled: CatalogEntry[];
         imageEnabled: CatalogEntry[];
         cdnEnabled: CatalogEntry[];
+        adminApiReaderEnabled: CatalogEntry[];
     };
     assert(catalog.version === 1, "cloud resource catalog version changed");
     const catalogNames = catalog.foundationManaged.map(({ type, name }) => `${type}::${name}`).sort();
@@ -208,13 +212,19 @@ async function main(): Promise<void> {
     const nativeImageNames = foundationManagedImage.map(({ pulumiType, pulumiName }) => `${pulumiType}::${pulumiName}`).sort();
     assert(JSON.stringify(imageNames) === JSON.stringify(nativeImageNames),
         "reviewed cloud image catalog differs from registrations in the actual Pulumi program");
+    // EP-198: the admin API reader is exactly what enableAdminApiReader adds.
+    const withAdminApi = catalog.foundationManaged.concat(catalog.adminApiReaderEnabled);
+    const adminApiNames = withAdminApi.map(({ type, name }) => `${type}::${name}`).sort();
+    const nativeAdminApiNames = foundationManagedAdminApi.map(({ pulumiType, pulumiName }) => `${pulumiType}::${pulumiName}`).sort();
+    assert(JSON.stringify(adminApiNames) === JSON.stringify(nativeAdminApiNames),
+        "reviewed cloud admin API reader catalog differs from registrations in the actual Pulumi program");
     // F43: the CDN section is exactly what the legacy-certificate CDN adds to the image topology.
     const cdnNames = catalog.cdnEnabled.map(({ type, name }) => `${type}::${name}`).sort();
     const imageSet = names(image);
     const nativeCdnNames = [...names(legacyCdn)].filter((name) => !imageSet.has(name)).sort();
     assert(JSON.stringify(cdnNames) === JSON.stringify(nativeCdnNames),
         "reviewed cloud CDN catalog differs from registrations in the actual Pulumi program");
-    const allEntries = catalog.foundationManaged.concat(catalog.nixCacheEnabled, catalog.imageEnabled, catalog.cdnEnabled);
+    const allEntries = catalog.foundationManaged.concat(catalog.nixCacheEnabled, catalog.imageEnabled, catalog.cdnEnabled, catalog.adminApiReaderEnabled);
     const byKey = new Map(allEntries.map((entry) => [entry.key ?? entry.name, entry]));
     assert(byKey.size === allEntries.length, "cloud catalog has duplicate logical keys");
     for (const entry of allEntries) {

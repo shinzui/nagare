@@ -390,8 +390,25 @@ seedKeys tp =
            else []
        )
     -- EP-196: the admin API's dedicated reader account; absent otherwise, so
-    -- an existing stack previews unchanged.
-    <> [("nagare:enableAdminApiReader", "true") | tp ^. #adminApiEnabled]
+    -- an existing stack previews unchanged. A context whose inventory is not
+    -- at the default <project>-nagare-pulumi-state/nagare/<context>/inventory
+    -- names its own bucket and prefix, which the reader's IAM condition grants.
+    <> ( if tp ^. #adminApiEnabled
+           then ("nagare:enableAdminApiReader", "true") : adminApiInventoryKeys (tp ^. #inventoryStoreUrl)
+           else []
+       )
+
+-- | The reader's bucket and prefix from an explicit @gs://bucket/prefix@
+-- inventory URL; none for the default location, which the program derives.
+adminApiInventoryKeys :: Text -> [(Text, Text)]
+adminApiInventoryKeys url = case T.stripPrefix "gs://" url of
+  Just rest
+    | (bucket, prefixed) <- T.breakOn "/" rest
+    , not (T.null bucket)
+    , prefix <- T.dropAround (== '/') prefixed
+    , not (T.null prefix) ->
+        [("nagare:stateBucket", bucket), ("nagare:adminApiInventoryPrefix", prefix)]
+  _ -> []
 
 -- | The argv for one @pulumi -C infra/pulumi config set --stack STACK KEY VALUE@.
 -- Pure so it is unit-testable without Pulumi.
