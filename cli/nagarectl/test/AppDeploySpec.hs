@@ -34,6 +34,7 @@ import Nagare.Cdn.Provision (GcpStackRefs (..))
 import Nagare.Cluster.GcsJob (StoreBackend (GcsBackend))
 import Nagare.Deploy (serviceUrl)
 import Nagare.Dsl.Access (authPortal, requireLogin)
+import Nagare.Dsl.Application (Application)
 import Nagare.Dsl.Broker (BrokerBinding (..), mkTopicName)
 import Nagare.Dsl.Cdn.Types (cloudflareCdn, gcpCloudCdn)
 import Nagare.Dsl.Database (dbSecretName)
@@ -89,7 +90,6 @@ appDeployTests =
     , testCase "disposable application review resumes from saved native members" nativeApplicationReview
     , testCase "reviewed command publishes and applies its immutable review" commandReview
     , testGroup "rollout phases (M2)" (phaseTests fixturePath)
-    , testGroup "machine-readable plan (M3)" planTests
     , testGroup "remediation guardrails (EP-6)" remediationTests
     ]
 
@@ -906,15 +906,7 @@ nativeApplicationReview = do
 
 renderTests :: [TestTree]
 renderTests =
-  [ testCase "renders hook, databases, service, and workers in rollout order" $ do
-      result <- loadApplication fixturePath
-      case result of
-        Left err -> assertFailure ("loadApplication returned Left: " <> show err)
-        Right app -> do
-          objects <- unwrapRender (renderAppObjects testEnv app)
-          map fst objects
-            @?= ["namespace", "hook", "database", "database", "database", "database", "database", "service", "worker", "worker", "worker"]
-  , testCase "typed service member binds the rendered Knative object" $ do
+  [ testCase "typed service member binds the rendered Knative object" $ do
       loaded <- loadApplication fixturePath
       app <- either (fail . show) pure loaded
       let foundation = unsafe (Resource.mkScopeId Resource.Platform "foundation")
@@ -4696,24 +4688,13 @@ renderTests =
             Left _ -> pure ()
             Right _ -> assertFailure "duplicate worker logical key was accepted"
         _ -> assertFailure "fixture needs two workers"
-  , testCase "the rollout begins with the public-certificate namespace opt-in" $ do
-      result <- loadApplication fixturePath
-      case result of
-        Left err -> assertFailure ("loadApplication returned Left: " <> show err)
-        Right app -> do
-          objects <- unwrapRender (renderAppObjects testEnv app)
-          case objects of
-            (("namespace", manifest) : _) -> do
-              assertBool "is a Namespace" (BS.isInfixOf "\"kind\":\"Namespace\"" manifest)
-              assertBool "opts into wildcard TLS" (BS.isInfixOf "\"nagare.dev/app-namespace\":\"true\"" manifest)
-            _ -> assertFailure "namespace action was not first"
   , testCase "every rendered workload object carries the shared nagare.dev/app label" $ do
       result <- loadApplication fixturePath
       case result of
         Left err -> assertFailure ("loadApplication returned Left: " <> show err)
         Right app -> do
-          objects <- unwrapRender (renderAppObjects testEnv app)
-          forM_ (filter ((/= "namespace") . fst) objects) $ \(ph, bs) ->
+          objects <- unwrapRender (workloadObjects app)
+          forM_ objects $ \(ph, bs) ->
             assertBool
               ("object in phase '" <> T.unpack ph <> "' is missing nagare.dev/app: kizashi")
               (BS.isInfixOf "nagare.dev/app: kizashi" bs)
@@ -4722,7 +4703,7 @@ renderTests =
       case result of
         Left err -> assertFailure ("loadApplication returned Left: " <> show err)
         Right app -> do
-          objects <- unwrapRender (renderAppObjects testEnv app)
+          objects <- unwrapRender (workloadObjects app)
           let svcBytes = [bs | (ph, bs) <- objects, ph == "service"]
           assertBool "one service object" (length svcBytes == 1)
           forM_ svcBytes $ \bs -> do
@@ -4730,47 +4711,15 @@ renderTests =
             assertBool "named kizashi-serve" (BS.isInfixOf "name: kizashi-serve" bs)
   ]
 
-planTests :: [TestTree]
-planTests =
-  [ testCase "renderPlan lists every object in rollout order with the app identity" $ do
-      result <- loadApplication fixturePath
-      case result of
-        Left err -> assertFailure ("loadApplication returned Left: " <> show err)
-        Right app -> do
-          plan <- unwrapRender (renderPlan testEnv app)
-          plan ^. #app @?= "kizashi"
-          plan ^. #image @?= "gcr.io/knative-samples/helloworld-go:20260619-120000"
-          map (^. #phase) (plan ^. #objects)
-            @?= ["namespace", "hook", "database", "database", "database", "database", "database", "service", "worker", "worker", "worker"]
-          let databaseKinds = [o ^. #kind | o <- plan ^. #objects, o ^. #phase == "database"]
-          assertBool "credential template omitted" ("Secret" `elem` databaseKinds)
-          assertBool "backup CronJob omitted" ("CronJob" `elem` databaseKinds)
-          let credentialManifests = [o ^. #manifest | o <- plan ^. #objects, o ^. #kind == "Secret"]
-          case credentialManifests of
-            [manifest] -> case Yaml.decodeEither' (TE.encodeUtf8 manifest) of
-              Right (Aeson.Object secret) -> KeyMap.lookup "data" secret @?= Nothing
-              other -> assertFailure ("credential template did not decode: " <> show other)
-            _ -> assertFailure "expected one database credential template"
-  , testCase "every plan object's labels carry nagare.dev/app = the app" $ do
-      result <- loadApplication fixturePath
-      case result of
-        Left err -> assertFailure ("loadApplication returned Left: " <> show err)
-        Right app -> do
-          plan <- unwrapRender (renderPlan testEnv app)
-          forM_ (filter ((/= "namespace") . (^. #phase)) (plan ^. #objects)) $ \o ->
-            Map.lookup "nagare.dev/app" (o ^. #labels) @?= Just "kizashi"
-  , testCase "the plan encodes to a single parseable JSON document" $ do
-      result <- loadApplication fixturePath
-      case result of
-        Left err -> assertFailure ("loadApplication returned Left: " <> show err)
-        Right app -> do
-          plan <- unwrapRender (renderPlan testEnv app)
-          let bytes = LBS.toStrict (Aeson.encode plan)
-          case Aeson.eitherDecodeStrict bytes :: Either String Aeson.Value of
-            Left e -> assertFailure ("plan JSON did not parse: " <> e)
-            Right _ -> pure ()
-          assertBool "JSON names the app" (BS.isInfixOf "\"app\":\"kizashi\"" bytes)
-  ]
+-- | The stamped hook, service and worker objects of an application.
+workloadObjects :: Application -> Either Text [(Text, BC.ByteString)]
+workloadObjects app =
+  concat
+    <$> sequence
+      ( map (renderTaskObjects testEnv) (app ^. #tasks)
+          <> maybe [] (pure . renderServiceObjects testEnv) (app ^. #service)
+          <> map (renderWorkerObjects testEnv) (app ^. #workers)
+      )
 
 remediationTests :: [TestTree]
 remediationTests =

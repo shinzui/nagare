@@ -24,16 +24,10 @@ module Nagare.App.Deploy
 
     -- * Rendering + the shared-identity label
   , RolloutEnv (..)
-  , renderAppObjects
   , renderServiceObjects
   , renderWorkerObjects
   , renderTaskObjects
   , stampAppLabel
-
-    -- * Machine-readable plan (EP-2 M3, the kotei contract)
-  , RenderedObject (..)
-  , AppDeployPlan (..)
-  , renderPlan
   )
 where
 
@@ -191,46 +185,6 @@ waitResult what (ExitFailure code) =
 -- ---------------------------------------------------------------------------
 -- Rendering + the shared-identity label
 
--- | Render every object an 'Application' produces, in rollout-phase order, each
--- paired with its phase tag and stamped with the shared @nagare.dev/app@ label.
--- Pure (no cluster): the basis of both the human dry-run transcript and the
--- machine-readable @--json@ plan. The database phase includes a data-free
--- credential template and the retained database's scheduled backup.
-renderAppObjects :: RolloutEnv -> Application -> Either Text [(Text, ByteString)]
-renderAppObjects env app = do
-  namespace <- renderNamespace ApplicationNamespace (env ^. #namespace)
-  objects <- concat <$> traverse (renderPhaseObjects env) (planPhases app)
-  pure (("namespace", namespace) : objects)
-
--- | The stamped, phase-tagged manifests for one phase.
-renderPhaseObjects :: RolloutEnv -> Phase -> Either Text [(Text, ByteString)]
-renderPhaseObjects env (PhaseHooks ts) = concat <$> traverse (renderTaskObjects env) ts
-renderPhaseObjects env (PhaseDatabases dbs) = concat <$> traverse (renderDatabaseObjects env) dbs
-renderPhaseObjects env (PhaseService svc) = renderServiceObjects env svc
-renderPhaseObjects env (PhaseWorkers ws) = concat <$> traverse (renderWorkerObjects env) ws
-
--- | Present the full database membership used by the inventory builder. The
--- credential is a data-free template; real secret data is generated only at
--- guarded execution. Retained databases also declare their backup CronJob.
-renderDatabaseObjects :: RolloutEnv -> Database -> Either Text [(Text, ByteString)]
-renderDatabaseObjects env db = do
-  let profile = env ^. #targetProfile
-  backend <- storeBackendFor profile (profile ^. #backupBucket)
-  let secret = Yaml.encode (databaseCredentialTemplate db)
-      backup =
-        renderDbBackupCronJob
-          (namespaceText (db ^. #namespace))
-          (databaseNameText (db ^. #name))
-          (db ^. #engine)
-          (engineVersionText (db ^. #version))
-          backend
-          7
-      members =
-        [secret]
-          <> renderDatabase db
-          <> [backup | db ^. #retention /= Delete]
-  traverse (stamp env "database") members
-
 -- | Apply the shared image + shared env to the web service, render its PVCs,
 -- Knative Service, and DomainMappings, and stamp the app label on each.
 renderServiceObjects :: RolloutEnv -> Deployment -> Either Text [(Text, ByteString)]
@@ -335,101 +289,19 @@ stampAppLabel name bs
         _ -> Nothing
 
     describe rendered =
-      let obj = toRenderedObject "" rendered
-       in case (obj ^. #kind, obj ^. #name) of
+      let top = case Yaml.decodeEither' rendered of
+            Right (Object o) -> o
+            _ -> KM.empty
+          field key o = case KM.lookup key o of
+            Just (String value) -> value
+            _ -> ""
+          objectName = case KM.lookup "metadata" top of
+            Just (Object metadata) -> field "name" metadata
+            _ -> ""
+       in case (field "kind" top, objectName) of
             ("", "") -> "rendered manifest"
             (kind, "") -> kind
-            (kind, name) -> kind <> " '" <> name <> "'"
-
--- ---------------------------------------------------------------------------
--- Machine-readable plan (the kotei contract, EP-2 M3)
-
--- | One rendered object in a deploy plan. The flat shape (with an explicit
--- @phase@) lets the kotei backend enumerate an app's resources and read each
--- object's @nagare.dev/app@ label without parsing YAML or human prose. The
--- contract is additive: consumers ignore unknown keys.
-data RenderedObject = RenderedObject
-  { apiVersion :: !Text
-  , kind :: !Text
-  , name :: !Text
-  , namespace :: !Text
-  , phase :: !Text
-  -- ^ @"hook" | "database" | "service" | "worker"@.
-  , labels :: !(Map Text Text)
-  , manifest :: !Text
-  -- ^ the exact rendered YAML document.
-  }
-  deriving stock (Generic, Eq, Show)
-
-instance ToJSON RenderedObject where
-  toJSON o =
-    object
-      [ "apiVersion" .= (o ^. #apiVersion)
-      , "kind" .= (o ^. #kind)
-      , "name" .= (o ^. #name)
-      , "namespace" .= (o ^. #namespace)
-      , "phase" .= (o ^. #phase)
-      , "labels" .= (o ^. #labels)
-      , "manifest" .= (o ^. #manifest)
-      ]
-
--- | The whole rollout plan: the app identity, the resolved tagged image every
--- workload runs, and the ordered object list (rollout-phase order).
-data AppDeployPlan = AppDeployPlan
-  { app :: !Text
-  , image :: !Text
-  , objects :: ![RenderedObject]
-  }
-  deriving stock (Generic, Eq, Show)
-
-instance ToJSON AppDeployPlan where
-  toJSON p =
-    object
-      [ "app" .= (p ^. #app)
-      , "image" .= (p ^. #image)
-      , "objects" .= (p ^. #objects)
-      ]
-
--- | Build the machine-readable plan from the rendered, label-stamped objects.
--- Each 'RenderedObject'\'s metadata is parsed back from its stamped manifest, so
--- the JSON's labels and the YAML's labels cannot drift.
-renderPlan :: RolloutEnv -> Application -> Either Text AppDeployPlan
-renderPlan env app = do
-  objects <- renderAppObjects env app
-  pure
-    AppDeployPlan
-      { app = env ^. #appName
-      , image = env ^. #taggedAppImage
-      , objects = [toRenderedObject ph bs | (ph, bs) <- objects]
-      }
-
--- | Parse a rendered manifest's identity (apiVersion/kind/name/namespace/labels)
--- back out of its YAML for the JSON plan. A manifest that fails to parse yields
--- empty fields rather than throwing (our own renderers always produce valid YAML).
-toRenderedObject :: Text -> ByteString -> RenderedObject
-toRenderedObject ph bs =
-  RenderedObject
-    { apiVersion = str "apiVersion" top
-    , kind = str "kind" top
-    , name = str "name" meta
-    , namespace = str "namespace" meta
-    , phase = ph
-    , labels = labels
-    , manifest = TE.decodeUtf8 bs
-    }
-  where
-    top = case Yaml.decodeEither' bs of
-      Right (Object o) -> o
-      _ -> KM.empty
-    meta = case KM.lookup "metadata" top of
-      Just (Object o) -> o
-      _ -> KM.empty
-    labels = case KM.lookup "labels" meta of
-      Just (Object o) -> Map.fromList [(K.toText k, v) | (k, String v) <- KM.toList o]
-      _ -> Map.empty
-    str k o = case KM.lookup (K.fromText k) o of
-      Just (String s) -> s
-      _ -> ""
+            (kind, named) -> kind <> " '" <> named <> "'"
 
 -- ---------------------------------------------------------------------------
 -- Reviewed rollout resolution

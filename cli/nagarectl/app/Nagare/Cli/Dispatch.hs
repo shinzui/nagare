@@ -134,7 +134,7 @@ dispatch (mctx, cmd0) = case cmd0 of
   Deploy dopts -> runDeploy mctx dopts
   SiteDeploy sopts -> runSiteDeploy mctx sopts
   SiteReleases copts -> runSiteReleases copts
-  SiteList lopts -> runSiteList mctx lopts
+  SiteList lopts -> withReadContract (lopts ^. #contract) (runSiteList mctx lopts)
   SiteRollback copts rid -> runSiteRollback mctx copts (T.pack rid)
   SitePreviewDeploy sopts pname -> runPreviewDeploy mctx sopts (T.pack pname)
   SitePreviewList copts -> runPreviewList copts

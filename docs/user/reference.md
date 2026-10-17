@@ -635,6 +635,26 @@ than through `nagarectl`:
 
 See [Bounded one-shot jobs](one-shot-jobs.md).
 
+## Machine-readable contract (`--contract 1`)
+
+A client that drives `nagarectl` (Kotei, a script) passes `--contract 1` and reads one versioned
+JSON document from stdout. Schemas, samples, problem codes and the versioning rules are in
+[`docs/api/README.md`](../api/README.md); `docs/api/openapi.json` is the generated schema.
+
+| Command | Document |
+|---|---|
+| `inventory status --contract 1 [--scope KIND:NAME]` | `inventory-status` |
+| `inventory publications [--contract 1]` | `publication-list` (a table without the flag) |
+| `site list --contract 1` | `site-list` |
+| `inventory apply DIR --yes --contract 1`, `inventory resume TX --yes --contract 1` | `transaction-outcome` |
+| `app deploy --save-plan DIR --contract 1` | `saved-review` |
+| `app deploy --dry-run --contract 1` | `deploy-preview` |
+| `app image-plan … --contract 1` | `image-publication-result` |
+
+Exit codes under the flag: 0 success, 2 refused, 3 paused, 4 stopped, 5 ambiguous, 6 closed,
+7 interrupted. `nagarectl version --json` lists the supported versions in `contracts`. The
+existing `--json` documents are operator-facing and are not part of the contract.
+
 ## Domain model
 
 ```text

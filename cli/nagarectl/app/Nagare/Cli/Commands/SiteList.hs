@@ -19,8 +19,6 @@ import Nagare.Inventory.Site.Listing (SiteSelection (..), readSiteListing, rende
 
 runSiteList :: Maybe String -> SiteListOpts -> IO ()
 runSiteList mctx options = do
-  forM_' (options ^. #contract) $ \version ->
-    unless (version == 1) (dieT ("unsupported contract version " <> T.pack (show version) <> "; this nagarectl emits contract 1"))
   target <- activeTarget mctx
   listing <-
     readSiteListing target (SiteSelection (T.pack <$> options ^. #namespace) (options ^. #includePreviews))
@@ -29,5 +27,3 @@ runSiteList mctx options = do
   if options ^. #json || isJust (options ^. #contract)
     then LBC.putStrLn (Aeson.encode (siteList headValue sites))
     else TIO.putStr (renderSiteTable sites)
-  where
-    forM_' value action = maybe (pure ()) action value

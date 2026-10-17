@@ -155,9 +155,9 @@ data WorkerDeployOpts = WorkerDeployOpts
   deriving stock (Generic, Show)
 
 -- | Options for @app deploy@ (MasterPlan 14, EP-2): deploy a whole multi-workload
--- 'Nagare.Dsl.Application.Application' in one command. Mirrors 'DeployOpts' plus a
--- @--json@ switch that selects the machine-readable @--dry-run@ plan (the kotei
--- contract).
+-- 'Nagare.Dsl.Application.Application' in one command. With @--dry-run@,
+-- @--json@ prints the operator-facing canonical scope and @--contract 1@ the
+-- versioned deploy-preview document (EP-192).
 data AppDeployOpts = AppDeployOpts
   { file :: !FilePath
   , tag :: !(Maybe String)

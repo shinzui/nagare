@@ -28,6 +28,7 @@ review `git diff docs/api/samples`.
 |---|---|---|---|
 | `inventory-status` | `InventoryStatusReport` | read | `nagarectl inventory status --contract 1 [--scope KIND:NAME]` |
 | `publication-list` | `PublicationList` | read | `nagarectl inventory publications --contract 1` |
+| `site-list` | `SiteList` | read | `nagarectl site list --contract 1` |
 | (discovery) | `VersionInfo` | read | `nagarectl version --json` |
 | `transaction-outcome` | `TransactionOutcome` | operation | `nagarectl inventory apply|resume … --contract 1` |
 | `saved-review` | `SavedReview` | operation | `nagarectl app deploy --save-plan DIR --contract 1` |
@@ -47,6 +48,25 @@ and the read-only API never will.
 Every document except the discovery document carries `contractVersion: 1` and a constant
 `document` member. `VersionInfo` lists the versions a build emits in `contracts` and describes the
 binary, not what a context has installed.
+
+## Exit codes
+
+Under `--contract 1`, stdout holds exactly one document and human progress lines go to stderr.
+
+| Exit | Meaning |
+|---|---|
+| 0 | the document describes success: a read document, a saved review, a preview, or `converged` |
+| 2 | `refused`: nothing was touched; the problem says why |
+| 3 | `paused` at review barriers |
+| 4 | `stopped` with a classified failure |
+| 5 | `ambiguous`: the outcome cannot be proved; `detail` says what to do |
+| 6 | `closed` |
+| 7 | `interrupted` after execution began; read `inventory status` or run `inventory resume` |
+
+A read command refuses with a bare `ProblemDetails` document. An operation command refuses with a
+`transaction-outcome` whose `outcome` is `refused` and whose `problem` says why, so a client tells
+the two apart by `document`. Without `--contract`, every command keeps its human output and exits
+0 or 1.
 
 ## Problems
 
