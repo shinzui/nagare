@@ -55,6 +55,17 @@ land" behave exactly as today.
   `nagarectl-build` at most 120 s (today's cold build in a fresh worktree is 500–630 s);
   (d) `just gate-post-land` of a docs-only commit over a running slot gate still reports
   "covered".
+  - [x] (a) 2026-10-17, `8ab97b56`: `just gate-fast 332e7b09` took slot 1 (cold) and, while it
+    compiled, the checkout it was started from had a tracked file edited, a `cabal build` of
+    `nagare-dsl-test` and a commit made and reset. Green, fast record
+    `gates/fast/332e7b0921fa4dc003e74e540876471e8b2afd8e.json`; `nagarectl-build` 568 s cold,
+    wall 1,044 s.
+  - [x] (c) 2026-10-17: probe commit `ecf83891` (one comment line in
+    `cli/nagarectl/src/Nagare/Inventory/Components/AdminApi.hs`) in the warm slot 1:
+    `nagarectl-build` 12.5 s, `nagare-dsl-build` 1.9 s, wall 309 s, of which `nagarectl-test`
+    233 s. A change to an exported definition also recompiles its importers.
+  - [ ] (b) concurrency and (d) docs-only coverage: not yet run; (b) waits for a time no other
+    session gates, so it does not slow their runs.
 - [ ] M2. The full gate uses the fast record of the same tree. When the gated tree has a green
   fast record, the full gate skips its static and suite-build steps and copies that record's step
   results into the full record; with no fast record it runs them as today. Pass when: a post-land
