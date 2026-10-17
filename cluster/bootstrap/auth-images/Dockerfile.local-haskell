@@ -22,12 +22,19 @@ WORKDIR /src/workspace
 ARG CABAL_TARGETS
 ARG CABAL_BINARIES
 ARG CABAL_BUILD_FLAGS=--jobs=1
+# EP-200 M3: with CABAL_BUILDDIR set (local mode), the project's own packages
+# build into a cache mount that outlives the layer, so a rebuild compiles only
+# the changed modules. Empty keeps the build directory inside the layer.
+ARG CABAL_BUILDDIR=
 RUN --mount=type=cache,target=/root/.cache/cabal,sharing=locked \
     --mount=type=cache,target=/root/.local/state/cabal,sharing=locked \
+    --mount=type=cache,target=/cache/dist,sharing=locked \
   set -eu; \
+  builddir=""; \
+  if [ -n "${CABAL_BUILDDIR}" ]; then builddir="--builddir=${CABAL_BUILDDIR}"; fi; \
   cabal update; \
   attempt=1; \
-  until cabal build ${CABAL_BUILD_FLAGS} ${CABAL_TARGETS}; do \
+  until cabal build ${builddir} ${CABAL_BUILD_FLAGS} ${CABAL_TARGETS}; do \
     if [ "$attempt" -ge 3 ]; then exit 1; fi; \
     attempt=$((attempt + 1)); \
     echo "cabal build failed; retrying package downloads (attempt ${attempt}/3)" >&2; \
@@ -36,7 +43,7 @@ RUN --mount=type=cache,target=/root/.cache/cabal,sharing=locked \
   mkdir -p /out/bin; \
   for target in ${CABAL_BINARIES}; do \
     binary_name="${target#exe:}"; \
-    cp "$(cabal list-bin "$target")" "/out/bin/${binary_name}"; \
+    cp "$(cabal list-bin ${builddir} "$target")" "/out/bin/${binary_name}"; \
   done
 
 FROM docker.io/library/debian:bookworm-slim

@@ -20,7 +20,7 @@ Relevant environment variables:
   NAGARE_REGISTRY_HOST=<host>    Default: us-west1-docker.pkg.dev
   NAGARE_ARTIFACT_REGISTRY_ID=<repo>  Default: nagare
   NAGARE_CONTAINER_PLATFORM=<platform> Default: linux/amd64
-  NAGARE_AUTH_CABAL_BUILD_FLAGS=<flags> Default: --jobs=1
+  NAGARE_AUTH_CABAL_BUILD_FLAGS=<flags> Default: --jobs=4 in local mode, else --jobs=1
   NAGARE_AUTH_CLOUD_BUILD_REGION=<region> Default: us-west1
   NAGARE_AUTH_CLOUD_BUILD_MACHINE_TYPE=<type> Default: e2-highcpu-32
   NAGARE_AUTH_CLOUD_BUILD_TIMEOUT=<duration> Default: 2h
@@ -459,11 +459,20 @@ EOF
 )
   "$root/scripts/iap-ssh.sh" ssh "$remote_instance" -- "$remote_script"
 else
+  # EP-200 M3: a local build keeps each service's cabal build directory in a
+  # BuildKit cache mount, so a rebuild compiles only what changed.
+  build_flags="${NAGARE_AUTH_CABAL_BUILD_FLAGS:---jobs=1}"
+  builddir=""
+  if [[ "$mode" == "local" ]]; then
+    build_flags="${NAGARE_AUTH_CABAL_BUILD_FLAGS:---jobs=4}"
+    builddir="/cache/dist/$service"
+  fi
   docker build \
     --platform "$platform" \
     --build-arg "CABAL_TARGETS=${cabal_targets[*]}" \
     --build-arg "CABAL_BINARIES=${cabal_binaries[*]}" \
-    --build-arg "CABAL_BUILD_FLAGS=${NAGARE_AUTH_CABAL_BUILD_FLAGS:---jobs=1}" \
+    --build-arg "CABAL_BUILD_FLAGS=$build_flags" \
+    --build-arg "CABAL_BUILDDIR=$builddir" \
     -f "$tmpdir/Dockerfile.local-haskell" \
     -t "$image" \
     "$tmpdir"
