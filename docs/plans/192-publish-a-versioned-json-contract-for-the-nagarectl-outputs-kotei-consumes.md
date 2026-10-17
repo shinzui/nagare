@@ -153,13 +153,19 @@ as a store failure) and F118 (an unprepared workspace reads as a mismatched one)
   `StoreAuthRequired`. F118: `PlatformSpec` reads a missing workspace as `WorkspaceNotPrepared`
   and a changed manifest as `ExistingWorkspaceMismatch`. `inventory publications` is registered
   read-only in the command audit.
-- [ ] M5: Clean up and hand off. Delete `renderPlan`, `AppDeployPlan` and `renderAppObjects`,
+- [x] M5: Clean up and hand off. Delete `renderPlan`, `AppDeployPlan` and `renderAppObjects`,
   and fix the stale comment in `Options.hs`. Finish `docs/api/README.md` and add a
   "Machine-readable contract" section in `docs/user/reference.md`. Pass: `just haskell-style-check`
   and `just gate-fast` are green, then `just land`. The contract path and the landed commit hash
   (copied from `git log`) are sent to the `kotei` session with the differences under Interfaces,
   and the M1 hash to whichever session implements EP-193. F94, F107 and F118 are marked Verifying
   in `docs/audits/mp23-findings.md` with the landed hash.
+  Evidence: the dead plan types and `renderAppObjects` are gone (`0305ef3d`), the README has exit
+  codes and refusal shapes, `docs/user/reference.md` has the contract section, and gate-fast was
+  green before `just land 0305ef3d`. Landed: M2 `0e63aaaa`, M3 `dbe6df44`, M4 `a4c36ec7`, M5
+  `0305ef3d`. F94 (`0e63aaaa`), F107 and F118 (`a4c36ec7`) are Verifying. The Kotei relay is
+  pending: no `kotei` session was running on 2026-10-16. The message is the contract at
+  `docs/api/` as of `0305ef3d`, plus the differences listed under Interfaces.
 
 
 ## Decision Log
@@ -283,6 +289,10 @@ resources by ID prefix, so a scoped status also observes less. F107 travels as t
 `StoreAuthRequired` at `openTargetStoreReadOnly`; the admin API, which never uses gcloud, maps
 that constructor to `store_credentials_unavailable`. F118 is decided in `findPlatformWorkspace`
 only: preparation still reports a directory without a manifest as a mismatch.
+
+2026-10-16 (M5): `site list` refuses through `withReadContract` like the other read commands. The
+plan is complete. The Kotei relay waits for a `kotei` session to exist, and the message is
+recorded in M5.
 
 ## Context and Orientation
 
@@ -709,8 +719,8 @@ New package `cli/nagare-contract`:
 
 In the `nagarectl` library, `src/Nagare/Contract/Project.hs` exports the pure projections:
 
-- `transactionOutcome :: TransactionResult -> TransactionOutcome`, with constructors for
-  `refused` and `interrupted`;
+- `transactionOutcome :: TransactionResult -> TransactionOutcome` (in `Nagare.Contract.Sink`,
+  which also emits `refused` and `interrupted`);
 - `savedReview`, `imagePublicationResult`,
   `deployPreview :: ScopeDeclaration -> [ScopeDeclaration] -> DeployPreview`,
   `inventoryStatusReport`, `publicationList`, `versionInfo`. The M1 API-facing version/scope/

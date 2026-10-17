@@ -87,7 +87,7 @@ requires offline proof before native confirmation.
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 192 | Publish the shared versioned document contract | [EP-192](../plans/192-publish-a-versioned-json-contract-for-the-nagarectl-outputs-kotei-consumes.md) | EP-193 M1 for M4 only | None | In Progress |
+| 192 | Publish the shared versioned document contract | [EP-192](../plans/192-publish-a-versioned-json-contract-for-the-nagarectl-outputs-kotei-consumes.md) | EP-193 M1 for M4 only | None | Complete |
 | 193 | Read recorded state and list recorded sites | [EP-193](../plans/193-list-recorded-sites-without-live-provider-observation.md) | EP-192 M1 for M1 DTO/converter acceptance | None | In Progress |
 | 196 | Open the inventory through a read-only service identity | [EP-196](../plans/196-read-the-inventory-store-from-an-in-cluster-service-identity.md) | None | EP-193 head-reader interface | In Progress |
 | 197 | Serve typed, bounded HTTP reads | [EP-197](../plans/197-serve-the-read-documents-through-a-typed-servant-admin-api.md) | EP-192 M1, EP-193 M1 | EP-196 for cloud source | Complete |
@@ -185,12 +185,12 @@ replace the network-policy proof. Native work follows existing authorization req
 
 ## Progress
 
-EP-192 M1, EP-193 M1 and EP-197 M1 are complete: the contract package, the pure projections,
-the shared recorded-state reader, the route types and the one generated artifact, whose
-generator moved to `cli/nagare-api`. EP-197 is complete: the server, its Hurl suite and a
-local measurement (warm p95 under 130 ms at concurrency 8 on 250 sites). EP-196 M1–M2 are done
-(exact-object reader design, the read-only GCS session); its M3 Pulumi component is written and
-unit-tested, awaiting a disposable cloud preview. EP-198 and EP-192 M2–M5 / EP-193 M2–M3 remain.
+EP-192 and EP-197 are complete. EP-192 covers the contract package, the projections, every
+`--contract 1` command, and F94, F107 and F118 (Verifying); the Kotei relay waits for a `kotei`
+session. EP-197 covers the server, its Hurl suite and a local measurement (warm p95 under 130 ms
+at concurrency 8 on 250 sites). EP-193 M1–M2 are done (the shared reader and `site list`); its
+M3 remote timing needs a real GCS context. EP-196 M1–M2 are done, and its M3 Pulumi component is
+written and unit-tested, awaiting a disposable cloud preview. EP-198 waits for EP-196.
 The credential's actual project lookup, provider IAM enforcement and local mount/network behavior
 remain explicit implementation proofs, not claims established by this documentation review.
 
