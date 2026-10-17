@@ -13,7 +13,7 @@ import Data.Text qualified as T
 import FlakeCheckSpec (flakeCheckTests)
 import Nagare.Harness.CarryForward
 import Nagare.Harness.FixtureSmoke
-import Nagare.Harness.Gate (coveredRevision, fastSteps, fullCheckPlan, landableRevision, verifyRevision)
+import Nagare.Harness.Gate (coveredRevision, coveringFastRecord, fastSteps, fullCheckPlan, landableRevision, verifyRevision)
 import Nagare.Harness.Mutation (Expectation (..), MutationRecord (..), Outcome (..), Suite (..), classifyProof, readSweepResults)
 import Nagare.Harness.Prelude
 import Nagare.Harness.Realise (remainingPaths)
@@ -425,6 +425,7 @@ landableRoundTrip =
       write "src/Main.hs" "-- change"
       change <- commitAll "change"
       assertBool "a code change without a record landed" . isLeft =<< landable change
+      assertBool "a code change without a record had a covering fast record" . isNothing =<< coveringFastRecord repo change
       fastFor change False
       assertBool "a red fast record landed" . isLeft =<< landable change
       fastFor change True
@@ -434,6 +435,9 @@ landableRoundTrip =
       docs <- commitAll "docs"
       carried <- landable docs
       assertBool ("documentation over a fast-gated commit refused: " <> show carried) (isRight carried)
+      -- The full gate of that documentation commit reuses the carried record (EP-200 M2).
+      covering <- coveringFastRecord repo docs
+      fmap (^. #commit) covering @?= Just change
       git ["branch", "-f", "landed", T.unpack change]
       fullFor change False
       write "src/Main.hs" "-- next"

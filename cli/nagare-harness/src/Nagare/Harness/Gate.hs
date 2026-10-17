@@ -11,6 +11,7 @@ module Nagare.Harness.Gate
   , formatResult
   , fullCheckPlan
   , coveredRevision
+  , coveringFastRecord
   , fastGateAt
   , fullGateAt
   , landableRevision
@@ -269,18 +270,43 @@ fullCheckPlan self =
     , probePauseMicroseconds = probePause
     }
 
--- | The full gate's check plan for a tree, and the step results that stand in
--- for the steps it leaves out (EP-200 M2). A green fast record of the same
--- commit and tree already ran the static checks, the suite builds and the
--- record patterns on identical input, so the full gate runs only the flake
+-- | The full gate's check plan, and the step results that stand in for the
+-- steps it leaves out (EP-200 M2). A green fast record that covers the tree
+-- ('coveringFastRecord') already ran the static checks, the suite builds and
+-- the record patterns on the same input, so the full gate runs only the flake
 -- check; without one, the plan is unchanged.
-reuseFastRecord :: Text -> Either Text (Maybe FastRecord) -> CheckPlan -> (CheckPlan, Maybe [StepResult])
-reuseFastRecord treeId stored plan = case stored of
-  Right (Just recorded)
-    | recorded ^. #green
-    , recorded ^. #tree == treeId ->
+reuseFastRecord :: Maybe FastRecord -> CheckPlan -> (CheckPlan, Maybe [StepResult])
+reuseFastRecord covering plan = case covering of
+  Just recorded
+    | recorded ^. #green ->
         (plan & #static .~ [] & #suite .~ [], Just (recorded ^. #steps))
   _ -> (plan, Nothing)
+
+-- | The green fast record that covers a commit's tree, as landing accepts it:
+-- the commit's own, or one carried forward from a fast-gated commit over
+-- inert documentation.
+coveringFastRecord :: FilePath -> Text -> IO (Maybe FastRecord)
+coveringFastRecord workdir commitId = do
+  own <- verifyOwnFastRecord workdir commitId
+  case own of
+    Right (Just _) -> either (const Nothing) id <$> readFastRecord commitId
+    Left _ -> pure Nothing
+    Right Nothing -> do
+      carried <- carryForwardWith workdir (verifyOwnFastRecord workdir) (pure []) commitId
+      case carried of
+        Right (ancestor, _, _) -> either (const Nothing) id <$> readFastRecord ancestor
+        Left _ -> pure Nothing
+
+-- | @Right (Just [])@ when the commit's own fast record is green for its
+-- tree, @Right Nothing@ when it has none, @Left@ when it is unusable.
+verifyOwnFastRecord :: FilePath -> Text -> IO (Either Text (Maybe [Text]))
+verifyOwnFastRecord workdir commitId = do
+  treeId <- captureLine workdir "git" ["rev-parse", T.unpack commitId <> "^{tree}"]
+  stored <- readFastRecord commitId
+  pure $ case stored of
+    Left err -> Left err
+    Right Nothing -> Right Nothing
+    Right present -> Just [] <$ verifyFastRecord commitId treeId present
 
 -- | Run the builder probes until they all pass, at most three times,
 -- @pause@ microseconds apart, and return the last try. The builder VM stops
@@ -416,12 +442,12 @@ runFullGate run = do
                   <> " after three probes; nothing else ran. Check that the builder VM starts"
                   <> " (scripts/setup-nix-builder.sh), then rerun the gate."
               )
-          stored <- readFastRecord commitId
+          covering <- coveringFastRecord workdir commitId
           let (plan, reused) =
-                reuseFastRecord treeId stored $
+                reuseFastRecord covering $
                   fullCheckPlan (run ^. #harness) & #beforeRetry .~ [probeStep system ("retry-" <> salt) & #name %~ (<> "-retry") | system <- remoteSystems]
           forM_ reused $ \_ ->
-            putStrLn ("gate: the green fast record of " <> T.unpack commitId <> " covers this tree's static checks and suite builds; they are not run again")
+            putStrLn ("gate: the green fast record of " <> maybe "" (T.unpack . (^. #commit)) covering <> " covers this tree's static checks and suite builds; they are not run again")
           (ran, flake) <-
             if probesGreen
               then runCheckPlan say workdir (run ^. #logDir) plan
@@ -645,24 +671,17 @@ landableRevision workdir base revision = do
           case landedGateBlock landed of
             Just blocked -> pure (Left blocked)
             Nothing -> do
-              own <- verifyOwnFast commitId
+              own <- verifyOwnFastRecord workdir commitId
               case own of
                 Right (Just _) -> pure (Right ("fast gate: " <> commitId <> " green"))
                 Left refusal -> pure (Left refusal)
                 Right Nothing -> do
-                  carried <- carryForwardWith workdir verifyOwnFast (pure []) commitId
+                  carried <- carryForwardWith workdir (verifyOwnFastRecord workdir) (pure []) commitId
                   pure $ case carried of
                     Right (ancestor, paths, _) ->
                       Right ("fast gate: " <> commitId <> " carried forward from " <> ancestor <> " over " <> T.pack (show paths) <> " inert paths")
                     Left refusal -> Left ("no fast gate record for " <> commitId <> ", and no carry-forward: " <> refusal <> "; run `just gate-fast` on it")
   where
-    verifyOwnFast commitId = do
-      treeId <- captureLine workdir "git" ["rev-parse", T.unpack commitId <> "^{tree}"]
-      stored <- readFastRecord commitId
-      pure $ case stored of
-        Left err -> Left err
-        Right Nothing -> Right Nothing
-        Right present -> Just [] <$ verifyFastRecord commitId treeId present
     landedFullGates = do
       recent <- recentRecordCommits 50
       fmap catMaybes . forM recent $ \commitId -> do

@@ -112,17 +112,17 @@ flakeCheckTests =
           results <- probeUntilUp 0 (const (pure ())) dir dir [asleep]
           map (^. #exit) results @?= [1]
           (@?= 3) . length . lines =<< readFile (dir </> "tries")
-    , testCase "a green fast record of the same tree stands in for the static checks and suite builds (EP-200 M2)" $ do
+    , testCase "a green covering fast record stands in for the static checks and suite builds (EP-200 M2)" $ do
         let full = plan [ok "static"] [ok "suite"] (ok "nix-flake-check")
             recorded = FastRecord {version = 1, commit = "c0ffee", tree = "7ree", steps = [StepResult "static" "sh" 0 1 "static.log"], green = True}
-            (reusedPlan, reused) = reuseFastRecord "7ree" (Right (Just recorded)) full
+            (reusedPlan, reused) = reuseFastRecord (Just recorded) full
         map (^. #name) (reusedPlan ^. #static <> reusedPlan ^. #suite) @?= []
         fmap (map (^. #name)) reused @?= Just ["static"]
         withPlan reusedPlan $ \(ran, flake, _, _) -> do
           ran @?= []
           map (^. #name) flake @?= ["nix-flake-check"]
-        forM_ [Right (Just (recorded & #green .~ False)), Right (Just (recorded & #tree .~ "other")), Right Nothing, Left "unreadable"] $ \stored -> do
-          let (unchanged, none) = reuseFastRecord "7ree" stored full
+        forM_ [Just (recorded & #green .~ False), Nothing] $ \covering -> do
+          let (unchanged, none) = reuseFastRecord covering full
           map (^. #name) (unchanged ^. #static <> unchanged ^. #suite) @?= ["static", "suite"]
           none @?= Nothing
     , testCase "a cancelled step's process is terminated" $
