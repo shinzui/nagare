@@ -66,12 +66,18 @@ land" behave exactly as today.
     233 s. A change to an exported definition also recompiles its importers.
   - [ ] (b) concurrency and (d) docs-only coverage: not yet run; (b) waits for a time no other
     session gates, so it does not slow their runs.
-- [ ] M2. The full gate uses the fast record of the same tree. When the gated tree has a green
+- [x] M2. The full gate uses the fast record of the same tree. When the gated tree has a green
   fast record, the full gate skips its static and suite-build steps and copies that record's step
   results into the full record; with no fast record it runs them as today. Pass when: a post-land
   full gate of a `nagarectl` change has no local `nagarectl-build` step, its `gate: wall` is at
   most the flake check plus 90 s, `just gate-verify` accepts its record, and harness tests cover
   both branches.
+  - [x] 2026-10-17, `fa3205be` and `0ed88c6b` (which also reuses a fast record carried forward
+    over documentation commits): the post-land full gate of `5d0f1b16` (six `cli/nagarectl/`
+    files) printed "the green fast record … covers this tree's static checks and suite builds",
+    ran no local step, and was green with `nix-flake-check` 862.4 s and `gate: wall` 873 s;
+    `just gate-verify 5d0f1b16` accepts it. Test: `FlakeCheckSpec` "a green fast record of the
+    same tree stands in …" covers reuse and the four no-reuse cases.
 - [ ] M3. Local auth-plane image builds are incremental. In local mode
   `cluster/bootstrap/auth-images/build-local-image.sh` keeps each service's cabal build directory
   in a BuildKit cache mount, and builds with `--jobs=4`. Pass when: after a one-module change to
