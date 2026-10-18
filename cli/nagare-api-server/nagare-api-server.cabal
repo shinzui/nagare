@@ -1,6 +1,6 @@
 cabal-version: 3.0
 name: nagare-api-server
-version: 0.6.5
+version: 0.6.6
 synopsis: Nagare's read-only admin API server.
 description:
   Serves one context's recorded inventory state through the routes of

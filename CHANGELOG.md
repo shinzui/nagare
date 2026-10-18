@@ -5,6 +5,16 @@ immutable `v<major>.<minor>.<patch>` Git tags.
 
 ## [Unreleased]
 
+## [0.6.6] - 2026-10-18
+
+### Fixed
+
+- **Enabling a new cloud resource applies.** A zero-mutation update no longer runs `pulumi up`,
+  whose plan check refused the resources it skipped (F128).
+- **The admin API obtains its reader token.** Google's gzipped token response is decoded (F129).
+- **A transition stranded by a close can finish.** A converged review records a re-verified scope
+  a close kept unconverged, and a newer release may supersede an idle open transition (F130).
+
 ## [0.6.5] - 2026-10-17
 
 ### Fixed
