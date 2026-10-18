@@ -158,7 +158,9 @@ let
                 '';
               });
         in
-        nagarePackage (hl.doCheck (
+        # EP-200 M4: on aarch64-darwin the fast gate already ran this suite on
+        # the same tree, so only x86_64-linux tests in the derivation.
+        nagarePackage ((if pkgs.stdenv.hostPlatform.isDarwin then hl.dontCheck else hl.doCheck) (
           hl.overrideCabal revisionPackage (_old: {
             postPatch = (_old.postPatch or "") + ''
               substituteInPlace \
