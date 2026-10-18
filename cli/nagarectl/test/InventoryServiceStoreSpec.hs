@@ -192,8 +192,8 @@ server fake request respond = do
       send status value = respond (Wai.responseLBS status [(hContentType, "application/json")] (encode value))
       -- Google gzips the token response when the request accepts it.
       sendToken status value
-        | maybe False ("gzip" `BS.isInfixOf`) (lookup hAcceptEncoding (Wai.requestHeaders request)) =
-            respond (Wai.responseLBS status [(hContentType, "application/json"), (hContentEncoding, "gzip")] (GZip.compress (encode value)))
+        | maybe False ("gzip" `BS.isInfixOf`) (lookup "Accept-Encoding" (Wai.requestHeaders request)) =
+            respond (Wai.responseLBS status [(hContentType, "application/json"), ("Content-Encoding", "gzip")] (GZip.compress (encode value)))
         | otherwise = send status value
       refuse status = send status (object ["error" .= ("private-provider-diagnostic" :: T.Text)])
       prefix = "/storage/v1/b/fixture-bucket/o/" :: BS.ByteString
