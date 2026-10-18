@@ -96,11 +96,16 @@ land" behave exactly as today.
     and relinked in 28 s. That image (`nagare-admin-api@sha256:3de28047…`) passed
     `scripts/admin-api-drill.sh` on a fresh bootstrap (`NAGARE_DRILL_ADMIN_API=1`, packaged
     `nagarectl` of `5bbc12f2`; record `~/.local/state/nagare-drills/ep200-m3-20261017/evidence/admin-api-drill.json`).
-- [ ] M4. Only with the operator's yes (Decision Log, 2026-10-17): the flake check stops running
+- [x] M4. Only with the operator's yes (Decision Log, 2026-10-17): the flake check stops running
   the `nagarectl` suite on `aarch64-darwin`, which the fast gate ran on the same tree on the same
   system; `x86_64-linux` keeps its hermetic run. First measure the darwin suite's share of a
   post-land flake check from its log; pass when a full gate with this change is green, and its
   flake check time is recorded next to M2's.
+  - [x] 2026-10-18, `36ea3e5c`: the darwin derivation skips its check phase. The flake log has no
+    timestamps and interleaves both systems' suites, so the share was measured as the change
+    itself. The post-land full gate was green (x86_64-linux 37/37, aarch64-darwin 38/38), with
+    `nix-flake-check` 544.7 s and `gate: wall` 598 s, against M2's 862.4 s and 873 s; both
+    rebuilt `nagarectl` on both systems.
 
 
 ## Surprises & Discoveries
@@ -134,6 +139,7 @@ land" behave exactly as today.
   (nixpkgs versions) would no longer be tested as built on darwin. The saving is unmeasured. If
   the x86_64-linux chain is the flake check's longest, M4 saves local CPU but no wall time.
   Decide after M2's numbers.
+- 2026-10-18. The operator approved M4: the darwin hermetic `nagarectl` suite run is dropped.
 - 2026-10-17. Not in this plan: EP-184's declined M3 (builder keep-awake) and M4 (deep tier and
   sweep in the gate) stay declined; the builder's lost runs are handled by the probe and retry
   that EP-184 landed.
