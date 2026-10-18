@@ -51,11 +51,11 @@
     {"type": "gcp:compute/globalForwardingRule:GlobalForwardingRule", "name": "nagare-cdn-fr-https", "parent": "nagare-cdn", "layer": 11}
   ],
   "adminApiReaderEnabled": [
-    {"type": "nagare:env:NagareAdminApiReader", "name": "nagare-admin-api-reader", "parent": null, "layer": 2},
-    {"type": "gcp:serviceaccount/account:Account", "name": "nagare-admin-api-reader-sa", "parent": "nagare-admin-api-reader", "layer": 3},
-    {"type": "gcp:projects/iAMCustomRole:IAMCustomRole", "name": "nagare-admin-api-reader-object-role", "parent": "nagare-admin-api-reader", "layer": 3},
-    {"type": "gcp:projects/iAMCustomRole:IAMCustomRole", "name": "nagare-admin-api-reader-bucket-role", "parent": "nagare-admin-api-reader", "layer": 3},
-    {"type": "gcp:storage/bucketIAMMember:BucketIAMMember", "name": "nagare-admin-api-reader-objects", "parent": "nagare-admin-api-reader", "layer": 4},
-    {"type": "gcp:storage/bucketIAMMember:BucketIAMMember", "name": "nagare-admin-api-reader-bucket", "parent": "nagare-admin-api-reader", "layer": 4}
+    {"type": "nagare:env:NagareAdminApiReader", "name": "nagare-admin-api-reader", "parent": null, "layer": 12},
+    {"type": "gcp:serviceaccount/account:Account", "name": "nagare-admin-api-reader-sa", "parent": "nagare-admin-api-reader", "layer": 13},
+    {"type": "gcp:projects/iAMCustomRole:IAMCustomRole", "name": "nagare-admin-api-reader-object-role", "parent": "nagare-admin-api-reader", "layer": 13},
+    {"type": "gcp:projects/iAMCustomRole:IAMCustomRole", "name": "nagare-admin-api-reader-bucket-role", "parent": "nagare-admin-api-reader", "layer": 13},
+    {"type": "gcp:storage/bucketIAMMember:BucketIAMMember", "name": "nagare-admin-api-reader-objects", "parent": "nagare-admin-api-reader", "layer": 14},
+    {"type": "gcp:storage/bucketIAMMember:BucketIAMMember", "name": "nagare-admin-api-reader-bucket", "parent": "nagare-admin-api-reader", "layer": 14}
   ]
 }

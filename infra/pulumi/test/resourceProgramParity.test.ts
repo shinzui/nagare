@@ -218,6 +218,13 @@ async function main(): Promise<void> {
     const nativeAdminApiNames = foundationManagedAdminApi.map(({ pulumiType, pulumiName }) => `${pulumiType}::${pulumiName}`).sort();
     assert(JSON.stringify(adminApiNames) === JSON.stringify(nativeAdminApiNames),
         "reviewed cloud admin API reader catalog differs from registrations in the actual Pulumi program");
+    // EP-198: an existing context enables the reader later. Its creates become one grouped
+    // operation, and an existing member ordered after any of them would wait for the group
+    // while the group waits for it. Every reader layer is therefore above every other one.
+    const otherLayers = catalog.foundationManaged.concat(catalog.nixCacheEnabled, catalog.imageEnabled, catalog.cdnEnabled).map((entry) => entry.layer);
+    const readerFloor = Math.min(...catalog.adminApiReaderEnabled.map((entry) => entry.layer));
+    assert(readerFloor > Math.max(...otherLayers),
+        "an admin API reader layer is not above every other catalog layer, so an existing member can be ordered after the reader's grouped create");
     // F43: the CDN section is exactly what the legacy-certificate CDN adds to the image topology.
     const cdnNames = catalog.cdnEnabled.map(({ type, name }) => `${type}::${name}`).sort();
     const imageSet = names(image);
