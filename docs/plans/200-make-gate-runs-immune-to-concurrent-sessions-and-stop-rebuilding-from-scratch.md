@@ -83,11 +83,19 @@ land" behave exactly as today.
     ran no local step, and was green with `nix-flake-check` 862.4 s and `gate: wall` 873 s;
     `just gate-verify 5d0f1b16` accepts it. Test: `FlakeCheckSpec` "a green fast record of the
     same tree stands in …" covers reuse and the four no-reuse cases.
-- [ ] M3. Local auth-plane image builds are incremental. In local mode
+- [x] M3. Local auth-plane image builds are incremental. In local mode
   `cluster/bootstrap/auth-images/build-local-image.sh` keeps each service's cabal build directory
   in a BuildKit cache mount, and builds with `--jobs=4`. Pass when: after a one-module change to
   `cli/nagarectl`, a second `nagare-admin-api` build on `nagare-mp23` is timed against the first,
   both times recorded here, and the new image passes `scripts/admin-api-drill.sh`.
+  - [x] 2026-10-17, source `5bbc12f2`, arm64 on `nagare-mp23`: the first build, with an empty
+    cache mount, compiled 400 modules in about 332 s, then failed to copy the binary because
+    `cabal list-bin --builddir` also prints the source checkouts' "HEAD is now at" lines; `d70a12db`
+    keeps its last line. With that fix, an unchanged rebuild took 27 s, and after a one-line change
+    to `cli/nagarectl/src/Nagare/Inventory/Components/AdminApi.hs` the rebuild compiled one module
+    and relinked in 28 s. That image (`nagare-admin-api@sha256:3de28047…`) passed
+    `scripts/admin-api-drill.sh` on a fresh bootstrap (`NAGARE_DRILL_ADMIN_API=1`, packaged
+    `nagarectl` of `5bbc12f2`; record `~/.local/state/nagare-drills/ep200-m3-20261017/evidence/admin-api-drill.json`).
 - [ ] M4. Only with the operator's yes (Decision Log, 2026-10-17): the flake check stops running
   the `nagarectl` suite on `aarch64-darwin`, which the fast gate ran on the same tree on the same
   system; `x86_64-linux` keeps its hermetic run. First measure the darwin suite's share of a
