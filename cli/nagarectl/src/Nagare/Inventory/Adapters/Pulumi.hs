@@ -128,6 +128,10 @@ mkPulumiAdapter declared ops =
           case current >>= \identity -> first renderBundleError (validateHeader operation identity header) of
             Left reason -> pure (AdapterEffectFailed (KnownNoEffect reason))
             Right () -> pulumiApplySavedPlan ops operation planBytes
+        -- F128: a plan with no mutation has nothing to apply, and its
+        -- `pulumi up` can still fail the plan check on resources it skips.
+        -- The convergence preview proves it.
+        Right (header, _) | not (any (isMutation . op) (headerSteps header)) -> pure AdapterEffectCompleted
         Right (_, planBytes) -> pulumiApplySavedPlan ops operation planBytes
     verifyPlan operation prepared = case decodePrepared (preparedNativeBytes prepared) of
       Left err -> pure (Left (renderBundleError err))

@@ -44,7 +44,50 @@ inventoryPulumiPartialStageTests =
         let exported = BC.pack "{\"deployment\":{\"resources\":[],\"pending_operations\":[{\"resource\":{\"urn\":\"urn:zone\"},\"type\":\"creating\"}]}}"
         decodePendingOperations exported @?= Right (Map.singleton "urn:zone" "creating")
         decodePendingOperations (BC.pack "{\"deployment\":{\"resources\":[]}}") @?= Right Map.empty
+    , testCase "a saved plan with no mutation runs no pulumi up (F128)" noMutationPlan
     ]
+
+-- | The intranet's 0.6.5 stage 1: a zero-mutation update's targeted
+-- @pulumi up@ failed the plan check on the reader resources it skipped.
+noMutationPlan :: IO ()
+noMutationPlan = do
+  applied <- newIORef (0 :: Int)
+  let registration = head registrations
+      operation =
+        PlannedOperation
+          (ok (mkOperationId "op-same"))
+          UpdateResource
+          PulumiExecutor
+          (registrationResource registration :| [])
+          (contentDigest "spec")
+          []
+          Idempotent
+      plan verb =
+        PulumiAdapterOps
+          { pulumiObserveResources = \_ -> pure (observationSet [])
+          , pulumiPrepareSavedPlan = \_ ->
+              pure
+                ( Right
+                    PulumiPreparation
+                      { preparationIdentity = stackIdentity
+                      , preparationPreview = TE.encodeUtf8 ("{\"steps\":[{\"op\":\"" <> verb <> "\",\"urn\":\"" <> registrationPulumiUrn registration <> "\"}]}")
+                      , preparationSavedPlan = "plan"
+                      , preparationRegistrations = registrations
+                      }
+                )
+          , pulumiReadIdentity = \_ -> pure (Right stackIdentity)
+          , pulumiApplySavedPlan = \_ _ -> modifyIORef' applied (+ 1) >> pure (AdapterEffectAmbiguous "violates plan: dependencies changed")
+          , pulumiVerifyResources = \_ _ -> pure (Right (contentDigest "converged"))
+          , pulumiRecoverSavedPlan = \_ _ -> pure (RecoveryUnresolved "unused")
+          }
+      execute verb = do
+        let adapter = mkPulumiAdapter registrations (plan verb)
+        prepared <- adapterPrepare adapter operation >>= expectRight
+        adapterExecute adapter operation prepared
+  execute "same" >>= (@?= AdapterEffectCompleted)
+  readIORef applied >>= (@?= 0)
+  execute "update" >>= (@?= AdapterEffectAmbiguous "violates plan: dependencies changed")
+  readIORef applied >>= (@?= 1)
 
 -- | The intranet's stage 2 in small: the provider refuses the zone, the
 -- network is created beside it, and the subnet never starts. The network is
