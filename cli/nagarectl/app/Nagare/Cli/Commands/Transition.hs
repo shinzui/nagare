@@ -35,7 +35,7 @@ import Nagare.Inventory.Store
   )
 import Nagare.Platform.Deployment (DeploymentState (NotDeployed))
 import Nagare.Platform.Status (renderPlatformStatus)
-import Nagare.Platform.Transition (checkTransition, renderTransitionRefusal, transitionCommitRefusal, transitionOwnerRefusal)
+import Nagare.Platform.Transition (checkTransition, renderTransitionRefusal, transitionCommitRefusal, transitionContinueRefusal)
 import Nagare.Platform.Workspace (readPayloadManifest, renderWorkspaceError)
 import Nagare.Resource.Inventory qualified as ResourceInventory
 import Nagare.Resource.Types qualified as Resource
@@ -56,7 +56,9 @@ runPlatformTransitionPlan mctx output = do
       (dieT . renderTransitionRefusal)
       pure
       (checkTransition manifest (active ^. #profile . #platformVersion) (headSchemaVersion headValue))
-  for_ (headTransition headValue) $ \marker -> for_ (transitionOwnerRefusal marker (manifest ^. #payloadId)) dieT
+  for_ (headTransition headValue) $ \marker -> do
+    for_ (transitionContinueRefusal headValue marker (manifest ^. #payloadId)) dieT
+    unless (transitionSource marker == pair ^. #source) (dieT ("the open transition moves from " <> transitionSource marker <> ", not the pinned " <> pair ^. #source))
   snapshot <- Inventory.loadTargetSnapshotReadOnly active
   foundationOwner <- either dieT pure (Resource.mkScopeId Resource.Platform "cloud-foundation")
   when

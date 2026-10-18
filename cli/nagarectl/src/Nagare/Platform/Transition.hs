@@ -10,6 +10,7 @@ module Nagare.Platform.Transition
   , renderTransitionRefusal
   , sameDeclarationsModuloSource
   , transitionOwnerRefusal
+  , transitionContinueRefusal
   , transitionCommitRefusal
   , TransitionState (..)
   , TransitionDelta (..)
@@ -85,6 +86,15 @@ transitionOwnerRefusal marker payload
             <> payload
             <> ", so only the target release's nagarectl applies, resumes, recovers or closes until platform transition commit ends it"
         )
+
+-- | F130: planning or applying under an open transition. Its target payload
+-- continues it. While the store is idle, a newer release that moves the same
+-- pinned source may supersede it: its first admitted stage retargets the
+-- marker, so a defect that strands the target cannot strand the context.
+transitionContinueRefusal :: HeadManifest -> TransitionMarker -> Text -> Maybe Text
+transitionContinueRefusal headValue marker payload
+  | isNothing (headActiveTransaction headValue) && isNothing (headExecutorClaim headValue) = Nothing
+  | otherwise = transitionOwnerRefusal marker payload
 
 -- | Why `platform transition commit` may not write the pin yet, if anything:
 -- no transition is open, another payload's is, a transaction is unresolved, or

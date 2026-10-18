@@ -7,15 +7,19 @@ module Nagare.Inventory.Execute.Claims
   , observeCurrentHead
   , releaseClaim
   , releaseClaimWith
+  , reverifiedScopes
   )
 where
 
 import Data.Either (isRight)
+import Data.Generics.Labels ()
 import Data.List.NonEmpty (NonEmpty (..))
+import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Nagare.Dsl.Prelude
+import Nagare.Inventory.Adapter (PlannedOperation (plannedResources))
 import Nagare.Inventory.Execute.Incarnations (IncarnationBinding, bindIncarnations)
 import Nagare.Inventory.Execute.Types
   ( AdmissionError (..)
@@ -28,8 +32,10 @@ import Nagare.Inventory.Journal
   , transactionIdText
   )
 import Nagare.Inventory.Plan
-  ( ReviewDocument (reviewBaseRevisions, reviewCollections, reviewDesiredRevisions, reviewMigrations, reviewRetentions)
+  ( ReviewDocument (reviewBaseRevisions, reviewCollections, reviewDesiredRevisions, reviewMigrations, reviewOperations, reviewRetentions)
+  , ReviewOperation (reviewPlannedOperation)
   )
+import Nagare.Inventory.ScopeMember (decodeScopeMember)
 import Nagare.Inventory.Store
   ( ExecutorClaim
       ( ExecutorClaim
@@ -58,9 +64,13 @@ import Nagare.Inventory.Store
   , observeHead
   , observedHeadManifest
   , readHead
+  , readObject
   , replaceObservedHead
+  , revisionDigest
+  , scopeKey
   , storeClientIdentity
   )
+import Nagare.Resource.Inventory (Declaration (Managed), declarationId, scopeBundles)
 import Nagare.Resource.Types (ResourceId, ScopeId)
 
 executorStillClaimed :: LockedStore s -> TransactionId -> IO Bool
@@ -124,6 +134,7 @@ releaseClaimWith locked transaction completedReview bindings = do
           if converged && isJust (headDataFence headValue)
             then pure False
             else do
+              reverified <- maybe (pure Map.empty) (reverifiedScopes store (headConverged headValue)) completedReview
               let replacement =
                     headValue
                       { headGeneration = headGeneration headValue + 1
@@ -132,7 +143,7 @@ releaseClaimWith locked transaction completedReview bindings = do
                       , headConverged =
                           maybe
                             (headConverged headValue)
-                            (convergedSelectedScopes (headConverged headValue))
+                            (Map.union reverified . convergedSelectedScopes (headConverged headValue))
                             completedReview
                       , headIncarnations =
                           if converged
@@ -147,6 +158,31 @@ releaseClaimWith locked transaction completedReview bindings = do
                       }
               isRight <$> replaceObservedHead observed replacement
     _ -> pure False
+
+-- F130: a scope left accepted but unconverged (a close keeps a stopped
+-- review's desired revision) is re-verified member by member by the next
+-- review that selects it, unchanged. That review, converged, proves it. A
+-- scope with any managed member the review did not operate on stays as it
+-- was, and an unreadable scope proves nothing.
+reverifiedScopes :: InventoryStore -> Map ScopeId ScopeRevision -> ReviewDocument -> IO (Map ScopeId ScopeRevision)
+reverifiedScopes store previous document = Map.fromList . concat <$> traverse proved candidates
+  where
+    candidates =
+      [ (scope, revision)
+      | (scope, revision) <- Map.toList (reviewDesiredRevisions document)
+      , Map.lookup scope (reviewBaseRevisions document) == Just revision
+      , Map.lookup scope previous /= Just revision
+      ]
+    operated = Set.fromList [resource | operation <- reviewOperations document, resource <- NE.toList (plannedResources (reviewPlannedOperation operation))]
+    proved (scope, revision) = do
+      found <- readObject store (scopeKey (revisionDigest revision))
+      pure $ case found >>= decodeScopeMember scope (revisionDigest revision) of
+        Right declaration
+          | members <- [declarationId member | bundle <- scopeBundles declaration, member@(Managed _) <- bundle ^. #declarations]
+          , not (null members)
+          , all (`Set.member` operated) members ->
+              [(scope, revision)]
+        _ -> []
 
 -- A completed review proves only the scopes it changed. An unrelated stopped
 -- application may retain accepted ownership without readiness or convergence.

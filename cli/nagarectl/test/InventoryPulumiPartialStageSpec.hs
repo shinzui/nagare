@@ -126,6 +126,15 @@ partialStage = do
     Converged _ -> pure ()
     other -> assertFailure ("the replan did not converge: " <> show other)
   readIORef stack >>= (@?= Set.fromList (map urnOf ["net", "root", "subnet", "zone"]))
+  -- F130: on the intranet the close kept the scope's desired revision and the
+  -- replan left it unchanged. A converged review that operated on every member
+  -- of such a scope proves it; one that skipped a member proves nothing.
+  let document = reviewedDocument replanned
+      revision = reviewDesiredRevisions document Map.! scope
+      unchanged = document {reviewBaseRevisions = Map.insert scope revision (reviewBaseRevisions document)}
+  reverifiedScopes store Map.empty unchanged >>= (@?= Map.singleton scope revision)
+  reverifiedScopes store (Map.singleton scope revision) unchanged >>= (@?= Map.empty)
+  reverifiedScopes store Map.empty unchanged {reviewOperations = drop 1 (reviewOperations unchanged)} >>= (@?= Map.empty)
 
 emptyStage :: IO ()
 emptyStage = do

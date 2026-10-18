@@ -181,6 +181,15 @@ compatibilityTests =
         case transitionOwnerRefusal marker "payload-s" of
           Nothing -> assertFailure "a foreign payload continued the transition"
           Just reason -> assertBool (show reason) ("payload-t" `T.isInfixOf` reason && "payload-s" `T.isInfixOf` reason)
+    , testCase "an idle open transition may be continued by a superseding payload (F130)" $ do
+        recorded <- BS.readFile "test/fixtures/transition-0.4.0/store/head.json" >>= either (assertFailure . show) pure . decodeHead
+        let marker = TransitionMarker "0.4.0" "payload-t" "2026-10-11T00:00:00Z"
+            idle = recorded {headTransition = Just marker, headActiveTransaction = Nothing, headExecutorClaim = Nothing}
+        transitionContinueRefusal idle marker "payload-s" @?= Nothing
+        case transitionContinueRefusal idle {headActiveTransaction = Just "tx-1"} marker "payload-s" of
+          Nothing -> assertFailure "a foreign payload continued a busy transition"
+          Just reason -> assertBool (show reason) ("payload-t" `T.isInfixOf` reason)
+        transitionContinueRefusal idle {headActiveTransaction = Just "tx-1"} marker "payload-t" @?= Nothing
     ]
   where
     current = "{\"assetSchemaVersion\":1,\"payloadId\":\"p\",\"platformVersion\":\"0.5.0\",\"sourceRevision\":null,\"transitionsFrom\":[\"0.4.0\"]}"
@@ -213,11 +222,18 @@ markerTests =
         headValue <- currentHead store
         headTransition headValue @?= Just opened
         headActiveTransaction headValue @?= Nothing
-    , testCase "a transition review for another pair is refused by the open one" $ do
+    , testCase "a transition review from another source is refused by the open one" $ do
         store <- newMemoryStore
-        (reviewed, registry) <- fixture (transitionReviewIdentity "0.4.0" "payload-u") withOpen store
+        (reviewed, registry) <- fixture (transitionReviewIdentity "0.3.0" "payload-u") withOpen store
         errors <- applyReviewed store registry reviewed >>= expectLeft
         map admissionErrorCode (NE.toList errors) @?= ["open-transition"]
+    , testCase "a review moving the same source to another payload supersedes the open transition (F130)" $ do
+        store <- newMemoryStore
+        (reviewed, registry) <- fixture (transitionReviewIdentity "0.4.0" "payload-u") withOpen store
+        _ <- applyReviewed store registry reviewed >>= expectRight
+        headValue <- currentHead store
+        fmap transitionSource (headTransition headValue) @?= Just "0.4.0"
+        fmap transitionTarget (headTransition headValue) @?= Just "payload-u"
     , testCase "a later review of the open transition is admitted and keeps the marker's start" $ do
         store <- newMemoryStore
         (reviewed, registry) <- fixture (transitionReviewIdentity "0.4.0" "payload-t") withOpen store

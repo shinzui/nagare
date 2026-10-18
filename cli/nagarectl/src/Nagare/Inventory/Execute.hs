@@ -19,6 +19,7 @@ module Nagare.Inventory.Execute
   , settleReviewedOperation
   , CloseInput (..)
   , closeTransaction
+  , reverifiedScopes
   , AbandonInput (..)
   , MigrationExit (..)
   , abandonMigration
@@ -35,6 +36,7 @@ where
 import Nagare.Dsl.Prelude
 import Nagare.Inventory.Execute.Abandon (AbandonInput (..), MigrationExit (..), abandonMigration)
 import Nagare.Inventory.Execute.Admission (admit)
+import Nagare.Inventory.Execute.Claims (reverifiedScopes)
 import Nagare.Inventory.Execute.Close (CloseInput (..), closeTransaction)
 import Nagare.Inventory.Execute.Recovery
   ( prepareBootstrapRegistryRecovery

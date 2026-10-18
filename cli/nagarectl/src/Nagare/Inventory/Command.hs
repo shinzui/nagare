@@ -89,7 +89,7 @@ import Nagare.Inventory.Store.Remote qualified as Remote
 import Nagare.Inventory.Store.Target (openProfileReviewStoreReadOnly, openRemoteStore, openTargetStoreReadOnly, remoteInventoryUrl)
 import Nagare.Inventory.Store.TargetMigration (migrateTargetStore)
 import Nagare.Platform.Paths (renderPlatformPathError, resolvePlatformPaths)
-import Nagare.Platform.Transition (transitionOwnerRefusal)
+import Nagare.Platform.Transition (transitionContinueRefusal)
 import Nagare.Platform.Workspace (readPayloadManifest, renderWorkspaceError)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy
@@ -940,14 +940,14 @@ validateReviewTarget target binding = do
 
 -- | EP-172: while a release transition is open, only the target payload's
 -- nagarectl applies, resumes, recovers or closes; any other refuses and
--- names it. The running payload is read only when a transition is open.
+-- names it, unless the store is idle (F130: a newer release supersedes). The running payload is read only when a transition is open.
 requireTransitionOwner :: InventoryStore -> IO ()
 requireTransitionOwner store = do
   current <- readHead store >>= either (dieText . showText) pure
-  forM_ (current >>= headTransition) $ \marker -> do
+  forM_ current $ \headValue -> forM_ (headTransition headValue) $ \marker -> do
     paths <- resolvePlatformPaths Nothing >>= either (dieText . renderPlatformPathError) pure
     manifest <- readPayloadManifest paths >>= either (dieText . renderWorkspaceError) pure
-    forM_ (transitionOwnerRefusal marker (manifest ^. #payloadId)) dieText
+    forM_ (transitionContinueRefusal headValue marker (manifest ^. #payloadId)) dieText
 
 clientIdentity :: ActiveTarget -> Text
 clientIdentity target =

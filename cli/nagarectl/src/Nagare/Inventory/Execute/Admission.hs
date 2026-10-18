@@ -273,9 +273,12 @@ admit locked registry reviewed = do
                       , headRetained = Map.unions [retained, migrated, headRetained headValue]
                       , headActiveTransaction = Just (transactionIdText transaction)
                       , headExecutorClaim = Just claim
-                      , headTransition = headTransition headValue <|> opened
+                      , headTransition = case (headTransition headValue, opened) of
+                          (Just marker, Just next) | transitionTarget marker /= transitionTarget next -> Just next
+                          (current, next) -> current <|> next
                       }
-                  -- EP-172: the first review of a release transition opens its marker.
+                  -- EP-172: the first review of a release transition opens its marker;
+                  -- F130: a superseding release's first review retargets it.
                   opened = (\(source, target) -> TransitionMarker source target now) <$> parseTransitionReviewIdentity (reviewPayloadIdentity document)
               activation <- replaceObservedHead observed activated
               case activation of
@@ -288,12 +291,14 @@ admit locked registry reviewed = do
 
 -- | EP-172: while a release transition is open only its own reviews are
 -- admitted, and a transition review opens or continues only the transition
--- it names. The refusal names the target payload, whose CLI finishes the move.
+-- it names. A review moving the same source to another payload supersedes it
+-- (F130); admission runs only on an idle store. The refusal names the target
+-- payload, whose CLI finishes the move.
 transitionAdmission :: Maybe TransitionMarker -> Text -> [AdmissionError]
 transitionAdmission open identity = case (open, parseTransitionReviewIdentity identity) of
   (Nothing, _) -> []
-  (Just marker, Just (source, target))
-    | source == transitionSource marker && target == transitionTarget marker -> []
+  (Just marker, Just (source, _))
+    | source == transitionSource marker -> []
   (Just marker, _) ->
     [ AdmissionError
         "open-transition"
