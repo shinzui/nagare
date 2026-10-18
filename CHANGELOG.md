@@ -5,6 +5,14 @@ immutable `v<major>.<minor>.<patch>` Git tags.
 
 ## [Unreleased]
 
+## [0.6.5] - 2026-10-17
+
+### Fixed
+
+- **An installed cloud context can enable the admin API.** Its reader account's creates no longer
+  form an operation dependency cycle with the existing cloud members, which admission refused
+  (F125).
+
 ## [0.6.4] - 2026-10-17
 
 ### Added

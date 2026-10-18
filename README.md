@@ -18,10 +18,12 @@ entire system from scratch.
 > [MasterPlan 24](docs/masterplans/24-operate-nagare-as-a-team-run-workplace-intranet-paas.md).
 > Until that lands, treat a team installation as operated by one person at a time.
 
-> **Status:** [Nagare 0.6.4](https://github.com/shinzui/nagare/releases/tag/v0.6.4)
-> serves a context's recorded state through a read-only admin API behind login, gives the CLI's
-> outputs a versioned JSON contract, lists recorded sites, and makes ClickHouse 26.8 the default
-> ([release notes](docs/releases/v0.6.4.md)). [0.6.3](docs/releases/v0.6.3.md) protects static and
+> **Status:** [Nagare 0.6.5](https://github.com/shinzui/nagare/releases/tag/v0.6.5)
+> lets an installed cloud context enable the admin API's reader account
+> ([release notes](docs/releases/v0.6.5.md)). [0.6.4](docs/releases/v0.6.4.md) serves a
+> context's recorded state through a read-only admin API behind login, gives the CLI's outputs a
+> versioned JSON contract, lists recorded sites, and makes ClickHouse 26.8 the default.
+> [0.6.3](docs/releases/v0.6.3.md) protects static and
 > server sites behind login, grants a site to a team, checks one user's access, and diagnoses and
 > renews a host's certificate. [0.6.2](docs/releases/v0.6.2.md) ends a converged
 > upgrade plan with no operations, ships its pinned Helm, runs the release guard on every stage,
@@ -151,7 +153,7 @@ typed `nagare/Config.hs`; no Cabal package environment or Nagare checkout is
 needed. Select a reviewed release explicitly:
 
 ```bash
-export NAGARE_VERSION=0.6.4
+export NAGARE_VERSION=0.6.5
 nix run "github:shinzui/nagare/v${NAGARE_VERSION}#nagarectl" -- version
 nix profile install "github:shinzui/nagare/v${NAGARE_VERSION}#nagarectl"
 ```
@@ -319,7 +321,7 @@ Optimize for: **cheap, rebuildable, simple, observable, fun to use.**
 
 Full-context physical collection, live database/PVC overwrite, and new
 interactive mutating maintenance remain outside the 0.6 inventory contract. See
-[0.6.4 release notes](docs/releases/v0.6.4.md) for the supported boundaries and
+[0.6.5 release notes](docs/releases/v0.6.5.md) for the supported boundaries and
 known limits.
 
 Multi-node Kubernetes, Istio / full service mesh, Argo CD, Flux, Crossplane,
