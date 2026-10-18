@@ -70,14 +70,34 @@ flakeFailures = nubOrd . mapMaybe (failure . stripEscapes) . T.lines
        in fromMaybe named (T.stripSuffix ".drv" named)
 
 -- | Whether a failed flake check lost its remote builder and nothing else
--- failed: Nix found no machine for a remote build, and no builder exited with
--- an error. A build or test failure always shows as "failed with exit code",
--- so it is never mistaken for a lost builder (2026-10-14: an SSH timeout to
--- the builder turned a run whose every build passed into a red full gate).
+-- failed: Nix found no machine for a remote build, or a build on the builder
+-- failed before its builder ran (its inputs did not arrive: "N dependencies
+-- failed", "does not exist, and substitution is disabled"), and no builder
+-- exited with an error. A build or test failure always shows as "failed with
+-- exit code" while the run goes on, so it is never mistaken for a lost
+-- builder; the error Nix repeats under a failed check's @❌@ line says so too
+-- for a lost builder, and is not read (2026-10-14: an SSH timeout to the
+-- builder, 2026-10-17: a copy to it, each turned a run whose every build
+-- passed into a red full gate).
 builderLostOnly :: Text -> Bool
-builderLostOnly output =
-  any (`T.isInfixOf` output) ["Failed to find a machine for remote build", "failed to start SSH connection"]
-    && not ("failed with exit code" `T.isInfixOf` output)
+builderLostOnly output = any lost reports && not (any failed reports)
+  where
+    reports = filter (not . buildLogLine) (withoutCheckErrors (map stripEscapes (T.lines output)))
+    lost line =
+      any (`T.isInfixOf` line) ["Failed to find a machine for remote build", "failed to start SSH connection"]
+        || ("error: build of '" `T.isPrefixOf` line && "on 'ssh://" `T.isInfixOf` line)
+    failed line = any (`T.isInfixOf` line) ["failed with exit code", "failed to produce output path"]
+    withoutCheckErrors = \case
+      [] -> []
+      line : rest
+        | "\x274C " `T.isPrefixOf` line
+        , next : more <- rest
+        , "error: Cannot build " `T.isPrefixOf` next ->
+            withoutCheckErrors (dropWhile (" " `T.isPrefixOf`) more)
+        | otherwise -> line : withoutCheckErrors rest
+    -- A builder's own output, @<name>> ...@.
+    buildLogLine line = case T.breakOn "> " line of
+      (name, rest) -> not (T.null name) && not (T.null rest) && not (T.any (== ' ') name)
 
 -- | Drop ANSI escape sequences (@ESC [ ... letter@).
 stripEscapes :: Text -> Text

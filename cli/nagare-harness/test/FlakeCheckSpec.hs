@@ -88,6 +88,15 @@ flakeCheckTests =
         builderLostOnly (lost <> "error: Cannot build '/nix/store/bbb-tests.drv'.\n       Reason: builder failed with exit code 1.\n") @?= False
         builderLostOnly "error: builder for '/nix/store/aaa-broken.drv' failed with exit code 1;\n" @?= False
         builderLostOnly "error: attribute 'missing' not found\n" @?= False
+    , testCase "a build whose inputs never reached the builder counts as a lost builder" $ do
+        let remote reason = "error: build of '/nix/store/aaa-haskell-style.drv' on 'ssh://builder@b' failed: " <> reason
+            checkError = "\x274C checks.x86_64-linux.haskell-style\nerror: Cannot build '/nix/store/aaa-haskell-style.drv'.\n       Reason: builder failed with exit code 1.\n       Output paths:\n         /nix/store/bbb-haskell-style\n"
+        builderLostOnly (remote "Cannot build '/nix/store/aaa-haskell-style.drv'.\n       Reason: 6 dependencies failed.\n" <> "\x2705 checks.x86_64-linux.kubectl\n" <> checkError) @?= True
+        builderLostOnly (remote "error: dependency '/nix/store/ccc-source' of '/nix/store/aaa-haskell-style.drv' does not exist, and substitution is disabled\n") @?= True
+        builderLostOnly (remote "Cannot build '/nix/store/aaa-haskell-style.drv'.\n       Reason: builder failed with exit code 127.\n" <> checkError) @?= False
+        builderLostOnly (remote "builder for '/nix/store/aaa-api.drv' failed to produce output path for output 'out'\n") @?= False
+        builderLostOnly (remote "Cannot build '/nix/store/aaa-haskell-style.drv'.\n       Reason: 6 dependencies failed.\n" <> "error: Cannot build '/nix/store/ddd-tests.drv'.\n       Reason: builder failed with exit code 1.\n") @?= False
+        builderLostOnly (lost <> "host-switch-identity> the probe failed with exit code 43, as the test wants\n") @?= True
     , testCase "a flake check that lost the builder runs once more after the probe, and the second run decides" $
         withPlan (retrying [ok "probe"] lostOnce) $ \(_, flake, said, _) -> do
           map (^. #name) flake @?= ["nix-flake-check", "probe", "nix-flake-check-retry"]
