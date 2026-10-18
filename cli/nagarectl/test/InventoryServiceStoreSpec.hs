@@ -4,6 +4,7 @@
 -- prove which calls the reader makes and that it never lists or writes.
 module InventoryServiceStoreSpec (inventoryServiceStoreTests) where
 
+import Codec.Compression.GZip qualified as GZip
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (mapConcurrently)
 import Control.Monad (join)
@@ -189,6 +190,11 @@ server fake request respond = do
   let path = Wai.rawPathInfo request
       query name = join (lookup name (Wai.queryString request))
       send status value = respond (Wai.responseLBS status [(hContentType, "application/json")] (encode value))
+      -- Google gzips the token response when the request accepts it.
+      sendToken status value
+        | maybe False ("gzip" `BS.isInfixOf`) (lookup hAcceptEncoding (Wai.requestHeaders request)) =
+            respond (Wai.responseLBS status [(hContentType, "application/json"), (hContentEncoding, "gzip")] (GZip.compress (encode value)))
+        | otherwise = send status value
       refuse status = send status (object ["error" .= ("private-provider-diagnostic" :: T.Text)])
       prefix = "/storage/v1/b/fixture-bucket/o/" :: BS.ByteString
   modifyIORef' (calls fake) ((Wai.requestMethod request, path, Wai.queryString request) :)
@@ -199,7 +205,7 @@ server fake request respond = do
       atomicModifyIORef' (exchanges fake) (\count -> (count + 1, ()))
       if denied
         then refuse status400
-        else send status200 (object ["access_token" .= ("reader-token" :: T.Text), "expires_in" .= lifetime, "token_type" .= ("Bearer" :: T.Text)])
+        else sendToken status200 (object ["access_token" .= ("reader-token" :: T.Text), "expires_in" .= lifetime, "token_type" .= ("Bearer" :: T.Text)])
     else
       if lookup hAuthorization (Wai.requestHeaders request) /= Just "Bearer reader-token" || isJust (query "userProject")
         then refuse status401

@@ -90,7 +90,8 @@ attempt action = do
   pure (fromMaybe (Left (Failure Nothing)) bounded)
 
 -- | Apply to the manager used by the supplied environment as well as auth
--- refresh. Conditional uploads are never implicitly retried. Media stays raw.
+-- refresh. Conditional uploads are never implicitly retried. Media stays raw;
+-- the token response is decoded, since Google gzips it (F129).
 inventoryManagerSettings :: HTTP.ManagerSettings
 inventoryManagerSettings =
   tlsManagerSettings
@@ -100,7 +101,7 @@ inventoryManagerSettings =
           request
             { HTTP.redirectCount = 0
             , HTTP.responseTimeout = HTTP.responseTimeoutMicro 20000000
-            , HTTP.decompress = const False
+            , HTTP.decompress = if HTTP.path request == "/oauth2/v4/token" then HTTP.decompress request else const False
             }
     }
 

@@ -737,3 +737,4 @@ test-suite nagarectl-test
     wai,
     warp,
     yaml,
+    zlib,
