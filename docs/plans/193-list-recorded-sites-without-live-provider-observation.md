@@ -69,10 +69,12 @@ their live inspection roles.
   `PATH`: the table filtered by `-n team` shows only `notes`; the JSON document lists 44 sites of
   kinds site, service and preview with `liveObserved: false`. Reference, static-hosting and
   app-lifecycle documentation updated.
-- [ ] M3. Done: the no-write test (an object store whose writes, listings and batch reads fail
+- [x] M3. Done: the no-write test (an object store whose writes, listings and batch reads fail
   the test serves the full site query) and the local timing at `3864cc09`+M2 on that fixture,
-  five warm runs of the built binary at 0.05–0.06 s (target under 1 s). Open: the five warm and
-  one cold timing against a representative GCS context, a read of the operator's real context.
+  five warm runs of the built binary at 0.05–0.06 s (target under 1 s). 2026-10-18, folded into
+  EP-198 M3 (operator, 2026-10-17): the intranet's real GCS inventory read through the admin API,
+  sites cold 0.26 s, warm p50 0.18 s and p95 0.22 s
+  ([evidence](../audits/ep198-admin-api/README.md#m3-the-intranet-2026-10-18)).
 
 ## Surprises & Discoveries
 

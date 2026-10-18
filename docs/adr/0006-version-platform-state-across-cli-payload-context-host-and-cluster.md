@@ -203,3 +203,14 @@ implemented the transition the amendment above assigned. It refines that amendme
 
 The 2026-09-26 restriction no longer applies to a pair in T's `transitionsFrom`. It still holds for
 every other pair, and for the legacy runner.
+
+## Amendment — 2026-10-18: a newer release may supersede an idle open transition
+
+The intranet's 0.6.4→0.6.5 transition could not be committed after a close (F130), and only its
+target payload could act on it, so no release could repair it. Since v0.6.6, while the store is
+idle (no active transaction or executor claim), a payload whose transition moves the same pinned
+source may plan and apply under an open marker (`transitionContinueRefusal`). Its first admitted
+stage retargets the marker to itself, and from then on only it continues. Commit still requires
+the marker's own payload, and the pin is still written last. A converged review also records a
+scope that a close left accepted but unconverged when it operated on every managed member of that
+scope.

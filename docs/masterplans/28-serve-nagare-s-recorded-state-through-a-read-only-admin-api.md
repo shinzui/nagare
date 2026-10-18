@@ -88,10 +88,10 @@ requires offline proof before native confirmation.
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | 192 | Publish the shared versioned document contract | [EP-192](../plans/192-publish-a-versioned-json-contract-for-the-nagarectl-outputs-kotei-consumes.md) | EP-193 M1 for M4 only | None | Complete |
-| 193 | Read recorded state and list recorded sites | [EP-193](../plans/193-list-recorded-sites-without-live-provider-observation.md) | EP-192 M1 for M1 DTO/converter acceptance | None | In Progress |
-| 196 | Open the inventory through a read-only service identity | [EP-196](../plans/196-read-the-inventory-store-from-an-in-cluster-service-identity.md) | None | EP-193 head-reader interface | In Progress |
+| 193 | Read recorded state and list recorded sites | [EP-193](../plans/193-list-recorded-sites-without-live-provider-observation.md) | EP-192 M1 for M1 DTO/converter acceptance | None | Complete |
+| 196 | Open the inventory through a read-only service identity | [EP-196](../plans/196-read-the-inventory-store-from-an-in-cluster-service-identity.md) | None | EP-193 head-reader interface | Complete |
 | 197 | Serve typed, bounded HTTP reads | [EP-197](../plans/197-serve-the-read-documents-through-a-typed-servant-admin-api.md) | EP-192 M1, EP-193 M1 | EP-196 for cloud source | Complete |
-| 198 | Deploy behind the admin hostname grant | [EP-198](../plans/198-run-the-admin-api-in-each-context-behind-an-admin-grant.md) | EP-196 M2 and EP-197 for M1–M2; EP-196 for M3 | None | In Progress |
+| 198 | Deploy behind the admin hostname grant | [EP-198](../plans/198-run-the-admin-api-in-each-context-behind-an-admin-grant.md) | EP-196 M2 and EP-197 for M1–M2; EP-196 for M3 | None | Complete |
 
 Status values: Not Started, In Progress, Complete, Cancelled, Held.
 
@@ -185,14 +185,10 @@ replace the network-policy proof. Native work follows existing authorization req
 
 ## Progress
 
-EP-192 and EP-197 are complete. EP-198 M1 (offline) and M2 (disposable local context, evidence in
-[`docs/audits/ep198-admin-api/`](../audits/ep198-admin-api/README.md)) are done. What remains is the
-one bounded cloud sequence after v0.6.4 is released, approved by the operator on 2026-10-17:
-- EP-196 M3's Pulumi preview and apply of the reader account;
-- the key and its sops Secret;
-- the intranet transition with the admin API enabled;
-- EP-198 M3's IAM, metadata, bypass and gateway-to-GCS latency proofs, which also close EP-193 M3's
-  GCS timing.
+Every child plan is complete. The intranet runs v0.6.6 with the admin API at
+`admin.<base domain>/v1` (2026-10-18); EP-198 M3's cloud proof, which also closes EP-196 M3 and
+EP-193 M3, is in [`docs/audits/ep198-admin-api/`](../audits/ep198-admin-api/README.md). The
+operator's passkey login and a browser grant on the admin host remain the operator's to confirm.
 
 
 ## Surprises & Discoveries
@@ -204,6 +200,12 @@ identity already has mutating permissions. Those source findings motivate the co
 
 
 ## Decision Log
+
+2026-10-18: Enabling the admin API on the intranet surfaced F128 (a zero-mutation update's
+`pulumi up` refused skipped reader creates), F129 (the reader could not parse Google's gzipped
+token response) and F130 (a close-kept scope blocked the transition commit forever). v0.6.6 fixes
+all three, and a newer release may now supersede an idle open transition
+([ADR 6, 2026-10-18 amendment](../adr/0006-version-platform-state-across-cli-payload-context-host-and-cluster.md)).
 
 2026-10-17: EP-193 M3's remote timing is measured by EP-198 M3 (warm and cold reads through the
 real gateway against the intranet's GCS store), not as a separate run.
@@ -259,6 +261,4 @@ from the previous MasterPlan tail. No implementation or native performance resul
 
 ## Outcomes & Retrospective
 
-Implementation is pending. The plan now specifies the behavior and measurements required to
-establish that the API is correct and prompt; completion requires all child acceptance and the
-real gateway/GCS proof.
+Complete on 2026-10-18 with v0.6.6; see Progress.

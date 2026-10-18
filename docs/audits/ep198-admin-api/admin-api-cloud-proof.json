@@ -1,0 +1,160 @@
+{
+  "context": "intranet",
+  "host": "admin.labs.topagentnetwork.net",
+  "mode": "cloud",
+  "nagarectl": {
+    "revision": "b862241a6c183ff3c12fa3ff37681c10244541d8",
+    "version": "0.6.6"
+  },
+  "observations": [
+    {
+      "step": "context",
+      "value": "intranet (tan-ng-labs), nodes intranet-nagare"
+    },
+    {
+      "step": "nagarectl",
+      "value": "0.6.6 b862241a6c183ff3c12fa3ff37681c10244541d8"
+    },
+    {
+      "step": "admin API image",
+      "value": "us-west1-docker.pkg.dev/tan-ng-labs/nagare/nagare-admin-api@sha256:035be797d5319fa857e12682b70361ae7f2e1db8648a3dc419e72ca7517a1421"
+    },
+    {
+      "step": "admin API pod user",
+      "value": "10001"
+    },
+    {
+      "step": "admin route target",
+      "value": "nagare-access"
+    },
+    {
+      "step": "backend entry",
+      "value": "{\"apiPrefix\": \"/v1\", \"role\": \"protected\", \"timeoutSeconds\": 15, \"upstream\": \"http://nagare-admin-api.nagare-system.svc.cluster.local\"}"
+    },
+    {
+      "step": "anonymous /v1 without Accept",
+      "value": "401"
+    },
+    {
+      "step": "anonymous problem code",
+      "value": "unauthenticated"
+    },
+    {
+      "step": "anonymous challenge",
+      "value": "Bearer"
+    },
+    {
+      "step": "anonymous UI document",
+      "value": "302"
+    },
+    {
+      "step": "service account",
+      "value": "svcacct_01m582etekeq9txskkf8jj6sj4"
+    },
+    {
+      "step": "service account, no grant",
+      "value": "403"
+    },
+    {
+      "step": "granted service account, head",
+      "value": "200"
+    },
+    {
+      "step": "head revision",
+      "value": "037c632828182095f8f9b5d420680eca0ded5eca2715aebaf30e9f7ec0676f2e"
+    },
+    {
+      "step": "conditional head",
+      "value": "304"
+    },
+    {
+      "step": "first sites read (cold for this list)",
+      "value": "200 0.257801"
+    },
+    {
+      "step": "granted service account, /v1/inventory/scopes",
+      "value": "200"
+    },
+    {
+      "step": "granted service account, /v1/access/grants",
+      "value": "200"
+    },
+    {
+      "step": "granted service account, /v1/inventory/publications",
+      "value": "200"
+    },
+    {
+      "step": "warm latency /v1/inventory/head",
+      "value": "p50 0.178 s, p95 0.214 s, max 0.238 s"
+    },
+    {
+      "step": "warm latency /v1/sites",
+      "value": "p50 0.178 s, p95 0.197 s, max 0.207 s"
+    },
+    {
+      "step": "warm latency /v1/inventory/scopes",
+      "value": "p50 0.208 s, p95 0.226 s, max 0.236 s"
+    },
+    {
+      "step": "control: application pod to the gateway Service",
+      "value": "200"
+    },
+    {
+      "step": "application pod to http://nagare-admin-api.nagare-system.svc.cluster.local/v1/inventory/head",
+      "value": "000"
+    },
+    {
+      "step": "platform pod to http://nagare-admin-api.nagare-system.svc.cluster.local/v1/inventory/head",
+      "value": "000"
+    },
+    {
+      "step": "application pod to http://10.42.0.242:8085/v1/inventory/head",
+      "value": "000"
+    },
+    {
+      "step": "platform pod to http://10.42.0.242:8085/v1/inventory/head",
+      "value": "000"
+    },
+    {
+      "step": "look-alike label to the Pod IP",
+      "value": "000"
+    },
+    {
+      "step": "API pod to the metadata server by address",
+      "value": "000"
+    },
+    {
+      "step": "API pod to the metadata server by name",
+      "value": "000"
+    },
+    {
+      "step": "reader: head.json",
+      "value": "200"
+    },
+    {
+      "step": "reader: bucket metadata",
+      "value": "200"
+    },
+    {
+      "step": "reader: list the bucket",
+      "value": "403"
+    },
+    {
+      "step": "reader: a journal object",
+      "value": "403"
+    },
+    {
+      "step": "reader: a sibling Pulumi object",
+      "value": "403"
+    },
+    {
+      "step": "reader: write a scratch object",
+      "value": "403"
+    },
+    {
+      "step": "revoked service account",
+      "value": "403"
+    }
+  ],
+  "schemaVersion": 1
+}

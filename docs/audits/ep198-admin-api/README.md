@@ -45,3 +45,23 @@ the gateway.
 
 The pod runs as UID 0 with only `DAC_READ_SEARCH`: the VM shares the store's owner-private files
 as root-owned. The cloud pod runs as UID 10001 with no capabilities.
+
+## M3: the intranet (2026-10-18)
+
+Run with `nagarectl` 0.6.6 (`b862241a`) from the operator shell of context `intranet`, after the
+0.6.6 transition was committed (status exact on CLI, payload, context, host and cluster), with
+`NAGARE_PROOF_OUT=<dir> bash scripts/admin-api-cloud-proof.sh`. The API ran
+`nagare-admin-api@sha256:035be797…1421`, built from `af349090` (F129), as UID 10001. The record is
+[`admin-api-cloud-proof.json`](admin-api-cloud-proof.json).
+
+- **Gateway:** anonymous `/v1` without Accept is 401 `unauthenticated` with a Bearer challenge;
+  the UI document is 302. A throwaway Shomei service account gets 403 without a grant, 200 on
+  the head, scopes, grants, publications and sites with one, 304 on a conditional head, and 403
+  after its revoke.
+- **Latency, gateway to GCS, warm (EP-193 M3, EP-197):** head p50 0.18 s, p95 0.22 s; sites p50
+  0.18 s, p95 0.22 s; scopes p50 0.21 s, p95 0.25 s. A cold first sites read took 0.26 s.
+- **Bypass:** application and platform pods reach the gateway (200) but not the API Service or
+  Pod IP, nor does a pod with a look-alike label. The API pod reaches neither the metadata server
+  by address nor by name.
+- **Reader IAM, asked of Cloud Storage with the reader's own key:** `head.json` and the bucket
+  metadata 200; listing the bucket, a journal object, a sibling Pulumi object and a write 403.

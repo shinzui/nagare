@@ -59,11 +59,15 @@ coordinates this with the document contract and HTTP service; this plan does not
   listing; a write never leaves the reader; an authorized-user credential is refused; eight
   concurrent reads after expiry cost one token exchange; a refused token exchange is a
   credential failure; a caller's one-second deadline cancels a hung read.
-- [ ] M3. `infra/pulumi` `NagareAdminApiReader` (constructed only with `enableAdminApiReader`, so
+- [x] M3. `infra/pulumi` `NagareAdminApiReader` (constructed only with `enableAdminApiReader`, so
   existing stacks preview unchanged) declares the account, the two custom roles and the two
   bucket members, and exports the email and project number; `test/adminApiReaderResources`
-  checks exactly those five resources, read-only permissions and the exact condition. Open: the
-  disposable cloud preview, which needs the operator's go-ahead.
+  checks exactly those five resources, read-only permissions and the exact condition. 2026-10-18:
+  applied on the intranet instead of a disposable preview (operator, 2026-10-17); the reader's own
+  key reads `head.json` and the bucket metadata and is refused listing, a journal object, a sibling
+  Pulumi object and a write
+  ([EP-198 M3 evidence](../audits/ep198-admin-api/README.md#m3-the-intranet-2026-10-18)). The
+  server's token exchange needed F129's fix.
 
 ## Surprises & Discoveries
 

@@ -76,11 +76,13 @@ coordinates the service, credentials and contract.
   [`docs/audits/ep198-admin-api/`](../audits/ep198-admin-api/README.md). Two findings were fixed on
   the way: the packaged suite needed the spec's cluster-source patch, and a VM shares the store's
   owner-private files as root-owned (decision below).
-- [ ] M3. After the release and operator authorization for the bounded cloud sequence, reviewed
-  infrastructure applies EP-196's identity/IAM first, then the intranet transition adds the API.
-  Browser and service-account access work, actual IAM denies writes and sibling Pulumi reads,
-  the pod cannot reach the mutating node metadata credential, and gateway-to-GCS latency meets
-  EP-197's measured acceptance. Deploy-and-login still passes; record the tested release/evidence.
+- [x] M3. 2026-10-18, intranet on v0.6.6 (`b862241a`), evidence in
+  [`docs/audits/ep198-admin-api/`](../audits/ep198-admin-api/README.md#m3-the-intranet-2026-10-18):
+  the reader account and grants applied in the cloud stage, the API in the platform stage;
+  service-account access, IAM refusal of listing, journal, sibling Pulumi reads and writes, no
+  bypass and no metadata path pass; warm p95 0.22–0.25 s. Status is exact, protected sites and
+  the admin UI redirect to login, `/signup` is 404. The operator's passkey login and a browser
+  grant on the admin host are the operator's to confirm.
 
 
 ## Surprises & Discoveries
@@ -91,6 +93,16 @@ a rollout and honest network-policy boundaries for this service.
 
 
 ## Decision Log
+
+2026-10-18 (M3): The intranet's 0.6.4→0.6.5 transition created the reader account and its two
+grants, and its platform stage deployed the API (Deployment Ready, anonymous `/v1` answers 401
+`application/problem+json`, `protected-hello` still 302). Three defects surfaced and are fixed
+in v0.6.6: F128 (a zero-mutation update's `pulumi up` refused skipped reader creates, which the
+documented resume path settled one operation at a time with no effect), F129 (the reader
+could not parse Google's gzipped token response; the intranet runs the fixed image
+`sha256:035be797…` from `af349090`), and F130 (a close-kept scope could never record
+convergence, so the transition could not be committed). The operator chose to ship v0.6.6 and
+let it supersede the open transition rather than work around the commit guard.
 
 2026-10-17 (M2): The local pod runs as UID 0 with every capability dropped except
 `DAC_READ_SEARCH`, with a read-only root filesystem and mount and no privilege escalation.
