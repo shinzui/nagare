@@ -43,7 +43,7 @@ RUN --mount=type=cache,target=/root/.cache/cabal,sharing=locked \
   mkdir -p /out/bin; \
   for target in ${CABAL_BINARIES}; do \
     binary_name="${target#exe:}"; \
-    cp "$(cabal list-bin ${builddir} "$target")" "/out/bin/${binary_name}"; \
+    cp "$(cabal list-bin ${builddir} "$target" | tail -n 1)" "/out/bin/${binary_name}"; \
   done
 
 FROM docker.io/library/debian:bookworm-slim
