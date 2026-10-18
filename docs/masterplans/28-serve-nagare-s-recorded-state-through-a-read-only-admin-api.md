@@ -188,7 +188,7 @@ replace the network-policy proof. Native work follows existing authorization req
 Every child plan is complete. The intranet runs v0.6.6 with the admin API at
 `admin.<base domain>/v1` (2026-10-18); EP-198 M3's cloud proof, which also closes EP-196 M3 and
 EP-193 M3, is in [`docs/audits/ep198-admin-api/`](../audits/ep198-admin-api/README.md). The
-operator's passkey login and a browser grant on the admin host remain the operator's to confirm.
+operator's passkey login works on v0.6.6 (operator, 2026-10-18), so v0.6.6 counts as released.
 
 
 ## Surprises & Discoveries

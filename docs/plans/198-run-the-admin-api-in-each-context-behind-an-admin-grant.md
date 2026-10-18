@@ -81,8 +81,8 @@ coordinates the service, credentials and contract.
   the reader account and grants applied in the cloud stage, the API in the platform stage;
   service-account access, IAM refusal of listing, journal, sibling Pulumi reads and writes, no
   bypass and no metadata path pass; warm p95 0.22–0.25 s. Status is exact, protected sites and
-  the admin UI redirect to login, `/signup` is 404. The operator's passkey login and a browser
-  grant on the admin host are the operator's to confirm.
+  the admin UI redirect to login, `/signup` is 404, and the operator's passkey login works
+  (operator, 2026-10-18).
 
 
 ## Surprises & Discoveries
