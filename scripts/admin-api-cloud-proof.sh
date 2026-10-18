@@ -159,7 +159,7 @@ expect "API pod to the metadata server by name" "$(metadata name 'http://metadat
 if [ "$REHEARSAL" != local ]; then
 secrets="${XDG_CONFIG_HOME:-$HOME/.config}/nagare/cluster-secrets/$NAGARE_CONTEXT/admin-api-reader.yaml"
 (umask 077; sops -d --extract '["stringData"]["key.json"]' "$secrets" > "$WORK/key.json")
-token="$(CLOUDSDK_CONFIG="$WORK/gcloud" gcloud auth activate-service-account --key-file "$WORK/key.json" >/dev/null 2>&1 && CLOUDSDK_CONFIG="$WORK/gcloud" gcloud auth print-access-token)"
+token="$(env -u CLOUDSDK_ACTIVE_CONFIG_NAME CLOUDSDK_CONFIG="$WORK/gcloud" gcloud auth activate-service-account --key-file "$WORK/key.json" >/dev/null 2>&1 && env -u CLOUDSDK_ACTIVE_CONFIG_NAME CLOUDSDK_CONFIG="$WORK/gcloud" gcloud auth print-access-token)"
 rm -f "$WORK/key.json"
 url="${NAGARE_INVENTORY_STORE_URL:?the context names its inventory URL}"
 rest="${url#gs://}"; bucket="${rest%%/*}"; prefix="${rest#*/}"; prefix="${prefix%/}"
