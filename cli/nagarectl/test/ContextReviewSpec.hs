@@ -11,7 +11,7 @@ import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Store (HeadManifest (..), MigrationTombstone (..), ScopeRevision (..))
 import Nagare.Resource.Types
 import Nagare.Target (ContextName, mkContextName, parseContextEnv, profileFromContextMap)
-import System.Directory (doesFileExist, removeFile)
+import System.Directory (createDirectoryIfMissing, createDirectoryLink, createFileLink, doesFileExist, doesPathExist, pathIsSymbolicLink, removeFile)
 import System.Exit (ExitCode (ExitSuccess))
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
@@ -37,6 +37,31 @@ contextReviewTests =
           BS.writeFile path "later profile"
           applyProfileReview path observe plan >>= (@?= Right ())
           BS.readFile path >>= (@?= "later profile")
+    , testCase "F126: a reviewed change applies through a linked context and keeps the link" $
+        withSystemTempDirectory "context-review-linked" $ \root -> do
+          let real = root </> "real"
+              contexts = root </> "contexts"
+              target = real </> "fixture.env"
+              path = contexts </> "fixture.env"
+          createDirectoryIfMissing True (real </> "fixture.env.reviews")
+          createDirectoryIfMissing True contexts
+          BS.writeFile target (TE.encodeUtf8 original)
+          createFileLink target path
+          createDirectoryLink (real </> "fixture.env.reviews") (path <> ".reviews")
+          plan <- right (prepareProfileReviewAt name path original (Just updated) headValue)
+          applyProfileReview path observe plan >>= (@?= Right ())
+          pathIsSymbolicLink path >>= (@?= True)
+          BS.readFile target >>= (@?= TE.encodeUtf8 updated)
+          bytes <- right (profileReviewBytes plan)
+          doesFileExist (real </> "fixture.env.reviews" </> T.unpack (digestText (contentDigest bytes)) </> "completed") >>= (@?= True)
+          removal <- right (prepareProfileReviewAt name path updated Nothing headValue)
+          applyProfileReview path observe removal >>= assertBool "linked removal" . isLeft
+          BS.readFile target >>= (@?= TE.encodeUtf8 updated)
+          let dangling = contexts </> "dangling.env"
+          createFileLink (real </> "missing.env") dangling
+          danglingPlan <- right (prepareProfileReviewAt name dangling original (Just updated) headValue)
+          applyProfileReview dangling observe danglingPlan >>= assertBool "dangling link" . isLeft
+          doesPathExist (real </> "missing.env") >>= (@?= False)
     , testCase "removal retains authority and restores exact bytes" $
         withSystemTempDirectory "context-remove" $ \root -> do
           let path = root </> "fixture.env"

@@ -52,7 +52,7 @@ import Nagare.Target
   , validateVmShape
   , vmShapeOf
   )
-import System.Directory (createDirectory, createDirectoryIfMissing, doesDirectoryExist, doesPathExist, pathIsSymbolicLink, removeFile, renameFile)
+import System.Directory (canonicalizePath, createDirectory, createDirectoryIfMissing, doesDirectoryExist, doesPathExist, pathIsSymbolicLink, removeFile, renameFile)
 import System.FilePath (isAbsolute, takeDirectory, (</>))
 import System.IO (IOMode (AppendMode), hClose, openFile)
 import System.IO.Temp (openBinaryTempFile)
@@ -253,16 +253,18 @@ saveProfileReview output review = safely $ do
 applyProfileReview :: FilePath -> (ProfileReview -> IO (Either Text HeadManifest)) -> ProfileReview -> IO (Either Text ())
 applyProfileReview location observe review = withProfileLock location $ do
   checkLocation location review
+  target <- controlledPath location
+  when (isNothing (replacement review) && target /= location) (fail "a linked context is removed in its private repository, not by context control")
   bytes <- either (fail . T.unpack) pure (profileReviewBytes review)
-  let root = receiptRoot location bytes
-      intent = root </> "intent.json"
+  root <- receiptRoot location bytes
+  let intent = root </> "intent.json"
       complete = root </> "completed"
   done <- exactOptional complete bytes
   if done
     then pure ()
     else do
       begun <- exactOptional intent bytes
-      current <- readOptional location
+      current <- readOptional target
       let before = Just (TE.encodeUtf8 (original review))
           after = TE.encodeUtf8 <$> replacement review
       if begun && current == after
@@ -278,12 +280,12 @@ applyProfileReview location observe review = withProfileLock location $ do
           when (isJust marker) (fail "context has retained removal authority; restore it before another change")
           publishExact intent bytes
           case after of
-            Just value -> atomicWrite location value
+            Just value -> writeProfile location target value
             Nothing -> do
               -- Publish authority before unlink: recovery can prove either side.
               publishExact (profileRemovalMarker location) bytes
               durableRemove location
-          observed <- readOptional location
+          observed <- readOptional target
           unless (observed == after) (fail "context after-state differs; inspect the original review")
           publishExact complete bytes
 
@@ -291,14 +293,15 @@ restoreProfileReview :: FilePath -> (ProfileReview -> IO (Either Text HeadManife
 restoreProfileReview location observe review = withProfileLock location $ do
   checkLocation location review
   unless (isNothing (replacement review)) (fail "context restore requires a removal review")
+  target <- controlledPath location
   bytes <- either (fail . T.unpack) pure (profileReviewBytes review)
-  let root = receiptRoot location bytes
-      marker = profileRemovalMarker location
+  root <- receiptRoot location bytes
+  let marker = profileRemovalMarker location
       before = TE.encodeUtf8 (original review)
   completed <- exactOptional (root </> "completed") bytes
   unless completed (fail "context removal has no completion receipt; apply the original review first")
   restored <- exactOptional (root </> "restored") bytes
-  current <- readOptional location
+  current <- readOptional target
   if restored
     then do
       unless (current == Just before) (fail "restored context has changed; refusing historical restore replay")
@@ -314,7 +317,7 @@ restoreProfileReview location observe review = withProfileLock location $ do
       -- Restoring access to an active transaction is allowed; it changes no
       -- provider or history bytes and is necessary for original recovery.
       unless (current == Nothing || current == Just before) (fail "another context profile occupies the restore path")
-      when (current == Nothing) (atomicWrite location before)
+      when (current == Nothing) (writeProfile location target before)
       publishExact (root </> "restored") bytes
       durableRemove marker
 
@@ -322,8 +325,28 @@ checkLocation :: FilePath -> ProfileReview -> IO ()
 checkLocation location review =
   unless (location == path review) (fail "context review belongs to another local configuration root")
 
-receiptRoot :: FilePath -> ByteString -> FilePath
-receiptRoot location bytes = location <> ".reviews" </> T.unpack (digestText (contentDigest bytes))
+receiptRoot :: FilePath -> ByteString -> IO FilePath
+receiptRoot location bytes = (</> T.unpack (digestText (contentDigest bytes))) <$> controlledPath (location <> ".reviews")
+
+-- | F126 (ADR 13): an operator context, or its reviews directory, may be a
+-- symbolic link into a private repository. Context control works on the
+-- link's target so the link survives; a dangling link refuses.
+controlledPath :: FilePath -> IO FilePath
+controlledPath location = do
+  linked <- either (const False) id <$> (try (pathIsSymbolicLink location) :: IO (Either IOException Bool))
+  if not linked
+    then pure location
+    else do
+      present <- doesPathExist location
+      unless present (fail ("context control refuses a dangling symbolic link: " <> location))
+      canonicalizePath location
+
+-- | A linked target's directory belongs to the operator's repository, so its
+-- mode is left alone.
+writeProfile :: FilePath -> FilePath -> ByteString -> IO ()
+writeProfile location target
+  | target == location = atomicWrite target
+  | otherwise = atomicReplace target
 
 exactOptional :: FilePath -> ByteString -> IO Bool
 exactOptional location bytes = do
@@ -352,6 +375,10 @@ atomicWrite :: FilePath -> ByteString -> IO ()
 atomicWrite location bytes = do
   ensureDirectory (takeDirectory location)
   setFileMode (takeDirectory location) 0o700
+  atomicReplace location bytes
+
+atomicReplace :: FilePath -> ByteString -> IO ()
+atomicReplace location bytes = do
   (temporary, handle) <- openBinaryTempFile (takeDirectory location) ".context-review-"
   setFileMode temporary 0o600
   BS.hPut handle bytes
