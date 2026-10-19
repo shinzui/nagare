@@ -4,7 +4,7 @@ title: Give app databases reviewed read-only consumer users
 description: Let an app database declare named read-only users that may SELECT only listed tables or views, under fixed query limits, with their own Secret, rotation and retirement, so dashboards and other trusted SQL consumers can read an app's data without its runtime or migration credentials and without access management on the shared server.
 generated:
   by: process:claude-code
-  at: "2026-10-19T17:16:01Z"
+  at: "2026-10-19T17:40:31Z"
 requestId: IR-33
 status: proposed
 origin: mori://tan/tan-ng-labs/plans/2-deploy-kansoku-to-the-intranet-as-a-shared-analytics-service-for-nagare-apps
@@ -22,6 +22,9 @@ acceptanceCriteria:
   - id: AC-3
     statement: ClickHouse readers run under a Nagare-managed constrained profile that fixes readonly=2 and caps execution time, memory, result rows, result bytes and threads; the reader can lower the time and memory caps but cannot raise any of them.
     verification: As the reader, run a query exceeding each cap and assert it is stopped; SET a cap lower and higher and assert only the lower value is accepted; assert readonly cannot be changed.
+  - id: AC-9
+    statement: PostgreSQL readers are bounded by a server-enforced connection limit and cannot write or change data through any path, including SECURITY DEFINER functions, even after overriding their role-level read-only and timeout defaults.
+    verification: As a PostgreSQL reader, open one connection over the limit and assert it is refused; SET default_transaction_read_only = off and statement_timeout = 0, then assert INSERT, UPDATE, DELETE, DDL and a call to a migration-owned SECURITY DEFINER function that writes are all refused or unreachable; assert a security_invoker view over undeclared tables is flagged at planning.
   - id: AC-4
     statement: Readers of views whose SQL security definer is the app's migration user, and PostgreSQL views owned by it, work without granting the reader the underlying tables.
     verification: Create a SQL SECURITY DEFINER ClickHouse view and a PostgreSQL view owned by the migration user over a table the reader cannot read, and assert the reader can query the view but not the table.
@@ -40,8 +43,8 @@ acceptanceCriteria:
 reviews:
   - kind: model
     reviewer: process:claude-code
-    reviewed_at: "2026-10-19T17:16:01Z"
-    document_timestamp: "2026-10-19T17:16:01Z"
+    reviewed_at: "2026-10-19T17:40:31Z"
+    document_timestamp: "2026-10-19T17:40:31Z"
     scope: content-and-metadata
     outcome: commented
     provider: anthropic
@@ -115,9 +118,22 @@ read-only export job, should hold a credential that can read only what the ownin
   - ClickHouse readers get a Nagare-managed settings profile with constraints. `readonly=2` is
     constant; execution time, memory, result rows and bytes and threads are capped, and the
     reader may lower time and memory. Defaults should match Kansoku's profile.
-  - PostgreSQL readers get `default_transaction_read_only`, a statement timeout and a connection
-    limit.
+  - PostgreSQL readers get a `CONNECTION LIMIT`, which the server enforces. They also get
+    role-level `default_transaction_read_only = on` and a `statement_timeout`. PostgreSQL has
+    no equivalent of ClickHouse constraints, so a session can `SET` either one back. Treat them
+    as defaults, not as the boundary. Read-only must come from grants alone (AC-2), and the
+    documentation must say the timeout is advisory.
   - Reuse IR-32's mechanism where it exists.
+- **PostgreSQL specifics.**
+  - A view declared `security_invoker = true` checks the reader's own privileges on the
+    underlying tables. Planning should flag such a view rather than grant those tables
+    silently.
+  - Schema USAGE plus PostgreSQL's default PUBLIC EXECUTE lets the reader call the app's
+    functions. A `SECURITY DEFINER` function owned by the migration user would run with the
+    owner's rights and could write. Either keep readers off schemas holding such functions
+    unless they are declared, or revoke PUBLIC EXECUTE on them for the reader's path. Report
+    which one applies.
+  - Readers never get membership in `pg_read_all_data` or any other predefined role.
 - **Objects created later.** Declared objects may not exist until the app's migrations run.
   Planning must report them as pending rather than fail. A later review grants them once they
   exist.
