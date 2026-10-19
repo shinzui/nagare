@@ -9,6 +9,7 @@ module AppDatabaseSpec
   , chServer
   , scopeOf
   , serverStateful
+  , snapshot
   )
 where
 

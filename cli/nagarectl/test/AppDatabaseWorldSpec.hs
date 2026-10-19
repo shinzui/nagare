@@ -4,7 +4,7 @@
 -- retire one app database, against the interpreter world.
 module AppDatabaseWorldSpec (appDatabaseWorldTests) where
 
-import AppDatabaseSpec (Server, alpha, beta, chServer, pgServer, scopeOf)
+import AppDatabaseSpec (Server, alpha, beta, chServer, pgServer, scopeOf, snapshot)
 import Control.Exception (try)
 import Control.Monad (forM_)
 import Data.Generics.Labels ()
@@ -24,6 +24,8 @@ import Nagare.Inventory.Adapter
 import Nagare.Inventory.Adapters.AppDatabase
 import Nagare.Inventory.Digest (contentDigest)
 import Nagare.Inventory.Journal (FailureClass (..), mkOperationId)
+import Nagare.Inventory.Plan
+import Nagare.Inventory.Store (initializeStore, newMemoryStore)
 import Nagare.Resource.Inventory
 import Nagare.Resource.Policy (RecoveryClass (VerifyBeforeRetry))
 import Nagare.Resource.Types
@@ -301,6 +303,29 @@ accessTests engine' =
            converge ops members >>= expectRight
            modifyIORef' world seedPgmq
            replan ops members >>= (@?= [])
+       | engine' == Postgres
+       ]
+    <> [ testCase "a plan refusal names the drift and the undeclared grant; other providers stay redacted (IR-30 AC-4)" $ do
+           (world, ops, declared) <- setup engine' (declaredAccess engine') []
+           converge ops declared >>= expectRight
+           modifyIORef' world seedPgmq
+           plain <- membersFor engine' id
+           store <- newMemoryStore
+           let accepted = snapshot [pgServer]
+               candidate = either (error . show) id (composeInventory accepted (ReplaceScope (scopeOf pgServer (alpha engine')) :| []))
+           initializeStore store (inventoryBinding (candidateInventory candidate)) "app-database" >>= either (assertFailure . show) (const (pure ()))
+           seedInventoryHistory store candidate >>= either (assertFailure . show) (const (pure ()))
+           planning <- loadInventoryPlanningHistory store candidate >>= either (assertFailure . show) pure
+           let byExecutor = requirementsByExecutor (observationRequirements candidate planning)
+           ours <- adapterObserve (adapterFor ops plain) (Map.findWithDefault [] AppDatabaseExecutor byExecutor) >>= either (assertFailure . T.unpack) pure
+           let others = [(r, ObservationUnavailable "private provider stderr") | (executor', rs) <- Map.toList byExecutor, executor' /= AppDatabaseExecutor, r <- rs]
+               observed = either (error . T.unpack) id (observationSet (Map.toList (observationMap ours) <> others))
+           case planChanges candidate noLifecycleDecisions planning observed of
+             Right _ -> assertFailure "undeclared pg_monitor grants were planned"
+             Left errors -> do
+               let rendered = renderPlanErrors errors
+               assertBool (T.unpack rendered) (grantDriftCode `T.isInfixOf` rendered && "pg_monitor" `T.isInfixOf` rendered)
+               assertBool (T.unpack rendered) (not ("private provider stderr" `T.isInfixOf` rendered))
        | engine' == Postgres
        ]
   where

@@ -16,6 +16,7 @@ import Data.Maybe (listToMaybe, mapMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text qualified as T
+import Nagare.Database.AppDatabase.Catalog (credentialMissingCode, grantDriftCode)
 import Nagare.Dsl.Prelude hiding ((.=), (<.>))
 import Nagare.Inventory.Adapter
   ( MigrationStage
@@ -277,11 +278,16 @@ planChanges candidate decisions history observations = do
     missing = Set.toAscList (requiredResources requirements `Set.difference` Map.keysSet observed)
     unavailableWithReasons = [(resource, reason) | (resource, ObservationUnavailable reason) <- Map.toAscList observed, Set.member resource (requiredResources requirements)]
     accessResources = Set.fromList (Map.findWithDefault [] AccessExecutor (requirementsByExecutor requirements))
+    appDatabaseResources = Set.fromList (Map.findWithDefault [] AppDatabaseExecutor (requirementsByExecutor requirements))
     -- Access observation reasons are fixed strings that name the missing
-    -- prerequisite; other executors' reasons may carry provider output.
-    unavailable = [resource | (resource, _) <- unavailableWithReasons, Set.notMember resource accessResources]
+    -- prerequisite, and an app database's drift and credential refusals name
+    -- the user, grant or setting; other reasons may carry provider output.
+    printable resource reason =
+      Set.member resource accessResources
+        || (Set.member resource appDatabaseResources && any (`T.isPrefixOf` reason) [grantDriftCode, credentialMissingCode])
+    unavailable = [resource | (resource, reason) <- unavailableWithReasons, not (printable resource reason)]
     unavailableAccess =
-      Map.toAscList (Map.fromListWith (flip (<>)) [(reason, [resource]) | (resource, reason) <- unavailableWithReasons, Set.member resource accessResources])
+      Map.toAscList (Map.fromListWith (flip (<>)) [(reason, [resource]) | (resource, reason) <- unavailableWithReasons, printable resource reason])
     historyGenerations = fmap (revisionGeneration . fst) (historyAccepted history)
     structuralErrors =
       [PlanError "context-binding" "candidate belongs to a different context or provider target" [] | inventoryBinding (candidateInventory candidate) /= headBinding (historyHead history)]

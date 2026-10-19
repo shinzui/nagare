@@ -22,6 +22,8 @@ module Nagare.Database.AppDatabase.Catalog
   , classifyUser
   , classifyDatabase
   , exceptionGrantToken
+  , grantDriftCode
+  , credentialMissingCode
   )
 where
 
@@ -283,6 +285,13 @@ decodeValue :: Text -> ByteString -> Either Text Value
 decodeValue what bytes = first (const (what <> " is malformed")) (eitherDecodeStrict (BC.strip bytes))
 
 -- Classification ----------------------------------------------------------
+
+-- | The refusal codes of an app-database observation. Their reasons are
+-- composed here and in the adapter from names, privileges and settings, so a
+-- plan refusal may print them.
+grantDriftCode, credentialMissingCode :: Text
+grantDriftCode = "app-database-grant-drift"
+credentialMissingCode = "app-database-credential-missing"
 
 data MemberState
   = MemberAbsent

@@ -109,10 +109,6 @@ data AppDatabaseOps = AppDatabaseOps
   , freshPassword :: !(IO Text)
   }
 
-grantDriftCode, credentialMissingCode :: Text
-grantDriftCode = "app-database-grant-drift"
-credentialMissingCode = "app-database-credential-missing"
-
 -- | Resolve every app-database member against the declarations in view
 -- (desired and accepted): its server StatefulSet and PVC, and, for a user,
 -- its credential Secret.
