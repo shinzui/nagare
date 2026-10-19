@@ -134,6 +134,13 @@ and scratch restore of each app.
 - [ ] M8. A release containing this plan is installed on the intranet, following EP-201's
   intranet-first order. The tan-ng-labs Kansoku plan can provision `labs-postgres` and
   `labs-clickhouse` with its app databases using the documented commands.
+  Release done 2026-10-19: v0.7.0 published (signed tag on `cf14893a`, evidence `d1425f66`) after
+  the intranet ran the candidate. Intranet 0.6.6 → 0.7.0: host activation, then 208 verifications,
+  the version stamp and the en-db and shomei-db backup CronJobs, then an empty plan; commit →
+  `exact`; node Ready, `/signup` 404, protected-hello 302 to login, the operator's passkey login
+  worked (`mori://tan/tan-ng-labs`, commits `3b7d88e` and `fc46f7a`). F127's kubeconfig symlink
+  was replaced by an identical copy for the stages and restored. Open: the tan-ng-labs Kansoku
+  plan's Milestone 2 on 0.7.0.
 
 
 ## Surprises & Discoveries
