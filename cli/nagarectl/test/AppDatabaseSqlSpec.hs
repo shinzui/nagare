@@ -65,27 +65,36 @@ appDatabaseSqlTests =
           ]
     , testCase "a converged PostgreSQL app database observes as complete" $ do
         catalog <- postgresCatalog "converged" "alpha"
-        classifyUser Postgres RuntimeRole True "alpha_runtime" catalog @?= MemberComplete "postgres-role:16386"
-        classifyUser Postgres MigrationRole True "alpha_migration" catalog @?= MemberComplete "postgres-role:16385"
+        classifyUser Postgres RuntimeRole True "alpha_runtime" [] catalog @?= MemberComplete "postgres-role:16386"
+        classifyUser Postgres MigrationRole True "alpha_migration" [] catalog @?= MemberComplete "postgres-role:16385"
         classifyDatabase (pgAccess "alpha" "alpha" True) catalog @?= MemberComplete "postgres-database:16387"
-        incomplete (classifyUser Postgres RuntimeRole False "alpha_runtime" catalog)
+        incomplete (classifyUser Postgres RuntimeRole False "alpha_runtime" [] catalog)
         incomplete (classifyDatabase (pgAccess "alpha" "alpha" False) catalog)
     , testCase "a fresh PostgreSQL database is incomplete and elevated roles are drift" $ do
         catalog <- postgresCatalog "fresh" "gamma"
-        drift (classifyUser Postgres RuntimeRole True "gamma_runtime" catalog)
-        classifyUser Postgres MigrationRole True "gamma_migration" catalog @?= MemberComplete "postgres-role:16407"
+        drift (classifyUser Postgres RuntimeRole True "gamma_runtime" [] catalog)
+        classifyUser Postgres MigrationRole True "gamma_migration" [] catalog @?= MemberComplete "postgres-role:16407"
         incomplete (classifyDatabase (pgAccess "gamma" "gamma" True) catalog)
-        classifyUser Postgres RuntimeRole True "absent_runtime" catalog @?= MemberAbsent
+        classifyUser Postgres RuntimeRole True "absent_runtime" [] catalog @?= MemberAbsent
     , testCase "ClickHouse converged access is complete and foreign grants are drift" $ do
         converged <- clickHouseCatalog "converged" ["alpha_migration", "alpha_runtime"] ["alpha", "alpha_ledger"]
-        mapM_ (\role -> complete (classifyUser ClickHouse role True ("alpha_" <> roleName role) converged)) [RuntimeRole, MigrationRole]
+        mapM_ (\role -> complete (classifyUser ClickHouse role True ("alpha_" <> roleName role) [] converged)) [RuntimeRole, MigrationRole]
         mapM_ (\db -> complete (classifyDatabase (chAccess db True) converged)) ["alpha", "alpha_ledger"]
         incomplete (classifyDatabase (chAccess "alpha" False) converged)
         drifted <- clickHouseCatalog "drifted" ["gamma_migration", "gamma_runtime"] ["gamma", "alpha"]
-        drift (classifyUser ClickHouse RuntimeRole True "gamma_runtime" drifted)
-        drift (classifyUser ClickHouse MigrationRole True "gamma_migration" drifted)
+        drift (classifyUser ClickHouse RuntimeRole True "gamma_runtime" [] drifted)
+        drift (classifyUser ClickHouse MigrationRole True "gamma_migration" [] drifted)
         incomplete (classifyDatabase (DatabaseAccess ClickHouse "" "gamma" "gamma_migration" "gamma_runtime" True) drifted)
         drift (classifyDatabase (DatabaseAccess ClickHouse "" "alpha" "gamma_migration" "gamma_runtime" True) drifted)
+    , testCase "access to the app's own scratch restores is not drift; to any other database it is (M7)" $ do
+        catalog <- postgresCatalog "converged" "alpha"
+        let with anomalies = catalog & #users . ix "alpha_runtime" . #anomalies .~ anomalies
+        classifyUser Postgres RuntimeRole True "alpha_runtime" ["alpha"] (with ["access to database alpha_restore_r1"]) @?= MemberComplete "postgres-role:16386"
+        drift (classifyUser Postgres RuntimeRole True "alpha_runtime" ["alpha"] (with ["access to database beta_restore_r1"]))
+        drift (classifyUser Postgres RuntimeRole True "alpha_runtime" ["alpha"] (with ["access to database alpha_restore_R1"]))
+        drift (classifyUser Postgres RuntimeRole True "alpha_runtime" [] (with ["access to database alpha_restore_r1"]))
+        complete (classifyUser ClickHouse RuntimeRole True "alpha_runtime" ["alpha_ledger"] (with ["grant of SELECT on database alpha_ledger_restore_r1"]))
+        drift (classifyUser ClickHouse RuntimeRole True "alpha_runtime" ["alpha_ledger"] (with ["grant of SELECT on database beta_restore_r1"]))
     , testCase "a stored verifier matches only the password it was made from" $ do
         let verifier = scramVerifier salt1 "pw2-alpha_runtime"
         scramVerifierMatches "pw2-alpha_runtime" verifier @?= True

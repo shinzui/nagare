@@ -277,7 +277,7 @@ mkAppDatabaseAdapter accepted members ops =
       pure plan
     catalogFor member = observeCatalog ops (member ^. #server) (member ^. #scopeUsers) (member ^. #scopeDatabases)
     classify member catalog = case member ^. #kind of
-      UserMember role user _ _ -> classifyUser (member ^. #server . #engine) role (member ^. #enabled) user catalog
+      UserMember role user _ _ -> classifyUser (member ^. #server . #engine) role (member ^. #enabled) user (member ^. #scopeDatabases) catalog
       DatabaseMember db migration runtime -> classifyDatabase (accessOf member db migration runtime) catalog
     accessOf member db migration runtime =
       DatabaseAccess (member ^. #server . #engine) (member ^. #server . #initialDatabase) db migration runtime (member ^. #enabled)

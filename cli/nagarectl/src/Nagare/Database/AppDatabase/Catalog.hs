@@ -26,6 +26,7 @@ import Data.Aeson (FromJSON (parseJSON), Value, eitherDecodeStrict, withObject, 
 import Data.Aeson.Types (Parser, parseEither)
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 qualified as BC
+import Data.Char (isAsciiLower, isDigit)
 import Data.Generics.Labels ()
 import Data.List (nub, sort, (\\))
 import Data.Map.Strict (Map)
@@ -238,11 +239,14 @@ data MemberState
     MemberDrift !Text
   deriving stock (Eq, Show)
 
-classifyUser :: Engine -> AppDatabaseRole -> Bool -> Text -> Catalog -> MemberState
-classifyUser engine role enabled name catalog = case Map.lookup name (catalog ^. #users) of
+-- | The user's own logical databases are given so that access to their
+-- scratch restores (@<db>_restore_<id>@, granted by @db app-database restore@)
+-- is not drift; access to any other database still is.
+classifyUser :: Engine -> AppDatabaseRole -> Bool -> Text -> [Text] -> Catalog -> MemberState
+classifyUser engine role enabled name own catalog = case Map.lookup name (catalog ^. #users) of
   Nothing -> MemberAbsent
   Just user
-    | not (null (user ^. #anomalies)) -> MemberDrift (name <> ": " <> T.intercalate "; " (user ^. #anomalies))
+    | not (null (anomaliesOf user)) -> MemberDrift (name <> ": " <> T.intercalate "; " (anomaliesOf user))
     | user ^. #login == LoginRestricted -> MemberDrift (name <> ": login is restricted to particular hosts")
     | not (null extra) -> MemberDrift (name <> ": server-wide " <> T.intercalate ", " extra)
     | user ^. #login /= wantedLogin -> MemberIncomplete (user ^. #physical) (name <> (if enabled then ": cannot log in" else ": can still log in"))
@@ -254,6 +258,16 @@ classifyUser engine role enabled name catalog = case Map.lookup name (catalog ^.
       extra = nub (user ^. #serverGrants) \\ declared
       missing = declared \\ (user ^. #serverGrants)
       wantedLogin = if enabled then LoginOn else LoginOff
+      anomaliesOf user = filter (not . ownScratch) (user ^. #anomalies)
+      ownScratch anomaly = case T.breakOnEnd "database " anomaly of
+        (prefix, db)
+          | prefix == "access to database " || ("grant of " `T.isPrefixOf` prefix && " on database " `T.isSuffixOf` prefix) ->
+              or
+                [ not (T.null restoreId) && T.length restoreId <= 20 && T.all (\c -> isAsciiLower c || isDigit c) restoreId
+                | base <- own
+                , Just restoreId <- [T.stripPrefix (base <> "_restore_") db]
+                ]
+        _ -> False
 
 classifyDatabase :: DatabaseAccess -> Catalog -> MemberState
 classifyDatabase access catalog = case Map.lookup name (catalog ^. #databases) of
