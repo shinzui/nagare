@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-10-19
+* **Update**: Complete IR-29 in ExecPlan 202: app databases are reviewed tenants of a shared PostgreSQL or ClickHouse server with per-app users, grants, runtime-only bindings, rotation, retirement and per-app backups; `just local-app-database-smoke` passes on a local context.
 * **Add**: Propose IR-29 from `mori://tan/tan-ng-labs/plans/2-deploy-kansoku-to-the-intranet-as-a-shared-analytics-service-for-nagare-apps`: host many app databases on one shared PostgreSQL server and one shared ClickHouse server, with per-app users, grants, bindings and backups. v0.6.6 gives each server one shared credential and backs up only its initial database.
 
 ## 2026-10-13

@@ -6,7 +6,10 @@ generated:
   by: process:claude-code
   at: "2026-10-19T03:25:58Z"
 requestId: IR-29
-status: proposed
+status: completed
+completedAt: "2026-10-19T15:41:36Z"
+resolution: "ExecPlan 202 adds app databases: reviewed tenants of one shared PostgreSQL or ClickHouse server, each with its own databases, runtime and migration users, explicit grants, runtime-only workload bindings, rotation, retirement, signed per-app backups and scratch or rebuilt-server restore. `just local-app-database-smoke` proves AC-1 to AC-5 natively on a local context; ADR 30 records the model."
+targetPlan: docs/plans/202-host-per-app-databases-on-shared-postgresql-and-clickhouse-servers.md
 origin: mori://tan/tan-ng-labs/plans/2-deploy-kansoku-to-the-intranet-as-a-shared-analytics-service-for-nagare-apps
 acceptanceCriteria:
   - id: AC-1

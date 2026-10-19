@@ -508,8 +508,112 @@ rendered `deploy` shows, for a Postgres reference:
 
 > **An app and its database must share a namespace** (the default `personal`) for
 > the DNS name and the Secret reference to resolve. Generated connection variables
-> **override** any same-named variable you set yourself. Referencing two databases
-> of the same engine is rejected at deploy (both would want `DATABASE_URL`).
+> **override** any same-named variable you set yourself. A workload may reference
+> at most one database per engine across `databases` and `appDatabases` together,
+> because each injects the same variables (two PostgreSQL references would both
+> want `DATABASE_URL`); the deploy is refused otherwise, and so is one name listed
+> in both.
+
+
+## Sharing one server between apps
+
+One PostgreSQL or ClickHouse server can host the databases of many apps. Each
+**app database** is a reviewed tenant of a server: its own logical databases, a
+**migration** user that owns them (schema changes), and a **runtime** user that
+reads and writes rows but cannot change the schema. Neither user can reach
+another app's databases or the server's own. Redis has no users and is not
+shareable.
+
+Create the server as usual (`nagarectl db create postgres shared-pg ...`), and do
+not bind it directly from any workload: a server either hosts app databases or
+is bound directly, never both. Then declare the app databases in a config that
+calls `emitAppDatabases`:
+
+```haskell
+import Data.List.NonEmpty (NonEmpty (..))
+import Nagare.Dsl.AppDatabase (AppDatabase (..), mkLogicalDatabaseName)
+import Nagare.Dsl.Config (emitAppDatabases)
+import Nagare.Dsl.Database (Engine (..))
+import Nagare.Dsl.Types (mkAppDatabaseName, mkDatabaseName, mkNamespace)
+
+main :: IO ()
+main =
+  emitAppDatabases
+    [ AppDatabase
+        { name = ok (mkAppDatabaseName "notes-pg")      -- at most 36 characters
+        , logicalKey = Nothing
+        , server = ok (mkDatabaseName "shared-pg")       -- an accepted server
+        , engine = Postgres
+        , namespace = ok (mkNamespace "personal")        -- the server's namespace
+        , logicalDatabases = ok (mkLogicalDatabaseName "notes") :| []
+        }
+    ]
+  where
+    ok = either (error . show) id
+```
+
+A PostgreSQL app database has exactly one logical database; a ClickHouse one may
+have several. Logical database names are unique on their server.
+
+```bash
+nagarectl db app-database plan --config AppDatabases.hs                     # prints the operations, or "no operations"
+nagarectl db app-database plan --config AppDatabases.hs --save-plan ./appdb
+nagarectl inventory apply ./appdb --yes
+nagarectl db app-database list
+```
+
+The review creates two Secrets, `<name>-runtime` and `<name>-migration`, each
+holding its user's generated password, then the users, the databases and their
+grants. A re-plan of an unchanged config prints `no operations`. Access that
+Nagare never grants (a manual `GRANT`, a role membership) is refused at planning
+as drift rather than silently revoked.
+
+**Binding.** A workload names app databases in `appDatabases`, not `databases`:
+
+```haskell
+  pure (worker & #appDatabases .~ [ok (mkAppDatabaseName "notes-pg")])
+```
+
+The deploy injects the same variables as a direct binding (the table above), with
+the host and port of the shared server and every credential variable a
+`secretKeyRef` into `<name>-runtime`. The workload never sees the migration
+credential; run migrations as a Job or task that reads `<name>-migration`
+yourself. An `Application`'s top-level `databases` cannot name an app database;
+bind it from the workloads that use it.
+
+**Rotation.** `nagarectl db app-database rotate NAME --user runtime|migration
+--save-plan DIR`, then `inventory apply`. The review writes the new password to
+the Secret first, then sets it on the user, so an interruption at any point
+resumes to a matching pair. Running pods keep the old value until they restart:
+restart the workloads bound to it afterwards. Rotation of one user never touches
+another user or another app.
+
+**Retirement.** `nagarectl db app-database retire NAME --save-plan DIR` turns both
+users' logins and every grant off, and keeps the databases and Secrets. It is
+refused while a workload still binds the app database; retire those first.
+
+**Backups.** Each app database has its own signed schedule,
+`nagare-appdb-<name>`, on the context's recovery-point cadence. It dumps with the
+migration credential (`pg_dump -Fc` keeping owners and grants, or one ClickHouse
+`BACKUP` of all its databases) into `app-databases/<namespace>/<name>/` in the
+backup store. To restore:
+
+```bash
+# Ingest a verified run (the Job UID), the authority a restore consumes.
+nagarectl db app-database backup-receipts NAME --backup-id JOB_UID --save-plan ./ingest
+nagarectl inventory apply ./ingest --yes
+# Restore into scratch databases <db>_restore_<ID> beside the live ones, with the
+# app's declared access. No other app is touched.
+nagarectl db app-database restore NAME --backup-id JOB_UID --restore-id ID --save-plan ./restore
+nagarectl inventory apply ./restore --yes
+```
+
+**After a server rebuild**, an app database comes back after its server, in three
+steps: restore the server, re-apply the app database (its absent logical
+databases are rebuilt `--fresh`, empty), then `db app-database restore NAME
+--backup-id JOB_UID --restore-id ID --rebuilt`, which loads the backup into the
+declared databases and refuses one that already holds data. The full procedure is
+[App databases on a rebuilt server](../runbooks/inventory-operations.md#app-databases-on-a-rebuilt-server).
 
 
 ## Backups and restore
@@ -717,7 +821,7 @@ drill and procedure.
   one from your workstation with `kubectl port-forward`, not a DomainMapping.
 - **Out of scope:** in-place major-version upgrades and engine changes (planning
   refuses both; see [Upgrade PostgreSQL to a new major version](#upgrade-postgresql-to-a-new-major-version)), connection
-  pooling as a managed feature (run your own pooler), and multi-tenant users.
+  pooling as a managed feature (run your own pooler).
 
 
 ## Worked examples

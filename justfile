@@ -581,6 +581,13 @@ smoke:
 local-smoke:
     scripts/local-smoke.sh
 
+# EP-202 M7: app databases on shared servers, natively, on a bootstrapped
+# mode=local context: two apps per engine, probe Workers, cross-app denials,
+# rotation, retirement, and a scheduled backup restored into scratch.
+[group('test')]
+local-app-database-smoke context:
+    NAGARE_SMOKE_CONTEXT='{{context}}' scripts/local-app-database-smoke.sh
+
 # MP-26 item 11: a release is two commands (docs/runbooks/releases.md). This one
 # runs everything up to the tag, unattended: `just gate-release`, the transition
 # rehearsal from the newest release the candidate accepts, the native attachments

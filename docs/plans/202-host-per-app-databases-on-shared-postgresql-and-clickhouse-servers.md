@@ -122,9 +122,15 @@ and scratch restore of each app.
   Done 2026-10-19 as `db app-database restore --rebuilt`: world test re-applies a wiped catalog with
   the retained passwords, `rebuildTargets` names absent logical databases, the Job refuses a
   non-empty database; runbook step order in `docs/runbooks/inventory-operations.md`.
-- [ ] M7. `just local-app-database-smoke` passes on a k3d context. It covers two apps on one
+- [x] M7. `just local-app-database-smoke` passes on a k3d context. It covers two apps on one
   server per engine and proves AC-1 to AC-5 natively. `docs/user/managed-databases.md` documents
-  shared servers, IR-29 is marked completed, and ADR 30 records the model.
+  shared servers, IR-29 is marked completed, and ADR 30 records the model. Done 2026-10-19:
+  `app-database smoke: PASS` on local context `transition` with the packaged `nagarectl` at
+  `8ef10a73`. The runs found and fixed five defects: the ClickHouse login check before the default
+  database exists (`48b39d7d`), ingestion admission of a server-owned StatefulSet and PVC
+  (`9c34f2f3`), restore target pins (`8dd3abf4`), own-scratch access as drift (`b718a92a`), and
+  Job pods selected by the server Service (`8ef10a73`). The rebuilt-server restore is proven by
+  M6's tests, not natively.
 - [ ] M8. A release containing this plan is installed on the intranet, following EP-201's
   intranet-first order. The tan-ng-labs Kansoku plan can provision `labs-postgres` and
   `labs-clickhouse` with its app databases using the documented commands.

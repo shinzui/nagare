@@ -27,7 +27,7 @@ authority.
 | `PortalCommand` | 2 | none |
 | `DomainsCommand` | 3 | none |
 | `CdnCommand` | 4 | none |
-| `justfile` | 53 |  |
+| `justfile` | 54 |  |
 | `Inventory.Command` production calls | 39 | none |
 <!-- managed-command-registry:end -->
 
