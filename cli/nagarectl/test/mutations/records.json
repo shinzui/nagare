@@ -1120,5 +1120,17 @@
     "suite": "nagarectl",
     "pattern": "/fast tier/",
     "expect": "test-fails"
+  },
+  {
+    "record": "EP202-app-database-drift-unrefused",
+    "suite": "nagarectl",
+    "pattern": "/AppDatabase world/",
+    "expect": "test-fails"
+  },
+  {
+    "record": "EP202-app-database-existing-user-repassworded",
+    "suite": "nagarectl",
+    "pattern": "/AppDatabase world/",
+    "expect": "test-fails"
   }
 ]

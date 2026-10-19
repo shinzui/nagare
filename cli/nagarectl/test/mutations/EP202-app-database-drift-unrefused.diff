@@ -1,0 +1,12 @@
+diff --git a/cli/nagarectl/src/Nagare/Database/AppDatabase/Catalog.hs b/cli/nagarectl/src/Nagare/Database/AppDatabase/Catalog.hs
+index 2bccd5af..42d0ed1a 100644
+--- a/cli/nagarectl/src/Nagare/Database/AppDatabase/Catalog.hs
++++ b/cli/nagarectl/src/Nagare/Database/AppDatabase/Catalog.hs
+@@ -242,7 +242,6 @@ classifyUser :: Engine -> AppDatabaseRole -> Bool -> Text -> Catalog -> MemberSt
+ classifyUser engine role enabled name catalog = case Map.lookup name (catalog ^. #users) of
+   Nothing -> MemberAbsent
+   Just user
+-    | not (null (user ^. #anomalies)) -> MemberDrift (name <> ": " <> T.intercalate "; " (user ^. #anomalies))
+     | user ^. #login == LoginRestricted -> MemberDrift (name <> ": login is restricted to particular hosts")
+     | not (null extra) -> MemberDrift (name <> ": server-wide " <> T.intercalate ", " extra)
+     | user ^. #login /= wantedLogin -> MemberIncomplete (user ^. #physical) (name <> (if enabled then ": cannot log in" else ": can still log in"))
