@@ -66,7 +66,7 @@ for real use, as [priorities after v0.6.3](../releases/priorities-after-v0.6.3.m
   same reviewed revision. A later `db app-database plan` of the enabled declaration clears it.
   The schedule revision digest ignores `suspend`, so runs made before retirement can still be
   ingested and restored. Tests cover retire, re-enable and ingestion of a pre-retirement run.
-  Done 2026-10-19 (`9d389cba`): test "F131: retirement suspends the schedule, re-planning resumes
+  Done 2026-10-19 (`9d389cba`, landed): test "F131: retirement suspends the schedule, re-planning resumes
   it, and earlier runs still ingest and restore". The revision lives in the receipt metadata,
   which `suspend` does not touch.
 - [x] M4 (F132). `server status` and `doctor` emit a recovery-point row and a retention row
@@ -74,16 +74,25 @@ for real use, as [priorities after v0.6.3](../releases/priorities-after-v0.6.3.m
   (retired) schedule grades `retired`, not stale. `db app-database prune-scheduled-backups` and
   `db app-database recover-scheduled-prune` review deletions exactly as the database commands
   do. Both commands are registered in `scripts/audit-managed-commands.py`, and
-  `docs/user/managed-databases.md` documents them. Done 2026-10-19 (`d480be02`): tests "F132:
+  `docs/user/managed-databases.md` documents them. Done 2026-10-19 (`4f98ebc6`, landed with `950bb775`): tests "F132:
   status grades every app database's schedule, and a retired one as retired" and "F132: an app
   database's scheduled run is pruned under its own prefix and scope names". Schedule selection
   is `Nagare.Inventory.ScheduledStatus`; the source resolution is `appDatabaseScheduleSource`,
   shared by status, ingestion and prune. Mutation record
   `EP183-volume-prune-prefix-ignores-volume` regenerated for the new constructor.
-- [ ] M5. `just local-app-database-smoke CONTEXT` also asserts that retiring beta-ch suspends
+- [x] M5. `just local-app-database-smoke CONTEXT` also asserts that retiring beta-ch suspends
   its CronJob, that `server status` lists the four app databases' recovery points, and that a
-  prune review of alpha-pg has no runs past policy.
-- [ ] M6. v0.7.1 is released intranet first. The intranet's transition runs with
+  prune review of alpha-pg has no runs past policy. Done 2026-10-19: `app-database smoke: PASS`
+  on the disposable local context `transition`, which `just release-rehearse fe162dbf 0.7.0`
+  had just moved from 0.7.0 to the v0.7.1 candidate (seeded row read back unchanged), with the
+  candidate's packaged `nagarectl` (`fe162dbf`). The F131 line and the F132 line
+  ("status grades all four app databases' recovery points, beta-ch retired; alpha-pg has no
+  runs past policy") both printed.
+- [ ] M6. v0.7.1 is released intranet first. Candidate `fe162dbf` (`chore(release): prepare
+  v0.7.1`); its rehearsal record is
+  `docs/release-evidence/fe162dbf82fd4797f731be3e2b0af00256e49fa3/transition-rehearsal.json`.
+  Remaining: `just release-candidate 0.7.1` (needs the builder), the intranet upgrade, then
+  `just release-publish 0.7.1`; all three need the operator's go-ahead. The intranet's transition runs with
   `~/.config/nagare/kubeconfigs/intranet.yaml` still a symlink to
   `/run/agenix/nagare-kubeconfig-intranet`, which is F127's real proof. F126, F127, F131 and
   F132 move to Verifying in `docs/audits/mp23-findings.md`.
