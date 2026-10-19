@@ -507,12 +507,16 @@ loadReviewedScheduledIngestSourceNative store document proofs = do
           && Map.lookup owner (InventoryPlan.reviewDesiredRevisions document) == Just revision
       )
       (dieT "scheduled ingestion source scope revision changed after review")
-    let members =
+    let membersOf scope =
           [ member
-          | bundle <- ResourceInventory.scopeBundles sourceScope
+          | bundle <- ResourceInventory.scopeBundles scope
           , ResourceInventory.Managed member <- ResourceInventory.declarations bundle
           ]
-        one resourceId group kind =
+        -- An app database's run (EP-202) reads its server's StatefulSet and
+        -- PVC, which the server's accepted scope owns; a resource ID names
+        -- its owner, so those two are found among every accepted scope.
+        accepted = concatMap (membersOf . snd) (Map.elems (InventoryPlan.historyAccepted history))
+        oneIn members resourceId group kind =
           length
             [ member
             | member <- members
@@ -524,10 +528,10 @@ loadReviewedScheduledIngestSourceNative store document proofs = do
             ]
             == 1
     unless
-      ( maybe True (\stateful -> one stateful "apps" "statefulset") (scheduledSourceStatefulId proof)
-          && one (scheduledSourcePvcId proof) "" "persistentvolumeclaim"
-          && one (scheduledSourceScheduleId proof) "batch" "cronjob"
-          && one (scheduledSourceSigningId proof) "" "secret"
+      ( maybe True (\stateful -> oneIn accepted stateful "apps" "statefulset") (scheduledSourceStatefulId proof)
+          && oneIn accepted (scheduledSourcePvcId proof) "" "persistentvolumeclaim"
+          && oneIn (membersOf sourceScope) (scheduledSourceScheduleId proof) "batch" "cronjob"
+          && oneIn (membersOf sourceScope) (scheduledSourceSigningId proof) "" "secret"
       )
       (dieT "scheduled ingestion source resources changed after review")
   acceptedSnapshot <-
