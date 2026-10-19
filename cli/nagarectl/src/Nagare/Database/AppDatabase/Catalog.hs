@@ -258,6 +258,7 @@ classifyUser engine role enabled name own catalog = case Map.lookup name (catalo
       extra = nub (user ^. #serverGrants) \\ declared
       missing = declared \\ (user ^. #serverGrants)
       wantedLogin = if enabled then LoginOn else LoginOff
+      anomaliesOf :: CatalogUser -> [Text]
       anomaliesOf user = filter (not . ownScratch) (user ^. #anomalies)
       ownScratch anomaly = case T.breakOnEnd "database " anomaly of
         (prefix, db)
