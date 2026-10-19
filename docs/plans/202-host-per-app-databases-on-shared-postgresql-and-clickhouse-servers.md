@@ -362,6 +362,28 @@ answer. A "no" answer changes the design in the Decision Log before M2 starts.
 
 ### M2 — the declaration and its inventory scope
 
+**Make room first.** `scripts/check-haskell-architecture.py` caps a module at 1000 lines and
+`scripts/haskell-size-allowances.json` may only ever lower an allowance. Two modules this
+milestone extends have no headroom: `cli/nagare-dsl/src/Nagare/Resource/Inventory.hs` is at its
+allowance of 1011 lines, and `cli/nagarectl/src/Nagare/Inventory/Adapters/KubernetesRuntime.hs`
+is three lines under its 1180. Adding a constructor to either fails the first commit. So the first
+commit of M2 is two extractions, with no behaviour change:
+- Move the credential-template functions, `metadataOf` through `validCachePublicKey` (about 400
+  lines: `materializeCredential`, the `*CredentialKind` detectors, `fillCredential`,
+  `credentialDataMatches` and the cache-key helpers), into
+  `cli/nagarectl/src/Nagare/Inventory/Adapters/CredentialTemplate.hs`, re-exported from
+  `KubernetesRuntime.hs`. The six mutation diffs under `cli/nagarectl/test/mutations/` that patch
+  `KubernetesRuntime.hs` touch observations, `waitForReadiness` and `parseObserved`, all above
+  line 500, so they still apply; prove it with `just mutation-check <commit> <parent>`, the
+  per-change proof (`just mutation-sweep` is the release-wide one). A refactor on 2026-10-07
+  silently broke old records, so do not skip this.
+- Split the data types of `Resource/Inventory.hs` (`Executor`, `DesiredSpec`, `ManagedResource`,
+  `Declaration`, `OperationKind`, `Contribution`, `ResourceBundle`, `ScopeDeclaration`, roughly
+  lines 78 to 290) into `cli/nagare-dsl/src/Nagare/Resource/Inventory/Types.hs`, re-exported from
+  `Nagare.Resource.Inventory` so no importer changes. No mutation diff patches `Inventory.hs`.
+- Add both modules to their `.cabal` files and lower the two allowances to the new sizes.
+  `just haskell-style-check` runs `cabal-gild`; check its exit code, not its output.
+
 Add `AppDatabase` to a new module, `cli/nagare-dsl/src/Nagare/Dsl/AppDatabase.hs`, with a
 loader in `cli/nagare-dsl/src/Nagare/Dsl/Load/AppDatabase.hs` and an `emitAppDatabases` in
 `cli/nagare-dsl/src/Nagare/Dsl/Config.hs` beside `emitDatabase`. It writes one JSON array, so a
@@ -400,6 +422,15 @@ standalone scope `appdb-<logicalKey or name>`, through a `compileStandaloneAppDa
   `DatabaseUser ResourceId Name`, in `cli/nagare-dsl/src/Nagare/Resource/Types.hs`, with its
   canonical claim and `Wire.hs` encoding. Their spec is a new `DesiredSpec` constructor,
   `DatabaseUserSpec`, whose content digest covers the declared grant set (not the password).
+- All four non-Secret members run under a new `Executor` constructor, `AppDatabaseExecutor`,
+  beside `BrokerExecutor`. The kind-totality suite (`cli/nagarectl/test/InventoryKindTotalitySpec.hs`)
+  generates a `DocumentedLimit` row for every non-Kubernetes executor, so it passes without a
+  table edit. The compiler then names every `case` over `Executor` that must learn the new
+  constructor; today `BrokerExecutor` is matched in `Nagare.Resource.Broker`,
+  `Nagare.Access.Reviewed`, `Nagare.Inventory.Command`, `Nagare.Inventory.DataService`,
+  `Nagare.Inventory.ManifestAdapter`, `Nagare.Inventory.Execute.AdapterEnv`,
+  `Nagare.Inventory.Application.Bindings` and the three `Nagare.Inventory.Plan.*` modules
+  (`Changes`, `Lifecycle`, `Observation`). Expect the same ten sites.
 
 Composition must refuse, with tests:
 - Two app databases claiming the same logical database or user on one server.
@@ -417,9 +448,14 @@ engine and asserts the composed inventory has exactly one StatefulSet, PVC and S
 ### M3 — provision, rotate and retire through reviewed transactions
 
 Write an adapter pair following the broker-topic precedent:
-- `cli/nagarectl/src/Nagare/Inventory/Adapters/AppDatabase.hs`: a pure plan, decode and match.
+- `cli/nagarectl/src/Nagare/Inventory/Adapters/AppDatabase.hs`: a pure plan, decode and match,
+  behind an `AppDatabaseOps` record (as `TopicAdapterOps` is for topics).
 - `cli/nagarectl/src/Nagare/Inventory/Adapters/AppDatabaseRuntime.hs`: the context-guarded
-  transport.
+  transport that implements `AppDatabaseOps` with `kubectl exec`.
+- The assembly in `cli/nagarectl/app/Nagare/Cli/Inventory/Adapters.hs`, following
+  `inventoryBrokerAdapter`: `executionBlockedAdapterFor AppDatabaseExecutor` when the review
+  holds no app-database specs, a refusal when the review belongs to another context, otherwise
+  the runtime ops under the Kubernetes context guard.
 
 The transport runs `kubectl exec -i` into the exact server pod. Before each call it checks the
 StatefulSet and PVC UIDs through `checkedPhysical`
@@ -437,6 +473,13 @@ leaves the workstation only inside the Kubernetes Secret.
 **Observation** reads catalogs into a typed `ObservedAppDatabase`.
 - PostgreSQL: `pg_roles` attributes, `pg_database` owner and ACL, schema ACLs and `pg_default_acl`.
 - ClickHouse: `system.users`, `system.grants` and `system.databases`.
+
+Observation runs at plan time through the same transport, as topic inspection does today. So
+`db app-database plan` is not a pure render: it needs the context guard and cluster access, and
+`no operations` is a statement about the live catalogs. Every statement the transport sends has
+no idempotency token, so a statement whose acknowledgement is lost is classified
+`PartialOrUnknown` (`FailureClass` in `cli/nagarectl/src/Nagare/Inventory/Journal.hs`), never
+`KnownNoEffect`, and a resume re-observes before sending anything.
 
 **Ordering within one transaction:**
 1. Create the two Secrets create-only, through the existing `materializeCredential` path.
@@ -473,9 +516,16 @@ exit is `rotate`.
 Register each new command with `scripts/audit-managed-commands.py`.
 
 **Interpreter world**, in `cli/nagarectl/test/Nagare/Test/World/AppDatabase.hs`: an in-memory
-catalog of databases, users, attributes and grants per engine, behind the transport's
-operations. Its adversary can interrupt after any statement, lose an acknowledgement, or
-pre-seed drift. Tests prove:
+catalog of databases, users, attributes and grants per engine, implementing `AppDatabaseOps`.
+It does not sit behind the kubectl fake: `cli/nagarectl/test/Nagare/Test/World/Kubectl.hs`
+answers only the request grammar the Kubernetes runtime emits and refuses anything else, and
+`kubectl exec` with SQL on stdin is outside it. The guard and UID checks in the runtime module
+therefore get pure tests only. This is the first world for an exec-style adapter; broker topics
+have pure tests and none. The harness rules from the 2026-10-06 deep-tier failure apply: the checker
+reads the catalog through a read-only view type, never the faulting store; there is one retry
+wrapper; a fast self-test proves every fault placement fires; violations are reported as they
+happen, not collected. Its adversary can interrupt after any statement, lose an
+acknowledgement, or pre-seed drift. Tests prove:
 - An unchanged re-plan has zero operations.
 - Every interruption point resumes to the declared state with the original password.
 - Drift and missing-credential refuse with the named codes.
@@ -538,8 +588,14 @@ extend `cli/nagarectl/src/Nagare/Database/Backup.hs` with app-database variants:
   off the mounted PVC exactly as the server backup does today.
 
 The source probe checks the server's StatefulSet and PVC UIDs. Each receipt also records the app
-database's accepted declaration digest. Receipts ingest through the existing
-`db backup-receipts`, keyed by the app-database name. Objects go under
+database's accepted declaration digest, and that is a format change, not a field. The scheduled
+receipt is an HMAC-signed envelope whose verifier in
+`cli/nagarectl/src/Nagare/Inventory/BackupReceipt.hs` accepts versions 4 and 5 and checks the
+exact payload field count (six for version 5). The app-database receipt is version 6 with seven
+payload fields; the renderer's `printf` in `Backup.hs`, the verifier, and the ingest in
+`cli/nagarectl/src/Nagare/Inventory/ScheduledIngest.hs` all learn it, and ingest keeps accepting
+4 and 5 because the intranet's bucket holds version-5 receipts from its servers. Receipts ingest
+through the existing `db backup-receipts`, keyed by the app-database name. Objects go under
 `databases/<appdb>/<jobUID>.<ext>`.
 
 `db restore` accepts an app-database name and restores into scratch names `<db>_restore_<id>`,
@@ -582,7 +638,11 @@ packaged `nagarectl`. It runs:
    `command = sleep infinity` and `appDatabases` naming its one app database. A `Deployment` is a
    Knative Service that must answer HTTP, so it cannot be the probe; a `Worker` has no such
    requirement and carries the same env. `nagarectl worker deploy` requires `--image-resource`, so
-   the images go through review. Each probe pod's env is what AC-2 inspects.
+   the images go through review. Each probe pod's env is what AC-2 inspects. The two images are
+   the ones the servers already run, `postgres:18` and `clickhouse/clickhouse-server:26.8`; the
+   ClickHouse one is about a gigabyte, so saving and pushing it dominates the smoke's run time.
+   Key each publication by image digest so a rerun reuses it, and keep the archives under the
+   smoke's review root, not under `/private/tmp`, which macOS purges after about three days.
 5. Assert own-database read and write, and every cross-app denial from AC-3. Runtime users run
    through `kubectl exec` into their probe pod with its own env (`psql "$DATABASE_URL"`,
    `clickhouse-client --host "$CLICKHOUSE_HOST" --user "$CLICKHOUSE_USER" --password
@@ -618,13 +678,21 @@ reports a defect here.
 
 All commands run from the repository root, `/Users/shinzui/Keikaku/bokuno/nagare`, in a shell
 loaded by `direnv` for a **local** context (`NAGARE_MODE=local`). M1 to M7 need no cloud
-mutation.
+mutation. Any step that touches a cluster (the M1 prototype, every `db app-database plan`
+against a live context, the M7 smoke) runs from a clean environment, `env -i` plus
+`nagarectl context env`, and asserts the kube server before acting; a `direnv` shell carries
+stale values between contexts.
 
 Per Haskell commit:
 
 ```bash
 just haskell-style-check && just gate-fast
 ```
+
+Land once per milestone, not per commit: each `just land` starts a full gate of about an hour,
+and a red one blocks the next land until a gated fix lands. Keep at most two full gates running.
+M1 produces SQL and M2 produces Haskell, and neither depends on the other, so run them in two
+worktree sessions at once; M3 starts when both have landed.
 
 Focused loops while developing:
 
@@ -705,7 +773,9 @@ Every operation is designed to be re-run:
 - A re-plan of an unchanged declaration is empty.
 
 An interrupted `inventory apply` is resumed with `nagarectl inventory resume` (the journal
-records intent before each effect). The interpreter world proves every interruption point.
+records intent before each effect). The interpreter world proves every interruption point. A
+SQL statement has no idempotency token, so the journal records a lost acknowledgement as
+`PartialOrUnknown`, and the resume re-observes the catalogs before it sends anything.
 
 Drift is never repaired silently, because planning refuses. An operator inspects the server as
 administrator, removes the extra grant by hand or declares it, and re-plans. A lost Secret makes
@@ -766,12 +836,20 @@ and its engine. `materializeCredential` fills them at the create-only mutation:
   server Secret's URL is unchanged.
 
 Inventory additions:
+- An `Executor` constructor, `AppDatabaseExecutor`, in
+  `cli/nagare-dsl/src/Nagare/Resource/Inventory.hs` (after the M2 split, in
+  `Nagare.Resource.Inventory.Types`).
 - A `ProviderAddress` constructor, `DatabaseUser ResourceId Name`, in
   `cli/nagare-dsl/src/Nagare/Resource/Types.hs`, with its canonical claim. `DatabaseName
   ResourceId Name` already exists there; only `cli/nagare-dsl/src/Nagare/Resource/Wire.hs`
   decodes it today, and nothing emits it.
 - `DesiredSpec` constructors `LogicalDatabase` and `DatabaseUserSpec` in
   `cli/nagare-dsl/src/Nagare/Resource/Inventory.hs`, with their encodings in `Wire.hs`.
+- Two recurring compile-time snags. `DatabaseName` is both the DSL newtype in
+  `Nagare.Dsl.Types` and a `ProviderAddress` constructor in `Nagare.Resource.Types`; a module
+  that needs both imports one qualified. `Wire.hs` parses every object strictly against an
+  allowed-key list (`strictObject`), so a new field goes into that list and is parsed as
+  optional, because accepted history written before the field has no value for it.
 
 Binding additions:
 - `AppDatabaseBinding` beside `DatabaseBinding` in
