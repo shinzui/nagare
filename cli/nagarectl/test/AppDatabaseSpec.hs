@@ -100,6 +100,24 @@ appDatabaseTests =
             mapM_ (\reserved -> refused (kansokuCh & #logicalDatabases .~ (logical reserved :| [])) "reserved") ["default", "system", "information_schema"]
             assertLeftContaining "logicalDatabases" (decodeAppDatabases (rawJson "{\"name\":\"x\",\"server\":\"s\",\"engine\":\"postgres\",\"namespace\":\"personal\",\"logicalDatabases\":[\"Bad\"]}"))
             assertLeftContaining "declared twice" (decodeAppDatabases (LBS.toStrict (encodeAppDatabases [kansokuPg, kansokuPg])))
+        , testCase "declared exceptions and limits round-trip, and no access emits no key (EP-204 M2)" $ do
+            decodeAppDatabases (LBS.toStrict (encodeAppDatabases [kansokuPgAccess, kansokuChAccess])) @?= Right [kansokuPgAccess, kansokuChAccess]
+            assertBool "a declaration without access keeps its pre-EP-204 bytes" (not ("access" `T.isInfixOf` TE.decodeUtf8 (LBS.toStrict (encodeAppDatabases [kansokuPg, kansokuCh]))))
+            assertBool "only declared keys are emitted" (not (any (`T.isInfixOf` TE.decodeUtf8 (LBS.toStrict (encodeAppDatabases [kansokuChAccess]))) ["monitoring", "connectionLimit", "null"]))
+        , testCase "access outside the allow-list or the engine refuses before planning (IR-30 AC-1, EP-204 M2)" $ do
+            let entry engine' accessJson = "{\"name\":\"x\",\"server\":\"s\",\"engine\":\"" <> engine' <> "\",\"namespace\":\"personal\",\"logicalDatabases\":[\"x\"],\"access\":" <> accessJson <> "}"
+            assertLeftContaining "system-query-log" (decodeAppDatabases (rawJson (entry "clickhouse" "{\"runtime\":{\"exceptions\":[\"system-query-log\"]}}")))
+            assertLeftContaining "maxMemory" (decodeAppDatabases (rawJson (entry "clickhouse" "{\"runtime\":{\"limits\":{\"maxMemory\":1}}}")))
+            assertLeftContaining "pg_read_all_data" (decodeAppDatabases (rawJson (entry "postgres" "{\"monitoring\":[\"pg_read_all_data\"]}")))
+            refused (kansokuPg & #access . #runtime . #exceptions .~ [SystemParts]) "ClickHouse privileges"
+            refused (kansokuPg & #access . #migration . #limits . #maxMemoryBytes ?~ 1) "ClickHouse limits"
+            refused (kansokuCh & #access . #runtime . #limits . #connectionLimit ?~ 1) "PostgreSQL limits"
+            refused (kansokuCh & #access . #monitoring .~ [PgMonitor]) "monitoring roles are PostgreSQL"
+            refused (kansokuCh & #access . #runtime . #exceptions .~ [SystemDisks, SystemDisks]) "repeats a grant exception"
+            refused (kansokuPg & #access . #monitoring .~ [PgMonitor, PgMonitor]) "repeats a monitoring role"
+            refused (kansokuCh & #access . #runtime . #limits . #maxExecutionSeconds ?~ 0) "maxExecutionSeconds must be positive"
+            refused (kansokuPg & #access . #runtime . #limits . #connectionLimit ?~ (-1)) "connectionLimit must be positive"
+            refused (kansokuPg & #access . #runtime . #limits . #statementTimeoutSeconds ?~ 3000000) "statementTimeoutSeconds exceeds"
         ]
     , testGroup
         "scope"
@@ -323,18 +341,40 @@ appDatabaseTests =
 -- Fixtures ------------------------------------------------------------------
 
 kansokuPg :: AppDatabase
-kansokuPg = AppDatabase (known (mkAppDatabaseName "kansoku-pg")) Nothing (dbServer "labs-postgres") Postgres personal (logical "kansoku" :| [])
+kansokuPg = AppDatabase (known (mkAppDatabaseName "kansoku-pg")) Nothing (dbServer "labs-postgres") Postgres personal (logical "kansoku" :| []) noAppDatabaseAccess
 
 kansokuCh :: AppDatabase
-kansokuCh = AppDatabase (known (mkAppDatabaseName "kansoku-ch")) Nothing (dbServer "labs-clickhouse") ClickHouse personal (logical "analytics" :| [logical "kansoku_migration_ledger"])
+kansokuCh = AppDatabase (known (mkAppDatabaseName "kansoku-ch")) Nothing (dbServer "labs-clickhouse") ClickHouse personal (logical "analytics" :| [logical "kansoku_migration_ledger"]) noAppDatabaseAccess
+
+-- | Kansoku's declarations as IR-30 and IR-32 ask for them.
+kansokuPgAccess :: AppDatabase
+kansokuPgAccess =
+  kansokuPg
+    & #access
+    . #monitoring
+    .~ [PgMonitor]
+    & #access
+    . #runtime
+    . #limits
+    .~ (noUserLimits & #connectionLimit ?~ 20 & #statementTimeoutSeconds ?~ 30)
+
+kansokuChAccess :: AppDatabase
+kansokuChAccess =
+  kansokuCh
+    & #access
+    . #runtime
+    .~ UserAccess [SystemParts, SystemMutations, ArbitraryTemporaryTables] (noUserLimits & #maxMemoryBytes ?~ 268435456 & #maxExecutionSeconds ?~ 30 & #maxConcurrentQueries ?~ 8)
+    & #access
+    . #migration
+    .~ UserAccess [SystemDisks, SystemStoragePolicies] (noUserLimits & #maxExecutionSeconds ?~ 3600)
 
 alpha :: Engine -> AppDatabase
-alpha Postgres = AppDatabase (known (mkAppDatabaseName "alpha-pg")) Nothing (dbServer "smoke-pg") Postgres personal (logical "alpha" :| [])
-alpha _ = AppDatabase (known (mkAppDatabaseName "alpha-ch")) Nothing (dbServer "smoke-ch") ClickHouse personal (logical "alpha" :| [logical "alpha_ledger"])
+alpha Postgres = AppDatabase (known (mkAppDatabaseName "alpha-pg")) Nothing (dbServer "smoke-pg") Postgres personal (logical "alpha" :| []) noAppDatabaseAccess
+alpha _ = AppDatabase (known (mkAppDatabaseName "alpha-ch")) Nothing (dbServer "smoke-ch") ClickHouse personal (logical "alpha" :| [logical "alpha_ledger"]) noAppDatabaseAccess
 
 beta :: Engine -> AppDatabase
-beta Postgres = AppDatabase (known (mkAppDatabaseName "beta-pg")) Nothing (dbServer "smoke-pg") Postgres personal (logical "beta" :| [])
-beta _ = AppDatabase (known (mkAppDatabaseName "beta-ch")) Nothing (dbServer "smoke-ch") ClickHouse personal (logical "beta" :| [])
+beta Postgres = AppDatabase (known (mkAppDatabaseName "beta-pg")) Nothing (dbServer "smoke-pg") Postgres personal (logical "beta" :| []) noAppDatabaseAccess
+beta _ = AppDatabase (known (mkAppDatabaseName "beta-ch")) Nothing (dbServer "smoke-ch") ClickHouse personal (logical "beta" :| []) noAppDatabaseAccess
 
 logical :: Text -> LogicalDatabaseName
 logical = known . mkLogicalDatabaseName

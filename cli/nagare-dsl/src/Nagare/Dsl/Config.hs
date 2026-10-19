@@ -181,6 +181,9 @@ appDatabaseJSON db =
       , "logicalDatabases" .= map logicalDatabaseNameText (NE.toList (db ^. #logicalDatabases))
       ]
         <> maybe [] (\key -> ["logicalKey" .= logicalKeyText key]) (db ^. #logicalKey)
+        -- Emitted only when declared, so an app database without reviewed
+        -- access keeps its pre-EP-204 bytes and schedule revision.
+        <> ["access" .= (db ^. #access) | db ^. #access /= noAppDatabaseAccess]
     )
 
 -- | Emitted only when present, so a workload without app databases keeps the

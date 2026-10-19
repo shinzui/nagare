@@ -71,7 +71,7 @@ module Main (main) where
 
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Text (Text)
-import Nagare.Dsl.AppDatabase (AppDatabase (..), mkLogicalDatabaseName)
+import Nagare.Dsl.AppDatabase (AppDatabase (..), mkLogicalDatabaseName, noAppDatabaseAccess)
 import Nagare.Dsl.Config (emitAppDatabases)
 import Nagare.Dsl.Database (Engine (..))
 import Nagare.Dsl.Types (mkAppDatabaseName, mkDatabaseName, mkNamespace)
@@ -88,6 +88,7 @@ app name server engine (db : dbs) =
     , engine = engine
     , namespace = ok (mkNamespace "personal")
     , logicalDatabases = ok (mapM mkLogicalDatabaseName (db :| dbs))
+    , access = noAppDatabaseAccess
     }
 app _ _ _ [] = error "an app database needs a logical database"
 

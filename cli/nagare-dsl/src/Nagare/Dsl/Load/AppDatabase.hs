@@ -19,9 +19,11 @@ import Data.List.NonEmpty (nonEmpty)
 import Data.Text qualified as Text
 import Nagare.Dsl.AppDatabase
   ( AppDatabase (..)
+  , AppDatabaseAccess
   , appDatabaseNameText
   , mkAppDatabaseName
   , mkLogicalDatabaseName
+  , noAppDatabaseAccess
   , validateAppDatabase
   )
 import Nagare.Dsl.Database (mkDatabaseName, parseEngine)
@@ -39,6 +41,7 @@ data JsonAppDatabase = JsonAppDatabase
   , engine :: !Text
   , namespace :: !Text
   , logicalDatabases :: ![Text]
+  , access :: !(Maybe AppDatabaseAccess)
   }
   deriving stock (Generic, Eq, Show)
 
@@ -51,6 +54,7 @@ instance FromJSON JsonAppDatabase where
       <*> o .: "engine"
       <*> o .: "namespace"
       <*> o .: "logicalDatabases"
+      <*> o .:? "access"
 
 newtype JsonAppDatabases = JsonAppDatabases [JsonAppDatabase]
 
@@ -77,6 +81,7 @@ toAppDatabase j = do
         , engine = eng'
         , namespace = ns'
         , logicalDatabases = logical
+        , access = fromMaybe noAppDatabaseAccess (j ^. #access)
         }
 
 -- | Decode the JSON an app-database config emits (via
