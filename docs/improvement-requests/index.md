@@ -8,6 +8,7 @@ okf_version: "0.2"
 
 # Improvement Request
 
+- [Host many app databases on one shared managed server per engine](shared-database-servers-with-per-app-databases.md) - Give one managed PostgreSQL server and one managed ClickHouse server a separate database, user, grants and backup per app, binding each app to only its own credentials.
 - [Diagnose terminal certificate issuance failures and expose scoped recovery](diagnose-certificate-issuance-and-scoped-recovery.md) - Surface the certificate request and ACME failure chain with a supported per-host retry path that preserves the reviewed deployment.
 - [Preflight private access credentials and preserve actionable observation errors](preflight-private-access-credentials.md) - Name missing access credentials before starting a reviewed transaction and retain safe adapter causes in planning diagnostics.
 - [Migrate Nagare's local object store from MinIO to RustFS](migrate-from-minio-to-rustfs.md) - Replace the local S3 backend with pinned RustFS artifacts, verified backup and recovery compatibility, and a data-preserving migration and rollback path.

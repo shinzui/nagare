@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-10-19
+* **Add**: Propose IR-29 from `mori://tan/tan-ng-labs/plans/2-deploy-kansoku-to-the-intranet-as-a-shared-analytics-service-for-nagare-apps`: host many app databases on one shared PostgreSQL server and one shared ClickHouse server, with per-app users, grants, bindings and backups. v0.6.6 gives each server one shared credential and backs up only its initial database.
+
 ## 2026-10-13
 * **Update**: Complete IR-28 in ExecPlan 191: `nagarectl domains tls HOST` diagnoses one host's issuance chain, `--renew --yes` triggers one re-issuance of an owned failed certificate, and a deploy that stops on a certificate names the verdict and the command.
 * **Update**: Complete IR-27 in ExecPlan 190: access observation causes reach plan errors and status, and apply and resume refuse a missing NAGARE_EN_API_KEY before admission.
