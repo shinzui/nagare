@@ -620,9 +620,9 @@ carryForwardWith workdir verifyOwn siblings commitId = do
           Right (Just systems) -> pure (Just (candidate, systems))
           _ -> firstGreen rest
     -- The first non-Markdown file outside docs/ in the commit's tree that
-    -- names the needle.
+    -- names the needle; the mori.dhall registry manifest is read by no check.
     namingFile needle = do
-      (_, found, _) <- capture workdir "git" ["grep", "-l", "-I", "-F", "-e", T.unpack needle, T.unpack commitId, "--", ".", ":(exclude)docs", ":(exclude,glob)**/*.md"]
+      (_, found, _) <- capture workdir "git" ["grep", "-l", "-I", "-F", "-e", T.unpack needle, T.unpack commitId, "--", ".", ":(exclude)docs", ":(exclude)mori.dhall", ":(exclude,glob)**/*.md"]
       pure $ case T.lines found of
         hit : _ -> Just (fromMaybe hit (T.stripPrefix (commitId <> ":") hit))
         [] -> Nothing

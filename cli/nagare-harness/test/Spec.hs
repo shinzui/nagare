@@ -168,9 +168,19 @@ tests =
         [ testCase "needles are the path and each directory below its inert prefix" $
             referenceNeedles "docs/audits/run/c2/chain.sh"
               @?= ["docs/audits/run", "docs/audits/run/c2", "docs/audits/run/c2/chain.sh"]
-        , testCase "plans, MasterPlans, ADRs, audits and release evidence nobody names are inert" $
-            carryForwardVerdict (const Nothing) ["docs/plans/1-x.md", "docs/masterplans/2-y.md", "docs/adr/0001-z.md", "docs/audits/a/b.json", "docs/release-evidence/r/transition-rehearsal.json"]
-              @?= Right 5
+        , testCase "documentation nobody names, outside the trees checks read, is inert" $
+            carryForwardVerdict
+              (const Nothing)
+              [ "docs/plans/1-x.md"
+              , "docs/masterplans/2-y.md"
+              , "docs/adr/0001-z.md"
+              , "docs/audits/a/b.json"
+              , "docs/release-evidence/r/transition-rehearsal.json"
+              , "docs/improvement-requests/index.md"
+              , "docs/research/r.md"
+              , "docs/new-tree/n.md"
+              ]
+              @?= Right 8
         , testCase "the top-level README is inert; nested READMEs are not" $
             map (classifyPath (const Nothing)) ["README.md", "cluster/bootstrap/nix-cache/README.md"]
               @?= [Inert, OutsideInertDocumentation]
@@ -179,8 +189,8 @@ tests =
         , testCase "code, user guides, runbooks and release notes are not inert" $
             map
               (classifyPath (const Nothing))
-              ["cli/nagarectl/src/X.hs", "docs/user/reference.md", "docs/runbooks/a.md", "docs/releases/v0.4.0.md", "release.json"]
-              @?= replicate 5 OutsideInertDocumentation
+              ["cli/nagarectl/src/X.hs", "docs/user/reference.md", "docs/runbooks/a.md", "docs/releases/v0.4.0.md", "docs/api/openapi.json", "docs/guides/g.md", "release.json"]
+              @?= replicate 7 OutsideInertDocumentation
         , testCase "plans the payload ships are not inert" $
             map (classifyPath (const Nothing)) shippedDocuments @?= replicate 2 ShippedInPayload
         , testCase "a fixture named by a test, or in a directory a test names, is not inert" $ do

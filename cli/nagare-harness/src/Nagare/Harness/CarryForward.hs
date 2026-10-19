@@ -7,29 +7,32 @@
 -- The repository's top-level @README.md@ is inert: no check, test or payload
 -- reads it. Any other changed path is inert only when all three hold:
 --
--- * it lies under one of 'inertPrefixes' (plans, MasterPlans, ADRs, audits,
---   release evidence);
+-- * it lies under @docs/@, outside the 'readTrees' a check or the payload
+--   reads whole (operator, 2026-10-18: pushing documentation must not run a
+--   gate);
 -- * it is not one of the 'shippedDocuments' the platform payload copies;
--- * no file outside @docs/@, other than Markdown, names the path or any
---   directory between it and its inert prefix. Tests read fixtures under
+-- * no file outside @docs/@, other than Markdown and the @mori.dhall@
+--   registry manifest, names the path or any directory between it and its
+--   tree. Tests read fixtures under
 --   @docs/audits@ by naming them, so naming is the signal. Markdown (agent
 --   skills, READMEs) is read by people, not checks. A mention in a code
 --   comment also blocks, which only costs a full gate.
 --
--- The rule cannot see a check that enumerates a whole inert prefix without
--- naming anything below it; none does today. Name the path when adding one.
+-- The rule cannot see a check that enumerates a whole inert tree without
+-- naming anything below it; add such a tree to 'readTrees'.
 module Nagare.Harness.CarryForward
   ( PathVerdict (..)
   , carryForwardVerdict
   , classifyPath
   , inertFiles
-  , inertPrefixes
+  , inertPrefix
+  , readTrees
   , referenceNeedles
   , shippedDocuments
   )
 where
 
-import Data.Maybe (mapMaybe)
+import Data.Maybe (isNothing, mapMaybe)
 import Data.Text qualified as T
 import Nagare.Harness.Prelude
 
@@ -47,9 +50,19 @@ data PathVerdict
 inertFiles :: [Text]
 inertFiles = ["README.md"]
 
--- | Documentation trees that are neither shipped nor executed.
-inertPrefixes :: [Text]
-inertPrefixes = ["docs/plans/", "docs/masterplans/", "docs/adr/", "docs/audits/", "docs/release-evidence/"]
+-- | Documentation trees the payload ships or a check reads whole.
+readTrees :: [Text]
+readTrees = ["docs/api/", "docs/architecture/", "docs/guides/", "docs/releases/", "docs/reviews/", "docs/runbooks/", "docs/terminology/", "docs/user/"]
+
+-- | The inert tree a path lies in: @docs/<tree>/@, or @docs/@ for a
+-- document directly under it.
+inertPrefix :: Text -> Maybe Text
+inertPrefix path = do
+  rest <- T.stripPrefix "docs/" path
+  let prefix = case T.breakOn "/" rest of
+        (_, "") -> "docs/"
+        (tree, _) -> "docs/" <> tree <> "/"
+  if prefix `elem` readTrees then Nothing else Just prefix
 
 -- | Plans the payload copies (@nix/platform-package.nix@ and
 -- @Nagare.Platform.Workspace.workspaceAssets@).
@@ -59,21 +72,21 @@ shippedDocuments =
   , "docs/plans/67-cross-architecture-build-in-the-target-profile-and-nagarectl.md"
   ]
 
--- | The path itself and every directory between it and its inert prefix,
--- shortest first. A path outside the inert prefixes has none.
+-- | The path itself and every directory between it and its inert tree,
+-- shortest first. A path outside the inert trees has none.
 referenceNeedles :: Text -> [Text]
-referenceNeedles path = case [prefix | prefix <- inertPrefixes, prefix `T.isPrefixOf` path] of
-  prefix : _ ->
+referenceNeedles path = case inertPrefix path of
+  Just prefix ->
     let components = T.splitOn "/" (T.drop (T.length prefix) path)
      in [prefix <> T.intercalate "/" (take count components) | count <- [1 .. length components]]
-  [] -> []
+  Nothing -> []
 
 -- | Classify one changed path. @namedBy@ answers which file outside @docs/@,
 -- if any, names a needle.
 classifyPath :: (Text -> Maybe Text) -> Text -> PathVerdict
 classifyPath namedBy path
   | path `elem` inertFiles = Inert
-  | not (any (`T.isPrefixOf` path) inertPrefixes) = OutsideInertDocumentation
+  | isNothing (inertPrefix path) = OutsideInertDocumentation
   | path `elem` shippedDocuments = ShippedInPayload
   | otherwise = case mapMaybe namedBy (referenceNeedles path) of
       file : _ -> NamedByCode file
@@ -90,7 +103,7 @@ carryForwardVerdict namedBy paths =
     render (path, verdict) = path <> " (" <> reason verdict <> ")"
     reason = \case
       Inert -> "inert"
-      OutsideInertDocumentation -> "not plan, ADR, audit or release-evidence documentation"
+      OutsideInertDocumentation -> "not documentation, or in a tree a check or the payload reads"
       ShippedInPayload -> "shipped in the platform payload"
       NamedByCode file -> "named by " <> file
     more blocked
